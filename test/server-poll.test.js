@@ -80,7 +80,7 @@ describe('long-poll', () => {
       const started = Date.now()
       const res = await p.poll()
       assert.ok(Date.now() - started >= 120)
-      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, events: [], signals: [] })
+      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, tv: st.tv, events: [], signals: [] })
     } finally {
       await ctx.cleanup()
     }

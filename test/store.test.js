@@ -20,7 +20,7 @@ const DEAD_PID = 2147483646
 const IS_WINDOWS = process.platform === 'win32'
 
 function tempDir () {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'sohbet-store-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'telsiz-store-'))
 }
 
 function removeDir (dir) {
@@ -157,7 +157,7 @@ test('ilk açılış: durum null, initState iskeleti tamamlar ve kalıcı olur',
 test('emptyState iskeleti ve geçersiz ilk durumlar', async () => {
   assert.deepEqual(emptyState(), {
     version: 2,
-    serverName: 'Sohbet',
+    serverName: 'Telsiz',
     inviteCode: null,
     activeKid: null,
     counters: { user: 0, channel: 0, message: 0 },
@@ -723,6 +723,60 @@ test('sayfalama: before, limit ve hasMore, dönen nesneler kopyadır', async () 
     input.body = 'değişti'
     input.uploads.push(hexId(1))
     assert.deepEqual(store.getMessage(121), msg(121, 1))
+    await store.close()
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('around sayfası: hedefin etrafı, kenarlarda kayma, kanalda olmayan kimlikte konum, kopyalar', async () => {
+  const dir = tempDir()
+  try {
+    const store = await populated(dir)
+    // Kanal 1 tek, kanal 2 çift kimlikleri alır
+    for (const id of range(1, 40)) store.addMessage(msg(id, id % 2 === 1 ? 1 : 2))
+    let page = store.listAround(1, { around: 21, limit: 6 })
+    assert.deepEqual(ids(page.messages), [15, 17, 19, 21, 23, 25])
+    assert.equal(page.hasMore, true)
+    assert.equal(page.hasNewer, true)
+    // Tek limitte eski taraf aşağı yuvarlanır
+    assert.deepEqual(ids(store.listAround(1, { around: 21, limit: 5 }).messages), [17, 19, 21, 23, 25])
+    assert.deepEqual(ids(store.listAround(1, { around: 21, limit: 1 }).messages), [21])
+    // Başa ve sona yakın
+    page = store.listAround(1, { around: 3, limit: 6 })
+    assert.deepEqual(ids(page.messages), [1, 3, 5, 7, 9, 11])
+    assert.deepEqual([page.hasMore, page.hasNewer], [false, true])
+    page = store.listAround(1, { around: 37, limit: 6 })
+    assert.deepEqual(ids(page.messages), [29, 31, 33, 35, 37, 39])
+    assert.deepEqual([page.hasMore, page.hasNewer], [true, false])
+    // Başka kanalın kimliği: kimliği ondan büyük ilk mesajın konumu
+    assert.deepEqual(ids(store.listAround(1, { around: 22, limit: 4 }).messages), [19, 21, 23, 25])
+    // Silinmiş kimlik
+    store.deleteMessage(21)
+    assert.deepEqual(ids(store.listAround(1, { around: 21, limit: 4 }).messages), [17, 19, 23, 25])
+    page = store.listAround(1, { around: 21, limit: 1000 })
+    assert.equal(page.messages.length, 19)
+    assert.deepEqual([page.hasMore, page.hasNewer], [false, false])
+    // Uçlar ve geçersiz seçenekler (around yoksa son sayfa, geçersiz limit varsayılan 50)
+    page = store.listAround(1, { around: 0, limit: 3 })
+    assert.deepEqual(ids(page.messages), [1, 3, 5])
+    assert.deepEqual([page.hasMore, page.hasNewer], [false, true])
+    page = store.listAround(1, { around: 1e9, limit: 3 })
+    assert.deepEqual(ids(page.messages), [35, 37, 39])
+    assert.deepEqual([page.hasMore, page.hasNewer], [true, false])
+    assert.deepEqual(ids(store.listAround(1, { limit: 2 }).messages), [37, 39])
+    assert.deepEqual(ids(store.listAround(1, { around: 'x', limit: 2 }).messages), [37, 39])
+    assert.deepEqual(ids(store.listAround(1, { around: NaN, limit: 2 }).messages), [37, 39])
+    assert.equal(store.listAround(1, { around: 21, limit: 0 }).messages.length, 19)
+    assert.equal(store.listAround(1, { around: 21, limit: 'x' }).messages.length, 19)
+    assert.equal(store.listAround(1).messages.length, 19)
+    assert.deepEqual(store.listAround(99, { around: 1 }), { messages: [], hasMore: false, hasNewer: false })
+    assert.deepEqual(store.listAround('1', { around: 1 }), { messages: [], hasMore: false, hasNewer: false })
+    // Dışarı verilen nesneler kopyadır
+    page = store.listAround(1, { around: 23, limit: 1 })
+    page.messages[0].body = 'değişti'
+    page.messages[0].uploads.push('x')
+    assert.deepEqual(store.getMessage(23), msg(23, 1))
     await store.close()
   } finally {
     removeDir(dir)

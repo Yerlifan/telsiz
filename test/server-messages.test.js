@@ -1,6 +1,7 @@
 'use strict'
 
-// Mesajlar: gönderme, düzenleme, silme, zarf doğrulaması, kalıcılık, sayfalama ve hız sınırı.
+// Mesajlar: gönderme, düzenleme, silme, zarf doğrulaması, kalıcılık, sayfalama (before ve around)
+// ve hız sınırı.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -148,6 +149,93 @@ describe('mesajlar', () => {
       assert.equal(page.data.messages.length, 7)
       h.expectStatus(await h.get(ctx, '/api/messages?channel=1&limit=abc', owner.token), 400, 'bad_request')
       h.expectStatus(await h.get(ctx, '/api/messages?channel=1&before=-3', owner.token), 400, 'bad_request')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('sayfalama: around ile mesajın etrafı, hasMore ve hasNewer, sınırlar ve yetki', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
+      const ali = await h.addUser(ctx, owner.token, 'ali')
+      const ids = []
+      const others = []
+      for (const i of h.times(20)) {
+        ids.push((await h.sendMessage(ctx, owner.token, 1)).id)
+        if (i % 5 === 0) others.push((await h.sendMessage(ctx, owner.token, 2)).id)
+      }
+      async function around (query) {
+        const res = await h.get(ctx, '/api/messages?channel=1&' + query, owner.token)
+        h.expectStatus(res, 200)
+        assert.deepEqual(Object.keys(res.data).sort(), ['hasMore', 'hasNewer', 'messages'])
+        return { ids: res.data.messages.map((m) => m.id), hasMore: res.data.hasMore, hasNewer: res.data.hasNewer }
+      }
+      // Ortada: limit/2 eski mesaj, mesajın kendisi ve kalan yeni mesajlar
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=6'), { ids: ids.slice(7, 13), hasMore: true, hasNewer: true })
+      assert.deepEqual(await around('limit=5&around=' + ids[10]), { ids: ids.slice(8, 13), hasMore: true, hasNewer: true })
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=2'), { ids: ids.slice(9, 11), hasMore: true, hasNewer: true })
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=1'), { ids: [ids[10]], hasMore: true, hasNewer: true })
+      // Başa ve sona yakınken pencere öbür yöne kayar, sayfa yine limit kadardır
+      assert.deepEqual(await around('around=' + ids[1] + '&limit=6'), { ids: ids.slice(0, 6), hasMore: false, hasNewer: true })
+      assert.deepEqual(await around('around=' + ids[0] + '&limit=6'), { ids: ids.slice(0, 6), hasMore: false, hasNewer: true })
+      assert.deepEqual(await around('around=' + ids[19] + '&limit=6'), { ids: ids.slice(14), hasMore: true, hasNewer: false })
+      assert.deepEqual(await around('around=' + ids[17] + '&limit=6'), { ids: ids.slice(14), hasMore: true, hasNewer: false })
+      // Varsayılan limit 50, üst sınır 100, 0 en az 1 sayılır
+      assert.deepEqual(await around('around=' + ids[10]), { ids, hasMore: false, hasNewer: false })
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=5000'), { ids, hasMore: false, hasNewer: false })
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=0'), { ids: [ids[10]], hasMore: true, hasNewer: true })
+      // Başka kanalın mesajı veya silinmiş mesaj: aynı konumun (kimliği ondan büyük ilk mesajın) etrafı
+      assert.ok(others[2] > ids[10] && others[2] < ids[11])
+      assert.deepEqual(await around('around=' + others[2] + '&limit=2'), { ids: ids.slice(10, 12), hasMore: true, hasNewer: true })
+      h.expectStatus(await h.post(ctx, '/api/messages/delete', owner.token, { id: ids[10] }), 200)
+      assert.deepEqual(await around('around=' + ids[10] + '&limit=4'), { ids: [ids[8], ids[9], ids[11], ids[12]], hasMore: true, hasNewer: true })
+      // Kanalın ilk mesajından küçük ve son mesajından büyük kimlikler
+      assert.deepEqual(await around('around=0&limit=2'), { ids: ids.slice(0, 2), hasMore: false, hasNewer: true })
+      assert.deepEqual(await around('around=999999&limit=2'), { ids: ids.slice(18), hasMore: true, hasNewer: false })
+      // Boş kanal
+      const created = await h.post(ctx, '/api/channels/create', owner.token, { name: 'bos', type: 'text' })
+      const empty = await h.get(ctx, '/api/messages?channel=' + created.data.channel.id + '&around=1', owner.token)
+      assert.deepEqual(empty.data, { messages: [], hasMore: false, hasNewer: false })
+
+      // before ve varsayılan yanıt değişmedi, boş around verilmemiş sayılır
+      const page = await h.get(ctx, '/api/messages?channel=1&limit=3&before=' + ids[5], owner.token)
+      assert.deepEqual(Object.keys(page.data).sort(), ['hasMore', 'messages'])
+      assert.deepEqual(page.data.messages.map((m) => m.id), ids.slice(2, 5))
+      const latest = await h.get(ctx, '/api/messages?channel=1&limit=2&around=', owner.token)
+      assert.deepEqual(latest.data, { messages: latest.data.messages, hasMore: true })
+      assert.deepEqual(latest.data.messages.map((m) => m.id), ids.slice(18))
+      // Geçersiz around ve before ile birlikte kullanım
+      for (const q of ['around=-1', 'around=abc', 'around=1.5', 'around=1e3', 'around=' + '9'.repeat(16),
+        'around=' + ids[3] + '&before=' + ids[5], 'before=' + ids[5] + '&around=' + ids[3], 'before=x&around=' + ids[3]]) {
+        h.expectStatus(await h.get(ctx, '/api/messages?channel=1&' + q, owner.token), 400, 'bad_request')
+      }
+
+      // Yetki: özel konuşmada yalnızca iki üye, ses kanalı ve olmayan kanal bulunamaz
+      const dm = await h.post(ctx, '/api/dms/open', ayse.token, { userId: mehmet.user.id })
+      h.expectStatus(dm, 200)
+      const dmId = dm.data.dm.id
+      const dmIds = []
+      for (const i of h.times(4)) {
+        const sent = await h.post(ctx, '/api/messages', ayse.token, { channelId: dmId, body: h.dmEnvelope(i) })
+        h.expectStatus(sent, 200)
+        dmIds.push(sent.data.message.id)
+      }
+      for (const who of [ayse, mehmet]) {
+        const res = await h.get(ctx, '/api/messages?channel=' + dmId + '&around=' + dmIds[2] + '&limit=2', who.token)
+        h.expectStatus(res, 200)
+        assert.deepEqual(res.data.messages.map((m) => m.id), dmIds.slice(1, 3))
+        assert.equal(res.data.hasMore, true)
+        assert.equal(res.data.hasNewer, true)
+      }
+      for (const who of [owner, ali]) {
+        h.expectStatus(await h.get(ctx, '/api/messages?channel=' + dmId + '&around=' + dmIds[2], who.token), 404, 'channel_not_found')
+      }
+      h.expectStatus(await h.get(ctx, '/api/messages?channel=3&around=1', owner.token), 404, 'channel_not_found')
+      h.expectStatus(await h.get(ctx, '/api/messages?channel=999&around=1', owner.token), 404, 'channel_not_found')
+      h.expectStatus(await h.get(ctx, '/api/messages?around=1', owner.token), 404, 'channel_not_found')
     } finally {
       await ctx.cleanup()
     }

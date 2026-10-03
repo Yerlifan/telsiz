@@ -1,10 +1,14 @@
 'use strict'
 
-// Gerçek zamanlı merkez: varlık ve durum, olay halkası, meta sürümü, kişiye özel meta sürümleri, bekleyen long-poll istekleri, ses kadroları ve ses sinyal kuyrukları.
+// Gerçek zamanlı merkez: varlık ve durum, olay halkası, meta sürümü, kişiye özel meta sürümleri, bekleyen long-poll istekleri, ses kadroları, ses sinyal kuyrukları ve yazıyor durumu.
 // Her olay bir hedef kitle taşır: null tüm üyeler, dizi yalnızca o kullanıcı kimlikleri demektir.
 // Hedef kitlede olmayan bir kullanıcının poll yanıtına olay hiçbir zaman girmez.
 // Görünmez durumdaki kullanıcı başkalarına çevrimdışı görünür, çevrimiçi olup olmadığı meta
 // sürümünün değişmesinden de anlaşılmaz.
+// Yazıyor durumu kanal başına geçicidir (yazan kimliği ve bitiş zamanı), süresi dolunca kendiliğinden
+// düşer. Olaylar gibi bir hedef kitlesi vardır, kişiye özel tv sürümüyle izlenir ve değişince yalnızca
+// görünümü değişen kullanıcıların bekleyenleri uyanır. Engel ilişkisi olan iki kullanıcı birbirinin
+// yazıyor bilgisini görmez.
 // Tüm veriler bellektedir. Sunucu yeniden başlayınca bootId değişir ve istemciler resync alır.
 
 const crypto = require('node:crypto')
@@ -28,21 +32,28 @@ function memberView (rt) {
 }
 
 function visibleTo (item, userId) {
-  return item.audience === null || item.audience.includes(userId)
+  return inAudience(item.audience, userId)
 }
 
-// options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession,
+function inAudience (audience, userId) {
+  return audience === null || audience.includes(userId)
+}
+
+// options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
 //   getBase: () => ({ serverName, activeKid, channels, users: [{ id, name, role, pv, status }] }),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
+//   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
 //   send: (res, status, payload) => void }
 function createHub (options) {
   const pollTimeoutMs = options.pollTimeoutMs
   const graceMs = options.graceMs
   const eventBufferSize = options.eventBufferSize
   const maxWaitersPerSession = options.maxWaitersPerSession
+  const typingTtlMs = options.typingTtlMs
   const getBase = options.getBase
   const getPrivate = options.getPrivate
   const isHidden = typeof options.isHidden === 'function' ? options.isHidden : () => false
+  const canSeeTyping = typeof options.canSeeTyping === 'function' ? options.canSeeTyping : () => true
   const send = options.send
   const bootId = randomHex(8)
 
@@ -56,6 +67,11 @@ function createHub (options) {
   let voiceCounter = 0
   let wakeHandle = null
   let closed = false
+  // Yazıyor durumu: kanal kimliği -> { audience: null | [userId], users: Map(userId -> bitiş zamanı) }
+  const typing = new Map()
+  // Kişiye özel yazıyor sürümleri (kayıt yoksa 1)
+  const typingVersions = new Map()
+  let typingTimer = null
 
   // Oturum çalışma zamanı verisi, token karmasına göre
   const sessions = new Map()
@@ -158,7 +174,11 @@ function createHub (options) {
     const set = byUser.get(rt.userId)
     if (set) {
       set.delete(rt)
-      if (set.size === 0) byUser.delete(rt.userId)
+      if (set.size === 0) {
+        byUser.delete(rt.userId)
+        // Hiç oturumu kalmayan kullanıcı (çıkış, sunucu engeli, hesap silme) artık yazmıyordur
+        clearTypingUser(rt.userId)
+      }
     }
     if (wasInVoice || (wasOnline !== isUserOnline(rt.userId) && !isHidden(rt.userId))) bumpMeta()
   }
@@ -229,6 +249,127 @@ function createHub (options) {
     scheduleWake()
   }
 
+  // ---------------------------------------------------------------- yazıyor durumu
+
+  function typingVersion (userId) {
+    return typingVersions.get(userId) || 1
+  }
+
+  function bumpTyping (userId) {
+    typingVersions.set(userId, typingVersion(userId) + 1)
+    scheduleWake()
+  }
+
+  // Yazanın durumu değişince görünümü değişen kullanıcılar: kitledeki diğer kullanıcılar, yazanla
+  // engel ilişkisi olanlar hariç. Yazı kanalının kitlesi oturumu olan tüm kullanıcılardır (oturumu
+  // olmayan kullanıcı tv değerini ancak oturum açınca alır).
+  function typingChanged (audience, typerId) {
+    const viewers = audience === null ? Array.from(byUser.keys()) : audience
+    for (const viewerId of viewers) {
+      if (viewerId !== typerId && canSeeTyping(viewerId, typerId)) bumpTyping(viewerId)
+    }
+  }
+
+  // on: true yazıyor (süre yenilenir), false yazmayı bıraktı. Görünüm değiştiyse true döner.
+  // Süre yenilemesi görünümü değiştirmez, kimse uyanmaz.
+  function setTyping (channelId, audience, userId, on, now) {
+    let entry = typing.get(channelId)
+    if (!on) {
+      if (!entry || !entry.users.delete(userId)) return false
+      if (entry.users.size === 0) typing.delete(channelId)
+      typingChanged(entry.audience, userId)
+      return true
+    }
+    if (!entry) {
+      entry = { audience: Array.isArray(audience) ? audience.slice() : null, users: new Map() }
+      typing.set(channelId, entry)
+    }
+    const known = entry.users.has(userId)
+    entry.users.set(userId, now + typingTtlMs)
+    scheduleTypingExpiry()
+    if (known) return false
+    typingChanged(entry.audience, userId)
+    return true
+  }
+
+  // Silinen kanalın yazanları düşer.
+  function clearTypingChannel (channelId) {
+    const entry = typing.get(channelId)
+    if (!entry) return
+    typing.delete(channelId)
+    for (const userId of entry.users.keys()) typingChanged(entry.audience, userId)
+  }
+
+  function clearTypingUser (userId) {
+    for (const [channelId, entry] of typing) {
+      if (!entry.users.delete(userId)) continue
+      if (entry.users.size === 0) typing.delete(channelId)
+      typingChanged(entry.audience, userId)
+    }
+  }
+
+  // Kullanıcının görebildiği yazanlar: { '<kanal>': [userId] } (yazmaya başlama sırasıyla).
+  // Yalnızca kitlesinde olduğu kanallar, kendisi ve engel ilişkisi olduğu kişiler hariç.
+  function typingOf (userId) {
+    const out = {}
+    for (const [channelId, entry] of typing) {
+      if (!inAudience(entry.audience, userId)) continue
+      const list = []
+      for (const typerId of entry.users.keys()) {
+        if (typerId !== userId && canSeeTyping(userId, typerId)) list.push(typerId)
+      }
+      if (list.length > 0) out[String(channelId)] = list
+    }
+    return out
+  }
+
+  function typesFor (typerId, viewerId) {
+    for (const entry of typing.values()) {
+      if (entry.users.has(typerId) && inAudience(entry.audience, viewerId)) return true
+    }
+    return false
+  }
+
+  // İki kullanıcı arasındaki engel ilişkisi değişti: birbirlerinin yazıyor görünümü yenilenir.
+  function typingPairChanged (a, b) {
+    if (typesFor(b, a)) bumpTyping(a)
+    if (typesFor(a, b)) bumpTyping(b)
+  }
+
+  // Bitiş zamanları ekleme sırasıyla artar (süre sabit), zamanlayıcı her zaman en erken bitişe kurulur.
+  function scheduleTypingExpiry () {
+    if (typingTimer !== null || closed) return
+    let next = Infinity
+    for (const entry of typing.values()) {
+      for (const at of entry.users.values()) {
+        if (at < next) next = at
+      }
+    }
+    if (next === Infinity) return
+    typingTimer = setTimeout(expireTyping, Math.max(1, next - Date.now()))
+    if (typeof typingTimer.unref === 'function') typingTimer.unref()
+  }
+
+  function expireTyping () {
+    typingTimer = null
+    const now = Date.now()
+    for (const [channelId, entry] of typing) {
+      for (const [userId, at] of entry.users) {
+        if (at > now) continue
+        entry.users.delete(userId)
+        typingChanged(entry.audience, userId)
+      }
+      if (entry.users.size === 0) typing.delete(channelId)
+    }
+    scheduleTypingExpiry()
+  }
+
+  function typingCount () {
+    let n = 0
+    for (const entry of typing.values()) n += entry.users.size
+    return n
+  }
+
   // ---------------------------------------------------------------- long-poll
 
   function outOfRange (since) {
@@ -256,16 +397,19 @@ function createHub (options) {
       meta: meta(),
       pmv: privateVersion(rt.userId),
       private: getPrivate(rt.userId),
+      tv: typingVersion(rt.userId),
+      typing: typingOf(rt.userId),
       events: [],
       signals: pendingSignals(rt, sigFloor)
     }
   }
 
   function emptyPayload (rt) {
-    return { boot: bootId, seq, metaVersion, pmv: privateVersion(rt.userId), events: [], signals: [] }
+    return { boot: bootId, seq, metaVersion, pmv: privateVersion(rt.userId), tv: typingVersion(rt.userId), events: [], signals: [] }
   }
 
-  // q: { since, mv, pmv, sigFloor }. Hazır veri yoksa null döner.
+  // q: { since, mv, pmv, tv, sigFloor }. Hazır veri yoksa null döner.
+  // tv verilmeyen poll yazıyor bilgisini izlemiyor sayılır (yalnızca resync yanıtında gelir).
   // Yanıttaki seq: en fazla 500 görünür olay döndüyse sonuncusunun seq'i, aksi halde güncel seq
   // (kullanıcının göremediği olaylar atlanır, istemci kaldığı yerden devam eder).
   function readyPayload (rt, q) {
@@ -285,11 +429,14 @@ function createHub (options) {
     const sendMeta = q.mv !== metaVersion
     const pmv = privateVersion(rt.userId)
     const sendPrivate = q.pmv !== pmv
+    const tv = typingVersion(rt.userId)
+    const sendTyping = q.tv !== null && q.tv !== tv
     const signals = pendingSignals(rt, q.sigFloor)
-    if (events.length === 0 && !sendMeta && !sendPrivate && signals.length === 0) return null
-    const payload = { boot: bootId, seq: lastSeq, metaVersion, pmv, events, signals }
+    if (events.length === 0 && !sendMeta && !sendPrivate && !sendTyping && signals.length === 0) return null
+    const payload = { boot: bootId, seq: lastSeq, metaVersion, pmv, tv, events, signals }
     if (sendMeta) payload.meta = meta()
     if (sendPrivate) payload.private = getPrivate(rt.userId)
+    if (sendTyping) payload.typing = typingOf(rt.userId)
     return payload
   }
 
@@ -338,7 +485,7 @@ function createHub (options) {
     }
   }
 
-  // params: { since, mv, pmv, sig, boot } (sorgu dizgeleri)
+  // params: { since, mv, pmv, tv, sig, boot } (sorgu dizgeleri)
   function poll (rt, params, res) {
     const now = Date.now()
     rt.lastSeen = now
@@ -346,6 +493,7 @@ function createHub (options) {
     const since = parseCounter(params.since)
     const mv = parseCounter(params.mv)
     const pmv = parseCounter(params.pmv)
+    const tv = parseCounter(params.tv)
     const sig = parseCounter(params.sig)
     // Sinyal onayı yalnızca aynı açılışın sıra numaraları için geçerlidir
     let sigFloor = 0
@@ -357,7 +505,7 @@ function createHub (options) {
       send(res, 200, resyncPayload(rt, sigFloor))
       return
     }
-    const q = { since, mv, pmv, sigFloor }
+    const q = { since, mv, pmv, tv, sigFloor }
     const ready = readyPayload(rt, q)
     if (ready || closed) {
       send(res, 200, ready || emptyPayload(rt))
@@ -365,7 +513,7 @@ function createHub (options) {
     }
     if (res.writableEnded || res.destroyed) return
     while (rt.waiters.length >= maxWaitersPerSession) finishWaiter(rt.waiters[0])
-    const w = { rt, since: q.since, mv, pmv, sigFloor, res, timer: null, done: false }
+    const w = { rt, since: q.since, mv, pmv, tv, sigFloor, res, timer: null, done: false }
     w.timer = setTimeout(() => finishWaiter(w), pollTimeoutMs)
     if (typeof w.timer.unref === 'function') w.timer.unref()
     rt.waiters.push(w)
@@ -448,6 +596,10 @@ function createHub (options) {
       clearImmediate(wakeHandle)
       wakeHandle = null
     }
+    if (typingTimer !== null) {
+      clearTimeout(typingTimer)
+      typingTimer = null
+    }
     for (const w of Array.from(waiters)) finishWaiter(w)
   }
 
@@ -456,7 +608,7 @@ function createHub (options) {
     for (const rt of sessions.values()) {
       if (rt.active) active++
     }
-    return { waiters: waiters.size, sessions: sessions.size, activeSessions: active, seq, metaVersion, events: ring.length }
+    return { waiters: waiters.size, sessions: sessions.size, activeSessions: active, seq, metaVersion, events: ring.length, typing: typingCount() }
   }
 
   return {
@@ -466,6 +618,12 @@ function createHub (options) {
     meta,
     privateVersion,
     bumpPrivate,
+    typingVersion,
+    typingOf,
+    setTyping,
+    clearTypingChannel,
+    clearTypingUser,
+    typingPairChanged,
     touch,
     runtime,
     removeSession,

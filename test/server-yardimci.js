@@ -38,7 +38,8 @@ const WOFF2_BYTES = Buffer.from('774f4632000100000000', 'hex')
 
 const FIXTURE = {
   'index.html': '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Telsiz</title></head><body>deneme</body></html>\n',
-  'app.js': "'use strict'\n",
+  // Arayüz modülleri js/ altına taşındı, kökteki app.js artık beyaz listede değil ve sunulmamalı
+  'app.js': SECRET_TEXT,
   'crypto.js': "'use strict'\n",
   'emoji.js': "'use strict'\nwindow.EMOJI_DATA = []\n",
   'voice.js': "'use strict'\n",
@@ -56,6 +57,10 @@ const FIXTURE = {
   'theme-init.js': "'use strict'\n",
   'js/ayarlar.js': "'use strict'\n",
   'js/ses-paneli-2.js': "'use strict'\n",
+  'css/tokens.css': ':root{}\n',
+  'css/skins/arcade.css': ':root{}\n',
+  'css/gizli.txt': SECRET_TEXT,
+  'css/skins/alt/ic.css': SECRET_TEXT,
   'js/gizli.txt': SECRET_TEXT,
   'js/alt/ic.js': SECRET_TEXT,
   'fonts/inter-latin-ext.woff2': WOFF2_BYTES,
@@ -365,19 +370,23 @@ async function waitFor (check, opts) {
   throw new Error('Koşul ' + timeout + ' ms içinde sağlanmadı: ' + (o.label || ''))
 }
 
-// Bir oturumun poll durumunu izleyen istemci
+// Bir oturumun poll durumunu izleyen istemci (yazıyor bilgisini de tv ile izler)
 function poller (ctx, token, initial) {
-  const st = { boot: initial.boot, seq: initial.seq, mv: initial.metaVersion, pmv: initial.pmv, sig: initial.sigSeq }
+  const st = { boot: initial.boot, seq: initial.seq, mv: initial.metaVersion, pmv: initial.pmv, tv: initial.tv, sig: initial.sigSeq, typing: initial.typing }
   return {
     st,
     url () {
-      return '/api/poll?since=' + st.seq + '&mv=' + st.mv + '&pmv=' + st.pmv + '&sig=' + st.sig + '&boot=' + st.boot
+      return '/api/poll?since=' + st.seq + '&mv=' + st.mv + '&pmv=' + st.pmv + '&tv=' + st.tv + '&sig=' + st.sig + '&boot=' + st.boot
     },
     apply (data) {
       st.boot = data.boot
       st.seq = data.seq
       if (data.meta) st.mv = data.metaVersion
       if (data.private) st.pmv = data.pmv
+      if (data.typing) {
+        st.tv = data.tv
+        st.typing = data.typing
+      }
       for (const s of data.signals || []) {
         if (s.seq > st.sig) st.sig = s.seq
       }

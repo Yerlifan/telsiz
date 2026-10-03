@@ -200,7 +200,7 @@ function lockInfo (dir) {
 function emptyState () {
   return {
     version: STATE_VERSION,
-    serverName: 'Sohbet',
+    serverName: 'Telsiz',
     inviteCode: null,
     activeKid: null,
     counters: { user: 0, channel: 0, message: 0 },
@@ -437,6 +437,7 @@ async function openStore (options) {
     flush,
     close,
     listMessages,
+    listAround,
     getMessage,
     addMessage,
     editMessage,
@@ -962,6 +963,21 @@ async function openStore (options) {
     if (typeof o.before === 'number' && !Number.isNaN(o.before)) end = lowerBound(ch.list, o.before)
     const start = Math.max(0, end - limit)
     return { messages: ch.list.slice(start, end).map(copyMessage), hasMore: start > 0 }
+  }
+
+  // Verilen kimliğin etrafındaki sayfa: mesajdan önce limit/2 (aşağı yuvarlanır) eski mesaj, mesajın
+  // kendisi ve kalan yeni mesajlar. Kimlik bu kanalda yoksa aynı konum (kimliği ondan büyük ilk mesaj)
+  // esas alınır. Kanalın başına veya sonuna yakınsa pencere öbür yöne kayar, sayfa yine limit kadardır.
+  function listAround (channelId, options) {
+    const ch = isId(channelId) ? channels.get(channelId) : null
+    if (!ch) return { messages: [], hasMore: false, hasNewer: false }
+    const o = isPlainObject(options) ? options : {}
+    const limit = Number.isSafeInteger(o.limit) && o.limit > 0 ? o.limit : DEFAULT_LIST_LIMIT
+    const list = ch.list
+    const at = typeof o.around === 'number' && !Number.isNaN(o.around) ? lowerBound(list, o.around) : list.length
+    const end = Math.min(list.length, Math.max(0, at - Math.floor(limit / 2)) + limit)
+    const start = Math.max(0, end - limit)
+    return { messages: list.slice(start, end).map(copyMessage), hasMore: start > 0, hasNewer: end < list.length }
   }
 
   function getMessage (id) {

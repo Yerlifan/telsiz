@@ -2,7 +2,7 @@
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, statik beyaz liste ve düzgün kapanış.
+// özel mesajlar, yazıyor bildirimleri, statik beyaz liste ve düzgün kapanış.
 // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
 // token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
@@ -65,6 +65,10 @@ const DEFAULTS = Object.freeze({
   signalWindowMs: 10000,
   friendRequestLimit: 20,
   friendRequestWindowMs: 600000,
+  // Yazıyor bildirimleri: kullanıcı başına 30 / 10 sn, bildirim 6 sn sonra kendiliğinden düşer
+  typingLimit: 30,
+  typingWindowMs: 10000,
+  typingTtlMs: 6000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -86,9 +90,9 @@ const POSITIVE_OPTIONS = [
   'loginFailLimit', 'loginFailWindowMs', 'messageLimit', 'messageWindowMs', 'uploadLimit',
   'uploadWindowMs', 'adminLimit', 'adminWindowMs', 'signalLimit', 'signalWindowMs',
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
-  'maxProfileChars', 'avatarMaxBytes'
+  'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs'
 ]
-const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs']
+const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs']
 
 // Yazı kanalı ve profil zarfı (grup anahtarı) ile özel mesaj zarfı (kişisel anahtarlar)
 const ENVELOPE_RE = /^1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{24,}$/
@@ -135,9 +139,9 @@ function addStatic (urlPath, file, type, csp) {
 const HTML_TYPE = 'text/html; charset=utf-8'
 const JS_TYPE = 'text/javascript; charset=utf-8'
 const TEXT_TYPE = 'text/plain; charset=utf-8'
+const CSS_TYPE = 'text/css; charset=utf-8'
 addStatic('/', 'index.html', HTML_TYPE, util.HTML_CSP)
 addStatic('/index.html', 'index.html', HTML_TYPE, util.HTML_CSP)
-addStatic('/app.js', 'app.js', JS_TYPE, util.API_CSP)
 addStatic('/i18n.js', 'i18n.js', JS_TYPE, util.API_CSP)
 addStatic('/theme-init.js', 'theme-init.js', JS_TYPE, util.API_CSP)
 addStatic('/crypto.js', 'crypto.js', JS_TYPE, util.API_CSP)
@@ -145,7 +149,7 @@ addStatic('/emoji.js', 'emoji.js', JS_TYPE, util.API_CSP)
 addStatic('/voice.js', 'voice.js', JS_TYPE, util.API_CSP)
 // Service worker kendi yanıtının CSP'sini kullanır, sayfa ile aynı politika verilir
 addStatic('/sw.js', 'sw.js', JS_TYPE, util.HTML_CSP)
-addStatic('/style.css', 'style.css', 'text/css; charset=utf-8', util.API_CSP)
+addStatic('/style.css', 'style.css', CSS_TYPE, util.API_CSP)
 addStatic('/favicon.svg', 'favicon.svg', 'image/svg+xml', util.API_CSP)
 addStatic('/icons/icon-192.png', 'icons/icon-192.png', 'image/png', util.API_CSP)
 addStatic('/icons/icon-512.png', 'icons/icon-512.png', 'image/png', util.API_CSP)
@@ -159,6 +163,8 @@ addStatic('/vendor/SCRYPT-JS-LICENSE.txt', 'vendor/SCRYPT-JS-LICENSE.txt', TEXT_
 // bölü, ters bölü, yüzde ve ardışık nokta içeremez, bu yüzden yol geçişi mümkün değildir.
 const STATIC_DIRS = [
   { prefix: '/js/', dir: 'js', pattern: /^[0-9a-z-]+\.js$/, type: JS_TYPE, csp: util.API_CSP },
+  { prefix: '/css/', dir: 'css', pattern: /^[0-9a-z-]+\.css$/, type: CSS_TYPE, csp: util.API_CSP },
+  { prefix: '/css/skins/', dir: 'css/skins', pattern: /^[0-9a-z-]+\.css$/, type: CSS_TYPE, csp: util.API_CSP },
   { prefix: '/fonts/', dir: 'fonts', pattern: /^[a-z0-9-]+\.woff2$/, type: 'font/woff2', csp: util.API_CSP },
   { prefix: '/fonts/', dir: 'fonts', pattern: /^[A-Za-z0-9-]+\.txt$/, type: TEXT_TYPE, csp: util.API_CSP }
 ]
@@ -204,6 +210,12 @@ function toId (value) {
 function parseNonNegative (value) {
   if (typeof value !== 'string' || !/^\d{1,15}$/.test(value)) return null
   return Number(value)
+}
+
+// İsteğe bağlı sorgu sayacı: verilmemişse (veya boşsa) undefined, geçersizse null
+function optionalCounter (raw) {
+  if (raw === null || raw === '') return undefined
+  return parseNonNegative(raw)
 }
 
 function errText (err, lang) {
@@ -653,8 +665,9 @@ async function createChatServer (options) {
   const socialLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
   // Profil ve durum değişiklikleri herkese meta yayını tetiklediği için ayrıca sınırlanır
   const profileLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
+  const typingLimiter = new auth.RateLimiter(config.typingLimit, config.typingWindowMs)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
 
   let closing = false
@@ -668,12 +681,15 @@ async function createChatServer (options) {
     graceMs: config.graceMs,
     eventBufferSize: config.eventBufferSize,
     maxWaitersPerSession: config.maxWaitersPerSession,
+    typingTtlMs: config.typingTtlMs,
     getBase: metaBase,
     getPrivate: privateOf,
     isHidden: (userId) => {
       const user = usersById.get(userId)
       return Boolean(user) && user.status === 'invisible'
     },
+    // Engel ilişkisi olan iki kullanıcı (hangi yönde olursa olsun) birbirinin yazıyor bilgisini görmez
+    canSeeTyping: (viewerId, typerId) => !social.isBlockedEither(viewerId, typerId),
     send: (res, status, payload) => util.sendJson(res, status, payload, closingHeaders())
   })
 
@@ -1197,6 +1213,8 @@ async function createChatServer (options) {
       meta: hub.meta(),
       pmv: hub.privateVersion(ctx.user.id),
       private: privateOf(ctx.user.id),
+      tv: hub.typingVersion(ctx.user.id),
+      typing: hub.typingOf(ctx.user.id),
       me: Object.assign(publicUser(ctx.user), { status: ctx.user.status }),
       keys: ownKeys(ctx.user),
       peerId: ctx.rt.peerId,
@@ -1219,7 +1237,7 @@ async function createChatServer (options) {
 
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır.
@@ -1567,7 +1585,9 @@ async function createChatServer (options) {
     const target = findLiveUser(ctx.body.userId)
     if (!target) return fail(ctx, 404, 'user_not_found')
     if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
-    socialResult(ctx, social.block(ctx.user.id, target.id, Date.now()), target.id)
+    const result = social.block(ctx.user.id, target.id, Date.now())
+    if (!result.error) hub.typingPairChanged(ctx.user.id, target.id)
+    socialResult(ctx, result, target.id)
   }
 
   function handleBlockRemove (ctx) {
@@ -1575,7 +1595,9 @@ async function createChatServer (options) {
     const id = toId(ctx.body.userId)
     if (id === null) return fail(ctx, 400, 'bad_request')
     if (id === ctx.user.id) return fail(ctx, 400, 'self')
-    socialResult(ctx, social.unblock(ctx.user.id, id), id)
+    const result = social.unblock(ctx.user.id, id)
+    if (!result.error) hub.typingPairChanged(ctx.user.id, id)
+    socialResult(ctx, result, id)
   }
 
   // Konuşma varsa (iki yönde engel yoksa) mevcut olan döner. Yeni konuşma için
@@ -1602,22 +1624,26 @@ async function createChatServer (options) {
   // ---------------------------------------------------------------- uç noktalar: mesajlar
 
   // Yazı kanalı veya üyesi olunan özel konuşma. Başkasının konuşması bulunamadı olarak görünür.
+  // before: bu kimlikten eski sayfa ({ messages, hasMore }). around: bu kimliğin etrafındaki sayfa
+  // (yaklaşık limit/2 eski mesaj, mesajın kendisi ve yeni mesajlar, { messages, hasMore, hasNewer }).
+  // Mesaj bu kanalda yoksa (ör. silinmişse) aynı konumun etrafı döner. İkisi birlikte verilemez.
   function handleMessagesList (ctx) {
     const q = ctx.query
     const channel = readableChannel(toId(q.get('channel')), ctx.user)
     if (!channel) return fail(ctx, 404, 'channel_not_found')
-    let before
-    const beforeRaw = q.get('before')
-    if (beforeRaw !== null && beforeRaw !== '') {
-      before = parseNonNegative(beforeRaw)
-      if (before === null) return fail(ctx, 400, 'bad_request')
-    }
+    const before = optionalCounter(q.get('before'))
+    const around = optionalCounter(q.get('around'))
+    if (before === null || around === null || (before !== undefined && around !== undefined)) return fail(ctx, 400, 'bad_request')
     let limit = MESSAGES_PAGE_DEFAULT
     const limitRaw = q.get('limit')
     if (limitRaw !== null && limitRaw !== '') {
       const parsed = parseNonNegative(limitRaw)
       if (parsed === null) return fail(ctx, 400, 'bad_request')
       limit = Math.min(MESSAGES_PAGE_MAX, Math.max(1, parsed))
+    }
+    if (around !== undefined) {
+      const page = store.listAround(channel.id, { around, limit })
+      return ok(ctx, { messages: page.messages, hasMore: page.hasMore, hasNewer: page.hasNewer })
     }
     const result = store.listMessages(channel.id, { before, limit })
     ok(ctx, { messages: result.messages, hasMore: result.hasMore })
@@ -1692,6 +1718,8 @@ async function createChatServer (options) {
     store.saveState()
     const saved = store.getMessage(message.id) || message
     emitMessageEvent(channel, { type: 'msg', channelId: channel.id, message: saved })
+    // Mesajı gönderen artık bu kanalda yazmıyordur
+    hub.setTyping(channel.id, audienceOf(channel), ctx.user.id, false, ctx.now)
     if (channel.type === 'dm') social.touchDm(channel)
     emitDropped(dropped)
     ok(ctx, { ok: true, message: saved })
@@ -1734,6 +1762,24 @@ async function createChatServer (options) {
     removeUploads(removed.uploads)
     emitMessageEvent(channel, { type: 'del', channelId: removed.channelId, messageId: removed.id })
     if (channel.type === 'dm') social.touchDm(channel)
+    ok(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: yazıyor
+
+  // Yazıyor bildirimi (stop: true ile geri alınır). Kalıcı değildir, diske yazılmaz. Yazı kanalında
+  // herkese, özel konuşmada yalnızca iki üyeye duyurulur. Yeni mesaj yazılamayan özel konuşmada
+  // (engel, karşı taraf engelli veya silinmiş) yazmaya başlanamaz, bırakmak her zaman serbesttir.
+  function handleTyping (ctx) {
+    const b = ctx.body
+    if (b.stop !== undefined && typeof b.stop !== 'boolean') return fail(ctx, 400, 'bad_request')
+    const wait = typingLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait > 0) return tooMany(ctx, wait, 'detail.typingRate')
+    const channel = readableChannel(toId(b.channelId), ctx.user)
+    if (!channel) return fail(ctx, 404, 'channel_not_found')
+    const on = b.stop !== true
+    if (on && channel.type === 'dm' && !canWriteDm(channel, ctx.user)) return fail(ctx, 403, 'dm_not_allowed')
+    hub.setTyping(channel.id, audienceOf(channel), ctx.user.id, on, ctx.now)
     ok(ctx, { ok: true })
   }
 
@@ -1986,6 +2032,7 @@ async function createChatServer (options) {
     if (channel.type === 'voice') {
       hub.kickVoiceChannel(channel.id)
     } else {
+      hub.clearTypingChannel(channel.id)
       const removed = store.deleteChannelMessages(channel.id)
       removeUploads(uploadsOfMessages(removed))
     }
@@ -2153,6 +2200,7 @@ async function createChatServer (options) {
   route('/api/messages', 'POST', handleMessageSend)
   route('/api/messages/edit', 'POST', handleMessageEdit)
   route('/api/messages/delete', 'POST', handleMessageDelete)
+  route('/api/typing', 'POST', handleTyping)
   route('/api/uploads', 'POST', handleUpload, { body: 'stream' })
   route('/api/channels/create', 'POST', handleChannelCreate)
   route('/api/channels/update', 'POST', handleChannelUpdate)

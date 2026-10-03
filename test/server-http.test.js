@@ -35,7 +35,6 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
     const expected = {
       '/': 'text/html; charset=utf-8',
       '/index.html': 'text/html; charset=utf-8',
-      '/app.js': 'text/javascript; charset=utf-8',
       '/crypto.js': 'text/javascript; charset=utf-8',
       '/emoji.js': 'text/javascript; charset=utf-8',
       '/voice.js': 'text/javascript; charset=utf-8',
@@ -53,6 +52,8 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/theme-init.js': 'text/javascript; charset=utf-8',
       '/js/ayarlar.js': 'text/javascript; charset=utf-8',
       '/js/ses-paneli-2.js': 'text/javascript; charset=utf-8',
+      '/css/tokens.css': 'text/css; charset=utf-8',
+      '/css/skins/arcade.css': 'text/css; charset=utf-8',
       '/fonts/inter-latin-ext.woff2': 'font/woff2',
       '/fonts/OFL.txt': 'text/plain; charset=utf-8',
       '/fonts/Lisans-2.txt': 'text/plain; charset=utf-8'
@@ -69,7 +70,7 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
     assert.match(html.text, /<title>Telsiz<\/title>/)
     const sw = await h.get(ctx, '/sw.js')
     assert.equal(sw.headers['content-security-policy'], HTML_CSP)
-    const js = await h.get(ctx, '/app.js?v=2')
+    const js = await h.get(ctx, '/crypto.js?v=2')
     assert.equal(js.status, 200)
     assert.equal(js.headers['content-security-policy'], API_CSP)
 
@@ -93,17 +94,20 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
   it('beyaz liste dışındaki yollar ve yol geçişi denemeleri sunulmaz', async () => {
     const attempts = [
       '/gizli.txt',
+      // Eski tek dosyalık arayüz (modüller artık /js/ altında)
+      '/app.js',
+      '/app.js?v=2',
       '/../server.js',
       '/%2e%2e/server.js',
       '/%2E%2E/server.js',
       '/vendor/../server.js',
       '/vendor/../../server.js',
       '/icons/../gizli.txt',
-      '/./app.js',
-      '//app.js',
-      '/app.js/',
-      '/APP.JS',
-      '/app.js%00.png',
+      '/./crypto.js',
+      '//crypto.js',
+      '/crypto.js/',
+      '/CRYPTO.JS',
+      '/crypto.js%00.png',
       '/..%2fserver.js',
       '/..\\server.js',
       '/veri/state.json',
@@ -131,6 +135,16 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/js/ayarlar.js%00',
       '/js/ayar_lar.js',
       '/js/ayarlar.js/',
+      '/css/../server.js',
+      '/css/%2e%2e/server.js',
+      '/css/gizli.txt',
+      '/css/tokens.js',
+      '/css/skins/../../server.js',
+      '/css/skins/..%2f..%2fserver.js',
+      '/css/skins/alt/ic.css',
+      '/css/skins/Arcade.css',
+      '/css/skins/con.css',
+      '/css/alt/skins/arcade.css',
       '/js//ayarlar.js',
       '/fonts/../server.js',
       '/fonts/gizli.js',
@@ -267,7 +281,7 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/api/voice/state', '/api/voice/signal', '/api/voice/leave', '/api/register', '/api/login', '/api/prelogin',
       '/api/username-available', '/api/me/keys', '/api/me/identity', '/api/me/username', '/api/me/settings',
       '/api/friends/request', '/api/friends/accept', '/api/friends/decline', '/api/friends/remove',
-      '/api/blocks/add', '/api/blocks/remove', '/api/dms/open', '/api/me/delete']
+      '/api/blocks/add', '/api/blocks/remove', '/api/dms/open', '/api/me/delete', '/api/typing']
     for (const route of routes) {
       for (const body of weird) {
         const res = await h.post(ctx, route, owner.token, body)
@@ -275,11 +289,12 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
         assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
       }
     }
-    for (const q of ['?channel[]=1', '?channel=1&limit[]=2', '?channel=%ZZ', '?before=1&before=2&channel=1']) {
+    for (const q of ['?channel[]=1', '?channel=1&limit[]=2', '?channel=%ZZ', '?before=1&before=2&channel=1', '?channel=1&around=%ZZ',
+      '?channel=1&around[]=1', '?channel=1&around=' + '9'.repeat(40), '?channel=1&around=1&around=2', '?around=1']) {
       const res = await h.get(ctx, '/api/messages' + q, owner.token)
       assert.ok(res.status < 500, q)
     }
-    for (const q of ['?since[]=1', '?since=%ZZ', '?since=1e9&mv=-1&sig=abc&pmv=x&boot=' + 'z'.repeat(5000)]) {
+    for (const q of ['?since[]=1', '?since=%ZZ', '?since=1e9&mv=-1&sig=abc&pmv=x&boot=' + 'z'.repeat(5000), '?since=0&tv=-1', '?since=0&tv[]=1&tv=%ZZ']) {
       const res = await h.get(ctx, '/api/poll' + q, owner.token)
       assert.ok(res.status < 500, q)
     }
