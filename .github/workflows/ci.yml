@@ -48,7 +48,10 @@ jobs:
       - name: Stil ve güvenlik denetimi
         run: npm run denetle
 
+      # Denetim başarısız olsa da testler çalışır, iki sonuç ayrı ayrı görülür
+      # Tests run even if the lint step fails, so both results are visible
       - name: Birim ve sunucu testleri
+        if: success() || failure()
         run: npm test
 
   e2e:
