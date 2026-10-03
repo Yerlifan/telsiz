@@ -1,558 +1,113 @@
 'use strict'
 
-const http = require('node:http')
+// Telsiz sunucusunun giriş noktası: ortam değişkenleri, "sifre-sifirla" komutu,
+// başlatma, banner ve düzgün kapanış (SPEC-V2 3.1 ve 3.2).
+// Kullanım:
+//   node server.js
+//   node server.js sifre-sifirla <kullanıcı adı>
+
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const crypto = require('node:crypto')
+const { createChatServer } = require('./src/app')
+const { openStore, StoreError, lockInfo } = require('./src/store')
+const auth = require('./src/auth')
 
-const NICK_MIN = 2
-const NICK_MAX = 20
-const ROOM_MAX = 40
-const DEFAULT_ROOM = 'Sohbet'
-const MAX_WAITERS_PER_SESSION = 2
+const PRODUCT_NAME = 'Telsiz'
+const DEFAULT_PORT = 3000
+const DEFAULT_HOST = '0.0.0.0'
+const DEFAULT_UPLOAD_MB = 25
+const DEFAULT_QUOTA_MB = 2048
+const DEFAULT_STUN = 'stun:stun.l.google.com:19302'
+const SHUTDOWN_LIMIT_MS = 3000
+const CLI_SCRYPT_N = 16384
+const MB = 1024 * 1024
 
-const NICK_PATTERN = /^[\p{L}\p{N}_. -]+$/u
-const TEXT_STRIP_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g
-const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+class ConfigError extends Error {}
 
-const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+function noop () {}
 
-const DEFAULT_OPTIONS = {
-  room: DEFAULT_ROOM,
-  password: '',
-  pollTimeoutMs: 25000,
-  graceMs: 15000,
-  sweepIntervalMs: 5000,
-  historyLimit: 200,
-  maxMessageLength: 1000,
-  maxSessions: 300,
-  joinLimit: 10,
-  joinWindowMs: 60000,
-  sendLimit: 5,
-  sendWindowMs: 5000,
-  maxBodyBytes: 16384,
-  publicDir: path.join(__dirname, 'public')
+function envText (env, name) {
+  const value = env[name]
+  return typeof value === 'string' ? value.trim() : ''
 }
 
-const ERROR_MESSAGES = {
-  bad_request: 'İstek okunamadı.',
-  too_large: 'İstek çok büyük.',
-  not_found: 'İstenen adres bulunamadı.',
-  method_not_allowed: 'Bu adres bu istek yöntemini desteklemiyor.',
-  invalid_nick: 'Takma ad 2 ile 20 karakter arasında olmalı ve yalnızca harf, rakam, boşluk, nokta, alt çizgi veya kısa çizgi içermeli.',
-  wrong_password: 'Oda şifresi hatalı.',
-  nick_taken: 'Bu takma ad şu anda kullanımda.',
-  invalid_token: 'Oturum bulunamadı, lütfen yeniden katıl.',
-  room_full: 'Oda dolu, lütfen daha sonra tekrar dene.',
-  server_error: 'Sunucuda beklenmeyen bir hata oluştu.'
-}
-const JOIN_RATE_MESSAGE = 'Çok fazla deneme yapıldı, bir dakika sonra tekrar dene.'
-const SEND_RATE_MESSAGE = 'Çok hızlı mesaj gönderiyorsun, biraz bekle.'
-
-// Yalnızca bu beyaz listedeki yollar diskten sunulur, genel dosya sunumu yoktur.
-const STATIC_ROUTES = new Map()
-STATIC_ROUTES.set('/', { file: 'index.html', type: 'text/html; charset=utf-8', html: true })
-STATIC_ROUTES.set('/index.html', { file: 'index.html', type: 'text/html; charset=utf-8', html: true })
-STATIC_ROUTES.set('/app.js', { file: 'app.js', type: 'text/javascript; charset=utf-8', html: false })
-STATIC_ROUTES.set('/style.css', { file: 'style.css', type: 'text/css; charset=utf-8', html: false })
-STATIC_ROUTES.set('/favicon.svg', { file: 'favicon.svg', type: 'image/svg+xml', html: false })
-
-function resolveOptions (options) {
-  const config = Object.assign({}, DEFAULT_OPTIONS)
-  const given = options || {}
-  for (const key of Object.keys(given)) {
-    if (given[key] !== undefined) config[key] = given[key]
+function parsePort (raw) {
+  if (raw === '') return DEFAULT_PORT
+  const port = /^\d{1,5}$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new ConfigError('PORT değeri geçersiz: "' + raw + '". 1 ile 65535 arasında bir sayı girin.')
   }
-  return config
+  return port
 }
 
-function codePointLength (value) {
-  return Array.from(value).length
+function parseMegabytes (raw, name, fallback, max) {
+  if (raw === '') return fallback
+  const value = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isFinite(value) || value <= 0 || value > max) {
+    throw new ConfigError(name + ' değeri geçersiz: "' + raw + '". 0 ile ' + max + ' arasında bir sayı (MB) girin.')
+  }
+  return value
 }
 
-function cleanRoomName (value) {
-  const text = typeof value === 'string' ? value.replace(/\p{C}/gu, '').replace(/\s+/g, ' ').trim() : ''
-  const short = Array.from(text).slice(0, ROOM_MAX).join('').trim()
-  return short === '' ? DEFAULT_ROOM : short
+function parseUrlList (raw, name, prefixes) {
+  const list = raw.split(',').map((s) => s.trim()).filter((s) => s !== '')
+  for (const url of list) {
+    const lower = url.toLowerCase()
+    if (url.length > 512 || !prefixes.some((p) => lower.startsWith(p))) {
+      throw new ConfigError(name + ' değeri geçersiz: "' + url + '". Adres ' + prefixes.join(' veya ') + ' ile başlamalıdır.')
+    }
+  }
+  return list
 }
 
-function cleanNick (value) {
-  if (typeof value !== 'string') return null
-  const nick = value.normalize('NFC').replace(/\p{C}/gu, '').replace(/\s+/g, ' ').trim()
-  const length = codePointLength(nick)
-  if (length < NICK_MIN || length > NICK_MAX) return null
-  if (!NICK_PATTERN.test(nick)) return null
-  return nick
+function dataDirFromEnv (env) {
+  const raw = envText(env, 'VERI_KLASORU')
+  return raw === '' ? path.join(__dirname, 'veri') : path.resolve(raw)
 }
 
-function cleanText (value, maxLength) {
-  if (typeof value !== 'string') return null
-  const text = value.replace(/\r\n?/g, '\n').replace(TEXT_STRIP_PATTERN, '').trim()
-  const length = codePointLength(text)
-  if (length < 1 || length > maxLength) return null
-  return text
-}
-
-function parseSince (raw, lastId) {
-  const value = Number.parseInt(raw, 10)
-  if (!Number.isFinite(value) || value < 0) return 0
-  return Math.min(value, lastId)
-}
-
-function parseJsonObject (text) {
-  const source = text.replace(/^\uFEFF/, '')
-  if (source.trim() === '') return {}
-  try {
-    const value = JSON.parse(source)
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
-  } catch (err) {
-    return null
+// Ortam değişkenlerini okur ve doğrular. Hatalıysa ConfigError fırlatır.
+function readConfig (env) {
+  const port = parsePort(envText(env, 'PORT'))
+  const host = envText(env, 'HOST') || DEFAULT_HOST
+  const rawName = envText(env, 'SUNUCU_ADI')
+  let serverName = PRODUCT_NAME
+  if (rawName !== '') {
+    serverName = auth.cleanServerName(rawName)
+    if (serverName === null) throw new ConfigError('SUNUCU_ADI değeri geçersiz. Sunucu adı 1 ile 40 karakter arasında olmalıdır.')
   }
-  return null
-}
-
-function clientIp (req) {
-  const remote = req.socket.remoteAddress || ''
-  if (LOOPBACK_ADDRESSES.has(remote)) {
-    const cf = req.headers['cf-connecting-ip']
-    if (typeof cf === 'string' && cf.trim() !== '') return cf.trim()
-    const forwarded = req.headers['x-forwarded-for']
-    if (typeof forwarded === 'string') {
-      const first = forwarded.split(',')[0].trim()
-      if (first !== '') return first
-    }
-  }
-  return remote
-}
-
-// Kayan pencere sayacı: izin verilirse zamanı kaydeder ve true döner.
-function takeSlot (times, limit, windowMs, now) {
-  while (times.length > 0 && now - times[0] >= windowMs) times.shift()
-  if (times.length >= limit) return false
-  times.push(now)
-  return true
-}
-
-function sha256 (value) {
-  return crypto.createHash('sha256').update(value, 'utf8').digest()
-}
-
-function readBody (req, limit) {
-  return new Promise(resolve => {
-    const declared = Number(req.headers['content-length'])
-    if (Number.isFinite(declared) && declared > limit) {
-      req.resume()
-      resolve({ tooLarge: true })
-      return
-    }
-    const chunks = []
-    let size = 0
-    let tooLarge = false
-    req.on('data', chunk => {
-      if (tooLarge) return
-      size += chunk.length
-      if (size > limit) {
-        // Fazlası okunup atılır, bağlantı canlı kalır.
-        tooLarge = true
-        chunks.length = 0
-        resolve({ tooLarge: true })
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      if (!tooLarge) resolve({ text: Buffer.concat(chunks).toString('utf8') })
-    })
-    req.on('error', () => resolve(null))
-  })
-}
-
-function setSecurityHeaders (res) {
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Referrer-Policy', 'no-referrer')
-  res.setHeader('X-Frame-Options', 'DENY')
-}
-
-function sendText (res, status, text) {
-  if (res.headersSent || res.writableEnded) return
-  const body = Buffer.from(text, 'utf8')
-  res.statusCode = status
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-  res.setHeader('Content-Length', body.length)
-  res.end(body)
-}
-
-function createChatServer (options) {
-  const config = resolveOptions(options)
-  const room = cleanRoomName(config.room)
-  const password = typeof config.password === 'string' ? config.password : String(config.password || '')
-  const passwordRequired = password !== ''
-  const passwordHash = sha256(password)
-  const pollTimeoutMs = config.pollTimeoutMs
-  const graceMs = config.graceMs
-  const historyLimit = config.historyLimit
-  const maxMessageLength = config.maxMessageLength
-  const invalidTextMessage = `Mesaj boş olamaz ve ${maxMessageLength} karakteri geçemez.`
-
-  const history = []
-  const sessions = new Map()
-  const joinAttempts = new Map()
-  let nextId = 1
-  let closing = false
-  let sweepTimer = null
-
-  function currentLastId () {
-    return nextId - 1
+  const uploadMb = parseMegabytes(envText(env, 'MAKS_YUKLEME_MB'), 'MAKS_YUKLEME_MB', DEFAULT_UPLOAD_MB, 1024)
+  const quotaMb = parseMegabytes(envText(env, 'YUKLEME_KOTASI_MB'), 'YUKLEME_KOTASI_MB', DEFAULT_QUOTA_MB, 1048576)
+  const uploadMaxBytes = Math.floor(uploadMb * MB) + 16
+  const uploadQuotaBytes = Math.floor(quotaMb * MB)
+  if (uploadQuotaBytes < uploadMaxBytes) {
+    throw new ConfigError('YUKLEME_KOTASI_MB, MAKS_YUKLEME_MB değerinden küçük olamaz.')
   }
 
-  function onlineUsers () {
-    const users = []
-    for (const session of sessions.values()) {
-      if (session.online) users.push(session.nick)
-    }
-    return users.sort((a, b) => a.localeCompare(b, 'tr'))
+  const iceServers = []
+  const stunRaw = env.STUN_URL === undefined ? DEFAULT_STUN : String(env.STUN_URL).trim()
+  const stun = parseUrlList(stunRaw, 'STUN_URL', ['stun:', 'stuns:'])
+  if (stun.length > 0) iceServers.push({ urls: stun.length === 1 ? stun[0] : stun })
+  const turn = parseUrlList(envText(env, 'TURN_URL'), 'TURN_URL', ['turn:', 'turns:'])
+  if (turn.length > 0) {
+    const entry = { urls: turn.length === 1 ? turn[0] : turn }
+    const user = typeof env.TURN_KULLANICI === 'string' ? env.TURN_KULLANICI : ''
+    const secret = typeof env.TURN_SIFRE === 'string' ? env.TURN_SIFRE : ''
+    if (user !== '') entry.username = user
+    if (secret !== '') entry.credential = secret
+    iceServers.push(entry)
   }
 
-  function messagesSince (since) {
-    return history.filter(message => message.id > since)
+  return {
+    port,
+    host,
+    serverName,
+    dataDir: dataDirFromEnv(env),
+    uploadMaxBytes,
+    uploadQuotaBytes,
+    iceServers,
+    turnEnabled: turn.length > 0
   }
-
-  function sendJson (res, status, data) {
-    if (res.headersSent || res.writableEnded) return false
-    const body = Buffer.from(JSON.stringify(data), 'utf8')
-    res.statusCode = status
-    res.setHeader('Content-Type', 'application/json; charset=utf-8')
-    res.setHeader('Cache-Control', 'no-store')
-    res.setHeader('Content-Length', body.length)
-    if (closing) res.setHeader('Connection', 'close')
-    res.end(body)
-    return true
-  }
-
-  function sendError (res, status, code, message) {
-    return sendJson(res, status, { error: message || ERROR_MESSAGES[code], code })
-  }
-
-  function pollPayload (messages) {
-    return { messages, users: onlineUsers(), lastId: currentLastId() }
-  }
-
-  function statePayload (session) {
-    return {
-      token: session.token,
-      nick: session.nick,
-      room,
-      lastId: currentLastId(),
-      messages: history.slice(),
-      users: onlineUsers()
-    }
-  }
-
-  function removeWaiter (waiter) {
-    const list = waiter.session.waiters
-    const index = list.indexOf(waiter)
-    if (index !== -1) list.splice(index, 1)
-  }
-
-  // Her bekleyen poll tam bir kez sonlanır: yanıtla, zaman aşımıyla ya da istemci kapanmasıyla.
-  function finishWaiter (waiter, messages) {
-    if (waiter.done) return
-    waiter.done = true
-    clearTimeout(waiter.timer)
-    removeWaiter(waiter)
-    waiter.session.lastSeen = Date.now()
-    sendJson(waiter.res, 200, pollPayload(messages))
-  }
-
-  function allWaiters () {
-    const pending = []
-    for (const session of sessions.values()) {
-      for (const waiter of session.waiters) pending.push(waiter)
-    }
-    return pending
-  }
-
-  function wakeWaiters () {
-    for (const waiter of allWaiters()) finishWaiter(waiter, messagesSince(waiter.since))
-  }
-
-  function closeSessionWaiters (session) {
-    for (const waiter of session.waiters.slice()) finishWaiter(waiter, [])
-  }
-
-  function addMessage (type, nick, text) {
-    const message = { id: nextId, type, nick, text, ts: Date.now() }
-    nextId += 1
-    history.push(message)
-    if (history.length > historyLimit) history.splice(0, history.length - historyLimit)
-    wakeWaiters()
-    return message
-  }
-
-  function announceJoin (session) {
-    addMessage('system', session.nick, `${session.nick} sohbete katıldı`)
-  }
-
-  function announceLeave (session) {
-    addMessage('system', session.nick, `${session.nick} sohbetten ayrıldı`)
-  }
-
-  function isActive (session, now) {
-    return session.waiters.length > 0 || now - session.lastSeen < pollTimeoutMs + graceMs
-  }
-
-  function markOnline (session) {
-    if (session.online) return
-    session.online = true
-    announceJoin(session)
-  }
-
-  function removeSession (session) {
-    sessions.delete(session.token)
-    session.online = false
-    closeSessionWaiters(session)
-  }
-
-  function findSession (token) {
-    if (typeof token !== 'string' || token === '') return null
-    return sessions.get(token) || null
-  }
-
-  function findSessionByKey (key) {
-    for (const session of sessions.values()) {
-      if (session.key === key) return session
-    }
-    return null
-  }
-
-  function evictOldestOffline () {
-    let oldest = null
-    for (const session of sessions.values()) {
-      if (session.online) continue
-      if (oldest === null || session.lastSeen < oldest.lastSeen) oldest = session
-    }
-    if (oldest === null) return false
-    removeSession(oldest)
-    return true
-  }
-
-  function allowJoinAttempt (ip, now) {
-    let times = joinAttempts.get(ip)
-    if (!times) {
-      times = []
-      joinAttempts.set(ip, times)
-    }
-    return takeSlot(times, config.joinLimit, config.joinWindowMs, now)
-  }
-
-  function sweep () {
-    const now = Date.now()
-    for (const session of sessions.values()) {
-      if (session.online && !isActive(session, now)) {
-        session.online = false
-        announceLeave(session)
-      }
-    }
-    for (const [ip, times] of joinAttempts) {
-      if (times.length === 0 || now - times[times.length - 1] >= config.joinWindowMs) joinAttempts.delete(ip)
-    }
-  }
-
-  function handleInfo (req, res) {
-    sendJson(res, 200, {
-      room,
-      passwordRequired,
-      maxMessageLength,
-      nickMin: NICK_MIN,
-      nickMax: NICK_MAX
-    })
-  }
-
-  function handleJoin (req, res, body) {
-    const now = Date.now()
-    if (!allowJoinAttempt(clientIp(req), now)) return sendError(res, 429, 'rate_limited', JOIN_RATE_MESSAGE)
-    if (passwordRequired) {
-      const given = typeof body.password === 'string' ? body.password : ''
-      if (!crypto.timingSafeEqual(sha256(given), passwordHash)) return sendError(res, 401, 'wrong_password')
-    }
-    const nick = cleanNick(body.nick)
-    if (nick === null) return sendError(res, 400, 'invalid_nick')
-    const key = nick.toLocaleLowerCase('tr-TR')
-    const existing = findSessionByKey(key)
-    if (existing) {
-      if (existing.online) return sendError(res, 409, 'nick_taken')
-      removeSession(existing)
-    }
-    if (sessions.size >= config.maxSessions && !evictOldestOffline()) return sendError(res, 503, 'room_full')
-    const session = {
-      token: crypto.randomBytes(24).toString('base64url'),
-      nick,
-      key,
-      online: true,
-      lastSeen: now,
-      waiters: [],
-      sendTimes: []
-    }
-    sessions.set(session.token, session)
-    announceJoin(session)
-    sendJson(res, 200, statePayload(session))
-  }
-
-  function handleResume (req, res, body) {
-    if (!allowJoinAttempt(clientIp(req), Date.now())) return sendError(res, 429, 'rate_limited', JOIN_RATE_MESSAGE)
-    const session = findSession(body.token)
-    if (!session) return sendError(res, 401, 'invalid_token')
-    session.lastSeen = Date.now()
-    markOnline(session)
-    sendJson(res, 200, statePayload(session))
-  }
-
-  function handlePoll (req, res, query) {
-    const session = findSession(req.headers['x-token'])
-    if (!session) return sendError(res, 401, 'invalid_token')
-    const since = parseSince(query.get('since'), currentLastId())
-    session.lastSeen = Date.now()
-    markOnline(session)
-    const ready = messagesSince(since)
-    if (ready.length > 0 || closing) return sendJson(res, 200, pollPayload(ready))
-
-    if (session.waiters.length >= MAX_WAITERS_PER_SESSION) finishWaiter(session.waiters[0], [])
-    const waiter = { session, since, res, timer: null, done: false }
-    waiter.timer = setTimeout(() => finishWaiter(waiter, []), pollTimeoutMs)
-    session.waiters.push(waiter)
-    res.on('close', () => {
-      if (waiter.done) return
-      waiter.done = true
-      clearTimeout(waiter.timer)
-      removeWaiter(waiter)
-      waiter.session.lastSeen = Date.now()
-    })
-  }
-
-  function handleSend (req, res, body) {
-    const session = findSession(req.headers['x-token'])
-    if (!session) return sendError(res, 401, 'invalid_token')
-    const now = Date.now()
-    session.lastSeen = now
-    markOnline(session)
-    const text = cleanText(body.text, maxMessageLength)
-    if (text === null) return sendError(res, 400, 'invalid_text', invalidTextMessage)
-    if (!takeSlot(session.sendTimes, config.sendLimit, config.sendWindowMs, now)) return sendError(res, 429, 'rate_limited', SEND_RATE_MESSAGE)
-    const message = addMessage('chat', session.nick, text)
-    sendJson(res, 200, { ok: true, id: message.id })
-  }
-
-  function handleLeave (req, res) {
-    const session = findSession(req.headers['x-token'])
-    if (!session) return sendError(res, 401, 'invalid_token')
-    const wasOnline = session.online
-    removeSession(session)
-    if (wasOnline) announceLeave(session)
-    sendJson(res, 200, { ok: true })
-  }
-
-  const apiRoutes = new Map()
-  apiRoutes.set('/api/info', { method: 'GET', handler: handleInfo })
-  apiRoutes.set('/api/join', { method: 'POST', handler: handleJoin })
-  apiRoutes.set('/api/resume', { method: 'POST', handler: handleResume })
-  apiRoutes.set('/api/poll', { method: 'GET', handler: handlePoll })
-  apiRoutes.set('/api/send', { method: 'POST', handler: handleSend })
-  apiRoutes.set('/api/leave', { method: 'POST', handler: handleLeave })
-
-  function handleFailure (res, err) {
-    console.error('Beklenmeyen sunucu hatası:', err)
-    if (!res.headersSent && !res.writableEnded) sendError(res, 500, 'server_error')
-  }
-
-  function handleApi (req, res, pathname, query) {
-    const route = apiRoutes.get(pathname)
-    if (!route) return sendError(res, 404, 'not_found')
-    if (req.method !== route.method) {
-      res.setHeader('Allow', route.method)
-      return sendError(res, 405, 'method_not_allowed')
-    }
-    if (route.method === 'GET') return route.handler(req, res, query)
-    readBody(req, config.maxBodyBytes).then(result => {
-      if (result === null) return
-      if (result.tooLarge) return sendError(res, 413, 'too_large')
-      const body = parseJsonObject(result.text)
-      if (body === null) return sendError(res, 400, 'bad_request')
-      route.handler(req, res, body)
-    }).catch(err => handleFailure(res, err))
-  }
-
-  function serveStatic (req, res, pathname) {
-    const entry = STATIC_ROUTES.get(pathname)
-    if (!entry) return sendText(res, 404, 'Sayfa bulunamadı.')
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.setHeader('Allow', 'GET, HEAD')
-      return sendText(res, 405, 'Bu istek yöntemi desteklenmiyor.')
-    }
-    fs.readFile(path.join(config.publicDir, entry.file), (err, data) => {
-      if (err) {
-        if (err.code === 'ENOENT') sendText(res, 404, 'Sayfa bulunamadı.')
-        else sendText(res, 500, 'Dosya okunamadı.')
-        return
-      }
-      if (res.headersSent || res.writableEnded) return
-      res.statusCode = 200
-      res.setHeader('Content-Type', entry.type)
-      res.setHeader('Cache-Control', 'no-cache')
-      res.setHeader('Content-Length', data.length)
-      if (entry.html) res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
-      if (req.method === 'HEAD') res.end()
-      else res.end(data)
-    })
-  }
-
-  function handleRequest (req, res) {
-    setSecurityHeaders(res)
-    const rawUrl = typeof req.url === 'string' ? req.url : '/'
-    const queryIndex = rawUrl.indexOf('?')
-    const pathname = queryIndex === -1 ? rawUrl : rawUrl.slice(0, queryIndex)
-    const query = new URLSearchParams(queryIndex === -1 ? '' : rawUrl.slice(queryIndex + 1))
-    if (pathname === '/api' || pathname.startsWith('/api/')) return handleApi(req, res, pathname, query)
-    serveStatic(req, res, pathname)
-  }
-
-  const server = http.createServer((req, res) => {
-    try {
-      handleRequest(req, res)
-    } catch (err) {
-      handleFailure(res, err)
-    }
-  })
-
-  function stopSweep () {
-    if (sweepTimer !== null) {
-      clearInterval(sweepTimer)
-      sweepTimer = null
-    }
-  }
-
-  function shutdown () {
-    closing = true
-    stopSweep()
-    for (const waiter of allWaiters()) finishWaiter(waiter, [])
-  }
-
-  server.on('listening', () => {
-    stopSweep()
-    closing = false
-    sweepTimer = setInterval(sweep, config.sweepIntervalMs)
-    sweepTimer.unref()
-  })
-  server.on('close', shutdown)
-
-  // 'close' olayı ancak tüm bağlantılar bitince gelir, bu yüzden bekleyen poll'lar close() çağrısında sonlandırılır.
-  const closeServer = server.close
-  server.close = function close (callback) {
-    shutdown()
-    return closeServer.call(this, callback)
-  }
-
-  return server
 }
 
 function lanAddresses () {
@@ -567,78 +122,234 @@ function lanAddresses () {
   return result
 }
 
-function printBanner (room, passwordSet, host, port) {
+function printBanner (server, config, port) {
   const lines = []
-  lines.push('PS5 + PC Sohbet sunucusu çalışıyor.')
-  lines.push(`Oda adı: ${room}`)
-  if (passwordSet) {
-    lines.push('Oda şifresi: belirlendi.')
-  } else {
-    lines.push('Oda şifresi: yok.')
-    lines.push('Uyarı: Sohbet internete açılacaksa ODA_SIFRESI ortam değişkeni ile bir oda şifresi belirlemeniz önerilir.')
+  lines.push(PRODUCT_NAME + ' sunucusu çalışıyor.')
+  lines.push('Sunucu adı: ' + server.serverName)
+  lines.push('Veri klasörü: ' + server.dataDir)
+  const code = server.setupCode
+  if (code) {
+    const bar = '='.repeat(72)
+    lines.push('')
+    lines.push(bar)
+    lines.push('Kurulum kodu: ' + code.toUpperCase() + '. Tarayıcıda açıp sahip hesabını bu kodla oluşturun.')
+    lines.push('Kod yalnızca sahip hesabı oluşturulana kadar geçerlidir ve her başlatmada yenilenir.')
+    lines.push(bar)
   }
   lines.push('')
   lines.push('Erişim adresleri:')
-  if (host === '0.0.0.0' || host === '::') {
-    lines.push(`  Bu bilgisayardan: http://localhost:${port}`)
+  if (config.host === '0.0.0.0' || config.host === '::') {
+    lines.push('  Bu bilgisayardan: http://localhost:' + port)
     const addresses = lanAddresses()
     if (addresses.length === 0) lines.push('  Aynı ağdaki cihazlar için ağ adresi bulunamadı.')
-    for (const address of addresses) lines.push(`  Aynı ağdaki cihazlardan: http://${address}:${port}`)
+    for (const address of addresses) lines.push('  Aynı ağdaki cihazlardan: http://' + address + ':' + port)
   } else {
-    const shown = host.includes(':') ? `[${host}]` : host
-    lines.push(`  http://${shown}:${port}`)
+    const shown = config.host.includes(':') ? '[' + config.host + ']' : config.host
+    lines.push('  http://' + shown + ':' + port)
   }
   lines.push('')
-  lines.push(`İnternet üzerinden erişim için tunel.bat dosyasını çalıştırın veya şu komutu kullanın: cloudflared tunnel --url http://localhost:${port}`)
+  lines.push('Sesli sohbet ve uygulama olarak yükleme (PWA) için adresin https:// ile başlaması gerekir.')
+  lines.push('Aynı ağdaki http adreslerinde bunlar çalışmaz, yalnızca bu bilgisayarda http://localhost:' + port + ' adresinde çalışır.')
+  lines.push('İnternetten https ile erişim için tunel.bat dosyasını çalıştırın veya şu komutu kullanın: cloudflared tunnel --url http://localhost:' + port)
+  if (config.turnEnabled) lines.push('TURN sunucusu: etkin.')
+  else lines.push('TURN sunucusu: tanımlı değil. Bazı ağlarda sesli sohbet için TURN gerekebilir (TURN_URL ayarı).')
+  lines.push('')
   lines.push('Sunucuyu durdurmak için Ctrl+C tuşlarına basın.')
   console.log(lines.join('\n'))
 }
 
-function start () {
-  const env = process.env
-  const rawPort = typeof env.PORT === 'string' ? env.PORT.trim() : ''
-  const port = rawPort === '' ? 3000 : Number(rawPort)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error(`PORT değeri geçersiz: "${env.PORT}". 1 ile 65535 arasında bir sayı girin.`)
-    process.exit(1)
+function listenError (err, port) {
+  if (err && err.code === 'EADDRINUSE') {
+    return 'Hata: ' + port + ' numaralı bağlantı noktası zaten kullanımda. Sunucu başka bir pencerede çalışıyor olabilir. O pencereyi kapatın veya PORT ortam değişkeniyle başka bir bağlantı noktası seçin.'
   }
-  const host = typeof env.HOST === 'string' && env.HOST.trim() !== '' ? env.HOST.trim() : '0.0.0.0'
-  const room = cleanRoomName(env.ODA_ADI)
-  const password = env.ODA_SIFRESI || ''
-  const server = createChatServer({ room, password })
+  if (err && err.code === 'EACCES') {
+    return 'Hata: ' + port + ' numaralı bağlantı noktasını açma izni yok. 1024 üzerinde bir PORT değeri deneyin.'
+  }
+  if (err && err.code === 'EADDRNOTAVAIL') {
+    return 'Hata: HOST değerindeki adres bu bilgisayarda bulunamadı. HOST ayarını kaldırın veya doğru bir adres girin.'
+  }
+  return 'Hata: Sunucu başlatılamadı (' + (err && err.message ? err.message : String(err)) + ').'
+}
 
-  server.on('error', err => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Hata: ${port} numaralı bağlantı noktası zaten kullanımda. Sunucu başka bir pencerede çalışıyor olabilir. O pencereyi kapatın veya PORT ortam değişkeni ile başka bir bağlantı noktası seçin.`)
-    } else if (err.code === 'EACCES') {
-      console.error(`Hata: ${port} numaralı bağlantı noktasını açma izni yok. 1024 üzerinde bir PORT değeri deneyin.`)
-    } else {
-      console.error(`Hata: Sunucu başlatılamadı (${err.message}).`)
+function closeServer (server) {
+  return new Promise((resolve) => {
+    server.close((err) => resolve(err || null))
+  })
+}
+
+async function start () {
+  let config
+  try {
+    config = readConfig(process.env)
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      console.error('Hata: ' + err.message)
+      return 1
     }
-    process.exit(1)
+    throw err
+  }
+
+  let server
+  try {
+    server = await createChatServer({
+      dataDir: config.dataDir,
+      serverName: config.serverName,
+      uploadMaxBytes: config.uploadMaxBytes,
+      uploadQuotaBytes: config.uploadQuotaBytes,
+      iceServers: config.iceServers,
+      log: console
+    })
+  } catch (err) {
+    if (err instanceof StoreError) {
+      console.error('Hata: ' + err.message)
+      return 1
+    }
+    throw err
+  }
+
+  // Beklenmeyen bir hata tek bir isteği etkiler, süreci düşürmez
+  process.on('unhandledRejection', (reason) => {
+    console.error('Yakalanmamış Promise reddi: ' + (reason && reason.stack ? reason.stack : String(reason)))
+  })
+  process.on('uncaughtException', (err) => {
+    console.error('Yakalanmamış hata: ' + (err && err.stack ? err.stack : String(err)))
   })
 
-  server.listen(port, host, () => {
-    printBanner(room, password !== '', host, server.address().port)
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(config.port, config.host, () => {
+        server.removeListener('error', reject)
+        resolve()
+      })
+    })
+  } catch (err) {
+    console.error(listenError(err, config.port))
+    await closeServer(server)
+    return 1
+  }
+  server.on('error', (err) => {
+    console.error('Sunucu hatası: ' + (err && err.message ? err.message : String(err)))
   })
+
+  printBanner(server, config, server.address().port)
 
   let stopping = false
   function stop () {
-    if (stopping) process.exit(0)
+    if (stopping) {
+      console.log('Sunucu hemen kapatılıyor.')
+      process.exit(1)
+    }
     stopping = true
     console.log('Sunucu kapatılıyor...')
-    server.close(() => process.exit(0))
-    if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections()
     const force = setTimeout(() => {
-      if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
-      process.exit(0)
-    }, 2000)
+      console.error('Kapanış ' + (SHUTDOWN_LIMIT_MS / 1000) + ' saniye içinde tamamlanamadı, süreç sonlandırılıyor.')
+      process.exit(1)
+    }, SHUTDOWN_LIMIT_MS)
     force.unref()
+    server.close((err) => {
+      if (err) {
+        console.error('Kapanış sırasında veriler diske yazılamadı: ' + (err.message || String(err)))
+        process.exit(1)
+      }
+      console.log('Sunucu kapatıldı.')
+      process.exit(0)
+    })
   }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
+  if (process.platform === 'win32') process.on('SIGBREAK', stop)
+  return null
 }
 
-module.exports = { createChatServer }
+// ---------------------------------------------------------------- sifre-sifirla komutu
 
-if (require.main === module) start()
+const QUIET_LOG = { info: noop, warn: (text) => console.error(text), error: (text) => console.error(text) }
+
+async function resetPasswordCli (args) {
+  const rawName = args.join(' ').trim()
+  if (rawName === '') {
+    console.error('Kullanım: node server.js sifre-sifirla <kullanıcı adı>')
+    return 1
+  }
+  const dir = dataDirFromEnv(process.env)
+  let lock
+  try {
+    lock = lockInfo(dir)
+  } catch (err) {
+    console.error('Hata: Veri klasörüne erişilemedi: ' + dir)
+    return 1
+  }
+  if (lock.alive && lock.pid !== process.pid) {
+    console.error('Hata: Sunucu şu anda çalışıyor (PID ' + lock.pid + '). Çalışan sunucu, bu komutun yaptığı değişikliği kendi verisiyle ezer.')
+    console.error('Önce sunucu penceresinde Ctrl+C ile sunucuyu durdurun, sonra komutu yeniden çalıştırın.')
+    return 1
+  }
+  const stateFile = path.join(dir, 'state.json')
+  if (!fs.existsSync(stateFile) && !fs.existsSync(stateFile + '.bak')) {
+    console.error('Hata: Veri klasöründe kayıtlı hesap bulunamadı: ' + dir)
+    console.error('VERI_KLASORU ayarı kullanıyorsanız komuttan önce aynı değeri verin.')
+    return 1
+  }
+
+  let store
+  try {
+    store = await openStore({ dir, log: QUIET_LOG })
+  } catch (err) {
+    console.error('Hata: ' + (err instanceof StoreError ? err.message : 'Veri klasörü açılamadı (' + err.message + ').'))
+    return 1
+  }
+  try {
+    const state = store.state
+    const name = auth.cleanName(rawName)
+    const key = name === null ? null : auth.nameKey(name)
+    const user = state && key !== null
+      ? state.users.find((u) => u && typeof u.name === 'string' && auth.nameKey(u.name) === key)
+      : null
+    if (!user) {
+      console.error('Hata: "' + rawName + '" adlı kullanıcı bulunamadı.')
+      return 1
+    }
+    const tempPassword = auth.generateTempPassword()
+    user.passHash = await auth.hashPassword(tempPassword, CLI_SCRYPT_N)
+    const before = state.sessions.length
+    state.sessions = state.sessions.filter((s) => !s || s.userId !== user.id)
+    store.saveState()
+    await store.close()
+    console.log('"' + user.name + '" hesabının parolası sıfırlandı.')
+    console.log('Geçici parola: ' + tempPassword)
+    console.log('Hesabın ' + (before - state.sessions.length) + ' açık oturumu kapatıldı.')
+    console.log('Bu parolayla giriş yaptıktan sonra Ayarlar penceresinin Hesap sekmesinden yeni bir parola belirleyin.')
+    return 0
+  } catch (err) {
+    console.error('Hata: Parola sıfırlanamadı (' + (err && err.message ? err.message : String(err)) + ').')
+    return 1
+  } finally {
+    await store.close().catch(noop)
+  }
+}
+
+function printUsage () {
+  console.error('Kullanım:')
+  console.error('  node server.js                              sunucuyu başlatır')
+  console.error('  node server.js sifre-sifirla <kullanıcı adı>   sunucu kapalıyken bir hesabın parolasını sıfırlar')
+}
+
+async function main (argv) {
+  const args = argv.slice(2)
+  if (args.length === 0) return start()
+  if (args[0] === 'sifre-sifirla') return resetPasswordCli(args.slice(1))
+  printUsage()
+  return 1
+}
+
+module.exports = { createChatServer, readConfig }
+
+if (require.main === module) {
+  main(process.argv).then((code) => {
+    if (typeof code === 'number') process.exitCode = code
+  }, (err) => {
+    console.error('Hata: ' + (err && err.stack ? err.stack : String(err)))
+    process.exitCode = 1
+  })
+}
