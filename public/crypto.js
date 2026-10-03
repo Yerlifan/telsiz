@@ -2,8 +2,11 @@
 
 // Uçtan uca şifreleme yardımcıları (window.E2EE).
 // Kriptografik ilkel olarak yalnızca TweetNaCl-js kullanılır: nacl.secretbox (XSalsa20-Poly1305),
-// nacl.hash (SHA-512) ve nacl.randomBytes. Bu dosyada kodlama, biçim ve anahtarlık işleri vardır.
-// Anahtarlar ve düz metinler hiçbir zaman loglanmaz ve ağa gönderilmez.
+// nacl.hash (SHA-512), nacl.randomBytes ve özel mesajlar için nacl.box (X25519 ile ortak anahtar).
+// Paroladan anahtar türetme scrypt-js ile yapılır (global scrypt). Bu dosyada kodlama, biçim,
+// anahtarlık, kimlik anahtarı ve sabitleme işleri vardır.
+// Anahtarlar ve düz metinler hiçbir zaman loglanmaz. Ağa yalnızca sarılmış (şifreli) özel anahtar,
+// açık anahtar ve paroladan türetilen kimlik doğrulama anahtarı (authKey) gider.
 // Bu dosyada kullanıcıya görünen metin yoktur. Hatalar Error.code ile (ör. 'bad_checksum'),
 // openJson sonuçları reason ile bildirilir, arayüz bunları seçili dile çevirir.
 // Error.message yalnızca geliştiriciler için İngilizce teknik açıklamadır ve girdiyi içermez.
@@ -30,6 +33,29 @@ var E2EE = (function (root) {
   const DEFAULT_FILE_NAME = 'file'
   const FILE_NAME_STRIP_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\/\\:*?"<>|]/g
   const FILE_NAME_EDGE_RE = /^[.\s]+|[.\s]+$/g
+  // Ek F: parola türetme, kişisel kimlik anahtarları, özel mesajlar ve sabitleme
+  const KDF_LABEL_AUTH = 'telsiz-auth-v1'
+  const KDF_LABEL_WRAP = 'telsiz-wrap-v1'
+  const SAFETY_LABEL = 'telsiz-safety-v1'
+  const DM_CACHE_LABEL = 'telsiz-dm-cache-v1'
+  const IDENTITY_PREFIX = 'telsiz.identity.'
+  const PINS_PREFIX = 'telsiz.pins.'
+  const KDF_N_VALUES = [16384, 32768, 65536]
+  const KDF_DEFAULT_N = 16384
+  const KDF_R = 8
+  const KDF_P = 1
+  const KDF_SALT_BYTES = 16
+  const BOX_KEY_BYTES = 32
+  const MAC_BYTES = 16
+  const WRAPPED_RE = /^1w\.([A-Za-z0-9_-]{32})\.([A-Za-z0-9_-]{60,70})$/
+  const DM_ENVELOPE_RE = /^2\.([A-Za-z0-9_-]{32})\.([A-Za-z0-9_-]{24,})$/
+  const PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{43}$/
+  const USER_ID_RE = /^[1-9][0-9]{0,15}$/
+  const DM_CACHE_MAX = 64
+  const DM_MAX_CANDIDATES = 64
+  const PIN_KEYS_MAX = 32
+  const SAFETY_GROUPS = 12
+  const FINGERPRINT_BYTES = 10
   const toStr = Object.prototype.toString
 
   // Crockford base32 çözme tablosu: büyük/küçük harf duyarsız, O -> 0, I ve L -> 1, U geçersiz.
@@ -774,6 +800,614 @@ var E2EE = (function (root) {
     return cps.join('').replace(FILE_NAME_EDGE_RE, '')
   }
 
+  // ===== Ek F: parola türetme, kimlik anahtarları, özel mesajlar ve sabitleme =====
+
+  // Özel mesajlar için nacl.box parçaları (box.after ve box.open.after secretbox ile aynıdır).
+  function boxLib () {
+    const n = lib()
+    const b = n.box
+    if (!b || typeof b.before !== 'function' || typeof b.after !== 'function' || !b.open ||
+        typeof b.open.after !== 'function' || typeof b.keyPair !== 'function' ||
+        typeof b.keyPair.fromSecretKey !== 'function') {
+      throw fail('no_library', 'Encryption library (nacl.box) is not available.')
+    }
+    return n
+  }
+
+  function scryptLib () {
+    const s = root.scrypt
+    if (!s || typeof s.scrypt !== 'function') {
+      throw fail('no_library', 'Key derivation library (scrypt) is not available.')
+    }
+    return s
+  }
+
+  // Sabit zamanlı bayt karşılaştırması.
+  function sameBytes (a, b) {
+    if (a.length !== b.length) return false
+    let diff = 0
+    let i = 0
+    while (i < a.length) {
+      diff |= a[i] ^ b[i]
+      i++
+    }
+    return diff === 0
+  }
+
+  // Kullanıcı kimliği: pozitif güvenli tamsayı veya onun kanonik ondalık yazımı. Kanonik metin, geçersizse null.
+  function userIdText (value) {
+    if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? String(value) : null
+    if (typeof value === 'string' && USER_ID_RE.test(value) && Number.isSafeInteger(Number(value))) return value
+    return null
+  }
+
+  // Açık anahtar: dolgusuz kanonik base64url, 32 bayt (43 karakter). Baytlar, geçersizse null.
+  function publicKeyBytes (value) {
+    if (typeof value !== 'string' || !PUBLIC_KEY_RE.test(value)) return null
+    try {
+      const bytes = b64decode(value)
+      return bytes.length === BOX_KEY_BYTES ? bytes : null
+    } catch (e) {
+      return null
+    }
+  }
+
+  // Gizli anahtar veya sarma anahtarı: 32 baytlık Uint8Array (veya ArrayBuffer görünümü). Geçersizse null.
+  function keyBytes (value) {
+    let bytes
+    try {
+      bytes = asBytes(value)
+    } catch (e) {
+      return null
+    }
+    return bytes.length === BOX_KEY_BYTES ? bytes : null
+  }
+
+  // Gizli anahtardan hesaplanan açık anahtar verilen açık anahtarla aynı mı.
+  function keyPairMatches (publicKey, secretKey) {
+    const expected = publicKeyBytes(publicKey)
+    if (!expected) return false
+    const pair = boxLib().box.keyPair.fromSecretKey(secretKey)
+    const ok = sameBytes(pair.publicKey, expected)
+    pair.secretKey.fill(0)
+    return ok
+  }
+
+  // Ek F2: yalnızca N 16384/32768/65536, r 8, p 1 ve 16 baytlık tuz kabul edilir.
+  // Her alan bir kez okunur. Sonuç { salt: baytlar, N }, geçersizse null.
+  function kdfParams (kdf) {
+    if (!kdf || typeof kdf !== 'object' || Array.isArray(kdf)) return null
+    const n = kdf.N
+    const text = kdf.salt
+    if (KDF_N_VALUES.indexOf(n) === -1 || kdf.r !== KDF_R || kdf.p !== KDF_P) return null
+    if (typeof text !== 'string' || text.length !== 22) return null
+    try {
+      const salt = b64decode(text)
+      return salt.length === KDF_SALT_BYTES ? { salt: salt, N: n } : null
+    } catch (e) {
+      return null
+    }
+  }
+
+  function kdfNewParams () {
+    lib()
+    if (!available()) throw fail('no_random', 'No working secure random number generator is available.')
+    return { salt: b64encode(random(KDF_SALT_BYTES)), N: KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
+  }
+
+  // master = scrypt(utf8(NFC(parola)), tuz, N, 8, 1, 32)
+  // authKey = hex(SHA-512(utf8('telsiz-auth-v1') || master) ilk 32 bayt), sunucuya gider
+  // wrapKey = SHA-512(utf8('telsiz-wrap-v1') || master) ilk 32 bayt, cihazda kalır
+  // onProgress(oran) 0..1 arası çağrılır. Hata fırlatması veya dönüş değeri türetmeyi etkilemez.
+  function kdfDerive (password, kdf, onProgress) {
+    let pw = null
+    let master = null
+    return new Promise(function (resolve) {
+      if (typeof password !== 'string') throw fail('bad_type', 'The password must be a string.', TypeError)
+      const params = kdfParams(kdf)
+      if (!params) throw fail('bad_kdf', 'Unsupported key derivation parameters.')
+      lib()
+      const s = scryptLib()
+      let normalized
+      try {
+        normalized = password.normalize('NFC')
+      } catch (e) {
+        throw fail('unsupported', 'Unicode normalization is not available.')
+      }
+      pw = utf8Encode(normalized)
+      const progress = function (value) {
+        if (typeof onProgress !== 'function') return
+        try {
+          onProgress(value)
+        } catch (e) {
+          // Arayüzdeki ilerleme hatası türetmeyi durdurmaz.
+        }
+      }
+      resolve(s.scrypt(pw, params.salt, params.N, KDF_R, KDF_P, BOX_KEY_BYTES, progress))
+    }).then(function (out) {
+      try {
+        master = asBytes(out)
+      } catch (e) {
+        throw fail('kdf_failed', 'Key derivation failed.')
+      }
+      if (master.length !== BOX_KEY_BYTES) throw fail('kdf_failed', 'Key derivation failed.')
+      const auth = labeledHash(KDF_LABEL_AUTH, master)
+      const wrap = labeledHash(KDF_LABEL_WRAP, master)
+      const result = { authKey: hex(auth.subarray(0, BOX_KEY_BYTES)), wrapKey: wrap.slice(0, BOX_KEY_BYTES) }
+      auth.fill(0)
+      wrap.fill(0)
+      return result
+    }).then(function (result) {
+      if (pw) pw.fill(0)
+      if (master) master.fill(0)
+      return result
+    }, function (err) {
+      if (pw) pw.fill(0)
+      if (master) master.fill(0)
+      if (err && typeof err.code === 'string') throw err
+      throw fail('kdf_failed', 'Key derivation failed.')
+    })
+  }
+
+  // ----- Kimlik anahtarı (X25519) -----
+
+  function identityGenerate () {
+    const n = boxLib()
+    if (!available()) throw fail('no_random', 'No working secure random number generator is available.')
+    let pair
+    try {
+      pair = n.box.keyPair()
+    } catch (e) {
+      throw fail('no_random', 'No secure random number generator is available.')
+    }
+    return { publicKey: b64encode(pair.publicKey), secretKey: tight(pair.secretKey) }
+  }
+
+  // '1w.' + b64url(nonce24) + '.' + b64url(secretbox(gizli anahtar, nonce, wrapKey))
+  function identityWrap (secretKey, wrapKey) {
+    const n = lib()
+    const sk = keyBytes(secretKey)
+    if (!sk) throw fail('bad_key', 'The secret key must have 32 bytes.')
+    const wk = keyBytes(wrapKey)
+    if (!wk) throw fail('bad_key', 'The wrapping key must have 32 bytes.')
+    const nonce = random(NONCE_BYTES)
+    const wrapped = '1w.' + b64encode(nonce) + '.' + b64encode(n.secretbox(sk, nonce, wk))
+    if (!WRAPPED_RE.test(wrapped)) throw fail('seal_failed', 'The wrapped key could not be built.')
+    return wrapped
+  }
+
+  // Açılamazsa null döner, hata fırlatmaz. publicKey verilirse açılan gizli anahtarın ona ait olduğu da denetlenir.
+  function identityUnwrap (wrapped, wrapKey, publicKey) {
+    try {
+      if (typeof wrapped !== 'string') return null
+      const m = WRAPPED_RE.exec(wrapped)
+      const wk = keyBytes(wrapKey)
+      if (!m || !wk) return null
+      const nonce = b64decode(m[1])
+      const box = b64decode(m[2])
+      if (nonce.length !== NONCE_BYTES || box.length !== BOX_KEY_BYTES + MAC_BYTES) return null
+      const plain = lib().secretbox.open(box, nonce, wk)
+      if (!plain || plain.length !== BOX_KEY_BYTES) return null
+      const sk = tight(plain)
+      if (publicKey !== undefined && publicKey !== null && !keyPairMatches(publicKey, sk)) {
+        sk.fill(0)
+        return null
+      }
+      return sk
+    } catch (e) {
+      return null
+    }
+  }
+
+  // Kimlik ve sabitleme kayıtları için depolama: localStorage, erişilemez veya yazılamazsa bellek.
+  // Bellekteki kayıt (yazılamamış değer veya silinmiş işareti olarak null) depolamadakinden önce gelir.
+  const memStore = Object.create(null)
+
+  function storeGet (key) {
+    if (key in memStore) return memStore[key]
+    try {
+      const raw = root.localStorage.getItem(key)
+      return typeof raw === 'string' ? raw : null
+    } catch (e) {
+      return null
+    }
+  }
+
+  function storeSet (key, raw) {
+    memStore[key] = raw
+    try {
+      root.localStorage.setItem(key, raw)
+      delete memStore[key]
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+
+  function storeRemove (key) {
+    memStore[key] = null
+    try {
+      root.localStorage.removeItem(key)
+      delete memStore[key]
+    } catch (e) {
+      // Silinemeyen kayıt bu oturumda silinmiş sayılır.
+    }
+  }
+
+  // localStorage['telsiz.identity.<userId>'] = { publicKey, secretKey } (b64url). Kalıcı yazıldıysa true döner.
+  function identitySave (userId, keys) {
+    const id = userIdText(userId)
+    if (!id) throw fail('bad_user', 'Invalid user id.')
+    const sk = keys && typeof keys === 'object' ? keyBytes(keys.secretKey) : null
+    if (!sk || !keyPairMatches(keys.publicKey, sk)) throw fail('bad_key', 'The key pair is invalid.')
+    return storeSet(IDENTITY_PREFIX + id, JSON.stringify({ publicKey: keys.publicKey, secretKey: b64encode(sk) }))
+  }
+
+  function identityLoad (userId) {
+    const id = userIdText(userId)
+    if (!id) return null
+    const raw = storeGet(IDENTITY_PREFIX + id)
+    if (typeof raw !== 'string') return null
+    try {
+      const data = JSON.parse(raw)
+      if (!data || typeof data !== 'object' || typeof data.secretKey !== 'string') return null
+      const sk = b64decode(data.secretKey)
+      if (sk.length !== BOX_KEY_BYTES || !keyPairMatches(data.publicKey, sk)) {
+        sk.fill(0)
+        return null
+      }
+      return { publicKey: data.publicKey, secretKey: sk }
+    } catch (e) {
+      return null
+    }
+  }
+
+  // Çıkışta çağrılır: kayıt silinir ve özel mesaj ortak anahtar önbelleği sıfırlanır.
+  function identityClear (userId) {
+    const id = userIdText(userId)
+    if (id) storeRemove(IDENTITY_PREFIX + id)
+    clearDmCache()
+  }
+
+  // Ek F3: kimlik bağlama zarfı, grup anahtarıyla { v: 1, u: userId, pk: publicKey }.
+  function sealBinding (kid, userId, publicKey) {
+    const id = userIdText(userId)
+    if (!id) throw fail('bad_user', 'Invalid user id.')
+    if (!publicKeyBytes(publicKey)) throw fail('bad_key', 'Invalid public key.')
+    return sealJson(kid, { v: 1, u: Number(id), pk: publicKey })
+  }
+
+  // Sonuç: { ok: true, kid } veya { ok: false, reason }. reason: bad_format, no_key, bad_data (zarf),
+  // bad_value (içerik biçimi), wrong_user (u başka kişi), wrong_key (pk sunucudaki açık anahtar değil).
+  function verifyBinding (envelope, userId, publicKey) {
+    const opened = openJson(envelope)
+    if (!opened.ok) return failure(opened.reason)
+    const value = opened.value
+    if (!value || typeof value !== 'object' || value.v !== 1 || typeof value.u !== 'number' ||
+        typeof value.pk !== 'string') return failure('bad_value')
+    const id = userIdText(userId)
+    if (!id || userIdText(value.u) !== id) return failure('wrong_user')
+    if (!publicKeyBytes(publicKey) || !sameString(value.pk, publicKey)) return failure('wrong_key')
+    return { ok: true, kid: opened.kid }
+  }
+
+  // ----- Özel mesajlar (Ek F5.6) -----
+
+  // box.before sonuçları için sınırlı (LRU) önbellek. Anahtar, karşı açık anahtar ile gizli anahtarın etiketli
+  // SHA-512 özetidir, gizli anahtarın kendisi saklanmaz. Ortak anahtarlar dışarı verilmez.
+  const dmCache = new Map()
+  let weakShared = null
+
+  function clearDmCache () {
+    dmCache.forEach(function (key) {
+      key.fill(0)
+    })
+    dmCache.clear()
+  }
+
+  // Düşük mertebeli bir açık anahtarla X25519 sonucu sıfırdır ve box.before herkesçe bilinen sabit bir
+  // anahtar verir. Bu sabit sıfır açık anahtarla bir kez hesaplanır, böyle anahtarlar reddedilir.
+  function weakKey (n) {
+    if (!weakShared) {
+      const sk = new Uint8Array(BOX_KEY_BYTES)
+      sk[0] = 1
+      weakShared = n.box.before(new Uint8Array(BOX_KEY_BYTES), sk)
+    }
+    return weakShared
+  }
+
+  // Ortak anahtar veya kullanılamaz (düşük mertebeli) açık anahtarda null.
+  function sharedKey (theirPk, mySk) {
+    const n = boxLib()
+    const buf = new Uint8Array(BOX_KEY_BYTES * 2)
+    buf.set(theirPk, 0)
+    buf.set(mySk, BOX_KEY_BYTES)
+    const h = labeledHash(DM_CACHE_LABEL, buf)
+    buf.fill(0)
+    const id = hex(h.subarray(0, BOX_KEY_BYTES))
+    h.fill(0)
+    const hit = dmCache.get(id)
+    if (hit) {
+      dmCache.delete(id)
+      dmCache.set(id, hit)
+      return hit
+    }
+    const key = n.box.before(theirPk, mySk)
+    if (sameBytes(key, weakKey(n))) {
+      key.fill(0)
+      return null
+    }
+    dmCache.set(id, key)
+    if (dmCache.size > DM_CACHE_MAX) {
+      const oldest = dmCache.keys().next().value
+      dmCache.get(oldest).fill(0)
+      dmCache.delete(oldest)
+    }
+    return key
+  }
+
+  // '2.' + b64url(nonce24) + '.' + b64url(box.after(düz metin, nonce, box.before(karşıPk, benimSk)))
+  function dmSeal (obj, theirPublicKey, mySecretKey) {
+    if (obj === null || typeof obj !== 'object') throw fail('bad_type', 'The value to seal must be an object.', TypeError)
+    const n = boxLib()
+    const pk = publicKeyBytes(theirPublicKey)
+    if (!pk) throw fail('bad_key', 'Invalid public key.')
+    const sk = keyBytes(mySecretKey)
+    if (!sk) throw fail('bad_key', 'The secret key must have 32 bytes.')
+    const key = sharedKey(pk, sk)
+    if (!key) throw fail('bad_key', 'The public key cannot be used.')
+    const nonce = random(NONCE_BYTES)
+    const box = n.box.after(utf8Encode(JSON.stringify(obj)), nonce, key)
+    const envelope = '2.' + b64encode(nonce) + '.' + b64encode(box)
+    if (!DM_ENVELOPE_RE.test(envelope)) throw fail('seal_failed', 'The envelope could not be built.')
+    return envelope
+  }
+
+  // Adaylar sırayla (karşı tarafın en yeni anahtarından eskiye) denenir. Sonuç: { ok: true, value, pk } veya
+  // { ok: false, reason }: bad_format (biçim), no_key (hiçbir aday açamadı), bad_data (açıldı ama JSON değil).
+  function dmOpen (envelope, candidatePublicKeys, mySecretKey) {
+    if (typeof envelope !== 'string') return failure('bad_format')
+    const m = DM_ENVELOPE_RE.exec(envelope)
+    if (!m) return failure('bad_format')
+    let nonce
+    let box
+    try {
+      nonce = b64decode(m[1])
+      box = b64decode(m[2])
+    } catch (e) {
+      return failure('bad_format')
+    }
+    if (nonce.length !== NONCE_BYTES) return failure('bad_format')
+    const list = typeof candidatePublicKeys === 'string' ? [candidatePublicKeys] : candidatePublicKeys
+    const sk = keyBytes(mySecretKey)
+    if (!Array.isArray(list) || !sk) return failure('no_key')
+    let n
+    try {
+      n = boxLib()
+    } catch (e) {
+      return failure('no_key')
+    }
+    const tried = Object.create(null)
+    let i = 0
+    while (i < list.length && i < DM_MAX_CANDIDATES) {
+      const candidate = list[i]
+      i++
+      const pk = publicKeyBytes(candidate)
+      if (!pk || tried[candidate]) continue
+      tried[candidate] = true
+      const key = sharedKey(pk, sk)
+      const plain = key ? n.box.open.after(box, nonce, key) : null
+      if (!plain) continue
+      let value
+      try {
+        value = JSON.parse(utf8Decode(plain))
+      } catch (e) {
+        return failure('bad_data')
+      }
+      return { ok: true, value: value, pk: candidate }
+    }
+    return failure('no_key')
+  }
+
+  // ----- Güvenlik numarası ve parmak izi (Ek F3.5, F3.6) -----
+
+  // Kimliğin 8 baytlık büyük endian gösterimi.
+  function idBytes (text) {
+    const out = new Uint8Array(8)
+    let v = Number(text)
+    let i = 7
+    while (i >= 0) {
+      out[i] = v % 256
+      v = Math.floor(v / 256)
+      i--
+    }
+    return out
+  }
+
+  function safetyParty (userId, publicKey) {
+    const id = userIdText(userId)
+    if (!id) throw fail('bad_user', 'Invalid user id.')
+    const pk = publicKeyBytes(publicKey)
+    if (!pk) throw fail('bad_key', 'Invalid public key.')
+    return { num: Number(id), id: idBytes(id), pk: pk }
+  }
+
+  function compareBytes (a, b) {
+    let i = 0
+    while (i < a.length) {
+      if (a[i] !== b[i]) return a[i] - b[i]
+      i++
+    }
+    return 0
+  }
+
+  // (id, pk) çiftleri id'ye göre sıralanır: SHA-512(utf8('telsiz-safety-v1') || id1 || pk1 || id2 || pk2).
+  // İlk 60 baytın her 5 baytı (büyük endian) 100000 moduyla 5 rakam verir, 12 grup boşlukla ayrılır.
+  function safetyNumber (idA, pkA, idB, pkB) {
+    const a = safetyParty(idA, pkA)
+    const b = safetyParty(idB, pkB)
+    const aFirst = a.num !== b.num ? a.num < b.num : compareBytes(a.pk, b.pk) <= 0
+    const first = aFirst ? a : b
+    const second = aFirst ? b : a
+    const data = new Uint8Array(80)
+    data.set(first.id, 0)
+    data.set(first.pk, 8)
+    data.set(second.id, 40)
+    data.set(second.pk, 48)
+    const h = labeledHash(SAFETY_LABEL, data)
+    const groups = []
+    let g = 0
+    while (g < SAFETY_GROUPS) {
+      const o = g * 5
+      const v = h[o] * 4294967296 + ((h[o + 1] << 24) >>> 0) + (h[o + 2] << 16) + (h[o + 3] << 8) + h[o + 4]
+      groups.push(String(v % 100000).padStart(5, '0'))
+      g++
+    }
+    return groups.join(' ')
+  }
+
+  // Açık anahtarın SHA-512 özetinin ilk 10 baytı: 20 hex, 4'lü gruplar boşlukla ayrılır.
+  function fingerprint (publicKey) {
+    const pk = publicKeyBytes(publicKey)
+    if (!pk) throw fail('bad_key', 'Invalid public key.')
+    const text = hex(lib().hash(pk).subarray(0, FINGERPRINT_BYTES))
+    const groups = []
+    let i = 0
+    while (i < text.length) {
+      groups.push(text.slice(i, i + 4))
+      i += 4
+    }
+    return groups.join(' ')
+  }
+
+  // ----- İlk görüşte sabitleme (Ek F3.4) -----
+  // localStorage['telsiz.pins.<benimId>'] = { "<userId>": { keys: [{ pk, firstSeen }], verified, changed } }
+  // keys en yeniden eskiye sıralıdır. changed, anahtar değiştiğinde true olur ve kullanıcı kabul edene kadar kalır.
+
+  function cleanPin (rec) {
+    if (!rec || typeof rec !== 'object' || !Array.isArray(rec.keys)) return null
+    const keys = []
+    const seen = Object.create(null)
+    rec.keys.forEach(function (k) {
+      if (keys.length >= PIN_KEYS_MAX || !k || typeof k !== 'object' || !publicKeyBytes(k.pk) || seen[k.pk]) return
+      seen[k.pk] = true
+      const t = k.firstSeen
+      keys.push({ pk: k.pk, firstSeen: typeof t === 'number' && isFinite(t) && t > 0 ? t : 0 })
+    })
+    if (keys.length === 0) return null
+    const changed = rec.changed === true
+    return { keys: keys, verified: rec.verified === true && !changed, changed: changed }
+  }
+
+  function readPins (myText) {
+    const pins = Object.create(null)
+    const raw = storeGet(PINS_PREFIX + myText)
+    if (typeof raw !== 'string') return pins
+    let data
+    try {
+      data = JSON.parse(raw)
+    } catch (e) {
+      return pins
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return pins
+    Object.keys(data).forEach(function (uid) {
+      const rec = userIdText(uid) === uid ? cleanPin(data[uid]) : null
+      if (rec) pins[uid] = rec
+    })
+    return pins
+  }
+
+  function pinsContext (myId, userId) {
+    const my = userIdText(myId)
+    const uid = userIdText(userId)
+    if (!my || !uid) throw fail('bad_user', 'Invalid user id.')
+    const pins = readPins(my)
+    return { my: my, uid: uid, pins: pins, rec: pins[uid] || null }
+  }
+
+  function writePins (ctx) {
+    storeSet(PINS_PREFIX + ctx.my, JSON.stringify(ctx.pins))
+  }
+
+  function pinKeys (rec) {
+    return rec.keys.map(function (k) {
+      return k.pk
+    })
+  }
+
+  function pinView (rec) {
+    return {
+      status: rec.changed ? 'changed' : 'same',
+      verified: rec.verified,
+      keys: pinKeys(rec),
+      entries: rec.keys.map(function (k) {
+        return { pk: k.pk, firstSeen: k.firstSeen }
+      })
+    }
+  }
+
+  // Sonuç: { status: 'new'|'same'|'changed', verified, keys: [pk, ...] (en yeni önce) }.
+  // İlk anahtar kendiliğinden sabitlenir. Farklı (yeni veya daha önce görülmüş eski) bir anahtar en başa alınır,
+  // verified false olur ve durum accept çağrılana kadar 'changed' kalır.
+  function pinsObserve (myId, userId, publicKey) {
+    const ctx = pinsContext(myId, userId)
+    if (!publicKeyBytes(publicKey)) throw fail('bad_key', 'Invalid public key.')
+    let rec = ctx.rec
+    let status
+    if (!rec) {
+      rec = { keys: [{ pk: publicKey, firstSeen: Date.now() }], verified: false, changed: false }
+      ctx.pins[ctx.uid] = rec
+      writePins(ctx)
+      status = 'new'
+    } else if (rec.keys[0].pk === publicKey) {
+      status = rec.changed ? 'changed' : 'same'
+    } else {
+      const old = rec.keys.filter(function (k) {
+        return k.pk === publicKey
+      })[0]
+      const rest = rec.keys.filter(function (k) {
+        return k.pk !== publicKey
+      })
+      rec.keys = [{ pk: publicKey, firstSeen: old ? old.firstSeen : Date.now() }].concat(rest).slice(0, PIN_KEYS_MAX)
+      rec.verified = false
+      rec.changed = true
+      writePins(ctx)
+      status = 'changed'
+    }
+    return { status: status, verified: rec.verified, keys: pinKeys(rec) }
+  }
+
+  // Kullanıcı yeni anahtarı kabul etti: 'changed' durumu kalkar, verified false kalır.
+  function pinsAccept (myId, userId) {
+    const ctx = pinsContext(myId, userId)
+    if (!ctx.rec) return null
+    if (ctx.rec.changed) {
+      ctx.rec.changed = false
+      writePins(ctx)
+    }
+    return pinView(ctx.rec)
+  }
+
+  // Güvenlik numarası karşılaştırıldı: doğrulama mevcut anahtar içindir, true olunca bekleyen değişiklik de kabul edilir.
+  function pinsSetVerified (myId, userId, value) {
+    const ctx = pinsContext(myId, userId)
+    if (!ctx.rec) return null
+    ctx.rec.verified = value === true
+    if (ctx.rec.verified) ctx.rec.changed = false
+    writePins(ctx)
+    return pinView(ctx.rec)
+  }
+
+  function pinsKnownKeys (myId, userId) {
+    const ctx = pinsContext(myId, userId)
+    return ctx.rec ? pinKeys(ctx.rec) : []
+  }
+
+  function pinsGet (myId, userId) {
+    const ctx = pinsContext(myId, userId)
+    return ctx.rec ? pinView(ctx.rec) : null
+  }
+
   return Object.freeze({
     available: available,
     generateKeyCode: generateKeyCode,
@@ -786,6 +1420,27 @@ var E2EE = (function (root) {
     sniffImage: sniffImage,
     sanitizeFileName: sanitizeFileName,
     b64url: Object.freeze({ encode: b64encode, decode: b64decode }),
-    utf8: Object.freeze({ encode: utf8Encode, decode: utf8Decode })
+    utf8: Object.freeze({ encode: utf8Encode, decode: utf8Decode }),
+    kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive }),
+    identity: Object.freeze({
+      generate: identityGenerate,
+      wrap: identityWrap,
+      unwrap: identityUnwrap,
+      save: identitySave,
+      load: identityLoad,
+      clear: identityClear,
+      sealBinding: sealBinding,
+      verifyBinding: verifyBinding
+    }),
+    dm: Object.freeze({ seal: dmSeal, open: dmOpen }),
+    safetyNumber: safetyNumber,
+    fingerprint: fingerprint,
+    pins: Object.freeze({
+      observe: pinsObserve,
+      accept: pinsAccept,
+      setVerified: pinsSetVerified,
+      knownKeys: pinsKnownKeys,
+      get: pinsGet
+    })
   })
 })(typeof self !== 'undefined' ? self : this)
