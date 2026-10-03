@@ -1,0 +1,69 @@
+name: Özellik isteği
+description: Yeni bir özellik veya iyileştirme önerin.
+title: "[Öneri] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Öneriniz için teşekkürler. Açmadan önce README.md dosyasındaki bilinen sınırlamalara ve docs/MIMARI.md dosyasındaki mimari kararlara göz atmanız, önerinin kapsamını netleştirmeye yardımcı olur.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Çözülmesini istediğiniz sorun
+      description: Bu öneri hangi ihtiyacı karşılıyor? Hangi durumda eksikliğini hissediyorsunuz?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Önerilen çözüm
+      description: Özelliğin nasıl çalışmasını istediğinizi anlatın.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Düşünülen alternatifler
+      description: Değerlendirdiğiniz başka yollar veya mevcut geçici çözümler.
+    validations:
+      required: false
+  - type: dropdown
+    id: device
+    attributes:
+      label: İlgili cihazlar
+      description: Öneri hangi cihazlardaki kullanımı etkiliyor? Birden fazla seçebilirsiniz.
+      multiple: true
+      options:
+        - PC
+        - PS5
+        - Android
+        - iOS
+        - Tablet
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Kullandığınız sürüm
+      description: package.json dosyasındaki sürüm veya kullandığınız commit.
+      placeholder: "ör. 2.0.0"
+    validations:
+      required: false
+  - type: textarea
+    id: security
+    attributes:
+      label: Güvenlik ve gizlilik etkisi
+      description: Öneri uçtan uca şifrelemeyi, sunucunun gördüğü bilgileri veya yetkileri etkiliyor mu? Biliyorsanız açıklayın.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Kontrol
+      options:
+        - label: Aynı öneri için açık bir issue olmadığını kontrol ettim.
+          required: true
+        - label: Bu özelliği geliştirmeye katkı vermek isterim.
+          required: false

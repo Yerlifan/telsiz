@@ -1,4 +1,8 @@
-# Auto detect text files and perform LF normalization
+# Metin dosyaları otomatik algılanır ve depoda LF satır sonuyla saklanır
 * text=auto
 # Windows betikleri çalışma kopyasına her zaman CRLF satır sonuyla çıkarılır
 *.bat text eol=crlf
+# Üçüncü taraf dosyalar birebir korunur, satır sonu dönüşümü yapılmaz (sha256 denetimi)
+public/vendor/** -text
+# Görseller ikili dosyadır
+*.png binary

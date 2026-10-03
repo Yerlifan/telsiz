@@ -1,0 +1,82 @@
+# Sürekli entegrasyon: her dal gönderiminde ve her çekme isteğinde denetim ve testler
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+# Aynı dal veya çekme isteği için yeni bir çalışma başlarsa eskisi iptal edilir
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Denetim ve testler (${{ matrix.os }}, Node.js ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        node:
+          - 20
+          - 22
+          - 24
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Geliştirme bağımlılıklarını kur
+        run: npm ci
+
+      - name: Stil ve güvenlik denetimi
+        run: npm run denetle
+
+      - name: Birim ve sunucu testleri
+        run: npm test
+
+  e2e:
+    name: Uçtan uca testler (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Geliştirme bağımlılıklarını kur
+        run: npm ci
+
+      - name: Chromium ve sistem bağımlılıklarını kur
+        run: npx playwright install --with-deps chromium
+
+      - name: Uçtan uca testler
+        run: npm run test:e2e
+
+      - name: Hata anındaki ekran görüntülerini ve izleri yükle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-sonuclar
+          path: e2e-sonuclar/
+          if-no-files-found: ignore
+          retention-days: 7

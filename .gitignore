@@ -1,3 +1,14 @@
+# Geliştirme bağımlılıkları (npm ci ile kurulur)
 node_modules/
+
+# Günlük dosyaları
 *.log
+
+# macOS klasör bilgisi
 .DS_Store
+
+# Sunucunun kalıcı verisi (hesaplar, şifreli mesajlar, yüklemeler)
+veri/
+
+# Uçtan uca testlerin hata anında yazdığı ekran görüntüleri ve izler
+e2e-sonuclar/

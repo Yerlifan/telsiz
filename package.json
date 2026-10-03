@@ -1,15 +1,40 @@
 {
   "name": "ps5-pc-sohbet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "PS5 tarayıcısı, bilgisayar ve telefon arasında çalışan, bağımlılıksız yazılı sohbet sunucusu",
-  "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
+  "description": "PC, PS5, telefon ve tablet tarayıcılarından kullanılan, kendi bilgisayarınızda çalışan, Discord benzeri ve uçtan uca şifreli sohbet uygulaması",
+  "keywords": [
+    "sohbet",
+    "sesli sohbet",
+    "uçtan uca şifreleme",
+    "e2ee",
+    "ps5",
+    "webrtc",
+    "pwa",
+    "long-polling"
+  ],
+  "homepage": "https://github.com/Yerlifan/ps5-pc-communication#readme",
+  "bugs": {
+    "url": "https://github.com/Yerlifan/ps5-pc-communication/issues"
   },
-  "engines": {
-    "node": ">=18"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yerlifan/ps5-pc-communication.git"
   },
   "license": "MIT",
-  "author": "Burak Aslancan Pak"
+  "author": "Burak Aslancan Pak",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node scripts/test-calistir.js test",
+    "test:e2e": "node scripts/test-calistir.js e2e --test-concurrency=1",
+    "denetle": "node scripts/denetle.js",
+    "lint": "npm run denetle"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "acorn": "8.18.0",
+    "playwright": "1.56.1"
+  }
 }
