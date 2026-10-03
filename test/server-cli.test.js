@@ -1,7 +1,8 @@
 'use strict'
 
-// server.js: sifre-sifirla komutu, kilit dosyası, bozuk veri, ortam değişkenleri,
-// banner ve bağlantı noktası hataları. Süreçler doğrudan node ile başlatılır (kabuk yok).
+// server.js: sifre-sifirla ve reset-password komutları, kilit dosyası, bozuk veri, ortam
+// değişkenleri ve İngilizce takma adları, konsol dili, banner ve bağlantı noktası hataları.
+// Süreçler doğrudan node ile başlatılır (kabuk yok). Konsol dili testte açıkça verilmezse DIL=tr.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -14,15 +15,20 @@ const h = require('./server-yardimci')
 const SERVER_JS = path.join(__dirname, '..', 'server.js')
 const DEAD_PID = '2147483646'
 
-const CONFIG_KEYS = ['PORT', 'HOST', 'SUNUCU_ADI', 'VERI_KLASORU', 'MAKS_YUKLEME_MB', 'YUKLEME_KOTASI_MB',
-  'STUN_URL', 'TURN_URL', 'TURN_KULLANICI', 'TURN_SIFRE']
+const CONFIG_KEYS = ['PORT', 'HOST', 'SUNUCU_ADI', 'SERVER_NAME', 'VERI_KLASORU', 'DATA_DIR', 'MAKS_YUKLEME_MB',
+  'MAX_UPLOAD_MB', 'YUKLEME_KOTASI_MB', 'UPLOAD_QUOTA_MB', 'STUN_URL', 'TURN_URL', 'TURN_KULLANICI', 'TURN_USERNAME',
+  'TURN_SIFRE', 'TURN_PASSWORD', 'GUVENILIR_VEKIL', 'TRUSTED_PROXY', 'DIL', 'TELSIZ_LANG', 'LANG', 'LC_ALL', 'LC_MESSAGES']
 
 // Komutu çalıştırır, çıkışı ve çıktıları döner. Testi çalıştıranın ayarları alt sürece geçmez.
+// env içinde undefined verilen değişken alt süreçte hiç tanımlanmaz.
 function runServerJs (args, env, opts) {
   const o = opts || {}
   const childEnv = Object.assign({}, process.env)
   for (const key of CONFIG_KEYS) delete childEnv[key]
-  Object.assign(childEnv, env)
+  Object.assign(childEnv, { DIL: 'tr' }, env)
+  for (const key of Object.keys(childEnv)) {
+    if (childEnv[key] === undefined) delete childEnv[key]
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER_JS].concat(args), {
       env: childEnv,
@@ -55,7 +61,8 @@ function runServerJs (args, env, opts) {
 async function preparedData () {
   const ctx = await h.startServer()
   const owner = await h.setupOwner(ctx)
-  const ayse = await h.addUser(ctx, owner.token, 'Ayşe Yılmaz')
+  const ayse = await h.addUser(ctx, owner.token, 'ayse.yilmaz')
+  h.expectStatus(await h.post(ctx, '/api/me/identity', ayse.token, { identity: h.envelope() }), 200)
   await ctx.stop()
   return { ctx, owner, ayse }
 }
@@ -72,27 +79,58 @@ function freePort () {
 }
 
 describe('sifre-sifirla komutu', () => {
-  it('geçici parola üretir, oturumları siler, yeni parola çalışır', async () => {
+  it('geçici parola üretir, istemciyle aynı türetmeyi yapar, anahtarları siler, oturumları kapatır', async () => {
     const { ctx, owner, ayse } = await preparedData()
     try {
       const statePath = path.join(ctx.dataDir, 'state.json')
-      const result = await runServerJs(['sifre-sifirla', 'ayşe', 'YILMAZ'], { VERI_KLASORU: ctx.dataDir })
+      const result = await runServerJs(['sifre-sifirla', 'AYSE.YILMAZ'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(result.code, 0, result.stderr)
       const match = /Geçici parola: ([A-Za-z0-9]{12})/.exec(result.stdout)
       assert.ok(match, result.stdout)
-      assert.match(result.stdout, /"Ayşe Yılmaz" hesabının parolası sıfırlandı/)
+      assert.match(result.stdout, /"ayse\.yilmaz" hesabının parolası sıfırlandı/)
+      assert.match(result.stdout, /Eski özel mesajlar bu hesapla artık okunamaz/)
       assert.ok(!fs.existsSync(path.join(ctx.dataDir, '.kilit')))
-      const disk = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      const text = fs.readFileSync(statePath, 'utf8')
+      const disk = JSON.parse(text)
       assert.ok(!disk.sessions.some((s) => s.userId === ayse.user.id))
       assert.ok(disk.sessions.some((s) => s.userId === owner.user.id))
-      assert.ok(!fs.readFileSync(statePath, 'utf8').includes(match[1]))
+      assert.ok(!text.includes(match[1]))
+      const user = disk.users.find((u) => u.id === ayse.user.id)
+      assert.deepEqual([user.publicKey, user.wrappedKey, user.identity], [null, null, null])
+      assert.notEqual(user.kdf.salt, h.KDF.salt)
+      assert.deepEqual([user.kdf.N, user.kdf.r, user.kdf.p], [16384, 8, 1])
+      // Sunucu tarafı karma, istemci türetmesinin (ortak test vektörüyle doğrulanmış) authKey değerine aittir
+      const authKey = h.deriveKeys(match[1], user.kdf.salt, 16384).authKey
+      assert.match(user.passHash, /^scrypt\$16384\$8\$1\$/)
+      assert.ok(!text.includes(authKey))
 
       const next = await h.startServer({}, ctx.root)
       try {
         h.expectStatus(await h.get(next, '/api/state', ayse.token), 401, 'invalid_token')
         h.expectStatus(await h.get(next, '/api/state', owner.token), 200)
-        h.expectStatus(await h.login(next, 'Ayşe Yılmaz'), 401)
-        h.expectStatus(await h.login(next, 'Ayşe Yılmaz', match[1]), 200)
+        h.expectStatus(await h.login(next, 'ayse.yilmaz'), 401)
+        const relog = await h.request(next, 'POST', '/api/login', { body: { name: 'ayse.yilmaz', authKey } })
+        h.expectStatus(relog, 200)
+        assert.deepEqual(relog.data.keys, { publicKey: null, wrappedKey: null })
+        h.expectStatus(await h.login(next, 'ayse.yilmaz', match[1]), 200)
+      } finally {
+        await next.stop()
+      }
+    } finally {
+      h.removeRoot(ctx.root)
+    }
+  })
+
+  it('İngilizce takma ad: reset-password', async () => {
+    const { ctx } = await preparedData()
+    try {
+      const result = await runServerJs(['reset-password', 'sahip'], { VERI_KLASORU: ctx.dataDir })
+      assert.equal(result.code, 0, result.stderr)
+      const match = /Geçici parola: ([A-Za-z0-9]{12})/.exec(result.stdout)
+      assert.ok(match, result.stdout)
+      const next = await h.startServer({}, ctx.root)
+      try {
+        h.expectStatus(await h.login(next, 'sahip', match[1]), 200)
       } finally {
         await next.stop()
       }
@@ -108,6 +146,9 @@ describe('sifre-sifirla komutu', () => {
       const missing = await runServerJs(['sifre-sifirla', 'Hayalet'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(missing.code, 1)
       assert.match(missing.stderr, /"Hayalet" adlı kullanıcı bulunamadı/)
+      const invalid = await runServerJs(['sifre-sifirla', 'Ayşe Yılmaz'], { VERI_KLASORU: ctx.dataDir })
+      assert.equal(invalid.code, 1)
+      assert.match(invalid.stderr, /adlı kullanıcı bulunamadı/)
       const noName = await runServerJs(['sifre-sifirla'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(noName.code, 1)
       assert.match(noName.stderr, /Kullanım: node server.js sifre-sifirla/)
@@ -128,7 +169,7 @@ describe('sifre-sifirla komutu', () => {
       const before = fs.readFileSync(statePath, 'utf8')
       // Bu test sürecinin PID'i canlıdır, çalışan bir sunucu gibi davranır
       fs.writeFileSync(lockPath, process.pid + '\n')
-      const refused = await runServerJs(['sifre-sifirla', 'Sahip'], { VERI_KLASORU: ctx.dataDir })
+      const refused = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(refused.code, 1)
       assert.match(refused.stderr, /Sunucu şu anda çalışıyor \(PID \d+\)/)
       assert.match(refused.stderr, /ezer/)
@@ -136,7 +177,7 @@ describe('sifre-sifirla komutu', () => {
       assert.equal(fs.readFileSync(lockPath, 'utf8'), process.pid + '\n')
 
       fs.writeFileSync(lockPath, DEAD_PID + '\n')
-      const ok = await runServerJs(['sifre-sifirla', 'Sahip'], { VERI_KLASORU: ctx.dataDir })
+      const ok = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(ok.code, 0, ok.stderr)
       assert.match(ok.stdout, /Geçici parola: /)
       assert.ok(!fs.existsSync(lockPath))
@@ -149,7 +190,7 @@ describe('sifre-sifirla komutu', () => {
     const root = h.makeRoot()
     try {
       const dataDir = path.join(root, 'yok')
-      const result = await runServerJs(['sifre-sifirla', 'Sahip'], { VERI_KLASORU: dataDir })
+      const result = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: dataDir })
       assert.equal(result.code, 1)
       assert.match(result.stderr, /kayıtlı hesap bulunamadı/)
       assert.ok(!fs.existsSync(dataDir))
@@ -267,6 +308,193 @@ describe('server.js başlatma', () => {
       assert.ok(!fs.existsSync(path.join(dataDir, '.kilit')))
     } finally {
       await new Promise((resolve) => blocker.close(resolve))
+      h.removeRoot(root)
+    }
+  })
+})
+
+// Sunucuyu başlatır, banner tamamlanınca /api/info ister ve SIGTERM ile durdurur
+async function startAndStop (env) {
+  const port = await freePort()
+  let info = null
+  const result = await runServerJs([], Object.assign({ PORT: String(port), HOST: '127.0.0.1' }, env), {
+    onStdout: (out, child) => {
+      if (info !== null || !out.includes('Ctrl+C')) return
+      info = 'bekleniyor'
+      h.request({ port }, 'GET', '/api/info').then((res) => {
+        info = res
+        child.kill('SIGTERM')
+      }, (err) => {
+        info = String(err)
+        child.kill('SIGTERM')
+      })
+    }
+  })
+  return { result, info, port }
+}
+
+describe('konsol dili ve İngilizce ortam değişkeni adları', () => {
+  it('DIL=en ile banner, kurulum kodu ve kapanış İngilizce', async () => {
+    const root = h.makeRoot()
+    try {
+      const dataDir = path.join(root, 'veri')
+      const { result, info, port } = await startAndStop({ DIL: 'en', DATA_DIR: dataDir, SERVER_NAME: 'Friends' })
+      assert.match(result.stdout, /^Telsiz server is running\./)
+      assert.match(result.stdout, /Server name: Friends/)
+      assert.ok(result.stdout.includes('Data folder: ' + dataDir))
+      assert.match(result.stdout, /Setup code: [0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}\. Open the app in a browser/)
+      assert.ok(result.stdout.includes('http://127.0.0.1:' + port))
+      assert.match(result.stdout, /TURN server: not configured/)
+      assert.match(result.stdout, /Press Ctrl\+C to stop the server\./)
+      assert.ok(!/[çğıİöşüÇĞÖŞÜ]/.test(result.stdout), result.stdout)
+      assert.equal(info.status, 200)
+      assert.equal(info.data.serverName, 'Friends')
+      // DATA_DIR kullanıldı: kilit ve veri bu klasörde
+      assert.ok(fs.existsSync(dataDir))
+      if (process.platform !== 'win32') {
+        // Windows'ta SIGTERM süreci doğrudan sonlandırır, düzgün kapanış ve diske yazım yalnızca POSIX'te denetlenir
+        assert.equal(result.code, 0, result.stderr)
+        assert.match(result.stdout, /The server has stopped\./)
+        // İlk kurulumdaki kanal adları da konsol dilinde
+        const disk = JSON.parse(fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8'))
+        assert.deepEqual(disk.channels.map((c) => c.name), ['general', 'gaming', 'Voice 1', 'Voice 2'])
+      }
+    } finally {
+      h.removeRoot(root)
+    }
+  })
+
+  it('DIL yoksa TELSIZ_LANG, ikisi de yoksa LC_ALL, LC_MESSAGES ve LANG sırasıyla', async () => {
+    const root = h.makeRoot()
+    try {
+      const dataDir = path.join(root, 'veri')
+      const cases = [
+        { env: { DIL: undefined, TELSIZ_LANG: 'en' }, lang: 'en' },
+        { env: { DIL: 'tr', TELSIZ_LANG: 'en' }, lang: 'tr' },
+        { env: { DIL: 'en', TELSIZ_LANG: 'tr' }, lang: 'en' },
+        { env: { DIL: undefined, LANG: 'tr_TR.UTF-8' }, lang: 'tr' },
+        { env: { DIL: undefined, LANG: 'en_US.UTF-8' }, lang: 'en' },
+        { env: { DIL: undefined, LC_ALL: 'en_GB.UTF-8', LANG: 'tr_TR.UTF-8' }, lang: 'en' },
+        { env: { DIL: undefined, LC_MESSAGES: 'tr_TR.UTF-8', LANG: 'en_US.UTF-8' }, lang: 'tr' },
+        { env: { DIL: 'de', LANG: 'tr_TR.UTF-8' }, lang: 'tr' }
+      ]
+      for (const { env, lang } of cases) {
+        // Geçersiz bağlantı noktası hatası en hızlı biçimde konsol dilini gösterir
+        const result = await runServerJs([], Object.assign({ VERI_KLASORU: dataDir, PORT: 'abc' }, env))
+        assert.equal(result.code, 1, JSON.stringify(env))
+        if (lang === 'tr') assert.match(result.stderr, /^Hata: PORT değeri geçersiz/, JSON.stringify(env))
+        else assert.match(result.stderr, /^Error: PORT is invalid: "abc"\. Enter a number between 1 and 65535\./, JSON.stringify(env))
+      }
+      assert.ok(!fs.existsSync(dataDir))
+    } finally {
+      h.removeRoot(root)
+    }
+  })
+
+  it('İngilizce takma adlar çalışır, ikisi birden verilirse Türkçe ad geçerlidir', async () => {
+    const { readConfig } = require('../server.js')
+    const english = readConfig({
+      DIL: 'en',
+      SERVER_NAME: 'Friends',
+      DATA_DIR: path.join('a', 'b'),
+      MAX_UPLOAD_MB: '5',
+      UPLOAD_QUOTA_MB: '100',
+      TURN_URL: 'turn:turn.example.org:3478',
+      TURN_USERNAME: 'user',
+      TURN_PASSWORD: 'secret',
+      TRUSTED_PROXY: '10.0.0.5, loopback'
+    })
+    assert.equal(english.lang, 'en')
+    assert.equal(english.serverName, 'Friends')
+    assert.equal(english.dataDir, path.resolve('a', 'b'))
+    assert.equal(english.uploadMaxBytes, 5 * 1024 * 1024 + 16)
+    assert.equal(english.uploadQuotaBytes, 100 * 1024 * 1024)
+    assert.deepEqual(english.iceServers[1], { urls: 'turn:turn.example.org:3478', username: 'user', credential: 'secret' })
+    assert.deepEqual(english.trustedProxies, ['10.0.0.5', 'loopback'])
+
+    const both = readConfig({
+      DIL: 'tr',
+      TELSIZ_LANG: 'en',
+      SUNUCU_ADI: 'Kankalar',
+      SERVER_NAME: 'Friends',
+      VERI_KLASORU: path.join('tr', 'veri'),
+      DATA_DIR: path.join('en', 'data'),
+      MAKS_YUKLEME_MB: '3',
+      MAX_UPLOAD_MB: '5',
+      YUKLEME_KOTASI_MB: '50',
+      UPLOAD_QUOTA_MB: '100',
+      TURN_URL: 'turn:turn.example.org:3478',
+      TURN_KULLANICI: 'kullanici',
+      TURN_USERNAME: 'user',
+      TURN_SIFRE: 'sifre',
+      TURN_PASSWORD: 'secret',
+      GUVENILIR_VEKIL: '192.0.2.1',
+      TRUSTED_PROXY: '10.0.0.5'
+    })
+    assert.equal(both.lang, 'tr')
+    assert.equal(both.serverName, 'Kankalar')
+    assert.equal(both.dataDir, path.resolve('tr', 'veri'))
+    assert.equal(both.uploadMaxBytes, 3 * 1024 * 1024 + 16)
+    assert.equal(both.uploadQuotaBytes, 50 * 1024 * 1024)
+    assert.deepEqual(both.iceServers[1], { urls: 'turn:turn.example.org:3478', username: 'kullanici', credential: 'sifre' })
+    assert.deepEqual(both.trustedProxies, ['192.0.2.1'])
+
+    // Boş Türkçe değer verilmemiş sayılır
+    assert.equal(readConfig({ SUNUCU_ADI: '', SERVER_NAME: 'Friends' }).serverName, 'Friends')
+    // Varsayılan güvenilir vekil loopback
+    assert.deepEqual(readConfig({}).trustedProxies, ['loopback'])
+    // Hata metninde kullanılan değişkenin adı geçer
+    assert.throws(() => readConfig({ DIL: 'en', MAX_UPLOAD_MB: 'x' }), { message: /^MAX_UPLOAD_MB is invalid: "x"/ })
+    assert.throws(() => readConfig({ DIL: 'tr', SERVER_NAME: 'x'.repeat(41) }), /SERVER_NAME değeri geçersiz/)
+    assert.throws(() => readConfig({ DIL: 'en', UPLOAD_QUOTA_MB: '1', MAX_UPLOAD_MB: '5' }), /UPLOAD_QUOTA_MB cannot be smaller than MAX_UPLOAD_MB/)
+    for (const bad of ['abc', '10.0.0.0/33', '::1/129', 'none, loopback', '1.2.3.4/x', '300.1.1.1']) {
+      assert.throws(() => readConfig({ DIL: 'en', TRUSTED_PROXY: bad }), /TRUSTED_PROXY is invalid/, bad)
+    }
+    assert.throws(() => readConfig({ DIL: 'tr', GUVENILIR_VEKIL: 'kotu' }), /GUVENILIR_VEKIL değeri geçersiz/)
+  })
+
+  it('reset-password İngilizce konsolda, DATA_DIR takma adıyla', async () => {
+    const { ctx } = await preparedData()
+    try {
+      const result = await runServerJs(['reset-password', 'ayse.yilmaz'], { DIL: 'en', DATA_DIR: ctx.dataDir })
+      assert.equal(result.code, 0, result.stderr)
+      const match = /Temporary password: ([A-Za-z0-9]{12})/.exec(result.stdout)
+      assert.ok(match, result.stdout)
+      assert.match(result.stdout, /The password of the account "ayse\.yilmaz" has been reset\./)
+      assert.match(result.stdout, /Old direct messages can no longer be read with this account\./)
+      const missing = await runServerJs(['reset-password', 'hayalet'], { DIL: 'en', DATA_DIR: ctx.dataDir })
+      assert.equal(missing.code, 1)
+      assert.match(missing.stderr, /Error: no user named "hayalet" was found\./)
+      const usage = await runServerJs(['reset-password'], { DIL: 'en', DATA_DIR: ctx.dataDir })
+      assert.equal(usage.code, 1)
+      assert.match(usage.stderr, /Usage: node server\.js reset-password <username>/)
+      const help = await runServerJs(['--help'], { DIL: 'en' })
+      assert.equal(help.code, 1)
+      assert.match(help.stderr, /node server\.js reset-password <username>/)
+      assert.match(help.stderr, /node server\.js sifre-sifirla <username>/)
+      const next = await h.startServer({}, ctx.root)
+      try {
+        h.expectStatus(await h.login(next, 'ayse.yilmaz', match[1]), 200)
+      } finally {
+        await next.stop()
+      }
+    } finally {
+      h.removeRoot(ctx.root)
+    }
+  })
+
+  it('bozuk veri dosyası hatası konsol dilinde', async () => {
+    const root = h.makeRoot()
+    try {
+      const dataDir = path.join(root, 'veri')
+      fs.mkdirSync(dataDir, { recursive: true })
+      fs.writeFileSync(path.join(dataDir, 'state.json'), '{bozuk')
+      const port = await freePort()
+      const result = await runServerJs([], { DIL: 'en', DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1' })
+      assert.equal(result.code, 1)
+      assert.match(result.stderr, /^Error: The data file is corrupt: /)
+      assert.equal(fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8'), '{bozuk')
+    } finally {
       h.removeRoot(root)
     }
   })

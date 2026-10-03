@@ -1,6 +1,6 @@
 'use strict'
 
-// Rol yetkileri matrisi (SPEC-V2 3.5 tablosunun her satırı), kanal işlemleri ve ayarlar.
+// Rol yetkileri matrisi (yetki tablosunun her satırı), kanal işlemleri ve ayarlar.
 
 const { describe, it, before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -12,10 +12,10 @@ const KID = '0123456789abcdef'
 async function community (options) {
   const ctx = await h.startServer(options)
   const owner = await h.setupOwner(ctx)
-  const admin = await h.addUser(ctx, owner.token, 'Yönetici')
-  const admin2 = await h.addUser(ctx, owner.token, 'Yönetici İki')
-  const member = await h.addUser(ctx, owner.token, 'Üye')
-  const member2 = await h.addUser(ctx, owner.token, 'Üye İki')
+  const admin = await h.addUser(ctx, owner.token, 'yonetici')
+  const admin2 = await h.addUser(ctx, owner.token, 'yonetici2')
+  const member = await h.addUser(ctx, owner.token, 'uye')
+  const member2 = await h.addUser(ctx, owner.token, 'uye2')
   await h.makeAdmin(ctx, owner.token, admin.user.id)
   await h.makeAdmin(ctx, owner.token, admin2.user.id)
   return { ctx, owner, admin, admin2, member, member2 }
@@ -149,11 +149,11 @@ describe('rol yetkileri matrisi', () => {
     h.expectStatus(await ban(c.admin, c.member2, true), 200)
     h.expectStatus(await ban(c.admin, c.member2, false), 200)
     h.expectStatus(await ban(c.owner, c.admin2, true), 200)
-    h.expectStatus(await h.login(ctx, 'Yönetici İki'), 403, 'banned')
+    h.expectStatus(await h.login(ctx, 'yonetici2'), 403, 'banned')
     // Yönetici, engelli bir yöneticinin engelini de kaldıramaz
     h.expectStatus(await ban(c.admin, c.admin2, false), 403, 'forbidden')
     h.expectStatus(await ban(c.owner, c.admin2, false), 200)
-    const again = await h.login(ctx, 'Yönetici İki')
+    const again = await h.login(ctx, 'yonetici2')
     h.expectStatus(again, 200)
     c.admin2.token = again.data.token
   })
@@ -165,7 +165,7 @@ describe('rol yetkileri matrisi', () => {
     h.expectStatus(await h.post(ctx, '/api/users/reset-password', c.owner.token, { userId: c.owner.user.id }), 403, 'forbidden')
     const res = await h.post(ctx, '/api/users/reset-password', c.owner.token, { userId: c.admin2.user.id })
     h.expectStatus(res, 200)
-    const relog = await h.login(ctx, 'Yönetici İki', res.data.tempPassword)
+    const relog = await h.login(ctx, 'yonetici2', res.data.tempPassword)
     h.expectStatus(relog, 200)
   })
 })

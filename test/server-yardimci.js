@@ -18,7 +18,23 @@ const SETUP_CODE = 'ABCDE-FGHJK'
 const PASSWORD = 'parola-123'
 const SECRET_TEXT = 'GIZLI-ICERIK-SUNULMAMALI'
 
+// İstemci ve sunucu testlerinin birlikte kullandığı ortak türetme test vektörü
+const VECTOR = {
+  password: 'Parola-\u00d6rnek 1',
+  saltHex: '000102030405060708090a0b0c0d0e0f',
+  saltB64url: 'AAECAwQFBgcICQoLDA0ODw',
+  N: 16384,
+  master: '85a938adac85194b58a6154560b1349e3109149f45a5bc687f04a3d84ff1dbf6',
+  authKey: 'ddfe2a33db778dcc5ab649cabff09f25e8b1a4aa32d62d4b36ac75e591245595',
+  wrapKey: 'fdb8d3c6f1cf1ab6e1fdecef82533767ee48e009c6f4a870b35241e002cf5dc9'
+}
+
+// Testlerde kayıt olan hesapların istemci tarafı türetme ayarları (sunucunun kabul ettiği en düşük N)
+const KDF = Object.freeze({ salt: VECTOR.saltB64url, N: 16384, r: 8, p: 1 })
+
 const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+// woff2 dosyalarının ilk baytları ('wOF2')
+const WOFF2_BYTES = Buffer.from('774f4632000100000000', 'hex')
 
 const FIXTURE = {
   'index.html': '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Telsiz</title></head><body>deneme</body></html>\n',
@@ -34,6 +50,18 @@ const FIXTURE = {
   'icons/apple-touch-icon.png': PNG_BYTES,
   'vendor/nacl-fast.min.js': '// nacl\n',
   'vendor/TWEETNACL-LICENSE.txt': 'Unlicense\n',
+  'vendor/scrypt.js': '// scrypt\n',
+  'vendor/SCRYPT-JS-LICENSE.txt': 'MIT\n',
+  'i18n.js': "'use strict'\n",
+  'theme-init.js': "'use strict'\n",
+  'js/ayarlar.js': "'use strict'\n",
+  'js/ses-paneli-2.js': "'use strict'\n",
+  'js/gizli.txt': SECRET_TEXT,
+  'js/alt/ic.js': SECRET_TEXT,
+  'fonts/inter-latin-ext.woff2': WOFF2_BYTES,
+  'fonts/OFL.txt': 'SIL Open Font License\n',
+  'fonts/Lisans-2.txt': 'Lisans\n',
+  'fonts/gizli.js': SECRET_TEXT,
   'gizli.txt': SECRET_TEXT
 }
 
@@ -50,7 +78,53 @@ const TEST_DEFAULTS = {
   messageLimit: 100000,
   uploadLimit: 100000,
   adminLimit: 100000,
-  signalLimit: 100000
+  signalLimit: 100000,
+  friendRequestLimit: 100000
+}
+
+// İstemci türetmesinin testlerdeki bağımsız Node uygulaması
+function deriveKeys (password, saltB64url, n) {
+  const master = crypto.scryptSync(Buffer.from(password.normalize('NFC'), 'utf8'), Buffer.from(saltB64url, 'base64url'), 32, {
+    N: n || 16384,
+    r: 8,
+    p: 1,
+    maxmem: 128 * 1024 * 1024
+  })
+  const domain = (label) => crypto.createHash('sha512').update(Buffer.from(label, 'utf8')).update(master).digest().subarray(0, 32).toString('hex')
+  return { master: master.toString('hex'), authKey: domain('telsiz-auth-v1'), wrapKey: domain('telsiz-wrap-v1') }
+}
+
+const derived = new Map()
+function authKeyFor (password, saltB64url, n) {
+  const salt = saltB64url || KDF.salt
+  const key = [password, salt, n || 16384].join('|')
+  if (!derived.has(key)) derived.set(key, deriveKeys(password, salt, n).authKey)
+  return derived.get(key)
+}
+
+function b64urlRandom (bytes) {
+  return crypto.randomBytes(bytes).toString('base64url')
+}
+
+// Sunucunun kabul ettiği biçimde rastgele açık anahtar ve sarılmış özel anahtar
+function keyPair () {
+  return { publicKey: b64urlRandom(32), wrappedKey: '1w.' + b64urlRandom(24) + '.' + b64urlRandom(48) }
+}
+
+// Kayıt gövdesi: kullanıcı adı, authKey, türetme ayarları ve anahtarlar
+function registerBody (name, opts) {
+  const o = opts || {}
+  const keys = keyPair()
+  const body = {
+    name,
+    authKey: authKeyFor(o.password || PASSWORD),
+    kdf: KDF,
+    publicKey: keys.publicKey,
+    wrappedKey: keys.wrappedKey
+  }
+  if (o.setupCode !== undefined) body.setupCode = o.setupCode
+  if (o.inviteCode !== undefined) body.inviteCode = o.inviteCode
+  return Object.assign(body, o.extra || {})
 }
 
 function makeRoot () {
@@ -201,7 +275,7 @@ function expectStatus (res, status, code) {
 }
 
 async function setupOwner (ctx, name) {
-  const res = await post(ctx, '/api/register', null, { name: name || 'Sahip', password: PASSWORD, setupCode: SETUP_CODE })
+  const res = await post(ctx, '/api/register', null, registerBody(name || 'sahip', { setupCode: SETUP_CODE }))
   expectStatus(res, 200)
   return res.data
 }
@@ -220,13 +294,18 @@ async function inviteCodeOf (ctx, staffToken) {
 
 async function addUser (ctx, ownerToken, name, password) {
   const inviteCode = await inviteCodeOf(ctx, ownerToken)
-  const res = await post(ctx, '/api/register', null, { name, password: password || PASSWORD, inviteCode })
+  const res = await post(ctx, '/api/register', null, registerBody(name, { password, inviteCode }))
   expectStatus(res, 200)
   return res.data
 }
 
-async function login (ctx, name, password) {
-  return post(ctx, '/api/login', null, { name, password: password || PASSWORD })
+// İstemcinin giriş akışı: ön giriş, paroladan authKey türetme, giriş
+async function login (ctx, name, password, headers) {
+  const pre = await request(ctx, 'POST', '/api/prelogin', { headers, body: { name } })
+  expectStatus(pre, 200)
+  const kdf = pre.data.kdf
+  const authKey = authKeyFor(password || PASSWORD, kdf.salt, kdf.N)
+  return request(ctx, 'POST', '/api/login', { headers, body: { name, authKey } })
 }
 
 async function makeAdmin (ctx, ownerToken, userId) {
@@ -240,6 +319,11 @@ function b64url (bytes) {
 // Sunucunun kabul ettiği biçimde rastgele bir E2EE zarfı (içerik sunucu için opaktır)
 function envelope (extra) {
   return '1.' + crypto.randomBytes(8).toString('hex') + '.' + b64url(24) + '.' + b64url(18 + (extra || 0))
+}
+
+// Özel mesaj zarfı: '2.' + nonce + '.' + kutu
+function dmEnvelope (extra) {
+  return '2.' + b64url(24) + '.' + b64url(18 + (extra || 0))
 }
 
 async function sendMessage (ctx, token, channelId, opts) {
@@ -283,16 +367,17 @@ async function waitFor (check, opts) {
 
 // Bir oturumun poll durumunu izleyen istemci
 function poller (ctx, token, initial) {
-  const st = { boot: initial.boot, seq: initial.seq, mv: initial.metaVersion, sig: initial.sigSeq }
+  const st = { boot: initial.boot, seq: initial.seq, mv: initial.metaVersion, pmv: initial.pmv, sig: initial.sigSeq }
   return {
     st,
     url () {
-      return '/api/poll?since=' + st.seq + '&mv=' + st.mv + '&sig=' + st.sig + '&boot=' + st.boot
+      return '/api/poll?since=' + st.seq + '&mv=' + st.mv + '&pmv=' + st.pmv + '&sig=' + st.sig + '&boot=' + st.boot
     },
     apply (data) {
       st.boot = data.boot
       st.seq = data.seq
       if (data.meta) st.mv = data.metaVersion
+      if (data.private) st.pmv = data.pmv
       for (const s of data.signals || []) {
         if (s.seq > st.sig) st.sig = s.seq
       }
@@ -321,6 +406,13 @@ module.exports = {
   SETUP_CODE,
   PASSWORD,
   SECRET_TEXT,
+  VECTOR,
+  KDF,
+  deriveKeys,
+  authKeyFor,
+  keyPair,
+  registerBody,
+  dmEnvelope,
   makeRoot,
   removeRoot,
   startServer,

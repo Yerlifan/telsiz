@@ -1,7 +1,10 @@
 'use strict'
 
-// Gerçek zamanlı merkez (SPEC-V2 3.6 ve 3.8): varlık, olay halkası, meta sürümü,
-// bekleyen long-poll istekleri, ses kadroları ve ses sinyal kuyrukları.
+// Gerçek zamanlı merkez: varlık ve durum, olay halkası, meta sürümü, kişiye özel meta sürümleri, bekleyen long-poll istekleri, ses kadroları ve ses sinyal kuyrukları.
+// Her olay bir hedef kitle taşır: null tüm üyeler, dizi yalnızca o kullanıcı kimlikleri demektir.
+// Hedef kitlede olmayan bir kullanıcının poll yanıtına olay hiçbir zaman girmez.
+// Görünmez durumdaki kullanıcı başkalarına çevrimdışı görünür, çevrimiçi olup olmadığı meta
+// sürümünün değişmesinden de anlaşılmaz.
 // Tüm veriler bellektedir. Sunucu yeniden başlayınca bootId değişir ve istemciler resync alır.
 
 const crypto = require('node:crypto')
@@ -24,20 +27,31 @@ function memberView (rt) {
   return { userId: rt.userId, peerId: rt.peerId, muted: rt.muted, deafened: rt.deafened }
 }
 
+function visibleTo (item, userId) {
+  return item.audience === null || item.audience.includes(userId)
+}
+
 // options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession,
-//   getBase: () => ({ serverName, activeKid, channels, users }), send: (res, status, payload) => void }
+//   getBase: () => ({ serverName, activeKid, channels, users: [{ id, name, role, pv, status }] }),
+//   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
+//   send: (res, status, payload) => void }
 function createHub (options) {
   const pollTimeoutMs = options.pollTimeoutMs
   const graceMs = options.graceMs
   const eventBufferSize = options.eventBufferSize
   const maxWaitersPerSession = options.maxWaitersPerSession
   const getBase = options.getBase
+  const getPrivate = options.getPrivate
+  const isHidden = typeof options.isHidden === 'function' ? options.isHidden : () => false
   const send = options.send
   const bootId = randomHex(8)
 
   let seq = 0
+  // Öğeler: { seq, audience: null | [userId], event }
   const ring = []
   let metaVersion = 1
+  // Kişiye özel meta sürümleri (kayıt yoksa 1)
+  const privateVersions = new Map()
   let metaCache = null
   let voiceCounter = 0
   let wakeHandle = null
@@ -102,7 +116,7 @@ function createHub (options) {
       rt.active = true
       rt.peerId = newPeerId()
       byPeer.set(rt.peerId, rt)
-      if (!wasOnline) bumpMeta()
+      if (!wasOnline && !isHidden(userId)) bumpMeta()
     }
     return rt
   }
@@ -127,7 +141,7 @@ function createHub (options) {
     if (rt.peerId !== null && byPeer.get(rt.peerId) === rt) byPeer.delete(rt.peerId)
     rt.signals = []
     let changed = clearVoice(rt)
-    if (wasOnline && !isUserOnline(rt.userId)) changed = true
+    if (wasOnline && !isUserOnline(rt.userId) && !isHidden(rt.userId)) changed = true
     if (changed) bumpMeta()
   }
 
@@ -146,7 +160,7 @@ function createHub (options) {
       set.delete(rt)
       if (set.size === 0) byUser.delete(rt.userId)
     }
-    if (wasInVoice || wasOnline !== isUserOnline(rt.userId)) bumpMeta()
+    if (wasInVoice || (wasOnline !== isUserOnline(rt.userId) && !isHidden(rt.userId))) bumpMeta()
   }
 
   function sweep (now) {
@@ -183,19 +197,36 @@ function createHub (options) {
       serverName: base.serverName,
       activeKid: base.activeKid,
       channels: base.channels,
-      users: base.users.map((u) => ({ id: u.id, name: u.name, role: u.role, online: isUserOnline(u.id) })),
+      users: base.users.map(presenceView),
       voice
     }
     return metaCache
   }
 
-  function emit (event) {
+  // Başkalarına gösterilen kullanıcı: görünmez veya çevrimdışıysa online false ve status 'offline'
+  function presenceView (u) {
+    const online = u.status !== 'invisible' && isUserOnline(u.id)
+    return { id: u.id, name: u.name, role: u.role, online, status: online ? u.status : 'offline', pv: u.pv }
+  }
+
+  // audience: null (tüm üyeler) veya olayı görebilecek kullanıcı kimlikleri
+  function emit (event, audience) {
     seq++
     const stored = Object.assign({ seq }, event)
-    ring.push(stored)
+    ring.push({ seq, audience: Array.isArray(audience) ? audience.slice() : null, event: stored })
     if (ring.length > eventBufferSize) ring.splice(0, ring.length - eventBufferSize)
     scheduleWake()
     return stored
+  }
+
+  function privateVersion (userId) {
+    return privateVersions.get(userId) || 1
+  }
+
+  // Yalnızca bu kullanıcının bekleyenleri yeni kişiye özel metayı alır.
+  function bumpPrivate (userId) {
+    privateVersions.set(userId, privateVersion(userId) + 1)
+    scheduleWake()
   }
 
   // ---------------------------------------------------------------- long-poll
@@ -223,34 +254,42 @@ function createHub (options) {
       seq,
       metaVersion,
       meta: meta(),
+      pmv: privateVersion(rt.userId),
+      private: getPrivate(rt.userId),
       events: [],
       signals: pendingSignals(rt, sigFloor)
     }
   }
 
-  function emptyPayload () {
-    return { boot: bootId, seq, metaVersion, events: [], signals: [] }
+  function emptyPayload (rt) {
+    return { boot: bootId, seq, metaVersion, pmv: privateVersion(rt.userId), events: [], signals: [] }
   }
 
-  // Hazır veri yoksa null döner.
-  function readyPayload (rt, since, mv, sigFloor) {
-    if (outOfRange(since)) return resyncPayload(rt, sigFloor)
-    let events = []
-    if (since < seq) {
-      const start = since + 1 - ring[0].seq
-      events = ring.slice(start, start + MAX_EVENTS_PER_POLL)
+  // q: { since, mv, pmv, sigFloor }. Hazır veri yoksa null döner.
+  // Yanıttaki seq: en fazla 500 görünür olay döndüyse sonuncusunun seq'i, aksi halde güncel seq
+  // (kullanıcının göremediği olaylar atlanır, istemci kaldığı yerden devam eder).
+  function readyPayload (rt, q) {
+    if (outOfRange(q.since)) return resyncPayload(rt, q.sigFloor)
+    const events = []
+    let lastSeq = seq
+    if (q.since < seq) {
+      let i = q.since + 1 - ring[0].seq
+      while (i < ring.length && events.length < MAX_EVENTS_PER_POLL) {
+        if (visibleTo(ring[i], rt.userId)) events.push(ring[i].event)
+        i++
+      }
+      if (i < ring.length) lastSeq = ring[i - 1].seq
+      // Taranan olayların hiçbiri görünür değilse bekleyen bunları bir daha taramaz
+      if (events.length === 0) q.since = seq
     }
-    const sendMeta = mv !== metaVersion
-    const signals = pendingSignals(rt, sigFloor)
-    if (events.length === 0 && !sendMeta && signals.length === 0) return null
-    const payload = {
-      boot: bootId,
-      seq: events.length > 0 ? events[events.length - 1].seq : seq,
-      metaVersion,
-      events,
-      signals
-    }
+    const sendMeta = q.mv !== metaVersion
+    const pmv = privateVersion(rt.userId)
+    const sendPrivate = q.pmv !== pmv
+    const signals = pendingSignals(rt, q.sigFloor)
+    if (events.length === 0 && !sendMeta && !sendPrivate && signals.length === 0) return null
+    const payload = { boot: bootId, seq: lastSeq, metaVersion, pmv, events, signals }
     if (sendMeta) payload.meta = meta()
+    if (sendPrivate) payload.private = getPrivate(rt.userId)
     return payload
   }
 
@@ -262,13 +301,13 @@ function createHub (options) {
   }
 
   // Her bekleyen tam bir kez sonlanır: veriyle, zaman aşımıyla, istemcinin kapatmasıyla veya hata yanıtıyla.
-  function finishWaiter (w) {
+  function finishWaiter (w, ready) {
     if (w.done) return
     w.done = true
     clearTimeout(w.timer)
     removeWaiter(w)
     w.rt.lastSeen = Date.now()
-    const payload = readyPayload(w.rt, w.since, w.mv, w.sigFloor) || emptyPayload()
+    const payload = ready || readyPayload(w.rt, w) || emptyPayload(w.rt)
     send(w.res, 200, payload)
   }
 
@@ -294,17 +333,19 @@ function createHub (options) {
     wakeHandle = null
     for (const w of Array.from(waiters)) {
       if (w.done) continue
-      if (readyPayload(w.rt, w.since, w.mv, w.sigFloor) !== null) finishWaiter(w)
+      const ready = readyPayload(w.rt, w)
+      if (ready !== null) finishWaiter(w, ready)
     }
   }
 
-  // params: { since, mv, sig, boot } (sorgu dizgeleri)
+  // params: { since, mv, pmv, sig, boot } (sorgu dizgeleri)
   function poll (rt, params, res) {
     const now = Date.now()
     rt.lastSeen = now
     const bootOk = params.boot === bootId
     const since = parseCounter(params.since)
     const mv = parseCounter(params.mv)
+    const pmv = parseCounter(params.pmv)
     const sig = parseCounter(params.sig)
     // Sinyal onayı yalnızca aynı açılışın sıra numaraları için geçerlidir
     let sigFloor = 0
@@ -316,14 +357,15 @@ function createHub (options) {
       send(res, 200, resyncPayload(rt, sigFloor))
       return
     }
-    const ready = readyPayload(rt, since, mv, sigFloor)
+    const q = { since, mv, pmv, sigFloor }
+    const ready = readyPayload(rt, q)
     if (ready || closed) {
-      send(res, 200, ready || emptyPayload())
+      send(res, 200, ready || emptyPayload(rt))
       return
     }
     if (res.writableEnded || res.destroyed) return
     while (rt.waiters.length >= maxWaitersPerSession) finishWaiter(rt.waiters[0])
-    const w = { rt, since, mv, sigFloor, res, timer: null, done: false }
+    const w = { rt, since: q.since, mv, pmv, sigFloor, res, timer: null, done: false }
     w.timer = setTimeout(() => finishWaiter(w), pollTimeoutMs)
     if (typeof w.timer.unref === 'function') w.timer.unref()
     rt.waiters.push(w)
@@ -422,6 +464,8 @@ function createHub (options) {
     getSeq: () => seq,
     getMetaVersion: () => metaVersion,
     meta,
+    privateVersion,
+    bumpPrivate,
     touch,
     runtime,
     removeSession,

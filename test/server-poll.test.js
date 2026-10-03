@@ -1,6 +1,6 @@
 'use strict'
 
-// Long-poll (SPEC-V2 3.8): olaylar, meta sürümü, resync, seq kırpma, bekleyen kuralları ve varlık.
+// Long-poll: olaylar, meta sürümü, resync, seq kırpma, bekleyen kuralları ve varlık.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -12,7 +12,7 @@ describe('long-poll', () => {
     const ctx = await h.startServer()
     try {
       const owner = await h.setupOwner(ctx)
-      const member = await h.addUser(ctx, owner.token, 'Ayşe')
+      const member = await h.addUser(ctx, owner.token, 'ayse')
       const st = await h.stateOf(ctx, member.token)
       assert.match(st.boot, /^[0-9a-f]{16}$/)
       assert.match(st.peerId, /^[0-9a-f]{16}$/)
@@ -55,13 +55,13 @@ describe('long-poll', () => {
       const waiting = h.nextRequest(ctx.server, '/api/poll')
       const pending = p.poll()
       await waiting
-      h.expectStatus(await h.post(ctx, '/api/channels/create', owner.token, { name: 'sohbet', type: 'text' }), 200)
+      h.expectStatus(await h.post(ctx, '/api/channels/create', owner.token, { name: 'muhabbet', type: 'text' }), 200)
       const res = await pending
       assert.ok(res.data.metaVersion > st.metaVersion)
       assert.deepEqual(res.data.events, [])
-      assert.ok(res.data.meta.channels.some((c) => c.name === 'sohbet'))
+      assert.ok(res.data.meta.channels.some((c) => c.name === 'muhabbet'))
       assert.deepEqual(Object.keys(res.data.meta).sort(), ['activeKid', 'channels', 'serverName', 'users', 'voice'])
-      assert.deepEqual(res.data.meta.users, [{ id: 1, name: 'Sahip', role: 'owner', online: true }])
+      assert.deepEqual(res.data.meta.users, [{ id: 1, name: 'sahip', role: 'owner', online: true, status: 'online', pv: 0 }])
 
       // Güncel sürümle sorulunca meta gönderilmez
       const res2 = await h.get(ctx, '/api/poll?since=' + p.st.seq + '&mv=0&sig=0&boot=' + p.st.boot, owner.token)
@@ -80,7 +80,7 @@ describe('long-poll', () => {
       const started = Date.now()
       const res = await p.poll()
       assert.ok(Date.now() - started >= 120)
-      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, events: [], signals: [] })
+      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, events: [], signals: [] })
     } finally {
       await ctx.cleanup()
     }
@@ -144,7 +144,7 @@ describe('long-poll', () => {
     try {
       const owner = await h.setupOwner(ctx)
       const st = await h.stateOf(ctx, owner.token)
-      const url = '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&sig=0&boot=' + st.boot
+      const url = '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&pmv=' + st.pmv + '&sig=0&boot=' + st.boot
       const order = []
       const first = h.get(ctx, url, owner.token).then((r) => {
         order.push('first')
@@ -175,7 +175,7 @@ describe('long-poll', () => {
     try {
       const owner = await h.setupOwner(ctx)
       const st = await h.stateOf(ctx, owner.token)
-      const url = '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&sig=0&boot=' + st.boot
+      const url = '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&pmv=' + st.pmv + '&sig=0&boot=' + st.boot
       for (const i of h.times(5)) {
         const req = http.request({ host: '127.0.0.1', port: ctx.port, path: url, headers: { 'x-token': owner.token }, agent: false })
         req.on('error', () => {})
@@ -220,7 +220,7 @@ describe('long-poll', () => {
     const ctx = await h.startServer({ pollTimeoutMs: 300, graceMs: 300 })
     try {
       const owner = await h.setupOwner(ctx)
-      const member = await h.addUser(ctx, owner.token, 'Ayşe')
+      const member = await h.addUser(ctx, owner.token, 'ayse')
       const online = async (id) => {
         const st = await h.stateOf(ctx, owner.token)
         return st.meta.users.find((u) => u.id === id).online

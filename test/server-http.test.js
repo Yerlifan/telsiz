@@ -7,7 +7,7 @@ const { describe, it, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./server-yardimci')
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 
 function assertSecurityHeaders (res) {
@@ -46,7 +46,16 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/icons/icon-512.png': 'image/png',
       '/icons/apple-touch-icon.png': 'image/png',
       '/vendor/nacl-fast.min.js': 'text/javascript; charset=utf-8',
-      '/vendor/TWEETNACL-LICENSE.txt': 'text/plain; charset=utf-8'
+      '/vendor/TWEETNACL-LICENSE.txt': 'text/plain; charset=utf-8',
+      '/vendor/scrypt.js': 'text/javascript; charset=utf-8',
+      '/vendor/SCRYPT-JS-LICENSE.txt': 'text/plain; charset=utf-8',
+      '/i18n.js': 'text/javascript; charset=utf-8',
+      '/theme-init.js': 'text/javascript; charset=utf-8',
+      '/js/ayarlar.js': 'text/javascript; charset=utf-8',
+      '/js/ses-paneli-2.js': 'text/javascript; charset=utf-8',
+      '/fonts/inter-latin-ext.woff2': 'font/woff2',
+      '/fonts/OFL.txt': 'text/plain; charset=utf-8',
+      '/fonts/Lisans-2.txt': 'text/plain; charset=utf-8'
     }
     for (const urlPath of Object.keys(expected)) {
       const res = await h.get(ctx, urlPath)
@@ -101,7 +110,41 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/manifest.json',
       '/server.js',
       '/index.htm',
-      'http://127.0.0.1/../server.js'
+      'http://127.0.0.1/../server.js',
+      // Desenle sunulan klasörler: yalnızca desene uyan, alt klasörü olmayan dosyalar
+      '/js/../server.js',
+      '/js/..%2fserver.js',
+      '/js/%2e%2e/server.js',
+      '/js/..\\server.js',
+      '/js/../gizli.txt',
+      '/js/gizli.txt',
+      '/js/alt/ic.js',
+      '/js/alt%2fic.js',
+      '/js/Ayarlar.js',
+      '/js/ayarlar.JS',
+      '/js/ayarlar.js.map',
+      '/js/.js',
+      '/js/',
+      '/js',
+      '/js/yok.js',
+      '/js/con.js',
+      '/js/ayarlar.js%00',
+      '/js/ayar_lar.js',
+      '/js/ayarlar.js/',
+      '/js//ayarlar.js',
+      '/fonts/../server.js',
+      '/fonts/gizli.js',
+      '/fonts/OFL.TXT.woff2',
+      '/fonts/Inter-Latin.woff2',
+      '/fonts/inter-latin-ext.woff',
+      '/fonts/yok.woff2',
+      '/fonts/../../gizli.txt',
+      '/fonts/%2e%2e/gizli.txt',
+      '/fonts/..txt',
+      '/fonts/O.F.L.txt',
+      '/vendor/scrypt.min.js',
+      '/vendor/../vendor/scrypt.js',
+      '/theme-init.js/'
     ]
     for (const urlPath of attempts) {
       const res = await h.get(ctx, urlPath)
@@ -109,6 +152,13 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       assert.ok(!res.text.includes(h.SECRET_TEXT), urlPath)
       assertSecurityHeaders(res)
     }
+    // 404 metni isteğin diline göre
+    assert.equal((await h.get(ctx, '/js/yok.js')).text, 'Page not found.')
+    const trMissing = await h.request(ctx, 'GET', '/js/yok.js', { headers: { 'accept-language': 'tr' } })
+    assert.equal(trMissing.text, 'Sayfa bulunamadı.')
+    const trMethod = await h.request(ctx, 'POST', '/js/ayarlar.js', { body: 'x', headers: { 'accept-language': 'tr' } })
+    assert.equal(trMethod.status, 405)
+    assert.equal(trMethod.text, 'Bu adres bu istek yöntemini desteklemiyor.')
     for (const urlPath of ['/api/uploads/../../state.json', '/api/uploads/..%2f..%2fstate.json', '/api/../server.js', '/api/uploads/../../veri/state.json']) {
       const res = await h.get(ctx, urlPath, owner.token)
       assert.equal(res.status, 404, urlPath)
@@ -130,14 +180,20 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       start_url: '/',
       scope: '/',
       display: 'standalone',
-      background_color: '#1e1f22',
-      theme_color: '#1e1f22',
-      lang: 'tr',
+      background_color: '#0f1015',
+      theme_color: '#0f1015',
+      lang: 'en',
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
       ]
     })
+    assert.equal(res.headers.vary, 'Accept-Language')
+    // Dil isteğin Accept-Language başlığından gelir
+    for (const [header, lang] of [['tr-TR,tr;q=0.9,en;q=0.8', 'tr'], ['en-US,en;q=0.9,tr;q=0.5', 'en'], ['de-DE, tr;q=0.4', 'tr']]) {
+      const localized = await h.request(ctx, 'GET', '/manifest.webmanifest', { headers: { 'accept-language': header } })
+      assert.equal(localized.data.lang, lang, header)
+    }
     h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { serverName: 'Kankalar' }), 200)
     const renamed = await h.get(ctx, '/manifest.webmanifest')
     assert.equal(renamed.data.name, 'Kankalar')
@@ -180,17 +236,18 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       assert.equal(typeof res.data.error, 'string')
       assert.ok(!res.text.includes('at '), 'yığın izi olmamalı')
     }
+    const loginBody = JSON.stringify({ name: 'sahip', authKey: h.authKeyFor(h.PASSWORD) })
     const plain = await h.request(ctx, 'POST', '/api/login', {
-      body: JSON.stringify({ name: 'Sahip', password: h.PASSWORD }),
+      body: loginBody,
       headers: { 'content-type': 'text/plain' }
     })
     h.expectStatus(plain, 200)
-    const bom = await h.request(ctx, 'POST', '/api/login', { body: '\uFEFF' + JSON.stringify({ name: 'Sahip', password: h.PASSWORD }) })
+    const bom = await h.request(ctx, 'POST', '/api/login', { body: '\uFEFF' + loginBody })
     h.expectStatus(bom, 200)
   })
 
   it('büyük JSON gövdesi 413', async () => {
-    const big = JSON.stringify({ name: 'x'.repeat(70000), password: 'y' })
+    const big = JSON.stringify({ name: 'x'.repeat(70000), authKey: 'y' })
     const res = await h.request(ctx, 'POST', '/api/login', { body: big })
     h.expectStatus(res, 413, 'too_large')
     assert.equal(res.headers.connection, 'close')
@@ -202,11 +259,15 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
     const weird = [{}, { a: 1 }, { id: { toString: 'x' } }, { id: [1] }, { id: 1e309 }, { id: -5 }, { id: '1e3' },
       { channelId: {}, body: [] }, { name: {}, type: [] }, { userId: '9'.repeat(30), role: {} },
       { to: {}, data: {} }, { muted: null, deafened: null }, { serverName: {}, activeKid: {} },
-      { oldPassword: {}, newPassword: [] }, { __proto__: { admin: true } }, { constructor: { prototype: {} } }]
+      { oldAuthKey: {}, newAuthKey: [], kdf: { salt: {}, N: [] }, wrappedKey: {} }, { authKey: 1, kdf: [], publicKey: {} },
+      { identity: {}, allowMemberDms: 'evet', ids: [] }, { __proto__: { admin: true } }, { constructor: { prototype: {} } }]
     const routes = ['/api/messages', '/api/messages/edit', '/api/messages/delete', '/api/channels/create',
       '/api/channels/update', '/api/channels/delete', '/api/users/role', '/api/users/ban',
       '/api/users/reset-password', '/api/me/password', '/api/settings', '/api/voice/join',
-      '/api/voice/state', '/api/voice/signal', '/api/voice/leave', '/api/register', '/api/login']
+      '/api/voice/state', '/api/voice/signal', '/api/voice/leave', '/api/register', '/api/login', '/api/prelogin',
+      '/api/username-available', '/api/me/keys', '/api/me/identity', '/api/me/username', '/api/me/settings',
+      '/api/friends/request', '/api/friends/accept', '/api/friends/decline', '/api/friends/remove',
+      '/api/blocks/add', '/api/blocks/remove', '/api/dms/open', '/api/me/delete']
     for (const route of routes) {
       for (const body of weird) {
         const res = await h.post(ctx, route, owner.token, body)
@@ -218,8 +279,12 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       const res = await h.get(ctx, '/api/messages' + q, owner.token)
       assert.ok(res.status < 500, q)
     }
-    for (const q of ['?since[]=1', '?since=%ZZ', '?since=1e9&mv=-1&sig=abc&boot=' + 'z'.repeat(5000)]) {
+    for (const q of ['?since[]=1', '?since=%ZZ', '?since=1e9&mv=-1&sig=abc&pmv=x&boot=' + 'z'.repeat(5000)]) {
       const res = await h.get(ctx, '/api/poll' + q, owner.token)
+      assert.ok(res.status < 500, q)
+    }
+    for (const q of ['', '?ids=', '?ids=1,,2', '?ids=%ZZ', '?ids[]=1', '?ids=-1', '?ids=' + '9'.repeat(40), '?ids=1&ids=2']) {
+      const res = await h.get(ctx, '/api/profiles' + q, owner.token)
       assert.ok(res.status < 500, q)
     }
     h.expectStatus(await h.get(ctx, '/api/state', owner.token), 200)

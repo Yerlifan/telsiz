@@ -1,11 +1,12 @@
 'use strict'
 
 // HTTP yardımcıları: güvenlik başlıkları, JSON ve metin yanıtları, sınırlı gövde okuma,
-// adres ayrıştırma ve beyaz listedeki statik dosyaların sunumu (SPEC-V2 3.7 ve 3.9).
+// adres ayrıştırma ve beyaz listedeki statik dosyaların sunumu.
+// Bu modülde kullanıcıya görünen metin yoktur, metinler çağırandan gelir.
 
 const fs = require('node:fs')
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 const DOWNLOAD_CSP = "default-src 'none'; sandbox"
 
@@ -165,22 +166,22 @@ function etagMatches (header, etag) {
   return header.split(',').some((part) => part.trim() === etag || part.trim() === '*')
 }
 
-// Beyaz listedeki bir dosyayı sunar. entry: { type, csp }
-async function serveFile (req, res, file, entry) {
+// Beyaz listedeki bir dosyayı sunar. entry: { type, csp }, notFoundText: dosya yoksa 404 metni
+async function serveFile (req, res, file, entry, notFoundText) {
   let handle = null
   try {
     try {
       handle = await fs.promises.open(file, 'r')
     } catch (err) {
       if (err && (err.code === 'ENOENT' || err.code === 'EISDIR' || err.code === 'ENOTDIR')) {
-        sendText(res, 404, 'Sayfa bulunamadı.')
+        sendText(res, 404, notFoundText)
         return
       }
       throw err
     }
     const info = await handle.stat()
     if (!info.isFile()) {
-      sendText(res, 404, 'Sayfa bulunamadı.')
+      sendText(res, 404, notFoundText)
       return
     }
     const etag = 'W/"' + info.size.toString(16) + '-' + Math.floor(info.mtimeMs).toString(16) + '"'

@@ -1,14 +1,16 @@
 'use strict'
 
-// Kimlik doğrulama yardımcıları (SPEC-V2 3.4): ad ve parola kuralları, scrypt parola karması,
-// oturum token'ları, istemci IP'si, kayan pencereli hız sınırlayıcı, kurulum ve davet kodları.
-// Bu modül hiçbir şey loglamaz.
+// Kimlik doğrulama yardımcıları: kullanıcı adı kuralları, istemci anahtar türetme parametreleri
+// ve anahtar biçimleri, scrypt karması, oturum token'ları ve cihaz etiketleri, güvenilir ters
+// vekil listesi ve istemci IP'si, kayan pencereli hız sınırlayıcı, kurulum ve davet kodları.
+// Parola sunucuya hiç gelmez. İstemci paroladan authKey türetir, sunucu yalnızca onun scrypt
+// karmasını saklar. Bu modül hiçbir şey loglamaz.
 
 const crypto = require('node:crypto')
 const net = require('node:net')
 
 const NAME_MIN = 2
-const NAME_MAX = 20
+const NAME_MAX = 32
 const CHANNEL_NAME_MIN = 1
 const CHANNEL_NAME_MAX = 30
 const SERVER_NAME_MAX = 40
@@ -18,6 +20,9 @@ const PASSWORD_MAX = 128
 const MAX_RAW_TEXT = 400
 
 const NAME_RE = /^[\p{L}\p{N}_. -]+$/u
+// Kullanıcı adı: küçük İngilizce harf, rakam, alt çizgi ve nokta
+const USERNAME_RE = /^[a-z0-9_.]{2,32}$/
+const UPPER_ASCII_RE = /[A-Z]+/g
 const CONTROL_RE = /\p{C}/gu
 const SPACE_RE = /\s+/gu
 
@@ -32,6 +37,25 @@ const SCRYPT_P = 1
 const KEY_LENGTH = 32
 const SALT_LENGTH = 16
 const SCRYPT_MAX_N = 1048576
+
+// İstemci türetmesi: sunucunun kabul ettiği parametreler
+const KDF_N_VALUES = Object.freeze([16384, 32768, 65536])
+const KDF_DEFAULT_N = 16384
+const KDF_R = 8
+const KDF_P = 1
+const KDF_SALT_BYTES = 16
+const AUTH_KEY_RE = /^[0-9a-f]{64}$/
+const AUTH_DOMAIN = 'telsiz-auth-v1'
+const B64URL_RE = /^[A-Za-z0-9_-]+$/
+const PUBLIC_KEY_BYTES = 32
+const WRAPPED_KEY_RE = /^1w\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{60,70}$/
+
+// Güvenilir vekil listesi ve X-Forwarded-For için üst sınırlar
+const MAX_PROXY_ENTRIES = 64
+const MAX_FORWARDED_CHARS = 2048
+// Oturum etiketi: User-Agent'ın yalnızca bu kadarı incelenir, etiket en fazla 60 karakterdir
+const UA_MAX_CHARS = 512
+const SESSION_LABEL_MAX = 60
 
 function codePointLength (text) {
   return Array.from(text).length
@@ -51,9 +75,15 @@ function cleanPatterned (value, min, max) {
   return text
 }
 
-// Kullanıcı adı: 2..20 kod noktası, harf, rakam, boşluk, nokta, alt çizgi, kısa çizgi
-function cleanName (value) {
-  return cleanPatterned(value, NAME_MIN, NAME_MAX)
+// Kullanıcı adı: 2..32 karakter, yalnızca a-z, 0-9, alt çizgi ve nokta, nokta ile
+// başlayamaz ve bitemez, iki nokta yan yana gelemez. İngilizce büyük harfler küçültülür
+// (yerel ayara bakılmaz), başka hiçbir dönüşüm yapılmaz. Geçersizse null.
+function cleanUsername (value) {
+  if (typeof value !== 'string' || value.length > 64) return null
+  const name = value.replace(UPPER_ASCII_RE, (part) => part.toLowerCase())
+  if (!USERNAME_RE.test(name)) return null
+  if (name.startsWith('.') || name.endsWith('.') || name.includes('..')) return null
+  return name
 }
 
 // Kanal adı: ad kurallarıyla aynı temizlik, 1..30 kod noktası
@@ -75,10 +105,33 @@ function nameKey (name) {
   return String(name).toLocaleLowerCase('tr-TR')
 }
 
-function isValidPassword (value) {
-  if (typeof value !== 'string' || value.length > PASSWORD_MAX * 2) return false
-  const length = codePointLength(value)
-  return length >= PASSWORD_MIN && length <= PASSWORD_MAX
+// Dolgusuz base64url dizgesi tam olarak verilen sayıda bayt taşıyorsa ve kanonik biçimdeyse true
+function isB64urlBytes (value, bytes) {
+  if (typeof value !== 'string' || value.length !== Math.ceil(bytes * 4 / 3) || !B64URL_RE.test(value)) return false
+  const decoded = Buffer.from(value, 'base64url')
+  return decoded.length === bytes && decoded.toString('base64url') === value
+}
+
+function isAuthKey (value) {
+  return typeof value === 'string' && AUTH_KEY_RE.test(value)
+}
+
+// Türetme ayarları: { salt: b64url(16 bayt), N: 16384 | 32768 | 65536, r: 8, p: 1 }. Temiz kopya veya null.
+function cleanKdf (value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  if (!isB64urlBytes(value.salt, KDF_SALT_BYTES)) return null
+  if (!KDF_N_VALUES.includes(value.N) || value.r !== KDF_R || value.p !== KDF_P) return null
+  return { salt: value.salt, N: value.N, r: KDF_R, p: KDF_P }
+}
+
+// X25519 açık anahtarı: 32 bayt, dolgusuz base64url (43 karakter)
+function isPublicKey (value) {
+  return isB64urlBytes(value, PUBLIC_KEY_BYTES)
+}
+
+// Parolayla sarılmış özel anahtar: '1w.' + b64url(nonce) + '.' + b64url(secretbox)
+function isWrappedKey (value) {
+  return typeof value === 'string' && WRAPPED_KEY_RE.test(value)
 }
 
 function passwordBytes (password) {
@@ -101,7 +154,7 @@ function isPowerOfTwo (n) {
 
 // Biçim: scrypt$N$r$p$tuzB64$karmaB64
 async function hashPassword (password, n) {
-  if (!isPowerOfTwo(n) || n > SCRYPT_MAX_N) throw new TypeError('hashPassword: N ikinin kuvveti olmalıdır.')
+  if (!isPowerOfTwo(n) || n > SCRYPT_MAX_N) throw new TypeError('hashPassword: N must be a power of two.')
   const salt = crypto.randomBytes(SALT_LENGTH)
   const key = await scryptAsync(passwordBytes(password), salt, n, SCRYPT_R, SCRYPT_P)
   return ['scrypt', n, SCRYPT_R, SCRYPT_P, salt.toString('base64'), key.toString('base64')].join('$')
@@ -135,6 +188,45 @@ async function verifyPassword (password, stored) {
   return equal && typeof password === 'string'
 }
 
+// İstemcinin yaptığı türetmenin Node karşılığı:
+// master = scrypt(utf8(NFC(parola)), tuz, N, r=8, p=1, 32 bayt)
+// authKey = hex(SHA512(utf8('telsiz-auth-v1') ‖ master) ilk 32 bayt)
+// Sarma anahtarı burada hiç hesaplanmaz.
+async function deriveAuthKey (password, salt, n) {
+  if (!KDF_N_VALUES.includes(n)) throw new TypeError('deriveAuthKey: unsupported N.')
+  if (!Buffer.isBuffer(salt) || salt.length !== KDF_SALT_BYTES) throw new TypeError('deriveAuthKey: the salt must be 16 bytes.')
+  const master = await scryptAsync(passwordBytes(password), salt, n, KDF_R, KDF_P)
+  const digest = crypto.createHash('sha512').update(Buffer.from(AUTH_DOMAIN, 'utf8')).update(master).digest()
+  master.fill(0)
+  return digest.subarray(0, KEY_LENGTH).toString('hex')
+}
+
+// Sahibin veya komut satırının parola sıfırlaması için geçici parola ve yeni kimlik bilgileri.
+// İstemci geçici parolayla giriş yaparken aynı türetmeyi yapar ve aynı authKey'i bulur.
+// serverN: sunucunun authKey'i saklarken kullandığı scrypt N değeri.
+async function newCredentials (serverN) {
+  const tempPassword = generateTempPassword()
+  const salt = crypto.randomBytes(KDF_SALT_BYTES)
+  const authKey = await deriveAuthKey(tempPassword, salt, KDF_DEFAULT_N)
+  const passHash = await hashPassword(authKey, serverN)
+  return {
+    tempPassword,
+    kdf: { salt: salt.toString('base64url'), N: KDF_DEFAULT_N, r: KDF_R, p: KDF_P },
+    passHash
+  }
+}
+
+// Var olmayan kullanıcı için ön giriş tuzu: HMAC-SHA256(sunucuSırrı, 'prelogin:' + ad) ilk 16 bayt.
+// Aynı ad için her zaman aynıdır, böylece var olan ve olmayan hesaplar ayırt edilemez.
+function preloginSalt (secretHex, name) {
+  const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin:' + name, 'utf8').digest()
+  return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
+}
+
+function newServerSecret () {
+  return crypto.randomBytes(32).toString('hex')
+}
+
 function newToken () {
   return crypto.randomBytes(32).toString('base64url')
 }
@@ -145,6 +237,60 @@ function hashToken (token) {
 
 function sha256 (text) {
   return crypto.createHash('sha256').update(text, 'utf8').digest()
+}
+
+// ---------------------------------------------------------------- oturum etiketi
+
+// Sıra önemlidir: daha özel eşleşmeler önce gelir
+const UA_DEVICES = [
+  { re: /PlayStation 5/, label: 'PlayStation 5' },
+  { re: /PlayStation 4/, label: 'PlayStation 4' },
+  { re: /PlayStation/, label: 'PlayStation' },
+  { re: /Nintendo Switch/, label: 'Nintendo Switch' }
+]
+const UA_SYSTEMS = [
+  { re: /iPad/, label: 'iPad' },
+  { re: /iPhone|iPod/, label: 'iPhone' },
+  { re: /Android/, label: 'Android' },
+  { re: /CrOS/, label: 'ChromeOS' },
+  { re: /Xbox/, label: 'Xbox' },
+  { re: /Windows/, label: 'Windows' },
+  { re: /Macintosh|Mac OS X/, label: 'macOS' },
+  { re: /Linux|X11/, label: 'Linux' }
+]
+const UA_BROWSERS = [
+  { re: /Edg(e|A|iOS)?\//, label: 'Edge' },
+  { re: /OPR\/|OPT\/|Opera/, label: 'Opera' },
+  { re: /SamsungBrowser\//, label: 'Samsung Internet' },
+  { re: /YaBrowser\//, label: 'Yandex' },
+  { re: /Firefox\/|FxiOS\//, label: 'Firefox' },
+  { re: /Chrome\/|CriOS\/|Chromium\//, label: 'Chrome' },
+  { re: /Version\/[\d.]+.*Safari\//, label: 'Safari' }
+]
+
+function firstMatch (table, text) {
+  for (const entry of table) {
+    if (entry.re.test(text)) return entry.label
+  }
+  return null
+}
+
+// User-Agent'tan dil bağımsız kısa cihaz etiketi (ör. "Chrome, Windows", "Safari, iPhone",
+// "PlayStation 5"). Tanınmazsa null döner, istemci kendi dilinde "Bilinmeyen cihaz" gösterir.
+// User-Agent'ın kendisi hiçbir yerde saklanmaz.
+function sessionLabel (userAgent) {
+  if (typeof userAgent !== 'string' || userAgent === '') return null
+  const ua = userAgent.slice(0, UA_MAX_CHARS)
+  const device = firstMatch(UA_DEVICES, ua)
+  if (device !== null) return device
+  const parts = [firstMatch(UA_BROWSERS, ua), firstMatch(UA_SYSTEMS, ua)].filter((part) => part !== null)
+  if (parts.length === 0) return null
+  return parts.join(', ').slice(0, SESSION_LABEL_MAX)
+}
+
+// Diskten okunan oturum etiketinin geçerli olup olmadığı
+function isSessionLabel (value) {
+  return typeof value === 'string' && value !== '' && value.length <= SESSION_LABEL_MAX && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
 // ---------------------------------------------------------------- istemci IP'si
@@ -168,19 +314,99 @@ function headerIp (value) {
   return normalizeIp(text)
 }
 
-// Soket loopback ise (tünel veya ters vekil) cf-connecting-ip, yoksa x-forwarded-for ilk girdisi.
-function clientIp (req) {
+// Güvenilir ters vekil listesi: 'loopback' (127.0.0.0/8 ve ::1), 'none' (hiçbiri), IP adresleri
+// ve CIDR aralıkları (ör. 10.0.0.0/8, fd00::/8). Virgülle ayrılmış metin veya dizi kabul edilir.
+// Geçerliyse temizlenmiş girdi dizisi, değilse null döner. Boş girdi varsayılan ['loopback'] olur.
+function parseTrustedProxies (value) {
+  let list
+  if (Array.isArray(value)) list = value
+  else if (typeof value === 'string') list = value.split(',')
+  else return null
+  if (list.length > MAX_PROXY_ENTRIES) return null
+  const out = []
+  for (const raw of list) {
+    if (typeof raw !== 'string') return null
+    const entry = raw.trim().toLowerCase()
+    if (entry === '') continue
+    if (entry === 'loopback' || entry === 'none') {
+      out.push(entry)
+      continue
+    }
+    const slash = entry.indexOf('/')
+    const address = normalizeIp(slash === -1 ? entry : entry.slice(0, slash))
+    const family = net.isIP(address)
+    if (family === 0) return null
+    if (slash === -1) {
+      out.push(address)
+      continue
+    }
+    const bitsText = entry.slice(slash + 1)
+    const bits = /^\d{1,3}$/.test(bitsText) ? Number(bitsText) : -1
+    if (bits < 0 || bits > (family === 4 ? 32 : 128)) return null
+    out.push(address + '/' + bits)
+  }
+  if (out.length === 0) return ['loopback']
+  if (out.includes('none') && out.length > 1) return null
+  return out
+}
+
+// Ayrıştırılmış listeden adres denetleyicisi: (ip) => boolean
+function trustPolicy (entries) {
+  const list = parseTrustedProxies(entries)
+  if (list === null) throw new TypeError('trustPolicy: invalid trusted proxy list.')
+  const block = new net.BlockList()
+  for (const entry of list) {
+    if (entry === 'none') continue
+    if (entry === 'loopback') {
+      block.addSubnet('127.0.0.0', 8, 'ipv4')
+      block.addAddress('::1', 'ipv6')
+      continue
+    }
+    const slash = entry.indexOf('/')
+    const address = slash === -1 ? entry : entry.slice(0, slash)
+    const type = net.isIPv4(address) ? 'ipv4' : 'ipv6'
+    if (slash === -1) block.addAddress(address, type)
+    else block.addSubnet(address, Number(entry.slice(slash + 1)), type)
+  }
+  return (ip) => {
+    const address = normalizeIp(ip)
+    const family = net.isIP(address)
+    if (family === 0) return false
+    return block.check(address, family === 4 ? 'ipv4' : 'ipv6')
+  }
+}
+
+// İstemci IP'si. Bağlantı güvenilir bir vekilden gelmiyorsa soket adresi kullanılır, başlıklara
+// bakılmaz. Geliyorsa X-Forwarded-For sağdan sola okunur ve güvenilir olmayan ilk adres alınır
+// (istemcinin kendi eklediği sahte girdiler solda kalır). Bozuk bir girdiye rastlanırsa daha
+// solundakilere güvenilmez. X-Forwarded-For kullanılamıyorsa CF-Connecting-IP, o da yoksa soket adresi.
+// trusts verilmezse yalnızca loopback güvenilirdir.
+function clientIp (req, trusts) {
   const socket = req && req.socket
   const remote = normalizeIp(socket && socket.remoteAddress ? socket.remoteAddress : '')
-  if (isLoopback(remote)) {
-    const cf = headerIp(req.headers['cf-connecting-ip'])
-    if (cf) return cf
-    const forwarded = req.headers['x-forwarded-for']
-    if (typeof forwarded === 'string') {
-      const first = headerIp(forwarded.split(',')[0])
-      if (first) return first
+  const isTrusted = typeof trusts === 'function' ? trusts : isLoopback
+  if (!isTrusted(remote)) return remote
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded === 'string') {
+    // Çok uzun başlığın yalnızca sonu okunur (gerçek adres sağdadır). Kesilen ilk parça
+    // geçerli ama yanlış bir adres gibi görünebileceği için atılır.
+    const truncated = forwarded.length > MAX_FORWARDED_CHARS
+    const parts = (truncated ? forwarded.slice(-MAX_FORWARDED_CHARS) : forwarded).split(',')
+    if (truncated) parts.shift()
+    let i = parts.length - 1
+    let leftmost = null
+    while (i >= 0) {
+      const ip = headerIp(parts[i])
+      if (ip === null) break
+      if (!isTrusted(ip)) return ip
+      leftmost = ip
+      i--
     }
+    // Zincirdeki tüm adresler güvenilir vekillerse en soldaki istemcidir
+    if (i < 0 && leftmost !== null && !truncated) return leftmost
   }
+  const cf = headerIp(req.headers['cf-connecting-ip'])
+  if (cf) return cf
   return remote
 }
 
@@ -202,7 +428,7 @@ function ipv6Prefix (ip) {
 
 function ipKey (ip) {
   if (net.isIPv6(ip)) return ipv6Prefix(ip)
-  return ip || 'bilinmiyor'
+  return ip || 'unknown'
 }
 
 // ---------------------------------------------------------------- hız sınırlayıcı
@@ -321,17 +547,30 @@ module.exports = {
   SERVER_NAME_MAX,
   PASSWORD_MIN,
   PASSWORD_MAX,
+  KDF_N_VALUES,
+  KDF_DEFAULT_N,
   codePointLength,
-  cleanName,
+  cleanUsername,
   cleanChannelName,
   cleanServerName,
   nameKey,
-  isValidPassword,
+  isAuthKey,
+  cleanKdf,
+  isPublicKey,
+  isWrappedKey,
+  deriveAuthKey,
+  newCredentials,
+  preloginSalt,
+  newServerSecret,
   hashPassword,
   verifyPassword,
   parseHash,
   newToken,
   hashToken,
+  sessionLabel,
+  isSessionLabel,
+  parseTrustedProxies,
+  trustPolicy,
   clientIp,
   ipKey,
   RateLimiter,

@@ -9,8 +9,8 @@ const h = require('./server-yardimci')
 async function threeUsers (options) {
   const ctx = await h.startServer(options)
   const owner = await h.setupOwner(ctx)
-  const ayse = await h.addUser(ctx, owner.token, 'Ayşe')
-  const mehmet = await h.addUser(ctx, owner.token, 'Mehmet')
+  const ayse = await h.addUser(ctx, owner.token, 'ayse')
+  const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
   return { ctx, owner, ayse, mehmet }
 }
 
@@ -83,7 +83,7 @@ describe('ses kanalları', () => {
   it('tek oturum kuralı: aynı kullanıcı başka oturumdan katılınca önceki oturum çıkar', async () => {
     const { ctx, owner, ayse } = await threeUsers()
     try {
-      const phone = await h.login(ctx, 'Ayşe')
+      const phone = await h.login(ctx, 'ayse')
       const pcState = await h.stateOf(ctx, ayse.token)
       const phoneState = await h.stateOf(ctx, phone.data.token)
       assert.notEqual(pcState.peerId, phoneState.peerId)

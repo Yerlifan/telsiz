@@ -1,11 +1,13 @@
 'use strict'
 
-// Kalıcılık katmanı (SPEC-V2 3.3 ve Ek A1).
+// Kalıcılık katmanı.
 // state.json atomik yazılır, mesajlar kanal başına JSONL günlüğünde, yüklemeler uploads/<id>.bin dosyalarında tutulur.
 // Mesaj gövdeleri sunucu için opak E2EE zarflarıdır, bu katman içeriklerini hiçbir zaman loglamaz.
+// İşletmecinin göreceği hata ve uyarı metinleri lang seçeneğindeki dilde üretilir (varsayılan tr).
 
 const fs = require('fs')
 const path = require('path')
+const i18n = require('./i18n')
 
 // Testlerin Windows hatalarını taklit edebilmesi için fs.promises üyeleri her çağrıda bu nesneden okunur.
 const fsp = fs.promises
@@ -32,6 +34,7 @@ const DIR_MODE = 0o700
 const FILE_MODE = 0o600
 const ARRAY_FIELDS = ['users', 'sessions', 'channels', 'uploads']
 const COUNTER_FIELDS = ['user', 'channel', 'message']
+const DEFAULT_LANG = 'tr'
 
 class StoreError extends Error {
   constructor (message, code, cause) {
@@ -73,15 +76,15 @@ function retryDelay (failures) {
   return Math.min(MAX_RETRY_DELAY_MS, 100 * Math.pow(2, Math.min(failures, 6)))
 }
 
-function errText (err) {
-  if (!err) return 'bilinmeyen hata'
+function errText (err, lang) {
+  if (!err) return i18n.t(lang, 'store.unknownError')
   if (err.code && err.message) return err.code + ' (' + err.message + ')'
   return String(err.message || err)
 }
 
-function ioError (err) {
+function ioError (err, lang) {
   if (err instanceof StoreError) return err
-  return new StoreError('Veri klasörüne erişilemedi: ' + errText(err), 'io', err)
+  return new StoreError(i18n.t(lang, 'store.ioError', { error: errText(err, lang) }), 'io', err)
 }
 
 function makeLogger (log) {
@@ -193,6 +196,7 @@ function lockInfo (dir) {
   return { path: file, exists: true, pid, alive: pid !== null && isPidAlive(pid) }
 }
 
+// Boş durum iskeleti. Sunucu adı burada kullanılmaz, uygulama ilk durumu kendi değerleriyle oluşturur.
 function emptyState () {
   return {
     version: STATE_VERSION,
@@ -228,13 +232,13 @@ function normalizeState (raw) {
   return raw
 }
 
-async function readStateFile (file) {
+async function readStateFile (file, lang) {
   let text
   try {
     text = await fsp.readFile(file, 'utf8')
   } catch (err) {
     if (err && err.code === 'ENOENT') return { kind: 'missing' }
-    throw ioError(err)
+    throw ioError(err, lang)
   }
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   let raw
@@ -250,11 +254,11 @@ async function readStateFile (file) {
   return state ? { kind: 'ok', state } : { kind: 'corrupt' }
 }
 
-function versionError (version) {
-  return new StoreError('Veri dosyasının sürümü (' + version + ') bu sunucu sürümüyle uyumlu değil. Verilerinizi korumak için hiçbir dosyaya yazılmadı.', 'version')
+function versionError (version, lang) {
+  return new StoreError(i18n.t(lang, 'store.versionMismatch', { version }), 'version')
 }
 
-// Mesaj nesnesini doğrular ve yalnızca şartnamedeki alanlarla yeni bir kopya döner, geçersizse null.
+// Mesaj nesnesini doğrular ve yalnızca tanımlı alanlarla yeni bir kopya döner, geçersizse null.
 function cleanMessage (m) {
   if (!isPlainObject(m)) return null
   if (!isId(m.id) || !isId(m.channelId) || !isId(m.authorId)) return null
@@ -354,8 +358,9 @@ async function scanLines (file, onLine) {
 
 async function openStore (options) {
   const opts = isPlainObject(options) ? options : {}
-  if (typeof opts.dir !== 'string' || opts.dir === '') throw new TypeError('openStore: dir seçeneği zorunludur.')
+  if (typeof opts.dir !== 'string' || opts.dir === '') throw new TypeError('openStore: the dir option is required.')
   const dir = path.resolve(opts.dir)
+  const lang = i18n.LANGS.includes(opts.lang) ? opts.lang : DEFAULT_LANG
   const maxPerChannel = posInt(opts.maxMessagesPerChannel, DEFAULT_MAX_PER_CHANNEL)
   const compactMinLines = posInt(opts.compactMinLines, DEFAULT_COMPACT_MIN_LINES)
   const log = makeLogger(opts.log)
@@ -391,32 +396,32 @@ async function openStore (options) {
   try {
     lock = lockInfo(dir)
   } catch (err) {
-    throw ioError(err)
+    throw ioError(err, lang)
   }
   if (lock.alive && lock.pid !== process.pid) {
-    throw new StoreError('Veri klasörü başka bir süreç tarafından kullanılıyor (PID ' + lock.pid + '). Sunucu zaten çalışıyor olabilir. Çalışmadığından eminseniz ' + lockPath + ' dosyasını silip yeniden deneyin.', 'locked')
+    throw new StoreError(i18n.t(lang, 'store.locked', { pid: lock.pid, file: lockPath }), 'locked')
   }
 
   let initialState = null
   let recoveredCorrupt = false
-  const main = await readStateFile(statePath)
+  const main = await readStateFile(statePath, lang)
   if (main.kind === 'ok') {
     initialState = main.state
   } else if (main.kind === 'version') {
-    throw versionError(main.version)
+    throw versionError(main.version, lang)
   } else {
-    const bak = await readStateFile(bakPath)
-    if (bak.kind === 'version') throw versionError(bak.version)
+    const bak = await readStateFile(bakPath, lang)
+    if (bak.kind === 'version') throw versionError(bak.version, lang)
     if (main.kind === 'missing') {
       if (bak.kind === 'ok') {
         initialState = bak.state
-        log.warn('Uyarı: ' + STATE_FILE + ' bulunamadı, yedek dosyadan (' + STATE_FILE + '.bak) yüklendi.')
+        log.warn(i18n.t(lang, 'store.recoveredMissing', { file: STATE_FILE, backup: STATE_FILE + '.bak' }))
       } else if (bak.kind === 'corrupt') {
-        throw new StoreError('Veri dosyası (' + statePath + ') bulunamadı ve yedek dosya (' + bakPath + ') bozuk. Verilerinizi korumak için hiçbir dosyaya yazılmadı. Yeni bir kurulum başlatmak istiyorsanız yedek dosyayı başka bir klasöre taşıyın.', 'corrupt')
+        throw new StoreError(i18n.t(lang, 'store.missingBackupCorrupt', { file: statePath, backup: bakPath }), 'corrupt')
       }
     } else {
       if (bak.kind !== 'ok') {
-        throw new StoreError('Veri dosyası bozuk: ' + statePath + ' okunamadı ve yedek dosya (' + bakPath + ') da kullanılamıyor. Verilerinizi korumak için hiçbir dosyaya yazılmadı. Veri klasörünü yedekleyip dosyayı elle onarın veya yedekten geri yükleyin.', 'corrupt')
+        throw new StoreError(i18n.t(lang, 'store.corrupt', { file: statePath, backup: bakPath }), 'corrupt')
       }
       initialState = bak.state
       recoveredCorrupt = true
@@ -450,7 +455,7 @@ async function openStore (options) {
   try {
     messageFiles = await fsp.readdir(messagesDir)
   } catch (err) {
-    if (!err || err.code !== 'ENOENT') throw ioError(err)
+    if (!err || err.code !== 'ENOENT') throw ioError(err, lang)
   }
   const staleTemps = []
   const channelFiles = []
@@ -463,7 +468,7 @@ async function openStore (options) {
     if (!match) continue
     const channelId = Number(match[1])
     if (!Number.isSafeInteger(channelId) || String(channelId) !== match[1]) {
-      log.warn('Uyarı: ' + MESSAGES_DIR + '/' + name + ' dosya adı geçersiz, yok sayıldı.')
+      log.warn(i18n.t(lang, 'store.badChannelFile', { file: MESSAGES_DIR + '/' + name }))
       continue
     }
     channelFiles.push(channelId)
@@ -473,7 +478,7 @@ async function openStore (options) {
     try {
       await loadChannelFile(channelId)
     } catch (err) {
-      throw ioError(err)
+      throw ioError(err, lang)
     }
   }
 
@@ -484,17 +489,17 @@ async function openStore (options) {
     await fsp.mkdir(uploadsDir, { recursive: true, mode: DIR_MODE })
     await fsp.writeFile(lockPath, process.pid + '\n', { mode: FILE_MODE })
   } catch (err) {
-    throw ioError(err)
+    throw ioError(err, lang)
   }
 
   try {
     if (recoveredCorrupt) {
       const copyName = STATE_FILE + '.bozuk-' + Date.now()
       await fsp.copyFile(statePath, path.join(dir, copyName))
-      log.warn('Uyarı: ' + STATE_FILE + ' bozuk, yedek dosyadan (' + STATE_FILE + '.bak) yüklendi. Bozuk dosyanın kopyası: ' + copyName)
+      log.warn(i18n.t(lang, 'store.recoveredCorrupt', { file: STATE_FILE, backup: STATE_FILE + '.bak', copy: copyName }))
     }
     for (const file of staleTemps) {
-      await unlinkQuiet(file).catch((err) => log.warn('Uyarı: geçici dosya silinemedi: ' + errText(err)))
+      await unlinkQuiet(file).catch((err) => log.warn(i18n.t(lang, 'store.tempRemoveFailed', { error: errText(err, lang) })))
     }
     await removeStaleUploadTemps()
     if (api.state && await reconcile()) saveState()
@@ -502,7 +507,7 @@ async function openStore (options) {
     for (const ch of channels.values()) {
       if (ch.lines > 0 && (ch.lines - ch.list.length) / ch.lines > COMPACT_RATIO) {
         requestCompact(ch)
-        jobs.push(waitChannel(ch).catch((err) => log.error('Mesaj dosyası sıkıştırılamadı (' + ch.id + '.jsonl): ' + errText(err))))
+        jobs.push(waitChannel(ch).catch((err) => log.error(i18n.t(lang, 'store.compactFailed', { file: ch.id + '.jsonl', error: errText(err, lang) }))))
       }
     }
     await Promise.all(jobs)
@@ -510,7 +515,7 @@ async function openStore (options) {
     closed = true
     clearTimers()
     await releaseLock()
-    throw ioError(err)
+    throw ioError(err, lang)
   }
 
   return api
@@ -591,8 +596,9 @@ async function openStore (options) {
     ch.list = kept
     ch.lines = lines
     ch.needsNewline = partial
-    if (bad > 0) log.warn('Uyarı: ' + MESSAGES_DIR + '/' + channelId + '.jsonl dosyasında ' + bad + ' bozuk veya yarım satır atlandı.')
-    if (duplicates > 0) log.warn('Uyarı: ' + MESSAGES_DIR + '/' + channelId + '.jsonl dosyasında başka kanalda da bulunan ' + duplicates + ' mesaj yok sayıldı.')
+    const fileName = MESSAGES_DIR + '/' + channelId + '.jsonl'
+    if (bad > 0) log.warn(i18n.t(lang, 'store.badLines', { file: fileName, count: bad }))
+    if (duplicates > 0) log.warn(i18n.t(lang, 'store.duplicateMessages', { file: fileName, count: duplicates }))
   }
 
   function applyRecord (rec, channelId, live, seen) {
@@ -646,7 +652,7 @@ async function openStore (options) {
 
   function kick (ch) {
     if (ch.running || ch.retryTimer) return
-    runChannel(ch).catch((err) => log.error('Mesaj yazım kuyruğu hatası: ' + errText(err)))
+    runChannel(ch).catch((err) => log.error(i18n.t(lang, 'store.queueError', { error: errText(err, lang) })))
   }
 
   function finishChannel (ch, seq) {
@@ -664,9 +670,9 @@ async function openStore (options) {
   function failChannel (ch, err) {
     ch.failures++
     if (ch.failures === 1 || ch.failures % 20 === 0) {
-      log.error('Mesaj dosyasına yazılamadı (' + MESSAGES_DIR + '/' + ch.id + '.jsonl): ' + errText(err) + '. Yeniden denenecek.')
+      log.error(i18n.t(lang, 'store.messageWriteFailed', { file: MESSAGES_DIR + '/' + ch.id + '.jsonl', error: errText(err, lang) }))
     }
-    const failure = new StoreError('Mesajlar diske yazılamadı: ' + errText(err), 'write_failed', err)
+    const failure = new StoreError(i18n.t(lang, 'store.messagesWriteError', { error: errText(err, lang) }), 'write_failed', err)
     const waiters = ch.waiters
     ch.waiters = []
     for (const w of waiters) w.reject(failure)
@@ -766,7 +772,7 @@ async function openStore (options) {
 
   function initState (initial) {
     assertOpen()
-    if (api.state) throw new StoreError('Durum zaten yüklü, ilk durum yeniden oluşturulamaz.', 'state_exists')
+    if (api.state) throw new StoreError('initState: the state is already loaded.', 'state_exists')
     let st
     if (initial === undefined || initial === null) {
       st = emptyState()
@@ -774,9 +780,9 @@ async function openStore (options) {
       st = initial
       if (!hasOwn(st, 'version') || st.version === undefined) st.version = STATE_VERSION
     } else {
-      throw new TypeError('initState: ilk durum bir nesne olmalıdır.')
+      throw new TypeError('initState: the initial state must be an object.')
     }
-    if (!normalizeState(st)) throw new TypeError('initState: ilk durumun yapısı geçersiz.')
+    if (!normalizeState(st)) throw new TypeError('initState: the initial state has an invalid structure.')
     if (st.counters.message < maxMessageIdSeen) st.counters.message = maxMessageIdSeen
     if (st.counters.channel < maxChannelIdSeen) st.counters.channel = maxChannelIdSeen
     api.state = st
@@ -792,7 +798,7 @@ async function openStore (options) {
 
   function onStateTimer () {
     stateTimer = null
-    runState().catch((err) => log.error('Durum yazım hatası: ' + errText(err)))
+    runState().catch((err) => log.error(i18n.t(lang, 'store.stateWriteError', { error: errText(err, lang) })))
   }
 
   async function writeStateFile (text) {
@@ -803,7 +809,7 @@ async function openStore (options) {
         try {
           await retryFs(() => fsp.copyFile(statePath, bakPath))
         } catch (err) {
-          if (!err || err.code !== 'ENOENT') log.warn('Uyarı: yedek dosya (' + STATE_FILE + '.bak) güncellenemedi: ' + errText(err))
+          if (!err || err.code !== 'ENOENT') log.warn(i18n.t(lang, 'store.backupUpdateFailed', { backup: STATE_FILE + '.bak', error: errText(err, lang) }))
         }
       }
       await renameRetry(tmp, statePath)
@@ -856,9 +862,9 @@ async function openStore (options) {
   function failState (err) {
     stateFailures++
     if (stateFailures === 1 || stateFailures % 20 === 0) {
-      log.error('Durum dosyası (' + STATE_FILE + ') yazılamadı: ' + errText(err) + '. Yeniden denenecek.')
+      log.error(i18n.t(lang, 'store.stateFileWriteFailed', { file: STATE_FILE, error: errText(err, lang) }))
     }
-    const failure = new StoreError('Durum dosyası diske yazılamadı: ' + errText(err), 'write_failed', err)
+    const failure = new StoreError(i18n.t(lang, 'store.stateWriteFailed', { error: errText(err, lang) }), 'write_failed', err)
     const waiters = stateWaiters
     stateWaiters = []
     for (const w of waiters) w.reject(failure)
@@ -908,7 +914,7 @@ async function openStore (options) {
       const text = await fsp.readFile(lockPath, 'utf8')
       if (text.trim() === String(process.pid)) await unlinkQuiet(lockPath)
     } catch (err) {
-      if (!err || err.code !== 'ENOENT') log.warn('Uyarı: kilit dosyası kaldırılamadı: ' + errText(err))
+      if (!err || err.code !== 'ENOENT') log.warn(i18n.t(lang, 'store.lockRemoveFailed', { error: errText(err, lang) }))
     }
   }
 
@@ -942,7 +948,7 @@ async function openStore (options) {
   }
 
   function assertOpen () {
-    if (closing || closed) throw new StoreError('Veri deposu kapatıldı.', 'closed')
+    if (closing || closed) throw new StoreError(i18n.t(lang, 'store.closed'), 'closed')
   }
 
   // ---------------------------------------------------------------- mesaj işlemleri
@@ -966,8 +972,8 @@ async function openStore (options) {
   function addMessage (message) {
     assertOpen()
     const m = cleanMessage(message)
-    if (!m) throw new TypeError('addMessage: mesaj nesnesi geçersiz.')
-    if (index.has(m.id)) throw new StoreError('Bu mesaj kimliği zaten kullanılıyor.', 'duplicate_id')
+    if (!m) throw new TypeError('addMessage: invalid message object.')
+    if (index.has(m.id)) throw new StoreError('addMessage: this message id is already in use.', 'duplicate_id')
     const ch = getChannel(m.channelId, true)
     const list = ch.list
     if (list.length === 0 || list[list.length - 1].id < m.id) list.push(m)
@@ -992,10 +998,10 @@ async function openStore (options) {
     assertOpen()
     const m = isId(id) ? index.get(id) : undefined
     if (!m) return null
-    if (typeof body !== 'string') throw new TypeError('editMessage: body metin olmalıdır.')
+    if (typeof body !== 'string') throw new TypeError('editMessage: body must be a string.')
     let at = editedAt
     if (at === undefined) at = Date.now()
-    if (at !== null && (typeof at !== 'number' || !Number.isFinite(at))) throw new TypeError('editMessage: editedAt sayı olmalıdır.')
+    if (at !== null && (typeof at !== 'number' || !Number.isFinite(at))) throw new TypeError('editMessage: editedAt must be a number.')
     const ch = getChannel(m.channelId, true)
     m.body = body
     m.editedAt = at
@@ -1040,7 +1046,7 @@ async function openStore (options) {
   // ---------------------------------------------------------------- yüklemeler
 
   function checkUploadId (id) {
-    if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id)) throw new StoreError('Geçersiz yükleme kimliği.', 'bad_upload_id')
+    if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id)) throw new StoreError('Invalid upload id.', 'bad_upload_id')
     return id
   }
 
@@ -1070,7 +1076,7 @@ async function openStore (options) {
       if (!err || err.code !== 'ENOENT') throw err
       exists = false
     }
-    if (exists) throw new StoreError('Bu yükleme kimliği zaten kullanılıyor.', 'upload_exists')
+    if (exists) throw new StoreError('This upload id is already in use.', 'upload_exists')
     await renameRetry(tmp, dest)
   }
 
@@ -1089,8 +1095,8 @@ async function openStore (options) {
     const tmp = uploadTmpPath(id)
     const dest = uploadPath(id)
     assertOpen()
-    if (!(data instanceof Uint8Array)) throw new TypeError('writeUpload: veri Buffer veya Uint8Array olmalıdır.')
-    if (activeUploads.has(id)) throw new StoreError('Bu yükleme zaten sürüyor.', 'upload_busy')
+    if (!(data instanceof Uint8Array)) throw new TypeError('writeUpload: data must be a Buffer or Uint8Array.')
+    if (activeUploads.has(id)) throw new StoreError('This upload is already in progress.', 'upload_busy')
     return track(writeUploadNow(tmp, dest, data))
   }
 
@@ -1127,11 +1133,11 @@ async function openStore (options) {
     return total
   }
 
-  // Ek A1: yükleme <id>.tmp dosyasına akışla yazılır, commitUpload ile <id>.bin olur.
+  // Yükleme <id>.tmp dosyasına akışla yazılır, commitUpload ile <id>.bin olur.
   function createUploadWriteStream (id) {
     const tmp = uploadTmpPath(id)
     assertOpen()
-    if (activeUploads.has(id)) throw new StoreError('Bu yükleme zaten sürüyor.', 'upload_busy')
+    if (activeUploads.has(id)) throw new StoreError('This upload is already in progress.', 'upload_busy')
     const ws = fs.createWriteStream(tmp, { flags: 'wx', mode: FILE_MODE })
     const entry = { ws, error: null, closed: false, closedPromise: null }
     entry.closedPromise = new Promise((resolve) => {
@@ -1152,8 +1158,8 @@ async function openStore (options) {
     const tmp = uploadTmpPath(id)
     const dest = uploadPath(id)
     const entry = activeUploads.get(id)
-    if (!entry) throw new StoreError('Yükleme bulunamadı.', 'upload_missing')
-    if (!entry.error && !entry.ws.writableEnded) throw new StoreError('Yükleme henüz tamamlanmadı.', 'upload_unfinished')
+    if (!entry) throw new StoreError('Upload not found.', 'upload_missing')
+    if (!entry.error && !entry.ws.writableEnded) throw new StoreError('The upload is not finished yet.', 'upload_unfinished')
     activeUploads.delete(id)
     return track(commitNow(entry, tmp, dest))
   }
@@ -1199,10 +1205,10 @@ async function openStore (options) {
       try {
         if (await unlinkQuiet(path.join(uploadsDir, name))) removed++
       } catch (err) {
-        log.warn('Uyarı: yarım kalmış yükleme silinemedi: ' + errText(err))
+        log.warn(i18n.t(lang, 'store.partialUploadRemoveFailed', { error: errText(err, lang) }))
       }
     }
-    if (removed > 0) log.info('Yarım kalmış ' + removed + ' yükleme dosyası silindi.')
+    if (removed > 0) log.info(i18n.t(lang, 'store.partialUploadsRemoved', { count: removed }))
   }
 
   // ---------------------------------------------------------------- açılış uzlaştırması
@@ -1213,12 +1219,12 @@ async function openStore (options) {
     const st = api.state
     let changed = false
     if (st.counters.message < maxMessageIdSeen) {
-      log.warn('Uyarı: mesaj sayacı diskteki mesajlara göre ' + maxMessageIdSeen + ' değerine yükseltildi.')
+      log.warn(i18n.t(lang, 'store.messageCounterRaised', { value: maxMessageIdSeen }))
       st.counters.message = maxMessageIdSeen
       changed = true
     }
     if (st.counters.channel < maxChannelIdSeen) {
-      log.warn('Uyarı: kanal sayacı diskteki mesaj dosyalarına göre ' + maxChannelIdSeen + ' değerine yükseltildi.')
+      log.warn(i18n.t(lang, 'store.channelCounterRaised', { value: maxChannelIdSeen }))
       st.counters.channel = maxChannelIdSeen
       changed = true
     }
@@ -1273,7 +1279,7 @@ async function openStore (options) {
     }
     for (const rec of dead) {
       if (typeof rec.id !== 'string' || !UPLOAD_ID_RE.test(rec.id) || records.has(rec.id)) continue
-      await unlinkQuiet(path.join(uploadsDir, rec.id + '.bin')).catch((err) => log.warn('Uyarı: yükleme silinemedi: ' + errText(err)))
+      await unlinkQuiet(path.join(uploadsDir, rec.id + '.bin')).catch((err) => log.warn(i18n.t(lang, 'store.uploadRemoveFailed', { error: errText(err, lang) })))
     }
 
     // Kaydı olmayan yükleme dosyaları (kayıt diske yazılmadan önce çökme) silinir.
@@ -1293,15 +1299,15 @@ async function openStore (options) {
       try {
         if (await unlinkQuiet(path.join(uploadsDir, name))) strays++
       } catch (err) {
-        log.warn('Uyarı: kayıtsız yükleme silinemedi: ' + errText(err))
+        log.warn(i18n.t(lang, 'store.strayRemoveFailed', { error: errText(err, lang) }))
       }
     }
 
     if (bound > 0 || restored > 0 || dead.length > 0) {
-      log.warn('Uyarı: yükleme kayıtları mesajlarla eşitlendi (bağlanan ' + bound + ', geri yüklenen ' + restored + ', silinen ' + dead.length + ').')
+      log.warn(i18n.t(lang, 'store.uploadsReconciled', { bound, restored, removed: dead.length }))
       changed = true
     }
-    if (strays > 0) log.warn('Uyarı: kaydı olmayan ' + strays + ' yükleme dosyası silindi.')
+    if (strays > 0) log.warn(i18n.t(lang, 'store.straysRemoved', { count: strays }))
     return changed
   }
 }

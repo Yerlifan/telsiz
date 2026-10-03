@@ -1,6 +1,6 @@
 'use strict'
 
-// Yüklemeler (SPEC-V2 3.7 ve Ek A1): akışla geçici dosyaya yazma, boyut, kota, sahiplik,
+// Yüklemeler: akışla geçici dosyaya yazma, boyut, kota, sahiplik,
 // yetim temizliği, mesaj silinince dosyanın silinmesi, indirme yetkisi ve başlıkları,
 // istemci iptali, eşzamanlı yükleme sınırı ve mesaj başına ek sınırı.
 
@@ -163,7 +163,7 @@ describe('yüklemeler', () => {
       await h.waitFor(() => ctx.server.stats().activeUploads === 1)
       const busy = await h.upload(ctx, owner.token, crypto.randomBytes(500))
       h.expectStatus(busy, 503, 'busy')
-      assert.equal(busy.data.error, 'Sunucu şu anda başka yüklemeleri işliyor, birazdan tekrar deneyin.')
+      assert.equal(busy.data.error, 'The server is busy with other uploads. Try again shortly.')
       first.req.end(crypto.randomBytes(1000))
       h.expectStatus(await first.response, 200)
       await uploadOk(ctx, owner.token, crypto.randomBytes(500))
@@ -246,7 +246,7 @@ describe('yüklemeler', () => {
     const ctx = await h.startServer()
     try {
       const owner = await h.setupOwner(ctx)
-      const ayse = await h.addUser(ctx, owner.token, 'Ayşe')
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
       const bytes = crypto.randomBytes(64)
       const id = await uploadOk(ctx, ayse.token, bytes)
       h.expectStatus(await h.get(ctx, '/api/uploads/' + id, owner.token), 404)
@@ -357,7 +357,7 @@ describe('yüklemeler', () => {
       const r = await over.response
       over.req.destroy()
       h.expectStatus(r, 413, 'too_large')
-      assert.equal(r.data.error, 'Dosya çok büyük. En fazla 25 MB yüklenebilir.')
+      assert.equal(r.data.error, 'The file is too large. The maximum size is 25 MB.')
     } finally {
       await ctx.cleanup()
     }
