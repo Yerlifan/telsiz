@@ -19,11 +19,14 @@ const util = require('./http-util')
 const { createHub } = require('./hub')
 const { createSocial } = require('./social')
 const i18n = require('./i18n')
+const runtime = require('./runtime')
+const staticSource = require('./static-source')
 
 const DEFAULT_SERVER_NAME = 'Telsiz'
 // Varsayılan günlük dili (server.js konsol dilini verir)
 const DEFAULT_LOG_LANG = 'tr'
-const VERSION = readVersion()
+// SEA içinde derlemeye gömülen, değilse package.json'daki sürüm
+const VERSION = runtime.version()
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_TIMER_MS = 2147483647
 
@@ -76,7 +79,10 @@ const DEFAULTS = Object.freeze({
   avatarMaxBytes: 1024 * 1024 + 16,
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
   trustedProxies: ['loopback'],
-  publicDir: path.join(__dirname, '..', 'public'),
+  // Statik dosyaların klasörü. Verilmezse SEA içinde gömülü dosyalar, değilse sunucu kodunun
+  // yanındaki public klasörü kullanılır. staticSource verilirse ikisinin yerine geçer.
+  publicDir: null,
+  staticSource: null,
   lang: DEFAULT_LOG_LANG,
   log: console
 })
@@ -184,16 +190,6 @@ function staticEntry (pathname) {
   return null
 }
 
-// package.json sürümü (Docker imajı dahil her kurulumda sunucu dosyalarının yanındadır)
-function readVersion () {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
-    return typeof pkg.version === 'string' && pkg.version.length <= 64 ? pkg.version : null
-  } catch (err) {
-    return null
-  }
-}
-
 function noop () {}
 
 function isId (value) {
@@ -296,10 +292,12 @@ function resolveOptions (options) {
   const proxies = auth.parseTrustedProxies(config.trustedProxies)
   if (proxies === null) throw new TypeError('createChatServer: invalid trustedProxies.')
   config.trustedProxies = proxies
-  if (typeof config.publicDir !== 'string' || config.publicDir === '') {
+  if (config.publicDir !== null && (typeof config.publicDir !== 'string' || config.publicDir === '')) {
     throw new TypeError('createChatServer: invalid publicDir.')
   }
-  config.publicDir = path.resolve(config.publicDir)
+  if (config.publicDir !== null) config.publicDir = path.resolve(config.publicDir)
+  if (config.staticSource === null) config.staticSource = staticSource.defaultSource(config.publicDir)
+  else if (!staticSource.isSource(config.staticSource)) throw new TypeError('createChatServer: invalid staticSource.')
   if (config.setupCode !== null && auth.normalizeCode(config.setupCode) === null) {
     throw new TypeError('createChatServer: setupCode may contain only Crockford base32 characters.')
   }
@@ -2294,8 +2292,8 @@ async function createChatServer (options) {
     else res.end(body)
   }
 
-  // Yalnızca beyaz listedeki yollar ve desene uyan klasör dosyaları diskten okunur,
-  // genel dosya sunumu yoktur.
+  // Yalnızca beyaz listedeki yollar ve desene uyan klasör dosyaları okunur (diskten veya SEA
+  // içine gömülü dosyalardan, ikisinde de aynı beyaz liste ve başlıklarla), genel dosya sunumu yoktur.
   function handleStatic (req, res, pathname) {
     const lang = langOf(req)
     const isManifest = pathname === '/manifest.webmanifest'
@@ -2306,8 +2304,7 @@ async function createChatServer (options) {
     }
     if (closing) res.setHeader('Connection', 'close')
     if (isManifest) return serveManifest(req, res)
-    const file = path.join(config.publicDir, ...entry.file.split('/'))
-    util.serveFile(req, res, file, entry, i18n.t(lang, 'http.notFound')).catch((err) => internalError(res, err, req.method + ' ' + pathname))
+    util.serveFile(req, res, config.staticSource, entry, i18n.t(lang, 'http.notFound')).catch((err) => internalError(res, err, req.method + ' ' + pathname))
   }
 
   function onRequest (req, res) {

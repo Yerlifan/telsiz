@@ -4,8 +4,6 @@
 // adres ayrıştırma ve beyaz listedeki statik dosyaların sunumu.
 // Bu modülde kullanıcıya görünen metin yoktur, metinler çağırandan gelir.
 
-const fs = require('node:fs')
-
 const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 const DOWNLOAD_CSP = "default-src 'none'; sandbox"
@@ -166,25 +164,17 @@ function etagMatches (header, etag) {
   return header.split(',').some((part) => part.trim() === etag || part.trim() === '*')
 }
 
-// Beyaz listedeki bir dosyayı sunar. entry: { type, csp }, notFoundText: dosya yoksa 404 metni
-async function serveFile (req, res, file, entry, notFoundText) {
-  let handle = null
+// Beyaz listedeki bir dosyayı sunar. source: statik dosya kaynağı (src/static-source.js, disk
+// veya SEA içine gömülü dosyalar), entry: { file, type, csp }, notFoundText: dosya yoksa 404 metni.
+// Başlıklar ve ETag (boyut ve değişiklik zamanı) kaynaktan bağımsız olarak burada üretilir.
+async function serveFile (req, res, source, entry, notFoundText) {
+  const opened = await source.open(entry.file)
+  if (!opened) {
+    sendText(res, 404, notFoundText)
+    return
+  }
   try {
-    try {
-      handle = await fs.promises.open(file, 'r')
-    } catch (err) {
-      if (err && (err.code === 'ENOENT' || err.code === 'EISDIR' || err.code === 'ENOTDIR')) {
-        sendText(res, 404, notFoundText)
-        return
-      }
-      throw err
-    }
-    const info = await handle.stat()
-    if (!info.isFile()) {
-      sendText(res, 404, notFoundText)
-      return
-    }
-    const etag = 'W/"' + info.size.toString(16) + '-' + Math.floor(info.mtimeMs).toString(16) + '"'
+    const etag = 'W/"' + opened.size.toString(16) + '-' + Math.floor(opened.mtimeMs).toString(16) + '"'
     if (!canRespond(res)) return
     res.setHeader('Content-Type', entry.type)
     res.setHeader('Cache-Control', 'no-cache')
@@ -195,14 +185,14 @@ async function serveFile (req, res, file, entry, notFoundText) {
       res.end()
       return
     }
-    const data = await handle.readFile()
+    const data = await opened.read()
     if (!canRespond(res)) return
     res.statusCode = 200
     res.setHeader('Content-Length', data.length)
     if (req.method === 'HEAD') res.end()
     else res.end(data)
   } finally {
-    if (handle) await handle.close().catch(noop)
+    await opened.close().catch(noop)
   }
 }
 

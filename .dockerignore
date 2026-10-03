@@ -27,6 +27,13 @@ docs
 *.md
 *.bat
 
+# Yerel derleme çıktıları, masaüstü uygulaması ve npm paket arşivleri
+# Local build outputs, the desktop app and npm package archives
+dist
+desktop
+telsiz-*.tgz
+*.sh
+
 # Sunucunun kalıcı verisi (hesaplar, şifreli mesajlar, yüklemeler)
 # Persistent server data (accounts, encrypted messages, uploads)
 veri

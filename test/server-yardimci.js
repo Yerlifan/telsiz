@@ -415,6 +415,7 @@ module.exports = {
   SETUP_CODE,
   PASSWORD,
   SECRET_TEXT,
+  FIXTURE,
   VECTOR,
   KDF,
   deriveKeys,

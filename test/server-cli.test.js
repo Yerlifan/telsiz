@@ -20,7 +20,7 @@ const CONFIG_KEYS = ['PORT', 'HOST', 'SUNUCU_ADI', 'SERVER_NAME', 'VERI_KLASORU'
   'TURN_SIFRE', 'TURN_PASSWORD', 'GUVENILIR_VEKIL', 'TRUSTED_PROXY', 'DIL', 'TELSIZ_LANG', 'LANG', 'LC_ALL', 'LC_MESSAGES']
 
 // Komutu çalıştırır, çıkışı ve çıktıları döner. Testi çalıştıranın ayarları alt sürece geçmez.
-// env içinde undefined verilen değişken alt süreçte hiç tanımlanmaz.
+// env içinde undefined verilen değişken alt süreçte hiç tanımlanmaz. opts.cwd: çalışma klasörü.
 function runServerJs (args, env, opts) {
   const o = opts || {}
   const childEnv = Object.assign({}, process.env)
@@ -32,6 +32,7 @@ function runServerJs (args, env, opts) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER_JS].concat(args), {
       env: childEnv,
+      cwd: o.cwd || process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
@@ -154,6 +155,12 @@ describe('sifre-sifirla komutu', () => {
       assert.match(noName.stderr, /Kullanım: node server.js sifre-sifirla/)
       const unknown = await runServerJs(['bilinmeyen-komut'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(unknown.code, 1)
+      // Depo kopyasında kullanım metni node server.js komutunu gösterir
+      assert.match(unknown.stderr, /^Kullanım:$/m)
+      assert.match(unknown.stderr, /^  node server\.js$/m)
+      assert.match(unknown.stderr, /^  node server\.js sifre-sifirla <kullanıcı adı>$/m)
+      assert.match(unknown.stderr, /^  node server\.js reset-password <kullanıcı adı>$/m)
+      assert.match(unknown.stderr, /sunucu kapalıyken bir hesabın parolasını sıfırlar/)
       assert.equal(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'), before)
       assert.ok(!fs.existsSync(path.join(ctx.dataDir, '.kilit')))
     } finally {
@@ -276,7 +283,10 @@ describe('server.js başlatma', () => {
       assert.ok(result.stdout.includes('Veri klasörü: ' + dataDir))
       assert.ok(result.stdout.includes('http://127.0.0.1:' + port))
       assert.match(result.stdout, /https/)
-      assert.match(result.stdout, /tunel\.bat/)
+      // Depo kopyasında işletim sistemine uygun tünel betiği önerilir
+      assert.ok(result.stdout.includes(process.platform === 'win32' ? 'tunel.bat' : 'tunel.sh'), result.stdout)
+      assert.ok(result.stdout.includes('cloudflared tunnel --url http://localhost:' + port), result.stdout)
+      assert.ok(result.stdout.includes('Sürüm: ' + require('../package.json').version), result.stdout)
       assert.match(result.stdout, /TURN sunucusu: etkin/)
       assert.ok(!result.stdout.includes('gizli-turn'))
       assert.equal(infoStatus, 200)
@@ -314,10 +324,11 @@ describe('server.js başlatma', () => {
 })
 
 // Sunucuyu başlatır, banner tamamlanınca /api/info ister ve SIGTERM ile durdurur
-async function startAndStop (env) {
+async function startAndStop (env, opts) {
   const port = await freePort()
   let info = null
   const result = await runServerJs([], Object.assign({ PORT: String(port), HOST: '127.0.0.1' }, env), {
+    cwd: opts && opts.cwd,
     onStdout: (out, child) => {
       if (info !== null || !out.includes('Ctrl+C')) return
       info = 'bekleniyor'
@@ -497,5 +508,77 @@ describe('konsol dili ve İngilizce ortam değişkeni adları', () => {
     } finally {
       h.removeRoot(root)
     }
+  })
+})
+
+describe('veri klasörünün varsayılan yeri', () => {
+  it('VERI_KLASORU verilmezse çalışma klasöründeki veri klasörü kullanılır ve tam yolu gösterilir', async () => {
+    const root = h.makeRoot()
+    try {
+      const work = path.join(root, 'calisma')
+      fs.mkdirSync(work)
+      const { result, info } = await startAndStop({}, { cwd: work })
+      const dataDir = path.join(work, 'veri')
+      assert.equal(info.status, 200)
+      assert.ok(result.stdout.includes('Veri klasörü: ' + dataDir), result.stdout)
+      assert.ok(path.isAbsolute(dataDir))
+      assert.ok(fs.existsSync(dataDir))
+      // Sunucu kodunun yanına (npm ile kurulduğunda node_modules içine) yazılmaz
+      assert.ok(!fs.existsSync(path.join(root, 'veri')))
+      if (process.platform !== 'win32') {
+        assert.equal(result.code, 0, result.stderr)
+        assert.ok(fs.existsSync(path.join(dataDir, 'state.json')))
+      }
+    } finally {
+      h.removeRoot(root)
+    }
+  })
+
+  it('parola sıfırlama komutu da varsayılan olarak çalışma klasöründeki veri klasörünü kullanır', async () => {
+    const { ctx } = await preparedData()
+    try {
+      assert.equal(path.basename(ctx.dataDir), 'veri')
+      const result = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: undefined, DATA_DIR: undefined }, { cwd: path.dirname(ctx.dataDir) })
+      assert.equal(result.code, 0, result.stderr)
+      assert.match(result.stdout, /Geçici parola: [A-Za-z0-9]{12}/)
+      const elsewhere = await runServerJs(['sifre-sifirla', 'sahip'], {}, { cwd: path.join(ctx.root, 'public') })
+      assert.equal(elsewhere.code, 1)
+      assert.ok(elsewhere.stderr.includes(path.join(ctx.root, 'public', 'veri')), elsewhere.stderr)
+      assert.ok(!fs.existsSync(path.join(ctx.root, 'public', 'veri')))
+    } finally {
+      h.removeRoot(ctx.root)
+    }
+  })
+
+  it('readConfig ve defaultDataDir varsayılanı process.cwd() altındaki veri klasörüdür', () => {
+    const { readConfig, defaultDataDir } = require('../server.js')
+    assert.equal(defaultDataDir(), path.join(process.cwd(), 'veri'))
+    assert.equal(readConfig({}).dataDir, path.join(process.cwd(), 'veri'))
+    assert.equal(readConfig({ VERI_KLASORU: '  ' }).dataDir, path.join(process.cwd(), 'veri'))
+    assert.equal(readConfig({ DATA_DIR: 'baska' }).dataDir, path.resolve('baska'))
+  })
+})
+
+describe('tek dosya uygulaması yardımcıları', () => {
+  it('Enter beklemesi yalnızca tek dosya uygulamasında ve etkileşimli konsolda yapılır', () => {
+    const { pausesOnFatal } = require('../server.js')
+    const tty = { isTTY: true }
+    const pipe = { isTTY: false }
+    assert.equal(pausesOnFatal(true, tty, tty), true)
+    assert.equal(pausesOnFatal(false, tty, tty), false)
+    assert.equal(pausesOnFatal(true, pipe, tty), false)
+    assert.equal(pausesOnFatal(true, tty, pipe), false)
+    assert.equal(pausesOnFatal(true, {}, tty), false)
+    assert.equal(pausesOnFatal(true, null, null), false)
+  })
+
+  it('telsiz.env ayar grupları ortam değişkeni adlarının tamamını kapsar', () => {
+    const { SETTING_GROUPS, ENV_NAMES } = require('../server.js')
+    const names = SETTING_GROUPS.flat()
+    assert.equal(new Set(names).size, names.length)
+    for (const key of Object.keys(ENV_NAMES)) assert.ok(SETTING_GROUPS.some((g) => g.join() === ENV_NAMES[key].join()), key)
+    for (const name of ['PORT', 'HOST', 'STUN_URL', 'TURN_URL']) assert.ok(names.includes(name), name)
+    // Testlerde temizlenen ayar adlarıyla aynı küme (sistem dil değişkenleri hariç)
+    assert.deepEqual(names.slice().sort(), CONFIG_KEYS.filter((k) => !['LANG', 'LC_ALL', 'LC_MESSAGES'].includes(k)).sort())
   })
 })

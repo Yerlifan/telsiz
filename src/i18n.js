@@ -163,6 +163,7 @@ const messages = {
     console: {
       errorPrefix: 'Hata: {message}',
       running: '{product} sunucusu çalışıyor.',
+      version: 'Sürüm: {version}',
       serverName: 'Sunucu adı: {name}',
       dataDir: 'Veri klasörü: {dir}',
       setupCode: 'Kurulum kodu: {code}. Tarayıcıda açıp sahip hesabını bu kodla oluşturun.',
@@ -173,7 +174,8 @@ const messages = {
       lan: '  Aynı ağdaki cihazlardan: {url}',
       https: 'Sesli sohbet ve uygulama olarak yükleme (PWA) için adresin https:// ile başlaması gerekir.',
       httpLimits: 'Aynı ağdaki http adreslerinde bunlar çalışmaz, yalnızca bu bilgisayarda {url} adresinde çalışır.',
-      tunnel: 'İnternetten https ile erişim için tunel.bat dosyasını çalıştırın veya şu komutu kullanın: {command}',
+      tunnel: 'İnternetten https ile erişim için {script} dosyasını çalıştırın veya şu komutu kullanın: {command}',
+      tunnelCommand: 'İnternetten https ile erişim için şu komutu kullanabilirsiniz (cloudflared programı gerekir): {command}',
       turnOn: 'TURN sunucusu: etkin.',
       turnOff: 'TURN sunucusu: tanımlı değil. Bazı ağlarda sesli sohbet için TURN gerekebilir (TURN_URL ayarı).',
       proxy: 'Güvenilir ters vekil adresleri: {list}',
@@ -189,10 +191,11 @@ const messages = {
       stopping: 'Sunucu kapatılıyor...',
       stopTimeout: 'Kapanış {seconds} saniye içinde tamamlanamadı, süreç sonlandırılıyor.',
       flushFailed: 'Kapanış sırasında veriler diske yazılamadı: {error}',
-      stopped: 'Sunucu kapatıldı.'
+      stopped: 'Sunucu kapatıldı.',
+      pressEnter: 'Kapatmak için Enter\'a basın.'
     },
     cli: {
-      usageReset: 'Kullanım: node server.js sifre-sifirla <kullanıcı adı>',
+      usageReset: 'Kullanım: {command} sifre-sifirla <kullanıcı adı>',
       dataDirAccess: 'Hata: Veri klasörüne erişilemedi: {dir}',
       serverRunning: 'Hata: Sunucu şu anda çalışıyor (PID {pid}). Çalışan sunucu, bu komutun yaptığı değişikliği kendi verisiyle ezer.',
       stopFirst: 'Önce sunucu penceresinde Ctrl+C ile sunucuyu durdurun, sonra komutu yeniden çalıştırın.',
@@ -207,9 +210,21 @@ const messages = {
       changeHint: 'Bu parolayla giriş yaptıktan sonra Ayarlar bölümünün Hesabım sayfasından yeni bir parola belirleyin.',
       resetFailed: 'Hata: Parola sıfırlanamadı ({error}).',
       usageTitle: 'Kullanım:',
-      usageStart: '  node server.js                                 sunucuyu başlatır',
-      usageResetLine: '  node server.js sifre-sifirla <kullanıcı adı>   sunucu kapalıyken bir hesabın parolasını sıfırlar',
-      usageAliasLine: '  node server.js reset-password <kullanıcı adı>  aynı komutun İngilizce adı'
+      usageStart: '  {command}',
+      usageStartNote: '      sunucuyu başlatır',
+      usageResetLine: '  {command} sifre-sifirla <kullanıcı adı>',
+      usageResetNote: '      sunucu kapalıyken bir hesabın parolasını sıfırlar',
+      usageAliasLine: '  {command} reset-password <kullanıcı adı>',
+      usageAliasNote: '      aynı komutun İngilizce adı'
+    },
+    envfile: {
+      loaded: 'Ayarlar şu dosyadan okundu: {file}',
+      unknown: 'Uyarı: {file} dosyasının {line}. satırındaki "{key}" bilinen bir ayar adı değil, yok sayıldı.',
+      malformed: 'Uyarı: {file} dosyasının {line}. satırı AD=değer biçiminde değil, yok sayıldı.',
+      duplicate: 'Uyarı: {file} dosyasında {key} ayarı birden fazla yazılmış, {line}. satırdaki değer geçerli.',
+      skipped: '{key} ortam değişkeni olarak da tanımlı olduğu için telsiz.env dosyasındaki değeri kullanılmadı.',
+      tooLarge: '{file} dosyası çok büyük. Dosya en fazla {max} bayt olabilir.',
+      unreadable: '{file} dosyası okunamadı ({error}).'
     }
   },
   en: {
@@ -360,6 +375,7 @@ const messages = {
     console: {
       errorPrefix: 'Error: {message}',
       running: '{product} server is running.',
+      version: 'Version: {version}',
       serverName: 'Server name: {name}',
       dataDir: 'Data folder: {dir}',
       setupCode: 'Setup code: {code}. Open the app in a browser and create the owner account with this code.',
@@ -370,7 +386,8 @@ const messages = {
       lan: '  From devices on the same network: {url}',
       https: 'Voice chat and installing the app (PWA) require an address that starts with https://.',
       httpLimits: 'They do not work on plain http addresses on the local network, only at {url} on this computer.',
-      tunnel: 'For https access from the internet, run tunel.bat or use this command: {command}',
+      tunnel: 'For https access from the internet, run {script} or use this command: {command}',
+      tunnelCommand: 'For https access from the internet you can use this command (requires the cloudflared program): {command}',
       turnOn: 'TURN server: enabled.',
       turnOff: 'TURN server: not configured. Some networks need TURN for voice chat (TURN_URL setting).',
       proxy: 'Trusted reverse proxy addresses: {list}',
@@ -386,10 +403,11 @@ const messages = {
       stopping: 'Stopping the server...',
       stopTimeout: 'Shutdown did not finish within {seconds} seconds, exiting.',
       flushFailed: 'Data could not be written to disk during shutdown: {error}',
-      stopped: 'The server has stopped.'
+      stopped: 'The server has stopped.',
+      pressEnter: 'Press Enter to close.'
     },
     cli: {
-      usageReset: 'Usage: node server.js reset-password <username>',
+      usageReset: 'Usage: {command} reset-password <username>',
       dataDirAccess: 'Error: the data folder could not be accessed: {dir}',
       serverRunning: 'Error: the server is running right now (PID {pid}). The running server would overwrite the change made by this command with its own data.',
       stopFirst: 'Stop the server first with Ctrl+C in its window, then run the command again.',
@@ -404,9 +422,21 @@ const messages = {
       changeHint: 'After signing in with this password, set a new password on the My account page in Settings.',
       resetFailed: 'Error: the password could not be reset ({error}).',
       usageTitle: 'Usage:',
-      usageStart: '  node server.js                                 starts the server',
-      usageResetLine: '  node server.js reset-password <username>       resets the password of an account while the server is stopped',
-      usageAliasLine: '  node server.js sifre-sifirla <username>        the same command under its Turkish name'
+      usageStart: '  {command}',
+      usageStartNote: '      starts the server',
+      usageResetLine: '  {command} reset-password <username>',
+      usageResetNote: '      resets the password of an account while the server is stopped',
+      usageAliasLine: '  {command} sifre-sifirla <username>',
+      usageAliasNote: '      the same command under its Turkish name'
+    },
+    envfile: {
+      loaded: 'Settings were read from {file}',
+      unknown: 'Warning: "{key}" on line {line} of {file} is not a known setting name and was ignored.',
+      malformed: 'Warning: line {line} of {file} is not in the NAME=value format and was ignored.',
+      duplicate: 'Warning: the setting {key} appears more than once in {file}, the value on line {line} is used.',
+      skipped: 'The value of {key} in telsiz.env was not used because the setting is also defined as an environment variable.',
+      tooLarge: '{file} is too large. The file may be at most {max} bytes.',
+      unreadable: '{file} could not be read ({error}).'
     }
   }
 }

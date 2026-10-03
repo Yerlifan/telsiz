@@ -88,6 +88,44 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Kabuk betikleri (baslat.sh, tunel.sh) ShellCheck ile ve POSIX sh sözdizimiyle denetlenir
+  # Shell scripts (baslat.sh, tunel.sh) are checked with ShellCheck and POSIX sh syntax checks
+  shell:
+    name: Kabuk betikleri (ShellCheck ve sh -n)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: ShellCheck (yoksa kur)
+        run: |
+          if ! command -v shellcheck > /dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          shellcheck --version
+
+      - name: ShellCheck ile denetle
+        run: git ls-files -z -- '*.sh' | xargs -0 --no-run-if-empty shellcheck --shell=sh --severity=style
+
+      - name: POSIX sözdizimi denetimi (sh -n, dash -n, bash --posix -n)
+        run: |
+          git ls-files -z -- '*.sh' | while IFS= read -r -d '' file; do
+            echo "${file}"
+            sh -n "${file}"
+            if command -v dash > /dev/null 2>&1; then dash -n "${file}"; fi
+            bash --posix -n "${file}"
+          done
+
+      - name: Git'te çalıştırılabilir kipte saklanmalı (100755)
+        run: |
+          bad=$(git ls-files -s -- '*.sh' | awk '$1 != "100755" { print $4 }')
+          if [ -n "${bad}" ]; then
+            echo "Çalıştırılabilir olmayan kabuk betikleri: ${bad}"
+            exit 1
+          fi
+
   # Docker imajı derlenir (gönderilmez), kapsayıcı docker-compose.yml örneğindeki
   # sertleştirmelerle başlatılır ve /api/info yanıtı, kurulum kodu ve sağlık denetimi doğrulanır
   # The Docker image is built (not pushed), the container is started with the hardening from

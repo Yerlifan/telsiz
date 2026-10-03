@@ -12,3 +12,7 @@ veri/
 
 # Uçtan uca testlerin hata anında yazdığı ekran görüntüleri ve izler
 e2e-sonuclar/
+
+# Tek dosya uygulaması derlemesinin çıktısı (npm run exe) ve npm pack arşivleri
+dist/
+telsiz-*.tgz

@@ -168,7 +168,7 @@ describe('sözlükler', () => {
     for (const rel of sourceFiles()) {
       if (rel === path.join('src', 'i18n.js')) continue
       const text = readSource(rel)
-      for (const m of text.matchAll(/'((?:errors|detail|http|defaults|log|store|config|console|cli)\.[A-Za-z0-9_]+)'/g)) {
+      for (const m of text.matchAll(/'((?:errors|detail|http|defaults|log|store|config|console|cli|envfile)\.[A-Za-z0-9_]+)'/g)) {
         literal++
         for (const lang of i18n.LANGS) assert.ok(i18n.has(lang, m[1]), rel + ': ' + lang + ' ' + m[1])
       }

@@ -2,7 +2,20 @@
 * text=auto
 # Windows betikleri çalışma kopyasına her zaman CRLF satır sonuyla çıkarılır
 *.bat text eol=crlf
+# Kabuk betikleri her sistemde LF satır sonuyla çıkarılır, CRLF ile çalışmazlar
+*.sh text eol=lf
+# server.js npm paketinin çalıştırılabilir girişidir (#!/usr/bin/env node), LF satır sonu gerekir
+server.js text eol=lf
 # Üçüncü taraf dosyalar birebir korunur, satır sonu dönüşümü yapılmaz (sha256 denetimi)
 public/vendor/** -text
-# Görseller ikili dosyadır
+# Görseller, simgeler ve yazı tipleri ikili dosyadır
 *.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.woff2 binary
+*.woff binary
+*.ttf binary

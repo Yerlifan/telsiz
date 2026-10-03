@@ -7,7 +7,9 @@
 // JavaScript denetimleri acorn ile üretilen sözdizimi ağacı ve token listesi üzerinde
 // yapılır, bu yüzden yorumlar ve dizeler içindeki geçişler ihlal sayılmaz.
 // Dosyaya özgü kurallar dosya dosya, i18n ve belge eşliği kuralları ise tüm dosyalar
-// okunduktan sonra proje düzeyinde çalışır.
+// okunduktan sonra proje düzeyinde çalışır. Masaüstü uygulamasının (desktop/) kodu Node.js ve
+// Electron ana süreç kodudur, metin ve noktalı virgülsüz yazım kurallarına tabidir, tarayıcı
+// (ES2017) ve yasak kullanım kuralları yalnızca public/ altındaki istemci koduna uygulanır.
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -27,6 +29,11 @@ const VENDOR_FILES = [
 
 const VENDOR_DIR = 'public/vendor/'
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
+// Üretilen dosyalar: masaüstü uygulamasına kopyalanan arayüz (desktop/app), masaüstü ve tek
+// dosya uygulaması derleme çıktıları. Bunlar kaynak değildir, denetlenmez.
+const GENERATED_DIRS = ['desktop/app/', 'desktop/dist/', 'dist/']
+// Kabuk betikleri git'te çalıştırılabilir kipte saklanır
+const EXECUTABLE_MODE = '100755'
 const JS_EXTS = new Set(['.js', '.cjs', '.mjs'])
 const BINARY_EXTS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif',
@@ -49,6 +56,8 @@ const RULE_LABELS = {
   bom: 'BOM',
   eol: 'satır sonu',
   prose: 'düzyazıda noktalı virgül',
+  mode: 'dosya kipi',
+  json: 'JSON sözdizimi',
   html: 'satır içi betik veya stil',
   'i18n-parity': 'i18n sözlük eşliği',
   'i18n-hardcoded': 'i18n dışı sabit metin',
@@ -93,7 +102,8 @@ const DOC_PAIRS = [
   ['CONTRIBUTING.md', 'CONTRIBUTING.en.md'],
   ['docs/MIMARI.md', 'docs/ARCHITECTURE.md'],
   ['docs/KURULUM.md', 'docs/DEPLOYMENT.md'],
-  ['docs/TASARIM.md', 'docs/DESIGN.md']
+  ['docs/TASARIM.md', 'docs/DESIGN.md'],
+  ['CHANGELOG.md', 'CHANGELOG.en.md']
 ]
 
 function hasOwn (object, key) {
@@ -143,7 +153,8 @@ function readIfFile (abs) {
   }
 }
 
-// Git deposunun kökündeysek izlenen dosyalar ile .gitignore dışında kalan yeni dosyalar
+// Git deposunun kökündeysek izlenen dosyalar ile .gitignore dışında kalan yeni dosyalar ve
+// izlenen dosyaların git'teki kipleri (ör. 100644, 100755). Sonuç: { files, modes } veya null
 function listGitFiles (root) {
   const options = { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true }
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], options)
@@ -154,7 +165,14 @@ function listGitFiles (root) {
   for (const file of listed.stdout.split('\0')) {
     if (file && isFile(path.join(root, file))) files.add(file)
   }
-  return Array.from(files)
+  const modes = new Map()
+  const staged = spawnSync('git', ['ls-files', '-z', '--stage'], options)
+  if (staged.error || staged.status !== 0) return null
+  for (const entry of staged.stdout.split('\0')) {
+    const match = /^(\d{6}) [0-9a-f]+ \d\t([^]+)$/.exec(entry)
+    if (match) modes.set(match[2], match[1])
+  }
+  return { files: Array.from(files), modes }
 }
 
 function escapeRegex (text) {
@@ -225,11 +243,23 @@ function walkFiles (root) {
 }
 
 function isScannable (rel) {
-  return !rel.startsWith(VENDOR_DIR) && !rel.split('/').some((part) => SKIP_DIRS.has(part))
+  if (rel.startsWith(VENDOR_DIR) || GENERATED_DIRS.some((dir) => rel.startsWith(dir))) return false
+  return !rel.split('/').some((part) => SKIP_DIRS.has(part))
 }
 
+// Sonuç: { files, modes }. modes yalnızca git deposunda doludur (izlenen dosyaların kipleri).
 function listFiles (root) {
-  return (listGitFiles(root) || walkFiles(root)).filter(isScannable).sort()
+  const git = listGitFiles(root)
+  const files = git ? git.files : walkFiles(root)
+  return { files: files.filter(isScannable).sort(), modes: git ? git.modes : null }
+}
+
+function fileMode (abs) {
+  try {
+    return fs.statSync(abs).mode
+  } catch (err) {
+    return null
+  }
 }
 
 function isBinary (rel, buf) {
@@ -303,8 +333,8 @@ function checkInvisible (ctx) {
   const starts = lineStarts(ctx.text)
   const byLine = new Map()
   for (const match of ctx.text.matchAll(INVISIBLE_PATTERN)) {
-    // Windows betiğinin başındaki BOM ayrıca "bom" kuralıyla bildirilir
-    if (match.index === 0 && match[0] === '\ufeff' && ctx.ext === '.bat') continue
+    // Windows ve kabuk betiklerinin başındaki BOM ayrıca "bom" kuralıyla bildirilir
+    if (match.index === 0 && match[0] === '\ufeff' && (ctx.ext === '.bat' || ctx.ext === '.sh')) continue
     const line = lineAt(starts, match.index)
     if (!byLine.has(line)) byLine.set(line, [])
     byLine.get(line).push(invisibleName(match[0]) + ' sütun ' + (match.index - starts[line - 1] + 1))
@@ -501,6 +531,48 @@ function checkBat (ctx) {
   ctx.text.split(/\r\n|\r|\n/).forEach((content, index) => {
     if (content.includes(';')) ctx.report(index + 1, 'prose', 'noktalı virgül (;) var. Windows betiklerinde noktalı virgül kullanılmaz.')
   })
+}
+
+// Kabuk betikleri: BOM yok, yalnızca LF satır sonu, git'te çalıştırılabilir kip (100755).
+// Git'te henüz izlenmeyen dosyada (veya git dışında) POSIX sistemlerde dosyanın çalıştırma izni
+// denetlenir, Windows'ta dosya sistemi bu bilgiyi tutmadığı için atlanır.
+function checkShell (ctx) {
+  const buf = ctx.buf
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    ctx.report(1, 'bom', 'UTF-8 BOM (imza) var. Kabuk betikleri BOM olmadan kaydedilmelidir, aksi halde ilk satırdaki #! tanınmaz.')
+  }
+  let bad = 0
+  let firstBad = 0
+  let line = 1
+  for (const match of ctx.text.matchAll(/\r\n|\r|\n/g)) {
+    if (match[0] !== '\n') {
+      bad++
+      if (firstBad === 0) firstBad = line
+    }
+    line++
+  }
+  if (bad > 0) {
+    ctx.report(firstBad, 'eol', bad + ' satırda satır sonu LF değil. Kabuk betikleri yalnızca LF satır sonuyla saklanmalıdır, CRLF ile çalışmazlar.')
+  }
+  if (typeof ctx.gitMode === 'string') {
+    if (ctx.gitMode !== EXECUTABLE_MODE) {
+      ctx.report(1, 'mode', 'git\'teki dosya kipi ' + ctx.gitMode + '. Kabuk betikleri çalıştırılabilir (' + EXECUTABLE_MODE + ') saklanmalıdır: git update-index --chmod=+x ' + ctx.rel)
+    }
+  } else if (process.platform !== 'win32' && typeof ctx.fsMode === 'number' && (ctx.fsMode & 0o100) === 0) {
+    ctx.report(1, 'mode', 'dosyanın çalıştırma izni yok. Kabuk betikleri çalıştırılabilir olmalıdır: chmod +x ' + ctx.rel)
+  }
+}
+
+// JSON dosyaları geçerli JSON olmalıdır (package.json, masaüstü uygulamasının ayarları gibi)
+function checkJson (ctx) {
+  try {
+    JSON.parse(ctx.text)
+  } catch (err) {
+    const message = String(err && err.message)
+    const position = /position (\d+)/.exec(message)
+    const line = position ? lineAt(lineStarts(ctx.text), Number(position[1])) : 1
+    ctx.report(line, 'json', 'JSON ayrıştırılamadı: ' + message.replace(/\s*\(line \d+ column \d+\)$/, '') + '.')
+  }
 }
 
 // Kural 6: Markdown düzyazısı (kod blokları ve satır içi kod hariç)
@@ -1038,10 +1110,11 @@ function runChecks (rootDir, options) {
     violations.push({ file, line, rule, message })
   }
   const project = { scripts: new Map(), markdown: new Map(), htmlKeys: [] }
-  const files = Array.isArray(opts.files) ? opts.files.filter(isScannable).sort() : listFiles(root)
+  const listing = Array.isArray(opts.files) ? { files: opts.files.filter(isScannable).sort(), modes: null } : listFiles(root)
   let scanned = 0
-  for (const rel of files) {
-    const buf = readIfFile(path.join(root, rel))
+  for (const rel of listing.files) {
+    const abs = path.join(root, rel)
+    const buf = readIfFile(abs)
     if (buf === null || isBinary(rel, buf)) continue
     scanned++
     const ext = path.extname(rel).toLowerCase()
@@ -1050,6 +1123,8 @@ function runChecks (rootDir, options) {
       ext,
       buf,
       text: buf.toString('utf8'),
+      gitMode: listing.modes ? listing.modes.get(rel) : undefined,
+      fsMode: null,
       report: (line, rule, message) => report(rel, line, rule, message)
     }
     checkDashes(ctx)
@@ -1062,6 +1137,11 @@ function runChecks (rootDir, options) {
       project.markdown.set(rel, ctx.text)
     } else if (ext === '.bat') {
       checkBat(ctx)
+    } else if (ext === '.sh') {
+      ctx.fsMode = fileMode(abs)
+      checkShell(ctx)
+    } else if (ext === '.json') {
+      checkJson(ctx)
     } else if (ext === '.html' || ext === '.htm') {
       const attrs = checkHtml(ctx)
       if (rel.startsWith('public/')) {
@@ -1088,13 +1168,15 @@ const USAGE = [
   '',
   'Klasör verilmezse depo kökü denetlenir. Klasör bir git deposunun köküyse izlenen',
   'dosyalar ve .gitignore dışında kalan yeni dosyalar, değilse klasördeki tüm dosyalar',
-  'denetlenir. node_modules, .git ve public/vendor dışarıda bırakılır, git\'te izlenip',
-  'diskten silinmiş dosyalar atlanır.',
+  'denetlenir. node_modules, .git, public/vendor ve üretilen dosyalar (dist, desktop/app,',
+  'desktop/dist) dışarıda bırakılır, git\'te izlenip diskten silinmiş dosyalar atlanır.',
   '',
   'Kurallar: uzun ve kısa tire, görünmez karakterler, JavaScript sözdizimi ve noktalı',
-  'virgül, istemci kodunda ES2017 ve yasak kullanımlar, üçüncü taraf dosyaların sha256',
-  'değeri, Windows betikleri, Markdown düzyazısı, HTML içinde satır içi betik ve stil,',
-  'i18n sözlük eşliği, sabit metin ve anahtarlar, Türkçe ve İngilizce belge eşliği.',
+  'virgül (sunucu, betikler, testler ve masaüstü uygulaması dahil), istemci kodunda ES2017',
+  've yasak kullanımlar, üçüncü taraf dosyaların sha256 değeri, Windows betikleri, kabuk',
+  'betikleri (BOM, LF satır sonu, çalıştırılabilir kip), JSON sözdizimi, Markdown düzyazısı,',
+  'HTML içinde satır içi betik ve stil, i18n sözlük eşliği, sabit metin ve anahtarlar,',
+  'Türkçe ve İngilizce belge eşliği.',
   'İhlal varsa çıkış kodu 1, kullanım veya ortam hatasında 2 olur.'
 ].join('\n')
 

@@ -156,6 +156,9 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/fonts/%2e%2e/gizli.txt',
       '/fonts/..txt',
       '/fonts/O.F.L.txt',
+      // Ad yalnızca büyük/küçük harf farkıyla eşleşiyorsa harf duyarsız dosya sistemlerinde de bulunmaz
+      '/fonts/ofl.txt',
+      '/fonts/lisans-2.txt',
       '/vendor/scrypt.min.js',
       '/vendor/../vendor/scrypt.js',
       '/theme-init.js/'

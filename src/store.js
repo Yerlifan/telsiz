@@ -5,8 +5,8 @@
 // Mesaj gövdeleri sunucu için opak E2EE zarflarıdır, bu katman içeriklerini hiçbir zaman loglamaz.
 // İşletmecinin göreceği hata ve uyarı metinleri lang seçeneğindeki dilde üretilir (varsayılan tr).
 
-const fs = require('fs')
-const path = require('path')
+const fs = require('node:fs')
+const path = require('node:path')
 const i18n = require('./i18n')
 
 // Testlerin Windows hatalarını taklit edebilmesi için fs.promises üyeleri her çağrıda bu nesneden okunur.

@@ -1,0 +1,168 @@
+# Tek dosya sunucu ikilileri: Node.js tek dosya uygulaması (SEA) olarak Windows (x64) ve Linux
+# (x64, arm64) için derleme, duman testi ve artifact yükleme. Yayın yapmaz, sürüm iş akışı
+# (release.yml) bu iş akışını çağırır ve artifact'leri GitHub Release'e ekler.
+# Standalone server binaries: build, smoke test and artifact upload as a Node.js single executable
+# application (SEA) for Windows (x64) and Linux (x64, arm64). It does not publish anything, the
+# release workflow (release.yml) calls it and attaches the artifacts to the GitHub Release.
+#
+# Artifact adları (release.yml bunlara güvenir):
+# Artifact names (release.yml relies on them):
+#   telsiz-server-windows-x64   telsiz-<sürüm>-windows-x64.exe
+#   telsiz-server-linux-x64     telsiz-<sürüm>-linux-x64
+#   telsiz-server-linux-arm64   telsiz-<sürüm>-linux-arm64
+name: Sunucu ikilileri
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Çağrıldığında da diğer iş akışlarıyla çakışmayan bir grup, yalnızca çekme isteklerinde eskisi iptal edilir
+# A group that does not collide with other workflows when called, only pull requests cancel older runs
+concurrency:
+  group: exe-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Derleyen sistemle aynı hedef: Windows'ta telsiz.exe, Linux'ta x64 ikilisi
+  # Same target as the build machine: telsiz.exe on Windows, the x64 binary on Linux
+  native:
+    name: Derleme ve duman testi (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+          - os: ubuntu-latest
+            target: linux-x64
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Geliştirme bağımlılıklarını kur (postject dahil)
+        run: npm ci
+
+      - name: Çıktı dosyasının adını belirle
+        id: name
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          file="telsiz-${version}-${TARGET}"
+          if [ "${TARGET}" = "windows-x64" ]; then file="${file}.exe"; fi
+          echo "file=dist/${file}" >> "$GITHUB_OUTPUT"
+          echo "Çıktı: dist/${file}"
+
+      - name: Tek dosya uygulamasını derle
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/sea-derle.js --hedef "${TARGET}"
+
+      - name: Duman testi
+        env:
+          FILE: ${{ steps.name.outputs.file }}
+        run: node scripts/sea-duman.js "${FILE}" --port 4220
+
+      - name: SHA-256 değeri
+        env:
+          FILE: ${{ steps.name.outputs.file }}
+        run: sha256sum "${FILE}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: telsiz-server-${{ matrix.target }}
+          path: ${{ steps.name.outputs.file }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # linux-arm64 (ör. Raspberry Pi): Node.js belgesindeki çapraz derleme. Blob bu makinedeki
+  # node ile üretilir ve aynı sürümün resmi linux-arm64 ikilisine enjekte edilir (kod önbelleği
+  # ve anlık görüntü kapalıdır). Duman testi QEMU kullanıcı kipi öykünmesiyle yapılır.
+  # linux-arm64 (for example Raspberry Pi): cross build as described in the Node.js documentation.
+  # The blob is produced with the node on this machine and injected into the official linux-arm64
+  # binary of the same version (code cache and snapshot are off). The smoke test runs under QEMU
+  # user mode emulation.
+  linux-arm64:
+    name: Derleme ve duman testi (linux-arm64, QEMU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Geliştirme bağımlılıklarını kur (postject dahil)
+        run: npm ci
+
+      - name: QEMU ve arm64 sistem kitaplıklarını kur
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static libc6-arm64-cross libstdc++6-arm64-cross
+
+      - name: Aynı Node.js sürümünün linux-arm64 ikilisini indir ve doğrula
+        id: node
+        run: |
+          version=$(node -p process.version)
+          base="node-${version}-linux-arm64"
+          dir="${RUNNER_TEMP}/node-arm64"
+          mkdir -p "${dir}"
+          cd "${dir}"
+          curl --fail --silent --show-error --location --remote-name "https://nodejs.org/dist/${version}/SHASUMS256.txt"
+          curl --fail --silent --show-error --location --remote-name "https://nodejs.org/dist/${version}/${base}.tar.xz"
+          grep " ${base}.tar.xz\$" SHASUMS256.txt | sha256sum --check -
+          tar -xJf "${base}.tar.xz"
+          echo "binary=${dir}/${base}/bin/node" >> "$GITHUB_OUTPUT"
+          version_file=$(node -p "require('${GITHUB_WORKSPACE}/package.json').version")
+          echo "file=dist/telsiz-${version_file}-linux-arm64" >> "$GITHUB_OUTPUT"
+
+      - name: Tek dosya uygulamasını derle
+        env:
+          NODE_ARM64: ${{ steps.node.outputs.binary }}
+        run: node scripts/sea-derle.js --hedef linux-arm64 --node-ikilisi "${NODE_ARM64}"
+
+      - name: Duman testi (QEMU)
+        env:
+          FILE: ${{ steps.node.outputs.file }}
+        run: node scripts/sea-duman.js "${FILE}" --port 4220 --onek qemu-aarch64-static --onek -L --onek /usr/aarch64-linux-gnu
+
+      - name: SHA-256 değeri
+        env:
+          FILE: ${{ steps.node.outputs.file }}
+        run: sha256sum "${FILE}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: telsiz-server-linux-arm64
+          path: ${{ steps.node.outputs.file }}
+          if-no-files-found: error
+          retention-days: 14

@@ -1,12 +1,17 @@
+#!/usr/bin/env node
 'use strict'
 
 // Telsiz sunucusunun giriş noktası: ortam değişkenleri, parola sıfırlama komutu, başlatma,
 // banner ve düzgün kapanış.
 // Kullanım:
-//   node server.js
+//   node server.js                                 (npm ile kurulduysa: npx telsiz)
 //   node server.js sifre-sifirla <kullanıcı adı>   (İngilizce adı: reset-password)
+// Tek dosya olarak derlenmiş sunucuda (telsiz.exe, Linux ikilisi) komutlar aynıdır.
 // Konsol dili DIL (TELSIZ_LANG) ortam değişkeninden, yoksa sistem yerel ayarından seçilir.
 // Ortam değişkenlerinin Türkçe ve İngilizce adları vardır, ikisi birden verilirse Türkçe ad geçerlidir.
+// Veri klasörü verilmezse çalışma klasöründeki veri klasörü, tek dosya olarak çalışırken
+// yürütülebilir dosyanın yanındaki veri klasörü kullanılır. Tek dosya olarak çalışırken
+// yanındaki telsiz.env dosyasındaki ayarlar da okunur (ortam değişkenleri önceliklidir).
 
 const fs = require('node:fs')
 const os = require('node:os')
@@ -15,6 +20,8 @@ const { createChatServer } = require('./src/app')
 const { openStore, StoreError, lockInfo } = require('./src/store')
 const auth = require('./src/auth')
 const i18n = require('./src/i18n')
+const runtime = require('./src/runtime')
+const envFile = require('./src/env-file')
 
 const PRODUCT_NAME = 'Telsiz'
 const DEFAULT_PORT = 3000
@@ -37,6 +44,11 @@ const ENV_NAMES = Object.freeze({
   trustedProxy: ['GUVENILIR_VEKIL', 'TRUSTED_PROXY'],
   lang: ['DIL', 'TELSIZ_LANG']
 })
+
+// telsiz.env dosyasında kabul edilen ayarlar. Her grup bir ayarın tüm adlarıdır.
+const SETTING_GROUPS = Object.freeze([['PORT'], ['HOST'], ['STUN_URL'], ['TURN_URL']].concat(
+  Object.keys(ENV_NAMES).map((key) => ENV_NAMES[key])
+))
 
 // Hata metni yapılandırma okunurken zaten konsol dilinde üretilir
 class ConfigError extends Error {}
@@ -99,9 +111,29 @@ function parseUrlList (raw, name, prefixes, lang) {
   return list
 }
 
+// Varsayılan veri klasörü: tek dosya olarak çalışırken yürütülebilir dosyanın yanındaki, değilse
+// çalışma klasöründeki veri klasörü (npm ile kurulduğunda node_modules içine yazılmaz)
+function defaultDataDir () {
+  if (runtime.isSea()) return path.join(path.dirname(process.execPath), 'veri')
+  return path.join(process.cwd(), 'veri')
+}
+
 function dataDirFromEnv (env) {
   const raw = envPick(env, ENV_NAMES.dataDir).value
-  return raw === '' ? path.join(__dirname, 'veri') : path.resolve(raw)
+  return raw === '' ? defaultDataDir() : path.resolve(raw)
+}
+
+// npm paketi olarak mı kurulu (npx telsiz, npm install telsiz): sunucu dosyaları node_modules içinde
+function installedFromNpm () {
+  return __dirname.split(path.sep).includes('node_modules')
+}
+
+// Kullanım metinlerinde gösterilen komut: tek dosya uygulamasının adı, npm paketi olarak
+// kurulduysa npx telsiz, değilse node server.js
+function commandName () {
+  if (runtime.isSea()) return path.basename(process.execPath)
+  if (installedFromNpm()) return 'npx telsiz'
+  return 'node server.js'
 }
 
 // Ortam değişkenlerini okur ve doğrular. Hatalıysa konsol dilinde metinli ConfigError fırlatır.
@@ -171,10 +203,21 @@ function lanAddresses () {
   return result
 }
 
+// İnternete https ile açma ipucu: depo kopyasında tunel.bat veya tunel.sh betiği, tek dosya
+// uygulamasında ve npm paketinde (bu betikler yanlarında yoktur) yalnızca komut
+function tunnelHint (lang, port) {
+  const command = 'cloudflared tunnel --url http://localhost:' + port
+  if (runtime.isSea() || installedFromNpm()) return i18n.t(lang, 'console.tunnelCommand', { command })
+  const script = process.platform === 'win32' ? 'tunel.bat' : 'tunel.sh'
+  return i18n.t(lang, 'console.tunnel', { script, command })
+}
+
 function printBanner (server, config, port) {
   const lang = config.lang
   const lines = []
   lines.push(i18n.t(lang, 'console.running', { product: PRODUCT_NAME }))
+  const version = runtime.version()
+  if (version) lines.push(i18n.t(lang, 'console.version', { version }))
   lines.push(i18n.t(lang, 'console.serverName', { name: server.serverName }))
   lines.push(i18n.t(lang, 'console.dataDir', { dir: server.dataDir }))
   const code = server.setupCode
@@ -200,7 +243,7 @@ function printBanner (server, config, port) {
   lines.push('')
   lines.push(i18n.t(lang, 'console.https'))
   lines.push(i18n.t(lang, 'console.httpLimits', { url: 'http://localhost:' + port }))
-  lines.push(i18n.t(lang, 'console.tunnel', { command: 'cloudflared tunnel --url http://localhost:' + port }))
+  lines.push(tunnelHint(lang, port))
   lines.push(i18n.t(lang, config.turnEnabled ? 'console.turnOn' : 'console.turnOff'))
   const proxies = config.trustedProxies
   if (proxies.length !== 1 || proxies[0] !== 'loopback') lines.push(i18n.t(lang, 'console.proxy', { list: proxies.join(', ') }))
@@ -322,7 +365,7 @@ async function resetPasswordCli (args) {
   const lang = consoleLang()
   const rawName = args.join(' ').trim()
   if (rawName === '') {
-    console.error(i18n.t(lang, 'cli.usageReset'))
+    console.error(i18n.t(lang, 'cli.usageReset', { command: commandName() }))
     return 1
   }
   const dir = dataDirFromEnv(process.env)
@@ -392,27 +435,101 @@ async function resetPasswordCli (args) {
 
 function printUsage () {
   const lang = consoleLang()
+  const command = commandName()
   console.error(i18n.t(lang, 'cli.usageTitle'))
-  console.error(i18n.t(lang, 'cli.usageStart'))
-  console.error(i18n.t(lang, 'cli.usageResetLine'))
-  console.error(i18n.t(lang, 'cli.usageAliasLine'))
+  console.error(i18n.t(lang, 'cli.usageStart', { command }))
+  console.error(i18n.t(lang, 'cli.usageStartNote'))
+  console.error(i18n.t(lang, 'cli.usageResetLine', { command }))
+  console.error(i18n.t(lang, 'cli.usageResetNote'))
+  console.error(i18n.t(lang, 'cli.usageAliasLine', { command }))
+  console.error(i18n.t(lang, 'cli.usageAliasNote'))
+}
+
+// ---------------------------------------------------------------- tek dosya uygulaması
+
+// Tek dosya olarak çalışırken yürütülebilir dosyanın yanındaki telsiz.env dosyasını ortama ekler
+// ve uyarıları konsol dilinde yazar. Dosya yoksa bir şey yapmaz. Okunamıyorsa veya çok büyükse
+// ConfigError fırlatır, çünkü eksik okunan ayarlarla (ör. farklı bir veri klasörüyle) başlamak
+// kullanıcıyı yanıltır.
+function loadEnvFile (env) {
+  const file = path.join(path.dirname(process.execPath), envFile.ENV_FILE_NAME)
+  let text
+  try {
+    text = envFile.readEnvFile(file)
+  } catch (err) {
+    if (!(err instanceof envFile.EnvFileError)) throw err
+    const lang = consoleLang(env)
+    const key = err.code === 'tooLarge' ? 'envfile.tooLarge' : 'envfile.unreadable'
+    throw new ConfigError(i18n.t(lang, key, { file, max: envFile.MAX_ENV_FILE_BYTES, error: err.detail }))
+  }
+  if (text === null) return
+  const parsed = envFile.parseEnvFile(text, SETTING_GROUPS)
+  const result = envFile.applyEnvFile(env, parsed, SETTING_GROUPS)
+  const lang = consoleLang(env)
+  console.log(i18n.t(lang, 'envfile.loaded', { file }))
+  for (const warning of parsed.warnings) {
+    console.error(i18n.t(lang, 'envfile.' + warning.kind, { file, line: warning.line, key: warning.key }))
+  }
+  for (const key of result.skipped) console.log(i18n.t(lang, 'envfile.skipped', { key }))
+}
+
+// Ölümcül başlatma hatasından sonra pencere hemen kapanmasın diye Enter beklenir. Yalnızca
+// tek dosya uygulamasında ve etkileşimli konsolda (ör. çift tıklayınca açılan pencere).
+function pausesOnFatal (sea, stdin, stdout) {
+  return Boolean(sea && stdin && stdin.isTTY && stdout && stdout.isTTY)
+}
+
+function waitForEnter (lang) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      stdin.pause()
+      resolve()
+    }
+    console.error('')
+    console.error(i18n.t(lang, 'console.pressEnter'))
+    stdin.once('data', finish)
+    stdin.once('end', finish)
+    stdin.once('error', finish)
+    stdin.resume()
+  })
 }
 
 async function main (argv) {
   const args = argv.slice(2)
+  if (runtime.isSea()) loadEnvFile(process.env)
   if (args.length === 0) return start()
   if (args[0] === 'sifre-sifirla' || args[0] === 'reset-password') return resetPasswordCli(args.slice(1))
   printUsage()
   return 1
 }
 
-module.exports = { createChatServer, readConfig, ENV_NAMES }
+// Komutu çalıştırır. Sunucu başlatılamazsa (yapılandırma hatası, port dolu, bozuk veri) çıkış
+// kodu 1 olur, tek dosya uygulamasının etkileşimli penceresinde önce Enter beklenir.
+async function run (argv) {
+  const starting = argv.length <= 2
+  let code
+  try {
+    code = await main(argv)
+  } catch (err) {
+    const message = err instanceof ConfigError ? err.message : (err && err.stack ? err.stack : String(err))
+    console.error(i18n.t(consoleLang(), 'console.errorPrefix', { message }))
+    code = 1
+  }
+  if (typeof code !== 'number') return
+  process.exitCode = code
+  if (code !== 0 && starting && pausesOnFatal(runtime.isSea(), process.stdin, process.stdout)) {
+    await waitForEnter(consoleLang())
+    process.exit(code)
+  }
+}
+
+module.exports = { createChatServer, readConfig, ENV_NAMES, SETTING_GROUPS, defaultDataDir, pausesOnFatal }
 
 if (require.main === module) {
-  main(process.argv).then((code) => {
-    if (typeof code === 'number') process.exitCode = code
-  }, (err) => {
-    console.error(i18n.t(consoleLang(), 'console.errorPrefix', { message: err && err.stack ? err.stack : String(err) }))
-    process.exitCode = 1
-  })
+  if (runtime.isSea() && process.platform === 'win32') process.title = PRODUCT_NAME
+  run(process.argv)
 }

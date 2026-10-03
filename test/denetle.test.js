@@ -800,3 +800,121 @@ test('komut satırı: hedef klasör parametresi, çıktı biçimi ve çıkış k
   assert.equal(help.status, 0)
   assert.match(help.stdout, /Kullanım/)
 })
+
+// Kabuk betiği örneği: POSIX sh, noktalı virgül sözdiziminin parçasıdır ve serbesttir
+const SHELL_SCRIPT = lines('#!/bin/sh', '# Türkçe açıklama', 'set -eu', 'if [ -n "${PORT:-}" ]; then echo "$PORT"; fi', 'exec node server.js "$@"')
+
+function writeExecutable (dir, rel, content) {
+  const file = path.join(dir, ...rel.split('/'))
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, content)
+  fs.chmodSync(file, 0o755)
+}
+
+test('kabuk betiklerinde BOM, LF olmayan satır sonu, tire ve görünmez karakter yakalanır', (t) => {
+  const dir = makeProject(t)
+  writeExecutable(dir, 'iyi.sh', SHELL_SCRIPT)
+  writeExecutable(dir, 'bom.sh', '\ufeff' + SHELL_SCRIPT)
+  writeExecutable(dir, 'crlf.sh', '#!/bin/sh\r\nset -eu\r\necho tamam\n')
+  writeExecutable(dir, 'cr.sh', '#!/bin/sh\nset -eu\recho tamam\n')
+  writeExecutable(dir, 'tire.sh', lines('#!/bin/sh', '# açıklama \u2014 burada', 'echo "\u2013"', 'echo "a\u200bb"'))
+  const violations = runChecks(dir).violations
+  assert.deepEqual(of(violations, 'iyi.sh'), [])
+  assert.deepEqual(of(violations, 'bom.sh'), [{ line: 1, rule: 'bom' }])
+  assert.match(messageAt(violations, 'bom.sh', 1), /Kabuk betikleri BOM olmadan/)
+  assert.deepEqual(of(violations, 'crlf.sh'), [{ line: 1, rule: 'eol' }])
+  assert.match(messageAt(violations, 'crlf.sh', 1), /^2 satırda satır sonu LF değil/)
+  assert.deepEqual(of(violations, 'cr.sh'), [{ line: 2, rule: 'eol' }])
+  assert.deepEqual(of(violations, 'tire.sh'), [{ line: 2, rule: 'dash' }, { line: 3, rule: 'dash' }, { line: 4, rule: 'invisible' }])
+  assert.equal(violations.length, 6)
+})
+
+test('kabuk betikleri git\'te 100755 kipinde, git dışında çalıştırma izniyle bulunmalıdır', (t) => {
+  if (process.platform !== 'win32') {
+    // Git dışında (klasör taraması) dosyanın çalıştırma izni denetlenir
+    const plain = makeProject(t, { 'izinsiz.sh': SHELL_SCRIPT })
+    writeExecutable(plain, 'izinli.sh', SHELL_SCRIPT)
+    const walked = runChecks(plain).violations
+    assert.deepEqual(of(walked, 'izinsiz.sh'), [{ line: 1, rule: 'mode' }])
+    assert.match(messageAt(walked, 'izinsiz.sh', 1), /chmod \+x izinsiz\.sh/)
+    assert.deepEqual(of(walked, 'izinli.sh'), [])
+  }
+  if (!hasGit()) {
+    t.skip('git bulunamadı')
+    return
+  }
+  const dir = makeProject(t, { 'normal.sh': SHELL_SCRIPT, 'alt/calisir.sh': SHELL_SCRIPT })
+  const run = gitRunner(dir)
+  run('init', '-q')
+  run('-c', 'core.fileMode=false', 'add', 'normal.sh', 'alt/calisir.sh')
+  run('update-index', '--chmod=-x', 'normal.sh')
+  run('update-index', '--chmod=+x', 'alt/calisir.sh')
+  if (process.platform !== 'win32') fs.chmodSync(path.join(dir, 'normal.sh'), 0o755)
+  const violations = runChecks(dir).violations
+  // git'te izlenen dosyada dosya sisteminin izni değil, git'teki kip belirleyicidir
+  assert.deepEqual(of(violations, 'normal.sh'), [{ line: 1, rule: 'mode' }])
+  assert.match(messageAt(violations, 'normal.sh', 1), /git'teki dosya kipi 100644\. .*git update-index --chmod=\+x normal\.sh/)
+  assert.deepEqual(of(violations, 'alt/calisir.sh'), [])
+  assert.equal(violations.length, 1)
+})
+
+test('masaüstü uygulaması: JavaScript ve JSON metin ve noktalı virgülsüz yazım kurallarıyla denetlenir', (t) => {
+  const violations = check(t, {
+    'desktop/package.json': lines('{', '  "name": "telsiz-masaustu",', '  "description": "Masaüstü \u2014 uygulaması"', '}'),
+    'desktop/electron-builder.json': lines('{', '  "appId": "x",', '}'),
+    'desktop/src/main.js': lines(
+      '\'use strict\'',
+      'const { app } = require(\'electron\')',
+      'const ayar = globalThis.structuredClone({ a: 1 })',
+      'const adres = ayar?.a ?? 0',
+      'fetch(\'https://ornek.com\').then((r) => r.ok)',
+      'document.body.innerHTML = \'\'',
+      'app.whenReady().then(() => adres);'
+    ),
+    'desktop/src/preload.mjs': lines('import { contextBridge } from \'electron\'', 'contextBridge.exposeInMainWorld(\'telsizDesktop\', {})', '[1, 2].forEach(String)'),
+    'desktop/README.md': lines('# Masaüstü', '', 'Derleme; paketleme.'),
+    // Üretilen dosyalar denetlenmez
+    'desktop/app/vendor/x.js': 'var a = 1;\n',
+    'desktop/app/index.html': '<script>alert(1)</script>\n',
+    'desktop/dist/main.js': 'var b = 2; \u2014\n',
+    'desktop/node_modules/electron/index.js': 'var c = 3;\n',
+    'dist/telsiz.cjs': 'var d = 4;\n'
+  })
+  assert.deepEqual(of(violations, 'desktop/package.json'), at('dash', 3))
+  assert.deepEqual(of(violations, 'desktop/electron-builder.json'), at('json', 3))
+  assert.match(messageAt(violations, 'desktop/electron-builder.json', 3), /^JSON ayrıştırılamadı/)
+  // Ana süreç kodu Node.js ve Electron kodudur: güncel sözdizimi ve tarayıcıda yasak adlar serbest
+  assert.deepEqual(of(violations, 'desktop/src/main.js'), at('semicolon', 7))
+  assert.deepEqual(of(violations, 'desktop/src/preload.mjs'), at('lineStart', 3))
+  assert.deepEqual(of(violations, 'desktop/README.md'), at('prose', 3))
+  assert.ok(!violations.some((v) => /^(desktop\/(app|dist|node_modules)|dist)\//.test(v.file)), JSON.stringify(violations))
+  assert.equal(violations.length, 5)
+})
+
+test('JSON dosyaları geçerli JSON olmalıdır', (t) => {
+  const violations = check(t, {
+    'package.json': lines('{', '  "name": "deneme",', '  "private": true,', '}'),
+    'ayarlar/iyi.json': lines('[1, 2, {"a": null}]'),
+    'ayarlar/bos.json': ''
+  })
+  assert.deepEqual(of(violations, 'package.json'), at('json', 4))
+  assert.deepEqual(of(violations, 'ayarlar/iyi.json'), [])
+  assert.deepEqual(of(violations, 'ayarlar/bos.json'), at('json', 1))
+  assert.equal(violations.length, 2)
+})
+
+test('CHANGELOG.md ve CHANGELOG.en.md belge eşliği kuralına tabidir', (t) => {
+  const missing = check(t, { 'CHANGELOG.md': lines('# Değişiklikler', '', '## 2.0.0', '', 'İlk sürüm.') })
+  assert.deepEqual(of(missing, 'CHANGELOG.md'), at('doc-parity', 1))
+  assert.match(messageAt(missing, 'CHANGELOG.md', 1), /CHANGELOG\.en\.md bulunamadı/)
+  const uneven = check(t, {
+    'CHANGELOG.md': lines('# Değişiklikler', '', '## 2.0.0', '', '## 1.0.0'),
+    'CHANGELOG.en.md': lines('# Changelog', '', '## 2.0.0')
+  })
+  assert.deepEqual(of(uneven, 'CHANGELOG.en.md'), at('doc-parity', 1))
+  const paired = check(t, {
+    'CHANGELOG.md': lines('# Değişiklikler', '', '## 2.0.0'),
+    'CHANGELOG.en.md': lines('# Changelog', '', '## 2.0.0')
+  })
+  assert.deepEqual(paired, [])
+})
