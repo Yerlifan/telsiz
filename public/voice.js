@@ -1,14 +1,33 @@
 // Sesli sohbet istemcisi (window.VoiceClient)
 // WebRTC tam örgü, yalnızca ses. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır,
 // böylece sunucu bağlantı kurulumuna müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
+// Mikrofon sesi WebAudio hattından geçer: algılama kolu (gecikmesiz analizör) ve ses kolu (ileri bakış gecikmesi,
+// kapı kazancı, eşlere giden hedef iz). Bu dosya kullanıcıya görünen metin üretmez, hata ve durumlar kod olarak bildirilir.
 window.VoiceClient = (function () {
   'use strict'
 
-  var THRESHOLD = 0.02
-  var HOLD_MS = 250
-  var TICK_MS = 100
-  // Analiz penceresi yaklaşık bir ölçüm aralığını (100 ms) kapsar, kısa sesler kaçmaz
-  var FFT_SIZE = 4096
+  // Uzak konuşma algılama (100 ms aralık)
+  var REMOTE_THRESHOLD = 0.01
+  var REMOTE_HOLD_MS = 250
+  var REMOTE_FFT = 4096
+  var REMOTE_EVERY = 5
+  // Yerel ölçüm 20 ms aralıkla, analiz penceresi bir aralıktan biraz uzundur, kısa sesler kaçmaz
+  var TICK_MS = 20
+  var LOCAL_FFT = 1024
+  var MIN_DB = -100
+  var LOOKAHEAD_S = 0.05
+  var GATE_OPEN_TC = 0.005
+  var GATE_CLOSE_TC = 0.03
+  var VAD_HOLD_MS = 300
+  var FLOOR_WINDOW_MS = 3000
+  var FLOOR_MARGIN_DB = 15
+  var AUTO_MIN_DB = -70
+  var AUTO_MAX_DB = -20
+  var SMOOTHING = 0.3
+  var LEVEL_EMIT_MS = 100
+  var CAPTURE_TIMEOUT_MS = 10000
+  var MAX_PADS = 8
+  var MAX_PAD_BUTTON = 63
   var CONNECT_TIMEOUT_MS = 20000
   var NO_OFFER_TIMEOUT_MS = 30000
   var SELF_GRACE_MS = 15000
@@ -24,32 +43,113 @@ window.VoiceClient = (function () {
   var MAX_STORED_USERS = 500
   var MAX_SEEN_PEERS = 256
   var MAX_SEEN_SIDS = 32
+  var MAX_SERVER_TEXT = 500
   var SIGNAL_RETRIES = 3
-  var STORAGE_KEY = 'sohbet.voice'
-  var DEFAULT_PTT_CODE = 'KeyV'
+  var STORAGE_KEY = 'telsiz.voice'
+  var PEERS_KEY = 'telsiz.voice.peers'
+  var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
+  var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
+  var MOUSE_BITS = { 1: 4, 3: 8, 4: 16 }
   var ID_RE = /^[A-Za-z0-9_-]{1,64}$/
   var SID_RE = /^[0-9a-f]{16}$/
   var KID_RE = /^[0-9a-f]{16}$/
   var KEY_CODE_RE = /^[A-Za-z][A-Za-z0-9]{0,31}$/
+  var CODE_RE = /^[a-z][a-z0-9_]{0,63}$/
   var ICE_URL_RE = /^(stun|stuns|turn|turns):/i
+  var LAYOUT_RE = /^(Key[A-Z]|Digit[0-9]|Backquote|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|IntlBackslash|IntlRo|IntlYen)$/
 
-  var MSG = {
-    insecure: 'Sesli sohbet yalnızca https:// ile başlayan adreste çalışır. Tünel adresini kullanın.',
-    unsupported: 'Bu tarayıcı sesli sohbeti desteklemiyor. PS5\'teysen telefonunun tarayıcısından katılabilirsin.',
-    noKey: 'Sesli sohbet için şifreleme anahtarı gerekli.',
-    permission: 'Mikrofon izni verilmedi.',
-    notFound: 'Mikrofon bulunamadı.',
-    mic: 'Mikrofon açılamadı.',
-    joinFailed: 'Ses kanalına katılınamadı.',
-    connFailed: 'Bazı kişilerle ses bağlantısı kurulamadı. Ağınız doğrudan bağlantıya izin vermiyor olabilir, TURN sunucusu gerekebilir.',
-    dropped: 'Sesli bağlantı kesildi, yeniden katılabilirsin.'
+  // Adı dile göre değişen tuşlar: i18n anahtarı 'keys.<kod>', değer İngilizce yedek
+  var KEY_NAMES = {
+    Space: 'Space',
+    Enter: 'Enter',
+    Tab: 'Tab',
+    Backspace: 'Backspace',
+    CapsLock: 'Caps Lock',
+    ShiftLeft: 'Left Shift',
+    ShiftRight: 'Right Shift',
+    ControlLeft: 'Left Ctrl',
+    ControlRight: 'Right Ctrl',
+    AltLeft: 'Left Alt',
+    AltRight: 'Right Alt',
+    MetaLeft: 'Left Win/Cmd',
+    MetaRight: 'Right Win/Cmd',
+    ArrowUp: 'Up Arrow',
+    ArrowDown: 'Down Arrow',
+    ArrowLeft: 'Left Arrow',
+    ArrowRight: 'Right Arrow',
+    Insert: 'Insert',
+    Delete: 'Delete',
+    Home: 'Home',
+    End: 'End',
+    PageUp: 'Page Up',
+    PageDown: 'Page Down',
+    ContextMenu: 'Menu',
+    Pause: 'Pause',
+    ScrollLock: 'Scroll Lock',
+    PrintScreen: 'Print Screen',
+    NumLock: 'Num Lock',
+    NumpadEnter: 'Numpad Enter'
   }
+  // Dilden bağımsız simgeyle gösterilen tuşlar (klavye düzeni okunamazsa)
+  var SYMBOL_KEYS = {
+    Backquote: '`',
+    Minus: '-',
+    Equal: '=',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: '\\',
+    Semicolon: ';',
+    Quote: '\'',
+    Comma: ',',
+    Period: '.',
+    Slash: '/',
+    IntlBackslash: '<'
+  }
+  var NUMPAD_SYMBOLS = {
+    NumpadAdd: '+',
+    NumpadSubtract: '-',
+    NumpadMultiply: '*',
+    NumpadDivide: '/',
+    NumpadDecimal: '.',
+    NumpadEqual: '=',
+    NumpadComma: ','
+  }
+  // bindingLabel için İngilizce yedek metinler (çeviri fonksiyonu yoksa veya anahtar sözlükte yoksa)
+  var FALLBACK = {
+    'bindings.none': 'Not set',
+    'bindings.key': '{key} key',
+    'bindings.mouseMiddle': 'Middle mouse button',
+    'bindings.mouseSide': 'Mouse button {n}',
+    'bindings.gamepad': 'Gamepad button {n}',
+    'keys.numpad': 'Numpad {key}'
+  }
+  Object.keys(KEY_NAMES).forEach(function (code) {
+    FALLBACK['keys.' + code] = KEY_NAMES[code]
+  })
 
   function noop () {}
 
-  function makeError (message, code) {
-    var e = new Error(message)
-    e.code = code || 'error'
+  function hasOwn (obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key)
+  }
+
+  function isNum (v) {
+    return typeof v === 'number' && isFinite(v)
+  }
+
+  function clamp (v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v))
+  }
+
+  function round1 (v) {
+    return typeof v === 'number' ? Math.round(v * 10) / 10 : null
+  }
+
+  // Hata nesneleri yalnızca kod taşır, metni arayüz çevirir. Sunucunun kendi açıklaması ayrıca saklanır.
+  function makeError (code, serverMessage) {
+    var e = new Error(code)
+    e.code = code
+    if (serverMessage) e.serverMessage = serverMessage
     return e
   }
 
@@ -61,15 +161,137 @@ window.VoiceClient = (function () {
     return { ok: true, reason: null }
   }
 
-  function supportMessage (reason) {
-    return reason === 'insecure' ? MSG.insecure : MSG.unsupported
+  function micErrorCode (e) {
+    if (e && typeof e.code === 'string' && /^mic_/.test(e.code)) return e.code
+    var name = e && e.name
+    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') return 'mic_denied'
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') return 'mic_not_found'
+    return 'mic_failed'
   }
 
-  function micErrorMessage (e) {
-    var name = e && e.name
-    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') return MSG.permission
-    if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') return MSG.notFound
-    return MSG.mic
+  function defaultSettings () {
+    return {
+      inputDeviceId: null,
+      inputMode: 'vad',
+      vadAuto: true,
+      vadThreshold: -50,
+      pttReleaseMs: 200,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      outputVolume: 1,
+      sounds: true,
+      bindings: { ptt: { type: 'key', code: 'KeyV' }, toggleMute: null, toggleDeafen: null }
+    }
+  }
+
+  // Atama biçimleri: { type: 'key', code }, { type: 'mouse', button: 1|3|4 }, { type: 'gamepad', button }
+  function normBinding (b) {
+    if (!b || typeof b !== 'object') return null
+    if (b.type === 'key') {
+      return typeof b.code === 'string' && KEY_CODE_RE.test(b.code) && b.code !== 'Escape' ? { type: 'key', code: b.code } : null
+    }
+    if (b.type === 'mouse') {
+      return b.button === 1 || b.button === 3 || b.button === 4 ? { type: 'mouse', button: b.button } : null
+    }
+    if (b.type === 'gamepad') {
+      var n = b.button
+      return isNum(n) && n >= 0 && n <= MAX_PAD_BUTTON && Math.floor(n) === n ? { type: 'gamepad', button: n } : null
+    }
+    return null
+  }
+
+  function sameBinding (a, b) {
+    if (!a || !b) return !a && !b
+    return a.type === b.type && a.code === b.code && a.button === b.button
+  }
+
+  // Gösterim adları
+  var layoutMap = null
+  var layoutAsked = false
+
+  // Klavye düzeni (destekleyen tarayıcılarda) harf ve simge tuşlarının gerçek karakterini verir
+  function askLayout () {
+    if (layoutAsked) return
+    layoutAsked = true
+    try {
+      var kb = typeof navigator !== 'undefined' ? navigator.keyboard : null
+      if (!kb || typeof kb.getLayoutMap !== 'function') return
+      Promise.resolve(kb.getLayoutMap()).then(function (m) {
+        if (m && typeof m.get === 'function') layoutMap = m
+      }, noop)
+    } catch (e) {}
+  }
+
+  function format (text, params) {
+    return String(text).replace(/\{(\w+)\}/g, function (m, k) {
+      return params && hasOwn(params, k) ? String(params[k]) : m
+    })
+  }
+
+  function translator (t) {
+    var fn = typeof t === 'function' ? t : null
+    if (!fn && typeof window !== 'undefined' && window.I18N && typeof window.I18N.t === 'function') {
+      var i18n = window.I18N
+      fn = function (key, params) { return i18n.t(key, params) }
+    }
+    return function (key, params) {
+      var s = null
+      if (fn) {
+        try {
+          s = fn(key, params)
+        } catch (e) {
+          s = null
+        }
+      }
+      if (typeof s !== 'string' || !s || s === key) s = format(hasOwn(FALLBACK, key) ? FALLBACK[key] : key, params)
+      return s
+    }
+  }
+
+  function upper (ch) {
+    var lang = null
+    try {
+      lang = (window.I18N && typeof window.I18N.lang === 'string' && window.I18N.lang) || document.documentElement.lang || null
+    } catch (e) {
+      lang = null
+    }
+    try {
+      return lang ? ch.toLocaleUpperCase(lang) : ch.toUpperCase()
+    } catch (e) {
+      return ch.toUpperCase()
+    }
+  }
+
+  // Çağrılar t('...') biçimindedir, böylece denetleyici anahtarların sözlükte varlığını doğrular
+  function keyName (code, t) {
+    if (layoutMap && LAYOUT_RE.test(code)) {
+      var ch = null
+      try {
+        ch = layoutMap.get(code)
+      } catch (e) {
+        ch = null
+      }
+      if (typeof ch === 'string' && ch.length === 1 && ch.trim()) return upper(ch)
+    }
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3)
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code
+    if (/^Numpad[0-9]$/.test(code)) return t('keys.numpad', { key: code.slice(6) })
+    if (hasOwn(NUMPAD_SYMBOLS, code)) return t('keys.numpad', { key: NUMPAD_SYMBOLS[code] })
+    if (hasOwn(KEY_NAMES, code)) return t('keys.' + code)
+    if (hasOwn(SYMBOL_KEYS, code)) return SYMBOL_KEYS[code]
+    return code
+  }
+
+  // Atamanın gösterim adı: çeviri fonksiyonu verilmezse window.I18N.t, o da yoksa İngilizce yedek kullanılır
+  function bindingLabel (binding, translate) {
+    var t = translator(translate)
+    var b = normBinding(binding)
+    if (!b) return t('bindings.none')
+    if (b.type === 'key') return t('bindings.key', { key: keyName(b.code, t) })
+    if (b.type === 'mouse') return b.button === 1 ? t('bindings.mouseMiddle') : t('bindings.mouseSide', { n: b.button + 1 })
+    return t('bindings.gamepad', { n: b.button })
   }
 
   // Kullanıcı, kanal ve eş kimlikleri: sayı veya kısa güvenli dizge, prototip anahtarları reddedilir
@@ -156,37 +378,74 @@ window.VoiceClient = (function () {
     return s
   }
 
-  // Analizörden RMS (0..1)
-  function readLevel (node) {
-    var an = node && node.analyser
+  // Analizörden RMS (0..1), tampon taşıyıcı nesnede tutulur
+  function readRms (an, holder) {
     if (!an) return 0
     var n = an.fftSize
     var sum = 0
     var i = 0
     var v = 0
-    if (typeof an.getFloatTimeDomainData === 'function') {
-      if (!node.fbuf || node.fbuf.length !== n) node.fbuf = new Float32Array(n)
-      an.getFloatTimeDomainData(node.fbuf)
-      while (i < n) {
-        v = node.fbuf[i]
-        sum += v * v
-        i++
+    try {
+      if (typeof an.getFloatTimeDomainData === 'function') {
+        if (!holder.fbuf || holder.fbuf.length !== n) holder.fbuf = new Float32Array(n)
+        an.getFloatTimeDomainData(holder.fbuf)
+        while (i < n) {
+          v = holder.fbuf[i]
+          sum += v * v
+          i++
+        }
+      } else {
+        if (!holder.bbuf || holder.bbuf.length !== n) holder.bbuf = new Uint8Array(n)
+        an.getByteTimeDomainData(holder.bbuf)
+        while (i < n) {
+          v = (holder.bbuf[i] - 128) / 128
+          sum += v * v
+          i++
+        }
       }
-    } else {
-      if (!node.bbuf || node.bbuf.length !== n) node.bbuf = new Uint8Array(n)
-      an.getByteTimeDomainData(node.bbuf)
-      while (i < n) {
-        v = (node.bbuf[i] - 128) / 128
-        sum += v * v
-        i++
-      }
+    } catch (e) {
+      return 0
     }
     return Math.sqrt(sum / n)
   }
 
+  // Oyun kolları: her biri için basılı düğme bayrakları
+  function readPads () {
+    var out = []
+    var list = null
+    try {
+      list = typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : null
+    } catch (e) {
+      list = null
+    }
+    if (!list) return out
+    var i = 0
+    while (i < list.length && i < MAX_PADS) {
+      var pad = list[i]
+      var flags = []
+      if (pad && pad.connected !== false && pad.buttons) {
+        var j = 0
+        while (j < pad.buttons.length && j <= MAX_PAD_BUTTON) {
+          var btn = pad.buttons[j]
+          flags.push(typeof btn === 'number' ? btn > 0.5 : !!(btn && (btn.pressed || btn.value > 0.5)))
+          j++
+        }
+      }
+      out.push(flags)
+      i++
+    }
+    return out
+  }
+
+  function stopEvent (e) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation()
+  }
+
   function create (opts) {
     if (!opts || typeof opts.api !== 'function' || typeof opts.seal !== 'function' || typeof opts.open !== 'function') {
-      throw new TypeError('VoiceClient.create: api, seal ve open fonksiyonları gerekli.')
+      throw new TypeError('VoiceClient.create: api, seal and open functions are required')
     }
     var api = opts.api
     var seal = opts.seal
@@ -197,6 +456,9 @@ window.VoiceClient = (function () {
     var seen = new Map()
     var emitScheduled = false
     var listening = false
+    var mouseGuard = false
+    var capListening = false
+    var keySwallowing = false
 
     var st = {
       gen: 0,
@@ -212,16 +474,48 @@ window.VoiceClient = (function () {
       iceServers: [],
       muted: false,
       deafened: false,
-      ptt: { enabled: false, code: DEFAULT_PTT_CODE, active: false },
-      deviceId: '',
-      deviceJob: Promise.resolve(),
+      settings: defaultSettings(),
       volumes: Object.create(null),
       localMutes: Object.create(null),
+      // Mikrofon katmanı: ses oturumu ve mikrofon testi ortak kullanır
+      local: null,
+      micPromise: null,
+      micJob: Promise.resolve(),
+      micGen: 0,
+      pipe: null,
+      mode: null,
+      testing: false,
+      testPromise: null,
+      // Ölçüm ve kapı
+      level: null,
+      smooth: null,
+      noiseFloor: null,
+      floorTimes: [],
+      floorValues: [],
+      vadOpen: false,
+      lastAbove: 0,
+      gate: false,
       selfSpeaking: false,
       inputLevel: 0,
-      error: null,
+      emittedLevel: null,
+      emittedThreshold: null,
+      levelEmitAt: 0,
+      tickCount: 0,
+      // Bas konuş ve atamalar
+      held: { key: false, mouse: false, pad: false, touch: false },
+      pttActive: false,
+      pttTail: false,
+      pttTimer: null,
+      padPrev: {},
+      padInit: true,
+      rafId: 0,
+      capture: null,
+      swallowKey: null,
+      swallowMouse: null,
+      // Oturum
+      errorCode: null,
+      serverError: null,
       autoplayBlocked: false,
-      local: null,
       peers: Object.create(null),
       roster: Object.create(null),
       ops: Object.create(null),
@@ -243,6 +537,8 @@ window.VoiceClient = (function () {
     }
 
     loadSettings()
+    updateMouseGuard()
+    askLayout()
 
     // Durum bildirimi: aynı görev içindeki değişiklikler tek çağrıda toplanır
     function emit () {
@@ -282,12 +578,12 @@ window.VoiceClient = (function () {
       })
     }
 
-    // Ayarlar (bas-konuş, cihaz, kişi bazlı ses)
-    function loadSettings () {
+    // Ayarlar: cihaza özel, storage içinde 'telsiz.voice', kişi bazlı ses ayarları 'telsiz.voice.peers'
+    function readStored (key) {
       var obj = null
       if (storage && typeof storage.get === 'function') {
         try {
-          obj = storage.get(STORAGE_KEY)
+          obj = storage.get(key)
         } catch (e) {
           obj = null
         }
@@ -301,14 +597,24 @@ window.VoiceClient = (function () {
         }
         tries++
       }
-      if (!obj || typeof obj !== 'object') return
-      if (obj.ptt && typeof obj.ptt === 'object') {
-        if (typeof obj.ptt.enabled === 'boolean') st.ptt.enabled = obj.ptt.enabled
-        if (typeof obj.ptt.code === 'string' && KEY_CODE_RE.test(obj.ptt.code)) st.ptt.code = obj.ptt.code
+      return obj && typeof obj === 'object' ? obj : null
+    }
+
+    function writeStored (key, value) {
+      if (!storage || typeof storage.set !== 'function') return
+      try {
+        storage.set(key, JSON.stringify(value))
+      } catch (e) {}
+    }
+
+    function loadSettings () {
+      var obj = readStored(STORAGE_KEY)
+      if (obj) mergeSettings(obj)
+      var p = readStored(PEERS_KEY)
+      if (p) {
+        copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
+        copyMap(p.localMutes, st.localMutes, function (v) { return v === true })
       }
-      if (typeof obj.deviceId === 'string' && obj.deviceId.length <= 512) st.deviceId = obj.deviceId
-      copyMap(obj.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
-      copyMap(obj.localMutes, st.localMutes, function (v) { return v === true })
     }
 
     function copyMap (src, dst, ok) {
@@ -319,16 +625,103 @@ window.VoiceClient = (function () {
     }
 
     function saveSettings () {
-      if (!storage || typeof storage.set !== 'function') return
-      var data = {
-        ptt: { enabled: st.ptt.enabled, code: st.ptt.code },
-        deviceId: st.deviceId,
-        volumes: st.volumes,
-        localMutes: st.localMutes
+      writeStored(STORAGE_KEY, getSettings())
+    }
+
+    function savePeers () {
+      writeStored(PEERS_KEY, { volumes: st.volumes, localMutes: st.localMutes })
+    }
+
+    function copyBindings () {
+      var b = st.settings.bindings
+      return { ptt: normBinding(b.ptt), toggleMute: normBinding(b.toggleMute), toggleDeafen: normBinding(b.toggleDeafen) }
+    }
+
+    function getSettings () {
+      var s = st.settings
+      return {
+        inputDeviceId: s.inputDeviceId,
+        inputMode: s.inputMode,
+        vadAuto: s.vadAuto,
+        vadThreshold: s.vadThreshold,
+        pttReleaseMs: s.pttReleaseMs,
+        echoCancellation: s.echoCancellation,
+        noiseSuppression: s.noiseSuppression,
+        autoGainControl: s.autoGainControl,
+        outputVolume: s.outputVolume,
+        sounds: s.sounds,
+        bindings: copyBindings()
       }
-      try {
-        storage.set(STORAGE_KEY, JSON.stringify(data))
-      } catch (e) {}
+    }
+
+    // Geçersiz alanlar yok sayılır. Dönüş: hangi tür değişiklik olduğu
+    function mergeSettings (partial) {
+      var s = st.settings
+      var out = { mic: false, device: false, bindings: false, mode: false }
+      if (!partial || typeof partial !== 'object') return out
+      if (hasOwn(partial, 'inputDeviceId')) {
+        var d = partial.inputDeviceId
+        var id = typeof d === 'string' && d.length <= 512 ? (d || null) : (d === null ? null : undefined)
+        if (id !== undefined && id !== s.inputDeviceId) {
+          s.inputDeviceId = id
+          out.mic = true
+          out.device = true
+        }
+      }
+      if ((partial.inputMode === 'vad' || partial.inputMode === 'ptt') && partial.inputMode !== s.inputMode) {
+        s.inputMode = partial.inputMode
+        out.mode = true
+      }
+      if (typeof partial.vadAuto === 'boolean') s.vadAuto = partial.vadAuto
+      if (isNum(partial.vadThreshold)) s.vadThreshold = clamp(partial.vadThreshold, MIN_DB, 0)
+      if (isNum(partial.pttReleaseMs)) s.pttReleaseMs = Math.round(clamp(partial.pttReleaseMs, 0, 1000))
+      MIC_FLAGS.forEach(function (k) {
+        if (typeof partial[k] === 'boolean' && partial[k] !== s[k]) {
+          s[k] = partial[k]
+          out.mic = true
+        }
+      })
+      if (isNum(partial.outputVolume)) s.outputVolume = clamp(partial.outputVolume, 0, 1)
+      if (typeof partial.sounds === 'boolean') s.sounds = partial.sounds
+      var pb = partial.bindings
+      if (pb && typeof pb === 'object') {
+        ACTIONS.forEach(function (a) {
+          if (!hasOwn(pb, a)) return
+          var b = normBinding(pb[a])
+          // Bas konuş temizlenemez, geçersiz atama yok sayılır
+          if (!b && (a === 'ptt' || pb[a] !== null)) return
+          if (sameBinding(b, s.bindings[a])) return
+          s.bindings[a] = b
+          out.bindings = true
+          // Aynı düğme iki aç/kapa eylemine birden atanamaz
+          if (b && a !== 'ptt') {
+            var other = a === 'toggleMute' ? 'toggleDeafen' : 'toggleMute'
+            if (sameBinding(b, s.bindings[other])) s.bindings[other] = null
+          }
+        })
+      }
+      return out
+    }
+
+    // Dönüş Promise<null | hata kodu>, asla reddedilmez
+    function setSettings (partial) {
+      var ch = mergeSettings(partial)
+      saveSettings()
+      if (ch.mode || ch.bindings) releaseAll()
+      if (ch.bindings) {
+        st.padInit = true
+        updateMouseGuard()
+      }
+      updatePadPoll()
+      applyAllAudio()
+      updateGate(false)
+      emit()
+      if (!ch.mic || !st.local) return Promise.resolve(null)
+      return queueReacquire(!ch.device).then(function () {
+        return null
+      }, function (e) {
+        return e && typeof e.code === 'string' ? e.code : 'mic_failed'
+      })
     }
 
     function volumeOf (uid) {
@@ -336,20 +729,12 @@ window.VoiceClient = (function () {
       return typeof v === 'number' ? v : 1
     }
 
-    function micOpen () {
-      return !st.muted && !st.deafened && (!st.ptt.enabled || st.ptt.active)
-    }
-
-    function applyTrack () {
-      if (st.local && st.local.track) st.local.track.enabled = micOpen()
-    }
-
     function applyPeerAudio (peer) {
       var a = peer.audio
       var r = st.roster[peer.peerId]
       if (!a || !r) return
       try {
-        a.volume = volumeOf(r.userId)
+        a.volume = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, 1)
       } catch (e) {}
       a.muted = st.deafened || st.localMutes[r.userId] === true
     }
@@ -386,15 +771,29 @@ window.VoiceClient = (function () {
           deafened: r.deafened
         }
       })
+      var s = st.settings
+      var thr = st.level === null ? (s.vadAuto ? null : s.vadThreshold) : currentThreshold()
+      var code = st.errorCode || (anyFailed() ? 'connect_failed' : null)
       return {
         channelId: st.channelId,
         joining: st.joining,
         muted: st.muted || st.deafened,
         deafened: st.deafened,
-        ptt: { enabled: st.ptt.enabled, code: st.ptt.code, active: st.ptt.active },
+        inputMode: s.inputMode,
+        gateOpen: st.gate,
+        level: round1(st.level),
+        threshold: round1(thr),
+        noiseFloor: round1(st.noiseFloor),
+        vadAuto: s.vadAuto,
+        bindings: copyBindings(),
+        testing: st.testing,
+        capturing: !!st.capture,
+        fallback: st.mode === 'raw',
+        ptt: { enabled: s.inputMode === 'ptt', active: st.pttActive },
         selfSpeaking: st.selfSpeaking,
         inputLevel: st.inputLevel,
-        error: st.error || (anyFailed() ? MSG.connFailed : null),
+        errorCode: code,
+        serverError: st.errorCode ? st.serverError : null,
         autoplayBlocked: st.autoplayBlocked,
         peers: peers
       }
@@ -409,7 +808,7 @@ window.VoiceClient = (function () {
       }
     }
 
-    // Ses bağlamı ve analizörler
+    // Ses bağlamı
     function ensureContext () {
       if (st.closeTimer) {
         clearTimeout(st.closeTimer)
@@ -424,6 +823,11 @@ window.VoiceClient = (function () {
           ctx = null
           return null
         }
+        var c = ctx
+        // Bağlam askıya alınırsa (ör. iOS kesintisi) ham mikrofon izine, sürünce yeniden hatta geçilir
+        c.onstatechange = function () {
+          if (ctx === c && st.local) updateMode()
+        }
       }
       if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
         try {
@@ -436,102 +840,269 @@ window.VoiceClient = (function () {
 
     function scheduleContextClose () {
       if (st.closeTimer) clearTimeout(st.closeTimer)
+      st.closeTimer = null
       if (!ctx) return
       st.closeTimer = setTimeout(function () {
         st.closeTimer = null
-        if (!ctx || st.inVoice || st.joining) return
+        if (!ctx || st.inVoice || st.joining || st.local || st.testing || st.micPromise) return
+        destroyPipe()
         var c = ctx
         ctx = null
         try {
+          c.onstatechange = null
           var p = c.close()
           if (p && typeof p.catch === 'function') p.catch(noop)
         } catch (e) {}
       }, CONTEXT_CLOSE_DELAY_MS)
     }
 
-    function attachAnalyser (node, stream) {
-      detachAnalyser(node)
-      if (!ctx || !stream || ctx.state === 'closed') return
+    // Giriş hattı: kaynak -> analizör (algılama) ve kaynak -> gecikme -> kapı -> hedef (eşlere giden iz)
+    function ensurePipe () {
+      var c = ensureContext()
+      if (st.pipe && st.pipe.ctx === c && c) return st.pipe
+      destroyPipe()
+      if (!c) return null
+      var pipe = { ctx: c, analyser: null, delay: null, gain: null, dest: null, track: null, source: null, ok: false, target: null, fbuf: null, bbuf: null }
       try {
-        var source = ctx.createMediaStreamSource(stream)
-        var analyser = ctx.createAnalyser()
-        analyser.fftSize = FFT_SIZE
-        source.connect(analyser)
-        node.source = source
-        node.analyser = analyser
+        pipe.analyser = c.createAnalyser()
+        pipe.analyser.fftSize = LOCAL_FFT
       } catch (e) {
-        node.source = null
-        node.analyser = null
+        pipe.analyser = null
       }
-    }
-
-    function detachAnalyser (node) {
-      if (!node) return
       try {
-        if (node.source) node.source.disconnect()
-      } catch (e) {}
-      try {
-        if (node.analyser) node.analyser.disconnect()
-      } catch (e) {}
-      node.source = null
-      node.analyser = null
-      node.lastLoud = 0
-    }
-
-    function playTone (kind, other) {
-      if (!ctx || ctx.state !== 'running') return
-      if (other && st.deafened) return
-      var freqs = kind === 'join' ? [523.25, 659.25] : [659.25, 523.25]
-      var peak = other ? 0.08 : 0.12
-      var t0 = ctx.currentTime + 0.02
-      var c = ctx
-      freqs.forEach(function (f, i) {
-        var start = t0 + i * 0.12
+        if (typeof c.createMediaStreamDestination !== 'function') throw new Error('no_destination')
+        pipe.delay = c.createDelay(1)
+        pipe.delay.delayTime.value = LOOKAHEAD_S
+        pipe.gain = c.createGain()
+        pipe.gain.gain.value = 0
+        pipe.dest = c.createMediaStreamDestination()
         try {
-          var osc = c.createOscillator()
-          var gain = c.createGain()
-          osc.type = 'sine'
-          osc.frequency.setValueAtTime(f, start)
-          gain.gain.setValueAtTime(0, start)
-          gain.gain.linearRampToValueAtTime(peak, start + 0.02)
-          gain.gain.linearRampToValueAtTime(0, start + 0.11)
-          osc.connect(gain)
-          gain.connect(c.destination)
-          osc.onended = function () {
-            try {
-              osc.disconnect()
-              gain.disconnect()
-            } catch (e) {}
-          }
-          osc.start(start)
-          osc.stop(start + 0.12)
+          pipe.dest.channelCount = 1
+        } catch (e) {}
+        pipe.delay.connect(pipe.gain)
+        pipe.gain.connect(pipe.dest)
+        pipe.track = pipe.dest.stream.getAudioTracks()[0] || null
+        pipe.ok = !!pipe.track
+      } catch (e) {
+        pipe.ok = false
+      }
+      if (!pipe.ok) {
+        disconnectNodes([pipe.delay, pipe.gain, pipe.dest])
+        pipe.delay = null
+        pipe.gain = null
+        pipe.dest = null
+        pipe.track = null
+      }
+      st.pipe = pipe
+      return pipe
+    }
+
+    function disconnectNodes (list) {
+      list.forEach(function (n) {
+        if (!n) return
+        try {
+          n.disconnect()
         } catch (e) {}
       })
     }
 
+    function destroyPipe () {
+      var p = st.pipe
+      st.pipe = null
+      if (!p) return
+      disconnectNodes([p.source, p.analyser, p.delay, p.gain, p.dest])
+      try {
+        if (p.track) p.track.stop()
+      } catch (e) {}
+    }
+
+    // Cihaz değişiminde yalnızca kaynak düğümü değişir, eşlerdeki iz aynı kalır
+    function connectSource (local) {
+      var pipe = st.pipe
+      if (!pipe || !local) return
+      var src = null
+      try {
+        src = pipe.ctx.createMediaStreamSource(local.srcStream)
+        if (pipe.analyser) src.connect(pipe.analyser)
+        if (pipe.ok) src.connect(pipe.delay)
+      } catch (e) {
+        if (src) disconnectNodes([src])
+        src = null
+      }
+      var old = pipe.source
+      pipe.source = src
+      if (old) disconnectNodes([old])
+    }
+
+    function desiredMode () {
+      if (!st.local) return null
+      var p = st.pipe
+      return p && p.ok && p.source && p.ctx.state === 'running' ? 'pipe' : 'raw'
+    }
+
+    function updateMode () {
+      var m = desiredMode()
+      if (m === st.mode) return
+      st.mode = m
+      if (m) replaceSenders()
+      updateGate(true)
+      emit()
+    }
+
+    function sendTrack () {
+      if (st.mode === 'pipe' && st.pipe && st.pipe.track) return st.pipe.track
+      return st.local ? st.local.track : null
+    }
+
+    function sendStream () {
+      if (st.mode === 'pipe' && st.pipe && st.pipe.dest) return st.pipe.dest.stream
+      return st.local ? st.local.stream : null
+    }
+
+    // Yalnızca yedek modda veya mod değişiminde gerekir
+    function replaceSenders () {
+      var t = sendTrack()
+      var jobs = []
+      Object.keys(st.peers).forEach(function (pid) {
+        var s = st.peers[pid].sender
+        if (!t || !s || typeof s.replaceTrack !== 'function' || s.track === t) return
+        try {
+          jobs.push(Promise.resolve(s.replaceTrack(t)).then(noop, noop))
+        } catch (e) {}
+      })
+      return Promise.all(jobs)
+    }
+
+    // Algılama, analizör çalışıyorsa ve kapı ölçülen sesi kesmiyorsa güvenilirdir
+    function analysisOk () {
+      var p = st.pipe
+      if (!st.local || !p || !p.analyser || !p.source || p.ctx.state !== 'running') return false
+      return st.mode === 'pipe' || !!st.local.clone
+    }
+
+    function currentThreshold () {
+      var s = st.settings
+      if (!s.vadAuto) return s.vadThreshold
+      if (st.noiseFloor === null) return null
+      return clamp(st.noiseFloor + FLOOR_MARGIN_DB, AUTO_MIN_DB, AUTO_MAX_DB)
+    }
+
+    function computeGate () {
+      if (!st.local || st.muted || st.deafened) return false
+      if (st.settings.inputMode === 'ptt') return st.pttActive || st.pttTail
+      // Seviye ölçülemiyorsa ses etkinliği modu mikrofonu açık tutar
+      if (!analysisOk()) return true
+      return st.vadOpen
+    }
+
+    function setGain (pipe, target) {
+      if (!pipe.gain || pipe.target === target) return
+      pipe.target = target
+      var p = pipe.gain.gain
+      try {
+        var now = pipe.ctx.currentTime
+        p.cancelScheduledValues(now)
+        p.setValueAtTime(p.value, now)
+        p.setTargetAtTime(target, now, target > 0 ? GATE_OPEN_TC : GATE_CLOSE_TC)
+      } catch (e) {
+        try {
+          p.value = target
+        } catch (e2) {}
+      }
+    }
+
+    function applyGate () {
+      var local = st.local
+      if (!local) return
+      var live = !st.muted && !st.deafened
+      var pipe = st.pipe
+      if (pipe && pipe.ok) {
+        setGain(pipe, st.mode === 'pipe' && st.gate ? 1 : 0)
+        // Mikrofon kapalıyken eşlere giden iz de tamamen kapatılır
+        if (pipe.track) pipe.track.enabled = live
+      }
+      local.track.enabled = st.mode === 'raw' ? st.gate : true
+    }
+
+    function updateGate (force) {
+      var g = computeGate()
+      var changed = g !== st.gate
+      st.gate = g
+      if (changed || force) applyGate()
+      // Yerel konuşma göstergesi kapının açık olmasıdır (ölçüm yapılamayan yedek modda mikrofon sürekli açıktır)
+      if (g !== st.selfSpeaking) {
+        st.selfSpeaking = g
+        changed = true
+      }
+      if (changed) emit()
+    }
+
+    function resetMeasure () {
+      st.level = null
+      st.smooth = null
+      st.noiseFloor = null
+      st.floorTimes = []
+      st.floorValues = []
+      st.vadOpen = false
+      st.lastAbove = 0
+      st.inputLevel = 0
+      st.emittedLevel = null
+      st.emittedThreshold = null
+    }
+
+    // Seviye dBFS (20*log10(rms)), gürültü tabanı son 3 sn içindeki yumuşatılmış seviyelerin en düşüğü
+    function measureLocal (now) {
+      if (!analysisOk()) {
+        if (st.level !== null) {
+          resetMeasure()
+          emit()
+        }
+        updateGate(false)
+        return
+      }
+      var rms = readRms(st.pipe.analyser, st.pipe)
+      var db = rms > 0 ? 20 * Math.log10(rms) : MIN_DB
+      if (!(db >= MIN_DB)) db = MIN_DB
+      if (db > 0) db = 0
+      st.level = db
+      st.smooth = st.smooth === null ? db : st.smooth + SMOOTHING * (db - st.smooth)
+      st.floorTimes.push(now)
+      st.floorValues.push(st.smooth)
+      while (st.floorTimes.length && now - st.floorTimes[0] > FLOOR_WINDOW_MS) {
+        st.floorTimes.shift()
+        st.floorValues.shift()
+      }
+      st.noiseFloor = Math.min.apply(null, st.floorValues)
+      var thr = currentThreshold()
+      if (db > thr) {
+        st.vadOpen = true
+        st.lastAbove = now
+      } else if (st.vadOpen && now - st.lastAbove >= VAD_HOLD_MS) {
+        st.vadOpen = false
+      }
+      st.inputLevel = Math.round(Math.min(1, rms * 4) * 20) / 20
+      updateGate(false)
+      // Seviye bildirimleri en fazla 100 ms'de bir, 1 dB değişimde
+      var rl = Math.round(db)
+      var rt = Math.round(thr)
+      if ((rl !== st.emittedLevel || rt !== st.emittedThreshold) && now - st.levelEmitAt >= LEVEL_EMIT_MS) {
+        st.emittedLevel = rl
+        st.emittedThreshold = rt
+        st.levelEmitAt = now
+        emit()
+      }
+    }
+
     function tick () {
       var now = Date.now()
+      st.tickCount++
+      if (st.local) measureLocal(now)
+      if (st.tickCount % REMOTE_EVERY !== 0) return
       var changed = false
-      var local = st.local
-      if (local) {
-        var rms = readLevel(local)
-        if (rms > THRESHOLD) local.lastLoud = now
-        // Giriş seviyesi 0.05 adımlarla bildirilir (en fazla ölçüm aralığı sıklığında)
-        var level = Math.round(Math.min(1, rms * 4) * 20) / 20
-        if (level !== st.inputLevel) {
-          st.inputLevel = level
-          changed = true
-        }
-        var selfNow = !!local.analyser && micOpen() && now - local.lastLoud < HOLD_MS
-        if (selfNow !== st.selfSpeaking) {
-          st.selfSpeaking = selfNow
-          changed = true
-        }
-      }
       Object.keys(st.peers).forEach(function (pid) {
         var p = st.peers[pid]
-        if (readLevel(p) > THRESHOLD) p.lastLoud = now
-        var s = !!p.analyser && now - p.lastLoud < HOLD_MS
+        if (readRms(p.analyser, p) > REMOTE_THRESHOLD) p.lastLoud = now
+        var s = !!p.analyser && now - p.lastLoud < REMOTE_HOLD_MS
         if (s !== p.speaking) {
           p.speaking = s
           changed = true
@@ -554,6 +1125,59 @@ window.VoiceClient = (function () {
     function stopTick () {
       if (st.tickTimer) clearInterval(st.tickTimer)
       st.tickTimer = null
+    }
+
+    // Uzak akış analizörleri (hedefe bağlanmaz)
+    function attachAnalyser (node, stream) {
+      detachAnalyser(node)
+      if (!ctx || !stream || ctx.state === 'closed') return
+      try {
+        var source = ctx.createMediaStreamSource(stream)
+        var analyser = ctx.createAnalyser()
+        analyser.fftSize = REMOTE_FFT
+        source.connect(analyser)
+        node.source = source
+        node.analyser = analyser
+      } catch (e) {
+        node.source = null
+        node.analyser = null
+      }
+    }
+
+    function detachAnalyser (node) {
+      if (!node) return
+      disconnectNodes([node.source, node.analyser])
+      node.source = null
+      node.analyser = null
+      node.lastLoud = 0
+    }
+
+    function playTone (kind, other) {
+      if (!st.settings.sounds || !ctx || ctx.state !== 'running') return
+      if (other && st.deafened) return
+      var freqs = kind === 'join' ? [523.25, 659.25] : [659.25, 523.25]
+      var peak = other ? 0.08 : 0.12
+      var t0 = ctx.currentTime + 0.02
+      var c = ctx
+      freqs.forEach(function (f, i) {
+        var start = t0 + i * 0.12
+        try {
+          var osc = c.createOscillator()
+          var gain = c.createGain()
+          osc.type = 'sine'
+          osc.frequency.setValueAtTime(f, start)
+          gain.gain.setValueAtTime(0, start)
+          gain.gain.linearRampToValueAtTime(peak, start + 0.02)
+          gain.gain.linearRampToValueAtTime(0, start + 0.11)
+          osc.connect(gain)
+          gain.connect(c.destination)
+          osc.onended = function () {
+            disconnectNodes([osc, gain])
+          }
+          osc.start(start)
+          osc.stop(start + 0.12)
+        } catch (e) {}
+      })
     }
 
     // Uzak ses öğeleri yalnızca bu gizli kabın içinde durur
@@ -606,23 +1230,32 @@ window.VoiceClient = (function () {
     }
 
     // Yerel mikrofon
-    async function getMic (deviceId, allowFallback) {
+    function micParams () {
+      var s = st.settings
+      return { deviceId: s.inputDeviceId, ec: s.echoCancellation, ns: s.noiseSuppression, agc: s.autoGainControl }
+    }
+
+    function paramsKey (p) {
+      return [p.deviceId || '', p.ec, p.ns, p.agc].join('|')
+    }
+
+    async function getMic (p, allowFallback) {
       var md = navigator.mediaDevices
-      var audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      if (deviceId) audio.deviceId = { exact: deviceId }
+      var audio = { echoCancellation: p.ec, noiseSuppression: p.ns, autoGainControl: p.agc }
+      if (p.deviceId) audio.deviceId = { exact: p.deviceId }
       try {
         return await md.getUserMedia({ audio: audio, video: false })
       } catch (e) {
         var n = e && e.name
-        if (!deviceId || !allowFallback || (n !== 'OverconstrainedError' && n !== 'NotFoundError')) throw e
+        if (!p.deviceId || !allowFallback || (n !== 'OverconstrainedError' && n !== 'NotFoundError')) throw e
         delete audio.deviceId
         return md.getUserMedia({ audio: audio, video: false })
       }
     }
 
-    function makeLocal (stream) {
+    function makeLocal (stream, params) {
       var tracks = stream.getAudioTracks()
-      if (!tracks.length) throw makeError(MSG.notFound, 'mic')
+      if (!tracks.length) throw makeError('mic_not_found')
       var track = tracks[0]
       var clone = null
       try {
@@ -630,54 +1263,466 @@ window.VoiceClient = (function () {
       } catch (e) {
         clone = null
       }
-      // Seviye ölçümü klon iz üzerinden yapılır, böylece susturulmuşken de giriş seviyesi görünür
+      // Algılama klon iz üzerinden yapılır, yedek modda kapı ham izi kapatsa da seviye ölçülür
       return {
         stream: stream,
         track: track,
-        analysisTrack: clone,
-        analysisStream: new MediaStream([clone || track]),
-        source: null,
-        analyser: null,
-        lastLoud: 0,
-        fbuf: null,
-        bbuf: null
+        clone: clone,
+        srcStream: new MediaStream([clone || track]),
+        params: params,
+        ended: false
       }
     }
 
     function stopLocal (local) {
       if (!local) return
-      detachAnalyser(local)
       try {
+        local.track.onended = null
         local.track.stop()
       } catch (e) {}
       try {
-        if (local.analysisTrack) local.analysisTrack.stop()
+        if (local.clone) local.clone.stop()
       } catch (e) {}
       stopStream(local.stream)
     }
 
-    // Klavye, odak ve görünürlük dinleyicileri (yalnızca seste iken)
-    function onKeyDown (e) {
-      if (!st.ptt.enabled || !e || e.code !== st.ptt.code || e.repeat) return
-      if (isEditable(e.target)) return
+    // Cihaz çıkarılırsa varsayılan cihaza geçilir
+    function watchTrack (local) {
+      local.track.onended = function () {
+        if (st.local !== local) return
+        local.ended = true
+        queueReacquire(true).catch(function (e) {
+          if (st.local !== local || !wantMic()) return
+          st.errorCode = micErrorCode(e)
+          emit()
+        })
+      }
+    }
+
+    function wantMic () {
+      return st.joining || st.inVoice || st.testing
+    }
+
+    // Mikrofonu açar (ses oturumu ve test aynı izi paylaşır)
+    function acquireMic () {
+      if (st.local) return Promise.resolve(st.local)
+      if (st.micPromise) return st.micPromise
+      var gen = st.micGen
+      var params = micParams()
+      var p = getMic(params, true).then(function (stream) {
+        if (gen !== st.micGen || !wantMic()) {
+          stopStream(stream)
+          throw makeError('cancelled')
+        }
+        var local = null
+        try {
+          local = makeLocal(stream, params)
+        } catch (e) {
+          stopStream(stream)
+          throw e
+        }
+        st.local = local
+        startMicUse(local)
+        return local
+      }, function (e) {
+        throw makeError(micErrorCode(e))
+      })
+      st.micPromise = p
+      var clear = function () {
+        if (st.micPromise === p) st.micPromise = null
+      }
+      p.then(clear, clear)
+      return p
+    }
+
+    function startMicUse (local) {
+      ensurePipe()
+      connectSource(local)
+      watchTrack(local)
+      st.mode = null
+      resetMeasure()
+      updateMode()
+      startTick()
+      addListeners()
+      // Mikrofon açılırken ayarlar değiştiyse yeniden alınır
+      if (paramsKey(local.params) !== paramsKey(micParams())) queueReacquire(true).catch(noop)
+    }
+
+    function releaseMicIfUnused () {
+      if (wantMic()) return
+      st.micGen++
+      st.micPromise = null
+      if (st.local) {
+        stopLocal(st.local)
+        st.local = null
+      }
+      destroyPipe()
+      st.mode = null
+      stopTick()
+      removeListeners()
+      clearPttTimer()
+      st.held = { key: false, mouse: false, pad: false, touch: false }
+      st.pttActive = false
+      st.pttTail = false
+      st.gate = false
+      st.selfSpeaking = false
+      resetMeasure()
+      scheduleContextClose()
+    }
+
+    function queueReacquire (allowFallback) {
+      var job = st.micJob.then(function () { return reacquire(allowFallback) })
+      st.micJob = job.then(noop, noop)
+      return job
+    }
+
+    // Ayar veya cihaz değişince mikrofon yeniden alınır, bağlantılar kopmaz
+    async function reacquire (allowFallback) {
+      var local = st.local
+      if (!local) return
+      var params = micParams()
+      if (!local.ended && paramsKey(params) === paramsKey(local.params)) return
+      var gen = st.micGen
+      var stream = null
+      try {
+        stream = await getMic(params, allowFallback)
+      } catch (e) {
+        throw makeError(micErrorCode(e))
+      }
+      if (gen !== st.micGen || st.local !== local) {
+        stopStream(stream)
+        return
+      }
+      var next = null
+      try {
+        next = makeLocal(stream, params)
+      } catch (e) {
+        stopStream(stream)
+        throw e
+      }
+      st.local = next
+      connectSource(next)
+      watchTrack(next)
+      if (st.mode === 'raw') await replaceSenders()
+      stopLocal(local)
+      if (st.local !== next) return
+      updateMode()
+      updateGate(true)
+      emit()
+    }
+
+    // Bas konuş: kaynaklar (klavye, fare, oyun kolu, dokunmatik düğme) ayrı izlenir
+    function clearPttTimer () {
+      if (st.pttTimer) clearTimeout(st.pttTimer)
+      st.pttTimer = null
+    }
+
+    function setPttActive (v) {
+      if (v === st.pttActive) return
+      st.pttActive = v
+      clearPttTimer()
+      st.pttTail = false
+      if (!v && st.gate && st.settings.pttReleaseMs > 0) {
+        st.pttTail = true
+        st.pttTimer = setTimeout(function () {
+          st.pttTimer = null
+          st.pttTail = false
+          updateGate(false)
+        }, st.settings.pttReleaseMs)
+      }
+      updateGate(false)
+      emit()
+    }
+
+    function pttPress (src) {
+      if (st.settings.inputMode !== 'ptt' || st.capture || st.held[src]) return
+      st.held[src] = true
       setPttActive(true)
     }
 
-    function onKeyUp (e) {
-      if (!st.ptt.enabled || !e || e.code !== st.ptt.code) return
-      setPttActive(false)
+    function pttRelease (src) {
+      if (!st.held[src]) return
+      st.held[src] = false
+      if (!st.held.key && !st.held.mouse && !st.held.pad && !st.held.touch) setPttActive(false)
     }
 
+    // Odak kaybında basılı her şey bırakılmış sayılır (gecikme uygulanmaz)
+    function releaseAll () {
+      st.held = { key: false, mouse: false, pad: false, touch: false }
+      st.pttActive = false
+      clearPttTimer()
+      st.pttTail = false
+      updateGate(false)
+      emit()
+    }
+
+    function toggleAction (a) {
+      if (a === 'toggleMute') setMuted(!(st.muted || st.deafened))
+      else if (a === 'toggleDeafen') setDeafened(!st.deafened)
+    }
+
+    // Etkin atama: bas konuş yalnızca kendi modunda, aynı düğme bas konuşa atanmışsa aç/kapa eylemi gölgede kalır
+    function effective (a) {
+      var b = st.settings.bindings[a]
+      if (!b) return null
+      var ptt = st.settings.inputMode === 'ptt'
+      if (a === 'ptt') return ptt ? b : null
+      return ptt && sameBinding(b, st.settings.bindings.ptt) ? null : b
+    }
+
+    function actionsFor (type, value) {
+      return ACTIONS.filter(function (a) {
+        var b = effective(a)
+        return !!b && b.type === type && (type === 'key' ? b.code === value : b.button === value)
+      })
+    }
+
+    function runActions (list, src) {
+      list.forEach(function (a) {
+        if (a === 'ptt') pttPress(src)
+        else toggleAction(a)
+      })
+    }
+
+    // Klavye (yalnızca seste veya mikrofon testinde)
+    function onKeyDown (e) {
+      if (!e || st.capture || e.repeat || isEditable(e.target)) return
+      runActions(actionsFor('key', e.code), 'key')
+    }
+
+    function onKeyUp (e) {
+      if (!e) return
+      if (actionsFor('key', e.code).indexOf('ptt') >= 0) pttRelease('key')
+    }
+
+    // Fare: atanmış yan tuşlarda tarayıcının geri/ileri gezinmesi her zaman engellenir
+    function boundMouse (button) {
+      return ACTIONS.some(function (a) {
+        var b = st.settings.bindings[a]
+        return !!b && b.type === 'mouse' && b.button === button
+      })
+    }
+
+    function guardMouse (e) {
+      if (boundMouse(e.button) && (e.button !== 1 || listening)) e.preventDefault()
+    }
+
+    function onMouseDown (e) {
+      if (!e) return
+      if (st.swallowMouse !== null && st.swallowMouse !== e.button) {
+        st.swallowMouse = null
+        updateMouseGuard()
+      }
+      guardMouse(e)
+      if (!listening || st.capture) return
+      runActions(actionsFor('mouse', e.button), 'mouse')
+    }
+
+    function onMouseUp (e) {
+      if (!e) return
+      if (st.swallowMouse === e.button) {
+        stopEvent(e)
+        return
+      }
+      guardMouse(e)
+      if (actionsFor('mouse', e.button).indexOf('ptt') >= 0) pttRelease('mouse')
+    }
+
+    function onAuxClick (e) {
+      if (!e) return
+      if (st.swallowMouse === e.button) {
+        stopEvent(e)
+        st.swallowMouse = null
+        updateMouseGuard()
+        return
+      }
+      guardMouse(e)
+    }
+
+    // Pencere dışında bırakılan tuş: hareket olayındaki düğme maskesinden anlaşılır
+    function onMouseMove (e) {
+      if (!st.held.mouse || !e || typeof e.buttons !== 'number') return
+      var b = effective('ptt')
+      if (!b || b.type !== 'mouse') return
+      if (!(e.buttons & MOUSE_BITS[b.button])) pttRelease('mouse')
+    }
+
+    function updateMouseGuard () {
+      if (typeof window === 'undefined') return
+      var need = st.swallowMouse !== null || ACTIONS.some(function (a) {
+        var b = st.settings.bindings[a]
+        return !!b && b.type === 'mouse'
+      })
+      if (need === mouseGuard) return
+      mouseGuard = need
+      var fn = need ? 'addEventListener' : 'removeEventListener'
+      window[fn]('mousedown', onMouseDown)
+      window[fn]('mouseup', onMouseUp)
+      window[fn]('auxclick', onAuxClick)
+    }
+
+    // Oyun kolu yoklaması: seste iken ve oyun kolu ataması varsa, sayfa görünürken
+    function needPadPoll () {
+      if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return false
+      if (typeof window.requestAnimationFrame !== 'function') return false
+      if (document.visibilityState === 'hidden') return false
+      if (st.capture) return true
+      return listening && ACTIONS.some(function (a) {
+        var b = effective(a)
+        return !!b && b.type === 'gamepad'
+      })
+    }
+
+    function updatePadPoll () {
+      var need = needPadPoll()
+      if (need && !st.rafId) {
+        st.padInit = true
+        st.rafId = window.requestAnimationFrame(padFrame)
+      } else if (!need && st.rafId) {
+        window.cancelAnimationFrame(st.rafId)
+        st.rafId = 0
+      }
+    }
+
+    function padFrame () {
+      st.rafId = 0
+      if (!needPadPoll()) return
+      var pads = readPads()
+      if (st.capture) capturePads(pads)
+      else pollActions(pads)
+      if (!st.rafId && needPadPoll()) st.rafId = window.requestAnimationFrame(padFrame)
+    }
+
+    function pollActions (pads) {
+      var init = st.padInit
+      st.padInit = false
+      ACTIONS.forEach(function (a) {
+        var b = effective(a)
+        var on = !!b && b.type === 'gamepad' && pads.some(function (f) { return f[b.button] === true })
+        var prev = st.padPrev[a] === true
+        st.padPrev[a] = on
+        if (init || on === prev) return
+        if (a === 'ptt') {
+          if (on) pttPress('pad')
+          else pttRelease('pad')
+        } else if (on) {
+          toggleAction(a)
+        }
+      })
+    }
+
+    // Yakalama başladığında basılı olan düğmeler, bırakılıp yeniden basılınca sayılır
+    function capturePads (pads) {
+      var base = st.capture.base
+      var found = -1
+      pads.forEach(function (flags, i) {
+        if (!base[i]) base[i] = []
+        flags.forEach(function (on, j) {
+          if (on && !base[i][j]) {
+            if (found < 0) found = j
+          } else if (!on) {
+            base[i][j] = false
+          }
+        })
+      })
+      if (found >= 0) finishCapture({ type: 'gamepad', button: found })
+    }
+
+    // Atama yakalama: sonraki klavye tuşu, fare orta/yan tuşu veya oyun kolu düğmesi. Esc veya 10 sn sonra null
+    function captureBinding () {
+      finishCapture(null)
+      releaseAll()
+      return new Promise(function (resolve) {
+        var cap = { resolve: resolve, timer: null, base: readPads() }
+        st.capture = cap
+        cap.timer = setTimeout(function () {
+          if (st.capture === cap) finishCapture(null)
+        }, CAPTURE_TIMEOUT_MS)
+        setCapListeners(true)
+        updatePadPoll()
+        emit()
+      })
+    }
+
+    function cancelCapture () {
+      finishCapture(null)
+    }
+
+    function finishCapture (result) {
+      var cap = st.capture
+      if (!cap) return
+      st.capture = null
+      clearTimeout(cap.timer)
+      setCapListeners(false)
+      updateMouseGuard()
+      st.padInit = true
+      updatePadPoll()
+      emit()
+      cap.resolve(result)
+    }
+
+    function setCapListeners (on) {
+      if (on !== capListening) {
+        capListening = on
+        var fn = on ? 'addEventListener' : 'removeEventListener'
+        window[fn]('keydown', onCapKeyDown, true)
+        window[fn]('mousedown', onCapMouseDown, true)
+      }
+      updateKeySwallow()
+    }
+
+    // Yakalanan tuşun bırakılması da yutulur (ör. odaktaki düğmeyi Boşluk ile yeniden tetiklemesin)
+    function updateKeySwallow () {
+      var need = capListening || st.swallowKey !== null
+      if (need === keySwallowing) return
+      keySwallowing = need
+      window[need ? 'addEventListener' : 'removeEventListener']('keyup', onCapKeyUp, true)
+    }
+
+    function onCapKeyDown (e) {
+      if (!st.capture || !e) return
+      var esc = e.code === 'Escape' || e.key === 'Escape' || e.key === 'Esc'
+      if (!esc && isEditable(e.target)) return
+      stopEvent(e)
+      if (e.repeat) return
+      var b = esc ? null : normBinding({ type: 'key', code: e.code })
+      if (!esc && !b) return
+      st.swallowKey = e.code || null
+      finishCapture(b)
+    }
+
+    function onCapKeyUp (e) {
+      if (!e) return
+      if (st.swallowKey !== null && e.code === st.swallowKey) {
+        stopEvent(e)
+        st.swallowKey = null
+        updateKeySwallow()
+      } else if (st.capture && !isEditable(e.target)) {
+        stopEvent(e)
+      }
+    }
+
+    function onCapMouseDown (e) {
+      if (!st.capture || !e) return
+      var b = e.button
+      if (b !== 1 && b !== 3 && b !== 4) return
+      stopEvent(e)
+      st.swallowMouse = b
+      finishCapture({ type: 'mouse', button: b })
+    }
+
+    // Klavye, odak ve görünürlük dinleyicileri (mikrofon açıkken)
     function onBlur () {
-      setPttActive(false)
+      releaseAll()
     }
 
     function onVisibility () {
       if (document.visibilityState === 'visible') {
         requestWakeLock()
       } else {
-        setPttActive(false)
+        releaseAll()
       }
+      updatePadPoll()
     }
 
     function addListeners () {
@@ -685,8 +1730,10 @@ window.VoiceClient = (function () {
       listening = true
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('keyup', onKeyUp)
+      window.addEventListener('mousemove', onMouseMove)
       window.addEventListener('blur', onBlur)
       document.addEventListener('visibilitychange', onVisibility)
+      updatePadPoll()
     }
 
     function removeListeners () {
@@ -694,8 +1741,10 @@ window.VoiceClient = (function () {
       listening = false
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('blur', onBlur)
       document.removeEventListener('visibilitychange', onVisibility)
+      updatePadPoll()
     }
 
     function requestWakeLock () {
@@ -777,6 +1826,9 @@ window.VoiceClient = (function () {
 
     function createPeer (pid, initiator, sid) {
       if (!st.inVoice || !st.local || !st.roster[pid]) return null
+      var track = sendTrack()
+      var stream = sendStream()
+      if (!track || !stream) return null
       var pc = null
       try {
         pc = new window.RTCPeerConnection({ iceServers: st.iceServers })
@@ -815,7 +1867,7 @@ window.VoiceClient = (function () {
       st.peers[pid] = peer
       st.roster[pid].noOffer = false
       try {
-        peer.sender = pc.addTrack(st.local.track, st.local.stream)
+        peer.sender = pc.addTrack(track, stream)
       } catch (e) {
         closePeer(peer)
         return null
@@ -1012,7 +2064,8 @@ window.VoiceClient = (function () {
         data = null
       }
       if (typeof data !== 'string') {
-        st.error = MSG.noKey
+        st.errorCode = 'no_key'
+        st.serverError = null
         emit()
         return
       }
@@ -1207,7 +2260,8 @@ window.VoiceClient = (function () {
 
     function dropped () {
       teardownLocal(true)
-      st.error = MSG.dropped
+      st.errorCode = 'kicked'
+      st.serverError = null
       emit()
     }
 
@@ -1227,17 +2281,12 @@ window.VoiceClient = (function () {
       }
     }
 
-    // Tam yerel kapatma: izler durur, ses öğeleri ve kap kaldırılır, analizörler ve zamanlayıcılar temizlenir
+    // Tam yerel kapatma: bağlantılar, ses öğeleri ve kap kaldırılır. Mikrofon testi sürmüyorsa
+    // izler durur, hat düğümleri ve zamanlayıcılar temizlenir, ses bağlamı kısa süre sonra kapanır.
     function teardownLocal (withSound) {
       var wasIn = st.inVoice
       st.gen++
       resetSession()
-      if (st.local) {
-        stopLocal(st.local)
-        st.local = null
-      }
-      stopTick()
-      removeListeners()
       releaseWakeLock()
       removeContainer()
       st.timers.forEach(function (id) { clearTimeout(id) })
@@ -1248,32 +2297,31 @@ window.VoiceClient = (function () {
       st.myPeerId = null
       st.joinPromise = null
       st.lastSigSeq = 0
-      st.ptt.active = false
-      st.selfSpeaking = false
-      st.inputLevel = 0
       st.autoplayBlocked = false
+      releaseMicIfUnused()
       if (withSound && wasIn) playTone('leave', false)
       scheduleContextClose()
       emit()
     }
 
-    function failEarly (msg, code) {
-      st.error = msg
+    function failEarly (code) {
+      st.errorCode = code
+      st.serverError = null
       emit()
-      return Promise.reject(makeError(msg, code))
+      return Promise.reject(makeError(code))
     }
 
     function join (channelId) {
       var cid = normId(channelId)
-      if (cid === null) return Promise.reject(makeError(MSG.joinFailed, 'bad_channel'))
+      if (cid === null) return Promise.reject(makeError('bad_channel'))
       if (st.channelId !== null && String(st.channelId) === cid) {
         if (st.joining && st.joinPromise) return st.joinPromise
         if (st.inVoice) return Promise.resolve()
       }
       var sup = support()
-      if (!sup.ok) return failEarly(supportMessage(sup.reason), sup.reason)
+      if (!sup.ok) return failEarly(sup.reason)
       st.kid = probeKid()
-      if (!st.kid) return failEarly(MSG.noKey, 'no_key')
+      if (!st.kid) return failEarly('no_key')
       // Ses bağlamı kullanıcı etkileşimi sırasında oluşturulur veya sürdürülür
       ensureContext()
       var p = doJoin(channelId)
@@ -1293,7 +2341,8 @@ window.VoiceClient = (function () {
       st.inVoice = false
       st.joining = true
       st.channelId = channelId
-      st.error = null
+      st.errorCode = null
+      st.serverError = null
       st.lastSigSeq = 0
       st.myPeerId = null
       st.autoplayBlocked = false
@@ -1301,35 +2350,17 @@ window.VoiceClient = (function () {
       if (st.leavePromise) await st.leavePromise
       if (st.joinRequest) await st.joinRequest.then(noop, noop)
       if (gen !== st.gen) return
-      var usedDevice = st.deviceId
-      if (!st.local) {
-        var stream = null
-        try {
-          stream = await getMic(st.deviceId, true)
-        } catch (e) {
-          if (gen !== st.gen) return
-          var micMsg = micErrorMessage(e)
-          teardownLocal(false)
-          st.error = micMsg
-          emit()
-          throw makeError(micMsg, 'mic')
-        }
-        if (gen !== st.gen) {
-          stopStream(stream)
-          return
-        }
-        try {
-          st.local = makeLocal(stream)
-        } catch (e) {
-          stopStream(stream)
-          teardownLocal(false)
-          st.error = MSG.notFound
-          emit()
-          throw makeError(MSG.notFound, 'mic')
-        }
+      try {
+        await acquireMic()
+      } catch (e) {
+        if (gen !== st.gen) return
+        var micCode = micErrorCode(e)
+        teardownLocal(false)
+        st.errorCode = micCode
+        emit()
+        throw makeError(micCode)
       }
-      applyTrack()
-      attachAnalyser(st.local, st.local.analysisStream)
+      if (gen !== st.gen) return
       var req = callApi('POST', '/api/voice/join', { channelId: channelId })
       st.joinRequest = req
       var res = null
@@ -1343,13 +2374,14 @@ window.VoiceClient = (function () {
       var data = res && res.data && typeof res.data === 'object' ? res.data : null
       var okStatus = res && typeof res.status === 'number' && res.status >= 200 && res.status < 300
       if (!okStatus || !data || !isPeerId(data.peerId)) {
-        var text = data && typeof data.error === 'string' && data.error ? data.error : MSG.joinFailed
-        var code = data && typeof data.code === 'string' ? data.code : 'join_failed'
+        var code = data && typeof data.code === 'string' && CODE_RE.test(data.code) ? data.code : 'join_failed'
+        var text = data && typeof data.error === 'string' && data.error ? data.error.slice(0, MAX_SERVER_TEXT) : null
         teardownLocal(false)
-        st.error = text
+        st.errorCode = code
+        st.serverError = text
         emit()
         if (moving) callApi('POST', '/api/voice/leave', {}).catch(noop)
-        throw makeError(text, code)
+        throw makeError(code, text)
       }
       st.myPeerId = data.peerId
       st.iceServers = sanitizeIce(data.iceServers)
@@ -1359,8 +2391,6 @@ window.VoiceClient = (function () {
       st.seenSelf = false
       addMembers(data.members)
       var initial = Object.keys(st.roster)
-      startTick()
-      addListeners()
       requestWakeLock()
       playTone('join', false)
       postState()
@@ -1371,7 +2401,6 @@ window.VoiceClient = (function () {
       initial.forEach(function (pid) {
         if (st.roster[pid]) startInitiator(pid)
       })
-      if (st.deviceId !== usedDevice) setInputDevice(st.deviceId).catch(noop)
       emit()
     }
 
@@ -1386,7 +2415,8 @@ window.VoiceClient = (function () {
       if (!st.inVoice && !st.joining) return st.leavePromise || Promise.resolve()
       var joinReq = st.joinRequest
       teardownLocal(true)
-      st.error = null
+      st.errorCode = null
+      st.serverError = null
       emit()
       var p = postLeave(joinReq)
       st.leavePromise = p
@@ -1398,7 +2428,43 @@ window.VoiceClient = (function () {
 
     function teardown () {
       teardownLocal(false)
-      st.error = null
+      st.errorCode = null
+      st.serverError = null
+      emit()
+    }
+
+    // Mikrofon testi: seste değilken de aynı hattı çalıştırır, eşlere ve hoparlöre hiçbir şey gitmez
+    function startMicTest () {
+      var sup = support()
+      if (!sup.ok) return Promise.reject(makeError(sup.reason))
+      ensureContext()
+      if (st.testing) return st.testPromise || Promise.resolve()
+      st.testing = true
+      emit()
+      var p = acquireMic().then(function () {
+        emit()
+      }, function (e) {
+        if (e && e.code === 'cancelled') return
+        if (st.testing) {
+          st.testing = false
+          releaseMicIfUnused()
+          emit()
+        }
+        throw makeError(micErrorCode(e))
+      })
+      st.testPromise = p
+      var clear = function () {
+        if (st.testPromise === p) st.testPromise = null
+      }
+      p.then(clear, clear)
+      return p
+    }
+
+    function stopMicTest () {
+      if (!st.testing) return
+      st.testing = false
+      st.testPromise = null
+      releaseMicIfUnused()
       emit()
     }
 
@@ -1428,7 +2494,7 @@ window.VoiceClient = (function () {
         applyAllAudio()
       }
       st.muted = v
-      applyTrack()
+      updateGate(true)
       postState()
       emit()
     }
@@ -1436,7 +2502,7 @@ window.VoiceClient = (function () {
     function setDeafened (value) {
       st.deafened = !!value
       applyAllAudio()
-      applyTrack()
+      updateGate(true)
       postState()
       emit()
     }
@@ -1445,13 +2511,13 @@ window.VoiceClient = (function () {
       var uid = normId(userId)
       var n = Number(volume)
       if (uid === null || !isFinite(n)) return
-      n = Math.max(0, Math.min(1, n))
+      n = clamp(n, 0, 1)
       if (n === 1) {
         delete st.volumes[uid]
       } else if (uid in st.volumes || Object.keys(st.volumes).length < MAX_STORED_USERS) {
         st.volumes[uid] = n
       }
-      saveSettings()
+      savePeers()
       applyAllAudio()
       emit()
     }
@@ -1464,30 +2530,12 @@ window.VoiceClient = (function () {
       } else {
         delete st.localMutes[uid]
       }
-      saveSettings()
+      savePeers()
       applyAllAudio()
       emit()
     }
 
-    function setPushToTalk (cfg) {
-      if (!cfg || typeof cfg !== 'object') return
-      if (typeof cfg.enabled === 'boolean') st.ptt.enabled = cfg.enabled
-      if (typeof cfg.code === 'string' && KEY_CODE_RE.test(cfg.code)) st.ptt.code = cfg.code
-      st.ptt.active = false
-      saveSettings()
-      applyTrack()
-      emit()
-    }
-
-    function setPttActive (value) {
-      var v = !!value
-      if (v && !st.ptt.enabled) return
-      if (st.ptt.active === v) return
-      st.ptt.active = v
-      applyTrack()
-      emit()
-    }
-
+    // Etiketi olmayan cihazlar için label boş döner, arayüz index ile ad üretir
     function listInputDevices () {
       var md = navigator.mediaDevices
       if (!md || typeof md.enumerateDevices !== 'function') return Promise.resolve([])
@@ -1495,61 +2543,28 @@ window.VoiceClient = (function () {
         var n = 0
         return list.filter(function (d) { return d.kind === 'audioinput' }).map(function (d) {
           n++
-          return { deviceId: d.deviceId, label: d.label || 'Mikrofon ' + n }
+          return { deviceId: d.deviceId, label: typeof d.label === 'string' ? d.label : '', index: n }
         })
       }, function () {
         return []
       })
     }
 
+    // Seste veya testte ise mikrofon yeniden alınır, hata kodla reddedilir
     function setInputDevice (deviceId) {
-      var id = typeof deviceId === 'string' && deviceId.length <= 512 ? deviceId : ''
-      st.deviceId = id
-      saveSettings()
-      var job = st.deviceJob.then(function () { return switchDevice(id) })
-      st.deviceJob = job.then(noop, noop)
-      return job
-    }
-
-    async function switchDevice (id) {
-      if (!st.inVoice || !st.local || st.deviceId !== id) return
-      var gen = st.gen
-      var stream = null
-      try {
-        stream = await getMic(id, false)
-      } catch (e) {
-        throw makeError(micErrorMessage(e), 'mic')
+      var id = typeof deviceId === 'string' && deviceId && deviceId.length <= 512 ? deviceId : null
+      if (id !== st.settings.inputDeviceId) {
+        st.settings.inputDeviceId = id
+        saveSettings()
+        emit()
       }
-      if (gen !== st.gen || !st.inVoice || !st.local) {
-        stopStream(stream)
-        return
-      }
-      var next = null
-      try {
-        next = makeLocal(stream)
-      } catch (e) {
-        stopStream(stream)
-        throw e
-      }
-      var old = st.local
-      st.local = next
-      applyTrack()
-      var jobs = []
-      Object.keys(st.peers).forEach(function (pid) {
-        var sender = st.peers[pid].sender
-        if (sender && typeof sender.replaceTrack === 'function') jobs.push(sender.replaceTrack(next.track).then(noop, noop))
-      })
-      await Promise.all(jobs)
-      stopLocal(old)
-      if (gen !== st.gen || st.local !== next) return
-      attachAnalyser(next, next.analysisStream)
-      emit()
+      return queueReacquire(false)
     }
 
     // Otomatik oynatma engeli: kullanıcı etkileşimiyle çağrılır
     function unlockAudio () {
       var jobs = []
-      if (st.inVoice || st.joining) {
+      if (st.inVoice || st.joining || st.testing) {
         ensureContext()
         if (ctx && typeof ctx.resume === 'function') {
           try {
@@ -1571,7 +2586,7 @@ window.VoiceClient = (function () {
       })).then(function (results) {
         var ok = results.every(Boolean)
         if (ok) st.autoplayBlocked = false
-        if (ok && st.local && !st.local.analyser) attachAnalyser(st.local, st.local.analysisStream)
+        if (st.local) updateMode()
         Object.keys(st.peers).forEach(function (pid) {
           var p = st.peers[pid]
           if (ok && p.stream && !p.analyser) attachAnalyser(p, p.stream)
@@ -1589,9 +2604,15 @@ window.VoiceClient = (function () {
       setDeafened: setDeafened,
       setPeerVolume: setPeerVolume,
       setPeerLocalMute: setPeerLocalMute,
-      setPushToTalk: setPushToTalk,
-      pttDown: function () { setPttActive(true) },
-      pttUp: function () { setPttActive(false) },
+      setSettings: setSettings,
+      settings: getSettings,
+      pttDown: function () { pttPress('touch') },
+      pttUp: function () { pttRelease('touch') },
+      captureBinding: captureBinding,
+      cancelCapture: cancelCapture,
+      bindingLabel: bindingLabel,
+      startMicTest: startMicTest,
+      stopMicTest: stopMicTest,
       listInputDevices: listInputDevices,
       setInputDevice: setInputDevice,
       handleSignals: handleSignals,
@@ -1602,5 +2623,5 @@ window.VoiceClient = (function () {
     }
   }
 
-  return { create: create, support: support }
+  return { create: create, support: support, bindingLabel: bindingLabel, defaultSettings: defaultSettings }
 })()
