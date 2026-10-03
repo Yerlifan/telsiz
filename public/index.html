@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang='tr'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <meta name='color-scheme' content='dark'>
+  <title>Sohbet</title>
+  <link rel='icon' href='/favicon.svg' type='image/svg+xml'>
+  <link rel='stylesheet' href='/style.css'>
+  <script src='/app.js' defer></script>
+</head>
+<body>
+  <noscript>
+    <p class='noscript'>Bu sohbet JavaScript olmadan çalışmaz. Lütfen tarayıcının ayarlarından JavaScript'i etkinleştir.</p>
+  </noscript>
+
+  <div id='join-view' class='join-view' hidden>
+    <div class='join-card'>
+      <h1 id='join-room' class='join-room'>Sohbet</h1>
+      <p class='join-intro'>Takma adını yaz ve sohbete katıl.</p>
+      <form id='join-form' class='join-form' autocomplete='off'>
+        <div class='field'>
+          <label for='nick'>Takma ad</label>
+          <input id='nick' type='text' maxlength='20' autocomplete='off' autocapitalize='off' spellcheck='false'>
+        </div>
+        <div id='password-row' class='field' hidden>
+          <label for='password'>Oda şifresi</label>
+          <input id='password' type='password' autocomplete='off'>
+        </div>
+        <p id='join-error' class='join-error' role='alert'></p>
+        <button id='join-submit' class='join-submit' type='submit'>Sohbete katıl</button>
+      </form>
+    </div>
+  </div>
+
+  <div id='chat-view' class='chat-view' hidden>
+    <header class='topbar'>
+      <h1 id='room-name' class='room-name'>Sohbet</h1>
+      <span id='online-count' class='online-count'>0 çevrimiçi</span>
+      <button id='toggle-users' class='button-secondary toggle-users' type='button' aria-expanded='false' aria-controls='users-panel'>Kişiler</button>
+      <button id='leave' class='button-secondary' type='button'>Çık</button>
+    </header>
+
+    <div class='chat-body'>
+      <div id='messages' class='messages' role='log' aria-live='polite' aria-label='Mesajlar' tabindex='0'></div>
+      <aside id='users-panel' class='users-panel' aria-labelledby='users-title'>
+        <h2 id='users-title' class='users-title'>Çevrimiçi</h2>
+        <ul id='users' class='users'></ul>
+      </aside>
+    </div>
+
+    <footer class='composer'>
+      <div id='status' class='status' role='status' aria-live='polite'></div>
+      <form id='send-form' class='send-form' autocomplete='off'>
+        <label for='text' class='visually-hidden'>Mesaj</label>
+        <input id='text' type='text' maxlength='1000' enterkeyhint='send' autocomplete='off' placeholder='Mesaj yaz...'>
+        <button id='send-submit' class='send-submit' type='submit'>Gönder</button>
+      </form>
+    </footer>
+  </div>
+</body>
+</html>

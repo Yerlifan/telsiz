@@ -1,0 +1,498 @@
+/*
+  PS5 + PC Sohbet görünümü.
+  Koyu tema, TV mesafesinden okunacak boyutlar. Eski WebKit uyumu için düzen
+  yalnızca flexbox ile kurulur, boşluklar margin ve padding ile verilir.
+*/
+
+:root {
+  --bg: #0e1117;
+  --surface: #161b24;
+  --surface-raised: #1c2230;
+  --own: #1f3354;
+  --border: #2e3749;
+  --border-strong: #5b6782;
+  --text: #e9edf4;
+  --muted: #a7b0c0;
+  --accent: #2563d9;
+  --accent-hover: #1d4fb3;
+  --accent-text: #ffffff;
+  --focus: #ffd24d;
+  --warn: #ffd27a;
+  --error: #ff9e9e;
+  --input-bg: #0a0d12;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* Temel yazı boyutu, PS5 TV görünümünde büyür */
+html {
+  font-size: 18px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (min-width: 1280px) {
+  html {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 1800px) {
+  html {
+    font-size: 24px;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+/* Düğmeler ve giriş alanları, en az 48px yükseklik */
+
+button,
+input {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  min-height: 48px;
+  padding: 0.5rem 1.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: manipulation;
+}
+
+button:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.button-secondary {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.button-secondary:not(:disabled):hover {
+  background: var(--surface-raised);
+}
+
+input[type='text'],
+input[type='password'] {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.55rem 0.8rem;
+  border: 2px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  line-height: 1.3;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input::-webkit-input-placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* Belirgin odak çerçevesi, PS5 imleci ve klavye için */
+
+button:focus,
+input:focus,
+.messages:focus {
+  outline: 4px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input:focus {
+  border-color: var(--focus);
+}
+
+.messages:focus {
+  outline-offset: -4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.noscript {
+  margin: 0;
+  padding: 1rem;
+  background: #5c1e1e;
+  color: #ffffff;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Katılma görünümü */
+
+.join-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 1.5rem 1rem;
+}
+
+.join-card {
+  width: 100%;
+  max-width: 30rem;
+  padding: 2rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.join-room {
+  margin: 0 0 0.4rem;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.join-intro {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+}
+
+.field {
+  margin: 0 0 1.25rem;
+}
+
+.field label {
+  display: block;
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+}
+
+.join-error {
+  margin: 0 0 1rem;
+  color: var(--error);
+  font-weight: 600;
+}
+
+.join-error:empty {
+  display: none;
+}
+
+.join-submit {
+  display: block;
+  width: 100%;
+}
+
+/* Sohbet görünümü: tam yükseklik sütun */
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.room-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1.3rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.online-count {
+  flex: 0 0 auto;
+  margin-left: 1rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.topbar button {
+  flex: 0 0 auto;
+  margin-left: 0.75rem;
+}
+
+.toggle-users {
+  display: none;
+}
+
+.chat-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.messages {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.users-panel {
+  flex: 0 0 240px;
+  width: 240px;
+  padding: 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.users-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.users {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.users li {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.users li.own {
+  font-weight: 700;
+}
+
+/* Mesajlar */
+
+.msg {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.8rem;
+  background: var(--surface-raised);
+  border-left: 4px solid transparent;
+  border-radius: 10px;
+}
+
+.msg.own {
+  background: var(--own);
+  border-left-color: var(--accent);
+}
+
+.msg-head {
+  margin: 0 0 0.15rem;
+  line-height: 1.3;
+}
+
+.msg-time {
+  margin-right: 0.6rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.msg-nick {
+  font-weight: 700;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+.msg.system {
+  margin: 0.4rem 0 0.8rem;
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border-left: 0;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+/* Takma ad renkleri, koyu zeminde WCAG AA kontrastı sağlar */
+
+.nick-c0 {
+  color: #ff8f8f;
+}
+
+.nick-c1 {
+  color: #ffb46b;
+}
+
+.nick-c2 {
+  color: #f2d66b;
+}
+
+.nick-c3 {
+  color: #7fdc85;
+}
+
+.nick-c4 {
+  color: #5ed3cc;
+}
+
+.nick-c5 {
+  color: #86b8ff;
+}
+
+.nick-c6 {
+  color: #c9a3ff;
+}
+
+.nick-c7 {
+  color: #ff94d1;
+}
+
+/* Alt bölüm: durum satırı ve gönderme formu */
+
+.composer {
+  flex: 0 0 auto;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.status {
+  margin: 0 0 0.6rem;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.status:empty {
+  display: none;
+}
+
+.send-form {
+  display: flex;
+  align-items: stretch;
+}
+
+.send-form input[type='text'] {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.send-submit {
+  flex: 0 0 auto;
+  margin-left: 0.75rem;
+}
+
+/* Dar ekran: kişi paneli gizlenir, Kişiler düğmesiyle açılır */
+
+@media (max-width: 760px) {
+  .toggle-users {
+    display: block;
+  }
+
+  .users-panel {
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    width: 240px;
+    max-width: 85%;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.55);
+  }
+
+  .chat-view.users-open .users-panel {
+    display: block;
+  }
+}
+
+/* Çok dar ekranda oda adı ayrı satıra geçer */
+
+@media (max-width: 420px) {
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .room-name {
+    flex: 1 1 100%;
+    margin: 0 0 0.4rem;
+  }
+
+  .online-count {
+    margin-left: 0;
+    margin-right: auto;
+  }
+
+  .topbar button {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+}

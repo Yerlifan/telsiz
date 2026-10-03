@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Windows betikleri çalışma kopyasına her zaman CRLF satır sonuyla çıkarılır
+*.bat text eol=crlf
