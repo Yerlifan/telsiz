@@ -2,10 +2,12 @@
 # Continuous integration: lint and tests on every branch push and every pull request
 name: CI
 
+# Dal gönderimlerinde yalnızca main, diğer dallar çekme isteği üzerinden denetlenir (iki kez çalışmasın)
+# Pushes run CI only on main, other branches are checked through their pull request (no duplicate runs)
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
 
 permissions:
