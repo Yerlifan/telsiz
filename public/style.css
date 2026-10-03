@@ -600,13 +600,68 @@ a:focus,
   margin-bottom: 1.5rem;
 }
 
-.auth-title {
+.auth-brand-text {
+  flex: 1 1 auto;
+  min-width: 0;
   margin-left: 0.85rem;
+}
+
+.auth-title {
   font-size: 1.5rem;
   font-weight: 800;
   overflow-wrap: break-word;
   word-break: break-word;
   min-width: 0;
+}
+
+.auth-server {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-weight: 600;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.auth-server:empty {
+  display: none;
+}
+
+/* Dil seçimi (TR | EN), kimlik ekranlarının sağ üst köşesinde */
+
+.lang-switch {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: 0.75rem;
+  align-self: flex-start;
+}
+
+.lang-button {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.lang-button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.lang-button[aria-pressed="true"] {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
+}
+
+.lang-sep {
+  color: var(--faint);
 }
 
 .section-heading {
@@ -2301,11 +2356,33 @@ button.voice-member-inner:hover {
 }
 
 .meter {
+  position: relative;
   max-width: 26rem;
   height: 0.75rem;
   overflow: hidden;
   border-radius: 6px;
   background: var(--bg-deep);
+}
+
+/* Ses etkinliği eşiğinin seviye çubuğundaki yeri */
+.meter-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--warn);
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.label-value {
+  margin-left: 0.35rem;
+  color: var(--text-2);
+  font-weight: 600;
 }
 
 .meter-bar {

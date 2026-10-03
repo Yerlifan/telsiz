@@ -4,14 +4,27 @@
 // /api/ istekleri hiçbir zaman ele alınmaz ve önbelleğe alınmaz.
 // Aynı kökenli GET isteklerinde ağ önceliklidir, ağ yoksa önbellek kullanılır.
 
-const CACHE_NAME = 'sohbet-kabuk-v2.0.0'
+// Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir
+const CACHE_NAME = 'telsiz-2.0.0'
 const SHELL = [
   '/',
   '/index.html',
-  '/app.js',
+  '/i18n.js',
   '/crypto.js',
   '/emoji.js',
   '/voice.js',
+  '/js/01-core.js',
+  '/js/02-state-dom.js',
+  '/js/03-auth.js',
+  '/js/04-meta.js',
+  '/js/05-poll.js',
+  '/js/06-messages.js',
+  '/js/07-attachments.js',
+  '/js/08-composer.js',
+  '/js/09-emoji.js',
+  '/js/10-voice.js',
+  '/js/11-settings.js',
+  '/js/12-init.js',
   '/style.css',
   '/favicon.svg',
   '/icons/icon-192.png',
