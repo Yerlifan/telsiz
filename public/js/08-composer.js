@@ -2,7 +2,7 @@
 
 // Yazma alanı, gönderme, ek hazırlama, fotoğraf işleme, yükleme kuyruğu, ek çipleri, yapıştırma ve sürükle-bırak.
 
-// Yazma alanı (5.6, Ek A2)
+// Yazma alanı. Yazı kanalında grup anahtarıyla, özel mesajda kişisel anahtarlarla şifrelenir.
 
 function autoGrow (ta, maxRows) {
   if (!ta.value) {
@@ -46,7 +46,7 @@ function pendingUploads () {
 }
 
 function canSend () {
-  if (!state.channelId || !hasActiveKey() || state.sending) return false
+  if (!state.channelId || !conversationKeyReady() || state.sending) return false
   const len = cpLength(el.composerInput.value.trim())
   if (len > state.limits.messageMaxChars) return false
   if (pendingUploads() > 0) return false
@@ -91,8 +91,8 @@ async function sendMessage () {
     toast(() => t('composer.tooLong', { max: state.limits.messageMaxChars }), 'error')
     return
   }
-  if (!channelId || !hasActiveKey()) {
-    toast(() => t('composer.keyNeeded'), 'error')
+  if (!channelId || !conversationKeyReady()) {
+    toast(() => conversationProblemText(), 'error')
     return
   }
   const files = ready.map((a) => {
@@ -103,9 +103,10 @@ async function sendMessage () {
   })
   let body = ''
   try {
-    body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: channelId, t: text, f: files })
+    const plain = { v: 1, a: state.me.id, c: channelId, t: text, f: files }
+    body = isDmChannel(channelId) ? dmSealBody(plain, channelId) : window.E2EE.sealJson(activeKid(), plain)
   } catch (err) {
-    toast(() => t('composer.sealFailed'), 'error')
+    toast(errorProducer(err, () => t('composer.sealFailed')), 'error')
     return
   }
   if (body.length > state.limits.maxBodyChars) {
@@ -139,8 +140,8 @@ async function sendMessage () {
 function addFiles (fileList, mode) {
   const files = Array.from(fileList || [])
   if (!files.length) return
-  if (!hasActiveKey() || !state.channelId) {
-    toast(() => t('composer.keyNeeded'), 'error')
+  if (!conversationKeyReady()) {
+    toast(() => conversationProblemText(), 'error')
     return
   }
   const max = state.limits.maxUploadsPerMessage
@@ -220,7 +221,7 @@ async function processAttachment (att) {
   }
 }
 
-// Fotoğraf işleme (Ek A2): GIF olduğu gibi, diğerleri canvas ile yeniden kodlanır.
+// Fotoğraf işleme: GIF olduğu gibi, diğerleri canvas ile yeniden kodlanır.
 // Yeniden kodlama EXIF ve konum dahil tüm üst veriyi siler.
 async function processPhoto (bytes, att) {
   const sniffed = window.E2EE.sniffImage(bytes)
@@ -532,7 +533,7 @@ function onDragEnter (e) {
   if (!hasDraggedFiles(e)) return
   e.preventDefault()
   dragDepth += 1
-  if (hasActiveKey() && state.channelId) el.dropOverlay.hidden = false
+  if (conversationKeyReady()) el.dropOverlay.hidden = false
 }
 
 function onDragOver (e) {

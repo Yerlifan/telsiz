@@ -2,7 +2,8 @@
 
 // Çekmeceler, pencere boyutu, PWA, dil değişimi, olay bağlama ve uygulamanın başlatılması.
 
-// Çekmeceler: dar ekranda kanallar (sol) ve üyeler (sağ), orta genişlikte üyeler katmanı (5.4)
+// Çekmeceler (Ek H1): üyeler soldan, kanallar sağdan açılır. Orta genişlikte (760..999px) yalnızca
+// üyeler katmandır, kanallar sütunu sağda görünür kalır.
 
 function openDrawer (side, trigger) {
   const isChannels = side === 'channels'
@@ -66,6 +67,57 @@ function onResize () {
   closeMessageMenu()
   const peer = findLayer('peer')
   if (peer) closeLayer(peer, false)
+}
+
+// Tema (Ek G1): theme-init.js kök özniteliklerini yazar, burada tarayıcı çubuğu rengi, renk şeması
+// ve giriş ekranındaki güneş/ay düğmesi güncellenir. Değişiklik sayfa yenilenmeden uygulanır.
+
+function themeApi () {
+  return window.TelsizTheme && typeof window.TelsizTheme.get === 'function' ? window.TelsizTheme : null
+}
+
+function applyThemeMeta () {
+  const theme = themeApi()
+  const current = theme ? theme.get() : { resolvedScheme: 'dark' }
+  const scheme = current.resolvedScheme === 'light' ? 'light' : 'dark'
+  let color = ''
+  try {
+    color = window.getComputedStyle(document.documentElement).getPropertyValue('--theme-color').trim()
+  } catch (err) {
+    color = ''
+  }
+  if (!/^#[0-9a-fA-F]{3,8}$/.test(color)) color = scheme === 'light' ? '#ecedf4' : '#0f1015'
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', color)
+  const schemeMeta = document.querySelector('meta[name="color-scheme"]')
+  if (schemeMeta) schemeMeta.setAttribute('content', scheme === 'light' ? 'light dark' : 'dark light')
+  renderSchemeToggle()
+}
+
+function renderSchemeToggle () {
+  if (!el.authScheme) return
+  const theme = themeApi()
+  const dark = !theme || theme.get().resolvedScheme !== 'light'
+  const label = t(dark ? 'theme.toLight' : 'theme.toDark')
+  el.authScheme.setAttribute('aria-label', label)
+  el.authScheme.title = label
+  el.authScheme.setAttribute('aria-pressed', dark ? 'false' : 'true')
+}
+
+function toggleScheme () {
+  const theme = themeApi()
+  if (!theme) return
+  theme.set({ scheme: theme.get().resolvedScheme === 'light' ? 'dark' : 'light' })
+}
+
+function onThemeChange () {
+  applyThemeMeta()
+  // Yazı boyutu ve kompakt görünüm satır yüksekliklerini değiştirir
+  if (state.inApp) {
+    autoGrow(el.composerInput, 6)
+    keepBottom()
+  }
+  if (typeof refreshThemeSettings === 'function') refreshThemeSettings()
 }
 
 // PWA (5.9)
@@ -142,6 +194,10 @@ function bindEvents () {
   on(el.membersClose, 'click', closeDrawerFromButton)
   on(el.drawerBackdrop, 'click', onBackdropClick)
 
+  on(el.meButton, 'click', () => {
+    if (typeof openStatusMenu === 'function') openStatusMenu(el.meButton)
+  })
+  on(el.authScheme, 'click', toggleScheme)
   on(el.btnMute, 'click', toggleMute)
   on(el.btnDeafen, 'click', toggleDeafen)
   on(el.btnSettings, 'click', () => {
@@ -311,6 +367,7 @@ function renderLangSwitch () {
     node.setAttribute('aria-pressed', node.getAttribute('data-lang') === lang ? 'true' : 'false')
   })
   if (el.setLang) el.setLang.value = lang
+  renderSchemeToggle()
 }
 
 function changeLanguage (code) {
@@ -347,6 +404,9 @@ function start () {
   cacheElements()
   window.I18N.apply(document)
   renderLangSwitch()
+  applyThemeMeta()
+  const theme = themeApi()
+  if (theme && typeof theme.onChange === 'function') theme.onChange(onThemeChange)
   bindEvents()
   observeMessagesSize()
   onResize()
@@ -361,8 +421,10 @@ function start () {
   loadInfo()
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', start)
-} else {
+// defer betikler sırayla çalışır, 13..16 numaralı modüller bu dosyadan sonra yüklenir. start bu yüzden
+// DOMContentLoaded olayında (tüm defer betikler çalıştıktan sonra) çağrılır.
+if (document.readyState === 'complete') {
   start()
+} else {
+  document.addEventListener('DOMContentLoaded', start)
 }

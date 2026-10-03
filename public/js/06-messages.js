@@ -1,8 +1,9 @@
 'use strict'
 
-// Mesaj çözme, yalnızca emoji algılama, mesaj düğümleri, sayfalama, mesaj menüsü, düzenleme ve silme.
+// Mesaj çözme (yazı kanalında grup anahtarı, özel mesajda kişisel anahtarlar), yalnızca emoji algılama,
+// mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme ve silme.
 
-// Mesaj çözme (4.4 ve Ek A1). Sonuçlar mesaj gövdesine göre önbelleğe alınır.
+// Mesaj çözme. Sonuçlar mesaj gövdesine göre önbelleğe alınır.
 
 const decryptCache = new Map()
 
@@ -10,7 +11,13 @@ function decryptMessage (m) {
   const cached = decryptCache.get(String(m.id))
   if (cached && cached.body === m.body) return cached.result
   let result = { state: 'no_key' }
-  if (cryptoReady()) {
+  if (cryptoReady() && isDmMessage(m)) {
+    try {
+      result = decryptDmMessage(m)
+    } catch (err) {
+      result = { state: 'unverified' }
+    }
+  } else if (cryptoReady()) {
     let opened = null
     try {
       opened = window.E2EE.openJson(m.body)
@@ -61,7 +68,7 @@ function normalizeFiles (list, m) {
   return out
 }
 
-// Yalnızca emojiden oluşan mesaj algılama (Ek A3 madde 4). \p{} kullanılmaz.
+// Yalnızca emojiden oluşan mesaj algılama. \p{} kullanılmaz.
 
 // Başlangıç ve bitiş çiftleri halinde düz liste
 const EMOJI_RANGES = [
@@ -140,20 +147,37 @@ function canEdit (m) {
   return Boolean(state.me && sameId(m.authorId, state.me.id))
 }
 
+// Özel mesajda yalnızca kendi mesajı silinebilir (sahip ve yöneticiler dahil)
 function canDelete (m) {
-  return canEdit(m) || isAdmin()
+  return canEdit(m) || (isAdmin() && !isDmChannel(m.channelId))
+}
+
+function messageNoticeText (stateName) {
+  if (stateName === 'no_key') return t('msg.noKey')
+  if (stateName === 'bad_format') return t('msg.badFormat')
+  if (stateName === 'dm_locked') return t('dm.msgLocked')
+  if (stateName === 'dm_unverified') return t('dm.msgUnverified')
+  if (stateName === 'dm_old_key') return t('dm.oldKey')
+  return t('msg.unverified')
 }
 
 function buildMessageNode (m) {
+  if (isFoldedMessage(m)) return buildBlockedNode(m)
   const node = h('div', 'msg')
   node.setAttribute('data-id', String(m.id))
+  node.setAttribute('data-author-id', String(m.authorId))
   const mine = state.me && sameId(m.authorId, state.me.id)
-  if (mine) node.classList.add('msg-own')
-  const name = userName(m.authorId)
+  if (mine) node.classList.add('msg-own', 'is-own')
+  const name = userDisplayName(m.authorId)
   const role = userRole(m.authorId)
 
   const gutter = h('div', 'msg-gutter')
-  gutter.appendChild(avatar(m.authorId, name, 'msg-avatar'))
+  const av = personAvatar(m.authorId, 'md')
+  av.classList.add('msg-avatar')
+  makeUserLink(av, m.authorId)
+  av.removeAttribute('aria-hidden')
+  av.setAttribute('aria-label', t('profile.openCard', { name: name }))
+  gutter.appendChild(av)
   const hoverTime = h('span', 'msg-hover-time', formatClock(m.createdAt))
   hoverTime.setAttribute('aria-hidden', 'true')
   hoverTime.title = formatLong(m.createdAt)
@@ -163,6 +187,7 @@ function buildMessageNode (m) {
   const content = h('div', 'msg-content')
   const head = h('div', 'msg-head')
   const author = h('span', 'msg-author', name)
+  makeUserLink(author, m.authorId)
   head.appendChild(author)
   const badge = roleBadge(role)
   if (badge) head.appendChild(badge)
@@ -183,9 +208,10 @@ function buildMessageNode (m) {
     }
     if (result.files.length) body.appendChild(buildAttachments(result.files, m))
   } else {
-    const notice = t(result.state === 'no_key' ? 'msg.noKey' : result.state === 'bad_format' ? 'msg.badFormat' : 'msg.unverified')
+    const notice = messageNoticeText(result.state)
     const text = h('div', 'msg-text msg-notice')
-    text.appendChild(icon(result.state === 'no_key' ? 'i-lock' : 'i-alert'))
+    text.setAttribute('data-state', result.state)
+    text.appendChild(icon(result.state === 'no_key' || result.state === 'dm_locked' || result.state === 'dm_old_key' || result.state === 'dm_unverified' ? 'i-lock' : 'i-alert'))
     text.appendChild(h('span', '', notice))
     body.appendChild(text)
   }
@@ -407,6 +433,7 @@ function observeMessagesSize () {
 async function loadChannel () {
   const channelId = state.channelId
   if (!channelId) return
+  socialOnChannelLoad(channelId)
   state.loadGen += 1
   const gen = state.loadGen
   state.loading = true
@@ -563,8 +590,8 @@ function positionPopup (popup, anchor) {
 
 function startEdit (id) {
   closeMessageMenu()
-  if (!hasActiveKey()) {
-    toast(() => t('composer.keyNeeded'), 'error')
+  if (!conversationKeyReady()) {
+    toast(() => conversationProblemText(), 'error')
     return
   }
   cancelEdit()
@@ -663,9 +690,10 @@ async function saveEdit (id, ta) {
   }
   let body = ''
   try {
-    body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: m.channelId, t: text, f: filesForSeal(result.files) })
+    const plain = { v: 1, a: state.me.id, c: m.channelId, t: text, f: filesForSeal(result.files) }
+    body = isDmChannel(m.channelId) ? dmSealBody(plain, m.channelId) : window.E2EE.sealJson(activeKid(), plain)
   } catch (err) {
-    toast(() => t('composer.sealFailed'), 'error')
+    toast(errorProducer(err, () => t('composer.sealFailed')), 'error')
     return
   }
   ta.disabled = true

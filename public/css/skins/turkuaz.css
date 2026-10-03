@@ -1,0 +1,402 @@
+/*
+  Turkuaz ve Bakır teması. Anadolu çini ve geometrik desen geleneği ürünün dilbilgisi
+  olarak: sekizgen karo avatarlar, elmas durum işaretleri, konuşan kişide nefes alan sekiz
+  köşeli yıldız, kuşak frizi ayırıcılar, kemer biçimli kartlar. Turkuaz "yer ve güven",
+  bakır "sana yönelik dikkat ve ses" anlamı taşır. Desen yalnızca kenarlarda ve boş alanlarda,
+  metin her zaman düz zeminde durur.
+*/
+
+/* Paneller ve ayırıcılar */
+:root[data-skin="turkuaz"] .members {
+  border-right: 1px solid var(--line);
+}
+
+:root[data-skin="turkuaz"] .sidebar {
+  border-left: 1px solid var(--line);
+}
+
+/* Kuşak frizi: elmas zinciri */
+:root[data-skin="turkuaz"] .sidebar-head,
+:root[data-skin="turkuaz"] .members-head {
+  position: relative;
+  padding-bottom: 1rem;
+}
+
+:root[data-skin="turkuaz"] .sidebar-head::after,
+:root[data-skin="turkuaz"] .members-head::after,
+:root[data-skin="turkuaz"] .auth-brand::after,
+:root[data-skin="turkuaz"] .profile-card-head::after {
+  content: "";
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.2rem;
+  left: 0.75rem;
+  height: 9px;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0) 38%, var(--pattern) 38%, var(--pattern) 62%, rgba(0, 0, 0, 0) 62%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0) 38%, var(--pattern) 38%, var(--pattern) 62%, rgba(0, 0, 0, 0) 62%),
+    linear-gradient(var(--pattern), var(--pattern));
+  background-repeat: repeat-x, repeat-x, repeat-x;
+  background-position: 0 0, 0 0, 0 50%;
+  background-size: 12px 9px, 12px 9px, 100% 1px;
+}
+
+:root[data-skin="turkuaz"] .auth-brand {
+  position: relative;
+  padding-bottom: 1.25rem;
+}
+
+/* Bölüm başlıkları: Young Serif, normal harf, sağa uzanan çizgi */
+:root[data-skin="turkuaz"] .section-title,
+:root[data-skin="turkuaz"] .group-title,
+:root[data-skin="turkuaz"] .profile-card-label,
+:root[data-skin="turkuaz"] .emoji-title,
+:root[data-skin="turkuaz"] .settings-title {
+  color: var(--text);
+  text-transform: none;
+}
+
+:root[data-skin="turkuaz"] .section-title::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  margin-left: 0.6rem;
+  background-color: var(--line);
+}
+
+/* Rakam içeren metinler Figtree ile yazılır (Young Serif rakamları eski üsluptur) */
+:root[data-skin="turkuaz"] .members-count,
+:root[data-skin="turkuaz"] .voice-count,
+:root[data-skin="turkuaz"] #members-online-title,
+:root[data-skin="turkuaz"] #members-offline-title,
+:root[data-skin="turkuaz"] .mention-badge,
+:root[data-skin="turkuaz"] .entry-badge {
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+:root[data-skin="turkuaz"] #members-online-title,
+:root[data-skin="turkuaz"] #members-offline-title {
+  font-size: 0.9375rem;
+}
+
+/* Sunucu amblemi ve kanal başlığı simgesi: kemer biçimi */
+:root[data-skin="turkuaz"] .server-emblem {
+  position: relative;
+  border-radius: 50% 50% 0.5rem 0.5rem / 38% 38% 0.5rem 0.5rem;
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.12), 0 6px 16px rgba(1, 8, 9, 0.35);
+}
+
+:root[data-skin="turkuaz"] .server-emblem::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
+  border: 1px solid var(--pattern-2);
+  border-radius: 50% 50% 0.35rem 0.35rem / 38% 38% 0.35rem 0.35rem;
+}
+
+:root[data-skin="turkuaz"] .channel-title-icon,
+:root[data-skin="turkuaz"] .channel-start-icon {
+  border-radius: 50% 50% 0.4rem 0.4rem / 40% 40% 0.4rem 0.4rem;
+}
+
+/* Yazı kanalı simgesi: # yerine içinde çizgi olan elmas karo */
+:root[data-skin="turkuaz"] .text-channel .channel-icon {
+  visibility: hidden;
+}
+
+:root[data-skin="turkuaz"] .text-channel::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 1.05rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: -0.325rem;
+  border: 2px solid var(--text-3);
+  border-radius: 2px;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+:root[data-skin="turkuaz"] .text-channel[aria-current]::before,
+:root[data-skin="turkuaz"] .text-channel.is-active::before {
+  border-color: var(--accent-text);
+}
+
+:root[data-skin="turkuaz"] .text-channel.is-unread::before,
+:root[data-skin="turkuaz"] .text-channel.is-mentioned::before {
+  border-color: var(--accent-2-text);
+}
+
+/* Etkin satır: çini gölü zemini */
+:root[data-skin="turkuaz"] .channel-item[aria-current],
+:root[data-skin="turkuaz"] .channel-item.is-active,
+:root[data-skin="turkuaz"] .home-entry[aria-current],
+:root[data-skin="turkuaz"] .dm-item[aria-current],
+:root[data-skin="turkuaz"] .dm-item.is-active,
+:root[data-skin="turkuaz"] .settings-tab[aria-selected="true"] {
+  border-color: transparent;
+}
+
+/* Okunmamış nokta bakır elmas, anma sayısı bakır rozet */
+:root[data-skin="turkuaz"] .unread-badge {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 1px;
+  background-color: var(--accent-2-text);
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+:root[data-skin="turkuaz"] .mention-badge,
+:root[data-skin="turkuaz"] .entry-badge {
+  border-radius: var(--radius-small);
+}
+
+/* Sekizgen karo avatarlar */
+:root[data-skin="turkuaz"] .avatar-face,
+:root[data-skin="turkuaz"] .avatar:not(.has-face) {
+  border-radius: 0;
+  -webkit-clip-path: polygon(29% 0, 71% 0, 100% 29%, 100% 71%, 71% 100%, 29% 100%, 0 71%, 0 29%);
+  clip-path: polygon(29% 0, 71% 0, 100% 29%, 100% 71%, 71% 100%, 29% 100%, 0 71%, 0 29%);
+}
+
+/* Elmas durum işaretleri: dolu (çevrimiçi), yarım (boşta), çubuklu (rahatsız etmeyin), boş (çevrimdışı) */
+:root[data-skin="turkuaz"] .avatar[data-status]::after,
+:root[data-skin="turkuaz"] .status-dot {
+  border-radius: 2px;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+:root[data-skin="turkuaz"] .avatar[data-status]::after {
+  right: -2px;
+  bottom: -2px;
+}
+
+:root[data-skin="turkuaz"] .avatar[data-status="idle"]::after,
+:root[data-skin="turkuaz"] .status-dot[data-status="idle"] {
+  background-color: var(--status-ring);
+  background-image: linear-gradient(45deg, var(--idle) 50%, rgba(0, 0, 0, 0) 50%);
+  box-shadow: inset 0 0 0 2px var(--idle);
+}
+
+:root[data-skin="turkuaz"] .avatar[data-status="dnd"]::after,
+:root[data-skin="turkuaz"] .status-dot[data-status="dnd"] {
+  background-image: linear-gradient(-45deg, rgba(0, 0, 0, 0) 40%, var(--status-ring) 40%, var(--status-ring) 60%, rgba(0, 0, 0, 0) 60%);
+  background-size: 100% 100%;
+}
+
+/* Konuşan kişi: nefes alıp dönen sekiz köşeli yeşil yıldız */
+:root[data-skin="turkuaz"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="turkuaz"] .is-speaking > .avatar.has-face .avatar-face,
+:root[data-skin="turkuaz"] .is-speaking .voice-member-inner > .avatar.has-face .avatar-face {
+  box-shadow: none;
+}
+
+:root[data-skin="turkuaz"] .avatar.has-face.is-speaking::before,
+:root[data-skin="turkuaz"] .is-speaking > .avatar.has-face::before,
+:root[data-skin="turkuaz"] .is-speaking .voice-member-inner > .avatar.has-face::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  bottom: -6px;
+  left: -6px;
+  z-index: 0;
+  background-color: var(--live);
+  -webkit-clip-path: polygon(50% 0, 65.3% 13%, 85.4% 14.6%, 87% 34.7%, 100% 50%, 87% 65.3%, 85.4% 85.4%, 65.3% 87%, 50% 100%, 34.7% 87%, 14.6% 85.4%, 13% 65.3%, 0 50%, 13% 34.7%, 14.6% 14.6%, 34.7% 13%);
+  clip-path: polygon(50% 0, 65.3% 13%, 85.4% 14.6%, 87% 34.7%, 100% 50%, 87% 65.3%, 85.4% 85.4%, 65.3% 87%, 50% 100%, 34.7% 87%, 14.6% 85.4%, 13% 65.3%, 0 50%, 13% 34.7%, 14.6% 14.6%, 34.7% 13%);
+  -webkit-animation: turkuaz-star 1.15s ease-in-out infinite alternate;
+  animation: turkuaz-star 1.15s ease-in-out infinite alternate;
+}
+
+@-webkit-keyframes turkuaz-star {
+  from { opacity: 1; -webkit-transform: rotate(0deg) scale(1); transform: rotate(0deg) scale(1); }
+  to { opacity: 0.6; -webkit-transform: rotate(22.5deg) scale(0.94); transform: rotate(22.5deg) scale(0.94); }
+}
+
+@keyframes turkuaz-star {
+  from { opacity: 1; -webkit-transform: rotate(0deg) scale(1); transform: rotate(0deg) scale(1); }
+  to { opacity: 0.6; -webkit-transform: rotate(22.5deg) scale(0.94); transform: rotate(22.5deg) scale(0.94); }
+}
+
+:root[data-skin="turkuaz"] .voice-member.is-speaking .voice-member-inner,
+:root[data-skin="turkuaz"] .member.is-speaking {
+  background-color: transparent;
+}
+
+:root[data-skin="turkuaz"] .member.is-speaking .member-sub,
+:root[data-skin="turkuaz"] .voice-member.is-speaking .voice-member-name {
+  color: var(--live);
+}
+
+/* Ses kanalı kişileri: kanala ince bir iple bağlı alt liste */
+:root[data-skin="turkuaz"] .voice-members {
+  margin-left: 1.3rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line-strong);
+}
+
+/* Telsiz kartı ve asimetrik bakır Bas konuş */
+:root[data-skin="turkuaz"] .sidebar-dock .voice-panel {
+  margin: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-skin="turkuaz"] .ptt-button {
+  border: 0;
+  border-radius: 1.75rem 0.75rem 0.75rem 1.75rem;
+  background-color: var(--attention);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+  color: var(--on-attention);
+  box-shadow: 0 6px 16px rgba(120, 60, 20, 0.3);
+}
+
+:root[data-skin="turkuaz"] .ptt-hint {
+  color: var(--on-attention);
+  opacity: 0.85;
+}
+
+:root[data-skin="turkuaz"] .ptt-dome {
+  background-color: rgba(0, 0, 0, 0.12);
+  color: var(--on-attention);
+  box-shadow: inset 0 0 0 2px var(--on-attention), inset 0 0 0 6px rgba(0, 0, 0, 0), inset 0 0 0 7px var(--on-attention);
+}
+
+:root[data-skin="turkuaz"] .ptt-button .kbd {
+  border-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(255, 248, 236, 0.75);
+  color: #1f0b02;
+  box-shadow: none;
+}
+
+:root[data-skin="turkuaz"] .ptt-button.is-active {
+  background-color: var(--live);
+  color: var(--surface-1);
+}
+
+:root[data-skin="turkuaz"] .ptt-pill {
+  border-radius: 1.5rem 0.6rem 0.6rem 1.5rem;
+  background-color: var(--attention);
+  color: var(--on-attention);
+}
+
+/* Mühürlü mesaj: kesikli kenar, ince desen, bakır balmumu mühür */
+:root[data-skin="turkuaz"] .msg-notice {
+  display: inline-flex;
+  padding: 0.5rem 0.85rem 0.5rem 0.5rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  font-style: normal;
+}
+
+:root[data-skin="turkuaz"] .msg-notice .icon {
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.6rem;
+  padding: 0.4rem;
+  border-radius: 50%;
+  background-color: var(--attention);
+  color: var(--on-attention);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+/* Bahsetme: bakır çip */
+:root[data-skin="turkuaz"] .mention {
+  border: 1px solid var(--pattern-2);
+}
+
+/* Yazma alanı ve gönder: turkuaz dolgu */
+:root[data-skin="turkuaz"] .composer-box {
+  background-color: var(--surface-3);
+  box-shadow: var(--shadow-card);
+}
+
+/* Giriş kartı: kemer ve bakır iç çizgi */
+:root[data-skin="turkuaz"] .auth-card {
+  position: relative;
+  padding-top: 3rem;
+  border-top-left-radius: 50% 4.5rem;
+  border-top-right-radius: 50% 4.5rem;
+}
+
+:root[data-skin="turkuaz"] .auth-card::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  left: 0.5rem;
+  height: 4rem;
+  border: 1px solid var(--pattern-2);
+  border-bottom: 0;
+  border-top-left-radius: 50% 4rem;
+  border-top-right-radius: 50% 4rem;
+  pointer-events: none;
+}
+
+:root[data-skin="turkuaz"] .auth-view {
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0) 49%, var(--line) 49%, var(--line) 51%, rgba(0, 0, 0, 0) 51%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0) 49%, var(--line) 49%, var(--line) 51%, rgba(0, 0, 0, 0) 51%);
+  background-size: 3.5rem 3.5rem;
+}
+
+/* Profil kartı: kemer afiş ve yıldız deseni */
+:root[data-skin="turkuaz"] .profile-card-band {
+  border-top-left-radius: 50% 3rem;
+  border-top-right-radius: 50% 3rem;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0) 46%, rgba(255, 255, 255, 0.16) 46%, rgba(255, 255, 255, 0.16) 54%, rgba(0, 0, 0, 0) 54%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0) 46%, rgba(255, 255, 255, 0.16) 46%, rgba(255, 255, 255, 0.16) 54%, rgba(0, 0, 0, 0) 54%);
+  background-size: 1.5rem 1.5rem;
+}
+
+:root[data-skin="turkuaz"] .profile-card-head {
+  position: relative;
+  padding-bottom: 0.9rem;
+}
+
+:root[data-skin="turkuaz"] .profile-card {
+  border-top-left-radius: 50% 3rem;
+  border-top-right-radius: 50% 3rem;
+}
+
+/* Seviye ölçer: karo bölmeli, bakır eşik */
+:root[data-skin="turkuaz"] .meter {
+  border-radius: var(--radius-small);
+}
+
+:root[data-skin="turkuaz"] .meter-bar {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 12px, var(--surface-sunken) 12px, var(--surface-sunken) 14px);
+}
+
+:root[data-skin="turkuaz"] .meter-threshold {
+  background-color: var(--accent-2-text);
+}
+
+/* Anahtar topuzu ve kaydırıcılar elmas */
+:root[data-skin="turkuaz"] .switch-track::after {
+  border-radius: 2px;
+  -webkit-transform: rotate(45deg) scale(0.85);
+  transform: rotate(45deg) scale(0.85);
+}
+
+:root[data-skin="turkuaz"] .switch input:checked + .switch-track::after {
+  -webkit-transform: translateX(1.2rem) rotate(45deg) scale(0.85);
+  transform: translateX(1.2rem) rotate(45deg) scale(0.85);
+}
+
+/* Odak: safran dış halka, zeminden ayıran iç boşluk */
+:root[data-skin="turkuaz"] :focus-visible {
+  box-shadow: 0 0 0 2px var(--surface-1);
+}

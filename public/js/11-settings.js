@@ -1,8 +1,8 @@
 'use strict'
 
-// Ayarlar penceresi: hesap (geçici dil seçimi), ses (Ek D1 ayarları), şifreleme, sunucu ve üye sekmeleri.
+// Ayarlar penceresi: hesap (geçici dil seçimi), ses ayarları, şifreleme, sunucu ve üye sekmeleri.
 
-// Ayarlar penceresi (5.7)
+// Ayarlar penceresi
 
 const SETTINGS_TABS = ['account', 'voice', 'crypto', 'server', 'members']
 let settingsTab = 'account'
@@ -139,8 +139,11 @@ function renderSettingsAccount () {
   el.setIosHint.hidden = !(isIos() && !isStandalone())
 }
 
+// Parola değiştirme: mevcut ayarlarla eski kimlik doğrulama anahtarı, yeni ayarlarla yeni anahtar ve
+// aynı özel anahtarın yeni parolayla sarılması (16-identity.js). İlerleme yüzdesi gösterilir.
 async function submitPasswordChange (e) {
   e.preventDefault()
+  if (el.setPasswordForm.classList.contains('is-busy')) return
   const oldPassword = el.setOldPassword.value
   const newPassword = el.setNewPassword.value
   if (!oldPassword) {
@@ -157,17 +160,19 @@ async function submitPasswordChange (e) {
     setMsg(el.setPasswordMsg, () => t('settings.password.mismatch'), 'error')
     return
   }
-  el.setPasswordSubmit.disabled = true
-  const res = await api('POST', '/api/me/password', { oldPassword: oldPassword, newPassword: newPassword })
-  el.setPasswordSubmit.disabled = false
-  if (res.status === 200) {
+  setFormBusy(el.setPasswordForm, true)
+  const result = await changePasswordRequest(oldPassword, newPassword, (pct) => {
+    setMsg(el.setPasswordMsg, () => t('auth.deriving', { percent: pct }))
+  })
+  setFormBusy(el.setPasswordForm, false)
+  if (result.ok) {
     el.setOldPassword.value = ''
     el.setNewPassword.value = ''
     el.setNewPassword2.value = ''
     setMsg(el.setPasswordMsg, () => t('settings.password.changed'), 'ok')
     return
   }
-  setMsg(el.setPasswordMsg, () => errorText(res, t('settings.password.failed'), { bad_credentials: t('settings.password.oldWrong'), rate_limited: t('auth.rateLimited') }), 'error')
+  setMsg(el.setPasswordMsg, result.error, 'error')
 }
 
 function onNotifyChange () {
@@ -218,8 +223,8 @@ async function installApp () {
   }
 }
 
-// Ses (Ek D1). Ayarlar voice.js içinde saklanır ('telsiz.voice'), burada yalnızca gösterilir ve
-// voice.setSettings ile değiştirilir. Ayrıntılı ses ayarları sayfası Ek D2 ile gelecek.
+// Ses. Ayarlar voice.js içinde saklanır ('telsiz.voice'), burada yalnızca gösterilir ve
+// voice.setSettings ile değiştirilir.
 
 function voiceSettings () {
   if (!voice) return null
@@ -467,9 +472,10 @@ function renderSettingsCrypto () {
 
 function afterKeyringChange () {
   renderSettingsCrypto()
-  renderComposerState()
+  if (conversationMode() === 'channel') renderComposerState()
   refreshAllMessages()
   renderVoiceAll()
+  socialAfterKeyring()
 }
 
 function submitSettingsKey (e) {

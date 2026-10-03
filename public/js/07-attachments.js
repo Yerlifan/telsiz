@@ -2,7 +2,7 @@
 
 // Mesajdaki ekler: satır içi resimler, indirme ve çözme, dosya kartları ve resim görüntüleyici.
 
-// Mesajdaki ekler: satır içi resimler ve dosya kartları (5.6, Ek A1)
+// Mesajdaki ekler: satır içi resimler ve dosya kartları
 
 function buildAttachments (files, m) {
   const wrap = h('div', 'msg-attachments')
@@ -204,7 +204,7 @@ function saveBytes (data, name) {
   }, REVOKE_DELAY_MS)
 }
 
-// Dosya kartı (Ek A1 madde 2..4)
+// Dosya kartı: ad, boyut, tür simgesi ve çalıştırılabilir dosya uyarısı
 
 function buildFileCard (f) {
   const card = h('button', 'file-card')

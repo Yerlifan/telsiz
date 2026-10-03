@@ -124,13 +124,14 @@ function renderVoiceChannels () {
   const s = snap()
   clear(el.voiceChannels)
   voiceChannels().forEach((c) => {
-    const li = h('li', 'channel-row voice-row')
     const roster = voiceRoster(c.id)
     const joined = sameId(s.channelId, c.id)
+    const li = h('li', 'channel-row voice-row' + (joined ? ' is-joined' : ''))
     const b = h('button', 'channel-item voice-channel' + (joined ? ' is-joined' : ''))
     b.type = 'button'
     b.setAttribute('data-channel-id', String(c.id))
     b.setAttribute('data-focus-key', 'voice-' + c.id)
+    b.appendChild(channelFreqNode(c.id))
     b.appendChild(icon('i-speaker', 'channel-icon'))
     b.appendChild(h('span', 'channel-name', c.name))
     if (roster.length) b.appendChild(h('span', 'voice-count', roster.length + '/8'))
@@ -156,7 +157,7 @@ function renderVoiceChannels () {
 function buildVoiceMember (entry, sameChannel) {
   const s = snap()
   const self = state.me && sameId(entry.userId, state.me.id)
-  const name = userName(entry.userId)
+  const name = shownName(entry.userId)
   const peer = s.peers ? s.peers[String(entry.userId)] : null
   const muted = self ? s.muted : entry.muted === true
   const deafened = self ? s.deafened : entry.deafened === true
@@ -171,10 +172,11 @@ function buildVoiceMember (entry, sameChannel) {
       openPeerPopover(entry.userId, inner, sameChannel)
     })
   }
-  const av = avatar(entry.userId, name, 'avatar-small')
+  const av = avatar(entry.userId, 'sm')
+  av.removeAttribute('data-status')
   inner.appendChild(av)
-  const shownName = self ? t('voice.selfName', { name: name }) : name
-  inner.appendChild(h('span', 'voice-member-name', shownName))
+  const labelName = self ? t('voice.selfName', { name: name }) : name
+  inner.appendChild(h('span', 'voice-member-name', labelName))
   const states = []
   if (!self && sameChannel && peer && peer.status === 'failed') {
     const warn = h('span', 'voice-flag voice-flag-error')
@@ -198,13 +200,19 @@ function buildVoiceMember (entry, sameChannel) {
     inner.appendChild(d)
     states.push(t('voice.deafenedState'))
   }
-  const label = states.length ? t('voice.memberStates', { name: shownName, states: states.join(', ') }) : shownName
+  const label = states.length ? t('voice.memberStates', { name: labelName, states: states.join(', ') }) : labelName
   inner.setAttribute('aria-label', self ? label : t('voice.memberSettings', { label: label }))
   li.appendChild(inner)
   return li
 }
 
-// Konuşma halkası ve giriş seviyesi gibi sık değişen göstergeler
+// Konuşma halesi ve giriş seviyesi gibi sık değişen göstergeler
+function speakingIn (s, userId) {
+  if (!s.channelId) return false
+  if (state.me && sameId(userId, state.me.id)) return s.selfSpeaking === true
+  return Boolean(s.peers && s.peers[String(userId)] && s.peers[String(userId)].speaking)
+}
+
 function updateVoiceLive () {
   const s = snap()
   Array.from(el.voiceChannels.querySelectorAll('.voice-member')).forEach((li) => {
@@ -212,18 +220,28 @@ function updateVoiceLive () {
     const channelLi = li.closest('.voice-row')
     const channelButton = channelLi ? channelLi.querySelector('.voice-channel') : null
     const sameChannel = channelButton && sameId(channelButton.getAttribute('data-channel-id'), s.channelId)
-    let speaking = false
-    if (sameChannel) {
-      if (state.me && sameId(userId, state.me.id)) speaking = s.selfSpeaking === true
-      else speaking = Boolean(s.peers && s.peers[userId] && s.peers[userId].speaking)
-    }
-    li.classList.toggle('is-speaking', speaking)
+    li.classList.toggle('is-speaking', Boolean(sameChannel && speakingIn(s, userId)))
   })
+  // Üye listesinde de aynı kanaldaki konuşan kişi işaretlenir
+  if (el.members) {
+    Array.from(el.members.querySelectorAll('.member[data-user-id]')).forEach((row) => {
+      const userId = row.getAttribute('data-user-id')
+      const inMyChannel = s.channelId && voiceRoster(s.channelId).some((entry) => sameId(entry.userId, userId))
+      row.classList.toggle('is-speaking', Boolean(inMyChannel && speakingIn(s, userId)))
+    })
+  }
   el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
-  if (isSettingsTab('voice')) updateLevelMeter()
+  if (typeof isSettingsTab === 'function' && isSettingsTab('voice') && typeof updateLevelMeter === 'function') updateLevelMeter()
   const pttActive = Boolean(s.ptt && s.ptt.active)
+  const label = t(pttActive ? 'voice.talking' : 'voice.pushToTalk')
   el.pttButton.classList.toggle('is-active', pttActive)
-  el.pttButton.textContent = t(pttActive ? 'voice.talking' : 'voice.pushToTalk')
+  el.pttButton.setAttribute('aria-pressed', pttActive ? 'true' : 'false')
+  if (el.pttLabel) el.pttLabel.textContent = label
+  if (el.voiceStripPtt) {
+    el.voiceStripPtt.classList.toggle('is-active', pttActive)
+    el.voiceStripPtt.setAttribute('aria-pressed', pttActive ? 'true' : 'false')
+  }
+  if (el.voiceStripPttLabel) el.voiceStripPttLabel.textContent = label
 }
 
 function renderVoicePanel () {
@@ -240,18 +258,65 @@ function renderVoicePanel () {
   setMsg(el.voiceError, s.errorCode ? voiceErrorText(s.errorCode, s.serverError) : '', 'error')
   el.voiceUnlock.hidden = !(inVoice && s.autoplayBlocked)
   el.pttButton.hidden = !(inVoice && s.ptt && s.ptt.enabled)
+  if (el.voiceStripPtt) el.voiceStripPtt.hidden = el.pttButton.hidden
+  if (el.pttKey) el.pttKey.textContent = pttKeyCap()
   el.voiceStrip.hidden = !inVoice
   el.voiceStripText.textContent = t('voice.inChannel', { name: ch ? ch.name : '' })
+}
+
+// Bas konuş tuşunun kısa gösterimi (tuş kapağı): harf ve rakamlar tek karakter, diğerleri ad
+function pttKeyCap () {
+  if (!voice || typeof voice.settings !== 'function') return ''
+  let binding = null
+  try {
+    const settings = voice.settings()
+    binding = settings && settings.bindings ? settings.bindings.ptt : null
+  } catch (err) {
+    binding = null
+  }
+  if (!binding) return ''
+  if (binding.type === 'key' && typeof binding.code === 'string') {
+    const m = /^(?:Key|Digit)([A-Z0-9])$/.exec(binding.code)
+    if (m) return m[1]
+  }
+  try {
+    return String(voice.bindingLabel(binding, t) || '')
+  } catch (err) {
+    return ''
+  }
+}
+
+// Kullanıcı panelindeki durum satırı: seste ise kanal, değilse özel durum metni veya durum
+function myStatusLine (s) {
+  const ch = s.channelId ? findChannel(s.channelId) : null
+  if (s.joining) return t('voice.joining')
+  if (ch) return t('voice.inChannel', { name: ch.name })
+  const chosen = state.me && typeof state.me.status === 'string' ? state.me.status : 'online'
+  if (typeof userStatusText === 'function') {
+    try {
+      const custom = userStatusText(state.me.id)
+      if (custom) return String(custom)
+    } catch (err) {
+      // Profil modülü hazır değil
+    }
+  }
+  if (chosen === 'idle') return t('layout.status.idle')
+  if (chosen === 'dnd') return t('layout.status.dnd')
+  if (chosen === 'invisible') return t('layout.status.invisible')
+  return t('user.online')
 }
 
 function renderUserPanel () {
   if (!state.me) return
   const s = snap()
-  el.meName.textContent = state.me.name
-  el.meAvatar.textContent = initial(state.me.name)
-  el.meAvatar.className = 'avatar ' + avatarClass(state.me.id)
-  const ch = s.channelId ? findChannel(s.channelId) : null
-  el.meStatus.textContent = s.joining ? t('voice.joining') : ch ? t('voice.inChannel', { name: ch.name }) : t('user.online')
+  el.meName.textContent = shownName(state.me.id)
+  fillAvatar(el.meAvatar, state.me.id, 'md')
+  el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
+  el.meStatus.textContent = myStatusLine(s)
+  if (el.meButton) {
+    el.meButton.setAttribute('aria-label', t('layout.statusMenu', { name: shownName(state.me.id) }))
+    el.meButton.title = t('layout.statusMenu', { name: shownName(state.me.id) })
+  }
   el.btnMute.setAttribute('aria-pressed', s.muted ? 'true' : 'false')
   setIcon(el.btnMute, s.muted ? 'i-mic-off' : 'i-mic')
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
@@ -326,6 +391,12 @@ function toggleDeafen () {
 // Bas-konuş butonu (dokunmatik ve fare, basılı tutulduğu sürece)
 
 function bindPttButton () {
+  bindPttTarget(el.pttButton)
+  bindPttTarget(el.voiceStripPtt)
+}
+
+function bindPttTarget (target) {
+  if (!target) return
   const down = (e) => {
     if (e && e.cancelable) e.preventDefault()
     if (voice) voice.pttDown()
@@ -334,39 +405,39 @@ function bindPttButton () {
     if (voice) voice.pttUp()
   }
   if (window.PointerEvent) {
-    el.pttButton.addEventListener('pointerdown', (e) => {
+    target.addEventListener('pointerdown', (e) => {
       try {
-        el.pttButton.setPointerCapture(e.pointerId)
+        target.setPointerCapture(e.pointerId)
       } catch (err) {
         // Yakalama desteklenmiyor
       }
       down(e)
     })
-    el.pttButton.addEventListener('pointerup', up)
-    el.pttButton.addEventListener('pointercancel', up)
-    el.pttButton.addEventListener('lostpointercapture', up)
+    target.addEventListener('pointerup', up)
+    target.addEventListener('pointercancel', up)
+    target.addEventListener('lostpointercapture', up)
   } else {
-    el.pttButton.addEventListener('mousedown', down)
-    el.pttButton.addEventListener('mouseup', up)
-    el.pttButton.addEventListener('mouseleave', up)
-    el.pttButton.addEventListener('touchstart', down)
-    el.pttButton.addEventListener('touchend', up)
-    el.pttButton.addEventListener('touchcancel', up)
+    target.addEventListener('mousedown', down)
+    target.addEventListener('mouseup', up)
+    target.addEventListener('mouseleave', up)
+    target.addEventListener('touchstart', down)
+    target.addEventListener('touchend', up)
+    target.addEventListener('touchcancel', up)
   }
-  el.pttButton.addEventListener('keydown', (e) => {
+  target.addEventListener('keydown', (e) => {
     if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
       e.preventDefault()
       down(null)
     }
   })
-  el.pttButton.addEventListener('keyup', (e) => {
+  target.addEventListener('keyup', (e) => {
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
       up()
     }
   })
-  el.pttButton.addEventListener('blur', up)
-  el.pttButton.addEventListener('contextmenu', (e) => {
+  target.addEventListener('blur', up)
+  target.addEventListener('contextmenu', (e) => {
     e.preventDefault()
   })
 }
@@ -394,7 +465,7 @@ function openPeerPopover (userId, trigger, sameChannel) {
     if (same) return
   }
   popoverUserId = userId
-  el.peerName.textContent = userName(userId)
+  el.peerName.textContent = shownName(userId)
   const value = peerVolumeValue(userId)
   el.peerVolume.value = String(value)
   el.peerVolumeValue.textContent = formatPercent(value)

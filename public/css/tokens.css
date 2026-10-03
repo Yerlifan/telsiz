@@ -1,0 +1,650 @@
+/*
+  Tasarım belirteçleri (Ek G1.2).
+  Tema bağımsız ölçekler :root üzerinde, renkler her tema (data-skin) ve mod (data-scheme)
+  için aynı adlarla tanımlanır. Bileşenler yalnızca bu adları kullanır, renk değeri yazmaz.
+  Varsayılan: Arcade, koyu (theme-init.js öznitelikleri yazmadan önce de doğru görünür).
+  Eski WebKit uyumu: değişkenler düz değerlerdir, calc dışında işlev yoktur.
+*/
+
+:root {
+  /* Aralık ölçeği (rem, kök yazı boyutuyla büyür) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* En küçük dokunma hedefi: 44px (16px kökte) */
+  --target: 2.75rem;
+
+  /* Yazı ölçeği */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --leading: 1.45;
+
+  /* Sütun genişlikleri */
+  --members-width: 16rem;
+  --sidebar-width: 17rem;
+  --drawer-width: 20rem;
+
+  /* Hareket */
+  --dur-fast: 0.14s;
+  --dur-med: 0.24s;
+  --dur-slow: 1.8s;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Ortak yazı tipi yedekleri */
+  --font-system: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol";
+  --font-mono-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+}
+
+/* =========================================================
+   ARCADE (varsayılan): kömür zemin, yüzen cam paneller,
+   mor ile camgöbeği degrade, tuş kapağı derinliği
+   ========================================================= */
+
+:root,
+:root[data-skin="arcade"] {
+  --font-body: "Rubik Telsiz", var(--font-system), var(--font-emoji);
+  --font-display: "Unbounded Telsiz", "Rubik Telsiz", var(--font-system), var(--font-emoji);
+  --font-label: "Unbounded Telsiz", "Rubik Telsiz", var(--font-system);
+  --font-mono: var(--font-mono-system);
+  --weight-display: 700;
+  --weight-strong: 600;
+  --label-spacing: 0.08em;
+  --label-size: 0.6875rem;
+
+  --radius-panel: 24px;
+  --radius-card: 18px;
+  --radius-control: 14px;
+  --radius-small: 10px;
+  --radius-pill: 999px;
+  --avatar-radius: 32%;
+  --layout-pad: 1rem;
+  --column-gap: 0.875rem;
+  --border-width: 1px;
+}
+
+:root,
+:root[data-skin="arcade"][data-scheme="dark"] {
+  color-scheme: dark;
+  --theme-color: #0f1015;
+  --bg: #0f1015;
+  --bg-glow-a: rgba(124, 88, 255, 0.2);
+  --bg-glow-a0: rgba(124, 88, 255, 0);
+  --bg-glow-b: rgba(40, 200, 230, 0.11);
+  --bg-glow-b0: rgba(40, 200, 230, 0);
+  --surface-1: #17181f;
+  --surface-1-glass: rgba(23, 24, 31, 0.8);
+  --surface-2: #17181f;
+  --surface-3: #21222c;
+  --surface-alt: #1c1d26;
+  --surface-sunken: #111218;
+  --surface-hover: #272834;
+  --surface-active: #21222c;
+  --surface-float: #1c1d26;
+  --overlay: rgba(6, 6, 10, 0.62);
+  --viewer-bg: rgba(6, 6, 10, 0.94);
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --edge: #6e7088;
+  --text: #f2f1f8;
+  --text-2: #bebdcf;
+  --text-3: #9f9eb4;
+  --text-strong: #ffffff;
+  --link: #5addf0;
+  --accent: #8f6bff;
+  --accent-2: #33d1e6;
+  --accent-hover: #9d7dff;
+  --on-accent: #0e0d16;
+  --accent-text: #a991ff;
+  --accent-2-text: #5addf0;
+  --accent-lip: #4e3bb0;
+  --accent-fill-a: #8f6bff;
+  --accent-fill-b: #33d1e6;
+  --attention: #8f6bff;
+  --on-attention: #0e0d16;
+  --mention-bg: rgba(143, 107, 255, 0.16);
+  --mention-text: #c9b8ff;
+  --mention-line: #8f6bff;
+  --focus: #5ee6f7;
+  --focus-halo: rgba(94, 230, 247, 0.22);
+  --ok: #45db9c;
+  --idle: #f5b946;
+  --dnd: #ff6680;
+  --offline: #8e8da3;
+  --live: #45db9c;
+  --live-bg: rgba(69, 219, 156, 0.12);
+  --speaking-bg: rgba(51, 209, 230, 0.1);
+  --danger: #ff8796;
+  --danger-bg: rgba(255, 102, 128, 0.14);
+  --danger-fill: #ff8796;
+  --on-danger: #1a0a0e;
+  --warn: #f7c463;
+  --warn-bg: rgba(245, 185, 70, 0.13);
+  --warn-line: rgba(245, 185, 70, 0.45);
+  --key-lip: #0a0a0f;
+  --top-light: rgba(255, 255, 255, 0.07);
+  --scrollbar: #2c2d3a;
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --halo-1: rgba(51, 209, 230, 0.55);
+  --halo-2: rgba(143, 107, 255, 0.4);
+  --av-fg: #121119;
+  --av-0: #7cc2ff;
+  --av-1: #ff9fcb;
+  --av-2: #ffc56e;
+  --av-3: #b9a2ff;
+  --av-4: #62e1b8;
+  --av-5: #ff9e80;
+  --av-6: #a8e05f;
+  --av-7: #86e0f0;
+  --av-offline: #a3a2b5;
+}
+
+:root[data-skin="arcade"][data-scheme="light"] {
+  color-scheme: light;
+  --theme-color: #ecedf4;
+  --bg: #ecedf4;
+  --bg-glow-a: rgba(124, 88, 255, 0.16);
+  --bg-glow-a0: rgba(124, 88, 255, 0);
+  --bg-glow-b: rgba(30, 190, 220, 0.15);
+  --bg-glow-b0: rgba(30, 190, 220, 0);
+  --surface-1: #ffffff;
+  --surface-1-glass: rgba(255, 255, 255, 0.8);
+  --surface-2: #ffffff;
+  --surface-3: #f7f6fc;
+  --surface-alt: #f3f2f9;
+  --surface-sunken: #f1f1f7;
+  --surface-hover: #eceaf6;
+  --surface-active: #f7f6fc;
+  --surface-float: #ffffff;
+  --overlay: rgba(22, 21, 30, 0.42);
+  --viewer-bg: rgba(14, 13, 22, 0.92);
+  --line: rgba(24, 20, 60, 0.08);
+  --line-strong: rgba(24, 20, 60, 0.14);
+  --edge: #75738a;
+  --text: #16151e;
+  --text-2: #45435a;
+  --text-3: #5a5870;
+  --text-strong: #0e0d16;
+  --link: #06707f;
+  --accent: #8f6bff;
+  --accent-2: #33d1e6;
+  --accent-hover: #9d7dff;
+  --on-accent: #0e0d16;
+  --accent-text: #6234dd;
+  --accent-2-text: #06707f;
+  --accent-lip: #6e55d6;
+  --accent-fill-a: #7046f0;
+  --accent-fill-b: #0e8fa6;
+  --attention: #8f6bff;
+  --on-attention: #0e0d16;
+  --mention-bg: rgba(112, 70, 240, 0.12);
+  --mention-text: #4c22c4;
+  --mention-line: #7046f0;
+  --focus: #5b2fd6;
+  --focus-halo: rgba(91, 47, 214, 0.18);
+  --ok: #0b6f48;
+  --idle: #a66700;
+  --dnd: #d42f4e;
+  --offline: #77758c;
+  --live: #0b6f48;
+  --live-bg: rgba(11, 111, 72, 0.1);
+  --speaking-bg: rgba(20, 170, 200, 0.12);
+  --danger: #b0233a;
+  --danger-bg: rgba(212, 47, 78, 0.1);
+  --danger-fill: #b0233a;
+  --on-danger: #ffffff;
+  --warn: #7f4f00;
+  --warn-bg: rgba(245, 185, 70, 0.22);
+  --warn-line: rgba(176, 112, 0, 0.45);
+  --key-lip: #cfcde0;
+  --top-light: #ffffff;
+  --scrollbar: #cfcde0;
+  --shadow-panel: 0 18px 48px rgba(45, 30, 110, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-card: inset 0 1px 0 #ffffff, 0 3px 10px rgba(45, 30, 110, 0.09);
+  --shadow-pop: 0 24px 64px rgba(45, 30, 110, 0.22), inset 0 1px 0 #ffffff;
+  --halo-1: rgba(20, 170, 200, 0.32);
+  --halo-2: rgba(110, 70, 240, 0.2);
+  --av-fg: #121119;
+  --av-0: #7cc2ff;
+  --av-1: #ff9fcb;
+  --av-2: #ffc56e;
+  --av-3: #b9a2ff;
+  --av-4: #62e1b8;
+  --av-5: #ff9e80;
+  --av-6: #a8e05f;
+  --av-7: #86e0f0;
+  --av-offline: #bdbccb;
+}
+
+/* =========================================================
+   GECE FREKANSI: gece mavisi, kehribar sinyal, yayında yeşili
+   ========================================================= */
+
+:root[data-skin="gece"] {
+  --font-body: "Manrope Telsiz", var(--font-system), var(--font-emoji);
+  --font-display: "Manrope Telsiz", var(--font-system), var(--font-emoji);
+  --font-label: "Martian Mono Telsiz", var(--font-mono-system);
+  --font-mono: "Martian Mono Telsiz", var(--font-mono-system);
+  --weight-display: 800;
+  --weight-strong: 700;
+  --label-spacing: 0.06em;
+  --label-size: 0.75rem;
+
+  --radius-panel: 0;
+  --radius-card: 14px;
+  --radius-control: 12px;
+  --radius-small: 7px;
+  --radius-pill: 999px;
+  --avatar-radius: 50%;
+  --layout-pad: 0;
+  --column-gap: 0;
+  --border-width: 1px;
+}
+
+:root[data-skin="gece"][data-scheme="dark"] {
+  color-scheme: dark;
+  --theme-color: #050912;
+  --bg: #050912;
+  --bg-glow-a: rgba(255, 181, 71, 0.05);
+  --bg-glow-a0: rgba(255, 181, 71, 0);
+  --bg-glow-b: rgba(116, 224, 164, 0.04);
+  --bg-glow-b0: rgba(116, 224, 164, 0);
+  --surface-1: #0a101d;
+  --surface-1-glass: #0a101d;
+  --surface-2: #0d1424;
+  --surface-3: #141d31;
+  --surface-alt: #111a2c;
+  --surface-sunken: #060b16;
+  --surface-hover: #1a2540;
+  --surface-active: #221f1c;
+  --surface-float: #141d31;
+  --overlay: rgba(2, 4, 10, 0.66);
+  --viewer-bg: rgba(2, 4, 10, 0.94);
+  --line: #1a2438;
+  --line-strong: #26324b;
+  --edge: #61708c;
+  --text: #eaeff8;
+  --text-2: #a9b5cb;
+  --text-3: #8f9cb6;
+  --text-strong: #ffffff;
+  --link: #ffb547;
+  --accent: #ffb547;
+  --accent-2: #74e0a4;
+  --accent-hover: #ffc369;
+  --on-accent: #1b1305;
+  --accent-text: #ffb547;
+  --accent-2-text: #74e0a4;
+  --accent-lip: #ffb547;
+  --accent-fill-a: #ffb547;
+  --accent-fill-b: #ffb547;
+  --attention: #ffb547;
+  --on-attention: #1b1305;
+  --mention-bg: #221f1c;
+  --mention-text: #ffb547;
+  --mention-line: #ffb547;
+  --focus: #f4f7fc;
+  --focus-halo: rgba(255, 181, 71, 0.35);
+  --ok: #74e0a4;
+  --idle: #ffb547;
+  --dnd: #ff6b6b;
+  --offline: #7d8aa6;
+  --live: #74e0a4;
+  --live-bg: #0f2620;
+  --live-edge: #2f7e58;
+  --speaking-bg: #0f2620;
+  --danger: #ff8a7d;
+  --danger-bg: #2a1519;
+  --danger-edge: #c2554b;
+  --danger-fill: #ff8a7d;
+  --on-danger: #1a0806;
+  --warn: #ffb547;
+  --warn-bg: #221f1c;
+  --warn-line: #a36a1f;
+  --key-lip: #26324b;
+  --top-light: rgba(255, 255, 255, 0.04);
+  --scrollbar: #26324b;
+  --console: #080e1a;
+  --shadow-panel: none;
+  --shadow-card: none;
+  --shadow-pop: 0 20px 56px rgba(0, 0, 0, 0.6);
+  --halo-1: rgba(116, 224, 164, 0.5);
+  --halo-2: rgba(116, 224, 164, 0.2);
+  --av-0: #173a45;
+  --av-1: #43213a;
+  --av-2: #1c2e57;
+  --av-3: #33265a;
+  --av-4: #4a2e14;
+  --av-5: #1d3f2b;
+  --av-6: #4a1f22;
+  --av-7: #34361a;
+  --av-fg-0: #8fe0ee;
+  --av-fg-1: #f4a8d6;
+  --av-fg-2: #a3bfff;
+  --av-fg-3: #c9b6ff;
+  --av-fg-4: #ffc889;
+  --av-fg-5: #9fe6b8;
+  --av-fg-6: #ffb3a8;
+  --av-fg-7: #e0e39a;
+  --av-fg: #eaeff8;
+  --av-offline: #1a2236;
+  --av-offline-fg: #a9b5cb;
+}
+
+:root[data-skin="gece"][data-scheme="light"] {
+  color-scheme: light;
+  --theme-color: #e2dcce;
+  --bg: #e2dcce;
+  --bg-glow-a: rgba(242, 169, 59, 0.08);
+  --bg-glow-a0: rgba(242, 169, 59, 0);
+  --bg-glow-b: rgba(14, 106, 61, 0.05);
+  --bg-glow-b0: rgba(14, 106, 61, 0);
+  --surface-1: #efeae0;
+  --surface-1-glass: #efeae0;
+  --surface-2: #f8f5ef;
+  --surface-3: #ffffff;
+  --surface-alt: #f3efe7;
+  --surface-sunken: #e9e3d6;
+  --surface-hover: #e6dfd0;
+  --surface-active: #f6e6cb;
+  --surface-float: #ffffff;
+  --overlay: rgba(22, 27, 38, 0.42);
+  --viewer-bg: rgba(10, 12, 18, 0.92);
+  --line: #ddd5c5;
+  --line-strong: #cdc3b0;
+  --edge: #857c69;
+  --text: #161b26;
+  --text-2: #464e61;
+  --text-3: #555d6f;
+  --text-strong: #0b0e15;
+  --link: #8a4f00;
+  --accent: #f2a93b;
+  --accent-2: #0e6a3d;
+  --accent-hover: #f5b552;
+  --on-accent: #1b1305;
+  --accent-text: #8a4f00;
+  --accent-2-text: #0e6a3d;
+  --accent-lip: #a35f00;
+  --accent-fill-a: #a35f00;
+  --accent-fill-b: #a35f00;
+  --attention: #f2a93b;
+  --on-attention: #1b1305;
+  --mention-bg: #f6e6cb;
+  --mention-text: #8a4f00;
+  --mention-line: #a35f00;
+  --focus: #161b26;
+  --focus-halo: rgba(242, 169, 59, 0.45);
+  --ok: #17904f;
+  --idle: #b86e00;
+  --dnd: #cf2f2a;
+  --offline: #7a7466;
+  --live: #0e6a3d;
+  --live-bg: #dcefe2;
+  --live-edge: #2f8158;
+  --speaking-bg: #dcefe2;
+  --danger: #ae2a20;
+  --danger-bg: #f8e0dc;
+  --danger-edge: #c4483d;
+  --danger-fill: #ae2a20;
+  --on-danger: #ffffff;
+  --warn: #8a4f00;
+  --warn-bg: #f6e6cb;
+  --warn-line: #a35f00;
+  --key-lip: #cdc3b0;
+  --top-light: rgba(255, 255, 255, 0.7);
+  --scrollbar: #cdc3b0;
+  --console: #e6e0d2;
+  --shadow-panel: none;
+  --shadow-card: none;
+  --shadow-pop: 0 20px 56px rgba(60, 45, 20, 0.18);
+  --halo-1: rgba(14, 106, 61, 0.4);
+  --halo-2: rgba(14, 106, 61, 0.16);
+  --av-0: #cdeef3;
+  --av-1: #f7d6e8;
+  --av-2: #d6e2ff;
+  --av-3: #e3d9ff;
+  --av-4: #fbe1c2;
+  --av-5: #d3f1dd;
+  --av-6: #f9d9d4;
+  --av-7: #ecedc8;
+  --av-fg-0: #0d4a56;
+  --av-fg-1: #6e1f4c;
+  --av-fg-2: #1f3f86;
+  --av-fg-3: #4a2e8f;
+  --av-fg-4: #6b3b05;
+  --av-fg-5: #1b5c34;
+  --av-fg-6: #7a2a20;
+  --av-fg-7: #4e5010;
+  --av-fg: #161b26;
+  --av-offline: #e6dfd0;
+  --av-offline-fg: #464e61;
+}
+
+/* =========================================================
+   TURKUAZ VE BAKIR: çini sırı ve bakır, sekizgen karolar,
+   elmas durumlar, kuşak frizleri
+   ========================================================= */
+
+:root[data-skin="turkuaz"] {
+  --font-body: "Figtree Telsiz", var(--font-system), var(--font-emoji);
+  --font-display: "Young Serif Telsiz", Georgia, "Times New Roman", serif, var(--font-emoji);
+  --font-label: "Young Serif Telsiz", Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-mono-system);
+  --weight-display: 400;
+  --weight-strong: 700;
+  --label-spacing: 0;
+  --label-size: 1rem;
+
+  --radius-panel: 0;
+  --radius-card: 1.125rem;
+  --radius-control: 0.75rem;
+  --radius-small: 0.375rem;
+  --radius-pill: 999px;
+  --avatar-radius: 18%;
+  --layout-pad: 0;
+  --column-gap: 0;
+  --border-width: 1px;
+}
+
+:root[data-skin="turkuaz"][data-scheme="dark"] {
+  color-scheme: dark;
+  --theme-color: #0a181c;
+  --bg: #0a181c;
+  --bg-glow-a: rgba(90, 211, 200, 0.06);
+  --bg-glow-a0: rgba(90, 211, 200, 0);
+  --bg-glow-b: rgba(219, 133, 80, 0.05);
+  --bg-glow-b0: rgba(219, 133, 80, 0);
+  --surface-1: #0a181c;
+  --surface-1-glass: #0a181c;
+  --surface-2: #0f2227;
+  --surface-3: #152d34;
+  --surface-alt: #122830;
+  --surface-sunken: #0a181c;
+  --surface-hover: #1d3a42;
+  --surface-active: #15403f;
+  --surface-float: #152d34;
+  --overlay: rgba(3, 10, 12, 0.66);
+  --viewer-bg: rgba(3, 10, 12, 0.94);
+  --line: #213e46;
+  --line-strong: #2b4c55;
+  --edge: #5f858d;
+  --text: #ecf2ef;
+  --text-2: #b6c9c5;
+  --text-3: #95aea9;
+  --text-strong: #ffffff;
+  --link: #5ad3c8;
+  --accent: #3bbdb1;
+  --accent-2: #db8550;
+  --accent-hover: #4cc9bd;
+  --on-accent: #052421;
+  --accent-text: #5ad3c8;
+  --accent-2-text: #eba06e;
+  --accent-lip: #23766e;
+  --accent-fill-a: #3bbdb1;
+  --accent-fill-b: #3bbdb1;
+  --attention: #db8550;
+  --on-attention: #200e03;
+  --mention-bg: #232d2c;
+  --mention-text: #eba06e;
+  --mention-line: #db8550;
+  --focus: #f7c873;
+  --focus-halo: rgba(247, 200, 115, 0.25);
+  --ok: #6fd392;
+  --idle: #f2c063;
+  --dnd: #f2826b;
+  --offline: #7f9994;
+  --live: #6fd392;
+  --live-bg: rgba(111, 211, 146, 0.1);
+  --speaking-bg: rgba(111, 211, 146, 0.08);
+  --danger: #f2826b;
+  --danger-bg: #36211f;
+  --danger-fill: #f2826b;
+  --on-danger: #2a0d07;
+  --warn: #f2c063;
+  --warn-bg: #2d2a1b;
+  --warn-line: #85570a;
+  --key-lip: #0a181c;
+  --top-light: rgba(255, 255, 255, 0.06);
+  --scrollbar: #213e46;
+  --pattern: rgba(90, 211, 200, 0.16);
+  --pattern-2: rgba(219, 133, 80, 0.3);
+  --shadow-panel: none;
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 24px rgba(1, 8, 9, 0.45);
+  --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 22px 56px rgba(1, 8, 9, 0.6);
+  --halo-1: rgba(111, 211, 146, 0.55);
+  --halo-2: rgba(111, 211, 146, 0.2);
+  --av-fg: #fff8ec;
+  --av-0: #1c716b;
+  --av-1: #9e3942;
+  --av-2: #36559e;
+  --av-3: #86590c;
+  --av-4: #4c6822;
+  --av-5: #713e88;
+  --av-6: #8a4b2a;
+  --av-7: #2f5f78;
+  --av-offline: #4f6460;
+}
+
+:root[data-skin="turkuaz"][data-scheme="light"] {
+  color-scheme: light;
+  --theme-color: #efe6d4;
+  --bg: #efe6d4;
+  --bg-glow-a: rgba(9, 106, 100, 0.05);
+  --bg-glow-a0: rgba(9, 106, 100, 0);
+  --bg-glow-b: rgba(194, 104, 58, 0.06);
+  --bg-glow-b0: rgba(194, 104, 58, 0);
+  --surface-1: #efe6d4;
+  --surface-1-glass: #efe6d4;
+  --surface-2: #f9f4ea;
+  --surface-3: #fffdf7;
+  --surface-alt: #f4ede0;
+  --surface-sunken: #f9f4ea;
+  --surface-hover: #e6dac3;
+  --surface-active: #d3e8e2;
+  --surface-float: #fffdf7;
+  --overlay: rgba(23, 38, 40, 0.4);
+  --viewer-bg: rgba(10, 24, 28, 0.92);
+  --line: #ded1b9;
+  --line-strong: #d0c1a6;
+  --edge: #847966;
+  --text: #172628;
+  --text-2: #3a4c4e;
+  --text-3: #535f5c;
+  --text-strong: #0b1415;
+  --link: #096a64;
+  --accent: #0b776f;
+  --accent-2: #c2683a;
+  --accent-hover: #0a6c65;
+  --on-accent: #ffffff;
+  --accent-text: #096a64;
+  --accent-2-text: #94421a;
+  --accent-lip: #075550;
+  --accent-fill-a: #0b776f;
+  --accent-fill-b: #0b776f;
+  --attention: #c2683a;
+  --on-attention: #1f0b02;
+  --mention-bg: #f6e6d6;
+  --mention-text: #94421a;
+  --mention-line: #c2683a;
+  --focus: #7a3a08;
+  --focus-halo: rgba(122, 58, 8, 0.18);
+  --ok: #1d6633;
+  --idle: #85570a;
+  --dnd: #a9351f;
+  --offline: #7d776b;
+  --live: #1d6633;
+  --live-bg: rgba(29, 102, 51, 0.1);
+  --speaking-bg: rgba(29, 102, 51, 0.08);
+  --danger: #a9351f;
+  --danger-bg: #f8e1da;
+  --danger-fill: #a9351f;
+  --on-danger: #ffffff;
+  --warn: #85570a;
+  --warn-bg: #f7ecd2;
+  --warn-line: #b88a2e;
+  --key-lip: #d0c1a6;
+  --top-light: rgba(255, 255, 255, 0.8);
+  --scrollbar: #d0c1a6;
+  --pattern: rgba(9, 106, 100, 0.16);
+  --pattern-2: rgba(194, 104, 58, 0.35);
+  --shadow-panel: none;
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 22px rgba(92, 64, 30, 0.12);
+  --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 22px 56px rgba(92, 64, 30, 0.2);
+  --halo-1: rgba(29, 102, 51, 0.45);
+  --halo-2: rgba(29, 102, 51, 0.16);
+  --av-fg: #fff8ec;
+  --av-0: #1c716b;
+  --av-1: #9e3942;
+  --av-2: #36559e;
+  --av-3: #86590c;
+  --av-4: #4c6822;
+  --av-5: #713e88;
+  --av-6: #8a4b2a;
+  --av-7: #2f5f78;
+  --av-offline: #6f6a5e;
+}
+
+/* Yazı boyutu (Ek D2): otomatikte 16px, 1280px ve üstü 18px, TV (1800px ve üstü) 22px */
+html {
+  font-size: 16px;
+}
+
+@media (min-width: 1280px) {
+  html[data-font-size="auto"],
+  html:not([data-font-size]) {
+    font-size: 18px;
+  }
+}
+
+@media (min-width: 1800px) {
+  html[data-font-size="auto"],
+  html:not([data-font-size]) {
+    font-size: 22px;
+  }
+}
+
+html[data-font-size="small"] {
+  font-size: 14px;
+}
+
+html[data-font-size="normal"] {
+  font-size: 16px;
+}
+
+html[data-font-size="large"] {
+  font-size: 18px;
+}
+
+html[data-font-size="tv"] {
+  font-size: 22px;
+}

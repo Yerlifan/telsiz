@@ -1,0 +1,447 @@
+/*
+  Gece Frekansı teması. Sunucu bir istasyon, kanallar kadran üzerindeki frekanslar.
+  Kehribar sinyal tek vurgu, yayında yeşili yalnızca canlı olan şeyler için (bağlı ses,
+  konuşan kişi). Durumlar cihaz panelindeki LED ışıklar gibi, saatler ve etiketler tek
+  aralıklı gösterge yazısıyla.
+*/
+
+/* Düz paneller, ince ayırıcı çizgiler */
+:root[data-skin="gece"] .members {
+  border-right: 1px solid var(--line);
+}
+
+:root[data-skin="gece"] .sidebar {
+  border-left: 1px solid var(--line);
+}
+
+:root[data-skin="gece"] .sidebar-head,
+:root[data-skin="gece"] .members-head {
+  border-bottom: 1px solid var(--line);
+}
+
+:root[data-skin="gece"] .sidebar-dock {
+  background-color: var(--console);
+}
+
+:root[data-skin="gece"] .voice-panel,
+:root[data-skin="gece"] .user-panel {
+  border-top: 1px solid var(--line-strong);
+}
+
+/* Bölüm etiketleri: gösterge yazısı */
+:root[data-skin="gece"] .section-title,
+:root[data-skin="gece"] .group-title,
+:root[data-skin="gece"] .settings-title,
+:root[data-skin="gece"] .emoji-title,
+:root[data-skin="gece"] .auth-kicker {
+  font-weight: 500;
+}
+
+/* Kadran: kanal listesinin solunda ölçek çizgisi ve çentikler */
+:root[data-skin="gece"] .channel-list:not(.dm-list) {
+  position: relative;
+  margin-left: 0.6rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line-strong);
+}
+
+:root[data-skin="gece"] .channel-row {
+  position: relative;
+}
+
+:root[data-skin="gece"] .channel-row:not(.dm-row)::before {
+  content: "";
+  position: absolute;
+  top: 1.35rem;
+  left: -0.6rem;
+  width: 0.4rem;
+  height: 1px;
+  background-color: var(--line-strong);
+}
+
+/* Frekans rozeti */
+:root[data-skin="gece"] .channel-freq {
+  display: inline-block;
+  flex: none;
+  min-width: 3.4rem;
+  margin-right: 0.6rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background-color: var(--surface-sunken);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-skin="gece"] .channel-item .channel-icon {
+  display: none;
+}
+
+/* Etkin kanal: kehribar ibre ve dolu rozet */
+:root[data-skin="gece"] .channel-item[aria-current],
+:root[data-skin="gece"] .channel-item.is-active,
+:root[data-skin="gece"] .home-entry[aria-current],
+:root[data-skin="gece"] .dm-item[aria-current],
+:root[data-skin="gece"] .dm-item.is-active {
+  border-color: transparent;
+  background-color: var(--surface-active);
+}
+
+:root[data-skin="gece"] .channel-item[aria-current] .channel-freq,
+:root[data-skin="gece"] .channel-item.is-active .channel-freq {
+  border-color: var(--accent-lip);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+:root[data-skin="gece"] .channel-row .channel-item[aria-current]::before,
+:root[data-skin="gece"] .channel-row .channel-item.is-active::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.6rem;
+  width: 0.6rem;
+  height: 2px;
+  margin-top: -1px;
+  background-color: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+:root[data-skin="gece"] .channel-row .channel-item[aria-current]::after,
+:root[data-skin="gece"] .channel-row .channel-item.is-active::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.85rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: -0.25rem;
+  border-radius: 50%;
+  background-color: var(--accent-text);
+}
+
+/* Bağlı ses kanalı: yeşil pivot ve rozet */
+:root[data-skin="gece"] .voice-channel.is-joined .channel-freq {
+  border-color: var(--live-edge);
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+:root[data-skin="gece"] .voice-row.is-joined::before {
+  content: "";
+  position: absolute;
+  top: 1.1rem;
+  left: -0.85rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--live);
+  box-shadow: 0 0 8px var(--live);
+  -webkit-animation: gece-pulse 2.4s ease-in-out infinite;
+  animation: gece-pulse 2.4s ease-in-out infinite;
+}
+
+:root[data-skin="gece"] .voice-row {
+  position: relative;
+}
+
+@-webkit-keyframes gece-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes gece-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Okunmamış: kehribar nokta, anma sayısı kehribar dolgu */
+:root[data-skin="gece"] .unread-badge {
+  background-color: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* LED durum ışıkları: üye satırında satırın sağ ucunda hizalı */
+:root[data-skin="gece"] .avatar[data-status]::after {
+  border-width: 2px;
+}
+
+:root[data-skin="gece"] .member > .avatar {
+  position: static;
+}
+
+:root[data-skin="gece"] .member > .avatar[data-status]::after {
+  top: 50%;
+  right: 0.75rem;
+  bottom: auto;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-top: -0.3125rem;
+  border: 0;
+}
+
+:root[data-skin="gece"] .member > .avatar[data-status="online"]::after {
+  box-shadow: 0 0 8px var(--ok);
+}
+
+:root[data-skin="gece"] .member > .avatar[data-status="idle"]::after {
+  background-image: linear-gradient(90deg, var(--idle) 50%, var(--surface-sunken) 50%);
+  box-shadow: inset 0 0 0 1.5px var(--idle);
+}
+
+:root[data-skin="gece"] .member > .avatar[data-status="dnd"]::after {
+  width: 0.875rem;
+  height: 0.3rem;
+  margin-top: -0.15rem;
+  border-radius: 2px;
+  background-image: none;
+  box-shadow: 0 0 6px var(--dnd);
+}
+
+:root[data-skin="gece"] .member > .avatar[data-status="offline"]::after {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--offline);
+}
+
+:root[data-skin="gece"] .member {
+  padding-right: 1.75rem;
+}
+
+
+
+/* Konuşan kişi: yeşil halka ve ekolayzır çubukları */
+:root[data-skin="gece"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="gece"] .is-speaking > .avatar.has-face .avatar-face,
+:root[data-skin="gece"] .is-speaking .voice-member-inner > .avatar.has-face .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 12px 2px var(--halo-1);
+}
+
+:root[data-skin="gece"] .voice-member.is-speaking .voice-member-inner::after,
+:root[data-skin="gece"] .member.is-speaking .member-sub::after {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 1.1rem;
+  height: 0.9rem;
+  margin-left: 0.4rem;
+  background-image: linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live));
+  background-repeat: no-repeat;
+  background-position: 0 100%, 33% 100%, 66% 100%, 100% 100%;
+  background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%;
+  -webkit-animation: gece-eq 0.9s steps(3) infinite alternate;
+  animation: gece-eq 0.9s steps(3) infinite alternate;
+}
+
+:root[data-skin="gece"] .member.is-speaking .member-sub::after {
+  width: 0.9rem;
+  height: 0.7rem;
+  vertical-align: baseline;
+}
+
+@-webkit-keyframes gece-eq {
+  0% { background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%; }
+  100% { background-size: 3px 100%, 3px 40%, 3px 90%, 3px 55%; }
+}
+
+@keyframes gece-eq {
+  0% { background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%; }
+  100% { background-size: 3px 100%, 3px 40%, 3px 90%, 3px 55%; }
+}
+
+:root[data-skin="gece"] .voice-member.is-speaking .voice-member-inner,
+:root[data-skin="gece"] .member.is-speaking {
+  background-color: transparent;
+}
+
+:root[data-skin="gece"] .voice-member.is-speaking .voice-member-name,
+:root[data-skin="gece"] .member.is-speaking .member-name {
+  color: var(--live);
+}
+
+/* Kayıt defteri akışı: saatler solda tek aralıklı sütun */
+:root[data-skin="gece"] .msg-hover-time,
+:root[data-skin="gece"] .msg-time,
+:root[data-skin="gece"] .voice-count,
+:root[data-skin="gece"] .dm-item-time,
+:root[data-skin="gece"] .members-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+:root[data-skin="gece"] .msg:not(.msg-first) .msg-hover-time {
+  display: block;
+  color: var(--text-3);
+}
+
+:root[data-skin="gece"] .message-list {
+  background-image: linear-gradient(var(--line-strong), var(--line-strong));
+  background-repeat: repeat-y;
+  background-position: 4.5rem 0;
+  background-size: 1px 100%;
+}
+
+:root[data-skin="gece"] .msg-content {
+  padding-left: 0.6rem;
+}
+
+:root[data-skin="gece"] .msg-first .msg-content::before {
+  content: "";
+  position: absolute;
+  top: 0.85rem;
+  left: 4.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: -0.25rem;
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  background-color: var(--surface-2);
+}
+
+@media (max-width: 759px) {
+  :root[data-skin="gece"] .message-list {
+    background-image: none;
+  }
+
+  :root[data-skin="gece"] .msg-first .msg-content::before {
+    display: none;
+  }
+
+  :root[data-skin="gece"] .msg-content {
+    padding-left: 0;
+  }
+}
+
+/* Kanal başlığı göstergesi: çukur yuvada kehribar rakamlar */
+:root[data-skin="gece"] .channel-title-icon {
+  width: auto;
+  min-width: 2.25rem;
+  border: 1px solid var(--line-strong);
+  background-color: var(--surface-sunken);
+  color: var(--accent-text);
+}
+
+/* Bas konuş: tırtıklı yuvarlak düğme, kehribar halka, YAYINDA lambası */
+:root[data-skin="gece"] .ptt-button {
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+}
+
+:root[data-skin="gece"] .ptt-dome {
+  background-color: var(--surface-sunken);
+  background-image: repeating-radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.06) 0, rgba(255, 255, 255, 0.06) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px);
+  color: var(--accent-text);
+  box-shadow: 0 0 0 2px var(--accent-text), 0 0 12px rgba(255, 181, 71, 0.25);
+}
+
+:root[data-skin="gece"] .ptt-button.is-active {
+  border-color: var(--live-edge);
+  background-color: var(--live-bg);
+}
+
+:root[data-skin="gece"] .ptt-button.is-active .ptt-dome {
+  background-color: var(--live);
+  color: var(--surface-sunken);
+  box-shadow: 0 0 0 2px var(--live), 0 0 16px var(--live);
+}
+
+:root[data-skin="gece"] .ptt-button.is-active .ptt-label::after {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background-color: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+  vertical-align: middle;
+}
+
+/* Bağlantı kartı: yeşil kenarlı modül */
+:root[data-skin="gece"] .voice-panel-row {
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--live-edge);
+  border-radius: var(--radius-card);
+  background-color: var(--live-bg);
+}
+
+:root[data-skin="gece"] .voice-signal {
+  background-color: transparent;
+}
+
+:root[data-skin="gece"] .voice-panel-status {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: normal;
+}
+
+/* Gönder ve birincil düğmeler: kehribar dolgu ve halka */
+:root[data-skin="gece"] .button:not(.button-secondary):not(.button-ghost):not(.button-danger),
+:root[data-skin="gece"] .send-button:not(:disabled) {
+  border: 1px solid var(--accent-lip);
+}
+
+:root[data-skin="gece"] .send-button {
+  border-radius: 50%;
+}
+
+/* Bahsetme: kehribar sol şerit */
+:root[data-skin="gece"] .mention {
+  background-color: transparent;
+  color: var(--mention-text);
+}
+
+/* Anahtarsız şifreli mesaj: çukur, kesikli kenar */
+:root[data-skin="gece"] .msg-notice {
+  display: inline-flex;
+  padding: 0.45rem 0.75rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+  font-style: normal;
+}
+
+/* Tuş kapağı ve gösterge yazıları */
+:root[data-skin="gece"] .kbd,
+:root[data-skin="gece"] .secret,
+:root[data-skin="gece"] .kid {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Giriş ekranı: istasyon kadranı zemini */
+:root[data-skin="gece"] .auth-view {
+  background-image: repeating-linear-gradient(90deg, var(--line) 0, var(--line) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 2.5rem);
+  background-position: 0 100%;
+  background-size: 100% 0.75rem;
+  background-repeat: repeat-x;
+}
+
+:root[data-skin="gece"] .auth-card {
+  background-color: var(--surface-2);
+}
+
+/* Profil kartı: ses izi bandı */
+:root[data-skin="gece"] .profile-card-band {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0, rgba(0, 0, 0, 0.18) 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 6px);
+}
+
+/* Seviye ölçer: bölütlü LED */
+:root[data-skin="gece"] .meter-bar {
+  background-color: var(--live);
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 8px, var(--surface-sunken) 8px, var(--surface-sunken) 10px);
+}
+
+:root[data-skin="gece"] .meter-threshold {
+  background-color: var(--accent-text);
+}
+
+/* Odak: ay ışığı çizgi, kehribar hale */
+:root[data-skin="gece"] :focus-visible {
+  box-shadow: 0 0 0 6px var(--focus-halo);
+}

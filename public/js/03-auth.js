@@ -1,6 +1,7 @@
 'use strict'
 
-// Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları ile oturum yaşam döngüsü.
+// Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları ile oturum yaşam döngüsü. Giriş ve kayıtta
+// parola istemcide türetilir (16-identity.js), sunucuya yalnızca kimlik doğrulama anahtarı gider.
 
 // Görünümler
 
@@ -37,7 +38,7 @@ function setFormBusy (form, busy) {
   form.classList.toggle('is-busy', busy)
 }
 
-// Adresteki #davet= ve #anahtar= parçaları (5.2 adım 1)
+// Adresteki #davet= ve #anahtar= parçaları
 
 function parseFragment (text) {
   const out = Object.create(null)
@@ -164,21 +165,18 @@ function clearToken () {
 // Kurulum ekranı (sahip hesabı)
 
 function showSetup () {
+  prepareAuthForms()
   showAuthCard('setup')
   focusNode(el.setupName)
 }
 
-// Sorun varsa metni üreten fonksiyon, yoksa null döner
+// Sorun varsa metni üreten fonksiyon, yoksa null döner. Kullanıcı adı kuralı ve parola uzunluğu
+// istemcide denetlenir.
 function validateNameAndPassword (name, password, password2) {
-  const limits = state.limits
-  const len = cpLength(name)
-  if (len < limits.nameMin || len > limits.nameMax) {
-    return () => t('auth.nameLength', { min: limits.nameMin, max: limits.nameMax })
-  }
-  const plen = cpLength(password)
-  if (plen < limits.passwordMin || plen > limits.passwordMax) {
-    return () => t('auth.passwordLength', { min: limits.passwordMin, max: limits.passwordMax })
-  }
+  const nameProblem = usernameProblem(name)
+  if (nameProblem) return () => usernameProblemText(nameProblem)
+  const passProblem = passwordProblem(password)
+  if (passProblem) return passProblem
   if (password2 !== undefined && password !== password2) return () => t('auth.passwordMismatch')
   return null
 }
@@ -188,10 +186,67 @@ function authOverrides (extra) {
   return Object.assign({ rate_limited: t('auth.rateLimited') }, extra || {})
 }
 
+// Giriş, kurulum ve kayıt formlarına canlı ad denetimi, küçük harf ve parola gücü göstergesi bir
+// kez bağlanır. Yardımcı öğeler (durum satırı, güç göstergesi) yoksa forma eklenir.
+let authFormsReady = false
+const authHelpers = {}
+
+function prepareAuthForms () {
+  if (authFormsReady) return
+  authFormsReady = true
+  const setupStatus = ensureAfter(el.setupName, 'setup-name-status', 'p', 'field-status hint')
+  setupStatus.setAttribute('aria-live', 'polite')
+  setupStatus.hidden = true
+  const registerStatus = ensureAfter(byId('register-name-hint') || el.registerName, 'register-name-status', 'p', 'field-status hint')
+  registerStatus.setAttribute('aria-live', 'polite')
+  registerStatus.hidden = true
+  authHelpers.setupCheck = createNameChecker(el.setupName, setupStatus, el.setupCode)
+  authHelpers.registerCheck = createNameChecker(el.registerName, registerStatus, el.registerInvite)
+  authHelpers.setupStrength = buildStrengthMeter(el.setupPassword, 'setup-password-strength')
+  authHelpers.registerStrength = buildStrengthMeter(el.registerPassword, 'register-password-strength')
+  const nameInputs = [el.setupName, el.registerName, el.loginName]
+  nameInputs.forEach((input) => {
+    input.maxLength = USERNAME_MAX_INPUT
+    input.setAttribute('autocapitalize', 'none')
+    input.setAttribute('spellcheck', 'false')
+  })
+  el.loginName.addEventListener('input', () => {
+    lowercaseInput(el.loginName)
+  })
+  el.setupName.addEventListener('input', () => {
+    lowercaseInput(el.setupName)
+    authHelpers.setupCheck.run()
+  })
+  el.setupCode.addEventListener('input', () => {
+    authHelpers.setupCheck.run()
+  })
+  el.registerName.addEventListener('input', () => {
+    lowercaseInput(el.registerName)
+    authHelpers.registerCheck.run()
+  })
+  el.registerInvite.addEventListener('input', () => {
+    authHelpers.registerCheck.run()
+  })
+  el.setupPassword.addEventListener('input', () => {
+    updateStrengthMeter(authHelpers.setupStrength, el.setupPassword.value)
+  })
+  el.registerPassword.addEventListener('input', () => {
+    updateStrengthMeter(authHelpers.registerStrength, el.registerPassword.value)
+  })
+}
+
+function clearPasswordFields (list) {
+  list.forEach((input) => {
+    if (input) input.value = ''
+  })
+  updateStrengthMeter(authHelpers.setupStrength, '')
+  updateStrengthMeter(authHelpers.registerStrength, '')
+}
+
 async function submitSetup (e) {
   e.preventDefault()
   if (el.setupForm.classList.contains('is-busy')) return
-  const name = normalizeName(el.setupName.value)
+  const name = cleanUsername(el.setupName.value)
   const password = el.setupPassword.value
   const code = el.setupCode.value.trim()
   const problem = validateNameAndPassword(name, password, el.setupPassword2.value) || (code ? null : () => t('auth.enterSetupCode'))
@@ -205,15 +260,19 @@ async function submitSetup (e) {
   }
   setMsg(el.setupError, '')
   setFormBusy(el.setupForm, true)
-  const res = await request('POST', '/api/register', { token: '', body: { name: name, password: password, setupCode: code } })
-  if (res.status !== 200 || !res.data || typeof res.data.token !== 'string') {
+  const progress = progressLine(el.setupForm)
+  const result = await registerAccount(name, password, 'setupCode', code, (pct) => {
+    showProgress(progress, pct)
+  })
+  showProgress(progress, null)
+  if (!result.ok) {
     setFormBusy(el.setupForm, false)
-    setMsg(el.setupError, () => errorText(res, t('auth.setupFailed'), authOverrides({ bad_code: t('auth.setupCodeWrong') })), 'error')
+    const res = result.res
+    setMsg(el.setupError, result.error || (() => errorText(res, t('auth.setupFailed'), authOverrides({ bad_code: t('auth.setupCodeWrong') }))), 'error')
     return
   }
-  setToken(res.data.token)
-  el.setupPassword.value = ''
-  el.setupPassword2.value = ''
+  setToken(result.token)
+  clearPasswordFields([el.setupPassword, el.setupPassword2])
   const created = await createGroupKey()
   const st = await api('GET', '/api/state')
   setFormBusy(el.setupForm, false)
@@ -278,6 +337,7 @@ function continueFromInvite () {
 // Giriş ve kayıt ekranı
 
 function showLogin (notice) {
+  prepareAuthForms()
   const invite = storeGet(KEYS.invite, 'session')
   if (invite && !el.registerInvite.value) el.registerInvite.value = invite
   showAuthCard('login', notice)
@@ -304,32 +364,44 @@ function onAuthTabKey (e) {
   }
 }
 
+// Giriş: ön giriş, paroladan anahtar türetme (ilerleme yüzdesi), /api/login ve özel anahtarın
+// bu cihazda açılması. Parola sunucuya gönderilmez.
 async function submitLogin (e) {
   e.preventDefault()
   if (el.loginForm.classList.contains('is-busy')) return
-  const name = normalizeName(el.loginName.value)
+  const name = cleanUsername(el.loginName.value)
   const password = el.loginPassword.value
   if (!name || !password) {
     setMsg(el.loginError, () => t('auth.enterNameAndPassword'), 'error')
     return
   }
-  setMsg(el.loginError, '')
-  setFormBusy(el.loginForm, true)
-  const res = await request('POST', '/api/login', { token: '', body: { name: name, password: password } })
-  setFormBusy(el.loginForm, false)
-  if (res.status === 200 && res.data && typeof res.data.token === 'string') {
-    el.loginPassword.value = ''
-    setToken(res.data.token)
-    await resumeSession()
+  if (!cryptoReady()) {
+    setMsg(el.loginError, () => t('boot.noCrypto'), 'error')
     return
   }
-  setMsg(el.loginError, () => errorText(res, t('auth.loginFailed'), authOverrides()), 'error')
+  setMsg(el.loginError, '')
+  setFormBusy(el.loginForm, true)
+  const progress = progressLine(el.loginForm)
+  const result = await loginWithPassword(name, password, (pct) => {
+    showProgress(progress, pct)
+  })
+  showProgress(progress, null)
+  setFormBusy(el.loginForm, false)
+  if (!result.ok) {
+    setMsg(el.loginError, result.error, 'error')
+    focusNode(el.loginPassword)
+    return
+  }
+  el.loginPassword.value = ''
+  setToken(result.token)
+  if (result.keysReset) state.fragmentNotice = { kind: 'ok', text: () => t('identity.keysReset') }
+  await resumeSession()
 }
 
 async function submitRegister (e) {
   e.preventDefault()
   if (el.registerForm.classList.contains('is-busy')) return
-  const name = normalizeName(el.registerName.value)
+  const name = cleanUsername(el.registerName.value)
   const password = el.registerPassword.value
   const invite = el.registerInvite.value.trim()
   const problem = validateNameAndPassword(name, password, el.registerPassword2.value) || (invite ? null : () => t('auth.enterInvite'))
@@ -337,22 +409,32 @@ async function submitRegister (e) {
     setMsg(el.registerError, problem, 'error')
     return
   }
+  if (!cryptoReady()) {
+    setMsg(el.registerError, () => t('boot.noCrypto'), 'error')
+    return
+  }
   setMsg(el.registerError, '')
   setFormBusy(el.registerForm, true)
-  const res = await request('POST', '/api/register', { token: '', body: { name: name, password: password, inviteCode: invite } })
+  const progress = progressLine(el.registerForm)
+  const result = await registerAccount(name, password, 'inviteCode', invite, (pct) => {
+    showProgress(progress, pct)
+  })
+  showProgress(progress, null)
   setFormBusy(el.registerForm, false)
-  if (res.status === 200 && res.data && typeof res.data.token === 'string') {
-    el.registerPassword.value = ''
-    el.registerPassword2.value = ''
+  if (result.ok) {
+    clearPasswordFields([el.registerPassword, el.registerPassword2])
     storeRemove(KEYS.invite, 'session')
-    setToken(res.data.token)
+    setToken(result.token)
+    // Kayıttan sonra isteğe bağlı profil adımı (görünen ad)
+    identityState.profileStep = true
     await resumeSession()
     return
   }
-  setMsg(el.registerError, () => errorText(res, t('auth.registerFailed'), authOverrides({ bad_code: t('auth.inviteCodeWrong') })), 'error')
+  const res = result.res
+  setMsg(el.registerError, result.error || (() => errorText(res, t('auth.registerFailed'), authOverrides({ bad_code: t('auth.inviteCodeWrong') }))), 'error')
 }
 
-// Anahtar ekranı (5.2 adım 5)
+// Anahtar ekranı
 
 function isAdmin () {
   return Boolean(state.me && (state.me.role === 'owner' || state.me.role === 'admin'))
@@ -409,7 +491,7 @@ function submitKey (e) {
     return
   }
   toast(() => t('key.added'), 'ok')
-  openApp()
+  enterApp()
 }
 
 async function generateFromKeyScreen () {
@@ -422,29 +504,42 @@ async function generateFromKeyScreen () {
     return
   }
   showInvite(state.inviteCode, created.code, () => {
-    openApp()
+    enterApp()
   })
 }
 
 function skipKey () {
   state.keySkipped = true
-  openApp()
+  enterApp()
 }
 
 // Oturum yaşam döngüsü
 
 function applyStateData (data) {
-  state.me = { id: data.me.id, name: String(data.me.name || ''), role: data.me.role }
+  state.me = { id: data.me.id, name: String(data.me.name || ''), role: data.me.role, status: typeof data.me.status === 'string' ? data.me.status : 'online' }
   state.boot = String(data.boot || '')
   state.seq = Number(data.seq) || 0
   state.metaVersion = Number(data.metaVersion) || 0
   state.sigSeq = Number(data.sigSeq) || 0
   state.inviteCode = typeof data.inviteCode === 'string' ? data.inviteCode : null
   state.bannedUsers = Array.isArray(data.bannedUsers) ? data.bannedUsers : state.bannedUsers
+  setServerKeys(data.keys)
+  setFormerUsers(data.formerUsers)
   if (data.meta) applyMeta(data.meta, true)
+  socialApplyState(data)
 }
 
+// Sayfa açılırken sunucu yanıtı yeni modüllerden önce gelirse modüller yüklenene kadar beklenir
+let sessionStartDeferred = false
+
 function startSession (data) {
+  if (typeof identityModuleReady !== 'function' && !sessionStartDeferred && document.readyState !== 'complete') {
+    sessionStartDeferred = true
+    document.addEventListener('DOMContentLoaded', () => {
+      startSession(data)
+    })
+    return
+  }
   state.sessionLost = false
   applyStateData(data)
   state.lastRead = storeGetJson(userKey('read'), {})
@@ -453,7 +548,13 @@ function startSession (data) {
     showFragmentNotice()
     return
   }
+  enterApp()
+}
+
+// Uygulama ekranını açar, ardından arkadaşlar, özel mesajlar ve profiller hazırlanır
+function enterApp () {
   openApp()
+  socialAfterOpen()
 }
 
 function userKey (name) {
@@ -471,6 +572,7 @@ function handleSessionLost (reason) {
       // Yerel kapatma hatası önemsiz
     }
   }
+  if (state.me) forgetIdentity(state.me.id)
   clearToken()
   resetAppState()
   showLogin(() => t(reason === 'banned' ? 'auth.banned' : 'auth.sessionEnded'))
@@ -478,6 +580,7 @@ function handleSessionLost (reason) {
 
 async function logout () {
   const token = state.token
+  const me = state.me
   stopPoll()
   if (voice) {
     try {
@@ -495,6 +598,8 @@ async function logout () {
     await request('POST', '/api/logout', { token: token, timeout: 5000 })
   }
   state.sessionLost = true
+  // Özel anahtar yalnızca oturum açıkken bu cihazda kalır
+  if (me) forgetIdentity(me.id)
   clearToken()
   resetAppState()
   showLogin('')
@@ -502,6 +607,7 @@ async function logout () {
 
 function resetAppState () {
   closeAllLayers()
+  socialReset()
   state.inApp = false
   state.me = null
   state.meta = null
@@ -517,6 +623,7 @@ function resetAppState () {
   state.connLost = false
   state.editingId = null
   state.voiceKey = ''
+  identityState.keys = null
   clearAttachments()
   decryptCache.clear()
   clear(el.messageList)

@@ -43,7 +43,7 @@ const FILE_KINDS = {
 const FILE_ICONS = { doc: 'i-file-doc', archive: 'i-file-archive', audio: 'i-file-audio', video: 'i-file-video', code: 'i-file-code', image: 'i-file-image', other: 'i-file' }
 const AVATAR_COLORS = 8
 
-// Tarayıcı depolama anahtarları (Ek C: 'telsiz.' önekli). Dil seçimi i18n.js içinde 'telsiz.lang'.
+// Tarayıcı depolama anahtarları ('telsiz.' önekli). Dil seçimi i18n.js içinde 'telsiz.lang'.
 const KEYS = {
   token: 'telsiz.token',
   recentEmoji: 'telsiz.emoji.recent',
@@ -211,7 +211,7 @@ function request (method, path, options) {
       if (opts.responseType) xhr.responseType = opts.responseType
       const token = opts.token === undefined ? state.token : opts.token
       if (token) xhr.setRequestHeader('X-Token', token)
-      // Sunucu hata metinlerini seçili dilde verir (Ek E1 madde 5)
+      // Sunucu hata metinlerini seçili dilde verir
       xhr.setRequestHeader('Accept-Language', window.I18N.lang)
       let payload = null
       if (opts.binary) {
@@ -291,7 +291,7 @@ function checkAuthFailure (res) {
   }
 }
 
-// Sunucu hatasının gösterilecek metni (Ek E1 madde 5): önce bağlama özgü metin (overrides[code]),
+// Sunucu hatasının gösterilecek metni: önce bağlama özgü metin (overrides[code]),
 // sonra t('errors.' + code), yoksa sunucunun kendi metni, o da yoksa fallback. fallback ve
 // overrides değerleri çevrilmiş metinlerdir. Dil değişince yeniden çevrilmesi için çağrı
 // () => errorText(res, t('...')) biçiminde fonksiyon olarak verilir.
@@ -403,7 +403,7 @@ function isExecutable (name) {
   return EXEC_EXT.indexOf(fileExt(name)) !== -1
 }
 
-// Dosya adı temizliği (Ek A1). crypto.js sağlıyorsa onunki kullanılır, boş kalan ada
+// Dosya adı temizliği. crypto.js sağlıyorsa onunki kullanılır, boş kalan ada
 // arayüz dilindeki yedek ad verilir.
 function cleanFileName (value) {
   const fallback = t('files.defaultName')

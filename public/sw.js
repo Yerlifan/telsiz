@@ -5,10 +5,18 @@
 // Aynı kökenli GET isteklerinde ağ önceliklidir, ağ yoksa önbellek kullanılır.
 
 // Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir
-const CACHE_NAME = 'telsiz-2.0.0'
+const CACHE_NAME = 'telsiz-2.0.0-tema1'
 const SHELL = [
   '/',
   '/index.html',
+  '/theme-init.js',
+  '/css/tokens.css',
+  '/css/base.css',
+  '/css/layout.css',
+  '/css/components.css',
+  '/css/skins/arcade.css',
+  '/css/skins/gece.css',
+  '/css/skins/turkuaz.css',
   '/i18n.js',
   '/crypto.js',
   '/emoji.js',
@@ -25,12 +33,28 @@ const SHELL = [
   '/js/10-voice.js',
   '/js/11-settings.js',
   '/js/12-init.js',
-  '/style.css',
+  '/js/13-profile.js',
+  '/js/14-social.js',
+  '/js/15-dm.js',
+  '/js/16-identity.js',
+  '/fonts/figtree-latin-ext-wght-normal.woff2',
+  '/fonts/figtree-latin-wght-normal.woff2',
+  '/fonts/manrope-latin-ext-wght-normal.woff2',
+  '/fonts/manrope-latin-wght-normal.woff2',
+  '/fonts/martian-mono-latin-500-normal.woff2',
+  '/fonts/martian-mono-latin-ext-500-normal.woff2',
+  '/fonts/rubik-latin-ext-wght-normal.woff2',
+  '/fonts/rubik-latin-wght-normal.woff2',
+  '/fonts/unbounded-latin-700-normal.woff2',
+  '/fonts/unbounded-latin-ext-700-normal.woff2',
+  '/fonts/young-serif-latin-400-normal.woff2',
+  '/fonts/young-serif-latin-ext-400-normal.woff2',
   '/favicon.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',
   '/vendor/nacl-fast.min.js',
+  '/vendor/scrypt.js',
   '/manifest.webmanifest'
 ]
 

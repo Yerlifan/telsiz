@@ -56,7 +56,11 @@ const state = {
   voiceKey: '',
   installPrompt: null,
   sessionLost: false,
-  fragmentNotice: null
+  fragmentNotice: null,
+  // Orta alanın görünümü: 'channel', 'dm' veya 'home' (#app-view[data-view], 15-dm.js yönetir)
+  view: 'channel',
+  // Kanal başına beni anan okunmamış mesaj sayısı (anma rozeti, Ek H3.5)
+  mentions: Object.create(null)
 }
 
 let voice = null
@@ -74,18 +78,22 @@ const ELEMENT_IDS = [
   'login-card', 'auth-tab-login', 'auth-tab-register', 'login-form', 'login-name', 'login-password', 'login-error', 'login-submit',
   'register-form', 'register-name', 'register-password', 'register-password2', 'register-invite', 'register-error', 'register-submit',
   'key-card', 'key-intro', 'key-form', 'key-input', 'key-error', 'key-add', 'key-generate-wrap', 'key-generate', 'key-skip', 'key-logout',
-  'app-view', 'conn-banner', 'sidebar', 'sidebar-close', 'server-name', 'text-channels', 'voice-channels',
-  'voice-panel', 'voice-panel-status', 'voice-panel-channel', 'voice-leave', 'voice-error', 'voice-unlock', 'ptt-button',
-  'user-panel', 'me-avatar', 'me-name', 'me-status', 'btn-mute', 'btn-deafen', 'btn-settings',
-  'main', 'btn-open-channels', 'channel-title', 'key-state', 'btn-open-members',
-  'voice-strip', 'voice-strip-text', 'voice-strip-leave',
+  'auth-scheme',
+  'app-view', 'conn-banner', 'sidebar', 'sidebar-close', 'server-name', 'server-emblem', 'server-meta', 'text-channels', 'voice-channels',
+  'home-entry', 'dm-section', 'dm-list',
+  'voice-panel', 'voice-panel-status', 'voice-panel-channel', 'voice-leave', 'voice-error', 'voice-unlock', 'ptt-button', 'ptt-label', 'ptt-key',
+  'user-panel', 'me-button', 'me-avatar', 'me-name', 'me-status', 'btn-mute', 'btn-deafen', 'btn-settings',
+  'main', 'btn-open-channels', 'channel-title', 'dm-header', 'key-state', 'btn-search', 'btn-open-members',
+  'search-panel', 'home-view', 'key-warning', 'typing-line', 'mention-popover',
+  'voice-strip', 'voice-strip-text', 'voice-strip-ptt', 'voice-strip-ptt-label', 'voice-strip-leave',
   'messages', 'channel-start', 'channel-start-title', 'load-older-wrap', 'load-older', 'message-list', 'messages-status', 'messages-retry-wrap', 'messages-retry',
   'composer', 'attach-list', 'photo-note', 'composer-hint', 'composer-hint-text', 'composer-hint-action',
   'composer-form', 'btn-photo', 'btn-file', 'composer-input', 'btn-emoji', 'btn-send', 'char-counter', 'file-photo', 'file-any',
   'emoji-picker', 'emoji-tabs', 'emoji-title', 'emoji-grid', 'drop-overlay',
-  'members', 'members-close', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline', 'drawer-backdrop',
+  'members', 'members-count', 'members-close', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline', 'drawer-backdrop',
   'msg-menu', 'msg-menu-edit', 'msg-menu-delete',
   'peer-popover', 'peer-name', 'peer-volume', 'peer-volume-value', 'peer-mute', 'peer-note',
+  'profile-card', 'status-menu', 'dialog-root',
   'viewer', 'viewer-name', 'viewer-download', 'viewer-close', 'viewer-stage', 'viewer-img',
   'settings-modal', 'settings-tabs', 'settings-close',
   'settings-tab-account', 'settings-tab-voice', 'settings-tab-crypto', 'settings-tab-server', 'settings-tab-members',
@@ -188,10 +196,103 @@ function setMsg (node, value, kind) {
   node.classList.toggle('is-ok', kind === 'ok')
 }
 
-function avatar (userId, name, extraClass) {
-  const span = h('span', 'avatar ' + avatarClass(userId) + (extraClass ? ' ' + extraClass : ''), initial(name))
+// Kişi bilgisi yardımcıları: 13-profile.js'teki görünen ad, durum ve avatar bilgisi varsa onlar,
+// yoksa meta listesindeki kullanıcı adı ve baş harf kullanılır (sözleşme 2).
+
+function shownName (userId) {
+  if (typeof userDisplayName === 'function') {
+    try {
+      const name = userDisplayName(userId)
+      if (name) return String(name)
+    } catch (err) {
+      // Profil modülü hazır değil
+    }
+  }
+  const user = state.users.get(String(userId))
+  return user && user.name ? user.name : t('users.unknown')
+}
+
+function shownHandle (userId) {
+  if (typeof userHandle === 'function') {
+    try {
+      return String(userHandle(userId) || '')
+    } catch (err) {
+      return ''
+    }
+  }
+  const user = state.users.get(String(userId))
+  return user && user.name ? '@' + user.name : ''
+}
+
+const SHOWN_STATUS = ['online', 'idle', 'dnd', 'offline']
+
+function shownStatus (userId) {
+  let status = null
+  if (typeof userStatus === 'function') {
+    try {
+      status = userStatus(userId)
+    } catch (err) {
+      status = null
+    }
+  }
+  if (SHOWN_STATUS.indexOf(status) === -1) {
+    const user = state.users.get(String(userId))
+    status = user && typeof user.status === 'string' && SHOWN_STATUS.indexOf(user.status) !== -1 ? user.status : user && user.online ? 'online' : 'offline'
+  }
+  return status
+}
+
+function avatarInfoFor (userId, fallbackName) {
+  let info = null
+  if (typeof userAvatarInfo === 'function') {
+    try {
+      info = userAvatarInfo(userId)
+    } catch (err) {
+      info = null
+    }
+  }
+  const index = info && Number(info.colorIndex) >= 0 && Number(info.colorIndex) <= 7 ? Math.floor(Number(info.colorIndex)) : Number(avatarClass(userId).slice(8)) || 0
+  const letter = info && info.initial ? String(info.initial) : initial(fallbackName || shownName(userId))
+  const url = info && typeof info.blobUrl === 'string' && info.blobUrl.indexOf('blob:') === 0 ? info.blobUrl : null
+  return { initial: letter, colorIndex: index, blobUrl: url }
+}
+
+const AVATAR_SIZES = ['xs', 'sm', 'md', 'lg', 'xl']
+
+// Avatar: avatar(userId, size). size 'xs' | 'sm' | 'md' (varsayılan) | 'lg' | 'xl'.
+// Biçim (kartuş, daire, sekizgen) temadan, durum işareti data-status özniteliğinden gelir.
+// Eski çağrı biçimi avatar(userId, ad, ekSınıf) de çalışır, üçüncü bağımsız değişken ek sınıftır.
+function avatar (userId, size) {
+  const extraClass = arguments.length > 2 ? arguments[2] : ''
+  const sized = AVATAR_SIZES.indexOf(size) !== -1
+  const fallbackName = !sized && typeof size === 'string' ? size : ''
+  const span = h('span', 'avatar')
   span.setAttribute('aria-hidden', 'true')
+  fillAvatar(span, userId, sized ? size : 'md', fallbackName)
+  if (extraClass) String(extraClass).split(' ').filter(Boolean).forEach((c) => span.classList.add(c))
   return span
+}
+
+// Var olan bir avatar öğesini (ör. #me-avatar) yeniden çizer
+function fillAvatar (node, userId, size, fallbackName) {
+  if (!node) return node
+  const info = avatarInfoFor(userId, fallbackName)
+  const keep = Array.from(node.classList).filter((c) => c !== 'avatar' && c !== 'has-face' && !/^avatar-(c[0-9]|xs|sm|md|lg|xl)$/.test(c))
+  node.className = ['avatar', 'has-face', 'avatar-c' + info.colorIndex, 'avatar-' + (AVATAR_SIZES.indexOf(size) !== -1 ? size : 'md')].concat(keep).join(' ')
+  node.setAttribute('data-user-id', String(userId))
+  node.setAttribute('data-status', shownStatus(userId))
+  clear(node)
+  const face = h('span', 'avatar-face')
+  if (info.blobUrl) {
+    const img = h('img', 'avatar-img')
+    img.alt = ''
+    img.src = info.blobUrl
+    face.appendChild(img)
+  } else {
+    face.textContent = info.initial
+  }
+  node.appendChild(face)
+  return node
 }
 
 function roleBadge (role) {

@@ -1,8 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#1e1f22"/>
-  <path d="M27 11h21a7 7 0 0 1 7 7v12a7 7 0 0 1-7 7h-1v6l-7-6H27a7 7 0 0 1-7-7V18a7 7 0 0 1 7-7z" fill="#4e5158"/>
-  <path d="M17 20h26a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H29l-10 8v-8h-2a8 8 0 0 1-8-8V28a8 8 0 0 1 8-8z" fill="#5865f2"/>
-  <circle cx="22" cy="35" r="3" fill="#ffffff"/>
-  <circle cx="30" cy="35" r="3" fill="#ffffff"/>
-  <circle cx="38" cy="35" r="3" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="g" x1="3" y1="2" x2="29" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8F6BFF"/>
+      <stop offset="1" stop-color="#33D1E6"/>
+    </linearGradient>
+  </defs>
+  <rect x="19" y="1" width="4.5" height="11" rx="2.25" fill="url(#g)"/>
+  <rect x="5.5" y="7" width="21" height="24" rx="7" fill="url(#g)"/>
+  <rect x="10.5" y="11.25" width="11" height="3.25" rx="1.625" fill="#0E0D16"/>
+  <circle cx="16" cy="21.75" r="5.25" fill="#0E0D16"/>
 </svg>

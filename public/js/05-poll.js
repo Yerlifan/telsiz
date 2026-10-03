@@ -1,8 +1,9 @@
 'use strict'
 
-// Long-poll döngüsü, olayların işlenmesi, masaüstü bildirimi ve görünürlük değişimi.
+// Long-poll döngüsü, olayların ve kişiye özel metanın (private, pmv) işlenmesi, masaüstü bildirimi
+// (Rahatsız etmeyin kuralıyla) ve görünürlük değişimi.
 
-// Long-poll döngüsü (5.3). Her başlatmada nesil sayacı artar,
+// Long-poll döngüsü. Her başlatmada nesil sayacı artar,
 // eski döngüler bir sonraki adımda sessizce sonlanır.
 
 function startPoll () {
@@ -32,6 +33,7 @@ async function pollLoop (generation) {
   while (generation === state.pollGen && state.token) {
     const path = '/api/poll?since=' + encodeURIComponent(state.seq) +
       '&mv=' + encodeURIComponent(state.metaVersion) +
+      '&pmv=' + encodeURIComponent(socialPmv()) +
       '&sig=' + encodeURIComponent(state.sigSeq) +
       '&boot=' + encodeURIComponent(state.boot)
     const pending = api('GET', path, null, { timeout: POLL_TIMEOUT_MS })
@@ -64,15 +66,17 @@ function handlePoll (data) {
     state.boot = String(data.boot || state.boot)
     state.seq = Number(data.seq) || 0
     state.metaVersion = Number(data.metaVersion) || 0
-    if (data.meta) applyMeta(data.meta, false)
+    if (data.meta) applyMetaUpdate(data.meta)
+    if (data.private) socialApplyPrivate(data.private, Number(data.pmv) || 0)
     handleSignals(data.signals)
     if (state.channelId) loadChannel()
     return
   }
   if (data.meta) {
     state.metaVersion = Number(data.metaVersion) || state.metaVersion
-    applyMeta(data.meta, false)
+    applyMetaUpdate(data.meta)
   }
+  if (data.private) socialApplyPrivate(data.private, Number(data.pmv) || 0)
   const events = Array.isArray(data.events) ? data.events : []
   events.forEach((ev) => {
     if (!ev || typeof ev !== 'object') return
@@ -84,6 +88,14 @@ function handlePoll (data) {
   })
   if (typeof data.seq === 'number' && data.seq >= 0) state.seq = data.seq
   handleSignals(data.signals)
+}
+
+// Meta uygulama. Ana sayfa ve özel mesaj görünümünde applyMeta kanal seçimine dokunmaz (görünüm modu
+// conversationMode ile okunur), ardından profiller ve kimlik bağlaması güncellenir.
+function applyMetaUpdate (meta) {
+  const prevKid = activeKid()
+  applyMeta(meta, false)
+  socialAfterMeta(prevKid)
 }
 
 function handleSignals (signals) {
@@ -117,14 +129,24 @@ function applyEvent (ev) {
   }
 }
 
+function isDmMessage (message) {
+  return isDmChannel(message.channelId) || (typeof message.body === 'string' && message.body.slice(0, 2) === '2.')
+}
+
 function onIncomingMessage (message, inCurrent) {
   const mine = state.me && sameId(message.authorId, state.me.id)
+  const dm = isDmMessage(message)
   if (inCurrent) {
     insertMessage(message, { own: mine })
     if (!document.hidden) markRead()
   } else if (!mine) {
     state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
-    renderChannels()
+    if (dm) {
+      renderDmList()
+      renderHomeEntry()
+    } else {
+      renderChannels()
+    }
   }
   if (!mine && document.hidden) {
     state.hiddenUnread += 1
@@ -133,44 +155,40 @@ function onIncomingMessage (message, inCurrent) {
   }
 }
 
-// Masaüstü bildirimi (5.5). Varsayılan kapalı, ayarlardan açılır.
+// Masaüstü bildirimi. Varsayılan kapalı, ayarlardan açılır. Rahatsız etmeyin durumunda verilmez.
 
 function notificationsEnabled () {
   return storeGet(KEYS.notify) === '1' && typeof window.Notification === 'function' && window.Notification.permission === 'granted'
 }
 
+function notificationsAllowedNow () {
+  return notificationsEnabled() && myChosenStatus() !== 'dnd'
+}
+
 function notifyMessage (message) {
-  if (!notificationsEnabled()) return
+  if (!notificationsAllowedNow()) return
+  const dm = isDmMessage(message)
+  if (!dm && isBlocked(message.authorId)) return
   const result = decryptMessage(message)
   let text = ''
   if (result.state === 'ok') {
     text = result.text ? cpSlice(result.text, 100) : (result.files.length ? t(result.files[0].kind === 'image' ? 'notify.photo' : 'notify.file') : '')
-  } else if (result.state === 'no_key') {
+  } else if (result.state === 'no_key' || result.state === 'dm_locked' || result.state === 'dm_unverified' || result.state === 'dm_old_key') {
     text = t('notify.encrypted')
   } else {
     return
   }
-  const body = t('notify.body', { name: userName(message.authorId), text: text })
-  const title = state.serverName
-  try {
-    const n = new window.Notification(title, { body: body, tag: 'telsiz-' + message.channelId })
-    n.onclick = () => {
-      try {
-        window.focus()
-      } catch (err) {
-        // Pencere öne alınamadı
-      }
-      if (findChannel(message.channelId)) selectChannel(message.channelId, {})
-      n.close()
+  const name = userDisplayName(message.authorId)
+  const channelId = message.channelId
+  const title = dm ? name : state.serverName
+  const body = dm ? text : t('notify.body', { name: name, text: text })
+  showNotification(title, body, 'telsiz-' + (dm ? 'dm-' : '') + channelId, () => {
+    if (dm) {
+      if (dmEntry(channelId)) showDm(channelId, {})
+    } else if (findChannel(channelId)) {
+      selectChannel(channelId, {})
     }
-  } catch (err) {
-    // Bazı mobil tarayıcılar yalnızca service worker üzerinden bildirim gösterir
-    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-      navigator.serviceWorker.ready.then((reg) => {
-        if (reg && typeof reg.showNotification === 'function') reg.showNotification(title, { body: body, tag: 'telsiz-' + message.channelId })
-      }).catch(() => {})
-    }
-  }
+  })
 }
 
 function onVisibilityChange () {

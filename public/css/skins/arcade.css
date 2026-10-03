@@ -1,0 +1,419 @@
+/*
+  Arcade teması (varsayılan). Oyun salonu lobisi: koyu zeminde yüzen cam paneller,
+  tuş kapağı dudakları, mor ile camgöbeği arası degrade yalnızca küçük ve anlamlı
+  yüzeylerde (etkin satırın kenarı, rozetler, gönder, Bas konuş kubbesi, konuşan hale).
+  backdrop-filter her zaman @supports içinde ve öneklidir, yoksa paneller opak kalır.
+*/
+
+/* Yüzen paneller ve cam */
+
+:root[data-skin="arcade"] .members,
+:root[data-skin="arcade"] .main,
+:root[data-skin="arcade"] .sidebar-head,
+:root[data-skin="arcade"] .channel-nav,
+:root[data-skin="arcade"] .sidebar-dock,
+:root[data-skin="arcade"] .auth-card {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-panel);
+}
+
+:root[data-skin="arcade"] .sidebar {
+  overflow: visible;
+  background-color: transparent;
+}
+
+:root[data-skin="arcade"] .sidebar-head,
+:root[data-skin="arcade"] .channel-nav,
+:root[data-skin="arcade"] .sidebar-dock {
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-1);
+}
+
+:root[data-skin="arcade"] .sidebar-head {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+}
+
+:root[data-skin="arcade"] .channel-nav {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.6rem 0.75rem;
+}
+
+:root[data-skin="arcade"] .sidebar-dock .voice-panel,
+:root[data-skin="arcade"] .sidebar-dock .user-panel {
+  border-top: 0;
+}
+
+:root[data-skin="arcade"] .sidebar-dock .voice-panel {
+  padding: 0.75rem 0.75rem 0.25rem;
+}
+
+:root[data-skin="arcade"] .sidebar-dock .voice-panel-row {
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+@supports ((-webkit-backdrop-filter: blur(2px)) or (backdrop-filter: blur(2px))) {
+  :root[data-skin="arcade"] .members,
+  :root[data-skin="arcade"] .main,
+  :root[data-skin="arcade"] .sidebar-head,
+  :root[data-skin="arcade"] .channel-nav,
+  :root[data-skin="arcade"] .sidebar-dock,
+  :root[data-skin="arcade"] .auth-card {
+    background-color: var(--surface-1-glass);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+}
+
+/* Telefonda çekmeceler opak ve yüzen kart */
+@media (max-width: 999px) {
+  :root[data-skin="arcade"] .members {
+    top: 0.75rem;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    max-width: calc(100% - 3rem);
+    border-radius: var(--radius-panel);
+    background-color: var(--surface-1);
+  }
+}
+
+@media (max-width: 759px) {
+  :root[data-skin="arcade"] .main {
+    border: 0;
+    box-shadow: none;
+    background-color: var(--surface-1);
+  }
+
+  :root[data-skin="arcade"] .sidebar {
+    top: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    max-width: calc(100% - 3rem);
+    box-shadow: none;
+  }
+
+  :root[data-skin="arcade"] .sidebar-head,
+  :root[data-skin="arcade"] .channel-nav,
+  :root[data-skin="arcade"] .sidebar-dock {
+    background-color: var(--surface-1);
+  }
+}
+
+/* Tuş kapağı derinliği: her düğmenin alt kenarında dudak, basınca içeri çöker */
+
+:root[data-skin="arcade"] .button,
+:root[data-skin="arcade"] .file-card-action,
+:root[data-skin="arcade"] .ptt-button {
+  box-shadow: inset 0 1px 0 var(--top-light), 0 2px 0 var(--key-lip);
+}
+
+:root[data-skin="arcade"] .button:active,
+:root[data-skin="arcade"] .file-card:active .file-card-action {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 var(--top-light), 0 0 0 var(--key-lip);
+}
+
+/* Birincil düğme: degrade, koyu yazı, mor dudak */
+:root[data-skin="arcade"] .button:not(.button-secondary):not(.button-ghost):not(.button-danger) {
+  border-color: transparent;
+  background-color: var(--accent);
+  background-image: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: var(--on-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 var(--accent-lip);
+}
+
+:root[data-skin="arcade"] .button:not(.button-secondary):not(.button-ghost):not(.button-danger):hover {
+  -webkit-filter: brightness(1.06);
+  filter: brightness(1.06);
+}
+
+:root[data-skin="arcade"] .button:not(.button-secondary):not(.button-ghost):not(.button-danger):active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 var(--accent-lip);
+}
+
+:root[data-skin="arcade"] .button-danger,
+:root[data-skin="arcade"] .button-ghost {
+  box-shadow: none;
+}
+
+:root[data-skin="arcade"] .icon-button:active,
+:root[data-skin="arcade"] .tool-button:active {
+  -webkit-transform: translateY(1px);
+  transform: translateY(1px);
+}
+
+/* Degrade kenar: etkin kanal, seçili sekme, bağlı lobi, seçili ayar */
+:root[data-skin="arcade"] .channel-item[aria-current],
+:root[data-skin="arcade"] .channel-item.is-active,
+:root[data-skin="arcade"] .home-entry[aria-current],
+:root[data-skin="arcade"] .home-entry.is-active,
+:root[data-skin="arcade"] .dm-item[aria-current],
+:root[data-skin="arcade"] .dm-item.is-active,
+:root[data-skin="arcade"] .settings-tab[aria-selected="true"],
+:root[data-skin="arcade"] .voice-row.is-joined,
+:root[data-skin="arcade"] .theme-card[aria-checked="true"] {
+  border: 1px solid transparent;
+  background-image: linear-gradient(var(--surface-3), var(--surface-3)), linear-gradient(120deg, var(--accent), var(--accent-2));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-skin="arcade"] .voice-row.is-joined {
+  background-image: linear-gradient(var(--surface-alt), var(--surface-alt)), linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+/* Rozetler degrade */
+:root[data-skin="arcade"] .mention-badge,
+:root[data-skin="arcade"] .entry-badge,
+:root[data-skin="arcade"] .send-button:not(:disabled),
+:root[data-skin="arcade"] .ptt-pill,
+:root[data-skin="arcade"] .server-emblem,
+:root[data-skin="arcade"] .switch input:checked + .switch-track {
+  background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+:root[data-skin="arcade"] .unread-badge {
+  background-color: var(--text);
+}
+
+/* Sunucu amblemi: kartuş */
+:root[data-skin="arcade"] .server-emblem {
+  position: relative;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 18px rgba(98, 70, 220, 0.35);
+}
+
+:root[data-skin="arcade"] .server-emblem::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(14, 13, 22, 0.55);
+}
+
+/* Kartuş avatarlar: hafif dudak ve parlama */
+:root[data-skin="arcade"] .avatar-face,
+:root[data-skin="arcade"] .avatar:not(.has-face) {
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* Konuşan kişi: degrade hale ve yumuşak, nefes alan parıltı */
+:root[data-skin="arcade"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="arcade"] .is-speaking > .avatar.has-face .avatar-face,
+:root[data-skin="arcade"] .is-speaking .voice-member-inner > .avatar.has-face .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-ring);
+}
+
+:root[data-skin="arcade"] .avatar.has-face.is-speaking::before,
+:root[data-skin="arcade"] .is-speaking > .avatar.has-face::before,
+:root[data-skin="arcade"] .is-speaking .voice-member-inner > .avatar.has-face::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  bottom: -4px;
+  left: -4px;
+  z-index: 0;
+  border-radius: 36%;
+  background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 14px 2px var(--halo-1), 0 0 28px 8px var(--halo-2);
+  -webkit-animation: arcade-halo var(--dur-slow) ease-in-out infinite;
+  animation: arcade-halo var(--dur-slow) ease-in-out infinite;
+}
+
+@-webkit-keyframes arcade-halo {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+@keyframes arcade-halo {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+:root[data-skin="arcade"] .voice-member.is-speaking .voice-member-inner,
+:root[data-skin="arcade"] .member.is-speaking {
+  background-color: transparent;
+  background-image: linear-gradient(90deg, var(--speaking-bg), rgba(0, 0, 0, 0));
+  background-origin: border-box;
+  background-repeat: no-repeat;
+}
+
+/* Ses lobisi kartı */
+:root[data-skin="arcade"] .voice-row {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-alt);
+}
+
+:root[data-skin="arcade"] .voice-row .voice-channel:hover {
+  background-color: var(--surface-hover);
+}
+
+:root[data-skin="arcade"] .voice-row.is-joined .voice-channel {
+  background-image: none;
+}
+
+:root[data-skin="arcade"] .voice-members {
+  padding: 0 0 0.15rem 0.25rem;
+}
+
+:root[data-skin="arcade"] .voice-member-inner > .avatar {
+  --status-ring: var(--surface-alt);
+}
+
+/* Bas konuş: arcade kabin düğmesi, kubbe ve parlak nokta */
+:root[data-skin="arcade"] .ptt-button {
+  border-radius: 1.25rem;
+  box-shadow: inset 0 1px 0 var(--top-light), 0 3px 0 var(--key-lip), 0 8px 20px rgba(0, 0, 0, 0.18);
+  -webkit-transition: -webkit-transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+:root[data-skin="arcade"] .ptt-button:hover {
+  background-color: var(--surface-hover);
+}
+
+:root[data-skin="arcade"] .ptt-button.is-active {
+  border-color: var(--line-strong);
+  background-color: var(--surface-3);
+  -webkit-transform: translateY(3px);
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 0 var(--top-light), 0 0 0 var(--key-lip), 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-skin="arcade"] .ptt-dome,
+:root[data-skin="arcade"] .ptt-button.is-active .ptt-dome {
+  background-color: var(--accent);
+  background-image: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 42%), linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 0 3px var(--surface-sunken), 0 0 0 4px var(--line-strong), inset 0 -4px 0 rgba(0, 0, 0, 0.2);
+}
+
+:root[data-skin="arcade"] .ptt-dome .icon {
+  display: none;
+}
+
+:root[data-skin="arcade"] .ptt-button.is-active .ptt-dome {
+  box-shadow: 0 0 0 3px var(--surface-sunken), 0 0 0 4px var(--line-strong), 0 0 18px 4px var(--halo-1);
+}
+
+:root[data-skin="arcade"] .ptt-pill.is-active {
+  background-image: none;
+}
+
+/* Kanal başlığı simge kutusu ve degrade başlık vurgusu */
+:root[data-skin="arcade"] .channel-title-icon,
+:root[data-skin="arcade"] .channel-start-icon {
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-skin="arcade"] .channel-header {
+  min-height: 4rem;
+}
+
+/* Gönder: yuvarlatılmış oynat üçgeni */
+:root[data-skin="arcade"] .send-button {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 0 var(--accent-lip);
+}
+
+:root[data-skin="arcade"] .send-button:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
+/* Şifreli mesaj (anahtar yok): kesikli kenar ve telsiz paraziti dokusu */
+:root[data-skin="arcade"] .msg-notice {
+  display: inline-flex;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-alt);
+  background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0.035) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px);
+  font-style: normal;
+}
+
+/* Tuş kapakları ve sekmeler */
+:root[data-skin="arcade"] .kbd {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+}
+
+:root[data-skin="arcade"] .tabs,
+:root[data-skin="arcade"] .lang-switch {
+  border-radius: var(--radius-pill);
+}
+
+:root[data-skin="arcade"] .tab {
+  border-radius: var(--radius-pill);
+}
+
+/* Odakta liste satırlarının solunda küçük üçgen "arcade imleci" */
+:root[data-skin="arcade"] .channel-item:focus-visible::before,
+:root[data-skin="arcade"] .member:focus-visible::before,
+:root[data-skin="arcade"] .settings-tab:focus-visible::before,
+:root[data-skin="arcade"] .home-entry:focus-visible::before,
+:root[data-skin="arcade"] .dm-item:focus-visible::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.7rem;
+  width: 0;
+  height: 0;
+  margin-top: -0.35rem;
+  border-top: 0.35rem solid transparent;
+  border-bottom: 0.35rem solid transparent;
+  border-left: 0.45rem solid var(--focus);
+}
+
+/* Giriş ekranı: yazı markası küçük harf, sinyal halkalı logo */
+:root[data-skin="arcade"] .wordmark-text {
+  text-transform: lowercase;
+}
+
+:root[data-skin="arcade"] .auth-card {
+  border-radius: var(--radius-panel);
+}
+
+:root[data-skin="arcade"] .brand-mark {
+  position: relative;
+}
+
+:root[data-skin="arcade"] .brand-mark::after {
+  content: "";
+  position: absolute;
+  top: -0.6rem;
+  right: -0.9rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 3px solid transparent;
+  border-top-color: var(--accent-2);
+  border-right-color: var(--accent-2);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+/* Profil kartı afişi: sinyal halkası deseni */
+:root[data-skin="arcade"] .profile-card-band {
+  background-image: radial-gradient(circle at 85% 120%, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.22) 31%, rgba(255, 255, 255, 0) 33%, rgba(255, 255, 255, 0) 45%, rgba(255, 255, 255, 0.18) 46%, rgba(255, 255, 255, 0) 48%), linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(0, 0, 0, 0.1));
+}
+
+/* Seviye ölçer: segmentli can barı */
+:root[data-skin="arcade"] .meter {
+  height: 1rem;
+  border-radius: var(--radius-small);
+}
+
+:root[data-skin="arcade"] .meter-bar {
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0, #000 10px, rgba(0, 0, 0, 0) 10px, rgba(0, 0, 0, 0) 13px);
+  mask-image: repeating-linear-gradient(90deg, #000 0, #000 10px, rgba(0, 0, 0, 0) 10px, rgba(0, 0, 0, 0) 13px);
+}

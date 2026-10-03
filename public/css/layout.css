@@ -1,0 +1,296 @@
+/*
+  Uygulama düzeni (Ek H1): soldan sağa üye listesi, orta alan, kanallar sütunu.
+  Düzen işaretleme sırasıyla kurulur (row-reverse veya dir hilesi yok), klavye ve ekran
+  okuyucu sırası görsel sırayı izler.
+  Geniş (1000px ve üstü): üç sütun. Orta (760..999px): kanallar sağda görünür, üyeler soldan
+  açılan katman. Dar (760px altı): yalnız orta alan, üyeler soldan, kanallar sağdan çekmece.
+*/
+
+/* Görünümler zemindeki ışığın üstünde durur */
+.boot-view,
+.auth-view,
+.app-view {
+  position: relative;
+  z-index: 1;
+}
+
+/* Açılış */
+
+.boot-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+}
+
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* Kimlik ekranları: üstte yazı markası ve araçlar, ortada kart */
+
+.auth-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 1rem 1.5rem;
+  padding-top: calc(1rem + env(safe-area-inset-top));
+}
+
+.auth-tools {
+  display: flex;
+  align-items: center;
+}
+
+.auth-tools > * + * {
+  margin-left: 0.5rem;
+}
+
+.auth-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 30rem;
+}
+
+/* Uygulama */
+
+.app-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.layout {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--layout-pad);
+}
+
+/* Sol sütun: üyeler */
+.members {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--members-width);
+  min-height: 0;
+  margin-right: var(--column-gap);
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-1);
+}
+
+.members-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0.5rem 1rem;
+}
+
+/* Orta alan */
+.main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-2);
+}
+
+/* Sağ sütun: sunucu kimliği, ana sayfa, özel mesajlar, kanallar, ses ve kullanıcı paneli */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--sidebar-width);
+  min-height: 0;
+  margin-left: var(--column-gap);
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-1);
+}
+
+.channel-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.5rem 0.5rem 1rem;
+}
+
+/* Başlık satırları */
+
+.sidebar-head,
+.members-head,
+.channel-header {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 3.5rem;
+}
+
+.sidebar-head {
+  padding: 0.75rem 0.5rem 0.75rem 0.875rem;
+}
+
+.members-head {
+  padding: 0.5rem 0.5rem 0.25rem 1rem;
+}
+
+.channel-header {
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.channel-header > * + * {
+  margin-left: 0.5rem;
+}
+
+/* Çekmece düğmeleri ve kapatma düğmeleri geniş ekranda gizli */
+.app-view .header-drawer-button,
+.app-view .header-members-button,
+.app-view .drawer-close {
+  display: none;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 45;
+  background: var(--overlay);
+}
+
+/* Orta genişlik ve altı: üyeler soldan açılan katman */
+@media (max-width: 999px) {
+  .members {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    display: none;
+    width: var(--drawer-width);
+    max-width: 85%;
+    margin: 0;
+    border-radius: 0;
+    background-color: var(--surface-1);
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45);
+  }
+
+  .app-view.show-members .members {
+    display: flex;
+    -webkit-animation: drawer-from-left var(--dur-med) var(--ease);
+    animation: drawer-from-left var(--dur-med) var(--ease);
+  }
+
+  .app-view .header-members-button,
+  .app-view .members .drawer-close {
+    display: inline-flex;
+  }
+}
+
+/* Dar ekran: kanallar sağdan açılan çekmece */
+@media (max-width: 759px) {
+  .layout {
+    padding: 0;
+  }
+
+  .main {
+    border-radius: 0;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: none;
+    width: var(--drawer-width);
+    max-width: 88%;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
+  }
+
+  .app-view.show-channels .sidebar {
+    display: flex;
+    -webkit-animation: drawer-from-right var(--dur-med) var(--ease);
+    animation: drawer-from-right var(--dur-med) var(--ease);
+  }
+
+  .app-view .header-drawer-button,
+  .app-view .sidebar .drawer-close {
+    display: inline-flex;
+  }
+
+  .channel-header {
+    padding: 0.25rem 0.25rem 0.25rem 0.25rem;
+    padding-top: calc(0.25rem + env(safe-area-inset-top));
+  }
+
+  .auth-top {
+    padding: 0.75rem 1rem;
+  }
+
+  .auth-stage {
+    align-items: flex-start;
+    padding: 0 0 2rem;
+  }
+}
+
+@-webkit-keyframes drawer-from-left {
+  from { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
+  to { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+
+@keyframes drawer-from-left {
+  from { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
+  to { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+
+@-webkit-keyframes drawer-from-right {
+  from { -webkit-transform: translateX(100%); transform: translateX(100%); }
+  to { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+
+@keyframes drawer-from-right {
+  from { -webkit-transform: translateX(100%); transform: translateX(100%); }
+  to { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+
+/* Görünüm modu (#app-view[data-view]): ana sayfada mesaj akışı ve yazma alanı gizlenir */
+.app-view[data-view="home"] .messages,
+.app-view[data-view="home"] .composer,
+.app-view[data-view="home"] .key-warning,
+.app-view[data-view="home"] .search-button {
+  display: none;
+}
