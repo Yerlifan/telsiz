@@ -1,0 +1,117 @@
+# Telsiz için örnek Docker Compose dosyası
+# Example Docker Compose file for Telsiz
+#
+# Yalnızca Telsiz (127.0.0.1:3000 adresinde, önüne kendi ters vekilinizi veya tünelinizi koyarsınız):
+# Telsiz only (on 127.0.0.1:3000, you put your own reverse proxy or tunnel in front of it):
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Telsiz ve otomatik HTTPS için Caddy (alan adınızın DNS kaydı bu sunucuyu göstermelidir):
+# Telsiz with Caddy for automatic HTTPS (your domain's DNS record must point to this server):
+#   TELSIZ_ALAN_ADI=telsiz.ornek.com docker compose -f deploy/docker-compose.yml --profile caddy up -d
+#
+# Kurulum kodu (sahip hesabını oluşturmak için):
+# Setup code (to create the owner account):
+#   docker compose -f deploy/docker-compose.yml logs telsiz
+#
+# Güncelleme (önce veri birimini yedekleyin):
+# Updating (back up the data volume first):
+#   git pull
+#   docker compose -f deploy/docker-compose.yml up -d --build
+
+name: telsiz
+
+services:
+  telsiz:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: telsiz:yerel
+    restart: unless-stopped
+    init: true
+    environment:
+      SUNUCU_ADI: Telsiz
+      # GUVENILIR_VEKIL (İngilizce adı TRUSTED_PROXY): X-Forwarded-For ve CF-Connecting-IP
+      # başlıklarına yalnızca bu adreslerden gelen bağlantılarda güvenilir. Burada Caddy
+      # kapsayıcısının aşağıda sabitlenen adresi yazılıdır. Caddy kullanmıyor, kendi ters
+      # vekilinizi sunucunun kendisinde çalıştırıyorsanız Docker ağ geçidi adresini
+      # (172.30.57.1) yazın. Yanlış adres yazmak herkesin aynı IP'den geliyormuş gibi
+      # görünmesine, fazla geniş bir liste ise sahte başlıkla hız sınırlarının atlatılmasına yol açar.
+      # GUVENILIR_VEKIL (English name TRUSTED_PROXY): X-Forwarded-For and CF-Connecting-IP
+      # headers are trusted only on connections from these addresses. The Caddy container's
+      # fixed address below is used here. If you do not use Caddy and run your own reverse
+      # proxy on the host itself, use the Docker gateway address (172.30.57.1). A wrong
+      # address makes everyone appear to come from one IP, while a list that is too broad
+      # lets forged headers bypass rate limits.
+      GUVENILIR_VEKIL: 172.30.57.10
+      # Konsol dili (tr veya en) ve TURN ayarları için başındaki # işaretini kaldırın
+      # Remove the leading # for the console language (tr or en) and the TURN settings
+      # DIL: tr
+      # TURN_URL: turn:turn.ornek.com:3478
+      # TURN_KULLANICI: kullanici
+      # TURN_SIFRE: sifre
+    volumes:
+      # Hesaplar, şifreli mesajlar ve yüklemeler bu kalıcı birimde durur
+      # Accounts, encrypted messages and uploads live in this persistent volume
+      - telsiz-veri:/data
+    ports:
+      # Yalnızca bu makineden erişilebilir. İnternete Caddy veya kendi ters vekiliniz açar.
+      # Reachable only from this machine. Caddy or your own reverse proxy faces the internet.
+      - "127.0.0.1:3000:3000"
+    networks:
+      - telsiz-ag
+    # Kök dosya sistemi salt okunurdur, yalnızca /data ve /tmp yazılabilir
+    # The root file system is read-only, only /data and /tmp are writable
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2-alpine
+    # Yalnızca "--profile caddy" verildiğinde başlar
+    # Starts only when "--profile caddy" is given
+    profiles:
+      - caddy
+    restart: unless-stopped
+    depends_on:
+      - telsiz
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      TELSIZ_ALAN_ADI: ${TELSIZ_ALAN_ADI:-telsiz.ornek.com}
+      TELSIZ_HEDEF: telsiz:3000
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy'nin sertifikaları ve ayarları
+      # Caddy's certificates and settings
+      - caddy-veri:/data
+      - caddy-ayar:/config
+    networks:
+      telsiz-ag:
+        # GUVENILIR_VEKIL ile aynı adres olmalıdır
+        # Must match the address in GUVENILIR_VEKIL
+        ipv4_address: 172.30.57.10
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  telsiz-veri:
+  caddy-veri:
+  caddy-ayar:
+
+networks:
+  telsiz-ag:
+    ipam:
+      config:
+        # Diğer kapsayıcılar adreslerini yalnızca ip_range içinden alır, böylece Caddy'nin
+        # sabit adresi başka bir kapsayıcıya verilemez
+        # Other containers get addresses only from ip_range, so Caddy's fixed address
+        # cannot be given to another container
+        - subnet: 172.30.57.0/24
+          ip_range: 172.30.57.128/25
+          gateway: 172.30.57.1

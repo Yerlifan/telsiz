@@ -1,4 +1,5 @@
 # Sürekli entegrasyon: her dal gönderiminde ve her çekme isteğinde denetim ve testler
+# Continuous integration: lint and tests on every branch push and every pull request
 name: CI
 
 on:
@@ -11,6 +12,7 @@ permissions:
   contents: read
 
 # Aynı dal veya çekme isteği için yeni bir çalışma başlarsa eskisi iptal edilir
+# A new run for the same branch or pull request cancels the previous one
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -80,3 +82,72 @@ jobs:
           path: e2e-sonuclar/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Docker imajı derlenir (gönderilmez), kapsayıcı docker-compose.yml örneğindeki
+  # sertleştirmelerle başlatılır ve /api/info yanıtı, kurulum kodu ve sağlık denetimi doğrulanır
+  # The Docker image is built (not pushed), the container is started with the hardening from
+  # docker-compose.yml and /api/info, the setup code and the health check are verified
+  docker:
+    name: Docker imajı (derleme ve çalıştırma)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Compose örneğini doğrula
+        run: docker compose -f deploy/docker-compose.yml config --quiet
+
+      - name: İmajı derle
+        run: docker build --pull --tag telsiz:ci .
+
+      - name: Kapsayıcıyı başlat
+        run: >-
+          docker run --detach --name telsiz-ci
+          --publish 127.0.0.1:3000:3000
+          --read-only --tmpfs /tmp --cap-drop ALL
+          --security-opt no-new-privileges:true
+          --health-interval 2s --health-start-period 5s
+          telsiz:ci
+
+      - name: /api/info yanıtını bekle (en fazla 60 sn)
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:3000/api/info || true)
+            if [ "$code" = "200" ]; then
+              echo "/api/info 200 döndü (${i}. deneme)"
+              curl --silent --show-error http://127.0.0.1:3000/api/info
+              echo
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "/api/info 60 sn içinde 200 döndürmedi (son durum: ${code})"
+          exit 1
+
+      - name: Kurulum kodu günlükte görünmeli
+        run: docker logs telsiz-ci 2>&1 | grep -E '[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}'
+
+      - name: Sağlık denetimi geçmeli (en fazla 60 sn)
+        run: |
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' telsiz-ci)
+            if [ "$status" = "healthy" ]; then
+              echo "Kapsayıcı sağlıklı (${i}. deneme)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Kapsayıcı 60 sn içinde sağlıklı duruma geçmedi (son durum: ${status})"
+          exit 1
+
+      - name: Kapsayıcı root olmayan kullanıcıyla çalışmalı
+        run: test "$(docker exec telsiz-ci id -u)" != "0"
+
+      - name: Kapsayıcı günlükleri
+        if: always()
+        run: docker logs telsiz-ci || true
+
+      - name: Temizle
+        if: always()
+        run: docker rm --force telsiz-ci || true

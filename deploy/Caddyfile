@@ -1,0 +1,40 @@
+# Telsiz için örnek Caddy yapılandırması
+# Example Caddy configuration for Telsiz
+#
+# telsiz.ornek.com yerine kendi alan adınızı yazın. Alan adının DNS kaydı bu sunucuyu
+# göstermeli ve 80 ile 443 portları açık olmalıdır. Caddy sertifikayı kendisi alır ve yeniler.
+# Replace telsiz.ornek.com with your own domain. Its DNS record must point to this server
+# and ports 80 and 443 must be open. Caddy obtains and renews the certificate by itself.
+# Caddy kurulumu / Installing Caddy: https://caddyserver.com/docs/install
+#
+# Docker Compose örneği (deploy/docker-compose.yml) aynı dosyayı kullanır ve iki değeri
+# ortam değişkenleriyle verir: TELSIZ_ALAN_ADI ve TELSIZ_HEDEF. Değişken yoksa
+# iki nokta üst üsteden sonraki varsayılan kullanılır.
+# The Docker Compose example (deploy/docker-compose.yml) uses this same file and sets two
+# values through environment variables: TELSIZ_ALAN_ADI and TELSIZ_HEDEF. Without them
+# the default after the colon is used.
+
+{$TELSIZ_ALAN_ADI:telsiz.ornek.com} {
+	# Yükleme sınırı: uygulamanın varsayılan 25 MB sınırının biraz üstünde
+	# Request body limit: slightly above the application's default 25 MB limit
+	request_body {
+		max_size 30MB
+	}
+
+	# Tarayıcılar bu alan adına bundan sonra yalnızca HTTPS ile bağlanır
+	# Browsers connect to this domain only over HTTPS from now on
+	header Strict-Transport-Security "max-age=31536000"
+
+	# Caddy uzun süreli istekleri (long-poll) zaman aşımına uğratmaz
+	# Caddy does not time out long-poll requests
+	reverse_proxy {$TELSIZ_HEDEF:127.0.0.1:3000} {
+		# İstemci IP'si yalnızca Caddy'nin gördüğü adresten alınır, istemcinin gönderdiği
+		# X-Forwarded-For ve CF-Connecting-IP başlıkları hız sınırlarını atlatmak için
+		# kullanılamasın diye ezilir veya silinir
+		# The client IP is taken only from the address Caddy sees. Client supplied
+		# X-Forwarded-For and CF-Connecting-IP headers are overwritten or removed so they
+		# cannot be used to bypass rate limits
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+	}
+}

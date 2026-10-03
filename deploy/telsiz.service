@@ -1,0 +1,111 @@
+# Telsiz için örnek systemd birim dosyası
+# Example systemd unit file for Telsiz
+#
+# Bu örnekte kod /opt/telsiz, veri /var/lib/telsiz altındadır ve sunucu yalnızca
+# 127.0.0.1:3000 adresini dinler. İnternete Caddy veya nginx gibi bir ters vekil açar.
+# In this example the code lives in /opt/telsiz, the data in /var/lib/telsiz and the
+# server listens only on 127.0.0.1:3000. A reverse proxy such as Caddy or nginx faces the internet.
+#
+# Kurulum adımları (ayrıntılar docs/KURULUM.md içinde). Kod root kullanıcısına ait kalır,
+# böylece servis kullanıcısı uygulamanın kodunu değiştiremez.
+# Installation steps (details in docs/DEPLOYMENT.md). The code stays owned by root, so the
+# service user cannot modify the application code.
+#   sudo git clone https://github.com/Yerlifan/telsiz.git /opt/telsiz
+#   sudo useradd --system --home /var/lib/telsiz --shell /usr/sbin/nologin telsiz
+#   sudo cp /opt/telsiz/deploy/telsiz.service /etc/systemd/system/telsiz.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now telsiz
+#   sudo journalctl -u telsiz
+#
+# Kurulum kodu ilk başlatmada günlükte görünür: journalctl -u telsiz
+# The setup code appears in the log on first start: journalctl -u telsiz
+#
+# Sahip parolası sıfırlama (önce servisi durdurun):
+# Owner password reset (stop the service first):
+#   sudo systemctl stop telsiz
+#   sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js sifre-sifirla <kullanıcı adı>
+#   sudo systemctl start telsiz
+
+[Unit]
+Description=Telsiz
+Documentation=https://github.com/Yerlifan/telsiz
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telsiz
+Group=telsiz
+WorkingDirectory=/opt/telsiz
+
+# Node.js yolu dağıtıma göre değişebilir, "command -v node" ile doğrulayın
+# The Node.js path may differ by distribution, check it with "command -v node"
+ExecStart=/usr/bin/node /opt/telsiz/server.js
+
+# Ayarlar (tüm ortam değişkenleri README.md içindeki Ayarlar tablosundadır)
+# Settings (all environment variables are listed in the Settings table of README.en.md)
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=VERI_KLASORU=/var/lib/telsiz
+Environment=SUNUCU_ADI=Telsiz
+# Ters vekil aynı makinedeyse bağlantılar loopback adresinden gelir
+# If the reverse proxy runs on the same machine, connections come from the loopback address
+Environment=GUVENILIR_VEKIL=loopback
+# TURN sunucusu kullanıyorsanız başındaki # işaretini kaldırıp doldurun
+# If you use a TURN server, remove the leading # and fill in the values
+#Environment=TURN_URL=turn:turn.ornek.com:3478
+#Environment=TURN_KULLANICI=
+#Environment=TURN_SIFRE=
+
+Restart=on-failure
+RestartSec=5
+# Sunucu SIGTERM ile bekleyen yazımları bitirip kapanır
+# The server finishes pending writes and exits on SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=15
+# Uzun süreli istekler (long-poll) çok sayıda açık bağlantı tutar
+# Long-polling keeps many connections open
+LimitNOFILE=8192
+
+# Veri klasörü: systemd oluşturur, yalnızca telsiz kullanıcısı erişir. VERI_KLASORU
+# değiştirilirse aşağıdaki ReadWritePaths satırı da aynı yola göre değiştirilmelidir.
+# Data directory: created by systemd, accessible only to the telsiz user. If VERI_KLASORU
+# is changed, the ReadWritePaths line below must point to the same path.
+StateDirectory=telsiz
+StateDirectoryMode=0700
+UMask=0077
+
+# Güvenlik sertleştirmesi
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/telsiz
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RemoveIPC=true
+# AF_NETLINK, başlangıçta ağ arayüzlerini listelemek için gereklidir
+# AF_NETLINK is required to list network interfaces at startup
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# MemoryDenyWriteExecute kullanılmaz, Node.js JIT derleyicisi buna izin vermez
+# MemoryDenyWriteExecute is not used because the Node.js JIT compiler needs writable executable memory
+
+[Install]
+WantedBy=multi-user.target

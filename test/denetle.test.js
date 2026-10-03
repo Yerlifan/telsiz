@@ -11,7 +11,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
-const { runChecks, NACL_PATH } = require('../scripts/denetle.js')
+const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256 } = require('../scripts/denetle.js')
 
 const ROOT = path.join(__dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts', 'denetle.js')
@@ -105,9 +105,10 @@ function cleanFiles () {
       'tilde bloğu; serbest',
       '~~~'
     ),
+    'README.en.md': lines('# Title', '', 'Prose uses commas.'),
     'baslat.bat': '@echo off\r\nchcp 65001 >nul\r\nREM Türkçe açıklama\r\nnode server.js\r\n',
     'public/icons/icon.png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xe2, 0x80, 0x94, 0x3b]),
-    'public/vendor/ek.js': 'var a = 1; el.innerHTML = "\u2014"\n'
+    'public/vendor/ek.js': 'var a = 1; el.innerHTML = "\u2014\u200b"\n'
   }
   files[NACL_PATH] = VENDOR
   return files
@@ -146,6 +147,46 @@ function messageAt (violations, file, line) {
   return found ? found.message : ''
 }
 
+function at (rule, ...lineNumbers) {
+  return lineNumbers.map((line) => ({ line, rule }))
+}
+
+function hasGit () {
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8' })
+  return !git.error && git.status === 0
+}
+
+function gitRunner (dir) {
+  return (...args) => {
+    const result = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
+    assert.equal(result.status, 0, 'git ' + args.join(' ') + ': ' + result.stderr)
+  }
+}
+
+// İki dilli sözlük dosyaları. entries: { anahtar: [tr, en] }
+function dictionaryBody (entries, index) {
+  const rows = Object.keys(entries).map((key) => '  ' + JSON.stringify(key) + ': ' + JSON.stringify(entries[key][index]))
+  return '{\n' + rows.join(',\n') + '\n}'
+}
+
+function clientDictionary (entries) {
+  return lines(
+    '\'use strict\'',
+    'var tr = ' + dictionaryBody(entries, 0),
+    'var en = ' + dictionaryBody(entries, 1),
+    'window.I18N = { messages: { tr: tr, en: en } }'
+  )
+}
+
+function serverDictionary (entries) {
+  return lines(
+    '\'use strict\'',
+    'const tr = ' + dictionaryBody(entries, 0),
+    'const en = ' + dictionaryBody(entries, 1),
+    'module.exports = { messages: { tr, en } }'
+  )
+}
+
 test('temiz örnek projede ihlal bulunmaz', (t) => {
   const result = runChecks(makeProject(t))
   assert.deepEqual(result.violations, [])
@@ -162,6 +203,55 @@ test('uzun ve kısa tire tüm metin dosyalarında yakalanır, ikili ve vendor do
   assert.match(messageAt(violations, 'docs/notlar.txt', 2), /U\+2014/)
   assert.match(messageAt(violations, 'docs/notlar.txt', 3), /U\+2013/)
   assert.equal(violations.length, 3)
+})
+
+test('Dockerfile, .dockerignore ve deploy/ dosyaları metin kurallarıyla denetlenir', (t) => {
+  const violations = check(t, {
+    'Dockerfile': lines('FROM node:22-alpine', '# açıklama \u2014 burada', 'CMD ["node", "server.js"]'),
+    '.dockerignore': lines('node_modules', '# \u2013 not'),
+    'deploy/Caddyfile': lines('ornek.com {', '\treverse_proxy 127.0.0.1:3000 # \u2014', '}'),
+    'deploy/nginx.conf': lines('server {', '    listen 80;', '    client_max_body_size 30m;', '}'),
+    'deploy/telsiz.service': lines('[Service]', 'ExecStart=/usr/bin/node server.js', '# \u2013 açıklama'),
+    'deploy/docker-compose.yml': lines('services:', '  telsiz:', '    image: telsiz # yerel\u200b')
+  })
+  assert.deepEqual(of(violations, 'Dockerfile'), at('dash', 2))
+  assert.deepEqual(of(violations, '.dockerignore'), at('dash', 2))
+  assert.deepEqual(of(violations, 'deploy/Caddyfile'), at('dash', 2))
+  assert.deepEqual(of(violations, 'deploy/telsiz.service'), at('dash', 3))
+  assert.deepEqual(of(violations, 'deploy/docker-compose.yml'), at('invisible', 3))
+  // Yapılandırma dosyalarındaki noktalı virgül sözdiziminin parçasıdır, ihlal sayılmaz
+  assert.deepEqual(of(violations, 'deploy/nginx.conf'), [])
+  assert.equal(violations.length, 5)
+})
+
+test('görünmez ve biçim karakterleri tüm metin dosyalarında yakalanır, kaçış dizileri serbesttir', (t) => {
+  const violations = check(t, {
+    'docs/notlar.txt': lines('temiz satır', 'sıfır\u200bgenişlik', 'bölünmez\u00a0boşluk ve yön \u202e işareti'),
+    'src/a.js': lines('const s = \'gizli\u2066\'', 'const ok = \'\\u200b kaçış serbest\'', 'module.exports = { s, ok }'),
+    'src/bom.js': '\ufeff' + lines('module.exports = 1'),
+    'Dockerfile': lines('FROM node:22-alpine', '# açıklama\u2028devam'),
+    'deploy/nginx.conf': lines('server {', '    listen 80;\u2029', '}'),
+    '.github/workflows/ci.yml': lines('name: CI', 'on: push\u200d'),
+    'README.md': lines('# Başlık', '', 'Metin\u200e burada.', 'Diğer\u200f\u202a\u2069 yön.'),
+    'yerel.bat': '\ufeff@echo off\r\nREM satır\u200c\r\n'
+  })
+  assert.deepEqual(of(violations, 'docs/notlar.txt'), at('invisible', 2, 3))
+  assert.match(messageAt(violations, 'docs/notlar.txt', 2), /U\+200B \(sıfır genişlikli karakter\) sütun 6/)
+  assert.match(messageAt(violations, 'docs/notlar.txt', 3), /U\+00A0 \(bölünmez boşluk\) sütun 9, U\+202E \(yön gömme veya geçersiz kılma\) sütun 24/)
+  assert.deepEqual(of(violations, 'src/a.js'), at('invisible', 1))
+  assert.match(messageAt(violations, 'src/a.js', 1), /U\+2066 \(yön yalıtımı\)/)
+  assert.deepEqual(of(violations, 'src/bom.js'), at('invisible', 1))
+  assert.match(messageAt(violations, 'src/bom.js', 1), /U\+FEFF \(BOM/)
+  assert.deepEqual(of(violations, 'Dockerfile'), at('invisible', 2))
+  assert.match(messageAt(violations, 'Dockerfile', 2), /U\+2028 \(satır ayırıcı\)/)
+  assert.deepEqual(of(violations, 'deploy/nginx.conf'), at('invisible', 2))
+  assert.match(messageAt(violations, 'deploy/nginx.conf', 2), /U\+2029 \(paragraf ayırıcı\)/)
+  assert.deepEqual(of(violations, '.github/workflows/ci.yml'), at('invisible', 2))
+  assert.deepEqual(of(violations, 'README.md'), at('invisible', 3, 4))
+  assert.match(messageAt(violations, 'README.md', 4), /U\+200F .*U\+202A .*U\+2069/)
+  // Windows betiğinin başındaki BOM yalnızca "bom" kuralıyla bir kez bildirilir
+  assert.deepEqual(of(violations, 'yerel.bat'), [{ line: 1, rule: 'bom' }, { line: 2, rule: 'invisible' }])
+  assert.equal(violations.length, 11)
 })
 
 test('JavaScript dosyalarında noktalı virgül token olarak sayılır, dize ve yorumdakiler sayılmaz', (t) => {
@@ -221,6 +311,33 @@ test('istemci kodu ES2017 sözdizimiyle sınırlıdır', (t) => {
     assert.match(messageAt(violations, file, cases[file][1]), /ES2017/)
   }
   assert.equal(violations.length, Object.keys(cases).length)
+})
+
+test('public/js/*.js, theme-init.js ve i18n.js istemci kurallarına tabidir', (t) => {
+  const violations = check(t, {
+    'public/js/panel.js': lines('var a = b ?? c'),
+    'public/js/ui.js': lines('var el = document.createElement(\'div\')', 'el.innerHTML = \'x\''),
+    'public/js/liste.js': lines('var x = a', '[1, 2].forEach(f)'),
+    'public/theme-init.js': lines(
+      'try {',
+      '  document.documentElement.setAttribute(\'data-theme\', localStorage.getItem(\'telsiz.theme\'))',
+      '} catch {',
+      '}'
+    ),
+    'public/i18n.js': lines(
+      '\'use strict\'',
+      'var tr = { a: \'A\' }',
+      'var en = { a: \'A\' }',
+      'window.I18N = { messages: { tr: tr, en: en }, has: function (k) { return Object.hasOwn(tr, k) } }'
+    )
+  })
+  assert.deepEqual(of(violations, 'public/js/panel.js'), at('syntax', 1))
+  assert.match(messageAt(violations, 'public/js/panel.js', 1), /ES2017/)
+  assert.deepEqual(of(violations, 'public/js/ui.js'), at('banned', 2))
+  assert.deepEqual(of(violations, 'public/js/liste.js'), at('lineStart', 2))
+  assert.deepEqual(of(violations, 'public/theme-init.js'), at('syntax', 3))
+  assert.deepEqual(of(violations, 'public/i18n.js'), at('banned', 4))
+  assert.equal(violations.length, 5)
 })
 
 test('istemcide yasak kullanımlar sözdizimi ağacı üzerinden yakalanır', (t) => {
@@ -304,6 +421,26 @@ test('üçüncü taraf şifreleme dosyasının sha256 değeri denetlenir', (t) =
   assert.equal(missing.length, 1)
 })
 
+test('scrypt-js kopyası yalnızca varsa denetlenir ve birebir aynı olmalıdır', (t) => {
+  // Temiz örnekte scrypt.js yok, bu bir ihlal değildir (nacl ise zorunludur)
+  assert.deepEqual(of(check(t), SCRYPT_PATH), [])
+
+  const changed = check(t, { [SCRYPT_PATH]: '"use strict";\n(function (root) {})(this);\n' })
+  assert.deepEqual(of(changed, SCRYPT_PATH), at('vendor', 1))
+  assert.match(messageAt(changed, SCRYPT_PATH, 1), /sha256.*scrypt-js 3\.0\.1/)
+  assert.equal(changed.length, 1)
+
+  // Depoda kopya varsa denetleyicideki değerle aynı olmalıdır
+  const repoCopy = path.join(ROOT, ...SCRYPT_PATH.split('/'))
+  if (!fs.existsSync(repoCopy)) {
+    t.diagnostic(SCRYPT_PATH + ' henüz depoda yok, birebir kopya denetimi atlandı')
+    return
+  }
+  const copy = fs.readFileSync(repoCopy)
+  assert.equal(require('node:crypto').createHash('sha256').update(copy).digest('hex'), SCRYPT_SHA256)
+  assert.deepEqual(check(t, { [SCRYPT_PATH]: copy }), [])
+})
+
 test('Windows betiklerinde BOM, CRLF olmayan satır sonu ve noktalı virgül yakalanır', (t) => {
   const violations = check(t, {
     'a.bat': '\ufeff@echo off\r\nREM açıklama\r\n',
@@ -373,6 +510,214 @@ test('HTML içinde satır içi betik, stil öğesi ve stil ile olay öznitelikle
   assert.equal(violations.length, 5)
 })
 
+test('i18n-parity: eksik anahtar, boş değer, parametre farkı, çoğul eşi ve yinelenen anahtar', (t) => {
+  const violations = check(t, {
+    'public/i18n.js': lines(
+      '\'use strict\'',
+      'var tr = {',
+      '  \'login.title\': \'Giriş yap\',',
+      '  \'members.online_one\': \'{count} kişi\',',
+      '  \'members.online_other\': \'{count} kişi\',',
+      '  welcome: \'Hoş geldin {name}\',',
+      '  \'only.tr\': \'Yalnızca Türkçe\',',
+      '  blank: \'Dolu\',',
+      '  dup: \'bir\',',
+      '  dup: \'iki\',',
+      '  lonely_one: \'tek\',',
+      '  nested: { deep: { key: \'İç içe {x}\' } }',
+      '}',
+      'var en = {',
+      '  \'login.title\': \'Sign in\',',
+      '  \'members.online_one\': \'{count} person\',',
+      '  \'members.online_other\': \'{count} people\',',
+      '  welcome: \'Welcome {user}\',',
+      '  \'only.en\': \'English only\',',
+      '  blank: \'  \',',
+      '  dup: \'one\',',
+      '  lonely_one: \'single\',',
+      '  \'nested.deep.key\': \'Nested {x}\'',
+      '}',
+      'window.I18N = { messages: { tr: tr, en: en } }'
+    )
+  })
+  assert.deepEqual(of(violations, 'public/i18n.js'), at('i18n-parity', 7, 10, 11, 18, 19, 20, 22))
+  assert.match(messageAt(violations, 'public/i18n.js', 7), /'only\.tr' anahtarı tr sözlüğünde var, en sözlüğünde yok/)
+  assert.match(messageAt(violations, 'public/i18n.js', 10), /'dup' anahtarı birden fazla/)
+  assert.match(messageAt(violations, 'public/i18n.js', 11), /çoğul eşi 'lonely_other'/)
+  assert.match(messageAt(violations, 'public/i18n.js', 18), /tr \{name\}, en \{user\}/)
+  assert.match(messageAt(violations, 'public/i18n.js', 19), /'only\.en' anahtarı en sözlüğünde var, tr sözlüğünde yok/)
+  assert.match(messageAt(violations, 'public/i18n.js', 20), /'blank' anahtarının değeri boş/)
+  assert.equal(violations.length, 7)
+})
+
+test('i18n sözlükleri farklı biçimlerde okunur, okunamayan girdiler ve eksik sözlük bildirilir', (t) => {
+  const readable = check(t, {
+    'src/i18n.js': lines(
+      '\'use strict\'',
+      'const common = { \'app.name\': \'Telsiz\' }',
+      'const messages = {',
+      '  tr: Object.freeze({ ...common, errors: { bad: \'Hatalı {field}\' }, [\'a\' + \'.b\']: `Şablon` }),',
+      '  en: { ...common, \'errors.bad\': \'Invalid {field}\', \'a.b\': \'Template\' }',
+      '}',
+      'function t (lang, key) { return (messages[lang] || messages.en)[key] || key }',
+      'module.exports = { messages, t }'
+    ),
+    'public/i18n.js': clientDictionary({ 'a.b': ['A', 'A'] })
+  })
+  assert.deepEqual(readable, [])
+
+  const broken = check(t, {
+    'src/i18n.js': lines(
+      '\'use strict\'',
+      'const tr = { a: \'A\', b: getText(), [key]: \'C\', ...other }',
+      'const en = { a: \'A\', get b () { return \'B\' } }',
+      'module.exports = { tr, en }'
+    ),
+    'public/i18n.js': lines('\'use strict\'', 'window.I18N = { t: function (key) { return key } }')
+  })
+  assert.deepEqual(of(broken, 'src/i18n.js'), at('i18n-parity', 2, 2, 2, 3))
+  assert.deepEqual(of(broken, 'public/i18n.js'), at('i18n-parity', 1))
+  assert.match(messageAt(broken, 'public/i18n.js', 1), /tr ve en sözlükleri bulunamadı/)
+  const messages = broken.filter((v) => v.file === 'src/i18n.js').map((v) => v.message).sort()
+  assert.match(messages.join('\n'), /'b' anahtarının değeri sabit bir dize değil/)
+  assert.match(messages.join('\n'), /anahtarı sabit olmayan/)
+  assert.match(messages.join('\n'), /yayılım/)
+  assert.match(messages.join('\n'), /'b' bir yöntem veya erişimci/)
+  assert.equal(broken.length, 5)
+})
+
+test('i18n-hardcoded: sözlük varsa istemci ve sunucu kodunda Türkçe sabit metin yakalanır', (t) => {
+  const code = {
+    'public/app.js': lines(
+      '\'use strict\'',
+      '// Yorumda Türkçe serbest: çğıöşü',
+      'var title = \'Giriş yap\'',
+      'var tpl = `Hoş ${title} geldin`',
+      'var re = /[çğ]/',
+      'var key = \'login.title\'',
+      'var ok = \'Login\'',
+      'var esc = \'\\u015fifre\''
+    ),
+    'public/js/panel.js': lines('var label = \'Çıkış\''),
+    'src/app.js': lines('const msg = \'Kullanıcı bulunamadı\'', 'module.exports = { msg }'),
+    'src/alt/yardimci.js': lines('module.exports = \'Doğrulandı\''),
+    'server.js': lines('console.log(\'Sunucu çalışıyor\')'),
+    'scripts/arac.js': lines('console.log(\'Türkçe çıktı\')'),
+    'test/a.test.js': lines('const beklenen = \'Giriş yap\'', 'module.exports = beklenen')
+  }
+  // Sözlük dosyaları yokken kural atlanır
+  assert.deepEqual(check(t, code), [])
+
+  const violations = check(t, Object.assign({}, code, {
+    'public/i18n.js': clientDictionary({ 'login.title': ['Giriş yap', 'Sign in'] }),
+    'src/i18n.js': serverDictionary({ 'errors.bad': ['Hatalı istek', 'Bad request'] })
+  }))
+  assert.deepEqual(of(violations, 'public/app.js'), at('i18n-hardcoded', 3, 4, 8))
+  assert.match(messageAt(violations, 'public/app.js', 3), /"Giriş yap"/)
+  assert.deepEqual(of(violations, 'public/js/panel.js'), at('i18n-hardcoded', 1))
+  assert.deepEqual(of(violations, 'src/app.js'), at('i18n-hardcoded', 1))
+  assert.deepEqual(of(violations, 'src/alt/yardimci.js'), at('i18n-hardcoded', 1))
+  assert.deepEqual(of(violations, 'public/i18n.js'), [])
+  assert.deepEqual(of(violations, 'src/i18n.js'), [])
+  assert.equal(violations.length, 6)
+})
+
+test('i18n-keys: t() çağrıları ve data-i18n öznitelikleri sözlükte aranır', (t) => {
+  const violations = check(t, {
+    'public/i18n.js': clientDictionary({
+      'login.title': ['Giriş', 'Sign in'],
+      'members.online_one': ['{count} kişi', '{count} person'],
+      'members.online_other': ['{count} kişi', '{count} people'],
+      'errors.bad_code': ['Kod hatalı', 'Invalid code'],
+      'a.b': ['A', 'A'],
+      'c.d': ['C', 'C']
+    }),
+    'public/app.js': lines(
+      '\'use strict\'',
+      'var t = window.I18N.t',
+      't(\'login.title\')',
+      't(\'missing.key\')',
+      'window.I18N.t(\'members.online\', { count: 2 })',
+      'I18N.t(\'also.missing\')',
+      't(\'errors.\' + code)',
+      't(\'nope.\' + code)',
+      't(`errors.${code}`)',
+      't(flag ? \'a.b\' : \'c.missing\')',
+      't(dynamic)',
+      'obj.t = \'not.a.call\'',
+      't(name || \'c.d\')'
+    ),
+    'public/index.html': lines(
+      '<!doctype html>',
+      '<html lang="tr">',
+      '<head><meta charset="utf-8"><title>Telsiz</title></head>',
+      '<body>',
+      '<h1 data-i18n="login.title">Giriş</h1>',
+      '<input data-i18n-placeholder="missing.placeholder">',
+      '<button data-i18n-aria-label="members.online" data-i18n-title=\'a.b\'>x</button>',
+      '<p data-i18n="">boş</p>',
+      '<!-- <p data-i18n="yorum.icinde"></p> -->',
+      '</body>',
+      '</html>'
+    ),
+    'src/i18n.js': serverDictionary({ 'errors.bad': ['Hatalı', 'Bad'], 'banner.ready': ['Hazır', 'Ready'] }),
+    'src/app.js': lines(
+      'const i18n = require(\'./i18n\')',
+      'function f (lang, code) {',
+      '  const a = i18n.t(lang, \'errors.bad\')',
+      '  const b = i18n.t(lang, \'errors.yok\')',
+      '  const c = i18n.t(lang, \'errors.\' + code)',
+      '  const d = i18n.t(lang, \'x.\' + code)',
+      '  return [a, b, c, d]',
+      '}',
+      'module.exports = { f }'
+    ),
+    'server.js': lines(
+      'const { t } = require(\'./src/i18n\')',
+      'console.log(t(\'tr\', \'banner.ready\'))',
+      'console.log(t(\'en\', \'banner.yok\'))'
+    )
+  })
+  assert.deepEqual(of(violations, 'public/app.js'), at('i18n-keys', 4, 6, 8, 10))
+  assert.match(messageAt(violations, 'public/app.js', 4), /'missing\.key' anahtarı public\/i18n\.js sözlüğünde yok/)
+  assert.match(messageAt(violations, 'public/app.js', 8), /'nope\.' önekiyle/)
+  assert.match(messageAt(violations, 'public/app.js', 10), /'c\.missing'/)
+  assert.deepEqual(of(violations, 'public/index.html'), at('i18n-keys', 6, 8))
+  assert.match(messageAt(violations, 'public/index.html', 6), /data-i18n-placeholder özniteliğindeki 'missing\.placeholder'/)
+  assert.match(messageAt(violations, 'public/index.html', 8), /boş/)
+  assert.deepEqual(of(violations, 'src/app.js'), at('i18n-keys', 4, 6))
+  assert.match(messageAt(violations, 'src/app.js', 4), /src\/i18n\.js/)
+  assert.deepEqual(of(violations, 'server.js'), at('i18n-keys', 3))
+  assert.equal(violations.length, 9)
+})
+
+test('belge eşliği: Türkçe ve İngilizce belgeler birlikte bulunur ve "## " başlık sayıları eşittir', (t) => {
+  const violations = check(t, {
+    'README.md': lines('# Telsiz', '', '## Kurulum', '', '```md', '## kod bloğundaki başlık sayılmaz', '```', '', '## Lisans'),
+    'README.en.md': lines('# Telsiz', '', '## Setup', '', '### Alt başlık sayılmaz', '', '## License'),
+    'CONTRIBUTING.md': lines('# Katkı', '', '## Kurallar'),
+    'docs/ARCHITECTURE.md': lines('# Architecture'),
+    'docs/KURULUM.md': lines('# Kurulum', '## Bir', '## İki', '## Üç'),
+    'docs/DEPLOYMENT.md': lines('# Deployment', '## One', '#### Detail', '## Two'),
+    'docs/TASARIM.md': lines('# Tasarım', '## Temalar'),
+    'docs/DESIGN.md': lines('# Design', '  ## Themes')
+  })
+  assert.deepEqual(of(violations, 'README.md'), [])
+  assert.deepEqual(of(violations, 'README.en.md'), [])
+  assert.deepEqual(of(violations, 'CONTRIBUTING.md'), at('doc-parity', 1))
+  assert.match(messageAt(violations, 'CONTRIBUTING.md', 1), /CONTRIBUTING\.en\.md bulunamadı/)
+  assert.deepEqual(of(violations, 'docs/ARCHITECTURE.md'), at('doc-parity', 1))
+  assert.match(messageAt(violations, 'docs/ARCHITECTURE.md', 1), /docs\/MIMARI\.md bulunamadı/)
+  assert.deepEqual(of(violations, 'docs/DEPLOYMENT.md'), at('doc-parity', 1))
+  assert.match(messageAt(violations, 'docs/DEPLOYMENT.md', 1), /\(2\) Türkçe eşi docs\/KURULUM\.md ile \(3\)/)
+  assert.equal(violations.length, 3)
+
+  const missing = check(t, { 'README.en.md': null })
+  assert.deepEqual(of(missing, 'README.md'), at('doc-parity', 1))
+  assert.match(messageAt(missing, 'README.md', 1), /README\.en\.md bulunamadı/)
+  assert.equal(missing.length, 1)
+})
+
 test('klasör taramasında node_modules, .gitignore kapsamı ve vendor dışarıda kalır', (t) => {
   const violations = check(t, {
     'node_modules/paket/index.js': 'var a = 1;\n',
@@ -384,8 +729,7 @@ test('klasör taramasında node_modules, .gitignore kapsamı ve vendor dışarı
 })
 
 test('git deposunda izlenen ve .gitignore dışında kalan yeni dosyalar denetlenir', (t) => {
-  const git = spawnSync('git', ['--version'], { encoding: 'utf8' })
-  if (git.error || git.status !== 0) {
+  if (!hasGit()) {
     t.skip('git bulunamadı')
     return
   }
@@ -394,14 +738,41 @@ test('git deposunda izlenen ve .gitignore dışında kalan yeni dosyalar denetle
     'src/yeni.js': 'const b = 2;\n',
     'veri/atla.js': 'const c = 3;\n'
   })
-  const run = (...args) => {
-    const result = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
-    assert.equal(result.status, 0, 'git ' + args.join(' ') + ': ' + result.stderr)
-  }
+  const run = gitRunner(dir)
   run('init', '-q')
   run('add', 'src/izlenen.js')
   const violations = runChecks(dir).violations
   assert.deepEqual(violations.map((v) => v.file), ['src/izlenen.js', 'src/yeni.js'])
+})
+
+test('git\'te izlenip diskten silinen veya tarama sırasında kaybolan dosyalar çökmeden atlanır', (t) => {
+  if (!hasGit()) {
+    t.skip('git bulunamadı')
+    return
+  }
+  const dir = makeProject(t, {
+    'src/silinecek.js': 'const a = 1;\n',
+    'docs/silinecek.md': 'Burada; noktalı virgül var.\n'
+  })
+  const run = gitRunner(dir)
+  run('init', '-q')
+  run('add', '-A')
+  fs.rmSync(path.join(dir, 'src', 'silinecek.js'))
+  fs.rmSync(path.join(dir, 'docs'), { recursive: true })
+  assert.deepEqual(runChecks(dir).violations, [])
+
+  // Klasörün yerini aynı adlı bir dosya almışsa izlenen yol ENOTDIR verir
+  fs.writeFileSync(path.join(dir, 'docs'), 'artık bir dosya\n')
+  assert.deepEqual(runChecks(dir).violations, [])
+
+  // Listeleme ile okuma arasında silinen dosyalar (paralel düzenleme) sessizce atlanır
+  const listed = runChecks(dir, { files: ['src/yok.js', 'docs/silinecek.md', 'server.js', 'public/vendor/ek.js'] })
+  assert.deepEqual(listed.violations, [])
+  assert.equal(listed.scanned, 1)
+
+  const cli = spawnSync(process.execPath, [SCRIPT, dir], { encoding: 'utf8' })
+  assert.equal(cli.status, 0, cli.stdout + cli.stderr)
+  assert.match(cli.stdout, /ihlal bulunmadı/)
 })
 
 test('komut satırı: hedef klasör parametresi, çıktı biçimi ve çıkış kodları', (t) => {
@@ -411,10 +782,15 @@ test('komut satırı: hedef klasör parametresi, çıktı biçimi ve çıkış k
   assert.equal(clean.status, 0, clean.stdout + clean.stderr)
   assert.match(clean.stdout, /ihlal bulunmadı/)
 
-  const dirty = run(makeProject(t, { 'src/a.js': lines('const a = 1', 'const b = 2;') }))
+  const dirty = run(makeProject(t, {
+    'src/a.js': lines('const a = 1', 'const b = 2;'),
+    'docs/b.txt': lines('gizli\u200bkarakter')
+  }))
   assert.equal(dirty.status, 1, dirty.stdout + dirty.stderr)
   assert.match(dirty.stdout, /^src\/a\.js:2: noktalı virgül/m)
-  assert.match(dirty.stdout, /Denetim başarısız: 1 ihlal, 1 dosyada/)
+  assert.match(dirty.stdout, /^docs\/b\.txt:1: görünmez veya biçim karakteri var: U\+200B/m)
+  assert.match(dirty.stdout, /Denetim başarısız: 2 ihlal, 2 dosyada/)
+  assert.match(dirty.stdout, /görünmez karakter: 1/)
 
   const missing = run(path.join(os.tmpdir(), 'denetle-olmayan-dizin-' + process.pid))
   assert.equal(missing.status, 2)

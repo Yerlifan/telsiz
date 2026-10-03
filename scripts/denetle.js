@@ -6,6 +6,8 @@
 // yazılır. İhlal varsa çıkış kodu 1, kullanım veya ortam hatasında 2 olur.
 // JavaScript denetimleri acorn ile üretilen sözdizimi ağacı ve token listesi üzerinde
 // yapılır, bu yüzden yorumlar ve dizeler içindeki geçişler ihlal sayılmaz.
+// Dosyaya özgü kurallar dosya dosya, i18n ve belge eşliği kuralları ise tüm dosyalar
+// okunduktan sonra proje düzeyinde çalışır.
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -14,6 +16,15 @@ const { spawnSync } = require('node:child_process')
 
 const NACL_PATH = 'public/vendor/nacl-fast.min.js'
 const NACL_SHA256 = '3ec535c004aeeb225785d8e93fb33bf99f52e399bd7dfc01969b5629baea5131'
+const SCRYPT_PATH = 'public/vendor/scrypt.js'
+const SCRYPT_SHA256 = '544292934136527d60acc9e337d8c7b953f412e81314aa551a12d4230afd449d'
+
+// Üçüncü taraf dosyalar birebir kopyadır. Zorunlu olmayanlar yalnızca varsa denetlenir.
+const VENDOR_FILES = [
+  { path: NACL_PATH, sha256: NACL_SHA256, name: 'TweetNaCl-js 1.0.3', required: true },
+  { path: SCRYPT_PATH, sha256: SCRYPT_SHA256, name: 'scrypt-js 3.0.1', required: false }
+]
+
 const VENDOR_DIR = 'public/vendor/'
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
 const JS_EXTS = new Set(['.js', '.cjs', '.mjs'])
@@ -24,8 +35,12 @@ const BINARY_EXTS = new Set([
 ])
 const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title'])
 
+// Listeleme ile okuma arasında silinen veya yeri değişen dosyalarda görülen hata kodları
+const VANISHED_CODES = new Set(['ENOENT', 'ENOTDIR', 'EISDIR', 'ELOOP'])
+
 const RULE_LABELS = {
   dash: 'uzun veya kısa tire',
+  invisible: 'görünmez karakter',
   semicolon: 'noktalı virgül',
   syntax: 'sözdizimi',
   lineStart: 'satır başı',
@@ -34,13 +49,22 @@ const RULE_LABELS = {
   bom: 'BOM',
   eol: 'satır sonu',
   prose: 'düzyazıda noktalı virgül',
-  html: 'satır içi betik veya stil'
+  html: 'satır içi betik veya stil',
+  'i18n-parity': 'i18n sözlük eşliği',
+  'i18n-hardcoded': 'i18n dışı sabit metin',
+  'i18n-keys': 'i18n anahtarı',
+  'doc-parity': 'belge eşliği'
 }
 
 const DASH_NAMES = {
   '\u2014': 'U+2014 (uzun tire)',
   '\u2013': 'U+2013 (kısa tire)'
 }
+
+// Görünmez veya metnin yönünü değiştiren karakterler. Kodun ve metnin göründüğünden
+// farklı okunmasına (Trojan Source, CVE-2021-42574) veya fark edilmeyen hatalara yol açar.
+// Yalnızca matchAll ve search ile kullanılır, bu ikisi lastIndex durumunu değiştirmez.
+const INVISIBLE_PATTERN = /[\u00a0\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\ufeff]/g
 
 const HTML_SINK = 'HTML dizesiyle DOM üretmek yasaktır, createElement ve textContent kullanın.'
 const CODE_FROM_STRING = 'Dizeden kod çalıştırmak yasaktır.'
@@ -54,6 +78,23 @@ const BANNED_NAMES = {
   structuredClone: 'İstemci kodu ES2017 ile sınırlıdır.',
   fetch: 'İstemcide XMLHttpRequest kullanılır, fetch yalnızca sw.js içinde serbesttir.'
 }
+
+// i18n: sözlük dosyaları, diller ve kurallar
+const CLIENT_I18N_FILES = ['public/i18n.js', 'public/js/i18n.js']
+const SERVER_I18N_FILE = 'src/i18n.js'
+const LANGS = ['tr', 'en']
+const TURKISH_LETTERS = /[çğıİöşüÇĞÖŞÜ]/
+const PARAM_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+const MAX_DICTIONARY_DEPTH = 8
+
+// Türkçe ve İngilizce eş belgeler. Biri varsa diğeri de bulunur ve "## " başlık sayıları eşittir.
+const DOC_PAIRS = [
+  ['README.md', 'README.en.md'],
+  ['CONTRIBUTING.md', 'CONTRIBUTING.en.md'],
+  ['docs/MIMARI.md', 'docs/ARCHITECTURE.md'],
+  ['docs/KURULUM.md', 'docs/DEPLOYMENT.md'],
+  ['docs/TASARIM.md', 'docs/DESIGN.md']
+]
 
 function hasOwn (object, key) {
   return Object.prototype.hasOwnProperty.call(object, key)
@@ -83,8 +124,23 @@ function samePath (a, b) {
 }
 
 function isFile (abs) {
-  const stat = fs.statSync(abs, { throwIfNoEntry: false })
-  return Boolean(stat && stat.isFile())
+  try {
+    const stat = fs.statSync(abs, { throwIfNoEntry: false })
+    return Boolean(stat && stat.isFile())
+  } catch (err) {
+    return false
+  }
+}
+
+// Dosya yoksa (git'te izlenip çalışma ağacından silinmişse veya tarama sırasında
+// silindiyse) null döner, diğer okuma hataları denetimi durdurur
+function readIfFile (abs) {
+  try {
+    return fs.readFileSync(abs)
+  } catch (err) {
+    if (err && VANISHED_CODES.has(err.code)) return null
+    throw err
+  }
 }
 
 // Git deposunun kökündeysek izlenen dosyalar ile .gitignore dışında kalan yeni dosyalar
@@ -141,14 +197,22 @@ function isIgnored (rel, isDir, rules) {
   })
 }
 
+function readDirIfExists (abs) {
+  try {
+    return fs.readdirSync(abs, { withFileTypes: true })
+  } catch (err) {
+    if (err && VANISHED_CODES.has(err.code)) return []
+    throw err
+  }
+}
+
 function walkFiles (root) {
   const rules = readIgnoreRules(root)
   const files = []
   const stack = ['']
   while (stack.length > 0) {
     const rel = stack.pop()
-    const entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true })
-    for (const entry of entries) {
+    for (const entry of readDirIfExists(path.join(root, rel))) {
       const child = rel ? rel + '/' + entry.name : entry.name
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name) && !isIgnored(child, true, rules)) stack.push(child)
@@ -160,17 +224,28 @@ function walkFiles (root) {
   return files
 }
 
+function isScannable (rel) {
+  return !rel.startsWith(VENDOR_DIR) && !rel.split('/').some((part) => SKIP_DIRS.has(part))
+}
+
 function listFiles (root) {
-  const files = listGitFiles(root) || walkFiles(root)
-  return files.filter((rel) => {
-    const parts = rel.split('/')
-    return !rel.startsWith(VENDOR_DIR) && !parts.some((part) => SKIP_DIRS.has(part))
-  }).sort()
+  return (listGitFiles(root) || walkFiles(root)).filter(isScannable).sort()
 }
 
 function isBinary (rel, buf) {
   if (BINARY_EXTS.has(path.extname(rel).toLowerCase())) return true
   return buf.subarray(0, 8000).includes(0)
+}
+
+// public/ altındaki her betik tarayıcıda çalışır: public/*.js, public/js/*.js,
+// theme-init.js, i18n.js ve sw.js dahil. public/vendor/ listeye hiç girmez.
+function isClientScript (rel) {
+  return rel.startsWith('public/')
+}
+
+// Proje düzeyindeki kurallar için sözdizimi ağacı saklanan dosyalar
+function keepsAst (rel) {
+  return isClientScript(rel) || rel.startsWith('src/') || rel === 'server.js'
 }
 
 // Satır yardımcıları
@@ -192,6 +267,11 @@ function lineAt (starts, offset) {
   return low + 1
 }
 
+function snippet (text) {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > 40 ? flat.slice(0, 40) + '...' : flat
+}
+
 // Kural 1: uzun ve kısa tire
 
 function checkDashes (ctx) {
@@ -199,6 +279,38 @@ function checkDashes (ctx) {
   const starts = lineStarts(ctx.text)
   for (const match of ctx.text.matchAll(/[\u2013\u2014]/g)) {
     ctx.report(lineAt(starts, match.index), 'dash', DASH_NAMES[match[0]] + ' karakteri var. Yerine normal tire (-), virgül veya iki nokta kullanın.')
+  }
+}
+
+// Görünmez ve biçim karakterleri (tüm metin dosyaları, dosya başındaki BOM dahil)
+
+function invisibleName (ch) {
+  const code = ch.charCodeAt(0)
+  let label = 'görünmez karakter'
+  if (code === 0xa0) label = 'bölünmez boşluk'
+  else if (code >= 0x200b && code <= 0x200d) label = 'sıfır genişlikli karakter'
+  else if (code === 0x200e || code === 0x200f) label = 'yön işareti'
+  else if (code >= 0x202a && code <= 0x202e) label = 'yön gömme veya geçersiz kılma'
+  else if (code >= 0x2066 && code <= 0x2069) label = 'yön yalıtımı'
+  else if (code === 0x2028) label = 'satır ayırıcı'
+  else if (code === 0x2029) label = 'paragraf ayırıcı'
+  else if (code === 0xfeff) label = 'BOM veya sıfır genişlikli bölünmez boşluk'
+  return 'U+' + code.toString(16).toUpperCase().padStart(4, '0') + ' (' + label + ')'
+}
+
+function checkInvisible (ctx) {
+  if (ctx.text.search(INVISIBLE_PATTERN) === -1) return
+  const starts = lineStarts(ctx.text)
+  const byLine = new Map()
+  for (const match of ctx.text.matchAll(INVISIBLE_PATTERN)) {
+    // Windows betiğinin başındaki BOM ayrıca "bom" kuralıyla bildirilir
+    if (match.index === 0 && match[0] === '\ufeff' && ctx.ext === '.bat') continue
+    const line = lineAt(starts, match.index)
+    if (!byLine.has(line)) byLine.set(line, [])
+    byLine.get(line).push(invisibleName(match[0]) + ' sütun ' + (match.index - starts[line - 1] + 1))
+  }
+  for (const entry of byLine) {
+    ctx.report(entry[0], 'invisible', 'görünmez veya biçim karakteri var: ' + entry[1].join(', ') + '. Bu karakterler metni göründüğünden farklı okutabilir. Silin, kodda gerekiyorsa \\u kaçışıyla yazın.')
   }
 }
 
@@ -297,7 +409,7 @@ function checkSemicolons (acorn, ctx, tokens) {
 function checkLineStarts (acorn, ctx, ast, tokens) {
   const startsLine = (offset) => {
     const lineBegin = ctx.text.lastIndexOf('\n', offset - 1) + 1
-    return /^[ \t\uFEFF]*$/.test(ctx.text.slice(lineBegin, offset))
+    return /^[ \t\ufeff]*$/.test(ctx.text.slice(lineBegin, offset))
   }
   const continuation = (afterOffset, type, symbol) => {
     let index = firstTokenIndex(tokens, afterOffset)
@@ -357,12 +469,13 @@ function checkClientUsage (ctx, ast) {
 }
 
 function checkJs (acorn, ctx) {
-  const client = ctx.rel.startsWith('public/')
+  const client = isClientScript(ctx.rel)
   const parsed = parseJs(acorn, ctx, client)
-  if (!parsed) return
+  if (!parsed) return null
   checkSemicolons(acorn, ctx, parsed.tokens)
   checkLineStarts(acorn, ctx, parsed.ast, parsed.tokens)
   if (client) checkClientUsage(ctx, parsed.ast)
+  return parsed
 }
 
 // Kural 5 ve 6: Windows betikleri
@@ -391,6 +504,26 @@ function checkBat (ctx) {
 }
 
 // Kural 6: Markdown düzyazısı (kod blokları ve satır içi kod hariç)
+
+// Markdown satırlarını gezer. Tür: 'text' düzyazı, 'fence' kod bloğu açılışı, 'code' blok içi veya kapanışı.
+function eachMarkdownLine (text, visit) {
+  let fence = null
+  text.split(/\r\n|\r|\n/).forEach((content, index) => {
+    if (fence) {
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(content)
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null
+      visit(content, index, 'code')
+      return
+    }
+    const open = /^\s*(`{3,}|~{3,})/.exec(content)
+    if (open) {
+      fence = open[1]
+      visit(content, index, 'fence')
+      return
+    }
+    visit(content, index, 'text')
+  })
+}
 
 function findBacktickRun (text, from, length) {
   let index = text.indexOf('`', from)
@@ -449,27 +582,14 @@ function checkParagraph (ctx, block) {
 }
 
 function checkMarkdown (ctx) {
-  let fence = null
   let block = []
   const flush = () => {
     if (block.length > 0) checkParagraph(ctx, block)
     block = []
   }
-  ctx.text.split(/\r\n|\r|\n/).forEach((content, index) => {
-    if (fence) {
-      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(content)
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null
-      return
-    }
-    const open = /^\s*(`{3,}|~{3,})/.exec(content)
-    if (open) {
-      flush()
-      fence = open[1]
-    } else if (content.trim() === '') {
-      flush()
-    } else {
-      block.push({ line: index + 1, text: content })
-    }
+  eachMarkdownLine(ctx.text, (content, index, kind) => {
+    if (kind !== 'text' || content.trim() === '') flush()
+    else block.push({ line: index + 1, text: content })
   })
   flush()
 }
@@ -489,6 +609,7 @@ function parseAttributes (text, start) {
     const nameStart = i
     while (i < text.length && !/[\s/>=]/.test(text[i])) i++
     const name = text.slice(nameStart, i)
+    let value = null
     while (i < text.length && /\s/.test(text[i])) i++
     if (text[i] === '=') {
       i++
@@ -496,12 +617,16 @@ function parseAttributes (text, start) {
       const quote = text[i]
       if (quote === '"' || quote === '\'') {
         const close = text.indexOf(quote, i + 1)
+        const end = close === -1 ? text.length : close
+        value = text.slice(i + 1, end)
         i = close === -1 ? text.length : close + 1
       } else {
+        const valueStart = i
         while (i < text.length && !/[\s>]/.test(text[i])) i++
+        value = text.slice(valueStart, i)
       }
     }
-    if (name) attrs.push({ name, offset: nameStart })
+    if (name) attrs.push({ name, offset: nameStart, value })
   }
   return { attrs, end: text.length }
 }
@@ -511,11 +636,13 @@ function skipPast (text, needle, from) {
   return found === -1 ? text.length : found + needle.length
 }
 
+// Satır içi betik ve stil kurallarını denetler, data-i18n* özniteliklerini döndürür
 function checkHtml (ctx) {
   const text = ctx.text
   const lower = text.toLowerCase()
   const starts = lineStarts(text)
   const lineOf = (offset) => lineAt(starts, offset)
+  const i18nAttrs = []
   let i = 0
   while (i < text.length) {
     const lt = text.indexOf('<', i)
@@ -542,6 +669,8 @@ function checkHtml (ctx) {
         ctx.report(lineOf(attr.offset), 'html', 'style özniteliği var. CSP satır içi stili engeller, kurallar style.css dosyasına yazılır.')
       } else if (name.length > 2 && name.startsWith('on')) {
         ctx.report(lineOf(attr.offset), 'html', name + ' olay özniteliği var. CSP satır içi betiği engeller, olaylar addEventListener ile bağlanır.')
+      } else if (name === 'data-i18n' || name.startsWith('data-i18n-')) {
+        i18nAttrs.push({ name, line: lineOf(attr.offset), key: attr.value === null ? '' : attr.value.trim() })
       }
     }
     i = parsed.end
@@ -557,30 +686,349 @@ function checkHtml (ctx) {
       i = close === -1 ? text.length : skipPast(text, '>', close)
     }
   }
+  return i18nAttrs
 }
 
-// Kural 4: üçüncü taraf şifreleme kütüphanesinin bütünlüğü
+// Kural 4: üçüncü taraf kütüphanelerin bütünlüğü
 
 function checkVendor (root, report) {
-  let buf = null
-  try {
-    buf = fs.readFileSync(path.join(root, NACL_PATH))
-  } catch (err) {
-    report(NACL_PATH, 1, 'vendor', 'dosya bulunamadı. TweetNaCl-js 1.0.3 kopyası bu yolda bulunmalıdır.')
-    return
-  }
-  const hash = crypto.createHash('sha256').update(buf).digest('hex')
-  if (hash !== NACL_SHA256) {
-    report(NACL_PATH, 1, 'vendor', 'sha256 değeri beklenenden farklı (' + hash + '). Bu dosya TweetNaCl-js 1.0.3 ile birebir aynı olmalı ve değiştirilmemelidir.')
+  for (const item of VENDOR_FILES) {
+    const buf = readIfFile(path.join(root, item.path))
+    if (buf === null) {
+      if (item.required) report(item.path, 1, 'vendor', 'dosya bulunamadı. ' + item.name + ' kopyası bu yolda bulunmalıdır.')
+      continue
+    }
+    const hash = crypto.createHash('sha256').update(buf).digest('hex')
+    if (hash !== item.sha256) {
+      report(item.path, 1, 'vendor', 'sha256 değeri beklenenden farklı (' + hash + '). Bu dosya ' + item.name + ' ile birebir aynı olmalı ve değiştirilmemelidir.')
+    }
   }
 }
 
-// Ana denetim
+// i18n kuralları (Ek E5). Sözlük dosyası yoksa ilgili kapsamın kuralları atlanır.
 
-function runChecks (rootDir) {
+// Sabit dize: dize, ifadesiz şablon veya bunların + ile birleşimi. Değilse null.
+function staticString (node) {
+  if (!node) return null
+  const direct = stringValue(node)
+  if (direct !== null) return direct
+  if (node.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticString(node.left)
+    const right = left === null ? null : staticString(node.right)
+    return right === null ? null : left + right
+  }
+  return null
+}
+
+// Dinamik anahtarın sabit öneki ('errors.' + code veya `errors.${code}`), yoksa boş dize
+function staticPrefix (node) {
+  if (node.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticString(node.left)
+    return left === null ? staticPrefix(node.left) : left
+  }
+  if (node.type === 'TemplateLiteral') return node.quasis[0].value.cooked || ''
+  return ''
+}
+
+function unwrapObject (node) {
+  if (!node) return null
+  if (node.type === 'ObjectExpression') return node
+  // Object.freeze({ ... }) gibi sarmalayıcılar
+  if (node.type === 'CallExpression' && node.arguments.length === 1 && objectName(node.callee) === 'freeze') {
+    return unwrapObject(node.arguments[0])
+  }
+  return null
+}
+
+function propertyKey (prop) {
+  if (prop.computed) return staticString(prop.key)
+  if (prop.key.type === 'Identifier') return prop.key.name
+  if (prop.key.type === 'Literal') return String(prop.key.value)
+  return null
+}
+
+function ownerName (parent) {
+  if (!parent) return null
+  if (parent.type === 'Property') return propertyKey(parent)
+  if (parent.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return parent.id.name
+  if (parent.type === 'AssignmentExpression') return objectName(parent.left)
+  return null
+}
+
+// Dosyadaki tr ve en sözlük nesnelerini bulur. Desteklenen biçimler:
+// messages: { tr: {...}, en: {...} }, messages: { tr, en } ve const tr = {...}, en = {...}
+function findDictionaries (ast) {
+  const declared = new Map()
+  const objects = []
+  walk(ast, (node, parent) => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') {
+      const object = unwrapObject(node.init)
+      const known = declared.get(node.id.name)
+      if (object && (!known || object.start < known.start)) declared.set(node.id.name, object)
+    } else if (node.type === 'ObjectExpression') {
+      objects.push({ node, owner: ownerName(parent) })
+    }
+  })
+  const resolve = (value) => {
+    const object = unwrapObject(value)
+    if (object || !value || value.type !== 'Identifier') return object
+    return declared.get(value.name) || null
+  }
+  const pairOf = (object) => {
+    const found = {}
+    for (const prop of object.properties) {
+      if (prop.type !== 'Property') continue
+      const key = propertyKey(prop)
+      if (LANGS.includes(key) && !found[key]) found[key] = resolve(prop.value)
+    }
+    return found.tr && found.en ? found : null
+  }
+  objects.sort((a, b) => {
+    const rank = (item) => (item.owner === 'messages' ? 0 : 1)
+    return rank(a) - rank(b) || a.node.start - b.node.start
+  })
+  for (const item of objects) {
+    const pair = pairOf(item.node)
+    if (pair) return { tr: pair.tr, en: pair.en, resolve }
+  }
+  if (declared.has('tr') && declared.has('en')) return { tr: declared.get('tr'), en: declared.get('en'), resolve }
+  return null
+}
+
+// Sözlük nesnesini noktalı anahtarlara düzleştirir, iç içe nesneler "a.b" anahtarı olur
+function flattenDictionary (object, resolve, prefix, out, depth) {
+  for (const prop of object.properties) {
+    const line = prop.loc.start.line
+    if (prop.type === 'SpreadElement') {
+      const spread = resolve(prop.argument)
+      if (spread && depth < MAX_DICTIONARY_DEPTH) flattenDictionary(spread, resolve, prefix, out, depth + 1)
+      else out.problems.push({ line, message: 'yayılım (...) çözülemedi. Sözlükler sabit nesnelerden oluşmalıdır.' })
+      continue
+    }
+    const name = propertyKey(prop)
+    if (name === null) {
+      out.problems.push({ line, message: 'anahtarı sabit olmayan bir girdi var. Anahtarlar sabit dize olmalıdır.' })
+      continue
+    }
+    const key = prefix + name
+    if (prop.kind !== 'init' || prop.method) {
+      out.problems.push({ line, message: '\'' + key + '\' bir yöntem veya erişimci. Değerler sabit dize olmalıdır.' })
+      continue
+    }
+    const nested = resolve(prop.value)
+    if (nested) {
+      if (depth < MAX_DICTIONARY_DEPTH) flattenDictionary(nested, resolve, key + '.', out, depth + 1)
+      else out.problems.push({ line, message: '\'' + key + '\' çok derin iç içe tanımlanmış.' })
+      continue
+    }
+    const value = staticString(prop.value)
+    if (value === null) {
+      out.problems.push({ line, message: '\'' + key + '\' anahtarının değeri sabit bir dize değil.' })
+      continue
+    }
+    out.entries.push({ key, value, line })
+  }
+}
+
+function paramNames (value) {
+  const names = new Set()
+  for (const match of value.matchAll(PARAM_PATTERN)) names.add(match[1])
+  return Array.from(names).sort().join(', ')
+}
+
+// Sözlük dosyasını okur, eşlik kurallarını denetler ve tüm anahtarları döndürür.
+// Sözlükler bulunamazsa null döner.
+function checkDictionaryFile (rel, ast, report) {
+  const rule = 'i18n-parity'
+  const dictionaries = findDictionaries(ast)
+  if (!dictionaries) {
+    report(rel, 1, rule, 'tr ve en sözlükleri bulunamadı. Sözlükler messages: { tr: {...}, en: {...} } biçiminde sabit nesneler olmalıdır.')
+    return null
+  }
+  const read = {}
+  for (const lang of LANGS) {
+    const out = { entries: [], problems: [] }
+    flattenDictionary(dictionaries[lang], dictionaries.resolve, '', out, 0)
+    for (const problem of out.problems) report(rel, problem.line, rule, lang + ' sözlüğünde ' + problem.message)
+    const map = new Map()
+    for (const entry of out.entries) {
+      if (map.has(entry.key)) {
+        report(rel, entry.line, rule, lang + ' sözlüğünde \'' + entry.key + '\' anahtarı birden fazla tanımlanmış.')
+        continue
+      }
+      map.set(entry.key, entry)
+      if (entry.value.trim() === '') report(rel, entry.line, rule, lang + ' sözlüğünde \'' + entry.key + '\' anahtarının değeri boş.')
+    }
+    read[lang] = map
+  }
+  for (const lang of LANGS) {
+    const other = lang === 'tr' ? 'en' : 'tr'
+    for (const entry of read[lang].values()) {
+      if (!read[other].has(entry.key)) {
+        report(rel, entry.line, rule, '\'' + entry.key + '\' anahtarı ' + lang + ' sözlüğünde var, ' + other + ' sözlüğünde yok.')
+      }
+      const plural = /^(.*)_(one|other)$/.exec(entry.key)
+      if (plural) {
+        const pair = plural[1] + (plural[2] === 'one' ? '_other' : '_one')
+        if (!read[lang].has(pair)) report(rel, entry.line, rule, lang + ' sözlüğünde \'' + entry.key + '\' var ama çoğul eşi \'' + pair + '\' yok.')
+      }
+    }
+  }
+  for (const entry of read.en.values()) {
+    const source = read.tr.get(entry.key)
+    if (!source) continue
+    const trParams = paramNames(source.value)
+    const enParams = paramNames(entry.value)
+    if (trParams !== enParams) {
+      report(rel, entry.line, rule, '\'' + entry.key + '\' anahtarının parametreleri iki dilde farklı: tr {' + trParams + '}, en {' + enParams + '}.')
+    }
+  }
+  return new Set(Array.from(read.tr.keys()).concat(Array.from(read.en.keys())))
+}
+
+// t() çağrısındaki anahtar ifadesinden denetlenecek sabit anahtarları ve önekleri çıkarır
+function keyCandidates (node, out) {
+  const value = staticString(node)
+  if (value !== null) {
+    out.push({ key: value, prefix: false })
+  } else if (node.type === 'ConditionalExpression') {
+    keyCandidates(node.consequent, out)
+    keyCandidates(node.alternate, out)
+  } else if (node.type === 'LogicalExpression') {
+    keyCandidates(node.left, out)
+    keyCandidates(node.right, out)
+  } else {
+    const prefix = staticPrefix(node)
+    if (prefix) out.push({ key: prefix, prefix: true })
+  }
+  return out
+}
+
+// t('anahtar') ve I18N.t('anahtar') çağrıları. Sunucuda imza t(dil, anahtar) olduğu için
+// anahtar ikinci argümandır.
+function translationCalls (ast, keyIndex) {
+  const calls = []
+  walk(ast, (node) => {
+    if (node.type !== 'CallExpression') return
+    const callee = node.callee
+    const named = callee.type === 'Identifier' && callee.name === 't'
+    const member = callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier' && callee.property.name === 't'
+    if (!named && !member) return
+    const arg = node.arguments[keyIndex]
+    if (arg && arg.type !== 'SpreadElement') calls.push({ line: node.loc.start.line, candidates: keyCandidates(arg, []) })
+  })
+  return calls
+}
+
+function hasKey (keys, key) {
+  return keys.has(key) || keys.has(key + '_one') || keys.has(key + '_other')
+}
+
+function hasPrefix (keys, prefix) {
+  for (const key of keys) {
+    if (key.startsWith(prefix)) return true
+  }
+  return false
+}
+
+function checkCalls (rel, calls, keys, dictRel, report) {
+  for (const call of calls) {
+    for (const candidate of call.candidates) {
+      if (candidate.prefix && !hasPrefix(keys, candidate.key)) {
+        report(rel, call.line, 'i18n-keys', '\'' + candidate.key + '\' önekiyle başlayan hiçbir anahtar ' + dictRel + ' sözlüğünde yok.')
+      } else if (!candidate.prefix && !hasKey(keys, candidate.key)) {
+        report(rel, call.line, 'i18n-keys', '\'' + candidate.key + '\' anahtarı ' + dictRel + ' sözlüğünde yok.')
+      }
+    }
+  }
+}
+
+function checkHtmlKeys (items, keys, dictRel, report) {
+  for (const item of items) {
+    if (item.key === '') report(item.file, item.line, 'i18n-keys', item.name + ' özniteliği boş. Değer bir sözlük anahtarı olmalıdır.')
+    else if (!hasKey(keys, item.key)) report(item.file, item.line, 'i18n-keys', item.name + ' özniteliğindeki \'' + item.key + '\' anahtarı ' + dictRel + ' sözlüğünde yok.')
+  }
+}
+
+// Türkçeye özgü harf içeren dize ve şablon sabitleri (yorumlar sayılmaz)
+function checkHardcoded (rel, ast, report) {
+  const lines = new Map()
+  const note = (node, text) => {
+    if (typeof text !== 'string' || !TURKISH_LETTERS.test(text)) return
+    const line = node.loc.start.line
+    if (!lines.has(line)) lines.set(line, text)
+  }
+  walk(ast, (node) => {
+    if (node.type === 'Literal' && typeof node.value === 'string') note(node, node.value)
+    else if (node.type === 'TemplateElement') note(node, node.value.cooked === null ? node.value.raw : node.value.cooked)
+  })
+  for (const entry of lines) {
+    report(rel, entry[0], 'i18n-hardcoded', 'Türkçeye özgü harf içeren sabit metin var ("' + snippet(entry[1]) + '"). Kullanıcıya görünen metinler i18n sözlüğüne iki dilde eklenir ve t() ile kullanılır.')
+  }
+}
+
+function checkI18n (project, report) {
+  const scripts = project.scripts
+  const clientDict = CLIENT_I18N_FILES.find((rel) => scripts.has(rel))
+  if (clientDict) {
+    const keys = checkDictionaryFile(clientDict, scripts.get(clientDict), report)
+    for (const entry of scripts) {
+      const rel = entry[0]
+      if (!isClientScript(rel)) continue
+      if (!CLIENT_I18N_FILES.includes(rel)) checkHardcoded(rel, entry[1], report)
+      if (keys) checkCalls(rel, translationCalls(entry[1], 0), keys, clientDict, report)
+    }
+    if (keys) checkHtmlKeys(project.htmlKeys, keys, clientDict, report)
+  }
+  if (scripts.has(SERVER_I18N_FILE)) {
+    const keys = checkDictionaryFile(SERVER_I18N_FILE, scripts.get(SERVER_I18N_FILE), report)
+    for (const entry of scripts) {
+      const rel = entry[0]
+      if (rel === SERVER_I18N_FILE || isClientScript(rel)) continue
+      if (rel.startsWith('src/')) checkHardcoded(rel, entry[1], report)
+      if (keys) checkCalls(rel, translationCalls(entry[1], 1), keys, SERVER_I18N_FILE, report)
+    }
+  }
+}
+
+// Belge eşliği (Ek E5.4): Türkçe ve İngilizce belgeler birlikte bulunur, bölüm sayıları eşittir
+
+function countLevel2Headings (text) {
+  let count = 0
+  eachMarkdownLine(text, (content, index, kind) => {
+    if (kind === 'text' && /^ {0,3}##[ \t]+\S/.test(content)) count++
+  })
+  return count
+}
+
+function checkDocParity (markdown, report) {
+  for (const pair of DOC_PAIRS) {
+    const trRel = pair[0]
+    const enRel = pair[1]
+    const hasTr = markdown.has(trRel)
+    const hasEn = markdown.has(enRel)
+    if (!hasTr && !hasEn) continue
+    if (!hasTr || !hasEn) {
+      const present = hasTr ? trRel : enRel
+      const missing = hasTr ? enRel : trRel
+      report(present, 1, 'doc-parity', 'eşi olan ' + missing + ' bulunamadı. Belgeler Türkçe ve İngilizce olarak birlikte tutulur.')
+      continue
+    }
+    const trCount = countLevel2Headings(markdown.get(trRel))
+    const enCount = countLevel2Headings(markdown.get(enRel))
+    if (trCount !== enCount) {
+      report(enRel, 1, 'doc-parity', '"## " başlık sayısı (' + enCount + ') Türkçe eşi ' + trRel + ' ile (' + trCount + ') aynı değil. İki dildeki bölümler eşleşmelidir.')
+    }
+  }
+}
+
+// Ana denetim. options.files verilirse dosya listesi yerine o liste kullanılır (testler için).
+
+function runChecks (rootDir, options) {
   const acorn = loadAcorn()
   if (!acorn) throw new Error('acorn paketi bulunamadı. Önce depo kökünde "npm ci" komutunu çalıştırın.')
   const root = path.resolve(rootDir)
+  const opts = options || {}
   const violations = []
   const seen = new Set()
   const report = (file, line, rule, message) => {
@@ -589,25 +1037,41 @@ function runChecks (rootDir) {
     seen.add(key)
     violations.push({ file, line, rule, message })
   }
+  const project = { scripts: new Map(), markdown: new Map(), htmlKeys: [] }
+  const files = Array.isArray(opts.files) ? opts.files.filter(isScannable).sort() : listFiles(root)
   let scanned = 0
-  for (const rel of listFiles(root)) {
-    const buf = fs.readFileSync(path.join(root, rel))
-    if (isBinary(rel, buf)) continue
+  for (const rel of files) {
+    const buf = readIfFile(path.join(root, rel))
+    if (buf === null || isBinary(rel, buf)) continue
     scanned++
+    const ext = path.extname(rel).toLowerCase()
     const ctx = {
       rel,
+      ext,
       buf,
       text: buf.toString('utf8'),
       report: (line, rule, message) => report(rel, line, rule, message)
     }
-    const ext = path.extname(rel).toLowerCase()
     checkDashes(ctx)
-    if (JS_EXTS.has(ext)) checkJs(acorn, ctx)
-    else if (ext === '.md') checkMarkdown(ctx)
-    else if (ext === '.bat') checkBat(ctx)
-    else if (ext === '.html' || ext === '.htm') checkHtml(ctx)
+    checkInvisible(ctx)
+    if (JS_EXTS.has(ext)) {
+      const parsed = checkJs(acorn, ctx)
+      if (parsed && keepsAst(rel)) project.scripts.set(rel, parsed.ast)
+    } else if (ext === '.md') {
+      checkMarkdown(ctx)
+      project.markdown.set(rel, ctx.text)
+    } else if (ext === '.bat') {
+      checkBat(ctx)
+    } else if (ext === '.html' || ext === '.htm') {
+      const attrs = checkHtml(ctx)
+      if (rel.startsWith('public/')) {
+        for (const attr of attrs) project.htmlKeys.push(Object.assign({ file: rel }, attr))
+      }
+    }
   }
   checkVendor(root, report)
+  checkI18n(project, report)
+  checkDocParity(project.markdown, report)
   violations.sort((a, b) => {
     if (a.file !== b.file) return a.file < b.file ? -1 : 1
     return a.line - b.line
@@ -624,7 +1088,13 @@ const USAGE = [
   '',
   'Klasör verilmezse depo kökü denetlenir. Klasör bir git deposunun köküyse izlenen',
   'dosyalar ve .gitignore dışında kalan yeni dosyalar, değilse klasördeki tüm dosyalar',
-  'denetlenir. node_modules, .git ve public/vendor dışarıda bırakılır.',
+  'denetlenir. node_modules, .git ve public/vendor dışarıda bırakılır, git\'te izlenip',
+  'diskten silinmiş dosyalar atlanır.',
+  '',
+  'Kurallar: uzun ve kısa tire, görünmez karakterler, JavaScript sözdizimi ve noktalı',
+  'virgül, istemci kodunda ES2017 ve yasak kullanımlar, üçüncü taraf dosyaların sha256',
+  'değeri, Windows betikleri, Markdown düzyazısı, HTML içinde satır içi betik ve stil,',
+  'i18n sözlük eşliği, sabit metin ve anahtarlar, Türkçe ve İngilizce belge eşliği.',
   'İhlal varsa çıkış kodu 1, kullanım veya ortam hatasında 2 olur.'
 ].join('\n')
 
@@ -669,4 +1139,14 @@ function main (argv) {
 
 if (require.main === module) process.exitCode = main(process.argv)
 
-module.exports = { runChecks, formatViolation, NACL_PATH, NACL_SHA256 }
+module.exports = {
+  runChecks,
+  formatViolation,
+  NACL_PATH,
+  NACL_SHA256,
+  SCRYPT_PATH,
+  SCRYPT_SHA256,
+  VENDOR_FILES,
+  DOC_PAIRS,
+  RULE_LABELS
+}
