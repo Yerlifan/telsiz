@@ -4,6 +4,9 @@
 // Kriptografik ilkel olarak yalnızca TweetNaCl-js kullanılır: nacl.secretbox (XSalsa20-Poly1305),
 // nacl.hash (SHA-512) ve nacl.randomBytes. Bu dosyada kodlama, biçim ve anahtarlık işleri vardır.
 // Anahtarlar ve düz metinler hiçbir zaman loglanmaz ve ağa gönderilmez.
+// Bu dosyada kullanıcıya görünen metin yoktur. Hatalar Error.code ile (ör. 'bad_checksum'),
+// openJson sonuçları reason ile bildirilir, arayüz bunları seçili dile çevirir.
+// Error.message yalnızca geliştiriciler için İngilizce teknik açıklamadır ve girdiyi içermez.
 
 var E2EE = (function (root) {
   const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
@@ -13,10 +16,10 @@ var E2EE = (function (root) {
   const CODE_CHARS = 28
   const KEY_BYTES = 32
   const NONCE_BYTES = 24
-  const RING_KEY = 'sohbet.keys'
-  const LABEL_CHECK = 'sohbet-e2ee-v1/check'
-  const LABEL_ENC = 'sohbet-e2ee-v1/enc'
-  const LABEL_KID = 'sohbet-e2ee-v1/kid'
+  const RING_KEY = 'telsiz.keys'
+  const LABEL_CHECK = 'telsiz-e2ee-v1/check'
+  const LABEL_ENC = 'telsiz-e2ee-v1/enc'
+  const LABEL_KID = 'telsiz-e2ee-v1/kid'
   const KID_RE = /^[0-9a-f]{16}$/
   const ENVELOPE_RE = /^1\.([0-9a-f]{16})\.([A-Za-z0-9_-]{32})\.([A-Za-z0-9_-]{24,})$/
   const FORMATTED_CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/
@@ -24,6 +27,7 @@ var E2EE = (function (root) {
   const MAX_CODE_INPUT = 2048
   const MAX_FILE_NAME = 120
   const MAX_FILE_EXT = 20
+  const DEFAULT_FILE_NAME = 'file'
   const FILE_NAME_STRIP_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\/\\:*?"<>|]/g
   const FILE_NAME_EDGE_RE = /^[.\s]+|[.\s]+$/g
   const toStr = Object.prototype.toString
@@ -44,8 +48,9 @@ var E2EE = (function (root) {
     map.i = 1
     map.L = 1
     map.l = 1
-    map['\u0131'] = 1
-    map['\u0130'] = 1
+    // Türkçe klavyedeki noktasız ı ve noktalı İ de 1 sayılır.
+    map[String.fromCharCode(0x131)] = 1
+    map[String.fromCharCode(0x130)] = 1
     return map
   })()
 
@@ -61,15 +66,32 @@ var E2EE = (function (root) {
 
   let naclRef = null
 
+  // Fırlatılan her hata makine tarafından okunabilir bir kod taşır.
+  function fail (code, message, Ctor) {
+    const err = new (Ctor || Error)(message)
+    err.code = code
+    return err
+  }
+
   function lib () {
     if (naclRef) return naclRef
     const n = root.nacl
     if (!n || typeof n.secretbox !== 'function' || typeof n.secretbox.open !== 'function' ||
         typeof n.hash !== 'function' || typeof n.randomBytes !== 'function') {
-      throw new Error('Şifreleme kütüphanesi yüklenemedi.')
+      throw fail('no_library', 'Encryption library (nacl) is not available.')
     }
     naclRef = n
     return n
+  }
+
+  // nacl.randomBytes, güvenli rastgele sayı üreteci yoksa kodsuz bir hata fırlatır, burada koda çevrilir.
+  function random (count) {
+    const n = lib()
+    try {
+      return n.randomBytes(count)
+    } catch (e) {
+      throw fail('no_random', 'No secure random number generator is available.')
+    }
   }
 
   // Bayt girdisini bu ortamın Uint8Array görünümüne çevirir (kopyalamadan).
@@ -77,7 +99,7 @@ var E2EE = (function (root) {
     if (x instanceof Uint8Array) return x
     if (x instanceof ArrayBuffer || toStr.call(x) === '[object ArrayBuffer]') return new Uint8Array(x)
     if (x && ArrayBuffer.isView(x)) return new Uint8Array(x.buffer, x.byteOffset, x.byteLength)
-    throw new TypeError('Bayt dizisi (Uint8Array veya ArrayBuffer) bekleniyor.')
+    throw fail('bad_type', 'Expected a Uint8Array, ArrayBuffer or ArrayBuffer view.', TypeError)
   }
 
   // Görünüm kendi arabelleğinin tamamı değilse sıkı bir kopya döner (box.buffer güvenle kullanılabilsin).
@@ -108,7 +130,7 @@ var E2EE = (function (root) {
   }
 
   // UTF-8: TextEncoder/TextDecoder varsa ve doğru çalışıyorsa onlar, yoksa WHATWG ile aynı sonucu veren yedek.
-  const PROBE_TEXT = '\u015f\ud83d\ude00'
+  const PROBE_TEXT = String.fromCharCode(0x015f, 0xd83d, 0xde00)
   const PROBE_BYTES = [0xc5, 0x9f, 0xf0, 0x9f, 0x98, 0x80]
 
   const nativeEncoder = (function () {
@@ -252,7 +274,7 @@ var E2EE = (function (root) {
   }
 
   function utf8Encode (str) {
-    if (typeof str !== 'string') throw new TypeError('Metin bekleniyor.')
+    if (typeof str !== 'string') throw fail('bad_type', 'Expected a string.', TypeError)
     if (nativeEncoder) return asBytes(nativeEncoder.encode(str))
     return utf8EncodeFallback(str)
   }
@@ -294,15 +316,15 @@ var E2EE = (function (root) {
   function b64value (str, i) {
     const c = str.charCodeAt(i)
     const v = c < 128 ? B64_LOOKUP[c] : -1
-    if (v < 0) throw new Error('Geçersiz base64url karakteri.')
+    if (v < 0) throw fail('bad_base64', 'Invalid base64url character.')
     return v
   }
 
   function b64decode (str) {
-    if (typeof str !== 'string') throw new TypeError('base64url metni bekleniyor.')
+    if (typeof str !== 'string') throw fail('bad_type', 'Expected a base64url string.', TypeError)
     const n = str.length
     const rest = n % 4
-    if (rest === 1) throw new Error('Geçersiz base64url uzunluğu.')
+    if (rest === 1) throw fail('bad_base64', 'Invalid base64url length.')
     const out = new Uint8Array(Math.floor(n / 4) * 3 + (rest === 0 ? 0 : rest - 1))
     let i = 0
     let p = 0
@@ -317,13 +339,13 @@ var E2EE = (function (root) {
     if (rest === 2) {
       const a = b64value(str, i)
       const b = b64value(str, i + 1)
-      if ((b & 15) !== 0) throw new Error('Geçersiz base64url sonu.')
+      if ((b & 15) !== 0) throw fail('bad_base64', 'Non-zero trailing bits in base64url.')
       out[p] = (a << 2) | (b >>> 4)
     } else if (rest === 3) {
       const a = b64value(str, i)
       const b = b64value(str, i + 1)
       const c = b64value(str, i + 2)
-      if ((c & 3) !== 0) throw new Error('Geçersiz base64url sonu.')
+      if ((c & 3) !== 0) throw fail('bad_base64', 'Non-zero trailing bits in base64url.')
       out[p] = (a << 2) | (b >>> 4)
       out[p + 1] = ((b & 15) << 4) | (c >>> 2)
     }
@@ -355,7 +377,7 @@ var E2EE = (function (root) {
     return key
   }
 
-  // Sağlama: SHA-512(utf8('sohbet-e2ee-v1/check') || sır) çıktısının ilk 10 biti, iki base32 karakteri.
+  // Sağlama: SHA-512(utf8('telsiz-e2ee-v1/check') || sır) çıktısının ilk 10 biti, iki base32 karakteri.
   function checksumChars (secret) {
     const h = labeledHash(LABEL_CHECK, secret)
     const v = (h[0] << 2) | (h[1] >>> 6)
@@ -418,14 +440,15 @@ var E2EE = (function (root) {
     return groups.join('-')
   }
 
-  function keyError (detail) {
-    return new Error('Anahtar hatalı. ' + detail)
+  // Anahtar kodu hata kodları: empty, bad_length, bad_char, bad_padding, bad_checksum.
+  // Mesaj sabittir, kullanıcının girdiği koddan hiçbir parça içermez.
+  function keyError (code, detail) {
+    return fail(code, 'Invalid key code: ' + detail)
   }
 
   function parseKeyCode (str) {
-    if (typeof str !== 'string' || str.length > MAX_CODE_INPUT) {
-      throw keyError('Lütfen 28 karakterlik anahtar kodunu girin.')
-    }
+    if (typeof str !== 'string') throw keyError('empty', 'no key code was given.')
+    if (str.length > MAX_CODE_INPUT) throw keyError('bad_length', 'the key code must have 28 characters.')
     let text = str
     // Davet bağlantısının tamamı yapıştırılırsa yalnızca anahtar kısmı alınır.
     const linkIndex = text.indexOf('anahtar=')
@@ -441,18 +464,25 @@ var E2EE = (function (root) {
       i++
       if (SEPARATOR_RE.test(ch)) continue
       const v = CODE_LOOKUP[ch]
-      if (v === undefined) throw keyError('Kodda geçersiz bir karakter var.')
+      if (v === undefined) throw keyError('bad_char', 'the key code contains an invalid character.')
       vals.push(v)
-      if (vals.length > CODE_CHARS) throw keyError('Kod 28 karakterden oluşmalı.')
+      if (vals.length > CODE_CHARS) throw keyError('bad_length', 'the key code must have 28 characters.')
     }
-    if (vals.length === 0) throw keyError('Lütfen 28 karakterlik anahtar kodunu girin.')
-    if (vals.length !== CODE_CHARS) throw keyError('Kod 28 karakterden oluşmalı.')
+    if (vals.length === 0) throw keyError('empty', 'no key code was given.')
+    if (vals.length !== CODE_CHARS) throw keyError('bad_length', 'the key code must have 28 characters.')
     const secret = base32DecodeSecret(vals)
-    if (!secret) throw keyError('Kodda yazım hatası var, lütfen kontrol edin.')
+    if (!secret) throw keyError('bad_padding', 'the padding bits of the last data character are not zero.')
     const given = CODE_ALPHABET[vals[CODE_DATA_CHARS]] + CODE_ALPHABET[vals[CODE_DATA_CHARS + 1]]
-    if (!sameString(checksumChars(secret), given)) {
+    let expected
+    try {
+      expected = checksumChars(secret)
+    } catch (e) {
       secret.fill(0)
-      throw keyError('Kodda yazım hatası var, lütfen kontrol edin.')
+      throw e
+    }
+    if (!sameString(expected, given)) {
+      secret.fill(0)
+      throw keyError('bad_checksum', 'the checksum does not match.')
     }
     return { secret: secret, code: formatCode(secret), kid: deriveKid(secret) }
   }
@@ -476,14 +506,15 @@ var E2EE = (function (root) {
   }
 
   function generateKeyCode () {
-    if (!available()) throw new Error('Bu tarayıcıda güvenli rastgele sayı üreteci yok.')
-    const secret = lib().randomBytes(SECRET_BYTES)
+    lib()
+    if (!available()) throw fail('no_random', 'No working secure random number generator is available.')
+    const secret = random(SECRET_BYTES)
     const code = formatCode(secret)
     secret.fill(0)
     return code
   }
 
-  // Anahtarlık: localStorage['sohbet.keys']. Depolama yoksa veya yazılamıyorsa bellekte tutulur.
+  // Anahtarlık: localStorage['telsiz.keys']. Depolama yoksa veya yazılamıyorsa bellekte tutulur.
   function emptyRing () {
     return { keys: Object.create(null), added: Object.create(null) }
   }
@@ -527,9 +558,8 @@ var E2EE = (function (root) {
     if (!storageOk) return ringMem
     let raw = null
     try {
-      const ls = root.localStorage
-      if (!ls) throw new Error('Depolama yok.')
-      raw = ls.getItem(RING_KEY)
+      // localStorage yoksa (null veya undefined) getItem çağrısı da hata verir ve bellek kullanılır.
+      raw = root.localStorage.getItem(RING_KEY)
     } catch (e) {
       storageOk = false
       return ringMem
@@ -610,15 +640,15 @@ var E2EE = (function (root) {
 
   // Zarf: '1.' + kid + '.' + b64url(nonce24) + '.' + b64url(secretbox(düz metin, nonce, encKey)).
   function sealJson (kid, obj) {
-    if (obj === null || typeof obj !== 'object') throw new TypeError('Şifrelenecek değer bir nesne olmalı.')
-    const key = keyFor(kid)
-    if (!key) throw new Error('Bu şifreleme anahtarı anahtarlıkta yok.')
-    const json = JSON.stringify(obj)
+    if (obj === null || typeof obj !== 'object') throw fail('bad_type', 'The value to seal must be an object.', TypeError)
     const n = lib()
-    const nonce = n.randomBytes(NONCE_BYTES)
+    const key = keyFor(kid)
+    if (!key) throw fail('no_key', 'The key is not in the keyring.')
+    const json = JSON.stringify(obj)
+    const nonce = random(NONCE_BYTES)
     const box = n.secretbox(utf8Encode(json), nonce, key)
     const envelope = '1.' + kid + '.' + b64encode(nonce) + '.' + b64encode(box)
-    if (!ENVELOPE_RE.test(envelope)) throw new Error('Zarf oluşturulamadı.')
+    if (!ENVELOPE_RE.test(envelope)) throw fail('seal_failed', 'The envelope could not be built.')
     return envelope
   }
 
@@ -656,8 +686,8 @@ var E2EE = (function (root) {
   function encryptFile (bytes) {
     const data = asBytes(bytes)
     const n = lib()
-    const key = n.randomBytes(KEY_BYTES)
-    const nonce = n.randomBytes(NONCE_BYTES)
+    const key = random(KEY_BYTES)
+    const nonce = random(NONCE_BYTES)
     const box = tight(n.secretbox(data, nonce, key))
     const result = { box: box, key: b64encode(key), nonce: b64encode(nonce) }
     key.fill(0)
@@ -708,10 +738,19 @@ var E2EE = (function (root) {
     return null
   }
 
-  // Dosya adı temizliği (Ek A1). Bidi ve biçim karakterleri, yol ve Windows'ta yasak karakterler silinir.
+  // Dosya adı temizliği. Bidi ve biçim karakterleri, yol ve Windows'ta yasak karakterler silinir.
   // Baştaki ve sondaki nokta/boşluklar kırpılır (Windows sondakileri sessizce attığından uzantı gizlenemesin).
-  function sanitizeFileName (str) {
-    if (typeof str !== 'string') return 'dosya'
+  // Sonuç boş kalırsa çağıranın verdiği yedek ad (arayüz dilindeki karşılık) aynı temizlikten geçirilip
+  // kullanılır. Yedek verilmezse veya o da boş kalırsa 'file' döner.
+  function sanitizeFileName (str, fallback) {
+    const name = typeof str === 'string' ? cleanFileName(str) : ''
+    if (name.length > 0) return name
+    const alt = typeof fallback === 'string' ? cleanFileName(fallback) : ''
+    return alt.length > 0 ? alt : DEFAULT_FILE_NAME
+  }
+
+  // Temizlenmiş adı döner, hiçbir şey kalmazsa boş dize.
+  function cleanFileName (str) {
     let name = str
     try {
       name = name.normalize('NFC')
@@ -732,8 +771,7 @@ var E2EE = (function (root) {
         cps = cps.slice(0, MAX_FILE_NAME)
       }
     }
-    name = cps.join('').replace(FILE_NAME_EDGE_RE, '')
-    return name.length > 0 ? name : 'dosya'
+    return cps.join('').replace(FILE_NAME_EDGE_RE, '')
   }
 
   return Object.freeze({

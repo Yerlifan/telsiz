@@ -1,7 +1,8 @@
 'use strict'
 
 // public/crypto.js (window.E2EE) testleri. Dosyalar tarayıcıdaki gibi Node vm bağlamında yüklenir.
-// Bilinen yanıt vektörleri Python hashlib ve ayrı bir base32 gerçeklemesiyle bağımsız hesaplanmıştır.
+// Bilinen yanıt vektörleri Python hashlib ve ayrı bir base32 gerçeklemesiyle bağımsız hesaplanmış,
+// tek vektör ayrıca openssl dgst -sha512 ile denetlenmiştir.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -17,38 +18,75 @@ const E2EE_SRC = fs.readFileSync(path.join(ROOT, 'public', 'crypto.js'), 'utf8')
 // Bağımsız denetimler için kütüphanenin ana bağlamdaki ayrı bir kopyası.
 const refNacl = require(NACL_PATH)
 
+// acorn geliştirme bağımlılığıdır (npm ci ile kurulur). Yoksa yalnızca kaynak tarama testi atlanır.
+let acorn = null
+try {
+  acorn = require('acorn')
+} catch (e) {
+  acorn = null
+}
+
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 const SERVER_ENVELOPE_RE = /^1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{24,}$/
 const CODE_FORMAT_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/
-const RING_KEY = 'sohbet.keys'
-const KEY_ERROR = { message: /^Anahtar hatalı\. / }
+const RING_KEY = 'telsiz.keys'
+const LABEL_CHECK = 'telsiz-e2ee-v1/check'
+const LABEL_ENC = 'telsiz-e2ee-v1/enc'
+const LABEL_KID = 'telsiz-e2ee-v1/kid'
+const KEY_CODES = ['empty', 'bad_length', 'bad_char', 'bad_padding', 'bad_checksum']
+// Türkçeye özgü harfler: istemci kodunun dize sabitlerinde ve hata mesajlarında bulunmamalı.
+const TURKISH_LETTERS = /[çğıİöşüÇĞÖŞÜ]/
+const TECH_MESSAGE_RE = /^[\x20-\x7e]+$/
 
-// Python: hashlib.sha512 ve int tabanlı base32 ile hesaplandı.
+// Hata nesnesi beklenen kodu taşımalı, mesajı İngilizce teknik metin olmalı ve girdiyi içermemeli.
+function assertCoded (err, code, input) {
+  assert.equal(err.code, code, 'kod ' + err.code + ' / beklenen ' + code)
+  assert.match(err.message, TECH_MESSAGE_RE)
+  assert.doesNotMatch(err.message, TURKISH_LETTERS)
+  if (typeof input === 'string' && input.replace(/[\s-]/g, '').length >= 4) {
+    assert.ok(!err.message.includes(input.replace(/[\s-]/g, '').slice(0, 4)), 'mesaj girdiyi içermemeli')
+  }
+}
+
+function codeIs (code, input) {
+  return (err) => {
+    assertCoded(err, code, input)
+    return true
+  }
+}
+
+const KEY_ERROR = (err) => {
+  assert.ok(KEY_CODES.includes(err.code), String(err.code))
+  assertCoded(err, err.code)
+  return true
+}
+
+// Python: hashlib.sha512 ve int tabanlı base32 ile hesaplandı (telsiz-e2ee-v1 etiketleri).
 const VECTORS = [
   {
     secret: '000102030405060708090a0b0c0d0e0f',
-    code: '000G-40R4-0M30-E209-185G-R38E-1WD8',
-    kid: '9324c2b796e57666',
-    enc: 'ecea87be558de70a793e64b1b1a16cc0d2c7aeca69a89f696a041dc2b9c9f157'
+    code: '000G-40R4-0M30-E209-185G-R38E-1W6C',
+    kid: '0ca8d7d2262c6177',
+    enc: '72cb6a34da09ad7a137309185e7a76a5bb955103167a0c9761078eeec09699d3'
   },
   {
     secret: '00000000000000000000000000000000',
-    code: '0000-0000-0000-0000-0000-0000-00F4',
-    kid: 'd2ddc01ba055f904',
-    enc: '1271dfa377210bda19fb3b080db2b7effb18f3907da8f6c06ed7c42c1f282778'
+    code: '0000-0000-0000-0000-0000-0000-00KD',
+    kid: 'fbb2e8ba85298c4c',
+    enc: '6b04b7847833e7209a97cbc9c2796ee19e335567a3877dc0e26538f1da7b544c'
   },
   {
     secret: 'ffffffffffffffffffffffffffffffff',
-    code: 'ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZWW8',
-    kid: '7054e10ceb37516c',
-    enc: '082541d90dd75f3547eecd80996c0fc059bc1f0fea805f67d6d32500b43d9d46'
+    code: 'ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZWC0',
+    kid: '28e5c50bb7f8dba9',
+    enc: '0178c798d5ad07630a2ef3f1f75ee348418350c6320d9fc1d414a22f17e67197'
   },
   {
     secret: '8f3a0c11d2e4b5a69788796a5b4c3d2e',
-    code: 'HWX0-R4EJ-WJTT-D5W8-F5N5-PK1X-5RJ0',
-    kid: '652556221397b339',
-    enc: '19d680c2b56d164e066ec2b674a2a07c51618c12c9acf2eadbe2ff26b8222b22'
+    code: 'HWX0-R4EJ-WJTT-D5W8-F5N5-PK1X-5R08',
+    kid: 'aa5a7807b8681f8e',
+    enc: 'fd105e28c131439e689da36485bfd9929ceb3caca08536e46cc83bcfe610e8fb'
   }
 ]
 
@@ -168,7 +206,7 @@ function sha512 (label, secret) {
 }
 
 function refChecksum (secret) {
-  const h = sha512('sohbet-e2ee-v1/check', secret)
+  const h = sha512(LABEL_CHECK, secret)
   const v = (h[0] << 2) | (h[1] >> 6)
   return ALPHABET[v >> 5] + ALPHABET[v & 31]
 }
@@ -181,27 +219,32 @@ function refEncodeCode (secret) {
   return (data + refChecksum(secret)).match(/.{4}/g).join('-')
 }
 
+// Bağımsız çözme: { secret } veya reddetme nedeni { reason: 'bad_length'|'bad_char'|'bad_padding'|'bad_checksum' }.
+// Girdi yalnızca büyük harf Crockford alfabesi ve tire içermelidir (eşlemeler ayrı testte).
+function refDecodeDetail (code) {
+  const chars = code.replace(/-/g, '')
+  if (chars.length !== 28) return { reason: 'bad_length' }
+  let n = 0n
+  for (const c of chars) {
+    if (ALPHABET.indexOf(c) < 0) return { reason: 'bad_char' }
+  }
+  for (const c of chars.slice(0, 26)) n = (n << 5n) | BigInt(ALPHABET.indexOf(c))
+  if ((n & 3n) !== 0n) return { reason: 'bad_padding' }
+  const secret = Buffer.from((n >> 2n).toString(16).padStart(32, '0'), 'hex')
+  return refChecksum(secret) === chars.slice(26) ? { secret } : { reason: 'bad_checksum' }
+}
+
 // Bağımsız çözme: kabul ederse sırrı, etmezse null döner.
 function refDecodeCode (code) {
-  const chars = code.replace(/-/g, '')
-  if (chars.length !== 28) return null
-  let n = 0n
-  for (const c of chars.slice(0, 26)) {
-    const v = ALPHABET.indexOf(c)
-    if (v < 0) return null
-    n = (n << 5n) | BigInt(v)
-  }
-  if ((n & 3n) !== 0n) return null
-  const secret = Buffer.from((n >> 2n).toString(16).padStart(32, '0'), 'hex')
-  return refChecksum(secret) === chars.slice(26) ? secret : null
+  return refDecodeDetail(code).secret || null
 }
 
 function refKid (secret) {
-  return sha512('sohbet-e2ee-v1/kid', secret).subarray(0, 8).toString('hex')
+  return sha512(LABEL_KID, secret).subarray(0, 8).toString('hex')
 }
 
 function refEncKey (secret) {
-  return sha512('sohbet-e2ee-v1/enc', secret).subarray(0, 32)
+  return sha512(LABEL_ENC, secret).subarray(0, 32)
 }
 
 function splitEnvelope (env) {
@@ -228,7 +271,7 @@ function withKey (vector, opts) {
 }
 
 describe('E2EE: yükleme ve arayüz', () => {
-  it('window.E2EE tam olarak şartnamedeki arayüzü sunar ve dondurulmuştur', () => {
+  it('window.E2EE tam olarak belgelenen arayüzü sunar ve dondurulmuştur', () => {
     const ctx = load()
     assert.equal(ctx.window.E2EE, ctx.E2EE)
     assert.deepEqual(Object.keys(ctx.E2EE).sort(), [
@@ -250,10 +293,10 @@ describe('E2EE: yükleme ve arayüz', () => {
     const env = withKey(v).E2EE.sealJson(v.kid, { v: 1, t: 'merhaba' })
     const ctx = load({ crypto: null })
     assert.equal(ctx.E2EE.available(), false)
-    assert.throws(() => ctx.E2EE.generateKeyCode(), { message: /rastgele/ })
+    assert.throws(() => ctx.E2EE.generateKeyCode(), codeIs('no_random'))
     assert.equal(ctx.E2EE.keyring.add(v.code), v.kid)
-    assert.throws(() => ctx.E2EE.sealJson(v.kid, { v: 1 }))
-    assert.throws(() => ctx.E2EE.encryptFile(new Uint8Array(4)))
+    assert.throws(() => ctx.E2EE.sealJson(v.kid, { v: 1 }), codeIs('no_random'))
+    assert.throws(() => ctx.E2EE.encryptFile(new Uint8Array(4)), codeIs('no_random'))
     const opened = ctx.E2EE.openJson(env)
     assert.equal(opened.ok, true)
     assert.equal(opened.value.t, 'merhaba')
@@ -262,10 +305,10 @@ describe('E2EE: yükleme ve arayüz', () => {
   it('takılı kalmış (hep aynı bayt veren) üreteçte available() false', () => {
     const ctx = load({ crypto: { getRandomValues: (a) => a.fill(0) } })
     assert.equal(ctx.E2EE.available(), false)
-    assert.throws(() => ctx.E2EE.generateKeyCode())
+    assert.throws(() => ctx.E2EE.generateKeyCode(), codeIs('no_random'))
   })
 
-  it('nacl yüklenemezse available() false ve anahtarlık verisi silinmez', () => {
+  it('nacl yüklenemezse available() false, işlemler no_library kodu verir ve anahtarlık verisi silinmez', () => {
     const v = VECTORS[0]
     const raw = JSON.stringify({ keys: { [v.kid]: v.code }, added: { [v.kid]: 5 } })
     const storage = makeStorage({ [RING_KEY]: raw })
@@ -273,7 +316,15 @@ describe('E2EE: yükleme ve arayüz', () => {
     assert.equal(ctx.E2EE.available(), false)
     assert.deepEqual(plain(ctx.E2EE.keyring.list()), [])
     assert.equal(ctx.E2EE.keyring.has(v.kid), false)
-    assert.throws(() => ctx.E2EE.keyring.add(v.code), { message: 'Şifreleme kütüphanesi yüklenemedi.' })
+    assert.throws(() => ctx.E2EE.keyring.add(v.code), codeIs('no_library'))
+    assert.throws(() => ctx.E2EE.parseKeyCode(v.code), codeIs('no_library'))
+    assert.throws(() => ctx.E2EE.generateKeyCode(), codeIs('no_library'))
+    assert.throws(() => ctx.E2EE.sealJson(v.kid, { v: 1 }), codeIs('no_library'))
+    assert.throws(() => ctx.E2EE.encryptFile(new Uint8Array(4)), codeIs('no_library'))
+    // Kütüphane olmadan da biçim hataları kendi koduyla bildirilir.
+    assert.throws(() => ctx.E2EE.keyring.add('U' + v.code.slice(1)), codeIs('bad_char'))
+    assert.deepEqual(plain(ctx.E2EE.openJson('1.' + v.kid + '.' + 'A'.repeat(32) + '.' + 'A'.repeat(24))), { ok: false, reason: 'no_key' })
+    assert.equal(ctx.E2EE.decryptFile(new Uint8Array(20), 'A'.repeat(43), 'A'.repeat(32)), null)
     ctx.E2EE.keyring.remove('ffffffffffffffff')
     assert.deepEqual(JSON.parse(storage.map.get(RING_KEY)), JSON.parse(raw))
     assert.equal(ctx.E2EE.sniffImage(new Uint8Array([0xff, 0xd8, 0xff])), 'image/jpeg')
@@ -283,6 +334,52 @@ describe('E2EE: yükleme ve arayüz', () => {
     assert.doesNotMatch(E2EE_SRC, /Math\.random/)
     assert.doesNotMatch(E2EE_SRC, /setPRNG|lowlevel|scalarMult|\.sign\b|\.box\b|crypto\.subtle/)
     assert.doesNotMatch(E2EE_SRC, /console\./)
+  })
+
+  it('alan ayrımı etiketleri ve depolama anahtarı Telsiz adını taşır', () => {
+    // Satır sonu varsayımı yok (Windows'ta dosya CRLF ile çekilebilir).
+    const lines = E2EE_SRC.split(/\r?\n/)
+    for (const label of [LABEL_CHECK, LABEL_ENC, LABEL_KID, RING_KEY]) {
+      assert.equal(lines.filter((line) => line.endsWith(" = '" + label + "'")).length, 1, label)
+    }
+    assert.doesNotMatch(E2EE_SRC, /sohbet/i)
+  })
+
+  it('kaynakta kullanıcıya görünen metin yok: dize ve şablon sabitlerinde Türkçeye özgü harf bulunmaz', { skip: acorn ? false : 'acorn kurulu değil' }, () => {
+    const found = []
+    let strings = 0
+    const tokens = acorn.tokenizer(E2EE_SRC, { ecmaVersion: 2017, sourceType: 'script', locations: true })
+    for (const t of tokens) {
+      if (t.type !== acorn.tokTypes.string && t.type !== acorn.tokTypes.template) continue
+      strings++
+      if (TURKISH_LETTERS.test(String(t.value))) found.push(t.loc.start.line + ': ' + JSON.stringify(t.value))
+    }
+    assert.ok(strings > 20, 'dize sabitleri bulunmalı')
+    assert.deepEqual(found, [])
+  })
+
+  it('genel arayüzden fırlatılan her hata bir kod ve İngilizce teknik mesaj taşır', () => {
+    const v = VECTORS[0]
+    const ctx = withKey(v)
+    const E = ctx.E2EE
+    const cases = [
+      [() => E.parseKeyCode(''), 'empty'],
+      [() => E.parseKeyCode(null), 'empty'],
+      [() => E.parseKeyCode('ABCD'), 'bad_length'],
+      [() => E.parseKeyCode('U'.repeat(28)), 'bad_char'],
+      [() => E.keyring.add(v.code.slice(0, -1) + (v.code.endsWith('0') ? '1' : '0')), 'bad_checksum'],
+      [() => E.sealJson('0000000000000000', { v: 1 }), 'no_key'],
+      [() => E.sealJson(v.kid, 'metin'), 'bad_type'],
+      [() => E.b64url.decode('A'), 'bad_base64'],
+      [() => E.b64url.decode('AA=='), 'bad_base64'],
+      [() => E.b64url.decode('AB'), 'bad_base64'],
+      [() => E.b64url.decode(null), 'bad_type'],
+      [() => E.b64url.encode('metin'), 'bad_type'],
+      [() => E.utf8.encode(5), 'bad_type'],
+      [() => E.utf8.decode('metin'), 'bad_type'],
+      [() => E.encryptFile([1, 2]), 'bad_type']
+    ]
+    for (const [fn, code] of cases) assert.throws(fn, codeIs(code))
   })
 })
 
@@ -392,28 +489,46 @@ describe('E2EE: anahtar kodu', () => {
     const bad = ['U', 'u', '*', '#', '.', '_', '=', cp(0xdf), 'Ş', cp(0x1f600), '\u0000', cp(0xff10)]
     for (const ch of bad) {
       const s = v.code.slice(0, 5) + ch + v.code.slice(6)
-      assert.throws(() => ctx.E2EE.parseKeyCode(s), { message: /^Anahtar hatalı\. Kodda geçersiz bir karakter var\.$/ }, JSON.stringify(ch))
+      assert.throws(() => ctx.E2EE.parseKeyCode(s), codeIs('bad_char', s), JSON.stringify(ch))
+      assert.throws(() => ctx.E2EE.keyring.add(s), codeIs('bad_char', s), JSON.stringify(ch))
     }
     // U hiçbir değere eşlenmez: sıfır vektöründe 0 yerine U yazmak sağlamayı tutturamaz.
     const zero = VECTORS[1].code
     for (const u of ['U', 'u']) {
-      assert.throws(() => ctx.E2EE.parseKeyCode(u + zero.slice(1)), { message: /geçersiz bir karakter/ })
+      assert.throws(() => ctx.E2EE.parseKeyCode(u + zero.slice(1)), codeIs('bad_char'))
     }
   })
 
-  it('uzunluk ve tür hataları anlaşılır biçimde reddedilir, hata metni kodu içermez', () => {
+  it('uzunluk ve tür hataları kodla reddedilir, hata metni girilen kodu içermez', () => {
     const ctx = load()
     const v = VECTORS[3]
     const raw = v.code.replace(/-/g, '')
-    for (const s of ['', '   ', '----', raw.slice(0, 27), raw + '0', raw + raw, 'x'.repeat(5000), null, undefined, 42, {}, ['a']]) {
-      assert.throws(() => ctx.E2EE.parseKeyCode(s), KEY_ERROR, String(s).slice(0, 40))
+    const cases = [
+      ['', 'empty'], ['   ', 'empty'], ['----', 'empty'], [' - \t\n', 'empty'],
+      ['https://ornek.trycloudflare.com/#davet=ABCDE-FGHJK&anahtar=', 'empty'],
+      [null, 'empty'], [undefined, 'empty'], [42, 'empty'], [{}, 'empty'], [['a'], 'empty'],
+      [raw.slice(0, 27), 'bad_length'], [raw + '0', 'bad_length'], [raw + raw, 'bad_length'], ['ABCD', 'bad_length'],
+      ['0'.repeat(2049), 'bad_length'], ['x'.repeat(5000), 'bad_length'], ['x'.repeat(100), 'bad_length'], ['u'.repeat(100), 'bad_char'],
+      [raw.slice(0, 27) + 'Z', 'bad_checksum']
+    ]
+    for (const [s, code] of cases) {
+      assert.throws(() => ctx.E2EE.parseKeyCode(s), codeIs(code, typeof s === 'string' ? s : null), String(s).slice(0, 40))
+      assert.throws(() => ctx.E2EE.keyring.add(s), KEY_ERROR)
     }
+    // Uzunluk sınırı tam 2048 karakter: ayırıcılarla dolu ama geçerli kod kabul edilir.
+    const padded = ' '.repeat(2048 - v.code.length) + v.code
+    assert.equal(padded.length, 2048)
+    assert.equal(ctx.E2EE.parseKeyCode(padded).kid, v.kid)
+    assert.throws(() => ctx.E2EE.parseKeyCode(' ' + padded), codeIs('bad_length'))
+    assert.throws(() => ctx.E2EE.parseKeyCode(' '.repeat(5000) + v.code), codeIs('bad_length'))
     try {
       ctx.E2EE.parseKeyCode(raw.slice(0, 27) + 'Z')
       assert.fail('hata bekleniyordu')
     } catch (e) {
-      assert.match(e.message, /^Anahtar hatalı\. /)
+      assert.equal(e.code, 'bad_checksum')
       assert.ok(!e.message.includes(raw.slice(0, 8)))
+      assert.ok(!e.message.includes(raw.slice(20)))
+      assert.deepEqual(Object.keys(e).sort(), ['code'])
     }
   })
 
@@ -427,12 +542,13 @@ describe('E2EE: anahtar kodu', () => {
         for (const alt of ALPHABET) {
           if (alt === raw[pos]) continue
           const changed = raw.slice(0, pos) + alt + raw.slice(pos + 1)
-          const expected = refDecodeCode(changed)
+          const detail = refDecodeDetail(changed)
+          const expected = detail.secret || null
           let got = null
           try {
             got = ctx.E2EE.parseKeyCode(changed)
           } catch (e) {
-            assert.match(e.message, /^Anahtar hatalı\. /)
+            assert.equal(e.code, detail.reason, changed)
           }
           total++
           if (expected === null) {
@@ -461,14 +577,15 @@ describe('E2EE: anahtar kodu', () => {
       for (const pos of times(27)) {
         if (raw[pos] === raw[pos + 1]) continue
         const swapped = raw.slice(0, pos) + raw[pos + 1] + raw[pos] + raw.slice(pos + 2)
-        const expected = refDecodeCode(swapped)
+        const detail = refDecodeDetail(swapped)
         let ok = true
         try {
           ctx.E2EE.parseKeyCode(swapped)
         } catch (e) {
           ok = false
+          assert.equal(e.code, detail.reason, swapped)
         }
-        assert.equal(ok, expected !== null, swapped)
+        assert.equal(ok, Boolean(detail.secret), swapped)
         total++
         if (!ok) detected++
       }
@@ -482,8 +599,14 @@ describe('E2EE: anahtar kodu', () => {
     const raw = v.code.replace(/-/g, '')
     for (const alt of ['1', '2', '3']) {
       const changed = raw.slice(0, 25) + alt + raw.slice(26)
-      assert.throws(() => ctx.E2EE.parseKeyCode(changed), { message: /yazım hatası/ })
+      assert.equal(refDecodeDetail(changed).reason, 'bad_padding')
+      assert.throws(() => ctx.E2EE.parseKeyCode(changed), codeIs('bad_padding', changed))
+      assert.throws(() => ctx.E2EE.keyring.add(changed), codeIs('bad_padding', changed))
     }
+    // Dolgusu sıfır ama sağlaması tutmayan kod bad_checksum verir (iki kod ayırt edilir).
+    const wrongCheck = raw.slice(0, 26) + (raw[26] === 'Z' ? 'Y' : 'Z') + raw[27]
+    assert.equal(refDecodeDetail(wrongCheck).reason, 'bad_checksum')
+    assert.throws(() => ctx.E2EE.parseKeyCode(wrongCheck), codeIs('bad_checksum', wrongCheck))
     assert.equal(ctx.E2EE.parseKeyCode(raw.slice(0, 25) + '0' + raw.slice(26)).kid, v.kid)
   })
 
@@ -494,8 +617,8 @@ describe('E2EE: anahtar kodu', () => {
       const secret = Buffer.from(v.secret, 'hex')
       assert.equal(a.E2EE.parseKeyCode(v.code).kid, b.E2EE.parseKeyCode(v.code.toLowerCase()).kid)
       assert.equal(a.E2EE.parseKeyCode(v.code).kid, refKid(secret))
-      assert.notEqual(v.kid, sha512('sohbet-e2ee-v1/enc', secret).subarray(0, 8).toString('hex'))
-      assert.notEqual(v.kid, sha512('sohbet-e2ee-v1/check', secret).subarray(0, 8).toString('hex'))
+      assert.notEqual(v.kid, sha512(LABEL_ENC, secret).subarray(0, 8).toString('hex'))
+      assert.notEqual(v.kid, sha512(LABEL_CHECK, secret).subarray(0, 8).toString('hex'))
       assert.notEqual(v.kid, nodeCrypto.createHash('sha512').update(secret).digest().subarray(0, 8).toString('hex'))
     }
     assert.equal(new Set(VECTORS.map((v) => v.kid)).size, VECTORS.length)
@@ -516,6 +639,7 @@ describe('E2EE: anahtarlık', () => {
     assert.equal(ctx.E2EE.keyring.has(w.kid), true)
     assert.equal(ctx.E2EE.keyring.has('0000000000000000'), false)
     assert.equal(ctx.E2EE.keyring.has(null), false)
+    assert.deepEqual([...storage.map.keys()], [RING_KEY])
     const stored = JSON.parse(storage.map.get(RING_KEY))
     assert.deepEqual(Object.keys(stored).sort(), ['added', 'keys'])
     assert.deepEqual(stored.keys, { [v.kid]: v.code, [w.kid]: w.code })
@@ -541,7 +665,9 @@ describe('E2EE: anahtarlık', () => {
     const first = storage.map.get(RING_KEY)
     ctx.E2EE.keyring.add(v.code.toLowerCase())
     assert.equal(storage.map.get(RING_KEY), first)
-    assert.throws(() => ctx.E2EE.keyring.add('ABCD'), KEY_ERROR)
+    assert.throws(() => ctx.E2EE.keyring.add('ABCD'), codeIs('bad_length'))
+    assert.throws(() => ctx.E2EE.keyring.add(''), codeIs('empty'))
+    assert.throws(() => ctx.E2EE.keyring.add(v.code.slice(0, -1) + (v.code.endsWith('0') ? '1' : '0')), codeIs('bad_checksum'))
     assert.equal(storage.map.get(RING_KEY), first)
   })
 
@@ -654,10 +780,10 @@ describe('E2EE: zarf', () => {
       assert.deepEqual(JSON.parse(Buffer.from(opened).toString('utf8')), obj)
       // Diğer etiketlerle veya etiketsiz türetilen anahtarlar açamaz (alan ayrımı).
       for (const wrong of [
-        sha512('sohbet-e2ee-v1/kid', secret).subarray(0, 32),
-        sha512('sohbet-e2ee-v1/check', secret).subarray(0, 32),
+        sha512(LABEL_KID, secret).subarray(0, 32),
+        sha512(LABEL_CHECK, secret).subarray(0, 32),
         nodeCrypto.createHash('sha512').update(secret).digest().subarray(0, 32),
-        sha512('sohbet-e2ee-v1/enc', secret).subarray(32, 64)
+        sha512(LABEL_ENC, secret).subarray(32, 64)
       ]) {
         assert.equal(refNacl.secretbox.open(new Uint8Array(parts.box), new Uint8Array(parts.nonce), new Uint8Array(wrong)), null)
       }
@@ -807,11 +933,11 @@ describe('E2EE: zarf', () => {
   it('sealJson hataları: bilinmeyen kid, geçersiz kid, nesne olmayan değer', () => {
     const v = VECTORS[0]
     const ctx = withKey(v)
-    assert.throws(() => ctx.E2EE.sealJson('0000000000000000', { v: 1 }), { message: /anahtarlıkta yok/ })
-    assert.throws(() => ctx.E2EE.sealJson(null, { v: 1 }))
-    assert.throws(() => ctx.E2EE.sealJson(v.kid.toUpperCase(), { v: 1 }))
+    assert.throws(() => ctx.E2EE.sealJson('0000000000000000', { v: 1 }), codeIs('no_key'))
+    assert.throws(() => ctx.E2EE.sealJson(null, { v: 1 }), codeIs('no_key'))
+    assert.throws(() => ctx.E2EE.sealJson(v.kid.toUpperCase(), { v: 1 }), codeIs('no_key'))
     for (const value of [null, undefined, 5, 'metin', true]) {
-      assert.throws(() => ctx.E2EE.sealJson(v.kid, value), { name: 'TypeError' })
+      assert.throws(() => ctx.E2EE.sealJson(v.kid, value), { name: 'TypeError', code: 'bad_type' })
     }
     assert.match(ctx.E2EE.sealJson(v.kid, {}), SERVER_ENVELOPE_RE)
     assert.match(ctx.E2EE.sealJson(v.kid, []), SERVER_ENVELOPE_RE)
@@ -917,9 +1043,9 @@ describe('E2EE: dosyalar', () => {
       assert.equal(hexOf(ctx.E2EE.decryptFile(r.box, r.key, r.nonce)), expected)
       assert.equal(hexOf(ctx.E2EE.decryptFile(r.box.buffer, r.key, r.nonce)), expected)
     }
-    assert.throws(() => ctx.E2EE.encryptFile('metin'), { name: 'TypeError' })
-    assert.throws(() => ctx.E2EE.encryptFile(null), { name: 'TypeError' })
-    assert.throws(() => ctx.E2EE.encryptFile([1, 2, 3]), { name: 'TypeError' })
+    assert.throws(() => ctx.E2EE.encryptFile('metin'), { name: 'TypeError', code: 'bad_type' })
+    assert.throws(() => ctx.E2EE.encryptFile(null), { name: 'TypeError', code: 'bad_type' })
+    assert.throws(() => ctx.E2EE.encryptFile([1, 2, 3]), { name: 'TypeError', code: 'bad_type' })
   })
 
   it('decryptFile hatalı girdide null döner, istisna fırlatmaz', () => {
@@ -1042,10 +1168,10 @@ describe('E2EE: base64url', () => {
     const ctx = load()
     const d = ctx.E2EE.b64url.decode
     for (const s of ['A', 'AAAAA', 'AA==', 'AAA=', 'AA=A', 'a+b/', '++++', '////', 'AB C', ' AAA', 'AAA\n', 'ş', 'AAA' + cp(0x1f600), 'AB', 'AAB', '_x', '__9']) {
-      assert.throws(() => d(s), undefined, JSON.stringify(s))
+      assert.throws(() => d(s), codeIs('bad_base64'), JSON.stringify(s))
     }
-    for (const x of [null, undefined, 5, {}, new Uint8Array(2)]) assert.throws(() => d(x), { name: 'TypeError' })
-    assert.throws(() => ctx.E2EE.b64url.encode('metin'), { name: 'TypeError' })
+    for (const x of [null, undefined, 5, {}, new Uint8Array(2)]) assert.throws(() => d(x), { name: 'TypeError', code: 'bad_type' })
+    assert.throws(() => ctx.E2EE.b64url.encode('metin'), { name: 'TypeError', code: 'bad_type' })
   })
 })
 
@@ -1063,6 +1189,9 @@ describe('E2EE: UTF-8', () => {
   it('Türkçe ve emoji gidiş-dönüş: TextEncoder olan ve olmayan (yedek) ortamda aynı baytlar', () => {
     const counts = { enc: 0, dec: 0 }
     const native = loadNative(counts)
+    // Yükleme sırasındaki doğruluk yoklaması sayılmaz, yalnızca gerçek kullanım ölçülür.
+    counts.enc = 0
+    counts.dec = 0
     const fallback = load()
     assert.equal(vm.runInContext('typeof TextEncoder', fallback), 'undefined')
     assert.equal(vm.runInContext('typeof TextDecoder', fallback), 'undefined')
@@ -1161,8 +1290,8 @@ describe('E2EE: UTF-8', () => {
 
   it('utf8 tür hataları', () => {
     const ctx = load()
-    for (const x of [null, undefined, 5, {}, new Uint8Array(1)]) assert.throws(() => ctx.E2EE.utf8.encode(x), { name: 'TypeError' })
-    for (const x of [null, undefined, 'metin', 5, [65]]) assert.throws(() => ctx.E2EE.utf8.decode(x), { name: 'TypeError' })
+    for (const x of [null, undefined, 5, {}, new Uint8Array(1)]) assert.throws(() => ctx.E2EE.utf8.encode(x), { name: 'TypeError', code: 'bad_type' })
+    for (const x of [null, undefined, 'metin', 5, [65]]) assert.throws(() => ctx.E2EE.utf8.decode(x), { name: 'TypeError', code: 'bad_type' })
     assert.equal(ctx.E2EE.utf8.decode(new Uint8Array([0x61, 0x62]).buffer), 'ab')
   })
 })
@@ -1206,14 +1335,38 @@ describe('E2EE: sanitizeFileName', () => {
     assert.equal(san('dosya.txt:gizli'), 'dosya.txtgizli')
   })
 
-  it('baştaki ve sondaki nokta ile boşluklar kırpılır, boş kalırsa dosya', () => {
+  it('baştaki ve sondaki nokta ile boşluklar kırpılır, boş kalırsa varsayılan ad file', () => {
     assert.equal(san('  .gizli'), 'gizli')
     assert.equal(san('...rapor.pdf'), 'rapor.pdf')
     assert.equal(san('virus.exe. . '), 'virus.exe')
     assert.equal(san('foto.exe ' + cp(0xa0)), 'foto.exe')
-    assert.equal(san(' . ' + cp(0x200b) + ' .'), 'dosya')
+    assert.equal(san(' . ' + cp(0x200b) + ' .'), 'file')
     for (const x of ['', '.', '..', '...', '   ', '<>:"/\\|?*', cp(0x202e), null, undefined, 42, {}]) {
-      assert.equal(san(x), 'dosya', JSON.stringify(x))
+      assert.equal(san(x), 'file', JSON.stringify(x))
+      assert.equal(san(x, undefined), 'file', JSON.stringify(x))
+    }
+  })
+
+  it('boş kalan adda ikinci parametredeki yedek ad (arayüz dilindeki karşılık) kullanılır', () => {
+    for (const x of ['', '..', ' . ', '<>|', cp(0x202e), null, undefined, 42]) {
+      assert.equal(san(x, 'dosya'), 'dosya', JSON.stringify(x))
+      assert.equal(san(x, 'file'), 'file')
+      assert.equal(san(x, 'Belge ' + cp(0x1f4c4)), 'Belge ' + cp(0x1f4c4))
+    }
+    // Ad temizlenebiliyorsa yedek kullanılmaz.
+    assert.equal(san('rapor.pdf', 'dosya'), 'rapor.pdf')
+    assert.equal(san(' .a. ', 'dosya'), 'a')
+    // Yedek ad da aynı temizlikten geçer, o da boş kalırsa veya metin değilse file döner.
+    assert.equal(san('', '../' + cp(0x202e) + 'yedek.txt '), 'yedek.txt')
+    assert.equal(san('', 'a'.repeat(200) + '.bin'), 'a'.repeat(116) + '.bin')
+    for (const fb of ['', '.', ' ', '/\\', cp(0x200b), null, 42, {}, ['dosya']]) {
+      assert.equal(san('', fb), 'file', JSON.stringify(fb))
+    }
+    // Sonuç kararlıdır: aynı yedekle yeniden temizlemek aynı adı verir.
+    for (const fb of ['dosya', ' .yedek. ', 'x'.repeat(130)]) {
+      const once = san('', fb)
+      assert.equal(san(once, fb), once)
+      assert.equal(san(once), once)
     }
   })
 
