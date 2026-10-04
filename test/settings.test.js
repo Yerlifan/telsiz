@@ -743,7 +743,7 @@ test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca ü
   assert.ok(row(owner, 2).querySelector('.act-ban'))
   assert.ok(row(owner, 2).querySelector('.act-kick'), 'sahip yöneticiyi atabilir')
   assert.ok(row(owner, 3).querySelector('.act-reset'))
-  assert.strictEqual(row(owner, 2).querySelector('.list-sub').textContent, 'yönetici, boşta')
+  assert.strictEqual(row(owner, 2).querySelector('.list-sub').textContent, 'Yönetici, boşta')
   assert.strictEqual(row(owner, 3).querySelector('.settings-handle').textContent, '@mert')
   const admin = load({ role: 'admin' })
   admin.run("openSettings('members', null)")
@@ -781,7 +781,7 @@ test('özel rol izinleri: moderatör izinli kategorileri görür, yalnızca alt 
   assert.strictEqual(row(3).querySelector('.act-role'), null)
   assert.strictEqual(row(3).querySelector('.act-custom-role'), null)
   assert.strictEqual(row(3).querySelector('.act-reset'), null)
-  assert.strictEqual(row(3).querySelector('.list-sub').textContent, 'üye, DJ, çevrimdışı')
+  assert.strictEqual(row(3).querySelector('.list-sub').textContent, 'Üye, DJ, çevrimdışı')
   // DJ rolü üste taşınınca moderatör onu engelleyemez
   run('state.meta.roles.reverse()')
   run('refreshSettings()')
