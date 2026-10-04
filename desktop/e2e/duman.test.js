@@ -17,23 +17,124 @@
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
 // dist/linux-unpacked/telsiz-masaustu) test onunla yapılır. Önce npm run hazirla çalıştırılmalıdır.
 // Kullanım: npm run test:duman (Linux'ta: xvfb-run -a npm run test:duman)
+//
+// Tanı: uygulama TELSIZ_TANI_GUNLUGU ile açılır (src/lib/diagnostics.js), ana süreç açılış
+// adımlarını bir dosyaya yazar ve açılışı durduran hatayı engelleyici kutu yerine günlükle bildirir.
+// Bir test düşerse duman-sonuclar/ altına şunlar yazılır: ana süreç günlüğü (ana-surec.log),
+// uygulamanın stdout ve stderr çıktısı (uygulama-cikisi.log), başlatma hatası ve Playwright çağrı
+// günlüğü (baslatma-hatasi.txt) ve açık pencerelerin ekran görüntüleri. Başlatma uzarsa Windows'ta
+// zaman aşımından önce uygulama süreçlerinin pencere başlıkları ve yanıt durumu ile masaüstü
+// görüntüsü alınır (baslatma-durumu.txt, baslatma-ekrani.png). DEBUG=pw:protocol ve DEBUG_FILE
+// verilirse Playwright protokol günlüğünü o dosyaya yazar (iş akışı bunu duman-sonuclar/ altına
+// yönlendirir).
 
-const { test, before, after } = require('node:test')
+const { test: nodeTest, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const http = require('node:http')
+const { execFile } = require('node:child_process')
+
+const DESKTOP_DIR = path.join(__dirname, '..')
+const RESULTS_DIR = path.join(DESKTOP_DIR, 'duman-sonuclar')
+const TIMEOUT = 30000
+const LAUNCH_TIMEOUT = 60000
+// Başlatma bu süreyi aşarsa (zaman aşımından önce) uygulamanın durumu kaydedilir
+const LAUNCH_SNAPSHOT_MS = 45000
+const DIAG_ENV = 'TELSIZ_TANI_GUNLUGU'
+const MAX_OUTPUT_CHARS = 4 * 1024 * 1024
+
+// Playwright DEBUG_FILE akışını yüklenirken açar, klasör yoksa akış hata verip testi düşürürdü
+if (process.env.DEBUG_FILE) fs.mkdirSync(path.dirname(path.resolve(process.env.DEBUG_FILE)), { recursive: true })
+
 const { _electron: electron } = require('playwright')
 const { createChatServer } = require('../../src/app')
 const yardimci = require('../../test/server-yardimci')
 const { listenInRange, sleep } = require('../test/yardimci')
 
-const DESKTOP_DIR = path.join(__dirname, '..')
-const RESULTS_DIR = path.join(DESKTOP_DIR, 'duman-sonuclar')
-const TIMEOUT = 30000
+const ctx = { server: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null, failed: false, launchError: null, diagFile: null, output: [], outputChars: 0, snapshot: null }
 
-const ctx = { server: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null }
+// node:test sonucu after() içinde okunamaz: düşen testler burada işaretlenir
+function test (name, options, fn) {
+  const body = typeof options === 'function' ? options : fn
+  const opts = typeof options === 'function' ? {} : options
+  return nodeTest(name, opts, async (t) => {
+    try {
+      return await body(t)
+    } catch (err) {
+      ctx.failed = true
+      throw err
+    }
+  })
+}
+
+function recordOutput (stream, chunk) {
+  if (ctx.outputChars > MAX_OUTPUT_CHARS) return
+  const text = String(chunk)
+  ctx.outputChars += text.length
+  ctx.output.push('[' + stream + '] ' + text)
+}
+
+// Windows'ta uygulama süreçlerinin pencere başlıkları, yanıt durumu ve masaüstü görüntüsü.
+// Engelleyici bir hata kutusu veya yanıt vermeyen bir süreç bu kayıtta görünür.
+function windowsSnapshot (imageFile) {
+  const script = [
+    "$ErrorActionPreference = 'Continue'",
+    "Get-Process | Where-Object { $_.ProcessName -like 'Telsiz*' } | Select-Object Id, ProcessName, MainWindowTitle, Responding, StartTime | Format-Table -AutoSize | Out-String -Width 300",
+    'try {',
+    '  Add-Type -AssemblyName System.Windows.Forms, System.Drawing',
+    '  $b = [System.Windows.Forms.SystemInformation]::VirtualScreen',
+    '  $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height',
+    '  $g = [System.Drawing.Graphics]::FromImage($bmp)',
+    '  $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)',
+    '  $bmp.Save($env:TELSIZ_EKRAN, [System.Drawing.Imaging.ImageFormat]::Png)',
+    "  'ekran goruntusu: ' + $env:TELSIZ_EKRAN",
+    "} catch { 'ekran goruntusu alinamadi: ' + $_.Exception.Message }"
+  ].join('\n')
+  return new Promise((resolve) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+      env: Object.assign({}, process.env, { TELSIZ_EKRAN: imageFile }),
+      timeout: 15000,
+      windowsHide: true
+    }, (err, stdout, stderr) => {
+      resolve([stdout, stderr, err ? 'hata: ' + err.message : ''].filter(Boolean).join('\n'))
+    })
+  })
+}
+
+// Başarısızlıkta teşhis dosyalarını duman-sonuclar/ altına yazar
+async function writeResults () {
+  fs.mkdirSync(RESULTS_DIR, { recursive: true })
+  const write = (name, text) => {
+    try {
+      fs.writeFileSync(path.join(RESULTS_DIR, name), text)
+    } catch (err) {
+      process.stderr.write('duman-sonuclar/' + name + ' yazılamadı: ' + err.message + '\n')
+    }
+  }
+  if (ctx.launchError) write('baslatma-hatasi.txt', String(ctx.launchError.stack || ctx.launchError.message || ctx.launchError) + '\n')
+  if (ctx.snapshot) write('baslatma-durumu.txt', ctx.snapshot + '\n')
+  if (ctx.output.length > 0) write('uygulama-cikisi.log', ctx.output.join(''))
+  if (ctx.diagFile && fs.existsSync(ctx.diagFile)) {
+    try {
+      fs.copyFileSync(ctx.diagFile, path.join(RESULTS_DIR, 'ana-surec.log'))
+    } catch (err) {
+      process.stderr.write('ana süreç günlüğü kopyalanamadı: ' + err.message + '\n')
+    }
+  }
+  // Açık her pencerenin ekran görüntüsü (ör. pencere-1-baglan.png, pencere-2-app.png)
+  const pages = ctx.app ? ctx.app.windows() : []
+  for (const [index, page] of pages.entries()) {
+    let host = 'pencere'
+    try {
+      host = new URL(page.url()).host.replace(/[^0-9a-z-]/gi, '_') || host
+    } catch (err) {
+      host = 'pencere'
+    }
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'pencere-' + (index + 1) + '-' + host + '.png'), timeout: 10000 }).catch(() => {})
+  }
+}
 
 async function waitFor (check, label, timeout) {
   const end = Date.now() + (timeout || TIMEOUT)
@@ -89,7 +190,7 @@ function direct (method, urlPath, token, body) {
   })
 }
 
-function launchOptions (userDataDir) {
+function launchOptions (userDataDir, diagFile) {
   const packaged = process.env.TELSIZ_UYGULAMA
   const common = ['--user-data-dir=' + userDataDir, '--use-fake-device-for-media-stream', '--lang=tr']
   const executablePath = packaged ? path.resolve(packaged) : require(path.join(DESKTOP_DIR, 'node_modules', 'electron'))
@@ -98,8 +199,8 @@ function launchOptions (userDataDir) {
     args: packaged ? common : [DESKTOP_DIR].concat(common),
     // Linux'ta Playwright varsayılan olarak --no-sandbox ekler, uygulama korumalı alanla denenmelidir
     chromiumSandbox: true,
-    env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '1' }),
-    timeout: 60000
+    env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '1', [DIAG_ENV]: diagFile }),
+    timeout: LAUNCH_TIMEOUT
   }
 }
 
@@ -125,21 +226,38 @@ before(async () => {
   ctx.port = await listenInRange(ctx.server)
   const userData = path.join(ctx.root, 'kullanici-verisi')
   fs.mkdirSync(userData, { recursive: true })
-  ctx.app = await electron.launch(launchOptions(userData))
+  ctx.diagFile = path.join(ctx.root, 'ana-surec.log')
+  let snapshotRun = null
+  const snapshotTimer = process.platform === 'win32'
+    ? setTimeout(() => {
+      fs.mkdirSync(RESULTS_DIR, { recursive: true })
+      snapshotRun = windowsSnapshot(path.join(RESULTS_DIR, 'baslatma-ekrani.png')).then((text) => {
+        ctx.snapshot = text
+      })
+    }, LAUNCH_SNAPSHOT_MS)
+    : null
+  try {
+    ctx.app = await electron.launch(launchOptions(userData, ctx.diagFile))
+  } catch (err) {
+    ctx.failed = true
+    ctx.launchError = err
+    throw err
+  } finally {
+    if (snapshotTimer) clearTimeout(snapshotTimer)
+    // Zaman aşımından önce başlamış durum kaydının bitmesi beklenir (hiçbir zaman reddedilmez)
+    if (snapshotRun) await snapshotRun
+  }
+  ctx.app.process().stdout.on('data', (chunk) => recordOutput('out', chunk))
   ctx.app.process().stderr.on('data', (chunk) => {
+    recordOutput('err', chunk)
     const text = String(chunk)
     if (/\[telsiz\]/.test(text)) process.stderr.write(text)
   })
 })
 
 after(async () => {
-  if (ctx.app) {
-    if (process.exitCode && ctx.page) {
-      fs.mkdirSync(RESULTS_DIR, { recursive: true })
-      await ctx.page.screenshot({ path: path.join(RESULTS_DIR, 'uygulama.png') }).catch(() => {})
-    }
-    await ctx.app.close().catch(() => {})
-  }
+  if (ctx.failed) await writeResults()
+  if (ctx.app) await ctx.app.close().catch(() => {})
   if (ctx.server) await new Promise((resolve) => ctx.server.close(() => resolve()))
   if (ctx.root) fs.rmSync(ctx.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
@@ -227,16 +345,34 @@ test('kayıt, mesaj, long-poll, yükleme ve indirme vekil üzerinden çalışır
   assert.equal(enError.status, 400)
   assert.notEqual(trError.data.error, enError.data.error)
 
-  // Long-poll: sayfa bekler, başka bir istemci (doğrudan sunucuya) mesaj gönderir
-  const st = state.data
-  const pollUrl = '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&pmv=' + st.pmv + '&tv=' + st.tv + '&sig=' + st.sigSeq + '&boot=' + st.boot
-  const pending = xhr(page, 'GET', pollUrl, { token: ctx.token })
+  // Long-poll: sayfa bekler, başka bir istemci (doğrudan sunucuya) mesaj gönderir. Bekleme yukarıda
+  // gönderilen mesajdan sonraki güncel sıradan başlar (eski sıra poll'u o mesajla hemen döndürürdü).
+  // Poll başka bir değişiklikle (ör. meta veya kişiye özel sürüm) de dönebilir: mesaj olayı gelene
+  // kadar yanıttaki sıra ve sürümlerle süre sınırlı olarak yinelenir.
+  const fresh = await xhr(page, 'GET', '/api/state', { token: ctx.token })
+  assert.equal(fresh.status, 200)
+  const cursor = { since: fresh.data.seq, mv: fresh.data.metaVersion, pmv: fresh.data.pmv, tv: fresh.data.tv, sig: fresh.data.sigSeq }
+  const poll = () => xhr(page, 'GET', '/api/poll?since=' + cursor.since + '&mv=' + cursor.mv + '&pmv=' + cursor.pmv + '&tv=' + cursor.tv + '&sig=' + cursor.sig + '&boot=' + fresh.data.boot, { token: ctx.token })
+  const pending = poll()
   await sleep(500)
   const other = await direct('POST', '/api/messages', ctx.token, { channelId: ctx.channelId, body: yardimci.envelope() })
   assert.equal(other.status, 200)
-  const polled = await pending
-  assert.equal(polled.status, 200, polled.text)
-  assert.ok(JSON.stringify(polled.data).includes(String(other.data.message.id)))
+  const otherId = other.data.message.id
+  const pollDeadline = Date.now() + TIMEOUT
+  let polled = await pending
+  while (true) {
+    assert.equal(polled.status, 200, polled.text)
+    assert.equal(polled.data.boot, fresh.data.boot)
+    assert.notEqual(polled.data.resync, true, polled.text)
+    if (polled.data.events.some((e) => e.type === 'msg' && e.message && e.message.id === otherId)) break
+    assert.ok(Date.now() < pollDeadline, 'the message event did not arrive through the long-poll: ' + polled.text)
+    cursor.since = polled.data.seq
+    cursor.mv = polled.data.metaVersion
+    cursor.pmv = polled.data.pmv
+    cursor.tv = polled.data.tv
+    for (const signal of polled.data.signals) cursor.sig = Math.max(cursor.sig, signal.seq)
+    polled = await poll()
+  }
 
   // Yükleme ve indirme (ikili gövde iki yönde de akış olarak geçer)
   const roundTrip = await page.evaluate((token) => new Promise((resolve) => {

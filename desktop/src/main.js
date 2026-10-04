@@ -47,6 +47,7 @@ const screenShare = require('./lib/screen-share')
 const integrity = require('./lib/integrity')
 const strings = require('./lib/strings')
 const settingsStore = require('./lib/settings-store')
+const diagnostics = require('./lib/diagnostics')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
 
@@ -63,6 +64,24 @@ const EXTERNAL_OPEN_INTERVAL_MS = 500
 const MAX_ADDRESS_INPUT = 1000
 const THUMBNAIL_SIZE = { width: 320, height: 180 }
 const ORIGINS = { app: APP_ORIGIN, connect: CONNECT_ORIGIN, picker: PICKER_ORIGIN }
+// Gözetimsiz çalıştırmalarda (duman testi, CI) açılış adımlarının tanı günlüğü, ortam değişkeni
+// yoksa kapalıdır (src/lib/diagnostics.js)
+const diag = diagnostics.fromEnv(process.env)
+
+diag.log('start', { version: app.getVersion(), electron: process.versions.electron, platform: process.platform, arch: process.arch, packaged: app.isPackaged, pid: process.pid })
+if (diag.enabled) {
+  // Gözetimsiz çalıştırmada yakalanmamış hata Electron'un engelleyici hata kutusu yerine günlüğe
+  // yazılır ve uygulama kapanır (kutuyu kapatacak kimse yoktur). Değişken yokken Electron'un
+  // varsayılan davranışı (hata kutusu) aynen kalır.
+  process.on('uncaughtException', (err, origin) => {
+    diag.log('uncaught-exception', { origin, error: err })
+    logError('uncaught ' + origin, err)
+    app.exit(1)
+  })
+  app.on('child-process-gone', (event, details) => diag.log('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name || null }))
+  app.on('will-quit', () => diag.log('will-quit'))
+  app.on('quit', (event, exitCode) => diag.log('quit', { exitCode }))
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
@@ -110,7 +129,9 @@ function t (key, params) {
 function noop () {}
 
 function logError (label, err) {
-  console.error('[telsiz] ' + label + ': ' + (err && err.message ? err.message : String(err)))
+  const message = err && err.message ? err.message : String(err)
+  console.error('[telsiz] ' + label + ': ' + message)
+  diag.log('error', { label, message })
 }
 
 // ------------------------------------------------------------------ yardımcılar
@@ -217,6 +238,7 @@ function loadPages () {
 }
 
 function servePage (request, page) {
+  diag.log('own-page-request', { method: request.method, url: request.url })
   let url
   try {
     url = new URL(request.url)
@@ -488,6 +510,7 @@ function openMainWindow () {
   })
   const id = win.webContents.id
   state.contexts.set(id, 'app')
+  diag.log('window', { context: 'app', contents: id })
   state.mainWindow = win
   state.mainOrigin = origin
   attachContextMenu(win.webContents)
@@ -555,6 +578,7 @@ function openConnectWindow () {
   win.setMenu(null)
   const id = win.webContents.id
   state.contexts.set(id, 'connect')
+  diag.log('window', { context: 'connect', contents: id })
   state.connectWindow = win
   attachContextMenu(win.webContents)
   showWhenReady(win)
@@ -853,8 +877,33 @@ function registerIpc () {
 
 // ------------------------------------------------------------------ uygulama düzeyi korumalar
 
+// Tanı günlüğü açıkken her sayfanın yükleme, ön yükleme ve süreç olayları yazılır
+function watchContents (contents) {
+  const id = contents.id
+  const tag = (extra) => Object.assign({ contents: id, context: contextOf(contents) || null }, extra || {})
+  contents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) diag.log('did-start-navigation', tag({ url: details.url }))
+  })
+  contents.on('did-navigate', (event, url, httpResponseCode) => diag.log('did-navigate', tag({ url, httpResponseCode })))
+  contents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    diag.log('did-fail-load', tag({ errorCode, errorDescription, url: validatedURL, isMainFrame }))
+  })
+  contents.on('did-finish-load', () => diag.log('did-finish-load', tag({ url: contents.getURL() })))
+  contents.on('preload-error', (event, preloadPath, error) => diag.log('preload-error', tag({ preload: path.basename(preloadPath), error })))
+  contents.on('render-process-gone', (event, details) => diag.log('render-process-gone', tag({ reason: details.reason, exitCode: details.exitCode })))
+  contents.on('unresponsive', () => diag.log('unresponsive', tag()))
+  contents.on('responsive', () => diag.log('responsive', tag()))
+  contents.on('console-message', (details) => {
+    if (details.level === 'warning' || details.level === 'error') {
+      diag.log('console-' + details.level, tag({ message: details.message, source: details.sourceId, line: details.lineNumber }))
+    }
+  })
+  contents.once('destroyed', () => diag.log('contents-destroyed', { contents: id }))
+}
+
 function installGuards () {
   app.on('web-contents-created', (event, contents) => {
+    if (diag.enabled) watchContents(contents)
     contents.on('will-attach-webview', (e) => e.preventDefault())
     contents.setWindowOpenHandler((details) => {
       if (contextOf(contents) === 'app' && navigation.decideWindowOpen(details.url) === 'external') openExternal(details.url)
@@ -894,9 +943,14 @@ function installGuards () {
 
 // ------------------------------------------------------------------ başlatma
 
+// Açılışı durduran hata (ör. bütünlük denetimi). Neden her zaman stderr'e yazılır ve kullanıcıya
+// engelleyici bir hata kutusuyla gösterilir. Tanı günlüğü açıksa (gözetimsiz çalıştırma, duman
+// testi) kutu açılmaz: kapatacak kimse olmadığından süreç sonsuza dek beklerdi.
 function showFatal (err) {
-  const files = err && Array.isArray(err.files) && err.files.length > 0 ? err.files.slice(0, 10).join(', ') : String(err && err.message ? err.message : err)
-  dialog.showErrorBox(t('integrity.title'), t('integrity.body', { files }))
+  const message = String(err && err.message ? err.message : err)
+  const files = err && Array.isArray(err.files) && err.files.length > 0 ? err.files.slice(0, 10).join(', ') : message
+  logError('fatal', message + (files !== message ? ' (' + files + ')' : ''))
+  if (!diag.enabled) dialog.showErrorBox(t('integrity.title'), t('integrity.body', { files }))
   app.exit(1)
 }
 
@@ -910,11 +964,14 @@ function start () {
     showFatal(err)
     return
   }
+  diag.log('integrity-ok', { files: state.files.size, lang: state.lang })
   state.settingsFile = path.join(app.getPath('userData'), settingsStore.FILE_NAME)
   state.settings = settingsStore.load(state.settingsFile)
+  diag.log('settings', { userData: app.getPath('userData'), hasServer: Boolean(state.settings.server) })
   installGuards()
   registerIpc()
   createTray()
+  diag.log('tray', { available: Boolean(state.tray) })
   if (!state.tray) state.settings.closeToTray = false
   buildMenu()
   applyShortcuts(state.settings.shortcuts)
@@ -922,10 +979,13 @@ function start () {
   else openConnectWindow()
 }
 
-if (!app.requestSingleInstanceLock()) {
+const singleInstance = app.requestSingleInstanceLock()
+diag.log('single-instance-lock', { acquired: singleInstance })
+if (!singleInstance) {
   app.quit()
 } else {
   app.on('second-instance', () => {
+    diag.log('second-instance')
     if (app.isReady() && state.files) showMain()
   })
   app.on('before-quit', () => {
@@ -937,7 +997,10 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     app.quit()
   })
-  app.whenReady().then(start).catch((err) => {
+  app.whenReady().then(() => {
+    diag.log('ready')
+    start()
+  }).catch((err) => {
     logError('start', err)
     app.exit(1)
   })

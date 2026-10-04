@@ -89,10 +89,16 @@ jobs:
       - name: xvfb kur
         run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
 
+      # Hata anında duman-sonuclar/ altına ana süreç günlüğü, uygulama çıktısı, başlatma hatası ve
+      # Playwright protokol günlüğü (DEBUG_FILE) yazılır, aşağıdaki adım bunları yükler.
+      # On failure the main process log, the app output, the launch error and the Playwright
+      # protocol log (DEBUG_FILE) are written under duman-sonuclar/, the step below uploads them.
       - name: Duman testi (paketlenmiş Linux derlemesi, xvfb)
         working-directory: desktop
         env:
           TELSIZ_UYGULAMA: dist/linux-unpacked/telsiz-masaustu
+          DEBUG: pw:protocol,pw:browser
+          DEBUG_FILE: duman-sonuclar/playwright-protokol.log
         run: xvfb-run --auto-servernum npm run test:duman
 
       - name: Linux paketlerini yükle
@@ -105,7 +111,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Hata anındaki ekran görüntülerini yükle
+      - name: Hata anındaki ekran görüntülerini ve günlükleri yükle
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -155,10 +161,18 @@ jobs:
           test -f "dist/Telsiz-${version}-tasinabilir.exe"
           test -f dist/win-unpacked/Telsiz.exe
 
+      # Hata anında duman-sonuclar/ altına teşhis dosyaları yazılır (Linux adımındaki gibi). Başlatma
+      # uzarsa zaman aşımından önce Telsiz süreçlerinin pencere başlıkları, yanıt durumu ve masaüstü
+      # görüntüsü de kaydedilir (baslatma-durumu.txt, baslatma-ekrani.png).
+      # On failure diagnostics are written under duman-sonuclar/ (as in the Linux step). If the
+      # launch takes long, the window titles and responsiveness of the Telsiz processes and a desktop
+      # screenshot are also recorded before the timeout.
       - name: Duman testi (paketlenmiş Windows derlemesi)
         working-directory: desktop
         env:
           TELSIZ_UYGULAMA: dist/win-unpacked/Telsiz.exe
+          DEBUG: pw:protocol,pw:browser
+          DEBUG_FILE: duman-sonuclar/playwright-protokol.log
         run: npm run test:duman
 
       - name: Windows paketlerini yükle
@@ -171,7 +185,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Hata anındaki ekran görüntülerini yükle
+      - name: Hata anındaki ekran görüntülerini ve günlükleri yükle
         if: failure()
         uses: actions/upload-artifact@v4
         with:
