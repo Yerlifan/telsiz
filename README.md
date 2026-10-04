@@ -144,6 +144,8 @@ Sunucu ortam değişkenleriyle ayarlanır. Her ayarın Türkçe adı ve İngiliz
 | `VERI_KLASORU` (`DATA_DIR`) | çalışma klasöründeki `veri` | Verilerin yazıldığı klasör. Tek dosyalık sunucuda dosyanın yanındaki `veri` klasörüdür. |
 | `MAKS_YUKLEME_MB` (`MAX_UPLOAD_MB`) | `25` | Tek bir dosyanın en büyük boyutu (MB), en fazla 1024. |
 | `YUKLEME_KOTASI_MB` (`UPLOAD_QUOTA_MB`) | `2048` | Tüm yüklemelerin toplam üst sınırı (MB). |
+| `KULLANICI_YUKLEME_KOTASI_MB` (`USER_UPLOAD_QUOTA_MB`) | `512` | Bir kullanıcının kayıtlı yüklemelerinin toplam üst sınırı (MB). |
+| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | Bütün konuşmalarda saklanan toplam mesaj sınırı. Aşılınca en büyük konuşmaların en eski mesajları silinir. |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Virgülle ayrılmış STUN adresleri. Boş bırakılırsa STUN kullanılmaz. |
 | `TURN_URL` | boş | Virgülle ayrılmış TURN adresleri (`turn:` veya `turns:`). Bazı ağlarda ses için gerekir. |
 | `TURN_KULLANICI` (`TURN_USERNAME`) | boş | TURN kullanıcı adı. |

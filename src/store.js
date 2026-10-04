@@ -26,6 +26,8 @@ const FS_RETRIES = 3
 const FS_RETRY_DELAY_MS = 50
 const COMPACT_RATIO = 0.3
 const DEFAULT_MAX_PER_CHANNEL = 20000
+// Tüm kanallardaki toplam mesaj sınırı (bellek koruması), aşılınca en büyük kanalların en eskileri düşer
+const DEFAULT_MAX_TOTAL = 500000
 const DEFAULT_COMPACT_MIN_LINES = 1000
 const DEFAULT_LIST_LIMIT = 50
 const MAX_LINE_BYTES = 16 * 1024 * 1024
@@ -362,6 +364,7 @@ async function openStore (options) {
   const dir = path.resolve(opts.dir)
   const lang = i18n.LANGS.includes(opts.lang) ? opts.lang : DEFAULT_LANG
   const maxPerChannel = posInt(opts.maxMessagesPerChannel, DEFAULT_MAX_PER_CHANNEL)
+  const maxTotal = posInt(opts.maxTotalMessages, DEFAULT_MAX_TOTAL)
   const compactMinLines = posInt(opts.compactMinLines, DEFAULT_COMPACT_MIN_LINES)
   const log = makeLogger(opts.log)
 
@@ -434,6 +437,7 @@ async function openStore (options) {
     state: initialState,
     initState,
     saveState,
+    flushState,
     flush,
     close,
     listMessages,
@@ -482,6 +486,9 @@ async function openStore (options) {
       throw ioError(err, lang)
     }
   }
+  // Toplam sınır açılışta yalnızca bellekte uygulanır. Diskteki veri değişmediği sürece her açılışta
+  // aynı mesajlar düşer, düşen yüklemeleri uzlaştırma siler, oran aşılırsa dosyalar sıkıştırılır.
+  trimTotal(false)
 
   // 2. Yazma aşaması: klasörler, kilit, temizlik, uzlaştırma ve sıkıştırma.
   try {
@@ -886,6 +893,17 @@ async function openStore (options) {
     })
   }
 
+  // Çağrı anına kadar yapılmış durum değişikliklerinin state.json'a atomik yazılıp diske
+  // zorlanmasını (fsync) bekler. Bekleyen 200 ms'lik zamanlayıcı beklenmez, yazım hemen başlar.
+  // Aynı anda bekleyen bütün çağıranlar ortak yazımı paylaşır: sürmekte olan yazım bitince
+  // en fazla bir yazım daha yapılır. Yazım başarısız olursa hata fırlatır, değişiklik bellekte
+  // kalır ve yeniden deneme döngüsü onu daha sonra yazar. Kapanmış store'da 'closed' hatası verir.
+  function flushState () {
+    if (closed) return Promise.reject(new StoreError(i18n.t(lang, 'store.closed'), 'closed'))
+    if (!api.state) return Promise.resolve()
+    return waitState()
+  }
+
   // Çağrı anına kadar planlanmış tüm yazımları (durum, mesaj kuyrukları, yüklemeler) bekler.
   async function flush () {
     if (closed) return
@@ -1073,6 +1091,69 @@ async function openStore (options) {
     }
     maybeCompact(ch)
     kick(ch)
+    for (const old of trimTotal(true)) dropped.push(old)
+    return dropped
+  }
+
+  // Toplam mesaj sayısı sınırı aşıldıysa en çok mesajı olan kanallardan en eski mesajları düşürür
+  // (kanallar aynı seviyeye inene kadar, eşitlikte en eski mesajı daha eski olan kanal önce).
+  // Kanal başına sınırdaki gibi mesaj listeden ve dizinden çıkar, dosya oran aşılınca sıkıştırılır.
+  // Çalışırken düşen her mesaj için günlüğe silme kaydı da eklenir, böylece yeniden açılışta
+  // kanallar arasındaki seçim farklı çıksa bile düşen mesaj geri gelmez. Düşen mesajlar döner.
+  function trimTotal (persist) {
+    let excess = index.size - maxTotal
+    if (excess <= 0) return []
+    const list = []
+    for (const ch of channels.values()) {
+      if (ch.list.length > 0) list.push(ch)
+    }
+    const before = (a, b) => b.list.length - a.list.length || a.list[0].id - b.list[0].id
+    const cuts = new Map()
+    if (excess === 1) {
+      // Sınırdayken her yeni mesajda olan durum: sıralamadan en büyük kanal bulunur
+      let best = list[0]
+      for (const ch of list) {
+        if (before(ch, best) < 0) best = ch
+      }
+      cuts.set(best, 1)
+      excess = 0
+    } else {
+      list.sort(before)
+    }
+    let group = 1
+    let level = list[0].list.length
+    while (excess > 0) {
+      while (group < list.length && list[group].list.length >= level) group++
+      const next = group < list.length ? list[group].list.length : 0
+      const room = (level - next) * group
+      if (room >= excess) {
+        const even = Math.floor(excess / group)
+        const extra = excess % group
+        list.slice(0, group).forEach((ch, i) => {
+          const target = level - even - (i < extra ? 1 : 0)
+          cuts.set(ch, ch.list.length - target)
+        })
+        excess = 0
+      } else {
+        excess -= room
+        level = next
+      }
+    }
+    const dropped = []
+    for (const [ch, count] of cuts) {
+      if (count <= 0) continue
+      const removed = ch.list.splice(0, count)
+      for (const old of removed) {
+        index.delete(old.id)
+        if (!persist) continue
+        dropped.push(copyMessage(old))
+        enqueue(ch, { op: 'del', id: old.id })
+      }
+      if (persist) {
+        maybeCompact(ch)
+        kick(ch)
+      }
+    }
     return dropped
   }
 

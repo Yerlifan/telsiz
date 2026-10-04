@@ -1305,3 +1305,162 @@ test('klasör ve dosya izinleri yalnızca sahibine açıktır', { skip: IS_WINDO
     removeDir(path.dirname(dir))
   }
 })
+
+test('flushState: zamanlayıcıyı beklemeden yazar, dönünce değişiklik diskte, bekleyenler ortak yazımı paylaşır', async () => {
+  const dir = tempDir()
+  const statePath = path.join(dir, 'state.json')
+  let stateRenames = 0
+  let gate = null
+  let waiting = false
+  // Yalnız başarılı taşımalar sayılır. gate varken state.json taşıması serbest bırakılana kadar bekletilir.
+  const restore = patchFs('rename', (original) => async function (from, to) {
+    if (gate && path.basename(String(to)) === 'state.json') {
+      waiting = true
+      await gate.promise
+    }
+    const result = await original.call(this, from, to)
+    if (path.basename(String(to)) === 'state.json') stateRenames++
+    return result
+  })
+  try {
+    const store = await populated(dir)
+    await store.flush()
+    stateRenames = 0
+
+    store.state.serverName = 'Hemen'
+    store.saveState()
+    await store.flushState()
+    assert.equal(readJson(statePath).serverName, 'Hemen')
+    assert.equal(stateRenames, 1)
+    // Değişiklik yoksa yazmaz
+    await store.flushState()
+    assert.equal(stateRenames, 1)
+
+    let release = null
+    gate = {
+      promise: new Promise((resolve) => {
+        release = resolve
+      })
+    }
+    store.state.serverName = 'Birinci'
+    store.saveState()
+    const first = store.flushState()
+    await waitFor(() => waiting)
+    const rest = []
+    let resolved = 0
+    for (const i of range(1, 20)) {
+      store.state.serverName = 'Ad ' + i
+      store.saveState()
+      rest.push(store.flushState().then(() => {
+        resolved++
+        assert.equal(readJson(statePath).serverName, 'Ad 20')
+      }))
+    }
+    // Sürmekte olan yazım bu değişiklikleri içermez, bekleyenler henüz çözülmemiştir
+    await sleep(0)
+    assert.equal(resolved, 0)
+    gate = null
+    release()
+    await first
+    await Promise.all(rest)
+    assert.equal(resolved, 20)
+    // Sürmekte olan yazım ve ardından tek bir ortak yazım
+    assert.equal(stateRenames, 3)
+    assert.equal(readJson(statePath).serverName, 'Ad 20')
+    await store.close()
+    await assert.rejects(store.flushState(), isCode('closed'))
+  } finally {
+    restore()
+    removeDir(dir)
+  }
+})
+
+test('flushState: yazım hatasında reddedilir, değişiklik bellekte kalır ve yeniden denemede yazılır', async () => {
+  const dir = tempDir()
+  const statePath = path.join(dir, 'state.json')
+  const log = makeLog()
+  let failing = false
+  const restore = patchFs('rename', (original) => async function (from, to) {
+    if (failing && path.basename(String(to)) === 'state.json') {
+      const err = new Error('disk hatası')
+      err.code = 'EIO'
+      throw err
+    }
+    return original.call(this, from, to)
+  })
+  try {
+    const store = await openStore({ dir, log })
+    store.initState({ serverName: 'Eski' })
+    await store.flush()
+    failing = true
+    store.state.serverName = 'Yeni'
+    store.saveState()
+    await assert.rejects(store.flushState(), isCode('write_failed'))
+    assert.equal(store.state.serverName, 'Yeni')
+    assert.equal(readJson(statePath).serverName, 'Eski')
+    assert.equal(fs.existsSync(statePath + '.tmp'), false)
+    assert.ok(log.lines.error.length >= 1)
+    failing = false
+    // Yeniden deneme zamanlayıcısı kendiliğinden yazar
+    await waitFor(() => readJson(statePath).serverName === 'Yeni', 10000)
+    await store.flushState()
+    await store.close()
+  } finally {
+    restore()
+    removeDir(dir)
+  }
+})
+
+test('toplam mesaj sınırı: en büyük kanalın en eskisi düşer, silme kaydı yazılır, yeniden açılışta geri gelmez', async () => {
+  const dir = tempDir()
+  try {
+    const store = await populated(dir, { maxTotalMessages: 6 })
+    for (const id of range(1, 4)) assert.deepEqual(store.addMessage(msg(id, 1)), [])
+    for (const id of range(5, 6)) assert.deepEqual(store.addMessage(msg(id, 2)), [])
+    assert.deepEqual(store.addMessage(msg(7, 3)), [msg(1, 1)])
+    // Eşitlikte (3 ve 3) en eski mesajı daha eski olan kanal önce
+    assert.deepEqual(store.addMessage(msg(8, 2)), [msg(2, 1)])
+    assert.deepEqual(store.addMessage(msg(9, 2)), [msg(5, 2)])
+    assert.deepEqual(ids(store.listMessages(1).messages), [3, 4])
+    assert.deepEqual(ids(store.listMessages(2).messages), [6, 8, 9])
+    assert.deepEqual(ids(store.listMessages(3).messages), [7])
+    assert.equal(store.getMessage(1), null)
+    await store.close()
+    const lines = nonEmptyLines(path.join(dir, 'messages', '1.jsonl')).map((line) => JSON.parse(line))
+    assert.deepEqual(lines.filter((r) => r.op === 'del').map((r) => r.id), [1, 2])
+
+    // Sınır kaldırılsa bile düşen mesajlar geri gelmez
+    const reopened = await openStore({ dir, log: makeLog(), maxTotalMessages: 1000 })
+    assert.deepEqual(ids(reopened.listMessages(1).messages), [3, 4])
+    assert.deepEqual(ids(reopened.listMessages(2).messages), [6, 8, 9])
+    await reopened.close()
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('toplam mesaj sınırı açılışta kanalları en büyükten başlayarak eşitler, yenileri kalır', async () => {
+  const dir = tempDir()
+  try {
+    const store = await populated(dir)
+    for (const id of range(1, 10)) store.addMessage(msg(id, 1))
+    for (const id of range(11, 14)) store.addMessage(msg(id, 2))
+    store.addMessage(msg(15, 3))
+    await store.close()
+
+    const nine = await openStore({ dir, log: makeLog(), maxTotalMessages: 9 })
+    assert.deepEqual(ids(nine.listMessages(1).messages), [7, 8, 9, 10])
+    assert.deepEqual(ids(nine.listMessages(2).messages), [11, 12, 13, 14])
+    assert.deepEqual(ids(nine.listMessages(3).messages), [15])
+    await nine.close()
+
+    const six = await openStore({ dir, log: makeLog(), maxTotalMessages: 6 })
+    assert.deepEqual(ids(six.listMessages(1).messages), [9, 10])
+    assert.deepEqual(ids(six.listMessages(2).messages), [12, 13, 14])
+    assert.deepEqual(ids(six.listMessages(3).messages), [15])
+    assert.equal(six.getMessage(8), null)
+    await six.close()
+  } finally {
+    removeDir(dir)
+  }
+})

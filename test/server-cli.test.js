@@ -16,7 +16,8 @@ const SERVER_JS = path.join(__dirname, '..', 'server.js')
 const DEAD_PID = '2147483646'
 
 const CONFIG_KEYS = ['PORT', 'HOST', 'SUNUCU_ADI', 'SERVER_NAME', 'VERI_KLASORU', 'DATA_DIR', 'MAKS_YUKLEME_MB',
-  'MAX_UPLOAD_MB', 'YUKLEME_KOTASI_MB', 'UPLOAD_QUOTA_MB', 'STUN_URL', 'TURN_URL', 'TURN_KULLANICI', 'TURN_USERNAME',
+  'MAX_UPLOAD_MB', 'YUKLEME_KOTASI_MB', 'UPLOAD_QUOTA_MB', 'KULLANICI_YUKLEME_KOTASI_MB', 'USER_UPLOAD_QUOTA_MB',
+  'MAKS_TOPLAM_MESAJ', 'MAX_TOTAL_MESSAGES', 'STUN_URL', 'TURN_URL', 'TURN_KULLANICI', 'TURN_USERNAME',
   'TURN_SIFRE', 'TURN_PASSWORD', 'GUVENILIR_VEKIL', 'TRUSTED_PROXY', 'DIL', 'TELSIZ_LANG', 'LANG', 'LC_ALL', 'LC_MESSAGES']
 
 // Komutu çalıştırır, çıkışı ve çıktıları döner. Testi çalıştıranın ayarları alt sürece geçmez.
@@ -462,6 +463,30 @@ describe('konsol dili ve İngilizce ortam değişkeni adları', () => {
       assert.throws(() => readConfig({ DIL: 'en', TRUSTED_PROXY: bad }), /TRUSTED_PROXY is invalid/, bad)
     }
     assert.throws(() => readConfig({ DIL: 'tr', GUVENILIR_VEKIL: 'kotu' }), /GUVENILIR_VEKIL değeri geçersiz/)
+  })
+
+  it('kullanıcı yükleme kotası ve toplam mesaj sınırı: varsayılanlar, takma adlar ve hatalı değerler', () => {
+    const { readConfig } = require('../server.js')
+    const MB = 1024 * 1024
+    const defaults = readConfig({})
+    assert.equal(defaults.userUploadQuotaBytes, 512 * MB)
+    assert.equal(defaults.maxTotalMessages, 500000)
+    // Verilmezse tek dosya sınırından küçük kalmaz
+    assert.equal(readConfig({ MAKS_YUKLEME_MB: '1000', YUKLEME_KOTASI_MB: '4096' }).userUploadQuotaBytes, 1000 * MB + 16)
+
+    const english = readConfig({ USER_UPLOAD_QUOTA_MB: '100', MAX_TOTAL_MESSAGES: '1234' })
+    assert.equal(english.userUploadQuotaBytes, 100 * MB)
+    assert.equal(english.maxTotalMessages, 1234)
+    const both = readConfig({ KULLANICI_YUKLEME_KOTASI_MB: '50', USER_UPLOAD_QUOTA_MB: '100', MAKS_TOPLAM_MESAJ: '99', MAX_TOTAL_MESSAGES: '1234' })
+    assert.equal(both.userUploadQuotaBytes, 50 * MB)
+    assert.equal(both.maxTotalMessages, 99)
+
+    assert.throws(() => readConfig({ DIL: 'en', USER_UPLOAD_QUOTA_MB: '10', MAX_UPLOAD_MB: '25' }), /USER_UPLOAD_QUOTA_MB cannot be smaller than MAX_UPLOAD_MB/)
+    assert.throws(() => readConfig({ DIL: 'tr', KULLANICI_YUKLEME_KOTASI_MB: 'x' }), /KULLANICI_YUKLEME_KOTASI_MB değeri geçersiz/)
+    for (const bad of ['0', '-5', '1.5', 'abc', '100000001']) {
+      assert.throws(() => readConfig({ DIL: 'en', MAX_TOTAL_MESSAGES: bad }), { message: new RegExp('^MAX_TOTAL_MESSAGES is invalid: "' + bad.replace('.', '\\.') + '"') }, bad)
+    }
+    assert.throws(() => readConfig({ DIL: 'tr', MAKS_TOPLAM_MESAJ: '0' }), /MAKS_TOPLAM_MESAJ değeri geçersiz: "0"\. 1 ile 100000000 arasında bir tam sayı girin\./)
   })
 
   it('reset-password İngilizce konsolda, DATA_DIR takma adıyla', async () => {

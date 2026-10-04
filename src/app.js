@@ -54,10 +54,16 @@ const DEFAULTS = Object.freeze({
   maxJsonBytes: 65536,
   uploadMaxBytes: 25 * 1024 * 1024 + 16,
   uploadQuotaBytes: 2048 * 1024 * 1024,
+  // Kullanıcı başına kota: kullanıcının hâlâ kayıtlı (mesaja, profile bağlı veya bekleyen) yüklemelerinin
+  // toplam boyutu. Verilmezse ve tek dosya sınırından küçükse tek dosya sınırına yükseltilir.
+  userUploadQuotaBytes: 512 * 1024 * 1024,
   maxUploadsPerMessage: 10,
   maxConcurrentUploads: 4,
   orphanUploadTtlMs: 3600000,
   maxMessagesPerChannel: 20000,
+  // Tüm kanallardaki toplam mesaj sınırı (bellek koruması). Aşılınca yeni mesaj reddedilmez, en çok
+  // mesajı olan kanalların en eski mesajları düşer (src/store.js trimTotal).
+  maxTotalMessages: 500000,
   authLimit: 20,
   authWindowMs: 600000,
   loginFailLimit: 10,
@@ -106,7 +112,7 @@ const POSITIVE_OPTIONS = [
   'uploadWindowMs', 'adminLimit', 'adminWindowMs', 'signalLimit', 'signalWindowMs',
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
-  'musicWindowMs', 'musicIdleMs'
+  'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs']
 
@@ -300,6 +306,9 @@ function resolveOptions (options) {
     if (!Number.isSafeInteger(config[key]) || config[key] < 1) {
       throw new TypeError('createChatServer: ' + key + ' must be a positive integer.')
     }
+  }
+  if (options.userUploadQuotaBytes === undefined && config.userUploadQuotaBytes < config.uploadMaxBytes) {
+    config.userUploadQuotaBytes = config.uploadMaxBytes
   }
   if (!Number.isSafeInteger(config.graceMs) || config.graceMs < 0) {
     throw new TypeError('createChatServer: graceMs must be a non-negative integer.')
@@ -650,7 +659,7 @@ function sameJson (a, b) {
 async function createChatServer (options) {
   const config = resolveOptions(options)
   const log = makeLogger(config.log)
-  const store = await openStore({ dir: config.dataDir, maxMessagesPerChannel: config.maxMessagesPerChannel, log: config.log, lang: config.lang })
+  const store = await openStore({ dir: config.dataDir, maxMessagesPerChannel: config.maxMessagesPerChannel, maxTotalMessages: config.maxTotalMessages, log: config.log, lang: config.lang })
   let state
   let dummyHash
   try {
@@ -677,6 +686,9 @@ async function createChatServer (options) {
   for (const r of state.uploads) uploadsById.set(r.id, r)
   for (const c of state.channels) channelsById.set(c.id, c)
   let uploadsUsed = store.uploadsBytes()
+  // Kullanıcı kimliği -> kayıtlı yüklemelerinin toplam boyutu (kullanıcı başına kota için)
+  const uploadsUsedBy = new Map()
+  for (const r of state.uploads) addUserUploadBytes(r.uploaderId, uploadSize(r))
   let inflightBytes = 0
   let activeUploads = 0
   const uploadJobs = new Set()
@@ -945,6 +957,31 @@ async function createChatServer (options) {
     return typeof rec.size === 'number' && Number.isFinite(rec.size) && rec.size > 0 ? rec.size : 0
   }
 
+  function addUserUploadBytes (userId, delta) {
+    const next = (uploadsUsedBy.get(userId) || 0) + delta
+    if (next > 0) uploadsUsedBy.set(userId, next)
+    else uploadsUsedBy.delete(userId)
+  }
+
+  // Kullanıcının kayıtlı yüklemeleri ve sürmekte olan yüklemelerinin şimdiye kadar gelen baytları
+  function userUploadBytes (userId) {
+    let total = uploadsUsedBy.get(userId) || 0
+    for (const job of uploadJobs) {
+      if (job.userId === userId) total += job.bytes
+    }
+    return total
+  }
+
+  // Güvenlikle ilgili değişikliklerin (parola, oturum kapatma, engelleme, rol, davet kodu, grup
+  // anahtarı, hesap silme) başarı yanıtı state.json diske yazılıp fsync edildikten sonra gider.
+  // Bellekteki etki hemen uygulanır. Yazım başarısız olursa hata işleyicisi günlüğe yazar ve
+  // 500 server_error döner (store kapanmışsa 503). Değişiklik bellekte kalır, çünkü geri almak
+  // yarım kalmış yan etkileri (kapanan oturumlar, gönderilen olaylar) geri getiremez. Store'un
+  // yeniden deneme döngüsü onu daha sonra yazar. Aynı anda bekleyen istekler tek yazımı paylaşır.
+  function okDurable (ctx, data) {
+    return store.flushState().then(() => ok(ctx, data))
+  }
+
   // Yükleme kayıtlarını ve dosyalarını siler.
   function removeUploads (ids) {
     if (!ids || ids.length === 0) return
@@ -961,6 +998,7 @@ async function createChatServer (options) {
     }
     if (doomed.size > 0) {
       state.uploads = state.uploads.filter((r) => !doomed.has(r))
+      for (const rec of doomed) addUserUploadBytes(rec.uploaderId, -uploadSize(rec))
       store.saveState()
     }
     for (const id of files) {
@@ -1264,7 +1302,7 @@ async function createChatServer (options) {
 
   function handleLogout (ctx) {
     deleteSessions([ctx.session], 'invalid_token')
-    ok(ctx, { ok: true })
+    return okDurable(ctx, { ok: true })
   }
 
   function handleState (ctx) {
@@ -1336,7 +1374,7 @@ async function createChatServer (options) {
     loginFailLimiter.reset('n:' + user.key)
     deleteSessions(sessionsOf(user.id).filter((s) => s !== ctx.session), 'invalid_token')
     store.saveState()
-    ok(ctx, { ok: true })
+    return okDurable(ctx, { ok: true })
   }
 
   // Parola sıfırlamasından sonra (sarılmış anahtar yokken) yeni anahtar çifti yüklenir
@@ -1449,7 +1487,7 @@ async function createChatServer (options) {
     if (user.role === 'owner') return fail(ctx, 403, 'owner_cannot_delete')
     loginFailLimiter.reset(failKey)
     deleteAccount(user)
-    ok(ctx, { ok: true })
+    return okDurable(ctx, { ok: true })
   }
 
   // Sunucu üyelerinden (arkadaş olmayanlardan) yeni özel mesaj kabul etme
@@ -1573,7 +1611,7 @@ async function createChatServer (options) {
     const doomed = byId ? own.filter((s) => s.hash.startsWith(b.id)) : own.filter((s) => s !== ctx.session)
     if (byId && doomed.length === 0) return fail(ctx, 404, 'session_not_found')
     deleteSessions(doomed, 'invalid_token')
-    ok(ctx, { ok: true, revoked: doomed.length })
+    return okDurable(ctx, { ok: true, revoked: doomed.length })
   }
 
   // ---------------------------------------------------------------- uç noktalar: arkadaşlar ve engeller
@@ -1653,6 +1691,7 @@ async function createChatServer (options) {
     if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
     const result = social.block(ctx.user.id, target.id, Date.now())
     if (!result.error) hub.typingPairChanged(ctx.user.id, target.id)
+    if (!result.error) return okDurable(ctx, { ok: true, userId: target.id, state: result.state })
     socialResult(ctx, result, target.id)
   }
 
@@ -1880,7 +1919,7 @@ async function createChatServer (options) {
   // ---------------------------------------------------------------- uç noktalar: yüklemeler
 
   // İstek gövdesini akışla geçici dosyaya yazar.
-  // Sonuç: 'ok' | 'too_large' | 'quota_full' | 'aborted' | 'error' | 'signed_out' (deleteSessions keser)
+  // Sonuç: 'ok' | 'too_large' | 'quota_full' | 'user_quota_full' | 'aborted' | 'error' | 'signed_out' (deleteSessions keser)
   function receiveUpload (job, ws) {
     const req = job.req
     return new Promise((resolve) => {
@@ -1922,6 +1961,11 @@ async function createChatServer (options) {
           finish('quota_full')
           return
         }
+        if (userUploadBytes(job.userId) > config.userUploadQuotaBytes) {
+          req.pause()
+          finish('user_quota_full')
+          return
+        }
         if (!ws.write(chunk)) req.pause()
       }
       function onDrain () {
@@ -1961,11 +2005,12 @@ async function createChatServer (options) {
     if (declared !== null && declared > config.uploadMaxBytes) return failTooLarge(ctx)
     if (declared === 0) return fail(ctx, 400, 'empty_upload')
     if (uploadsUsed + inflightBytes + (declared || 1) > config.uploadQuotaBytes) return fail(ctx, 507, 'quota_full')
+    if (userUploadBytes(ctx.user.id) + (declared || 1) > config.userUploadQuotaBytes) return fail(ctx, 507, 'user_quota_full')
     // Bundan sonra gövde okunur, ret yanıtlarında bağlantı kapatılır
     ctx.drainable = false
 
     const id = crypto.randomBytes(16).toString('hex')
-    const job = { req: ctx.req, session: ctx.session, bytes: 0, finish: null }
+    const job = { req: ctx.req, session: ctx.session, userId: ctx.user.id, bytes: 0, finish: null }
     activeUploads++
     uploadJobs.add(job)
     try {
@@ -1975,6 +2020,7 @@ async function createChatServer (options) {
         await store.discardUpload(id).catch((err) => log.warn(i18n.t(config.lang, 'log.partialUploadRemoveFailed', { error: errText(err, config.lang) })))
         if (result === 'too_large') return failTooLarge(ctx)
         if (result === 'quota_full') return fail(ctx, 507, 'quota_full')
+        if (result === 'user_quota_full') return fail(ctx, 507, 'user_quota_full')
         if (result === 'error') return fail(ctx, 500, 'server_error')
         if (result === 'signed_out') return failSignedOut(ctx)
         return
@@ -1993,6 +2039,7 @@ async function createChatServer (options) {
       state.uploads.push(rec)
       uploadsById.set(id, rec)
       uploadsUsed += size
+      addUserUploadBytes(rec.uploaderId, size)
       store.saveState()
       ok(ctx, { id, size })
     } finally {
@@ -2160,7 +2207,7 @@ async function createChatServer (options) {
       store.saveState()
       hub.bumpMeta()
     }
-    ok(ctx, { ok: true })
+    return okDurable(ctx, { ok: true })
   }
 
   // Sahip herkesi (kendisi hariç), yönetici yalnızca üyeleri engeller veya engelini kaldırır.
@@ -2178,7 +2225,7 @@ async function createChatServer (options) {
       store.saveState()
       hub.bumpMeta()
     }
-    ok(ctx, { ok: true })
+    return okDurable(ctx, { ok: true })
   }
 
   // Geçici parola için istemciyle aynı türetme sunucuda yapılır. Kişisel anahtarlar
@@ -2199,7 +2246,7 @@ async function createChatServer (options) {
     deleteSessions(sessionsOf(target.id), 'invalid_token')
     store.saveState()
     hub.bumpMeta()
-    ok(ctx, { ok: true, tempPassword: creds.tempPassword })
+    return okDurable(ctx, { ok: true, tempPassword: creds.tempPassword })
   }
 
   // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
@@ -2235,6 +2282,8 @@ async function createChatServer (options) {
     if (musicPatch) state.music = cleanMusicSettings(Object.assign({}, state.music, musicPatch))
     store.saveState()
     hub.bumpMeta()
+    // Grup anahtarı değişimi (activeKid) kalıcı olmadan yanıt verilmez
+    if (hasKid) return okDurable(ctx, { ok: true })
     ok(ctx, { ok: true })
   }
 
@@ -2242,7 +2291,7 @@ async function createChatServer (options) {
     if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
     state.inviteCode = auth.generateCode()
     store.saveState()
-    ok(ctx, { ok: true, inviteCode: state.inviteCode })
+    return okDurable(ctx, { ok: true, inviteCode: state.inviteCode })
   }
 
   // ---------------------------------------------------------------- uç noktalar: ses
