@@ -2803,18 +2803,44 @@ function buildNotificationsPage (page) {
   })
   levelSec.appendChild(levels.group)
 
-  // Mesaj sesi
+  // Bildirim sesleri: mesaj ve istek sesleri anahtarı, bütün bildirim seslerinin düzeyi, dinleme düğmeleri
   const soundSec = sSection(page, t('settings.notify.soundTitle'), 'set-sound-section')
   const sound = sSwitch('set-message-sound', t('settings.notify.sound'), messageSoundEnabled(), (checked) => {
     storeSet(SETTINGS_KEYS.messageSound, checked ? '1' : '0')
   }, t('settings.notify.soundHint'))
   soundSec.appendChild(sound.row)
-  const soundRow = sActions(soundSec)
   const soundMsg = sMsg('set-sound-msg')
+  const showSoundResult = (ok) => setMsg(soundMsg, ok ? '' : () => t('settings.notify.soundUnsupported'), ok ? '' : 'error')
+  const volumeValue = rangeLabel(soundSec, 'set-notify-volume', t('settings.notify.volume'))
+  const volume = sRange('set-notify-volume', 0, 100, 1, notifyVolume())
+  soundSec.appendChild(volume)
+  soundSec.appendChild(sHint(t('settings.notify.volumeHint'), 'set-notify-volume-hint'))
+  const showVolume = () => {
+    volumeValue.textContent = formatPercent(sliderValue(volume, 0, 100))
+  }
+  showVolume()
+  volume.addEventListener('input', () => {
+    setNotifyVolume(sliderValue(volume, 0, 100))
+    showVolume()
+  })
+  // Kaydırıcı bırakılınca yeni düzeyde kısa mesaj sesi çalar
+  volume.addEventListener('change', () => {
+    showSoundResult(playMessageSound({ test: true }))
+  })
+  const soundRow = sActions(soundSec)
   soundRow.appendChild(sButton('button button-secondary', t('settings.notify.soundTest'), 'set-sound-test', () => {
-    const ok = playMessageSound({ test: true })
-    setMsg(soundMsg, ok ? '' : () => t('settings.notify.soundUnsupported'), ok ? '' : 'error')
+    showSoundResult(playMessageSound({ test: true }))
   }, 'i-bell'))
+  soundSec.appendChild(h('p', 'label', t('settings.notify.previewTitle')))
+  const previews = sActions(soundSec)
+  previews.id = 'set-sound-previews'
+  previews.setAttribute('role', 'group')
+  previews.setAttribute('aria-label', t('settings.notify.previewTitle'))
+  NOTIFY_PREVIEWS.forEach((kind) => {
+    previews.appendChild(sButton('button button-secondary button-small', t('settings.notify.preview.' + kind), 'set-sound-preview-' + kind, () => {
+      showSoundResult(playAlertSound(kind, { test: true }))
+    }, 'i-play'))
+  })
   soundSec.appendChild(soundMsg)
   page.appendChild(sHint(t('settings.notify.dndNote'), 'set-dnd-note'))
 
@@ -2826,10 +2852,14 @@ function buildNotificationsPage (page) {
     desk.input.disabled = perm === 'unsupported' || perm === 'insecure'
     setRadioValue(levels.inputs, notifyLevel())
     sound.input.checked = messageSoundEnabled()
+    if (document.activeElement !== volume) {
+      volume.value = String(notifyVolume())
+      showVolume()
+    }
     dnd.hidden = safeCall(() => myChosenStatus(), 'online') !== 'dnd'
   }
   update()
-  return { update: update, signature: () => [notificationPermission(), notificationsEnabled(), notifyLevel(), messageSoundEnabled(), safeCall(() => myChosenStatus(), '')].join('|') }
+  return { update: update, signature: () => [notificationPermission(), notificationsEnabled(), notifyLevel(), messageSoundEnabled(), notifyVolume(), safeCall(() => myChosenStatus(), '')].join('|') }
 }
 
 function onDesktopNotifyChange (checked, input, msg) {
@@ -2876,101 +2906,52 @@ function onDesktopNotifyChange (checked, input, msg) {
   }
 }
 
-// Mesaj sesi: sayfa gizliyken başkasının mesajında kısa bip (WebAudio). Çağıran taraf sayfanın
-// gizli olduğunu, mesajın başkasının olduğunu ve bildirim düzeyini denetler. Burada yalnızca ayar ve
-// Rahatsız etmeyin durumu denetlenir. opts.test ayar sayfasındaki "Sesi dene" içindir.
+// Mesaj sesi ve bildirim sesleri (31-sesler.js, window.TelsizSesler). Mesaj sesi: sayfa gizliyken başkasının
+// mesajında kısa iki tonlu ses. Özel mesaj ve arkadaşlık isteği kendi 2 saniyelik seslerini çalar. Üçü de
+// Mesaj sesi ayarına ve Rahatsız etmeyin durumuna uyar. Çağıran taraf sayfanın durumunu, mesajın başkasının
+// olduğunu ve bildirim düzeyini denetler. opts.test ayar sayfasındaki dinleme düğmeleri içindir. Ses düzeyi
+// Bildirimler bölümündeki kaydırıcıdan gelir (telsiz.notifyVolume). Ses odası sesleri (katılma, ayrılma,
+// ekran yayını, odadan düşme) Ses ve Görüntü bölümündeki Ses odası sesleri ayarına uyar.
 
-const messageSound = { ctx: null, timer: 0 }
+const NOTIFY_PREVIEWS = ['join', 'leave', 'share', 'dm', 'friend', 'drop']
 
 function messageSoundEnabled () {
   return storeGet(SETTINGS_KEYS.messageSound) !== '0'
 }
 
-function soundContext () {
-  if (messageSound.ctx) return messageSound.ctx
-  const Ctx = window.AudioContext || window.webkitAudioContext
-  if (typeof Ctx !== 'function') return null
-  try {
-    messageSound.ctx = new Ctx()
-  } catch (err) {
-    messageSound.ctx = null
-  }
-  return messageSound.ctx
+function soundsApi () {
+  const api = window.TelsizSesler
+  return api && typeof api.play === 'function' ? api : null
+}
+
+function notifyVolume () {
+  const api = soundsApi()
+  return api ? api.getVolume() : 40
+}
+
+function setNotifyVolume (value) {
+  const api = soundsApi()
+  return api ? api.setVolume(value) : notifyVolume()
 }
 
 // İlk kullanıcı etkileşiminde ses bağlamı hazırlanır, sonra boşta beklerken askıya alınır
 function unlockMessageSound () {
-  const ctx = soundContext()
-  if (!ctx || typeof ctx.resume !== 'function') return
-  try {
-    ctx.resume().then(() => {
-      sleepMessageSound(1000)
-    }, () => {})
-  } catch (err) {
-    // Tarayıcı izin vermedi
-  }
+  const api = soundsApi()
+  if (api) api.unlock()
 }
 
-function sleepMessageSound (ms) {
-  clearTimeout(messageSound.timer)
-  messageSound.timer = setTimeout(() => {
-    const ctx = messageSound.ctx
-    if (ctx && ctx.state === 'running' && typeof ctx.suspend === 'function') {
-      try {
-        ctx.suspend().catch(() => {})
-      } catch (err) {
-        // Askıya alınamadı
-      }
-    }
-  }, ms)
-}
-
-function playMessageSound (opts) {
+function playAlertSound (kind, opts) {
   const test = Boolean(opts && opts.test)
   if (!test) {
     if (!messageSoundEnabled()) return false
     if (safeCall(() => myChosenStatus(), 'online') === 'dnd') return false
   }
-  const ctx = soundContext()
-  if (!ctx) return false
-  const play = () => {
-    try {
-      const now = ctx.currentTime
-      const gain = ctx.createGain()
-      gain.connect(ctx.destination)
-      gain.gain.setValueAtTime(0.0001, now)
-      gain.gain.exponentialRampToValueAtTime(0.09, now + 0.015)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24)
-      const osc = ctx.createOscillator()
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(880, now)
-      osc.frequency.setValueAtTime(1175, now + 0.09)
-      osc.connect(gain)
-      osc.onended = () => {
-        try {
-          osc.disconnect()
-          gain.disconnect()
-        } catch (err) {
-          // Zaten ayrılmış
-        }
-      }
-      osc.start(now)
-      osc.stop(now + 0.26)
-      sleepMessageSound(1500)
-    } catch (err) {
-      window.console.error(err)
-    }
-  }
-  if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-    try {
-      ctx.resume().then(play, () => {})
-    } catch (err) {
-      return false
-    }
-  } else {
-    play()
-  }
-  return true
+  const api = soundsApi()
+  return api ? api.play(kind, { test: test }) : false
+}
+
+function playMessageSound (opts) {
+  return playAlertSound('message', opts)
 }
 
 // 7. Görünüm: tema, mod, yazı boyutu, kompakt görünüm, hareketi azalt ve dil (TelsizTheme)

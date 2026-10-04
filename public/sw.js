@@ -64,6 +64,7 @@ const SHELL = [
   '/js/28-bildirim.js',
   '/js/29-mikrofon.js',
   '/js/30-pencere.js',
+  '/js/31-sesler.js',
   '/fonts/figtree-latin-ext-wght-normal.woff2',
   '/fonts/figtree-latin-wght-normal.woff2',
   '/fonts/manrope-latin-ext-wght-normal.woff2',

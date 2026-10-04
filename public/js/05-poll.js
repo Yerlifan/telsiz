@@ -181,6 +181,8 @@ function onIncomingMessage (message, inCurrent) {
       if (!counted) renderChannels()
     }
   }
+  // Sayfa açıkken başka bir konuşmaya gelen özel mesaj kendi sesini çalar (sayfa gizliyken alertMessage çalar)
+  if (!mine && dm && !inCurrent && !document.hidden) playDmSound(message)
   if (!mine && document.hidden) {
     state.hiddenUnread += 1
     updateTitle()
@@ -189,17 +191,33 @@ function onIncomingMessage (message, inCurrent) {
 }
 
 // Sayfa gizliyken gelen mesaj: bildirim düzeyi ('all', 'mentions', 'none'), engel ve Rahatsız etmeyin
-// kuralına uyan mesajda masaüstü bildirimi (açıksa) ve mesaj sesi (açıksa). İki ayar bağımsızdır.
+// kuralına uyan mesajda masaüstü bildirimi (açıksa) ve mesaj sesi (açıksa). İki ayar bağımsızdır. Özel mesaj
+// kısa mesaj sesi yerine kendi sesini çalar (31-sesler.js).
 function alertMessage (message) {
   const allowed = typeof messageAlertAllowed === 'function' ? messageAlertAllowed(message) : myChosenStatus() !== 'dnd'
   if (!allowed) return
   notifyMessage(message)
+  if (isDmMessage(message)) {
+    playDmSound(message, true)
+    return
+  }
   if (typeof playMessageSound === 'function') {
     try {
       playMessageSound()
     } catch (err) {
       window.console.error(err)
     }
+  }
+}
+
+// Özel mesaj sesi. checked true ise bildirim kuralları çağıran tarafta denetlenmiştir.
+function playDmSound (message, checked) {
+  if (!checked && typeof messageAlertAllowed === 'function' && !messageAlertAllowed(message)) return
+  if (typeof playAlertSound !== 'function') return
+  try {
+    playAlertSound('dm')
+  } catch (err) {
+    window.console.error(err)
   }
 }
 
