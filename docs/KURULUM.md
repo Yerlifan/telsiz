@@ -134,12 +134,16 @@ Sunucu ortam değişkenleriyle ayarlanır. Her ayarın Türkçe adı ve İngiliz
 | `VERI_KLASORU` (`DATA_DIR`) | `veri` | Veri klasörü. Varsayılan, çalışma klasöründeki veya tek dosyalık sunucuda dosyanın yanındaki `veri` klasörüdür. |
 | `MAKS_YUKLEME_MB` (`MAX_UPLOAD_MB`) | `25` | Tek dosya boyut sınırı (MB), en fazla 1024. |
 | `YUKLEME_KOTASI_MB` (`UPLOAD_QUOTA_MB`) | `2048` | Tüm yüklemelerin toplam sınırı (MB). Tek dosya sınırından küçük olamaz. |
+| `KULLANICI_YUKLEME_KOTASI_MB` (`USER_UPLOAD_QUOTA_MB`) | `512` | Bir kullanıcının hâlâ kayıtlı yüklemelerinin (mesaj ekleri, profil resmi, henüz gönderilmemiş dosyalar) toplam sınırı (MB). Dolunca yükleme 507 hatasıyla reddedilir, kişi dosyalı eski mesajlarını silerek yer açar. Tek dosya sınırından küçük olamaz, verilmezse tek dosya sınırına yükseltilir. |
+| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | Bütün odalar ve özel mesaj konuşmalarında saklanan toplam mesaj sınırı (1 ile 100000000), sunucunun belleğini korur. Aşılınca yeni mesaj reddedilmez, en çok mesajı olan konuşmaların en eski mesajları ve ekleri silinir. Oda başına 20000 mesaj sınırı ayrıca geçerlidir. |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Virgülle ayrılmış `stun:` veya `stuns:` adresleri. Değişken boş dizeyle tanımlanırsa STUN kullanılmaz. |
 | `TURN_URL` | boş | Virgülle ayrılmış `turn:` veya `turns:` adresleri. |
 | `TURN_KULLANICI` (`TURN_USERNAME`) | boş | TURN kullanıcı adı. |
 | `TURN_SIFRE` (`TURN_PASSWORD`) | boş | TURN parolası. |
 | `GUVENILIR_VEKIL` (`TRUSTED_PROXY`) | `loopback` | İstemci adresini `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarından okumaya izin verilen vekiller. Değerler: `loopback`, `none`, IP adresi veya CIDR bloğu, virgülle ayrılmış, en fazla 64 girdi. |
 | `DIL` (`TELSIZ_LANG`) | sistem dili | Konsol ve günlük metinlerinin dili: `tr` veya `en`. API hata metinleri her zaman isteğin diline göre seçilir. |
+
+Oda sayısı (yazı ve ses birlikte 50), kişi başına özel mesaj konuşması (500) ve hesap sayısı (500) sabit sınırlardır, ortam değişkeniyle değiştirilmez.
 
 ### telsiz.env
 

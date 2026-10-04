@@ -134,12 +134,16 @@ The server is configured with environment variables. Each setting has a Turkish 
 | `VERI_KLASORU` (`DATA_DIR`) | `veri` | The data folder. The default is the `veri` folder in the working folder, or next to the file for the single file server. |
 | `MAKS_YUKLEME_MB` (`MAX_UPLOAD_MB`) | `25` | The size limit of a single file (MB), at most 1024. |
 | `YUKLEME_KOTASI_MB` (`UPLOAD_QUOTA_MB`) | `2048` | The total limit for all uploads (MB). It cannot be smaller than the single file limit. |
+| `KULLANICI_YUKLEME_KOTASI_MB` (`USER_UPLOAD_QUOTA_MB`) | `512` | The total limit for one user's uploads that are still stored (message attachments, the profile picture, files not sent yet), in MB. When it is full, uploads are refused with a 507 error, and the person frees space by deleting older messages with files. It cannot be smaller than the single file limit, and when not set it is raised to the single file limit. |
+| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | The total number of messages stored across all rooms and direct message conversations (1 to 100000000), which protects the server's memory. When it is exceeded, new messages are not refused: the oldest messages of the conversations with the most messages are removed together with their attachments. The limit of 20000 messages per room still applies. |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Comma separated `stun:` or `stuns:` addresses. If the variable is set to an empty string, no STUN server is used. |
 | `TURN_URL` | empty | Comma separated `turn:` or `turns:` addresses. |
 | `TURN_KULLANICI` (`TURN_USERNAME`) | empty | TURN username. |
 | `TURN_SIFRE` (`TURN_PASSWORD`) | empty | TURN password. |
 | `GUVENILIR_VEKIL` (`TRUSTED_PROXY`) | `loopback` | Proxies allowed to supply the client address in the `X-Forwarded-For` and `CF-Connecting-IP` headers. Values: `loopback`, `none`, an IP address or a CIDR block, comma separated, at most 64 entries. |
 | `DIL` (`TELSIZ_LANG`) | system language | The language of console and log messages: `tr` or `en`. API error messages always follow the language of the request. |
+
+The number of rooms (50 text and voice rooms together), direct message conversations per person (500) and accounts (500) are fixed limits that cannot be changed with environment variables.
 
 ### telsiz.env
 

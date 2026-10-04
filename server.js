@@ -28,6 +28,9 @@ const DEFAULT_PORT = 3000
 const DEFAULT_HOST = '0.0.0.0'
 const DEFAULT_UPLOAD_MB = 25
 const DEFAULT_QUOTA_MB = 2048
+const DEFAULT_USER_QUOTA_MB = 512
+const DEFAULT_MAX_TOTAL_MESSAGES = 500000
+const MAX_TOTAL_MESSAGES_LIMIT = 100000000
 const DEFAULT_STUN = 'stun:stun.l.google.com:19302'
 const SHUTDOWN_LIMIT_MS = 3000
 const CLI_SCRYPT_N = 16384
@@ -39,6 +42,8 @@ const ENV_NAMES = Object.freeze({
   dataDir: ['VERI_KLASORU', 'DATA_DIR'],
   uploadMb: ['MAKS_YUKLEME_MB', 'MAX_UPLOAD_MB'],
   quotaMb: ['YUKLEME_KOTASI_MB', 'UPLOAD_QUOTA_MB'],
+  userQuotaMb: ['KULLANICI_YUKLEME_KOTASI_MB', 'USER_UPLOAD_QUOTA_MB'],
+  maxTotalMessages: ['MAKS_TOPLAM_MESAJ', 'MAX_TOTAL_MESSAGES'],
   turnUser: ['TURN_KULLANICI', 'TURN_USERNAME'],
   turnSecret: ['TURN_SIFRE', 'TURN_PASSWORD'],
   trustedProxy: ['GUVENILIR_VEKIL', 'TRUSTED_PROXY'],
@@ -95,6 +100,16 @@ function parseMegabytes (picked, fallback, max, lang) {
   const value = /^\d+(\.\d+)?$/.test(picked.value) ? Number(picked.value) : NaN
   if (!Number.isFinite(value) || value <= 0 || value > max) {
     throw new ConfigError(i18n.t(lang, 'config.badMegabytes', { name: picked.name, value: picked.value, max }))
+  }
+  return value
+}
+
+// Pozitif tam sayı ayarı (ör. toplam mesaj sınırı), boşsa varsayılan
+function parseCount (picked, fallback, max, lang) {
+  if (picked.value === '') return fallback
+  const value = /^\d{1,15}$/.test(picked.value) ? Number(picked.value) : NaN
+  if (!Number.isSafeInteger(value) || value < 1 || value > max) {
+    throw new ConfigError(i18n.t(lang, 'config.badCount', { name: picked.name, value: picked.value, max }))
   }
   return value
 }
@@ -156,6 +171,16 @@ function readConfig (env) {
   if (uploadQuotaBytes < uploadMaxBytes) {
     throw new ConfigError(i18n.t(lang, 'config.quotaTooSmall', { quota: quota.name, upload: upload.name }))
   }
+  // Kullanıcı başına kota verilmezse tek dosya sınırından küçük kalmaz (büyük MAKS_YUKLEME_MB kurulumları bozulmasın)
+  const userQuota = envPick(env, ENV_NAMES.userQuotaMb)
+  let userUploadQuotaBytes = Math.max(DEFAULT_USER_QUOTA_MB * MB, uploadMaxBytes)
+  if (userQuota.value !== '') {
+    userUploadQuotaBytes = Math.floor(parseMegabytes(userQuota, DEFAULT_USER_QUOTA_MB, 1048576, lang) * MB)
+    if (userUploadQuotaBytes < uploadMaxBytes) {
+      throw new ConfigError(i18n.t(lang, 'config.quotaTooSmall', { quota: userQuota.name, upload: upload.name }))
+    }
+  }
+  const maxTotalMessages = parseCount(envPick(env, ENV_NAMES.maxTotalMessages), DEFAULT_MAX_TOTAL_MESSAGES, MAX_TOTAL_MESSAGES_LIMIT, lang)
 
   const iceServers = []
   const stunRaw = env.STUN_URL === undefined ? DEFAULT_STUN : String(env.STUN_URL).trim()
@@ -185,6 +210,8 @@ function readConfig (env) {
     dataDir: dataDirFromEnv(env),
     uploadMaxBytes,
     uploadQuotaBytes,
+    userUploadQuotaBytes,
+    maxTotalMessages,
     iceServers,
     turnEnabled: turn.length > 0,
     trustedProxies
@@ -289,6 +316,8 @@ async function start () {
       serverName: config.serverName,
       uploadMaxBytes: config.uploadMaxBytes,
       uploadQuotaBytes: config.uploadQuotaBytes,
+      userUploadQuotaBytes: config.userUploadQuotaBytes,
+      maxTotalMessages: config.maxTotalMessages,
       iceServers: config.iceServers,
       trustedProxies: config.trustedProxies,
       lang,

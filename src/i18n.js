@@ -45,6 +45,7 @@ const messages = {
       bad_uploads: 'Mesaja eklenen dosyalar geçersiz.',
       empty_upload: 'Boş dosya yüklenemez.',
       quota_full: 'Sunucudaki dosya alanı doldu. Frekans sahibine başvurun.',
+      user_quota_full: 'Dosya alanı kotanız doldu. Yer açmak için dosya eklediğiniz eski mesajlardan bazılarını silin.',
       busy: 'Sunucu şu anda başka yüklemeleri işliyor, birazdan tekrar deneyin.',
       invalid_channel_name: 'Oda adı 1 ile 30 karakter arasında olmalı ve yalnızca harf, rakam, boşluk, nokta, alt çizgi veya kısa çizgi içermelidir.',
       invalid_channel_type: 'Oda türü yazı veya ses olmalıdır.',
@@ -163,6 +164,7 @@ const messages = {
       or: 'veya',
       badServerName: '{name} değeri geçersiz. Sunucu adı 1 ile 40 karakter arasında olmalıdır.',
       quotaTooSmall: '{quota}, {upload} değerinden küçük olamaz.',
+      badCount: '{name} değeri geçersiz: "{value}". 1 ile {max} arasında bir tam sayı girin.',
       badProxy: '{name} değeri geçersiz: "{value}". Virgülle ayrılmış IP adresleri, IP aralıkları (ör. 10.0.0.0/8), loopback veya none girin.'
     },
     console: {
@@ -262,6 +264,7 @@ const messages = {
       bad_uploads: 'The files attached to the message are invalid.',
       empty_upload: 'Empty files cannot be uploaded.',
       quota_full: 'The server is out of file storage. Contact the frequency owner.',
+      user_quota_full: 'Your file storage quota is full. Delete some of your older messages with files to free up space.',
       busy: 'The server is busy with other uploads. Try again shortly.',
       invalid_channel_name: 'Room names must be 1 to 30 characters long and may contain only letters, digits, spaces, dots, underscores or hyphens.',
       invalid_channel_type: 'The room type must be text or voice.',
@@ -380,6 +383,7 @@ const messages = {
       or: 'or',
       badServerName: '{name} is invalid. The server name must be 1 to 40 characters long.',
       quotaTooSmall: '{quota} cannot be smaller than {upload}.',
+      badCount: '{name} is invalid: "{value}". Enter a whole number between 1 and {max}.',
       badProxy: '{name} is invalid: "{value}". Enter comma-separated IP addresses, IP ranges (for example 10.0.0.0/8), loopback or none.'
     },
     console: {
