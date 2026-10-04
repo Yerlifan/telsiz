@@ -64,6 +64,17 @@ function djMusic () {
   return M && typeof M.create === 'function' ? M : null
 }
 
+// Anahtar bu cihaza eklendi: anahtarı olmadığı için açılamayan müzik durumları yeniden çözülür
+function djRekey () {
+  const engine = dj.engine
+  if (!engine || typeof engine.rekey !== 'function') return
+  try {
+    engine.rekey()
+  } catch (err) {
+    window.console.error(err)
+  }
+}
+
 // Motor: ilk çağrıda kurulur. Kurulamazsa (betik yok, eski tarayıcı) arayüz DJ'siz çalışır.
 function djEngine () {
   if (dj.engine || dj.failed) return dj.engine
@@ -409,6 +420,9 @@ function djBuild () {
   ui.last.setAttribute('role', 'status')
   ui.last.setAttribute('aria-live', 'polite')
   card.appendChild(ui.last)
+  // Kısıtlı kipte yalnızca dinleyen için açıklama
+  ui.restricted = h('p', 'dj-hint dj-restricted')
+  card.appendChild(ui.restricted)
 
   // Kişisel ses seviyesi (cihazda saklanır) veya ayarlanamıyorsa açıklama
   ui.vol = h('div', 'dj-vol')
@@ -593,6 +607,11 @@ function djRender () {
     djSetText(ui.toggle.lastChild, t(playing ? 'music.actions.pause' : 'music.actions.resume'))
     djSetText(ui.skip.lastChild, t('music.actions.skip'))
   }
+  const listenOnly = djListenOnly()
+  ui.toggle.disabled = listenOnly
+  ui.skip.disabled = listenOnly
+  ui.restricted.hidden = !listenOnly
+  if (listenOnly) djSetText(ui.restricted, t('dj.restrictedNote'))
   djUpdateTime()
 
   // Başkasının son işlemi
@@ -619,7 +638,7 @@ function djRender () {
   ui.queueTitle.hidden = !current
   if (!current) ui.queueEmpty.hidden = true
   djSetText(ui.addHint, t('dj.addHint'))
-  ui.addHint.hidden = !current
+  ui.addHint.hidden = !current || listenOnly
   const vs = typeof snap === 'function' ? snap() : null
   const vad = Boolean(vs && !(vs.ptt && vs.ptt.enabled))
   ui.speakerHint.hidden = !(current && vad)
@@ -748,7 +767,8 @@ function djUpdateTime () {
 function djRenderQueue (list) {
   const ui = dj.ui
   const items = Array.isArray(list) ? list : []
-  const key = window.I18N.lang + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
+  const listenOnly = djListenOnly()
+  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
   djSetText(ui.queueTitle, t('dj.queueTitle', { count: items.length }))
   ui.queueEmpty.hidden = items.length > 0
   djSetText(ui.queueEmpty, t('music.queue.empty'))
@@ -763,13 +783,15 @@ function djRenderQueue (list) {
     text.appendChild(h('span', 'dj-queue-name', djTrackTitle(track)))
     text.appendChild(h('span', 'dj-queue-by', djByText(track)))
     li.appendChild(text)
-    const label = t('dj.queueRemove', { title: djTrackTitle(track) })
-    const remove = button('icon-button dj-queue-remove', '', 'i-close', label)
-    remove.setAttribute('data-focus-key', 'dj-remove-' + track.id)
-    remove.addEventListener('click', () => {
-      djAction('remove', (engine) => engine.remove(track.id), true)
-    })
-    li.appendChild(remove)
+    if (!listenOnly) {
+      const label = t('dj.queueRemove', { title: djTrackTitle(track) })
+      const remove = button('icon-button dj-queue-remove', '', 'i-close', label)
+      remove.setAttribute('data-focus-key', 'dj-remove-' + track.id)
+      remove.addEventListener('click', () => {
+        djAction('remove', (engine) => engine.remove(track.id), true)
+      })
+      li.appendChild(remove)
+    }
     ui.queue.appendChild(li)
   })
   restoreFocusKey(ui.queue, focusKey)
@@ -1053,7 +1075,18 @@ function djPrecheck () {
   if (!s || !s.supported) return 'dj_unsupported'
   if (!s.enabled) return 'dj_disabled'
   if (s.room === null) return 'not_in_voice'
+  if (djListenOnly()) return 'dj_restricted'
   return null
+}
+
+// Kısıtlı kip (meta.music.restricted): odada DJ izni olan biri varken izni olmayan yalnızca dinler. Sunucu
+// da aynı kuralla yazımı reddeder, burası yalnızca denetimleri gizler.
+function djListenOnly () {
+  const m = state.meta && state.meta.music
+  if (!m || m.restricted !== true || hasPerm('dj')) return false
+  const room = dj.voiceRoom
+  if (room === null || room === undefined) return false
+  return voiceRoster(room).some((e) => e && userHasPerm(e.userId, 'dj'))
 }
 
 // 08-composer.js kancası: DJ komutu değilse null (metin mesaj olarak gider), komutsa Promise

@@ -178,9 +178,10 @@ function canEdit (m) {
   return Boolean(state.me && sameId(m.authorId, state.me.id))
 }
 
-// Özel mesajda yalnızca kendi mesajı silinebilir (sahip ve yöneticiler dahil)
+// Yazı odasında mesaj silme izni olan (sahip, yönetici, izinli rol) başkasının mesajını da siler. Özel
+// mesajda yalnızca kendi mesajı silinebilir (sahip ve yöneticiler dahil).
 function canDelete (m) {
-  return canEdit(m) || (isAdmin() && !isDmChannel(m.channelId))
+  return canEdit(m) || (hasPerm('messages') && !isDmChannel(m.channelId))
 }
 
 function messageNoticeText (stateName) {

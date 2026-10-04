@@ -2,6 +2,25 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Yeni özellikler
+
+- Özel roller: sahip Ayarlar > Roller sayfasından istediği adla ve sekiz renkten biriyle rol oluşturur (en çok 20), izinlerini tek tek açar ve rolleri sıralar. Rol üyelere Ayarlar > Üyeler sayfasından verilir, bir üyenin tek rolü olabilir. Rolün adı profil kartında ve Yayındakiler listesinde rozet olarak görünür.
+- Rol izinleri: mesajları silme, üyeleri engelleme, ses odasını denetleme, odaları yönetme ve Telsiz DJ kuyruğunu yönetme. Sahip ve yöneticiler her izne sahiptir. Listede üstteki rol daha yetkilidir, engelleme ve ses odası denetimi yalnızca alt sıradakilere uygulanabilir.
+- Ses odası denetimi: izinli kişi kadrodan veya profil kartından birini herkes için susturabilir ya da ses odasından çıkarabilir. Susturma kişi odadan çıkıp girse de sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin mikrofonu kapanır, diğerlerinin cihazında o kişinin sesi çalınmaz.
+- Telsiz DJ kısıtlı kipi: sahip açarsa, odada DJ izni olan biri varken kuyruğu yalnızca DJ izni olanlar yönetir, diğerleri dinler. Odada böyle biri yoksa herkes yönetebilir. Kural sunucuda uygulanır.
+- Masaüstü uygulamasının Telsiz > Frekanslar menüsünde Listeden çıkar alt menüsü: frekans onay penceresiyle listeden çıkarılır, istenirse bu cihazdaki oturumu ve verisi de silinir.
+
+### Değişiklikler
+
+- Sağ sütun (İstasyonlar ve Telsiz DJ kartı) 14,5rem yerine 17rem genişliğindedir.
+- Telsiz DJ kartındaki "Sizin için" ses kaydırıcısı, YouTube oynatıcısının kendi denetimleriyle değiştirilen ses düzeyini ve susturmayı gösterir. Oynatıcıdan kısılan ses kaydırıcıdan yeniden açılabilir.
+
+### Düzeltmeler
+
+- Şifreleme anahtarı girişten sonra eklendiğinde (ör. masaüstü uygulamasında ilk girişte) Telsiz DJ "şifreleme anahtarı bu cihazda yok" uyarısında kalıyordu. Müzik durumu anahtar eklenince yeniden açılır.
+
 ## [2.1.0]
 
 ### Yeni özellikler

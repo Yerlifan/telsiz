@@ -55,7 +55,7 @@
   --side-w: 17.5rem;
   /* Geniş ekranda sol sütun (telsiz kartı ve oda bilgisi) ve sağ sütun (İstasyonlar) */
   --side-left-w: 19.5rem;
-  --side-right-w: 14.5rem;
+  --side-right-w: 17rem;
   --radio-w: 21rem;
   --sheet-w: 25rem;
 
@@ -706,4 +706,30 @@ html[data-font-size="tv"] {
   :root {
     --top-h: 3.5rem;
   }
+}
+
+/*
+  Özel rol renkleri (Ayarlar > Roller): bütün temalarda aynı sekiz renk, koyu ve açık mod için ayrı tonlar.
+  Rozet yazısı bu renkte, zemin saydam olduğundan değerler her yüzeyde okunacak açıklıkta seçildi.
+*/
+:root {
+  --role-red: #ff8f8f;
+  --role-orange: #ffad6b;
+  --role-yellow: #f2d06b;
+  --role-green: #66d998;
+  --role-teal: #4dd4c8;
+  --role-blue: #7cb0ff;
+  --role-purple: #b997ff;
+  --role-pink: #ff8fcc;
+}
+
+:root[data-scheme="light"] {
+  --role-red: #b42318;
+  --role-orange: #a14a00;
+  --role-yellow: #765a00;
+  --role-green: #16723d;
+  --role-teal: #0b6c64;
+  --role-blue: #1f56c0;
+  --role-purple: #6a3fd2;
+  --role-pink: #ad236d;
 }

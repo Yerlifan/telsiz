@@ -133,6 +133,9 @@ var TelsizYouTube = (function (root) {
     let titleSent = false
     let volume = null
     let muted = null
+    // Oynatıcının bildirdiği ses düzeyi (0..100) ve sessiz durumu (infoDelivery volume, muted)
+    let reportedVolume = null
+    let reportedMuted = null
     let listenHandle = null
     let readyHandle = null
     let waiters = []
@@ -224,6 +227,17 @@ var TelsizYouTube = (function (root) {
         }
       }
       if (typeof info.playerState === 'number') setState(info.playerState)
+      // Ses düzeyi oynatıcının kendi denetimleriyle de değişebilir, değişiklik motora bildirilir
+      let soundChanged = false
+      if (isNum(info.volume) && info.volume >= 0 && info.volume <= 100 && Math.round(info.volume) !== reportedVolume) {
+        reportedVolume = Math.round(info.volume)
+        soundChanged = true
+      }
+      if (typeof info.muted === 'boolean' && info.muted !== reportedMuted) {
+        reportedMuted = info.muted
+        soundChanged = true
+      }
+      if (soundChanged && reportedVolume !== null) emit({ type: 'volume', volume: reportedVolume, muted: reportedMuted === true })
     }
 
     function becomeReady () {

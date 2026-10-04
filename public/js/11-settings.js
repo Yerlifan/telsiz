@@ -7,7 +7,7 @@
 // Metinler çizim anında t() ile üretilir, dil değişince görünüm yeniden çizilir.
 
 const SETTINGS_USER_CATS = ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app']
-const SETTINGS_SERVER_CATS = ['general', 'channels', 'members', 'invite']
+const SETTINGS_SERVER_CATS = ['general', 'channels', 'members', 'roles', 'invite']
 // Eski sekme adları ve kısa adlar da kabul edilir
 const SETTINGS_ALIASES = {
   crypto: 'privacy',
@@ -31,6 +31,7 @@ const SETTINGS_ICONS = {
   general: 'i-server',
   channels: 'i-text',
   members: 'i-users',
+  roles: 'i-crown',
   invite: 'i-user-plus'
 }
 // Ayarlar görünümünün yazdığı cihaz anahtarları. Yazıyor göstergesi ve bildirim kodu bunları
@@ -107,6 +108,7 @@ const SETTINGS_PAGES = {
   general: buildGeneralPage,
   channels: buildChannelsPage,
   members: buildMembersPage,
+  roles: buildRolesPage,
   invite: buildInvitePage
 }
 
@@ -118,8 +120,21 @@ function settingsCatName (name) {
   return SETTINGS_USER_CATS.indexOf(key) !== -1 || SETTINGS_SERVER_CATS.indexOf(key) !== -1 ? key : null
 }
 
+// Frekans kategorileri izne göre: Odalar oda yönetme izniyle, Üyeler engelleme izniyle (yöneticiler her
+// zaman), Roller yalnızca sahibe, Genel ve Davet sahip ile yöneticilere görünür
+function serverCatAllowed (cat) {
+  if (cat === 'channels') return hasPerm('channels')
+  if (cat === 'members') return isAdmin() || hasPerm('ban')
+  if (cat === 'roles') return isOwner()
+  return isAdmin()
+}
+
+function serverCats () {
+  return SETTINGS_SERVER_CATS.filter(serverCatAllowed)
+}
+
 function settingsCats () {
-  return isAdmin() ? SETTINGS_USER_CATS.concat(SETTINGS_SERVER_CATS) : SETTINGS_USER_CATS.slice()
+  return SETTINGS_USER_CATS.concat(serverCats())
 }
 
 function allowedSettingsCat (name) {
@@ -159,7 +174,7 @@ function openSettings (name, trigger) {
   closeDrawers()
   bindSettingsEvents()
   settingsUi.narrow = isNarrow()
-  settingsUi.admin = isAdmin()
+  settingsUi.admin = serverCats().join(',')
   settingsUi.cat = allowedSettingsCat(wanted || 'account')
   settingsUi.pane = settingsUi.narrow && !wanted ? 'list' : 'page'
   settingsUi.inviteVisible = false
@@ -245,7 +260,8 @@ function buildSettingsSide () {
   nav.id = 'settings-nav'
   nav.setAttribute('aria-label', t('settings.navLabel'))
   appendCatGroup(nav, 'user', t('settings.group.user'), SETTINGS_USER_CATS)
-  if (isAdmin()) appendCatGroup(nav, 'server', t('settings.group.server'), SETTINGS_SERVER_CATS)
+  const server = serverCats()
+  if (server.length) appendCatGroup(nav, 'server', t('settings.group.server'), server)
   nav.addEventListener('keydown', onSettingsNavKey)
   side.appendChild(nav)
   const version = state.info && typeof state.info.version === 'string' ? state.info.version : ''
@@ -462,7 +478,7 @@ function settingsWatchTick () {
 // Meta değişince (04-meta.js applyMeta): yetkisi kalmayan sunucu kategorileri kapanır, açık sayfa yenilenir
 function refreshSettings () {
   if (!isSettingsOpen()) return
-  const admin = isAdmin()
+  const admin = serverCats().join(',')
   if (admin !== settingsUi.admin) {
     settingsUi.admin = admin
     rebuildSettingsSide()
@@ -552,7 +568,7 @@ function bindSettingsEvents () {
 
 // Sunucu yönetimi için /api/state (davet kodu ve sunucudan engellenenler yalnızca sahip ve yöneticiye)
 async function refreshAdminState (force) {
-  if (!isAdmin()) return
+  if (!isAdmin() && !hasPerm('ban')) return
   const now = Date.now()
   if (!force && now - settingsUi.adminRefreshAt < ADMIN_REFRESH_MS) return
   settingsUi.adminRefreshAt = now
@@ -2042,6 +2058,7 @@ function afterKeyringChange () {
   refreshAllMessages()
   renderVoiceAll()
   socialAfterKeyring()
+  if (typeof djRekey === 'function') djRekey()
   updateSettingsPage()
 }
 
@@ -3232,6 +3249,10 @@ function buildGeneralPage (page) {
     musicSwitchChange('youtube', checked, input)
   }, t('settings.music.youtubeHint'))
   musicSec.appendChild(musicYt.row)
+  const musicRestricted = sSwitch('set-music-restricted', t('settings.music.restricted'), false, (checked, input) => {
+    musicSwitchChange('restricted', checked, input)
+  }, t('settings.music.restrictedHint'))
+  musicSec.appendChild(musicRestricted.row)
   musicSec.appendChild(sMsg('set-music-msg'))
 
   // Ses odaları ve kameralar (yalnızca sahip değiştirir, yönetici salt okunur görür)
@@ -3258,8 +3279,10 @@ function buildGeneralPage (page) {
     const music = musicServerSettings()
     musicOn.input.checked = music.enabled
     musicYt.input.checked = music.youtube
+    musicRestricted.input.checked = music.restricted
     musicOn.input.disabled = !MUSIC_SETTINGS_READY || !owner
     musicYt.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
+    musicRestricted.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
     voiceLimits.update(owner)
     if (serverInfo) serverInfo.update(owner)
     clear(summary)
@@ -3702,11 +3725,18 @@ function buildAboutSection (page) {
   return { update: update }
 }
 
-// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube }, varsayılan ikisi de açık)
+// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted }, varsayılan ilk ikisi açık,
+// kısıtlı kip kapalı)
 function musicServerSettings () {
   const m = state.meta && state.meta.music && typeof state.meta.music === 'object' ? state.meta.music : null
   const enabled = !m || m.enabled !== false
-  return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false) }
+  return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false), restricted: Boolean(m && m.restricted === true) }
+}
+
+function musicSwitchOkKey (field, checked) {
+  if (field === 'enabled') return checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff'
+  if (field === 'restricted') return checked ? 'dj.settings.restrictedOn' : 'dj.settings.restrictedOff'
+  return checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff'
 }
 
 // Anahtar değişince POST /api/settings { music: { <alan>: değer } } gönderilir. Başarısızlıkta anahtar
@@ -3729,7 +3759,7 @@ async function musicSwitchChange (field, checked, input) {
       state.meta.music = Object.assign({}, prev, body.music)
     }
     if (typeof djOnMeta === 'function') djOnMeta()
-    setMsg(msg, () => t(field === 'enabled' ? (checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff') : (checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff')), 'ok')
+    setMsg(msg, () => t(musicSwitchOkKey(field, checked)), 'ok')
     updateSettingsPage()
     return
   }
@@ -3967,7 +3997,8 @@ async function deleteChannel (c) {
   setMsg(msg, () => errorText(res, t('settings.server.deleteFailed')), 'error')
 }
 
-// 11. Üyeler: liste, rol değiştirme (sahip), engelleme ve engeli kaldırma, parola sıfırlama (sahip)
+// 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme ve engeli kaldırma (engelleme izni),
+// parola sıfırlama (sahip)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4055,7 +4086,7 @@ function buildMembersPage (page) {
     update: update,
     signature: () => {
       const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
-      return users.map((u) => [u.id, u.name, u.role, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + (settingsUi.temp ? 't' : '')
+      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '')
     }
   }
 }
@@ -4085,7 +4116,7 @@ function buildMemberAdminRow (u, banned) {
   line.appendChild(h('span', 'list-name', self ? t('voice.selfName', { name: display }) : display))
   line.appendChild(h('span', 'settings-handle', '@' + u.name))
   text.appendChild(line)
-  const sub = banned ? t('settings.members.bannedState') : t('settings.members.sub', { role: roleLabel(u.role), status: adminMemberStatus(u.id) })
+  const sub = banned ? t('settings.members.bannedState') : t('settings.members.sub', { role: memberRoleText(u), status: adminMemberStatus(u.id) })
   text.appendChild(h('span', 'list-sub', sub))
   main.appendChild(text)
   li.appendChild(main)
@@ -4101,7 +4132,9 @@ function buildMemberAdminRow (u, banned) {
     })
     actions.appendChild(roleBtn)
   }
-  const canBan = !self && u.role !== 'owner' && (owner || u.role === 'member')
+  // Engellenenler metada yoktur, rütbeleri bilinmez: engeli kaldırma düğmesi gösterilir, son karar sunucunundur
+  const canBan = !self && u.role !== 'owner' && hasPerm('ban') && (banned ? (owner || u.role === 'member') : outranksUser(u.id))
+  if (!banned && owner && !self && u.role !== 'owner' && metaRoles().length) actions.appendChild(customRoleSelect(u, display))
   if (canBan) {
     const banBtn = button('button button-small ' + (banned ? 'button-secondary' : 'button-danger') + ' act-ban', t(banned ? 'settings.members.unban' : 'settings.members.ban'))
     banBtn.setAttribute('data-focus-key', (banned ? 'unban-' : 'ban-') + u.id)
@@ -4122,6 +4155,55 @@ function buildMemberAdminRow (u, banned) {
   }
   li.appendChild(actions)
   return li
+}
+
+// Üyenin rol metni: temel rol, varsa özel rolüyle (ör. "Üye, Moderatör")
+function memberRoleText (u) {
+  const custom = findRole(u.roleId)
+  return custom ? t('roles.withCustom', { role: roleLabel(u.role), custom: custom.name }) : roleLabel(u.role)
+}
+
+// Sahip için üye satırındaki özel rol seçimi
+function customRoleSelect (u, display) {
+  const wrap = h('span', 'custom-role-pick')
+  const id = 'set-custom-role-' + u.id
+  const label = h('label', 'sr-only', t('settings.members.customRoleLabel', { name: display }))
+  label.setAttribute('for', id)
+  wrap.appendChild(label)
+  const select = h('select', 'input select select-small act-custom-role')
+  select.id = id
+  select.setAttribute('data-focus-key', 'crole-' + u.id)
+  const none = h('option', '', t('settings.members.noCustomRole'))
+  none.value = ''
+  select.appendChild(none)
+  metaRoles().forEach((r) => {
+    const opt = h('option', '', r.name)
+    opt.value = String(r.id)
+    select.appendChild(opt)
+  })
+  const current = findRole(u.roleId)
+  select.value = current ? String(current.id) : ''
+  select.addEventListener('change', () => {
+    setUserCustomRole(u, select.value ? Number(select.value) : null, select)
+  })
+  wrap.appendChild(select)
+  return wrap
+}
+
+async function setUserCustomRole (u, roleId, select) {
+  const msg = byId('set-members-msg')
+  const name = shownName(u.id)
+  select.disabled = true
+  const res = await api('POST', '/api/users/custom-role', { userId: u.id, roleId: roleId })
+  if (isConnected(select)) select.disabled = false
+  if (res.status === 200) {
+    const role = findRole(roleId)
+    setMsg(msg, () => (role ? t('settings.members.customRoleSet', { name: name, role: role.name }) : t('settings.members.customRoleCleared', { name: name })), 'ok')
+    return
+  }
+  const current = findRole(u.roleId)
+  if (isConnected(select)) select.value = current ? String(current.id) : ''
+  setMsg(msg, () => errorText(res, t('settings.members.actionFailed')), 'error')
 }
 
 async function setUserRole (u, role, b) {
@@ -4174,7 +4256,302 @@ async function resetUserPassword (u, b) {
   setMsg(msg, () => errorText(res, t('settings.members.resetFailed')), 'error')
 }
 
-// 12. Davet: davet kodu (göster, kopyala, yenile) ve anahtar dahil davet bağlantısı
+// 12. Roller: özel rol oluşturma, ad ve renk, izinler, sıralama ve silme (yalnızca sahip). Rol üyelere Üyeler
+// sayfasından verilir. Listede üstteki rol alttakilerden yüksek rütbelidir.
+
+function roleColorClass (color) {
+  return 'role-color-' + (ROLE_COLORS.indexOf(color) !== -1 ? color : 'blue')
+}
+
+function roleSwatch (color) {
+  const dot = h('span', 'role-swatch ' + roleColorClass(color))
+  dot.setAttribute('aria-hidden', 'true')
+  return dot
+}
+
+function roleColorSelect (id, current) {
+  const select = h('select', 'input select select-small role-color-select')
+  select.id = id
+  ROLE_COLORS.forEach((c) => {
+    const opt = h('option', '', t('roles.color.' + c))
+    opt.value = c
+    select.appendChild(opt)
+  })
+  select.value = ROLE_COLORS.indexOf(current) !== -1 ? current : 'blue'
+  return select
+}
+
+function roleMemberCount (roleId) {
+  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+  return users.filter((u) => u && sameId(u.roleId, roleId)).length
+}
+
+function buildRolesPage (page) {
+  page.appendChild(h('p', 'settings-lead', t('settings.roles.lead')))
+  const createSec = sSection(page, t('settings.roles.createTitle'), 'set-role-create-section')
+  const form = h('form', 'settings-inline-form')
+  form.id = 'set-role-form'
+  form.noValidate = true
+  form.setAttribute('autocomplete', 'off')
+  const nameLabel = h('label', 'sr-only', t('settings.roles.name'))
+  nameLabel.setAttribute('for', 'set-role-name')
+  form.appendChild(nameLabel)
+  const name = sInput('text')
+  name.id = 'set-role-name'
+  name.maxLength = ROLE_NAME_MAX * 2
+  name.setAttribute('placeholder', t('settings.roles.namePlaceholder'))
+  form.appendChild(name)
+  const colorLabel = h('label', 'sr-only', t('settings.roles.color'))
+  colorLabel.setAttribute('for', 'set-role-color')
+  form.appendChild(colorLabel)
+  const color = roleColorSelect('set-role-color', ROLE_COLORS[metaRoles().length % ROLE_COLORS.length])
+  form.appendChild(color)
+  const create = sButton('button', t('settings.roles.create'), 'set-role-create', null, 'i-plus')
+  create.type = 'submit'
+  form.appendChild(create)
+  createSec.appendChild(form)
+  createSec.appendChild(sHint(t('settings.roles.nameHint', { max: ROLE_NAME_MAX })))
+  const msg = sMsg('set-role-msg')
+  createSec.appendChild(msg)
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const value = normalizeName(name.value)
+    if (!value) {
+      setMsg(msg, () => t('settings.roles.enterName'), 'error')
+      focusNode(name)
+      return
+    }
+    create.disabled = true
+    const res = await api('POST', '/api/roles/create', { name: value, color: color.value, perms: [] })
+    create.disabled = false
+    if (res.status === 200) {
+      name.value = ''
+      color.value = ROLE_COLORS[(metaRoles().length + 1) % ROLE_COLORS.length]
+      setMsg(msg, () => t('settings.roles.created', { name: value }), 'ok')
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.roles.createFailed')), 'error')
+    focusNode(name)
+  })
+
+  const listSec = sSection(page, t('settings.roles.listTitle'), 'set-roles-section')
+  listSec.appendChild(sHint(t('settings.roles.orderHint')))
+  listSec.appendChild(sMsg('set-roles-msg'))
+  const list = h('ul', 'plain-list settings-list role-admin-list')
+  list.id = 'set-roles-list'
+  list.setAttribute('aria-labelledby', 'set-roles-section-title')
+  listSec.appendChild(list)
+  page.appendChild(sHint(t('settings.roles.assignHint')))
+
+  const update = () => {
+    // Düzenleme formu açıksa liste korunur
+    if (list.querySelector('.rename-form')) return
+    fillRoleAdmin(list)
+  }
+  update()
+  return {
+    update: update,
+    signature: () => JSON.stringify(metaRoles()) + '|' + metaRoles().map((r) => roleMemberCount(r.id)).join(',')
+  }
+}
+
+function fillRoleAdmin (list) {
+  const focusKey = activeFocusKey(list)
+  clear(list)
+  const roles = metaRoles()
+  if (!roles.length) list.appendChild(h('li', 'empty-row', t('settings.roles.none')))
+  roles.forEach((r, i) => {
+    const li = h('li', 'list-row role-admin-row')
+    li.setAttribute('data-role-id', String(r.id))
+    const head = h('div', 'role-admin-head')
+    const main = h('span', 'list-main')
+    main.appendChild(roleSwatch(r.color))
+    const text = h('span', 'list-text')
+    text.appendChild(h('span', 'list-name', r.name))
+    text.appendChild(h('span', 'list-sub', t('settings.roles.memberCount', { count: roleMemberCount(r.id) })))
+    main.appendChild(text)
+    head.appendChild(main)
+    const actions = h('span', 'row-actions')
+    const up = button('icon-button', '', 'i-up', t('settings.roles.moveUp', { name: r.name }))
+    up.disabled = i === 0
+    up.setAttribute('data-focus-key', 'role-up-' + r.id)
+    up.addEventListener('click', () => {
+      moveRole(r, i, -1)
+    })
+    const down = button('icon-button', '', 'i-down', t('settings.roles.moveDown', { name: r.name }))
+    down.disabled = i === roles.length - 1
+    down.setAttribute('data-focus-key', 'role-down-' + r.id)
+    down.addEventListener('click', () => {
+      moveRole(r, i, 1)
+    })
+    const edit = button('button button-small button-secondary', t('settings.roles.edit'), null, t('settings.roles.editLabel', { name: r.name }))
+    edit.setAttribute('data-focus-key', 'role-edit-' + r.id)
+    edit.addEventListener('click', () => {
+      startRoleEdit(li, r)
+    })
+    const del = button('button button-small button-danger', t('common.delete'), null, t('settings.roles.deleteLabel', { name: r.name }))
+    del.setAttribute('data-focus-key', 'role-del-' + r.id)
+    del.addEventListener('click', () => {
+      deleteRole(r)
+    })
+    actions.appendChild(up)
+    actions.appendChild(down)
+    actions.appendChild(edit)
+    actions.appendChild(del)
+    head.appendChild(actions)
+    li.appendChild(head)
+    const perms = h('div', 'role-perms')
+    perms.setAttribute('role', 'group')
+    perms.setAttribute('aria-label', t('settings.roles.permsLabel', { name: r.name }))
+    ROLE_PERMS.forEach((perm) => {
+      const id = 'set-role-' + r.id + '-' + perm
+      const on = Array.isArray(r.perms) && r.perms.indexOf(perm) !== -1
+      const sw = sSwitch(id, t('roles.perm.' + perm), on, (checked, input) => {
+        setRolePerm(r, perm, checked, input)
+      }, t('roles.permHint.' + perm))
+      sw.input.setAttribute('data-focus-key', id)
+      perms.appendChild(sw.row)
+    })
+    li.appendChild(perms)
+    list.appendChild(li)
+  })
+  restoreFocusKey(list, focusKey)
+}
+
+async function setRolePerm (r, perm, checked, input) {
+  const msg = byId('set-roles-msg')
+  const current = Array.isArray(r.perms) ? r.perms : []
+  const next = ROLE_PERMS.filter((p) => (p === perm ? checked : current.indexOf(p) !== -1))
+  input.disabled = true
+  const res = await api('POST', '/api/roles/update', { id: r.id, perms: next })
+  if (isConnected(input)) input.disabled = false
+  if (res.status === 200) {
+    r.perms = next
+    setMsg(msg, () => t('settings.roles.saved', { name: r.name }), 'ok')
+    return
+  }
+  if (isConnected(input)) input.checked = !checked
+  setMsg(msg, () => errorText(res, t('settings.roles.saveFailed')), 'error')
+}
+
+function startRoleEdit (li, r) {
+  const head = li.querySelector('.role-admin-head')
+  if (!head) return
+  clear(head)
+  const form = h('form', 'settings-inline-form rename-form')
+  form.noValidate = true
+  form.setAttribute('autocomplete', 'off')
+  const label = h('label', 'sr-only', t('settings.roles.name'))
+  const input = sInput('text')
+  input.id = 'set-role-rename-' + r.id
+  label.setAttribute('for', input.id)
+  input.maxLength = ROLE_NAME_MAX * 2
+  input.value = r.name
+  const colorLabel = h('label', 'sr-only', t('settings.roles.color'))
+  const color = roleColorSelect('set-role-recolor-' + r.id, r.color)
+  colorLabel.setAttribute('for', color.id)
+  const save = button('button button-small', t('common.save'))
+  save.type = 'submit'
+  const cancel = button('button button-small button-secondary', t('common.cancel'))
+  const msg = byId('set-roles-msg')
+  const list = byId('set-roles-list')
+  const restore = () => {
+    if (list) {
+      fillRoleAdmin(list)
+      restoreFocusKey(list, 'role-edit-' + r.id)
+    }
+  }
+  cancel.addEventListener('click', restore)
+  form.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      e.preventDefault()
+      e.stopPropagation()
+      restore()
+    }
+  })
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const value = normalizeName(input.value)
+    if (!value) {
+      setMsg(msg, () => t('settings.roles.enterName'), 'error')
+      focusNode(input)
+      return
+    }
+    const body = { id: r.id }
+    if (value !== r.name) body.name = value
+    if (color.value !== r.color) body.color = color.value
+    if (body.name === undefined && body.color === undefined) {
+      restore()
+      return
+    }
+    save.disabled = true
+    const res = await api('POST', '/api/roles/update', body)
+    save.disabled = false
+    if (res.status === 200) {
+      if (res.data && res.data.role) {
+        r.name = res.data.role.name
+        r.color = res.data.role.color
+      }
+      setMsg(msg, () => t('settings.roles.saved', { name: r.name }), 'ok')
+      restore()
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.roles.saveFailed')), 'error')
+    focusNode(input)
+  })
+  form.appendChild(label)
+  form.appendChild(input)
+  form.appendChild(colorLabel)
+  form.appendChild(color)
+  form.appendChild(save)
+  form.appendChild(cancel)
+  head.appendChild(form)
+  focusNode(input)
+  try {
+    input.select()
+  } catch (err) {
+    // Seçim desteklenmiyor
+  }
+}
+
+async function moveRole (r, index, delta) {
+  const roles = metaRoles()
+  const target = index + delta
+  if (target < 0 || target >= roles.length) return
+  const msg = byId('set-roles-msg')
+  const res = await api('POST', '/api/roles/update', { id: r.id, position: target })
+  if (res.status !== 200) {
+    setMsg(msg, () => errorText(res, t('settings.roles.saveFailed')), 'error')
+    return
+  }
+  // Meta gelene kadar yerel sıra güncellenir
+  if (state.meta && Array.isArray(state.meta.roles)) {
+    const others = state.meta.roles.filter((x) => !sameId(x.id, r.id))
+    others.splice(target, 0, r)
+    state.meta.roles = others
+  }
+  setMsg(msg, () => t(delta < 0 ? 'settings.roles.movedUp' : 'settings.roles.movedDown', { name: r.name }), 'ok')
+  const list = byId('set-roles-list')
+  if (!list) return
+  fillRoleAdmin(list)
+  const byKey = (key) => Array.from(list.querySelectorAll('[data-focus-key]')).filter((n) => n.getAttribute('data-focus-key') === key)[0]
+  const again = byKey((delta < 0 ? 'role-up-' : 'role-down-') + r.id)
+  focusNode(again && !again.disabled ? again : byKey('role-edit-' + r.id))
+}
+
+async function deleteRole (r) {
+  if (!window.confirm(t('settings.roles.deleteConfirm', { name: r.name }))) return
+  const msg = byId('set-roles-msg')
+  const res = await api('POST', '/api/roles/delete', { id: r.id })
+  if (res.status === 200) {
+    setMsg(msg, () => t('settings.roles.deleted', { name: r.name }), 'ok')
+    focusNode(byId('set-role-name'))
+    return
+  }
+  setMsg(msg, () => errorText(res, t('settings.roles.deleteFailed')), 'error')
+}
+
+// 13. Davet: davet kodu (göster, kopyala, yenile) ve anahtar dahil davet bağlantısı
 
 function buildInvitePage (page) {
   page.appendChild(h('p', 'settings-lead', t('invite.lead')))

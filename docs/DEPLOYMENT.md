@@ -208,9 +208,10 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
-| Settings > Rooms | Owner and admins | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
-| Settings > Members | Owner and admins | Changing roles, banning and unbanning, resetting a password with a temporary password |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ, the YouTube source and restricted mode (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
+| Settings > Rooms | Owner, admins and roles with the manage rooms permission | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
+| Settings > Members | Owner, admins and roles with the ban permission | Changing roles and giving a member a custom role (owner only), banning and unbanning people ranked lower, resetting a password with a temporary password (owner only) |
+| Settings > Roles | Owner only | Creating, naming, coloring, turning permissions on and off for, ordering and deleting custom roles |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |
 | Settings > Privacy and security > Encryption keys | Owner and admins | Creating a new group key |
 
@@ -218,7 +219,21 @@ The frequency introduction is plain text of at most 600 characters and 6 lines. 
 
 The frequency photo can be a PNG, JPEG or WebP image (the server checks the file signature and does not accept SVG) and has the same size limit as profile pictures (1 MB by default). Before uploading, the app crops the chosen image to a square from its center and scales it down to 256x256. Like the frequency name, the photo is public and not encrypted: it is served without a session at `GET /api/server-icon`, and its hash is in the `serverIcon` field of the `GET /api/info` response. Only the desktop app shows the photos of other frequencies, in the browser the stations of other frequencies keep the first letter. The photo lives in the data folder under `server-icon/` and is part of the backup.
 
-Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes.
+Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes. When restricted mode is on, the server rejects DJ state writes from others while someone with the DJ permission (the owner, an admin or a role with the DJ permission) is in the room, and everyone can write if no such person is in the room.
+
+### Custom roles
+
+Besides the owner and admin roles, the owner can create up to 20 custom roles in Settings > Roles. Each role has a name (at most 24 characters), one of eight colors and a selection of the permissions below. A member can have one custom role, given by the owner in Settings > Members. The owner and admins already have every permission.
+
+| Permission | What it allows |
+| --- | --- |
+| Delete messages | Deleting other people's messages in text rooms (nobody can delete someone else's direct messages) |
+| Ban members | Banning and unbanning members ranked lower |
+| Moderate voice rooms | Muting someone ranked lower for everyone or removing them from the voice room |
+| Manage rooms | Creating, renaming, reordering and deleting text and voice rooms |
+| Manage the Telsiz DJ queue | Managing the queue while restricted mode is on and they are in the room, while people without the permission only listen |
+
+The rank order is the owner, admins, custom roles in the order of the Settings > Roles list, and members without a role at the bottom. Banning and voice room moderation only apply to someone ranked lower than yourself. A mute for everyone is stored on the account and stays when the person leaves and joins again or the server restarts. Since audio flows directly between people, the mute is applied by the clients: the muted person's app keeps their microphone off and the other apps do not play that person's audio. Someone using a modified client can bypass this on their own device. A person removed from a voice room can join again, use banning to keep someone out.
 
 The three settings in the Voice rooms and cameras section apply to each voice room separately and are stored on the server (`state.json`, the `voice` field). The voice room capacity is 8 by default and can be set between 2 and 12 people. A lower capacity applies to new joins only, nobody in the room is removed. Cameras are on by default, and turning them off also turns off cameras that are on. The number of cameras that can be on at the same time per room is 4 by default, can be set between 1 and 12 and cannot be larger than the capacity. Saved changes reach open apps right away. Since voice and video flow directly between people, these limits protect the members' upload speed rather than the server: in a full mesh everyone with their camera on sends their video separately to every other person in the room.
 

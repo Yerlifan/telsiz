@@ -44,7 +44,8 @@ function inAudience (audience, userId) {
 }
 
 // options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
-//   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, pv, status }], music,
+//   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, roleId, voiceMuted, pv,
+//     status }], roles, music,
 //     voiceSettings }),
 //   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
@@ -228,6 +229,7 @@ function createHub (options) {
       activeKid: base.activeKid,
       channels: base.channels,
       users: base.users.map(presenceView),
+      roles: Array.isArray(base.roles) ? base.roles : [],
       voice,
       music: base.music,
       voiceSettings: base.voiceSettings === undefined ? null : base.voiceSettings
@@ -238,7 +240,16 @@ function createHub (options) {
   // Başkalarına gösterilen kullanıcı: görünmez veya çevrimdışıysa online false ve status 'offline'
   function presenceView (u) {
     const online = u.status !== 'invisible' && isUserOnline(u.id)
-    return { id: u.id, name: u.name, role: u.role, online, status: online ? u.status : 'offline', pv: u.pv }
+    return {
+      id: u.id,
+      name: u.name,
+      role: u.role,
+      roleId: u.roleId === undefined ? null : u.roleId,
+      voiceMuted: u.voiceMuted === true,
+      online,
+      status: online ? u.status : 'offline',
+      pv: u.pv
+    }
   }
 
   // audience: null (tüm üyeler) veya olayı görebilecek kullanıcı kimlikleri
@@ -648,6 +659,41 @@ function createHub (options) {
     if (changed) bumpMeta()
   }
 
+  // Kullanıcının ses odasındaki oturumlarını çıkarır (ses odası denetimi). Biri çıkarıldıysa true.
+  function kickVoiceUser (userId) {
+    const set = byUser.get(userId)
+    if (!set) return false
+    let changed = false
+    for (const rt of set) {
+      if (clearVoice(rt)) changed = true
+    }
+    if (changed) bumpMeta()
+    return changed
+  }
+
+  // Herkes için susturulan kullanıcının ses odasındaki oturumları susturulmuş görünür
+  function forceMute (userId) {
+    const set = byUser.get(userId)
+    if (!set) return
+    let changed = false
+    for (const rt of set) {
+      if (rt.voiceChannelId !== null && !rt.muted) {
+        rt.muted = true
+        changed = true
+      }
+    }
+    if (changed) bumpMeta()
+  }
+
+  // Ses kanalındaki kullanıcıların kimlikleri (tekrarsız)
+  function voiceUserIds (channelId) {
+    const ids = new Set()
+    for (const rt of sessions.values()) {
+      if (rt.voiceChannelId === channelId) ids.add(rt.userId)
+    }
+    return Array.from(ids)
+  }
+
   // Sonuç: 'ok' | 'not_in_voice' | 'peer_not_found'
   function signal (from, toPeerId, data) {
     if (from.voiceChannelId === null) return 'not_in_voice'
@@ -710,6 +756,9 @@ function createHub (options) {
     setCamera,
     clearCameras,
     kickVoiceChannel,
+    kickVoiceUser,
+    forceMute,
+    voiceUserIds,
     userInVoice,
     voiceOccupied,
     bumpMusic,

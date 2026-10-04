@@ -1205,3 +1205,36 @@
     padding-left: 3rem;
   }
 }
+
+/* Roller: her rol bir satır, üstte ad ve düğmeler, altında izin anahtarları */
+.role-admin-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.role-admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.role-admin-head .rename-form {
+  flex: 1 1 auto;
+}
+
+.role-perms {
+  margin-top: 0.25rem;
+  padding-left: 1.375rem;
+}
+
+.custom-role-pick {
+  display: inline-flex;
+  margin-right: 0.5rem;
+}
+
+.custom-role-pick .select {
+  max-width: 11rem;
+}
+

@@ -811,7 +811,43 @@ function frequencyMenuItems () {
   }))
   if (items.length > 0) items.push({ type: 'separator' })
   items.push({ label: t('menu.changeServer'), click: () => openConnectWindow() })
+  if (list.length > 0) {
+    items.push({
+      label: t('menu.removeFrequency'),
+      submenu: list.map((item) => ({
+        label: frequencies.displayName(item).replace(/&/g, '&&'),
+        click: () => confirmRemoveFrequency(item)
+      }))
+    })
+  }
   return items
+}
+
+// Menüden frekans çıkarma onayı. Uygulama içindeki frekans menüsüyle aynı seçenekler: oturum verisi yalnızca
+// kutu işaretlenirse silinir, etkin frekans çıkarılırsa listedeki başka bir frekansa geçilir.
+function confirmRemoveFrequency (item) {
+  const name = frequencies.displayName(item)
+  const detail = [t('remove.detail', { host: item.host })]
+  if (item.active) detail.push(t('remove.activeNote'))
+  const options = {
+    type: 'warning',
+    title: t('remove.title'),
+    message: t('remove.message', { name }),
+    detail: detail.join('\n\n'),
+    checkboxLabel: t('remove.clear'),
+    checkboxChecked: false,
+    buttons: [t('remove.confirm'), t('remove.cancel')],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true
+  }
+  const parent = BrowserWindow.getFocusedWindow() || undefined
+  const shown = parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)
+  shown.then((result) => {
+    if (result.response !== 0) return
+    const res = frequencyControl.remove(item.origin, result.checkboxChecked === true)
+    if (!res.ok) diag.log('frequency remove', { code: res.code })
+  }).catch((err) => logError('frequency remove', err))
 }
 
 function refreshMenus () {

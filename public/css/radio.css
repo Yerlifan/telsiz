@@ -261,6 +261,11 @@ button.crew-button:hover {
   color: var(--warn);
 }
 
+/* Herkes için susturulmuş (ses odası denetimi) */
+.crew-badge.is-server-muted {
+  color: var(--danger);
+}
+
 .crew-badge.is-screen {
   top: -0.25rem;
   bottom: auto;
@@ -807,6 +812,21 @@ button.crew-button:hover {
 #peer-popover .button {
   min-height: var(--target);
   margin-top: 0.75rem;
+}
+
+/* Ses odası denetimi bölümü (izinli kişiye görünür) */
+#peer-popover .peer-mod {
+  margin-top: 0.875rem;
+  padding-top: 0.75rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+#peer-popover .peer-mod-title {
+  margin: 0;
+}
+
+#peer-popover .peer-mod .form-msg {
+  margin-top: 0.5rem;
 }
 
 /* =========================================================

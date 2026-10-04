@@ -410,6 +410,8 @@ function bindEvents () {
   on(el.peerVolume, 'input', onPeerVolumeInput)
   on(el.peerVolume, 'change', onPeerVolumeInput)
   on(el.peerMute, 'click', onPeerMuteClick)
+  on(el.peerServerMute, 'click', onPeerServerMuteClick)
+  on(el.peerDisconnect, 'click', onPeerDisconnectClick)
 
   on(el.loadOlder, 'click', loadOlder)
   on(el.messages, 'scroll', onMessagesScroll)

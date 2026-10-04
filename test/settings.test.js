@@ -576,7 +576,7 @@ test('yardımcılar: atama karşılaştırma, seviye yüzdesi, kaydırıcı sın
   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { avatarMode: 'removed' }))"), true)
 })
 
-test('sahip: 12 kategori, her sayfa çizilir ve beklenen denetimler bulunur', () => {
+test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', () => {
   const { run, root, gear, doc } = load({ role: 'owner' })
   run("openSettings(null, document.getElementById('btn-settings'))")
   assert.strictEqual(root.hidden, false)
@@ -584,7 +584,7 @@ test('sahip: 12 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   assert.strictEqual(root.getAttribute('data-pane'), 'page')
   assert.strictEqual(doc.activeElement.id, 'settings-cat-account', 'geniş ekranda odak seçili kategoride')
   const cats = root.querySelectorAll('.settings-cat').map((b) => b.getAttribute('data-cat'))
-  assert.deepStrictEqual(cats, ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app', 'general', 'channels', 'members', 'invite'])
+  assert.deepStrictEqual(cats, ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app', 'general', 'channels', 'members', 'roles', 'invite'])
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
@@ -597,6 +597,7 @@ test('sahip: 12 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
     members: ['set-members-filter', 'set-members-list', 'set-temp-wrap', 'set-banned-list'],
+    roles: ['set-role-name', 'set-role-color', 'set-role-create', 'set-roles-list', 'set-roles-msg'],
     invite: ['set-invite-code', 'set-invite-show', 'set-invite-rotate', 'set-invite-link-copy']
   }
   for (const cat of Object.keys(expected)) {
@@ -754,6 +755,75 @@ test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca ü
   filter.value = 'MER'
   filter.dispatchEvent(fakeEvent('input'))
   assert.strictEqual(owner.root.querySelectorAll('#set-members-list .member-row').length, 1)
+})
+
+test('özel rol izinleri: moderatör izinli kategorileri görür, yalnızca alt sıradakileri engeller', () => {
+  const { run, root } = load({ role: 'member' })
+  run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'blue', perms: ['ban', 'channels'] }, { id: 8, name: 'DJ', color: 'purple', perms: ['dj'] }]")
+  run('state.meta.users[0].roleId = 7')
+  run('state.meta.users[2].roleId = 8')
+  assert.strictEqual(run("hasPerm('ban')"), true)
+  assert.strictEqual(run("hasPerm('messages')"), false)
+  assert.strictEqual(run('outranksUser(2)'), false, 'yönetici üst rütbede')
+  assert.strictEqual(run('outranksUser(3)'), true, 'DJ rolü listede aşağıda')
+  assert.strictEqual(run('outranksUser(1)'), false, 'kendine işlem yok')
+  assert.deepStrictEqual(Array.from(run('settingsCats()')).slice(8), ['channels', 'members'])
+  run("openSettings('members', null)")
+  assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
+  const row = (id) => root.querySelector('#set-members-list .member-row[data-user-id="' + id + '"]')
+  assert.strictEqual(row(2).querySelector('.act-ban'), null)
+  assert.ok(row(3).querySelector('.act-ban'))
+  assert.strictEqual(row(3).querySelector('.act-role'), null)
+  assert.strictEqual(row(3).querySelector('.act-custom-role'), null)
+  assert.strictEqual(row(3).querySelector('.act-reset'), null)
+  assert.strictEqual(row(3).querySelector('.list-sub').textContent, 'üye, DJ, çevrimdışı')
+  // DJ rolü üste taşınınca moderatör onu engelleyemez
+  run('state.meta.roles.reverse()')
+  run('refreshSettings()')
+  assert.strictEqual(run('outranksUser(3)'), false)
+  assert.strictEqual(row(3).querySelector('.act-ban'), null)
+  // Rol kalkınca Odalar ve Üyeler kategorileri kaybolur
+  run('state.meta.users[0].roleId = null')
+  run('refreshSettings()')
+  assert.strictEqual(root.querySelector('#settings-cat-members'), null)
+  assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'account')
+})
+
+test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
+  const owner = load({ role: 'owner' })
+  const { run, root, sandbox } = owner
+  run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'blue', perms: ['ban'] }, { id: 8, name: 'DJ', color: 'purple', perms: ['dj'] }]")
+  run('state.meta.users[2].roleId = 7')
+  run("openSettings('roles', null)")
+  const rows = root.querySelectorAll('#set-roles-list .role-admin-row')
+  assert.strictEqual(rows.length, 2)
+  assert.strictEqual(rows[0].querySelector('.list-sub').textContent, '1 üye')
+  assert.strictEqual(root.querySelector('#set-role-7-ban').checked, true)
+  assert.strictEqual(root.querySelector('#set-role-7-voice').checked, false)
+  const sent = (path) => sandbox.__requests.filter((r) => r.path === path).map((r) => JSON.parse(JSON.stringify(r.body)))
+  root.querySelector('#set-role-7-voice').click()
+  assert.deepStrictEqual(sent('/api/roles/update').pop(), { id: 7, perms: ['ban', 'voice'] })
+  root.querySelector('#set-role-name').value = '  Yardımcı '
+  root.querySelector('#set-role-create').click()
+  const created = sent('/api/roles/create').pop()
+  assert.strictEqual(created.name, 'Yardımcı')
+  assert.deepStrictEqual(created.perms, [])
+  assert.ok(run('ROLE_COLORS').indexOf(created.color) !== -1)
+  const down = rows[0].querySelectorAll('.icon-button')[1]
+  down.click()
+  assert.deepStrictEqual(sent('/api/roles/update').pop(), { id: 7, position: 1 })
+  run('confirm = function () { return true }')
+  root.querySelector('#set-roles-list .role-admin-row[data-role-id="8"] .button-danger').click()
+  assert.deepStrictEqual(sent('/api/roles/delete').pop(), { id: 8 })
+  // Üyeler sayfasında sahip için rol seçimi
+  run("showSettingsCat('members', null)")
+  const select = root.querySelector('#set-custom-role-3')
+  assert.ok(select)
+  assert.strictEqual(select.value, '7')
+  assert.strictEqual(root.querySelector('#set-custom-role-1'), null, 'sahibe rol verilmez')
+  select.value = ''
+  select.dispatchEvent(fakeEvent('change'))
+  assert.deepStrictEqual(sent('/api/users/custom-role').pop(), { userId: 3, roleId: null })
 })
 
 test('ayarlar görünümündeki tüm sabit anahtarlar iki dilde var ve dinamik anahtarlar tam', () => {

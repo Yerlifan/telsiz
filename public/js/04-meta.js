@@ -112,6 +112,7 @@ function applyMeta (meta, isInitial) {
   if (!meta || typeof meta !== 'object') return
   const prevKid = state.meta ? state.meta.activeKid : undefined
   const prevRole = state.me ? state.me.role : null
+  const prevPerms = state.me ? myPermsKey() : ''
   const prevUsersKey = mentionUsersKey(state.meta)
   state.meta = meta
   if (typeof meta.serverName === 'string' && meta.serverName) state.serverName = meta.serverName
@@ -166,7 +167,7 @@ function applyMeta (meta, isInitial) {
   } else {
     refreshConversationChrome()
   }
-  if (prevKid !== meta.activeKid || prevRole !== (state.me ? state.me.role : null)) {
+  if (prevKid !== meta.activeKid || prevRole !== (state.me ? state.me.role : null) || prevPerms !== (state.me ? myPermsKey() : '')) {
     renderComposerState()
     refreshAllMessages()
   } else if (prevUsersKey !== mentionUsersKey(meta)) {
@@ -521,7 +522,7 @@ function updateBandLive () {
 // rozeti, ses odasında kişi sayısı, konuşan göstergesi, Telsiz DJ notası ve bağlı olma durumu. Ayarlı oda
 // işaretlidir (aria-current). Satıra basmak yazı odasını ayarlar, ses odasına katılır (21-band.js
 // onStationRowClick). Yukarı ve aşağı ok, Home ve End satırlar arasında gezer (onRoomListKey). Oda ekle
-// düğmesi (#inbox-add, #rooms-sheet-add) yalnızca sahip ve yöneticilere görünür.
+// düğmesi (#inbox-add, #rooms-sheet-add) yalnızca oda yönetme izni olanlara (sahip, yönetici, izinli rol) görünür.
 let inboxRenderKey = ''
 let stationsRenderKey = ''
 
@@ -595,7 +596,7 @@ function renderInbox (groups) {
   const list = el.inboxList
   if (!list) return
   const add = byId('inbox-add')
-  if (add) add.hidden = !(typeof isAdmin === 'function' && isAdmin())
+  if (add) add.hidden = !(typeof hasPerm === 'function' && hasPerm('channels'))
   const key = roomsKey(groups)
   if (key === inboxRenderKey && list.childNodes.length) return
   inboxRenderKey = key
@@ -607,7 +608,7 @@ function renderStationsSheet (groups) {
   const list = el.stationsList
   if (!list) return
   const add = byId('rooms-sheet-add')
-  if (add) add.hidden = !(typeof isAdmin === 'function' && isAdmin())
+  if (add) add.hidden = !(typeof hasPerm === 'function' && hasPerm('channels'))
   const key = roomsKey(groups)
   if (key === stationsRenderKey && list.childNodes.length) return
   stationsRenderKey = key
@@ -668,7 +669,7 @@ function renderRoomCard () {
   el.roomCardE2e.classList.toggle('is-warn', !keyOk)
   el.roomCardE2eText.textContent = t(keyOk ? 'band.e2e' : 'header.noKey')
   el.roomCardMembers.textContent = t('band.roomMembers', { count: metaUsers().length, online: onlineCount() })
-  el.roomCardManage.hidden = !(typeof isAdmin === 'function' && isAdmin())
+  el.roomCardManage.hidden = !(typeof hasPerm === 'function' && hasPerm('channels'))
 }
 
 function activeFocusKey (container) {
@@ -723,8 +724,10 @@ function memberVoiceState (entry) {
   const mine = self && sameId(s.channelId, v.channelId)
   const muted = mine ? s.muted === true : v.muted
   const deafened = mine ? s.deafened === true : v.deafened
+  const rec = typeof metaRecordOf === 'function' ? metaRecordOf(entry.user.id) : null
   let text = t('people.voiceIdle')
   if (deafened) text = t('voice.deafenedState')
+  else if (rec && rec.voiceMuted) text = t('voice.serverMuted')
   else if (muted) text = t('voice.mutedState')
   else if (mine) text = t(s.inputMode === 'ptt' ? 'people.pttMode' : 'people.vadMode')
   else if (!self && s.peers && s.peers[String(entry.user.id)] && s.peers[String(entry.user.id)].localMute) text = t('voice.localMuted')
@@ -863,7 +866,8 @@ function memberRowKey (entry) {
     }
   }
   const sub = entry.voice ? JSON.stringify(memberVoiceState(entry)) : memberPresenceText(u.id, entry.status)
-  return [u.id, entry.status, entry.name, u.role, sub, blocked, info.colorIndex, info.blobUrl || '', info.initial].join(':')
+  const custom = typeof userRoleOf === 'function' ? userRoleOf(u.id) : null
+  return [u.id, entry.status, entry.name, u.role, custom ? custom.name + '/' + custom.color : '', u.voiceMuted === true, sub, blocked, info.colorIndex, info.blobUrl || '', info.initial].join(':')
 }
 
 function fillMemberList (list, entries) {
@@ -922,7 +926,7 @@ function buildMemberRow (entry) {
   }
   row.appendChild(text)
   if (flag) row.appendChild(flag)
-  const badge = roleBadge(u.role)
+  const badge = roleBadge(u.role) || customRoleBadge(u.id)
   if (badge) {
     badge.classList.add('member-role')
     row.appendChild(badge)

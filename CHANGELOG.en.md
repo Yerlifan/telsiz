@@ -2,6 +2,25 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### New features
+
+- Custom roles: the owner creates roles in Settings > Roles with any name and one of eight colors (at most 20), turns their permissions on one by one and orders them. Roles are given to members in Settings > Members, and a member can have one role. The role name shows as a badge on the profile card and in the On air list.
+- Role permissions: delete messages, ban members, moderate voice rooms, manage rooms and manage the Telsiz DJ queue. The owner and admins have every permission. A role higher in the list has more authority, and banning and voice room moderation only apply to people ranked lower.
+- Voice room moderation: a permitted person can mute someone for everyone or remove them from the voice room from the crew or the profile card. The mute stays when the person leaves and joins again. Since audio flows directly between people, the mute is applied by the clients: the muted person's microphone is turned off and the other devices do not play that person's audio.
+- Telsiz DJ restricted mode: when the owner turns it on, only people with the DJ permission manage the queue while one of them is in the room, and others listen. If no such person is in the room, everyone can manage it. The rule is enforced by the server.
+- A Remove from list submenu in the desktop app's Telsiz > Frequencies menu: the frequency is removed after a confirmation dialog, optionally together with its sign-in and data on this device.
+
+### Changes
+
+- The right column (Stations and the Telsiz DJ card) is 17rem wide instead of 14.5rem.
+- The "For you" volume slider on the Telsiz DJ card shows the volume and mute changed with the YouTube player's own controls. Sound turned down in the player can be turned up again with the slider.
+
+### Fixes
+
+- When the encryption key was added after signing in (for example at the first sign-in in the desktop app), Telsiz DJ stayed on the "the encryption key of this frequency is not on this device" notice. The music state is opened again once the key is added.
+
 ## [2.1.0]
 
 ### New features

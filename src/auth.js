@@ -14,6 +14,7 @@ const NAME_MAX = 32
 const CHANNEL_NAME_MIN = 1
 const CHANNEL_NAME_MAX = 30
 const SERVER_NAME_MAX = 40
+const ROLE_NAME_MAX = 24
 // Frekans tanıtımı (giriş yapmamış ziyaretçilerin de gördüğü düz metin): kod noktası ve satır sınırı
 const ABOUT_MAX = 600
 const ABOUT_MAX_LINES = 6
@@ -101,6 +102,15 @@ function cleanServerName (value) {
   if (text === null) return null
   const length = codePointLength(text)
   if (length < 1 || length > SERVER_NAME_MAX) return null
+  return text
+}
+
+// Özel rol adı: temizlik sonrası 1..24 kod noktası
+function cleanRoleName (value) {
+  const text = cleanText(value)
+  if (text === null) return null
+  const length = codePointLength(text)
+  if (length < 1 || length > ROLE_NAME_MAX) return null
   return text
 }
 
@@ -567,6 +577,7 @@ module.exports = {
   NAME_MAX,
   CHANNEL_NAME_MAX,
   SERVER_NAME_MAX,
+  ROLE_NAME_MAX,
   ABOUT_MAX,
   ABOUT_MAX_LINES,
   PASSWORD_MIN,
@@ -577,6 +588,7 @@ module.exports = {
   cleanUsername,
   cleanChannelName,
   cleanServerName,
+  cleanRoleName,
   cleanAbout,
   nameKey,
   isAuthKey,
