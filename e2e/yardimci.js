@@ -41,6 +41,9 @@ const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium'
 const BROWSERS = ['chromium', 'firefox', 'webkit']
 const BROWSER = process.env.TELSIZ_E2E_BROWSER || 'chromium'
 if (!BROWSERS.includes(BROWSER)) throw new Error('TELSIZ_E2E_BROWSER chromium, firefox veya webkit olmalıdır: ' + BROWSER)
+// Sahte mikrofon: Chromium'da bayraklarla, Firefox'ta tercihlerle. WebKit'te yoktur, ses odasına katılma adımları atlanır.
+const FAKE_MIC = BROWSER !== 'webkit'
+const MIC_BROWSERS = ['chromium', 'firefox']
 
 // Konsolda beklenen ve hata sayılmayan iletiler. Sunucu tüm yanıtlarda "Permissions-Policy: camera=()"
 // gönderir (src/http-util.js). Sahte ortam bayraklarıyla açılan Chromium, getUserMedia ve
@@ -296,12 +299,15 @@ async function failureShots (pages, file, name) {
 // node:test test() sarmalayıcısı: düşen testte açık sayfaların ekran görüntüsünü yazar.
 // getPages: o anda açık sayfaları veren işlev (dünya henüz kurulmamışsa boş dizi)
 // opts.browsers: dosyanın çalıştığı tarayıcılar (verilmezse hepsi), diğerlerinde testler nedeniyle atlanır
-// opts.reason: atlama nedeni
+// opts.reason: atlama nedeni. Tek bir test de aynı seçenekleri üçüncü bağımsız değişken olarak alır.
+function skipReason (o) {
+  return o && o.browsers && !o.browsers.includes(BROWSER) ? (o.reason || 'bu tarayıcıda çalışmaz') + ' (' + BROWSER + ')' : false
+}
+
 function makeTest (file, getPages, opts) {
-  const o = opts || {}
-  const skip = o.browsers && !o.browsers.includes(BROWSER) ? (o.reason || 'bu tarayıcıda çalışmaz') + ' (' + BROWSER + ')' : false
-  function e2eTest (name, fn) {
-    test(name, { timeout: TEST_TIMEOUT, skip }, async (t) => {
+  const skip = skipReason(opts)
+  function e2eTest (name, fn, testOpts) {
+    test(name, { timeout: TEST_TIMEOUT, skip: skip || skipReason(testOpts) }, async (t) => {
       try {
         await fn(t)
       } catch (err) {
@@ -367,7 +373,8 @@ async function setupWorld (opts) {
   const pageFor = async (who, opts2) => {
     const o2 = opts2 || {}
     const page = await tb.newPage(o2.label || who, Object.assign({}, o2, { person: P[who], extra: Object.assign({ 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' }, o2.extra || {}) }))
-    await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode))
+    // Firefox'ta yeni bağlamın ilk yüklemesi CI'da kısa süreyi aşabilir
+    await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode), { timeout: LONG })
     await page.waitForSelector('#app-view:not([hidden])', { timeout: LONG })
     await page.waitForSelector('#band-track .station[data-station]', { timeout: LONG })
     return page
@@ -491,6 +498,8 @@ function makeWav (seconds, rate) {
 
 module.exports = {
   BROWSER,
+  FAKE_MIC,
+  MIC_BROWSERS,
   ROOT,
   PUBLIC_DIR,
   RESULTS_DIR,
