@@ -170,6 +170,9 @@ function castOnScreenEvent (evt) {
   if (!evt || typeof evt.type !== 'string') return
   const uid = evt.userId === null || evt.userId === undefined ? null : String(evt.userId)
   if (evt.type === 'share-start') {
+    // Özel mesaj aramasında ekran paylaşımı yoktur: karşı taraftan gelen duyuru sesle veya bildirimle gösterilmez
+    const s = castSnapshot()
+    if (s && s.private) return
     castPlayShareSound(evt)
     // Bildirimler listesine (28-bildirim.js) yazılır, liste ekrandaysa sağ üstteki bildirim açılmaz
     const listed = typeof activityShare === 'function'
@@ -1060,6 +1063,9 @@ function castOnFullChange () {
 function openCastDialog (trigger, kind) {
   const root = el.castDialog
   if (!root || !state.inApp) return
+  // Özel mesaj aramasında ekran paylaşımı başlatılmaz (telsiz kartında Ekran düğmesi de gizlidir)
+  const now = castSnapshot()
+  if (now && now.private) return
   if (castState.dialog) castCloseDialog(false)
   const sc = castScreen()
   const mode = kind === 'quality' && sc && sc.state === 'live' ? 'quality' : 'start'
@@ -1247,7 +1253,7 @@ function castRenderDialogState () {
   const sc = castScreen(s)
   let blocker = null
   if (!sc || !sc.canShare) blocker = sc && sc.reason ? sc.reason : 'screen_unsupported'
-  else if (!s.channelId) blocker = 'not_in_voice'
+  else if (!s.channelId || s.private) blocker = 'not_in_voice'
   if (d.mode === 'quality' && !(sc && sc.state === 'live') && !d.busy) {
     castCloseDialog(false)
     return

@@ -10,16 +10,18 @@
 // - dm: özel mesaj geldi (inen iki notalı kapı zili)
 // - friend: arkadaşlık isteği geldi (hızla tellenen majör yedili akor ve yüksek iki parıltı)
 // - drop: ses odasından düştünüz (alçak, inen minör üç nota, son nota aşağı kayar)
+// - ring: özel mesajdan arama geliyor (iki kısa çan dizisi, her biri hızla yükselen üç nota). Çalarken
+//   32-arama.js yaklaşık 3 saniyede bir yineler.
 // - message: mesaj sesi (eski kısa iki tonlu ses, bildirim seslerinden ayrıdır ve kısadır)
 // Ses düzeyi 0 ile 100 arasıdır (telsiz.notifyVolume, varsayılan DEFAULT_VOLUME). Algıya yakın olsun diye
 // genlik düzeyin karesiyle ölçeklenir. Ses bağlamı sayfa başına birdir, ilk kullanıcı etkileşiminde açılır ve
 // ses bitince askıya alınır. Masaüstü uygulamasının arka plan penceresinde hiç ses çalınmaz.
 // Hangi olayda çalınacağına ve ayarlara (Ses odası sesleri, Mesaj ve istek sesleri, Rahatsız etmeyin, sağırlaştırma)
 // çağıran modül karar verir: public/voice.js (katılma, ayrılma, düşme), 22-cast.js (ekran yayını),
-// 05-poll.js ve 11-settings.js (özel mesaj, mesaj sesi), 14-social.js (arkadaşlık isteği).
+// 05-poll.js ve 11-settings.js (özel mesaj, mesaj sesi), 14-social.js (arkadaşlık isteği), 32-arama.js (zil).
 
 window.TelsizSesler = (function () {
-  const KINDS = ['join', 'leave', 'share', 'dm', 'friend', 'drop']
+  const KINDS = ['join', 'leave', 'share', 'dm', 'friend', 'drop', 'ring']
   const DURATION = 2
   const FADE = 0.3
   const ATTACK = 0.006
@@ -116,6 +118,21 @@ window.TelsizSesler = (function () {
         { t: 0, f: 440, a: 0.5, d: 0.45 },
         { t: 0.2, f: 349.23, a: 0.5, d: 0.45 },
         { t: 0.4, f: 293.66, a: 0.6, d: 0.9, glide: 0.97 }
+      ]
+    },
+    // Zil: OfflineAudioContext Node.js'te olmadığından norm ölçülmedi, temkinli seçildi. Kısmi tonların zarflarının
+    // toplamı (gerçek tepenin üst sınırı) norm ile çarpılınca 1'i aşmaz (test/bildirim-sesleri.test.js).
+    ring: {
+      timbre: 'bell',
+      lowpass: 6500,
+      norm: 0.8,
+      notes: [
+        { t: 0, f: 783.99, a: 0.3, d: 0.3 },
+        { t: 0.09, f: 1046.5, a: 0.3, d: 0.3 },
+        { t: 0.18, f: 1318.51, a: 0.32, d: 0.45 },
+        { t: 0.95, f: 783.99, a: 0.3, d: 0.3 },
+        { t: 1.04, f: 1046.5, a: 0.3, d: 0.3 },
+        { t: 1.13, f: 1318.51, a: 0.32, d: 0.45 }
       ]
     }
   }

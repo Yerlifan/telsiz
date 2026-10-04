@@ -697,6 +697,8 @@ function resetAppState () {
   closeAllLayers()
   socialReset()
   if (typeof activityReset === 'function') activityReset()
+  // Zil, gelen arama kartı ve arama bölümü kapanır (32-arama.js)
+  if (typeof aramaReset === 'function') aramaReset()
   state.inApp = false
   state.me = null
   state.meta = null

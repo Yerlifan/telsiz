@@ -176,14 +176,15 @@ function djOnMeta () {
   djRenderSoon()
 }
 
-// Bu cihazın ses odası: bağlantı tamamlanınca oda, ayrılınca null
+// Bu cihazın ses odası: bağlantı tamamlanınca oda, ayrılınca null. Özel mesaj araması (snapshot.private) ses
+// odası sayılmaz, Telsiz DJ orada kullanılmaz.
 function djSyncVoice () {
   const engine = djEngine()
   if (!engine) return
   let room = null
   if (state.inApp && typeof snap === 'function') {
     const s = snap()
-    if (s.channelId !== null && s.channelId !== undefined && !s.joining) room = s.channelId
+    if (s.channelId !== null && s.channelId !== undefined && !s.joining && !s.private) room = s.channelId
   }
   if (room === dj.voiceRoom) return
   dj.voiceRoom = room

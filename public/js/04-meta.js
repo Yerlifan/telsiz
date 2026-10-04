@@ -137,13 +137,8 @@ function applyMeta (meta, isInitial) {
       state.me.name = String(mine.name || state.me.name)
     }
   }
-  if (voice) {
-    try {
-      voice.handleMeta(meta, state.me)
-    } catch (err) {
-      window.console.error(err)
-    }
-  }
+  // Özel aramadayken metanın kopyasına arama odasının kadrosu eklenir (10-voice.js voiceHandleMeta)
+  voiceHandleMeta(meta)
   // Ses odasına katılma ve ayrılma bildirimleri (28-bildirim.js)
   if (typeof activityOnMeta === 'function') activityOnMeta(meta)
   if (isInitial || !state.inApp) return

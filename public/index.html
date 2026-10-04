@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="/css/people.css">
   <link rel="stylesheet" href="/css/cast.css">
   <link rel="stylesheet" href="/css/dj.css">
+  <link rel="stylesheet" href="/css/arama.css">
   <link rel="stylesheet" href="/css/tanitim.css">
   <link rel="stylesheet" href="/css/skins/arcade.css">
   <link rel="stylesheet" href="/css/skins/gece.css">
@@ -69,6 +70,7 @@
   <script src="/js/29-mikrofon.js" defer></script>
   <script src="/js/30-pencere.js" defer></script>
   <script src="/js/31-sesler.js" defer></script>
+  <script src="/js/32-arama.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -152,6 +154,7 @@
     <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20"/></symbol>
     <symbol id="i-screen-off" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20M4 3l16 16"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5 21 7.5v9l-5.5-3"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M8.6 3.5H6A2.5 2.5 0 0 0 3.5 6c0 8 6.5 14.5 14.5 14.5a2.5 2.5 0 0 0 2.5-2.5v-2.6l-4.2-1.7-2 2.1A12 12 0 0 1 8.2 9.7l2.1-2z"/></symbol>
     <symbol id="i-camera-off" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5 21 7.5v9l-5.5-3M3 3l18 18"/></symbol>
     <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.75"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.75"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.75"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.75"/></symbol>
     <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></symbol>
@@ -169,6 +172,20 @@
   </noscript>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Gelen arama kartı: özel mesajdan arama gelince sabit konumda görünür, Esc yalnızca gizler (32-arama.js) -->
+  <div id="call-incoming" class="call-incoming" role="alertdialog" aria-labelledby="call-incoming-title" aria-describedby="call-incoming-text" hidden>
+    <span id="call-incoming-avatar" class="call-incoming-avatar" aria-hidden="true"></span>
+    <div class="call-incoming-body">
+      <h2 id="call-incoming-title" class="call-incoming-title" data-i18n="call.incomingTitle">Gelen Arama</h2>
+      <p id="call-incoming-text" class="call-incoming-text"></p>
+      <p id="call-incoming-note" class="call-incoming-note" hidden></p>
+    </div>
+    <div class="call-incoming-actions">
+      <button id="call-incoming-decline" class="button call-incoming-decline" type="button"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span data-i18n="call.decline">Reddet</span></button>
+      <button id="call-incoming-accept" class="button call-incoming-accept" type="button"><svg class="icon" aria-hidden="true"><use href="#i-phone" xlink:href="#i-phone"></use></svg><span data-i18n="call.accept">Kabul Et</span></button>
+    </div>
+  </div>
 
   <!-- Açılış -->
   <main id="boot-view" class="boot-view">
@@ -519,6 +536,9 @@
           <section id="search-panel" class="search-panel" role="dialog" aria-label="Ara" data-i18n-aria-label="layout.search" hidden></section>
           <section id="home-view" class="home-view" aria-label="Arkadaşlar" data-i18n-aria-label="social.friends" hidden></section>
           <div id="key-warning" class="key-warning" role="alert" hidden></div>
+          <!-- Özel mesaj araması: iki kutu, durum satırı ve denetimler, yazışma altta kalır (32-arama.js, arama.css) -->
+          <section id="dm-call" class="dm-call" aria-label="Arama" data-i18n-aria-label="call.area" hidden></section>
+          <p id="dm-call-live" class="sr-only" role="status"></p>
           <div id="messages" class="messages" role="log" aria-label="Mesajlar" aria-live="polite" tabindex="0" data-i18n-aria-label="messages.label">
             <div id="channel-start" class="channel-start" hidden>
               <div class="channel-start-icon" aria-hidden="true"><svg class="icon"><use href="#i-lock" xlink:href="#i-lock"></use></svg></div>

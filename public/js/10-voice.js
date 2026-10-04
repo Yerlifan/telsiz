@@ -97,6 +97,11 @@ function voiceErrorText (code, serverText) {
   return t('errors.join_failed')
 }
 
+function callOwnsError (code) {
+  if (code === 'call_ended') return true
+  return typeof aramaOwnsError === 'function' && aramaOwnsError(code)
+}
+
 function voiceErrorOf (err) {
   const code = err && typeof err.code === 'string' ? err.code : 'join_failed'
   const server = err && typeof err.serverMessage === 'string' ? err.serverMessage : ''
@@ -121,8 +126,10 @@ function onVoiceChange (snapshot) {
   }
   const code = snapshot && snapshot.errorCode ? snapshot.errorCode : null
   const server = snapshot && snapshot.serverError ? snapshot.serverError : ''
-  if (code && code !== lastVoiceError) toast(() => voiceErrorText(code, server), 'error', 8000)
+  // Aramanın bitişini ve katılamamayı 32-arama.js kendi metniyle bildirir
+  if (code && code !== lastVoiceError && !callOwnsError(code)) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
+  if (typeof aramaOnVoice === 'function') aramaOnVoice(state.voiceSnap)
   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
   if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
   lastCameraError = camCode
@@ -146,14 +153,14 @@ function voiceStructureKey () {
   const s = snap()
   const peers = s.peers || {}
   const peerKey = Object.keys(peers).sort().map((id) => id + ':' + peers[id].status + ':' + (peers[id].localMute ? 1 : 0) + ':' + (peers[id].sharing ? 1 : 0)).join(',')
-  const roster = state.meta && state.meta.voice ? JSON.stringify(state.meta.voice) : ''
+  const roster = (state.meta && state.meta.voice ? JSON.stringify(state.meta.voice) : '') + JSON.stringify(privateCall())
   const channels = voiceChannels().map((c) => c.id + ':' + c.name).join(',')
   const sc = radioScreen(s)
   const screenKey = [sc.canShare ? 1 : 0, sc.reason || '', sc.state, sc.starting ? 1 : 0].join(':')
   const cam = radioCamera(s)
   const streams = cameraStreams(s)
   const camKey = [cam.canUse ? 1 : 0, cam.state, camerasAllowed() ? 1 : 0].concat(Object.keys(streams).sort().map((id) => id + '=' + streams[id].stream.id)).join(':')
-  return [s.channelId, s.joining, s.muted, s.deafened, s.errorCode, s.autoplayBlocked, s.inputMode, s.ptt && s.ptt.enabled, peerKey, roster, channels, screenKey, camKey].join('|')
+  return [s.channelId, s.private ? 1 : 0, s.joining, s.muted, s.deafened, s.errorCode, s.autoplayBlocked, s.inputMode, s.ptt && s.ptt.enabled, peerKey, roster, channels, screenKey, camKey].join('|')
 }
 
 function renderVoiceAll () {
@@ -170,11 +177,119 @@ function renderVoiceAll () {
   if (typeof settingsOnVoice === 'function') settingsOnVoice()
   // Kameralar ızgarası yayın sahnesindedir, kamera değişince sahne de güncellenir
   if (typeof castSync === 'function') castSync()
+  // Özel mesaj görünümünün arama bölümü (32-arama.js)
+  if (typeof aramaRender === 'function') aramaRender()
 }
 
 function voiceRoster (channelId) {
+  const call = privateCall()
+  if (call && channelId !== null && channelId !== undefined && sameId(call.dmId, channelId)) return call.members
   const roster = state.meta && state.meta.voice ? state.meta.voice[channelId] || state.meta.voice[String(channelId)] : null
   return Array.isArray(roster) ? roster : []
+}
+
+// Özel mesaj araması köprüsü (32-arama.js). Arama bilgisi herkese açık metaya girmez, yalnızca kişiye özel
+// görünümden (priv().call) gelir. Ses motoru arama odasındayken metanın sığ bir kopyasına odanın kadrosu
+// (call.members) voice[dmId] olarak eklenir. Özel görünüm her değiştiğinde motora yeniden verilir: aramanın
+// görünümden kalkması motorun odadan düşmesi (call_ended) anlamına gelir.
+
+function privateCall () {
+  if (typeof priv !== 'function') return null
+  const p = priv()
+  return p && p.call ? p.call : null
+}
+
+function voiceSnapNow () {
+  if (!voice) return null
+  try {
+    return voice.snapshot()
+  } catch (err) {
+    return state.voiceSnap
+  }
+}
+
+// Motora verilecek meta: motor bu cihazda aramanın odasındaysa kadrosu eklenmiş kopya, değilse metanın kendisi
+function voiceMetaFor (meta) {
+  if (!meta || typeof meta !== 'object') return meta
+  const call = privateCall()
+  const s = voiceSnapNow()
+  if (!call || !s || s.channelId === null || s.channelId === undefined || !sameId(s.channelId, call.dmId)) return meta
+  const copy = Object.assign({}, meta)
+  copy.voice = Object.assign({}, meta.voice && typeof meta.voice === 'object' ? meta.voice : {})
+  copy.voice[String(call.dmId)] = call.members.slice()
+  return copy
+}
+
+function voiceHandleMeta (meta) {
+  if (!voice || !meta) return
+  try {
+    voice.handleMeta(voiceMetaFor(meta), state.me)
+  } catch (err) {
+    window.console.error(err)
+  }
+}
+
+// Özel görünüm değişti (14-social.js socialApplyPrivate) veya arama odasına katılım başladı
+function voiceRefreshCall () {
+  if (state.meta) voiceHandleMeta(state.meta)
+  if (state.inApp && voiceStructureKey() !== state.voiceKey) renderVoiceAll()
+}
+
+// Bu cihaz şu an aramanın odasında mı (bağlanırken de)
+function inCallRoom (s) {
+  const snapshot = s || snap()
+  const call = privateCall()
+  return Boolean(snapshot && snapshot.private && snapshot.channelId !== null && snapshot.channelId !== undefined && (!call || sameId(snapshot.channelId, call.dmId)))
+}
+
+// Arama için ses desteği: grup anahtarı gerekmez (sinyaller çiftin kişisel anahtarlarıyla şifrelenir)
+function callSupportCode () {
+  if (!voice) return 'unsupported'
+  let support = null
+  try {
+    support = voice.support()
+  } catch (err) {
+    support = { ok: false, reason: 'unsupported' }
+  }
+  if (!support || !support.ok) return support && support.reason === 'insecure' ? 'insecure' : 'unsupported'
+  return null
+}
+
+// Aramanın odasına katılım: sinyaller karşı tarafın şu anki doğrulanmış anahtarı ve kendi kimlik anahtarımla
+// şifrelenir (E2EE.dm). Anahtar koşulu her sinyalde yeniden denetlenir, açarken eski anahtarlar denenmez.
+// Kullanıcı hareketi içinde çağrılmalıdır (ses bağlamı).
+function joinCallRoom (dmId, partnerId) {
+  const problem = callSupportCode()
+  if (problem) return Promise.reject(Object.assign(new Error(problem), { code: problem }))
+  const keys = () => {
+    const st = dmSendState(partnerId)
+    const pair = myIdentity()
+    return st.ok && pair ? { pk: st.pk, sk: pair.secretKey } : null
+  }
+  const priv = {
+    seal: (obj) => {
+      const k = keys()
+      if (!k) throw Object.assign(new Error('no_key'), { code: 'no_key' })
+      return window.E2EE.dm.seal(obj, k.pk, k.sk)
+    },
+    open: (envelope) => {
+      const k = keys()
+      if (!k) return { ok: false, reason: 'no_key' }
+      return window.E2EE.dm.open(envelope, [k.pk], k.sk)
+    }
+  }
+  closeDrawers()
+  // Tekrar dene düğmesi aramaya veya önceki ses odasına yeniden katılmaz
+  radioLastChannel = null
+  let pending = null
+  try {
+    pending = voice.join(dmId, { private: priv })
+  } catch (err) {
+    return Promise.reject(err)
+  }
+  // Özel görünümde arama odasının kadrosu varsa motor hemen alır
+  voiceRefreshCall()
+  return Promise.resolve(pending)
 }
 
 // Ekran paylaşımı durumu: anlık görüntüde (snapshot.screen) varsa o, yoksa motorun statik özellik
@@ -571,6 +686,7 @@ function updateVoiceLive () {
     })
   }
   updateBandLive()
+  if (typeof aramaLive === 'function') aramaLive(s)
   if (typeof updateLevelMeter === 'function') updateLevelMeter()
   // Ses etkinliği modunda Bas konuş yerindeki seviye çubuğu
   if (el.radioVadBar) {
@@ -593,14 +709,18 @@ function renderVoicePanel () {
   const joining = Boolean(s.joining)
   const live = inVoice || joining
   const connected = inVoice && !joining
-  const ch = s.channelId ? findChannel(s.channelId) : null
-  const chName = ch ? ch.name : ''
+  // Özel aramada kart "Özel Arama" başlığı ve karşı tarafın adıyla görünür, Ekran ve Telsiz DJ düğmeleri gizlidir
+  const callMode = live && inCallRoom(s)
+  const call = callMode ? privateCall() : null
+  const ch = s.channelId && !callMode ? findChannel(s.channelId) : null
+  const chName = callMode ? (call ? shownName(call.userId) : '') : ch ? ch.name : ''
   const radioState = joining ? 'joining' : inVoice ? 'on' : 'off'
   if (el.radio) {
     el.radio.setAttribute('data-state', radioState)
     el.radio.setAttribute('aria-busy', joining ? 'true' : 'false')
+    el.radio.classList.toggle('is-call', callMode)
   }
-  setText(el.radioState, t(radioState === 'on' ? 'radio.on' : radioState === 'joining' ? 'radio.joining' : 'radio.off'))
+  setText(el.radioState, callMode ? t('call.radioTitle') : t(radioState === 'on' ? 'radio.on' : radioState === 'joining' ? 'radio.joining' : 'radio.off'))
   // Kapalı: ses odaları listesi, destek uyarısı ve tuş ipucu
   const problem = live ? null : voiceSupportCode()
   el.radioPick.hidden = live
@@ -616,8 +736,8 @@ function renderVoicePanel () {
   el.radioTalk.hidden = !connected
   // Ekran okuyucu için durum satırı
   setText(el.voicePanelStatus, joining ? t('voice.connecting') : connected ? t('voice.connectedTo', { name: chName }) : '')
-  // Hata ve Tekrar dene
-  const errText = s.errorCode ? voiceErrorText(s.errorCode, s.serverError) : ''
+  // Hata ve Tekrar dene (aramanın bitişini 32-arama.js bildirir, kartta hata olarak yazılmaz)
+  const errText = s.errorCode && !callOwnsError(s.errorCode) ? voiceErrorText(s.errorCode, s.serverError) : ''
   setMsg(el.voiceError, errText, 'error')
   el.voiceRetry.hidden = !(errText && !joining && (s.channelId || radioLastChannel) && s.errorCode !== 'kicked')
   el.radioError.hidden = !errText
@@ -641,9 +761,11 @@ function renderVoicePanel () {
     el.pttButton.removeAttribute('aria-keyshortcuts')
   }
   renderScreenButton(s)
+  if (el.btnScreen) el.btnScreen.hidden = callMode
+  if (callMode) setMsg(el.radioScreenNote, '')
   renderCameraButton(s)
   el.voiceLeave.hidden = !live
-  el.voiceLeave.setAttribute('aria-label', connected && chName ? t('radio.leaveLabel', { name: chName }) : t('voice.disconnect'))
+  el.voiceLeave.setAttribute('aria-label', callMode ? t('call.hangup') : connected && chName ? t('radio.leaveLabel', { name: chName }) : t('voice.disconnect'))
   setText(el.voiceLeaveState, chName)
 }
 
@@ -764,7 +886,7 @@ function onCameraButton () {
 function onScreenButton () {
   const s = snap()
   const sc = radioScreen(s)
-  if (!sc.canShare || !s.channelId || s.joining || sc.starting) return
+  if (!sc.canShare || !s.channelId || s.joining || sc.starting || s.private) return
   if (sc.state === 'live') {
     if (voice && typeof voice.stopScreenShare === 'function') voice.stopScreenShare()
     return
@@ -810,8 +932,9 @@ function pttKeyCap () {
 
 // Üst çubuktaki avatar çipinin durum satırı: seste ise oda, değilse özel durum metni veya durum
 function myStatusLine (s) {
-  const ch = s.channelId ? findChannel(s.channelId) : null
+  const ch = s.channelId && !s.private ? findChannel(s.channelId) : null
   if (s.joining) return t('voice.joining')
+  if (s.channelId && s.private) return t('call.radioTitle')
   if (ch) return t('voice.inChannel', { name: ch.name })
   const chosen = state.me && typeof state.me.status === 'string' ? state.me.status : 'online'
   if (typeof userStatusText === 'function') {
@@ -891,6 +1014,11 @@ function joinVoice (channelId) {
 
 function leaveVoice () {
   if (!voice) return
+  // Özel aramada Ayrıl aramayı bitirir (32-arama.js, sunucu karşı tarafı da odadan çıkarır)
+  if (inCallRoom() && typeof aramaHangup === 'function') {
+    aramaHangup()
+    return
+  }
   Promise.resolve(voice.leave()).catch(() => {})
 }
 

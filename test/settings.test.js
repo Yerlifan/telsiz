@@ -21,7 +21,7 @@ const FILES = [
   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
   'js/01-core.js', 'js/02-state-dom.js', 'js/03-auth.js', 'js/04-meta.js', 'js/05-poll.js',
   'js/06-messages.js', 'js/07-attachments.js', 'js/08-composer.js', 'js/09-emoji.js', 'js/10-voice.js',
-  'js/11-settings.js', 'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/31-sesler.js'
+  'js/11-settings.js', 'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/31-sesler.js', 'js/32-arama.js'
 ]
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 const SETTINGS_SOURCE = fs.readFileSync(path.join(PUB, 'js', '11-settings.js'), 'utf8')
