@@ -37,7 +37,9 @@ window.VoiceClient = (function () {
   var MAX_UNKNOWN = 50
   var MAX_CANDIDATES = 200
   var MAX_ROSTER = 64
-  var MAX_SDP_CHARS = 15000
+  // Görüntülü SDP sesliden büyüktür (Chromium 141: 3 m satırı yaklaşık 5000 karakter). Asıl üst sınır sunucunun
+  // zarf sınırıdır (maxSignalChars), bu değer sunucu sınırı yükseltilirse darboğaz olmasın diye geniş tutulur.
+  var MAX_SDP_CHARS = 30000
   var MAX_CANDIDATE_CHARS = 2000
   var MAX_SIGNAL_CHARS = 100000
   var MAX_STORED_USERS = 500
@@ -47,6 +49,36 @@ window.VoiceClient = (function () {
   var SIGNAL_RETRIES = 3
   var STORAGE_KEY = 'telsiz.voice'
   var PEERS_KEY = 'telsiz.voice.peers'
+  var SCREEN_KEY = 'telsiz.voice.screen'
+  // Ekran paylaşımı (Ek L1)
+  var NEGO_TIMEOUT_MS = 20000
+  var MAX_NEGO_RETRIES = 2
+  var WATCH_TIMEOUT_MS = 30000
+  var FLOW_PROBE_MS = 400
+  // Paylaşım sürerken sunucuya erişim denetimi: yanıt gelmeyen süre LINK_PROBE_MS'yi geçince yoklanır,
+  // yoklamalar OFFLINE_STOP_MS boyunca başarısız olursa paylaşım durur
+  var LINK_TICK_MS = 5000
+  var LINK_PROBE_MS = 10000
+  var OFFLINE_STOP_MS = 30000
+  var SCREEN_KINDS = ['video', 'audio']
+  var SCREEN_PRESET_IDS = ['720p15', '720p30', '1080p15', '1080p30']
+  var SCREEN_PRESETS = {
+    '720p15': { width: 1280, height: 720, frameRate: 15, maxBitrate: 1200000 },
+    '720p30': { width: 1280, height: 720, frameRate: 30, maxBitrate: 2500000 },
+    '1080p15': { width: 1920, height: 1080, frameRate: 15, maxBitrate: 2500000 },
+    '1080p30': { width: 1920, height: 1080, frameRate: 30, maxBitrate: 4000000 }
+  }
+  var SCREEN_HINTS = ['motion', 'detail']
+  var DEFAULT_SCREEN = { preset: '720p15', hint: 'detail', audio: false }
+  // Ekran sinyallerinde izin verilen alanlar (sid ve n bütün sinyallerde ortaktır)
+  var SCREEN_ON_KEYS = ['type', 'sid', 'n', 'on', 'id', 'audio', 'hint', 'preset']
+  var SCREEN_OFF_KEYS = ['type', 'sid', 'n', 'on', 'id']
+  var STOP_REASONS = ['user', 'ended', 'left', 'unload']
+  // Ekran paylaşımı hata kodları (arayüz t('screen.errors.' + kod) ile çevirir). 'cancelled' gösterilmez:
+  // yerini yeni bir istek aldı veya paylaşım seçici açıkken durduruldu.
+  var SCREEN_ERRORS = ['screen_unsupported', 'insecure', 'unsupported', 'not_in_voice', 'screen_busy', 'screen_denied',
+    'screen_gesture', 'screen_not_found', 'screen_failed', 'screen_negotiation_failed', 'screen_audio_limited', 'screen_watch_failed',
+    'no_share']
   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
   var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
   var MOUSE_BITS = { 1: 4, 3: 8, 4: 16 }
@@ -443,6 +475,151 @@ window.VoiceClient = (function () {
     if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation()
   }
 
+  // Ekran paylaşımı yardımcıları (saf fonksiyonlar, VoiceClient.screenUtils ile Node testlerine açılır)
+
+  // Özellik algılama (tarayıcı adı tahmini yok). İzlemek için sesli sohbet desteği yeter, paylaşmak için
+  // getDisplayMedia, addTrack, aktarıcı listesi ve replaceTrack gerekir.
+  function screenSupport () {
+    var base = support()
+    if (!base.ok) return { share: false, watch: false, reason: base.reason }
+    var md = navigator.mediaDevices
+    var P = window.RTCPeerConnection
+    var proto = P && P.prototype
+    var S = window.RTCRtpSender
+    var ok = !!(md && typeof md.getDisplayMedia === 'function' && proto && typeof proto.addTrack === 'function' &&
+      typeof proto.getTransceivers === 'function' && S && S.prototype && typeof S.prototype.replaceTrack === 'function')
+    return { share: ok, watch: true, reason: ok ? null : 'screen_unsupported' }
+  }
+
+  function screenPresets () {
+    return SCREEN_PRESET_IDS.map(function (id) {
+      var p = SCREEN_PRESETS[id]
+      return { id: id, width: p.width, height: p.height, frameRate: p.frameRate, maxBitrate: p.maxBitrate }
+    })
+  }
+
+  function screenDefaults () {
+    return { preset: DEFAULT_SCREEN.preset, hint: DEFAULT_SCREEN.hint, audio: DEFAULT_SCREEN.audio }
+  }
+
+  // Paylaşım seçenekleri: geçersiz alanlar önce base'den, o da geçersizse varsayılandan alınır
+  function screenOptions (opts, base) {
+    var o = opts && typeof opts === 'object' ? opts : {}
+    var b = base && typeof base === 'object' ? base : {}
+    function pick (key, valid) {
+      if (valid(o[key])) return o[key]
+      if (valid(b[key])) return b[key]
+      return DEFAULT_SCREEN[key]
+    }
+    return {
+      preset: pick('preset', function (v) { return SCREEN_PRESET_IDS.indexOf(v) >= 0 }),
+      hint: pick('hint', function (v) { return SCREEN_HINTS.indexOf(v) >= 0 }),
+      audio: pick('audio', function (v) { return typeof v === 'boolean' })
+    }
+  }
+
+  function presetOf (id) {
+    return SCREEN_PRESETS[SCREEN_PRESET_IDS.indexOf(id) >= 0 ? id : DEFAULT_SCREEN.preset]
+  }
+
+  // RTCRtpSender.setParameters ile uygulanan kodlama sınırları
+  function screenEncoding (presetId) {
+    var p = presetOf(presetId)
+    return { maxBitrate: p.maxBitrate, maxFramerate: p.frameRate }
+  }
+
+  // Yakalanan görüntü izine applyConstraints ile uygulanan sınırlar (getDisplayMedia min ve exact kabul etmez)
+  function trackConstraints (presetId) {
+    var p = presetOf(presetId)
+    return { width: { max: p.width }, height: { max: p.height }, frameRate: { max: p.frameRate } }
+  }
+
+  // getDisplayMedia isteği. Tanımayan tarayıcılar ek alanları yok sayar. Ses isteğe bağlıdır, işleme kapalıdır
+  // (müzik ve oyun sesi bozulmasın). Kendi sekmesi listede yer almaz (sonsuz yansıma olmasın).
+  function displayConstraints (opts) {
+    var o = screenOptions(opts, null)
+    var c = {
+      video: trackConstraints(o.preset),
+      audio: o.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include'
+    }
+    if (o.audio) c.systemAudio = 'include'
+    return c
+  }
+
+  // Ekran aktarıcılarının kodek listesi (setCodecPreferences). Görüntüde VP8, VP9 profil 0, AV1 profil 0, H.264
+  // temel profil (packetization-mode=1) ve RTX kalır, diğer profiller ve FEC çıkarılır. Paylaşılan seste yalnız
+  // Opus kalır. Amaç SDP'yi ve şifreli sinyal zarfını küçültmek (sunucunun maxSignalChars sınırı). Sıra
+  // tarayıcının kendi sırasıdır.
+  function keepScreenCodec (kind, codec) {
+    if (!codec || typeof codec.mimeType !== 'string') return false
+    var m = codec.mimeType.toLowerCase()
+    var f = typeof codec.sdpFmtpLine === 'string' ? codec.sdpFmtpLine : ''
+    if (kind === 'audio') return m === 'audio/opus'
+    if (m === 'video/rtx' || m === 'video/vp8') return true
+    if (m === 'video/vp9') return !/profile-id=[1-9]/.test(f)
+    if (m === 'video/av1') return !/profile=[1-9]/.test(f)
+    if (m === 'video/h264') return /packetization-mode=1/.test(f) && /profile-level-id=42(e0|00)/i.test(f)
+    return false
+  }
+
+  function screenErrorCode (e) {
+    if (e && typeof e.code === 'string' && /^screen_/.test(e.code)) return e.code
+    var name = e && e.name
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return 'screen_denied'
+    if (name === 'InvalidStateError') return 'screen_gesture'
+    if (name === 'NotFoundError') return 'screen_not_found'
+    if (name === 'TypeError' || name === 'NotSupportedError') return 'screen_unsupported'
+    return 'screen_failed'
+  }
+
+  function onlyKeys (obj, allowed) {
+    return Object.keys(obj).every(function (k) { return allowed.indexOf(k) >= 0 })
+  }
+
+  // Ekran sinyali doğrulaması (tür, alan kümesi, alan türleri ve değer kümeleri). sid ve n ortak doğrulamadadır.
+  // Dönüş: normalleştirilmiş nesne veya null.
+  //   { type: 'screen', on: true, id, audio, hint, preset }  paylaşım duyurusu veya güncellemesi
+  //   { type: 'screen', on: false, id }                      paylaşım bitti
+  //   { type: 'watch', on, id }                               izleme isteği veya bırakma
+  function validScreenSignal (d) {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null
+    if (d.type !== 'screen' && d.type !== 'watch') return null
+    if (typeof d.on !== 'boolean' || typeof d.id !== 'string' || !SID_RE.test(d.id)) return null
+    if (d.type === 'watch') return onlyKeys(d, SCREEN_OFF_KEYS) ? { type: 'watch', on: d.on, id: d.id } : null
+    if (!d.on) return onlyKeys(d, SCREEN_OFF_KEYS) ? { type: 'screen', on: false, id: d.id } : null
+    if (!onlyKeys(d, SCREEN_ON_KEYS) || typeof d.audio !== 'boolean') return null
+    if (SCREEN_HINTS.indexOf(d.hint) < 0 || SCREEN_PRESET_IDS.indexOf(d.preset) < 0) return null
+    return { type: 'screen', on: true, id: d.id, audio: d.audio, hint: d.hint, preset: d.preset }
+  }
+
+  // Yerel paylaşım durum makinesi: idle -> starting -> live -> idle.
+  // live iken start kaynak değişimidir (live kalır), kaynak değişimi başarısız olursa paylaşım sürer.
+  function shareStep (state, ev) {
+    if (ev === 'stop' || ev === 'ended' || ev === 'leave') return 'idle'
+    if (state === 'live') return 'live'
+    if (state === 'starting') {
+      if (ev === 'granted') return 'live'
+      if (ev === 'failed') return 'idle'
+      return 'starting'
+    }
+    return ev === 'start' ? 'starting' : 'idle'
+  }
+
+  // Uzak paylaşım durum makinesi (izleyici tarafı): none -> available -> requested -> live.
+  // failed: istek süresinde görüntü gelmedi, yeniden izlemek mümkündür.
+  function watchStep (state, ev) {
+    if (ev === 'withdraw') return 'none'
+    if (state === 'none' || !state) return ev === 'announce' ? 'available' : 'none'
+    if (ev === 'unwatch') return 'available'
+    if (ev === 'watch') return state === 'available' || state === 'failed' ? 'requested' : state
+    if (ev === 'media') return state === 'requested' || state === 'failed' ? 'live' : state
+    if (ev === 'nomedia') return state === 'live' ? 'requested' : state
+    if (ev === 'timeout') return state === 'requested' ? 'failed' : state
+    return state
+  }
+
   function create (opts) {
     if (!opts || typeof opts.api !== 'function' || typeof opts.seal !== 'function' || typeof opts.open !== 'function') {
       throw new TypeError('VoiceClient.create: api, seal and open functions are required')
@@ -451,6 +628,7 @@ window.VoiceClient = (function () {
     var seal = opts.seal
     var open = opts.open
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : null
+    var onScreenEvent = typeof opts.onScreenEvent === 'function' ? opts.onScreenEvent : null
     var storage = opts.storage && typeof opts.storage === 'object' ? opts.storage : null
     var ctx = null
     var seen = new Map()
@@ -533,7 +711,28 @@ window.VoiceClient = (function () {
       wakeLockPending: false,
       container: null,
       statePosting: false,
-      stateDirty: false
+      stateDirty: false,
+      // Ekran paylaşımı: yerel paylaşım (yalnızca canlıyken), seçici açıkken bekleyen istek, uzak paylaşımlar
+      // (eş kimliğine göre), izlenmek istenen paylaşım kimlikleri, kişi bazlı paylaşım sesi ayarları
+      screenSettings: screenDefaults(),
+      share: null,
+      shareState: 'idle',
+      shareStarting: null,
+      shareGen: 0,
+      shareError: null,
+      pageHideOn: false,
+      remote: Object.create(null),
+      watchWant: Object.create(null),
+      // Bağlantı yenilenince yeniden istenecek izleme (eş kimliği -> paylaşım kimliği) ve zarf sınırı yüzünden
+      // eşe gönderilen ekran içeriğinin kademesi (1: yalnız görüntü, 2: ekran yok), ses oturumu boyunca
+      rewatch: Object.create(null),
+      screenLimit: Object.create(null),
+      screenVolumes: Object.create(null),
+      screenMutes: Object.create(null),
+      // Sunucudan son yanıt zamanı ve paylaşım sürerken erişim denetimi (bkz. startLinkWatch)
+      serverAt: 0,
+      linkTimer: null,
+      linkProbe: null
     }
 
     loadSettings()
@@ -555,6 +754,7 @@ window.VoiceClient = (function () {
       })
     }
 
+    // Sunucudan gelen her HTTP yanıtı (durum kodu ne olursa olsun) sunucuya erişildiğinin kanıtıdır
     function callApi (method, path, body) {
       return new Promise(function (resolve, reject) {
         var r
@@ -564,7 +764,10 @@ window.VoiceClient = (function () {
           reject(e)
           return
         }
-        Promise.resolve(r).then(resolve, reject)
+        Promise.resolve(r).then(function (res) {
+          if (res && typeof res.status === 'number' && res.status > 0) st.serverAt = Date.now()
+          resolve(res)
+        }, reject)
       })
     }
 
@@ -614,7 +817,9 @@ window.VoiceClient = (function () {
       if (p) {
         copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
         copyMap(p.localMutes, st.localMutes, function (v) { return v === true })
+        copyMap(p.screenVolumes, st.screenVolumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
       }
+      st.screenSettings = screenOptions(readStored(SCREEN_KEY), null)
     }
 
     function copyMap (src, dst, ok) {
@@ -629,7 +834,7 @@ window.VoiceClient = (function () {
     }
 
     function savePeers () {
-      writeStored(PEERS_KEY, { volumes: st.volumes, localMutes: st.localMutes })
+      writeStored(PEERS_KEY, { volumes: st.volumes, localMutes: st.localMutes, screenVolumes: st.screenVolumes })
     }
 
     function copyBindings () {
@@ -741,6 +946,23 @@ window.VoiceClient = (function () {
 
     function applyAllAudio () {
       Object.keys(st.peers).forEach(function (pid) { applyPeerAudio(st.peers[pid]) })
+      Object.keys(st.remote).forEach(applyScreenAudio)
+    }
+
+    function screenVolumeOf (uid) {
+      var v = st.screenVolumes[uid]
+      return typeof v === 'number' ? v : 1
+    }
+
+    // Paylaşılan ses: genel çıkış x kişi bazlı paylaşım sesi, sağırlaştırma ve paylaşım susturması uygulanır.
+    // Mikrofon sesinin kişi ayarlarından (ses seviyesi, yerel susturma) bağımsızdır.
+    function applyScreenAudio (pid) {
+      var rs = st.remote[pid]
+      if (!rs || !rs.audioEl) return
+      try {
+        rs.audioEl.volume = clamp(st.settings.outputVolume * screenVolumeOf(rs.userId), 0, 1)
+      } catch (e) {}
+      rs.audioEl.muted = st.deafened || st.screenMutes[rs.userId] === true
     }
 
     function anyFailed () {
@@ -768,7 +990,8 @@ window.VoiceClient = (function () {
           volume: volumeOf(r.userId),
           localMute: st.localMutes[r.userId] === true,
           muted: r.muted,
-          deafened: r.deafened
+          deafened: r.deafened,
+          sharing: !!st.remote[pid]
         }
       })
       var s = st.settings
@@ -795,7 +1018,56 @@ window.VoiceClient = (function () {
         errorCode: code,
         serverError: st.errorCode ? st.serverError : null,
         autoplayBlocked: st.autoplayBlocked,
-        peers: peers
+        peers: peers,
+        screen: screenSnapshot()
+      }
+    }
+
+    // Ekran paylaşımı durumu: yerel paylaşım, izleyiciler ve uzak paylaşımlar (kullanıcı kimliğine göre)
+    function screenSnapshot () {
+      var sup = screenSupport()
+      var sh = st.share
+      var viewers = []
+      if (sh) {
+        Object.keys(st.peers).forEach(function (pid) {
+          var p = st.peers[pid]
+          var r = st.roster[pid]
+          if (r && !p.closed && p.viewing === sh.id && viewers.indexOf(r.userId) < 0) viewers.push(r.userId)
+        })
+      }
+      var remote = {}
+      Object.keys(st.remote).forEach(function (pid) {
+        var rs = st.remote[pid]
+        if (!st.roster[pid]) return
+        var watching = st.watchWant[pid] === rs.id
+        remote[rs.userId] = {
+          peerId: pid,
+          id: rs.id,
+          audio: rs.audio,
+          hint: rs.hint,
+          preset: rs.preset,
+          watching: watching,
+          status: rs.watch,
+          stream: watching && rs.stream && rs.stream.getVideoTracks().length ? rs.stream : null,
+          volume: screenVolumeOf(rs.userId),
+          muted: st.screenMutes[rs.userId] === true
+        }
+      })
+      return {
+        canShare: sup.share,
+        canWatch: sup.watch,
+        reason: sup.reason,
+        state: st.shareState,
+        starting: !!st.shareStarting,
+        id: sh ? sh.id : null,
+        preset: sh ? sh.preset : null,
+        hint: sh ? sh.hint : null,
+        audio: !!(sh && sh.audio),
+        preview: sh ? sh.preview : null,
+        viewers: viewers,
+        viewerCount: viewers.length,
+        errorCode: st.shareError,
+        remote: remote
       }
     }
 
@@ -1804,10 +2076,14 @@ window.VoiceClient = (function () {
       }, CONNECT_TIMEOUT_MS)
     }
 
-    function closePeer (peer) {
+    // Bağlantı kapanınca bu bağlantıya bağlı ekran paylaşımı durumu da biter: karşı tarafın paylaşımı
+    // (izleyici tarafı) silinir, karşı taraf bizim paylaşımımızın izleyicisiyse izleyicilerden çıkar.
+    // Yeni bir bağlantı kurulursa paylaşan taraf durumunu yeniden duyurur, izlemek yeniden istenir.
+    function closePeer (peer, reason) {
       if (!peer || peer.closed) return
       peer.closed = true
       clearPeerTimer(peer)
+      clearNegoTimer(peer)
       var pc = peer.pc
       pc.onicecandidate = null
       pc.ontrack = null
@@ -1821,7 +2097,17 @@ window.VoiceClient = (function () {
       peer.candidates = []
       peer.outbox = []
       peer.speaking = false
-      if (st.peers[peer.peerId] === peer) delete st.peers[peer.peerId]
+      peer.scrT = { video: null, audio: null }
+      peer.rx = { video: null, audio: null }
+      if (peer.viewing) {
+        peer.viewing = null
+        var r = st.roster[peer.peerId]
+        if (r) screenEvent({ type: 'viewer-leave', userId: r.userId, peerId: peer.peerId })
+      }
+      if (st.peers[peer.peerId] === peer) {
+        delete st.peers[peer.peerId]
+        dropRemote(peer.peerId, reason || 'left')
+      }
     }
 
     function createPeer (pid, initiator, sid) {
@@ -1862,7 +2148,29 @@ window.VoiceClient = (function () {
         outbox: [],
         localReady: false,
         outN: 0,
-        closed: false
+        closed: false,
+        // Yeniden anlaşma (kibar/kaba eş): yanıtlayan kibardır, çakışmada kendi teklifini geri alır.
+        // ready: ilk teklif ve yanıt tamamlandı. micT: mikrofon aktarıcısı (ekran izlerinden ayırmak için).
+        // pending: yanıt bekleyen teklif { o, sdp, restart, resends }, o bağlantı başına artan teklif numarasıdır
+        // ve yanıtta geri gelir (başka bir teklifin yanıtı bekleyen teklife uygulanmaz).
+        polite: !initiator,
+        ready: false,
+        micT: null,
+        micTrack: null,
+        wantNego: false,
+        restartWanted: false,
+        offerNo: 0,
+        pending: null,
+        negoTimer: null,
+        dirNego: 0,
+        senderRefresh: false,
+        // Ekran paylaşımı: viewing = bu eşin izlediği yerel paylaşım kimliği, scrT = ekran gönderim
+        // aktarıcıları, rx = karşı tarafın ekran izleri, rejected = karşı tarafın bu bağlantıda reddettiği
+        // ekran m satırı türleri (yeniden eklenmez)
+        viewing: null,
+        scrT: { video: null, audio: null },
+        rx: { video: null, audio: null },
+        rejected: { video: false, audio: false }
       }
       st.peers[pid] = peer
       st.roster[pid].noOffer = false
@@ -1872,6 +2180,7 @@ window.VoiceClient = (function () {
         closePeer(peer)
         return null
       }
+      peer.micT = transceiverOf(pc, peer.sender)
       pc.onicecandidate = function (e) {
         if (peer.closed || !e || !e.candidate || !e.candidate.candidate) return
         var c = parseCandidate(e.candidate)
@@ -1899,8 +2208,29 @@ window.VoiceClient = (function () {
       })
     }
 
+    // Uzak izin rolü: mikrofon aktarıcısından gelen ses mikrofondur, diğer aktarıcılardan gelenler ekran
+    // görüntüsü ve ekran sesidir. Aktarıcı bilgisi olmayan eski tarayıcılarda ilk uzak ses izi mikrofon sayılır.
+    function trackRole (peer, e) {
+      var kind = e.track.kind
+      var t = e.transceiver || null
+      if (t && peer.micT) {
+        if (t === peer.micT) return kind === 'audio' ? 'mic' : null
+        return kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : null)
+      }
+      if (kind === 'video') return 'video'
+      if (kind !== 'audio') return null
+      return !peer.micTrack || peer.micTrack === e.track ? 'mic' : 'audio'
+    }
+
     function onRemoteTrack (peer, e) {
-      if (peer.closed || !e || !e.track || e.track.kind !== 'audio') return
+      if (peer.closed || !e || !e.track) return
+      var role = trackRole(peer, e)
+      if (role === 'video' || role === 'audio') {
+        onScreenTrack(peer, role, e.track)
+        return
+      }
+      if (role !== 'mic') return
+      peer.micTrack = e.track
       var stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track])
       peer.stream = stream
       var audio = peer.audio
@@ -1973,15 +2303,200 @@ window.VoiceClient = (function () {
       return next
     }
 
+    // Teklif: ilk bağlantı, ICE yeniden başlatma veya yeniden anlaşma (ekran izi ekleme). İlk anlaşmadan sonra
+    // yalnızca kararlı durumda teklif edilir, bekleyen bir teklif varsa istek yanıt gelince yeniden değerlendirilir.
+    // Eş başına işlemler runOp ile sıralı yürüdüğü için teklif hazırlanırken gelen sinyal araya giremez.
     async function sendOffer (peer, restart) {
       if (peer.closed) return
+      var pc = peer.pc
+      if (peer.ready && pc.signalingState !== 'stable') {
+        if (restart) peer.restartWanted = true
+        else peer.wantNego = true
+        return
+      }
+      var doRestart = !!restart || peer.restartWanted
+      peer.wantNego = false
+      peer.restartWanted = false
+      filterScreenCodecs(peer)
+      var offer = await pc.createOffer(doRestart ? { iceRestart: true } : {})
+      if (peer.closed) return
+      if (peer.ready && pc.signalingState !== 'stable') {
+        peer.wantNego = true
+        if (doRestart) peer.restartWanted = true
+        return
+      }
+      // Yeni teklifin adayları teklif gönderilene kadar bekletilir. Teklif uygulanamazsa mevcut
+      // anlaşmanın bekletilen adayları gönderilir (aday akışı kilitlenmesin).
       peer.localReady = false
-      var offer = await peer.pc.createOffer(restart ? { iceRestart: true } : {})
+      try {
+        await pc.setLocalDescription(offer)
+      } catch (e) {
+        if (peer.ready && !peer.closed) flushOutbox(peer)
+        throw e
+      }
       if (peer.closed) return
-      await peer.pc.setLocalDescription(offer)
-      if (peer.closed) return
-      sendSignal(peer, { type: 'offer', sdp: peer.pc.localDescription.sdp })
+      peer.offerNo++
+      var pend = { o: peer.offerNo, sdp: pc.localDescription.sdp, restart: doRestart, resends: 0 }
+      peer.pending = pend
+      sendSignal(peer, { type: 'offer', sdp: pend.sdp, o: pend.o }, peer.ready ? function (status) { offerRefused(peer, pend, status) } : null)
       flushOutbox(peer)
+      if (peer.ready) armNegoTimer(peer, pend)
+    }
+
+    function offerNoOf (v) {
+      return typeof v === 'number' && v >= 1 && v <= 1e9 && Math.floor(v) === v ? v : null
+    }
+
+    function clearNegoTimer (peer) {
+      if (peer.negoTimer) clearTimeout(peer.negoTimer)
+      peer.negoTimer = null
+    }
+
+    // Teklif hâlâ yanıt bekliyor mu. Teklif nesnesiyle izlenir: yeni ICE oturumu açan teklifin yerel tanımı
+    // sonradan toplanan adaylarla büyüdüğü için (Chromium) SDP metni karşılaştırılamaz.
+    function stillPending (peer, pend) {
+      return !peer.closed && peer.pending === pend && peer.pc.signalingState === 'have-local-offer'
+    }
+
+    function armNegoTimer (peer, pend) {
+      clearNegoTimer(peer)
+      peer.negoTimer = setTimeout(function () {
+        peer.negoTimer = null
+        if (!peer.closed) runOp(peer.peerId, function () { return resendOffer(peer, pend) })
+      }, NEGO_TIMEOUT_MS)
+    }
+
+    // Süresinde yanıtlanmayan teklif geri alınmaz: karşı taraf teklifi uygulamış ve yalnız yanıtı kaybolmuş
+    // olabilir. Geri alınırsa iki tarafın m satırları ayrışır (Chromium geri alınan mid'i yeniden kullanmaz,
+    // sonraki her teklif karşı tarafta m satırı sırası hatasıyla reddedilir) ve geri alma mikrofon göndericisini
+    // de durdurur (bkz. rollback). Bunun yerine aynı teklif aynı numarayla yeniden gönderilir: teklifi almamış
+    // taraf ilk kez, almış taraf yeniden uygular ve yanıtlar, geç gelen yanıt da bekleyen teklife uyar.
+    // Teklif beklerken bağlantı mevcut anlaşmayla çalışmaya devam eder (mikrofon akar). Yanıt hiç gelmezse
+    // MAX_NEGO_RETRIES yeniden gönderimden sonra izleyiciye paylaşım bırakılır, yeniden gönderim sürer.
+    function resendOffer (peer, pend) {
+      if (!stillPending(peer, pend)) return
+      pend.resends++
+      if (pend.resends === MAX_NEGO_RETRIES + 1) negoStalled(peer)
+      sendSignal(peer, { type: 'offer', sdp: pend.sdp, o: pend.o }, function (status) { offerRefused(peer, pend, status) })
+      armNegoTimer(peer, pend)
+    }
+
+    // Teklif iletilemedi. 400: sunucu zarfı reddetti (maxSignalChars), yeniden göndermek anlamsızdır, bağlantı
+    // yeniden kurulur (bkz. tooLargeRebuild). Diğer hatalarda yeniden gönderim zamanlayıcısı sürer.
+    function offerRefused (peer, pend, status) {
+      if (status !== 400 || peer.closed) return
+      runOp(peer.peerId, function () {
+        if (stillPending(peer, pend)) tooLargeRebuild(peer, pend.sdp)
+      })
+    }
+
+    // Geri alma yalnız çakışmada (kibar eş kendi teklifini) ve yarım kalmış uzak teklifte yapılır, ardından hemen
+    // karşı teklif uygulanır. Chromium 141'de (ölçüldü, work-screenshare/probe-rollback*.js) yeni bir görüntü m
+    // satırı ekleyen teklif geri alınınca mevcut göndericiler (mikrofon dahil) sonraki anlaşmalardan sonra da paket
+    // göndermiyor. Geri almadan sonraki ilk tamamlanan anlaşmada izi olan göndericilere aynı iz yeniden verilir
+    // (refreshSenders). Karşı teklif uygulanamazsa bağlantı yeniden kurulur (bkz. offerFailed).
+    async function rollback (peer) {
+      try {
+        await peer.pc.setLocalDescription({ type: 'rollback' })
+      } catch (e) {
+        return false
+      }
+      peer.pending = null
+      peer.senderRefresh = true
+      return !peer.closed
+    }
+
+    // Geri almadan sonra tamamlanan ilk anlaşmada (yanıt uygulandı veya verildi) göndericiler yeniden bağlanır.
+    // Geri almanın hemen ardından yapılırsa etkisizdir (ölçüldü), bu yüzden anlaşma sonuna bırakılır.
+    async function refreshSenders (peer) {
+      if (!peer.senderRefresh || peer.closed) return
+      peer.senderRefresh = false
+      var list = null
+      try {
+        list = typeof peer.pc.getSenders === 'function' ? peer.pc.getSenders() : null
+      } catch (e) {
+        list = null
+      }
+      if (!list) list = peer.sender ? [peer.sender] : []
+      var i = 0
+      while (i < list.length && !peer.closed) {
+        var s = list[i]
+        i++
+        if (s && s.track && typeof s.replaceTrack === 'function') await replaceSender(s, s.track)
+      }
+    }
+
+    // Teklif uzun süredir yanıtlanmıyor (ör. sinyal yolu kesik): bu izleyiciye paylaşım bırakılır, hata bildirilir.
+    // Teklif beklemeye devam eder, yanıt gelirse bağlantı tutarlı biçimde sürer (izleyici yeniden isteyebilir).
+    function negoStalled (peer) {
+      if (!peer.viewing) return
+      var r = st.roster[peer.peerId]
+      peer.viewing = null
+      if (r) {
+        screenEvent({ type: 'viewer-leave', userId: r.userId, peerId: peer.peerId })
+        screenEvent({ type: 'error', code: 'screen_negotiation_failed', userId: r.userId, peerId: peer.peerId })
+      }
+      emit()
+    }
+
+    // Kurulu bağlantıda karşı tarafın teklifi uygulanamadı (ör. tarayıcı görüntü m satırını işleyemiyor). İki
+    // tarafın anlaşma durumu ayrıştığı için tutarlı tek yol bağlantıyı yeniden kurmaktır (bu taraf yeni sid ile
+    // başlatır, mikrofon yeni bağlantıda sürer). Teklif yeni m satırı ekliyorsa izleme yeniden istenmez (aynı
+    // teklif yeniden gelip bağlantı tekrar tekrar kurulmasın), izleme başarısız bildirilir.
+    function offerFailed (peer, grew) {
+      var pid = peer.peerId
+      var rs = st.remote[pid]
+      if (grew && rs && st.watchWant[pid] === rs.id) {
+        delete st.watchWant[pid]
+        screenEvent({ type: 'error', code: 'screen_watch_failed', userId: rs.userId, peerId: pid })
+      }
+      rebuildPeer(peer)
+    }
+
+    function mlineCount (sdp) {
+      return (String(sdp).match(/\r\nm=/g) || []).length
+    }
+
+    // Teklif sunucunun zarf sınırını aştı (karşı tarafa ulaşmadı). Teklif geri alınsa da eklediği aktarıcılar
+    // bağlantıda kalır ve sonraki her teklifi (ICE yeniden başlatma dahil) büyütür, Chromium'da anlaşılmamış
+    // aktarıcıyı durdurmak (stop) da sonraki anlaşmaları bozuyor (ölçüldü, work-screenshare/probe-stop.js). Bu
+    // yüzden bağlantı yalnız mikrofonla yeniden kurulur (yeni sid, bu taraf başlatır) ve bu eşe gönderilecek ekran
+    // içeriği bir kademe azaltılır: önce paylaşılan ses bırakılır (yalnız görüntü), o da sığmazsa bu eşe ekran
+    // gönderilmez. İzleyen taraf aynı paylaşımı yeni bağlantıda kendiliğinden yeniden ister (rewatch).
+    function tooLargeRebuild (peer, sdp) {
+      var pid = peer.peerId
+      var r = st.roster[pid]
+      var mlines = mlineCount(sdp)
+      var level = st.screenLimit[pid] || 0
+      var sh = st.share
+      if (mlines > 1) {
+        // Paylaşılan ses varsa önce o bırakılır, yoksa doğrudan ekran kapatılır
+        level = level < 1 && sh && sh.audio && mlines > 2 ? 1 : 2
+        st.screenLimit[pid] = level
+        if (r) screenEvent({ type: 'error', code: level >= 2 ? 'screen_negotiation_failed' : 'screen_audio_limited', userId: r.userId, peerId: pid })
+      }
+      rebuildPeer(peer)
+    }
+
+    // Bağlantıyı yeniden kurar: eskisi kapanır (ekran durumu temizlenir), bu taraf yeni sid ile teklif eder.
+    // İzlenen paylaşım yeni bağlantıda yeniden istenir.
+    function rebuildPeer (peer) {
+      var pid = peer.peerId
+      if (st.watchWant[pid]) st.rewatch[pid] = st.watchWant[pid]
+      closePeer(peer, 'reconnect')
+      if (st.inVoice && st.roster[pid]) startInitiator(pid)
+    }
+
+    // Kararlı duruma dönüldü (yanıt uygulandı, teklif yanıtlandı veya geri alındı): ilk anlaşmadan sonra
+    // paylaşım durumu duyurulur, ekran göndericileri eşitlenir, bekleyen değişiklik varsa yeniden teklif edilir.
+    async function afterStable (peer) {
+      if (peer.closed || peer.pc.signalingState !== 'stable') return
+      if (!peer.ready) {
+        if (!peer.pc.remoteDescription || !peer.pc.localDescription) return
+        peer.ready = true
+        if (st.share) sendSignal(peer, announcement(st.share))
+      }
+      await syncSendersNow(peer)
     }
 
     function startInitiator (pid) {
@@ -2009,32 +2524,80 @@ window.VoiceClient = (function () {
       var peer = st.peers[from] || null
       if (d.type === 'offer') {
         if (typeof d.sdp !== 'string' || !d.sdp || d.sdp.length > MAX_SDP_CHARS) return
-        if (peer && peer.sid === sid && peer.initiator) return
-        if (peer && peer.sid !== sid) {
-          // Karşı taraf yeni bir bağlantı başlattı: eskisini kapat, bu kez yanıtlayan ol
-          closePeer(peer)
+        if (peer && peer.sid === sid) {
+          // Aynı bağlantıda yeni teklif: ICE yeniden başlatma veya yeniden anlaşma. Başlatıcının ilk teklifi
+          // yanıtlanmadan karşı taraf teklif edemez.
+          if (peer.initiator && !peer.ready) return
+          if (peer.pc.signalingState !== 'stable') {
+            // Çakışma: kaba eş (başlatıcı) gelen teklifi yok sayar, kibar eş (yanıtlayan) kendi teklifini geri alır
+            // ve karşı teklifi yanıtladıktan sonra kendi değişikliğini yeniden teklif eder. Yarım kalmış bir
+            // uzak teklif (have-remote-offer, yanıt oluşturulamamış) her iki rolde de geri alınır.
+            var glare = peer.pc.signalingState === 'have-local-offer'
+            if (glare && !peer.polite) return
+            var wasRestart = glare && !!peer.pending && peer.pending.restart
+            clearNegoTimer(peer)
+            if (!(await rollback(peer))) return
+            peer.wantNego = true
+            if (wasRestart) peer.restartWanted = true
+          }
+        } else if (peer) {
+          // İki taraf aynı anda yeni bağlantı başlattıysa (ikisi de yanıt beklerken) eş kimliği küçük olanın
+          // teklifi geçerlidir, öbür taraf kendi teklifini bırakıp yanıtlar
+          if (peer.initiator && !peer.ready && peer.pc.signalingState === 'have-local-offer' && st.myPeerId < from) return
+          // Karşı taraf yeni bir bağlantı başlattı: eskisini kapat, bu kez yanıtlayan ol. İzlenen paylaşım
+          // yeni bağlantıda yeniden istenir.
+          if (st.watchWant[from]) st.rewatch[from] = st.watchWant[from]
+          closePeer(peer, 'reconnect')
           peer = null
         }
         if (!peer) peer = createPeer(from, false, sid)
         if (!peer) return
+        // Kurulu bağlantıda (aynı sid, ilk anlaşma tamam) yeniden anlaşma veya ICE yeniden başlatma teklifi.
+        // Aynı teklif yeniden gelebilir (yanıtı kaybolduysa), kararlı durumda yeniden uygulanır ve yanıtlanır.
+        var established = peer.ready
+        var before = established && peer.pc.remoteDescription ? mlineCount(peer.pc.remoteDescription.sdp) : 0
         peer.localReady = false
-        await peer.pc.setRemoteDescription({ type: 'offer', sdp: d.sdp })
+        try {
+          await peer.pc.setRemoteDescription({ type: 'offer', sdp: d.sdp })
+          if (peer.closed) return
+          prepareRemoteTransceivers(peer)
+          await addQueuedCandidates(peer)
+          if (peer.closed) return
+          var answer = await peer.pc.createAnswer()
+          if (peer.closed) return
+          await peer.pc.setLocalDescription(answer)
+        } catch (e) {
+          if (established && !peer.closed) offerFailed(peer, mlineCount(d.sdp) > before)
+          return
+        }
         if (peer.closed) return
-        await addQueuedCandidates(peer)
-        if (peer.closed) return
-        var answer = await peer.pc.createAnswer()
-        if (peer.closed) return
-        await peer.pc.setLocalDescription(answer)
-        if (peer.closed) return
-        sendSignal(peer, { type: 'answer', sdp: peer.pc.localDescription.sdp })
+        // Yanıt teklifin numarasını taşır (karşı taraf başka bir teklifin yanıtını bekleyen teklife uygulamaz)
+        var reply = { type: 'answer', sdp: peer.pc.localDescription.sdp }
+        if (offerNoOf(d.o) !== null) reply.o = d.o
+        sendSignal(peer, reply)
         flushOutbox(peer)
+        await refreshSenders(peer)
+        await afterStable(peer)
       } else if (d.type === 'answer') {
-        if (!peer || peer.sid !== sid || !peer.initiator) return
+        if (!peer || peer.sid !== sid) return
         if (typeof d.sdp !== 'string' || !d.sdp || d.sdp.length > MAX_SDP_CHARS) return
         if (peer.pc.signalingState !== 'have-local-offer') return
+        var ono = offerNoOf(d.o)
+        if (ono !== null && peer.pending && ono !== peer.pending.o) return
         await peer.pc.setRemoteDescription({ type: 'answer', sdp: d.sdp })
         if (peer.closed) return
+        peer.pending = null
+        clearNegoTimer(peer)
         await addQueuedCandidates(peer)
+        if (peer.closed) return
+        await refreshSenders(peer)
+        await afterStable(peer)
+      } else if (d.type === 'screen' || d.type === 'watch') {
+        if (!peer || peer.sid !== sid || !peer.ready) return
+        var m = validScreenSignal(d)
+        if (!m) return
+        if (m.type === 'screen') onScreenSignal(peer, m)
+        else await onWatchSignal(peer, m)
       } else if (d.type === 'candidate') {
         if (!peer || peer.sid !== sid) return
         var c = parseCandidate(d.candidate)
@@ -2051,7 +2614,9 @@ window.VoiceClient = (function () {
 
     // Sinyal gönderimi: eş başına sıralı kuyruk, önceki POST bitmeden sonraki gönderilmez.
     // Her sinyal bağlantı kimliğini (sid) ve bağlantı başına artan sırayı (n) taşır, yeniden oynatma reddedilir.
-    function sendSignal (peer, d) {
+    // onFail(status) (isteğe bağlı): yeniden denemelerden sonra da iletilemezse çağrılır. 400 sunucunun zarfı
+    // reddettiği anlamına gelir (biçim her zaman geçerli olduğundan boyut sınırı, maxSignalChars).
+    function sendSignal (peer, d, onFail) {
       if (!st.inVoice || !st.myPeerId || peer.closed) return
       var pid = peer.peerId
       peer.outN++
@@ -2073,9 +2638,12 @@ window.VoiceClient = (function () {
       var prev = st.sendQueues[pid] || Promise.resolve()
       st.sendQueues[pid] = prev.then(function () {
         return postSignal(gen, pid, data, 0)
+      }).then(function (res) {
+        if (res !== true && res !== undefined && onFail && gen === st.gen) onFail(res)
       }).catch(noop)
     }
 
+    // Dönüş: true iletildi, sayı iletilemedi (HTTP durumu, ağ hatasında 0), undefined oturum değişti
     async function postSignal (gen, pid, data, attempt) {
       if (gen !== st.gen) return
       var res = null
@@ -2086,11 +2654,12 @@ window.VoiceClient = (function () {
       }
       if (gen !== st.gen) return
       var status = res && typeof res.status === 'number' ? res.status : 0
-      if (status >= 200 && status < 300) return
+      if (status >= 200 && status < 300) return true
       if ((status === 0 || status === 429 || status >= 500) && attempt < SIGNAL_RETRIES) {
         await delay(1000 * Math.pow(2, attempt))
         return postSignal(gen, pid, data, attempt + 1)
       }
+      return status
     }
 
     // Gelen sinyal: çöz, etkin anahtar ve from/to bağlamasını denetle (sunucu yönlendirmeyi değiştiremez)
@@ -2111,9 +2680,12 @@ window.VoiceClient = (function () {
       if (v.v !== 1 || v.from !== from || v.to !== st.myPeerId) return null
       var d = v.d
       if (!d || typeof d !== 'object') return null
-      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate') return null
+      var screenType = d.type === 'screen' || d.type === 'watch'
+      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate' && !screenType) return null
       if (typeof d.sid !== 'string' || !SID_RE.test(d.sid)) return null
       if (typeof d.n !== 'number' || d.n < 1 || d.n > 1e9 || Math.floor(d.n) !== d.n) return null
+      // Ekran sinyalleri katı doğrulanır, geçersizi sıra numarası tüketmeden atılır
+      if (screenType && !validScreenSignal(d)) return null
       if (!fresh(from, d.sid, d.n)) return null
       return v
     }
@@ -2163,6 +2735,7 @@ window.VoiceClient = (function () {
 
     function handleSignals (signals) {
       if (!Array.isArray(signals) || !signals.length) return
+      st.serverAt = Date.now()
       var list = signals.filter(function (s) {
         return s && typeof s === 'object' && typeof s.seq === 'number' && isFinite(s.seq)
       })
@@ -2175,6 +2748,926 @@ window.VoiceClient = (function () {
         if (!st.inVoice) return
         acceptSignal(s.from, s.data)
       })
+    }
+
+    // Ekran paylaşımı (Ek L1). Görüntü ve paylaşılan ses mevcut ses bağlantısına ek aktarıcılarla eklenir,
+    // eşler arası DTLS-SRTP ile şifreli gider. Kim paylaşıyor ve kim izliyor bilgisi sunucuya yazılmaz, şifreli
+    // sinyal mesajlarıyla ('screen', 'watch') taşınır. Bir bağlantıda en fazla üç m satırı olur: mikrofon,
+    // ekran görüntüsü, ekran sesi. Aktarıcılar iki yönde de yeniden kullanılır, paylaşım bitince kaldırılmaz,
+    // göndericiye boş iz verilir (veri gitmez). Böylece tekrar tekrar başlatıp durdurmak SDP'yi büyütmez.
+
+    // Olaylar mikro görevde ve sırayla bildirilir, dinleyici hatası motoru bozmaz
+    function screenEvent (evt) {
+      if (!onScreenEvent) return
+      Promise.resolve().then(function () {
+        try {
+          onScreenEvent(evt)
+        } catch (e) {
+          setTimeout(function () { throw e }, 0)
+        }
+      })
+    }
+
+    function transceiversOf (pc) {
+      try {
+        return pc && typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : []
+      } catch (e) {
+        return []
+      }
+    }
+
+    function transceiverOf (pc, sender) {
+      if (!sender) return null
+      var list = transceiversOf(pc)
+      var i = 0
+      while (i < list.length) {
+        if (list[i].sender === sender) return list[i]
+        i++
+      }
+      return null
+    }
+
+    function isStopped (t) {
+      return t.stopped === true || t.direction === 'stopped' || t.currentDirection === 'stopped'
+    }
+
+    function sendsDir (d) {
+      return d === 'sendrecv' || d === 'sendonly'
+    }
+
+    function kindOf (t) {
+      return t.receiver && t.receiver.track ? t.receiver.track.kind : null
+    }
+
+    // İz taşıyan ama henüz anlaşılmamış (mid'i olmayan) aktarıcı varsa yeniden anlaşma gerekir
+    function needsNegotiation (peer) {
+      return transceiversOf(peer.pc).some(function (t) {
+        return !isStopped(t) && t.mid === null && !!t.sender && !!t.sender.track
+      })
+    }
+
+    // Karşı tarafın eklediği ekran aktarıcıları, bu cihaz da paylaşabiliyorsa yanıttan önce çift yönlü yapılır.
+    // Bu cihaz sonradan paylaşırsa aynı m satırını yeniden anlaşmasız (replaceTrack) kullanır. İzi olmayan
+    // gönderici veri göndermez.
+    function prepareRemoteTransceivers (peer) {
+      if (!peer.micT || !screenSupport().share) return
+      transceiversOf(peer.pc).forEach(function (t) {
+        if (t === peer.micT || isStopped(t) || t.direction !== 'recvonly') return
+        try {
+          t.direction = 'sendrecv'
+        } catch (e) {}
+      })
+    }
+
+    // Ekran izi için kullanılabilecek mevcut aktarıcı: mikrofon dışı, aynı türde, durdurulmamış, göndericisi boş
+    // veya zaten bu izi taşıyan
+    function adoptTransceiver (peer, kind, track) {
+      if (!peer.micT) return null
+      var list = transceiversOf(peer.pc)
+      var i = 0
+      while (i < list.length) {
+        var t = list[i]
+        i++
+        if (t === peer.micT || isStopped(t) || kindOf(t) !== kind || !t.sender) continue
+        if (t === peer.scrT.video || t === peer.scrT.audio) continue
+        if (t.sender.track && t.sender.track !== track) continue
+        return t
+      }
+      return null
+    }
+
+    // Kodek listesi yalnızca istenen kodeklerden en az biri varsa uygulanır, desteklenmezse sessizce geçilir
+    function applyCodecPrefs (t, kind) {
+      if (kind !== 'video' && kind !== 'audio') return
+      try {
+        var R = window.RTCRtpReceiver
+        if (typeof t.setCodecPreferences !== 'function' || !R || typeof R.getCapabilities !== 'function') return
+        var caps = R.getCapabilities(kind)
+        var list = caps && caps.codecs ? caps.codecs.filter(function (c) { return keepScreenCodec(kind, c) }) : []
+        var media = list.filter(function (c) { return !/\/rtx$/i.test(c.mimeType) })
+        if (media.length) t.setCodecPreferences(list)
+      } catch (e) {}
+    }
+
+    // Teklif öncesi bütün ekran aktarıcılarına (bu tarafın eklediği, karşı tarafın teklifiyle açılan ve
+    // devralınan) kodek süzgeci uygulanır: teklifteki her ekran m satırı süzülmüş olur. Mikrofon süzülmez.
+    // Yanıtlar teklifin kodeklerinin kesişimi olduğundan ayrıca süzülmez.
+    function filterScreenCodecs (peer) {
+      if (!peer.micT) return
+      transceiversOf(peer.pc).forEach(function (t) {
+        if (t !== peer.micT && !isStopped(t)) applyCodecPrefs(t, kindOf(t))
+      })
+    }
+
+    // Karşı taraf bir ekran m satırını reddetti (yanıtta port 0, ör. ortak görüntü kodeki yok): aktarıcı durur.
+    // Bu bağlantıda o tür bir daha eklenmez, yeniden eklemek aynı reddi ve sınırsız yeniden anlaşmayı getirir.
+    // Görüntü reddedildiyse bu eşe ekran gönderilmez, ses reddedildiyse yalnız görüntü gider.
+    function noteRejected (peer) {
+      var r = st.roster[peer.peerId]
+      SCREEN_KINDS.forEach(function (kind) {
+        var t = peer.scrT[kind]
+        if (!t || !isStopped(t)) return
+        peer.scrT[kind] = null
+        if (peer.rejected[kind]) return
+        peer.rejected[kind] = true
+        if (kind === 'video' && peer.viewing) {
+          peer.viewing = null
+          if (r) screenEvent({ type: 'viewer-leave', userId: r.userId, peerId: peer.peerId })
+        }
+        if (r) screenEvent({ type: 'error', code: kind === 'video' ? 'screen_negotiation_failed' : 'screen_audio_limited', userId: r.userId, peerId: peer.peerId })
+        emit()
+      })
+    }
+
+    function replaceSender (sender, track) {
+      try {
+        return Promise.resolve(sender.replaceTrack(track)).then(function () { return true }, function () { return false })
+      } catch (e) {
+        return Promise.resolve(false)
+      }
+    }
+
+    function canEncode (sender) {
+      return !!sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function'
+    }
+
+    // getParameters, değiştir, setParameters. edit(e0) false dönerse değişiklik gerekmez.
+    // Dönüş: Promise<boolean> (uygulandı veya zaten öyleydi)
+    function editEncoding (sender, edit) {
+      if (!canEncode(sender)) return Promise.resolve(false)
+      var params = null
+      try {
+        params = sender.getParameters()
+      } catch (e) {
+        return Promise.resolve(false)
+      }
+      if (!params || !params.encodings || !params.encodings.length) return Promise.resolve(false)
+      if (edit(params.encodings[0]) === false) return Promise.resolve(true)
+      try {
+        return Promise.resolve(sender.setParameters(params)).then(function () { return true }, function () { return false })
+      } catch (e) {
+        return Promise.resolve(false)
+      }
+    }
+
+    // Kodlama sınırları (maxBitrate, maxFramerate) ve kodlamanın etkinliği. Desteklemeyen tarayıcıda sessizce
+    // geçilir, maxFramerate reddedilirse yalnızca bit hızı uygulanır. Dönüş: Promise<boolean> (uygulandı mı)
+    function setEncoding (sender, enc) {
+      function attempt (withRate) {
+        return editEncoding(sender, function (e0) {
+          var same = e0.maxBitrate === enc.maxBitrate && (!withRate || e0.maxFramerate === enc.maxFramerate) && e0.active !== false
+          if (same) return false
+          e0.maxBitrate = enc.maxBitrate
+          if (withRate) e0.maxFramerate = enc.maxFramerate
+          e0.active = true
+        })
+      }
+      return attempt(true).then(function (ok) {
+        return ok || attempt(false)
+      })
+    }
+
+    // İzleyici bırakınca görüntü kodlaması da kapatılır: izi olmayan etkin bir görüntü göndericisi Chromium'da
+    // bant genişliği yoklaması için dolgu paketleri göndermeye devam ediyor (ölçüldü, kare yok ama bayt var).
+    function deactivateEncoding (sender) {
+      return editEncoding(sender, function (e0) {
+        if (e0.active === false) return false
+        e0.active = false
+      })
+    }
+
+    function applyScreenParams (peer) {
+      var sh = st.share
+      var t = peer.scrT.video
+      if (!sh || !t || peer.closed || t.mid === null || peer.pc.signalingState !== 'stable') return Promise.resolve(false)
+      if (!t.sender || t.sender.track !== sh.video) return Promise.resolve(false)
+      return setEncoding(t.sender, screenEncoding(sh.preset))
+    }
+
+    // Bu eşe gönderilen ekran izleri: yalnızca paylaşım canlıyken ve eş bu paylaşımı izlemek istediyse.
+    // İzlemeyen eşe görüntü gönderilmez (aktarıcı hiç eklenmez veya göndericisi boş izdir). Eş işlemleri
+    // içinde çağrılır (runOp), bağlantı başına sıralıdır.
+    async function syncSendersNow (peer) {
+      if (peer.closed) return
+      noteRejected(peer)
+      var sh = st.share
+      var limit = st.screenLimit[peer.peerId] || 0
+      var on = !!(sh && peer.ready && peer.viewing === sh.id && limit < 2 && !peer.rejected.video)
+      var i = 0
+      while (i < SCREEN_KINDS.length) {
+        var kind = SCREEN_KINDS[i]
+        i++
+        var track = on && (kind === 'video' || (limit < 1 && !peer.rejected.audio)) ? sh[kind] : null
+        var t = peer.scrT[kind]
+        if (!track) {
+          if (t && t.sender && t.sender.track) {
+            await replaceSender(t.sender, null)
+            if (kind === 'video' && t.mid !== null) await deactivateEncoding(t.sender)
+          }
+        } else {
+          if (!t) t = adoptTransceiver(peer, kind, track)
+          if (t) {
+            peer.scrT[kind] = t
+            if (!sendsDir(t.direction)) {
+              try {
+                t.direction = 'sendrecv'
+                peer.wantNego = true
+              } catch (e) {}
+            } else if (t.currentDirection && !sendsDir(t.currentDirection) && peer.dirNego < MAX_NEGO_RETRIES) {
+              // Son anlaşmada bu yönde gönderim kabul edilmemiş: gönderim yönüyle yeniden teklif edilir (sınırlı)
+              peer.dirNego++
+              peer.wantNego = true
+            }
+            if (t.sender.track !== track) await replaceSender(t.sender, track)
+          } else {
+            var sender = null
+            try {
+              sender = peer.pc.addTrack(track, sh.stream)
+            } catch (e) {
+              sender = null
+            }
+            peer.scrT[kind] = sender ? transceiverOf(peer.pc, sender) : null
+            if (peer.scrT[kind]) applyCodecPrefs(peer.scrT[kind], kind)
+          }
+        }
+        // Beklerken paylaşım değiştiyse sıradaki eşitleme işlemi son durumu uygular
+        if (peer.closed || st.share !== sh) return
+      }
+      await applyScreenParams(peer)
+      if (peer.closed) return
+      if (peer.ready && (peer.wantNego || peer.restartWanted || needsNegotiation(peer))) await sendOffer(peer, false)
+    }
+
+    function syncScreenSenders (peer) {
+      return runOp(peer.peerId, function () { return syncSendersNow(peer) })
+    }
+
+    function syncAllSenders () {
+      return Promise.all(Object.keys(st.peers).map(function (pid) { return syncScreenSenders(st.peers[pid]) }))
+    }
+
+    function announcement (sh) {
+      return { type: 'screen', on: true, id: sh.id, audio: !!sh.audio, hint: sh.hint, preset: sh.preset }
+    }
+
+    // Duyuru yalnızca ilk anlaşması tamamlanmış eşlere gider, diğerlerine anlaşma bitince gider (afterStable)
+    function announceAll () {
+      var sh = st.share
+      if (!sh) return
+      Object.keys(st.peers).forEach(function (pid) {
+        var p = st.peers[pid]
+        if (p.ready && !p.closed) sendSignal(p, announcement(sh))
+      })
+    }
+
+    function setHint (track, hint) {
+      try {
+        if ('contentHint' in track) track.contentHint = hint
+      } catch (e) {}
+    }
+
+    function applyTrackConstraints (track, presetId) {
+      try {
+        if (typeof track.applyConstraints !== 'function') return Promise.resolve(false)
+        return Promise.resolve(track.applyConstraints(trackConstraints(presetId))).then(function () { return true }, function () { return false })
+      } catch (e) {
+        return Promise.resolve(false)
+      }
+    }
+
+    function stopTrack (t) {
+      try {
+        t.stop()
+      } catch (e) {}
+    }
+
+    // Seçici kullanıcı hareketi gerektirir: getDisplayMedia çağrısı ilk await'ten önce, eşzamanlı yapılır.
+    // Kısıtlı isteği TypeError ile reddeden eski tarayıcılarda yalın istekle, ses yakalamayı hiç tanımayan
+    // tarayıcılarda sessiz istekle denenir (TypeError seçici açılmadan döner, kullanıcı hareketi tükenmez).
+    async function getDisplay (o) {
+      var md = navigator.mediaDevices
+      try {
+        return await md.getDisplayMedia(displayConstraints(o))
+      } catch (e) {
+        if (!e || e.name !== 'TypeError') throw e
+      }
+      try {
+        return await md.getDisplayMedia({ video: true, audio: !!o.audio })
+      } catch (e2) {
+        if (!o.audio || !e2 || e2.name !== 'TypeError') throw e2
+      }
+      return md.getDisplayMedia({ video: true })
+    }
+
+    // Bağlantı kopunca paylaşım kesin olarak durur (Ek L1.7). Sunucudan düşme normalde kendi kimliğini içermeyen
+    // meta ile anlaşılır (dropped), ama çevrimdışıyken meta gelmez. Bu yüzden paylaşım sürerken sunucudan
+    // LINK_PROBE_MS boyunca yanıt (meta, sinyal veya istek yanıtı) gelmezse sunucu yoklanır (durum bildirimi,
+    // sunucuda değişiklik yapmaz). Bir yoklama başarısız olduğunda son yanıtın üzerinden OFFLINE_STOP_MS geçmişse
+    // paylaşım durur ('left'). Karar yalnız başarısız yoklamayla verilir, arka plan sekmesinde kısılan
+    // zamanlayıcılar paylaşımı yanlışlıkla durdurmaz.
+    function startLinkWatch () {
+      st.serverAt = Date.now()
+      if (!st.linkTimer) st.linkTimer = setTimeout(linkTick, LINK_TICK_MS)
+    }
+
+    function stopLinkWatch () {
+      if (st.linkTimer) clearTimeout(st.linkTimer)
+      st.linkTimer = null
+      st.linkProbe = null
+    }
+
+    function linkTick () {
+      st.linkTimer = null
+      if (!st.share || !st.inVoice) return
+      if (!st.linkProbe && Date.now() - st.serverAt >= LINK_PROBE_MS) probeLink()
+      st.linkTimer = setTimeout(linkTick, LINK_TICK_MS)
+    }
+
+    function probeLink () {
+      var probe = { gen: st.gen }
+      st.linkProbe = probe
+      var body = { muted: st.muted || st.deafened, deafened: st.deafened }
+      callApi('POST', '/api/voice/state', body).then(function (res) {
+        return !!res && typeof res.status === 'number' && res.status > 0
+      }, function () {
+        return false
+      }).then(function (ok) {
+        if (st.linkProbe !== probe) return
+        st.linkProbe = null
+        if (ok || probe.gen !== st.gen || !st.share) return
+        if (Date.now() - st.serverAt >= OFFLINE_STOP_MS) stopShare('left', false)
+      })
+    }
+
+    function onPageHide () {
+      if (st.share || st.shareStarting) stopShare('unload', false)
+    }
+
+    // Sekme kapanırken veya sayfadan ayrılırken yakalama kesin olarak durur
+    function setPageHide (on) {
+      if (on === st.pageHideOn || typeof window === 'undefined') return
+      st.pageHideOn = on
+      window[on ? 'addEventListener' : 'removeEventListener']('pagehide', onPageHide)
+    }
+
+    // Paylaşımı başlatır (Ayarlar'daki varsayılanlar opts ile ezilir). Paylaşım sürerken yeniden çağrılırsa
+    // kaynak değişir (aynı paylaşım kimliği, izleyiciler korunur), seçim iptal edilirse eski paylaşım sürer.
+    // Dönüş: Promise<{ id, audio }>, ret Error.code ile.
+    function startScreenShare (opts) {
+      var sup = screenSupport()
+      if (!sup.share) return Promise.reject(makeError(sup.reason || 'screen_unsupported'))
+      if (!st.inVoice) return Promise.reject(makeError('not_in_voice'))
+      if (st.shareStarting) return Promise.reject(makeError('screen_busy'))
+      var o = screenOptions(opts, st.screenSettings)
+      var gen = st.gen
+      var sgen = ++st.shareGen
+      var job = getDisplay(o).then(function (stream) {
+        if (gen !== st.gen || sgen !== st.shareGen || !st.inVoice) {
+          stopStream(stream)
+          throw makeError('cancelled')
+        }
+        return beginShare(stream, o)
+      }, function (e) {
+        throw makeError(screenErrorCode(e))
+      })
+      st.shareError = null
+      st.shareState = shareStep(st.shareState, 'start')
+      st.shareStarting = job
+      setPageHide(true)
+      emit()
+      return job.then(function (res) {
+        if (st.shareStarting === job) st.shareStarting = null
+        emit()
+        return res
+      }, function (e) {
+        if (st.shareStarting === job) {
+          st.shareStarting = null
+          st.shareState = shareStep(st.shareState, 'failed')
+          if (!st.share) setPageHide(false)
+          if (e.code !== 'cancelled') {
+            st.shareError = e.code
+            screenEvent({ type: 'error', code: e.code, userId: null, peerId: null })
+          }
+          emit()
+        }
+        throw e
+      })
+    }
+
+    function beginShare (stream, o) {
+      var video = stream.getVideoTracks()[0] || null
+      if (!video || video.readyState === 'ended') {
+        stopStream(stream)
+        throw makeError('screen_failed')
+      }
+      var audio = o.audio ? (stream.getAudioTracks()[0] || null) : null
+      stream.getTracks().forEach(function (t) {
+        if (t !== video && t !== audio) stopTrack(t)
+      })
+      setHint(video, o.hint)
+      applyTrackConstraints(video, o.preset)
+      var old = st.share
+      var share = {
+        id: old ? old.id : randomHex(8),
+        video: video,
+        audio: audio,
+        tracks: audio ? [video, audio] : [video],
+        stream: new MediaStream(audio ? [video, audio] : [video]),
+        preview: new MediaStream([video]),
+        preset: o.preset,
+        hint: o.hint,
+        wantAudio: o.audio,
+        onVideoEnded: null,
+        onAudioEnded: null
+      }
+      // Tarayıcının kendi "paylaşımı durdur" çubuğu veya kapanan pencere görüntü izini bitirir
+      share.onVideoEnded = function () {
+        if (st.share === share) stopShare('ended', false)
+      }
+      // Yalnızca ses biterse paylaşım sessiz sürer
+      share.onAudioEnded = function () {
+        if (st.share !== share || !share.audio) return
+        share.audio = null
+        announceAll()
+        syncAllSenders()
+        emit()
+      }
+      video.addEventListener('ended', share.onVideoEnded)
+      if (audio) audio.addEventListener('ended', share.onAudioEnded)
+      st.share = share
+      st.shareState = shareStep(st.shareState, 'granted')
+      setPageHide(true)
+      if (!old) startLinkWatch()
+      announceAll()
+      var synced = syncAllSenders()
+      var info = { id: share.id, audio: !!audio, preset: share.preset, hint: share.hint }
+      if (old) {
+        // Kaynak değişimi: eski izler, göndericiler yeni izlere geçtikten sonra durdurulur
+        synced.then(function () { releaseShare(old) })
+        screenEvent(Object.assign({ type: 'local-update' }, info))
+      } else {
+        screenEvent(Object.assign({ type: 'local-start' }, info))
+      }
+      emit()
+      return { id: share.id, audio: !!audio }
+    }
+
+    function releaseShare (sh) {
+      try {
+        sh.video.removeEventListener('ended', sh.onVideoEnded)
+      } catch (e) {}
+      sh.tracks.forEach(function (t) {
+        try {
+          t.removeEventListener('ended', sh.onAudioEnded)
+        } catch (e) {}
+        stopTrack(t)
+      })
+    }
+
+    // Paylaşımı durdurur: yakalama hemen biter, eşlere 'screen' kapalı bildirilir, göndericiler boşaltılır.
+    // silent: oturum kapanıyor (bağlantılar zaten kapatılacak), sinyal gönderilmez.
+    function stopShare (reason, silent) {
+      var why = STOP_REASONS.indexOf(reason) >= 0 ? reason : 'user'
+      st.shareGen++
+      var starting = !!st.shareStarting
+      st.shareStarting = null
+      var sh = st.share
+      st.share = null
+      st.shareState = shareStep(st.shareState, why === 'ended' ? 'ended' : 'stop')
+      setPageHide(false)
+      stopLinkWatch()
+      if (!sh) {
+        if (starting) emit()
+        return
+      }
+      releaseShare(sh)
+      Object.keys(st.peers).forEach(function (pid) {
+        var p = st.peers[pid]
+        p.viewing = null
+        p.dirNego = 0
+        if (!silent && p.ready && !p.closed) sendSignal(p, { type: 'screen', on: false, id: sh.id })
+      })
+      if (!silent) syncAllSenders()
+      screenEvent({ type: 'local-stop', id: sh.id, reason: why })
+      emit()
+    }
+
+    // Paylaşım sürerken kalite ve içerik ipucu değişimi. Dönüş: Promise<null | 'no_share'>, reddedilmez.
+    function setScreenQuality (partial) {
+      var sh = st.share
+      if (!sh) return Promise.resolve('no_share')
+      var p = partial && typeof partial === 'object' ? partial : {}
+      var o = screenOptions({ preset: p.preset, hint: p.hint }, { preset: sh.preset, hint: sh.hint })
+      if (o.preset === sh.preset && o.hint === sh.hint) return Promise.resolve(null)
+      sh.preset = o.preset
+      sh.hint = o.hint
+      setHint(sh.video, sh.hint)
+      var job = applyTrackConstraints(sh.video, sh.preset)
+      announceAll()
+      screenEvent({ type: 'local-update', id: sh.id, audio: !!sh.audio, preset: sh.preset, hint: sh.hint })
+      emit()
+      return Promise.all([job, syncAllSenders()]).then(function () { return null }, function () { return null })
+    }
+
+    function getScreenSettings () {
+      var s = st.screenSettings
+      return { preset: s.preset, hint: s.hint, audio: s.audio }
+    }
+
+    // Paylaşım varsayılanları (cihaza özel, 'telsiz.voice.screen'). Geçersiz alanlar yok sayılır.
+    function setScreenSettings (partial) {
+      st.screenSettings = screenOptions(partial, st.screenSettings)
+      writeStored(SCREEN_KEY, getScreenSettings())
+      emit()
+      return getScreenSettings()
+    }
+
+    // İzleyici tarafı: paylaşım duyurusu, güncellemesi veya bitişi
+    function onScreenSignal (peer, m) {
+      var pid = peer.peerId
+      var r = st.roster[pid]
+      if (!r) return
+      var rs = st.remote[pid]
+      if (!m.on) {
+        if (rs && rs.id === m.id) dropRemote(pid, 'stopped')
+        return
+      }
+      if (rs && rs.id !== m.id) {
+        dropRemote(pid, 'stopped')
+        rs = null
+      }
+      var info = { userId: r.userId, peerId: pid, id: m.id, audio: m.audio, hint: m.hint, preset: m.preset }
+      if (!rs) {
+        rs = { id: m.id, userId: r.userId, audio: m.audio, hint: m.hint, preset: m.preset, watch: watchStep('none', 'announce'), stream: null, audioEl: null, audioTrack: null, watchTimer: null, flow: false, probe: null }
+        st.remote[pid] = rs
+        screenEvent(Object.assign({ type: 'share-start' }, info))
+        // Bağlantı yenilendiyse ve aynı paylaşım izleniyorduysa yeniden istenir
+        var again = st.rewatch[pid] === m.id
+        delete st.rewatch[pid]
+        if (again) {
+          watchPid(pid)
+          return
+        }
+      } else if (rs.audio !== m.audio || rs.hint !== m.hint || rs.preset !== m.preset) {
+        rs.audio = m.audio
+        rs.hint = m.hint
+        rs.preset = m.preset
+        screenEvent(Object.assign({ type: 'share-update' }, info))
+      }
+      refreshRemote(pid)
+    }
+
+    // Paylaşan tarafı: izleme isteği veya bırakma. Eski bir paylaşım kimliği için gelen istek yok sayılır.
+    async function onWatchSignal (peer, m) {
+      var r = st.roster[peer.peerId]
+      var sh = st.share
+      if (!r) return
+      if (m.on) {
+        if (!sh || m.id !== sh.id) return
+        if ((st.screenLimit[peer.peerId] || 0) >= 2 || peer.rejected.video) {
+          // Zarf sınırı yüzünden (bkz. tooLargeRebuild) veya karşı taraf görüntü m satırını reddettiği için
+          // (bkz. noteRejected) bu eşe ekran gönderilemiyor
+          screenEvent({ type: 'error', code: 'screen_negotiation_failed', userId: r.userId, peerId: peer.peerId })
+          return
+        }
+        if (peer.viewing !== sh.id) {
+          peer.viewing = sh.id
+          screenEvent({ type: 'viewer-join', userId: r.userId, peerId: peer.peerId })
+          emit()
+        }
+      } else {
+        if (!peer.viewing || peer.viewing !== m.id) return
+        peer.viewing = null
+        screenEvent({ type: 'viewer-leave', userId: r.userId, peerId: peer.peerId })
+        emit()
+      }
+      await syncSendersNow(peer)
+    }
+
+    // Karşı tarafın ekran izi. Alıcı izi bağlantı boyunca kalır (paylaşım bitince de), bu yüzden olaylar o anki
+    // uzak paylaşıma uygulanır. Görüntü izinin 'mute' olayı görüntünün kesildiğidir. 'unmute' akış kanıtı sayılmaz:
+    // Chromium 141'de uzak görüntü izi 'track' olayından hemen sonra hiç paket gelmeden de 'unmute' oluyor
+    // (ölçüldü), akış alıcı istatistiğiyle doğrulanır (probeFlow, refreshRemote başlatır).
+    function onScreenTrack (peer, role, track) {
+      if (peer.rx[role] === track) return
+      peer.rx[role] = track
+      var pid = peer.peerId
+      var update = function (e) {
+        if (st.peers[pid] !== peer || peer.rx[role] !== track) return
+        var rs = st.remote[pid]
+        if (rs && role === 'video' && e && e.type === 'mute' && st.watchWant[pid] === rs.id) rs.flow = false
+        refreshRemote(pid)
+      }
+      try {
+        track.addEventListener('unmute', update)
+        track.addEventListener('mute', update)
+        track.addEventListener('ended', update)
+      } catch (e) {}
+      refreshRemote(pid)
+    }
+
+    function receiverOf (peer, track) {
+      var list = []
+      try {
+        list = typeof peer.pc.getReceivers === 'function' ? peer.pc.getReceivers() : []
+      } catch (e) {
+        list = []
+      }
+      var i = 0
+      while (i < list.length) {
+        if (list[i].track === track) return list[i]
+        i++
+      }
+      return null
+    }
+
+    // Alınan görüntünün sayacı (çözülen kare, yoksa paket). İstatistik okunamazsa null. Alıcı istatistiği
+    // (RTCRtpReceiver.getStats) olan tarayıcıda görüntü raporu ilk paketten önce yoktur, bu durumda 0 döner
+    // (henüz görüntü yok). Yalnız eski bağlantı istatistiği olan tarayıcıda rapor yoksa null (okunamadı).
+    function readFrames (peer, track) {
+      var job = null
+      var byReceiver = false
+      try {
+        var rc = receiverOf(peer, track)
+        if (rc && typeof rc.getStats === 'function') {
+          job = rc.getStats()
+          byReceiver = true
+        } else if (typeof peer.pc.getStats === 'function') {
+          job = peer.pc.getStats(track)
+        }
+      } catch (e) {
+        job = null
+      }
+      if (!job) return Promise.resolve(null)
+      return Promise.resolve(job).then(function (rep) {
+        var n = null
+        rep.forEach(function (r) {
+          if (r.type !== 'inbound-rtp' || (r.kind || r.mediaType) !== 'video') return
+          var v = isNum(r.framesDecoded) ? r.framesDecoded : (isNum(r.packetsReceived) ? r.packetsReceived : null)
+          if (v !== null) n = (n || 0) + v
+        })
+        return n === null && byReceiver ? 0 : n
+      }, function () {
+        return null
+      })
+    }
+
+    function clearProbe (rs) {
+      if (rs.probe) clearTimeout(rs.probe.timer)
+      rs.probe = null
+    }
+
+    // Alıcı izi sessiz değilken görüntünün gerçekten geldiği alıcı istatistiğindeki artıştan anlaşılır (iz paket
+    // gelmeden 'unmute' olabilir, önceki paylaşımdan kalan iz Chromium'da birkaç saniye sessize geçmeyebilir).
+    // İstatistik okunamayan tarayıcıda izin sessiz olmaması yeterli sayılır. Yoklama iz sessize geçince durur
+    // (refreshRemote), failed durumunda da sürer: görüntü sonradan gelirse durum live olur.
+    function probeFlow (pid, rs) {
+      clearProbe(rs)
+      var probe = { timer: null, base: null, track: null }
+      rs.probe = probe
+      var active = function () {
+        var peer = st.peers[pid]
+        return rs.probe === probe && st.remote[pid] === rs && st.watchWant[pid] === rs.id && !!peer && !peer.closed
+      }
+      var step = function () {
+        probe.timer = null
+        if (!active()) {
+          if (rs.probe === probe) rs.probe = null
+          return
+        }
+        var peer = st.peers[pid]
+        var vt = usableTrack(peer.rx.video)
+        if (vt !== probe.track) {
+          probe.track = vt
+          probe.base = null
+        }
+        if (!vt) {
+          probe.timer = setTimeout(step, FLOW_PROBE_MS)
+          return
+        }
+        readFrames(peer, vt).then(function (n) {
+          if (!active()) return
+          if (n === null) {
+            rs.probe = null
+            rs.flow = !vt.muted
+            refreshRemote(pid)
+            return
+          }
+          if (probe.base !== null && n > probe.base) {
+            rs.probe = null
+            rs.flow = true
+            refreshRemote(pid)
+            return
+          }
+          if (probe.base === null || n < probe.base) probe.base = n
+          probe.timer = setTimeout(step, FLOW_PROBE_MS)
+        })
+      }
+      step()
+    }
+
+    function usableTrack (t) {
+      return t && t.readyState !== 'ended' ? t : null
+    }
+
+    function setStreamTracks (stream, tracks) {
+      try {
+        stream.getTracks().forEach(function (t) {
+          if (tracks.indexOf(t) < 0) stream.removeTrack(t)
+        })
+        tracks.forEach(function (t) {
+          if (stream.getTracks().indexOf(t) < 0) stream.addTrack(t)
+        })
+      } catch (e) {}
+    }
+
+    function attachScreenAudio (rs, track) {
+      if (rs.audioEl && rs.audioTrack === track) return
+      var a = rs.audioEl
+      if (!a) {
+        a = document.createElement('audio')
+        a.autoplay = true
+        a.setAttribute('playsinline', '')
+        a.playsInline = true
+        a.setAttribute('data-screen-audio', '')
+        ensureContainer().appendChild(a)
+        rs.audioEl = a
+      }
+      rs.audioTrack = track
+      a.srcObject = new MediaStream([track])
+      playAudio(a)
+    }
+
+    function removeScreenAudio (rs) {
+      var a = rs.audioEl
+      rs.audioEl = null
+      rs.audioTrack = null
+      if (!a) return
+      try {
+        a.pause()
+      } catch (e) {}
+      try {
+        a.srcObject = null
+      } catch (e) {}
+      if (a.parentNode) a.parentNode.removeChild(a)
+    }
+
+    // İzlenen paylaşımın görüntü akışı (yalnız görüntü izi) ve ayrı ses öğesi burada kurulur ve kaldırılır.
+    // Durum: izlenmiyorsa available, görüntü karesi geliyorsa live, beklerken requested.
+    function refreshRemote (pid) {
+      var rs = st.remote[pid]
+      if (!rs) return
+      var peer = st.peers[pid]
+      var linked = !!(peer && !peer.closed)
+      var watching = st.watchWant[pid] === rs.id
+      var vt = watching && linked ? usableTrack(peer.rx.video) : null
+      var at = watching && linked && rs.audio ? usableTrack(peer.rx.audio) : null
+      if (vt) {
+        if (!rs.stream) rs.stream = new MediaStream()
+        setStreamTracks(rs.stream, [vt])
+      } else if (rs.stream) {
+        setStreamTracks(rs.stream, [])
+      }
+      if (at) {
+        attachScreenAudio(rs, at)
+        applyScreenAudio(pid)
+      } else {
+        removeScreenAudio(rs)
+      }
+      if (!watching || !vt || vt.muted) {
+        if (!watching) rs.flow = false
+        clearProbe(rs)
+      } else if (!rs.flow && !rs.probe) {
+        probeFlow(pid, rs)
+      }
+      setWatch(pid, rs, watching ? (vt && rs.flow && !vt.muted ? 'media' : 'nomedia') : 'unwatch')
+      emit()
+    }
+
+    // İzleme durumu geçişi (watchStep), değişince 'watch-state' olayı. Canlıya geçince bekleme süresi biter,
+    // görüntü kesilince (live -> requested) yeniden başlar: süresinde gelmezse failed.
+    function setWatch (pid, rs, ev) {
+      var next = watchStep(rs.watch, ev)
+      if (next === rs.watch) return
+      var prev = rs.watch
+      rs.watch = next
+      if (next === 'live' || next === 'available') clearWatchTimer(rs)
+      if (next === 'requested' && prev === 'live') armWatchTimer(pid, rs)
+      screenEvent({ type: 'watch-state', userId: rs.userId, peerId: pid, id: rs.id, status: next })
+      emit()
+    }
+
+    function clearWatchTimer (rs) {
+      if (rs.watchTimer) clearTimeout(rs.watchTimer)
+      rs.watchTimer = null
+    }
+
+    // İstekten sonra süresinde görüntü gelmezse durum failed olur (yeniden izlenebilir)
+    function armWatchTimer (pid, rs) {
+      clearWatchTimer(rs)
+      rs.watchTimer = setTimeout(function () {
+        rs.watchTimer = null
+        if (st.remote[pid] !== rs || rs.watch !== 'requested') return
+        clearProbe(rs)
+        setWatch(pid, rs, 'timeout')
+        screenEvent({ type: 'error', code: 'screen_watch_failed', userId: rs.userId, peerId: pid })
+      }, WATCH_TIMEOUT_MS)
+    }
+
+    function dropRemote (pid, reason) {
+      var rs = st.remote[pid]
+      delete st.watchWant[pid]
+      if (!rs) return
+      delete st.remote[pid]
+      clearWatchTimer(rs)
+      clearProbe(rs)
+      if (rs.stream) setStreamTracks(rs.stream, [])
+      removeScreenAudio(rs)
+      screenEvent({ type: 'share-stop', userId: rs.userId, peerId: pid, id: rs.id, reason: reason })
+      emit()
+    }
+
+    function remotePidOf (userId) {
+      var uid = normId(userId)
+      if (uid === null) return null
+      var found = null
+      Object.keys(st.remote).forEach(function (pid) {
+        if (!found && st.remote[pid].userId === uid && st.roster[pid]) found = pid
+      })
+      return found
+    }
+
+    // İzleme isteği. Dönüş: null veya hata kodu ('not_in_voice', 'no_share'). Birden çok paylaşım aynı anda
+    // izlenebilir, hangisinin gösterileceğini arayüz seçer.
+    function watchScreen (userId) {
+      if (!st.inVoice) return 'not_in_voice'
+      return watchPid(remotePidOf(userId))
+    }
+
+    function watchPid (pid) {
+      var peer = pid ? st.peers[pid] : null
+      if (!pid || !peer || peer.closed || !st.remote[pid]) return 'no_share'
+      var rs = st.remote[pid]
+      var again = st.watchWant[pid] === rs.id
+      st.watchWant[pid] = rs.id
+      if (!again || rs.watch !== 'live') {
+        // Yeni istek: görüntünün geldiği istekten sonra yeniden doğrulanır
+        rs.flow = false
+        clearProbe(rs)
+      }
+      setWatch(pid, rs, 'watch')
+      if (rs.watch === 'requested') armWatchTimer(pid, rs)
+      if (!again || rs.watch !== 'live') sendSignal(peer, { type: 'watch', on: true, id: rs.id })
+      refreshRemote(pid)
+      return null
+    }
+
+    function unwatchScreen (userId) {
+      if (!st.inVoice) return 'not_in_voice'
+      var pid = remotePidOf(userId)
+      if (!pid) return 'no_share'
+      var rs = st.remote[pid]
+      var peer = st.peers[pid]
+      var was = st.watchWant[pid] === rs.id
+      delete st.watchWant[pid]
+      clearWatchTimer(rs)
+      if (was && peer && !peer.closed) sendSignal(peer, { type: 'watch', on: false, id: rs.id })
+      refreshRemote(pid)
+      return null
+    }
+
+    function getScreenStream (userId) {
+      var pid = remotePidOf(userId)
+      if (!pid) return null
+      var rs = st.remote[pid]
+      return st.watchWant[pid] === rs.id && rs.stream && rs.stream.getVideoTracks().length ? rs.stream : null
+    }
+
+    function setScreenVolume (userId, volume) {
+      var uid = normId(userId)
+      var n = Number(volume)
+      if (uid === null || !isFinite(n)) return
+      n = clamp(n, 0, 1)
+      if (n === 1) {
+        delete st.screenVolumes[uid]
+      } else if (uid in st.screenVolumes || Object.keys(st.screenVolumes).length < MAX_STORED_USERS) {
+        st.screenVolumes[uid] = n
+      }
+      savePeers()
+      applyAllAudio()
+      emit()
+    }
+
+    function setScreenMuted (userId, value) {
+      var uid = normId(userId)
+      if (uid === null) return
+      if (value) {
+        if (uid in st.screenMutes || Object.keys(st.screenMutes).length < MAX_STORED_USERS) st.screenMutes[uid] = true
+      } else {
+        delete st.screenMutes[uid]
+      }
+      applyAllAudio()
+      emit()
     }
 
     // Kadro (meta)
@@ -2232,6 +3725,8 @@ window.VoiceClient = (function () {
         if (st.peers[pid]) closePeer(st.peers[pid])
         delete st.ops[pid]
         delete st.sendQueues[pid]
+        delete st.rewatch[pid]
+        delete st.screenLimit[pid]
       })
       st.roster = next
       applyAllAudio()
@@ -2249,6 +3744,7 @@ window.VoiceClient = (function () {
         if (uid !== null) st.myUserId = uid
       }
       if (!meta || typeof meta !== 'object') return
+      st.serverAt = Date.now()
       st.lastMeta = meta
       if (st.inVoice) applyRoster(meta)
     }
@@ -2266,8 +3762,15 @@ window.VoiceClient = (function () {
     }
 
     // Oturum temizliği: bağlantılar, kuyruklar ve kadro (yerel mikrofon korunur)
+    // Ses odasından çıkışta, oda değişiminde ve yerel kapatmada ekran paylaşımı da kesin olarak durur
     function resetSession () {
+      stopShare('left', true)
       Object.keys(st.peers).forEach(function (pid) { closePeer(st.peers[pid]) })
+      Object.keys(st.remote).forEach(function (pid) { dropRemote(pid, 'left') })
+      st.remote = Object.create(null)
+      st.watchWant = Object.create(null)
+      st.rewatch = Object.create(null)
+      st.screenLimit = Object.create(null)
       st.peers = Object.create(null)
       st.roster = Object.create(null)
       st.ops = Object.create(null)
@@ -2489,7 +3992,7 @@ window.VoiceClient = (function () {
     function setMuted (value) {
       var v = !!value
       if (!v && st.deafened) {
-        // Discord davranışı: sağırken mikrofonu açmak sağırlaştırmayı da kaldırır
+        // Sağırken mikrofonu açmak sağırlaştırmayı da kaldırır (konuşmak isteyen duyabilmelidir)
         st.deafened = false
         applyAllAudio()
       }
@@ -2572,8 +4075,9 @@ window.VoiceClient = (function () {
           } catch (e) {}
         }
       }
-      Object.keys(st.peers).forEach(function (pid) {
-        var a = st.peers[pid].audio
+      var els = Object.keys(st.peers).map(function (pid) { return st.peers[pid].audio })
+      Object.keys(st.remote).forEach(function (pid) { els.push(st.remote[pid].audioEl) })
+      els.forEach(function (a) {
         if (!a) return
         try {
           jobs.push(Promise.resolve(a.play()))
@@ -2619,9 +4123,43 @@ window.VoiceClient = (function () {
       handleMeta: handleMeta,
       teardown: teardown,
       snapshot: snapshot,
-      unlockAudio: unlockAudio
+      unlockAudio: unlockAudio,
+      // Ekran paylaşımı (Ek L1)
+      screenSupport: screenSupport,
+      startScreenShare: startScreenShare,
+      stopScreenShare: function () { stopShare('user', false) },
+      setScreenQuality: setScreenQuality,
+      screenSettings: getScreenSettings,
+      setScreenSettings: setScreenSettings,
+      watchScreen: watchScreen,
+      unwatchScreen: unwatchScreen,
+      getScreenStream: getScreenStream,
+      setScreenVolume: setScreenVolume,
+      setScreenMuted: setScreenMuted
     }
   }
 
-  return { create: create, support: support, bindingLabel: bindingLabel, defaultSettings: defaultSettings }
+  return {
+    create: create,
+    support: support,
+    bindingLabel: bindingLabel,
+    defaultSettings: defaultSettings,
+    screenSupport: screenSupport,
+    screenPresets: screenPresets,
+    screenDefaults: screenDefaults,
+    // Saf yardımcılar (Node testleri ve arayüz için, durum tutmaz)
+    screenUtils: {
+      errorCodes: SCREEN_ERRORS.slice(),
+      stopReasons: STOP_REASONS.slice(),
+      keepCodec: keepScreenCodec,
+      options: screenOptions,
+      encoding: screenEncoding,
+      trackConstraints: trackConstraints,
+      displayConstraints: displayConstraints,
+      errorCode: screenErrorCode,
+      validateSignal: validScreenSignal,
+      shareStep: shareStep,
+      watchStep: watchStep
+    }
+  }
 })()

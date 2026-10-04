@@ -701,8 +701,7 @@ function jumpBarEl () {
     go.appendChild(h('span', 'button-text'))
     go.addEventListener('click', jumpToLatest)
     bar.appendChild(go)
-    const anchor = el.voiceStrip && el.voiceStrip.parentNode === el.main ? el.voiceStrip : el.composer
-    el.main.insertBefore(bar, anchor && anchor.parentNode === el.main ? anchor : null)
+    el.main.insertBefore(bar, el.composer && el.composer.parentNode === el.main ? el.composer : null)
   }
   return bar
 }

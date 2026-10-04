@@ -1,0 +1,10 @@
+/*
+  Frekans: konuşma sütunu (Ek K, KONSEPT 6.4, 6.9, 6.10). Sahibi: sohbet ayrıntıları bileşeni.
+  Kapsam: #main.convo içindeki başlık (.convo-head, #dm-header, #e2e-pill, #btn-room-info), mesaj akışı
+  (#messages), boş, yükleniyor ve hata durumları, arama katmanı (#search-panel), yazıyor satırı
+  (#typing-line), anma ve komut öneri listesi (#mention-popover), yazma alanı (#composer), emoji seçici
+  ve bırakma katmanı. Yayın sahnesi (#cast) ayrıntıları da bu dosyaya veya 22-cast.js ile gelecek
+  dosyaya yazılır. Sütunun kabı ve kesme noktaları frekans.css içindedir.
+  Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz.
+*/

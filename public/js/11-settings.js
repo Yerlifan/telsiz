@@ -29,7 +29,7 @@ const SETTINGS_ICONS = {
   appearance: 'i-palette',
   app: 'i-download',
   general: 'i-server',
-  channels: 'i-hash',
+  channels: 'i-text',
   members: 'i-users',
   invite: 'i-user-plus'
 }
@@ -174,7 +174,7 @@ function openSettings (name, trigger) {
   openLayer({
     name: 'settings',
     el: root,
-    trigger: trigger || el.btnSettings,
+    trigger: trigger || el.meButton,
     level: 1,
     trap: true,
     initialFocus: () => settingsFocusTarget(wanted ? 'title' : 'nav'),
@@ -3344,7 +3344,7 @@ function fillChannelAdmin (list, channels) {
     const li = h('li', 'list-row channel-admin-row')
     li.setAttribute('data-channel-id', String(c.id))
     const main = h('span', 'list-main')
-    main.appendChild(icon(c.type === 'voice' ? 'i-speaker' : 'i-hash'))
+    main.appendChild(icon(c.type === 'voice' ? 'i-speaker' : 'i-text'))
     main.appendChild(h('span', 'list-name', c.name))
     li.appendChild(main)
     const actions = h('span', 'row-actions')

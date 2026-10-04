@@ -70,6 +70,8 @@ function byId (id) {
   return document.getElementById(id)
 }
 
+// Önbelleğe alınan öğeler (index.html). Burada olmayan bir kimlik el.* üzerinden kullanılmaz, her
+// kimlik sayfada bulunur (eksik kimlik null olarak önbelleğe girer, ui doğrulaması bunu denetler).
 const ELEMENT_IDS = [
   'toast', 'boot-view', 'boot-text', 'boot-retry',
   'auth-view', 'auth-server-name', 'auth-notice', 'auth-lang',
@@ -79,36 +81,28 @@ const ELEMENT_IDS = [
   'register-form', 'register-name', 'register-password', 'register-password2', 'register-invite', 'register-error', 'register-submit',
   'key-card', 'key-intro', 'key-form', 'key-input', 'key-error', 'key-add', 'key-generate-wrap', 'key-generate', 'key-skip', 'key-logout',
   'auth-scheme',
-  'app-view', 'conn-banner', 'sidebar', 'sidebar-close', 'server-name', 'server-emblem', 'server-meta', 'text-channels', 'voice-channels',
-  'home-entry', 'dm-section', 'dm-list',
-  'voice-panel', 'voice-panel-status', 'voice-panel-channel', 'voice-leave', 'voice-error', 'voice-unlock', 'ptt-button', 'ptt-label', 'ptt-key',
-  'user-panel', 'me-button', 'me-avatar', 'me-name', 'me-status', 'btn-mute', 'btn-deafen', 'btn-settings',
-  'main', 'btn-open-channels', 'channel-title', 'dm-header', 'key-state', 'btn-search', 'btn-open-members',
+  // Frekans düzeni: üst çubuk, bant, sahne, sol bilgi sütunu, sağ sütun, sayfalar
+  'app-view', 'top', 'conn-banner', 'server-name', 'server-emblem', 'server-meta', 'top-cast',
+  'btn-search', 'live-chip', 'live-stack', 'live-chip-text', 'me-button', 'me-avatar', 'me-name', 'me-status',
+  'band', 'band-prev', 'band-track', 'band-next', 'band-add', 'band-all',
+  'stage', 'info-col', 'room-card', 'room-card-name', 'room-card-text', 'room-card-e2e', 'room-card-e2e-text', 'room-card-members',
+  'room-card-keys', 'room-card-manage', 'dm-section', 'dm-list', 'hints-card',
+  'main', 'channel-title', 'channel-sub', 'dm-header', 'key-state', 'e2e-pill', 'btn-room-info',
   'search-panel', 'home-view', 'key-warning', 'typing-line', 'mention-popover',
-  'voice-strip', 'voice-strip-text', 'voice-strip-ptt', 'voice-strip-ptt-label', 'voice-strip-leave',
   'messages', 'channel-start', 'channel-start-title', 'load-older-wrap', 'load-older', 'message-list', 'messages-status', 'messages-retry-wrap', 'messages-retry',
   'composer', 'attach-list', 'photo-note', 'composer-hint', 'composer-hint-text', 'composer-hint-action',
   'composer-form', 'btn-photo', 'btn-file', 'composer-input', 'btn-emoji', 'btn-send', 'char-counter', 'file-photo', 'file-any',
   'emoji-picker', 'emoji-tabs', 'emoji-title', 'emoji-grid', 'drop-overlay',
-  'members', 'members-count', 'members-close', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline', 'drawer-backdrop',
+  'cast', 'dj', 'side-right', 'inbox', 'inbox-list',
+  'radio', 'radio-state', 'radio-pick', 'voice-channels',
+  'voice-panel', 'voice-panel-status', 'voice-panel-channel', 'voice-error', 'voice-unlock', 'ptt-button', 'ptt-label', 'ptt-key',
+  'radio-row', 'btn-mute', 'btn-deafen', 'voice-leave',
+  'tvbar', 'drawer-backdrop', 'stations-sheet', 'stations-list',
+  'people-sheet', 'members', 'members-count', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline',
   'msg-menu', 'msg-menu-edit', 'msg-menu-delete',
   'peer-popover', 'peer-name', 'peer-volume', 'peer-volume-value', 'peer-mute', 'peer-note',
-  'profile-card', 'status-menu', 'dialog-root',
-  'viewer', 'viewer-name', 'viewer-download', 'viewer-close', 'viewer-stage', 'viewer-img',
-  'settings-modal', 'settings-tabs', 'settings-close',
-  'settings-tab-account', 'settings-tab-voice', 'settings-tab-crypto', 'settings-tab-server', 'settings-tab-members',
-  'settings-panel-account', 'settings-panel-voice', 'settings-panel-crypto', 'settings-panel-server', 'settings-panel-members',
-  'set-avatar', 'set-name', 'set-role', 'set-password-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-msg', 'set-password-submit',
-  'set-notify', 'set-notify-msg', 'set-install-wrap', 'set-install', 'set-ios-hint', 'set-lang', 'set-logout',
-  'set-voice-support', 'set-mic', 'set-mic-refresh', 'set-mode-vad', 'set-mode-ptt',
-  'set-vad-wrap', 'set-vad-auto', 'set-vad-threshold', 'set-vad-threshold-value',
-  'set-ptt-wrap', 'set-ptt-key', 'set-ptt-change', 'set-ptt-msg', 'set-ptt-release', 'set-ptt-release-value',
-  'set-level-bar', 'set-level-threshold', 'set-level-note',
-  'set-keyring', 'set-key-form', 'set-key-input', 'set-key-add', 'set-key-msg', 'set-active-wrap', 'set-active-missing', 'set-active-row', 'set-active-key',
-  'set-key-show', 'set-key-copy', 'set-invite-copy', 'set-key-admin', 'set-key-generate', 'set-new-invite-wrap', 'set-new-invite', 'set-new-invite-copy',
-  'set-server-form', 'set-server-name', 'set-server-save', 'set-server-msg', 'set-invite-code', 'set-invite-show', 'set-invite-rotate', 'set-invite-msg',
-  'set-channel-form', 'set-channel-name', 'set-channel-type', 'set-channel-create', 'set-channel-msg', 'set-text-channels', 'set-voice-channels',
-  'set-members-msg', 'set-temp-wrap', 'set-temp-label', 'set-temp-password', 'set-temp-copy', 'set-members-list', 'set-banned-wrap', 'set-banned-list'
+  'profile-card', 'status-menu', 'dialog-root', 'cast-dialog',
+  'viewer', 'viewer-name', 'viewer-download', 'viewer-close', 'viewer-stage', 'viewer-img'
 ]
 
 function camel (id) {
@@ -260,7 +254,9 @@ function avatarInfoFor (userId, fallbackName) {
 const AVATAR_SIZES = ['xs', 'sm', 'md', 'lg', 'xl']
 
 // Avatar: avatar(userId, size). size 'xs' | 'sm' | 'md' (varsayılan) | 'lg' | 'xl'.
-// Biçim (kartuş, daire, sekizgen) temadan, durum işareti data-status özniteliğinden gelir.
+// Biçim her temada yumuşak kenarlı karedir (Ek K6): köşe yarıçapı CSS'teki tek belirteçten gelir
+// (--avatar-radius, boyutun yüzde 28'i). Durum işareti data-status özniteliğinden, konuşma halesi
+// is-speaking sınıfından çizilir ve ikisi de aynı şekli izler.
 // Eski çağrı biçimi avatar(userId, ad, ekSınıf) de çalışır, üçüncü bağımsız değişken ek sınıftır.
 function avatar (userId, size) {
   const extraClass = arguments.length > 2 ? arguments[2] : ''
@@ -323,8 +319,9 @@ function focusNode (node) {
   }
 }
 
-// Katman yığını: modal, çekmece, emoji seçici, menü, açılır panel ve görüntüleyici.
-// Açılınca ilk öğeye odaklanır, kapanınca odak tetikleyiciye döner, Esc en üsttekini kapatır.
+// Katman yığını: kalıcı pencere, yan ve alt sayfa (12-init.js openSheet), emoji seçici, menü, açılır panel
+// ve görüntüleyici. Açılınca ilk öğeye odaklanır, kapanınca odak tetikleyiciye döner, Esc en üsttekini
+// kapatır, trap: true olan katmanda Tab odağı katmanın içinde tutar.
 
 const layers = []
 

@@ -134,12 +134,12 @@ test('setLang dili değiştirir, kalıcı yapar ve <html lang> değerini güncel
 
 test('t: parametre yerleştirme ve eksik parametre', () => {
   const { I18N } = load({ languages: ['tr-TR'] })
-  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), '#genel kanalına hoş geldin')
+  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), 'genel odasına hoş geldiniz')
   assert.strictEqual(I18N.t('auth.nameLength', { min: 2, max: 20 }), 'Kullanıcı adı 2 ile 20 karakter arasında olmalı.')
-  assert.strictEqual(I18N.t('channel.welcome'), '#{name} kanalına hoş geldin', 'parametre verilmezse yer tutucu kalır')
-  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), '#<b>{x}</b> kanalına hoş geldin', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
+  assert.strictEqual(I18N.t('channel.welcome'), '{name} odasına hoş geldiniz', 'parametre verilmezse yer tutucu kalır')
+  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), '<b>{x}</b> odasına hoş geldiniz', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
   I18N.setLang('en')
-  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Welcome to #general')
+  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Welcome to general')
   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '40%')
   I18N.setLang('tr')
   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '%40')
@@ -192,7 +192,7 @@ test('apply: data-i18n öznitelikleri metin, placeholder, aria-label ve title ol
   }
   I18N.apply(root)
   assert.strictEqual(text.textContent, 'Sign in')
-  assert.strictEqual(input.attrs.placeholder, 'New channel name')
+  assert.strictEqual(input.attrs.placeholder, 'New room name')
   assert.strictEqual(input.textContent, 'eski', 'yalnızca placeholder değişir')
   assert.strictEqual(both.attrs['aria-label'], 'Mute microphone')
   assert.strictEqual(both.attrs.title, 'Mute microphone')

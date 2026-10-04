@@ -1001,7 +1001,7 @@ function searchChannelLabel (channelId) {
     return t('search.dmLabel', { name: name })
   }
   const ch = findChannel(channelId)
-  return ch ? '#' + ch.name : t('search.unknownChannel')
+  return ch ? ch.name : t('search.unknownChannel')
 }
 
 // terms: aranan terimler (alıntı kaynağını seçer), marks: vurgulanacak terimler

@@ -1,0 +1,1851 @@
+/*
+  Frekans düzeni (Ek K, scratchpad KONSEPT.md bölüm 4, 6, 11 ve 13): uygulamanın çekirdek yerleşimi.
+  Yukarıdan aşağı: üst çubuk (#top), bağlantı şeridi, frekans bandı (#band), sahne (#stage: sol bilgi
+  sütunu, konuşma sütunu, isteğe bağlı DJ sütunu, sağda Gelenler ve telsiz kartı), televizyon ipucu çubuğu
+  ve yan/alt sayfalar (#stations-sheet, #people-sheet, 1280 px altında #info-col).
+  Bileşenlerin ayrıntılı görünümü kendi dosyalarındadır: konuşma sütunu convo.css, telsiz kartı radio.css,
+  kişisel alanlar (Yayındakiler, Gelenler, özel mesaj ve arkadaşlar) people.css. Bu dosya yalnızca yerleşimi,
+  bandı, üst çubuğu, sayfa kabuğunu ve kesme noktalarını tanımlar.
+  Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz (konsol tarayıcı uyumu). Belirteçler tokens.css içindedir.
+  Kesme noktaları: tv 1800 px ve üstü, geniş 1280 px ve üstü, geniş dar 1000 ile 1279 px,
+  orta 760 ile 999 px, dar 760 px altı, alçak 860 px altı yükseklik.
+*/
+
+/* =========================================================
+   1. Görünümler: açılış, kimlik ekranları ve uygulama kabuğu
+   ========================================================= */
+
+/* Görünümler zemindeki ışığın üstünde durur */
+.boot-view,
+.auth-view,
+.app-view {
+  position: relative;
+  z-index: 1;
+}
+
+.boot-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+}
+
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.auth-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 1rem 1.5rem;
+  padding-top: calc(1rem + env(safe-area-inset-top));
+}
+
+.auth-tools {
+  display: flex;
+  align-items: center;
+}
+
+.auth-tools > * + * {
+  margin-left: 0.5rem;
+}
+
+.auth-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.app-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Ortak etiket stili (temanın etiket yazı tipi) */
+.kicker {
+  margin: 0 0 0.5rem;
+  color: var(--text-3);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+:root[data-skin="turkuaz"] .kicker,
+:root[data-skin="turkuaz"] .band-group-label,
+:root[data-skin="turkuaz"] .radio-label {
+  text-transform: none;
+}
+
+/* =========================================================
+   2. Üst çubuk: topluluk kimliği, Ara, Yayındakiler, avatar
+   ========================================================= */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--top-h);
+  padding: 0 1.25rem;
+  padding-top: env(safe-area-inset-top);
+}
+
+.top-brand {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.top-bar .server-emblem {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-right: 0.625rem;
+  font-size: 1.05rem;
+}
+
+.top-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.top-bar .server-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.top-bar .server-meta {
+  display: flex;
+  align-items: center;
+  margin: 0.1rem 0 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.top-bar .server-meta .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0 0.25rem 0 0.5rem;
+  color: var(--ok);
+}
+
+.top-spacer {
+  flex: 1 1 auto;
+}
+
+.top-cast {
+  display: flex;
+  align-items: center;
+}
+
+.top-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: var(--target);
+  min-height: var(--target);
+  margin-left: 0.625rem;
+  padding: 0 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.top-chip:hover {
+  background-color: var(--surface-hover);
+}
+
+.top-chip[aria-expanded="true"] {
+  border-color: var(--accent-text);
+  background-color: var(--surface-3);
+}
+
+.top-chip > .icon {
+  margin-right: 0.5rem;
+}
+
+.top-chip .top-kbd {
+  min-width: 0;
+  margin-left: 0.5rem;
+  padding: 0.0625rem 0.4375rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+.top-live {
+  padding-left: 0.5rem;
+}
+
+.top-live-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 0.5rem 0 0.25rem;
+  border-radius: 50%;
+  background-color: var(--live);
+  box-shadow: 0 0 0 3px var(--live-bg);
+}
+
+.top-stack {
+  display: inline-flex;
+  margin-right: 0.625rem;
+}
+
+.top-stack:empty {
+  display: none;
+}
+
+.top-stack .avatar {
+  width: 1.875rem;
+  height: 1.875rem;
+  margin-left: -0.5rem;
+  border: 2px solid var(--surface-1);
+  font-size: var(--text-xs);
+}
+
+.top-stack .avatar:first-child {
+  margin-left: 0;
+}
+
+.top-me {
+  padding: 0 0.75rem 0 0.25rem;
+}
+
+.top-me .avatar {
+  width: 2.125rem;
+  height: 2.125rem;
+  margin-right: 0.5rem;
+  font-size: var(--text-sm);
+}
+
+.top-me-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 11rem;
+  line-height: 1.15;
+}
+
+.top-me .me-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-me .me-status {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+.top-me-caret {
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.375rem;
+  color: var(--text-3);
+}
+
+/* =========================================================
+   3. Frekans bandı: uç düğmeleri, kayan kadran, istasyonlar, ibre
+   ========================================================= */
+
+.band {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex: none;
+  height: var(--band-h);
+  margin: 0 1.25rem;
+  padding: 0 0.5rem var(--band-pad);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--band-bg);
+  box-shadow: var(--shadow-card);
+}
+
+/* Kayan kadran: iki katmanlı ölçek çizgisi içerikle birlikte kayar */
+.band-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background-image: repeating-linear-gradient(90deg, var(--tick) 0, var(--tick) 1px, transparent 1px, transparent 12px), repeating-linear-gradient(90deg, var(--tick-major) 0, var(--tick-major) 1px, transparent 1px, transparent 60px);
+  background-position: 0 var(--dial-top), 0 var(--dial-top);
+  background-repeat: repeat-x;
+  background-size: 100% 0.5rem, 100% 0.875rem;
+  background-attachment: local;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.band-track::-webkit-scrollbar {
+  display: none;
+}
+
+.band-track.is-dragging {
+  cursor: grabbing;
+}
+
+.band-group {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex: none;
+}
+
+/* Grup etiketi ölçeğin üstünde durur, ibreyle çakışmaz */
+.band-group-label {
+  position: absolute;
+  bottom: calc(var(--band-h) - var(--band-pad) - var(--dial-top) + 0.25rem);
+  left: 0.375rem;
+  color: var(--text-3);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.band-sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: var(--dial-top) 0.625rem 0;
+  background-color: var(--line-strong);
+}
+
+.band-empty {
+  display: flex;
+  align-items: center;
+  min-height: var(--station-h);
+  padding: 0 0.75rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.station {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--station-h);
+  margin-right: 0.25rem;
+  padding: 0 1rem 0 0.75rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.station:hover {
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.station > .station-icon {
+  margin-right: 0.5rem;
+  color: var(--text-3);
+}
+
+.station-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.station-name {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.station-meta {
+  display: flex;
+  align-items: center;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.station-meta .channel-freq {
+  min-width: 0;
+  margin-right: 0.375rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+}
+
+/* Ayarlı istasyon: ibre üstünde durur */
+.station.is-tuned {
+  border-color: var(--line-strong);
+  background-color: var(--station-tuned-bg);
+  color: var(--text-strong);
+}
+
+.station.is-tuned > .station-icon {
+  color: var(--accent-text);
+}
+
+/* İbre sürüklenirken altındaki hedef istasyon */
+.station.is-target {
+  border-color: var(--focus);
+  background-color: var(--station-target);
+}
+
+.station.is-unread {
+  color: var(--text-strong);
+}
+
+/* İskelet istasyon (meta gelene kadar) */
+.station-skeleton {
+  width: 7.5rem;
+  margin-right: 0.5rem;
+  border-color: var(--line);
+  background-color: var(--surface-3);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Okunmamış ve anma işaretleri (bant, Tümü sayfası, Gelenler) */
+.station-mark {
+  display: inline-block;
+  flex: none;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.375rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.station > .station-mark {
+  position: absolute;
+  top: -0.625rem;
+  right: -0.25rem;
+}
+
+.mark-unread {
+  border: 1px solid var(--line-strong);
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+  line-height: 1.25rem;
+}
+
+.mark-mention {
+  background-color: var(--attention);
+  color: var(--on-attention);
+}
+
+/* İbre: 44 px isabet alanı, çizgi ve topuz. Sürüklerken kadrana bağlanır (21-band.js). */
+.needle {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 2;
+  width: var(--target);
+  height: calc(var(--band-h) - var(--station-h) - var(--band-pad) - var(--dial-top));
+  margin-left: calc(var(--target) / -2);
+  cursor: grab;
+  touch-action: none;
+}
+
+.needle::after {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background-color: var(--needle);
+}
+
+.needle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 1;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-left: -0.5625rem;
+  border: 3px solid var(--needle-ring);
+  border-radius: 50%;
+  background-color: var(--needle-knob);
+  box-shadow: 0 0 0 1px var(--needle), 0 2px 8px var(--halo-2);
+}
+
+.needle:hover::before,
+.needle.is-dragging::before {
+  box-shadow: 0 0 0 1px var(--needle), 0 0 0 6px var(--focus-halo);
+}
+
+.needle.is-free {
+  top: var(--dial-top);
+  bottom: auto;
+}
+
+.needle.is-dragging {
+  cursor: grabbing;
+}
+
+/* Ses istasyonu: bağlı, bağlanıyor, içinde konuşan var (nabız), küçük avatar yığını */
+.station-voice.is-connected {
+  border-color: var(--live);
+  background-color: var(--live-bg);
+  color: var(--text-strong);
+}
+
+.station-voice.is-connected > .station-icon,
+.station-voice.is-joining > .station-icon {
+  color: var(--live);
+}
+
+.station-voice.is-joining {
+  border-color: var(--idle);
+  border-style: dashed;
+}
+
+.station-pulse {
+  position: relative;
+  display: none;
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-left: 0.625rem;
+  border-radius: 50%;
+  background-color: var(--live);
+}
+
+.station-voice.is-live .station-pulse {
+  display: inline-block;
+}
+
+.station-pulse::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--live);
+  border-radius: 50%;
+  opacity: 0.45;
+  -webkit-animation: band-pulse var(--dur-slow) var(--ease) infinite;
+  animation: band-pulse var(--dur-slow) var(--ease) infinite;
+}
+
+@-webkit-keyframes band-pulse {
+  0% { -webkit-transform: scale(0.6); transform: scale(0.6); opacity: 0.7; }
+  100% { -webkit-transform: scale(1.5); transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes band-pulse {
+  0% { -webkit-transform: scale(0.6); transform: scale(0.6); opacity: 0.7; }
+  100% { -webkit-transform: scale(1.5); transform: scale(1.5); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-pulse::after {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
+.mini-stack {
+  display: inline-flex;
+  margin-left: 0.625rem;
+}
+
+.mini-stack .avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: -0.375rem;
+  border: 2px solid var(--band-bg);
+  font-size: 0.625rem;
+}
+
+.mini-stack .avatar:first-child {
+  margin-left: 0;
+}
+
+.station-voice.is-connected .mini-stack .avatar {
+  border-color: var(--live-bg);
+}
+
+/* Bandın uçları: önceki ve sonraki istasyon, Oda ekle ve Tümü */
+.band-step {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--target);
+  min-height: var(--station-h);
+  padding: 0;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.band-step:hover {
+  background-color: var(--surface-hover);
+}
+
+.band-step:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Kayan kenarlarda yumuşak geçiş: kesilen istasyon kasıtlı görünür */
+.band-step::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1rem;
+  pointer-events: none;
+}
+
+.band-step-prev {
+  margin-right: 0.375rem;
+}
+
+.band-step-prev::after {
+  left: 100%;
+  margin-left: 0.375rem;
+  background-image: linear-gradient(90deg, var(--band-bg), transparent);
+}
+
+.band-step-next {
+  margin-left: 0.375rem;
+}
+
+.band-step-next::after {
+  right: 100%;
+  margin-right: 0.375rem;
+  background-image: linear-gradient(270deg, var(--band-bg), transparent);
+}
+
+.band-add,
+.band-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: var(--target);
+  min-height: var(--station-h);
+  margin-left: 0.5rem;
+  padding: 0 0.625rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.band-all {
+  border-style: solid;
+  background-color: var(--surface-alt);
+  color: var(--text);
+}
+
+.band-add:hover,
+.band-all:hover {
+  background-color: var(--surface-hover);
+}
+
+.band-all .icon {
+  margin-right: 0.375rem;
+}
+
+/* =========================================================
+   4. Sahne: sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun
+   ========================================================= */
+
+.stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+.side-left {
+  width: var(--side-w);
+  margin-right: 1.25rem;
+}
+
+.side-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Sayfa başlığı yalnızca oda bilgisi yan sayfa olarak açıkken görünür */
+.side-sheet-head {
+  display: none;
+}
+
+.center {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.side-dj {
+  width: var(--side-w);
+  margin-left: 1.25rem;
+}
+
+.side-right {
+  width: var(--radio-w);
+  margin-left: 1.25rem;
+}
+
+/* Telsiz kartı her zaman sağ altta, üstte kalan alanı Gelenler kartı kullanır */
+.side-right > .radio {
+  margin-top: auto;
+}
+
+/* Konuşma sütunu kabı: başlık, arama katmanı, mesajlar, yazma alanı (ayrıntılar convo.css) */
+.convo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--column-max);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-panel);
+}
+
+.convo-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 3.75rem;
+  padding: 0.5rem 0.75rem 0.5rem 1.25rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.convo-head > * + * {
+  margin-left: 0.5rem;
+}
+
+.convo-head .convo-titles {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.convo-title {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+}
+
+.convo-title > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.convo-title-icon {
+  margin-right: 0.5rem;
+  color: var(--accent-text);
+}
+
+.convo-sub {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pill .icon {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.375rem;
+}
+
+.pill-ok {
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+.pill-short {
+  display: none;
+}
+
+/* Oda bilgisi düğmesi yalnızca sol sütun gizliyken (1280 px altı) görünür */
+.convo-head .room-info-button {
+  display: none;
+}
+
+/* Arkadaşlar görünümünde konuşma başlığı ve oda bilgisi gizlenir */
+.app-view[data-view="home"] .convo-head,
+.app-view[data-view="home"] .messages,
+.app-view[data-view="home"] .composer,
+.app-view[data-view="home"] .key-warning {
+  display: none;
+}
+
+/* Yayın sahnesi (Ek L1) konuşma sütununun yerini alır, ayrıntıları 22-cast.js ve convo.css */
+.cast {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* =========================================================
+   5. Sol bilgi sütunu kartları ve Gelenler kartı
+   ========================================================= */
+
+.side-card {
+  margin-bottom: 1rem;
+  padding: 1.125rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-card);
+}
+
+.side-scroll > .side-card:last-child {
+  margin-bottom: 0;
+}
+
+.side-card-title {
+  margin: 0 0 0.375rem;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-xl);
+  line-height: 1.2;
+  word-wrap: break-word;
+}
+
+.side-card-text {
+  margin: 0 0 0.875rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li {
+  display: flex;
+  align-items: center;
+  min-height: 2.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.facts .icon {
+  margin-right: 0.625rem;
+  color: var(--text-3);
+}
+
+.facts .is-ok .icon {
+  color: var(--ok);
+}
+
+.facts .is-warn,
+.facts .is-warn .icon {
+  color: var(--warn);
+}
+
+.link-button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  margin-top: 0.5rem;
+  padding: 0 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-alt);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  background-color: var(--surface-hover);
+}
+
+.link-button .icon {
+  margin-right: 0.625rem;
+  color: var(--accent-text);
+}
+
+.link-button > span {
+  flex: 1 1 auto;
+}
+
+/* Kişisel alan: özel mesaj listesi yalnızca Özel ve Arkadaşlar istasyonlarında, oda kartı odalarda */
+.dm-section {
+  display: none;
+}
+
+.app-view[data-view="dm"] .dm-section,
+.app-view[data-view="home"] .dm-section {
+  display: block;
+}
+
+.dm-section .dm-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hints {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hints li {
+  display: flex;
+  align-items: flex-start;
+  padding: 0.3125rem 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.hints .icon {
+  margin: 0 0.625rem 0 0;
+  color: var(--accent-text);
+}
+
+.hints b {
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.hints .kbd {
+  min-width: 0;
+  margin: 0 0.125rem;
+  padding: 0 0.3125rem;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  box-shadow: none;
+}
+
+/* Kol ipuçları yalnızca Gamepad API bir kol bildirince görünür (Ek K7.6) */
+.gamepad-only,
+.hints .gamepad-only {
+  display: none;
+}
+
+.app-view.has-gamepad .hints .gamepad-only {
+  display: flex;
+}
+
+.inbox {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.inbox-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  margin: 0 0 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.inbox-row .station-mark {
+  min-width: 2rem;
+  margin-right: 0.75rem;
+}
+
+.inbox-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.inbox-row-name {
+  overflow: hidden;
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.inbox-row-sub {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.inbox-empty {
+  margin: 0;
+}
+
+/* =========================================================
+   6. Telsiz kartı kabı (ayrıntılı görünüm radio.css)
+   ========================================================= */
+
+.radio {
+  position: relative;
+  flex: none;
+  padding: 0.875rem 1rem 1rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: 1.75rem;
+  background-color: var(--radio-bg);
+  box-shadow: var(--shadow-panel);
+}
+
+.radio-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.625rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  text-transform: uppercase;
+}
+
+.radio-led {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--offline);
+}
+
+.radio[data-state="on"] .radio-led {
+  background-color: var(--live);
+  box-shadow: 0 0 0 3px var(--live-bg);
+}
+
+.radio[data-state="joining"] .radio-led {
+  background-color: var(--idle);
+}
+
+.radio-grille {
+  width: 4rem;
+  height: 0.875rem;
+  background-image: repeating-linear-gradient(90deg, var(--line-strong) 0, var(--line-strong) 2px, transparent 2px, transparent 5px);
+}
+
+.radio-screen {
+  padding: 0.625rem 0.75rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--screen-bg);
+}
+
+.radio-pick {
+  margin: 0 0 0.375rem;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+}
+
+.radio-rooms {
+  max-height: 14rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.radio .voice-panel {
+  margin-top: 0.75rem;
+}
+
+.radio .ptt-button {
+  width: 100%;
+  margin-top: 0.625rem;
+}
+
+.radio-row {
+  display: flex;
+  margin-top: 0.625rem;
+}
+
+.radio-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3.5rem;
+  margin-right: 0.375rem;
+  padding: 0.25rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-alt);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+.radio-button:last-child {
+  margin-right: 0;
+}
+
+.radio-button:hover {
+  background-color: var(--surface-hover);
+}
+
+.radio-button .icon {
+  margin-bottom: 0.25rem;
+}
+
+.radio-button.is-off,
+.radio-button[aria-pressed="true"] {
+  border-color: var(--danger);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.radio-button.is-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.radio-button-text {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   7. Yan ve alt sayfalar (Tümü, Yayındakiler, Oda bilgisi) ve ortak örtü
+   ========================================================= */
+
+.drawer-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 45;
+  background-color: var(--overlay);
+}
+
+.sheet,
+.side-left.is-open {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: var(--sheet-w);
+  max-width: calc(100% - 1.5rem);
+  margin: 0;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-pop);
+  -webkit-animation: sheet-from-right var(--dur-med) var(--ease);
+  animation: sheet-from-right var(--dur-med) var(--ease);
+}
+
+.sheet-head,
+.side-left.is-open .side-sheet-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 0.75rem 0.75rem 0.75rem 1.25rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.sheet-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sheet-head .members-count {
+  margin: 0 0.5rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.25rem 0.75rem 0.75rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.side-left.is-open .side-scroll {
+  padding: 0.75rem;
+}
+
+.sheet-handle {
+  display: none;
+}
+
+.sheet-section {
+  margin: 1rem 0.25rem 0.375rem;
+}
+
+.sheet-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 3.25rem;
+  margin: 0 0 0.25rem;
+  padding: 0.375rem 0.625rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sheet-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.sheet-row.is-current {
+  border-color: var(--line-strong);
+  background-color: var(--station-tuned-bg);
+}
+
+.sheet-row.is-connected {
+  border-color: var(--live);
+  background-color: var(--live-bg);
+}
+
+.sheet-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-right: 0.75rem;
+  border-radius: var(--radius-small);
+  background-color: var(--surface-3);
+  color: var(--accent-text);
+}
+
+.sheet-row > .avatar {
+  margin-right: 0.75rem;
+}
+
+.sheet-li-dm .sheet-row {
+  padding-left: 1.5rem;
+}
+
+.sheet-row-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.sheet-row-name {
+  overflow: hidden;
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sheet-row-sub {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.sheet-row .station-mark {
+  margin-left: 0.5rem;
+}
+
+.sheet-row-check {
+  margin-left: 0.5rem;
+  color: var(--accent-text);
+}
+
+.sheet-empty {
+  margin: 0.25rem 0.5rem;
+}
+
+@-webkit-keyframes sheet-from-right {
+  from { -webkit-transform: translateX(1.5rem); transform: translateX(1.5rem); opacity: 0; }
+  to { -webkit-transform: translateX(0); transform: translateX(0); opacity: 1; }
+}
+
+@keyframes sheet-from-right {
+  from { -webkit-transform: translateX(1.5rem); transform: translateX(1.5rem); opacity: 0; }
+  to { -webkit-transform: translateX(0); transform: translateX(0); opacity: 1; }
+}
+
+@-webkit-keyframes sheet-from-bottom {
+  from { -webkit-transform: translateY(2rem); transform: translateY(2rem); opacity: 0; }
+  to { -webkit-transform: translateY(0); transform: translateY(0); opacity: 1; }
+}
+
+@keyframes sheet-from-bottom {
+  from { -webkit-transform: translateY(2rem); transform: translateY(2rem); opacity: 0; }
+  to { -webkit-transform: translateY(0); transform: translateY(0); opacity: 1; }
+}
+
+/* =========================================================
+   8. Televizyon ipucu çubuğu
+   ========================================================= */
+
+.tvbar {
+  display: none;
+}
+
+/* =========================================================
+   9. Kesme noktaları
+   ========================================================= */
+
+/* Televizyon (1800 px ve üstü): kök yazı 22 px (tokens.css), büyük odak halkası, kol algılanınca
+   ipucu çubuğu, telsiz kartının başlık satırı gizli (bağlı bilgisi bantta da var) */
+@media (min-width: 1800px) {
+  .app-view.has-gamepad .tvbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-height: 2.5rem;
+    padding: 0 1.25rem 0.75rem;
+    color: var(--text-2);
+    font-size: var(--text-sm);
+  }
+
+  .tvhint {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 1rem;
+    white-space: nowrap;
+  }
+
+  .pad {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    margin-right: 0.5rem;
+    padding: 0 0.375rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background-color: var(--surface-3);
+    color: var(--text-strong);
+    font-size: var(--text-xs);
+    font-weight: 700;
+  }
+
+  .app-view.has-gamepad .stage {
+    padding-bottom: 0.5rem;
+  }
+
+  .radio-head {
+    display: none;
+  }
+
+  .app-view :focus-visible {
+    outline-width: 4px;
+    outline-offset: 4px;
+    box-shadow: 0 0 0 10px var(--focus-halo);
+  }
+}
+
+/* Geniş dar (1279 px ve altı): sol bilgi sütunu gizlenir, başlıktaki Oda bilgisi düğmesiyle yan
+   sayfada açılır. DJ sütunu da kadrodan açılan sayfaya iner (23-dj.js). */
+@media (max-width: 1279px) {
+  .side-left {
+    display: none;
+  }
+
+  .side-left.is-open {
+    display: flex;
+  }
+
+  .side-left.is-open .side-sheet-head {
+    display: flex;
+  }
+
+  .convo-head .room-info-button {
+    display: inline-flex;
+  }
+
+  .side-dj {
+    display: none;
+  }
+}
+
+/* Alçak ekran: Gelenler kartı gizlenir (rozetler bantta görünür) */
+@media (max-height: 860px) {
+  .inbox {
+    display: none;
+  }
+}
+
+/* Orta (999 px ve altı): telsiz kartı 17rem, Gelenler gizli, istasyonların alt satırı ve küçük avatar
+   yığını gizli, üst çubukta Ara etiketi ve kısayol gizli */
+@media (max-width: 999px) {
+  .top-bar {
+    padding: 0 0.875rem;
+  }
+
+  .band {
+    margin: 0 0.875rem;
+  }
+
+  .stage {
+    padding: 0.75rem 0.875rem 0.875rem;
+  }
+
+  .side-right {
+    margin-left: 0.875rem;
+  }
+
+  .inbox,
+  .top-chip-label,
+  .top-chip .top-kbd,
+  .station-meta,
+  .mini-stack,
+  .pill-text,
+  .top-me-text {
+    display: none;
+  }
+
+  .pill-short {
+    display: inline;
+  }
+
+  .top-find > .icon {
+    margin-right: 0;
+  }
+
+  .radio-row {
+    flex-wrap: wrap;
+  }
+
+  .radio-button {
+    flex: 0 0 48.5%;
+    flex-direction: row;
+    min-height: var(--target);
+    margin: 0 0 0.375rem;
+  }
+
+  .radio-button:nth-child(odd) {
+    margin-right: 3%;
+  }
+
+  .radio-button .icon {
+    margin: 0 0.375rem 0 0;
+  }
+}
+
+/* Dar (759 px ve altı, telefon): üst çubuk sadeleşir, bant kenardan kenara ve sağ ucunda sabit Tümü,
+   konuşma tam genişlik, telsiz kartı ekranın altına yapışır, sayfalar alttan açılır */
+@media (max-width: 759px) {
+  .top-bar {
+    padding: 0 0.625rem 0 0.75rem;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .top-bar .server-meta,
+  .top-live-text,
+  .top-me-caret {
+    display: none;
+  }
+
+  .top-bar .server-name {
+    font-size: var(--text-md);
+  }
+
+  .top-bar .server-emblem {
+    width: 2rem;
+    height: 2rem;
+    margin-right: 0.5rem;
+  }
+
+  .top-chip {
+    margin-left: 0.375rem;
+    padding: 0 0.5rem;
+  }
+
+  .top-chip > .icon,
+  .top-stack {
+    margin-right: 0;
+  }
+
+  .top-stack .avatar:nth-child(n+4) {
+    display: none;
+  }
+
+  .top-me {
+    padding: 0 0.25rem;
+  }
+
+  .top-me .avatar {
+    margin-right: 0;
+  }
+
+  .band {
+    margin: 0;
+    padding: 0 0 var(--band-pad) 0.25rem;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .band-track {
+    padding: 0 1rem 0 0.5rem;
+  }
+
+  .band-sep {
+    margin: var(--dial-top) 0.375rem 0;
+  }
+
+  .station {
+    padding: 0 0.75rem 0 0.5rem;
+    font-size: var(--text-sm);
+  }
+
+  .band-step,
+  .band-add {
+    display: none;
+  }
+
+  .band-all {
+    flex-direction: column;
+    align-self: stretch;
+    width: 4rem;
+    min-height: 0;
+    margin: 0 0 calc(var(--band-pad) * -1);
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--line-strong);
+    border-radius: 0;
+    background-color: var(--band-bg);
+    font-size: var(--text-xs);
+    font-weight: 700;
+  }
+
+  .band-all .icon {
+    margin: 0 0 0.125rem;
+  }
+
+  .stage {
+    flex-direction: column;
+    padding: 0;
+  }
+
+  .center {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .convo {
+    max-width: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .convo-head {
+    min-height: 3rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  }
+
+  .convo-sub,
+  .convo-title-icon {
+    display: none;
+  }
+
+  .side-right {
+    width: auto;
+    margin: 0;
+  }
+
+  .radio {
+    padding: 0.625rem 0.75rem 0.75rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    border-bottom: 0;
+    border-radius: 1.25rem 1.25rem 0 0;
+  }
+
+  .radio-head,
+  .radio-button-text {
+    display: none;
+  }
+
+  /* Telefonda telsiz kartı kısa kalır: kapalıyken ses odaları bantta ve Tümü sayfasında seçilir,
+     bağlıyken kart durum satırını, Bas konuş düğmesini ve ses düğmelerini gösterir */
+  .radio .radio-rooms {
+    display: none;
+  }
+
+  .radio[data-state="off"] .radio-screen {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .radio[data-state="off"] .radio-pick {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .radio[data-state="on"] .radio-screen,
+  .radio[data-state="joining"] .radio-screen {
+    display: none;
+  }
+
+  .radio .voice-panel {
+    margin-top: 0;
+  }
+
+  .radio-button {
+    flex: 1 1 0;
+    min-height: 3.25rem;
+    margin: 0 0.375rem 0 0;
+  }
+
+  .radio-button:nth-child(odd) {
+    margin-right: 0.375rem;
+  }
+
+  .radio-button:last-child {
+    margin-right: 0;
+  }
+
+  .radio-button .icon {
+    margin: 0;
+  }
+
+  .radio-row {
+    flex-wrap: nowrap;
+  }
+
+  /* Sayfalar alttan açılır */
+  .sheet,
+  .side-left.is-open {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    max-height: 84%;
+    border-bottom: 0;
+    border-radius: 1.5rem 1.5rem 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    -webkit-animation: sheet-from-bottom var(--dur-med) var(--ease);
+    animation: sheet-from-bottom var(--dur-med) var(--ease);
+  }
+
+  .sheet-handle {
+    display: block;
+    flex: none;
+    width: 2.75rem;
+    height: 0.3125rem;
+    margin: 0.5rem auto 0;
+    border-radius: var(--radius-pill);
+    background-color: var(--line-strong);
+  }
+
+  .sheet-head,
+  .side-left.is-open .side-sheet-head {
+    padding: 0.25rem 0.5rem 0.5rem 1rem;
+  }
+
+  .sheet-body {
+    padding: 0.25rem 0.5rem 0.75rem;
+  }
+
+  .auth-top {
+    padding: 0.75rem 1rem;
+  }
+
+  .auth-stage {
+    align-items: flex-start;
+    padding: 0 0 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .side-left.is-open {
+    -webkit-animation: none;
+    animation: none;
+  }
+}

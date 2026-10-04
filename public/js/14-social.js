@@ -1,7 +1,7 @@
 'use strict'
 
-// Arkadaşlar ve engelleme: kişiye özel meta (private, pmv), görünüm modu (kanal, ana sayfa, özel
-// mesaj), Ana sayfa girişi ve rozeti, arkadaşlar görünümü (Çevrimiçi, Tümü, Bekleyen, Engellenenler,
+// Arkadaşlar ve engelleme: kişiye özel meta (private, pmv), görünüm modu (oda, Arkadaşlar istasyonu, özel
+// mesaj), Kişisel istasyonların rozetleri (bantta), arkadaşlar görünümü (Çevrimiçi, Tümü, Bekleyen, Engellenenler,
 // Arkadaş ekle), istek gönderme, kabul, ret, iptal, arkadaşlıktan çıkarma, engelleme ve engeli
 // kaldırma, engellenen kişinin kanal mesajlarının katlanması ve seste yerel otomatik susturma.
 
@@ -183,12 +183,6 @@ function socialRender () {
 function bindSocialUi () {
   if (socialState.uiBound) return
   socialState.uiBound = true
-  const entry = byId('home-entry')
-  if (entry) {
-    entry.addEventListener('click', () => {
-      showHome(null, { focus: true })
-    })
-  }
   // Dil değişince (html lang) bu modüllerin çizdiği bölgeler yeniden üretilir
   if (typeof window.MutationObserver === 'function') {
     try {
@@ -239,12 +233,7 @@ function setConversationMode (mode) {
   if (el.messages) el.messages.hidden = mode === 'home'
   if (el.composer) el.composer.hidden = mode === 'home'
   if (el.keyState && mode !== 'channel') el.keyState.hidden = true
-  const entry = byId('home-entry')
-  if (entry) {
-    entry.classList.toggle('is-active', mode !== 'channel')
-    if (mode === 'home') entry.setAttribute('aria-current', 'page')
-    else entry.removeAttribute('aria-current')
-  }
+  if (el.e2ePill && mode !== 'channel') el.e2ePill.hidden = true
 }
 
 // Kanal yüklenirken (kanal listesinden seçildiğinde) kanal moduna dönülür
@@ -287,26 +276,10 @@ function showHome (tab, opts) {
   }
 }
 
+// Kişisel istasyonların (Özel, Arkadaşlar) rozetleri bantta çizilir (04-meta.js renderBand): okunmamış özel
+// mesajlar ve bekleyen arkadaşlık istekleri. Eski ad korunur, çağıran modüller bandı bununla yeniler.
 function renderHomeEntry () {
-  const entry = byId('home-entry')
-  if (!entry) return
-  let badge = entry.querySelector('.entry-badge')
-  if (!badge) {
-    badge = h('span', 'entry-badge')
-    entry.appendChild(badge)
-  }
-  const requests = state.me ? priv().incoming.length : 0
-  const unread = state.me ? dmUnreadTotal() : 0
-  const total = requests + unread
-  badge.textContent = total > 99 ? '99+' : String(total)
-  badge.hidden = total === 0
-  badge.setAttribute('aria-hidden', 'true')
-  entry.classList.toggle('is-unread', total > 0)
-  if (total > 0) {
-    entry.setAttribute('aria-label', t('social.homeEntryLabel', { count: total }))
-  } else {
-    entry.removeAttribute('aria-label')
-  }
+  renderBand()
 }
 
 function homeLists () {

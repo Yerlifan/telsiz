@@ -17,10 +17,13 @@
   <script src="/theme-init.js"></script>
   <link rel="stylesheet" href="/css/tokens.css">
   <link rel="stylesheet" href="/css/base.css">
-  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/frekans.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/settings.css">
   <link rel="stylesheet" href="/css/chat-plus.css">
+  <link rel="stylesheet" href="/css/convo.css">
+  <link rel="stylesheet" href="/css/radio.css">
+  <link rel="stylesheet" href="/css/people.css">
   <link rel="stylesheet" href="/css/skins/arcade.css">
   <link rel="stylesheet" href="/css/skins/gece.css">
   <link rel="stylesheet" href="/css/skins/turkuaz.css">
@@ -49,6 +52,7 @@
   <script src="/js/17-search.js" defer></script>
   <script src="/js/18-mentions.js" defer></script>
   <script src="/js/19-typing.js" defer></script>
+  <script src="/js/21-band.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -118,6 +122,24 @@
     <symbol id="i-file-video" viewBox="0 0 24 24"><path d="M14 2.5H6.5a1.5 1.5 0 0 0-1.5 1.5v16a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 2.5v5h5"/><path d="M10 12v6l5-3z"/></symbol>
     <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M14 2.5H6.5a1.5 1.5 0 0 0-1.5 1.5v16a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 2.5v5h5"/><path d="M10 12l-2.5 2.5L10 17M14 12l2.5 2.5L14 17"/></symbol>
     <symbol id="i-file-image" viewBox="0 0 24 24"><path d="M14 2.5H6.5a1.5 1.5 0 0 0-1.5 1.5v16a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 2.5v5h5"/><circle cx="10" cy="12.5" r="1.3"/><path d="M8 18.5l3-3 2 2 2-2.5 2 3.5"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="14" rx="3"/><path d="M15 7V2.5M8.5 11h7M12 17.5h.01"/><circle cx="12" cy="16.5" r="2"/></symbol>
+    <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+    <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 7v10M12 7v10M15 7v10"/></symbol>
+    <symbol id="i-dial" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 12l4-5"/><path d="M12 3.5v2M3.5 12h2M18.5 12h2"/></symbol>
+    <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M6 3.5l12 7.25-5.25 1.5L10 18z"/><path d="M12.75 12.25 17 18"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M7.5 7.5h9a5 5 0 0 1 4.9 6l-.7 3.5a2.4 2.4 0 0 1-4.2 1L14.6 16H9.4l-1.9 2a2.4 2.4 0 0 1-4.2-1l-.7-3.5a5 5 0 0 1 4.9-6z"/><path d="M8 10.5v3M6.5 12h3M15.5 11h.01M17.5 13h.01"/></symbol>
+    <symbol id="i-touch" viewBox="0 0 24 24"><path d="M9 11.5V5a1.75 1.75 0 0 1 3.5 0v5.5"/><path d="M12.5 10V8.75a1.75 1.75 0 0 1 3.5 0V11a1.75 1.75 0 0 1 3.5 0v3.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L4.5 15.5a1.7 1.7 0 0 1 2.6-2.2L9 15"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10" r="2.25"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20"/></symbol>
+    <symbol id="i-screen-off" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20M4 3l16 16"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M8 12h8M10 10l-2 2 2 2M14 10l2 2-2 2"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="3.5" height="14" rx="1.2" fill="currentColor"/><rect x="14" y="5" width="3.5" height="14" rx="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5.5 6.2v11.6a.9.9 0 0 0 1.4.75L15 13v4.5h2.5v-11H15V11L6.9 5.45a.9.9 0 0 0-1.4.75z" fill="currentColor"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></symbol>
   </svg>
 
   <noscript>
@@ -244,151 +266,229 @@
     </div>
   </main>
 
-  <!-- Uygulama: soldan sağa üyeler, orta alan, kanallar (Ek H1) -->
+  <!-- Uygulama (Ek K, Frekans): üst çubuk, frekans bandı, altında sol bilgi sütunu, konuşma sütunu
+       ve sağda Gelenler ile telsiz kartı. Yan ve alt sayfalar (istasyonlar, yayındakiler) ortak örtüyle açılır. -->
   <div id="app-view" class="app-view" data-view="channel" hidden>
+    <header id="top" class="top-bar">
+      <div class="top-brand">
+        <span id="server-emblem" class="server-emblem" aria-hidden="true"></span>
+        <div class="top-brand-text">
+          <h1 id="server-name" class="server-name">Telsiz</h1>
+          <p id="server-meta" class="server-meta"></p>
+        </div>
+      </div>
+      <span class="top-spacer"></span>
+      <div id="top-cast" class="top-cast" hidden></div>
+      <button id="btn-search" class="top-chip top-find" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-panel" aria-label="Ara (Ctrl K)" title="Ara (Ctrl K)" data-i18n-aria-label="top.searchLabel" data-i18n-title="top.searchLabel"><svg class="icon" aria-hidden="true"><use href="#i-search" xlink:href="#i-search"></use></svg><span class="top-chip-label" data-i18n="layout.search">Ara</span><kbd class="kbd top-kbd" aria-hidden="true">Ctrl K</kbd></button>
+      <button id="live-chip" class="top-chip top-live" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="people-sheet">
+        <span class="top-live-dot" aria-hidden="true"></span>
+        <span id="live-stack" class="top-stack" aria-hidden="true"></span>
+        <span id="live-chip-text" class="top-live-text" data-i18n="top.live">Yayındakiler</span>
+      </button>
+      <button id="me-button" class="top-chip top-me" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="status-menu">
+        <span id="me-avatar" class="avatar" aria-hidden="true"></span>
+        <span class="top-me-text">
+          <span id="me-name" class="me-name"></span>
+          <span id="me-status" class="me-status"></span>
+        </span>
+        <svg class="icon top-me-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg>
+      </button>
+    </header>
     <div id="conn-banner" class="conn-banner" role="status" aria-live="polite" data-i18n="app.reconnecting" hidden>Bağlantı koptu, yeniden deneniyor...</div>
-    <div class="layout">
-      <aside id="members" class="members" aria-label="Üyeler" data-i18n-aria-label="members.title">
-        <header class="members-head">
-          <h2 class="members-heading" data-i18n="members.title">Üyeler</h2>
-          <span id="members-count" class="members-count"></span>
-          <button id="members-close" class="icon-button drawer-close" type="button" aria-label="Üye listesini kapat" data-i18n-aria-label="members.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
-        </header>
-        <div class="members-scroll">
-          <h3 id="members-online-title" class="section-title"></h3>
-          <ul id="members-online" class="member-list" aria-labelledby="members-online-title"></ul>
-          <h3 id="members-offline-title" class="section-title"></h3>
-          <ul id="members-offline" class="member-list" aria-labelledby="members-offline-title"></ul>
-        </div>
-      </aside>
 
-      <main id="main" class="main" aria-label="Sohbet" data-i18n-aria-label="main.label">
-        <header class="channel-header">
-          <button id="btn-open-members" class="icon-button header-members-button" type="button" aria-label="Üye listesi" aria-expanded="false" aria-controls="members" data-i18n-aria-label="members.list"><svg class="icon" aria-hidden="true"><use href="#i-users" xlink:href="#i-users"></use></svg></button>
-          <h2 class="channel-title"><span class="channel-title-icon" aria-hidden="true"><svg class="icon"><use href="#i-hash" xlink:href="#i-hash"></use></svg></span><span id="channel-title"></span></h2>
-          <div id="dm-header" class="dm-header" hidden></div>
-          <span id="key-state" class="key-state" hidden></span>
-          <button id="btn-search" class="icon-button search-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-panel" aria-label="Ara" title="Ara (Ctrl+K)" data-i18n-aria-label="layout.search" data-i18n-title="layout.searchTitle"><svg class="icon" aria-hidden="true"><use href="#i-search" xlink:href="#i-search"></use></svg></button>
-          <button id="btn-open-channels" class="icon-button header-drawer-button" type="button" aria-label="Kanallar" aria-expanded="false" aria-controls="sidebar" data-i18n-aria-label="channels.label"><svg class="icon" aria-hidden="true"><use href="#i-menu" xlink:href="#i-menu"></use></svg></button>
-        </header>
-        <section id="search-panel" class="search-panel" role="dialog" aria-label="Ara" data-i18n-aria-label="layout.search" hidden></section>
-        <section id="home-view" class="home-view" aria-label="Ana sayfa" data-i18n-aria-label="layout.home" hidden></section>
-        <div id="key-warning" class="key-warning" role="alert" hidden></div>
-        <div id="messages" class="messages" role="log" aria-label="Mesajlar" aria-live="polite" tabindex="0" data-i18n-aria-label="messages.label">
-          <div id="channel-start" class="channel-start" hidden>
-            <div class="channel-start-icon" aria-hidden="true"><svg class="icon"><use href="#i-hash" xlink:href="#i-hash"></use></svg></div>
-            <p id="channel-start-title" class="channel-start-title"></p>
-            <p class="channel-start-text" data-i18n="messages.start">Kanalın başlangıcı. Mesajlar uçtan uca şifrelidir.</p>
-          </div>
-          <div id="load-older-wrap" class="load-older-wrap" hidden>
-            <button id="load-older" class="button button-secondary" type="button" data-i18n="messages.loadOlder">Daha eski mesajları yükle</button>
-          </div>
-          <div id="message-list" class="message-list"></div>
-          <p id="messages-status" class="messages-status" hidden></p>
-          <div id="messages-retry-wrap" class="load-older-wrap" hidden>
-            <button id="messages-retry" class="button button-secondary" type="button" data-i18n="common.retry">Tekrar dene</button>
-          </div>
-        </div>
-        <div id="voice-strip" class="voice-strip" hidden>
-          <svg class="icon" aria-hidden="true"><use href="#i-signal" xlink:href="#i-signal"></use></svg>
-          <span id="voice-strip-text" class="voice-strip-text"></span>
-          <button id="voice-strip-ptt" class="ptt-pill" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-ptt" xlink:href="#i-ptt"></use></svg><span id="voice-strip-ptt-label" data-i18n="voice.pushToTalk">Bas konuş</span></button>
-          <button id="voice-strip-leave" class="button button-danger button-small" type="button" data-i18n="voice.leave">Ayrıl</button>
-        </div>
-        <div id="composer" class="composer">
-          <ul id="attach-list" class="attach-list" aria-label="Ekler" data-i18n-aria-label="attach.list" hidden></ul>
-          <p id="photo-note" class="photo-note" data-i18n="attach.photoNote" hidden>Fotoğrafların konum bilgisi gönderilmeden önce silinir.</p>
-          <div id="composer-hint" class="composer-hint" hidden>
-            <svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg>
-            <span id="composer-hint-text"></span>
-            <button id="composer-hint-action" class="button button-small" type="button" hidden></button>
-          </div>
-          <div id="typing-line" class="typing-line" aria-live="polite" hidden></div>
-          <div id="mention-popover" class="mention-popover" role="listbox" aria-label="Kişi önerileri" data-i18n-aria-label="layout.mentionList" hidden></div>
-          <form id="composer-form" class="composer-form" autocomplete="off" novalidate>
-            <div class="composer-box">
-              <button id="btn-photo" class="tool-button" type="button" title="Fotoğraf ekle" data-i18n-title="composer.photoTitle"><svg class="icon" aria-hidden="true"><use href="#i-image" xlink:href="#i-image"></use></svg><span class="tool-label" data-i18n="composer.photo">Fotoğraf</span></button>
-              <button id="btn-file" class="tool-button" type="button" title="Dosya ekle" data-i18n-title="composer.fileTitle"><svg class="icon" aria-hidden="true"><use href="#i-clip" xlink:href="#i-clip"></use></svg><span class="tool-label" data-i18n="composer.file">Dosya</span></button>
-              <label for="composer-input" class="sr-only" data-i18n="composer.message">Mesaj</label>
-              <textarea id="composer-input" class="composer-input" rows="1" enterkeyhint="send" spellcheck="true" autocomplete="off"></textarea>
-              <button id="btn-emoji" class="tool-button" type="button" title="Emoji" aria-haspopup="dialog" aria-expanded="false" aria-controls="emoji-picker" data-i18n-title="composer.emoji"><svg class="icon" aria-hidden="true"><use href="#i-smile" xlink:href="#i-smile"></use></svg><span class="tool-label" data-i18n="composer.emoji">Emoji</span></button>
-              <button id="btn-send" class="send-button" type="submit" aria-label="Gönder" title="Gönder" data-i18n-aria-label="composer.send"><svg class="icon skin-arcade" aria-hidden="true"><use href="#i-play" xlink:href="#i-play"></use></svg><svg class="icon skin-gece" aria-hidden="true"><use href="#i-arrow-up" xlink:href="#i-arrow-up"></use></svg><svg class="icon skin-turkuaz" aria-hidden="true"><use href="#i-send" xlink:href="#i-send"></use></svg></button>
-            </div>
-            <p id="char-counter" class="char-counter" aria-live="polite" hidden></p>
-          </form>
-          <input id="file-photo" class="file-input" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
-          <input id="file-any" class="file-input" type="file" multiple tabindex="-1" aria-hidden="true">
-          <div id="emoji-picker" class="emoji-picker" role="dialog" aria-label="Emoji seçici" data-i18n-aria-label="emoji.picker" hidden>
-            <div id="emoji-tabs" class="emoji-tabs" role="tablist" aria-label="Emoji kategorileri" data-i18n-aria-label="emoji.categories"></div>
-            <p id="emoji-title" class="emoji-title"></p>
-            <div id="emoji-grid" class="emoji-grid" role="group" aria-labelledby="emoji-title"></div>
-            <p class="emoji-help" data-i18n="emoji.shiftHelp">Shift ile seçince pencere açık kalır.</p>
-          </div>
-        </div>
-        <div id="drop-overlay" class="drop-overlay" hidden>
-          <p class="drop-text" data-i18n="attach.drop">Dosyaları göndermek için buraya bırakın</p>
-        </div>
-      </main>
+    <nav id="band" class="band" aria-label="Frekans bandı" data-i18n-aria-label="band.label">
+      <button id="band-prev" class="band-step band-step-prev" type="button" aria-label="Önceki istasyon" title="Önceki istasyon" data-i18n-aria-label="band.prev" data-i18n-title="band.prev"><svg class="icon" aria-hidden="true"><use href="#i-chev-left" xlink:href="#i-chev-left"></use></svg></button>
+      <div id="band-track" class="band-track" role="toolbar" aria-orientation="horizontal" aria-label="İstasyonlar" aria-busy="true" data-i18n-aria-label="band.stations">
+        <span class="station station-skeleton" aria-hidden="true"></span>
+        <span class="station station-skeleton" aria-hidden="true"></span>
+        <span class="station station-skeleton" aria-hidden="true"></span>
+      </div>
+      <button id="band-next" class="band-step band-step-next" type="button" aria-label="Sonraki istasyon" title="Sonraki istasyon" data-i18n-aria-label="band.next" data-i18n-title="band.next"><svg class="icon" aria-hidden="true"><use href="#i-chev-right" xlink:href="#i-chev-right"></use></svg></button>
+      <button id="band-add" class="band-add" type="button" aria-label="Oda ekle" title="Oda ekle" data-i18n-aria-label="band.addRoom" data-i18n-title="band.addRoom" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg></button>
+      <button id="band-all" class="band-all" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="Tüm istasyonlar" title="Tüm istasyonlar" data-i18n-aria-label="band.allLabel" data-i18n-title="band.allLabel"><svg class="icon" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg><span class="band-all-text" data-i18n="band.all">Tümü</span></button>
+    </nav>
 
-      <aside id="sidebar" class="sidebar" aria-label="Kanallar ve kullanıcı paneli" data-i18n-aria-label="sidebar.label">
-        <header class="sidebar-head">
-          <div class="server-identity">
-            <span id="server-emblem" class="server-emblem" aria-hidden="true"></span>
-            <div class="server-text">
-              <h2 id="server-name" class="server-name">Telsiz</h2>
-              <p id="server-meta" class="server-meta"></p>
-            </div>
-          </div>
-          <button id="sidebar-close" class="icon-button drawer-close" type="button" aria-label="Kanal listesini kapat" data-i18n-aria-label="sidebar.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
+    <div id="stage" class="stage">
+      <aside id="info-col" class="side side-left" aria-labelledby="info-col-title">
+        <header class="side-sheet-head">
+          <h2 id="info-col-title" class="sheet-title" data-i18n="band.infoTitle">Oda bilgisi</h2>
+          <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
         </header>
-        <nav class="channel-nav" aria-label="Kanallar" data-i18n-aria-label="channels.label">
-          <button id="home-entry" class="home-entry" type="button"><svg class="icon" aria-hidden="true"><use href="#i-home" xlink:href="#i-home"></use></svg><span class="home-entry-label" data-i18n="layout.home">Ana sayfa</span><span class="entry-badge" hidden></span></button>
-          <section id="dm-section" class="dm-section" aria-labelledby="dm-title">
-            <h3 id="dm-title" class="section-title" data-i18n="layout.dms">Özel mesajlar</h3>
+        <div class="side-scroll">
+          <section id="room-card" class="side-card room-card" aria-labelledby="room-card-name">
+            <p class="kicker" data-i18n="band.tunedKicker">Ayarlı istasyon</p>
+            <h3 id="room-card-name" class="side-card-title"></h3>
+            <p id="room-card-text" class="side-card-text"></p>
+            <ul class="facts">
+              <li id="room-card-e2e" class="is-ok"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span id="room-card-e2e-text" data-i18n="band.e2e">Uçtan uca şifreli</span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="#i-users" xlink:href="#i-users"></use></svg><span id="room-card-members"></span></li>
+            </ul>
+            <button id="room-card-keys" class="link-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-key" xlink:href="#i-key"></use></svg><span data-i18n="band.keys">Şifreleme ayrıntıları</span></button>
+            <button id="room-card-manage" class="link-button" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-gear" xlink:href="#i-gear"></use></svg><span data-i18n="band.manageRoom">Odayı yönet</span></button>
+          </section>
+          <section id="dm-section" class="side-card dm-section" aria-labelledby="dm-title">
+            <h3 id="dm-title" class="kicker" data-i18n="layout.dms">Özel mesajlar</h3>
             <ul id="dm-list" class="channel-list dm-list"></ul>
           </section>
-          <h3 id="text-channels-title" class="section-title" data-i18n="channels.text">Yazı kanalları</h3>
-          <ul id="text-channels" class="channel-list" aria-labelledby="text-channels-title"></ul>
-          <h3 id="voice-channels-title" class="section-title" data-i18n="channels.voice">Ses kanalları</h3>
-          <ul id="voice-channels" class="channel-list" aria-labelledby="voice-channels-title"></ul>
-        </nav>
-        <div class="sidebar-dock">
-          <div id="voice-panel" class="voice-panel" hidden>
-            <div class="voice-panel-row">
-              <span class="voice-signal" aria-hidden="true"><svg class="icon"><use href="#i-signal" xlink:href="#i-signal"></use></svg></span>
-              <div class="voice-panel-text">
-                <div id="voice-panel-status" class="voice-panel-status"></div>
-                <div id="voice-panel-channel" class="voice-panel-channel"></div>
-              </div>
-              <button id="voice-leave" class="icon-button icon-danger" type="button" aria-label="Bağlantıyı kes" title="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect" data-i18n-title="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg></button>
-            </div>
-            <p id="voice-error" class="voice-error" role="alert" hidden></p>
-            <button id="voice-unlock" class="button button-wide" type="button" data-i18n="voice.unlock" hidden>Sesi başlat</button>
-            <button id="ptt-button" class="ptt-button" type="button" hidden>
-              <span class="ptt-dome" aria-hidden="true"><svg class="icon"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span>
-              <span class="ptt-text">
-                <span id="ptt-label" class="ptt-label" data-i18n="voice.pushToTalk">Bas konuş</span>
-                <span class="ptt-hint" data-i18n="layout.pttHint">Basılı tut, bırakınca susar</span>
-              </span>
-              <kbd id="ptt-key" class="kbd ptt-key" aria-hidden="true"></kbd>
-            </button>
-          </div>
-          <div id="user-panel" class="user-panel">
-            <button id="me-button" class="user-identity" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="status-menu">
-              <span id="me-avatar" class="avatar" aria-hidden="true"></span>
-              <span class="me-text">
-                <span id="me-name" class="me-name"></span>
-                <span id="me-status" class="me-status"></span>
-              </span>
-            </button>
-            <button id="btn-mute" class="icon-button" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" title="Mikrofonu kapat" data-i18n-aria-label="user.mute" data-i18n-title="user.mute"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg></button>
-            <button id="btn-deafen" class="icon-button" type="button" aria-pressed="false" aria-label="Sağırlaştır" title="Sağırlaştır" data-i18n-aria-label="user.deafen" data-i18n-title="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg></button>
-            <button id="btn-settings" class="icon-button" type="button" aria-haspopup="dialog" aria-label="Ayarlar" title="Ayarlar" data-i18n-aria-label="settings.title" data-i18n-title="settings.title"><svg class="icon" aria-hidden="true"><use href="#i-gear" xlink:href="#i-gear"></use></svg></button>
-          </div>
+          <section id="hints-card" class="side-card hints-card" aria-labelledby="hints-title">
+            <h3 id="hints-title" class="kicker" data-i18n="band.hintsTitle">İstasyon değiştirme</h3>
+            <ul class="hints">
+              <li><svg class="icon" aria-hidden="true"><use href="#i-pointer" xlink:href="#i-pointer"></use></svg><span><b data-i18n="band.hintMouseLabel">Fare:</b> <span data-i18n="band.hintMouse">tıklayın ya da ibreyi sürükleyin</span></span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="#i-dial" xlink:href="#i-dial"></use></svg><span><b data-i18n="band.hintWheelLabel">Tekerlek:</b> <span data-i18n="band.hintWheel">bandı kaydırır, oda değişmez</span></span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="#i-keyboard" xlink:href="#i-keyboard"></use></svg><span><b data-i18n="band.hintKeysLabel">Klavye:</b> <kbd class="kbd">←</kbd> <kbd class="kbd">→</kbd> <span data-i18n="band.hintKeysAnd">ve</span> <kbd class="kbd">Enter</kbd></span></li>
+              <li class="gamepad-only"><svg class="icon" aria-hidden="true"><use href="#i-gamepad" xlink:href="#i-gamepad"></use></svg><span><b data-i18n="band.hintPadLabel">Kol:</b> <span data-i18n="band.hintPad">yön tuşları,</span> <kbd class="kbd">L1</kbd> <kbd class="kbd">R1</kbd></span></li>
+            </ul>
+          </section>
         </div>
       </aside>
+
+      <div class="center">
+        <main id="main" class="convo" aria-label="Sohbet" data-i18n-aria-label="main.label">
+          <header class="convo-head">
+            <div class="channel-title convo-titles">
+              <h2 class="convo-title"><svg class="icon convo-title-icon" aria-hidden="true"><use href="#i-text" xlink:href="#i-text"></use></svg><span id="channel-title"></span></h2>
+              <p id="channel-sub" class="convo-sub"></p>
+            </div>
+            <div id="dm-header" class="dm-header" hidden></div>
+            <span id="key-state" class="key-state" hidden></span>
+            <span id="e2e-pill" class="pill pill-ok" title="Mesajlar bu cihazda şifrelenir, sunucu içeriği göremez" data-i18n-title="band.e2eTitle" hidden><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span class="pill-text" data-i18n="band.e2e">Uçtan uca şifreli</span><span class="pill-short" data-i18n="layout.encrypted">Şifreli</span></span>
+            <button id="btn-room-info" class="icon-button room-info-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="info-col" aria-label="Oda bilgisi" title="Oda bilgisi" data-i18n-aria-label="band.infoTitle" data-i18n-title="band.infoTitle"><svg class="icon" aria-hidden="true"><use href="#i-more" xlink:href="#i-more"></use></svg></button>
+          </header>
+          <section id="search-panel" class="search-panel" role="dialog" aria-label="Ara" data-i18n-aria-label="layout.search" hidden></section>
+          <section id="home-view" class="home-view" aria-label="Arkadaşlar" data-i18n-aria-label="social.friends" hidden></section>
+          <div id="key-warning" class="key-warning" role="alert" hidden></div>
+          <div id="messages" class="messages" role="log" aria-label="Mesajlar" aria-live="polite" tabindex="0" data-i18n-aria-label="messages.label">
+            <div id="channel-start" class="channel-start" hidden>
+              <div class="channel-start-icon" aria-hidden="true"><svg class="icon"><use href="#i-lock" xlink:href="#i-lock"></use></svg></div>
+              <p id="channel-start-title" class="channel-start-title"></p>
+              <p class="channel-start-text" data-i18n="messages.start">Odanın başlangıcı. Mesajlar uçtan uca şifrelidir.</p>
+            </div>
+            <div id="load-older-wrap" class="load-older-wrap" hidden>
+              <button id="load-older" class="button button-secondary" type="button" data-i18n="messages.loadOlder">Daha eski mesajları yükle</button>
+            </div>
+            <div id="message-list" class="message-list"></div>
+            <p id="messages-status" class="messages-status" hidden></p>
+            <div id="messages-retry-wrap" class="load-older-wrap" hidden>
+              <button id="messages-retry" class="button button-secondary" type="button" data-i18n="common.retry">Tekrar dene</button>
+            </div>
+          </div>
+          <div id="composer" class="composer">
+            <ul id="attach-list" class="attach-list" aria-label="Ekler" data-i18n-aria-label="attach.list" hidden></ul>
+            <p id="photo-note" class="photo-note" data-i18n="attach.photoNote" hidden>Fotoğrafların konum bilgisi gönderilmeden önce silinir.</p>
+            <div id="composer-hint" class="composer-hint" hidden>
+              <svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg>
+              <span id="composer-hint-text"></span>
+              <button id="composer-hint-action" class="button button-small" type="button" hidden></button>
+            </div>
+            <div id="typing-line" class="typing-line" aria-live="polite" hidden></div>
+            <div id="mention-popover" class="mention-popover" role="listbox" aria-label="Kişi önerileri" data-i18n-aria-label="layout.mentionList" hidden></div>
+            <form id="composer-form" class="composer-form" autocomplete="off" novalidate>
+              <div class="composer-box">
+                <button id="btn-photo" class="tool-button" type="button" title="Fotoğraf ekle" data-i18n-title="composer.photoTitle"><svg class="icon" aria-hidden="true"><use href="#i-image" xlink:href="#i-image"></use></svg><span class="tool-label" data-i18n="composer.photo">Fotoğraf</span></button>
+                <button id="btn-file" class="tool-button" type="button" title="Dosya ekle" data-i18n-title="composer.fileTitle"><svg class="icon" aria-hidden="true"><use href="#i-clip" xlink:href="#i-clip"></use></svg><span class="tool-label" data-i18n="composer.file">Dosya</span></button>
+                <label for="composer-input" class="sr-only" data-i18n="composer.message">Mesaj</label>
+                <textarea id="composer-input" class="composer-input" rows="1" enterkeyhint="send" spellcheck="true" autocomplete="off"></textarea>
+                <button id="btn-emoji" class="tool-button" type="button" title="Emoji" aria-haspopup="dialog" aria-expanded="false" aria-controls="emoji-picker" data-i18n-title="composer.emoji"><svg class="icon" aria-hidden="true"><use href="#i-smile" xlink:href="#i-smile"></use></svg><span class="tool-label" data-i18n="composer.emoji">Emoji</span></button>
+                <button id="btn-send" class="send-button" type="submit" aria-label="Gönder" title="Gönder" data-i18n-aria-label="composer.send"><svg class="icon skin-arcade" aria-hidden="true"><use href="#i-play" xlink:href="#i-play"></use></svg><svg class="icon skin-gece" aria-hidden="true"><use href="#i-arrow-up" xlink:href="#i-arrow-up"></use></svg><svg class="icon skin-turkuaz" aria-hidden="true"><use href="#i-send" xlink:href="#i-send"></use></svg><span class="send-label" data-i18n="composer.send">Gönder</span></button>
+              </div>
+              <p id="char-counter" class="char-counter" aria-live="polite" hidden></p>
+            </form>
+            <input id="file-photo" class="file-input" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
+            <input id="file-any" class="file-input" type="file" multiple tabindex="-1" aria-hidden="true">
+            <div id="emoji-picker" class="emoji-picker" role="dialog" aria-label="Emoji seçici" data-i18n-aria-label="emoji.picker" hidden>
+              <div id="emoji-tabs" class="emoji-tabs" role="tablist" aria-label="Emoji kategorileri" data-i18n-aria-label="emoji.categories"></div>
+              <p id="emoji-title" class="emoji-title"></p>
+              <div id="emoji-grid" class="emoji-grid" role="group" aria-labelledby="emoji-title"></div>
+              <p class="emoji-help" data-i18n="emoji.shiftHelp">Shift ile seçince pencere açık kalır.</p>
+            </div>
+          </div>
+          <div id="drop-overlay" class="drop-overlay" hidden>
+            <p class="drop-text" data-i18n="attach.drop">Dosyaları göndermek için buraya bırakın</p>
+          </div>
+        </main>
+        <!-- Yayın sahnesi (Ek L1): ekran paylaşımı arayüzü 22-cast.js ile doldurulur -->
+        <section id="cast" class="cast" aria-label="Ekran paylaşımı" data-i18n-aria-label="cast.stage" hidden></section>
+      </div>
+
+      <!-- Telsiz DJ kartı (Ek L2): 23-dj.js ile doldurulur, geniş ekranda telsiz kartının solunda -->
+      <aside id="dj" class="side side-dj" aria-label="Telsiz DJ" data-i18n-aria-label="dj.region" hidden></aside>
+
+      <div id="side-right" class="side side-right">
+        <section id="inbox" class="side-card inbox" aria-labelledby="inbox-title">
+          <h2 id="inbox-title" class="kicker" data-i18n="inbox.title">Diğer frekanslarda</h2>
+          <div id="inbox-list" class="inbox-list"></div>
+        </section>
+        <aside id="radio" class="radio" data-state="off" aria-labelledby="radio-title">
+          <div class="radio-head">
+            <h2 id="radio-title" class="radio-label"><span class="radio-led" aria-hidden="true"></span><span id="radio-state" data-i18n="radio.off">Telsiz · kapalı</span></h2>
+            <span class="radio-grille" aria-hidden="true"></span>
+          </div>
+          <div class="radio-body">
+            <div class="radio-screen">
+              <p id="radio-pick" class="radio-pick" data-i18n="radio.pick">Bir ses odası seçin</p>
+              <ul id="voice-channels" class="channel-list radio-rooms" aria-label="Ses odaları" data-i18n-aria-label="channels.voice"></ul>
+            </div>
+            <div id="voice-panel" class="voice-panel" hidden>
+              <div class="voice-panel-row">
+                <span class="voice-signal" aria-hidden="true"><svg class="icon"><use href="#i-signal" xlink:href="#i-signal"></use></svg></span>
+                <div class="voice-panel-text">
+                  <div id="voice-panel-status" class="voice-panel-status"></div>
+                  <div id="voice-panel-channel" class="voice-panel-channel"></div>
+                </div>
+              </div>
+              <p id="voice-error" class="voice-error" role="alert" hidden></p>
+              <button id="voice-unlock" class="button button-wide" type="button" data-i18n="voice.unlock" hidden>Sesi başlat</button>
+              <button id="ptt-button" class="ptt-button" type="button" hidden>
+                <span class="ptt-dome" aria-hidden="true"><svg class="icon"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span>
+                <span class="ptt-text">
+                  <span id="ptt-label" class="ptt-label" data-i18n="voice.pushToTalk">Bas konuş</span>
+                  <span class="ptt-hint" data-i18n="layout.pttHint">Basılı tut, bırakınca susar</span>
+                </span>
+                <kbd id="ptt-key" class="kbd ptt-key" aria-hidden="true"></kbd>
+              </button>
+              <div id="radio-row" class="radio-row">
+                <button id="btn-mute" class="radio-button" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" title="Mikrofonu kapat" data-i18n-aria-label="user.mute" data-i18n-title="user.mute"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text" data-i18n="radio.mic">Mikrofon</span></button>
+                <button id="btn-deafen" class="radio-button" type="button" aria-pressed="false" aria-label="Sağırlaştır" title="Sağırlaştır" data-i18n-aria-label="user.deafen" data-i18n-title="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text" data-i18n="radio.deafen">Sağırlaştır</span></button>
+                <button id="voice-leave" class="radio-button is-danger" type="button" aria-label="Bağlantıyı kes" title="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect" data-i18n-title="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span class="radio-button-text" data-i18n="voice.leave">Ayrıl</span></button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
+
+    <div id="tvbar" class="tvbar" aria-hidden="true">
+      <span class="tvhint"><b class="pad">✛</b><span data-i18n="band.tvDpad">Yön tuşları: gez</span></span>
+      <span class="tvhint"><b class="pad">✕</b><span data-i18n="band.tvSelect">Seç ve ayarla</span></span>
+      <span class="tvhint"><b class="pad">○</b><span data-i18n="band.tvBack">Geri</span></span>
+      <span class="tvhint"><b class="pad">L1</b><b class="pad">R1</b><span data-i18n="band.tvShoulder">Önceki ve sonraki istasyon</span></span>
+      <span class="tvhint"><b class="pad">R2</b><span data-i18n="band.tvPtt">Bas konuş (atanan düğme)</span></span>
+    </div>
+
+    <!-- Yan sayfalar (geniş ekranda sağdan, telefonda alttan) ve ortak örtü -->
     <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <section id="stations-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="stations-sheet-title" hidden>
+      <span class="sheet-handle" aria-hidden="true"></span>
+      <header class="sheet-head">
+        <h2 id="stations-sheet-title" class="sheet-title" data-i18n="band.allTitle">İstasyonlar</h2>
+        <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
+      </header>
+      <div id="stations-list" class="sheet-body"></div>
+    </section>
+    <section id="people-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="people-sheet-title" hidden>
+      <span class="sheet-handle" aria-hidden="true"></span>
+      <header class="sheet-head">
+        <h2 id="people-sheet-title" class="sheet-title" data-i18n="top.live">Yayındakiler</h2>
+        <span id="members-count" class="members-count"></span>
+        <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
+      </header>
+      <div id="members" class="sheet-body members-scroll">
+        <h3 id="members-online-title" class="section-title"></h3>
+        <ul id="members-online" class="member-list" aria-labelledby="members-online-title"></ul>
+        <h3 id="members-offline-title" class="section-title"></h3>
+        <ul id="members-offline" class="member-list" aria-labelledby="members-offline-title"></ul>
+      </div>
+    </section>
   </div>
 
   <!-- Mesaj eylemleri menüsü -->
@@ -397,7 +497,7 @@
     <button id="msg-menu-delete" class="menu-item menu-danger" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-trash" xlink:href="#i-trash"></use></svg><span data-i18n="msg.delete">Sil</span></button>
   </div>
 
-  <!-- Ses kanalındaki kişi için yerel ayarlar -->
+  <!-- Ses odasındaki kişi için yerel ayarlar -->
   <div id="peer-popover" class="popover" role="dialog" aria-labelledby="peer-name" hidden>
     <p id="peer-name" class="popover-title"></p>
     <label class="label" for="peer-volume"><span data-i18n="peer.volume">Ses seviyesi</span> <span id="peer-volume-value"></span></label>
@@ -412,6 +512,9 @@
 
   <!-- Güvenlik numarası ve kimlik açma pencereleri -->
   <div id="dialog-root" class="dialog-root" hidden></div>
+
+  <!-- Ekran paylaşımını başlatma penceresi (Ek L1): 22-cast.js ile doldurulur -->
+  <div id="cast-dialog" class="cast-dialog" role="dialog" aria-modal="true" aria-label="Ekranı paylaş" data-i18n-aria-label="cast.dialogTitle" hidden></div>
 
   <!-- Resim görüntüleyici -->
   <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-labelledby="viewer-name" hidden>

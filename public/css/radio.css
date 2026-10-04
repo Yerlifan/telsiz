@@ -1,0 +1,10 @@
+/*
+  Frekans: telsiz kartı (Ek K, KONSEPT 6.6). Sahibi: telsiz kartı bileşeni.
+  Kapsam: aside#radio[data-state="off|joining|on"] içindeki başlık satırı (.radio-head, #radio-state),
+  ekran (.radio-screen: oda adı, kadro, konuşma satırı), ses odaları listesi (#voice-channels), ses paneli
+  (#voice-panel), Bas konuş (#ptt-button), mikrofon (#btn-mute), sağırlaştırma (#btn-deafen), ayrılma
+  (#voice-leave) ve ekran paylaşımı düğmesi için #radio-row, kişi ses ayarı katmanı (#peer-popover),
+  Telsiz DJ kadro öğesi ve DJ kartı (#dj, 23-dj.js). Kartın kabı ve kesme noktaları frekans.css içindedir.
+  Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz.
+*/

@@ -1,72 +1,218 @@
 'use strict'
 
-// Çekmeceler, pencere boyutu, PWA, dil değişimi, olay bağlama ve uygulamanın başlatılması.
+// Sayfalar (yan ve alt sayfa), pencere boyutu, ayarlar kısayolu, PWA, dil değişimi, olay bağlama ve
+// uygulamanın başlatılması.
 
-// Çekmeceler (Ek H1): üyeler soldan, kanallar sağdan açılır. Orta genişlikte (760..999px) yalnızca
-// üyeler katmandır, kanallar sütunu sağda görünür kalır.
+// Sayfalar (Ek K, KONSEPT 6.7 ve 11): Tümü (#stations-sheet), Yayındakiler (#people-sheet) ve 1280 px
+// altında Oda bilgisi (#info-col, geniş ekranda sol sütun olarak her zaman görünür). Geniş ekranda sağdan
+// açılan yan sayfa, telefonda alttan açılan sayfadır (biçim frekans.css içinde). Aynı anda tek sayfa açıktır,
+// ortak örtü #drawer-backdrop'tur. Sayfa katman yığınına 'sheet-<ad>' adıyla girer: açılınca odak sayfadaki
+// ilk anlamlı öğeye gider, odak sayfanın içinde kalır, Esc, örtüye tıklama, Kapat düğmesi ve tarayıcının
+// geri düğmesi (dar ekranda) kapatır, odak açan düğmeye döner.
 
-function openDrawer (side, trigger) {
-  const isChannels = side === 'channels'
-  if (isChannels && !isNarrow()) return
-  if (!isChannels && isWide()) return
-  const name = 'drawer-' + side
-  const existing = findLayer(name)
+const SHEETS = {
+  stations: { id: 'stations-sheet', trigger: 'band-all' },
+  people: { id: 'people-sheet', trigger: 'live-chip' },
+  info: { id: 'info-col', trigger: 'btn-room-info' }
+}
+
+const sheetState = {
+  history: false,
+  switching: false
+}
+
+// 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz
+function isInfoInline () {
+  return window.innerWidth >= 1280
+}
+
+function sheetLayer (name) {
+  return findLayer('sheet-' + name)
+}
+
+function openSheetLayer () {
+  return layers.filter((layer) => typeof layer.name === 'string' && layer.name.indexOf('sheet-') === 0)[0] || null
+}
+
+function isSheetOpen (name) {
+  return Boolean(name ? sheetLayer(name) : openSheetLayer())
+}
+
+function sheetInitialFocus (name, panel) {
+  if (name === 'stations') {
+    const current = panel.querySelector('.sheet-row[aria-current]')
+    if (current) return current
+  }
+  const items = focusables(panel).filter((node) => !node.hasAttribute('data-sheet-close'))
+  return items[0] || panel.querySelector('[data-sheet-close]')
+}
+
+// Sayfayı açar. Aynı sayfa açıksa kapatır (düğme açma ve kapama işini birlikte görür).
+function openSheet (name, trigger) {
+  const conf = SHEETS[name]
+  const panel = conf ? byId(conf.id) : null
+  if (!panel || !state.inApp) return
+  const existing = sheetLayer(name)
   if (existing) {
     closeLayer(existing, true)
     return
   }
-  closeDrawers()
-  const panel = isChannels ? el.sidebar : el.members
-  el.appView.classList.add(isChannels ? 'show-channels' : 'show-members')
+  if (name === 'info' && isInfoInline()) {
+    focusNode(focusables(panel)[0] || panel)
+    return
+  }
+  const opener = trigger || byId(conf.trigger)
+  const other = openSheetLayer()
+  if (other) {
+    sheetState.switching = true
+    closeLayer(other, false)
+    sheetState.switching = false
+  }
+  if (name === 'stations') renderBand()
+  if (name === 'people') renderMembers()
+  panel.hidden = false
+  panel.classList.add('is-open')
+  if (name === 'info') {
+    panel.setAttribute('role', 'dialog')
+    panel.setAttribute('aria-modal', 'true')
+  }
+  el.appView.classList.add('has-sheet')
   el.drawerBackdrop.hidden = false
-  trigger.setAttribute('aria-expanded', 'true')
-  panel.setAttribute('role', 'dialog')
-  panel.setAttribute('aria-modal', 'true')
+  if (opener) opener.setAttribute('aria-expanded', 'true')
+  if (isNarrow() && !sheetState.history) pushSheetHistory()
   openLayer({
-    name: name,
+    name: 'sheet-' + name,
     el: panel,
-    trigger: trigger,
+    trigger: opener,
     level: 1,
     trap: true,
+    initialFocus: () => sheetInitialFocus(name, panel),
     onClose: () => {
-      el.appView.classList.remove(isChannels ? 'show-channels' : 'show-members')
-      trigger.setAttribute('aria-expanded', 'false')
-      panel.removeAttribute('role')
-      panel.removeAttribute('aria-modal')
-      if (!findLayer('drawer-channels') && !findLayer('drawer-members')) el.drawerBackdrop.hidden = true
+      panel.classList.remove('is-open')
+      if (name === 'info') {
+        panel.removeAttribute('role')
+        panel.removeAttribute('aria-modal')
+      } else {
+        panel.hidden = true
+      }
+      if (opener) opener.setAttribute('aria-expanded', 'false')
+      if (!openSheetLayer()) {
+        el.appView.classList.remove('has-sheet')
+        el.drawerBackdrop.hidden = true
+        if (!sheetState.switching) popSheetHistory()
+      }
     }
   })
 }
 
-function closeDrawers () {
-  const names = ['drawer-channels', 'drawer-members']
-  names.forEach((name) => {
-    const layer = findLayer(name)
+function closeSheets () {
+  Object.keys(SHEETS).forEach((name) => {
+    const layer = sheetLayer(name)
     if (layer) closeLayer(layer, false)
   })
-  el.drawerBackdrop.hidden = true
+  if (el.drawerBackdrop) el.drawerBackdrop.hidden = true
+}
+
+// Eski ad: diğer modüller (oda seçimi, özel mesaj, ses, ayarlar) gezinmeden önce açık sayfayı bununla kapatır
+function closeDrawers () {
+  closeSheets()
+}
+
+function closeTopSheet (restoreFocus) {
+  const layer = openSheetLayer()
+  if (layer) closeLayer(layer, restoreFocus !== false)
 }
 
 function onBackdropClick () {
-  const layer = findLayer('drawer-channels') || findLayer('drawer-members')
-  if (layer) closeLayer(layer, true)
+  closeTopSheet(true)
 }
 
+function onSheetCloseClick (e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-sheet-close]') : null
+  if (btn) closeTopSheet(true)
+}
+
+// Dar ekranda tarayıcının (ve telefonun) geri düğmesi açık sayfayı kapatır. Sayfa açılınca geçmişe bir
+// kayıt eklenir, sayfa başka yoldan kapanınca bu kayıt geri alınır.
+function pushSheetHistory () {
+  try {
+    if (!window.history || typeof window.history.pushState !== 'function') return
+    window.history.pushState({ telsizSheet: true }, '')
+    sheetState.history = true
+  } catch (err) {
+    sheetState.history = false
+  }
+}
+
+function popSheetHistory () {
+  if (!sheetState.history) return
+  sheetState.history = false
+  try {
+    window.history.back()
+  } catch (err) {
+    // Geçmiş kullanılamıyor
+  }
+}
+
+function onPopState () {
+  if (!sheetState.history) return
+  sheetState.history = false
+  closeTopSheet(true)
+}
+
+// Pencere boyutu: geniş (1280 ve üstü), geniş dar (1000 ile 1279), orta (760 ile 999), dar (760 altı) ve
+// televizyon (1800 ve üstü). Düzen sınıfı değişince açık sayfa ve açılır katmanlar kapanır.
 let lastLayoutClass = ''
+
+function layoutClass () {
+  const w = window.innerWidth
+  if (w >= 1800) return 'tv'
+  if (w >= 1280) return 'wide'
+  if (w >= 1000) return 'wide-narrow'
+  if (w >= 760) return 'medium'
+  return 'narrow'
+}
 
 function onResize () {
   autoGrow(el.composerInput, 6)
   keepBottom()
-  const cls = isNarrow() ? 'narrow' : isWide() ? 'wide' : 'medium'
+  const cls = layoutClass()
   if (cls === lastLayoutClass) return
   lastLayoutClass = cls
+  if (el.appView) el.appView.setAttribute('data-layout', cls)
   if (state.inApp) renderChannelHeader()
-  closeDrawers()
+  closeSheets()
   const picker = findLayer('emoji')
   if (picker) closeLayer(picker, false)
   closeMessageMenu()
   const peer = findLayer('peer')
   if (peer) closeLayer(peer, false)
+}
+
+// Ayarlar kısayolu Ctrl , (Mac'te Cmd ,). Bas konuş veya başka bir ses tuşu virgüle atanmışsa o öncelikli
+// olur ve kısayol çalışmaz (Ek K7.4).
+function commaBound () {
+  if (!voice || typeof voice.settings !== 'function') return false
+  try {
+    const bindings = voice.settings().bindings || {}
+    return Object.keys(bindings).some((name) => {
+      const b = bindings[name]
+      return Boolean(b && b.type === 'key' && b.code === 'Comma')
+    })
+  } catch (err) {
+    return false
+  }
+}
+
+function onSettingsShortcut (e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+  if (e.key !== ',' && e.code !== 'Comma') return
+  if (!state.inApp || !el.appView || el.appView.hidden || e.repeat) return
+  if (findLayer('app-dialog') || findLayer('viewer')) return
+  if (commaBound()) return
+  e.preventDefault()
+  if (typeof isSettingsOpen === 'function' && isSettingsOpen()) return
+  openSettings(null, el.meButton)
 }
 
 // Tema (Ek G1): theme-init.js kök özniteliklerini yazar, burada tarayıcı çubuğu rengi, renk şeması
@@ -184,15 +330,32 @@ function bindEvents () {
   on(el.keySkip, 'click', skipKey)
   on(el.keyLogout, 'click', logout)
 
-  on(el.btnOpenChannels, 'click', () => {
-    openDrawer('channels', el.btnOpenChannels)
+  // Frekans düzeni: bant (21-band.js), sayfalar, üst çubuk ve oda bilgisi kartı
+  if (typeof bandInit === 'function') bandInit()
+  on(el.bandAll, 'click', () => {
+    openSheet('stations', el.bandAll)
   })
-  on(el.btnOpenMembers, 'click', () => {
-    openDrawer('members', el.btnOpenMembers)
+  on(el.liveChip, 'click', () => {
+    openSheet('people', el.liveChip)
   })
-  on(el.sidebarClose, 'click', closeDrawerFromButton)
-  on(el.membersClose, 'click', closeDrawerFromButton)
+  on(el.btnRoomInfo, 'click', () => {
+    openSheet('info', el.btnRoomInfo)
+  })
+  on(el.bandAdd, 'click', () => {
+    openSettings('channels', el.bandAdd)
+  })
+  on(el.roomCardKeys, 'click', () => {
+    openSettings('privacy', el.roomCardKeys)
+  })
+  on(el.roomCardManage, 'click', () => {
+    openSettings('channels', el.roomCardManage)
+  })
   on(el.drawerBackdrop, 'click', onBackdropClick)
+  on(el.stationsSheet, 'click', onSheetCloseClick)
+  on(el.peopleSheet, 'click', onSheetCloseClick)
+  on(el.infoCol, 'click', onSheetCloseClick)
+  on(window, 'popstate', onPopState)
+  on(document, 'keydown', onSettingsShortcut)
 
   on(el.meButton, 'click', () => {
     if (typeof openStatusMenu === 'function') openStatusMenu(el.meButton)
@@ -200,11 +363,7 @@ function bindEvents () {
   on(el.authScheme, 'click', toggleScheme)
   on(el.btnMute, 'click', toggleMute)
   on(el.btnDeafen, 'click', toggleDeafen)
-  on(el.btnSettings, 'click', () => {
-    openSettings(null, el.btnSettings)
-  })
   on(el.voiceLeave, 'click', leaveVoice)
-  on(el.voiceStripLeave, 'click', leaveVoice)
   on(el.voiceUnlock, 'click', () => {
     if (voice) voice.unlockAudio()
   })
@@ -300,11 +459,6 @@ function bindEvents () {
   })
 }
 
-function closeDrawerFromButton () {
-  const layer = findLayer('drawer-channels') || findLayer('drawer-members')
-  if (layer) closeLayer(layer, true)
-}
-
 // Dil (Ek E1): giriş ekranlarındaki TR | EN düğmesi ve Ayarlar > Görünüm'deki dil seçimi.
 // Dil değişince sayfa yenilenmeden statik metinler (data-i18n*) ve görünür dinamik metinler
 // yeniden üretilir.
@@ -333,7 +487,7 @@ function applyLanguage () {
   updateTitle()
   if (!state.inApp) return
   renderServerName()
-  renderChannels()
+  renderBand()
   renderMembers()
   renderChannelHeader()
   renderComposerState()
@@ -367,7 +521,7 @@ function start () {
   loadInfo()
 }
 
-// defer betikler sırayla çalışır, 13..16 numaralı modüller bu dosyadan sonra yüklenir. start bu yüzden
+// defer betikler sırayla çalışır, 13..21 numaralı modüller bu dosyadan sonra yüklenir. start bu yüzden
 // DOMContentLoaded olayında (tüm defer betikler çalıştıktan sonra) çağrılır.
 if (document.readyState === 'complete') {
   start()

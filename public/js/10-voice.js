@@ -1,7 +1,8 @@
 'use strict'
 
-// Ses arayüzü: VoiceClient bağlantısı, ses hata kodlarının çevirisi, ses kanalları ve kadrolar, kullanıcı
-// paneli, bas konuş düğmesi ve kişi paneli.
+// Ses arayüzü: VoiceClient bağlantısı, ses hata kodlarının çevirisi, telsiz kartı (#radio: durum, ses
+// odaları listesi ve kadrolar, bas konuş düğmesi, mikrofon, sağırlaştırma, ayrılma), üst çubuktaki avatar
+// çipi ve kişi paneli. Bandın ses istasyonlarını 04-meta.js renderBand çizer.
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.
@@ -107,6 +108,7 @@ function voiceStructureKey () {
 
 function renderVoiceAll () {
   state.voiceKey = voiceStructureKey()
+  renderBand()
   renderVoiceChannels()
   renderVoicePanel()
   renderUserPanel()
@@ -120,6 +122,7 @@ function voiceRoster (channelId) {
 }
 
 function renderVoiceChannels () {
+  if (!el.voiceChannels) return
   const focusKey = activeFocusKey(el.voiceChannels)
   const s = snap()
   clear(el.voiceChannels)
@@ -215,6 +218,7 @@ function speakingIn (s, userId) {
 
 function updateVoiceLive () {
   const s = snap()
+  if (!el.voiceChannels) return
   Array.from(el.voiceChannels.querySelectorAll('.voice-member')).forEach((li) => {
     const userId = li.getAttribute('data-user-id')
     const channelLi = li.closest('.voice-row')
@@ -230,24 +234,26 @@ function updateVoiceLive () {
       row.classList.toggle('is-speaking', Boolean(inMyChannel && speakingIn(s, userId)))
     })
   }
-  el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
+  if (el.meAvatar) el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
+  updateBandLive()
   if (typeof updateLevelMeter === 'function') updateLevelMeter()
   const pttActive = Boolean(s.ptt && s.ptt.active)
   const label = t(pttActive ? 'voice.talking' : 'voice.pushToTalk')
   el.pttButton.classList.toggle('is-active', pttActive)
   el.pttButton.setAttribute('aria-pressed', pttActive ? 'true' : 'false')
   if (el.pttLabel) el.pttLabel.textContent = label
-  if (el.voiceStripPtt) {
-    el.voiceStripPtt.classList.toggle('is-active', pttActive)
-    el.voiceStripPtt.setAttribute('aria-pressed', pttActive ? 'true' : 'false')
-  }
-  if (el.voiceStripPttLabel) el.voiceStripPttLabel.textContent = label
 }
 
+// Telsiz kartı: kapalı (ses odası seçin), bağlanıyor ve bağlı durumları. Kartın durumu #radio[data-state]
+// özniteliğinde (off, joining, on), başlıktaki LED ve metin buna göre değişir.
 function renderVoicePanel () {
   const s = snap()
   const ch = s.channelId ? findChannel(s.channelId) : null
   const inVoice = Boolean(s.channelId)
+  const radioState = s.joining ? 'joining' : inVoice ? 'on' : 'off'
+  if (el.radio) el.radio.setAttribute('data-state', radioState)
+  if (el.radioState) el.radioState.textContent = t(radioState === 'on' ? 'radio.on' : radioState === 'joining' ? 'radio.joining' : 'radio.off')
+  if (el.radioPick) el.radioPick.hidden = inVoice || Boolean(s.joining)
   el.voicePanel.hidden = !inVoice && !s.joining
   const chName = ch ? ch.name : ''
   el.voicePanelStatus.textContent = s.joining ? t('voice.connecting') : inVoice ? t('voice.connectedTo', { name: chName }) : t('voice.notConnected')
@@ -258,10 +264,7 @@ function renderVoicePanel () {
   setMsg(el.voiceError, s.errorCode ? voiceErrorText(s.errorCode, s.serverError) : '', 'error')
   el.voiceUnlock.hidden = !(inVoice && s.autoplayBlocked)
   el.pttButton.hidden = !(inVoice && s.ptt && s.ptt.enabled)
-  if (el.voiceStripPtt) el.voiceStripPtt.hidden = el.pttButton.hidden
   if (el.pttKey) el.pttKey.textContent = pttKeyCap()
-  el.voiceStrip.hidden = !inVoice
-  el.voiceStripText.textContent = t('voice.inChannel', { name: ch ? ch.name : '' })
 }
 
 // Bas konuş tuşunun kısa gösterimi (tuş kapağı): harf ve rakamlar tek karakter, diğerleri ad
@@ -286,7 +289,7 @@ function pttKeyCap () {
   }
 }
 
-// Kullanıcı panelindeki durum satırı: seste ise kanal, değilse özel durum metni veya durum
+// Üst çubuktaki avatar çipinin durum satırı: seste ise oda, değilse özel durum metni veya durum
 function myStatusLine (s) {
   const ch = s.channelId ? findChannel(s.channelId) : null
   if (s.joining) return t('voice.joining')
@@ -306,13 +309,16 @@ function myStatusLine (s) {
   return t('user.online')
 }
 
+// Avatar çipi (#me-button) ve telsiz kartındaki mikrofon ve sağırlaştırma düğmeleri
 function renderUserPanel () {
   if (!state.me) return
   const s = snap()
-  el.meName.textContent = shownName(state.me.id)
-  fillAvatar(el.meAvatar, state.me.id, 'md')
-  el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
-  el.meStatus.textContent = myStatusLine(s)
+  if (el.meName) el.meName.textContent = shownName(state.me.id)
+  if (el.meAvatar) {
+    fillAvatar(el.meAvatar, state.me.id, 'sm')
+    el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
+  }
+  if (el.meStatus) el.meStatus.textContent = myStatusLine(s)
   if (el.meButton) {
     el.meButton.setAttribute('aria-label', t('layout.statusMenu', { name: shownName(state.me.id) }))
     el.meButton.title = t('layout.statusMenu', { name: shownName(state.me.id) })
@@ -372,7 +378,7 @@ function toggleMute () {
   }
   const s = snap()
   if (s.deafened) {
-    // Sağırken mikrofonu açmak sağırlaştırmayı da kaldırır (Discord davranışı)
+    // Sağırken mikrofonu açmak sağırlaştırmayı da kaldırır
     voice.setDeafened(false)
     voice.setMuted(false)
     return
@@ -392,7 +398,6 @@ function toggleDeafen () {
 
 function bindPttButton () {
   bindPttTarget(el.pttButton)
-  bindPttTarget(el.voiceStripPtt)
 }
 
 function bindPttTarget (target) {

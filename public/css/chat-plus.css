@@ -435,7 +435,7 @@
   width: 2rem;
   height: 2rem;
   margin-right: 0.6rem;
-  border-radius: 50%;
+  border-radius: var(--avatar-radius);
   background-color: var(--mention-bg);
   color: var(--mention-text);
 }

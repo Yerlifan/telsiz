@@ -1,0 +1,10 @@
+/*
+  Frekans: kişisel alanlar (Ek K, KONSEPT 6.3, 6.5, 6.7, 6.8). Sahibi: kişisel alanlar bileşeni.
+  Kapsam: Yayındakiler sayfası (#people-sheet, #members-online, #members-offline), üst çubuktaki
+  Yayındakiler şeridi (#live-chip) ve avatar menüsü (#status-menu), Gelenler kartı (#inbox), sol
+  sütundaki özel mesaj listesi (#dm-section, #dm-list), Arkadaşlar istasyonunun görünümü (#home-view),
+  profil kartı (#profile-card) ve Tümü sayfasındaki özel konuşma satırları. Sayfa kabuğu, bant ve
+  kesme noktaları frekans.css içindedir.
+  Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz.
+*/

@@ -43,6 +43,38 @@
   --font-system: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
   --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol";
   --font-mono-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+  /* Frekans düzeni (Ek K, KONSEPT bölüm 12): üst çubuk, frekans bandı, sütunlar ve sayfalar.
+     Dar ve orta ekrandaki değerler dosyanın sonundaki kesme noktalarındadır. */
+  --top-h: 3.75rem;
+  --band-h: 6.75rem;
+  --band-pad: 0.5rem;
+  --dial-top: 1.5rem;
+  --station-h: 3.25rem;
+  --column-max: 46rem;
+  --side-w: 17.5rem;
+  --radio-w: 21rem;
+  --sheet-w: 25rem;
+
+  /* Avatar şekli (Ek K6): her temada yumuşak kenarlı kare, köşe yarıçapı boyutun yüzde 28'i.
+     Durum noktası ve köşe işaretleri aynı aileden yumuşak karedir. */
+  --avatar-radius: 28%;
+  --dot-radius: 32%;
+}
+
+/* Renge bağlı Frekans belirteçleri yalnızca tema belirteçlerine başvurur, bu yüzden üç temada ve
+   iki modda kendiliğinden doğru renk alır. Kök öğede çözülür (data-skin ve data-scheme oradadır). */
+:root {
+  --needle: var(--accent);
+  --needle-knob: var(--accent);
+  --needle-ring: var(--surface-1);
+  --tick: var(--line-strong);
+  --tick-major: var(--edge);
+  --band-bg: var(--surface-1);
+  --station-tuned-bg: var(--surface-3);
+  --station-target: var(--focus-halo);
+  --radio-bg: var(--surface-2);
+  --screen-bg: var(--surface-sunken);
 }
 
 /* =========================================================
@@ -66,7 +98,6 @@
   --radius-control: 14px;
   --radius-small: 10px;
   --radius-pill: 999px;
-  --avatar-radius: 32%;
   --layout-pad: 1rem;
   --column-gap: 0.875rem;
   --border-width: 1px;
@@ -104,6 +135,8 @@
   --accent-2: #33d1e6;
   --accent-hover: #9d7dff;
   --on-accent: #0e0d16;
+  /* Dolgu düğme yazısı (Ek K7.5): koyu modda vurgu üstü yazı, açık modda beyaz */
+  --on-accent-fill: var(--on-accent);
   --accent-text: #a991ff;
   --accent-2-text: #5addf0;
   --accent-lip: #4e3bb0;
@@ -181,6 +214,8 @@
   --accent-2: #33d1e6;
   --accent-hover: #9d7dff;
   --on-accent: #0e0d16;
+  /* Dolgu düğme yazısı (Ek K7.5): açık modda koyulaşan dolgunun üstünde beyaz */
+  --on-accent-fill: #ffffff;
   --accent-text: #6234dd;
   --accent-2-text: #06707f;
   --accent-lip: #6e55d6;
@@ -246,7 +281,6 @@
   --radius-control: 12px;
   --radius-small: 7px;
   --radius-pill: 999px;
-  --avatar-radius: 50%;
   --layout-pad: 0;
   --column-gap: 0;
   --border-width: 1px;
@@ -283,6 +317,8 @@
   --accent-2: #74e0a4;
   --accent-hover: #ffc369;
   --on-accent: #1b1305;
+  /* Dolgu düğme yazısı (Ek K7.5): koyu modda vurgu üstü yazı, açık modda beyaz */
+  --on-accent-fill: var(--on-accent);
   --accent-text: #ffb547;
   --accent-2-text: #74e0a4;
   --accent-lip: #ffb547;
@@ -372,6 +408,8 @@
   --accent-2: #0e6a3d;
   --accent-hover: #f5b552;
   --on-accent: #1b1305;
+  /* Dolgu düğme yazısı (Ek K7.5): açık modda koyulaşan dolgunun üstünde beyaz */
+  --on-accent-fill: #ffffff;
   --accent-text: #8a4f00;
   --accent-2-text: #0e6a3d;
   --accent-lip: #a35f00;
@@ -450,7 +488,6 @@
   --radius-control: 0.75rem;
   --radius-small: 0.375rem;
   --radius-pill: 999px;
-  --avatar-radius: 18%;
   --layout-pad: 0;
   --column-gap: 0;
   --border-width: 1px;
@@ -487,6 +524,8 @@
   --accent-2: #db8550;
   --accent-hover: #4cc9bd;
   --on-accent: #052421;
+  /* Dolgu düğme yazısı (Ek K7.5): koyu modda vurgu üstü yazı, açık modda beyaz */
+  --on-accent-fill: var(--on-accent);
   --accent-text: #5ad3c8;
   --accent-2-text: #eba06e;
   --accent-lip: #23766e;
@@ -566,6 +605,8 @@
   --accent-2: #c2683a;
   --accent-hover: #0a6c65;
   --on-accent: #ffffff;
+  /* Dolgu düğme yazısı (Ek K7.5): açık modda koyulaşan dolgunun üstünde beyaz */
+  --on-accent-fill: #ffffff;
   --accent-text: #096a64;
   --accent-2-text: #94421a;
   --accent-lip: #075550;
@@ -647,4 +688,20 @@ html[data-font-size="large"] {
 
 html[data-font-size="tv"] {
   font-size: 22px;
+}
+
+/* Frekans düzeninin kesme noktaları (KONSEPT bölüm 11): orta 760 ile 999 px, dar 760 px altı */
+@media (max-width: 999px) {
+  :root {
+    --radio-w: 17rem;
+  }
+}
+
+@media (max-width: 759px) {
+  :root {
+    --top-h: 3.5rem;
+    --band-h: 5.75rem;
+    --dial-top: 1.25rem;
+    --station-h: 2.75rem;
+  }
 }

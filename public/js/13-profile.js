@@ -756,10 +756,12 @@ function buildCardActions (userId, self) {
 
 // Profil düzenleme sayfası ayarlar görünümündedir. O görünüm yoksa hesap sekmesi açılır.
 function openProfileEditor () {
-  if (typeof openSettings === 'function') openSettings('profile', el.btnSettings)
+  if (typeof openSettings === 'function') openSettings('profile', el.meButton)
 }
 
-// Durum menüsü (#status-menu)
+// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad,
+// @kullanıcı adı ve rol), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
+// Ayarlara giriş tektir ve her ekranda aynı yerdedir.
 
 function openStatusMenu (anchorEl) {
   const menu = byId('status-menu')
@@ -801,6 +803,14 @@ function closeStatusMenu () {
 
 function buildStatusMenu (menu) {
   clear(menu)
+  const head = h('div', 'menu-head')
+  head.appendChild(personAvatar(state.me.id, 'lg'))
+  const headText = h('span', 'menu-head-text')
+  headText.appendChild(h('span', 'menu-head-name', userDisplayName(state.me.id)))
+  const handle = userHandle(state.me.id)
+  headText.appendChild(h('span', 'menu-head-sub', handle ? t('top.menuHandle', { handle: handle, role: roleLabel(state.me.role) }) : roleLabel(state.me.role)))
+  head.appendChild(headText)
+  menu.appendChild(head)
   const current = myChosenStatus()
   STATUS_CHOICES.forEach((status) => {
     const item = h('button', 'menu-item status-option')
@@ -844,7 +854,41 @@ function buildStatusMenu (menu) {
     openProfileEditor()
   })
   menu.appendChild(edit)
+  const theme = window.TelsizTheme && typeof window.TelsizTheme.get === 'function' ? window.TelsizTheme.get() : null
+  const skin = theme && theme.skin ? theme.skin : 'arcade'
+  const scheme = theme && theme.resolvedScheme === 'light' ? 'light' : 'dark'
+  menu.appendChild(menuEntry('menu-settings', 'i-gear', t('settings.title'), t('top.menuSettingsSub'), () => {
+    openSettings(null, el.meButton)
+  }))
+  menu.appendChild(menuEntry('menu-appearance', 'i-palette', t('top.menuAppearance'), t('top.menuAppearanceSub', { skin: t('theme.skin.' + skin), scheme: t('theme.scheme.' + scheme) }), () => {
+    openSettings('appearance', el.meButton)
+  }))
+  menu.appendChild(menuEntry('menu-language', 'i-globe', t('settings.appearance.language'), t('top.langName'), () => {
+    openSettings('appearance', el.meButton)
+  }))
+  menu.appendChild(h('div', 'menu-separator'))
+  const out = menuEntry('menu-logout', 'i-logout', t('auth.logout'), '', () => {
+    logout()
+  })
+  out.classList.add('menu-danger')
+  menu.appendChild(out)
   menu.addEventListener('keydown', onPopupMenuKey)
+}
+
+// Avatar menüsünün gezinme öğesi: simge, ad ve isteğe bağlı sağda kısa bilgi
+function menuEntry (id, iconName, label, end, handler) {
+  const item = h('button', 'menu-item menu-entry')
+  item.type = 'button'
+  item.id = id
+  item.setAttribute('role', 'menuitem')
+  item.appendChild(icon(iconName))
+  item.appendChild(h('span', 'menu-entry-label', label))
+  if (end) item.appendChild(h('span', 'menu-entry-end', end))
+  item.addEventListener('click', () => {
+    closeStatusMenu()
+    handler()
+  })
+  return item
 }
 
 // Açılır menülerde ok tuşlarıyla gezinme
