@@ -125,11 +125,12 @@ The recommendation in the settings is calculated in the client with deterministi
 
 ```text
 usable = upload (kbps) x 0.7
-safe capacity = largest N with (N - 1) x 40 <= usable = floor(usable / 40) + 1
-max cameras = floor(usable / (400 x (capacity - 1)))
+voice only capacity = largest N with (N - 1) x 40 <= usable = floor(usable / 40) + 1
+recommended capacity = largest N with (N - 1) x (40 + 400) <= usable = floor(usable / 440) + 1
+recommended camera limit = recommended capacity
 ```
 
-The capacity is clamped between 2 and 12 and the camera limit between 1 and the capacity, and the capacity in the camera formula is the recommended capacity. For example, at 5 Mbps usable is 3500 kbps, the capacity is 12 and the camera limit is 1, and at 50 Mbps the camera limit is 7. Server hints are also calculated from the facts: a warning when free disk space is less than the rest of the upload quota or less than 1 GB, when the estimated memory the message cap would take (1500 bytes per message) is more than half of the usable memory (the cgroup limit if there is one), or when the 5 minute load average is more than 1 per core, and an informational hint when TURN runs on this machine or is not configured.
+In a full mesh, someone with their camera on sends their voice and video to everyone else in the room separately, so their upload is the bottleneck. The recommended capacity is calculated from that person's upload, so everyone in the room can turn their camera on. The camera limit assumes that download speed is no lower than upload speed, because in the recommended room each person downloads at most as much video as the person with the camera uploads. The capacity is clamped between 2 and 12 and the camera limit between 1 and the capacity. For example, at 5 Mbps usable is 3500 kbps, the recommended capacity is 8 and the camera limit is 8 (without cameras a voice room can grow to 12 people), and at 50 Mbps both are 12. Server hints are also calculated from the facts: a warning when free disk space is less than the rest of the upload quota or less than 1 GB, when the estimated memory the message cap would take (1500 bytes per message) is more than half of the usable memory (the cgroup limit if there is one), or when the 5 minute load average is more than 1 per core, and an informational hint when TURN runs on this machine or is not configured.
 
 ## Telsiz DJ
 

@@ -217,12 +217,12 @@ test('sunucu bilgileri bölümü bilgileri, öneriyi ve ipuçlarını gösterir,
     intro: document.getElementById('set-rec-intro').textContent
   }))
   assert.equal(rec.upload, '5')
-  assert.deepEqual(rec.items, ['Önerilen ses odası kapasitesi: 12 kişi', 'Önerilen kamera sınırı: 1 kamera', rec.items[2]])
+  assert.deepEqual(rec.items, ['Önerilen ses odası kapasitesi: 8 kişi', 'Önerilen kamera sınırı: 8 kamera'])
   assert.ok(rec.hints >= 1)
   assert.match(rec.intro, /tahmindir/)
-  // 50 Mbps: kullanılabilir 35000 kbps, kapasite 12, kamera taban(35000 / (400 x 11)) = 7
+  // 50 Mbps: kullanılabilir 35000 kbps, taban(35000 / 440) + 1 = 80, kapasite ve kamera 12'ye sıkıştırılır
   await deniz.fill('#set-rec-upload', '50')
-  await deniz.waitForFunction(() => document.querySelector('#set-rec-result .settings-rec-item:nth-child(2)').textContent === 'Önerilen kamera sınırı: 7 kamera')
+  await deniz.waitForFunction(() => document.querySelector('#set-rec-result .settings-rec-item:nth-child(2)').textContent === 'Önerilen kamera sınırı: 12 kamera')
   await deniz.click('#set-rec-apply')
   const filled = await deniz.evaluate(() => ({
     capacity: document.getElementById('set-voice-capacity').value,
@@ -230,10 +230,10 @@ test('sunucu bilgileri bölümü bilgileri, öneriyi ve ipuçlarını gösterir,
     cameras: document.getElementById('set-voice-cameras').checked,
     stored: localStorage.getItem('telsiz.uploadMbps')
   }))
-  assert.deepEqual(filled, { capacity: '12', max: '7', cameras: true, stored: '50' })
+  assert.deepEqual(filled, { capacity: '12', max: '12', cameras: true, stored: '50' })
   await deniz.click('#set-voice-limits-save')
   await deniz.waitForFunction(() => document.getElementById('set-voice-limits-msg').textContent === 'Ses odası ayarları kaydedildi.', null, { timeout: h.LONG })
-  assert.deepEqual((await metaCamera(W.w.P.mert.id)).settings, { capacity: 12, cameras: true, maxCameras: 7 })
+  assert.deepEqual((await metaCamera(W.w.P.mert.id)).settings, { capacity: 12, cameras: true, maxCameras: 12 })
   assert.ok(await h.overflowX(deniz) <= 0)
   await deniz.keyboard.press('Escape')
   await deniz.waitForSelector('#settings-view', { state: 'hidden' })

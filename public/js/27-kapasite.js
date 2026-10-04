@@ -12,13 +12,17 @@
 // gösterilir ve girdiye aktarılabilir. Ölçüm yalnızca bu cihazda saklanır ('telsiz.uplinkMeasure'), başka
 // üyelerden hiçbir ölçüm toplanmaz ve sunucuya gönderilmez.
 //
-// Formüller (sabitler aşağıda):
+// Formüller (sabitler aşağıda). Tam örgüde kamerasını açan kişi sesini ve görüntüsünü odadaki diğer herkese
+// ayrı ayrı gönderir, darboğaz bu kişinin yüklemesidir:
 //   kullanılabilir yükleme = yükleme hızı x KAPASITE_USABLE_SHARE (yüzde 70)
-//   güvenli kapasite = (N - 1) x KAPASITE_AUDIO_KBPS <= kullanılabilir yükleme koşulunu sağlayan en büyük N
-//                    = taban(kullanılabilir / KAPASITE_AUDIO_KBPS) + 1
-//   en fazla kamera = taban(kullanılabilir / (KAPASITE_CAMERA_KBPS x (kapasite - 1)))
-// İki değer de izin verilen aralığa sıkıştırılır (kapasite 2 ile 12, kamera 1 ile 12 ve kapasiteden fazla
-// değil). Kamera formülündeki kapasite önerilen güvenli kapasitedir.
+//   yalnızca ses kapasitesi = (N - 1) x KAPASITE_AUDIO_KBPS <= kullanılabilir koşulunu sağlayan en büyük N
+//                           = taban(kullanılabilir / KAPASITE_AUDIO_KBPS) + 1
+//   önerilen kapasite = (N - 1) x (KAPASITE_AUDIO_KBPS + KAPASITE_CAMERA_KBPS) <= kullanılabilir koşulunu
+//                       sağlayan en büyük N = taban(kullanılabilir / (ses + kamera)) + 1
+//   önerilen kamera sınırı = önerilen kapasite (odadaki herkes kamerasını açabilir)
+// Kamera sınırında indirme hızının yükleme hızından düşük olmadığı varsayılır: önerilen odada her kişi en
+// çok (N - 1) görüntü indirir, bu da kamera açan kişinin yüklemesiyle aynı büyüklüktedir. Değerler izin
+// verilen aralığa sıkıştırılır (kapasite 2 ile 12, kamera 1 ile 12 ve kapasiteden fazla değil).
 
 const KAPASITE_AUDIO_KBPS = 40
 const KAPASITE_CAMERA_KBPS = 400
@@ -69,28 +73,38 @@ function kapasiteSafeCapacity (uploadMbps, limits) {
   return kapasiteClamp(raw, l.capacityMin, l.capacityMax)
 }
 
-function kapasiteMaxCameras (uploadMbps, capacity, limits) {
+// Kamerası açık bir kişinin herkese ses ve görüntü gönderebileceği en büyük oda. raw: sıkıştırmadan önceki
+// değer (2'den küçükse en küçük odada bile tek bir kamera tam kalitede gönderilemez).
+function kapasiteCameraCapacity (uploadMbps, limits) {
   const l = kapasiteLimits(limits)
-  const others = Math.max(1, capacity - 1)
-  const raw = Math.floor(kapasiteUsableKbps(uploadMbps) / (KAPASITE_CAMERA_KBPS * others))
-  return { value: kapasiteClamp(raw, l.camerasMin, Math.min(l.camerasMax, capacity)), raw: raw }
+  const raw = Math.floor(kapasiteUsableKbps(uploadMbps) / (KAPASITE_AUDIO_KBPS + KAPASITE_CAMERA_KBPS)) + 1
+  return { value: kapasiteClamp(raw, l.capacityMin, l.capacityMax), raw: raw }
 }
 
-// Öneri: { upload, usableKbps, capacity, maxCameras, audioKbps, cameraKbps, camerasTight } veya geçersiz
-// girdide null. camerasTight: önerilen kapasitede tek bir kamera bile kullanılabilir yüklemeye sığmıyor.
+// Önerilen kamera sınırı: verilen odada herkes kamerasını açabilir, sahibin aralığına sıkıştırılır
+function kapasiteMaxCameras (capacity, limits) {
+  const l = kapasiteLimits(limits)
+  return kapasiteClamp(capacity, l.camerasMin, Math.min(l.camerasMax, capacity))
+}
+
+// Öneri: { upload, usableKbps, capacity, audioCapacity, maxCameras, audioKbps, cameraKbps, camerasTight }
+// veya geçersiz girdide null. capacity kameralı kullanıma göre, audioCapacity yalnızca sese göre kapasitedir.
+// audioKbps ve cameraKbps önerilen odada kişinin yalnızca sesle ve kamerasıyla gönderdiği toplamdır.
 function kapasiteRecommend (uploadMbps, limits) {
   const upload = kapasiteUpload(uploadMbps)
   if (upload === null) return null
-  const capacity = kapasiteSafeCapacity(upload, limits)
-  const cams = kapasiteMaxCameras(upload, capacity, limits)
+  const audioCapacity = kapasiteSafeCapacity(upload, limits)
+  const cam = kapasiteCameraCapacity(upload, limits)
+  const capacity = Math.min(audioCapacity, cam.value)
   return {
     upload: upload,
     usableKbps: Math.round(kapasiteUsableKbps(upload)),
     capacity: capacity,
-    maxCameras: cams.value,
+    audioCapacity: audioCapacity,
+    maxCameras: kapasiteMaxCameras(capacity, limits),
     audioKbps: (capacity - 1) * KAPASITE_AUDIO_KBPS,
-    cameraKbps: (capacity - 1) * KAPASITE_CAMERA_KBPS,
-    camerasTight: cams.raw < 1
+    cameraKbps: (capacity - 1) * (KAPASITE_AUDIO_KBPS + KAPASITE_CAMERA_KBPS),
+    camerasTight: cam.raw < 2
   }
 }
 
@@ -138,7 +152,8 @@ window.TelsizKapasite = {
   upload: kapasiteUpload,
   usableKbps: kapasiteUsableKbps,
   safeCapacity: kapasiteSafeCapacity,
-  maxCameras: (upload, capacity, limits) => kapasiteMaxCameras(upload, capacity, limits).value,
+  cameraCapacity: (upload, limits) => kapasiteCameraCapacity(upload, limits).value,
+  maxCameras: kapasiteMaxCameras,
   recommend: kapasiteRecommend,
   hints: kapasiteHints
 }
@@ -336,7 +351,8 @@ function buildServerInfoSection (page, onApply) {
         camera: formatNumber(KAPASITE_CAMERA_KBPS),
         audioTotal: kapasiteMbps(rec.audioKbps / 1000),
         cameraTotal: kapasiteMbps(rec.cameraKbps / 1000),
-        others: formatNumber(rec.capacity - 1)
+        others: formatNumber(rec.capacity - 1),
+        audioCapacity: formatNumber(rec.audioCapacity)
       })
     }
     if (info) {

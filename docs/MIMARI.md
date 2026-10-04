@@ -125,11 +125,12 @@ Ayarlardaki öneri istemcide belirlenimci formüllerle hesaplanır (`public/js/2
 
 ```text
 kullanılabilir = yükleme (kbps) x 0,7
-güvenli kapasite = (N - 1) x 40 <= kullanılabilir koşulunu sağlayan en büyük N = taban(kullanılabilir / 40) + 1
-en fazla kamera = taban(kullanılabilir / (400 x (kapasite - 1)))
+yalnızca ses kapasitesi = (N - 1) x 40 <= kullanılabilir koşulunu sağlayan en büyük N = taban(kullanılabilir / 40) + 1
+önerilen kapasite = (N - 1) x (40 + 400) <= kullanılabilir koşulunu sağlayan en büyük N = taban(kullanılabilir / 440) + 1
+önerilen kamera sınırı = önerilen kapasite
 ```
 
-Kapasite 2 ile 12, kamera sınırı 1 ile en fazla kapasite arasına sıkıştırılır, kamera formülündeki kapasite önerilen kapasitedir. Örneğin 5 Mbps için kullanılabilir 3500 kbps, kapasite 12 ve kamera sınırı 1'dir, 50 Mbps için kamera sınırı 7'dir. Sunucu ipuçları da bilgilerden hesaplanır: boş disk yükleme kotasının kalanından azsa veya 1 GB'tan azsa, mesaj sınırının bellekte tutacağı tahmini yer (mesaj başına 1500 bayt) kullanılabilir belleğin (cgroup sınırı varsa o) yarısını aşıyorsa, 5 dakikalık yük ortalaması çekirdek başına 1'i aşıyorsa uyarı, TURN bu makinedeyse veya yapılandırılmamışsa bilgi gösterilir.
+Tam örgüde kamerasını açan kişi sesini ve görüntüsünü odadaki diğer herkese ayrı ayrı gönderir, darboğaz onun yüklemesidir. Önerilen kapasite bu kişinin yüklemesine göre hesaplanır, böylece odadaki herkes kamerasını açabilir. Kamera sınırında indirme hızının yükleme hızından düşük olmadığı varsayılır, çünkü önerilen odada her kişi en çok kamera açan kişinin yüklemesi kadar görüntü indirir. Kapasite 2 ile 12, kamera sınırı 1 ile en fazla kapasite arasına sıkıştırılır. Örneğin 5 Mbps için kullanılabilir 3500 kbps, önerilen kapasite 8 ve kamera sınırı 8'dir (kamera kullanılmazsa ses odası 12 kişiye kadar çıkabilir), 50 Mbps için ikisi de 12'dir. Sunucu ipuçları da bilgilerden hesaplanır: boş disk yükleme kotasının kalanından azsa veya 1 GB'tan azsa, mesaj sınırının bellekte tutacağı tahmini yer (mesaj başına 1500 bayt) kullanılabilir belleğin (cgroup sınırı varsa o) yarısını aşıyorsa, 5 dakikalık yük ortalaması çekirdek başına 1'i aşıyorsa uyarı, TURN bu makinedeyse veya yapılandırılmamışsa bilgi gösterilir.
 
 ## Telsiz DJ
 

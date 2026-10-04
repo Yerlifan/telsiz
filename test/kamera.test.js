@@ -159,18 +159,23 @@ test('öneri formülleri: kullanılabilir yükleme, güvenli kapasite ve kamera 
   assert.strictEqual(K.safeCapacity(0.25), 5)
   assert.strictEqual(K.safeCapacity(0.1), 2)
   assert.strictEqual(K.safeCapacity(100), 12)
-  // Kamera: taban(kullanılabilir / (400 x (kapasite - 1))), 1 ile en fazla kapasite arasına sıkıştırılır
-  assert.strictEqual(K.maxCameras(5, 12), 1)
-  assert.strictEqual(K.maxCameras(5, 3), 3)
-  assert.strictEqual(K.maxCameras(5, 2), 2)
-  assert.strictEqual(K.maxCameras(20, 12), 3)
-  assert.strictEqual(K.maxCameras(50, 12), 7)
-  assert.strictEqual(K.maxCameras(1000, 12), 12)
-  assert.strictEqual(K.maxCameras(1000, 4), 4)
-  assert.strictEqual(K.maxCameras(0.5, 8), 1)
-  assert.deepStrictEqual(plain(K.recommend(5)), { upload: 5, usableKbps: 3500, capacity: 12, maxCameras: 1, audioKbps: 440, cameraKbps: 4400, camerasTight: true })
-  assert.deepStrictEqual(plain(K.recommend('50')), { upload: 50, usableKbps: 35000, capacity: 12, maxCameras: 7, audioKbps: 440, cameraKbps: 4400, camerasTight: false })
-  assert.deepStrictEqual(plain(K.recommend('0,3')), { upload: 0.3, usableKbps: 210, capacity: 6, maxCameras: 1, audioKbps: 200, cameraKbps: 2000, camerasTight: true })
+  // Kameralı kapasite: taban(kullanılabilir / (40 + 400)) + 1, kamera açan kişi herkese ses ve görüntü gönderir
+  assert.strictEqual(K.cameraCapacity(5), 8)
+  assert.strictEqual(K.cameraCapacity(2), 4)
+  assert.strictEqual(K.cameraCapacity(0.3), 2)
+  assert.strictEqual(K.cameraCapacity(50), 12)
+  // Kamera sınırı önerilen kapasite kadardır (herkes açabilir), sahibin aralığına sıkıştırılır
+  assert.strictEqual(K.maxCameras(8), 8)
+  assert.strictEqual(K.maxCameras(12), 12)
+  assert.strictEqual(K.maxCameras(12, { camerasMin: 1, camerasMax: 4 }), 4)
+  assert.deepStrictEqual(plain(K.recommend(5)), { upload: 5, usableKbps: 3500, capacity: 8, audioCapacity: 12, maxCameras: 8, audioKbps: 280, cameraKbps: 3080, camerasTight: false })
+  assert.deepStrictEqual(plain(K.recommend('50')), { upload: 50, usableKbps: 35000, capacity: 12, audioCapacity: 12, maxCameras: 12, audioKbps: 440, cameraKbps: 4840, camerasTight: false })
+  assert.deepStrictEqual(plain(K.recommend('0,3')), { upload: 0.3, usableKbps: 210, capacity: 2, audioCapacity: 6, maxCameras: 2, audioKbps: 40, cameraKbps: 440, camerasTight: true })
+  // Kamera açan kişinin gönderdiği toplam kullanılabilir yüklemeyi aşmaz (en küçük oda dışında)
+  for (const up of [1, 2, 5, 10, 25]) {
+    const r = K.recommend(up)
+    assert.ok(r.cameraKbps <= r.usableKbps, String(up))
+  }
   // Sahibin aralıkları verilirse onlara sıkıştırılır
   assert.strictEqual(K.recommend(50, { capacityMin: 2, capacityMax: 6, camerasMin: 1, camerasMax: 3 }).capacity, 6)
   assert.strictEqual(K.recommend(50, { capacityMin: 2, capacityMax: 6, camerasMin: 1, camerasMax: 3 }).maxCameras, 3)
