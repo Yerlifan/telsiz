@@ -14,6 +14,10 @@ const NAME_MAX = 32
 const CHANNEL_NAME_MIN = 1
 const CHANNEL_NAME_MAX = 30
 const SERVER_NAME_MAX = 40
+// Frekans tanıtımı (giriş yapmamış ziyaretçilerin de gördüğü düz metin): kod noktası ve satır sınırı
+const ABOUT_MAX = 600
+const ABOUT_MAX_LINES = 6
+const ABOUT_MAX_RAW = 4000
 const PASSWORD_MIN = 8
 const PASSWORD_MAX = 128
 // Temizlikten önce kabul edilen en uzun ham metin (aşırı uzun girdiyle işlemci harcanmasın)
@@ -97,6 +101,24 @@ function cleanServerName (value) {
   if (text === null) return null
   const length = codePointLength(text)
   if (length < 1 || length > SERVER_NAME_MAX) return null
+  return text
+}
+
+// Frekans tanıtımı: NFC, satır sonları \n olur, her satırda denetim ve biçim karakterleri silinir,
+// boşluklar teklenir ve kırpılır, art arda boş satırlar teke iner, baştaki ve sondaki boş satırlar
+// atılır. Boş metin geçerlidir (tanıtım kaldırılır). En fazla 600 kod noktası ve 6 satır, aşılırsa null.
+function cleanAbout (value) {
+  if (typeof value !== 'string' || value.length > ABOUT_MAX_RAW) return null
+  const lines = value.normalize('NFC').split(/\r\n|\r|\n/).map((line) => line.replace(CONTROL_RE, '').replace(SPACE_RE, ' ').trim())
+  const kept = []
+  for (const line of lines) {
+    if (line === '' && (kept.length === 0 || kept[kept.length - 1] === '')) continue
+    kept.push(line)
+  }
+  while (kept.length > 0 && kept[kept.length - 1] === '') kept.pop()
+  if (kept.length > ABOUT_MAX_LINES) return null
+  const text = kept.join('\n')
+  if (codePointLength(text) > ABOUT_MAX) return null
   return text
 }
 
@@ -545,6 +567,8 @@ module.exports = {
   NAME_MAX,
   CHANNEL_NAME_MAX,
   SERVER_NAME_MAX,
+  ABOUT_MAX,
+  ABOUT_MAX_LINES,
   PASSWORD_MIN,
   PASSWORD_MAX,
   KDF_N_VALUES,
@@ -553,6 +577,7 @@ module.exports = {
   cleanUsername,
   cleanChannelName,
   cleanServerName,
+  cleanAbout,
   nameKey,
   isAuthKey,
   cleanKdf,

@@ -3214,6 +3214,10 @@ function buildGeneralPage (page) {
     setMsg(msg, () => errorText(res, t('settings.server.nameFailed')), 'error')
   })
 
+  // Frekans tanıtımı (yalnızca sahip yazar): herkese açık düz metin, giriş yapmamış ziyaretçinin
+  // gördüğü tanıtım sayfasında görünür (26-tanitim.js). Yönetici salt okunur görür.
+  const about = buildAboutSection(page)
+
   // Telsiz DJ (Ek L2.5, yalnızca sahip): DJ'yi tümüyle veya yalnızca YouTube kaynağını kapatma
   const musicSec = sSection(page, t('settings.music.title'), 'set-music-section')
   const musicOn = sSwitch('set-music-enabled', t('settings.music.enabled'), true, (checked, input) => {
@@ -3238,6 +3242,7 @@ function buildGeneralPage (page) {
     save.hidden = !owner
     ownerOnly.hidden = owner
     if (!dirty && document.activeElement !== input) input.value = state.serverName
+    about.update(owner)
     musicSec.hidden = !owner
     const music = musicServerSettings()
     musicOn.input.checked = music.enabled
@@ -3258,6 +3263,118 @@ function buildGeneralPage (page) {
     })
   }
   update()
+  return { update: update }
+}
+
+// Frekans tanıtımı sınırları ve metni (GET /api/info: about, limits.aboutMax, limits.aboutMaxLines)
+function aboutLimit (key, fallback) {
+  const limits = state.info && state.info.limits ? state.info.limits : null
+  const value = limits ? limits[key] : null
+  return typeof value === 'number' && isFinite(value) && value > 0 ? value : fallback
+}
+
+function aboutServerText () {
+  return state.info && typeof state.info.about === 'string' ? state.info.about : ''
+}
+
+// Sunucudaki temizliğin yaklaşığı (sayaç için): satır başına denetim karakterleri silinir, boşluklar
+// teklenir ve kırpılır, art arda boş satırlar teke iner. Asıl denetim sunucudadır.
+function aboutClean (value) {
+  const kept = []
+  String(value || '').split(/\r\n|\r|\n/).forEach((line) => {
+    const text = line.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, '').replace(/\s+/g, ' ').trim()
+    if (text === '' && (kept.length === 0 || kept[kept.length - 1] === '')) return
+    kept.push(text)
+  })
+  while (kept.length > 0 && kept[kept.length - 1] === '') kept.pop()
+  return { text: kept.join('\n'), lines: kept.length }
+}
+
+function buildAboutSection (page) {
+  const max = aboutLimit('aboutMax', 600)
+  const maxLines = aboutLimit('aboutMaxLines', 6)
+  const sec = sSection(page, t('settings.general.aboutTitle'), 'set-about-section')
+  const form = h('form', 'settings-about-form')
+  form.id = 'set-about-form'
+  form.noValidate = true
+  form.setAttribute('autocomplete', 'off')
+  const label = h('label', 'sr-only', t('settings.general.aboutLabel'))
+  label.setAttribute('for', 'set-about')
+  form.appendChild(label)
+  const input = h('textarea', 'input settings-textarea')
+  input.id = 'set-about'
+  input.rows = 4
+  input.maxLength = max * 4
+  input.setAttribute('placeholder', t('settings.general.aboutPlaceholder'))
+  input.value = aboutServerText()
+  form.appendChild(input)
+  const counter = h('p', 'settings-counter')
+  counter.id = 'set-about-counter'
+  form.appendChild(counter)
+  const hint = sHint(t('settings.general.aboutHint'), 'set-about-hint')
+  form.appendChild(hint)
+  input.setAttribute('aria-describedby', 'set-about-counter set-about-hint')
+  const actions = sActions(form)
+  const save = sButton('button', t('common.save'), 'set-about-save')
+  save.type = 'submit'
+  actions.appendChild(save)
+  sec.appendChild(form)
+  const ownerOnly = sHint(t('settings.general.aboutOwnerOnly'), 'set-about-owner-only')
+  sec.appendChild(ownerOnly)
+  const msg = sMsg('set-about-msg')
+  sec.appendChild(msg)
+  let dirty = false
+  const measure = () => {
+    const cleaned = aboutClean(input.value)
+    const len = cpLength(cleaned.text)
+    counter.textContent = t('settings.general.aboutCounter', { count: formatNumber(len), max: formatNumber(max), lines: formatNumber(maxLines) })
+    const over = len > max || cleaned.lines > maxLines
+    counter.classList.toggle('is-over', over)
+    return { text: cleaned.text, over: over }
+  }
+  input.addEventListener('input', () => {
+    dirty = true
+    measure()
+  })
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    if (!isOwner()) return
+    const m = measure()
+    if (m.over) {
+      setMsg(msg, () => t('settings.general.aboutTooLong', { max: formatNumber(max), lines: formatNumber(maxLines) }), 'error')
+      focusNode(input)
+      return
+    }
+    save.disabled = true
+    const res = await api('POST', '/api/settings', { about: input.value })
+    save.disabled = false
+    if (res.status === 200) {
+      dirty = false
+      if (state.info) state.info.about = m.text
+      input.value = m.text
+      measure()
+      setMsg(msg, () => t('settings.general.aboutSaved'), 'ok')
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.general.aboutFailed')), 'error')
+  })
+  // Başka cihazda yapılan değişiklik için güncel metin bir kez sorulur
+  api('GET', '/api/info').then((res) => {
+    if (!res || res.status !== 200 || !res.data || typeof res.data.about !== 'string') return
+    if (state.info) state.info.about = res.data.about
+    if (!dirty && document.activeElement !== input) {
+      input.value = res.data.about
+      measure()
+    }
+  })
+  const update = (owner) => {
+    input.readOnly = !owner
+    input.classList.toggle('textarea-readonly', !owner)
+    actions.hidden = !owner
+    ownerOnly.hidden = owner
+    if (!dirty && document.activeElement !== input) input.value = aboutServerText()
+    measure()
+  }
   return { update: update }
 }
 

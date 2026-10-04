@@ -28,6 +28,8 @@ Messages, files, profiles and the setup messages of voice connections are encryp
 
 **Search on the device.** Message search runs entirely on the device. The server never sees the search text or the message content.
 
+**Frequency introduction.** Someone who is not signed in first sees an introduction page when they open the frequency address: the frequency name, the public introduction text the owner writes in Settings > General, a short description of Telsiz, a link to download the desktop app and a step by step guide to setting up a frequency. People who arrive through an invite link go straight to the sign-up form.
+
 **Appearance.** There are three themes: Arcade, Night Frequency (Gece Frekansı) and Turquoise and Copper (Turkuaz ve Bakır). Each has a dark and a light mode, and the mode can follow the system setting. Avatars are soft squares in every theme. There are options for font size, a compact message view and reduced motion. The interface is in Turkish and English.
 
 **On every device.** The interface works with a mouse, keyboard, touch screen and gamepad. At TV width (1800 pixels and up) text and the focus ring grow, and when a gamepad is detected a controller hint bar appears at the bottom. Telsiz can be installed as an app (PWA) on phones, tablets and computers.

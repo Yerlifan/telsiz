@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="/css/people.css">
   <link rel="stylesheet" href="/css/cast.css">
   <link rel="stylesheet" href="/css/dj.css">
+  <link rel="stylesheet" href="/css/tanitim.css">
   <link rel="stylesheet" href="/css/skins/arcade.css">
   <link rel="stylesheet" href="/css/skins/gece.css">
   <link rel="stylesheet" href="/css/skins/turkuaz.css">
@@ -62,6 +63,7 @@
   <script src="/js/23-dj.js" defer></script>
   <script src="/js/24-frekans.js" defer></script>
   <script src="/js/25-arka-plan.js" defer></script>
+  <script src="/js/26-tanitim.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -99,6 +101,7 @@
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 4h4M7 7l.8 11.2A2 2 0 0 0 9.8 20h4.4a2 2 0 0 0 2-1.8L17 7"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.5 4.5h6v6M19.5 4.5l-8 8"/><path d="M17 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M6.5 14.5 12 9l5.5 5.5"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M6.5 9.5 12 15l5.5-5.5"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5.5M11 6l-6 6 6 6"/></symbol>
@@ -184,6 +187,115 @@
         </div>
       </div>
     </header>
+    <!-- Frekans tanıtımı (26-tanitim.js): oturum açmamış ziyaretçinin ilk gördüğü sayfa. Frekans adı ve sahibin
+         herkese açık tanıtım metni, Telsiz'in kısa anlatımı, indirme ve kurulum rehberi. Giriş yap düğmesi
+         giriş kartını açar. Davet bağlantısı, frekans listesi parçası, kurulum ve masaüstü uygulaması bu sayfayı atlar. -->
+    <div id="tanitim" class="tanitim" role="region" aria-labelledby="tanitim-name" hidden>
+      <div class="tanitim-inner">
+        <section class="tanitim-hero">
+          <div class="tanitim-body">
+            <div class="tanitim-screen">
+              <p class="tanitim-kicker"><span data-i18n="layout.serverLabel">Frekans</span><span class="tanitim-live"><span class="tanitim-live-dot" aria-hidden="true"></span><span data-i18n="landing.onAir">Yayında</span></span></p>
+              <h2 id="tanitim-name" class="tanitim-name">Telsiz</h2>
+              <p id="tanitim-host" class="tanitim-host"></p>
+              <span class="tanitim-needle" aria-hidden="true"></span>
+            </div>
+            <div class="tanitim-panel">
+              <div class="tanitim-panel-main">
+                <div id="tanitim-about-wrap" class="tanitim-about-wrap" hidden>
+                  <p class="tanitim-label" data-i18n="landing.aboutLabel">Frekans sahibinden</p>
+                  <p id="tanitim-about" class="tanitim-about"></p>
+                </div>
+                <div class="tanitim-actions">
+                  <button id="tanitim-login" class="button tanitim-cta" type="button"><svg class="icon" aria-hidden="true"><use href="#i-user" xlink:href="#i-user"></use></svg><span data-i18n="landing.login">Giriş yap</span></button>
+                  <button id="tanitim-join" class="button button-secondary tanitim-cta" type="button" aria-expanded="false" aria-controls="tanitim-join-note"><svg class="icon" aria-hidden="true"><use href="#i-user-plus" xlink:href="#i-user-plus"></use></svg><span data-i18n="landing.join">Davetin varsa katıl</span></button>
+                </div>
+                <div id="tanitim-join-note" class="tanitim-join-note" hidden>
+                  <p class="tanitim-join-text" data-i18n="landing.joinNote">Bu frekansa yalnızca davetle katılınır. Frekans sahibinden bir davet bağlantısı iste. Bağlantıyı açtığında kayıt formu davet koduyla hazır gelir.</p>
+                  <button id="tanitim-join-code" class="button button-ghost button-small" type="button" data-i18n="landing.joinWithCode">Davet kodum var, kayıt ol</button>
+                </div>
+              </div>
+              <div class="tanitim-grill" aria-hidden="true"><span class="tanitim-ptt"></span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tanitim-section" aria-labelledby="tanitim-what-title">
+          <h2 id="tanitim-what-title" class="tanitim-title" data-i18n="landing.whatTitle">Telsiz nedir?</h2>
+          <p class="tanitim-lead" data-i18n="landing.whatLead">Telsiz, kendi sunucunda çalışan açık kaynak bir yazılı ve sesli iletişim uygulamasıdır. Her Telsiz sunucusu bir frekanstır: kendi adı, odaları, üyeleri ve şifreleme anahtarı vardır.</p>
+          <ul class="tanitim-features">
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.e2eTitle">Uçtan uca şifreli</h3><p class="tanitim-feature-text" data-i18n="landing.feature.e2eText">Mesajlar ve dosyalar cihazında şifrelenir. Anahtar sunucuya gönderilmez, sunucu yalnızca şifreli veriyi saklar.</p></li>
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.voiceTitle">Sesli odalar</h3><p class="tanitim-feature-text" data-i18n="landing.feature.voiceText">Bas-konuş veya ses etkinliğiyle konuş, herkesin ses düzeyini ayrı ayarla.</p></li>
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-screen" xlink:href="#i-screen"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.screenTitle">Ekran paylaşımı</h3><p class="tanitim-feature-text" data-i18n="landing.feature.screenText">Sesli odada ekranını paylaş, odadakiler aynı anda izlesin.</p></li>
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-music" xlink:href="#i-music"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.djTitle">Telsiz DJ</h3><p class="tanitim-feature-text" data-i18n="landing.feature.djText">Ses odasında ortak bir kuyrukla birlikte müzik dinle.</p></li>
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-globe" xlink:href="#i-globe"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.browserTitle">Her tarayıcıda</h3><p class="tanitim-feature-text" data-i18n="landing.feature.browserText">Kurulum gerekmez, telefonda ve bilgisayarda tarayıcıdan açılır. İstersen masaüstü uygulamasını kullan.</p></li>
+            <li class="tanitim-feature"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-server" xlink:href="#i-server"></use></svg></span><h3 class="tanitim-feature-title" data-i18n="landing.feature.selfTitle">Kendi sunucunda</h3><p class="tanitim-feature-text" data-i18n="landing.feature.selfText">Veriler senin sunucunda durur. Tek dosya, npm paketi veya Docker ile kurulur.</p></li>
+          </ul>
+        </section>
+
+        <section id="tanitim-get" class="tanitim-section" aria-labelledby="tanitim-get-title">
+          <h2 id="tanitim-get-title" class="tanitim-title" data-i18n="landing.getTitle">Telsiz'i edin</h2>
+          <div class="tanitim-cards">
+            <div id="tanitim-desktop" class="tanitim-card">
+              <span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-download" xlink:href="#i-download"></use></svg></span>
+              <h3 class="tanitim-card-title" data-i18n="landing.desktopTitle">Masaüstü uygulaması</h3>
+              <p class="tanitim-card-text" data-i18n="landing.desktopText">Windows yükleyicisi, AppImage ve .deb paketi. Kayıtlı frekanslarını tek pencerede kullan.</p>
+              <a id="tanitim-download" class="button tanitim-link-button" href="https://github.com/Yerlifan/telsiz/releases/latest" target="_blank" rel="noopener noreferrer"><svg class="icon" aria-hidden="true"><use href="#i-download" xlink:href="#i-download"></use></svg><span data-i18n="landing.desktopDownload">Masaüstü uygulamasını indir</span><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+            </div>
+            <div class="tanitim-card">
+              <span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-radio" xlink:href="#i-radio"></use></svg></span>
+              <h3 class="tanitim-card-title" data-i18n="landing.hostTitle">Kendi frekansını kur</h3>
+              <p class="tanitim-card-text" data-i18n="landing.hostText">Telsiz'i kendi bilgisayarında veya kiraladığın bir sunucuda çalıştır. Node.js 20 veya üstü yüklüyse tek komut yeter:</p>
+              <div class="tanitim-cmd" data-cmd="npx telsiz"></div>
+              <a id="tanitim-docs" class="button button-secondary tanitim-link-button" href="https://github.com/Yerlifan/telsiz#readme" target="_blank" rel="noopener noreferrer"><svg class="icon" aria-hidden="true"><use href="#i-file-doc" xlink:href="#i-file-doc"></use></svg><span data-i18n="landing.docs">Kurulum belgeleri</span><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+            </div>
+          </div>
+
+          <details id="tanitim-guide" class="tanitim-guide">
+            <summary class="tanitim-guide-summary"><span class="tanitim-icon"><svg class="icon" aria-hidden="true"><use href="#i-server" xlink:href="#i-server"></use></svg></span><span class="tanitim-guide-title" data-i18n="landing.guide.title">Adım adım: VPS ve alan adıyla kurulum</span><svg class="icon tanitim-guide-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg></summary>
+            <ol class="tanitim-steps">
+              <li class="tanitim-step">
+                <h3 class="tanitim-step-title" data-i18n="landing.guide.step1Title">Bir VPS kirala</h3>
+                <p class="tanitim-step-text" data-i18n="landing.guide.step1Text">Ubuntu 24.04 ve 1 ile 2 GB bellek yeterli. KVM sanallaştırma, sabit IPv4 adresi ve açık 80 ile 443 portları olsun.</p>
+              </li>
+              <li class="tanitim-step">
+                <h3 class="tanitim-step-title" data-i18n="landing.guide.step2Title">Alan adını VPS'e bağla</h3>
+                <p class="tanitim-step-text" data-i18n="landing.guide.step2Text">Alan adı panelinde bir A kaydı ekle: Ad "@" (veya alt alan adı, ör. "telsiz"), Değer VPS'in IP adresi. Cloudflare kullanıyorsan kayıt "DNS only" (gri bulut) olmalı. Kaydın yayıldığını şu komutla kontrol et:</p>
+                <div class="tanitim-cmd" data-cmd="nslookup {domain}"></div>
+              </li>
+              <li class="tanitim-step">
+                <h3 class="tanitim-step-title" data-i18n="landing.guide.step3Title">VPS'e bağlan</h3>
+                <p class="tanitim-step-text" data-i18n="landing.guide.step3Text">Sağlayıcının verdiği IP adresi ve şifreyle bağlan, ilk iş şifreni değiştir.</p>
+                <div class="tanitim-cmd" data-cmd="ssh root@IP"></div>
+                <div class="tanitim-cmd" data-cmd="passwd"></div>
+              </li>
+              <li class="tanitim-step">
+                <h3 class="tanitim-step-title" data-i18n="landing.guide.step4Title">Telsiz'i kur</h3>
+                <p class="tanitim-step-text" data-i18n="landing.guide.step4Text">Docker'ı kur, depoyu indir ve Telsiz'i Caddy ile başlat. Caddy HTTPS sertifikasını kendisi alır.</p>
+                <div class="tanitim-cmd" data-cmd="curl -fsSL https://get.docker.com | sh"></div>
+                <div class="tanitim-cmd" data-cmd="git clone https://github.com/Yerlifan/telsiz.git &amp;&amp; cd telsiz"></div>
+                <div class="tanitim-cmd" data-cmd="TELSIZ_ALAN_ADI={domain} docker compose -f deploy/docker-compose.yml --profile caddy up -d"></div>
+              </li>
+              <li class="tanitim-step">
+                <h3 class="tanitim-step-title" data-i18n="landing.guide.step5Title">Sahip hesabını oluştur</h3>
+                <p class="tanitim-step-text" data-i18n="landing.guide.step5Text">Kurulum kodunu günlükte gör, alan adının https:// adresini aç ve sahip hesabını oluştur. Ardından Ayarlar &gt; Genel bölümünden frekans tanıtımını yaz ve davet bağlantısını paylaş.</p>
+                <div class="tanitim-cmd" data-cmd="docker compose -f deploy/docker-compose.yml logs telsiz"></div>
+              </li>
+            </ol>
+            <p class="tanitim-guide-alt" data-i18n="landing.guide.alt">Başka yollar: Windows ve Linux için tek dosya sunucu, yerel ağda veya tünelle denemek için npx telsiz.</p>
+            <a id="tanitim-guide-link" class="tanitim-text-link" href="https://github.com/Yerlifan/telsiz/blob/main/docs/KURULUM.md#vps-ve-alan-ad%C4%B1yla-ad%C4%B1m-ad%C4%B1m" target="_blank" rel="noopener noreferrer"><span data-i18n="landing.guide.more">Ayrıntılı rehber</span><svg class="icon" aria-hidden="true"><use href="#i-external" xlink:href="#i-external"></use></svg><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+          </details>
+        </section>
+
+        <footer class="tanitim-foot">
+          <span id="tanitim-version" class="tanitim-version">Telsiz</span>
+          <span class="tanitim-foot-sep" aria-hidden="true"></span>
+          <span data-i18n="landing.license">Açık kaynak, MIT lisansı</span>
+          <span class="tanitim-foot-sep" aria-hidden="true"></span>
+          <a id="tanitim-source" class="tanitim-text-link" href="https://github.com/Yerlifan/telsiz" target="_blank" rel="noopener noreferrer"><span data-i18n="landing.source">Kaynak kod</span><svg class="icon" aria-hidden="true"><use href="#i-external" xlink:href="#i-external"></use></svg><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+        </footer>
+      </div>
+    </div>
     <div class="auth-stage">
       <!-- Kart bir telsiz gövdesidir (KONSEPT 6.12): anten, sunucu adını gösteren ekran (dikey ibre ve ölçek),
            ekranın altında kurulum, davet, giriş ve anahtar bölümleri, en altta güvence satırı -->
@@ -275,6 +387,7 @@
           <button id="key-skip" class="button button-ghost button-wide" type="button" data-i18n="key.skip">Anahtar olmadan devam et</button>
           <button id="key-logout" class="button button-ghost button-wide" type="button" data-i18n="auth.logout">Çıkış yap</button>
         </section>
+        <button id="tanitim-back" class="tanitim-back" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-radio" xlink:href="#i-radio"></use></svg><span data-i18n="landing.back">Telsiz'i tanı</span></button>
         <p class="auth-foot"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="auth.foot">Mesajlar bu cihazda şifrelenir, anahtar sunucuya gönderilmez.</span></p>
       </div>
     </div>

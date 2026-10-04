@@ -122,6 +122,40 @@ sudo journalctl -u telsiz
 
 Birim dosyası Node.js'i `/usr/bin/node` yolunda bekler. Yolu `command -v node` ile doğrulayın. İnternete Caddy veya nginx gibi bir ters vekil açar.
 
+## VPS ve alan adıyla adım adım
+
+Bu bölüm kiralık bir sanal sunucuda (VPS) kendi alan adınızla, otomatik HTTPS ile çalışan bir frekans kurmayı baştan sona anlatır. Aynı rehberin kısa hali, oturum açmamış ziyaretçinin gördüğü tanıtım sayfasında "Kendi frekansını kur" başlığı altında da bulunur.
+
+1. **VPS kiralayın.** Ubuntu 24.04 ve 1 ile 2 GB bellek yeterlidir. KVM sanallaştırma, sabit bir IPv4 adresi ve açık 80 ile 443 bağlantı noktaları olan bir paket seçin.
+2. **Alan adını VPS'e bağlayın.** Alan adı panelinde bir A kaydı ekleyin: Ad `@` (veya `telsiz` gibi bir alt alan adı), Değer VPS'in IP adresi. Cloudflare kullanıyorsanız kayıt "DNS only" (gri bulut) olmalıdır, aksi halde Caddy sertifika alamaz. Kaydın yayıldığını kontrol edin, yanıtta VPS'in IP adresi görünmelidir:
+
+   ```sh
+   nslookup alanadin.com
+   ```
+
+3. **VPS'e bağlanın.** Sağlayıcının verdiği IP adresi ve şifreyle bağlanın, ilk iş şifreyi değiştirin:
+
+   ```sh
+   ssh root@IP
+   passwd
+   ```
+
+4. **Telsiz'i kurun.** Docker'ı kurun, depoyu indirin ve Telsiz'i Caddy ile başlatın. Caddy HTTPS sertifikasını kendisi alır ve yeniler:
+
+   ```sh
+   curl -fsSL https://get.docker.com | sh
+   git clone https://github.com/Yerlifan/telsiz.git && cd telsiz
+   TELSIZ_ALAN_ADI=alanadin.com docker compose -f deploy/docker-compose.yml --profile caddy up -d
+   ```
+
+5. **Sahip hesabını oluşturun.** Kurulum kodunu günlükte görün, `https://alanadin.com` adresini açın ve sahip hesabını oluşturun. Ardından Ayarlar > Genel bölümünden frekans tanıtımını yazın ve davet bağlantısını paylaşın:
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml logs telsiz
+   ```
+
+Başka yollar: kiralık sunucu istemiyorsanız [Windows tek dosya](#windows-tek-dosya) veya [Linux tek dosya](#linux-tek-dosya) sunucusunu ya da [npm paketini](#npm-paketi) (`npx telsiz`) kullanabilirsiniz. Bunlar yerel ağda veya bir [tünel](#tünel) üzerinden denemek için uygundur. Güncelleme ve yedekleme için [Güncelleme](#güncelleme) ve [Yedekleme](#yedekleme) bölümlerine bakın.
+
 ## Ayarlar
 
 Sunucu ortam değişkenleriyle ayarlanır. Her ayarın Türkçe adı ve İngilizce takma adı vardır, ikisi birden verilirse Türkçe ad geçerlidir. Hatalı bir değer verilirse sunucu başlamaz ve hangi ayarın hatalı olduğunu konsola yazar.
@@ -174,11 +208,13 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 
 | Yer | Kim | İçerik |
 | --- | --- | --- |
-| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
+| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
 | Ayarlar > Odalar | Sahip ve yönetici | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
 | Ayarlar > Üyeler | Sahip ve yönetici | Rol değiştirme, engelleme ve engeli kaldırma, geçici parolayla parola sıfırlama |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |
 | Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları | Sahip ve yönetici | Yeni grup anahtarı oluşturma |
+
+Frekans tanıtımı en fazla 600 karakter ve 6 satırlık düz bir metindir. Oturum açmamış biri frekansın adresini tarayıcıda açınca önce tanıtım sayfasını görür: frekans adı, bu metin, Telsiz'in kısa anlatımı, masaüstü uygulamasını indirme ve kendi frekansını kurma bağlantıları, Giriş yap ve Davetin varsa katıl düğmeleri. Bu metin herkese açıktır ve şifrelenmez (`GET /api/info` yanıtında `about` alanı), gizli bilgi yazmayın. Davet bağlantısıyla gelenler, kurulmamış sunucu, masaüstü uygulaması ve bu tarayıcıda daha önce giriş yapmış olanlar tanıtım sayfasını atlar.
 
 Telsiz DJ ve YouTube kaynağı varsayılan olarak açıktır. YouTube kaynağı kapatılırsa yalnızca paylaşılan ses dosyaları çalınır. Sunucu şifreli DJ durumunu göremediği için bu kısıt üyelerin cihazlarında uygulanır. Telsiz DJ tamamen kapatılırsa sunucu DJ durum yazımlarını reddeder.
 
