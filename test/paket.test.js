@@ -25,7 +25,7 @@ function npm (args) {
 describe('package.json', () => {
   it('paket bilgileri', () => {
     assert.equal(pkg.name, 'telsiz')
-    assert.equal(pkg.version, '2.1.0')
+    assert.equal(pkg.version, '2.2.0')
     assert.equal(pkg.private, undefined)
     assert.equal(pkg.description, 'Kendi sunucunuzda çalışan, uçtan uca şifreli, açık kaynak yazılı ve sesli iletişim sistemi.')
     assert.deepEqual(pkg.keywords, ['telsiz', 'chat', 'voice-chat', 'e2ee', 'end-to-end-encryption', 'webrtc', 'self-hosted', 'pwa', 'privacy', 'open-source'])
