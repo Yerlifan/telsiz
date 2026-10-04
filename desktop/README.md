@@ -64,7 +64,7 @@ Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici p
 Windows ve Linux'ta uygulama penceresi yerel başlık çubuğu ve menü çubuğu olmadan, Electron'un Pencere Denetimleri Kaplamasıyla (`titleBarStyle: 'hidden'` ve `titleBarOverlay`) açılır (`src/lib/title-bar.js`). Küçült, ekranı boyutla ve kapat düğmelerini işletim sistemi sağ üste çizer, düğmelerin zemini ve simge rengi temadan gelir. Sayfanın en üstünde düğmeler kadar yükseklikte (32 piksel) ince bir şerit vardır (`public/js/30-pencere.js`): solda uygulama menüleri (Telsiz, Düzen, Görünüm, Yardım), ortada pencere başlığı.
 
 - Şeridin yüksekliği ve düğmelerin dışında kalan alan CSS ortam değişkenlerinden (`titlebar-area-*`) gelir. Sayfa ve tam ekran katmanlar (Ayarlar, pencereler, yan sayfalar) şeridin altından başlar (`--titlebar-h`). Kök öğedeki `has-titlebar` sınıfını `theme-init.js` ilk çizimden önce ekler, böylece açılışta sayfa kaymaz.
-- Pencere tam ekrandayken kaplama ve şerit kalkar, sayfa en üstten başlar.
+- Pencere tam ekrana girince ana süreç sayfaya bildirir (`titleBar.onFullscreen`), şerit gizlenir ve sayfa en üstten başlar. Kaplamanın CSS değişkenleri platforma göre tam ekranda da tanımlı kalabildiği için bu bildirime dayanılır.
 - Şerit pencereyi sürükleme bölgesidir, çift tıklama pencereyi büyütür. Menü düğmeleri sürükleme bölgesi değildir.
 - Sayfa zemin ve metin rengini `#rrggbb` biçiminde bildirir (`titleBar.setColors`), tema değişince yeniden bildirir. Ana süreç başka biçimdeki rengi reddeder ve aynı rengi yeniden uygulamaz. Pencere yeniden açılınca (ör. frekans geçişinde) son renklerle başlar.
 - Menü düğmesine basınca ana süreç uygulama menüsünün o bölümünü düğmenin altında açar (`titleBar.openMenu`). İstek yalnızca var olan bir menü sırası ve pencere içindeki bir konumla kabul edilir. Uygulama menüsü kayıtlı kaldığı için menü kısayolları (ör. Ctrl+Q, Ctrl+0) çalışmaya devam eder. Menü etiketleri yerel menüdeki gibi masaüstü uygulamasının dilindedir.
@@ -147,9 +147,10 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
 | `setVoiceActive(bool)` | Sayfa ses odasında bas konuş modundayken `true`, değilken `false` (basılı tut kancası yalnızca `true` iken çalışır) |
 | `onPttHold(cb)` | Basılı tut kancasından `cb('start')` (konuş başla) veya `cb('end')` (konuş bitti), dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
-| `titleBar.getInfo()` | `{ enabled, label, menus }`: kaplama açık mı, şeridin erişilebilir adı, uygulama menüsünün üst düzey etiketleri |
+| `titleBar.getInfo()` | `{ enabled, fullscreen, label, menus }`: kaplama açık mı, pencere tam ekranda mı, şeridin erişilebilir adı, uygulama menüsünün üst düzey etiketleri |
 | `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
 | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
+| `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |

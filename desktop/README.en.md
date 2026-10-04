@@ -64,7 +64,7 @@ When the web app calls `getDisplayMedia`, the main process opens its own picker 
 On Windows and Linux the app window opens without the native title bar and menu bar, with Electron's Window Controls Overlay (`titleBarStyle: 'hidden'` and `titleBarOverlay`) (`src/lib/title-bar.js`). The operating system draws the minimize, maximize and close buttons in the top right corner, and their background and symbol color come from the theme. At the top of the page there is a thin strip as tall as the buttons (32 pixels) (`public/js/30-pencere.js`): the app menus (Telsiz, Edit, View, Help) on the left and the window title in the middle.
 
 - The height of the strip and the area outside the buttons come from CSS environment variables (`titlebar-area-*`). The page and full screen layers (Settings, dialogs, side sheets) start below the strip (`--titlebar-h`). `theme-init.js` adds the `has-titlebar` class to the root element before the first paint, so the page does not shift on startup.
-- While the window is in full screen, the overlay and the strip go away and the page starts at the very top.
+- When the window enters full screen, the main process tells the page (`titleBar.onFullscreen`), the strip is hidden and the page starts at the very top. The overlay's CSS variables can stay defined in full screen on some platforms, so the page relies on this notice.
 - The strip is the drag area of the window, and a double click maximizes it. The menu buttons are not part of the drag area.
 - The page reports its background and text color as `#rrggbb` (`titleBar.setColors`) and reports them again when the theme changes. The main process rejects colors in any other format and does not apply the same colors twice. When the window opens again (for example on a frequency switch), it starts with the last colors.
 - Pressing a menu button makes the main process open that part of the app menu below the button (`titleBar.openMenu`). The request is only accepted with an existing menu index and a position inside the window. Because the app menu stays registered, menu shortcuts (for example Ctrl+Q, Ctrl+0) keep working. Like the native menu, the menu labels are in the desktop app's language.
@@ -147,9 +147,10 @@ The `window.telsizDesktop` API:
 | `setVoiceActive(bool)` | `true` while the page is in a voice room in push to talk mode, `false` otherwise (the hold to talk hook only runs while it is `true`) |
 | `onPttHold(cb)` | `cb('start')` (start talking) or `cb('end')` (stop talking) from the hold to talk hook, the returned function unsubscribes |
 | `setCloseToTray(bool)` | Minimize to the tray when the window is closed |
-| `titleBar.getInfo()` | `{ enabled, label, menus }`: whether the overlay is on, the accessible name of the strip, the top level labels of the app menu |
+| `titleBar.getInfo()` | `{ enabled, fullscreen, label, menus }`: whether the overlay is on, whether the window is in full screen, the accessible name of the strip, the top level labels of the app menu |
 | `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
 | `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
+| `titleBar.onFullscreen(cb)` | `cb(true)` when the window enters full screen, `cb(false)` when it leaves, the returned function removes the subscription |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
 | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
 | `addFrequency()` | Opens the frequency address window in add mode |
