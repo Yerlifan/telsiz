@@ -65,7 +65,10 @@ test('ayardaki köken yalnızca normalleştirilmiş biçimdeyse geçerlidir', ()
 
 test('/api/info yanıtı ve sürüm uyumu', () => {
   const good = { serverName: 'Kankalar', setupRequired: false, version: '2.0.0', limits: {} }
-  assert.deepEqual(su.parseInfo(good), { serverName: 'Kankalar', version: '2.0.0', setupRequired: false })
+  assert.deepEqual(su.parseInfo(good), { serverName: 'Kankalar', version: '2.0.0', setupRequired: false, serverIcon: null })
+  // Frekans fotoğrafının karması: yalnızca 32 onaltılık hane, aksi null
+  assert.equal(su.parseInfo(Object.assign({}, good, { serverIcon: 'a'.repeat(32) })).serverIcon, 'a'.repeat(32))
+  for (const icon of ['A'.repeat(32), 'a'.repeat(31), '../x', 5, {}]) assert.equal(su.parseInfo(Object.assign({}, good, { serverIcon: icon })).serverIcon, null)
   assert.equal(su.parseInfo(Object.assign({}, good, { version: null })).version, null)
   for (const bad of [null, [], 'x', {}, Object.assign({}, good, { serverName: '' }), Object.assign({}, good, { setupRequired: 'no' }), Object.assign({}, good, { limits: null }), Object.assign({}, good, { version: 2 }), Object.assign({}, good, { serverName: 'x'.repeat(201) })]) {
     assert.equal(su.parseInfo(bad), null)
@@ -100,7 +103,7 @@ test('checkServer: başarı, yönlendirme yasağı ve hatalar', async () => {
     seen = { url, init }
     return fakeResponse(200, JSON.stringify({ serverName: 'Kankalar', setupRequired: true, version: '2.1.0', limits: {} }))
   }, 'https://telsiz.ornek.com', '2.0.0')
-  assert.deepEqual(ok, { ok: true, origin: 'https://telsiz.ornek.com', serverName: 'Kankalar', version: '2.1.0', compatible: true, reason: 'match' })
+  assert.deepEqual(ok, { ok: true, origin: 'https://telsiz.ornek.com', serverName: 'Kankalar', serverIcon: null, version: '2.1.0', compatible: true, reason: 'match' })
   assert.equal(seen.url, 'https://telsiz.ornek.com/api/info')
   assert.equal(seen.init.redirect, 'error')
   assert.equal(seen.init.credentials, 'omit')

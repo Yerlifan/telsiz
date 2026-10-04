@@ -2,6 +2,7 @@
 
 // Kalıcılık katmanı.
 // state.json atomik yazılır, mesajlar kanal başına JSONL günlüğünde, yüklemeler uploads/<id>.bin dosyalarında tutulur.
+// Frekans fotoğrafı server-icon/<karma>.bin dosyasında atomik yazılır (şifresiz, herkese açık üst veri).
 // Mesaj gövdeleri sunucu için opak E2EE zarflarıdır, bu katman içeriklerini hiçbir zaman loglamaz.
 // İşletmecinin göreceği hata ve uyarı metinleri lang seçeneğindeki dilde üretilir (varsayılan tr).
 
@@ -17,6 +18,10 @@ const STATE_FILE = 'state.json'
 const LOCK_FILE = '.kilit'
 const MESSAGES_DIR = 'messages'
 const UPLOADS_DIR = 'uploads'
+// Frekans fotoğrafı: herkese açık üst veri, şifrelenmez. Dosya adı içeriğin karmasıdır (<karma>.bin).
+const ICON_DIR = 'server-icon'
+const ICON_HASH_RE = /^[0-9a-f]{32}$/
+const ICON_FILE_RE = /^([0-9a-f]{32})\.bin$/
 const UPLOAD_ID_RE = /^[0-9a-f]{32}$/
 const UPLOAD_BIN_RE = /^([0-9a-f]{32})\.bin$/
 const CHANNEL_FILE_RE = /^(\d{1,16})\.jsonl$/
@@ -373,6 +378,7 @@ async function openStore (options) {
   const lockPath = path.join(dir, LOCK_FILE)
   const messagesDir = path.join(dir, MESSAGES_DIR)
   const uploadsDir = path.join(dir, UPLOADS_DIR)
+  const iconDir = path.join(dir, ICON_DIR)
 
   const channels = new Map()
   const index = new Map()
@@ -453,7 +459,11 @@ async function openStore (options) {
     uploadsBytes,
     createUploadWriteStream,
     commitUpload,
-    discardUpload
+    discardUpload,
+    writeServerIcon,
+    readServerIcon,
+    removeServerIcon,
+    removeServerIconsExcept
   }
 
   let messageFiles = []
@@ -1204,6 +1214,58 @@ async function openStore (options) {
     ch.lines = 0
     kick(ch)
     return removed.map(copyMessage)
+  }
+
+  // ---------------------------------------------------------------- frekans fotoğrafı
+
+  function iconPath (hash) {
+    if (typeof hash !== 'string' || !ICON_HASH_RE.test(hash)) throw new StoreError('Invalid icon hash.', 'bad_icon_hash')
+    return path.join(iconDir, hash + '.bin')
+  }
+
+  // Önce <karma>.bin.tmp yazılır ve diske zorlanır, sonra tek adımda yerine taşınır (atomicWrite).
+  async function writeServerIcon (hash, data) {
+    assertOpen()
+    if (!(data instanceof Uint8Array)) throw new TypeError('writeServerIcon: data must be a Buffer or Uint8Array.')
+    const file = iconPath(hash)
+    await fsp.mkdir(iconDir, { recursive: true, mode: DIR_MODE })
+    await track(atomicWrite(file, data))
+  }
+
+  // Dosya yoksa null döner. max: okunacak en büyük boyut, aşılırsa null.
+  async function readServerIcon (hash, max) {
+    const file = iconPath(hash)
+    try {
+      const info = await fsp.stat(file)
+      if (!info.isFile() || (Number.isSafeInteger(max) && info.size > max)) return null
+      return await fsp.readFile(file)
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return null
+      throw err
+    }
+  }
+
+  async function removeServerIcon (hash) {
+    await track(unlinkQuiet(iconPath(hash)))
+  }
+
+  // Kayıtlı fotoğraf dışındaki dosyaları siler (yarım kalmış yazımlar ve eski fotoğraflar). keep: karma veya null.
+  async function removeServerIconsExcept (keep) {
+    let names = []
+    try {
+      names = await fsp.readdir(iconDir)
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return 0
+      throw err
+    }
+    let removed = 0
+    for (const name of names) {
+      const match = ICON_FILE_RE.exec(name)
+      if (match && match[1] === keep) continue
+      if (!match && !/^[0-9a-f]{32}\.bin\.tmp$/.test(name)) continue
+      if (await unlinkQuiet(path.join(iconDir, name))) removed++
+    }
+    return removed
   }
 
   // ---------------------------------------------------------------- yüklemeler

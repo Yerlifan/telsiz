@@ -208,13 +208,15 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 
 | Yer | Kim | İçerik |
 | --- | --- | --- |
-| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
+| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
 | Ayarlar > Odalar | Sahip ve yönetici | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
 | Ayarlar > Üyeler | Sahip ve yönetici | Rol değiştirme, engelleme ve engeli kaldırma, geçici parolayla parola sıfırlama |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |
 | Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları | Sahip ve yönetici | Yeni grup anahtarı oluşturma |
 
 Frekans tanıtımı en fazla 600 karakter ve 6 satırlık düz bir metindir. Oturum açmamış biri frekansın adresini tarayıcıda açınca önce tanıtım sayfasını görür: frekans adı, bu metin, Telsiz'in kısa anlatımı, masaüstü uygulamasını indirme ve kendi frekansını kurma bağlantıları, Giriş yap ve Davetin varsa katıl düğmeleri. Bu metin herkese açıktır ve şifrelenmez (`GET /api/info` yanıtında `about` alanı), gizli bilgi yazmayın. Davet bağlantısıyla gelenler, kurulmamış sunucu, masaüstü uygulaması ve bu tarayıcıda daha önce giriş yapmış olanlar tanıtım sayfasını atlar.
+
+Frekans fotoğrafı PNG, JPEG veya WebP olabilir (sunucu dosya imzasına bakar, SVG kabul etmez) ve profil resmiyle aynı boyut sınırına tabidir (varsayılan 1 MB). Uygulama seçilen resmi yüklemeden önce ortasından kare kırpar ve 256x256 boyutuna küçültür. Fotoğraf frekans adı gibi herkese açıktır ve şifrelenmez: oturumsuz `GET /api/server-icon` adresinden sunulur, karması `GET /api/info` yanıtında `serverIcon` alanındadır. Diğer frekansların fotoğrafını yalnızca masaüstü uygulaması gösterir, tarayıcıda diğer frekansların istasyonunda baş harf kalır. Fotoğraf veri klasöründe `server-icon/` altında durur ve yedeğe girer.
 
 Telsiz DJ ve YouTube kaynağı varsayılan olarak açıktır. YouTube kaynağı kapatılırsa yalnızca paylaşılan ses dosyaları çalınır. Sunucu şifreli DJ durumunu göremediği için bu kısıt üyelerin cihazlarında uygulanır. Telsiz DJ tamamen kapatılırsa sunucu DJ durum yazımlarını reddeder.
 
@@ -284,6 +286,7 @@ Bütün kalıcı veriler veri klasöründedir. Konsolun açılışta yazdığı 
 | `state.json.bak` | Bir önceki geçerli `state.json` |
 | `messages/<oda>.jsonl` | Her oda ve özel mesaj konuşması için şifreli mesaj zarfları |
 | `uploads/<kimlik>.bin` | Şifreli dosyalar ve profil resimleri |
+| `server-icon/<karma>.bin` | Frekans fotoğrafı (şifresiz, herkese açık) |
 | `.kilit` | Çalışan sürecin kilidi, yedeğe gerekmez |
 
 Mesaj ve dosya içerikleri şifrelidir, ancak hesap bilgileri ve üst veri düz metindir. Yedeği veri klasörü kadar dikkatli saklayın. Şifreleme anahtarları sunucuda değil kullanıcıların cihazlarındadır. Yedek, anahtarı bilmeyen birine mesajları açmaz, ancak anahtarı kaybeden bir grup da yedekten mesajlarını kurtaramaz.

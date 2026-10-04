@@ -8,6 +8,8 @@
 const state = {
   info: null,
   serverName: 'Telsiz',
+  // Frekans fotoğrafının karması (GET /api/info ve meta serverIcon) veya null
+  serverIcon: null,
   limits: {
     nameMin: 2,
     nameMax: 20,

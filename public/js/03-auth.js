@@ -33,6 +33,7 @@ function showAuthCard (name, notice) {
   document.title = state.serverName
   // Frekans tanıtımı gizlenir, giriş kartında "Telsiz'i tanı" düğmesi görünür (26-tanitim.js)
   if (typeof tanitimHide === 'function') tanitimHide(name)
+  if (typeof frekansRenderIdentity === 'function') frekansRenderIdentity()
 }
 
 function setFormBusy (form, busy) {
@@ -110,6 +111,7 @@ function showFragmentNotice () {
 function applyInfo (info) {
   state.info = info
   if (typeof info.serverName === 'string' && info.serverName) state.serverName = info.serverName
+  if (info.serverIcon === null || (typeof info.serverIcon === 'string' && /^[0-9a-f]{32}$/.test(info.serverIcon))) state.serverIcon = info.serverIcon
   const limits = info.limits && typeof info.limits === 'object' ? info.limits : {}
   Object.keys(state.limits).forEach((key) => {
     const value = limits[key]
@@ -117,6 +119,7 @@ function applyInfo (info) {
   })
   document.title = state.serverName
   if (typeof frekansNoteName === 'function') frekansNoteName(state.serverName)
+  if (typeof frekansRenderIdentity === 'function') frekansRenderIdentity()
 }
 
 async function loadInfo () {

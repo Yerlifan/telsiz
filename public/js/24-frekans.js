@@ -32,6 +32,12 @@
 //   görünen adlar vardır, hiçbir anahtar veya oturum bilgisi yoktur. Davet bağlantısının #davet= ve
 //   #anahtar= parçalarıyla çakışmaz (ayrı ad, base64url & ve = içermez).
 //
+// Frekans fotoğrafı: sahibin yüklediği herkese açık resim (GET /api/server-icon, sürümü meta ve info
+// serverIcon karmasıdır). Amblemlerde baş harfin yerine gösterilir, resim yoksa veya yüklenemezse baş harf
+// kalır. Tarayıcıda yalnızca bu kökenin fotoğrafı yüklenebilir (CSP img-src 'self'), diğer frekanslarda
+// baş harf kalır. Masaüstünde ana süreç diğer frekansların fotoğrafını kendisi indirir, doğrular ve
+// data: adresi olarak arka plan durumuyla gönderir (desktop/src/lib/server-icon.js).
+//
 // Adres kuralları masaüstüyle aynıdır (desktop/src/lib/server-url.js): yalnızca https://, tek istisna bu
 // bilgisayardaki sunucu (http://localhost ve http://127.0.0.1). Kullanıcı adı, parola, yol, sorgu ve #
 // bulunamaz. Saklanan değer normalleştirilmiş kökendir.
@@ -49,6 +55,10 @@ const FREKANS_BG_MAX = 8
 const FREKANS_STATUSES = ['open', 'online', 'offline', 'login', 'unknown']
 const FREKANS_BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
 const FREKANS_MAX_COUNT = 100000
+const FREKANS_ICON_HASH_RE = /^[0-9a-f]{32}$/
+// Masaüstünden gelen fotoğraf: yalnızca PNG, JPEG ve WebP data: adresi (desktop/src/lib/server-icon.js ile aynı sınır)
+const FREKANS_ICON_DATA_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+const FREKANS_ICON_DATA_MAX = 1400000
 
 const frekansState = {
   bound: false,
@@ -60,7 +70,9 @@ const frekansState = {
   bg: Object.create(null),
   bgBound: false,
   // Tarayıcı: yerel listenin önbelleği (her çizimde depodan okunmaz), null ise okunur
-  webList: null
+  webList: null,
+  // Yüklenemeyen fotoğraf adresleri: bu oturumda yeniden denenmez, baş harf gösterilir
+  failedIcons: Object.create(null)
 }
 
 // ------------------------------------------------------------------ doğrulama ve liste
@@ -395,6 +407,107 @@ function frekansChanged () {
   renderBand()
 }
 
+// ------------------------------------------------------------------ frekans fotoğrafı
+
+// Açık frekansın fotoğrafının adresi veya null (karma sürümdür, değişince adres de değişir)
+function frekansOwnIconUrl () {
+  const hash = typeof state !== 'undefined' ? state.serverIcon : null
+  return typeof hash === 'string' && FREKANS_ICON_HASH_RE.test(hash) ? '/api/server-icon?v=' + hash : null
+}
+
+// Masaüstünden gelen data: adresinin doğrulaması, geçersizse null
+function frekansCleanIconData (value) {
+  return typeof value === 'string' && value.length <= FREKANS_ICON_DATA_MAX && FREKANS_ICON_DATA_RE.test(value) ? value : null
+}
+
+function frekansIconUsable (src) {
+  return typeof src === 'string' && src !== '' && !Object.prototype.hasOwnProperty.call(frekansState.failedIcons, src)
+}
+
+// Amblemin içine fotoğraf koyar veya kaldırır. Amblemin baş harfi (.emblem-letter) yerinde kalır, fotoğraf
+// görünürken gizlenir (.has-photo). Fotoğraf yüklenemezse kaldırılır ve baş harf görünür.
+function frekansPhoto (node, src) {
+  if (!node) return
+  let img = null
+  Array.prototype.forEach.call(node.childNodes, (child) => {
+    if (child.nodeType === 1 && child.classList.contains('frekans-photo')) img = child
+  })
+  if (!frekansIconUsable(src)) {
+    if (img) node.removeChild(img)
+    node.classList.remove('has-photo')
+    return
+  }
+  if (img && img.getAttribute('src') === src) return
+  if (img) node.removeChild(img)
+  img = document.createElement('img')
+  img.className = 'frekans-photo'
+  img.alt = ''
+  img.setAttribute('draggable', 'false')
+  img.addEventListener('error', () => {
+    frekansState.failedIcons[src] = true
+    if (img.parentNode === node) node.removeChild(img)
+    node.classList.remove('has-photo')
+    frekansFavicon()
+  })
+  node.insertBefore(img, node.firstChild)
+  node.classList.add('has-photo')
+  img.src = src
+}
+
+// Ayrı bir <img> öğesini (giriş ekranı, tanıtım sayfası) fotoğrafla gösterir veya gizler. host: fotoğraf
+// görünürken has-photo sınıfını alan kap.
+function frekansPhotoImg (img, src, host) {
+  if (!img) return
+  if (!img.getAttribute('data-photo-bound')) {
+    img.setAttribute('data-photo-bound', '1')
+    img.addEventListener('error', () => {
+      const failed = img.getAttribute('src')
+      if (failed) frekansState.failedIcons[failed] = true
+      img.hidden = true
+      img.removeAttribute('src')
+      if (host) host.classList.remove('has-photo')
+      frekansFavicon()
+    })
+  }
+  if (!frekansIconUsable(src)) {
+    img.hidden = true
+    img.removeAttribute('src')
+    if (host) host.classList.remove('has-photo')
+    return
+  }
+  if (img.getAttribute('src') !== src) img.src = src
+  img.hidden = false
+  if (host) host.classList.add('has-photo')
+}
+
+// Tarayıcı sekmesinin simgesi: fotoğraf varsa o, yoksa Telsiz simgesi (masaüstünde sekme yoktur)
+function frekansFavicon () {
+  const link = document.querySelector ? document.querySelector('link[rel="icon"]') : null
+  if (!link || frekansDesktop()) return
+  if (!link.getAttribute('data-default')) {
+    link.setAttribute('data-default', link.getAttribute('href') || '/favicon.svg')
+    link.setAttribute('data-default-type', link.getAttribute('type') || 'image/svg+xml')
+  }
+  const src = frekansOwnIconUrl()
+  const usable = frekansIconUsable(src)
+  const href = usable ? src : link.getAttribute('data-default')
+  if (link.getAttribute('href') === href) return
+  link.setAttribute('href', href)
+  if (usable) link.removeAttribute('type')
+  else link.setAttribute('type', link.getAttribute('data-default-type'))
+}
+
+// Açık frekansın kimliğini gösteren yerler (04-meta.js renderServerName çağırır): giriş ekranının
+// fotoğrafı, tanıtım sayfası ve sekme simgesi. Üst çubuğun amblemi renderServerName içindedir.
+function frekansRenderIdentity () {
+  const src = frekansOwnIconUrl()
+  const authImg = byId('auth-server-icon')
+  if (authImg) frekansPhotoImg(authImg, src, authImg.parentNode)
+  const landing = byId('tanitim-photo')
+  if (landing) frekansPhotoImg(landing, src, byId('tanitim-ident'))
+  frekansFavicon()
+}
+
 function frekansCount (value) {
   return typeof value === 'number' && isFinite(value) && value >= 0 ? Math.min(FREKANS_MAX_COUNT, Math.floor(value)) : 0
 }
@@ -411,7 +524,8 @@ function frekansCleanBackground (data) {
       unread: frekansCount(item.unread),
       mention: frekansCount(item.mention),
       online: item.online === true ? true : (item.online === false ? false : null),
-      onlineUsers: typeof item.onlineUsers === 'number' ? frekansCount(item.onlineUsers) : null
+      onlineUsers: typeof item.onlineUsers === 'number' ? frekansCount(item.onlineUsers) : null,
+      icon: frekansCleanIconData(item.icon)
     }
   })
   return out
@@ -467,12 +581,14 @@ function frekansStatusOf (item, report, desktop) {
 }
 
 // Bandın, Tümü sayfasının ve testlerin kullandığı saf model. items: kayıtlı frekanslar, ctx: { desktop,
-// bg (kökene göre arka plan durumu), own (açık frekansın sayıları) }. Sonuç bant sırasıyla istasyonlardır.
+// bg (kökene göre arka plan durumu), own (açık frekansın sayıları), ownIcon (açık frekansın fotoğraf
+// adresi) }. Sonuç bant sırasıyla istasyonlardır. Diğer frekansların fotoğrafı yalnızca masaüstünde vardır.
 function frekansBandModel (items, ctx) {
   const c = ctx || {}
   const desktop = Boolean(c.desktop)
   const bg = c.bg || {}
   const own = c.own || { unread: 0, mention: 0, online: null }
+  const ownIcon = typeof c.ownIcon === 'string' && c.ownIcon ? c.ownIcon : null
   const list = (Array.isArray(items) ? items : []).filter((item) => item && typeof item === 'object')
   const indexed = list.map((item, i) => ({ item: item, i: i }))
   indexed.sort((a, b) => {
@@ -523,7 +639,8 @@ function frekansBandModel (items, ctx) {
       hidden: hidden,
       sub: sub,
       label: parts.join(', '),
-      title: hidden ? t('bant.webHidden') : host
+      title: hidden ? t('bant.webHidden') : host,
+      icon: active ? ownIcon : (report ? frekansCleanIconData(report.icon) : null)
     }
   })
 }
@@ -539,12 +656,13 @@ function frekansCurrentItems () {
 }
 
 function frekansStations () {
-  return frekansBandModel(frekansCurrentItems(), { desktop: Boolean(frekansDesktop()), bg: frekansState.bg, own: frekansOwnCounts() })
+  return frekansBandModel(frekansCurrentItems(), { desktop: Boolean(frekansDesktop()), bg: frekansState.bg, own: frekansOwnCounts(), ownIcon: frekansOwnIconUrl() })
 }
 
 // Çizim anahtarı: değişmeyen istasyon yeniden çizilmez
 function frekansStationKey (st) {
-  return [st.key, st.name, st.sub, st.status, st.unread, st.mention, st.tuned ? 1 : 0, st.label].join(':')
+  const icon = st.icon && frekansIconUsable(st.icon) ? st.icon.length + '.' + st.icon.slice(-24) : ''
+  return [st.key, st.name, st.sub, st.status, st.unread, st.mention, st.tuned ? 1 : 0, st.label, icon].join(':')
 }
 
 function frekansDot (status) {
@@ -585,7 +703,7 @@ function frekansBuildStation (st) {
   }
   if (st.known && (st.unread > 0 || st.mention > 0)) b.classList.add('is-unread')
   if (st.known && st.mention > 0) b.classList.add('is-mentioned')
-  const em = frekansEmblem(st.name)
+  const em = frekansEmblem(st.name, st.icon)
   em.classList.add('station-emblem')
   em.appendChild(frekansDot(st.status))
   b.appendChild(em)
@@ -816,7 +934,7 @@ function frekansSheetRow (st) {
     b.classList.add('is-current')
     b.setAttribute('aria-current', 'page')
   }
-  const em = frekansEmblem(st.name)
+  const em = frekansEmblem(st.name, st.icon)
   em.appendChild(frekansDot(st.status))
   b.appendChild(em)
   const text = h('span', 'sheet-row-body')
@@ -928,9 +1046,12 @@ function frekansPositionMenu (menu, anchor) {
   menu.style.top = Math.round(top) + 'px'
 }
 
-function frekansEmblem (name) {
-  const em = h('span', 'frekans-emblem', initial(name))
+// Amblem: baş harf ve varsa frekans fotoğrafı (src: adres veya data: adresi)
+function frekansEmblem (name, src) {
+  const em = h('span', 'frekans-emblem')
+  em.appendChild(h('span', 'emblem-letter', initial(name)))
   em.setAttribute('aria-hidden', 'true')
+  frekansPhoto(em, src)
   return em
 }
 
@@ -958,7 +1079,7 @@ function frekansBuildMenu (menu, anchor) {
   const current = frekansStations().filter((st) => st.tuned)[0]
   const name = current ? current.name : (state.serverName || t('app.name'))
   const head = h('div', 'frekans-menu-head')
-  head.appendChild(frekansEmblem(name))
+  head.appendChild(frekansEmblem(name, current ? current.icon : frekansOwnIconUrl()))
   const text = h('span', 'frekans-item-text')
   text.appendChild(h('span', 'frekans-item-name', name))
   const users = typeof metaUsers === 'function' ? metaUsers().length : 0
@@ -1075,5 +1196,7 @@ window.TelsizFrekans = {
   bandModel: frekansBandModel,
   statusOf: frekansStatusOf,
   cleanBackground: frekansCleanBackground,
+  cleanIconData: frekansCleanIconData,
+  ownIconUrl: frekansOwnIconUrl,
   open: frekansOpenMenu
 }

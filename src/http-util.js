@@ -90,8 +90,8 @@ function contentLength (req) {
 
 // Gövdeyi en fazla limit bayta kadar okur. timeoutMs verilirse gövde bu süre içinde tamamlanmazsa
 // bağlantı kesilir (yavaş gövdeyle bağlantı ve bellek tutma saldırılarına karşı).
-// Sonuç: { text } | { tooLarge: true } | { aborted: true }
-function readBody (req, limit, timeoutMs) {
+// binary true ise gövde metne çevrilmez. Sonuç: { text } (binary ise { buffer }) | { tooLarge: true } | { aborted: true }
+function readBody (req, limit, timeoutMs, binary) {
   return new Promise((resolve) => {
     const declared = contentLength(req)
     if (declared !== null && declared > limit) {
@@ -131,7 +131,8 @@ function readBody (req, limit, timeoutMs) {
       chunks.push(chunk)
     }
     function onEnd () {
-      finish({ text: Buffer.concat(chunks, size).toString('utf8') })
+      const buffer = Buffer.concat(chunks, size)
+      finish(binary ? { buffer } : { text: buffer.toString('utf8') })
     }
     function onError () {
       finish({ aborted: true })
@@ -222,5 +223,6 @@ module.exports = {
   readBody,
   parseJsonObject,
   splitUrl,
+  etagMatches,
   serveFile
 }

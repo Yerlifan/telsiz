@@ -130,6 +130,8 @@ function tanitimRender () {
   const version = typeof info.version === 'string' ? info.version : ''
   setLive(tanitimEl.version, () => (version ? t('landing.version', { version: version }) : t('app.name')))
   tanitimDocLinks()
+  // Frekans fotoğrafı ekranda adın solunda, yoksa veya yüklenemezse ekran eski görünümünde kalır (24-frekans.js)
+  if (typeof frekansRenderIdentity === 'function') frekansRenderIdentity()
   // Masaüstü uygulamasında indirme kartı gösterilmez (sayfa masaüstünde zaten açılmaz, yine de korunur)
   if (tanitimEl.desktop) tanitimEl.desktop.hidden = tanitimDesktop()
 }

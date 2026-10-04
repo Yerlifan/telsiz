@@ -63,7 +63,9 @@ function parseInfo (data) {
   if (!data.limits || typeof data.limits !== 'object' || Array.isArray(data.limits)) return null
   if (data.version !== undefined && data.version !== null && typeof data.version !== 'string') return null
   const version = typeof data.version === 'string' && data.version.length <= 64 ? data.version : null
-  return { serverName: name, version, setupRequired: data.setupRequired }
+  // Frekans fotoğrafının karması (src/lib/server-icon.js), geçersizse veya yoksa null
+  const serverIcon = typeof data.serverIcon === 'string' && /^[0-9a-f]{32}$/.test(data.serverIcon) ? data.serverIcon : null
+  return { serverName: name, version, setupRequired: data.setupRequired, serverIcon }
 }
 
 function majorOf (version) {
@@ -118,7 +120,7 @@ async function readLimited (response, max) {
 }
 
 // Sunucuyu denetler: GET <origin>/api/info. fetchFn: (url, init) => Promise<Response>.
-// Sonuç: { ok: true, origin, serverName, version, compatible, reason }
+// Sonuç: { ok: true, origin, serverName, serverIcon, version, compatible, reason }
 // veya { ok: false, code } (code: timeout, certificate, unreachable, not_telsiz)
 async function checkServer (fetchFn, origin, appVersion, options) {
   const opts = options || {}
@@ -158,6 +160,7 @@ async function checkServer (fetchFn, origin, appVersion, options) {
       ok: true,
       origin,
       serverName: info.serverName,
+      serverIcon: info.serverIcon,
       version: info.version,
       compatible: versions.compatible,
       reason: versions.reason

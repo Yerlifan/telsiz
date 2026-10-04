@@ -3214,6 +3214,10 @@ function buildGeneralPage (page) {
     setMsg(msg, () => errorText(res, t('settings.server.nameFailed')), 'error')
   })
 
+  // Frekans fotoğrafı (yalnızca sahip): herkese açık resim, amblemlerin, bandın, giriş ekranının ve
+  // tanıtım sayfasının yerine baş harfin yerine geçer. Yönetici yalnızca önizlemeyi görür.
+  const photo = buildServerIconSection(page)
+
   // Frekans tanıtımı (yalnızca sahip yazar): herkese açık düz metin, giriş yapmamış ziyaretçinin
   // gördüğü tanıtım sayfasında görünür (26-tanitim.js). Yönetici salt okunur görür.
   const about = buildAboutSection(page)
@@ -3242,6 +3246,7 @@ function buildGeneralPage (page) {
     save.hidden = !owner
     ownerOnly.hidden = owner
     if (!dirty && document.activeElement !== input) input.value = state.serverName
+    photo.update(owner)
     about.update(owner)
     musicSec.hidden = !owner
     const music = musicServerSettings()
@@ -3263,6 +3268,191 @@ function buildGeneralPage (page) {
     })
   }
   update()
+  return { update: update }
+}
+
+// ------------------------------------------------------------------ frekans fotoğrafı
+
+const SERVER_ICON_EDGE = 256
+
+// Açık frekansın fotoğraf adresi (24-frekans.js), yoksa null
+function settingsIconUrl () {
+  return typeof frekansOwnIconUrl === 'function' ? frekansOwnIconUrl() : null
+}
+
+function serverIconLimit () {
+  const limits = state.info && state.info.limits ? state.info.limits : null
+  const value = limits ? limits.serverIconMaxBytes : null
+  return typeof value === 'number' && isFinite(value) && value > 0 ? value : 1024 * 1024
+}
+
+// Seçilen resmi ortasından kare kırpar ve 256x256 boyutuna küçültür. Saydamlık olabilecek kaynaklar
+// (PNG, WebP, GIF) PNG, fotoğraflar JPEG olur. Yeniden kodlama konum gibi üst verileri siler.
+// Sonuç: Uint8Array veya null (çözülemeyen ya da sınıra sığmayan resim)
+async function serverIconPrepare (file) {
+  let bytes = null
+  try {
+    bytes = await readBlobBytes(file)
+  } catch (err) {
+    return null
+  }
+  const sniffed = window.E2EE.sniffImage(bytes)
+  if (!sniffed) return null
+  const decoded = await decodeImage(bytes, sniffed)
+  if (!decoded) return null
+  try {
+    const side = Math.min(decoded.w, decoded.h)
+    if (!side) return null
+    const canvas = document.createElement('canvas')
+    canvas.width = SERVER_ICON_EDGE
+    canvas.height = SERVER_ICON_EDGE
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    const draw = (opaque) => {
+      ctx.clearRect(0, 0, SERVER_ICON_EDGE, SERVER_ICON_EDGE)
+      if (opaque) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, SERVER_ICON_EDGE, SERVER_ICON_EDGE)
+      }
+      ctx.drawImage(decoded.image, Math.floor((decoded.w - side) / 2), Math.floor((decoded.h - side) / 2), side, side, 0, 0, SERVER_ICON_EDGE, SERVER_ICON_EDGE)
+    }
+    const max = serverIconLimit()
+    let out = null
+    if (sniffed !== 'image/jpeg') {
+      draw(false)
+      out = await canvasToBytes(canvas, 'image/png')
+    }
+    if (!out || out.length > max) {
+      draw(true)
+      out = await canvasToBytes(canvas, 'image/jpeg', JPEG_QUALITY)
+    }
+    canvas.width = 1
+    canvas.height = 1
+    const type = window.E2EE.sniffImage(out)
+    if ((type !== 'image/png' && type !== 'image/jpeg') || out.length > max) return null
+    return out
+  } catch (err) {
+    return null
+  } finally {
+    decoded.release()
+  }
+}
+
+function buildServerIconSection (page) {
+  const sec = sSection(page, t('settings.server.photoTitle'), 'set-photo-section')
+  const row = h('div', 'settings-avatar-row settings-photo-row')
+  const preview = h('div', 'settings-avatar-host settings-photo-host')
+  preview.id = 'set-photo-preview'
+  row.appendChild(preview)
+  const buttons = h('div', 'settings-avatar-buttons')
+  const pick = sButton('button button-secondary', t('settings.server.photoPick'), 'set-photo-pick', null, 'i-image')
+  const remove = sButton('button button-ghost', t('settings.server.photoRemove'), 'set-photo-remove', null, 'i-trash')
+  buttons.appendChild(pick)
+  buttons.appendChild(remove)
+  row.appendChild(buttons)
+  sec.appendChild(row)
+  const file = h('input', 'file-input')
+  file.type = 'file'
+  file.accept = 'image/png,image/jpeg,image/webp,image/gif'
+  file.id = 'set-photo-file'
+  file.tabIndex = -1
+  file.setAttribute('aria-hidden', 'true')
+  sec.appendChild(file)
+  sec.appendChild(sHint(t('settings.server.photoHint'), 'set-photo-hint'))
+  const ownerOnly = sHint(t('settings.server.photoOwnerOnly'), 'set-photo-owner-only')
+  sec.appendChild(ownerOnly)
+  const msg = sMsg('set-photo-msg')
+  sec.appendChild(msg)
+  let busy = false
+  let shown = ''
+
+  const renderPreview = () => {
+    const src = settingsIconUrl() || ''
+    const key = src + '|' + state.serverName
+    if (key === shown && preview.firstChild) return
+    shown = key
+    clear(preview)
+    let em = null
+    if (typeof frekansEmblem === 'function') {
+      em = frekansEmblem(state.serverName, src || null)
+    } else {
+      em = h('span', 'frekans-emblem')
+      em.appendChild(h('span', 'emblem-letter', initial(state.serverName)))
+      em.setAttribute('aria-hidden', 'true')
+    }
+    em.classList.add('settings-photo-emblem')
+    preview.appendChild(em)
+  }
+
+  const applySaved = (hash) => {
+    state.serverIcon = hash
+    if (state.info) state.info.serverIcon = hash
+    renderServerName()
+    renderBand()
+    renderPreview()
+  }
+
+  pick.addEventListener('click', () => {
+    if (busy || !isOwner()) return
+    file.value = ''
+    file.click()
+  })
+  file.addEventListener('change', async () => {
+    const chosen = file.files && file.files[0] ? file.files[0] : null
+    file.value = ''
+    if (!chosen || busy || !isOwner()) return
+    if (chosen.size > AVATAR_SOURCE_MAX) {
+      setMsg(msg, () => t('settings.profile.avatarTooBig', { size: formatSize(AVATAR_SOURCE_MAX) }), 'error')
+      return
+    }
+    busy = true
+    pick.disabled = true
+    remove.disabled = true
+    setMsg(msg, () => t('settings.profile.avatarReading'))
+    const bytes = await serverIconPrepare(chosen)
+    if (!bytes) {
+      busy = false
+      update(isOwner())
+      setMsg(msg, () => t('settings.server.photoInvalid'), 'error')
+      return
+    }
+    const res = await api('POST', '/api/server-icon', null, { binary: bytes })
+    busy = false
+    const saved = res.status === 200 && res.data && typeof res.data.serverIcon === 'string'
+    if (saved) applySaved(res.data.serverIcon)
+    update(isOwner())
+    if (saved) {
+      setMsg(msg, () => t('settings.server.photoSaved'), 'ok')
+      if (isConnected(pick)) focusNode(pick)
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.server.photoFailed')), 'error')
+  })
+  remove.addEventListener('click', async () => {
+    if (busy || !isOwner()) return
+    busy = true
+    pick.disabled = true
+    remove.disabled = true
+    const res = await api('POST', '/api/server-icon/delete', {})
+    busy = false
+    if (res.status === 200) applySaved(null)
+    update(isOwner())
+    if (res.status === 200) {
+      setMsg(msg, () => t('settings.server.photoRemoved'), 'ok')
+      focusNode(pick)
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.server.photoFailed')), 'error')
+  })
+
+  function update (owner) {
+    pick.hidden = !owner
+    remove.hidden = !owner || !settingsIconUrl()
+    pick.disabled = busy
+    remove.disabled = busy
+    ownerOnly.hidden = owner
+    renderPreview()
+  }
   return { update: update }
 }
 
