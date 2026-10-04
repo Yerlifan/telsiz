@@ -51,6 +51,13 @@ window.VoiceClient = (function () {
   var MAX_CANDIDATE_CHARS = 2000
   var MAX_SIGNAL_CHARS = 100000
   var MAX_STORED_USERS = 500
+  // Kişi bazlı ses en fazla %200'dür (applyPeerAudio, yükseltme yolu)
+  var PEER_VOLUME_MAX = 2
+  // Yükseltilmiş sesin tepelerinde sert kırpılmayı yumuşatan sınırlayıcı (DynamicsCompressor): eşik dBFS, oran,
+  // diz genişliği, saldırı ve bırakma saniye
+  var BOOST_LIMITER = { threshold: -3, ratio: 20, knee: 0, attack: 0.003, release: 0.25 }
+  // Kazanç değişince tıkırtı olmaması için hedef değere yaklaşma zaman sabiti (saniye)
+  var BOOST_RAMP_S = 0.015
   var MAX_SEEN_PEERS = 256
   var MAX_SEEN_SIDS = 32
   var MAX_SERVER_TEXT = 500
@@ -953,7 +960,7 @@ window.VoiceClient = (function () {
       if (obj) mergeSettings(obj)
       var p = readStored(PEERS_KEY)
       if (p) {
-        copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
+        copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= PEER_VOLUME_MAX })
         copyMap(p.localMutes, st.localMutes, function (v) { return v === true })
         copyMap(p.screenVolumes, st.screenVolumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
       }
@@ -1085,14 +1092,72 @@ window.VoiceClient = (function () {
       return typeof v === 'number' ? v : 1
     }
 
+    // Kişinin sesi: genel çıkış x kişi bazlı ses (en fazla %200), sağırlaştırma, yerel ve sunucu susturması.
+    // Etkin düzey 1'e kadar ses öğesinin volume alanıyla uygulanır. Öğenin volume alanı en fazla 1 olduğu için
+    // 1'in üstünde (ör. kişi %200, genel çıkış %100) o kişinin akışı ses bağlamında yükseltilir (ensureBoost):
+    // kaynak -> kazanç -> sınırlayıcı -> hoparlör. Bu sırada ses öğesi sessiz olarak çalmaya devam eder, çünkü
+    // Chromium uzak WebRTC akışını ses bağlamına yalnızca akış bir medya öğesine bağlıyken verir. Ses bağlamı
+    // kurulamazsa düzey 1'de kalır. Etkin düzey 1'e inince yükseltme kaldırılır.
     function applyPeerAudio (peer) {
       var a = peer.audio
       var r = st.roster[peer.peerId]
       if (!a || !r) return
+      var muted = st.deafened || st.localMutes[r.userId] === true || st.serverMutedUsers[r.userId] === true
+      var level = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, PEER_VOLUME_MAX)
+      var boost = level > 1 ? ensureBoost(peer) : null
+      if (!boost) dropBoost(peer)
       try {
-        a.volume = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, 1)
+        a.volume = Math.min(level, 1)
       } catch (e) {}
-      a.muted = st.deafened || st.localMutes[r.userId] === true || st.serverMutedUsers[r.userId] === true
+      a.muted = boost ? true : muted
+      if (boost) setBoostGain(boost, muted ? 0 : level)
+    }
+
+    function ensureBoost (peer) {
+      var stream = peer.stream
+      var c = stream ? ensureContext() : null
+      if (!c || c.state === 'closed' || typeof c.createGain !== 'function' || typeof c.createMediaStreamSource !== 'function') return null
+      var b = peer.boost
+      if (b && b.ctx === c && b.stream === stream) return b
+      dropBoost(peer)
+      var nodes = { ctx: c, stream: stream, source: null, gain: null, limiter: null }
+      try {
+        nodes.source = c.createMediaStreamSource(stream)
+        nodes.gain = c.createGain()
+        nodes.gain.gain.value = 0
+        nodes.source.connect(nodes.gain)
+        var last = nodes.gain
+        if (typeof c.createDynamicsCompressor === 'function') {
+          nodes.limiter = c.createDynamicsCompressor()
+          Object.keys(BOOST_LIMITER).forEach(function (key) {
+            if (nodes.limiter[key]) nodes.limiter[key].value = BOOST_LIMITER[key]
+          })
+          nodes.gain.connect(nodes.limiter)
+          last = nodes.limiter
+        }
+        last.connect(c.destination)
+      } catch (e) {
+        disconnectNodes([nodes.source, nodes.gain, nodes.limiter])
+        return null
+      }
+      peer.boost = nodes
+      return nodes
+    }
+
+    function setBoostGain (boost, value) {
+      var p = boost.gain.gain
+      try {
+        if (typeof p.setTargetAtTime === 'function') p.setTargetAtTime(value, boost.ctx.currentTime, BOOST_RAMP_S)
+        else p.value = value
+      } catch (e) {
+        p.value = value
+      }
+    }
+
+    function dropBoost (peer) {
+      var b = peer.boost
+      peer.boost = null
+      if (b) disconnectNodes([b.source, b.gain, b.limiter])
     }
 
     function applyAllAudio () {
@@ -1900,6 +1965,7 @@ window.VoiceClient = (function () {
 
     function removeAudio (peer) {
       var a = peer.audio
+      dropBoost(peer)
       peer.audio = null
       peer.stream = null
       if (!a) return
@@ -2563,6 +2629,8 @@ window.VoiceClient = (function () {
         sender: null,
         audio: null,
         stream: null,
+        // Ses %100'ün üstündeyken yükseltme düğümleri (ensureBoost): { ctx, stream, source, gain, limiter }
+        boost: null,
         source: null,
         analyser: null,
         fbuf: null,
@@ -4879,7 +4947,7 @@ window.VoiceClient = (function () {
       var uid = normId(userId)
       var n = Number(volume)
       if (uid === null || !isFinite(n)) return
-      n = clamp(n, 0, 1)
+      n = clamp(n, 0, PEER_VOLUME_MAX)
       if (n === 1) {
         delete st.volumes[uid]
       } else if (uid in st.volumes || Object.keys(st.volumes).length < MAX_STORED_USERS) {

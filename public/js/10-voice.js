@@ -1005,14 +1005,21 @@ function bindPttTarget (target) {
 let popoverUserId = null
 
 // Kişi ses seviyesi voice.js tarafından kullanıcı kimliğine göre saklanır. Kişi aynı odada
-// değilken gösterim için yerel kopya da tutulur.
+// değilken gösterim için yerel kopya da tutulur. Değer yüzde olarak 0 ile PEER_VOLUME_MAX_PCT arasıdır,
+// %100'ün üstü sesi yükseltir (voice.js applyPeerAudio).
+const PEER_VOLUME_MAX_PCT = 200
+
+function clampPeerVolume (value) {
+  return Math.max(0, Math.min(PEER_VOLUME_MAX_PCT, Math.round(Number(value) || 0)))
+}
+
 function peerVolumeValue (userId) {
   const s = snap()
   const peer = s.peers ? s.peers[String(userId)] : null
-  if (peer && typeof peer.volume === 'number') return Math.round(Math.max(0, Math.min(1, peer.volume)) * 100)
+  if (peer && typeof peer.volume === 'number') return clampPeerVolume(peer.volume * 100)
   const stored = storeGetJson(KEYS.peerVolume, {})
   const value = stored[String(userId)]
-  return typeof value === 'number' && value >= 0 && value <= 100 ? value : 100
+  return typeof value === 'number' && value >= 0 && value <= PEER_VOLUME_MAX_PCT ? value : 100
 }
 
 function openPeerPopover (userId, trigger, sameChannel) {
@@ -1124,7 +1131,7 @@ async function onPeerCameraOffClick () {
 
 function onPeerVolumeInput () {
   if (popoverUserId === null) return
-  const value = Math.max(0, Math.min(100, Math.round(Number(el.peerVolume.value) || 0)))
+  const value = clampPeerVolume(el.peerVolume.value)
   el.peerVolumeValue.textContent = formatPercent(value)
   const stored = storeGetJson(KEYS.peerVolume, {})
   stored[String(popoverUserId)] = value

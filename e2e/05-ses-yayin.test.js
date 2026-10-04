@@ -126,6 +126,74 @@ test('sahte mikrofonla konuşma halesi görünür ve avatarın yumuşak kare şe
   assert.ok(fit.top >= -0.5 && fit.left >= -0.5 && fit.bottom >= -0.5, 'hale kadronun kırpma alanına sığar: ' + JSON.stringify(fit))
 })
 
+test('kişi sesi %200\'e kadar: %100 üstünde ses bağlamında kazanç ve sınırlayıcıyla yükseltilir, altında ses öğesiyle çalar', async () => {
+  const { deniz } = W
+  // Yükseltme düğümleri ses bağlamında kurulur: yeni kazanç ve sınırlayıcı düğümleri ile hoparlöre bağlantı sayılır
+  await deniz.evaluate(() => {
+    const seen = { gains: [], limiters: 0, toSpeaker: 0, out: null }
+    window.__boost = seen
+    const P = window.AudioContext.prototype
+    const createGain = P.createGain
+    const createLimiter = P.createDynamicsCompressor
+    P.createGain = function () {
+      const n = createGain.call(this)
+      seen.gains.push(n)
+      return n
+    }
+    P.createDynamicsCompressor = function () {
+      const n = createLimiter.call(this)
+      seen.limiters++
+      const connect = n.connect
+      n.connect = function (target) {
+        if (target === this.context.destination) {
+          seen.toSpeaker++
+          // Hoparlöre giden yükseltilmiş sesi ölçmek için çıkışa bir analizör de bağlanır
+          seen.out = this.context.createAnalyser()
+          connect.call(this, seen.out)
+        }
+        return connect.apply(this, arguments)
+      }
+      return n
+    }
+  })
+  await deniz.click(crewSel(W.w.P.mert.id) + ' .crew-button')
+  await deniz.waitForSelector('#peer-popover:not([hidden])')
+  assert.equal(await deniz.getAttribute('#peer-volume', 'max'), '200')
+  const setVolume = (value) => deniz.evaluate((v) => {
+    const input = document.getElementById('peer-volume')
+    input.value = String(v)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }, value)
+  const audioState = () => deniz.evaluate(() => {
+    const audios = Array.from(document.querySelectorAll('[data-voice-audio] audio'))
+    return audios.map((a) => ({ muted: a.muted, volume: Math.round(a.volume * 100) / 100 }))
+  })
+
+  await setVolume(160)
+  assert.equal((await deniz.textContent('#peer-volume-value')).replace(/\s/g, ''), '%160')
+  await deniz.waitForFunction(() => window.__boost.limiters === 1 && window.__boost.toSpeaker === 1 &&
+    window.__boost.gains.some((g) => Math.abs(g.gain.value - 1.6) < 0.02), null, { timeout: h.LONG })
+  // Yükseltme yolu gerçekten ses taşır (sahte mikrofonun aralıklı bip sesi sınırlayıcının çıkışında görünür)
+  await deniz.waitForFunction(() => {
+    const a = window.__boost.out
+    const buf = new Float32Array(a.fftSize)
+    a.getFloatTimeDomainData(buf)
+    return buf.some((sample) => Math.abs(sample) > 0.01)
+  }, null, { timeout: h.LONG, polling: 50 })
+  // Ses öğesi tam düzeyde ve sessiz çalmaya devam eder, ses yükseltme yolundan gelir
+  assert.deepEqual(await audioState(), [{ muted: true, volume: 1 }])
+  assert.equal(await deniz.evaluate((id) => voice.snapshot().peers[String(id)].volume, W.w.P.mert.id), 1.6)
+
+  await setVolume(80)
+  assert.deepEqual(await audioState(), [{ muted: false, volume: 0.8 }])
+  // Değer saklanır, %100 varsayılandır ve saklanmaz
+  assert.equal(await deniz.evaluate((id) => JSON.parse(localStorage.getItem('telsiz.voice.peers')).volumes[String(id)], W.w.P.mert.id), 0.8)
+  await setVolume(100)
+  assert.deepEqual(await audioState(), [{ muted: false, volume: 1 }])
+  await deniz.keyboard.press('Escape')
+  await deniz.waitForSelector('#peer-popover', { state: 'hidden' })
+})
+
 test('ekran paylaşımı başlar: başlatma penceresi, sahne ve kendi önizleme oynar', async () => {
   const { deniz } = W
   await deniz.click('#btn-screen')
@@ -153,7 +221,7 @@ test('izleyici bildirimi görür, İzle ile görüntü gerçekten oynar', async 
   await mert.waitForSelector(crewWatch, { state: 'attached', timeout: h.LONG })
   await mert.hover('#radio-crew .crew-item[data-user-id="' + W.w.P.deniz.id + '"] .crew-button')
   await mert.waitForFunction((sel) => getComputedStyle(document.querySelector(sel)).opacity === '1', crewWatch, { timeout: h.LONG })
-  assert.equal(await mert.textContent(crewWatch), 'Yayına katıl')
+  assert.equal(await mert.textContent(crewWatch), 'Yayına Katıl')
   await mert.click('#activity .activity-watch')
   await mert.waitForSelector('#cast[data-mode="watch"]:not([hidden])')
   await mert.waitForFunction(() => {

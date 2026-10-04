@@ -685,12 +685,12 @@ function buildCardVoice (userId) {
   range.id = 'profile-card-volume'
   range.type = 'range'
   range.min = '0'
-  range.max = '100'
+  range.max = String(PEER_VOLUME_MAX_PCT)
   range.step = '1'
   range.value = String(value)
   range.setAttribute('data-focus-key', 'card-volume')
   const onRange = () => {
-    const v = Math.max(0, Math.min(100, Math.round(Number(range.value) || 0)))
+    const v = clampPeerVolume(range.value)
     valueText.textContent = formatPercent(v)
     const stored = storeGetJson(KEYS.peerVolume, {})
     stored[String(userId)] = v
