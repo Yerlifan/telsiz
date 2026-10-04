@@ -58,10 +58,24 @@ jobs:
         if: success() || failure()
         run: npm test
 
+  # Chromium bütün dosyaları çalıştırır. Firefox ve WebKit sahte medya aygıtı gerektiren dosyaları
+  # (ses odası, ekran paylaşımı, Telsiz DJ) atlar, gerisi aynıdır.
+  # Chromium runs every file. Firefox and WebKit skip the files that need fake media devices
+  # (voice room, screen sharing, Telsiz DJ), the rest is the same.
   e2e:
-    name: Uçtan uca testler (Chromium)
+    name: Uçtan uca testler (${{ matrix.ad }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tarayici: chromium
+            ad: Chromium
+          - tarayici: firefox
+            ad: Firefox
+          - tarayici: webkit
+            ad: WebKit
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,17 +91,19 @@ jobs:
       - name: Geliştirme bağımlılıklarını kur
         run: npm ci
 
-      - name: Chromium ve sistem bağımlılıklarını kur
-        run: npx playwright install --with-deps chromium
+      - name: Tarayıcıyı ve sistem bağımlılıklarını kur
+        run: npx playwright install --with-deps ${{ matrix.tarayici }}
 
       - name: Uçtan uca testler
         run: npm run test:e2e
+        env:
+          TELSIZ_E2E_BROWSER: ${{ matrix.tarayici }}
 
       - name: Hata anındaki ekran görüntülerini ve izleri yükle
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-sonuclar
+          name: e2e-sonuclar-${{ matrix.tarayici }}
           path: e2e-sonuclar/
           if-no-files-found: ignore
           retention-days: 7

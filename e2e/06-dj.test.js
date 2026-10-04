@@ -17,7 +17,8 @@ const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.c
 const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
 
 const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] } }
-const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
+// Sahte mikrofon, ekran yakalama ve kendiliğinden oynatma Chromium bayraklarıyla sağlanır
+const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte medya aygıtı yalnızca Chromium bayraklarıyla' })
 
 // YouTube alan adlarına giden her istek kaydedilir. Yalnızca gömme sayfası ve sahte betik verilir, gerisi
 // engellenir.
@@ -50,6 +51,7 @@ async function fakeState (page) {
 }
 
 before(async () => {
+  if (test.skipped) return
   W.w = await h.setupWorld({ slot: 5 })
   W.lobi = W.w.room('Lobi')
   W.genel = W.w.room('genel')

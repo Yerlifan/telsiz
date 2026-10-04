@@ -266,7 +266,7 @@ test('ses odasındayken frekans değiştirmek onay ister, vazgeçince geçilmez'
   assert.equal(new URL(page.url()).origin, W.w.base)
   await page.click('#voice-leave')
   await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
-})
+}, { browsers: h.MIC_BROWSERS, reason: 'sahte mikrofon yok' })
 
 test('Tümü Frekanslar sayfasını açar: açık frekans işaretli, satırlar, Esc kapatır ve odak düğmeye döner', async () => {
   const page = W.deniz
@@ -410,11 +410,16 @@ test('telefon 390: yatay taşma yok, İstasyonlar ve Frekanslar alt sayfa, ses o
     return Math.round(r.left) === 0 && Math.round(r.width) === 390 && Math.round(window.innerHeight - r.bottom) === 0
   })
   assert.ok(await h.overflowX(page) <= 0, 'İstasyonlar açıkken yatay taşma')
-  // Ses odası satırı odaya katılır ve sayfa kapanır
-  await page.click('#stations-list .room-row[data-station="' + W.K.lobi + '"]')
-  await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
-  await page.click('#voice-leave')
-  await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  // Ses odası satırı odaya katılır ve sayfa kapanır (sahte mikrofonu olmayan WebKit'te sayfa kapatılır)
+  if (h.FAKE_MIC) {
+    await page.click('#stations-list .room-row[data-station="' + W.K.lobi + '"]')
+    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
+    await page.click('#voice-leave')
+    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  } else {
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  }
   await page.click('#band-all')
   await page.waitForSelector('#frekans-sheet:not([hidden])')
   await page.waitForFunction(() => {

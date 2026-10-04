@@ -90,10 +90,22 @@ test('oturumsuz ziyaretçi tanıtım sayfasını görür: frekans adı, tanıtı
 
 test('Kopyala düğmesi komutu panoya yazar', async () => {
   const page = W.page
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: W.w.base })
+  // Pano okuma izni yalnızca Chromium'da verilebilir, Firefox ve WebKit'te yazılan metin yakalanır
+  const real = h.BROWSER === 'chromium'
+  if (real) {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: W.w.base })
+  } else {
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = (text) => {
+        window.e2eCopied = text
+        return Promise.resolve()
+      }
+    })
+  }
   await page.click('#tanitim-get .tanitim-card .tanitim-cmd-copy')
   await page.waitForFunction(() => !document.getElementById('toast').hidden && document.getElementById('toast').textContent === 'Kopyalandı.')
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'npx telsiz')
+  const copied = real ? await page.evaluate(() => navigator.clipboard.readText()) : await page.evaluate(() => window.e2eCopied)
+  assert.equal(copied, 'npx telsiz')
 })
 
 test('Giriş yap giriş kartını açar, Telsiz\'i tanı geri döner, Davetin varsa katıl yalnızca davetle kaydı anlatır', async () => {
