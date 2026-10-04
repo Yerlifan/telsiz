@@ -268,6 +268,7 @@ Whichever proxy you use, keep the following in mind:
 2. **Upload size.** The request body limit of the proxy must be slightly above `MAKS_YUKLEME_MB`. Both examples use 30 MB for the default of 25 MB.
 3. **Client address.** Rate limits are applied per client IP. The server trusts the `X-Forwarded-For` and `CF-Connecting-IP` headers only on connections from addresses in the `GUVENILIR_VEKIL` list. The default `loopback` value is correct for a proxy on the same machine. The proxy must remove or overwrite these headers when a client sends them, and both examples do so.
 4. **HSTS.** Both examples add a `Strict-Transport-Security` header. If you plan to use the domain without https later, remove that line.
+5. **Content Security Policy.** The server sends the Content Security Policy (CSP) and the other security headers itself, and the two examples do not touch them. The page policy contains `script-src 'self' 'wasm-unsafe-eval'`: `'wasm-unsafe-eval'` allows only WebAssembly compilation and is there for the RNNoise module of advanced noise suppression. If the proxy replaces this header with its own policy, that policy needs this keyword too. If it adds a second CSP header, the browser applies both policies together, so the added policy needs this keyword as well. Otherwise advanced noise suppression does not work and the audio goes with the browser's own processing.
 
 ## Tunnel
 
@@ -370,5 +371,7 @@ A password reset also resets the person's personal security key. The person crea
 **Data folder in use.** Two processes cannot use the same data folder. If this error appears while the server is not running, delete the `.kilit` file named in the error message and try again.
 
 **Voice does not connect.** Check that the address is https or localhost, that the browser has microphone permission and, if needed, that a TURN server is configured.
+
+**Advanced noise suppression is not available.** If Settings > Voice and video > Voice processing says "Not available in this browser" under the switch, the audio goes with the browser's own processing and the connection is not affected. Check that the browser supports AudioWorklet and WebAssembly, that the `/rnnoise-worklet.js` and `/vendor/rnnoise/rnnoise.wasm` addresses open, and that the reverse proxy does not change the Content Security Policy (see Reverse proxy).
 
 **The camera does not turn on.** The camera also works only on https or localhost and needs the browser's camera permission. The server's security header (`Permissions-Policy: camera=(self)`) opens the camera only to Telsiz's own page. If a reverse proxy changes this header, the camera is blocked. If the owner turned cameras off or the room's camera limit is reached, the button says so.

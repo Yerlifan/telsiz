@@ -204,6 +204,9 @@ async function checkServer (port, version) {
     { url: '/' + firstFile('fonts', /^[a-z0-9-]+\.woff2$/), type: 'font/woff2', csp: util.API_CSP },
     { url: '/favicon.svg', type: 'image/svg+xml', csp: util.API_CSP },
     { url: '/vendor/nacl-fast.min.js', type: 'text/javascript; charset=utf-8', csp: util.API_CSP },
+    // Gelişmiş gürültü engelleme: ikili wasm dosyası da gömülür ve bayt bayt aynı sunulur
+    { url: '/rnnoise-worklet.js', type: 'text/javascript; charset=utf-8', csp: util.API_CSP },
+    { url: '/vendor/rnnoise/rnnoise.wasm', type: 'application/wasm', csp: util.API_CSP },
     { url: '/sw.js', type: 'text/javascript; charset=utf-8', csp: util.HTML_CSP }
   ]
   for (const item of files) {

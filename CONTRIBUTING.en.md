@@ -83,11 +83,12 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `public/index.html` | Single page markup and the SVG icon sprite |
 | `public/crypto.js` | `window.E2EE`: key code, envelopes, file encryption, personal keys, pinning |
 | `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine |
+| `public/rnnoise-worklet.js` | Advanced noise suppression: the AudioWorklet processor that runs the RNNoise wasm module |
 | `public/music.js`, `public/dj/youtube.js` | The Telsiz DJ engine and the YouTube player adapter |
 | `public/i18n.js` | The Turkish and English dictionaries of the client |
 | `public/theme-init.js`, `public/css/` | Theme preloader, tokens, layout, components and themes ([docs/DESIGN.md](docs/DESIGN.md)) |
 | `public/sw.js` | Service worker, the cache of the app shell |
-| `public/vendor/` | TweetNaCl-js 1.0.3 and scrypt-js 3.0.1, never modified |
+| `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 and the RNNoise wasm build (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), never modified |
 | `desktop/` | Electron desktop app |
 | `deploy/` | Docker Compose, Caddy, nginx and systemd examples |
 | `scripts/` | Checker, test runner, single file build, release notes |
@@ -139,7 +140,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
 4. Client code under `public/` is a plain script without modules and must parse with ES2017 syntax. Optional chaining, the nullish coalescing operator, class fields, `import` and `\p{...}` regular expression escapes are not used.
 5. In the client, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, the `Function` constructor, `structuredClone`, `.replaceAll`, `Object.hasOwn` and `.at()` are forbidden. The page is written only with `createElement` and `textContent`. Network requests use `XMLHttpRequest`, and `fetch` is allowed only in `public/sw.js`.
 6. HTML files contain no `style` attribute, no `on...` event attributes, no `<style>` element and no `<script>` with a body, because the Content Security Policy blocks them.
-7. Files under `public/vendor/` are never modified. The checker verifies the sha256 values of `nacl-fast.min.js` and `scrypt.js`.
+7. Files under `public/vendor/` are never modified. The checker verifies the sha256 values of `nacl-fast.min.js`, `scrypt.js`, `rnnoise/rnnoise.wasm` and the RNNoise license files.
 8. `.bat` files are saved without a BOM and with CRLF line endings, and none of their lines contains a semicolon. `.sh` files are saved without a BOM and with LF line endings only, and are stored in git with the executable mode (100755).
 9. JSON files must be valid JSON.
 10. Markdown documents use no semicolons in prose. Code examples go into code blocks or inline code.
@@ -205,4 +206,4 @@ Since desktop updates are unsigned, their integrity rests on the security of the
 
 ## License
 
-Your contributions are distributed under the MIT license of the project, see the [LICENSE](LICENSE) file for details. TweetNaCl-js (Unlicense) and scrypt-js (MIT) under `public/vendor/` and the fonts under `public/fonts/` (SIL Open Font License) are distributed under their own licenses.
+Your contributions are distributed under the MIT license of the project, see the [LICENSE](LICENSE) file for details. TweetNaCl-js (Unlicense), scrypt-js (MIT) and the RNNoise wasm build (BSD-3-Clause and Apache-2.0) under `public/vendor/` and the fonts under `public/fonts/` (SIL Open Font License) are distributed under their own licenses.

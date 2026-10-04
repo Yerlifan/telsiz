@@ -83,11 +83,12 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
 | `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
 | `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru |
+| `public/rnnoise-worklet.js` | Gelişmiş gürültü engelleme: RNNoise wasm modülünü çalıştıran AudioWorklet işlemcisi |
 | `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
 | `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
 | `public/theme-init.js`, `public/css/` | Tema ön yükleyicisi, belirteçler, düzen, bileşenler ve temalar ([docs/TASARIM.md](docs/TASARIM.md)) |
 | `public/sw.js` | Service worker, uygulama kabuğunun önbelleği |
-| `public/vendor/` | TweetNaCl-js 1.0.3 ve scrypt-js 3.0.1, değiştirilmez |
+| `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 ve RNNoise wasm derlemesi (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), değiştirilmez |
 | `desktop/` | Electron masaüstü uygulaması |
 | `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
 | `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
@@ -139,7 +140,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
 4. `public/` altındaki istemci kodu modülsüz düz betiktir ve ES2017 sözdizimiyle ayrıştırılabilmelidir. İsteğe bağlı zincirleme, boş birleştirme işleci, sınıf alanları, `import` ve `\p{...}` düzenli ifade kaçışları kullanılmaz.
 5. İstemcide `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `Function` yapıcısı, `structuredClone`, `.replaceAll`, `Object.hasOwn` ve `.at()` yasaktır. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır. Ağ istekleri `XMLHttpRequest` ile yapılır, `fetch` yalnızca `public/sw.js` içinde serbesttir.
 6. HTML dosyalarında `style` özniteliği, `on...` olay öznitelikleri, `<style>` öğesi ve gövdeli `<script>` bulunmaz, çünkü içerik güvenliği politikası bunları engeller.
-7. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js` ve `scrypt.js` dosyalarının sha256 değerini doğrular.
+7. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js`, `scrypt.js`, `rnnoise/rnnoise.wasm` ve RNNoise lisans dosyalarının sha256 değerini doğrular.
 8. `.bat` dosyaları BOM'suz ve CRLF satır sonlarıyla kaydedilir, hiçbir satırında noktalı virgül bulunmaz. `.sh` dosyaları BOM'suz ve yalnızca LF satır sonlarıyla kaydedilir ve git'te çalıştırılabilir kipte (100755) saklanır.
 9. JSON dosyaları geçerli JSON olmalıdır.
 10. Markdown belgelerinde düzyazıda noktalı virgül kullanılmaz. Kod örnekleri kod bloğuna veya satır içi koda yazılır.
@@ -205,4 +206,4 @@ Masaüstü güncellemeleri imzasız olduğu için bütünlükleri GitHub hesabı
 
 ## Lisans
 
-Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js (Unlicense) ve scrypt-js (MIT) ile `public/fonts/` altındaki yazı tipleri (SIL Open Font License) kendi lisanslarıyla dağıtılır.
+Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js (Unlicense), scrypt-js (MIT) ve RNNoise wasm derlemesi (BSD-3-Clause ve Apache-2.0) ile `public/fonts/` altındaki yazı tipleri (SIL Open Font License) kendi lisanslarıyla dağıtılır.

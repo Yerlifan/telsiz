@@ -14,6 +14,7 @@ const HTML_TYPE = 'text/html; charset=utf-8'
 const JS_TYPE = 'text/javascript; charset=utf-8'
 const TEXT_TYPE = 'text/plain; charset=utf-8'
 const CSS_TYPE = 'text/css; charset=utf-8'
+const WASM_TYPE = 'application/wasm'
 
 // Sunucunun her yanıta eklediği güvenlik başlıklarının aynısı (src/http-util.js)
 const SECURITY_HEADERS = Object.freeze({
@@ -36,6 +37,7 @@ addFixed('/theme-init.js', 'theme-init.js', JS_TYPE, STATIC_CSP)
 addFixed('/crypto.js', 'crypto.js', JS_TYPE, STATIC_CSP)
 addFixed('/emoji.js', 'emoji.js', JS_TYPE, STATIC_CSP)
 addFixed('/voice.js', 'voice.js', JS_TYPE, STATIC_CSP)
+addFixed('/rnnoise-worklet.js', 'rnnoise-worklet.js', JS_TYPE, STATIC_CSP)
 addFixed('/music.js', 'music.js', JS_TYPE, STATIC_CSP)
 addFixed('/dj/youtube.js', 'dj/youtube.js', JS_TYPE, STATIC_CSP)
 addFixed('/style.css', 'style.css', CSS_TYPE, STATIC_CSP)
@@ -47,6 +49,9 @@ addFixed('/vendor/nacl-fast.min.js', 'vendor/nacl-fast.min.js', JS_TYPE, STATIC_
 addFixed('/vendor/TWEETNACL-LICENSE.txt', 'vendor/TWEETNACL-LICENSE.txt', TEXT_TYPE, STATIC_CSP)
 addFixed('/vendor/scrypt.js', 'vendor/scrypt.js', JS_TYPE, STATIC_CSP)
 addFixed('/vendor/SCRYPT-JS-LICENSE.txt', 'vendor/SCRYPT-JS-LICENSE.txt', TEXT_TYPE, STATIC_CSP)
+addFixed('/vendor/rnnoise/rnnoise.wasm', 'vendor/rnnoise/rnnoise.wasm', WASM_TYPE, STATIC_CSP)
+addFixed('/vendor/rnnoise/RNNOISE-LICENSE.txt', 'vendor/rnnoise/RNNOISE-LICENSE.txt', TEXT_TYPE, STATIC_CSP)
+addFixed('/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', 'vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', TEXT_TYPE, STATIC_CSP)
 
 // Desenle sunulan klasörler: yalnızca adı desene uyan, alt klasörü olmayan dosyalar
 const DIRS = Object.freeze([
@@ -135,6 +140,7 @@ module.exports = {
   JS_TYPE,
   TEXT_TYPE,
   CSS_TYPE,
+  WASM_TYPE,
   SECURITY_HEADERS,
   resolveStatic,
   isServableFile,

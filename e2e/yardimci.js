@@ -54,14 +54,15 @@ function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// Playwright'ın kendi Chromium kurulumu yoksa ortam değişkeni veya yerel sabit yol denenir
-function chromiumLaunchOptions () {
+// Playwright'ın kendi Chromium kurulumu yoksa ortam değişkeni veya yerel sabit yol denenir.
+// extraArgs: dosyaya özgü ek bayraklar (ör. sahte mikrofonun çalacağı WAV dosyası)
+function chromiumLaunchOptions (extraArgs) {
   const args = [
     '--use-fake-ui-for-media-stream',
     '--use-fake-device-for-media-stream',
     '--auto-select-desktop-capture-source=Entire screen',
     '--autoplay-policy=no-user-gesture-required'
-  ]
+  ].concat(extraArgs || [])
   const options = { headless: process.env.TELSIZ_E2E_HEADED !== '1', args }
   const fromEnv = process.env.TELSIZ_E2E_CHROMIUM
   if (fromEnv) {
@@ -83,9 +84,10 @@ function chromiumLaunchOptions () {
   return options
 }
 
-// Firefox sahte mikrofonu ve izin istemini tercihlerle açar, WebKit için ek seçenek gerekmez
-function launchOptions () {
-  if (BROWSER === 'chromium') return chromiumLaunchOptions()
+// Firefox sahte mikrofonu ve izin istemini tercihlerle açar, WebKit için ek seçenek gerekmez.
+// chromiumArgs yalnızca Chromium'a verilir.
+function launchOptions (chromiumArgs) {
+  if (BROWSER === 'chromium') return chromiumLaunchOptions(chromiumArgs)
   const options = { headless: process.env.TELSIZ_E2E_HEADED !== '1' }
   if (BROWSER === 'firefox') {
     options.firefoxUserPrefs = {
@@ -241,9 +243,10 @@ const initScript = (v) => {
   sessionStorage.setItem('e2e.init', '1')
 }
 
-// Tarayıcıyı başlatır, sayfaları izler, düşen testte ekran görüntüsü alır
-async function openBrowser () {
-  const browser = await playwright[BROWSER].launch(launchOptions())
+// Tarayıcıyı başlatır, sayfaları izler, düşen testte ekran görüntüsü alır.
+// opts.chromiumArgs: Chromium'a verilecek ek bayraklar
+async function openBrowser (opts) {
+  const browser = await playwright[BROWSER].launch(launchOptions(opts && opts.chromiumArgs))
   const logs = []
   const pages = []
   return {
@@ -320,7 +323,7 @@ function makeTest (file, getPages, opts) {
 }
 
 // Sunucu, Node tarafı hesaplar ve örnek odalar. Kişiler: deniz (sahip), ece, mert ve opts.extraPeople.
-// opts.slot: TELSIZ_E2E_PORT_BASE verilmişse bu dosyanın port yuvası.
+// opts.slot: TELSIZ_E2E_PORT_BASE verilmişse bu dosyanın port yuvası. opts.chromiumArgs: Chromium'a ek bayraklar.
 // Odalar: genel, oyun-gecesi, fotograflar (yazı), Lobi, Oyun (ses).
 async function setupWorld (opts) {
   const o = opts || {}
@@ -366,7 +369,7 @@ async function setupWorld (opts) {
     if (res.status !== 200) throw new Error('mesaj gönderilemedi: ' + who + ' ' + res.status + ' ' + JSON.stringify(res.data))
     return res.data.message
   }
-  const tb = await openBrowser()
+  const tb = await openBrowser({ chromiumArgs: o.chromiumArgs })
   // Kişi için oturum açık sayfa: anahtar adres parçasıyla eklenir, uygulama ve bant beklenir
   const pageFor = async (who, opts2) => {
     const o2 = opts2 || {}

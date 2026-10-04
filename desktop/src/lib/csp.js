@@ -12,7 +12,9 @@ function serialize (directives) {
 
 const HTML_DIRECTIVES = Object.freeze([
   ['default-src', "'self'"],
-  ['script-src', "'self'"],
+  // 'wasm-unsafe-eval' yalnızca paketlenmiş RNNoise WebAssembly modülünün AudioWorklet içinde derlenmesi
+  // içindir (gelişmiş gürültü engelleme), eval ve satır içi betik yine engellidir (sunucudaki HTML_CSP ile aynı)
+  ['script-src', "'self' 'wasm-unsafe-eval'"],
   ['style-src', "'self'"],
   ['font-src', "'self'"],
   ['img-src', "'self' blob: data:"],

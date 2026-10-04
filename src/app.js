@@ -199,6 +199,7 @@ const HTML_TYPE = 'text/html; charset=utf-8'
 const JS_TYPE = 'text/javascript; charset=utf-8'
 const TEXT_TYPE = 'text/plain; charset=utf-8'
 const CSS_TYPE = 'text/css; charset=utf-8'
+const WASM_TYPE = 'application/wasm'
 addStatic('/', 'index.html', HTML_TYPE, util.HTML_CSP)
 addStatic('/index.html', 'index.html', HTML_TYPE, util.HTML_CSP)
 addStatic('/i18n.js', 'i18n.js', JS_TYPE, util.API_CSP)
@@ -206,6 +207,8 @@ addStatic('/theme-init.js', 'theme-init.js', JS_TYPE, util.API_CSP)
 addStatic('/crypto.js', 'crypto.js', JS_TYPE, util.API_CSP)
 addStatic('/emoji.js', 'emoji.js', JS_TYPE, util.API_CSP)
 addStatic('/voice.js', 'voice.js', JS_TYPE, util.API_CSP)
+// Gelişmiş gürültü engelleme: voice.js'in ses bağlamına yüklediği AudioWorklet işlemcisi
+addStatic('/rnnoise-worklet.js', 'rnnoise-worklet.js', JS_TYPE, util.API_CSP)
 addStatic('/music.js', 'music.js', JS_TYPE, util.API_CSP)
 addStatic('/dj/youtube.js', 'dj/youtube.js', JS_TYPE, util.API_CSP)
 // Service worker kendi yanıtının CSP'sini kullanır, sayfa ile aynı politika verilir
@@ -219,6 +222,10 @@ addStatic('/vendor/nacl-fast.min.js', 'vendor/nacl-fast.min.js', JS_TYPE, util.A
 addStatic('/vendor/TWEETNACL-LICENSE.txt', 'vendor/TWEETNACL-LICENSE.txt', TEXT_TYPE, util.API_CSP)
 addStatic('/vendor/scrypt.js', 'vendor/scrypt.js', JS_TYPE, util.API_CSP)
 addStatic('/vendor/SCRYPT-JS-LICENSE.txt', 'vendor/SCRYPT-JS-LICENSE.txt', TEXT_TYPE, util.API_CSP)
+// RNNoise'un WebAssembly derlemesi ve lisansları (@shiguredo/rnnoise-wasm 2022.2.0, değiştirilmemiş kopya)
+addStatic('/vendor/rnnoise/rnnoise.wasm', 'vendor/rnnoise/rnnoise.wasm', WASM_TYPE, util.API_CSP)
+addStatic('/vendor/rnnoise/RNNOISE-LICENSE.txt', 'vendor/rnnoise/RNNOISE-LICENSE.txt', TEXT_TYPE, util.API_CSP)
+addStatic('/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', 'vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', TEXT_TYPE, util.API_CSP)
 
 // Desenle sunulan klasörler: yalnızca adı desene uyan, alt klasörü olmayan dosyalar. Desenler
 // bölü, ters bölü, yüzde ve ardışık nokta içeremez, bu yüzden yol geçişi mümkün değildir.

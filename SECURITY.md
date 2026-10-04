@@ -35,7 +35,7 @@ Kapsamdaki bileşenler: sunucu kodu (`server.js`, `src/`), istemci kodu (`public
 
 Bildirilmesi beklenen açıklara örnekler: yetki denetiminin atlatılması, anahtarı bilmeyen birinin mesajları, dosyaları, profilleri veya Telsiz DJ durumunu okuyabilmesi, sunucunun düz metne, parolaya veya şifreleme anahtarlarına ulaşabilmesi, grup anahtarı olmayan bir sunucunun ses veya ekran paylaşımı sinyallerini değiştirebilmesi, uygulamada betik çalıştırılabilmesi (XSS), içerik güvenliği politikasının veya YouTube çerçevesi yalıtımının aşılması, yol geçişiyle sunucudaki başka dosyaların okunabilmesi, boyut veya hız sınırlarının atlatılması, tek bir istekle sunucunun çökertilebilmesi ve masaüstü uygulamasının bütünlük denetiminin veya izin kurallarının aşılması.
 
-TweetNaCl-js ve scrypt-js kütüphanelerinin kendisindeki açıklar kendi projelerine bildirilmelidir. Tarayıcılar, Electron, Node.js, Cloudflare, `cloudflared`, YouTube ve işletim sistemlerindeki açıklar bu projenin kapsamı dışındadır. Aşağıda anlatılan kabul edilmiş sınırlar da tek başlarına açık sayılmaz.
+TweetNaCl-js, scrypt-js ve RNNoise ile WebAssembly derlemesinin (`@shiguredo/rnnoise-wasm`) kendisindeki açıklar kendi projelerine bildirilmelidir. Tarayıcılar, Electron, Node.js, Cloudflare, `cloudflared`, YouTube ve işletim sistemlerindeki açıklar bu projenin kapsamı dışındadır. Aşağıda anlatılan kabul edilmiş sınırlar da tek başlarına açık sayılmaz.
 
 ### Tehdit modelinin özeti
 
@@ -93,7 +93,7 @@ In scope: the server code (`server.js`, `src/`), the client code (`public/`, exc
 
 Examples of vulnerabilities we want to hear about: bypassing authorization checks, someone without the key being able to read messages, files, profiles or the Telsiz DJ state, the server being able to reach plaintext, passwords or encryption keys, a server without the group key being able to change voice or screen sharing signals, running scripts in the app (XSS), bypassing the Content Security Policy or the isolation of the YouTube frame, reading other files on the server through path traversal, bypassing size or rate limits, crashing the server with a single request, and bypassing the integrity check or the permission rules of the desktop app.
 
-Vulnerabilities in the TweetNaCl-js and scrypt-js libraries themselves should be reported to their own projects. Vulnerabilities in browsers, Electron, Node.js, Cloudflare, `cloudflared`, YouTube and operating systems are out of scope. The accepted limits below are not vulnerabilities on their own.
+Vulnerabilities in TweetNaCl-js, scrypt-js, RNNoise and its WebAssembly build (`@shiguredo/rnnoise-wasm`) themselves should be reported to their own projects. Vulnerabilities in browsers, Electron, Node.js, Cloudflare, `cloudflared`, YouTube and operating systems are out of scope. The accepted limits below are not vulnerabilities on their own.
 
 ### Threat model summary
 

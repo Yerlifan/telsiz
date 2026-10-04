@@ -268,6 +268,7 @@ Hangi vekili kullanırsanız kullanın şu noktalara dikkat edin:
 2. **Yükleme boyutu.** Vekilin istek gövdesi sınırı `MAKS_YUKLEME_MB` değerinin biraz üstünde olmalıdır. İki örnek de varsayılan 25 MB için 30 MB kullanır.
 3. **İstemci adresi.** Hız sınırları istemci IP'sine göre uygulanır. Sunucu `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarına yalnızca `GUVENILIR_VEKIL` listesindeki adreslerden gelen bağlantılarda güvenir. Varsayılan `loopback` değeri aynı makinedeki bir vekil için doğrudur. Vekil istemcinin gönderdiği bu başlıkları silmeli veya ezmelidir, iki örnek de bunu yapar.
 4. **HSTS.** İki örnek de `Strict-Transport-Security` başlığı ekler. Alan adını daha sonra https olmadan kullanmayı düşünüyorsanız bu satırı kaldırın.
+5. **İçerik güvenliği politikası.** Sunucu içerik güvenliği politikasını (CSP) ve diğer güvenlik başlıklarını kendisi gönderir, iki örnek de bunlara dokunmaz. Sayfanın politikasında `script-src 'self' 'wasm-unsafe-eval'` bulunur: `'wasm-unsafe-eval'` yalnızca WebAssembly derlemesine izin verir ve gelişmiş gürültü engellemenin RNNoise modülü içindir. Vekil bu başlığı kendi politikasıyla değiştirirse o politikada da bu anahtar olmalıdır. İkinci bir CSP başlığı eklerse tarayıcı iki politikayı birlikte uygular, eklenen politikada da bu anahtar bulunmalıdır. Aksi halde gelişmiş gürültü engelleme çalışmaz ve ses tarayıcının kendi işlemesiyle gider.
 
 ## Tünel
 
@@ -370,5 +371,7 @@ Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi
 **Veri klasörü kullanımda.** Aynı veri klasörünü iki süreç kullanamaz. Sunucu çalışmıyorken bu hata görünüyorsa, hata metninde adı geçen `.kilit` dosyasını silip yeniden deneyin.
 
 **Ses bağlanmıyor.** Adresin https veya localhost olduğunu, tarayıcının mikrofon izninin verildiğini ve gerekiyorsa bir TURN sunucusunun tanımlı olduğunu denetleyin.
+
+**Gelişmiş gürültü engelleme kullanılamıyor.** Ayarlar > Ses ve görüntü > Ses işleme bölümünde anahtarın altında "Bu tarayıcıda kullanılamıyor" yazıyorsa ses tarayıcının kendi işlemesiyle gider, bağlantı etkilenmez. Tarayıcının AudioWorklet ve WebAssembly desteklediğini, `/rnnoise-worklet.js` ve `/vendor/rnnoise/rnnoise.wasm` adreslerinin açıldığını ve ters vekilin içerik güvenliği politikasını değiştirmediğini denetleyin (bkz. Ters vekil).
 
 **Kamera açılmıyor.** Kamera da yalnızca https veya localhost üzerinde çalışır ve tarayıcının kamera izni gerekir. Sunucunun güvenlik başlığı (`Permissions-Policy: camera=(self)`) kamerayı yalnızca Telsiz'in kendi sayfasına açar. Ters vekil bu başlığı değiştiriyorsa kamera engellenir. Sahip kameraları kapattıysa veya odadaki kamera sınırı dolduysa düğme bunu yazar.

@@ -1373,6 +1373,10 @@ window.I18N = (function () {
     'settings.voice.processingTitle': 'Ses işleme',
     'settings.voice.echo': 'Yankı engelleme',
     'settings.voice.noise': 'Gürültü bastırma',
+    'settings.voice.rnnoise': 'Gelişmiş gürültü engelleme (RNNoise)',
+    'settings.voice.rnnoiseHint': 'Klavye tıkırtısı ve uğultu gibi konuşma dışı sesleri karşı tarafa gitmeden bastırır. İşlem cihazınızda yapılır, mikrofon yeniden başlatılmaz.',
+    'settings.voice.rnnoiseOn': 'Etkin. Mikrofon sesiniz cihazınızda RNNoise ile temizleniyor.',
+    'settings.voice.rnnoiseUnavailable': 'Bu tarayıcıda kullanılamıyor. Sesiniz tarayıcının kendi ses işlemesiyle gönderiliyor.',
     'settings.voice.agc': 'Otomatik kazanç',
     'settings.voice.processingHint': 'Seste veya mikrofon testindeyken değiştirirseniz mikrofon, bağlantı kopmadan yeniden başlatılır.',
     'settings.voice.outputTitle': 'Çıkış ve sesler',
@@ -1592,6 +1596,8 @@ window.I18N = (function () {
     'settings.app.thirdParty': 'Üçüncü taraf bileşenler',
     'settings.app.licenseNacl': 'TweetNaCl-js 1.0.3 (Unlicense, kamu malı)',
     'settings.app.licenseScrypt': 'scrypt-js 3.0.1 (MIT)',
+    'settings.app.licenseRnnoise': 'RNNoise, gelişmiş gürültü engelleme (BSD-3-Clause)',
+    'settings.app.licenseRnnoiseWasm': '@shiguredo/rnnoise-wasm 2022.2.0, RNNoise WebAssembly derlemesi (Apache-2.0)',
 
     // Ayarlar > Genel, Kanallar, Üyeler ve Davet (sunucu ayarları)
     'settings.general.ownerOnly': 'Frekans adını yalnızca frekans sahibi değiştirebilir.',
@@ -3230,6 +3236,10 @@ window.I18N = (function () {
     'settings.voice.processingTitle': 'Voice processing',
     'settings.voice.echo': 'Echo cancellation',
     'settings.voice.noise': 'Noise suppression',
+    'settings.voice.rnnoise': 'Advanced noise suppression (RNNoise)',
+    'settings.voice.rnnoiseHint': 'Suppresses non-speech sounds such as keyboard clicks and hum before they reach others. Processing happens on your device and the microphone does not restart.',
+    'settings.voice.rnnoiseOn': 'Active. Your microphone audio is cleaned with RNNoise on your device.',
+    'settings.voice.rnnoiseUnavailable': 'Not available in this browser. Your audio is sent with the browser\'s own voice processing.',
     'settings.voice.agc': 'Automatic gain control',
     'settings.voice.processingHint': 'If you change these while in voice or during a mic test, the microphone restarts without dropping the connection.',
     'settings.voice.outputTitle': 'Output and sounds',
@@ -3449,6 +3459,8 @@ window.I18N = (function () {
     'settings.app.thirdParty': 'Third-party components',
     'settings.app.licenseNacl': 'TweetNaCl-js 1.0.3 (Unlicense, public domain)',
     'settings.app.licenseScrypt': 'scrypt-js 3.0.1 (MIT)',
+    'settings.app.licenseRnnoise': 'RNNoise, advanced noise suppression (BSD-3-Clause)',
+    'settings.app.licenseRnnoiseWasm': '@shiguredo/rnnoise-wasm 2022.2.0, RNNoise WebAssembly build (Apache-2.0)',
 
     // Ayarlar > Genel, Kanallar, Üyeler ve Davet (sunucu ayarları)
     'settings.general.ownerOnly': 'Only the frequency owner can change the frequency name.',

@@ -589,7 +589,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
     privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
     appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
@@ -881,6 +881,9 @@ test('ayarlar görünümündeki tüm sabit anahtarlar iki dilde var ve dinamik a
   states.forEach((st) => keys.add('settings.notify.state.' + st))
   keys.add('settings.app.licenseNacl')
   keys.add('settings.app.licenseScrypt')
+  keys.add('settings.app.licenseRnnoise')
+  keys.add('settings.app.licenseRnnoiseWasm')
+  for (const status of ['on', 'unavailable', 'off', 'idle', 'loading']) keys.add(run('rnnoiseHintKey')(status))
   assert.ok(keys.size > 150)
   for (const key of keys) {
     assert.ok(has(tr, key), 'tr: ' + key)
@@ -1084,6 +1087,73 @@ test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam �
   run("openSettings('keybinds', null)")
   assert.ok(root.querySelector('#set-bind-mode').textContent.length > 0, 'giriş modu satırı yazıldı')
   assert.ok(root.querySelector('#set-bind-ptt-key').textContent.length > 0, 'atama adı yazıldı')
+})
+
+test('Gelişmiş gürültü engelleme (RNNoise): tarayıcının gürültü bastırmasının yanında, varsayılan açık, durumla değişen açıklama', () => {
+  const { run, root, sandbox } = load()
+  sandbox.__voiceCalls = []
+  sandbox.__rn = true
+  run(`voice = {
+    support () { return { ok: true, reason: null } },
+    settings () {
+      return { inputDeviceId: null, inputMode: 'vad', vadAuto: true, vadThreshold: -50, pttReleaseMs: 200, echoCancellation: true,
+        noiseSuppression: true, autoGainControl: true, rnnoise: __rn, outputVolume: 1, sounds: true,
+        bindings: { ptt: { type: 'key', code: 'KeyV' }, toggleMute: null, toggleDeafen: null } }
+    },
+    setSettings (p) {
+      __voiceCalls.push(JSON.parse(JSON.stringify(p)))
+      if (typeof p.rnnoise === 'boolean') __rn = p.rnnoise
+      return Promise.resolve(null)
+    },
+    bindingLabel () { return 'V' },
+    listInputDevices () { return Promise.resolve([]) },
+    snapshot () { return null }
+  }`)
+  run("openSettings('voice', null)")
+  const sw = root.querySelector('#set-rnnoise')
+  assert.ok(sw, 'anahtar var')
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.strictEqual(sw.checked, true, 'varsayılan açık')
+  assert.strictEqual(root.querySelector('label[for="set-rnnoise"] .settings-switch-text').textContent, 'Gelişmiş gürültü engelleme (RNNoise)')
+  assert.strictEqual(sw.getAttribute('aria-describedby'), 'set-rnnoise-hint')
+  const hint = () => root.querySelector('#set-rnnoise-hint').textContent
+  assert.ok(hint().indexOf('Klavye tıkırtısı') === 0, hint())
+  // Tarayıcının gürültü bastırması anahtarının hemen ardından gelir
+  const noiseRow = root.querySelector('#set-noise').parentNode
+  assert.ok(noiseRow.nextSibling && noiseRow.nextSibling.contains(sw), 'set-noise satırının yanında')
+  // Açıklama ses hattındaki durumu izler
+  run("state.voiceSnap = Object.assign({}, snap(), { rnnoise: 'on' })")
+  run('settingsOnVoice()')
+  assert.strictEqual(hint(), 'Etkin. Mikrofon sesiniz cihazınızda RNNoise ile temizleniyor.')
+  run("state.voiceSnap = Object.assign({}, snap(), { rnnoise: 'unavailable' })")
+  run('settingsOnVoice()')
+  assert.strictEqual(hint(), 'Bu tarayıcıda kullanılamıyor. Sesiniz tarayıcının kendi ses işlemesiyle gönderiliyor.')
+  // Anahtar yalnızca rnnoise ayarını değiştirir
+  root.querySelector('#set-rnnoise').click()
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sandbox.__voiceCalls)), [{ rnnoise: false }])
+  run('settingsOnVoice()')
+  assert.strictEqual(root.querySelector('#set-rnnoise').checked, false)
+  root.querySelector('#set-noise').click()
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sandbox.__voiceCalls[1])), { noiseSuppression: false })
+  // İngilizce
+  run("I18N.setLang('en')")
+  run('settingsOnLanguage()')
+  assert.strictEqual(root.querySelector('label[for="set-rnnoise"] .settings-switch-text').textContent, 'Advanced noise suppression (RNNoise)')
+  assert.strictEqual(hint(), 'Not available in this browser. Your audio is sent with the browser\'s own voice processing.')
+  run("I18N.setLang('tr')")
+  run('voice = null')
+  run('state.voiceSnap = null')
+})
+
+test('Uygulama sayfası üçüncü taraf lisanslarında RNNoise bağlantıları var', () => {
+  const { run, root } = load()
+  run("openSettings('app', null)")
+  const links = root.querySelectorAll('.settings-links a').map((a) => [a.childNodes[0].textContent, a.getAttribute('href')])
+  const rn = links.filter((l) => /rnnoise/i.test(l[1]))
+  assert.deepStrictEqual(rn, [
+    ['RNNoise, gelişmiş gürültü engelleme (BSD-3-Clause)', '/vendor/rnnoise/RNNOISE-LICENSE.txt'],
+    ['@shiguredo/rnnoise-wasm 2022.2.0, RNNoise WebAssembly derlemesi (Apache-2.0)', '/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt']
+  ])
 })
 
 test('Frekans tanıtımı: sahip yazar ve kaydeder (POST /api/settings { about }), yönetici salt okunur görür', async () => {

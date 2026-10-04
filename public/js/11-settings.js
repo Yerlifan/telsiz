@@ -69,7 +69,9 @@ const ADMIN_REFRESH_MS = 2000
 const REPO_URL = 'https://github.com/Yerlifan/telsiz'
 const LICENSE_LINKS = [
   { key: 'settings.app.licenseNacl', href: '/vendor/TWEETNACL-LICENSE.txt' },
-  { key: 'settings.app.licenseScrypt', href: '/vendor/SCRYPT-JS-LICENSE.txt' }
+  { key: 'settings.app.licenseScrypt', href: '/vendor/SCRYPT-JS-LICENSE.txt' },
+  { key: 'settings.app.licenseRnnoise', href: '/vendor/rnnoise/RNNOISE-LICENSE.txt' },
+  { key: 'settings.app.licenseRnnoiseWasm', href: '/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt' }
 ]
 
 const settingsUi = {
@@ -2242,19 +2244,21 @@ function buildVoicePage (page) {
   testRow.appendChild(test)
   levelSec.appendChild(sMsg('set-mic-test-msg'))
 
-  // Ses işleme
+  // Ses işleme. Gelişmiş gürültü engelleme (RNNoise) tarayıcının gürültü bastırmasının yanında durur, varsayılan
+  // açıktır, açıklaması durumla değişir (renderSettingsVoice). Desteklenmezse ses tarayıcının işlemesiyle sürer.
   const procSec = sSection(page, t('settings.voice.processingTitle'), 'set-processing-section')
   const procs = [
-    ['set-echo', 'echoCancellation', 'settings.voice.echo'],
-    ['set-noise', 'noiseSuppression', 'settings.voice.noise'],
-    ['set-agc', 'autoGainControl', 'settings.voice.agc']
+    ['set-echo', 'echoCancellation', 'settings.voice.echo', null],
+    ['set-noise', 'noiseSuppression', 'settings.voice.noise', null],
+    ['set-rnnoise', 'rnnoise', 'settings.voice.rnnoise', 'settings.voice.rnnoiseHint'],
+    ['set-agc', 'autoGainControl', 'settings.voice.agc', null]
   ]
   procs.forEach((p) => {
     const sw = sSwitch(p[0], t(p[2]), s0[p[1]] !== false, (checked) => {
       const partial = {}
       partial[p[1]] = checked
       applyVoiceSettings(partial)
-    }, null)
+    }, p[3] ? t(p[3]) : null)
     procSec.appendChild(sw.row)
   })
   procSec.appendChild(sHint(t('settings.voice.processingHint')))
@@ -2426,11 +2430,13 @@ function renderSettingsVoice () {
   const change = toggle('set-ptt-change', !enabled)
   change.textContent = t(capturing ? 'common.cancel' : 'settings.voice.changeKey')
   byId('set-ptt-key').textContent = capturing ? t('settings.keybinds.waiting') : bindingText(settings && settings.bindings ? settings.bindings.ptt : null)
-  const switches = [['set-echo', 'echoCancellation'], ['set-noise', 'noiseSuppression'], ['set-agc', 'autoGainControl'], ['set-sounds', 'sounds']]
+  const switches = [['set-echo', 'echoCancellation'], ['set-noise', 'noiseSuppression'], ['set-rnnoise', 'rnnoise'], ['set-agc', 'autoGainControl'], ['set-sounds', 'sounds']]
   switches.forEach((p) => {
     const node = toggle(p[0], !enabled)
     node.checked = !settings || settings[p[1]] !== false
   })
+  const rnHint = byId('set-rnnoise-hint')
+  if (rnHint) rnHint.textContent = t(rnnoiseHintKey(snap().rnnoise))
   const volume = toggle('set-output-volume', !enabled)
   const out = settings && typeof settings.outputVolume === 'number' ? settings.outputVolume : 1
   if (document.activeElement !== volume) volume.value = String(Math.round(out * 100))
@@ -2441,6 +2447,13 @@ function renderSettingsVoice () {
   setButtonText(test, t(testing ? 'settings.voice.testStop' : 'settings.voice.testStart'))
   updateLevelMeter()
   renderScreenQuality()
+}
+
+// Gelişmiş gürültü engelleme açıklaması: ses hattındaki duruma göre (voice.js snapshot.rnnoise)
+function rnnoiseHintKey (status) {
+  if (status === 'on') return 'settings.voice.rnnoiseOn'
+  if (status === 'unavailable') return 'settings.voice.rnnoiseUnavailable'
+  return 'settings.voice.rnnoiseHint'
 }
 
 // dBFS değerini (-100..0) çubuktaki yüzdeye çevirir

@@ -110,6 +110,31 @@ test('hazırlık yalnızca beyaz listedeki dosyaları kopyalar ve bildirimi yaza
   }
 })
 
+test('hazırlık gerçek public/ klasöründen gelişmiş gürültü engelleme dosyalarını pakete koyar', () => {
+  const root = tempDir('rnnoise')
+  try {
+    const app = path.join(root, 'app')
+    const result = hazirla.prepareApp(path.join(ROOT_DIR, 'public'), app)
+    const expected = {
+      'rnnoise-worklet.js': null,
+      'vendor/rnnoise/rnnoise.wasm': '8b60a2ab88fdae2d1a9f940249d0eb072f28ba8e796f7304347b4e07839c8853',
+      'vendor/rnnoise/RNNOISE-LICENSE.txt': 'd597473329bdc1807197a303be09e79882159ea858daa9f06ce780592877534e',
+      'vendor/rnnoise/RNNOISE-WASM-LICENSE.txt': 'a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9'
+    }
+    for (const rel of Object.keys(expected)) {
+      assert.ok(result.copied.includes(rel), rel)
+      const entry = result.manifest.files[rel]
+      assert.ok(entry, 'bildirimde: ' + rel)
+      if (expected[rel]) assert.equal(entry.sha256, expected[rel], rel)
+    }
+    assert.ok(!result.skipped.some((rel) => rel.indexOf('rnnoise') !== -1), result.skipped.join(', '))
+    const files = integrity.loadVerifiedFiles(app)
+    assert.equal(files.get('vendor/rnnoise/rnnoise.wasm').length, 152656)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('bütünlük: değiştirilmiş, eksik veya sahte bildirim açılışı durdurur', () => {
   const root = tempDir('butunluk')
   try {

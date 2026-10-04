@@ -539,6 +539,39 @@ test('CSP satır içi betiği ve sunucuya doğrudan bağlantıyı engeller, serv
   assert.notEqual(sw, 'registered')
 })
 
+test('gelişmiş gürültü engelleme: AudioWorklet modülü ve RNNoise wasm paketten yüklenir, CSP derlemeye izin verir', async () => {
+  const page = ctx.page
+  const index = await xhr(page, 'GET', '/index.html')
+  assert.match(index.csp, /script-src 'self' 'wasm-unsafe-eval';/)
+  const r = await page.evaluate(async () => {
+    const ac = new AudioContext()
+    try {
+      await ac.audioWorklet.addModule('/rnnoise-worklet.js')
+      const loaded = await new Promise((resolve, reject) => {
+        const x = new XMLHttpRequest()
+        x.open('GET', '/vendor/rnnoise/rnnoise.wasm')
+        x.responseType = 'arraybuffer'
+        x.onload = () => resolve({ status: x.status, type: x.getResponseHeader('content-type'), bytes: x.response })
+        x.onerror = () => reject(new Error('xhr'))
+        x.send()
+      })
+      const node = new AudioWorkletNode(ac, 'telsiz-rnnoise', { outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', processorOptions: { wasm: loaded.bytes } })
+      const message = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ type: 'timeout' }), 10000)
+        node.port.onmessage = (e) => {
+          clearTimeout(timer)
+          resolve(e.data)
+        }
+      })
+      node.port.postMessage('destroy')
+      return { status: loaded.status, type: loaded.type, size: loaded.bytes.byteLength, message }
+    } finally {
+      await ac.close()
+    }
+  })
+  assert.deepEqual([r.status, r.type, r.size, r.message.type], [200, 'application/wasm', 152656, 'ready'])
+})
+
 test('şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya gider', async () => {
   const page = ctx.page
   await ctx.app.evaluate(({ shell }) => {

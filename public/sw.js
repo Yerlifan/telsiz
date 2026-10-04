@@ -4,7 +4,10 @@
 // /api/ istekleri hiçbir zaman ele alınmaz ve önbelleğe alınmaz.
 // Aynı kökenli GET isteklerinde ağ önceliklidir, ağ yoksa önbellek kullanılır.
 
-// Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir
+// Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir.
+// Gelişmiş gürültü engellemenin dosyaları (/rnnoise-worklet.js, /vendor/rnnoise/rnnoise.wasm) kabukta yoktur:
+// yalnızca sesli sohbette, yani ağ varken gerekir ve her kurulumda indirilmeleri gereksizdir. Service worker
+// bu istekleri yanıtlamaz, doğrudan ağdan gelirler. Yüklenemezlerse ses tarayıcının kendi işlemesiyle sürer.
 const CACHE_NAME = 'telsiz-2.2.0'
 const SHELL = [
   '/',

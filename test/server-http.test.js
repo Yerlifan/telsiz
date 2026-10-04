@@ -7,7 +7,7 @@ const { describe, it, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./server-yardimci')
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
+const HTML_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 
 function assertSecurityHeaders (res) {
@@ -38,6 +38,7 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/crypto.js': 'text/javascript; charset=utf-8',
       '/emoji.js': 'text/javascript; charset=utf-8',
       '/voice.js': 'text/javascript; charset=utf-8',
+      '/rnnoise-worklet.js': 'text/javascript; charset=utf-8',
       '/music.js': 'text/javascript; charset=utf-8',
       '/dj/youtube.js': 'text/javascript; charset=utf-8',
       '/sw.js': 'text/javascript; charset=utf-8',
@@ -50,6 +51,9 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/vendor/TWEETNACL-LICENSE.txt': 'text/plain; charset=utf-8',
       '/vendor/scrypt.js': 'text/javascript; charset=utf-8',
       '/vendor/SCRYPT-JS-LICENSE.txt': 'text/plain; charset=utf-8',
+      '/vendor/rnnoise/rnnoise.wasm': 'application/wasm',
+      '/vendor/rnnoise/RNNOISE-LICENSE.txt': 'text/plain; charset=utf-8',
+      '/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt': 'text/plain; charset=utf-8',
       '/i18n.js': 'text/javascript; charset=utf-8',
       '/theme-init.js': 'text/javascript; charset=utf-8',
       '/js/ayarlar.js': 'text/javascript; charset=utf-8',
@@ -75,6 +79,15 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
     const js = await h.get(ctx, '/crypto.js?v=2')
     assert.equal(js.status, 200)
     assert.equal(js.headers['content-security-policy'], API_CSP)
+    // RNNoise: sayfa politikası yalnızca WebAssembly derlemesine izin verir, eval ve satır içi betik yine engellidir.
+    // İşlemci betiği ve wasm dosyası diğer statik dosyalar gibi hiçbir şey çalıştıramayan politikayla sunulur.
+    assert.match(html.headers['content-security-policy'], /script-src 'self' 'wasm-unsafe-eval';/)
+    assert.doesNotMatch(html.headers['content-security-policy'], /'unsafe-eval'|'unsafe-inline'|'unsafe-hashes'/)
+    for (const urlPath of ['/rnnoise-worklet.js', '/vendor/rnnoise/rnnoise.wasm']) {
+      assert.equal((await h.get(ctx, urlPath)).headers['content-security-policy'], API_CSP, urlPath)
+    }
+    const wasm = await h.get(ctx, '/vendor/rnnoise/rnnoise.wasm')
+    assert.deepEqual([...wasm.buffer.subarray(0, 4)], [0, 97, 115, 109])
 
     const head = await h.request(ctx, 'HEAD', '/index.html')
     assert.equal(head.status, 200)
@@ -168,6 +181,14 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/fonts/lisans-2.txt',
       '/vendor/scrypt.min.js',
       '/vendor/../vendor/scrypt.js',
+      // RNNoise klasöründe yalnızca wasm dosyası ve iki lisans metni sunulur
+      '/vendor/rnnoise/gizli.wasm',
+      '/vendor/rnnoise/',
+      '/vendor/rnnoise/RNNOISE.wasm',
+      '/vendor/rnnoise/../rnnoise/rnnoise.wasm',
+      '/vendor/rnnoise.wasm',
+      '/rnnoise.wasm',
+      '/vendor/rnnoise-worklet.js',
       '/theme-init.js/'
     ]
     for (const urlPath of attempts) {

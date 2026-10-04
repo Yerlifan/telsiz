@@ -20,11 +20,17 @@ const NACL_PATH = 'public/vendor/nacl-fast.min.js'
 const NACL_SHA256 = '3ec535c004aeeb225785d8e93fb33bf99f52e399bd7dfc01969b5629baea5131'
 const SCRYPT_PATH = 'public/vendor/scrypt.js'
 const SCRYPT_SHA256 = '544292934136527d60acc9e337d8c7b953f412e81314aa551a12d4230afd449d'
+// RNNoise'un WebAssembly derlemesi: @shiguredo/rnnoise-wasm 2022.2.0 npm paketindeki dist/rnnoise.wasm ve
+// lisansları (RNNoise BSD-3-Clause, paket Apache-2.0)
+const RNNOISE_NAME = '@shiguredo/rnnoise-wasm 2022.2.0'
 
 // Üçüncü taraf dosyalar birebir kopyadır. Zorunlu olmayanlar yalnızca varsa denetlenir.
 const VENDOR_FILES = [
   { path: NACL_PATH, sha256: NACL_SHA256, name: 'TweetNaCl-js 1.0.3', required: true },
-  { path: SCRYPT_PATH, sha256: SCRYPT_SHA256, name: 'scrypt-js 3.0.1', required: false }
+  { path: SCRYPT_PATH, sha256: SCRYPT_SHA256, name: 'scrypt-js 3.0.1', required: false },
+  { path: 'public/vendor/rnnoise/rnnoise.wasm', sha256: '8b60a2ab88fdae2d1a9f940249d0eb072f28ba8e796f7304347b4e07839c8853', name: RNNOISE_NAME, required: true },
+  { path: 'public/vendor/rnnoise/RNNOISE-LICENSE.txt', sha256: 'd597473329bdc1807197a303be09e79882159ea858daa9f06ce780592877534e', name: RNNOISE_NAME + ' (RNNoise COPYING)', required: true },
+  { path: 'public/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', sha256: 'a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9', name: RNNOISE_NAME + ' (LICENSE)', required: true }
 ]
 
 const VENDOR_DIR = 'public/vendor/'
