@@ -13,13 +13,14 @@ const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
 const DENIZ_DM = 'Ece, bu yalnızca ikimizin arasında 5512'
 const ECE_DM = 'Tamam Deniz, özelden yanıtlıyorum 6623'
 
+// Kişisel girişler üst çubuğun ortasındadır (#top-dm, #top-friends), rozet gizliyse boş döner
 function personalMark (key) {
-  const b = document.querySelector('#band-track .station[data-station="' + key + '"] .station-mark')
-  return b ? b.textContent : ''
+  const b = document.querySelector('#top-personal .top-personal-button[data-station="' + key + '"] .station-mark')
+  return b && !b.hidden ? b.textContent : ''
 }
 
 async function openFriends (page) {
-  await h.clickStation(page, 'friends')
+  await page.click('#top-friends')
   await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden)
 }
 
@@ -57,7 +58,7 @@ test('istek kabul edilir, iki tarafta arkadaş listesinde görünür', async () 
   await ece.waitForSelector('.friend-row[data-kind="friend"][data-user-id="' + W.w.P.deniz.id + '"]')
   await deniz.click('#home-tab-all')
   await deniz.waitForSelector('.friend-row[data-kind="friend"][data-user-id="' + W.w.P.ece.id + '"]', { timeout: h.LONG })
-  await ece.waitForFunction(() => !document.querySelector('#band-track .station[data-station="friends"] .station-mark'))
+  await ece.waitForFunction(() => document.getElementById('top-friends-mark').hidden)
 })
 
 test('özel mesaj: arkadaş satırından açılır, başlangıçta karşı tarafın avatarı görünür', async () => {
@@ -88,8 +89,8 @@ test('özel mesaj iki yönlü: Özel istasyonunda rozet, iki tarafta görünür'
   await deniz.fill('#composer-input', DENIZ_DM)
   await deniz.keyboard.press('Enter')
   await ece.waitForFunction((id) => {
-    const s = document.querySelector('#band-track .station[data-station="dm"] .station-mark')
-    return s && s.textContent === '1'
+    const s = document.getElementById('top-dm-mark')
+    return s && !s.hidden && s.textContent === '1'
   }, W.dmId, { timeout: h.LONG })
   await ece.click('#band-all')
   await ece.waitForSelector('#stations-sheet:not([hidden]) .sheet-row-dmitem[data-dm-id="' + W.dmId + '"]')

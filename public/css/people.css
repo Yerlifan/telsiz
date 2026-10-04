@@ -283,10 +283,8 @@
    ========================================================= */
 
 /* KONSEPT 6.3: Özel istasyonunda konuşma listesi ve gelen istekler, Arkadaşlar istasyonunda Arkadaş ekle
-   ve gönderilen istekler. İstasyon değiştirme ipuçları kişisel istasyonlarda gösterilmez. */
-.app-view[data-view="home"] .dm-section,
-.app-view[data-view="dm"] .hints-card,
-.app-view[data-view="home"] .hints-card {
+   ve gönderilen istekler */
+.app-view[data-view="home"] .dm-section {
   display: none;
 }
 

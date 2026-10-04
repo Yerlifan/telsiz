@@ -103,9 +103,9 @@ test('/çal ile YouTube parçası: komut mesaj olarak gitmez, rıza kartı çık
   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
   assert.equal(sent, false, 'komut mesaj olarak gönderilmedi')
   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
-  // Parça gelince kart telsiz kartının solunda sütuna geçer, sol bilgi sütunu kalkar
-  const col = await A.evaluate(() => ({ col: document.getElementById('app-view').getAttribute('data-dj-col'), sheet: document.getElementById('dj').classList.contains('is-sheet-mode'), infoInline: isInfoInline(), infoCol: document.getElementById('info-col').getBoundingClientRect().width }))
-  assert.deepEqual(col, { col: 'on', sheet: false, infoInline: false, infoCol: 0 })
+  // Parça gelince kart sağ sütundaki İstasyonlar listesinin yerini alır, sol sütun (telsiz kartı) yerinde kalır
+  const col = await A.evaluate(() => ({ col: document.getElementById('app-view').getAttribute('data-dj-col'), sheet: document.getElementById('dj').classList.contains('is-sheet-mode'), infoInline: isInfoInline(), infoCol: document.getElementById('info-col').getBoundingClientRect().width > 0, right: document.getElementById('side-right').getBoundingClientRect().width, dj: document.getElementById('dj').getBoundingClientRect().width > 0 }))
+  assert.deepEqual(col, { col: 'on', sheet: false, infoInline: true, infoCol: true, right: 0, dj: true })
   const consent = await B.evaluate(() => ({ title: document.querySelector('#dj .dj-consent-title').textContent, yt: document.querySelector('#dj .dj-yt').hidden, frames: document.querySelectorAll('iframe').length }))
   assert.deepEqual(consent, { title: 'YouTube oynatıcısı yüklensin mi?', yt: true, frames: 0 })
   assert.deepEqual(W.yt, { deniz: [], ece: [] }, 'rızadan önce YouTube alan adlarına istek gitmedi')

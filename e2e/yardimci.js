@@ -424,9 +424,15 @@ async function clickStation (page, key) {
   await page.click('#band-track .station[data-station="' + key + '"]')
 }
 
-// Ses odasına katılır ve telsiz kartının bağlanmasını bekler
+// Ses odasına katılır ve telsiz kartının bağlanmasını bekler. Geniş ekranda kapalı telsiz kartı küçüktür,
+// ses odaları sağdaki İstasyonlar listesinden seçilir, daha dar ekranda kartın Katıl düğmesi kullanılır.
 async function joinVoice (page, channelId) {
-  await page.click('#voice-channels .radio-join[data-channel-id="' + channelId + '"]')
+  const joinSel = '#voice-channels .radio-join[data-channel-id="' + channelId + '"]'
+  const visible = await page.evaluate((sel) => {
+    const n = document.querySelector(sel)
+    return Boolean(n && n.getClientRects().length)
+  }, joinSel)
+  await page.click(visible ? joinSel : '#inbox-list .room-row[data-station="voice-' + channelId + '"]')
   await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on', null, { timeout: LONG })
 }
 

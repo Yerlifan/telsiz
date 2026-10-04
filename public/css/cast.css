@@ -199,12 +199,6 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
   min-height: 10rem;
 }
 
-@media (min-width: 1280px) {
-  body[data-cast="live"] .side-left {
-    display: none;
-  }
-}
-
 /* =========================================================
    5. Yayın paneli
    ========================================================= */

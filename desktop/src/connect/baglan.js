@@ -1,6 +1,7 @@
 'use strict'
 
-// Sunucu adresi ekranı. Adres ana süreçte doğrulanır ve /api/info ile denetlenir, bu sayfa
+// Frekans adresi ekranı (her frekans bir Telsiz sunucusudur). İlk açılışta ilk frekansı, sonra yeni
+// frekans eklemeyi sağlar. Adres ana süreçte doğrulanır ve /api/info ile denetlenir, bu sayfa
 // yalnızca formu gösterir ve sonucu yazar. Metinler ana süreçten gelir (src/lib/strings.js) ve
 // her zaman textContent ile yerleştirilir.
 
@@ -96,8 +97,10 @@ async function init () {
   canCancel = Boolean(data && data.canCancel)
   document.documentElement.lang = data && data.lang === 'tr' ? 'tr' : 'en'
   document.title = text('connect.windowTitle')
-  el.title.textContent = text('connect.title')
-  el.lead.textContent = text('connect.lead')
+  // Ekleme kipinde (listede zaten frekans varsa) alan boş açılır, yeni adres listeye eklenir
+  const adding = Boolean(data && data.mode === 'add')
+  el.title.textContent = text(adding ? 'connect.addTitle' : 'connect.title')
+  el.lead.textContent = text('connect.lead') + (adding ? ' ' + text('connect.addLead') : '')
   el.label.textContent = text('connect.label')
   el.address.placeholder = text('connect.placeholder')
   el.hint.textContent = text('connect.hint')
@@ -109,7 +112,7 @@ async function init () {
   if (data && typeof data.current === 'string' && data.current) {
     el.current.textContent = text('connect.current', { server: data.current })
     el.current.hidden = false
-    el.address.value = data.current
+    if (!adding) el.address.value = data.current
   }
   el.form.addEventListener('submit', (event) => {
     event.preventDefault()

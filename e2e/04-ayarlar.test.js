@@ -68,7 +68,7 @@ test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async (
   const page = W.page
   await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
   const tr = await page.evaluate(() => ({ groups: Array.from(document.querySelectorAll('#band-track .band-group-label')).map((n) => n.textContent), radio: document.getElementById('radio-state').textContent, placeholder: document.getElementById('composer-input').getAttribute('placeholder') }))
-  assert.deepEqual(tr.groups, ['Kişisel', 'Yazı odaları', 'Ses odaları'])
+  assert.deepEqual(tr.groups, ['Yazı odaları', 'Ses odaları'])
   await openAppearance(page)
   await page.selectOption('#set-lang', 'en')
   await page.waitForFunction(() => document.documentElement.lang === 'en')
@@ -82,8 +82,8 @@ test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async (
     inbox: document.getElementById('inbox-title').textContent,
     placeholder: document.getElementById('composer-input').getAttribute('placeholder')
   }))
-  assert.deepEqual(en.groups, ['Personal', 'Text rooms', 'Voice rooms'])
-  assert.deepEqual([en.radio, en.all, en.inbox], ['Radio · off', 'All', 'On other frequencies'])
+  assert.deepEqual(en.groups, ['Text rooms', 'Voice rooms'])
+  assert.deepEqual([en.radio, en.all, en.inbox], ['Radio · off', 'All', 'Stations'])
   assert.notEqual(en.placeholder, tr.placeholder, 'yazma alanı yer tutucusu çevrildi')
 })
 

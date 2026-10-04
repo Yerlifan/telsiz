@@ -279,7 +279,7 @@ describe('API hata metinleri isteğin dilinde, kod aynı', () => {
           send: (headers) => h.request(ctx, 'POST', '/api/users/role', { headers, token: owner.token, body: { userId: owner.user.id, role: 'admin' } }),
           status: 403,
           code: 'forbidden',
-          en: 'The role of the server owner cannot be changed.',
+          en: 'The role of the frequency owner cannot be changed.',
           tr: 'Sahibin rolü değiştirilemez.'
         },
         {

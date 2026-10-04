@@ -11,7 +11,7 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
 | `public/theme-init.js` | Loaded in `<head>` without `defer`, before the stylesheets. It reads the stored preference and writes the attributes of the root element, so the page opens with the right theme on first paint. It defines the `window.TelsizTheme` interface. |
 | `public/css/tokens.css` | Theme independent scales (spacing, type, target size, motion), the measurements of the Frequency layout, the avatar shape, color, font and shape tokens for each theme and mode, and the font size rules. |
 | `public/css/base.css` | Local fonts (`@font-face`, `font-display: swap`), reset, body and background glow, focus ring, scrollbars, icons, the reduced motion rule. |
-| `public/css/frekans.css` | The core layout: the shell of the startup and identity screens, the top bar, the frequency band and stations, the stage (left info column, conversation column, DJ column, right column), the inbox card container, the radio card container, side and bottom sheets, the TV hint bar, breakpoints. |
+| `public/css/frekans.css` | The core layout: the shell of the startup and identity screens, the top bar, the frequency band and stations, the stage (left info column, conversation column, DJ column, right column), the Stations list, the radio card container, the frequency menu, side and bottom sheets, the TV hint bar, breakpoints. |
 | `public/css/components.css` | General components: button, input, select, switch, slider, card, tag, badge, avatar and status marker, menu, popover, modal, tabs, list, notification, key cap, loading, message, emoji picker, profile card. |
 | `public/css/settings.css` | The full screen settings view. |
 | `public/css/chat-plus.css` | Search panel, @ mention badges and the suggestion list, typing line. |
@@ -44,9 +44,9 @@ Root element (`<html>`) attributes: `data-skin` (`arcade`, `gece`, `turkuaz`), `
 
 The app screen (`#app-view`) consists of the following regions from top to bottom:
 
-1. **Top bar (`#top`).** At the top left, the community identity (logo, server name, member count). On the right, the Search chip, the On air strip (small avatars of online people, which opens the people list) and the avatar chip (`#me-button`, which opens the avatar menu: status, custom status, profile, settings, appearance, language, sign out). While you share your screen, the "Your screen is live" chip (`#top-cast`) shown on every station is also here. When the connection drops, a banner (`#conn-banner`) appears below the top bar.
-2. **Frequency band (`#band`, `#band-track`).** Personal (Direct, Friends), text room and voice room stations in a single row. The scale ticks scroll with the content, and the needle above a station shows the open conversation. When dragged and dropped, the needle settles on the nearest conversation station and never on a voice station. Pressing a voice station joins that room without changing the conversation column. The ends of the band hold previous and next station buttons, an Add room button for owners and admins, and an All button on narrow screens. The band is a single tab stop on the keyboard (arrow keys, Home, End, Enter), and the wheel only scrolls the band horizontally and never changes the station. On a gamepad, L1 and R1 select the previous and next conversation station.
-3. **Stage (`#stage`).** On wide screens from left to right: the left info column (`#info-col`: the card of the tuned station and station switching hints, the conversation list on the Direct station), the conversation column (`#main`: header, messages, typing line, composer), the DJ column (`#dj`) while Telsiz DJ is playing, and the right column (`#side-right`: on top the inbox card `#inbox` that collects unread messages and mentions on other frequencies, below it the radio card `#radio`).
+1. **Top bar (`#top`).** At the top left, the frequency switcher (`#frekans-button`: emblem, frequency name and a down arrow, with "Frequency · member count" and the encrypted note on the second line). Pressing it opens the menu of saved frequencies (`#frekans-menu`, `24-frekans.js`): the open frequency first and marked, switching to another, Add a frequency, Remove from list. In the middle, the Direct messages and Friends buttons (`#top-personal`, with badges for unread direct messages and pending requests). On the right, the Search chip, the On air strip (small avatars of online people, which opens the people list) and the avatar chip (`#me-button`, which opens the avatar menu: status, custom status, profile, settings, appearance, language, sign out). While you share your screen, the "Your screen is live" chip (`#top-cast`) shown on every station is also here. When the connection drops, a banner (`#conn-banner`) appears below the top bar.
+2. **Frequency band (`#band`, `#band-track`).** Text room and voice room stations in a single row, with the group labels at the start of each group. The band is one row high (`--band-h` 4rem): the scale strip and the needle knob on top, the 44 pixel stations below. The scale ticks scroll with the content, and the needle above a station shows the open conversation. When dragged and dropped, the needle settles on the nearest conversation station and never on a voice station. Pressing a voice station joins that room without changing the conversation column. The ends of the band hold previous and next station buttons, an Add room button for owners and admins, a ? button that shows the guide to changing stations in a small popover (`#band-help`, `#hints-card`) and the All button. The band is a single tab stop on the keyboard (arrow keys, Home, End, Enter), and the wheel only scrolls the band horizontally and never changes the station. On a gamepad, L1 and R1 select the previous and next conversation station.
+3. **Stage (`#stage`).** On wide screens from left to right: a narrow fixed left column (`#info-col`, `--side-left-w`: the conversation list and personal cards in the Direct view, and at the bottom of the column the radio card `#radio` with the card of the tuned station right below it), the conversation column that takes the remaining space (`#main`: header, messages, typing line, composer) and a narrow fixed right column (`#side-right`, `--side-right-w`: the list of text and voice rooms called Stations `#inbox`, with unread and mention badges, the number of people in a voice room and a speaking indicator). While Telsiz DJ is playing the DJ card (`#dj`) takes the place of the right column, and while a screen share is live the right column is hidden. Below 1280 pixels the radio card moves to the right column (`12-init.js placeRadio`).
 4. **Broadcast stage (`#cast`).** While watching a screen share or previewing your own, the left and middle regions merge and the chat moves down into a collapsed strip.
 5. **Sheets.** All (`#stations-sheet`), On air (`#people-sheet`) and, below 1280 pixels, Room info are side sheets that open from the right on wide screens and bottom sheets on phones. Only one sheet is open at a time, and they share the `#drawer-backdrop` overlay.
 6. **TV hint bar (`#tvbar`).** Appears at the bottom at 1800 pixels and up when a gamepad is detected.
@@ -62,11 +62,11 @@ The layout follows the markup order, and `dir` or `flex-direction: row-reverse` 
 | Name | Condition | What changes |
 | --- | --- | --- |
 | TV | `min-width: 1800px` | Root font 22 pixels (with the automatic font size), larger focus ring, hint bar when a gamepad is present, header row of the radio card hidden |
-| Wide | `min-width: 1280px` | Three region stage, left info column, DJ column |
-| Wide narrow | 1000 to 1279 pixels | Left column hidden, room info in a side sheet from the header button, DJ card in a sheet opened from the Telsiz DJ item in the crew |
-| Medium | `max-width: 999px` | Radio card 17rem, buttons in two rows, inbox card hidden |
+| Wide | `min-width: 1280px` | Three region stage: radio card and room info on the left, the conversation grows in the middle, Stations or the DJ card on the right |
+| Wide narrow | 1000 to 1279 pixels | Left column hidden, radio card in the right column, personal buttons in the top bar as icons, room info in a side sheet from the header button, DJ card in a sheet opened from the Telsiz DJ item in the crew |
+| Medium | `max-width: 999px` | Radio card 17rem, buttons in two rows, Stations card hidden |
 | Narrow (phone) | `max-width: 759px` | The band runs edge to edge and scrolls with a finger, All button, full width conversation, the radio card sticks to the bottom of the screen, layers open from the bottom |
-| Short | `max-height: 860px` | Inbox card hidden |
+| Short | `max-height: 860px` and below 1280 pixels | Stations card hidden |
 
 ## Design tokens
 
@@ -81,11 +81,12 @@ Scales and layout (theme independent):
 | `--text-xs` to `--text-2xl` | 0.75rem to 1.75rem | Type scale |
 | `--dur-fast`, `--dur-med`, `--dur-slow`, `--ease` | 0.14s, 0.24s, 1.8s, `cubic-bezier(0.2, 0.7, 0.2, 1)` | Motion |
 | `--top-h` | 3.75rem (narrow 3.5rem) | Top bar height |
-| `--band-h`, `--band-pad`, `--dial-top` | 6.75rem (narrow 5.75rem), 0.5rem, 1.5rem (narrow 1.25rem) | Frequency band height, bottom padding, distance of the scale line from the top |
-| `--station-h` | 3.25rem (narrow 2.75rem) | Station height |
+| `--band-h`, `--band-pad`, `--dial-top` | 4rem, 0.25rem, 0.125rem | Frequency band height, bottom padding, distance of the scale line from the top |
+| `--station-h` | 2.75rem | Station height |
 | `--column-max` | 46rem | Widest conversation column |
-| `--side-w` | 17.5rem | Left info column and DJ column |
-| `--radio-w` | 21rem (medium 17rem) | Right column and radio card |
+| `--side-w` | 17.5rem | DJ card in a side sheet |
+| `--side-left-w`, `--side-right-w` | 19.5rem, 14.5rem | On wide screens the left column (radio card, room info) and the right column (Stations, DJ card) |
+| `--radio-w` | 21rem (medium 17rem) | Below 1280 pixels the right column and the radio card |
 | `--sheet-w` | 25rem | Side sheet width |
 | `--avatar-radius` | `28%` | Avatar corner radius, in every theme |
 | `--dot-radius` | `32%` | Status dot and corner markers |
@@ -175,9 +176,10 @@ Status dots and corner markers (muted, deafened, sharing the screen) are soft sq
 | Key cap | `.kbd` | Push to talk key and binding display. |
 | Badge and tag | `.badge-owner`, `.badge-admin`, `.tag`, `.unread-badge`, `.mention-badge` | The mention badge uses `--attention`. |
 | Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` to `.avatar-c7`, `.avatar-xs`, `.avatar-sm`, `.avatar-md`, `.avatar-lg`, `.avatar-xl` | Status through the `data-status` attribute (`online`, `idle`, `dnd`, `offline`), speaking through `.is-speaking`. |
-| Top bar | `.top-bar`, `.top-chip`, `.top-me`, `.top-stack` | Search, On air and avatar chips. |
+| Top bar | `.top-bar`, `.top-brand-button`, `.top-personal`, `.top-personal-button`, `.top-chip`, `.top-me`, `.top-stack` | Frequency switcher, personal buttons, Search, On air and avatar chips. |
+| Frequency menu | `.frekans-menu`, `.frekans-row`, `.frekans-item`, `.frekans-emblem`, `.frekans-remove`, `.frekans-add` | The open frequency has `.is-active` and `aria-checked="true"`. |
 | Frequency band | `.band-track`, `.band-step`, `.band-all`, `.station`, `.station-voice`, `.station-meta`, `.station-pulse`, `.needle`, `.mini-stack` | Station states: `.is-tuned`, `.is-target`, `.is-unread`, and for voice `.is-connected`, `.is-joining`, `.is-live`. Needle: `.is-dragging`. |
-| Left column and inbox | `.side-left`, `.facts`, `.hints`, `.dm-section`, `.inbox`, `.inbox-row` | |
+| Left column and Stations | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.rooms-list`, `.room-row` | Row states: `.is-current`, `.is-unread`, and for voice `.is-connected`, `.is-live`. |
 | Conversation column | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | A message that mentions you gets the `--mention-bg` background and a left line. |
 | Radio card | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-button` | `.is-speaking` on crew items, `aria-pressed` on buttons. |
 | Avatar menu | `.avatar-menu` | Status options are `menuitemradio`. |

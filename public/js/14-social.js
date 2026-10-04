@@ -640,7 +640,7 @@ function personalCard (id, titleId) {
     card.id = id
     card.setAttribute('aria-labelledby', titleId)
     card.hidden = true
-    const anchor = byId('hints-card')
+    const anchor = byId('info-bottom')
     scroll.insertBefore(card, anchor && anchor.parentNode === scroll ? anchor : null)
   }
   return card

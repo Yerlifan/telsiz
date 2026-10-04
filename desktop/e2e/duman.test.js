@@ -2,7 +2,7 @@
 
 // Masaüstü uygulamasının duman testi (Playwright _electron, Linux'ta xvfb altında).
 // Yerel bir Telsiz sunucusu başlatılır, uygulama boş bir kullanıcı verisi klasörüyle açılır,
-// sunucu adresi ekranından adres girilir ve şunlar doğrulanır:
+// frekans (sunucu) adresi ekranından adres girilir ve şunlar doğrulanır:
 // - giriş ekranı paketlenmiş koddan gelir (sunucu hiçbir statik dosya isteği almaz)
 // - kayıt, mesaj, long-poll, yükleme ve indirme API'ları ana süreçteki vekil üzerinden çalışır,
 //   X-Token ve Accept-Language iletilir
@@ -405,7 +405,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['changeServer', 'getServer', 'getSettings', 'onShortcut', 'platform', 'setCloseToTray', 'setShortcuts', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'version'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
   // Paketlenmiş uygulamada geliştirici araçları açılamaz
@@ -703,12 +703,20 @@ test('sayfanın ürettiği blob dosyası kaydedilebilir, başka indirmeler engel
   assert.equal(list[1].prevented, true)
 })
 
-test('menüden sunucu adresi değiştirme penceresi açılır ve vazgeçilebilir', async () => {
+test('frekans listesi: ilk sunucu listede ve etkin, Frekans ekle penceresi boş açılır ve vazgeçilebilir', async () => {
+  const origin = 'http://127.0.0.1:' + ctx.port
+  const list = await ctx.page.evaluate(() => window.telsizDesktop.listFrequencies())
+  assert.equal(list.active, origin)
+  assert.deepEqual(list.items.map((item) => [item.origin, item.active]), [[origin, true]])
+  assert.deepEqual(await ctx.page.evaluate(() => window.telsizDesktop.switchFrequency('https://listede-yok.ornek.com')), { ok: false, code: 'unknown' })
+  assert.deepEqual(await ctx.page.evaluate(() => window.telsizDesktop.removeFrequency('https://listede-yok.ornek.com', false)), { ok: false, code: 'unknown' })
   const opened = ctx.app.waitForEvent('window', { predicate: (p) => p.url().startsWith('telsiz://baglan/'), timeout: TIMEOUT })
-  await ctx.page.evaluate(() => window.telsizDesktop.changeServer())
+  await ctx.page.evaluate(() => window.telsizDesktop.addFrequency())
   const connect = await opened
   await connect.waitForSelector('#cancel:not([hidden])')
-  assert.equal(await connect.inputValue('#address'), 'http://127.0.0.1:' + ctx.port)
+  // Ekleme kipinde alan boştur, şu anki frekans bilgi satırında yazar
+  assert.equal(await connect.inputValue('#address'), '')
+  assert.match(await connect.textContent('#current'), new RegExp('127\\.0\\.0\\.1:' + ctx.port))
   const closed = connect.waitForEvent('close', { timeout: TIMEOUT })
   await connect.evaluate(() => document.getElementById('cancel').click()).catch(() => {})
   await closed

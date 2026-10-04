@@ -1,7 +1,9 @@
 'use strict'
 
-// Frekans düzeni: bantta gezinme (tıklama, yön tuşları, Enter, tekerlek, uç düğmeleri), Tümü sayfası,
-// arama, anma rozeti ve anma listesi, yazıyor göstergesi, telefon genişliğinde yatay taşma olmaması.
+// Frekans düzeni: geniş ekran yerleşimi (tek satırlık bant, solda telsiz kartı ve oda bilgisi, sağda
+// İstasyonlar listesi, ortada geniş konuşma sütunu, üst çubuğun ortasında kişisel düğmeler), bantta gezinme
+// (tıklama, yön tuşları, Enter, tekerlek, uç düğmeleri), rehber açılır penceresi, Tümü sayfası, arama, anma
+// rozeti ve anma listesi, yazıyor göstergesi, telefon genişliğinde yatay taşma olmaması.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -32,6 +34,101 @@ before(async () => {
 
 after(async () => {
   if (W.w) await W.w.close()
+})
+
+test('geniş düzen: tek satırlık bant, solda telsiz ve oda kartı, sağda İstasyonlar, ortada geniş sohbet', async () => {
+  const page = W.deniz
+  const r = await page.evaluate(() => {
+    const box = (id) => document.getElementById(id).getBoundingClientRect()
+    const band = box('band')
+    const convo = box('main')
+    const radio = box('radio')
+    const room = box('room-card')
+    const info = box('info-col')
+    const right = box('side-right')
+    return {
+      bandH: Math.round(band.height),
+      groups: Array.from(document.querySelectorAll('#band-track .band-group')).map((g) => g.classList.contains('band-group-personal') ? 'personal' : g.getAttribute('aria-label')),
+      personalInBand: Boolean(document.querySelector('#band-track .station[data-station="dm"], #band-track .station[data-station="friends"]')),
+      radioLeft: Boolean(document.getElementById('info-col').contains(document.getElementById('radio'))),
+      radioAboveRoom: radio.bottom <= room.top + 1,
+      roomAtBottom: Math.abs(info.bottom - room.bottom) < 4 || room.bottom > info.bottom - 24,
+      convoW: Math.round(convo.width),
+      rightW: Math.round(right.width),
+      hints: Boolean(document.querySelector('#info-col .hints')),
+      stationRows: Array.from(document.querySelectorAll('#inbox-list .room-row')).length,
+      minStationH: Math.min.apply(null, Array.from(document.querySelectorAll('#band-track .station[data-station]')).map((n) => n.getBoundingClientRect().height)),
+      personal: Array.from(document.querySelectorAll('#top-personal .top-personal-button')).map((b) => b.getAttribute('data-station')),
+      inboxTitle: document.getElementById('inbox-title').textContent
+    }
+  })
+  // Önceki iki satırlık bant (etiket, ölçek ve istasyon satırları) 120 px idi
+  assert.ok(r.bandH <= 76, 'bant yüksekliği yaklaşık yarıya indi: ' + r.bandH)
+  assert.ok(r.minStationH >= 44, 'istasyon dokunma hedefi en az 44 px: ' + r.minStationH)
+  assert.deepEqual(r.groups, ['Yazı odaları', 'Ses odaları'])
+  assert.equal(r.personalInBand, false)
+  assert.deepEqual(r.personal, ['dm', 'friends'])
+  assert.equal(r.radioLeft, true, 'telsiz kartı sol sütunda')
+  assert.equal(r.radioAboveRoom, true, 'telsiz kartı oda kartının üstünde')
+  assert.ok(r.roomAtBottom, 'oda kartı sütunun altında')
+  // Önceki düzende 1440 genişlikte sohbet sütunu 656 px idi
+  assert.ok(r.convoW >= 720, 'sohbet sütunu geniş: ' + r.convoW)
+  assert.ok(r.rightW <= 280, 'sağ sütun dar: ' + r.rightW)
+  assert.equal(r.hints, false, 'rehber kartı sol sütundan kalktı')
+  assert.equal(r.inboxTitle, 'İstasyonlar')
+  assert.ok(r.stationRows >= 10, 'İstasyonlar listesinde yazı ve ses odaları')
+})
+
+test('İstasyonlar listesi: ayarlı oda işaretli, ok tuşları gezer, satır odaya geçer', async () => {
+  const page = W.deniz
+  await page.evaluate((id) => selectChannel(id, {}), W.R.genel.id)
+  await waitChannel(page, W.R.genel.id)
+  await page.waitForFunction((k) => document.querySelector('#inbox-list .room-row[aria-current="page"]').getAttribute('data-station') === k, W.K.genel)
+  await page.focus('#inbox-list .room-row[data-station="' + W.K.genel + '"]')
+  await page.keyboard.press('ArrowDown')
+  const next = await page.evaluate(() => document.activeElement.getAttribute('data-station'))
+  assert.ok(next && next !== W.K.genel, 'aşağı ok sonraki satır')
+  await page.keyboard.press('End')
+  assert.match(await page.evaluate(() => document.activeElement.getAttribute('data-station')), /^voice-/)
+  await page.keyboard.press('Home')
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-station')), W.K.genel)
+  await page.click('#inbox-list .room-row[data-station="' + W.K.gece + '"]')
+  await waitChannel(page, W.R['oyun-gecesi'].id)
+  assert.equal(await tunedKey(page), W.K.gece)
+  assert.equal(await page.getAttribute('#inbox-list .room-row[data-station="' + W.K.gece + '"]', 'aria-current'), 'page')
+  const voiceRow = await page.evaluate((k) => {
+    const b = document.querySelector('#inbox-list .room-row[data-station="' + k + '"]')
+    return { sub: b.querySelector('.room-row-sub').textContent, label: b.getAttribute('aria-label') }
+  }, W.K.lobi)
+  assert.equal(voiceRow.sub, 'boş')
+  assert.ok(/Lobi/.test(voiceRow.label))
+})
+
+test('üst çubuk: kişisel düğmeler Arkadaşlar ve Özel mesajları açar, rehber açılır penceresi Esc ile kapanır', async () => {
+  const page = W.deniz
+  await page.click('#top-friends')
+  await page.waitForFunction(() => currentViewMode() === 'home' && document.getElementById('top-friends').getAttribute('aria-current') === 'page')
+  await page.evaluate((id) => selectChannel(id, {}), W.R.genel.id)
+  await waitChannel(page, W.R.genel.id)
+  assert.equal(await page.getAttribute('#top-friends', 'aria-current'), null)
+  await page.click('#band-help')
+  await page.waitForFunction(() => !document.getElementById('hints-card').hidden && document.activeElement === document.getElementById('hints-card'))
+  assert.equal(await page.getAttribute('#band-help', 'aria-expanded'), 'true')
+  assert.ok(/Fare/.test(await page.textContent('#hints-card')))
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.getElementById('hints-card').hidden && document.activeElement && document.activeElement.id === 'band-help')
+  assert.equal(await page.getAttribute('#band-help', 'aria-expanded'), 'false')
+})
+
+test('orta genişlik: telsiz kartı sağ sütuna iner, geri genişleyince sola döner', async () => {
+  const page = W.deniz
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await page.waitForFunction(() => document.getElementById('side-right').contains(document.getElementById('radio')))
+  assert.ok(await page.evaluate(() => document.getElementById('radio').getBoundingClientRect().width > 0))
+  await page.setViewportSize({ width: 900, height: 800 })
+  assert.ok(await h.overflowX(page) <= 0, '900 genişlikte yatay taşma')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForFunction(() => document.getElementById('radio-slot').contains(document.getElementById('radio')))
 })
 
 test('bantta tıklama istasyonu ayarlar, ibre ve başlık taşınır', async () => {
@@ -68,7 +165,7 @@ test('yön tuşları odağı gezdirir, Enter ayarlar, Home ve End uçlara gider'
   await page.keyboard.press('ArrowLeft')
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-station')), W.K.genel)
   await page.keyboard.press('Home')
-  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-station')), 'dm')
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-station')), W.K.genel, 'bant yazı odalarıyla başlar')
   await page.keyboard.press('End')
   const end = await page.evaluate(() => {
     const a = document.activeElement
@@ -151,8 +248,11 @@ test('anma: başka odadaki @ad istasyonda @1 rozeti ve Gelenler satırı, açın
   }, W.K.foto, { timeout: h.LONG })
   const label = await page.getAttribute('#band-track .station[data-station="' + W.K.foto + '"]', 'aria-label')
   assert.equal(label, 'fotograflar, yazı odası, 1 anma')
-  await page.waitForSelector('#inbox-list .inbox-row[data-station="' + W.K.foto + '"]')
-  await page.click('#inbox-list .inbox-row[data-station="' + W.K.foto + '"]')
+  await page.waitForFunction((k) => {
+    const m = document.querySelector('#inbox-list .room-row[data-station="' + k + '"] .mark-mention')
+    return m && m.textContent === '@1'
+  }, W.K.foto)
+  await page.click('#inbox-list .room-row[data-station="' + W.K.foto + '"]')
   await waitChannel(page, W.R.fotograflar.id)
   await page.waitForFunction((k) => !document.querySelector('#band-track .station[data-station="' + k + '"] .station-mark'), W.K.foto)
   await page.waitForSelector('#message-list .mention.mention-user.is-me')

@@ -749,8 +749,8 @@ function djApplyLayout (show) {
     // Yayın bitti veya pencere genişledi: açık sayfa kapanır, kart sütundaki yerine döner
     if (!sheetMode && layer) closeLayer(layer, false)
   }
-  // Sütun görünürken sol bilgi sütunu kalkar (KONSEPT 3: "sol bilgi sütunu kalkar"), oda bilgisi başlıktaki
-  // düğmeyle yan sayfada açılır (dj.css ve 12-init.js isInfoInline)
+  // Sütun görünürken kart sağ sütundaki İstasyonlar listesinin yerini alır, sol sütun (telsiz kartı ve oda
+  // bilgisi) yerinde kalır (dj.css)
   djAttr(el.appView, 'data-dj-col', !sheetMode && show ? 'on' : 'off')
   node.classList.toggle('is-sheet-mode', sheetMode)
   node.classList.toggle('is-cast-docked', sheetMode && dj.castLive && window.innerWidth >= 1280)

@@ -47,12 +47,16 @@
   /* Frekans düzeni (Ek K, KONSEPT bölüm 12): üst çubuk, frekans bandı, sütunlar ve sayfalar.
      Dar ve orta ekrandaki değerler dosyanın sonundaki kesme noktalarındadır. */
   --top-h: 3.75rem;
-  --band-h: 6.75rem;
-  --band-pad: 0.5rem;
-  --dial-top: 1.5rem;
-  --station-h: 3.25rem;
+  /* Bant tek satırdır: üstte ibrenin topuzu ve ölçek şeridi, altında 44 px istasyonlar */
+  --band-h: 4rem;
+  --band-pad: 0.25rem;
+  --dial-top: 0.125rem;
+  --station-h: 2.75rem;
   --column-max: 46rem;
   --side-w: 17.5rem;
+  /* Geniş ekranda sol sütun (telsiz kartı ve oda bilgisi) ve sağ sütun (İstasyonlar) */
+  --side-left-w: 19.5rem;
+  --side-right-w: 14.5rem;
   --radio-w: 21rem;
   --sheet-w: 25rem;
 
@@ -704,8 +708,5 @@ html[data-font-size="tv"] {
 @media (max-width: 759px) {
   :root {
     --top-h: 3.5rem;
-    --band-h: 5.75rem;
-    --dial-top: 1.25rem;
-    --station-h: 2.75rem;
   }
 }

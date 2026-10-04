@@ -4,13 +4,17 @@
 
 Telsiz is an open source (MIT), self-hosted, end-to-end encrypted app for text and voice communication. The server runs on the computer of one person in the group, on a home server or on a rented server, and everyone connects with a browser. The same interface opens on Windows PCs, Macs, Linux, Android and iOS phones, tablets and game console browsers. Anyone can install Telsiz as an app or use the desktop app built for Windows and Linux.
 
+Every Telsiz server is a **frequency**: a community with its own name, rooms, members and encryption key. One person can join several frequencies and switches between the saved ones from the frequency name in the top bar.
+
 Messages, files, profiles and the setup messages of voice connections are encrypted on the device. The server stores and relays this content only in encrypted form. The server has no runtime dependencies. It runs on Node.js 20 or newer, or as a single file build that does not need Node.js.
 
 ![Telsiz main view, Arcade theme, dark mode](docs/img/ana-arcade-koyu.png)
 
 ## Features
 
-**Rooms and the frequency band.** Telsiz is laid out like a radio dial. Text rooms and voice rooms sit as stations on a horizontal frequency band at the top of the screen. A needle above the band shows the open conversation, and when you drag and drop the needle with a mouse or a finger it settles on the nearest station. Unread messages and mentions appear as badges on the corners of stations, and a voice room with someone speaking in it pulses. Direct messages and friends are in the Personal group on the left of the band, while your profile, status and settings are in the avatar menu at the top right.
+**Rooms and the frequency band.** Telsiz is laid out like a radio dial. Text rooms and voice rooms sit as stations on a horizontal frequency band at the top of the screen. A needle above the band shows the open conversation, and when you drag and drop the needle with a mouse or a finger it settles on the nearest station. Unread messages and mentions appear as badges on the corners of stations, and a voice room with someone speaking in it pulses. On wide screens the right column lists the same rooms (Stations), the left column holds the radio card and the details of the tuned room, and the wide conversation column sits in the middle. Direct messages and friends are the two buttons in the middle of the top bar, while your profile, status and settings are in the avatar menu at the top right. The ? button at the end of the band opens the guide to changing stations.
+
+**Several frequencies.** Pressing the frequency name on the left of the top bar opens your saved frequencies: the open one is marked, pressing another switches to it, Add a frequency adds a new address (`https://`, or `http://localhost` for a server on this computer), and every row can be removed from the list. In the desktop app each frequency keeps its own sign-in and switching happens in the same window. In the browser each frequency is a separate site: the list is kept in that browser, switching takes the tab to the other address, and the list travels to the other frequency in the `#` part of the address (only addresses and names, never keys). Notifications and unread counts of frequencies that are not open are not shown, switching ends the voice connection, and the list is not synced between devices.
 
 **End-to-end encrypted messaging.** Messages, photos and files in text rooms are encrypted with the group key, and direct messages with the personal keys of the two people. Photos other than GIFs are re-encoded on the device before they are sent, which removes metadata including the location. A message can carry up to 10 files, and a file can be up to 25 MB by default. Messages can be edited and deleted, and there is an emoji picker, @ mentions and a typing indicator. In direct messages the other person's key can be verified with a safety number.
 
@@ -20,7 +24,7 @@ Messages, files, profiles and the setup messages of voice connections are encryp
 
 **Screen sharing.** Anyone in a voice room can share their screen, a window or a tab. Video is sent only to people who press Watch. The person sharing chooses between smooth motion and sharp text, a resolution of 720p or 1080p, a frame rate of 15 or 30 and, optionally, audio.
 
-**Telsiz DJ.** Voice rooms have a built-in music bot. Typing `/play` and a YouTube link in the message box, or pressing "Play in DJ" on an audio file in a message, adds the track to the queue. Everyone hears the track at the same time on their own device. YouTube tracks load in the official YouTube embedded player, and only after the person gives consent on that device. Shared audio files play without consent. The server owner can turn off Telsiz DJ or only the YouTube source.
+**Telsiz DJ.** Voice rooms have a built-in music bot. Typing `/play` and a YouTube link in the message box, or pressing "Play in DJ" on an audio file in a message, adds the track to the queue. Everyone hears the track at the same time on their own device. YouTube tracks load in the official YouTube embedded player, and only after the person gives consent on that device. Shared audio files play without consent. The owner of the frequency can turn off Telsiz DJ or only the YouTube source.
 
 **Search on the device.** Message search runs entirely on the device. The server never sees the search text or the message content.
 
@@ -101,12 +105,12 @@ The Releases page has an installer (`Telsiz-Kurulum-<version>.exe`) and a portab
 
 1. Start the server and note the setup code shown inside a frame in the console.
 2. Open the server address in a browser.
-3. On the setup screen, enter the setup code, your username and your password. This account becomes the owner of the server.
+3. On the setup screen, enter the setup code, your username and your password. This account becomes the owner of the frequency (this server).
 4. Telsiz creates an encryption key for the group and shows the invite screen. Copy the invite link and share it with your friends.
 
 The invite link carries the invite code and the encryption key in the part of the address after the `#` sign. Browsers do not send this part to the server, but anyone who sees the link also learns the key. Share the link only over channels you trust. The key code can also be typed by hand. The invite code can be renewed later in Settings > Invite.
 
-Owners and admins manage rooms in Settings > Rooms and members in Settings > Members. The server name and the switches for Telsiz DJ and the YouTube source are in Settings > General and can be changed only by the owner.
+Owners and admins manage rooms in Settings > Rooms and members in Settings > Members. The frequency name and the switches for Telsiz DJ and the YouTube source are in Settings > General and can be changed only by the owner.
 
 ## HTTPS and going online
 
@@ -118,7 +122,7 @@ There are three ways to reach friends on the internet. The `tunel.bat` (Windows)
 
 **Phones, tablets and computers.** When Telsiz is opened at an https address it can be installed as an app. In browsers that support it, an "Install app" button appears in Settings > App. On iPhone and iPad, use "Add to Home Screen" in the Share menu of Safari. An installed app is bound to the address it was installed from.
 
-**Desktop app.** The desktop app for Windows and Linux carries the interface inside itself and verifies the integrity of its files at startup. It offers global shortcuts for mute and deafen and an option to minimize to the system tray.
+**Desktop app.** The desktop app for Windows and Linux carries the interface inside itself and verifies the integrity of its files at startup. It remembers several frequencies (address and sign-in) and switches between them in the same window. It offers global shortcuts for mute and deafen and an option to minimize to the system tray.
 
 **TVs and game consoles.** On wide screens the interface opens with large text and large buttons and can be navigated with the arrow keys. The PS5 has no official browser app, and voice chat in console browsers has not been verified. The person at the console can join voice chat with the same account from their phone.
 

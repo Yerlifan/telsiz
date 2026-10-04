@@ -24,13 +24,21 @@ after(async () => {
   if (W.w) await W.w.close()
 })
 
-test('kapalı telsiz kartı ses odalarını ve Katıl düğmelerini gösterir', async () => {
+test('kapalı telsiz kartı geniş ekranda sol sütunda küçüktür, ses odaları İstasyonlar listesindedir', async () => {
   const r = await W.deniz.evaluate(() => ({
     state: document.getElementById('radio').getAttribute('data-state'),
     led: document.getElementById('radio-state').textContent,
-    joins: document.querySelectorAll('#voice-channels .radio-join').length
+    joins: document.querySelectorAll('#voice-channels .radio-join').length,
+    left: document.getElementById('radio-slot').contains(document.getElementById('radio')),
+    roomsShown: document.getElementById('voice-channels').getClientRects().length > 0,
+    voiceRows: document.querySelectorAll('#inbox-list .room-row-voice').length
   }))
-  assert.deepEqual(r, { state: 'off', led: 'Telsiz · kapalı', joins: 3 })
+  assert.deepEqual(r, { state: 'off', led: 'Telsiz · kapalı', joins: 3, left: true, roomsShown: false, voiceRows: 3 })
+  // Daha dar ekranda kart sağ sütuna iner ve Katıl düğmelerini gösterir
+  await W.deniz.setViewportSize({ width: 1100, height: 900 })
+  await W.deniz.waitForFunction(() => document.getElementById('side-right').contains(document.getElementById('radio')) && document.getElementById('voice-channels').getClientRects().length > 0)
+  await W.deniz.setViewportSize({ width: 1440, height: 900 })
+  await W.deniz.waitForFunction(() => document.getElementById('radio-slot').contains(document.getElementById('radio')))
 })
 
 test('iki kullanıcı Lobi\'ye katılır, kadroda ikisi ve Telsiz DJ görünür', async () => {

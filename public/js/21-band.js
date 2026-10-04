@@ -408,6 +408,8 @@ function padList () {
 
 function setGamepadPresent (present) {
   if (el.appView) el.appView.classList.toggle('has-gamepad', present)
+  // Rehber açılır penceresi #app-view dışındadır, kol ipucu satırı için gövdede de işaret
+  if (document.body) document.body.classList.toggle('has-gamepad', present)
 }
 
 function padPressed (gp, index) {
@@ -456,7 +458,36 @@ function onGamepadDisconnected () {
   if (!padList().length) setGamepadPresent(false)
 }
 
-// Tümü sayfası ve Gelenler kartı: satırlar istasyonu ayarlar veya özel konuşmayı açar
+// İstasyon değiştirme rehberi (#hints-card): bandın sonundaki ? düğmesiyle (#band-help) açılan küçük açılır
+// pencere. Esc, dışarı tıklama, Kapat ve kolun daire düğmesi kapatır, odak düğmeye döner.
+function bandHelpOpen () {
+  const pop = byId('hints-card')
+  const trigger = byId('band-help')
+  if (!pop || !trigger) return
+  const existing = findLayer('band-help')
+  if (existing) {
+    closeLayer(existing, true)
+    return
+  }
+  pop.hidden = false
+  positionPopup(pop, trigger)
+  trigger.setAttribute('aria-expanded', 'true')
+  openLayer({
+    name: 'band-help',
+    el: pop,
+    trigger: trigger,
+    level: 2,
+    outside: true,
+    closeOnFocusOut: true,
+    initialFocus: () => pop,
+    onClose: () => {
+      pop.hidden = true
+      trigger.setAttribute('aria-expanded', 'false')
+    }
+  })
+}
+
+// Sağ sütundaki İstasyonlar listesi ve Tümü sayfası: satırlar istasyonu ayarlar veya özel konuşmayı açar
 
 function onStationRowClick (e) {
   const row = e.target && e.target.closest ? e.target.closest('[data-station], [data-dm-id]') : null
@@ -497,7 +528,19 @@ function bandInit () {
     })
   }
   if (el.stationsList) el.stationsList.addEventListener('click', onStationRowClick)
-  if (el.inboxList) el.inboxList.addEventListener('click', onStationRowClick)
+  if (el.inboxList) {
+    el.inboxList.addEventListener('click', onStationRowClick)
+    el.inboxList.addEventListener('keydown', onRoomListKey)
+  }
+  const help = byId('band-help')
+  if (help) help.addEventListener('click', bandHelpOpen)
+  const helpClose = byId('hints-close')
+  if (helpClose) {
+    helpClose.addEventListener('click', () => {
+      const layer = findLayer('band-help')
+      if (layer) closeLayer(layer, true)
+    })
+  }
   window.addEventListener('gamepadconnected', onGamepadConnected)
   window.addEventListener('gamepaddisconnected', onGamepadDisconnected)
   if (padList().length) onGamepadConnected()
