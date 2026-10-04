@@ -5,7 +5,7 @@
 // Aynı kökenli GET isteklerinde ağ önceliklidir, ağ yoksa önbellek kullanılır.
 
 // Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir
-const CACHE_NAME = 'telsiz-2.0.1-frekanslar1'
+const CACHE_NAME = 'telsiz-2.0.1-tanitim1'
 const SHELL = [
   '/',
   '/index.html',
@@ -21,6 +21,7 @@ const SHELL = [
   '/css/people.css',
   '/css/cast.css',
   '/css/dj.css',
+  '/css/tanitim.css',
   '/css/skins/arcade.css',
   '/css/skins/gece.css',
   '/css/skins/turkuaz.css',
@@ -54,6 +55,7 @@ const SHELL = [
   '/js/22-cast.js',
   '/js/23-dj.js',
   '/js/24-frekans.js',
+  '/js/25-tanitim.js',
   '/fonts/figtree-latin-ext-wght-normal.woff2',
   '/fonts/figtree-latin-wght-normal.woff2',
   '/fonts/manrope-latin-ext-wght-normal.woff2',

@@ -80,6 +80,8 @@ describe('kurulum ve kayıt', () => {
         maxUploadsPerMessage: 10,
         channelNameMax: 30,
         serverNameMax: 40,
+        aboutMax: 600,
+        aboutMaxLines: 6,
         maxProfileChars: 6000,
         avatarMaxBytes: 1024 * 1024 + 16
       })

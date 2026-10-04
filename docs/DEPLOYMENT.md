@@ -122,6 +122,40 @@ sudo journalctl -u telsiz
 
 The unit file expects Node.js at `/usr/bin/node`. Check the path with `command -v node`. A reverse proxy such as Caddy or nginx faces the internet.
 
+## Step by step with a VPS and a domain
+
+This section walks through setting up a frequency on a rented virtual server (VPS) with your own domain and automatic HTTPS. A short version of the same guide is also on the introduction page that visitors who are not signed in see, under "Set up your own frequency".
+
+1. **Rent a VPS.** Ubuntu 24.04 with 1 to 2 GB of memory is enough. Pick a plan with KVM virtualization, a static IPv4 address and open ports 80 and 443.
+2. **Point your domain to the VPS.** Add an A record in your domain panel: Name `@` (or a subdomain such as `telsiz`), Value the IP address of the VPS. If you use Cloudflare, the record must be "DNS only" (grey cloud), otherwise Caddy cannot get a certificate. Check that the record has spread, the answer should show the IP address of the VPS:
+
+   ```sh
+   nslookup example.com
+   ```
+
+3. **Connect to the VPS.** Connect with the IP address and password from your provider, then change the password first:
+
+   ```sh
+   ssh root@IP
+   passwd
+   ```
+
+4. **Install Telsiz.** Install Docker, download the repository and start Telsiz with Caddy. Caddy gets and renews the HTTPS certificate by itself:
+
+   ```sh
+   curl -fsSL https://get.docker.com | sh
+   git clone https://github.com/Yerlifan/telsiz.git && cd telsiz
+   TELSIZ_ALAN_ADI=example.com docker compose -f deploy/docker-compose.yml --profile caddy up -d
+   ```
+
+5. **Create the owner account.** Find the setup code in the log, open `https://example.com` and create the owner account. Then write the frequency introduction in Settings > General and share the invite link:
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml logs telsiz
+   ```
+
+Other ways: if you do not want a rented server, use the [Windows single file](#windows-single-file) or [Linux single file](#linux-single-file) server or the [npm package](#npm-package) (`npx telsiz`). These suit trying it on your local network or through a [tunnel](#tunnel). See [Updating](#updating) and [Backups](#backups) for updates and backups.
+
 ## Settings
 
 The server is configured with environment variables. Each setting has a Turkish name and an English alias, and if both are set the Turkish name wins. If a value is invalid, the server does not start and prints which setting is wrong.
@@ -170,11 +204,13 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency introduction (owner only, admins see it read only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
 | Settings > Rooms | Owner and admins | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
 | Settings > Members | Owner and admins | Changing roles, banning and unbanning, resetting a password with a temporary password |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |
 | Settings > Privacy and security > Encryption keys | Owner and admins | Creating a new group key |
+
+The frequency introduction is plain text of at most 600 characters and 6 lines. When someone who is not signed in opens the frequency address in a browser, they first see the introduction page: the frequency name, this text, a short description of Telsiz, links to download the desktop app and to set up a frequency, and the Sign in and Join with an invite buttons. This text is public and not encrypted (the `about` field of the `GET /api/info` response), do not write anything secret in it. People who arrive through an invite link, a server that is not set up yet, the desktop app and browsers that signed in before skip the introduction page.
 
 Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes.
 

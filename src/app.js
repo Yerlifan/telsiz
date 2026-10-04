@@ -551,6 +551,13 @@ function normalizeLoadedState (state, config, log) {
     state.serverName = config.serverName
     changed = true
   }
+  // Frekans tanıtımı eski durum dosyalarında yoktur, boş metinle başlar (yazım gerekmez)
+  if (state.about === undefined) {
+    state.about = ''
+  } else if (auth.cleanAbout(state.about) !== state.about) {
+    state.about = auth.cleanAbout(state.about) || ''
+    changed = true
+  }
   if (state.activeKid !== null && !KID_RE.test(state.activeKid)) {
     state.activeKid = null
     changed = true
@@ -581,6 +588,8 @@ function prepareState (store, config, log) {
     const state = store.initState({
       version: 2,
       serverName: config.serverName,
+      // Frekans tanıtımı: sahibin yazdığı, herkese açık düz metin (GET /api/info)
+      about: '',
       inviteCode: auth.generateCode(),
       activeKid: null,
       counters: { user: 0, channel: 0, message: 0 },
@@ -764,6 +773,8 @@ async function createChatServer (options) {
     maxUploadsPerMessage: config.maxUploadsPerMessage,
     channelNameMax: auth.CHANNEL_NAME_MAX,
     serverNameMax: auth.SERVER_NAME_MAX,
+    aboutMax: auth.ABOUT_MAX,
+    aboutMaxLines: auth.ABOUT_MAX_LINES,
     maxProfileChars: config.maxProfileChars,
     avatarMaxBytes: config.avatarMaxBytes
   }
@@ -1146,7 +1157,8 @@ async function createChatServer (options) {
   // ---------------------------------------------------------------- uç noktalar: hesap
 
   function handleInfo (ctx) {
-    ok(ctx, { serverName: state.serverName, setupRequired: !ownerExists(), version: VERSION, limits })
+    // about herkese açıktır ve şifrelenmez: giriş yapmamış ziyaretçiler tanıtım sayfasında görür
+    ok(ctx, { serverName: state.serverName, about: state.about, setupRequired: !ownerExists(), version: VERSION, limits })
   }
 
   function codeAccepted (setup, input) {
@@ -2216,9 +2228,11 @@ async function createChatServer (options) {
     const hasName = b.serverName !== undefined
     const hasKid = b.activeKid !== undefined
     const hasMusic = b.music !== undefined
-    if (!hasName && !hasKid && !hasMusic) return fail(ctx, 400, 'bad_request')
+    const hasAbout = b.about !== undefined
+    if (!hasName && !hasKid && !hasMusic && !hasAbout) return fail(ctx, 400, 'bad_request')
     if (hasName && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.serverNameOwnerOnly')
     if (hasMusic && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.musicOwnerOnly')
+    if (hasAbout && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.aboutOwnerOnly')
     if (!takeAdminSlot(ctx)) return
     let serverName = null
     if (hasName) {
@@ -2230,7 +2244,10 @@ async function createChatServer (options) {
     }
     const musicPatch = hasMusic ? musicSettingsPatch(b.music) : null
     if (hasMusic && musicPatch === null) return fail(ctx, 400, 'bad_request')
+    const about = hasAbout ? auth.cleanAbout(b.about) : null
+    if (hasAbout && about === null) return fail(ctx, 400, 'invalid_about')
     if (hasName) state.serverName = serverName
+    if (hasAbout) state.about = about
     if (hasKid) state.activeKid = b.activeKid
     if (musicPatch) state.music = cleanMusicSettings(Object.assign({}, state.music, musicPatch))
     store.saveState()

@@ -956,3 +956,48 @@ test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam �
   assert.ok(root.querySelector('#set-bind-mode').textContent.length > 0, 'giriş modu satırı yazıldı')
   assert.ok(root.querySelector('#set-bind-ptt-key').textContent.length > 0, 'atama adı yazıldı')
 })
+
+test('Frekans tanıtımı: sahip yazar ve kaydeder (POST /api/settings { about }), yönetici salt okunur görür', async () => {
+  const owner = load({ role: 'owner' })
+  owner.run("state.info = { version: '2.0.1', about: 'Eski tanıtım', limits: { aboutMax: 20, aboutMaxLines: 2 } }")
+  owner.run("openSettings('general', null)")
+  const root = owner.root
+  const input = root.querySelector('#set-about')
+  assert.ok(input, 'tanıtım alanı var')
+  assert.strictEqual(input.tagName, 'TEXTAREA')
+  assert.strictEqual(input.value, 'Eski tanıtım')
+  assert.strictEqual(root.querySelector('#set-about-section-title').textContent, 'Frekans tanıtımı')
+  assert.ok(root.querySelector('#set-about-hint').textContent.indexOf('herkese açıktır') !== -1, 'herkese açık uyarısı')
+  assert.strictEqual(root.querySelector('#set-about-owner-only').hidden, true)
+  assert.strictEqual(root.querySelector('#set-about-save').closest('.settings-actions').hidden, false)
+  assert.strictEqual(root.querySelector('#set-about-counter').textContent, '12 / 20 karakter, en fazla 2 satır')
+  // Sınır aşılınca sayaç uyarır, gönderim yapılmaz
+  input.value = 'bir\niki\nüç'
+  input.dispatchEvent(fakeEvent('input'))
+  assert.ok(root.querySelector('#set-about-counter').classList.contains('is-over'))
+  root.querySelector('#set-about-save').click()
+  assert.strictEqual(owner.sandbox.__requests.filter((r) => r.path === '/api/settings').length, 0)
+  assert.strictEqual(root.querySelector('#set-about-msg').textContent, 'Tanıtım en fazla 20 karakter ve 2 satır olabilir.')
+  // Geçerli metin kırpılıp kaydedilir
+  input.value = '  Yeni  tanıtım \n\n\n'
+  input.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(root.querySelector('#set-about-counter').classList.contains('is-over'), false)
+  root.querySelector('#set-about-save').click()
+  await new Promise((resolve) => setImmediate(resolve))
+  const sent = owner.sandbox.__requests.filter((r) => r.path === '/api/settings')
+  assert.strictEqual(sent.length, 1)
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[0].body)), { about: '  Yeni  tanıtım \n\n\n' })
+  assert.strictEqual(owner.run('state.info.about'), 'Yeni tanıtım')
+  assert.strictEqual(root.querySelector('#set-about-msg').textContent, 'Frekans tanıtımı kaydedildi.')
+
+  const admin = load({ role: 'admin' })
+  admin.run("state.info = { version: '2.0.1', about: 'Sahibin metni', limits: {} }")
+  admin.run("openSettings('general', null)")
+  const ro = admin.root.querySelector('#set-about')
+  assert.strictEqual(ro.value, 'Sahibin metni')
+  assert.strictEqual(ro.readOnly, true)
+  assert.strictEqual(admin.root.querySelector('#set-about-owner-only').hidden, false)
+  assert.strictEqual(admin.root.querySelector('#set-about-save').closest('.settings-actions').hidden, true)
+  admin.root.querySelector('#set-about-save').click()
+  assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path === '/api/settings').length, 0)
+})

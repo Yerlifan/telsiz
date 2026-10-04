@@ -31,6 +31,8 @@ function showAuthCard (name, notice) {
   setMsg(el.authNotice, notice || '', 'error')
   el.authServerName.textContent = state.serverName
   document.title = state.serverName
+  // Frekans tanıtımı gizlenir, giriş kartında "Telsiz'i tanı" düğmesi görünür (25-tanitim.js)
+  if (typeof tanitimHide === 'function') tanitimHide(name)
 }
 
 function setFormBusy (form, busy) {
@@ -86,6 +88,8 @@ function readFragment () {
     if (typeof frekansMergeFragment === 'function') frekansMergeFragment(params.frekanslar)
   }
   if (touched) {
+    // Bağlantıyla gelen ziyaretçi tanıtım sayfasını görmeden kayda, girişe veya frekansa geçer (25-tanitim.js)
+    state.fragmentSeen = true
     try {
       window.history.replaceState(null, document.title, window.location.pathname + window.location.search)
     } catch (err) {
@@ -134,6 +138,11 @@ async function loadInfo () {
   if (saved) {
     state.token = saved
     await resumeSession()
+    return
+  }
+  // Oturumu olmayan ziyaretçi önce frekans tanıtımını görür (25-tanitim.js, koşullar orada)
+  if (typeof tanitimShouldShow === 'function' && tanitimShouldShow()) {
+    tanitimShow(false)
     return
   }
   showLogin('')
@@ -552,6 +561,7 @@ function startSession (data) {
   }
   state.sessionLost = false
   applyStateData(data)
+  if (typeof tanitimRemember === 'function') tanitimRemember()
   state.lastRead = storeGetJson(userKey('read'), {})
   if (!hasActiveKey() && !state.keySkipped) {
     showKeyScreen()

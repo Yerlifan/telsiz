@@ -28,6 +28,8 @@ Mesajlar, dosyalar, profiller ve ses bağlantısının kurulum mesajları cihazd
 
 **Cihazda arama.** Mesajlarda arama tamamen cihazda yapılır. Sunucu aranan metni ve mesaj içeriğini görmez.
 
+**Frekans tanıtımı.** Oturum açmamış biri frekansın adresini açınca önce tanıtım sayfasını görür: frekans adı, sahibin Ayarlar > Genel bölümünden yazdığı herkese açık tanıtım metni, Telsiz'in kısa anlatımı, masaüstü uygulamasını indirme bağlantısı ve kendi frekansını kurmak için adım adım rehber. Davet bağlantısıyla gelenler doğrudan kayıt formuna geçer.
+
 **Görünüm.** Üç tema vardır: Arcade, Gece Frekansı ve Turkuaz ve Bakır. Her birinin koyu ve açık modu vardır, mod istenirse sistem ayarını izler. Avatarlar her temada yumuşak kenarlı karedir. Yazı boyutu, kompakt mesaj görünümü ve hareketi azaltma seçenekleri vardır. Arayüz Türkçe ve İngilizcedir.
 
 **Her cihazda.** Arayüz fare, klavye, dokunmatik ekran ve oyun kolu ile kullanılabilir. Televizyon genişliğinde (1800 piksel ve üstü) yazılar ve odak halkası büyür, oyun kolu algılanınca altta kontrolcü ipucu çubuğu görünür. Telsiz telefon, tablet ve bilgisayara uygulama olarak (PWA) yüklenebilir.
