@@ -4,7 +4,8 @@
 // rızadan önce YouTube alan adlarına hiçbir istek gitmez. YouTube gömmesi page.route ile yerel sahte oynatıcıya
 // (sahte-youtube.js) yönlendirilir, gerçek YouTube'a erişilmez. Duraklat ve devam iki istemcide eşitlenir,
 // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
-// iki istemcide çalar.
+// iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
+// (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -44,10 +45,64 @@ async function fakeState (page) {
   const frame = page.frames().find((f) => f.url().startsWith('https://www.youtube-nocookie.com/embed/'))
   if (!frame) return null
   try {
-    return await frame.evaluate(() => ({ state: window.FAKE.state, id: window.FAKE.videoId, paused: window.FAKE.audio.paused }))
+    return await frame.evaluate(() => ({ state: window.FAKE.state, id: window.FAKE.videoId, paused: window.FAKE.audio.paused, mark: window.e2eMark || null }))
   } catch (err) {
     return null
   }
+}
+
+// Sahte oynatıcı çalıyor ve ses ilerliyor
+async function fakePlaying (page, label) {
+  await h.until(async () => {
+    const st = await fakeState(page)
+    return st && st.state === 1 && !st.paused
+  }, h.LONG, label)
+  const frame = page.frames().find((f) => f.url().startsWith('https://www.youtube-nocookie.com/embed/'))
+  const t0 = await frame.evaluate(() => window.FAKE.audio.currentTime)
+  await h.until(async () => (await frame.evaluate(() => window.FAKE.audio.currentTime)) > t0 + 0.3, h.SHORT, label + ' (ses ilerliyor)')
+}
+
+// Köşedeki oynatıcının ölçüleri: çerçeve, kutu ve çubuk, çerçevenin 3x3 noktasında en üstteki öğe
+function dockInfo (page) {
+  return page.evaluate(() => {
+    const d = document.getElementById('dj')
+    const f = document.querySelector('#dj .dj-yt iframe.dj-youtube-frame')
+    const fr = f.getBoundingClientRect()
+    const box = document.querySelector('#dj .dj-yt').getBoundingClientRect()
+    const bar = document.querySelector('#dj .dj-dock').getBoundingClientRect()
+    const hits = [0.1, 0.5, 0.9].every((fy) => [0.1, 0.5, 0.9].every((fx) => document.elementFromPoint(fr.left + fr.width * fx, fr.top + fr.height * fy) === f))
+    const center = document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2) === f
+    const s = dj.engine.snapshot()
+    return {
+      docked: d.classList.contains('is-docked') && !d.hidden,
+      frameW: fr.width,
+      frameH: fr.height,
+      boxW: box.width,
+      boxH: box.height,
+      inView: fr.left >= 0 && fr.top >= 0 && fr.right <= window.innerWidth && fr.bottom <= window.innerHeight,
+      barBelow: bar.height > 0 && bar.top >= box.bottom - 0.5 && bar.left < box.right && bar.right > box.left,
+      barOutside: bar.top >= fr.bottom || bar.bottom <= fr.top || bar.left >= fr.right || bar.right <= fr.left,
+      center: center,
+      hits: hits,
+      hidden: s.player.hidden,
+      status: s.player.status,
+      toggleLabel: document.querySelector('#dj .dj-dock-toggle').getAttribute('aria-label'),
+      openLabel: document.querySelector('#dj .dj-dock-open').getAttribute('aria-label'),
+      title: document.querySelector('#dj .dj-dock-title').textContent
+    }
+  })
+}
+
+function assertDocked (info) {
+  assert.equal(info.docked, true, 'köşede')
+  assert.ok(info.frameW >= 200 && info.frameH >= 200, 'çerçeve en az 200x200: ' + info.frameW + 'x' + info.frameH)
+  assert.ok(info.boxW >= 200 && info.boxH >= 200, 'kutu en az 200x200')
+  assert.equal(info.inView, true, 'çerçeve görünüm alanında')
+  assert.equal(info.center, true, 'çerçevenin ortasında en üstteki öğe çerçeve')
+  assert.equal(info.hits, true, 'çerçevenin 3x3 noktasında en üstteki öğe çerçeve')
+  assert.equal(info.barBelow, true, 'çubuk kutunun altında')
+  assert.equal(info.barOutside, true, 'çubuk çerçevenin dışında')
+  assert.equal(info.hidden, false, 'motor oynatıcıyı görünür sayıyor')
 }
 
 before(async () => {
@@ -193,10 +248,106 @@ test('duraklat ve devam iki istemcide eşitlenir', async () => {
   }, h.LONG, 'B oynatıcısı devam ediyor')
 })
 
+test('Ayarlar açılınca YouTube oynatıcısı köşeye alınır, çalmaya devam eder, kapanınca yerine döner', async () => {
+  const { A } = W
+  await fakePlaying(A, 'A çalıyor')
+  // Çerçeve yeniden yüklenirse bu işaret kaybolur
+  const frame = A.frames().find((f) => f.url().startsWith('https://www.youtube-nocookie.com/embed/'))
+  await frame.evaluate(() => {
+    window.e2eMark = 'ilk'
+  })
+  await A.evaluate(() => openSettings())
+  await A.waitForFunction(() => isSettingsOpen() && !document.getElementById('settings-view').hidden)
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-docked'))
+  await h.sleep(3000)
+  await fakePlaying(A, 'Ayarlar açıkken çalıyor')
+  const info = await dockInfo(A)
+  assertDocked(info)
+  assert.equal(info.status, 'playing')
+  assert.equal(info.toggleLabel, 'Duraklat')
+  assert.equal(info.openLabel, 'Telsiz DJ kartını aç')
+  assert.equal(info.title, 'Fake video D120aaaaaaa')
+  // Kısa bildirim köşedeki oynatıcının üstüne çıkar, çerçeveyi örtmez
+  const toastFree = await A.evaluate(() => {
+    toast(() => 'deneme', 'ok', 5000)
+    const tr = el.toast.getBoundingClientRect()
+    const box = document.querySelector('#dj .dj-yt').getBoundingClientRect()
+    return !el.toast.hidden && tr.height > 0 && (tr.bottom <= box.top || tr.right <= box.left)
+  })
+  assert.equal(toastFree, true, 'kısa bildirim oynatıcının dışında')
+  // Köşedeki oynatıcı odağı almaz, Ayarlar'ın odak tuzağı çalışır
+  assert.equal(await A.evaluate(() => document.getElementById('settings-view').contains(document.activeElement)), true)
+  await A.keyboard.press('Tab')
+  assert.equal(await A.evaluate(() => document.getElementById('settings-view').contains(document.activeElement)), true)
+  await A.keyboard.press('Escape')
+  await A.waitForFunction(() => !isSettingsOpen())
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return !d.hidden && !d.classList.contains('is-docked') && document.getElementById('app-view').getAttribute('data-dj-col') === 'on'
+  })
+  const back = await A.evaluate(() => {
+    const f = document.querySelector('#dj .dj-yt iframe.dj-youtube-frame')
+    const r = f.getBoundingClientRect()
+    const card = document.getElementById('dj-card').getBoundingClientRect()
+    return { inCard: r.left >= card.left && r.right <= card.right && r.top >= card.top, center: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === f, bar: document.querySelector('#dj .dj-dock').getClientRects().length, stack: getComputedStyle(document.getElementById('app-view')).zIndex }
+  })
+  assert.deepEqual(back, { inCard: true, center: true, bar: 0, stack: '1' })
+  await h.sleep(1000)
+  await fakePlaying(A, 'Ayarlar kapanınca çalıyor')
+  assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
+  // Kartın yanında açılan emoji seçici oynatıcıyı örtmez: kart yerinde kalır. Durum menüsü üstüne gelirse
+  // oynatıcı köşeye alınır. İki durumda da müzik çalmaya devam eder.
+  await A.click('#btn-emoji')
+  await A.waitForFunction(() => Boolean(findLayer('emoji')))
+  await h.sleep(1500)
+  assert.deepEqual(await A.evaluate(() => ({ docked: dj.docked, hidden: dj.engine.snapshot().player.hidden })), { docked: false, hidden: false })
+  await fakePlaying(A, 'emoji seçici açıkken çalıyor')
+  await A.keyboard.press('Escape')
+  await A.click('#me-button')
+  await A.waitForFunction(() => Boolean(findLayer('status-menu')))
+  await h.sleep(1500)
+  assert.equal(await A.evaluate(() => dj.engine.snapshot().player.hidden), false)
+  await fakePlaying(A, 'durum menüsü açıkken çalıyor')
+  await A.keyboard.press('Escape')
+  await A.waitForFunction(() => !findLayer('status-menu') && !dj.docked)
+})
+
+test('telefon 390: DJ sayfası kapalıyken oynatıcı köşede çalar, DJ\'yi aç sayfayı açar', async () => {
+  const { A } = W
+  await A.setViewportSize({ width: 390, height: 844 })
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-sheet-mode') && d.classList.contains('is-dock-only') && !d.classList.contains('is-open')
+  })
+  await h.sleep(2000)
+  await fakePlaying(A, '390 köşede çalıyor')
+  assertDocked(await dockInfo(A))
+  assert.ok(await h.overflowX(A) <= 0, 'yatay taşma')
+  // Kapalı sayfanın kartı görünmez ve odaklanamaz, yalnızca oynatıcı ve çubuğu görünür
+  const card = await A.evaluate(() => ({
+    vis: getComputedStyle(document.getElementById('dj-card')).visibility,
+    dialog: document.getElementById('dj').getAttribute('role'),
+    composerFree: document.querySelector('#dj .dj-dock').getBoundingClientRect().bottom <= document.getElementById('composer').getBoundingClientRect().top + 0.5
+  }))
+  assert.deepEqual(card, { vis: 'hidden', dialog: null, composerFree: true })
+  await A.click('#dj .dj-dock-open')
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-open') && !d.classList.contains('is-docked') && d.getAttribute('role') === 'dialog'
+  })
+  await fakePlaying(A, 'DJ sayfasında çalıyor')
+  await A.keyboard.press('Escape')
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
+  await fakePlaying(A, 'sayfa kapanınca köşede çalıyor')
+  assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
+  await A.setViewportSize({ width: 1440, height: 900 })
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
+})
+
 test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki istemcide dosya çalar', async () => {
   const { A, B } = W
   const E = W.w.E
-  const wav = h.makeWav(6, 22050)
+  const wav = h.makeWav(25, 22050)
   const enc = E.encryptFile(new Uint8Array(wav))
   const up = await W.w.call('POST', '/api/uploads', null, W.w.P.mert.token, Buffer.from(enc.box))
   assert.equal(up.status, 200)
@@ -221,6 +372,32 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
   assert.ok(!fb || fb.paused, 'YouTube oynatıcısı dosya çalarken susar')
 })
 
+// Dosya parçasının görünürlük koşulu yoktur: Ayarlar açıkken ve dar ekranda sayfa kapalıyken de çalar, köşeye
+// alınacak oynatıcı yoktur
+test('ses dosyası Ayarlar açıkken ve telefonda DJ sayfası kapalıyken çalmaya devam eder', async () => {
+  const { A } = W
+  const filePos = () => A.evaluate(() => {
+    const s = dj.engine.snapshot()
+    return s.player.kind === 'file' && s.player.status === 'playing' && typeof s.player.positionMs === 'number' ? s.player.positionMs : -1
+  })
+  const advancing = async (label) => {
+    const p0 = await filePos()
+    assert.ok(p0 >= 0, label + ': dosya çalıyor')
+    await h.until(async () => (await filePos()) > p0 + 500, h.SHORT, label)
+  }
+  await A.evaluate(() => openSettings())
+  await A.waitForFunction(() => isSettingsOpen())
+  await h.sleep(1500)
+  await advancing('Ayarlar açıkken dosya')
+  assert.equal(await A.evaluate(() => dj.docked), false)
+  await A.evaluate(() => closeSettings())
+  await A.setViewportSize({ width: 390, height: 844 })
+  await A.waitForFunction(() => document.getElementById('dj').hidden && !dj.docked)
+  await h.sleep(1000)
+  await advancing('390 sayfa kapalıyken dosya')
+  await A.setViewportSize({ width: 1440, height: 900 })
+})
+
 test('telefon 390: DJ alt sayfası tam genişlik, yatay taşma yok', async () => {
   const { B } = W
   await B.setViewportSize({ width: 390, height: 844 })
@@ -236,6 +413,33 @@ test('telefon 390: DJ alt sayfası tam genişlik, yatay taşma yok', async () =>
   await B.keyboard.press('Escape')
   await B.waitForFunction(() => document.getElementById('dj').hidden)
   await B.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('ses odasından ayrılınca müzik durur ve köşedeki oynatıcı kalkar', async () => {
+  const { A } = W
+  await A.fill('#composer-input', '/çal https://youtu.be/D120bbbbbbb')
+  await A.keyboard.press('Enter')
+  // Dosya hâlâ çalıyorsa geçilir
+  await h.until(async () => A.evaluate(() => {
+    const q = dj.engine.queue()
+    if (q.current && q.current.type === 'file') dj.engine.skip()
+    return Boolean(q.current && q.current.type === 'youtube' && q.current.videoId === 'D120bbbbbbb')
+  }), h.LONG, 'YouTube parçası çalıyor')
+  await fakePlaying(A, 'ikinci YouTube parçası çalıyor')
+  await A.evaluate(() => openSettings())
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-docked'))
+  await fakePlaying(A, 'Ayarlar açıkken çalıyor')
+  await A.evaluate(() => leaveVoice())
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.hidden && !d.classList.contains('is-docked') && !document.body.classList.contains('has-dj-dock')
+  }, null, { timeout: h.LONG })
+  await h.until(async () => {
+    const st = await fakeState(A)
+    return !st || st.paused
+  }, h.LONG, 'ayrılınca durdu')
+  assert.equal(await A.evaluate(() => document.querySelectorAll('#dj .dj-yt iframe').length), 0, 'oynatıcı kaldırıldı')
+  await A.evaluate(() => closeSettings())
 })
 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla

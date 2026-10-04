@@ -16,9 +16,17 @@
 // sayfaya iner (12-init.js sayfa yığını, 'dj' adıyla), telefonda alttan açılır. Yayın bitince yerine döner.
 // YouTube oynatıcı alanı (.dj-yt) motora attachPlayer ile bir kez verilir ve hiç temizlenmez. Alan en az
 // 200x200 CSS pikseli ve görünürdür, üstüne hiçbir öğe konmaz (dokunarak başlat, uyarılar ve hata metinleri
-// alanın altındadır). Kart görünmezken (sayfa kapalı) motor YouTube parçasını bu cihazda duraklatır.
+// alanın altındadır). Oynatıcı görünmezse motor YouTube parçasını bu cihazda duraklatır (music.js syncPlayer).
+// Köşedeki oynatıcı: kart görünmezken (sayfa kipinde sayfa kapalı) veya üstünü bir katman örterken (Ayarlar,
+// başka bir sayfa, menü, pencere) oynatıcı alanı yalnızca CSS sınıflarıyla köşeye sabitlenir, altında başlık,
+// duraklat ve "DJ'yi aç" düğmeleri olan küçük bir çubuk durur (djApplyLayout). Çerçeve ve ataları DOM'da hiç
+// taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir. Böylece müzik ses odasından
+// ayrılana kadar çalmaya devam eder.
 
 const DJ_TICK_MS = 500
+// Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
+// katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
+const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search']
 const DJ_WAVE_BARS = 30
 const DJ_OK_KEYS = {
   play: 'music.ok.added',
@@ -44,7 +52,11 @@ const dj = {
   crewLi: null,
   crewFocus: false,
   renderQueued: false,
-  marksKey: ''
+  marksKey: '',
+  docked: false,
+  dockSticky: null,
+  layoutBusy: false,
+  dockBottom: null
 }
 
 function djMusic () {
@@ -97,7 +109,8 @@ function djEngine () {
     if (!djCardShown()) toast(() => t('music.consent.needed'), '', 8000)
   })
   engine.on('tapneeded', () => {
-    if (!djCardShown()) toast(() => t('dj.tapViaCrew'), '', 8000)
+    // Köşedeki oynatıcının çubuğunda dokunarak başlatma düğmesi zaten vardır
+    if (!djCardShown() && !dj.docked) toast(() => t('dj.tapViaCrew'), '', 8000)
   })
   return engine
 }
@@ -210,8 +223,9 @@ function djShouldShow () {
   return Boolean(s && state.inApp && dj.voiceRoom !== null && s.supported && s.enabled)
 }
 
+// Kart görünür mü (köşedeki oynatıcı açıkken kart görünmezdir, yalnızca oynatıcı ve çubuğu görünür)
 function djCardShown () {
-  return Boolean(el.dj && !el.dj.hidden)
+  return Boolean(el.dj && !el.dj.hidden && !dj.docked)
 }
 
 // Ekran paylaşımı sahnesi açık mı (K7.2). 22-cast.js #cast'ı gösterir veya data-cast="live" koyar.
@@ -277,9 +291,30 @@ function djBuild () {
 
   // Oynatıcı alanı: YouTube çerçevesi, rıza kartı, YouTube kapalı uyarısı, dosya dalga biçimi veya boş durum
   const stage = h('div', 'dj-stage')
+  ui.stage = stage
   ui.yt = h('div', 'dj-yt')
   ui.yt.setAttribute('role', 'group')
   stage.appendChild(ui.yt)
+
+  // Köşedeki oynatıcının çubuğu: yalnızca köşedeyken görünür, oynatıcı alanının altında durur (üstüne binmez)
+  ui.dock = h('div', 'dj-dock')
+  ui.dock.setAttribute('role', 'group')
+  ui.dock.appendChild(h('span', 'dj-led'))
+  ui.dockTitle = h('span', 'dj-dock-title')
+  ui.dock.appendChild(ui.dockTitle)
+  ui.dockToggle = button('icon-button dj-dock-toggle', '', 'i-pause', '')
+  ui.dockToggle.addEventListener('click', () => {
+    const engine = djEngine()
+    const s = djSnapshot()
+    // Dokunarak başlatma bu dokunuşla yapılır (kullanıcı hareketi), değilse kart düğmesi gibi herkes için
+    if (engine && s && s.player && s.player.needsTap) engine.unlock()
+    else djOnToggle()
+  })
+  ui.dock.appendChild(ui.dockToggle)
+  ui.dockOpen = button('icon-button dj-dock-open', '', 'i-expand', '')
+  ui.dockOpen.addEventListener('click', djOpenFromDock)
+  ui.dock.appendChild(ui.dockOpen)
+  stage.appendChild(ui.dock)
 
   ui.consent = h('div', 'dj-consent')
   ui.consent.appendChild(icon('i-shield', 'dj-consent-icon'))
@@ -546,6 +581,7 @@ function djRender () {
   }
 
   djRenderAlert(s, current, isYt && !ytOff && !needConsent)
+  djRenderDock(s, current)
 
   // Çalan parça, kaynak, ekleyen, konum ve denetimler
   ui.now.hidden = !current
@@ -624,6 +660,34 @@ function djRenderAlert (s, current, ytVisible) {
     const key = action === 'tap' ? 'music.tapToListen' : action === 'retry' ? 'music.actions.retry' : 'music.actions.resync'
     djSetText(ui.alertAction.lastChild, t(key))
   }
+}
+
+// Köşedeki oynatıcının çubuğu: parça adı, duraklat veya devam (dokunarak başlatma gerekiyorsa o) ve DJ'yi aç
+function djRenderDock (s, current) {
+  const ui = dj.ui
+  if (!dj.docked || !current) return
+  const session = s.session
+  const tap = Boolean(s.player && s.player.needsTap)
+  const playing = Boolean(session && session.playing)
+  djAttr(ui.dock, 'aria-label', t('dj.dock.label'))
+  djSetText(ui.dockTitle, djTrackTitle(current))
+  djAttr(ui.dockTitle, 'title', djTrackTitle(current))
+  setIcon(ui.dockToggle, playing && !tap ? 'i-pause' : 'i-play')
+  const toggleLabel = t(tap ? 'music.tapToListen' : playing ? 'music.actions.pause' : 'music.actions.resume')
+  djAttr(ui.dockToggle, 'aria-label', toggleLabel)
+  djAttr(ui.dockToggle, 'title', toggleLabel)
+  djAttr(ui.dockOpen, 'aria-label', t('dj.dock.open'))
+  djAttr(ui.dockOpen, 'title', t('dj.dock.open'))
+  ui.dock.classList.toggle('needs-tap', tap)
+}
+
+// "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir
+function djOpenFromDock () {
+  layers.slice().reverse().forEach((layer) => {
+    if (layer.name !== 'sheet-dj') closeLayer(layer, false)
+  })
+  const crewButton = dj.crewLi && dj.crewLi.isConnected ? dj.crewLi.firstChild : null
+  djReveal(crewButton)
 }
 
 function djOnAlertAction () {
@@ -740,7 +804,73 @@ function djOnNotice (n) {
 
 // ------------------------------------------------------------------ yerleşim ve sayfa
 
+// Katman kartın oynatıcı alanını örtüyor mu. Oynatıcı alanının yeri köşedeyken de korunur (dj.css), karar
+// köşeye almayla değişmez.
+function djLayerCovers (layer) {
+  if (layer.name === 'sheet-dj') return false
+  if (DJ_POPOVER_LAYERS.indexOf(layer.name) === -1 || !layer.el || !dj.ui) return true
+  const a = layer.el.getBoundingClientRect()
+  const b = dj.ui.stage.getBoundingClientRect()
+  return a.width > 0 && a.height > 0 && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+// Köşedeki oynatıcı gerekli mi: çalan parça YouTube, oynatıcı alanı açık (rıza var, YouTube kapalı değil) ve
+// kartın kendi yeri görünmüyor (sayfa kipinde sayfa kapalı) veya kartı bir katman örtüyor (Ayarlar, başka bir
+// sayfa, pencere, görüntüleyici, üstüne gelen menü). Karar ölçülen görünürlüğe değil bu durumlara bağlıdır,
+// köşeye alma ve geri döndürme birbirini tetikleyip titremez. Yedek: katman açıkken motor oynatıcıyı yine de
+// görünmez bulduysa (beklenmeyen bir örtü) oynatıcı köşeye alınır ve katmanlar değişene kadar orada kalır.
+function djWantDock (show, hidden) {
+  const s = djSnapshot()
+  if (!show || !dj.ui || !s) return false
+  const current = s.session ? s.session.current : null
+  if (!current || current.type !== 'youtube') return false
+  if (!s.youtubeEnabled || s.consent !== 'granted' || (s.player && s.player.blocked === 'youtube_disabled')) return false
+  if (hidden) return true
+  const others = layers.filter((layer) => layer.name !== 'sheet-dj')
+  const key = others.map((layer) => layer.name).join(',')
+  if (dj.dockSticky !== null && dj.dockSticky !== key) dj.dockSticky = null
+  if (!others.length) return false
+  if (dj.dockSticky !== null || others.some(djLayerCovers)) return true
+  if (!dj.docked && s.player && s.player.hidden) {
+    dj.dockSticky = key
+    return true
+  }
+  return false
+}
+
+// Telefonda köşedeki oynatıcı yazma alanının üstünde durur. Yazma alanı görünmüyorsa veya üstünü bir katman
+// örtüyorsa (Ayarlar, alt sayfa) ekranın altındadır.
+function djDockBottom () {
+  if (!isNarrow() || layers.some((layer) => layer.name !== 'sheet-dj')) return null
+  const composer = byId('composer')
+  if (!composer || !composer.getClientRects().length) return null
+  const r = composer.getBoundingClientRect()
+  const lift = Math.round(window.innerHeight - r.top)
+  return r.height > 0 && lift > 0 && lift < window.innerHeight / 2 ? lift + 'px' : null
+}
+
+// Yükseklik gövdeye yazılır: kısa bildirim ve güncelleme şeridi de köşedeki oynatıcının üstüne çıkar (dj.css)
+function djPlaceDock (docked) {
+  const body = document.body
+  body.classList.toggle('has-dj-dock', docked)
+  const value = docked ? djDockBottom() : null
+  if (value === dj.dockBottom) return
+  dj.dockBottom = value
+  if (value === null) body.style.removeProperty('--dj-dock-lift')
+  else body.style.setProperty('--dj-dock-lift', value)
+  body.classList.toggle('has-dj-dock-lift', value !== null)
+}
+
 function djApplyLayout (show) {
+  dj.layoutBusy = true
+  try {
+    djApplyLayoutNow(show)
+  } finally {
+    dj.layoutBusy = false
+  }
+}
+
+function djApplyLayoutNow (show) {
   const node = el.dj
   const sheetMode = djIsSheetMode()
   const layer = typeof findLayer === 'function' ? findLayer('sheet-dj') : null
@@ -754,21 +884,44 @@ function djApplyLayout (show) {
   djAttr(el.appView, 'data-dj-col', !sheetMode && show ? 'on' : 'off')
   node.classList.toggle('is-sheet-mode', sheetMode)
   node.classList.toggle('is-cast-docked', sheetMode && dj.castLive && window.innerWidth >= 1280)
-  djAttr(node, 'role', sheetMode ? 'dialog' : null)
-  djAttr(node, 'aria-modal', sheetMode ? 'true' : null)
-  djAttr(node, 'aria-labelledby', sheetMode ? 'dj-sheet-title' : null)
   let hidden = !show
   if (sheetMode) {
     if (!show && findLayer('sheet-dj')) closeLayer(findLayer('sheet-dj'), false)
     hidden = !(show && Boolean(findLayer('sheet-dj')))
   }
-  if (node.hidden !== hidden) node.hidden = hidden
+  // Köşedeyken kart görünmezdir (display: none çerçeveyi de gizlerdi): kart visibility ile gizlenir, yalnızca
+  // oynatıcı alanı ve çubuğu görünür. Kapalı sayfa yer kaplamaz, sütundaki kart yerini korur (dj.css).
+  const docked = djWantDock(show, hidden)
+  const dockOnly = docked && hidden
+  const dialog = sheetMode && !dockOnly
+  djAttr(node, 'role', dialog ? 'dialog' : null)
+  djAttr(node, 'aria-modal', dialog ? 'true' : null)
+  djAttr(node, 'aria-labelledby', dialog ? 'dj-sheet-title' : null)
+  dj.docked = docked
+  node.classList.toggle('is-docked', docked)
+  node.classList.toggle('is-dock-only', dockOnly)
+  djPlaceDock(docked)
+  const hide = hidden && !docked
+  if (node.hidden !== hide) node.hidden = hide
 }
 
 function djLayout () {
   const cast = djDetectCast()
   if (cast !== dj.castLive) dj.castLive = cast
   djRenderSoon()
+}
+
+// Pencere boyutu değişti: köşeye alma kararı hemen verilir (bir kare bile görünmez kalan oynatıcı duraklar)
+function djOnResize () {
+  const cast = djDetectCast()
+  if (cast !== dj.castLive) dj.castLive = cast
+  if (dj.ready && !dj.layoutBusy) djRender()
+}
+
+// Katman yığını değişti (12-init.js sayfaları, Ayarlar, menüler, pencereler): köşeye alma kararı aynı anda
+// verilir. djApplyLayout'un kendi kapattığı sayfa yeniden çizim başlatmaz.
+function djOnLayers () {
+  if (dj.ready && !dj.layoutBusy) djRender()
 }
 
 // Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar
@@ -1031,11 +1184,12 @@ function djInit () {
       djRenderSoon()
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
   }
-  window.addEventListener('resize', djLayout)
+  window.addEventListener('resize', djOnResize)
+  if (typeof watchLayers === 'function') watchLayers(djOnLayers)
   // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor")
   setInterval(() => {
     djSyncVoice()
-    if (djCardShown()) {
+    if (djCardShown() || dj.docked) {
       dj.snap = engine.snapshot()
       djRender()
     } else {

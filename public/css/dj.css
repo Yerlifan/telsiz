@@ -4,7 +4,8 @@
   paylaşımı sahnesi açıkken (K7.2) #dj.is-sheet-mode olur ve yalnızca kadrodaki öğeden açılan sayfada görünür
   (#dj.is-open: geniş ekranda sağdan yan sayfa, telefonda alt sayfa). Renkler yalnızca belirteçlerden gelir.
   YouTube oynatıcı alanı (.dj-yt) her zaman en az 200 x 200 CSS pikselidir (yazı boyutundan bağımsız) ve
-  üstüne hiçbir öğe konmaz.
+  üstüne hiçbir öğe konmaz. Kart görünmezken veya üstünü bir katman örterken oynatıcı köşeye sabitlenir
+  (#dj.is-docked, bölüm 9).
 */
 
 /* ===== 1. Sütun ve sayfa kabuğu ===== */
@@ -609,7 +610,160 @@
   display: none;
 }
 
-/* ===== 9. Kesme noktaları ===== */
+/* ===== 9. Köşedeki oynatıcı ===== */
+
+/* YouTube'un gömülü oynatıcı kuralları oynatıcının en az 200 x 200 ve görünür olmasını, üstüne hiçbir şey
+   konmamasını ister. Oynatıcı görünmezse motor parçayı bu cihazda duraklatır (music.js syncPlayer). Kart
+   görünmezken (sayfa kipinde sayfa kapalı) veya üstünü bir katman örterken (Ayarlar, başka bir sayfa, menü,
+   pencere) 23-dj.js #dj'ye is-docked koyar: oynatıcı alanı sağ alt köşeye sabitlenir, altında başlık ve
+   düğmelerin olduğu çubuk durur, kartın geri kalanı visibility ile gizlenir. Çerçeve ve ataları DOM'da
+   taşınmaz (taşınan çerçeve yeniden yüklenir). Atalarda transform, filter, backdrop-filter, contain ve
+   will-change bulunmaz (position: fixed kutuyu onların içine hapsederdi), overflow visible olur
+   (görünürlük ölçümü kırpan ataları sayar). Kutu her katmanın, Ayarlar'ın ve kısa bildirimlerin üstündedir,
+   kısa bildirim ve güncelleme şeridi köşedeyken kutunun üstüne çıkar. 23-dj.js gövdeye has-dj-dock koyar,
+   telefonda yazma alanının yüksekliğini --dj-dock-lift olarak yazar. */
+
+body {
+  --dj-dock-gap: 1rem;
+  --dj-dock-lift: 1rem;
+  --dj-dock-w: 22.25rem;
+  --dj-dock-bar-h: 3.25rem;
+}
+
+.dj-dock {
+  display: none;
+}
+
+/* #app-view kendi yığın bağlamını (z-index: 1) kurar, köşedeki kutu onun dışındaki Ayarlar'ın üstüne
+   çıkabilsin diye bu süre içinde bağlam kalkar. İçerideki katmanların sırası değişmez: tam ekran yayın
+   paneli dışarıdaki menülerin (65) altında kalır. */
+body.has-dj-dock .app-view {
+  z-index: auto;
+}
+
+body.has-dj-dock .cast-panel.is-full {
+  z-index: 64;
+}
+
+.side-dj.is-docked {
+  z-index: 110;
+  overflow: visible;
+  visibility: hidden;
+  -webkit-animation: none;
+  animation: none;
+}
+
+/* Kapalı sayfa yer kaplamaz ama çizilir (display: none çerçeveyi de gizlerdi) */
+.side-dj.is-sheet-mode.is-dock-only:not(.is-open) {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  min-width: 0;
+  margin: 0;
+}
+
+.side-dj.is-docked .dj-scroll {
+  overflow: visible;
+}
+
+:root .side-dj.is-docked .dj-card.side-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Sütundaki kart yerini korur, İstasyonlar listesi kaymaz */
+.side-dj.is-docked .dj-stage {
+  height: 12.5rem;
+  min-height: 202px;
+}
+
+.side-dj.is-docked .dj-yt,
+.side-dj.is-docked .dj-dock {
+  position: fixed;
+  right: var(--dj-dock-gap);
+  z-index: 1;
+  width: var(--dj-dock-w);
+  max-width: calc(100% - 2rem);
+  min-width: 202px;
+  margin: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) 0;
+  visibility: visible;
+}
+
+/* Kenarlık dahil 202 piksel: çerçeve 200 x 200'ün altına inmez. Çubuk kutunun altındadır, üstüne binmez. */
+.side-dj.is-docked .dj-yt {
+  bottom: calc(var(--dj-dock-lift) + var(--dj-dock-bar-h));
+  height: 202px;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  box-shadow: var(--shadow-pop);
+}
+
+/* Gölge yalnızca aşağı düşer, oynatıcının üstüne çizilmez */
+.side-dj.is-docked .dj-dock {
+  bottom: var(--dj-dock-lift);
+  display: flex;
+  align-items: center;
+  height: var(--dj-dock-bar-h);
+  padding: 0 0.25rem 0 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background-color: var(--surface-float);
+  color: var(--text);
+  box-shadow: 0 12px 24px -12px var(--overlay);
+}
+
+/* Telefonda yazma alanının üstünde (23-dj.js ölçer, güvenli alan ölçüye dahildir) */
+body.has-dj-dock-lift .side-dj.is-docked .dj-yt,
+body.has-dj-dock-lift .side-dj.is-docked .dj-dock {
+  margin-bottom: 0.5rem;
+}
+
+.dj-dock-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.dj-dock .icon-button {
+  margin-left: 0.125rem;
+  color: var(--text-2);
+}
+
+.dj-dock .icon-button:hover {
+  background-color: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.dj-dock.needs-tap .dj-dock-toggle {
+  background-color: var(--accent-fill-a);
+  color: var(--on-accent);
+  -webkit-animation: band-pulse 1.6s var(--ease) infinite;
+  animation: band-pulse 1.6s var(--ease) infinite;
+}
+
+/* Kısa bildirim ve güncelleme şeridi kutunun üstüne çıkar (oynatıcının üstüne binmez, onun altında da
+   kalmaz) */
+body.has-dj-dock .toast,
+body.has-dj-dock .desktop-update-banner {
+  bottom: calc(var(--dj-dock-lift) + var(--dj-dock-bar-h) + 202px + 1rem);
+}
+
+/* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir */
+body.has-dj-dock .settings-main-inner,
+body.has-dj-dock .settings-side {
+  padding-bottom: calc(2rem + 202px + 3.25rem + 1rem);
+}
+
+/* ===== 10. Kesme noktaları ===== */
 
 /* Televizyon (1800 ve üstü): daha geniş sütun ve oynatıcı */
 @media (min-width: 1800px) {
@@ -618,6 +772,10 @@
   }
 
   .dj-yt {
+    height: 15rem;
+  }
+
+  .side-dj.is-docked .dj-stage {
     height: 15rem;
   }
 }
@@ -647,7 +805,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .side-dj.is-open,
-  .crew-dj.needs-tap .crew-avatar.dj-avatar {
+  .crew-dj.needs-tap .crew-avatar.dj-avatar,
+  .dj-dock.needs-tap .dj-dock-toggle {
     -webkit-animation: none;
     animation: none;
   }
