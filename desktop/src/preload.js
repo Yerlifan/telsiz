@@ -23,6 +23,7 @@ const CHANNELS = {
   titleBarInfo: 'telsiz:title-bar-info',
   titleBarColors: 'telsiz:title-bar-colors',
   titleBarMenu: 'telsiz:title-bar-menu',
+  titleBarFullscreen: 'telsiz:title-bar-fullscreen',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -128,10 +129,24 @@ function cleanTitleBarInfo (raw) {
   const menus = Array.isArray(r.menus) ? r.menus.slice(0, TITLE_BAR_MAX_MENUS) : []
   return {
     enabled: r.enabled === true,
+    fullscreen: r.fullscreen === true,
     label: typeof r.label === 'string' ? r.label.slice(0, 80) : '',
     menus: menus.map((label) => (typeof label === 'string' ? label.slice(0, 60) : ''))
   }
 }
+
+// Pencere tam ekrana girince true, çıkınca false (olay nesnesi verilmez, yalnızca true veya false iletilir)
+const fullscreenListeners = new Set()
+ipcRenderer.on(CHANNELS.titleBarFullscreen, (event, value) => {
+  if (typeof value !== 'boolean') return
+  for (const callback of Array.from(fullscreenListeners)) {
+    try {
+      callback(value)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
 
 function shortText (value, max) {
   return typeof value === 'string' ? value.slice(0, max) : ''
@@ -200,14 +215,21 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
     }
   },
   setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null),
-  // Başlık şeridi (Windows ve Linux, public/js/30-pencere.js): getInfo() { enabled, label, menus },
+  // Başlık şeridi (Windows ve Linux, public/js/30-pencere.js): getInfo() { enabled, fullscreen, label, menus },
   // setColors('#rrggbb', '#rrggbb') pencere düğmelerinin zemini ve simge rengi, openMenu(sıra, x, y) uygulama
-  // menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar ve menü kapanınca true ile çözülür.
-  // Değerler ana süreçte yeniden doğrulanır.
+  // menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar ve menü kapanınca true ile çözülür,
+  // onFullscreen(cb) pencere tam ekrana girince cb(true), çıkınca cb(false). Değerler ana süreçte yeniden doğrulanır.
   titleBar: {
     getInfo: () => ipcRenderer.invoke(CHANNELS.titleBarInfo).then(cleanTitleBarInfo),
     setColors: (color, symbolColor) => ipcRenderer.send(CHANNELS.titleBarColors, { color: shortText(color, 7), symbolColor: shortText(symbolColor, 7) }),
-    openMenu: (index, x, y) => ipcRenderer.invoke(CHANNELS.titleBarMenu, Number.isInteger(index) ? index : -1, finiteNumber(x), finiteNumber(y)).then((value) => value === true)
+    openMenu: (index, x, y) => ipcRenderer.invoke(CHANNELS.titleBarMenu, Number.isInteger(index) ? index : -1, finiteNumber(x), finiteNumber(y)).then((value) => value === true),
+    onFullscreen: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      fullscreenListeners.add(callback)
+      return () => {
+        fullscreenListeners.delete(callback)
+      }
+    }
   },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),

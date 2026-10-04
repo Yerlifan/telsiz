@@ -5,7 +5,9 @@
 // küçült, ekranı boyutla ve kapat düğmelerini işletim sistemi sağ üste çizer. Bu modül:
 // - Sayfanın en üstüne düğmeler kadar yükseklikte bir şerit koyar: solda Telsiz simgesi ve uygulama
 //   menüleri (Telsiz, Düzen, Görünüm, Yardım), ortada pencere başlığı. Şerit pencereyi sürükleme bölgesidir.
-//   Yükseklik ve yer CSS ortam değişkenlerinden gelir (components.css .titlebar), tam ekranda şerit kalkar.
+//   Yükseklik ve yer CSS ortam değişkenlerinden gelir (components.css .titlebar). Pencere tam ekrana girince
+//   ana süreç bildirir, şerit gizlenir ve has-titlebar sınıfı kalkar (kaplamanın CSS değişkenleri platforma göre
+//   tam ekranda da tanımlı kalabilir), çıkınca geri gelir.
 //   Sayfanın şerit kadar aşağıdan başlaması için kök öğedeki has-titlebar sınıfını theme-init.js ilk
 //   çizimden önce ekler. Kaplama açık değilse bu modül sınıfı kaldırır ve şerit çizmez.
 // - Pencere düğmelerinin rengini temadan verir: zemin sayfanın zemini, simgeler sayfanın metin rengi. Tema
@@ -131,6 +133,11 @@ const TitleBar = (function () {
     watchTitle()
   }
 
+  function setFullscreen (on) {
+    root.classList.toggle('has-titlebar', !on)
+    if (strip.node) strip.node.hidden = on
+  }
+
   function init () {
     if (!hasApi() || !root.classList.contains('has-titlebar')) {
       root.classList.remove('has-titlebar')
@@ -142,6 +149,8 @@ const TitleBar = (function () {
         return
       }
       render(info)
+      setFullscreen(info.fullscreen === true)
+      if (typeof api.onFullscreen === 'function') api.onFullscreen((on) => setFullscreen(on === true))
       sendColors()
       if (window.TelsizTheme && typeof window.TelsizTheme.onChange === 'function') window.TelsizTheme.onChange(sendColors)
     }, () => {

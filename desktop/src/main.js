@@ -558,6 +558,15 @@ function openMainWindow () {
     })
   }, titleBar.windowOptions(process.platform, state.titleBarColors)))
   state.titleBarOverlay = overlay
+  if (overlay) {
+    // Tam ekranda şerit kalkar. Kaplamanın CSS değişkenleri platforma göre tanımlı kalabildiği için sayfaya
+    // ayrıca bildirilir (public/js/30-pencere.js).
+    const sendFullscreen = (value) => {
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.titleBarFullscreen, value)
+    }
+    win.on('enter-full-screen', () => sendFullscreen(true))
+    win.on('leave-full-screen', () => sendFullscreen(false))
+  }
   const id = win.webContents.id
   state.contexts.set(id, 'app')
   diag.log('window', { context: 'app', contents: id })
@@ -972,11 +981,13 @@ function showAbout () {
 
 // ------------------------------------------------------------------ Başlık çubuğu
 
-// Sayfanın şeridi için: kaplama açık mı, uygulama menüsünün üst düzey etiketleri ve şeridin erişilebilir adı
+// Sayfanın şeridi için: kaplama açık mı, pencere tam ekranda mı, uygulama menüsünün üst düzey etiketleri ve
+// şeridin erişilebilir adı
 function titleBarInfo () {
   const enabled = state.titleBarOverlay && isAlive(state.mainWindow)
   return {
     enabled,
+    fullscreen: enabled && state.mainWindow.isFullScreen(),
     label: t('titleBar.menus'),
     menus: enabled ? titleBar.menuLabels(Menu.getApplicationMenu()) : []
   }

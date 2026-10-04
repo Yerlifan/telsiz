@@ -743,16 +743,19 @@ test('başlık şeridi: pencere düğmeleri kaplamada, renk temadan gelir, menü
   const setFull = (on) => ctx.app.evaluate(({ BrowserWindow }, value) => {
     BrowserWindow.getAllWindows().filter((w) => w.isVisible()).forEach((w) => w.setFullScreen(value))
   }, on)
+  // Kaplamanın kendi durumu (görünür mü) platforma göre değişebildiği için yalnızca günlüğe yazılır
+  let last = null
+  const settle = (check, label) => waitFor(async () => {
+    last = await layout()
+    return check(last)
+  }, label, TIMEOUT).catch((err) => {
+    throw new Error(err.message + ': ' + JSON.stringify(last))
+  })
   await setFull(true)
-  await waitFor(async () => {
-    const l = await layout()
-    return l.bar === 0 && l.top === 0 && !l.overlay
-  }, 'tam ekranda şerit kalkar', TIMEOUT)
+  await settle((l) => l.bar === 0 && l.top === 0 && !l.cls, 'tam ekranda şerit kalkar')
+  console.log('başlık şeridi tam ekranda: ' + JSON.stringify(last))
   await setFull(false)
-  await waitFor(async () => {
-    const l = await layout()
-    return l.bar === 32 && l.top === 32 && l.overlay
-  }, 'tam ekrandan çıkınca şerit gelir', TIMEOUT)
+  await settle((l) => l.bar === 32 && l.top === 32 && l.cls && l.overlay, 'tam ekrandan çıkınca şerit gelir')
 })
 
 test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme ve seçim çalışır', { timeout: 60000 }, async (t) => {

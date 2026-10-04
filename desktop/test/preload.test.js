@@ -118,7 +118,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
 test('başlık şeridi API: bilgi süzülür, renkler kısaltılır, menü isteği yalnızca tam sayı ve sonlu konumla gider', async () => {
   const p = loadPreload('preload.js', ['electron'])
   const api = p.exposed.telsizDesktop.titleBar
-  assert.deepEqual(Object.keys(api).sort(), ['getInfo', 'openMenu', 'setColors'])
+  assert.deepEqual(Object.keys(api).sort(), ['getInfo', 'onFullscreen', 'openMenu', 'setColors'])
   api.setColors('#0f1015', '#f2f1f8')
   api.setColors('#0f1015ffffff', { toString: () => '#ffffff' })
   const plain = (value) => JSON.parse(JSON.stringify(value))
@@ -128,12 +128,24 @@ test('başlık şeridi API: bilgi süzülür, renkler kısaltılır, menü iste�
   ])
   await api.openMenu(1, 12.5, 32)
   await api.openMenu('1', NaN, Infinity)
-  assert.deepEqual(plain(await api.getInfo()), { enabled: false, label: '', menus: [] })
+  assert.deepEqual(plain(await api.getInfo()), { enabled: false, fullscreen: false, label: '', menus: [] })
   assert.deepEqual(plain(p.invoked), [
     [channels.CHANNELS.titleBarMenu, 1, 12.5, 32],
     [channels.CHANNELS.titleBarMenu, -1, -1, -1],
     [channels.CHANNELS.titleBarInfo]
   ])
+  // Tam ekran olayı yalnızca true veya false ile iletilir, olay nesnesi verilmez
+  const got = []
+  const off = api.onFullscreen((value) => got.push(value))
+  assert.equal(typeof api.onFullscreen('x'), 'function')
+  const fire = p.listeners[channels.CHANNELS.titleBarFullscreen]
+  fire({ sender: 'gizli' }, true)
+  fire({}, 'evet')
+  fire({}, 1)
+  fire({}, false)
+  off()
+  fire({}, true)
+  assert.deepEqual(got, [true, false])
 })
 
 test('bas konuş API: ayar alanları süzülür, ses odası durumu yalnızca true veya false, kanca olayları yalnızca start ve end', async () => {
