@@ -3004,17 +3004,19 @@ test('dj.css: köşedeki oynatıcı en az 200x200 ve bütün katmanların üstü
   const cssDir = path.join(ROOT, 'public', 'css')
   const files = fs.readdirSync(cssDir).filter((n) => n.endsWith('.css')).map((n) => path.join(cssDir, n))
     .concat(fs.readdirSync(path.join(cssDir, 'skins')).map((n) => path.join(cssDir, 'skins', n)))
+  // Windows'ta çalışma kopyası CRLF satır sonuyla çıkar (.gitattributes text=auto), kurallar LF'ye çevrilerek aranır
+  const read = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
   const rule = (css, selector) => {
     const i = css.indexOf('\n' + selector + ' {')
     assert.ok(i !== -1, 'kural yok: ' + selector)
     return css.slice(i, css.indexOf('}', i))
   }
-  const dj = fs.readFileSync(path.join(cssDir, 'dj.css'), 'utf8')
+  const dj = read(path.join(cssDir, 'dj.css'))
   const dock = rule(dj, '.side-dj.is-docked')
   const dockZ = Number(/z-index: (\d+)/.exec(dock)[1])
   let maxOther = 0
   files.forEach((file) => {
-    const css = fs.readFileSync(file, 'utf8').replace(dock, '')
+    const css = read(file).replace(dock, '')
     const re = /z-index: (\d+)/g
     let m
     while ((m = re.exec(css))) maxOther = Math.max(maxOther, Number(m[1]))
