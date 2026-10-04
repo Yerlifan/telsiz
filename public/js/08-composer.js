@@ -129,6 +129,22 @@ function onComposerKeydown (e) {
   }
 }
 
+// Mesajın istemci kimliği (32 hex karakter). Sunucu aynı kimlikle gelen yinelemede yeni mesaj açmaz,
+// ilk mesajı döner. Böylece yanıtı kaybolan gönderim yeniden denenince mesaj ikilenmez ve ekler
+// bad_uploads hatası vermez. Kimlik, gönderilemeyen aynı metin ve ekler (aynı konuşmada) yeniden
+// gönderildikçe korunur, başarılı gönderimden sonra veya metin ya da ekler değişince yenilenir.
+function newClientMessageId () {
+  const bytes = new Uint8Array(16)
+  window.crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => (b < 16 ? '0' : '') + b.toString(16)).join('')
+}
+
+function clientMessageIdFor (channelId, text, uploadIds) {
+  const key = JSON.stringify([String(channelId), text, uploadIds])
+  if (!state.unsentMessage || state.unsentMessage.key !== key) state.unsentMessage = { key: key, id: newClientMessageId() }
+  return state.unsentMessage.id
+}
+
 async function sendMessage () {
   if (state.sending) return
   const channelId = state.channelId
@@ -174,11 +190,13 @@ async function sendMessage () {
   state.sending = true
   updateSendState()
   if (typeof mentionClose === 'function') mentionClose()
-  const payload = { channelId: channelId, body: body }
-  if (ready.length) payload.uploads = ready.map((a) => a.uploadId)
+  const uploadIds = ready.map((a) => a.uploadId)
+  const payload = { channelId: channelId, body: body, clientMessageId: clientMessageIdFor(channelId, text, uploadIds) }
+  if (ready.length) payload.uploads = uploadIds
   const res = await api('POST', '/api/messages', payload)
   state.sending = false
   if (res.status === 200 && res.data && res.data.message) {
+    state.unsentMessage = null
     if (el.composerInput.value === raw) el.composerInput.value = ''
     ready.forEach((a) => {
       removeAttachment(a, true)

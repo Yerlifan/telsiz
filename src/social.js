@@ -57,6 +57,8 @@ function createSocial (options) {
   const blocksByUser = new Map()
   const dmsByPair = new Map()
   const dmsByUser = new Map()
+  // Silinmiş hesaplar: bunlarla olan konuşmalar geçmiş olarak kalır, üst sınıra sayılmaz
+  const goneUsers = new Set()
 
   // ---------------------------------------------------------------- açılış
 
@@ -65,6 +67,7 @@ function createSocial (options) {
     const live = new Set()
     for (const u of state.users) {
       if (u && isId(u.id) && u.deleted !== true) live.add(u.id)
+      else if (u && isId(u.id)) goneUsers.add(u.id)
     }
     let changed = false
     if (!Array.isArray(state.friendships)) {
@@ -298,6 +301,7 @@ function createSocial (options) {
   // Hesap silinince kullanıcıya ait arkadaşlık ve engel kayıtları silinir.
   // Özel mesaj konuşmaları ve geçmişi kalır.
   function removeUser (userId) {
+    goneUsers.add(userId)
     const affected = new Set()
     const fset = friendshipsByUser.get(userId)
     if (fset) {
@@ -327,9 +331,15 @@ function createSocial (options) {
     return dmsByPair.get(pairKey(a, b)) || null
   }
 
+  // Üst sınıra sayılan konuşmalar: karşı tarafın hesabı silinmiş olanlar sayılmaz
   function dmCount (userId) {
     const set = dmsByUser.get(userId)
-    return set ? set.size : 0
+    if (!set) return 0
+    let n = 0
+    for (const ch of set) {
+      if (!goneUsers.has(otherMember(ch, userId))) n++
+    }
+    return n
   }
 
   function isMember (channel, userId) {
