@@ -397,7 +397,7 @@ test('her ekran hata kodunun ve arayüz anahtarlarının iki dilde metni var', (
     'screen.status.available', 'screen.status.requested', 'screen.status.live', 'screen.status.failed', 'screen.fullscreen',
     'screen.exitFullscreen', 'screen.fit', 'screen.fill', 'screen.switch', 'screen.volume', 'screen.volumeLabel', 'screen.mute',
     'screen.unmute', 'screen.settingsTitle', 'screen.settingsHint', 'screen.quality', 'screen.hintLabel', 'screen.hint.motion',
-    'screen.hint.motionHint', 'screen.hint.detail', 'screen.hint.detailHint', 'screen.audio', 'screen.audioHint', 'screen.audioMissing',
+    'screen.hint.motionHint', 'screen.hint.detail', 'screen.hint.detailHint',
     'screen.bandwidthNote', 'screen.privacyNote'
   ], load().VC.screenPresets().map((p) => 'screen.preset.' + p.id))
   for (const lang of ['tr', 'en']) {
@@ -407,7 +407,6 @@ test('her ekran hata kodunun ve arayüz anahtarlarının iki dilde metni var', (
   assert.strictEqual(msgs.tr['screen.unsupported'], 'Bu cihaz ekran paylaşımını başlatamıyor, ama izleyebilirsiniz.')
   assert.strictEqual(msgs.tr['screen.hint.motion'], 'Akıcı')
   assert.strictEqual(msgs.tr['screen.hint.detail'], 'Net Metin')
-  assert.strictEqual(msgs.tr['screen.audio'], 'Sesi de paylaş')
 })
 
 test('voice.js ekran paylaşımı kodu metin üretmez ve tarayıcı adı tahmin etmez', () => {

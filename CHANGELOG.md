@@ -2,6 +2,16 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Değişiklikler
+
+- Ekran paylaşımında ses seçeneği tek yerde çıkar. Telsiz'in paylaşım penceresindeki Sesi de paylaş anahtarı kaldırıldı, ses her zaman istenir ve paylaşılıp paylaşılmayacağı kaynağın seçildiği pencerede seçilir: tarayıcıda tarayıcının kendi seçicisindeki ses seçeneği, masaüstü uygulamasında uygulamanın seçicisindeki Sistem sesini de paylaş kutusu (yalnızca Windows). Önceden masaüstü uygulamasında sesin gitmesi için iki seçeneğin birlikte açık olması gerekiyordu.
+
+### Düzeltmeler
+
+- Paylaşım sürerken Kaynağı değiştir yeni kaynağı sessiz istiyordu, sesli başlayan bir paylaşımın sesi kaynak değişince kayboluyordu. Kaynak değişiminde de ses istenir.
+
 ## [2.3.0]
 
 ### Yeni özellikler

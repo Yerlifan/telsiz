@@ -2,6 +2,16 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Changes
+
+- The audio option for screen sharing appears in one place. The Also share audio switch in Telsiz's share window was removed: audio is always requested, and whether it is shared is chosen in the window where the source is picked, the audio option in the browser's own picker or the Also share system audio box in the desktop app's picker (Windows only). Before, the desktop app needed both options turned on for audio to be shared.
+
+### Fixes
+
+- While sharing, Change source requested the new source without audio, so a share that started with audio lost it when the source changed. Audio is now requested when the source changes too.
+
 ## [2.3.0]
 
 ### New features
