@@ -488,8 +488,9 @@ async function openStore (options) {
     await fsp.mkdir(dir, { recursive: true, mode: DIR_MODE })
     await fsp.mkdir(messagesDir, { recursive: true, mode: DIR_MODE })
     await fsp.mkdir(uploadsDir, { recursive: true, mode: DIR_MODE })
-    await fsp.writeFile(lockPath, process.pid + '\n', { mode: FILE_MODE })
+    await acquireLock()
   } catch (err) {
+    if (err instanceof StoreError) throw err
     throw ioError(err, lang)
   }
 
@@ -908,6 +909,71 @@ async function openStore (options) {
         ch.retryTimer = null
       }
     }
+  }
+
+  // Kilit dosyası 'wx' bayrağıyla, yani yalnız yoksa oluşturulur. Aynı anda açılan iki
+  // süreçten yalnız biri kazanır, kaybeden 'locked' hatası alır. Bayat kilit (ölü veya
+  // okunamayan PID) önce benzersiz bir ada taşınır. Taşınan dosyada arada başka bir sürecin
+  // aldığı canlı kilit çıkarsa geri konur ve açılış reddedilir.
+  async function acquireLock () {
+    const line = process.pid + '\n'
+    for (const attempt of [0, 1, 2]) {
+      try {
+        await createLockFile(line)
+        return
+      } catch (err) {
+        if (!err || err.code !== 'EEXIST') throw err
+      }
+      const info = lockInfo(dir)
+      if (!info.exists) continue
+      if (info.pid === process.pid) {
+        await fsp.writeFile(lockPath, line, { mode: FILE_MODE })
+        return
+      }
+      if (info.alive) throw lockedError(info.pid)
+      const aside = lockPath + '.' + process.pid + '.' + Date.now() + '.' + attempt
+      try {
+        await fsp.rename(lockPath, aside)
+      } catch (err) {
+        if (err && err.code === 'ENOENT') continue
+        throw err
+      }
+      const moved = await fsp.readFile(aside, 'utf8').catch(() => '')
+      const match = /^\s*(\d{1,10})\s*$/.exec(moved)
+      const movedPid = match ? Number(match[1]) : null
+      if (movedPid !== null && movedPid !== process.pid && isPidAlive(movedPid)) {
+        await fsp.link(aside, lockPath).catch(noop)
+        await unlinkQuiet(aside).catch(noop)
+        throw lockedError(movedPid)
+      }
+      await unlinkQuiet(aside).catch(noop)
+    }
+    const last = lockInfo(dir)
+    throw lockedError(last.pid)
+  }
+
+  // PID önce geçici dosyaya yazılır, sonra sabit bağlantıyla kilit adına bağlanır. Bağlantı
+  // ad varsa EEXIST ile başarısız olur, böylece kilit dosyası hiçbir an boş görünmez (boş
+  // görünen kilit başka bir süreçte bayat sanılabilirdi). Sabit bağlantıyı desteklemeyen
+  // dosya sistemlerinde 'wx' bayrağıyla oluşturmaya dönülür.
+  async function createLockFile (line) {
+    const tmp = lockPath + '.' + process.pid + '.yeni'
+    await fsp.writeFile(tmp, line, { mode: FILE_MODE })
+    try {
+      await fsp.link(tmp, lockPath)
+    } catch (err) {
+      if (err && (err.code === 'EPERM' || err.code === 'ENOTSUP' || err.code === 'ENOSYS' || err.code === 'EXDEV')) {
+        await fsp.writeFile(lockPath, line, { mode: FILE_MODE, flag: 'wx' })
+      } else {
+        throw err
+      }
+    } finally {
+      await unlinkQuiet(tmp).catch(noop)
+    }
+  }
+
+  function lockedError (pid) {
+    return new StoreError(i18n.t(lang, 'store.locked', { pid, file: lockPath }), 'locked')
   }
 
   async function releaseLock () {

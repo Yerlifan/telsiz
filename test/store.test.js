@@ -458,6 +458,47 @@ test('kilit dosyası: PID yazılır, kapanınca silinir, eski kilit yok sayılı
   }
 })
 
+// Ayrı bir süreçte openStore çağırır: açılırsa "ok" yazar ve kilidi biraz tutar, kilitliyse "locked" yazar
+function openInChild (dir) {
+  const storePath = path.join(__dirname, '..', 'src', 'store.js')
+  const code = [
+    'const { openStore } = require(' + JSON.stringify(storePath) + ')',
+    'const log = { info () {}, warn () {}, error () {} }',
+    'openStore({ dir: ' + JSON.stringify(dir) + ', log }).then((s) => {',
+    '  process.stdout.write("ok")',
+    '  setTimeout(() => s.close().then(() => process.exit(0)), 1500)',
+    '}, (err) => { process.stdout.write(err.code === "locked" ? "locked" : "hata:" + err.message); process.exit(0) })'
+  ].join('\n')
+  return new Promise((resolve, reject) => {
+    const child = childProcess.spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'inherit'] })
+    let out = ''
+    child.stdout.on('data', (chunk) => { out += chunk })
+    child.on('error', reject)
+    child.on('exit', () => resolve(out))
+  })
+}
+
+test('kilit dosyası: aynı anda açılan iki süreçten yalnız biri kazanır (boş ve bayat kilitte)', async () => {
+  for (const stale of [false, true]) {
+    for (const round of [1, 2, 3, 4]) {
+      const dir = tempDir()
+      try {
+        if (stale) fs.writeFileSync(path.join(dir, '.kilit'), DEAD_PID + '\n')
+        const results = await Promise.all([openInChild(dir), openInChild(dir), openInChild(dir)])
+        const ok = results.filter((r) => r === 'ok').length
+        const locked = results.filter((r) => r === 'locked').length
+        assert.equal(ok, 1, 'tek kazanan olmalı (bayat: ' + stale + ', sonuçlar: ' + results.join(',') + ')')
+        assert.equal(locked, 2, 'diğerleri kilitli hatası almalı (sonuçlar: ' + results.join(',') + ')')
+        assert.equal(fs.existsSync(path.join(dir, '.kilit')), false, 'kazanan kapanınca kilit silinir')
+        const leftovers = fs.readdirSync(dir).filter((name) => name.startsWith('.kilit.'))
+        assert.deepEqual(leftovers, [], 'kenara taşınan bayat kilit kalmaz')
+      } finally {
+        removeDir(dir)
+      }
+    }
+  }
+})
+
 test('JSONL: ekleme, düzenleme ve silme satırları yazılır ve yeniden oynatılır', async () => {
   const dir = tempDir()
   const file1 = path.join(dir, 'messages', '1.jsonl')
