@@ -9,7 +9,7 @@
 // - sayfada Node.js yoktur, yalnızca dar telsizDesktop API'si vardır, CSP satır içi betiği ve
 //   sunucuya doğrudan bağlantıyı engeller, service worker kaydedilemez
 // - şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya verilir
-// - izinler: mikrofon var, kamera ve kullanıcı girişsiz ekran yakalama yok
+// - izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı girişsiz ekran yakalama yok
 // - ekran paylaşımı seçicisi gerçek kullanıcı girişiyle açılır, seçim ve vazgeçme çalışır
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 //
@@ -569,14 +569,16 @@ test('şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dı�
   assert.deepEqual(opened, ['https://ornek.com/a', 'https://ornek.com/b'])
 })
 
-test('izinler: mikrofon var, kamera ve kullanıcı girişsiz ekran yakalama yok', async () => {
+test('izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı girişsiz ekran yakalama yok', async () => {
   const page = ctx.page
   const gum = (constraints) => page.evaluate((c) => navigator.mediaDevices.getUserMedia(c).then((s) => {
     s.getTracks().forEach((track) => track.stop())
     return 'ok'
   }, (e) => e.name), constraints)
   assert.equal(await gum({ audio: true }), 'ok')
-  assert.equal(await gum({ video: true }), 'NotAllowedError')
+  // Kamera uygulamanın kendi ana çerçevesine verilir (permissions.js, yalnızca audio ve video istekleri)
+  assert.equal(await gum({ video: true }), 'ok')
+  assert.equal(await gum({ audio: true, video: true }), 'ok')
   // Eski masaüstü yakalama yolu seçicisiz ekran yakalayamaz
   assert.equal(await gum({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop' } } }), 'NotAllowedError')
   assert.equal(await page.evaluate(() => window.Notification.permission), 'granted')
