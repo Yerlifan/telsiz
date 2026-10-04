@@ -832,6 +832,12 @@ window.VoiceClient = (function () {
       swallowMouse: null,
       // Oturum
       errorCode: null,
+      // Özel mesaj araması: sinyaller çiftin kişisel anahtarlarıyla şifrelenir (join seçeneği private.seal ve
+      // private.open), grup anahtarı kullanılmaz, sunucu susturması uygulanmaz. Yalnızca katılım sürerken ve seste
+      // dolu tutulur.
+      privateCall: false,
+      privateSeal: null,
+      privateOpen: null,
       serverError: null,
       autoplayBlocked: false,
       peers: Object.create(null),
@@ -1223,6 +1229,7 @@ window.VoiceClient = (function () {
       var code = st.errorCode || (anyFailed() ? 'connect_failed' : null)
       return {
         channelId: st.channelId,
+        private: st.privateCall,
         joining: st.joining,
         muted: st.muted || st.deafened || st.serverMuted,
         serverMuted: st.serverMuted,
@@ -3197,7 +3204,12 @@ window.VoiceClient = (function () {
       d.n = peer.outN
       var data = null
       try {
-        data = seal({ v: 1, from: st.myPeerId, to: pid, d: d })
+        if (st.privateCall) {
+          // Özel aramada düz metin konuşma kimliğini de bağlar (başka bir konuşmanın sinyali yeniden oynatılamaz)
+          data = st.privateSeal({ v: 1, from: st.myPeerId, to: pid, c: String(st.channelId), d: d })
+        } else {
+          data = seal({ v: 1, from: st.myPeerId, to: pid, d: d })
+        }
       } catch (e) {
         data = null
       }
@@ -3235,22 +3247,26 @@ window.VoiceClient = (function () {
       return status
     }
 
-    // Gelen sinyal: çöz, etkin anahtar ve from/to bağlamasını denetle (sunucu yönlendirmeyi değiştiremez)
+    // Gelen sinyal: çöz, etkin anahtar ve from/to bağlamasını denetle (sunucu yönlendirmeyi değiştiremez).
+    // Özel aramada yalnızca private.open kullanılır (karşı tarafın şu anki doğrulanmış anahtarı), grup anahtarı
+    // kimliği denetlenmez, düz metindeki konuşma kimliği bu aramanınki olmalıdır.
     function verify (from, data) {
       if (!st.myPeerId || from === st.myPeerId) return null
+      var priv = st.privateCall
       var res = null
       try {
-        res = open(data)
+        res = priv ? st.privateOpen(data) : open(data)
       } catch (e) {
         return null
       }
       if (!res || res.ok !== true || !res.value || typeof res.value !== 'object') return null
-      if (!st.kid || res.kid !== st.kid) {
+      if (!priv && (!st.kid || res.kid !== st.kid)) {
         st.kid = probeKid()
         if (!st.kid || res.kid !== st.kid) return null
       }
       var v = res.value
       if (v.v !== 1 || v.from !== from || v.to !== st.myPeerId) return null
+      if (priv && v.c !== String(st.channelId)) return null
       var d = v.d
       if (!d || typeof d !== 'object') return null
       var screenType = d.type === 'screen' || d.type === 'watch'
@@ -4657,7 +4673,11 @@ window.VoiceClient = (function () {
       })
       st.roster = next
       applyAllAudio()
-      if (now - st.joinedAt > OTHER_TONE_QUIET_MS) {
+      if (st.privateCall) {
+        // Özel aramada kendi katılma sesi çalmadığından sessiz süre beklenmez: karşı tarafın katılması aramanın
+        // bağlandığını bildirir, ayrılması aramayı bitirir (sunucu bu cihazı da çıkarır, bkz. dropped)
+        if (added) playTone('join', true)
+      } else if (now - st.joinedAt > OTHER_TONE_QUIET_MS) {
         if (added) playTone('join', true)
         else if (removed) playTone('leave', true)
       }
@@ -4697,8 +4717,29 @@ window.VoiceClient = (function () {
       if (!meta || typeof meta !== 'object') return
       st.serverAt = Date.now()
       st.lastMeta = meta
-      applyServerMutes(meta)
+      // Hesap düzeyindeki sunucu susturması özel aramaya uzanmaz (aramadan çıkınca son metadan yeniden okunur)
+      if (!st.privateCall) applyServerMutes(meta)
       if (st.inVoice) applyRoster(meta)
+    }
+
+    // Özel arama kipine giriş: işlevler saklanır, sunucu susturması kayıtları boşaltılır
+    function beginPrivate (priv) {
+      var wasMuted = st.serverMuted
+      st.privateCall = true
+      st.privateSeal = priv.seal
+      st.privateOpen = priv.open
+      st.serverMuted = false
+      st.serverMutedUsers = Object.create(null)
+      if (wasMuted) updateGate(true)
+    }
+
+    // Özel arama kipinden çıkış: işlevler bırakılır, sunucu susturması son metadan yeniden uygulanır
+    function endPrivate () {
+      if (!st.privateCall) return
+      st.privateCall = false
+      st.privateSeal = null
+      st.privateOpen = null
+      if (st.lastMeta) applyServerMutes(st.lastMeta)
     }
 
     function onGraceEnd () {
@@ -4706,12 +4747,15 @@ window.VoiceClient = (function () {
       if (st.inVoice && !st.seenSelf && st.lastMeta) applyRoster(st.lastMeta)
     }
 
-    // Sunucu ses odasından çıkardı veya bağlantı düştü: ayrılma sesi yerine düşme sesi çalar
+    // Sunucu ses odasından çıkardı veya bağlantı düştü: ayrılma sesi yerine düşme sesi çalar. Özel aramada
+    // sunucunun çıkarması aramanın bittiği anlamına gelir (karşı taraf kapattı, reddetti veya zil süresi doldu):
+    // ayrılma sesi çalar, hata kodu 'call_ended' olur.
     function dropped () {
       var wasIn = st.inVoice
+      var wasPrivate = st.privateCall
       teardownLocal(false)
-      if (wasIn) playTone('drop', false)
-      st.errorCode = 'kicked'
+      if (wasIn) playTone(wasPrivate ? 'leave' : 'drop', false)
+      st.errorCode = wasPrivate ? 'call_ended' : 'kicked'
       st.serverError = null
       emit()
     }
@@ -4758,6 +4802,7 @@ window.VoiceClient = (function () {
       st.joinPromise = null
       st.lastSigSeq = 0
       st.autoplayBlocked = false
+      endPrivate()
       releaseMicIfUnused()
       if (withSound && wasIn) playTone('leave', false)
       scheduleContextClose()
@@ -4771,20 +4816,28 @@ window.VoiceClient = (function () {
       return Promise.reject(makeError(code))
     }
 
-    function join (channelId) {
+    // opts.private (isteğe bağlı): özel mesaj araması için { seal(obj) -> string, open(str) -> { ok, value } }.
+    // Verilirse sinyaller bu işlevlerle şifrelenir ve açılır, grup anahtarı gerekmez. Geçersiz verilirse grup
+    // anahtarına düşülmez, katılım 'no_key' ile reddedilir.
+    function join (channelId, opts) {
       var cid = normId(channelId)
       if (cid === null) return Promise.reject(makeError('bad_channel'))
-      if (st.channelId !== null && String(st.channelId) === cid) {
+      var priv = opts && typeof opts === 'object' && opts.private ? opts.private : null
+      var privOk = !!priv && typeof priv === 'object' && typeof priv.seal === 'function' && typeof priv.open === 'function'
+      if (st.channelId !== null && String(st.channelId) === cid && st.privateCall === privOk) {
         if (st.joining && st.joinPromise) return st.joinPromise
         if (st.inVoice) return Promise.resolve()
       }
       var sup = support()
       if (!sup.ok) return failEarly(sup.reason)
-      st.kid = probeKid()
-      if (!st.kid) return failEarly('no_key')
+      if (priv !== null && !privOk) return failEarly('no_key')
+      if (!privOk) {
+        st.kid = probeKid()
+        if (!st.kid) return failEarly('no_key')
+      }
       // Ses bağlamı kullanıcı etkileşimi sırasında oluşturulur veya sürdürülür
       ensureContext()
-      var p = doJoin(channelId)
+      var p = doJoin(channelId, privOk ? { seal: priv.seal, open: priv.open } : null)
       st.joinPromise = p
       var clear = function () {
         if (st.joinPromise === p) st.joinPromise = null
@@ -4793,13 +4846,15 @@ window.VoiceClient = (function () {
       return p
     }
 
-    async function doJoin (channelId) {
+    async function doJoin (channelId, priv) {
       st.gen++
       var gen = st.gen
       var moving = st.inVoice
       resetSession()
       st.inVoice = false
       st.joining = true
+      if (priv) beginPrivate(priv)
+      else endPrivate()
       st.channelId = channelId
       st.errorCode = null
       st.serverError = null
@@ -4852,7 +4907,8 @@ window.VoiceClient = (function () {
       addMembers(data.members)
       var initial = Object.keys(st.roster)
       requestWakeLock()
-      playTone('join', false)
+      // Özel aramada kendi katılma sesi çalmaz (karşı taraf katılınca çalar, bkz. applyRoster)
+      if (!st.privateCall) playTone('join', false)
       postState()
       st.graceTimer = setTimeout(onGraceEnd, SELF_GRACE_MS + 50)
       // Katılım sırasında gelen meta şimdi uygulanır
