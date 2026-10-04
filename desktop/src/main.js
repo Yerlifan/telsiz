@@ -294,6 +294,10 @@ function prepareAppSession (ses, origin) {
     return permissions.decideCheck(permission, requestingOrigin, details, APP_ORIGIN)
   })
   ses.setDisplayMediaRequestHandler(onDisplayMediaRequest)
+  // Telsiz DJ: YouTube oynatıcısının çerçeve isteğine sunucu kökeni Referer olarak eklenir (153 hatası)
+  ses.webRequest.onBeforeSendHeaders({ urls: ['https://' + navigation.YOUTUBE_FRAME_HOST + '/embed/*'] }, (details, callback) => {
+    callback({ requestHeaders: navigation.youtubeEmbedHeaders(details, origin) })
+  })
   denyDeviceChoosers(ses)
   // Yalnızca sayfanın ürettiği blob: indirmeleri (çözülmüş dosyalar) kaydedilebilir, Electron
   // kayıt yerini kullanıcıya sorar

@@ -43,7 +43,7 @@ DATA_DIR=/srv/telsiz-data npx telsiz
 
 ### Windows single file
 
-1. Download `telsiz-<version>-windows-x64.exe` and `SHA256SUMS.txt` from the [Releases](https://github.com/Yerlifan/telsiz/releases) page on GitHub.
+1. Download `telsiz-<version>-server-windows-x64.exe` and `SHA256SUMS.txt` from the [Releases](https://github.com/Yerlifan/telsiz/releases) page on GitHub.
 2. Put the file in an empty folder of its own, for example `C:\Telsiz`.
 3. Double click the file. Because the file is not code signed, Windows SmartScreen may show a warning. In that case choose "More info" and then "Run anyway".
 4. The window that opens is the server itself and must stay open while Telsiz is in use. Press Ctrl+C in the window to stop it.
@@ -52,11 +52,11 @@ The data folder is the `veri` folder next to the file. If startup stops with an 
 
 ### Linux single file
 
-Download `telsiz-<version>-linux-x64` for x64, or `telsiz-<version>-linux-arm64` for arm64 (for example Raspberry Pi).
+Download `telsiz-<version>-server-linux-x64` for x64, or `telsiz-<version>-server-linux-arm64` for arm64 (for example Raspberry Pi).
 
 ```sh
-chmod +x telsiz-<version>-linux-x64
-./telsiz-<version>-linux-x64
+chmod +x telsiz-<version>-server-linux-x64
+./telsiz-<version>-server-linux-x64
 ```
 
 As with the Windows build, the data folder and the `telsiz.env` file are next to the executable.
@@ -280,7 +280,7 @@ Back up the data folder and read the release notes ([CHANGELOG.en.md](../CHANGEL
 | Docker Compose | `git pull` and `docker compose -f deploy/docker-compose.yml up -d --build` |
 | systemd | `cd /opt/telsiz`, `sudo git pull` and `sudo systemctl restart telsiz` |
 
-The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You can verify it with `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or with `Get-FileHash telsiz-<version>-windows-x64.exe` in Windows PowerShell. Settings > App in the app shows the version of the server.
+The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You can verify it with `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or with `Get-FileHash telsiz-<version>-server-windows-x64.exe` in Windows PowerShell. Settings > App in the app shows the version of the server.
 
 ## Password reset and troubleshooting
 
@@ -291,7 +291,7 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You 
 ```sh
 npx telsiz reset-password <username>
 node server.js sifre-sifirla <username>
-./telsiz-<version>-linux-x64 reset-password <username>
+./telsiz-<version>-server-linux-x64 reset-password <username>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js reset-password <username>
 ```
 

@@ -5,6 +5,7 @@
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
+const crypto = require('node:crypto')
 const h = require('./server-yardimci')
 
 describe('mesajlar', () => {
@@ -255,6 +256,58 @@ describe('mesajlar', () => {
       assert.deepEqual(types, ['msg:' + fourth.id, 'del:' + ids[0]])
       const list = await h.get(ctx, '/api/messages?channel=1', owner.token)
       assert.deepEqual(list.data.messages.map((m) => m.id), [ids[1], ids[2], fourth.id])
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('clientMessageId: yanıtı kaybolan gönderimin yinelemesi aynı mesajı döner, ekler yeniden doğrulanmaz', async () => {
+    const ctx = await h.startServer({ messageLimit: 4, messageWindowMs: 60000 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const cid = crypto.randomBytes(16).toString('hex')
+      const first = await h.post(ctx, '/api/messages', owner.token, { channelId: 1, body: h.envelope(), clientMessageId: cid })
+      h.expectStatus(first, 200)
+      // Yeniden gönderimde zarf yeniden mühürlendiği için gövde farklıdır, ilk mesaj döner
+      const again = await h.post(ctx, '/api/messages', owner.token, { channelId: 1, body: h.envelope(), clientMessageId: cid })
+      h.expectStatus(again, 200)
+      assert.deepEqual(again.data, first.data)
+
+      // Ekli mesajın yinelemesi bad_uploads olmaz
+      const up = await h.upload(ctx, owner.token, crypto.randomBytes(32))
+      h.expectStatus(up, 200)
+      const withFile = { channelId: 1, body: h.envelope(), uploads: [up.data.id], clientMessageId: crypto.randomBytes(8).toString('hex') }
+      const sent = await h.post(ctx, '/api/messages', owner.token, withFile)
+      h.expectStatus(sent, 200)
+      const retried = await h.post(ctx, '/api/messages', owner.token, Object.assign({}, withFile, { body: h.envelope() }))
+      h.expectStatus(retried, 200)
+      assert.deepEqual(retried.data, sent.data)
+
+      // Yineleme hız sınırından pay almaz: 2 yeni mesaj gönderildi, 2 hak daha var
+      h.expectStatus(await h.post(ctx, '/api/messages', owner.token, { channelId: 1, body: h.envelope(), clientMessageId: cid }), 200)
+      const list = await h.get(ctx, '/api/messages?channel=1', owner.token)
+      assert.deepEqual(list.data.messages.map((m) => m.id), [first.data.message.id, sent.data.message.id])
+
+      // Kimlik kullanıcıya özeldir, başkasının aynı kimliği yeni mesaj açar
+      const other = await h.post(ctx, '/api/messages', ayse.token, { channelId: 1, body: h.envelope(), clientMessageId: cid })
+      h.expectStatus(other, 200)
+      assert.notEqual(other.data.message.id, first.data.message.id)
+
+      // Kimliksiz istekler eskisi gibi her seferinde yeni mesaj açar
+      const plain = { channelId: 1, body: h.envelope() }
+      const p1 = await h.post(ctx, '/api/messages', owner.token, plain)
+      const p2 = await h.post(ctx, '/api/messages', owner.token, plain)
+      h.expectStatus(p1, 200)
+      h.expectStatus(p2, 200)
+      assert.notEqual(p1.data.message.id, p2.data.message.id)
+
+      // Biçimi bozuk kimlik reddedilir ve mesaj açılmaz
+      for (const bad of ['', 'abc', 'A'.repeat(16), 'g'.repeat(16), 'a'.repeat(15), 'a'.repeat(65), 123, null, ['a'.repeat(16)]]) {
+        h.expectStatus(await h.post(ctx, '/api/messages', ayse.token, { channelId: 1, body: h.envelope(), clientMessageId: bad }), 400, 'bad_request')
+      }
+      const after = await h.get(ctx, '/api/messages?channel=1', owner.token)
+      assert.equal(after.data.messages.length, 5)
     } finally {
       await ctx.cleanup()
     }

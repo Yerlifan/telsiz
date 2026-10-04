@@ -115,6 +115,49 @@ describe('özel mesaj açma kuralları', () => {
       await ctx.cleanup()
     }
   })
+
+  it('hesabı silinen kişiyle konuşma geçmişi kalır ama üst sınıra sayılmaz', async () => {
+    const opts = { maxDmsPerUser: 1 }
+    let { ctx, owner, ayse, mehmet, ali } = await group(opts)
+    try {
+      const dmId = await openDm(ctx, ayse, mehmet)
+      await sendDm(ctx, mehmet, dmId)
+      h.expectStatus(await act(ctx, ayse, 'dms/open', { userId: ali.user.id }), 409, 'too_many_dms')
+      h.expectStatus(await act(ctx, mehmet, 'me/delete', { authKey: h.authKeyFor(h.PASSWORD) }), 200)
+      // Geçmiş listede kalır
+      assert.deepEqual((await privateOf(ctx, ayse)).dms.map((d) => d.id), [dmId])
+      const withAli = await openDm(ctx, ayse, ali)
+      assert.notEqual(withAli, dmId)
+      h.expectStatus(await act(ctx, ayse, 'dms/open', { userId: owner.user.id }), 409, 'too_many_dms')
+      h.expectStatus(await act(ctx, owner, 'dms/open', { userId: ali.user.id }), 409, 'too_many_dms')
+
+      // Yeniden başlatmadan sonra da sayılmaz
+      ctx = await ctx.restart()
+      assert.deepEqual((await privateOf(ctx, ayse)).dms.map((d) => d.id).sort((a, b) => a - b), [dmId, withAli])
+      h.expectStatus(await act(ctx, ayse, 'dms/open', { userId: owner.user.id }), 409, 'too_many_dms')
+      h.expectStatus(await act(ctx, ali, 'me/delete', { authKey: h.authKeyFor(h.PASSWORD) }), 200)
+      await openDm(ctx, ayse, owner)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('clientMessageId ile yinelenen özel mesaj gönderimi aynı mesajı döner', async () => {
+    const { ctx, ayse, mehmet } = await group()
+    try {
+      const dmId = await openDm(ctx, ayse, mehmet)
+      const clientMessageId = crypto.randomBytes(16).toString('hex')
+      const first = await act(ctx, ayse, 'messages', { channelId: dmId, body: h.dmEnvelope(), clientMessageId })
+      h.expectStatus(first, 200)
+      const again = await act(ctx, ayse, 'messages', { channelId: dmId, body: h.dmEnvelope(), clientMessageId })
+      h.expectStatus(again, 200)
+      assert.deepEqual(again.data, first.data)
+      const list = await h.get(ctx, '/api/messages?channel=' + dmId, mehmet.token)
+      assert.deepEqual(list.data.messages.map((m) => m.id), [first.data.message.id])
+    } finally {
+      await ctx.cleanup()
+    }
+  })
 })
 
 describe('özel mesaj yetkisi ve zarf biçimi', () => {

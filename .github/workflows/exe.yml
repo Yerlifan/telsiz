@@ -7,9 +7,9 @@
 #
 # Artifact adları (release.yml bunlara güvenir):
 # Artifact names (release.yml relies on them):
-#   telsiz-server-windows-x64   telsiz-<sürüm>-windows-x64.exe
-#   telsiz-server-linux-x64     telsiz-<sürüm>-linux-x64
-#   telsiz-server-linux-arm64   telsiz-<sürüm>-linux-arm64
+#   telsiz-server-windows-x64   telsiz-<sürüm>-server-windows-x64.exe
+#   telsiz-server-linux-x64     telsiz-<sürüm>-server-linux-x64
+#   telsiz-server-linux-arm64   telsiz-<sürüm>-server-linux-arm64
 name: Sunucu ikilileri
 
 on:
@@ -71,7 +71,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           version=$(node -p "require('./package.json').version")
-          file="telsiz-${version}-${TARGET}"
+          file="telsiz-${version}-server-${TARGET}"
           if [ "${TARGET}" = "windows-x64" ]; then file="${file}.exe"; fi
           echo "file=dist/${file}" >> "$GITHUB_OUTPUT"
           echo "Çıktı: dist/${file}"
@@ -146,7 +146,7 @@ jobs:
           tar -xJf "${base}.tar.xz"
           echo "binary=${dir}/${base}/bin/node" >> "$GITHUB_OUTPUT"
           version_file=$(node -p "require('${GITHUB_WORKSPACE}/package.json').version")
-          echo "file=dist/telsiz-${version_file}-linux-arm64" >> "$GITHUB_OUTPUT"
+          echo "file=dist/telsiz-${version_file}-server-linux-arm64" >> "$GITHUB_OUTPUT"
 
       - name: Tek dosya uygulamasını derle
         env:

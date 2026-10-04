@@ -99,4 +99,27 @@ function decideFrameNavigation (value, context, depth) {
   return url.protocol === 'https:' && url.host === YOUTUBE_FRAME_HOST ? 'allow' : 'deny'
 }
 
-module.exports = { MAX_EXTERNAL_URL, YOUTUBE_FRAME_HOST, YOUTUBE_LINK_HOSTS, originOf, isExternalUrl, decideNavigation, decideWindowOpen, decideAppWindowOpen, decideFrameNavigation }
+// YouTube gömülü oynatıcısı Referer başlığı olmayan isteği 153 hatasıyla (oynatıcı yapılandırma hatası)
+// reddeder. Uygulama telsiz://app kökeninde çalıştığı ve bu kökenden Chromium Referer göndermediği için
+// oynatıcının çerçeve belgesi isteğine sunucunun kökeni (https adresi veya bu bilgisayardaki localhost)
+// Referer olarak eklenir. Yalnız https://www.youtube-nocookie.com/embed/ altındaki alt çerçeve istekleri
+// değişir, istekte zaten Referer varsa ya da sunucu kökeni http(s) değilse başlıklar olduğu gibi kalır.
+// Dönen değer yeni başlık nesnesidir, gelen nesne değiştirilmez.
+function youtubeEmbedHeaders (details, serverOrigin) {
+  const headers = Object.assign({}, details && details.requestHeaders)
+  if (!details || details.resourceType !== 'subFrame') return headers
+  let url
+  try {
+    url = new URL(details.url)
+  } catch (err) {
+    return headers
+  }
+  if (url.protocol !== 'https:' || url.host !== YOUTUBE_FRAME_HOST || !url.pathname.startsWith('/embed/')) return headers
+  if (Object.keys(headers).some((name) => name.toLowerCase() === 'referer')) return headers
+  const origin = originOf(serverOrigin)
+  if (!origin || !/^https?:\/\//.test(origin)) return headers
+  headers.Referer = origin + '/'
+  return headers
+}
+
+module.exports = { MAX_EXTERNAL_URL, YOUTUBE_FRAME_HOST, YOUTUBE_LINK_HOSTS, originOf, isExternalUrl, decideNavigation, decideWindowOpen, decideAppWindowOpen, decideFrameNavigation, youtubeEmbedHeaders }

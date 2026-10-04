@@ -50,6 +50,8 @@ const state = {
   attachSeq: 0,
   activeUploads: 0,
   sending: false,
+  // Gönderilemeyen son mesajın anahtarı ve istemci kimliği ({ key, id }), 08-composer.js
+  unsentMessage: null,
   editingId: null,
   menuMessageId: null,
   voiceSnap: null,
