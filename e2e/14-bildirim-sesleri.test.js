@@ -16,9 +16,11 @@ const assert = require('node:assert/strict')
 const h = require('./yardimci')
 
 const W = { w: null, deniz: null, mert: null, ece: null, lobi: null }
-const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
+// Ses odası ve ekran paylaşımı sahte medya aygıtı ister, bu yalnızca Chromium bayraklarıyla verilir (05-ses-yayin gibi)
+const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte mikrofon ve ekran yakalama yalnızca Chromium bayraklarıyla' })
 
 before(async () => {
+  if (test.skipped) return
   W.w = await h.setupWorld({ slot: 19 })
   W.lobi = W.w.room('Lobi')
   W.deniz = await W.w.pageFor('deniz')
