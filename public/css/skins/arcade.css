@@ -151,7 +151,7 @@
 :root[data-skin="arcade"] .home-entry.is-active,
 :root[data-skin="arcade"] .dm-item[aria-current],
 :root[data-skin="arcade"] .dm-item.is-active,
-:root[data-skin="arcade"] .settings-tab[aria-selected="true"],
+:root[data-skin="arcade"] .settings-cat[aria-current="page"],
 :root[data-skin="arcade"] .voice-row.is-joined,
 :root[data-skin="arcade"] .theme-card[aria-checked="true"] {
   border: 1px solid transparent;
@@ -360,7 +360,7 @@
 /* Odakta liste satırlarının solunda küçük üçgen "arcade imleci" */
 :root[data-skin="arcade"] .channel-item:focus-visible::before,
 :root[data-skin="arcade"] .member:focus-visible::before,
-:root[data-skin="arcade"] .settings-tab:focus-visible::before,
+:root[data-skin="arcade"] .settings-cat:focus-visible::before,
 :root[data-skin="arcade"] .home-entry:focus-visible::before,
 :root[data-skin="arcade"] .dm-item:focus-visible::before {
   content: "";
@@ -373,6 +373,25 @@
   border-top: 0.35rem solid transparent;
   border-bottom: 0.35rem solid transparent;
   border-left: 0.45rem solid var(--focus);
+}
+
+/* Ayarlar: cam paneller, seçili tema kartında degrade kenar, degrade anahtar */
+:root[data-skin="arcade"] .settings-section,
+:root[data-skin="arcade"] .settings-profile-form,
+:root[data-skin="arcade"] .settings-bind-row {
+  border-radius: var(--radius-panel);
+}
+
+:root[data-skin="arcade"] .settings-theme-card.is-selected,
+:root[data-skin="arcade"] .settings-radio.is-selected {
+  border: 1px solid transparent;
+  background-image: linear-gradient(var(--surface-3), var(--surface-3)), linear-gradient(120deg, var(--accent), var(--accent-2));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+
+:root[data-skin="arcade"] .settings-switch:checked {
+  background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
 }
 
 /* Giriş ekranı: yazı markası küçük harf, sinyal halkalı logo */

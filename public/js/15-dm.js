@@ -33,11 +33,13 @@ function dmPartner (channelId) {
   return null
 }
 
+// Ana sayfa girişinin toplam rozeti: okunmamış özel mesajlar ve yazı kanallarındaki okunmamış anmalar
 function dmUnreadTotal () {
   let total = 0
   dmEntries().forEach((d) => {
     total += state.unread[d.id] || 0
   })
+  if (typeof mentionTotal === 'function') total += mentionTotal()
   return total
 }
 
@@ -253,6 +255,8 @@ function dmRefreshChrome () {
   if (el.keyState) el.keyState.hidden = true
   el.composerInput.setAttribute('placeholder', t(isNarrow() ? 'dm.placeholderShort' : 'dm.placeholder', { name: name }))
   if (el.channelStartTitle) el.channelStartTitle.textContent = t('dm.start', { name: name })
+  // Konuşma başlangıcında kanal simgesi yerine karşı tarafın büyük avatarı
+  if (partner !== null && typeof renderStartIcon === 'function') renderStartIcon(partner)
   const notice = dmNoticeEl()
   if (notice) {
     clear(notice)

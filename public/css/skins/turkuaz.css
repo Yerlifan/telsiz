@@ -51,7 +51,8 @@
 :root[data-skin="turkuaz"] .group-title,
 :root[data-skin="turkuaz"] .profile-card-label,
 :root[data-skin="turkuaz"] .emoji-title,
-:root[data-skin="turkuaz"] .settings-title {
+:root[data-skin="turkuaz"] .settings-group-title,
+:root[data-skin="turkuaz"] .settings-section-title {
   color: var(--text);
   text-transform: none;
 }
@@ -138,7 +139,7 @@
 :root[data-skin="turkuaz"] .home-entry[aria-current],
 :root[data-skin="turkuaz"] .dm-item[aria-current],
 :root[data-skin="turkuaz"] .dm-item.is-active,
-:root[data-skin="turkuaz"] .settings-tab[aria-selected="true"] {
+:root[data-skin="turkuaz"] .settings-cat[aria-current="page"] {
   border-color: transparent;
 }
 
@@ -399,4 +400,34 @@
 /* Odak: safran dış halka, zeminden ayıran iç boşluk */
 :root[data-skin="turkuaz"] :focus-visible {
   box-shadow: 0 0 0 2px var(--surface-1);
+}
+
+/* Ayarlar: başlık sonunda uzanan çizgi, elmas topuzlu anahtar */
+:root[data-skin="turkuaz"] .settings-section-title {
+  font-size: var(--text-md);
+  letter-spacing: 0;
+}
+
+:root[data-skin="turkuaz"] .settings-section-title::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  margin-left: 0.6rem;
+  background-color: var(--line);
+}
+
+:root[data-skin="turkuaz"] .settings-group-title {
+  font-size: var(--text-sm);
+  letter-spacing: 0;
+}
+
+:root[data-skin="turkuaz"] .settings-switch::before {
+  border-radius: 2px;
+  -webkit-transform: rotate(45deg) scale(0.85);
+  transform: rotate(45deg) scale(0.85);
+}
+
+:root[data-skin="turkuaz"] .settings-switch:checked::before {
+  -webkit-transform: translateX(1.375rem) rotate(45deg) scale(0.85);
+  transform: translateX(1.375rem) rotate(45deg) scale(0.85);
 }

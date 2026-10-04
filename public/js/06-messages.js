@@ -3,13 +3,21 @@
 // Mesaj çözme (yazı kanalında grup anahtarı, özel mesajda kişisel anahtarlar), yalnızca emoji algılama,
 // mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme ve silme.
 
-// Mesaj çözme. Sonuçlar mesaj gövdesine göre önbelleğe alınır.
+// Mesaj çözme. Sonuçlar mesaj gövdesine göre önbelleğe alınır (arama dizini önbelleksiz sürümü kullanır).
 
 const decryptCache = new Map()
+const JUMP_LIMIT = 100
+const HIGHLIGHT_MS = 4000
 
 function decryptMessage (m) {
   const cached = decryptCache.get(String(m.id))
   if (cached && cached.body === m.body) return cached.result
+  const result = decryptMessageRaw(m)
+  decryptCache.set(String(m.id), { body: m.body, result: result })
+  return result
+}
+
+function decryptMessageRaw (m) {
   let result = { state: 'no_key' }
   if (cryptoReady() && isDmMessage(m)) {
     try {
@@ -36,7 +44,6 @@ function decryptMessage (m) {
       }
     }
   }
-  decryptCache.set(String(m.id), { body: m.body, result: result })
   return result
 }
 
@@ -202,9 +209,16 @@ function buildMessageNode (m) {
   const body = h('div', 'msg-body')
   if (result.state === 'ok') {
     if (result.text) {
-      const text = h('div', 'msg-text', result.text)
+      const text = h('div', 'msg-text')
+      // Geçerli anmalar rozet olarak çizilir (18-mentions.js), metin yalnızca textContent ile
+      if (typeof renderMentionText === 'function') renderMentionText(text, result.text, m)
+      else text.textContent = result.text
       if (isJumbo(result.text)) text.classList.add('jumbo')
       body.appendChild(text)
+      if (typeof messageMentionsMe === 'function' && messageMentionsMe(m, result.text)) {
+        node.classList.add('is-mentioned')
+        content.appendChild(h('span', 'sr-only msg-mention-sr', t('mention.mentionsYou')))
+      }
     }
     if (result.files.length) body.appendChild(buildAttachments(result.files, m))
   } else {
@@ -305,6 +319,7 @@ function renderAllMessages () {
 function renderListChrome () {
   el.loadOlderWrap.hidden = !state.hasMore || state.loading
   el.channelStart.hidden = state.hasMore || state.loading || !state.channelId
+  renderJumpBar()
 }
 
 function refreshAllMessages () {
@@ -318,11 +333,27 @@ function refreshAllMessages () {
   else el.messages.scrollTop = top
 }
 
+// Anma içeren mesajlar yeniden çizilir (kullanıcı adı veya rol değişince). Düzenlenen mesaja dokunulmaz.
+function refreshMentionMessages () {
+  if (!state.inApp || state.loading) return
+  state.messages.slice().forEach((m) => {
+    if (sameId(state.editingId, m.id)) return
+    const result = decryptMessage(m)
+    if (result.state === 'ok' && result.text && result.text.indexOf('@') !== -1) replaceMessage(m)
+  })
+}
+
 function insertMessage (m, opts) {
   if (!validMessage(m) || !sameId(m.channelId, state.channelId)) return
   const options = opts || {}
   if (indexOfMessage(m.id) !== -1) {
     replaceMessage(m)
+    return
+  }
+  // Aramadan gelinen eski bir bölüm görüntüleniyorsa yeni mesaj listeye eklenmez, şerit uyarır
+  if (state.hasNewer) {
+    state.newWhileOlder = true
+    renderJumpBar()
     return
   }
   const stick = isNearBottom()
@@ -412,10 +443,11 @@ function scrollToBottom () {
 
 function onMessagesScroll () {
   stickBottom = isNearBottom()
+  if (state.hasNewer && stickBottom) loadNewer()
 }
 
 function keepBottom () {
-  if (stickBottom && state.inApp) scrollToBottom()
+  if (stickBottom && state.inApp && !state.hasNewer) scrollToBottom()
 }
 
 function observeMessagesSize () {
@@ -434,12 +466,18 @@ async function loadChannel () {
   const channelId = state.channelId
   if (!channelId) return
   socialOnChannelLoad(channelId)
+  // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
+  const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
+  state.pendingJump = null
   state.loadGen += 1
   const gen = state.loadGen
   state.loading = true
   state.pendingEvents = []
   state.messages = []
   state.hasMore = false
+  state.hasNewer = false
+  state.newWhileOlder = false
+  state.loadingNewer = false
   state.nodes = new Map()
   decryptCache.clear()
   state.editingId = null
@@ -447,7 +485,9 @@ async function loadChannel () {
   el.messagesRetryWrap.hidden = true
   setMsg(el.messagesStatus, () => t('messages.loading'))
   renderListChrome()
-  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&limit=' + PAGE_SIZE)
+  chatPlusOnChannelLoad(channelId)
+  const query = jump ? '&around=' + encodeURIComponent(jump.messageId) + '&limit=' + JUMP_LIMIT : '&limit=' + PAGE_SIZE
+  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
   state.loading = false
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
@@ -461,10 +501,13 @@ async function loadChannel () {
   setMsg(el.messagesStatus, '')
   state.messages = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true
+  state.hasNewer = Boolean(jump) && res.data.hasNewer === true
   const pending = state.pendingEvents
   state.pendingEvents = []
   pending.forEach((ev) => {
-    if (ev.type === 'msg' && ev.message && indexOfMessage(ev.message.id) === -1) {
+    if (ev.type === 'msg' && ev.message && state.hasNewer) {
+      state.newWhileOlder = true
+    } else if (ev.type === 'msg' && ev.message && indexOfMessage(ev.message.id) === -1) {
       const last = state.messages[state.messages.length - 1]
       if (!last || Number(ev.message.id) > Number(last.id)) state.messages.push(ev.message)
     } else if (ev.type === 'edit' && ev.message) {
@@ -476,7 +519,14 @@ async function loadChannel () {
     }
   })
   renderAllMessages()
-  scrollToBottom()
+  if (jump) {
+    if (!highlightMessage(jump.messageId)) {
+      scrollNearMessage(jump.messageId)
+      toast(() => t('search.notFound'), 'error')
+    }
+  } else {
+    scrollToBottom()
+  }
   markRead()
 }
 
@@ -514,6 +564,166 @@ async function loadOlder () {
   renderListChrome()
   box.scrollTop = box.scrollHeight - before
   if (!state.hasMore) focusNode(el.messages)
+}
+
+// Konuşma değişince yazıyor satırı, öneri listesi ve açık arama paneli güncellenir (17..19)
+function chatPlusOnChannelLoad (channelId) {
+  if (typeof typingOnChannelChange === 'function') typingOnChannelChange(channelId)
+  if (typeof mentionClose === 'function') mentionClose()
+  if (typeof searchOnConversationChange === 'function') searchOnConversationChange()
+}
+
+// Aramadan gelinen eski bir bölümde aşağı inildikçe daha yeni mesajlar yüklenir (around=<son kimlik>)
+async function loadNewer () {
+  if (state.loadingNewer || !state.hasNewer || state.loading || !state.messages.length) return
+  const channelId = state.channelId
+  const gen = state.loadGen
+  const last = state.messages[state.messages.length - 1]
+  state.loadingNewer = true
+  renderJumpBar()
+  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&around=' + encodeURIComponent(last.id) + '&limit=' + JUMP_LIMIT)
+  if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
+  state.loadingNewer = false
+  if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
+    renderJumpBar()
+    toast(() => errorText(res, t('search.jumpFailed')), 'error')
+    return
+  }
+  const newer = res.data.messages.filter((m) => validMessage(m) && Number(m.id) > Number(last.id) && indexOfMessage(m.id) === -1)
+    .sort((a, b) => Number(a.id) - Number(b.id))
+  state.hasNewer = res.data.hasNewer === true
+  if (!state.hasNewer) state.newWhileOlder = false
+  const frag = document.createDocumentFragment()
+  newer.forEach((m) => {
+    const node = buildMessageNode(m)
+    state.nodes.set(String(m.id), node)
+    frag.appendChild(node)
+  })
+  state.messages = state.messages.concat(newer)
+  el.messageList.appendChild(frag)
+  regroup()
+  renderListChrome()
+  if (!state.hasNewer) markRead()
+}
+
+// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir
+function jumpToLatest () {
+  if (!state.channelId) return
+  state.pendingJump = null
+  loadChannel()
+  focusNode(el.composerInput.disabled ? el.messages : el.composerInput)
+}
+
+// Arama sonucundan mesaja gitme. Mesaj zaten görüntüleniyorsa yalnızca vurgulanır, değilse konuşmaya
+// geçilir ve mesaj bağlamıyla yüklenir.
+function goToMessage (channelId, messageId) {
+  if (!state.inApp || channelId === null || channelId === undefined) return
+  const dm = typeof dmEntry === 'function' && Boolean(dmEntry(channelId))
+  if (!dm && !findChannel(channelId)) {
+    toast(() => t('search.notFound'), 'error')
+    return
+  }
+  const mode = currentViewMode()
+  const current = sameId(state.channelId, channelId) && mode === (dm ? 'dm' : 'channel')
+  if (current && !state.loading && state.nodes.has(String(messageId))) {
+    highlightMessage(messageId)
+    return
+  }
+  state.pendingJump = { channelId: channelId, messageId: messageId }
+  if (current) {
+    loadChannel()
+  } else if (dm) {
+    showDm(channelId, {})
+  } else {
+    selectChannel(channelId, {})
+  }
+  if (state.pendingJump && !sameId(state.channelId, channelId)) state.pendingJump = null
+}
+
+let highlightTimer = 0
+
+// Mesajı ortalayıp kısa süre vurgular, ekran okuyucu ve klavye için odak mesaja taşınır
+function highlightMessage (id) {
+  const node = state.nodes.get(String(id))
+  if (!node) return false
+  Array.from(el.messageList.querySelectorAll('.msg.is-highlighted')).forEach((n) => {
+    n.classList.remove('is-highlighted')
+  })
+  node.classList.add('is-highlighted')
+  stickBottom = false
+  try {
+    node.scrollIntoView({ block: 'center' })
+  } catch (err) {
+    node.scrollIntoView()
+  }
+  node.setAttribute('tabindex', '-1')
+  try {
+    node.focus({ preventScroll: true })
+  } catch (err) {
+    focusNode(node)
+  }
+  node.addEventListener('blur', () => {
+    node.removeAttribute('tabindex')
+  }, { once: true })
+  clearTimeout(highlightTimer)
+  highlightTimer = setTimeout(() => {
+    node.classList.remove('is-highlighted')
+  }, HIGHLIGHT_MS)
+  return true
+}
+
+// Mesaj bulunamadıysa (silinmiş) aynı konumdaki en yakın mesaja kaydırılır
+function scrollNearMessage (id) {
+  const target = Number(id)
+  const near = state.messages.filter((m) => Number(m.id) >= target)[0] || state.messages[state.messages.length - 1]
+  const node = near ? state.nodes.get(String(near.id)) : null
+  stickBottom = false
+  if (node && typeof node.scrollIntoView === 'function') {
+    try {
+      node.scrollIntoView({ block: 'center' })
+    } catch (err) {
+      node.scrollIntoView()
+    }
+  }
+}
+
+// Eski bölüm şeridi: daha yeni mesajlar varken "En yeni mesajlara dön"
+function jumpBarEl () {
+  let bar = byId('search-jump')
+  if (!bar && el.main) {
+    bar = h('div', 'search-jump')
+    bar.id = 'search-jump'
+    bar.setAttribute('role', 'status')
+    bar.hidden = true
+    bar.appendChild(h('span', 'search-jump-text'))
+    const go = button('button button-small search-jump-button', '', 'i-down')
+    go.id = 'search-jump-latest'
+    go.appendChild(h('span', 'button-text'))
+    go.addEventListener('click', jumpToLatest)
+    bar.appendChild(go)
+    const anchor = el.voiceStrip && el.voiceStrip.parentNode === el.main ? el.voiceStrip : el.composer
+    el.main.insertBefore(bar, anchor && anchor.parentNode === el.main ? anchor : null)
+  }
+  return bar
+}
+
+function renderJumpBar () {
+  const show = Boolean(state.hasNewer) && !state.loading && Boolean(state.channelId) && currentViewMode() !== 'home'
+  const existing = byId('search-jump')
+  if (!show && !existing) return
+  const bar = jumpBarEl()
+  if (!bar) return
+  bar.hidden = !show
+  if (!show) return
+  const text = bar.querySelector('.search-jump-text')
+  if (text) text.textContent = t(state.newWhileOlder ? 'search.newMessages' : 'search.viewingOlder')
+  const go = byId('search-jump-latest')
+  if (go) {
+    const label = go.querySelector('.button-text')
+    if (label) label.textContent = t('search.backToLatest')
+    go.disabled = false
+  }
+  bar.classList.toggle('is-loading', Boolean(state.loadingNewer))
 }
 
 // Mesaj eylemleri menüsü

@@ -1,7 +1,8 @@
 'use strict'
 
-// Long-poll döngüsü, olayların ve kişiye özel metanın (private, pmv) işlenmesi, masaüstü bildirimi
-// (Rahatsız etmeyin kuralıyla) ve görünürlük değişimi.
+// Long-poll döngüsü, olayların, kişiye özel metanın (private, pmv) ve yazıyor bilgisinin (typing, tv)
+// işlenmesi, anma sayaçları, masaüstü bildirimi ve mesaj sesi (bildirim düzeyi ve Rahatsız etmeyin
+// kuralıyla) ve görünürlük değişimi.
 
 // Long-poll döngüsü. Her başlatmada nesil sayacı artar,
 // eski döngüler bir sonraki adımda sessizce sonlanır.
@@ -22,6 +23,7 @@ function setConnLost (lost) {
   if (state.connLost === lost) return
   state.connLost = lost
   el.connBanner.hidden = !lost
+  if (lost && typeof typingOnConnLost === 'function') typingOnConnLost()
 }
 
 function retryDelay (failures) {
@@ -34,6 +36,8 @@ async function pollLoop (generation) {
     const path = '/api/poll?since=' + encodeURIComponent(state.seq) +
       '&mv=' + encodeURIComponent(state.metaVersion) +
       '&pmv=' + encodeURIComponent(socialPmv()) +
+      // tv yalnızca yazıyor modülü yüklüyse gönderilir (tv yanıtı işlenmezse poll hemen dönmeye devam ederdi)
+      (typeof typingPollParam === 'function' ? '&tv=' + encodeURIComponent(typingPollParam()) : '') +
       '&sig=' + encodeURIComponent(state.sigSeq) +
       '&boot=' + encodeURIComponent(state.boot)
     const pending = api('GET', path, null, { timeout: POLL_TIMEOUT_MS })
@@ -68,6 +72,9 @@ function handlePoll (data) {
     state.metaVersion = Number(data.metaVersion) || 0
     if (data.meta) applyMetaUpdate(data.meta)
     if (data.private) socialApplyPrivate(data.private, Number(data.pmv) || 0)
+    if (typeof typingApply === 'function') typingApply(data)
+    // Olay kaybı olmuş olabilir: arama dizini konuşmaların en yeni kısmını yeniden denetler
+    if (typeof searchOnResync === 'function') searchOnResync()
     handleSignals(data.signals)
     if (state.channelId) loadChannel()
     return
@@ -77,6 +84,7 @@ function handlePoll (data) {
     applyMetaUpdate(data.meta)
   }
   if (data.private) socialApplyPrivate(data.private, Number(data.pmv) || 0)
+  if (typeof typingApply === 'function') typingApply(data)
   const events = Array.isArray(data.events) ? data.events : []
   events.forEach((ev) => {
     if (!ev || typeof ev !== 'object') return
@@ -115,6 +123,14 @@ function handleSignals (signals) {
 }
 
 function applyEvent (ev) {
+  // Arama dizini taranmış konuşmalardaki yeni, düzenlenen ve silinen mesajları izler
+  if (typeof searchOnEvent === 'function') {
+    try {
+      searchOnEvent(ev)
+    } catch (err) {
+      window.console.error(err)
+    }
+  }
   const inCurrent = sameId(ev.channelId, state.channelId)
   if (inCurrent && state.loading) {
     state.pendingEvents.push(ev)
@@ -145,13 +161,30 @@ function onIncomingMessage (message, inCurrent) {
       renderDmList()
       renderHomeEntry()
     } else {
-      renderChannels()
+      // Beni anan mesaj kanal listesinde ayrı rozet ve Ana sayfa toplamında sayılır (18-mentions.js)
+      const counted = typeof mentionOnIncoming === 'function' && mentionOnIncoming(message)
+      if (!counted) renderChannels()
     }
   }
   if (!mine && document.hidden) {
     state.hiddenUnread += 1
     updateTitle()
-    notifyMessage(message)
+    alertMessage(message)
+  }
+}
+
+// Sayfa gizliyken gelen mesaj: bildirim düzeyi ('all', 'mentions', 'none'), engel ve Rahatsız etmeyin
+// kuralına uyan mesajda masaüstü bildirimi (açıksa) ve mesaj sesi (açıksa). İki ayar bağımsızdır.
+function alertMessage (message) {
+  const allowed = typeof messageAlertAllowed === 'function' ? messageAlertAllowed(message) : myChosenStatus() !== 'dnd'
+  if (!allowed) return
+  notifyMessage(message)
+  if (typeof playMessageSound === 'function') {
+    try {
+      playMessageSound()
+    } catch (err) {
+      window.console.error(err)
+    }
   }
 }
 

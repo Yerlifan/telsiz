@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/layout.css">
   <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/chat-plus.css">
   <link rel="stylesheet" href="/css/skins/arcade.css">
   <link rel="stylesheet" href="/css/skins/gece.css">
   <link rel="stylesheet" href="/css/skins/turkuaz.css">
@@ -44,6 +46,9 @@
   <script src="/js/14-social.js" defer></script>
   <script src="/js/15-dm.js" defer></script>
   <script src="/js/16-identity.js" defer></script>
+  <script src="/js/17-search.js" defer></script>
+  <script src="/js/18-mentions.js" defer></script>
+  <script src="/js/19-typing.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -420,184 +425,7 @@
     </div>
   </div>
 
-  <!-- Ayarlar (Ek D2 ile tam ekran ayarlar görünümüne dönüşecek) -->
-  <div id="settings-modal" class="modal" hidden>
-    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="settings-nav">
-        <h2 id="settings-title" class="settings-title" data-i18n="settings.title">Ayarlar</h2>
-        <div id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Ayar bölümleri" aria-orientation="vertical" data-i18n-aria-label="settings.sections">
-          <button id="settings-tab-account" class="settings-tab" type="button" role="tab" aria-controls="settings-panel-account" data-tab="account" data-i18n="settings.tab.account">Hesap</button>
-          <button id="settings-tab-voice" class="settings-tab" type="button" role="tab" aria-controls="settings-panel-voice" data-tab="voice" data-i18n="settings.tab.voice">Ses</button>
-          <button id="settings-tab-crypto" class="settings-tab" type="button" role="tab" aria-controls="settings-panel-crypto" data-tab="crypto" data-i18n="settings.tab.crypto">Şifreleme</button>
-          <button id="settings-tab-server" class="settings-tab" type="button" role="tab" aria-controls="settings-panel-server" data-tab="server" data-i18n="settings.tab.server">Sunucu</button>
-          <button id="settings-tab-members" class="settings-tab" type="button" role="tab" aria-controls="settings-panel-members" data-tab="members" data-i18n="settings.tab.members">Üyeler</button>
-        </div>
-      </div>
-      <div class="settings-body">
-        <button id="settings-close" class="icon-button settings-close" type="button" aria-label="Ayarları kapat" title="Kapat (Esc)" data-i18n-aria-label="settings.close" data-i18n-title="settings.closeTitle"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
-
-        <section id="settings-panel-account" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-account" tabindex="-1" hidden>
-          <h3 class="panel-title" data-i18n="settings.tab.account">Hesap</h3>
-          <div class="account-card">
-            <span id="set-avatar" class="avatar avatar-large" aria-hidden="true"></span>
-            <div>
-              <p id="set-name" class="account-name"></p>
-              <p id="set-role" class="account-role"></p>
-            </div>
-          </div>
-          <h4 class="group-title" data-i18n="settings.account.language">Dil / Language</h4>
-          <label class="sr-only" for="set-lang" data-i18n="settings.account.language">Dil / Language</label>
-          <select id="set-lang" class="input select select-small">
-            <option value="tr" lang="tr">Türkçe</option>
-            <option value="en" lang="en">English</option>
-          </select>
-          <h4 class="group-title" data-i18n="settings.account.changePassword">Parola değiştir</h4>
-          <form id="set-password-form" class="form form-narrow" autocomplete="on" novalidate>
-            <label class="label" for="set-old-password" data-i18n="settings.account.oldPassword">Mevcut parola</label>
-            <input id="set-old-password" class="input" type="password" autocomplete="current-password" maxlength="256">
-            <label class="label" for="set-new-password" data-i18n="settings.account.newPassword">Yeni parola</label>
-            <input id="set-new-password" class="input" type="password" autocomplete="new-password" maxlength="256">
-            <label class="label" for="set-new-password2" data-i18n="settings.account.newPassword2">Yeni parola (tekrar)</label>
-            <input id="set-new-password2" class="input" type="password" autocomplete="new-password" maxlength="256">
-            <p id="set-password-msg" class="form-msg" role="status" hidden></p>
-            <button id="set-password-submit" class="button" type="submit" data-i18n="settings.account.passwordSubmit">Parolayı değiştir</button>
-          </form>
-          <h4 class="group-title" data-i18n="settings.account.notifications">Bildirimler</h4>
-          <label class="check" for="set-notify"><input id="set-notify" type="checkbox"><span data-i18n="settings.account.notifyLabel">Sayfa arka plandayken gelen mesajlar için bildirim göster</span></label>
-          <p id="set-notify-msg" class="form-msg" role="status" hidden></p>
-          <div id="set-install-wrap" hidden>
-            <h4 class="group-title" data-i18n="settings.account.app">Uygulama</h4>
-            <button id="set-install" class="button" type="button" data-i18n="settings.account.install">Uygulamayı yükle</button>
-          </div>
-          <p id="set-ios-hint" class="hint" data-i18n="settings.account.iosHint" hidden>Safari'de Paylaş menüsünden Ana Ekrana Ekle'yi seçin.</p>
-          <h4 class="group-title" data-i18n="settings.account.session">Oturum</h4>
-          <button id="set-logout" class="button button-danger" type="button" data-i18n="auth.logout">Çıkış yap</button>
-        </section>
-
-        <section id="settings-panel-voice" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-voice" tabindex="-1" hidden>
-          <h3 class="panel-title" data-i18n="settings.tab.voice">Ses</h3>
-          <p id="set-voice-support" class="notice" hidden></p>
-          <label class="label" for="set-mic" data-i18n="settings.voice.mic">Mikrofon</label>
-          <div class="row">
-            <select id="set-mic" class="input select"></select>
-            <button id="set-mic-refresh" class="button button-secondary" type="button" data-i18n="settings.voice.refreshDevices">Cihazları yenile</button>
-          </div>
-          <p class="hint" data-i18n="settings.voice.micHint">Mikrofon adları, mikrofon izni verildikten sonra görünür.</p>
-          <h4 id="set-mode-title" class="group-title" data-i18n="settings.voice.inputMode">Giriş modu</h4>
-          <div class="radio-group" role="radiogroup" aria-labelledby="set-mode-title">
-            <label class="check" for="set-mode-vad"><input id="set-mode-vad" type="radio" name="set-input-mode" value="vad"><span data-i18n="settings.voice.modeVad">Ses etkinliği</span></label>
-            <label class="check" for="set-mode-ptt"><input id="set-mode-ptt" type="radio" name="set-input-mode" value="ptt"><span data-i18n="settings.voice.modePtt">Bas konuş (mikrofon yalnızca tuş basılıyken açılır)</span></label>
-          </div>
-          <div id="set-vad-wrap">
-            <label class="check" for="set-vad-auto"><input id="set-vad-auto" type="checkbox"><span data-i18n="settings.voice.vadAuto">Hassasiyeti otomatik belirle</span></label>
-            <label class="label" for="set-vad-threshold"><span data-i18n="settings.voice.threshold">Hassasiyet eşiği</span> <span id="set-vad-threshold-value" class="label-value"></span></label>
-            <input id="set-vad-threshold" class="range" type="range" min="-100" max="0" step="1" value="-50">
-            <p class="hint" data-i18n="settings.voice.thresholdHint">Ses bu eşiği aşınca mikrofon açılır. Arka plan gürültüsü gidiyorsa eşiği yükseltin.</p>
-          </div>
-          <div id="set-ptt-wrap" hidden>
-            <div class="row row-center">
-              <span class="label-inline" data-i18n="settings.voice.pttKey">Bas-konuş tuşu:</span>
-              <kbd id="set-ptt-key" class="kbd"></kbd>
-              <button id="set-ptt-change" class="button button-secondary" type="button" data-i18n="settings.voice.changeKey">Tuşu değiştir</button>
-            </div>
-            <p id="set-ptt-msg" class="form-msg" role="status" hidden></p>
-            <label class="label" for="set-ptt-release"><span data-i18n="settings.voice.release">Bırakma gecikmesi</span> <span id="set-ptt-release-value" class="label-value"></span></label>
-            <input id="set-ptt-release" class="range" type="range" min="0" max="1000" step="10" value="200">
-            <p class="hint" data-i18n="settings.voice.focusNote">Tarayıcılar klavye, fare ve oyun kolu girdisini yalnızca odaktaki sayfaya iletir. Oyun ön plandayken bas-konuş tuşu çalışmaz, oyun sırasında Ses etkinliği modunu kullanın. Telefon ve tablette ekrandaki Bas konuş düğmesini kullanabilirsiniz.</p>
-          </div>
-          <h4 class="group-title" data-i18n="settings.voice.level">Giriş seviyesi</h4>
-          <div class="meter" aria-hidden="true"><div id="set-level-bar" class="meter-bar"></div><div id="set-level-threshold" class="meter-threshold" hidden></div></div>
-          <p id="set-level-note" class="hint"></p>
-        </section>
-
-        <section id="settings-panel-crypto" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-crypto" tabindex="-1" hidden>
-          <h3 class="panel-title" data-i18n="settings.tab.crypto">Şifreleme</h3>
-          <p class="hint" data-i18n="settings.crypto.intro">Mesajlar, dosyalar ve ses kurulum bilgileri bu cihazda şifrelenir. Anahtarlar yalnızca bu cihazın tarayıcısında saklanır ve sunucuya gönderilmez.</p>
-          <h4 class="group-title" data-i18n="settings.crypto.keyring">Anahtarlık</h4>
-          <ul id="set-keyring" class="plain-list"></ul>
-          <h4 class="group-title" data-i18n="key.addShort">Anahtar ekle</h4>
-          <form id="set-key-form" class="row" autocomplete="off" novalidate>
-            <label class="sr-only" for="set-key-input" data-i18n="key.codeLabel">Anahtar kodu</label>
-            <input id="set-key-input" class="input mono" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="80" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX">
-            <button id="set-key-add" class="button" type="submit" data-i18n="key.add">Ekle</button>
-          </form>
-          <p id="set-key-msg" class="form-msg" role="status" hidden></p>
-          <div id="set-active-wrap">
-            <h4 class="group-title" data-i18n="settings.crypto.active">Etkin anahtar</h4>
-            <p id="set-active-missing" class="hint" hidden></p>
-            <div id="set-active-row" class="row row-center">
-              <code id="set-active-key" class="secret"></code>
-              <button id="set-key-show" class="button button-secondary" type="button" aria-pressed="false"></button>
-              <button id="set-key-copy" class="button button-secondary" type="button" data-i18n="common.copy">Kopyala</button>
-            </div>
-            <button id="set-invite-copy" class="button" type="button" data-i18n="settings.crypto.copyInvite">Davet bağlantısını kopyala</button>
-          </div>
-          <div id="set-key-admin" hidden>
-            <h4 class="group-title" data-i18n="settings.crypto.newKey">Yeni anahtar oluştur</h4>
-            <p class="warning" data-i18n="settings.crypto.newKeyWarning">Yeni anahtar yalnızca bundan sonraki mesajları korur. Herkese yeni davet bağlantısını göndermeniz gerekir. Eski anahtarı silmeyin, eski mesajlar onunla okunur.</p>
-            <button id="set-key-generate" class="button button-secondary" type="button"></button>
-            <div id="set-new-invite-wrap" hidden>
-              <label class="label" for="set-new-invite" data-i18n="settings.crypto.newInvite">Yeni davet bağlantısı</label>
-              <textarea id="set-new-invite" class="input textarea-readonly mono" rows="3" readonly spellcheck="false"></textarea>
-              <button id="set-new-invite-copy" class="button button-secondary" type="button" data-i18n="invite.copyLink">Bağlantıyı kopyala</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="settings-panel-server" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-server" tabindex="-1" hidden>
-          <h3 class="panel-title" data-i18n="settings.tab.server">Sunucu</h3>
-          <h4 class="group-title" data-i18n="settings.server.name">Sunucu adı</h4>
-          <form id="set-server-form" class="row" autocomplete="off" novalidate>
-            <label class="sr-only" for="set-server-name" data-i18n="settings.server.name">Sunucu adı</label>
-            <input id="set-server-name" class="input" type="text" maxlength="40" spellcheck="false">
-            <button id="set-server-save" class="button" type="submit" data-i18n="common.save">Kaydet</button>
-          </form>
-          <p id="set-server-msg" class="form-msg" role="status" hidden></p>
-          <h4 class="group-title" data-i18n="auth.inviteCode">Davet kodu</h4>
-          <div class="row row-center">
-            <code id="set-invite-code" class="secret"></code>
-            <button id="set-invite-show" class="button button-secondary" type="button" aria-pressed="false"></button>
-            <button id="set-invite-rotate" class="button button-secondary" type="button" data-i18n="settings.server.rotate">Yenile</button>
-          </div>
-          <p id="set-invite-msg" class="form-msg" role="status" hidden></p>
-          <p class="hint" data-i18n="settings.server.rotateHint">Davet kodunu yenilemek, eski davet bağlantılarıyla yeni kayıtları durdurur.</p>
-          <h4 class="group-title" data-i18n="channels.label">Kanallar</h4>
-          <form id="set-channel-form" class="row" autocomplete="off" novalidate>
-            <label class="sr-only" for="set-channel-name" data-i18n="settings.server.newChannel">Yeni kanal adı</label>
-            <input id="set-channel-name" class="input" type="text" maxlength="30" placeholder="Yeni kanal adı" spellcheck="false" data-i18n-placeholder="settings.server.newChannel">
-            <label class="sr-only" for="set-channel-type" data-i18n="settings.server.channelType">Kanal türü</label>
-            <select id="set-channel-type" class="input select select-small">
-              <option value="text" data-i18n="settings.server.typeText">Yazı</option>
-              <option value="voice" data-i18n="settings.server.typeVoice">Ses</option>
-            </select>
-            <button id="set-channel-create" class="button" type="submit" data-i18n="settings.server.create">Oluştur</button>
-          </form>
-          <p id="set-channel-msg" class="form-msg" role="status" hidden></p>
-          <h5 class="list-title" data-i18n="channels.text">Yazı kanalları</h5>
-          <ul id="set-text-channels" class="plain-list"></ul>
-          <h5 class="list-title" data-i18n="channels.voice">Ses kanalları</h5>
-          <ul id="set-voice-channels" class="plain-list"></ul>
-        </section>
-
-        <section id="settings-panel-members" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-members" tabindex="-1" hidden>
-          <h3 class="panel-title" data-i18n="settings.tab.members">Üyeler</h3>
-          <p id="set-members-msg" class="form-msg" role="status" hidden></p>
-          <div id="set-temp-wrap" class="temp-box" hidden>
-            <p id="set-temp-label" class="label"></p>
-            <div class="row row-center">
-              <code id="set-temp-password" class="secret secret-visible"></code>
-              <button id="set-temp-copy" class="button button-secondary" type="button" data-i18n="common.copy">Kopyala</button>
-            </div>
-            <p class="hint" data-i18n="settings.members.tempHint">Geçici parola yalnızca bir kez gösterilir. Kişiye güvenli bir yoldan iletin.</p>
-          </div>
-          <ul id="set-members-list" class="plain-list"></ul>
-          <div id="set-banned-wrap" hidden>
-            <h4 class="group-title" data-i18n="settings.members.banned">Engellenenler</h4>
-            <ul id="set-banned-list" class="plain-list"></ul>
-          </div>
-        </section>
-      </div>
-    </div>
-  </div>
+  <!-- Ayarlar: tam ekran görünüm, solda kategoriler, sağda içerik (içerik 11-settings.js ile gelir) -->
+  <div id="settings-view" class="settings-view" role="dialog" aria-modal="true" aria-labelledby="settings-view-title" hidden></div>
 </body>
 </html>

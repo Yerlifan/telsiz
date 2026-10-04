@@ -1,6 +1,7 @@
 'use strict'
 
 // Yazma alanı, gönderme, ek hazırlama, fotoğraf işleme, yükleme kuyruğu, ek çipleri, yapıştırma ve sürükle-bırak.
+// Yazarken yazıyor bildirimi (19-typing.js) ve @ öneri listesi (18-mentions.js) bu dosyadaki olaylardan beslenir.
 
 // Yazma alanı. Yazı kanalında grup anahtarıyla, özel mesajda kişisel anahtarlarla şifrelenir.
 
@@ -27,6 +28,8 @@ function onComposerInput () {
   keepBottom()
   updateCounter()
   updateSendState()
+  if (typeof typingOnInput === 'function') typingOnInput()
+  if (typeof mentionOnInput === 'function') mentionOnInput()
 }
 
 function updateCounter () {
@@ -62,6 +65,8 @@ function updateSendState () {
 
 function onComposerKeydown (e) {
   if (e.isComposing || e.keyCode === 229) return
+  // Öneri listesi açıkken oklar, Enter, Tab ve Esc listeye aittir
+  if (typeof mentionOnKeydown === 'function' && mentionOnKeydown(e)) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     sendMessage()
@@ -115,6 +120,7 @@ async function sendMessage () {
   }
   state.sending = true
   updateSendState()
+  if (typeof mentionClose === 'function') mentionClose()
   const payload = { channelId: channelId, body: body }
   if (ready.length) payload.uploads = ready.map((a) => a.uploadId)
   const res = await api('POST', '/api/messages', payload)
@@ -125,9 +131,15 @@ async function sendMessage () {
       removeAttachment(a, true)
     })
     onComposerInput()
+    if (typeof typingAfterSend === 'function') typingAfterSend(channelId)
     if (sameId(channelId, state.channelId)) {
-      insertMessage(res.data.message, { own: true })
-      markRead()
+      // Aramadan gelinen eski bir bölümdeyken gönderilen mesajla en yeni mesajlara dönülür
+      if (state.hasNewer) {
+        jumpToLatest()
+      } else {
+        insertMessage(res.data.message, { own: true })
+        markRead()
+      }
     }
     return
   }

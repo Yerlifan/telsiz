@@ -111,7 +111,7 @@ function renderVoiceAll () {
   renderVoicePanel()
   renderUserPanel()
   updateVoiceLive()
-  if (isSettingsTab('voice')) renderSettingsVoice()
+  if (typeof settingsOnVoice === 'function') settingsOnVoice()
 }
 
 function voiceRoster (channelId) {
@@ -231,7 +231,7 @@ function updateVoiceLive () {
     })
   }
   el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
-  if (typeof isSettingsTab === 'function' && isSettingsTab('voice') && typeof updateLevelMeter === 'function') updateLevelMeter()
+  if (typeof updateLevelMeter === 'function') updateLevelMeter()
   const pttActive = Boolean(s.ptt && s.ptt.active)
   const label = t(pttActive ? 'voice.talking' : 'voice.pushToTalk')
   el.pttButton.classList.toggle('is-active', pttActive)

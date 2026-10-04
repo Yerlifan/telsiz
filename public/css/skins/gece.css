@@ -31,7 +31,8 @@
 /* Bölüm etiketleri: gösterge yazısı */
 :root[data-skin="gece"] .section-title,
 :root[data-skin="gece"] .group-title,
-:root[data-skin="gece"] .settings-title,
+:root[data-skin="gece"] .settings-group-title,
+:root[data-skin="gece"] .settings-section-title,
 :root[data-skin="gece"] .emoji-title,
 :root[data-skin="gece"] .auth-kicker {
   font-weight: 500;
@@ -444,4 +445,33 @@
 /* Odak: ay ışığı çizgi, kehribar hale */
 :root[data-skin="gece"] :focus-visible {
   box-shadow: 0 0 0 6px var(--focus-halo);
+}
+
+/* Ayarlar: seçili kategoride kehribar LED, panellerde ince kadran çizgisi */
+:root[data-skin="gece"] .settings-cat[aria-current="page"] {
+  border-color: transparent;
+  background-color: var(--surface-active);
+}
+
+:root[data-skin="gece"] .settings-view:not(.is-narrow) .settings-cat[aria-current="page"]::after {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.75rem;
+  border-radius: 50%;
+  background-color: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+:root[data-skin="gece"] .settings-section,
+:root[data-skin="gece"] .settings-profile-form {
+  border-top: 2px solid var(--line-strong);
+}
+
+:root[data-skin="gece"] .settings-fingerprint,
+:root[data-skin="gece"] .settings-version,
+:root[data-skin="gece"] .settings-side-version {
+  font-family: var(--font-mono);
+  font-weight: 500;
 }

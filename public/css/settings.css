@@ -1,0 +1,1071 @@
+/*
+  Ayarlar görünümü: tam ekran, solda kategori listesi, sağda içerik. Renk, yazı tipi, yarıçap ve
+  gölgeler yalnızca tokens.css belirteçlerinden gelir. Temaya özgü küçük farklar skins/*.css
+  dosyalarındaki .settings-* kurallarındadır.
+  Eski WebKit (PS5) uyumu: düzen yalnızca flexbox, grid, clamp(), flex gap, :is(), :where(),
+  aspect-ratio ve inset yok, boşluklar margin ve padding ile verilir.
+  Dar ekranda (760px altı) önce kategori listesi, seçilince içerik ve Geri düğmesi gösterilir.
+*/
+
+/* =========================================================
+   1. Kök, iskelet ve sütunlar
+   ========================================================= */
+
+.settings-view {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 68;
+  display: flex;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+.settings-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.settings-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 18rem;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1.25rem 0.75rem 1rem 1.25rem;
+  padding-top: calc(1.25rem + env(safe-area-inset-top));
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  border-right: var(--border-width) solid var(--line-strong);
+  background-color: var(--surface-1);
+  background-image: radial-gradient(28rem 22rem at 0% 0%, var(--bg-glow-a), var(--bg-glow-a0) 70%);
+}
+
+.settings-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  margin: 0 0 0.5rem;
+  padding: 0 0 0 0.5rem;
+}
+
+.settings-side-title {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-xl);
+  line-height: 1.2;
+}
+
+.settings-catnav {
+  flex: none;
+}
+
+.settings-cat-group {
+  margin-top: 0.75rem;
+}
+
+.settings-group-title {
+  margin: 0.5rem 0.5rem 0.4rem;
+  color: var(--text-3);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  text-transform: uppercase;
+}
+
+.settings-cats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-cat {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  margin: 0 0 2px;
+  padding: 0.4rem 0.75rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-weight: var(--weight-strong);
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  -webkit-transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.settings-cat:hover {
+  background-color: var(--surface-hover);
+  color: var(--text);
+}
+
+.settings-cat[aria-current="page"] {
+  border-color: var(--line-strong);
+  background-color: var(--surface-active);
+  color: var(--text);
+}
+
+.settings-cat-icon {
+  margin-right: 0.75rem;
+  color: var(--text-3);
+}
+
+.settings-cat:hover .settings-cat-icon,
+.settings-cat[aria-current="page"] .settings-cat-icon {
+  color: var(--accent-text);
+}
+
+.settings-cat-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Fareli kısa ekranlarda (ör. 1280x800) 12 kategori kaydırmadan sığsın. Dokunmatikte hedef boyutu korunur. */
+@media (max-height: 880px) and (pointer: fine) {
+  .settings-cat {
+    min-height: 2.5rem;
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+  }
+
+  .settings-cat-group {
+    margin-top: 0.5rem;
+  }
+}
+
+.settings-side-version {
+  margin-top: auto;
+  padding: 1.25rem 0.5rem 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.settings-main {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Odaklanan veya kaydırılan bölüm başlığı yapışkan sayfa başlığının altında kalmasın */
+  scroll-padding-top: 5.5rem;
+}
+
+.settings-main-inner {
+  max-width: 54rem;
+  padding: 0 2rem 4rem;
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+}
+
+/* Sayfa başlığı kaydırırken üstte kalır: dar ekranda Geri, başlık ve Kapat */
+.settings-page-head {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  min-height: 4.5rem;
+  margin: 0 0 0.5rem;
+  padding: 1rem 0 0.75rem;
+  padding-top: calc(1rem + env(safe-area-inset-top));
+  border-bottom: var(--border-width) solid var(--line);
+  background-color: var(--bg);
+}
+
+.settings-back {
+  flex: none;
+  margin-right: 0.75rem;
+  padding-left: 0.6rem;
+}
+
+.settings-page-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+/* Başlığa yalnızca programla odaklanılır (sayfa değişince ekran okuyucu başlığı okur) */
+.settings-page-title:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.settings-x {
+  flex: none;
+  margin-left: 0.75rem;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+.settings-x:hover {
+  border-color: var(--edge);
+}
+
+.settings-page {
+  padding-top: 0.75rem;
+}
+
+/* =========================================================
+   2. Bölümler, başlıklar, açıklamalar
+   ========================================================= */
+
+.settings-section,
+.settings-profile-form {
+  margin: 0 0 1rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  color: var(--text-2);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  text-transform: uppercase;
+}
+
+.settings-subtitle {
+  margin: 1.25rem 0 0.5rem;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+}
+
+.settings-section > .settings-subtitle:first-child,
+.settings-profile-form > .settings-subtitle:first-child,
+.settings-profile-side > .settings-subtitle:first-child {
+  margin-top: 0;
+}
+
+.settings-lead {
+  margin: 0 0 1rem;
+  color: var(--text-2);
+}
+
+.settings-text {
+  margin: 0 0 0.5rem;
+  color: var(--text-2);
+}
+
+.settings-hint {
+  max-width: 44rem;
+}
+
+.settings-note {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid var(--accent-2-text);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+.settings-note-strong {
+  margin-top: 0;
+  color: var(--text);
+}
+
+.settings-notice {
+  margin: 0 0 1rem;
+}
+
+.settings-notice-info {
+  border-color: var(--accent-text);
+  background-color: var(--mention-bg);
+}
+
+.settings-msg {
+  min-height: 0;
+}
+
+.settings-block {
+  margin-top: 0.75rem;
+}
+
+.settings-actions,
+.settings-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.settings-actions {
+  margin-top: 0.75rem;
+}
+
+.settings-actions > *,
+.settings-inline-form > * {
+  margin: 0 0.5rem 0.5rem 0;
+}
+
+.settings-inline-form .input {
+  flex: 1 1 14rem;
+  width: auto;
+  min-width: 0;
+}
+
+.settings-inline-form .select-small {
+  flex: 0 0 auto;
+}
+
+.settings-inline-form .secret {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.settings-form {
+  max-width: 30rem;
+}
+
+.settings-form > .label:first-child,
+.settings-form > .sr-only:first-child + .label {
+  margin-top: 0.25rem;
+}
+
+/* Ad ve değer satırı (ör. kullanıcı adı, bas konuş tuşu) */
+.settings-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.settings-kv-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  margin: 0 1rem 0.5rem 0;
+}
+
+.settings-kv-label {
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+.settings-kv-value {
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-strong);
+  word-break: break-word;
+}
+
+.settings-kbd {
+  margin-top: 0.3rem;
+}
+
+/* =========================================================
+   3. Anahtar, radyo seçimleri, kaydırıcı, ölçer
+   ========================================================= */
+
+.settings-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--target);
+  padding: 0.5rem 0;
+}
+
+.settings-switch-row + .settings-switch-row {
+  border-top: var(--border-width) solid var(--line);
+}
+
+.settings-switch-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 1rem;
+  cursor: pointer;
+}
+
+.settings-switch-text {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.settings-switch-hint {
+  margin-top: 0.2rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+/* Görünür ve odaklanabilir onay kutusu anahtar biçiminde (role=switch) */
+.settings-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 3.25rem;
+  height: 1.875rem;
+  margin: 0;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-sunken);
+  cursor: pointer;
+  -webkit-transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+  transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+
+.settings-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background-color: var(--text-2);
+  -webkit-transition: -webkit-transform var(--dur-fast) var(--ease), background-color var(--dur-fast) ease;
+  transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) ease;
+}
+
+.settings-switch:checked {
+  border-color: transparent;
+  background-color: var(--accent-fill-a);
+  background-image: linear-gradient(120deg, var(--accent-fill-a), var(--accent-fill-b));
+}
+
+.settings-switch:checked::before {
+  background-color: var(--on-accent);
+  -webkit-transform: translateX(1.375rem);
+  transform: translateX(1.375rem);
+}
+
+.settings-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings-radios {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-radio {
+  display: flex;
+  align-items: flex-start;
+  min-height: var(--target);
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-alt);
+  cursor: pointer;
+}
+
+.settings-radio:hover {
+  background-color: var(--surface-hover);
+}
+
+.settings-radio.is-selected {
+  border-color: var(--accent-text);
+  background-color: var(--surface-active);
+}
+
+.settings-radio-input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.1rem 0.75rem 0 0;
+  accent-color: var(--accent-fill-a);
+  cursor: pointer;
+}
+
+.settings-radio-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-radio-label {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.settings-radio-hint {
+  margin-top: 0.15rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+/* Yan yana seçimler (mod, yazı boyutu, hareket) */
+.settings-radios.is-chips {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.is-chips .settings-radio {
+  align-items: center;
+  margin: 0 0.5rem 0.5rem 0;
+  padding: 0.45rem 0.9rem 0.45rem 0.7rem;
+  border-radius: var(--radius-pill);
+}
+
+.is-chips .settings-radio-input {
+  margin-top: 0;
+  margin-right: 0.55rem;
+}
+
+.settings-range {
+  max-width: 32rem;
+}
+
+.settings-meter {
+  max-width: 32rem;
+  height: 1rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.settings-textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.settings-counter {
+  margin: 0.3rem 0 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-counter.is-over {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.settings-filter {
+  max-width: 22rem;
+  margin-bottom: 0.75rem;
+}
+
+/* =========================================================
+   4. Profil: önizleme kartı, profil resmi, renk paleti
+   ========================================================= */
+
+.settings-card-host {
+  max-width: 24rem;
+  margin: 0 0 1rem;
+}
+
+.settings-preview-card {
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-preview-card .profile-card-band {
+  border-radius: 0;
+}
+
+.settings-preview-card .profile-card-bio {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settings-card-action {
+  margin-top: 0.75rem;
+}
+
+.settings-profile-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.settings-profile-form {
+  flex: 1 1 22rem;
+  max-width: 32rem;
+  margin-right: 1.25rem;
+}
+
+.settings-profile-side {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 5.5rem;
+  flex: 0 1 21rem;
+  min-width: 15rem;
+  margin: 0 0 1rem;
+}
+
+.settings-profile-side .settings-card-host {
+  max-width: none;
+}
+
+.settings-avatar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settings-avatar-host {
+  flex: none;
+  margin: 0 1.25rem 0.5rem 0;
+}
+
+.settings-avatar-buttons {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.settings-avatar-buttons > * {
+  margin: 0 0.5rem 0.5rem 0;
+}
+
+.settings-palette {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0.25rem 0 0.25rem;
+}
+
+/* Renk seçimi: görünür ve odaklanabilir radyo düğmesi */
+.settings-swatch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0 0.6rem 0.6rem 0;
+  border: 3px solid var(--surface-1);
+  border-radius: 50%;
+  background-color: var(--av-0);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  cursor: pointer;
+}
+
+.settings-swatch[data-color="1"] { background-color: var(--av-1); }
+.settings-swatch[data-color="2"] { background-color: var(--av-2); }
+.settings-swatch[data-color="3"] { background-color: var(--av-3); }
+.settings-swatch[data-color="4"] { background-color: var(--av-4); }
+.settings-swatch[data-color="5"] { background-color: var(--av-5); }
+.settings-swatch[data-color="6"] { background-color: var(--av-6); }
+.settings-swatch[data-color="7"] { background-color: var(--av-7); }
+
+.settings-swatch:checked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+
+/* Seçili rengin üstünde onay işareti */
+.settings-swatch:checked::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.95rem;
+  margin: -0.6rem 0 0 -0.28rem;
+  border: solid var(--av-fg);
+  border-width: 0 3px 3px 0;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+.settings-dirty {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-small);
+  background-color: var(--warn-bg);
+  color: var(--text);
+}
+
+/* =========================================================
+   5. Listeler: oturumlar, engellenenler, anahtarlar, üyeler
+   ========================================================= */
+
+.settings-list .list-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-list .empty-row {
+  font-size: var(--text-sm);
+}
+
+.settings-name-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.settings-name-line > .list-name {
+  margin-right: 0.5rem;
+}
+
+.settings-handle {
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+.settings-badge {
+  margin-left: 0;
+}
+
+.settings-row-icon {
+  margin-right: 0.75rem;
+  color: var(--text-3);
+}
+
+.session-row.is-current .settings-row-icon {
+  color: var(--live);
+}
+
+.settings-person-row .list-main > .avatar {
+  margin-right: 0.75rem;
+}
+
+.settings-fingerprint {
+  display: inline-block;
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.9rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  letter-spacing: 0.06em;
+  word-spacing: 0.35em;
+  word-break: break-word;
+}
+
+.settings-temp {
+  margin-bottom: 1rem;
+}
+
+.settings-summary {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.settings-summary-item {
+  margin: 0 0.5rem 0.5rem 0;
+  padding: 0.4rem 0.85rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.settings-state {
+  display: flex;
+  align-items: center;
+  margin: 0.25rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+/* İzin durumunun renk noktası (metin ayrıca durumu söyler) */
+.settings-state::before {
+  content: "";
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--offline);
+}
+
+.settings-state[data-state="granted"]::before {
+  background-color: var(--ok);
+}
+
+.settings-state[data-state="denied"]::before,
+.settings-state[data-state="unsupported"]::before,
+.settings-state[data-state="insecure"]::before {
+  background-color: var(--dnd);
+}
+
+.settings-link {
+  font-weight: var(--weight-strong);
+  word-break: break-all;
+}
+
+.settings-links-item {
+  padding: 0.25rem 0;
+}
+
+.settings-version {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+}
+
+/* =========================================================
+   6. Tuş atamaları
+   ========================================================= */
+
+.settings-binds {
+  margin: 1rem 0 0.5rem;
+}
+
+.settings-bind-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 0.75rem;
+  padding: 0.85rem 1rem 0.5rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-bind-row.is-capturing {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.settings-bind-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0 1rem 0.5rem 0;
+}
+
+.settings-bind-name {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.settings-bind-hint {
+  margin-top: 0.15rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+.settings-bind-key {
+  flex: none;
+  min-width: 7rem;
+  margin: 0 1rem 0.5rem 0;
+}
+
+/* Tema tuş kapağı yazı tipini ezmek için satır içinde daha belirgin seçici */
+.settings-bind-row .settings-bind-key.is-empty {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.settings-bind-actions {
+  flex: none;
+}
+
+.settings-bind-status {
+  flex: 1 1 100%;
+  margin: 0 0 0.5rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.settings-bind-row.is-capturing .settings-bind-status {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+/* =========================================================
+   7. Görünüm: tema kartları
+   ========================================================= */
+
+.settings-theme-cards {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.settings-theme-card {
+  position: relative;
+  flex: 1 1 12rem;
+  max-width: 17rem;
+  margin: 0 0.75rem 0.75rem 0;
+  padding: 0.6rem 0.6rem 0.75rem;
+}
+
+.settings-theme-card:hover {
+  border-color: var(--edge);
+}
+
+.settings-theme-card.is-selected {
+  border-color: var(--accent-2-text);
+  background-color: var(--surface-active);
+}
+
+.settings-theme-card:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.settings-theme-card .settings-radio-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.settings-theme-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.settings-theme-row .settings-radio-input {
+  margin: 0 0.6rem 0 0;
+}
+
+.settings-theme-hint {
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+/* =========================================================
+   8. Ekran genişliğine göre
+   ========================================================= */
+
+/* Orta genişlik: daha dar kategori sütunu */
+@media (max-width: 999px) {
+  .settings-side {
+    width: 15.5rem;
+    padding-left: 0.75rem;
+  }
+
+  .settings-main-inner {
+    padding-right: 1.25rem;
+    padding-left: 1.25rem;
+  }
+
+  .settings-profile-form {
+    margin-right: 0;
+  }
+
+  .settings-profile-side {
+    position: static;
+    flex: 1 1 100%;
+    max-width: 32rem;
+  }
+}
+
+/* Dar ekran: kategori listesi veya içerik, biri görünür */
+.settings-view.is-narrow .settings-side {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  padding-top: calc(0.75rem + env(safe-area-inset-top));
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  border-right: 0;
+}
+
+.settings-view.is-narrow[data-pane="list"] .settings-main,
+.settings-view.is-narrow[data-pane="page"] .settings-side {
+  display: none;
+}
+
+.settings-view.is-narrow .settings-side-head {
+  min-height: 3.5rem;
+  margin-bottom: 0;
+  padding-left: 0.25rem;
+}
+
+.settings-view.is-narrow .settings-cat {
+  min-height: 3.25rem;
+  padding: 0.5rem 0.85rem;
+  border-color: var(--line);
+  background-color: var(--surface-alt);
+  margin-bottom: 0.4rem;
+}
+
+/* Dar ekranda kategoriden içeriğe geçiş oku */
+.settings-view.is-narrow .settings-cat::after {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.75rem;
+  border: solid var(--text-3);
+  border-width: 2px 2px 0 0;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+.settings-view.is-narrow .settings-main {
+  scroll-padding-top: 4.75rem;
+}
+
+.settings-view.is-narrow .settings-main-inner {
+  padding: 0 0.75rem 3rem;
+  padding-bottom: calc(3rem + env(safe-area-inset-bottom));
+}
+
+.settings-view.is-narrow .settings-page-head {
+  min-height: 3.75rem;
+  padding: 0.5rem 0;
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+}
+
+.settings-view.is-narrow .settings-page-title {
+  font-size: var(--text-lg);
+}
+
+.settings-view.is-narrow .settings-section,
+.settings-view.is-narrow .settings-profile-form {
+  padding: 0.9rem 0.9rem 1rem;
+}
+
+.settings-view.is-narrow .settings-theme-card {
+  flex: 1 1 100%;
+  max-width: none;
+  margin-right: 0;
+}
+
+.settings-view.is-narrow .settings-bind-key {
+  min-width: 0;
+}
+
+/* TV ve konsol (1800px ve üstü): daha geniş içerik */
+@media (min-width: 1800px) {
+  .settings-side {
+    width: 21rem;
+  }
+
+  .settings-main-inner {
+    max-width: 64rem;
+    padding-right: 3rem;
+    padding-left: 3rem;
+  }
+}

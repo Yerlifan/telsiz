@@ -7,6 +7,8 @@
 
 function openApp () {
   state.inApp = true
+  // Arama dizini, yazıyor ve anma durumları oturuma özeldir, her açılışta sıfırlanır
+  chatPlusReset()
   showView('app')
   renderServerName()
   renderChannels()
@@ -25,6 +27,16 @@ function openApp () {
   startPoll()
   showFragmentNotice()
   scanUnread()
+}
+
+function chatPlusReset () {
+  state.mentions = Object.create(null)
+  state.hasNewer = false
+  state.newWhileOlder = false
+  state.pendingJump = null
+  if (typeof searchReset === 'function') searchReset()
+  if (typeof typingReset === 'function') typingReset()
+  if (typeof mentionReset === 'function') mentionReset()
 }
 
 function channelsOf (type) {
@@ -84,10 +96,18 @@ function refreshConversationChrome () {
 
 // Meta uygulama: kanallar, üyeler, ses kadroları, roller (5.3)
 
+// Anma rozetleri kullanıcı adlarına, @herkes kuralı yazarın rolüne bağlıdır: bunlar değişince mesajlar
+// yeniden çizilir
+function mentionUsersKey (meta) {
+  const users = meta && Array.isArray(meta.users) ? meta.users : []
+  return users.map((u) => (u ? u.id + ':' + u.name + ':' + u.role : '')).join('|')
+}
+
 function applyMeta (meta, isInitial) {
   if (!meta || typeof meta !== 'object') return
   const prevKid = state.meta ? state.meta.activeKid : undefined
   const prevRole = state.me ? state.me.role : null
+  const prevUsersKey = mentionUsersKey(state.meta)
   state.meta = meta
   if (typeof meta.serverName === 'string' && meta.serverName) state.serverName = meta.serverName
   const users = Array.isArray(meta.users) ? meta.users : []
@@ -143,6 +163,8 @@ function applyMeta (meta, isInitial) {
   if (prevKid !== meta.activeKid || prevRole !== (state.me ? state.me.role : null)) {
     renderComposerState()
     refreshAllMessages()
+  } else if (prevUsersKey !== mentionUsersKey(meta)) {
+    refreshMentionMessages()
   }
   refreshSettings()
 }
@@ -313,6 +335,8 @@ function renderMembers () {
     restoreFocusKey(el.members, focusKey)
   }
   updateVoiceLive()
+  // Görünen ad veya engel listesi değiştiyse yazıyor satırı da güncellenir
+  if (typeof renderTypingLine === 'function') renderTypingLine()
 }
 
 function memberRowKey (entry) {
@@ -387,11 +411,33 @@ function renderChannelHeader () {
   const ch = findChannel(state.channelId)
   el.channelTitle.textContent = ch ? ch.name : ''
   el.channelStartTitle.textContent = ch ? t('channel.welcome', { name: ch.name }) : ''
+  renderStartIcon(null)
   const placeholder = ch ? t(isNarrow() ? 'composer.placeholderShort' : 'composer.placeholder', { name: ch.name }) : t('composer.selectChannel')
   el.composerInput.setAttribute('placeholder', placeholder)
   const keyOk = hasActiveKey()
   el.keyState.hidden = keyOk
   el.keyState.textContent = keyOk ? '' : t('header.noKey')
+}
+
+// Konuşma başlangıcındaki simge: kanalda #, özel mesajda karşı tarafın büyük avatarı (15-dm.js)
+function renderStartIcon (partnerId) {
+  const box = el.channelStart ? el.channelStart.querySelector('.channel-start-icon') : null
+  if (!box) return
+  const dm = partnerId !== null && partnerId !== undefined
+  const key = dm ? 'dm:' + partnerId + ':' + JSON.stringify(avatarInfoFor(partnerId)) : 'channel'
+  if (box.getAttribute('data-start') === key) return
+  box.setAttribute('data-start', key)
+  clear(box)
+  box.classList.toggle('is-avatar', dm)
+  el.channelStart.classList.toggle('is-dm', dm)
+  if (dm) {
+    const av = typeof personAvatar === 'function' ? personAvatar(partnerId, 'xl') : avatar(partnerId, 'xl')
+    av.classList.add('channel-start-avatar')
+    av.setAttribute('aria-hidden', 'true')
+    box.appendChild(av)
+  } else {
+    box.appendChild(icon('i-hash'))
+  }
 }
 
 function renderComposerState () {
@@ -435,14 +481,17 @@ function markRead () {
     state.unread[state.channelId] = 0
     changed = true
   }
+  let mentionsChanged = false
   if (state.mentions && state.mentions[state.channelId]) {
     state.mentions[state.channelId] = 0
     changed = true
+    mentionsChanged = true
   }
   if (changed) renderChannels()
+  if (mentionsChanged && typeof renderHomeEntry === 'function') renderHomeEntry()
 }
 
-// Açılışta diğer yazı kanallarındaki okunmamış mesajları sayar (son 50 mesaja kadar).
+// Açılışta diğer yazı kanallarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
 async function scanUnread () {
   const me = state.me
   const list = textChannels().filter((c) => !sameId(c.id, state.channelId))
@@ -450,13 +499,20 @@ async function scanUnread () {
     if (!state.inApp || state.me !== me) return
     const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(c.id) + '&limit=' + PAGE_SIZE)
     if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) continue
+    if (!state.inApp || state.me !== me) return
     const lastRead = Number(state.lastRead[c.id]) || 0
-    const count = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id)).length
-    if (!sameId(c.id, state.channelId) && count > (state.unread[c.id] || 0)) {
-      state.unread[c.id] = count
+    const unread = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id))
+    if (sameId(c.id, state.channelId)) continue
+    if (unread.length > (state.unread[c.id] || 0)) state.unread[c.id] = unread.length
+    if (typeof messageMentionsMe === 'function') {
+      const mentions = unread.filter((m) => !(typeof isBlocked === 'function' && isBlocked(m.authorId)) && messageMentionsMe(m)).length
+      if (mentions > (Number(state.mentions[c.id]) || 0)) state.mentions[c.id] = mentions
     }
   }
-  if (state.inApp && state.me === me) renderChannels()
+  if (state.inApp && state.me === me) {
+    renderChannels()
+    if (typeof renderHomeEntry === 'function') renderHomeEntry()
+  }
 }
 
 // Kanal seçimi. Özel mesaj veya ana sayfa görünümündeyken önce kanal görünümüne dönülür.
@@ -483,8 +539,10 @@ function selectChannel (id, opts) {
   state.channelId = ch.id
   storeSet(userKey('channel'), String(ch.id))
   state.unread[ch.id] = 0
+  const hadMentions = Boolean(state.mentions && state.mentions[ch.id])
   if (state.mentions) state.mentions[ch.id] = 0
   renderChannels()
+  if (hadMentions && typeof renderHomeEntry === 'function') renderHomeEntry()
   renderChannelHeader()
   renderComposerState()
   loadChannel()

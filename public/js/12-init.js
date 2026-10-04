@@ -134,12 +134,12 @@ function registerServiceWorker () {
 function onBeforeInstallPrompt (e) {
   e.preventDefault()
   state.installPrompt = e
-  if (isSettingsTab('account')) renderSettingsAccount()
+  settingsOnInstallChange()
 }
 
 function onAppInstalled () {
   state.installPrompt = null
-  if (isSettingsTab('account')) renderSettingsAccount()
+  settingsOnInstallChange()
   toast(() => t('app.installed'), 'ok')
 }
 
@@ -201,7 +201,7 @@ function bindEvents () {
   on(el.btnMute, 'click', toggleMute)
   on(el.btnDeafen, 'click', toggleDeafen)
   on(el.btnSettings, 'click', () => {
-    openSettings('account', el.btnSettings)
+    openSettings(null, el.btnSettings)
   })
   on(el.voiceLeave, 'click', leaveVoice)
   on(el.voiceStripLeave, 'click', leaveVoice)
@@ -232,8 +232,7 @@ function bindEvents () {
   on(el.composerInput, 'keydown', onComposerKeydown)
   on(el.composerInput, 'paste', onPaste)
   on(el.composerHintAction, 'click', () => {
-    if (activeKid()) openSettings('crypto', el.composerHintAction)
-    else if (isAdmin()) openSettings('crypto', el.composerHintAction)
+    if (activeKid() || isAdmin()) openSettings('privacy', el.composerHintAction)
   })
   on(el.btnPhoto, 'click', () => {
     el.filePhoto.value = ''
@@ -274,63 +273,12 @@ function bindEvents () {
     }
   })
 
-  on(el.settingsClose, 'click', () => {
-    const layer = findLayer('settings')
-    if (layer) closeLayer(layer, true)
-  })
-  on(el.settingsModal, 'click', (e) => {
-    if (e.target === el.settingsModal) {
-      const layer = findLayer('settings')
-      if (layer) closeLayer(layer, true)
-    }
-  })
-  SETTINGS_TABS.forEach((name) => {
-    on(tabEl(name), 'click', () => {
-      selectSettingsTab(name, false)
-    })
-  })
-  on(el.settingsTabs, 'keydown', onSettingsTabsKey)
-  on(el.setPasswordForm, 'submit', submitPasswordChange)
-  on(el.setNotify, 'change', onNotifyChange)
-  on(el.setInstall, 'click', installApp)
-  on(el.setLogout, 'click', logout)
-  on(el.setMic, 'change', onMicChange)
-  on(el.setMicRefresh, 'click', fillMicList)
-  on(el.setModeVad, 'change', onInputModeChange)
-  on(el.setModePtt, 'change', onInputModeChange)
-  on(el.setVadAuto, 'change', onVadAutoChange)
-  on(el.setVadThreshold, 'input', onVadThresholdInput)
-  on(el.setPttRelease, 'input', onPttReleaseInput)
-  on(el.setPttChange, 'click', startPttCapture)
-  on(el.setKeyForm, 'submit', submitSettingsKey)
-  on(el.setKeyShow, 'click', () => {
-    setKeyVisible(el.setKeyShow.getAttribute('aria-pressed') !== 'true')
-  })
-  on(el.setKeyCopy, 'click', () => {
-    const entry = activeKeyEntry()
-    if (entry) copyWithToast(entry.code)
-  })
-  on(el.setInviteCopy, 'click', copyInviteLink)
-  on(el.setKeyGenerate, 'click', generateNewKey)
-  on(el.setNewInviteCopy, 'click', () => {
-    copyWithToast(el.setNewInvite.value)
-  })
-  on(el.setServerForm, 'submit', submitServerName)
-  on(el.setInviteShow, 'click', () => {
-    setInviteVisible(el.setInviteShow.getAttribute('aria-pressed') !== 'true')
-  })
-  on(el.setInviteRotate, 'click', rotateInvite)
-  on(el.setChannelForm, 'submit', submitChannelCreate)
-  on(el.setTempCopy, 'click', () => {
-    copyWithToast(el.setTempPassword.textContent)
-  })
+  // Ayarlar görünümünün olayları 11-settings.js içinde bağlanır
+  bindSettingsEvents()
 
   on(el.authLang, 'click', (e) => {
     const target = e.target && e.target.closest ? e.target.closest('[data-lang]') : null
     if (target) changeLanguage(target.getAttribute('data-lang'))
-  })
-  on(el.setLang, 'change', () => {
-    changeLanguage(el.setLang.value)
   })
   on(document, 'keydown', onLayerKeydown)
   on(document, 'mousedown', onLayerPointerDown, true)
@@ -357,7 +305,7 @@ function closeDrawerFromButton () {
   if (layer) closeLayer(layer, true)
 }
 
-// Dil (Ek E1): giriş ekranlarındaki TR | EN düğmesi ve Ayarlar > Hesap'taki dil seçimi.
+// Dil (Ek E1): giriş ekranlarındaki TR | EN düğmesi ve Ayarlar > Görünüm'deki dil seçimi.
 // Dil değişince sayfa yenilenmeden statik metinler (data-i18n*) ve görünür dinamik metinler
 // yeniden üretilir.
 
@@ -366,7 +314,8 @@ function renderLangSwitch () {
   Array.from(document.querySelectorAll('[data-lang]')).forEach((node) => {
     node.setAttribute('aria-pressed', node.getAttribute('data-lang') === lang ? 'true' : 'false')
   })
-  if (el.setLang) el.setLang.value = lang
+  const settingsLang = byId('set-lang')
+  if (settingsLang) settingsLang.value = lang
   renderSchemeToggle()
 }
 
@@ -394,10 +343,7 @@ function applyLanguage () {
   updateCounter()
   refreshEmojiLanguage()
   if (findLayer('peer')) renderPeerMute()
-  if (isSettingsOpen()) {
-    renderSettingsPanel(settingsTab)
-    if (settingsTab === 'voice') fillMicList()
-  }
+  settingsOnLanguage()
 }
 
 function start () {
