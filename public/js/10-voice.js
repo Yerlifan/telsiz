@@ -8,7 +8,11 @@
 // atanan tuş ipucu (#radio-hint), bağlanırken ve bağlıyken oda adı, kadro (#radio-crew: yumuşak kare
 // avatarlar, konuşanın halesi, susturma, sağırlaştırma ve ekran işaretleri) ve konuşma satırı
 // (#radio-talk) görünür. Altında Bas konuş (#ptt-button) veya ses etkinliği modunda seviye çubuğu
-// (#radio-vad) ve dört düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Ayrıl) durur.
+// (#radio-vad) ve beş düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Kamera, Ayrıl) durur.
+// Kamerası açık kişinin kadro öğesi aynı yumuşak kare biçimde canlı görüntüye döner (kendi görüntünüz
+// aynalı), kamera açıkken düğme sırasının üstünde her zaman görünen bir "Kameranız açık" satırı durur.
+// Odada kamera varsa kadronun sonunda (Telsiz DJ öğesinden önce) Büyüt öğesi (#radio-cams) durur, kameraları
+// yayın sahnesinde ızgara olarak açar (22-cast.js).
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.
@@ -25,6 +29,12 @@ function createVoice () {
       // Ekran paylaşımı olayları (bildirim, sahne) 22-cast.js arayüzüne gider
       onScreenEvent: (evt) => {
         if (typeof castOnScreenEvent === 'function') castOnScreenEvent(evt)
+      },
+      // Kamera olayları: bir kişiye kamera gönderilemedi (bağlantı anlaşması)
+      onCameraEvent: (evt) => {
+        if (!evt || evt.type !== 'error' || !evt.code) return
+        const name = evt.userId !== null && evt.userId !== undefined ? shownName(evt.userId) : ''
+        toast(() => (name ? t('camera.errors.negotiationUser', { name: name }) : cameraErrorText(evt.code, '')), '', 8000)
       },
       storage: {
         get: (key) => storeGet(key),
@@ -66,8 +76,17 @@ function snap () {
     errorCode: null,
     serverError: null,
     autoplayBlocked: false,
-    peers: {}
+    peers: {},
+    camera: { canUse: false, reason: null, state: 'off', preview: null, errorCode: null }
   }
+}
+
+// Kamera hata kodunun metni: t('camera.errors.' + kod), yoksa sunucunun metni, o da yoksa genel metin
+function cameraErrorText (code, serverText) {
+  if (!code) return ''
+  if (hasText('camera.errors.' + code)) return t('camera.errors.' + code, { max: voiceServerSettings().maxCameras })
+  if (serverText) return String(serverText)
+  return t('camera.errors.camera_failed')
 }
 
 // Ses hata kodunun metni: önce t('errors.' + kod), yoksa sunucunun metni, o da yoksa genel metin
@@ -86,6 +105,7 @@ function voiceErrorOf (err) {
 
 let voiceRenderQueued = false
 let lastVoiceError = null
+let lastCameraError = null
 // Son katılma denemesinin odası: hata satırındaki "Tekrar dene" bu odaya yeniden katılır
 let radioLastChannel = null
 
@@ -95,6 +115,9 @@ function onVoiceChange (snapshot) {
   const server = snapshot && snapshot.serverError ? snapshot.serverError : ''
   if (code && code !== lastVoiceError) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
+  const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
+  if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' ? '' : 'error', 8000)
+  lastCameraError = camCode
   if (voiceRenderQueued) return
   voiceRenderQueued = true
   nextFrame(() => {
@@ -119,7 +142,10 @@ function voiceStructureKey () {
   const channels = voiceChannels().map((c) => c.id + ':' + c.name).join(',')
   const sc = radioScreen(s)
   const screenKey = [sc.canShare ? 1 : 0, sc.reason || '', sc.state, sc.starting ? 1 : 0].join(':')
-  return [s.channelId, s.joining, s.muted, s.deafened, s.errorCode, s.autoplayBlocked, s.inputMode, s.ptt && s.ptt.enabled, peerKey, roster, channels, screenKey].join('|')
+  const cam = radioCamera(s)
+  const streams = cameraStreams(s)
+  const camKey = [cam.canUse ? 1 : 0, cam.state, camerasAllowed() ? 1 : 0].concat(Object.keys(streams).sort().map((id) => id + '=' + streams[id].stream.id)).join(':')
+  return [s.channelId, s.joining, s.muted, s.deafened, s.errorCode, s.autoplayBlocked, s.inputMode, s.ptt && s.ptt.enabled, peerKey, roster, channels, screenKey, camKey].join('|')
 }
 
 function renderVoiceAll () {
@@ -133,6 +159,8 @@ function renderVoiceAll () {
   updateVoiceLive()
   if (focusInRadio) radioKeepFocus()
   if (typeof settingsOnVoice === 'function') settingsOnVoice()
+  // Kameralar ızgarası yayın sahnesindedir, kamera değişince sahne de güncellenir
+  if (typeof castSync === 'function') castSync()
 }
 
 function voiceRoster (channelId) {
@@ -204,12 +232,115 @@ function renderVoiceChannels () {
   restoreFocusKey(el.voiceChannels, focusKey)
 }
 
+// Kamera durumu: anlık görüntüde (snapshot.camera) varsa o, yoksa motorun özellik algılaması
+function radioCamera (s) {
+  if (s && s.camera && typeof s.camera === 'object') return s.camera
+  let support = null
+  const factory = window.VoiceClient
+  if (factory && typeof factory.cameraSupport === 'function') {
+    try {
+      support = factory.cameraSupport()
+    } catch (err) {
+      support = null
+    }
+  }
+  return { canUse: Boolean(support && support.ok), reason: support ? support.reason : 'camera_unsupported', state: 'off', preview: null, errorCode: null }
+}
+
+// Sahibin ses odası ayarı (meta.voiceSettings: { capacity, cameras, maxCameras })
+function voiceServerSettings () {
+  const v = state.meta && state.meta.voiceSettings && typeof state.meta.voiceSettings === 'object' ? state.meta.voiceSettings : null
+  return {
+    capacity: v && typeof v.capacity === 'number' ? v.capacity : 8,
+    cameras: !v || v.cameras !== false,
+    maxCameras: v && typeof v.maxCameras === 'number' ? v.maxCameras : 4
+  }
+}
+
+function camerasAllowed () {
+  return voiceServerSettings().cameras
+}
+
+// Bağlı olduğum odada görüntüsü gelen kameralar: { kullanıcı: { stream, self } }. Kendi kameram yerel
+// önizlemedir, diğerleri sunucunun açık dediği ve görüntüsü bağlantıdan gelen kameralardır.
+function cameraStreams (s) {
+  const out = {}
+  if (!s || !s.channelId || s.joining) return out
+  const cam = radioCamera(s)
+  voiceRoster(s.channelId).forEach((entry) => {
+    const id = String(entry.userId)
+    if (state.me && sameId(entry.userId, state.me.id)) {
+      if (cam.state === 'on' && cam.preview) out[id] = { stream: cam.preview, self: true }
+      return
+    }
+    const peer = s.peers ? s.peers[id] : null
+    if (peer && peer.camera && peer.camStream && entry.camera === true) out[id] = { stream: peer.camStream, self: false }
+  })
+  return out
+}
+
+// Kamera görüntü öğeleri yer ve kişi başına saklanır, kadro yeniden çizilince görüntü baştan başlamaz.
+// Görüntü ilk kare gelince görünür (is-ready), o zamana kadar altındaki avatar görünür.
+const cameraVideos = new Map()
+
+function cameraVideoFor (key, stream, self) {
+  let v = cameraVideos.get(key)
+  if (!v) {
+    v = h('video', 'cam-video')
+    v.muted = true
+    v.defaultMuted = true
+    v.autoplay = true
+    v.playsInline = true
+    v.setAttribute('muted', '')
+    v.setAttribute('playsinline', '')
+    v.setAttribute('autoplay', '')
+    v.setAttribute('disablepictureinpicture', '')
+    v.setAttribute('aria-hidden', 'true')
+    const ready = () => {
+      v.classList.add('is-ready')
+    }
+    v.addEventListener('loadeddata', ready)
+    v.addEventListener('playing', ready)
+    cameraVideos.set(key, v)
+  }
+  v.classList.toggle('is-mirrored', Boolean(self))
+  if (v.srcObject !== stream) {
+    v.classList.remove('is-ready')
+    try {
+      v.srcObject = stream
+    } catch (err) {
+      v.srcObject = null
+    }
+  }
+  if (v.readyState >= 2) v.classList.add('is-ready')
+  if (v.paused) {
+    const p = v.play()
+    if (p && typeof p.catch === 'function') p.catch(() => {})
+  }
+  return v
+}
+
+// Artık kullanılmayan görüntü öğeleri bırakılır (prefix: 'crew-' veya 'grid-')
+function pruneCameraVideos (prefix, keep) {
+  Array.from(cameraVideos.keys()).forEach((key) => {
+    if (key.indexOf(prefix) !== 0 || keep[key]) return
+    const v = cameraVideos.get(key)
+    cameraVideos.delete(key)
+    try {
+      v.srcObject = null
+    } catch (err) {
+      // Öğe zaten bırakıldı
+    }
+    if (v.parentNode) v.parentNode.removeChild(v)
+  })
+}
+
 // Kadro öğesinin erişilebilir adı için gereken bilgiler (konuşma durumu updateVoiceLive ile değişir)
 const crewInfo = new WeakMap()
 
 // Kadro öğesi: 44 px yumuşak kare avatar, köşede susturma, sağırlaştırma veya bağlantı hatası işareti,
 // paylaşırken karşı köşede ekran işareti, altında ad. Başkasının öğesi kişi ses ayarı katmanını açar.
-function buildVoiceMember (entry, sameChannel) {
+function buildVoiceMember (entry, sameChannel, streams) {
   const s = snap()
   const userId = entry.userId
   const self = Boolean(state.me && sameId(userId, state.me.id))
@@ -219,7 +350,8 @@ function buildVoiceMember (entry, sameChannel) {
   const deafened = self ? s.deafened : entry.deafened === true
   const sharing = self ? radioScreen(s).state === 'live' : Boolean(peer && peer.sharing)
   const failed = Boolean(!self && sameChannel && peer && peer.status === 'failed')
-  const li = h('li', 'crew-item' + (self ? ' is-self' : '') + (muted ? ' is-muted' : '') + (deafened ? ' is-deafened' : '') + (sharing ? ' is-sharing' : ''))
+  const cam = sameChannel && streams ? streams[String(userId)] || null : null
+  const li = h('li', 'crew-item' + (self ? ' is-self' : '') + (muted ? ' is-muted' : '') + (deafened ? ' is-deafened' : '') + (sharing ? ' is-sharing' : '') + (cam ? ' has-camera' : ''))
   li.setAttribute('data-user-id', String(userId))
   const inner = h(self ? 'div' : 'button', 'crew-button')
   if (!self) {
@@ -235,6 +367,10 @@ function buildVoiceMember (entry, sameChannel) {
   const av = avatar(userId, 'md')
   av.removeAttribute('data-status')
   av.classList.add('crew-avatar')
+  if (cam) {
+    av.classList.add('has-camera')
+    av.appendChild(cameraVideoFor('crew-' + userId, cam.stream, cam.self))
+  }
   const badge = crewBadge(failed, deafened, muted)
   if (badge) av.appendChild(badge)
   if (sharing) {
@@ -251,6 +387,7 @@ function buildVoiceMember (entry, sameChannel) {
   if (deafened) states.push(t('voice.deafenedState'))
   else if (muted) states.push(t('voice.mutedState'))
   if (sharing) states.push(t(self ? 'radio.stateSelfSharing' : 'radio.stateSharing'))
+  if (cam) states.push(t(self ? 'radio.stateSelfCamera' : 'radio.stateCamera'))
   crewInfo.set(li, { labelName: labelName, states: states, self: self })
   li.appendChild(inner)
   setCrewSpeaking(li, Boolean(sameChannel && speakingIn(s, userId)), true)
@@ -295,12 +432,44 @@ function renderCrew (s) {
   if (!el.radioCrew) return
   const focusKey = activeFocusKey(el.radioCrew)
   clear(el.radioCrew)
+  const streams = cameraStreams(s)
+  const keep = {}
   if (s.channelId) {
     voiceRoster(s.channelId).forEach((entry) => {
-      el.radioCrew.appendChild(buildVoiceMember(entry, true))
+      if (streams[String(entry.userId)]) keep['crew-' + entry.userId] = true
+      el.radioCrew.appendChild(buildVoiceMember(entry, true, streams))
     })
   }
+  pruneCameraVideos('crew-', keep)
+  const count = Object.keys(streams).length
+  if (count > 0) el.radioCrew.appendChild(buildCamsItem(count))
   restoreFocusKey(el.radioCrew, focusKey)
+}
+
+// Kadrodaki Büyüt öğesi: kameraları yayın sahnesinde ızgara olarak açar veya kapatır. Telsiz DJ gibi gerçek
+// bir kişi değildir, kesik çizgili kenarlı bir ızgara simgesiyle çizilir.
+function buildCamsItem (count) {
+  const open = typeof castCamsOpen === 'function' && castCamsOpen()
+  const li = h('li', 'crew-item crew-cams')
+  const b = h('button', 'crew-button cams-button')
+  b.type = 'button'
+  b.id = 'radio-cams'
+  b.setAttribute('data-focus-key', 'crew-cams')
+  b.setAttribute('aria-controls', 'cast')
+  b.setAttribute('aria-expanded', open ? 'true' : 'false')
+  b.setAttribute('aria-label', t(open ? 'camera.gridCloseLabel' : 'camera.gridOpenLabel') + ', ' + t('radio.cameras', { count: count }))
+  const av = h('span', 'avatar avatar-md crew-avatar cams-avatar')
+  av.setAttribute('aria-hidden', 'true')
+  av.appendChild(icon('i-grid', 'cams-avatar-icon'))
+  b.appendChild(av)
+  const name = h('span', 'crew-name cams-name', t(open ? 'camera.gridClose' : 'camera.gridOpen'))
+  name.id = 'radio-cams-text'
+  b.appendChild(name)
+  b.addEventListener('click', () => {
+    if (typeof castToggleCams === 'function') castToggleCams()
+  })
+  li.appendChild(b)
+  return li
 }
 
 // Konuşma halesi ve giriş seviyesi gibi sık değişen göstergeler
@@ -332,6 +501,8 @@ function radioModeText (s) {
   if (sc.state === 'live') return sc.viewerCount ? t('radio.viewers', { count: sc.viewerCount }) : t('screen.noViewers')
   const shares = sc.remote ? Object.keys(sc.remote).length : 0
   if (shares) return t('radio.screens', { count: shares })
+  const cams = Object.keys(cameraStreams(s)).length
+  if (cams) return t('radio.cameras', { count: cams })
   return t(s.ptt && s.ptt.enabled ? 'radio.modePtt' : 'radio.modeVad')
 }
 
@@ -361,6 +532,12 @@ function updateVoiceLive () {
     })
   }
   if (el.meAvatar) el.meAvatar.classList.toggle('is-speaking', Boolean(s.channelId && s.selfSpeaking))
+  // Kameralar ızgarasındaki konuşan kişi
+  if (el.cast && !el.cast.hidden) {
+    Array.from(el.cast.querySelectorAll('.cam-tile[data-user-id]')).forEach((tile) => {
+      tile.classList.toggle('is-speaking', speakingIn(s, tile.getAttribute('data-user-id')))
+    })
+  }
   updateBandLive()
   if (typeof updateLevelMeter === 'function') updateLevelMeter()
   // Ses etkinliği modunda Bas konuş yerindeki seviye çubuğu
@@ -432,6 +609,7 @@ function renderVoicePanel () {
     el.pttButton.removeAttribute('aria-keyshortcuts')
   }
   renderScreenButton(s)
+  renderCameraButton(s)
   el.voiceLeave.hidden = !live
   el.voiceLeave.setAttribute('aria-label', connected && chName ? t('radio.leaveLabel', { name: chName }) : t('voice.disconnect'))
   setText(el.voiceLeaveState, chName)
@@ -485,6 +663,70 @@ function renderScreenButton (s) {
   } else {
     b.setAttribute('aria-describedby', 'radio-screen-note')
   }
+}
+
+// Kamera düğmesi: kapalıyken açar, açıkken kapatır. Cihaz desteklemiyorsa veya sahip kameraları
+// kapattıysa görünür ama devre dışıdır, nedeni altında yazar. Kamera açıkken düğme sırasının üstünde
+// "Kameranız açık" satırı (#radio-cam-live) her düzende görünür.
+function renderCameraButton (s) {
+  const b = el.btnCamera
+  if (!b) return
+  const cam = radioCamera(s)
+  const allowed = camerasAllowed()
+  const on = cam.state === 'on'
+  const starting = cam.state === 'starting'
+  const connected = Boolean(s.channelId) && !s.joining
+  const usable = Boolean(cam.canUse) && allowed && connected
+  b.classList.toggle('is-live', on)
+  b.classList.toggle('is-disabled', !usable && !on)
+  b.setAttribute('aria-pressed', on ? 'true' : 'false')
+  if (usable || on) {
+    b.removeAttribute('aria-disabled')
+  } else {
+    b.setAttribute('aria-disabled', 'true')
+  }
+  setIcon(b, cam.canUse && allowed ? 'i-camera' : 'i-camera-off')
+  let stateText = t('radio.cameraOff')
+  if (!cam.canUse) stateText = t('radio.cameraNone')
+  else if (!allowed && !on) stateText = t('radio.cameraBlocked')
+  else if (starting) stateText = t('radio.cameraStarting')
+  else if (on) stateText = t('radio.cameraOn')
+  setText(el.btnCameraState, stateText)
+  b.setAttribute('aria-label', t(on ? 'camera.stop' : 'camera.start'))
+  let note = ''
+  if (!cam.canUse) note = cameraErrorText(cam.reason || 'camera_unsupported', '')
+  else if (!allowed) note = t('camera.errors.camera_disabled')
+  setMsg(el.radioCameraNote, connected ? note : '')
+  if (note && connected) {
+    b.setAttribute('aria-describedby', 'radio-camera-note')
+  } else {
+    b.removeAttribute('aria-describedby')
+  }
+  if (el.radioCamLive) {
+    el.radioCamLive.hidden = !(on && connected)
+    setText(el.radioCamLiveText, t('camera.liveSelf'))
+  }
+}
+
+function onCameraButton () {
+  if (!voice || typeof voice.startCamera !== 'function') return
+  const s = snap()
+  const cam = radioCamera(s)
+  if (!s.channelId || s.joining || cam.state === 'starting') return
+  if (cam.state === 'on') {
+    voice.stopCamera()
+    return
+  }
+  if (!cam.canUse) {
+    toast(() => cameraErrorText(cam.reason || 'camera_unsupported', ''), 'error', 8000)
+    return
+  }
+  if (!camerasAllowed()) {
+    toast(() => t('camera.errors.camera_disabled'), 'error', 8000)
+    return
+  }
+  // Hata snapshot.camera.errorCode ile bildirilir (onVoiceChange gösterir), burada yalnızca yakalanır
+  Promise.resolve(voice.startCamera()).catch(() => {})
 }
 
 function onScreenButton () {
@@ -670,6 +912,7 @@ function toggleDeafen () {
 function bindPttButton () {
   bindPttTarget(el.pttButton)
   if (el.btnScreen) el.btnScreen.addEventListener('click', onScreenButton)
+  if (el.btnCamera) el.btnCamera.addEventListener('click', onCameraButton)
   if (el.voiceRetry) el.voiceRetry.addEventListener('click', retryVoice)
 }
 

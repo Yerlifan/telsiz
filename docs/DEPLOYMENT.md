@@ -208,7 +208,7 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
 | Settings > Rooms | Owner and admins | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
 | Settings > Members | Owner and admins | Changing roles, banning and unbanning, resetting a password with a temporary password |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |
@@ -219,6 +219,10 @@ The frequency introduction is plain text of at most 600 characters and 6 lines. 
 The frequency photo can be a PNG, JPEG or WebP image (the server checks the file signature and does not accept SVG) and has the same size limit as profile pictures (1 MB by default). Before uploading, the app crops the chosen image to a square from its center and scales it down to 256x256. Like the frequency name, the photo is public and not encrypted: it is served without a session at `GET /api/server-icon`, and its hash is in the `serverIcon` field of the `GET /api/info` response. Only the desktop app shows the photos of other frequencies, in the browser the stations of other frequencies keep the first letter. The photo lives in the data folder under `server-icon/` and is part of the backup.
 
 Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes.
+
+The three settings in the Voice rooms and cameras section apply to each voice room separately and are stored on the server (`state.json`, the `voice` field). The voice room capacity is 8 by default and can be set between 2 and 12 people. A lower capacity applies to new joins only, nobody in the room is removed. Cameras are on by default, and turning them off also turns off cameras that are on. The number of cameras that can be on at the same time per room is 4 by default, can be set between 1 and 12 and cannot be larger than the capacity. Saved changes reach open apps right away. Since voice and video flow directly between people, these limits protect the members' upload speed rather than the server: in a full mesh everyone with their camera on sends their video separately to every other person in the room.
+
+The owner and admins see the Server information section (`GET /api/server-info`): processor model and core count, load average, total and free memory, the cgroup memory limit when running in a container, free and total space of the disk that holds the data folder, Node.js version, platform, uptime, upload and message usage, people online, in voice and with their camera on, and the TURN status. The recommendation is calculated from the members' typical upload speed (5 Mbps by default, stored only in the owner's browser), and the interface says that it is an estimate. The formulas are in [ARCHITECTURE.md](ARCHITECTURE.md#voice-room-limits-and-server-information). The hints show when free disk space is less than the rest of the upload quota, when the memory the message cap would take is more than half of the usable memory, a high load average and the TURN status. The Apply recommendation button fills the values into the form, saving is up to the owner.
 
 A new group key protects only the messages that follow. The old key must stay in the keyring on the devices, because older messages are read with it. After a new key, everyone needs to receive the new invite link.
 
@@ -266,7 +270,7 @@ If the server uses a port other than 3000, give the tunnel the same value, for e
 
 ## Voice connectivity: STUN and TURN
 
-Audio and screen video flow directly between people over WebRTC. For devices to find each other, Google's public STUN server (`stun:stun.l.google.com:19302`) is used by default. This means devices that join voice chat contact that STUN server. With `STUN_URL` you can set your own STUN server, or turn STUN off by setting the variable to an empty string. With STUN off, devices on different networks may not be able to connect.
+Audio, screen video and camera video flow directly between people over WebRTC. For devices to find each other, Google's public STUN server (`stun:stun.l.google.com:19302`) is used by default. This means devices that join voice chat contact that STUN server. With `STUN_URL` you can set your own STUN server, or turn STUN off by setting the variable to an empty string. With STUN off, devices on different networks may not be able to connect.
 
 Some networks block direct connections and need a TURN server. The server prints at startup whether TURN is configured. You can run your own TURN server or use a TURN service:
 
@@ -274,7 +278,7 @@ Some networks block direct connections and need a TURN server. The server prints
 TURN_URL=turn:turn.example.com:3478 TURN_USERNAME=user TURN_PASSWORD=secret npx telsiz
 ```
 
-The TURN credentials are sent to the browser of every signed in person who joins a voice room, because the browser sets up the connection. Use a TURN account reserved for Telsiz. Audio and video relayed through TURN are protected by WebRTC's own encryption (DTLS-SRTP).
+The TURN credentials are sent to the browser of every signed in person who joins a voice room, because the browser sets up the connection. Use a TURN account reserved for Telsiz. Audio and video relayed through TURN are protected by WebRTC's own encryption (DTLS-SRTP). If the TURN server runs on the same machine as Telsiz, relayed audio and camera video go through this machine's connection, so capacity then also depends on the server's upload speed.
 
 ## Backups
 
@@ -349,3 +353,5 @@ A password reset also resets the person's personal security key. The person crea
 **Data folder in use.** Two processes cannot use the same data folder. If this error appears while the server is not running, delete the `.kilit` file named in the error message and try again.
 
 **Voice does not connect.** Check that the address is https or localhost, that the browser has microphone permission and, if needed, that a TURN server is configured.
+
+**The camera does not turn on.** The camera also works only on https or localhost and needs the browser's camera permission. The server's security header (`Permissions-Policy: camera=(self)`) opens the camera only to Telsiz's own page. If a reverse proxy changes this header, the camera is blocked. If the owner turned cameras off or the room's camera limit is reached, the button says so.

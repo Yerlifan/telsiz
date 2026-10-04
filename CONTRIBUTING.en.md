@@ -79,9 +79,10 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `src/music.js` | The encrypted in-memory room states of Telsiz DJ |
 | `src/http-util.js`, `src/static-source.js` | Security headers, CSP, body reading, the static file allowlist |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Server texts, version and single file information, the `telsiz.env` reader |
+| `src/system-info.js` | Server information: processor, memory and cgroup limit, disk space (`GET /api/server-info`) |
 | `public/index.html` | Single page markup and the SVG icon sprite |
 | `public/crypto.js` | `window.E2EE`: key code, envelopes, file encryption, personal keys, pinning |
-| `public/voice.js` | `window.VoiceClient`: the WebRTC voice and screen sharing engine |
+| `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine |
 | `public/music.js`, `public/dj/youtube.js` | The Telsiz DJ engine and the YouTube player adapter |
 | `public/i18n.js` | The Turkish and English dictionaries of the client |
 | `public/theme-init.js`, `public/css/` | Theme preloader, tokens, layout, components and themes ([docs/DESIGN.md](docs/DESIGN.md)) |
@@ -105,7 +106,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
-| `10-voice.js` | Voice interface and the radio card |
+| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator and the camera tiles in the crew) |
 | `11-settings.js` | Full screen settings view |
 | `12-init.js` | Sheets, window size, PWA, event binding and startup |
 | `13-profile.js` | Profiles, the profile card, the status menu |
@@ -117,10 +118,12 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
-| `22-cast.js` | Screen sharing interface |
+| `22-cast.js` | Screen sharing interface and the camera grid |
 | `23-dj.js` | Telsiz DJ interface |
 | `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
+| `26-tanitim.js` | The frequency introduction page that visitors who are not signed in see |
+| `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 

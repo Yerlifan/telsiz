@@ -14,7 +14,9 @@
 //   DJ kartı (#dj) kendi sütununda durmaz, kadrodaki "Telsiz DJ" öğesinden açılan sayfaya iner (23-dj.js).
 //   Sahne kapanınca öznitelik kaldırılır.
 // - body[data-cast-chat="open" | "closed"]: sahne açıkken sohbetin açık mı daraltılmış mı olduğu.
-// - #cast[data-mode="watch" | "own"]: sahnenin kipi.
+// - #cast[data-mode="watch" | "own" | "cams"]: sahnenin kipi. cams: odadaki kameraların ızgarası (telsiz
+//   kartındaki Büyüt düğmesi açar, kamera kalmayınca kendiliğinden kapanır). İzlenen bir ekran paylaşımı
+//   ızgaranın, ızgara kendi paylaşımının önizlemesinin önüne geçer.
 //
 // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
 // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
@@ -45,6 +47,9 @@ const castState = {
   topKey: '',
   pickKey: '',
   viewersKey: '',
+  // Kameralar ızgarası açık mı ve son çizilen ızgaranın anahtarı
+  cams: false,
+  camsKey: '',
   bound: false
 }
 
@@ -201,7 +206,9 @@ function castSync () {
     castHideNotice()
   }
   const sharing = inVoice && sc.state === 'live'
-  const mode = castState.watching ? 'watch' : sharing ? 'own' : null
+  const camCount = inVoice && typeof cameraStreams === 'function' ? Object.keys(cameraStreams(s)).length : 0
+  if (castState.cams && camCount === 0) castState.cams = false
+  const mode = castState.watching ? 'watch' : castState.cams ? 'cams' : sharing ? 'own' : null
   castRenderTop(sc, remote, sharing)
   castRenderStage(mode, sc, remote)
   if (castState.dialog) castRenderDialogState()
@@ -335,6 +342,35 @@ function castStopShare () {
   if (hadFocus && !castVisible()) castFocusAfterClose()
 }
 
+// Kameralar ızgarası (telsiz kartındaki Büyüt düğmesi)
+function castCamsOpen () {
+  return castState.cams && castVisible() && el.cast.getAttribute('data-mode') === 'cams'
+}
+
+function castToggleCams () {
+  const open = castCamsOpen()
+  castState.cams = !open
+  if (!open && castState.watching) {
+    castCall('unwatchScreen', [castState.watching])
+    castState.watching = null
+  }
+  castSync()
+  if (typeof renderVoiceAll === 'function') renderVoiceAll()
+  if (!open && castState.nodes && castCamsOpen()) focusNode(castState.nodes.camsClose)
+}
+
+function castCloseCams () {
+  const hadFocus = el.cast.contains(document.activeElement)
+  castState.cams = false
+  castSync()
+  if (typeof renderVoiceAll === 'function') renderVoiceAll()
+  if (hadFocus) {
+    const tile = byId('radio-cams')
+    if (tile && !tile.closest('[hidden]') && tile.getClientRects().length) focusNode(tile)
+    else castFocusAfterClose()
+  }
+}
+
 function castVisible () {
   return Boolean(el.cast && !el.cast.hidden)
 }
@@ -409,6 +445,10 @@ function castBuildStage () {
   n.stop.setAttribute('data-focus-key', 'cast-stop')
   n.stop.addEventListener('click', castStopShare)
   head.appendChild(n.stop)
+  n.camsClose = castHeadButton('cast-cams-close', 'i-close', () => t('camera.gridClose'))
+  n.camsClose.setAttribute('data-focus-key', 'cast-cams-close')
+  n.camsClose.addEventListener('click', castCloseCams)
+  head.appendChild(n.camsClose)
   n.panel.appendChild(head)
 
   n.screen = h('div', 'cast-screen')
@@ -450,6 +490,10 @@ function castBuildStage () {
   n.tag.appendChild(n.tagLed)
   n.tag.appendChild(n.tagText)
   n.screen.appendChild(n.tag)
+  // Kameralar ızgarası (cams kipi): her kamera yumuşak köşeli bir kutu, altında ad, konuşan kişide hale
+  n.cams = h('div', 'cast-cams')
+  n.cams.hidden = true
+  n.screen.appendChild(n.cams)
   n.panel.appendChild(n.screen)
 
   n.foot = h('div', 'cast-foot')
@@ -554,16 +598,28 @@ function castRenderStage (mode, sc, remote) {
   setLive(n.full.querySelector('.cast-button-label'), n.full.castLabel)
   setIcon(n.full, castState.full ? 'i-close' : 'i-expand')
   const own = mode === 'own'
+  const cams = mode === 'cams'
   n.panel.classList.toggle('is-own', own)
+  n.panel.classList.toggle('is-cams', cams)
   n.rec.hidden = !own
   n.viewers.hidden = !own
   n.quality.hidden = !own
   n.stop.hidden = !own
-  n.fitGroup.hidden = own
-  n.unwatch.hidden = own
+  n.fitGroup.hidden = own || cams
+  n.unwatch.hidden = own || cams
   n.full.hidden = own
-  n.foot.hidden = own
-  if (own) {
+  n.foot.hidden = own || cams
+  n.camsClose.hidden = !cams
+  n.cams.hidden = !cams
+  n.video.hidden = cams
+  if (!cams && castState.camsKey) {
+    castState.camsKey = ''
+    clear(n.cams)
+    if (typeof pruneCameraVideos === 'function') pruneCameraVideos('grid-', {})
+  }
+  if (cams) {
+    castRenderCams(n)
+  } else if (own) {
     castRenderOwn(n, sc)
   } else {
     castRenderWatch(n, remote[castState.watching] || null, castState.watching)
@@ -572,6 +628,46 @@ function castRenderStage (mode, sc, remote) {
     castObserve(true)
     castRenderDock()
   }
+}
+
+// Kameralar ızgarası: kadro sırasıyla, sütun ve satır sayısı kamera sayısından (1, 2x1, 2x2, 3x2, 3x3, 4x3)
+function castRenderCams (n) {
+  const s = castSnapshot() || snap()
+  const streams = typeof cameraStreams === 'function' ? cameraStreams(s) : {}
+  const ids = voiceRoster(s.channelId).map((entry) => String(entry.userId)).filter((id) => Boolean(streams[id]))
+  n.panel.setAttribute('aria-labelledby', 'cast-title')
+  setLive(n.title, () => t('camera.gridTitle'))
+  n.sub.textContent = [castRoomName(s.channelId), t('radio.cameras', { count: ids.length })].filter(Boolean).join(' · ')
+  castBindVideo(n, null)
+  n.waiting.hidden = true
+  n.failed.hidden = true
+  n.tag.hidden = true
+  const cols = ids.length <= 1 ? 1 : ids.length <= 4 ? 2 : ids.length <= 9 ? 3 : 4
+  const rows = Math.max(1, Math.ceil(ids.length / cols))
+  n.cams.setAttribute('data-cols', String(cols))
+  n.cams.setAttribute('data-rows', String(rows))
+  const key = [ids.map((id) => id + '=' + streams[id].stream.id).join(','), window.I18N ? window.I18N.lang : ''].join('|')
+  if (key === castState.camsKey) return
+  castState.camsKey = key
+  clear(n.cams)
+  const keep = {}
+  const sp = typeof speakingIn === 'function' ? speakingIn : () => false
+  ids.forEach((id) => {
+    const self = streams[id].self
+    const tile = h('div', 'cam-tile' + (self ? ' is-self' : ''))
+    tile.setAttribute('data-user-id', id)
+    tile.setAttribute('role', 'img')
+    tile.setAttribute('aria-label', self ? t('camera.tileSelf') : t('camera.tileUser', { name: castName(id) }))
+    tile.classList.toggle('is-speaking', Boolean(sp(s, id)))
+    const frame = h('div', 'cam-tile-frame')
+    frame.appendChild(avatar(id, 'lg', 'cam-tile-avatar'))
+    frame.appendChild(cameraVideoFor('grid-' + id, streams[id].stream, self))
+    frame.appendChild(h('span', 'cam-tile-name', self ? t('cast.you') : castName(id)))
+    tile.appendChild(frame)
+    n.cams.appendChild(tile)
+    keep['grid-' + id] = true
+  })
+  pruneCameraVideos('grid-', keep)
 }
 
 function castRenderOwn (n, sc) {
@@ -711,7 +807,10 @@ function castCloseStage () {
   if (castState.nodes) {
     castBindVideo(castState.nodes, null)
     clear(castState.nodes.viewersStack)
+    clear(castState.nodes.cams)
   }
+  castState.camsKey = ''
+  if (typeof pruneCameraVideos === 'function') pruneCameraVideos('grid-', {})
   if (hadFocus) castFocusAfterClose()
 }
 

@@ -208,7 +208,7 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 
 | Yer | Kim | İçerik |
 | --- | --- | --- |
-| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
+| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip), Ses odaları ve kameralar bölümünde ses odası kapasitesi, kameralar ve oda başına kamera sınırı (yalnızca sahip, yönetici salt okunur görür), Sunucu bilgileri bölümünde makine ve kullanım bilgileri ile kapasite önerisi |
 | Ayarlar > Odalar | Sahip ve yönetici | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
 | Ayarlar > Üyeler | Sahip ve yönetici | Rol değiştirme, engelleme ve engeli kaldırma, geçici parolayla parola sıfırlama |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |
@@ -219,6 +219,10 @@ Frekans tanıtımı en fazla 600 karakter ve 6 satırlık düz bir metindir. Otu
 Frekans fotoğrafı PNG, JPEG veya WebP olabilir (sunucu dosya imzasına bakar, SVG kabul etmez) ve profil resmiyle aynı boyut sınırına tabidir (varsayılan 1 MB). Uygulama seçilen resmi yüklemeden önce ortasından kare kırpar ve 256x256 boyutuna küçültür. Fotoğraf frekans adı gibi herkese açıktır ve şifrelenmez: oturumsuz `GET /api/server-icon` adresinden sunulur, karması `GET /api/info` yanıtında `serverIcon` alanındadır. Diğer frekansların fotoğrafını yalnızca masaüstü uygulaması gösterir, tarayıcıda diğer frekansların istasyonunda baş harf kalır. Fotoğraf veri klasöründe `server-icon/` altında durur ve yedeğe girer.
 
 Telsiz DJ ve YouTube kaynağı varsayılan olarak açıktır. YouTube kaynağı kapatılırsa yalnızca paylaşılan ses dosyaları çalınır. Sunucu şifreli DJ durumunu göremediği için bu kısıt üyelerin cihazlarında uygulanır. Telsiz DJ tamamen kapatılırsa sunucu DJ durum yazımlarını reddeder.
+
+Ses odaları ve kameralar bölümündeki üç ayar her ses odasına ayrı uygulanır ve sunucuda saklanır (`state.json`, `voice` alanı). Ses odası kapasitesi varsayılan olarak 8'dir ve 2 ile 12 kişi arasında seçilir. Düşürülen kapasite yalnızca yeni katılımlara uygulanır, odadaki kimse çıkarılmaz. Kameralar varsayılan olarak açıktır, kapatılınca açık kameralar da kapanır. Oda başına aynı anda açık kamera sayısı varsayılan olarak 4'tür, 1 ile 12 arasında seçilir ve kapasiteden büyük olamaz. Değişiklik kaydedilince açık uygulamalara hemen ulaşır. Ses ve görüntü kişiler arasında doğrudan aktığı için bu sınırlar sunucunun değil üyelerin yükleme hızının korunması içindir: tam örgüde kamerası açık olan herkes görüntüsünü odadaki diğer her kişiye ayrı gönderir.
+
+Sunucu bilgileri bölümünü sahip ve yöneticiler görür (`GET /api/server-info`): işlemci modeli ve çekirdek sayısı, yük ortalaması, toplam ve boş bellek, kapsayıcıda çalışıyorsa cgroup bellek sınırı, veri klasörünün bulunduğu diskin boş ve toplam alanı, Node.js sürümü, platform, çalışma süresi, yükleme ve mesaj kullanımı, çevrimiçi kişi, seste ve kamerası açık kişi sayısı ve TURN durumu. Öneri üyelerin tipik yükleme hızından hesaplanır (varsayılan 5 Mbps, yalnızca sahibin tarayıcısında saklanır) ve arayüzde tahmin olduğu yazar. Formüller [MIMARI.md](MIMARI.md#ses-odası-sınırları-ve-sunucu-bilgileri) dosyasındadır. İpuçları boş diskin yükleme kotasının kalanından az olmasını, mesaj sınırının bellekte tutacağı yerin kullanılabilir belleğin yarısını aşmasını, yüksek yük ortalamasını ve TURN durumunu gösterir. Öneriyi uygula düğmesi değerleri forma yazar, kaydetmek sahibe kalır.
 
 Yeni grup anahtarı yalnızca bundan sonraki mesajları korur. Eski anahtar cihazlardaki anahtarlıkta kalmalıdır, çünkü eski mesajlar onunla okunur. Yeni anahtardan sonra herkese yeni davet bağlantısının gönderilmesi gerekir.
 
@@ -266,7 +270,7 @@ Sunucu 3000 dışında bir bağlantı noktasındaysa tünele de aynı değer ver
 
 ## Ses bağlantısı: STUN ve TURN
 
-Ses ve ekran görüntüsü kişiler arasında WebRTC ile doğrudan akar. Cihazların birbirini bulması için varsayılan olarak Google'ın herkese açık STUN sunucusu (`stun:stun.l.google.com:19302`) kullanılır. Bu, sesli sohbete katılan cihazların o STUN sunucusuyla iletişim kurduğu anlamına gelir. `STUN_URL` ile kendi STUN sunucunuzu verebilir veya değişkeni boş dizeyle tanımlayarak STUN'u kapatabilirsiniz. STUN kapalıyken farklı ağlardaki cihazlar arasında bağlantı kurulamayabilir.
+Ses, ekran görüntüsü ve kamera görüntüsü kişiler arasında WebRTC ile doğrudan akar. Cihazların birbirini bulması için varsayılan olarak Google'ın herkese açık STUN sunucusu (`stun:stun.l.google.com:19302`) kullanılır. Bu, sesli sohbete katılan cihazların o STUN sunucusuyla iletişim kurduğu anlamına gelir. `STUN_URL` ile kendi STUN sunucunuzu verebilir veya değişkeni boş dizeyle tanımlayarak STUN'u kapatabilirsiniz. STUN kapalıyken farklı ağlardaki cihazlar arasında bağlantı kurulamayabilir.
 
 Bazı ağlarda doğrudan bağlantı kurulamaz ve bir TURN sunucusu gerekir. Sunucu açılışta TURN tanımlı olup olmadığını yazar. Kendi TURN sunucunuzu kurabilir veya bir TURN hizmeti kullanabilirsiniz:
 
@@ -274,7 +278,7 @@ Bazı ağlarda doğrudan bağlantı kurulamaz ve bir TURN sunucusu gerekir. Sunu
 TURN_URL=turn:turn.ornek.com:3478 TURN_KULLANICI=kullanici TURN_SIFRE=parola npx telsiz
 ```
 
-TURN bilgileri ses odasına katılan her oturum açmış kişinin tarayıcısına gönderilir, çünkü bağlantıyı tarayıcı kurar. Bu yüzden yalnızca Telsiz için ayrılmış bir TURN hesabı kullanın. TURN üzerinden akan ses ve görüntü WebRTC'nin kendi şifrelemesiyle (DTLS-SRTP) korunur.
+TURN bilgileri ses odasına katılan her oturum açmış kişinin tarayıcısına gönderilir, çünkü bağlantıyı tarayıcı kurar. Bu yüzden yalnızca Telsiz için ayrılmış bir TURN hesabı kullanın. TURN üzerinden akan ses ve görüntü WebRTC'nin kendi şifrelemesiyle (DTLS-SRTP) korunur. TURN sunucusu Telsiz ile aynı makinedeyse aktarılan ses ve kamera görüntüsü bu makinenin bağlantısından geçer, bu durumda kapasite sunucunun yükleme hızına da bağlıdır.
 
 ## Yedekleme
 
@@ -349,3 +353,5 @@ Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi
 **Veri klasörü kullanımda.** Aynı veri klasörünü iki süreç kullanamaz. Sunucu çalışmıyorken bu hata görünüyorsa, hata metninde adı geçen `.kilit` dosyasını silip yeniden deneyin.
 
 **Ses bağlanmıyor.** Adresin https veya localhost olduğunu, tarayıcının mikrofon izninin verildiğini ve gerekiyorsa bir TURN sunucusunun tanımlı olduğunu denetleyin.
+
+**Kamera açılmıyor.** Kamera da yalnızca https veya localhost üzerinde çalışır ve tarayıcının kamera izni gerekir. Sunucunun güvenlik başlığı (`Permissions-Policy: camera=(self)`) kamerayı yalnızca Telsiz'in kendi sayfasına açar. Ters vekil bu başlığı değiştiriyorsa kamera engellenir. Sahip kameraları kapattıysa veya odadaki kamera sınırı dolduysa düğme bunu yazar.

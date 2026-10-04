@@ -3,7 +3,8 @@
   (.cast-notice), yayın sahnesi (#cast: .cast-panel ve sohbet şeridi .cast-dock), sahne açıkken
   konuşma sütununun daraltılması ve paylaşım başlatma penceresi (#cast-dialog). Davranış 22-cast.js.
   Durum öznitelikleri: body[data-cast="live"] (sahne açık), body[data-cast-chat="open" | "closed"],
-  #cast[data-mode="watch" | "own"]. DJ kartı body[data-cast="live"] iken sayfaya iner (23-dj.js, K7.2).
+  #cast[data-mode="watch" | "own" | "cams"]. DJ kartı body[data-cast="live"] iken sayfaya iner (23-dj.js, K7.2).
+  cams kipinde görüntü alanında odadaki kameraların ızgarası (.cast-cams, .cam-tile) durur.
   Kurallar: renkler yalnızca var(--...), grid, flex gap, clamp, :is, :where, aspect-ratio ve inset yok.
 */
 
@@ -539,6 +540,104 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 .cast-tag-text {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Kameralar ızgarası (#cast[data-mode="cams"]): görüntü alanını sütun ve satır sayısına göre eşit kutulara
+   böler (1, 2x1, 2x2, 3x2, 3x3, 4x3). Kutular kart köşeli, ad etiketi görüntünün üstünde koyu zeminde,
+   konuşan kişinin kutusunda canlı renkli çerçeve. Kendi görüntünüz aynalıdır (.cam-video.is-mirrored). */
+.cast-cams {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0.375rem;
+  background-color: var(--surface-sunken);
+}
+
+.cast-cams[hidden] {
+  display: none;
+}
+
+.cam-tile {
+  position: relative;
+  flex: none;
+  width: 100%;
+  height: 100%;
+  padding: 0.375rem;
+}
+
+.cast-cams[data-cols="2"] .cam-tile {
+  width: 50%;
+}
+
+.cast-cams[data-cols="3"] .cam-tile {
+  width: 33.333%;
+}
+
+.cast-cams[data-cols="4"] .cam-tile {
+  width: 25%;
+}
+
+.cast-cams[data-rows="2"] .cam-tile {
+  height: 50%;
+}
+
+.cast-cams[data-rows="3"] .cam-tile {
+  height: 33.333%;
+}
+
+.cam-tile-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-2);
+}
+
+.cam-tile.is-speaking .cam-tile-frame {
+  border-color: var(--live);
+  box-shadow: 0 0 0 2px var(--live), 0 0 8px 2px var(--halo-1);
+}
+
+.cam-tile-avatar.avatar {
+  width: 4rem;
+  height: 4rem;
+  font-size: 1.5rem;
+}
+
+.cam-tile .cam-video {
+  border-radius: 0;
+}
+
+.cam-tile-name {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 3;
+  max-width: calc(100% - 1rem);
+  overflow: hidden;
+  padding: 0.2rem 0.625rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--viewer-bg);
+  color: var(--on-viewer);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-panel.is-cams .cast-video {
+  display: none;
 }
 
 /* Paylaşım sesi satırı */

@@ -33,13 +33,13 @@ describe('ses kanalları', () => {
       const ayseState = await h.stateOf(ctx, ayse.token)
       const second = await join(ctx, ayse.token, 3)
       h.expectStatus(second, 200)
-      assert.deepEqual(second.data.members, [{ userId: owner.user.id, peerId: ownerState.peerId, muted: false, deafened: false }])
+      assert.deepEqual(second.data.members, [{ userId: owner.user.id, peerId: ownerState.peerId, muted: false, deafened: false, camera: false }])
 
       h.expectStatus(await h.post(ctx, '/api/voice/state', ayse.token, { muted: true, deafened: false }), 200)
       let meta = (await h.stateOf(ctx, owner.token)).meta
       assert.deepEqual(meta.voice['3'], [
-        { userId: owner.user.id, peerId: ownerState.peerId, muted: false, deafened: false },
-        { userId: ayse.user.id, peerId: ayseState.peerId, muted: true, deafened: false }
+        { userId: owner.user.id, peerId: ownerState.peerId, muted: false, deafened: false, camera: false },
+        { userId: ayse.user.id, peerId: ayseState.peerId, muted: true, deafened: false, camera: false }
       ])
       assert.deepEqual(meta.voice['4'], [])
 
@@ -54,7 +54,7 @@ describe('ses kanalları', () => {
       h.expectStatus(await join(ctx, ayse.token, 4), 200)
       meta = (await h.stateOf(ctx, owner.token)).meta
       assert.deepEqual(meta.voice['3'].map((m) => m.userId), [owner.user.id])
-      assert.deepEqual(meta.voice['4'], [{ userId: ayse.user.id, peerId: ayseState.peerId, muted: false, deafened: false }])
+      assert.deepEqual(meta.voice['4'], [{ userId: ayse.user.id, peerId: ayseState.peerId, muted: false, deafened: false, camera: false }])
 
       h.expectStatus(await h.post(ctx, '/api/voice/leave', ayse.token), 200)
       h.expectStatus(await h.post(ctx, '/api/voice/leave', ayse.token), 200)

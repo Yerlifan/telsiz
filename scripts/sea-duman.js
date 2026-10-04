@@ -170,7 +170,7 @@ function assertSecurityHeaders (res, label) {
     'x-frame-options': 'DENY',
     'cross-origin-opener-policy': 'same-origin',
     'cross-origin-resource-policy': 'same-origin',
-    'permissions-policy': 'camera=(), geolocation=(), microphone=(self)'
+    'permissions-policy': 'camera=(self), geolocation=(), microphone=(self)'
   }
   for (const name of Object.keys(expected)) {
     if (res.headers[name] !== expected[name]) throw new SmokeError(label + ': ' + name + ' başlığı beklenen değerde değil (' + res.headers[name] + ').')

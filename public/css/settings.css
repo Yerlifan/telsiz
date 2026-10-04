@@ -793,6 +793,121 @@
   flex-wrap: wrap;
 }
 
+/* Sayı alanı (ses odası kapasitesi, kamera sınırı, yükleme hızı) */
+.settings-number.input {
+  width: 9rem;
+  max-width: 100%;
+}
+
+.settings-voice-limits .settings-switch-row {
+  margin-top: 0.75rem;
+}
+
+.settings-voice-limits .label {
+  margin-top: 0.75rem;
+}
+
+/* Sunucu bilgileri: etiket ve değer satırları */
+.settings-facts {
+  margin: 0 0 0.5rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+.settings-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding: 0.5rem 0;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.settings-fact-label {
+  flex: 0 0 11rem;
+  max-width: 100%;
+  margin: 0 1rem 0 0;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.settings-fact-value {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Kapasite önerisi */
+.settings-rec {
+  margin-top: 0.25rem;
+}
+
+.settings-rec-measure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0.5rem 0 0;
+}
+
+.settings-rec-measure .settings-hint {
+  flex: 1 1 18rem;
+  margin: 0 0.75rem 0.5rem 0;
+}
+
+.settings-rec-result {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.settings-rec-item {
+  margin: 0 0 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--accent-text);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.settings-rec-item.is-warn,
+.settings-rec-item.is-error {
+  border-left-color: var(--warn);
+  background-color: var(--warn-bg);
+  color: var(--warn);
+}
+
+.settings-rec-hints-title {
+  margin: 1rem 0 0.375rem;
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.settings-rec-hint {
+  margin: 0 0 0.375rem;
+  padding: 0.45rem 0.75rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-alt);
+  color: var(--text-2);
+}
+
+.settings-rec-hint.is-warn {
+  border-color: var(--warn-line);
+  background-color: var(--warn-bg);
+  color: var(--warn);
+}
+
+.settings-rec-hint.is-ok {
+  border-color: var(--live);
+  color: var(--text);
+}
+
+@media (max-width: 759px) {
+  .settings-fact-label {
+    flex: 1 1 100%;
+    margin: 0 0 0.125rem;
+  }
+}
+
 .settings-summary-item {
   margin: 0 0.5rem 0.5rem 0;
   padding: 0.4rem 0.85rem;
