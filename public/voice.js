@@ -2453,6 +2453,22 @@ window.VoiceClient = (function () {
       rebuildPeer(peer)
     }
 
+    // Kurulu bağlantıda karşı tarafın yanıtı uygulanamadı. Teklif beklemede kalsa yeniden gönderilen aynı teklif
+    // aynı yanıtı getirir ve anlaşma hiç tamamlanmaz. Bağlantı yalnız mikrofonla yeniden kurulur (mikrofon yeni
+    // bağlantıda sürer). Teklif yeni m satırı ekliyorsa bu eşe ekran gönderilmez, yeniden kurulan bağlantıda
+    // aynı hata tekrarlanıp bağlantı tekrar tekrar kurulmaz (screen_negotiation_failed).
+    function answerFailed (peer, pend) {
+      var pid = peer.peerId
+      var rd = peer.pc.remoteDescription
+      var before = rd && rd.sdp ? mlineCount(rd.sdp) : 0
+      if (pend && mlineCount(pend.sdp) > before && (st.screenLimit[pid] || 0) < 2) {
+        st.screenLimit[pid] = 2
+        var r = st.roster[pid]
+        if (r) screenEvent({ type: 'error', code: 'screen_negotiation_failed', userId: r.userId, peerId: pid })
+      }
+      rebuildPeer(peer)
+    }
+
     function mlineCount (sdp) {
       return (String(sdp).match(/\r\nm=/g) || []).length
     }
@@ -2584,7 +2600,13 @@ window.VoiceClient = (function () {
         if (peer.pc.signalingState !== 'have-local-offer') return
         var ono = offerNoOf(d.o)
         if (ono !== null && peer.pending && ono !== peer.pending.o) return
-        await peer.pc.setRemoteDescription({ type: 'answer', sdp: d.sdp })
+        var pend = peer.pending
+        try {
+          await peer.pc.setRemoteDescription({ type: 'answer', sdp: d.sdp })
+        } catch (e) {
+          if (peer.ready && !peer.closed) answerFailed(peer, pend)
+          return
+        }
         if (peer.closed) return
         peer.pending = null
         clearNegoTimer(peer)
@@ -3083,19 +3105,41 @@ window.VoiceClient = (function () {
       st.linkTimer = setTimeout(linkTick, LINK_TICK_MS)
     }
 
+    // Yoklama durum bildirimiyle (postState) aynı sırayla gider: ikisi aynı anda giderse önce gönderilen eski
+    // değer sunucuya sonra varıp yeniyi ezebilirdi. Bildirim sürüyorsa yoklama sonraki adıma kalır (bildirimin
+    // yanıtı da erişim kanıtıdır). Yanıt LINK_PROBE_MS içinde gelmezse yoklama başarısız sayılır ve sıra bırakılır:
+    // askıda kalan istek (zaman aşımı olmayan api) ne denetimi ne de durum bildirimini durdurur. Süresi geçtikten
+    // sonra yanıtlanan yoklama sunucuya eski değerle varmış olabilir, son durum yeniden bildirilir.
     function probeLink () {
-      var probe = { gen: st.gen }
+      if (st.statePosting) return
+      var probe = { gen: st.gen, timer: null, held: true }
       st.linkProbe = probe
+      st.statePosting = true
+      var release = function () {
+        if (!probe.held) return false
+        probe.held = false
+        statePosted(probe.gen)
+        return true
+      }
+      var finish = function (ok) {
+        if (st.linkProbe !== probe) return
+        st.linkProbe = null
+        if (ok || probe.gen !== st.gen || !st.share) return
+        if (Date.now() - st.serverAt >= OFFLINE_STOP_MS) stopShare('left', false)
+      }
+      probe.timer = setTimeout(function () {
+        release()
+        finish(false)
+      }, LINK_PROBE_MS)
       var body = { muted: st.muted || st.deafened, deafened: st.deafened }
       callApi('POST', '/api/voice/state', body).then(function (res) {
         return !!res && typeof res.status === 'number' && res.status > 0
       }, function () {
         return false
       }).then(function (ok) {
-        if (st.linkProbe !== probe) return
-        st.linkProbe = null
-        if (ok || probe.gen !== st.gen || !st.share) return
-        if (Date.now() - st.serverAt >= OFFLINE_STOP_MS) stopShare('left', false)
+        clearTimeout(probe.timer)
+        if (!release() && probe.gen === st.gen) postState()
+        finish(ok)
       })
     }
 
@@ -3982,11 +4026,16 @@ window.VoiceClient = (function () {
       var gen = st.gen
       var body = { muted: st.muted || st.deafened, deafened: st.deafened }
       callApi('POST', '/api/voice/state', body).then(noop, noop).then(function () {
-        st.statePosting = false
-        var again = st.stateDirty || gen !== st.gen
-        st.stateDirty = false
-        if (again && st.inVoice) postState()
+        statePosted(gen)
       })
+    }
+
+    // Durum isteği (bildirim veya erişim yoklaması) bitti: arada değişen durum veya yeni oturum yeniden bildirilir
+    function statePosted (gen) {
+      st.statePosting = false
+      var again = st.stateDirty || gen !== st.gen
+      st.stateDirty = false
+      if (again && st.inVoice) postState()
     }
 
     function setMuted (value) {

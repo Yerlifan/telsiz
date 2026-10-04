@@ -579,7 +579,9 @@ function makeRoom () {
   const roster = []
   let sigSeq = 0
   let rnd = 12345
-  const room = { clock, net, engines, rule: null, offline: new Set(), signals: 0, lastAt: {} }
+  // hang: bu istemcinin istekleri hiç yanıtlanmaz (zaman aşımı olmayan api). stateDelay: durum bildirimi
+  // yanıt gecikmesi, stateLive ve stateMax: aynı anda süren durum isteği sayısı ve en yükseği.
+  const room = { clock, net, engines, rule: null, offline: new Set(), hang: new Set(), stateDelay: 0, stateLive: 0, stateMax: 0, signals: 0, lastAt: {} }
 
   class FTrack {
     constructor (kind, opts) {
@@ -1107,6 +1109,7 @@ function makeRoom () {
         if (p.secs.length !== pl.secs.length || p.secs.some((s, k) => s.mid !== pl.secs[k].mid)) {
           return this.fail('sRD:answer', 'InvalidAccessError', 'answer does not match the offer')
         }
+        if (eo.failAnswer && eo.failAnswer(p, this)) return this.fail('sRD:answer', 'OperationError', 'cannot apply this answer')
         this.log('sRD:answer')
         p.secs.forEach((s, k) => {
           const t = pl.list[k]
@@ -1215,8 +1218,17 @@ function makeRoom () {
   }
 
   async function serverApi (e, method, path, body) {
-    room.calls.push({ t: clock.now(), from: e.name, path })
+    room.calls.push({ t: clock.now(), from: e.name, path, body })
+    if (room.hang.has(e.name)) return new Promise(noop)
     if (room.offline.has(e.name)) return { status: 0, data: null }
+    if (path === '/api/voice/state' && room.stateDelay) {
+      room.stateLive++
+      room.stateMax = Math.max(room.stateMax, room.stateLive)
+      await new Promise((resolve) => clock.setTimeout(resolve, room.stateDelay))
+      room.stateLive--
+      room.lastState = body
+      return { status: 200, data: { ok: true } }
+    }
     if (path === '/api/voice/join') {
       e.peerId = 'peer' + e.name + e.joins
       e.joins++
@@ -1599,6 +1611,74 @@ test('hata 4: görüntülü teklifi uygulayamayan izleyici bağlantıyı yeniden
   assert.strictEqual(room.remote('B', 'A').status, 'available')
   assert.deepStrictEqual(room.events('B', 'error').map((e) => e.code), ['screen_watch_failed'])
   assert.ok(room.offers('A', 'B').filter((s) => s.t >= t0 + 5000).every((s) => !/m=video/.test(s.sdp)))
+  await room.leaveAll()
+})
+
+test('hata 4: paylaşanın uygulayamadığı yanıt bağlantıyı yalnız mikrofonla yeniden kurar, anlaşma askıda kalmaz, mikrofon sürer', async () => {
+  // A görüntülü yanıtı uygulayamaz. Teklif beklemede kalsaydı aynı teklif 20 sn'de bir sonsuza dek yeniden
+  // gönderilir, anlaşma hiç tamamlanmazdı.
+  const room = await twoRoom({ failAnswer: (p) => p.secs.some((s) => s.kind === 'video') })
+  const A = room.engines.A
+  const B = room.engines.B
+  await shareAndAnnounce(room, 'A', 'B')
+  const t0 = room.clock.now()
+  B.voice.watchScreen(A.userId)
+  await room.advance(5000)
+  const gaps = await room.micGaps('B', 'A', 60000, 5000)
+  assert.ok(gaps.every((d) => d > 0), 'A->B mikrofon: ' + JSON.stringify(gaps))
+  assert.ok((await room.micGaps('A', 'B', 5000, 5000)).every((d) => d > 0))
+  const c = consistent(room, 'A', 'B')
+  assert.ok(c.ok, JSON.stringify(c))
+  assert.ok(room.pcsOf('A').length <= 2 && room.pcsOf('B').length <= 2, room.pcsOf('A').length + ' ' + room.pcsOf('B').length)
+  const errs = room.events('A', 'error')
+  assert.ok(errs.length >= 1 && errs.every((e) => e.code === 'screen_negotiation_failed' && e.userId === B.userId), JSON.stringify(errs))
+  assert.strictEqual(room.screen('A').viewerCount, 0)
+  assert.ok(room.offers('A', 'B').filter((s) => s.t >= t0 + 5000).every((s) => !/m=video/.test(s.sdp)))
+  assert.strictEqual(room.remote('B', 'A').status, 'failed')
+  assert.deepStrictEqual(room.events('B', 'error').map((e) => e.code), ['screen_watch_failed'])
+  assert.deepStrictEqual(room.clock.errors.map(String), [])
+  await room.leaveAll()
+})
+
+test('hata 5: erişim yoklaması durum bildirimiyle aynı anda gitmez, yanıtı hiç gelmeyen yoklama da paylaşımı durdurur', async () => {
+  const room = await twoRoom()
+  const A = room.engines.A
+  await shareAndAnnounce(room, 'A', 'B')
+  // Durum istekleri 3 sn'de yanıtlanır. Yoklama sürerken susturma değişirse bildirim yoklamanın arkasında bekler:
+  // aynı anda iki istek gitseydi önce gönderilen eski değer sunucuya sonra varıp yeniyi ezebilirdi.
+  room.stateDelay = 3000
+  const c0 = room.calls.length
+  let steps = 0
+  while (!room.calls.slice(c0).some((x) => x.from === 'A' && x.path === '/api/voice/state') && steps < 100) {
+    await room.advance(250)
+    steps++
+  }
+  assert.ok(steps < 100, 'yoklama başlamalı')
+  A.voice.setMuted(true)
+  await room.advance(500)
+  A.voice.setMuted(false)
+  await room.advance(500)
+  A.voice.setMuted(true)
+  await room.advance(15000)
+  assert.strictEqual(room.stateMax, 1, 'aynı anda süren durum isteği')
+  assert.deepStrictEqual(plain(room.lastState), { muted: true, deafened: false })
+  assert.strictEqual(room.screen('A').state, 'live')
+  room.stateDelay = 0
+  // İstekler hiç yanıtlanmaz (zaman aşımı olmayan api): yoklama askıda kalsa da paylaşım durur
+  const track = A.voice.snapshot().screen.preview.getVideoTracks()[0]
+  room.hang.add('A')
+  await room.advance(5000)
+  assert.strictEqual(room.screen('A').state, 'live', 'kısa kesintide paylaşım sürer')
+  await room.advance(50000)
+  assert.strictEqual(room.screen('A').state, 'idle')
+  assert.strictEqual(track.readyState, 'ended')
+  assert.deepStrictEqual(room.events('A', 'local-stop').map((e) => e.reason), ['left'])
+  // Askıda kalan yoklama durum bildirimini kilitlemez: ağ dönünce susturma değişikliği sunucuya gider
+  room.hang.delete('A')
+  const c1 = room.calls.length
+  A.voice.setMuted(false)
+  await room.advance(3000)
+  assert.ok(room.calls.slice(c1).some((x) => x.from === 'A' && x.path === '/api/voice/state' && x.body && x.body.muted === false), 'durum bildirimi gitmeli')
   await room.leaveAll()
 })
 
