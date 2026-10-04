@@ -2,6 +2,22 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [2.0.1]
+
+### Fixes
+
+- In the desktop app, YouTube videos of Telsiz DJ failed with "Error 153: Video player configuration error". The app now adds the server origin as the Referer of the YouTube player frame request. The same information is sent as in the web version.
+- If a user is blocked, signs out, has their session revoked or deletes their account while uploading a file, the upload is no longer saved. The session is checked again when the upload finishes, and running uploads of a closed session are aborted.
+- Resending a message whose response was lost no longer creates a second message. Every send carries a client id (`clientMessageId`), and the server returns the first message for a repeated send. Repeats of messages with attachments no longer fail with `bad_uploads`.
+- Direct conversations with deleted accounts stay as history but no longer count toward the active conversation limit.
+- When two server processes start on the same data folder at nearly the same time, only one of them takes the data lock, the other does not start.
+- The service worker deletes only Telsiz's own old caches and leaves the caches of other apps on the same origin alone.
+
+### Changes
+
+- Server binaries are named `telsiz-<version>-server-windows-x64.exe`, `telsiz-<version>-server-linux-x64` and `telsiz-<version>-server-linux-arm64` so they are easy to tell apart from the desktop app on the release page.
+- The GitHub actions in the CI and release workflows were upgraded to versions that run on Node.js 24.
+
 ## [2.0.0]
 
 The first public release of Telsiz: open source, end-to-end encrypted text and voice communication that runs on your own server or on a hosting service. It works on any device with a browser, and the server has no runtime dependencies.

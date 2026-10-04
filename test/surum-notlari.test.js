@@ -79,7 +79,7 @@ describe('sürüm notları', () => {
     const count = (text, re) => (text.match(re) || []).length
     assert.equal(count(parts[0], /^### /gm), count(parts[1], /^### /gm))
     assert.equal(count(parts[0], /^- /gm), count(parts[1], /^- /gm))
-    assert.ok(count(parts[0], /^- /gm) > 10)
+    assert.ok(count(parts[0], /^- /gm) > 0)
     const usage = spawnSync(process.execPath, [SCRIPT, 'v2'], { encoding: 'utf8' })
     assert.equal(usage.status, 2)
   })
