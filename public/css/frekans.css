@@ -3,7 +3,9 @@
   Yukarıdan aşağı: üst çubuk (#top), bağlantı şeridi, frekans bandı (#band), sahne (#stage: sol bilgi
   sütun: telsiz kartı ve ayarlı istasyon kartı, konuşma sütunu kalan alanı alır, sağda İstasyonlar listesi
   veya Telsiz DJ kartı. 1280 px altında telsiz kartı sağ sütuna iner), televizyon ipucu çubuğu
-  ve yan/alt sayfalar (#stations-sheet, #people-sheet, 1280 px altında #info-col).
+  ve yan/alt sayfalar (#frekans-sheet, #stations-sheet, #people-sheet, 1280 px altında #info-col).
+  Bant katılınan frekansları dizer (24-frekans.js), yazı ve ses odaları sağdaki İstasyonlar listesinde,
+  sağ sütun görünmediğinde üst çubuktaki İstasyonlar düğmesiyle açılan İstasyonlar sayfasındadır.
   Bileşenlerin ayrıntılı görünümü kendi dosyalarındadır: konuşma sütunu convo.css, telsiz kartı radio.css,
   kişisel alanlar (Yayındakiler, Gelenler, özel mesaj ve arkadaşlar) people.css. Bu dosya yalnızca yerleşimi,
   bandı, üst çubuğu, sayfa kabuğunu ve kesme noktalarını tanımlar.
@@ -880,7 +882,94 @@
   border-color: var(--live-bg);
 }
 
-/* Bandın uçları: önceki ve sonraki istasyon, Oda ekle ve Tümü */
+/* Frekans istasyonu (24-frekans.js frekansBuildStation): amblem ve köşesinde durum noktası, ad, alt satırda
+   durum veya çevrimiçi sayısı, satır içinde okunmamış rozeti, köşede anma rozeti */
+.station-frekans {
+  padding-left: 0.375rem;
+}
+
+.station-frekans > .station-emblem {
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.625rem;
+  font-size: var(--text-sm);
+}
+
+.station-frekans.is-tuned > .station-emblem {
+  border-color: transparent;
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.station-frekans.is-offline .station-name,
+.station-frekans.is-offline .station-sub {
+  color: var(--text-3);
+}
+
+.station-frekans > .frekans-unread {
+  position: static;
+  margin-left: 0.625rem;
+}
+
+/* Köşedeki anma rozeti adın sonunu örtmesin */
+.station-frekans.is-mentioned {
+  padding-right: 1.75rem;
+}
+
+.station-frekans.is-mentioned > .frekans-unread {
+  margin-right: 0.25rem;
+}
+
+.station-frekans > .frekans-mention {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.25rem;
+}
+
+/* Durum noktası: açık (ibre rengi), çevrimiçi, çevrimdışı, giriş gerekli, bilinmiyor (boş halka) */
+.frekans-dot {
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.25rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--band-bg);
+  border-radius: 50%;
+  background-color: var(--offline);
+}
+
+.frekans-dot.is-open {
+  background-color: var(--needle);
+}
+
+.frekans-dot.is-online {
+  background-color: var(--live);
+}
+
+.frekans-dot.is-offline {
+  background-color: var(--danger);
+}
+
+.frekans-dot.is-login {
+  background-color: var(--idle);
+}
+
+.frekans-dot.is-unknown {
+  background-color: var(--band-bg);
+  box-shadow: inset 0 0 0 2px var(--offline);
+}
+
+.sheet .frekans-dot,
+.frekans-menu .frekans-dot {
+  border-color: var(--surface-float);
+}
+
+.sheet .frekans-dot.is-unknown {
+  background-color: var(--surface-float);
+}
+
+/* Bandın uçları: önceki ve sonraki frekans, Frekans ekle, rehber ve Tümü */
 .band-step {
   position: relative;
   z-index: 3;
@@ -1133,6 +1222,12 @@
   /* Yayın sahnesi geniş kalsın diye sağ sütun gizlenir, telsiz kartı solda kalır */
   body[data-cast="live"] .side-right {
     display: none;
+  }
+
+  /* Sağ sütun gizliyken odalar üst çubuktaki İstasyonlar düğmesiyle açılır */
+  .app-view[data-dj-col="on"] .top-rooms,
+  body[data-cast="live"] .top-rooms {
+    display: inline-flex;
   }
 
   /* Geniş ekranda kapalı telsiz kartı küçüktür: ses odaları sağdaki İstasyonlar listesindedir */
@@ -1447,10 +1542,6 @@
   padding: 1rem 0.625rem 0.75rem;
 }
 
-.inbox > .kicker {
-  margin: 0 0.5rem 0.25rem;
-}
-
 .inbox-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -1621,6 +1712,121 @@
     -webkit-animation: none;
     animation: none;
   }
+}
+
+/* İstasyonlar kartının başlığı: başlık ve Oda ekle (yalnızca sahip ve yönetici) */
+.inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0.25rem 0.25rem 0.5rem;
+}
+
+.inbox-head > .kicker {
+  margin: 0;
+}
+
+.inbox-add,
+.rooms-sheet-add {
+  flex: none;
+  color: var(--text-2);
+}
+
+.inbox-add:hover,
+.rooms-sheet-add:hover {
+  color: var(--accent-text);
+}
+
+.rooms-sheet-add {
+  margin-right: 0.25rem;
+}
+
+/* Gece temasındaki süs frekansı oda satırında (diğer temalarda gizli, components.css) */
+.room-row > .channel-freq {
+  min-width: 2.75rem;
+  margin-right: 0.5rem;
+}
+
+/* İstasyonlar düğmesi (üst çubuk): yalnızca sağ sütun görünmediğinde (kesme noktaları bölüm 9) */
+.top-rooms {
+  display: none;
+}
+
+.top-rooms > .station-mark {
+  margin-left: 0.5rem;
+}
+
+/* Frekanslar sayfası (#frekans-sheet) ve frekans menüsünün başlığı */
+.frekans-sheet-lead {
+  margin: 0.75rem 0.375rem 0.5rem;
+}
+
+.frekans-sheet-li {
+  display: flex;
+  align-items: center;
+}
+
+.frekans-sheet-li > .frekans-sheet-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.frekans-sheet-row > .frekans-emblem {
+  position: relative;
+}
+
+.frekans-sheet-row.is-current > .frekans-emblem {
+  border-color: transparent;
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.frekans-sheet-row.is-offline .sheet-row-name {
+  color: var(--text-2);
+}
+
+.frekans-sheet-body .frekans-note {
+  margin: 0.5rem 0.375rem 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.sheet-foot {
+  display: flex;
+  flex: none;
+  padding: 0.625rem 0.75rem 0.75rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+.frekans-sheet-add {
+  flex: 1 1 auto;
+}
+
+.frekans-sheet-add > .icon {
+  margin-right: 0.5rem;
+}
+
+.frekans-menu-head {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.625rem 0.375rem;
+}
+
+.frekans-menu-head > .frekans-emblem {
+  border-color: transparent;
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.frekans-entry > .icon {
+  width: 2.25rem;
+  margin-right: 0.75rem;
+  color: var(--accent-text);
+}
+
+.frekans-entry {
+  min-height: 2.75rem;
+  padding: 0.25rem 0.5rem;
 }
 
 /* =========================================================
@@ -2062,17 +2268,33 @@
   }
 }
 
-/* Alçak ekranda 1280 px altında İstasyonlar kartı gizlenir (telsiz kartıyla aynı sütundadır, rozetler
-   bantta görünür). Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
+/* Alçak ekranda 1280 px altında İstasyonlar kartı gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
+   çubuktaki İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
 @media (max-height: 860px) and (max-width: 1279px) {
   .inbox {
     display: none;
   }
+
+  .top-rooms {
+    display: inline-flex;
+  }
 }
 
-/* Orta (999 px ve altı): telsiz kartı 17rem, Gelenler gizli, istasyonların alt satırı ve küçük avatar
-   yığını gizli, üst çubukta Ara etiketi ve kısayol gizli */
+/* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı gizli (üst çubuktaki İstasyonlar düğmesi yan
+   sayfa olarak açar), istasyonların alt satırı ve küçük avatar yığını gizli, üst çubukta Ara etiketi ve
+   kısayol gizli */
 @media (max-width: 999px) {
+  .top-rooms {
+    display: inline-flex;
+  }
+
+  .top-rooms > .station-mark {
+    position: absolute;
+    top: -0.375rem;
+    right: -0.375rem;
+    margin: 0;
+  }
+
   .top-bar {
     padding: 0 0.875rem;
   }
@@ -2105,6 +2327,7 @@
   }
 
   .top-find > .icon,
+  .top-rooms > .icon,
   .top-personal-button > .icon {
     margin-right: 0;
   }
@@ -2185,8 +2408,10 @@
     margin-left: 0.125rem;
   }
 
-  /* Telefonda frekans adı için yer: amblem ve Yayındakiler çipinde ilkinden sonraki avatarlar gizlenir */
-  .top-bar .server-emblem,
+  /* Telefonda üst çubukta yer açılır: açık frekansın adı bantta (ibrenin olduğu istasyon) göründüğü için
+     frekans düğmesinde yalnızca amblem kalır (erişilebilir adı değişmez), Yayındakiler çipinde ilkinden
+     sonraki avatarlar gizlenir */
+  .top-bar .top-brand-text,
   .top-stack .avatar:nth-child(n+2) {
     display: none;
   }
@@ -2203,7 +2428,7 @@
   .top-bar .server-emblem {
     width: 2rem;
     height: 2rem;
-    margin-right: 0.5rem;
+    margin-right: 0;
   }
 
   .top-chip {
@@ -2243,6 +2468,11 @@
 
   .band-sep {
     margin: var(--dial-top) 0.375rem 0;
+  }
+
+  /* Telefonda bantta daha çok frekans görünsün diye grup etiketi gizlenir (bandın erişilebilir adı kalır) */
+  .band-group-label {
+    display: none;
   }
 
   .station {
@@ -2319,7 +2549,7 @@
     display: none;
   }
 
-  /* Telefonda telsiz kartı kısa kalır: kapalıyken ses odaları bantta ve Tümü sayfasında seçilir,
+  /* Telefonda telsiz kartı kısa kalır: kapalıyken ses odaları İstasyonlar sayfasında seçilir,
      bağlıyken kart durum satırını, Bas konuş düğmesini ve ses düğmelerini gösterir */
   .radio .radio-rooms {
     display: none;

@@ -30,11 +30,28 @@ In the interface every Telsiz server is a frequency. The app remembers several f
 
 - The list is kept in the `frequencies` field of `ayarlar.json`: `[{ origin, name, lastUsed }]`, and the active frequency is the `server` field (`src/lib/frequencies.js`, `src/lib/settings-store.js`). Every origin is validated with the `server-url.js` rules, and the list holds at most 50 frequencies. The single server address of the earlier version is added to the list on first start. Session partitions were already per origin, so no sign-in is lost.
 - The display name is the server name from the `/api/info` response that the connect window checks. If the web app learns a new name later (when the server name changes), it reports it with `setFrequencyName`, and the name is written only to the frequency the window is open on. Without a name the host name is shown.
-- The menu that opens from the frequency name in the top bar (`public/js/24-frekans.js`) shows the list: the open frequency comes first and is marked, and pressing another one switches to it. On a switch the app window is opened again with that frequency's session partition and the old window closes (the voice connection closes too). Add a frequency opens the frequency address window in add mode, and after a successful connection the new frequency is added to the list and becomes active. Remove from list asks for confirmation. The session data of that frequency on this device (sign-in, local storage, cache) is deleted only if the box in the confirmation dialog is checked, keeping it is the default. If the active frequency is removed, the app switches to the most recently used other frequency, and if the list becomes empty the address window opens.
+- The frequency band at the top (`public/js/24-frekans.js`) shows the list in saved order: the open frequency is marked (the needle), and pressing another station, dragging the needle, the end buttons or the L1 and R1 buttons of a gamepad switch to it. The All button of the band opens the same list in the Frequencies sheet. On a switch the app window is opened again with that frequency's session partition and the old window closes (the voice connection closes too). Add a frequency (the + button of the band) opens the frequency address window in add mode, and after a successful connection the new frequency is added to the list and becomes active. Remove from list in the Frequencies sheet asks for confirmation. The session data of that frequency on this device (sign-in, local storage, cache) is deleted only if the box in the confirmation dialog is checked, keeping it is the default. If the active frequency is removed, the app switches to the most recently used other frequency, and if the list becomes empty the address window opens.
 - The Frequencies submenu in the app menu and in the tray shows the list too and performs the same switch.
 - Every origin and name that comes from the page is validated again in the main process: the origin must be a string of limited length, valid and saved in the list. Like the others, these IPC handlers check that the call comes from the main frame of the app window and from the `telsiz://app` origin.
 
-Limits: the app does not connect to frequencies that are not open in the background, so their notifications and unread counts are not shown. Switching ends the voice connection. The list is not synced between devices.
+Limits: switching ends the voice connection (you are asked first while in a voice room). The list is not synced between devices. The counts of frequencies that are not open come from the background counting below.
+
+## Background counting
+
+The frequency band at the top shows the status and unread counts of frequencies that are not open too. For this the main process (`src/lib/background.js`, `src/main.js createBackgroundWindow`) runs a hidden background window for each saved frequency that is not open, in that frequency's own session partition.
+
+- The cap is 8 windows: the 8 most recently used frequencies (`lastUsed`, the open frequency excluded). To keep memory and network use limited, the windows open one at a time, 3 seconds after startup and 1.5 seconds apart. For frequencies beyond the cap only reachability is shown.
+- The window uses the same app bundle, the same preload script, the sandbox and the CSP. It is invisible, has no taskbar entry, its audio is muted, images are not loaded and autoplay needs user activation. It only has the notification permission (every other permission, the microphone included, is denied), and the YouTube frame cannot open.
+- The preload script turns on background mode only with the `--telsiz-background=<origin>` argument that the main process adds, and then gives the page the `window.telsizArkaPlan` object. Page content cannot change this argument. The background mode of the client (`public/js/25-arka-plan.js`) draws no interface, starts no voice, screen sharing, Telsiz DJ or message sound, long-polls with the saved session of that frequency, counts unread messages and mentions with the same rules as the normal client (it decrypts the message with the key on this device to detect mentions), and never writes the last read marker.
+- The window reports its state (`origin`, `state`, `unread`, `mention`, `online`, `lastError`, `name`, `onlineUsers`) on the `telsiz:bg-report` channel at most once a second. The main process accepts a report only from the main frame of a registered background window and from the `telsiz://app` origin, the origin must be that window's frequency, every field is checked for type and range, and a report with an unknown field is rejected. The collected state is sent to the app window with the `telsiz:bg-state` event (`window.telsizArkaPlan.onState`, `getState()`).
+- A frequency without a session or with an invalid one reports "sign-in needed": its window closes and does not open again until that frequency is opened once. The session data is not touched. A crashed window opens again after 30 seconds, less often after repeated crashes.
+- For reachability (the online and offline dot) the main process sends `GET <origin>/api/info` to every saved frequency (those beyond the cap included) with a separate non-persistent session: an 8 second timeout, about every 60 seconds on success, and less often on failure, doubling up to 10 minutes.
+- When you switch to a frequency, its background window closes before the app window loads (two clients never run with the same session), and the window for the previous frequency opens 3 seconds later. All background windows close when the app window closes and when the app quits. While the window is minimized to the tray the background windows keep running.
+- If desktop notifications are on for that frequency in Settings > Notifications, a silent system notification is shown for a message that mentions you and for a direct message (the notification level and the Do not disturb rule apply). Pressing the notification switches to that frequency.
+
+Privacy: each background window stays connected to its server with your session. The server sees you as online and receives the poll requests, and the other members see you as online too. The background window sends no messages and writes no read markers.
+
+The counts belong to the session: the client counts unread messages on this device, not on the server. When the app starts again, the background windows count again from the last read marker (up to the last 50 messages per room and direct conversation).
 
 ## Screen sharing picker
 
@@ -80,7 +97,7 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
@@ -98,7 +115,7 @@ The texts of the desktop menu, tray, server address screen and picker are in `sr
 - It blocks the PWA install prompt.
 - `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the active frequency, minimize to tray and updates section.
 - Shows a dismissible strip in the bottom right corner for a downloaded update or a new version notice.
-- The frequency menu (`public/js/24-frekans.js`) manages the list on the desktop with the frequency calls below instead of the browser's local storage.
+- The frequency band and menu (`public/js/24-frekans.js`) manage the list on the desktop with the frequency calls below instead of the browser's local storage, and get the status of frequencies that are not open from `window.telsizArkaPlan`.
 
 The `window.telsizDesktop` API:
 
@@ -111,7 +128,7 @@ The `window.telsizDesktop` API:
 | `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, values are Electron accelerator strings or `null` |
 | `onShortcut(cb)` | `cb('toggleMute' or 'toggleDeafen')`, the returned function unsubscribes |
 | `setCloseToTray(bool)` | Minimize to the tray when the window is closed |
-| `listFrequencies()` | `{ active, items: [{ origin, name, host, active }] }`, the active frequency first |
+| `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
 | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
 | `addFrequency()` | Opens the frequency address window in add mode |
 | `removeFrequency(origin, clearData)` | Removes the frequency from the list, deletes its session data only if `clearData` is `true` |
@@ -122,6 +139,8 @@ The `window.telsizDesktop` API:
 | `updates.install()` | Installs the downloaded update and restarts the app |
 | `updates.openRelease()` | Opens the GitHub page of the found release in the default browser (the main process decides the address) |
 | `updates.onState(cb)` | `cb(state)` when the state changes, the returned function removes the subscription |
+
+`window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb) }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open() }`.
 
 Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
 

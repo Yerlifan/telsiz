@@ -13,6 +13,9 @@
 //   verisi başka bir sunucuya hiçbir zaman gönderilemez. Arayüzde her sunucu bir "frekans"tır:
 //   uygulama birden çok frekansı hatırlar (src/lib/frequencies.js), geçişte uygulama penceresi o
 //   frekansın oturum bölümüyle yeniden açılır, böylece her frekansın girişi ayrı ayrı korunur.
+// - Açık olmayan frekansların okunmamış sayıları için her biri kendi oturum bölümünde gizli, sesi kapalı,
+//   görselsiz bir arka plan penceresi çalışır (src/lib/background.js, en fazla 8). Bu pencerelere yalnızca
+//   bildirim izni verilir, raporları gönderen pencere ve her alan doğrulanarak kabul edilir.
 // - Pencereler bağlam yalıtımı ve korumalı alanla açılır, Node.js sayfaya hiç verilmez. Gezinme,
 //   yeni pencere, webview, izinler, indirmeler ve sertifika hataları sıkı biçimde denetlenir.
 // - Ön yükleme betikleri yalnızca sabit adlı IPC kanallarını kullanır, her girdi burada yeniden
@@ -56,8 +59,9 @@ const diagnostics = require('./lib/diagnostics')
 const automation = require('./lib/automation')
 const frequencies = require('./lib/frequencies')
 const updates = require('./lib/updates')
+const background = require('./lib/background')
 
-const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
+const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG, BACKGROUND_ARG } = channels
 
 const APP_ID = 'io.github.yerlifan.telsiz'
 const HOMEPAGE = 'https://github.com/Yerlifan/telsiz'
@@ -73,7 +77,10 @@ const BACKGROUND = '#0f1015'
 const EXTERNAL_OPEN_INTERVAL_MS = 500
 const MAX_ADDRESS_INPUT = 1000
 const THUMBNAIL_SIZE = { width: 320, height: 180 }
-const ORIGINS = { app: APP_ORIGIN, connect: CONNECT_ORIGIN, picker: PICKER_ORIGIN }
+const ORIGINS = { app: APP_ORIGIN, connect: CONNECT_ORIGIN, picker: PICKER_ORIGIN, background: APP_ORIGIN }
+// Arka plan pencerelerinin erişilebilirlik yoklaması bu kalıcı olmayan oturumla yapılır (çerez ve oturum yok)
+const PROBE_PARTITION = 'telsiz-yokla'
+const BG_OPEN_INTERVAL_MS = 2000
 // Gözetimsiz çalıştırmalarda (duman testi, CI) açılış adımlarının tanı günlüğü, ortam değişkeni
 // yoksa kapalıdır (src/lib/diagnostics.js)
 const diag = diagnostics.fromEnv(process.env)
@@ -133,7 +140,8 @@ const state = {
   updates: null,
   updateStatus: null,
   // Zamanlanmış güncelleme denetimi (gözetimsiz çalıştırmada ve otomasyonda kapalı)
-  scheduleUpdates: false
+  scheduleUpdates: false,
+  lastBackgroundOpen: 0
 }
 
 function t (key, params) {
@@ -203,6 +211,7 @@ function senderIs (event, context) {
   if (context === 'app' && (!isAlive(state.mainWindow) || state.mainWindow.webContents !== contents)) return false
   if (context === 'connect' && (!isAlive(state.connectWindow) || state.connectWindow.webContents !== contents)) return false
   if (context === 'picker' && (!state.picker || state.picker.windowContentsId !== contents.id)) return false
+  if (context === 'background' && !backgroundWindows.ownerOf(contents.id)) return false
   return navigation.originOf(frame.url) === ORIGINS[context]
 }
 
@@ -304,6 +313,8 @@ function prepareAppSession (ses, origin) {
   ses.protocol.handle(SCHEME, (request) => handleAppRequest(request, apiProxy))
   ses.setPermissionRequestHandler(onPermissionRequest)
   ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    // Arka plan penceresi yalnızca bildirim gösterebilir (mikrofon ve diğer izinler yok)
+    if (contents && contextOf(contents) === 'background' && permission !== 'notifications') return false
     return permissions.decideCheck(permission, requestingOrigin, details, APP_ORIGIN)
   })
   ses.setDisplayMediaRequestHandler(onDisplayMediaRequest)
@@ -334,6 +345,10 @@ function handleAppRequest (request, apiProxy) {
 }
 
 function onPermissionRequest (contents, permission, callback, details) {
+  if (contents && contextOf(contents) === 'background' && permission !== 'notifications') {
+    callback(false)
+    return
+  }
   const decision = permissions.decideRequest(permission, details, APP_ORIGIN)
   if (decision === 'allow') {
     callback(true)
@@ -531,6 +546,8 @@ function openMainWindow () {
   diag.log('window', { context: 'app', contents: id })
   state.mainWindow = win
   state.mainOrigin = origin
+  // Bu frekansın arka plan penceresi uygulama penceresi yüklenmeden kapanır, diğerleri biraz sonra açılır
+  backgroundWindows.setActive(origin)
   attachContextMenu(win.webContents)
   showWhenReady(win)
   win.on('close', (event) => {
@@ -549,6 +566,8 @@ function openMainWindow () {
     if (state.mainWindow === win) {
       state.mainWindow = null
       state.mainOrigin = null
+      // Uygulama penceresi gerçekten kapandı (geçiş değil): arka plan pencereleri de kapanır
+      backgroundWindows.stop()
     }
   })
   win.webContents.on('render-process-gone', (event, details) => logError('renderer', new Error(details.reason)))
@@ -666,6 +685,7 @@ function closeToConnect () {
   const old = state.mainWindow
   state.mainWindow = null
   state.mainOrigin = null
+  backgroundWindows.stop()
   openConnectWindow()
   if (isAlive(old)) old.destroy()
 }
@@ -677,12 +697,95 @@ const frequencyControl = frequencies.createController({
   persist: () => {
     persistSettings()
     refreshMenus()
+    backgroundWindows.listChanged()
   },
   windowOrigin: () => state.mainOrigin,
   apply: (origin) => applyServer(origin),
   closeToConnect,
   clearData: (origin) => clearFrequencyData(origin),
   defer: (fn) => setImmediate(fn),
+  now: () => Date.now()
+})
+
+// ------------------------------------------------------------------ arka plan sayımı
+
+// Açık olmayan bir frekansın gizli penceresi: aynı uygulama paketi, ön yükleme betiği, korumalı alan ve
+// CSP, o frekansın oturum bölümü. Ön yükleme betiği --telsiz-background argümanıyla istemcinin arka plan
+// kipini açar (public/js/25-arka-plan.js). Pencere görünmez, görev çubuğunda yoktur, sesi kapalıdır,
+// görseller yüklenmez. backgroundThrottling kapalıdır: istemcinin yeniden deneme ve rapor zamanlayıcıları
+// gizli pencerede de zamanında çalışmalı (uygulama zaten zamanlayıcı kısmayı genel olarak kapatır).
+function createBackgroundWindow (origin) {
+  const partition = partitionFor(origin)
+  prepareAppSession(session.fromPartition(partition), origin)
+  const win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    skipTaskbar: true,
+    focusable: false,
+    paintWhenInitiallyHidden: false,
+    title: 'Telsiz',
+    backgroundColor: BACKGROUND,
+    webPreferences: webPreferences(path.join(__dirname, 'preload.js'), partition, {
+      additionalArguments: [VERSION_ARG + app.getVersion(), BACKGROUND_ARG + origin],
+      backgroundThrottling: false,
+      images: false,
+      autoplayPolicy: 'document-user-activation-required'
+    })
+  })
+  const contents = win.webContents
+  const id = contents.id
+  state.contexts.set(id, 'background')
+  diag.log('window', { context: 'background', contents: id })
+  contents.setAudioMuted(true)
+  win.on('closed', () => {
+    state.contexts.delete(id)
+    backgroundWindows.windowGone(id)
+  })
+  contents.on('render-process-gone', (event, details) => {
+    logError('background renderer', new Error(details.reason))
+    if (!win.isDestroyed()) win.destroy()
+  })
+  win.loadURL(APP_ORIGIN + '/').catch((err) => logError('background load', err))
+  return {
+    id,
+    destroy: () => {
+      if (!win.isDestroyed()) win.destroy()
+    }
+  }
+}
+
+// Erişilebilirlik yoklaması: GET <köken>/api/info zaman aşımıyla
+async function probeFrequency (origin) {
+  const ses = session.fromPartition(PROBE_PARTITION)
+  const info = await serverUrl.checkServer((url, init) => ses.fetch(url, init), origin, app.getVersion(), { timeoutMs: background.PROBE_TIMEOUT_MS })
+  return info.ok === true
+}
+
+// Arka plan penceresinin öğrendiği sunucu adı listeye yazılır (yalnızca o frekansın adı, değiştiyse)
+function noteBackgroundName (origin, name) {
+  const entry = state.settings.frequencies.find((item) => item.origin === origin)
+  if (!entry || entry.name === name) return
+  state.settings.frequencies = frequencies.upsert(state.settings.frequencies, origin, { name })
+  persistSettings()
+  refreshMenus()
+}
+
+function pushBackgroundState (snapshot) {
+  const win = state.mainWindow
+  if (!isAlive(win) || win.webContents.isDestroyed()) return
+  win.webContents.send(CHANNELS.bgState, snapshot)
+}
+
+const backgroundWindows = background.createManager({
+  frequencies: () => state.settings.frequencies,
+  active: () => state.mainOrigin,
+  createWindow: (origin) => createBackgroundWindow(origin),
+  probe: (origin) => probeFrequency(origin),
+  push: (snapshot) => pushBackgroundState(snapshot),
+  setName: (origin, name) => noteBackgroundName(origin, name),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (handle) => clearTimeout(handle),
   now: () => Date.now()
 })
 
@@ -1030,6 +1133,23 @@ function registerIpc () {
   ipcMain.on(CHANNELS.userActivation, (event) => {
     if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
   })
+  // Arka plan sayımı: rapor yalnızca kayıtlı arka plan penceresinden, durum yalnızca uygulama penceresine
+  ipcMain.on(CHANNELS.bgReport, (event, report) => {
+    if (senderIs(event, 'background')) backgroundWindows.report(event.sender.id, report)
+  })
+  ipcMain.handle(CHANNELS.bgOpen, (event) => {
+    requireSender(event, 'background')
+    const origin = backgroundWindows.ownerOf(event.sender.id)
+    const now = Date.now()
+    if (!origin || now - state.lastBackgroundOpen < BG_OPEN_INTERVAL_MS) return { ok: false }
+    state.lastBackgroundOpen = now
+    showMain()
+    return frequencyControl.switchTo(origin)
+  })
+  ipcMain.handle(CHANNELS.bgGet, (event) => {
+    requireSender(event, 'app')
+    return backgroundWindows.snapshot()
+  })
 
   ipcMain.handle(CHANNELS.connectInit, (event) => {
     requireSender(event, 'connect')
@@ -1218,6 +1338,7 @@ if (!singleInstance) {
   })
   app.on('before-quit', () => {
     state.quitting = true
+    backgroundWindows.stop()
   })
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()

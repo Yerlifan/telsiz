@@ -67,8 +67,9 @@ test('tema ve mod yeniden yüklemede korunur', async () => {
 test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async () => {
   const page = W.page
   await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
-  const tr = await page.evaluate(() => ({ groups: Array.from(document.querySelectorAll('#band-track .band-group-label')).map((n) => n.textContent), radio: document.getElementById('radio-state').textContent, placeholder: document.getElementById('composer-input').getAttribute('placeholder') }))
-  assert.deepEqual(tr.groups, ['Yazı odaları', 'Ses odaları'])
+  const tr = await page.evaluate(() => ({ groups: Array.from(document.querySelectorAll('#band-track .band-group-label')).map((n) => n.textContent), rooms: Array.from(document.querySelectorAll('#inbox-list .rooms-group-title')).map((n) => n.textContent), radio: document.getElementById('radio-state').textContent, placeholder: document.getElementById('composer-input').getAttribute('placeholder') }))
+  assert.deepEqual(tr.groups, ['Frekanslar'])
+  assert.deepEqual(tr.rooms, ['Yazı odaları', 'Ses odaları'])
   await openAppearance(page)
   await page.selectOption('#set-lang', 'en')
   await page.waitForFunction(() => document.documentElement.lang === 'en')
@@ -77,12 +78,16 @@ test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async (
   await closeSettings(page)
   const en = await page.evaluate(() => ({
     groups: Array.from(document.querySelectorAll('#band-track .band-group-label')).map((n) => n.textContent),
+    rooms: Array.from(document.querySelectorAll('#inbox-list .rooms-group-title')).map((n) => n.textContent),
+    station: document.querySelector('#band-track .station.is-tuned').getAttribute('aria-label'),
     radio: document.getElementById('radio-state').textContent,
     all: document.querySelector('.band-all-text').textContent,
     inbox: document.getElementById('inbox-title').textContent,
     placeholder: document.getElementById('composer-input').getAttribute('placeholder')
   }))
-  assert.deepEqual(en.groups, ['Text rooms', 'Voice rooms'])
+  assert.deepEqual(en.groups, ['Frequencies'])
+  assert.deepEqual(en.rooms, ['Text rooms', 'Voice rooms'])
+  assert.match(en.station, /, open frequency/)
   assert.deepEqual([en.radio, en.all, en.inbox], ['Radio · off', 'All', 'Stations'])
   assert.notEqual(en.placeholder, tr.placeholder, 'yazma alanı yer tutucusu çevrildi')
 })
@@ -102,10 +107,15 @@ test('İngilizce arayüzde Türkçe kalıntı ve anahtar adı yok', async () => 
   })
   assert.deepEqual(leftovers, [], 'görünür Türkçe metin')
   assert.deepEqual(await page.evaluate(keyLikeTokens), [], 'ekranda i18n anahtarı')
-  // Ayarlar ve Tümü sayfası da İngilizce
+  // Ayarlar, Frekanslar (Tümü) ve İstasyonlar sayfaları da İngilizce
   await page.click('#band-all')
+  await page.waitForSelector('#frekans-sheet:not([hidden])')
+  assert.deepEqual(await page.evaluate(keyLikeTokens), [], 'Frekanslar sayfasında i18n anahtarı')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#frekans-sheet', { state: 'hidden' })
+  await page.evaluate(() => openSheet('stations', null))
   await page.waitForSelector('#stations-sheet:not([hidden])')
-  assert.deepEqual(await page.evaluate(keyLikeTokens), [], 'Tümü sayfasında i18n anahtarı')
+  assert.deepEqual(await page.evaluate(keyLikeTokens), [], 'İstasyonlar sayfasında i18n anahtarı')
   await page.keyboard.press('Escape')
   await page.waitForSelector('#stations-sheet', { state: 'hidden' })
   await page.evaluate(() => openSettings('account', null))

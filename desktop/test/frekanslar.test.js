@@ -69,8 +69,8 @@ test('sayfaya verilen liste: etkin frekans başta, ad yoksa ana bilgisayar', () 
   const out = freq.publicList(B, list)
   assert.equal(out.active, B)
   assert.deepEqual(out.items, [
-    { origin: B, name: null, host: 'b.ornek.com:8443', active: true },
-    { origin: A, name: 'A', host: 'a.ornek.com', active: false }
+    { origin: B, name: null, host: 'b.ornek.com:8443', active: true, order: 1 },
+    { origin: A, name: 'A', host: 'a.ornek.com', active: false, order: 0 }
   ])
   assert.equal(freq.displayName(out.items[0]), 'b.ornek.com:8443')
   assert.equal(freq.displayName(out.items[1]), 'A')
