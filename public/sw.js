@@ -5,7 +5,7 @@
 // Aynı kökenli GET isteklerinde ağ önceliklidir, ağ yoksa önbellek kullanılır.
 
 // Önbellek adı sürümle değişir, yeni sürümde eski önbellek activate aşamasında silinir
-const CACHE_NAME = 'telsiz-2.0.1-frekans-foto1'
+const CACHE_NAME = 'telsiz-2.0.1-dj-duyuru1'
 const SHELL = [
   '/',
   '/index.html',

@@ -52,7 +52,6 @@
   --band-pad: 0.25rem;
   --dial-top: 0.125rem;
   --station-h: 2.75rem;
-  --column-max: 46rem;
   --side-w: 17.5rem;
   /* Geniş ekranda sol sütun (telsiz kartı ve oda bilgisi) ve sağ sütun (İstasyonlar) */
   --side-left-w: 19.5rem;
@@ -663,21 +662,19 @@
   --av-offline: #6f6a5e;
 }
 
-/* Yazı boyutu (Ek D2): otomatikte 16px, 1280px ve üstü 18px, TV (1800px ve üstü) 22px */
+/* Yazı boyutu (Ek D2): varsayılan 16px (normal). Otomatikte 16px, 1280px ve üstü 18px, TV (1800px ve üstü) 22px */
 html {
   font-size: 16px;
 }
 
 @media (min-width: 1280px) {
-  html[data-font-size="auto"],
-  html:not([data-font-size]) {
+  html[data-font-size="auto"] {
     font-size: 18px;
   }
 }
 
 @media (min-width: 1800px) {
-  html[data-font-size="auto"],
-  html:not([data-font-size]) {
+  html[data-font-size="auto"] {
     font-size: 22px;
   }
 }

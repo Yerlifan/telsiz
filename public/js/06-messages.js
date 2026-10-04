@@ -40,11 +40,35 @@ function decryptMessageRaw (m) {
       if (!v || typeof v !== 'object' || v.v !== 1 || !sameId(v.a, m.authorId) || !sameId(v.c, m.channelId)) {
         result = { state: 'unverified' }
       } else {
-        result = { state: 'ok', text: typeof v.t === 'string' ? v.t : '', files: normalizeFiles(v.f, m) }
+        result = { state: 'ok', text: typeof v.t === 'string' ? v.t : '', files: normalizeFiles(v.f, m), dj: cleanDjNotice(v.d) }
       }
     }
   }
   return result
+}
+
+// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid } veya ekli ses dosyası için { op: 'add', src: 'file' }.
+// Eski istemciler bu alanı bilmez ve t alanındaki komut metnini gösterir.
+function cleanDjNotice (d) {
+  if (!d || typeof d !== 'object' || d.op !== 'add') return null
+  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
+  if (d.src === 'file') return { op: 'add', src: 'file' }
+  return null
+}
+
+// Duyuru satırı: nota simgesi, sabit metin ve YouTube parçasında kimlikten kurulan bağlantı
+function buildDjNotice (d) {
+  const line = h('div', 'msg-text msg-dj')
+  line.appendChild(icon('i-music'))
+  line.appendChild(h('span', 'msg-dj-text', t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')))
+  if (d.src === 'yt') {
+    const a = h('a', 'msg-dj-link', t('dj.notice.openYoutube'))
+    a.href = 'https://www.youtube.com/watch?v=' + d.vid
+    a.target = '_blank'
+    a.rel = 'noopener noreferrer'
+    line.appendChild(a)
+  }
+  return line
 }
 
 function normalizeFiles (list, m) {
@@ -208,7 +232,9 @@ function buildMessageNode (m) {
   const result = decryptMessage(m)
   const body = h('div', 'msg-body')
   if (result.state === 'ok') {
-    if (result.text) {
+    if (result.dj) {
+      body.appendChild(buildDjNotice(result.dj))
+    } else if (result.text) {
       const text = h('div', 'msg-text')
       // Geçerli anmalar rozet olarak çizilir (18-mentions.js), metin yalnızca textContent ile
       if (typeof renderMentionText === 'function') renderMentionText(text, result.text, m)
@@ -246,7 +272,7 @@ function buildMessageNode (m) {
 
   if (canEdit(m) || canDelete(m)) {
     const actions = h('div', 'msg-actions')
-    if (canEdit(m) && result.state === 'ok') {
+    if (canEdit(m) && result.state === 'ok' && !result.dj) {
       const edit = button('msg-action msg-quick', '', 'i-edit', t('msg.edit'))
       edit.tabIndex = -1
       edit.addEventListener('click', () => {
@@ -779,7 +805,7 @@ function openMessageMenu (id, trigger) {
     if (same) return
   }
   const result = decryptMessage(m)
-  el.msgMenuEdit.hidden = !(canEdit(m) && result.state === 'ok')
+  el.msgMenuEdit.hidden = !(canEdit(m) && result.state === 'ok' && !result.dj)
   el.msgMenuDelete.hidden = !canDelete(m)
   state.menuMessageId = m.id
   el.msgMenu.hidden = false
@@ -849,7 +875,8 @@ function startEdit (id) {
   const m = state.messages[indexOfMessage(id)]
   if (!m || !canEdit(m)) return
   const result = decryptMessage(m)
-  if (result.state !== 'ok') return
+  // DJ duyurusu düzenlenmez (düzenleme duyuru alanını düşürürdü)
+  if (result.state !== 'ok' || result.dj) return
   const node = state.nodes.get(String(m.id))
   if (!node) return
   state.editingId = m.id
@@ -988,7 +1015,7 @@ function editLastOwnMessage () {
   let i = state.messages.length - 1
   while (i >= 0) {
     const m = state.messages[i]
-    if (canEdit(m) && decryptMessage(m).state === 'ok') {
+    if (canEdit(m) && decryptMessage(m).state === 'ok' && !decryptMessage(m).dj) {
       startEdit(m.id)
       const node = state.nodes.get(String(m.id))
       if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'nearest' })

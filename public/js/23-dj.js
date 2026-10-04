@@ -749,8 +749,8 @@ function djApplyLayout (show) {
     // Yayın bitti veya pencere genişledi: açık sayfa kapanır, kart sütundaki yerine döner
     if (!sheetMode && layer) closeLayer(layer, false)
   }
-  // Sütun görünürken kart sağ sütundaki İstasyonlar listesinin yerini alır, sol sütun (telsiz kartı ve oda
-  // bilgisi) yerinde kalır (dj.css)
+  // Sütun görünürken kart sağ sütunun üstüne yerleşir, İstasyonlar listesi altında kalır, sol sütun (telsiz
+  // kartı ve oda bilgisi) yerinde kalır (frekans.css)
   djAttr(el.appView, 'data-dj-col', !sheetMode && show ? 'on' : 'off')
   node.classList.toggle('is-sheet-mode', sheetMode)
   node.classList.toggle('is-cast-docked', sheetMode && dj.castLive && window.innerWidth >= 1280)
@@ -917,12 +917,24 @@ function djCommand (text, ctx) {
     if (!att && ctx && ctx.pending > 0) return null
     if (att) return djPlayAttached(att, ctx)
   }
+  // Duyuru komutun yazıldığı yazı odasına gider (kullanıcı bu arada oda değiştirse bile)
+  const roomId = state.channelId
   const pending = engine.runCommand(text)
   if (!pending) return null
   return pending.then((r) => {
     djReport(r && r.command ? r.command : cmd.name, r)
+    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounce(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId })
     return r
   })
+}
+
+// Kuyruğa eklenen parça komutun yazıldığı yazı odasında herkese duyurulur. Duyuru başarısız olursa parça
+// yine kuyruktadır, yalnızca bildirim gösterilir.
+function djAnnounce (roomId, text, d) {
+  if (!roomId || isDmChannel(roomId)) return
+  postSideMessage(roomId, text, d).then((sent) => {
+    if (!sent) toast(() => t('dj.notice.failed'), 'error')
+  }).catch(() => toast(() => t('dj.notice.failed'), 'error'))
 }
 
 // /çal ve ekli ses dosyası: dosya önce yazı odasına mesaj eki olarak gönderilir (odadakiler indirebilsin),
@@ -944,7 +956,7 @@ function djPlayAttached (att, ctx) {
     return Promise.resolve({ ok: false, code: 'file_unavailable' })
   }
   const ref = { u: att.uploadId, k: att.key, n: att.nonce, m: att.mime, s: att.size, name: att.name }
-  return Promise.resolve().then(() => sendMessage()).then(() => {
+  return Promise.resolve().then(() => sendMessage({ dj: { op: 'add', src: 'file' } })).then(() => {
     if (state.attachments.indexOf(att) !== -1) {
       toast(() => t('dj.fileSendFailed'), 'error', 7000)
       return { ok: false, code: 'send_failed' }

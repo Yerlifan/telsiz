@@ -145,8 +145,10 @@ function clientMessageIdFor (channelId, text, uploadIds) {
   return state.unsentMessage.id
 }
 
-async function sendMessage () {
+// opts.dj: Telsiz DJ duyurusu (23-dj.js), şifreli zarfa d alanı olarak girer
+async function sendMessage (opts) {
   if (state.sending) return
+  const dj = opts && opts.dj ? opts.dj : null
   const channelId = state.channelId
   const raw = el.composerInput.value
   const text = raw.trim()
@@ -178,6 +180,7 @@ async function sendMessage () {
   let body = ''
   try {
     const plain = { v: 1, a: state.me.id, c: channelId, t: text, f: files }
+    if (dj) plain.d = dj
     body = isDmChannel(channelId) ? dmSealBody(plain, channelId) : window.E2EE.sealJson(activeKid(), plain)
   } catch (err) {
     toast(errorProducer(err, () => t('composer.sealFailed')), 'error')
@@ -216,6 +219,26 @@ async function sendMessage () {
   }
   updateSendState()
   toast(() => errorText(res, t('composer.sendFailed'), { rate_limited: t('composer.rateLimited') }), 'error')
+}
+
+// Yazma alanına ve gönderilmemiş mesaj durumuna dokunmadan yazı odasına kısa mesaj gönderir (Telsiz DJ
+// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Başarıda true döner.
+async function postSideMessage (channelId, text, d) {
+  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return false
+  let body = ''
+  try {
+    body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: channelId, t: text, f: [], d: d })
+  } catch (err) {
+    return false
+  }
+  if (body.length > state.limits.maxBodyChars) return false
+  const res = await api('POST', '/api/messages', { channelId: channelId, body: body, clientMessageId: newClientMessageId() })
+  if (res.status !== 200 || !res.data || !res.data.message) return false
+  if (sameId(channelId, state.channelId) && !state.hasNewer) {
+    insertMessage(res.data.message, { own: true })
+    markRead()
+  }
+  return true
 }
 
 // Ek ekleme: Fotoğraf ve Dosya düğmeleri, yapıştırma, sürükle-bırak

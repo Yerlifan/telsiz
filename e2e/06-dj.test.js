@@ -89,7 +89,7 @@ test('ses odasında kadronun sonunda Telsiz DJ öğesi, boş DJ sütun açmaz ve
   await W.A.waitForFunction(() => document.getElementById('dj').hidden)
 })
 
-test('/çal ile YouTube parçası: komut mesaj olarak gitmez, rıza kartı çıkar, YouTube\'a istek yok', async () => {
+test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyurusu çıkar, rıza kartı çıkar, YouTube\'a istek yok', async () => {
   const { A, B } = W
   // Bildirim kısa sürer ve hemen ardından rıza bildirimi gelebilir: gösterilen tüm metinler kaydedilir
   await A.evaluate(() => {
@@ -103,11 +103,39 @@ test('/çal ile YouTube parçası: komut mesaj olarak gitmez, rıza kartı çık
   await A.waitForFunction(() => window.e2eToasts.indexOf('Parça kuyruğa eklendi.') !== -1)
   assert.equal(await A.inputValue('#composer-input'), '')
   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
-  assert.equal(sent, false, 'komut mesaj olarak gönderilmedi')
+  assert.equal(sent, false, 'komut metni mesaj olarak gösterilmedi')
+  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür
+  const roomA = await A.evaluate(() => String(state.channelId))
+  const me = await A.evaluate(() => userDisplayName(state.me.id))
+  assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
+  for (const page of [A, B]) {
+    await page.waitForFunction(() => document.querySelector('#message-list .msg-dj'), null, { timeout: h.LONG })
+    const notice = await page.evaluate(() => {
+      const n = document.querySelector('#message-list .msg-dj')
+      const msg = n.closest('.msg')
+      return { text: n.querySelector('.msg-dj-text').textContent, href: n.querySelector('.msg-dj-link').href, rel: n.querySelector('.msg-dj-link').rel, author: msg.querySelector('.msg-author').textContent, editable: Boolean(msg.querySelector('.msg-quick:not(.msg-action-danger)')) }
+    })
+    assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false })
+  }
   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
-  // Parça gelince kart sağ sütundaki İstasyonlar listesinin yerini alır, sol sütun (telsiz kartı) yerinde kalır
-  const col = await A.evaluate(() => ({ col: document.getElementById('app-view').getAttribute('data-dj-col'), sheet: document.getElementById('dj').classList.contains('is-sheet-mode'), infoInline: isInfoInline(), infoCol: document.getElementById('info-col').getBoundingClientRect().width > 0, right: document.getElementById('side-right').getBoundingClientRect().width, dj: document.getElementById('dj').getBoundingClientRect().width > 0 }))
-  assert.deepEqual(col, { col: 'on', sheet: false, infoInline: true, infoCol: true, right: 0, dj: true })
+  // Parça gelince kart sağ sütunun üstüne yerleşir, İstasyonlar listesi altında görünür kalır, sol sütun
+  // (telsiz kartı) yerinde kalır
+  const col = await A.evaluate(() => {
+    const djBox = document.getElementById('dj').getBoundingClientRect()
+    const inbox = document.getElementById('inbox').getBoundingClientRect()
+    return {
+      col: document.getElementById('app-view').getAttribute('data-dj-col'),
+      sheet: document.getElementById('dj').classList.contains('is-sheet-mode'),
+      infoInline: isInfoInline(),
+      infoCol: document.getElementById('info-col').getBoundingClientRect().width > 0,
+      dj: djBox.width > 0,
+      inbox: inbox.width > 0 && inbox.height >= 12 * parseFloat(getComputedStyle(document.documentElement).fontSize) - 1,
+      stacked: djBox.bottom <= inbox.top && Math.abs(djBox.left - inbox.left) < 2,
+      rows: document.querySelectorAll('#inbox-list .room-row').length > 0,
+      roomsButton: document.getElementById('btn-rooms').getClientRects().length > 0
+    }
+  })
+  assert.deepEqual(col, { col: 'on', sheet: false, infoInline: true, infoCol: true, dj: true, inbox: true, stacked: true, rows: true, roomsButton: false })
   const consent = await B.evaluate(() => ({ title: document.querySelector('#dj .dj-consent-title').textContent, yt: document.querySelector('#dj .dj-yt').hidden, frames: document.querySelectorAll('iframe').length }))
   assert.deepEqual(consent, { title: 'YouTube oynatıcısı yüklensin mi?', yt: true, frames: 0 })
   assert.deepEqual(W.yt, { deniz: [], ece: [] }, 'rızadan önce YouTube alan adlarına istek gitmedi')
