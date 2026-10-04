@@ -77,13 +77,17 @@ test('iki kullanıcı Lobi\'ye katılır, kadroda ikisi ve Telsiz DJ görünür'
 test('sahte mikrofonla konuşma halesi görünür ve avatarın yumuşak kare şeklini izler', async () => {
   const { deniz } = W
   const sel = crewSel(W.w.P.mert.id)
-  await deniz.waitForSelector(sel + '.is-speaking', { timeout: h.LONG })
-  const r = await deniz.evaluate((s) => {
-    const avatar = document.querySelector(s + ' .crew-avatar')
-    const cs = getComputedStyle(avatar)
-    const label = document.querySelector(s + ' .crew-button').getAttribute('aria-label')
+  // Chromium'un sahte mikrofonu aralıklı bip sesi verir, konuşma durumu açılıp kapanır. Sınıf ve etiket aynı
+  // anda, konuşma sürerken okunur (ayrı okumada konuşma araya girip bitebilir).
+  const handle = await deniz.waitForFunction((s) => {
+    const item = document.querySelector(s)
+    if (!item || !item.classList.contains('is-speaking')) return null
+    const label = item.querySelector('.crew-button').getAttribute('aria-label')
+    if (!/konuşuyor/.test(label)) return null
+    const cs = getComputedStyle(item.querySelector('.crew-avatar'))
     return { radius: cs.borderTopLeftRadius, halo: cs.boxShadow, outline: cs.outlineStyle, label, talk: document.getElementById('radio-talk-text').textContent }
-  }, sel)
+  }, sel, { timeout: h.LONG })
+  const r = await handle.jsonValue()
   assert.ok(/konuşuyor/.test(r.label), r.label)
   assert.ok(r.halo !== 'none' || r.outline !== 'none', 'hale var')
   assert.notEqual(r.radius, '0px', 'avatar köşeleri yuvarlak')
