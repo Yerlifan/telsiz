@@ -33,6 +33,14 @@ window.VoiceClient = (function () {
   var SELF_GRACE_MS = 15000
   var UNKNOWN_TTL_MS = 15000
   var OTHER_TONE_QUIET_MS = 1500
+  // Kısa sesler (giriş ve çıkış sesleri ayarı): notalar (Hz), notalar arası süre (sn) ve düzey. Bas konuş ipuçları kısa ve tizdir,
+  // katılma ve ayrılma seslerinden ayırt edilir.
+  var TONES = {
+    join: { freqs: [523.25, 659.25], step: 0.12, peak: 0.12 },
+    leave: { freqs: [659.25, 523.25], step: 0.12, peak: 0.12 },
+    pttOn: { freqs: [880, 1174.66], step: 0.06, peak: 0.1 },
+    pttOff: { freqs: [1174.66, 880], step: 0.06, peak: 0.1 }
+  }
   var CONTEXT_CLOSE_DELAY_MS = 700
   var MAX_UNKNOWN = 50
   var MAX_CANDIDATES = 200
@@ -799,8 +807,8 @@ window.VoiceClient = (function () {
       emittedThreshold: null,
       levelEmitAt: 0,
       tickCount: 0,
-      // Bas konuş ve atamalar
-      held: { key: false, mouse: false, pad: false, touch: false },
+      // Bas konuş ve atamalar. external: masaüstü uygulamasının genel bas konuş kısayolu veya tuş kancası
+      held: noneHeld(),
       pttActive: false,
       pttTail: false,
       pttTimer: null,
@@ -1048,7 +1056,9 @@ window.VoiceClient = (function () {
     function setSettings (partial) {
       var ch = mergeSettings(partial)
       saveSettings()
-      if (ch.mode || ch.bindings) releaseAll()
+      // Mod değişince her kaynak bırakılır, yalnızca atamalar değişince masaüstü kaynağı açık kalır
+      if (ch.mode) releaseAll(false)
+      else if (ch.bindings) releaseAll(true)
       if (ch.bindings) {
         st.padInit = true
         updateMouseGuard()
@@ -1158,7 +1168,7 @@ window.VoiceClient = (function () {
         capturing: !!st.capture,
         fallback: st.mode === 'raw',
         rnnoise: rnnoiseState(),
-        ptt: { enabled: s.inputMode === 'ptt', active: st.pttActive },
+        ptt: { enabled: s.inputMode === 'ptt', active: st.pttActive, external: st.held.external },
         selfSpeaking: st.selfSpeaking,
         inputLevel: st.inputLevel,
         errorCode: code,
@@ -1823,15 +1833,17 @@ window.VoiceClient = (function () {
       node.lastLoud = 0
     }
 
+    // Katılma ve ayrılma sesleri ile bas konuşun kısa açılış ve kapanış ipucu (masaüstü genel kısayolu)
     function playTone (kind, other) {
       if (!st.settings.sounds || !ctx || ctx.state !== 'running') return
       if (other && st.deafened) return
-      var freqs = kind === 'join' ? [523.25, 659.25] : [659.25, 523.25]
-      var peak = other ? 0.08 : 0.12
+      var tone = TONES[kind]
+      if (!tone) return
+      var peak = other ? 0.08 : tone.peak
       var t0 = ctx.currentTime + 0.02
       var c = ctx
-      freqs.forEach(function (f, i) {
-        var start = t0 + i * 0.12
+      tone.freqs.forEach(function (f, i) {
+        var start = t0 + i * tone.step
         try {
           var osc = c.createOscillator()
           var gain = c.createGain()
@@ -1839,14 +1851,14 @@ window.VoiceClient = (function () {
           osc.frequency.setValueAtTime(f, start)
           gain.gain.setValueAtTime(0, start)
           gain.gain.linearRampToValueAtTime(peak, start + 0.02)
-          gain.gain.linearRampToValueAtTime(0, start + 0.11)
+          gain.gain.linearRampToValueAtTime(0, start + tone.step - 0.01)
           osc.connect(gain)
           gain.connect(c.destination)
           osc.onended = function () {
             disconnectNodes([osc, gain])
           }
           osc.start(start)
-          osc.stop(start + 0.12)
+          osc.stop(start + tone.step)
         } catch (e) {}
       })
     }
@@ -2032,7 +2044,7 @@ window.VoiceClient = (function () {
       stopTick()
       removeListeners()
       clearPttTimer()
-      st.held = { key: false, mouse: false, pad: false, touch: false }
+      st.held = noneHeld()
       st.pttActive = false
       st.pttTail = false
       st.gate = false
@@ -2082,7 +2094,17 @@ window.VoiceClient = (function () {
       emit()
     }
 
-    // Bas konuş: kaynaklar (klavye, fare, oyun kolu, dokunmatik düğme) ayrı izlenir
+    // Bas konuş: kaynaklar (klavye, fare, oyun kolu, dokunmatik düğme, masaüstü uygulamasının genel
+    // kısayolu veya tuş kancası) ayrı izlenir. Biri bırakılınca diğeri basılıysa konuşma sürer.
+    function noneHeld () {
+      return { key: false, mouse: false, pad: false, touch: false, external: false }
+    }
+
+    function anyHeld () {
+      var h = st.held
+      return h.key || h.mouse || h.pad || h.touch || h.external
+    }
+
     function clearPttTimer () {
       if (st.pttTimer) clearTimeout(st.pttTimer)
       st.pttTimer = null
@@ -2114,13 +2136,16 @@ window.VoiceClient = (function () {
     function pttRelease (src) {
       if (!st.held[src]) return
       st.held[src] = false
-      if (!st.held.key && !st.held.mouse && !st.held.pad && !st.held.touch) setPttActive(false)
+      if (!anyHeld()) setPttActive(false)
     }
 
-    // Odak kaybında basılı her şey bırakılmış sayılır (gecikme uygulanmaz)
-    function releaseAll () {
-      st.held = { key: false, mouse: false, pad: false, touch: false }
-      st.pttActive = false
+    // Odak kaybında basılı her şey bırakılmış sayılır (gecikme uygulanmaz). keepExternal: pencere dışındaki
+    // kaynak (masaüstü kısayolu veya tuş kancası) odak ve görünürlükten bağımsızdır, açık kalır.
+    function releaseAll (keepExternal) {
+      var external = keepExternal === true && st.held.external
+      st.held = noneHeld()
+      st.held.external = external
+      st.pttActive = external
       clearPttTimer()
       st.pttTail = false
       updateGate(false)
@@ -2384,14 +2409,14 @@ window.VoiceClient = (function () {
 
     // Klavye, odak ve görünürlük dinleyicileri (mikrofon açıkken)
     function onBlur () {
-      releaseAll()
+      releaseAll(true)
     }
 
     function onVisibility () {
       if (document.visibilityState === 'visible') {
         requestWakeLock()
       } else {
-        releaseAll()
+        releaseAll(true)
       }
       updatePadPoll()
     }
@@ -4950,8 +4975,13 @@ window.VoiceClient = (function () {
       setPeerLocalMute: setPeerLocalMute,
       setSettings: setSettings,
       settings: getSettings,
-      pttDown: function () { pttPress('touch') },
-      pttUp: function () { pttRelease('touch') },
+      // Kaynak verilmezse ekrandaki Bas konuş düğmesi, 'external' masaüstü uygulamasının genel kısayolu veya tuş kancası
+      pttDown: function (source) { pttPress(source === 'external' ? 'external' : 'touch') },
+      pttUp: function (source) { pttRelease(source === 'external' ? 'external' : 'touch') },
+      // Bas konuş açılış ve kapanış sesi ('pttOn', 'pttOff'), giriş ve çıkış sesleri ayarına (sounds) uyar
+      playCue: function (kind) {
+        if (kind === 'pttOn' || kind === 'pttOff') playTone(kind, false)
+      },
       captureBinding: captureBinding,
       cancelCapture: cancelCapture,
       bindingLabel: bindingLabel,

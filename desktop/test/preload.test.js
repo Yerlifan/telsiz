@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'updates', 'version'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
@@ -107,9 +107,62 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   fire({}, 'kotu')
   fire({}, { toString: () => 'toggleMute' })
   fire({}, 'toggleDeafen')
+  fire({}, 'pttToggle')
+  // Basılı tut olayları kısayol kanalından gelemez
+  fire({}, 'start')
   off()
   fire({}, 'toggleMute')
-  assert.deepEqual(got, ['toggleMute', 'toggleDeafen'])
+  assert.deepEqual(got, ['toggleMute', 'toggleDeafen', 'pttToggle'])
+})
+
+test('bas konuş API: ayar alanları süzülür, ses odası durumu yalnızca true veya false, kanca olayları yalnızca start ve end', async () => {
+  const p = loadPreload('preload.js', [])
+  const api = p.exposed.telsizDesktop
+  await api.setPtt({ mode: 'hold', holdKey: 'V', keycode: 47, fazla: { kotu: 1 } })
+  await api.setPtt({ mode: 'toggle', holdKey: null })
+  await api.setPtt({ mode: 'kanca', holdKey: 5 })
+  await api.setPtt({ mode: 'hold' })
+  await api.setPtt('hold')
+  await api.setPtt(null)
+  const plain = (value) => JSON.parse(JSON.stringify(value))
+  assert.deepEqual(plain(p.invoked), [
+    [channels.CHANNELS.setPtt, { mode: 'hold', holdKey: 'V' }],
+    [channels.CHANNELS.setPtt, { mode: 'toggle', holdKey: null }],
+    [channels.CHANNELS.setPtt, { mode: '', holdKey: false }],
+    [channels.CHANNELS.setPtt, { mode: 'hold', holdKey: null }],
+    [channels.CHANNELS.setPtt, { mode: '', holdKey: null }],
+    [channels.CHANNELS.setPtt, { mode: '', holdKey: null }]
+  ])
+  api.setVoiceActive(true)
+  api.setVoiceActive('evet')
+  api.setVoiceActive({ channelId: 'x' })
+  api.setVoiceActive(false)
+  assert.deepEqual(p.sent, [
+    [channels.CHANNELS.pttVoice, true],
+    [channels.CHANNELS.pttVoice, false],
+    [channels.CHANNELS.pttVoice, false],
+    [channels.CHANNELS.pttVoice, false]
+  ])
+  const got = []
+  const off = api.onPttHold(function () {
+    got.push(Array.from(arguments))
+  })
+  assert.equal(typeof api.onPttHold('x'), 'function')
+  const fire = p.listeners[channels.CHANNELS.pttHold]
+  fire({ sender: 'gizli' }, 'start')
+  fire({}, { keycode: 47 })
+  fire({}, 47)
+  fire({}, 'toggleMute')
+  fire({}, 'end', { keycode: 47 })
+  // Bir işleyicinin hatası diğerlerini durdurmaz
+  const offBad = api.onPttHold(() => {
+    throw new Error('sayfa hatası')
+  })
+  fire({}, 'start')
+  offBad()
+  off()
+  fire({}, 'end')
+  assert.deepEqual(got, [['start'], ['end'], ['start']])
 })
 
 test('güncelleme API: girdiler ve ana süreçten gelen durum doğrulanır', async () => {
@@ -253,6 +306,8 @@ test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
   }
   const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
   assert.ok(preload.includes("const ACTIONS = ['" + channels.ACTIONS.join("', '") + "']"))
+  assert.ok(preload.includes("const HOLD_PHASES = ['" + channels.HOLD_PHASES.join("', '") + "']"))
+  assert.ok(preload.includes("const PTT_MODES = ['" + require('../src/lib/shortcuts').PTT_MODES.join("', '") + "']"))
   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
   assert.ok(preload.includes("const BACKGROUND_ARG = '" + channels.BACKGROUND_ARG + "'"))
 })
@@ -276,8 +331,9 @@ test('ana süreç sertleştirmeleri kaynakta bulunur', () => {
   const total = main.match(/ipcMain\.(handle|on)\(/g) || []
   assert.equal(handlers.length, total.length)
   assert.ok(total.length >= 22)
-  // Güncelleme kanallarının hepsi uygulama penceresine bağlıdır
-  for (const name of ['updatesGet', 'updatesCheck', 'updatesInstall', 'updatesSetAuto', 'updatesOpenRelease']) {
+  // Güncelleme ve bas konuş kanallarının hepsi uygulama penceresine bağlıdır
+  assert.match(main, /ipcMain\.on\(CHANNELS\.pttVoice, \(event, value\) => \{\n\s+if \(senderIs\(event, 'app'\) && typeof value === 'boolean'\)/)
+  for (const name of ['updatesGet', 'updatesCheck', 'updatesInstall', 'updatesSetAuto', 'updatesOpenRelease', 'setPtt']) {
     assert.match(main, new RegExp('ipcMain\\.handle\\(CHANNELS\\.' + name + ', \\([^)]*\\) => \\{\\n\\s+requireSender\\(event, \'app\'\\)'), name)
   }
   // Sürüm sayfası yalnızca doğrulanmış adresle açılır, electron-updater yalnızca gerektiğinde yüklenir

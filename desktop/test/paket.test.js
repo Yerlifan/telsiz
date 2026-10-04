@@ -38,8 +38,9 @@ test('masaüstü sürümü kök sürümle aynıdır ve bağımlılıklar tam sab
   assert.equal(desktop.name, 'telsiz-masaustu')
   assert.equal(desktop.version, root.version)
   assert.equal(desktop.private, true)
-  // Çalışma zamanı bağımlılığı yalnızca electron-updater'dır (electron-builder 26 ile eşleşen sürüm)
-  assert.deepEqual(desktop.dependencies, { 'electron-updater': '6.8.10' })
+  // Çalışma zamanı bağımlılıkları: electron-updater (electron-builder 26 ile eşleşen sürüm) ve basılı tut
+  // tuş kancası için uiohook-napi (yerel modül, yalnızca gerektiğinde yüklenir)
+  assert.deepEqual(desktop.dependencies, { 'electron-updater': '6.8.10', 'uiohook-napi': '1.5.5' })
   assert.deepEqual(Object.keys(desktop.devDependencies).sort(), ['electron', 'electron-builder', 'playwright'])
   for (const value of Object.values(desktop.devDependencies).concat(Object.values(desktop.dependencies))) assert.match(value, /^\d+\.\d+\.\d+$/)
   assert.equal(hazirla.checkVersions(ROOT_DIR, DESKTOP_DIR), root.version)
@@ -48,8 +49,31 @@ test('masaüstü sürümü kök sürümle aynıdır ve bağımlılıklar tam sab
   const all = Object.assign({}, desktop.devDependencies, desktop.dependencies)
   for (const name of Object.keys(all)) assert.equal(lock.packages['node_modules/' + name].version, all[name])
   assert.deepEqual(lock.packages[''].dependencies, desktop.dependencies)
-  // electron-updater kilit dosyasında geliştirme bağımlılığı olarak işaretlenmez (pakete girer)
+  // electron-updater ve uiohook-napi kilit dosyasında geliştirme bağımlılığı olarak işaretlenmez (pakete girer)
   assert.notEqual(lock.packages['node_modules/electron-updater'].dev, true)
+  assert.notEqual(lock.packages['node_modules/uiohook-napi'].dev, true)
+  assert.equal(lock.packages['node_modules/uiohook-napi'].license, 'MIT')
+})
+
+test('uiohook-napi: derlenmiş Node-API ikilileri hedef platformlar için pakette, paketlemede açılır', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(DESKTOP_DIR, 'electron-builder.json'), 'utf8'))
+  // Yerel modül asar dışına açılır (Electron .node dosyasını asar içinden yükleyemez)
+  assert.deepEqual(config.asarUnpack, ['node_modules/uiohook-napi/**/*'])
+  // Paketteki hazır Node-API ikilileri kullanılır, electron-builder yerel modülleri kaynaktan derlemez
+  // (derleme X11 geliştirme başlıkları ve derleyici isterdi, Node-API ikilisi Electron ile de çalışır)
+  assert.equal(config.npmRebuild, false)
+  const dir = path.join(DESKTOP_DIR, 'node_modules', 'uiohook-napi')
+  assert.ok(fs.existsSync(dir), 'uiohook-napi kurulu değil (desktop/ içinde npm ci çalıştırın)')
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+  assert.equal(pkg.version, '1.5.5')
+  assert.equal(pkg.license, 'MIT')
+  // Windows ve Linux derlemeleri x64'tür (electron-builder.json), bu ikililer pakette olmalıdır
+  for (const target of ['win32-x64', 'linux-x64']) {
+    const file = path.join(dir, 'prebuilds', target, 'uiohook-napi.node')
+    assert.ok(fs.existsSync(file) && fs.statSync(file).size > 10000, target)
+  }
+  assert.deepEqual(config.win.target.map((t) => t.arch), [['x64'], ['x64']])
+  assert.deepEqual(config.linux.target.map((t) => t.arch), [['x64'], ['x64']])
 })
 
 test('electron-builder yapılandırması: artifact adları, simgeler, sigortalar, güncelleme bilgisi', () => {
@@ -178,8 +202,24 @@ test('ayarlar doğrulanarak okunur ve atomik yazılır', () => {
     const file = path.join(root, 'alt', settingsStore.FILE_NAME)
     assert.deepEqual(settingsStore.load(file), settingsStore.defaults())
     const saved = settingsStore.save(file, { server: 'https://telsiz.ornek.com', closeToTray: true, shortcuts: { toggleMute: 'ctrl+shift+m', toggleDeafen: null } })
-    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null }, autoUpdate: true })
+    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null, pttToggle: null }, ptt: { mode: 'toggle', holdKey: null }, autoUpdate: true })
     assert.deepEqual(settingsStore.load(file), saved)
+    // Bas konuş: varsayılan bas aç, bas kapat. Basılı tut ve tuşu saklanır, geçersiz ayar varsayılana döner.
+    assert.deepEqual(settingsStore.defaults().ptt, { mode: 'toggle', holdKey: null })
+    const hold = settingsStore.save(file, Object.assign({}, saved, { shortcuts: { pttToggle: 'ctrl+alt+v' }, ptt: { mode: 'hold', holdKey: 'shift+v' } }))
+    assert.deepEqual(hold.ptt, { mode: 'hold', holdKey: 'Shift+V' })
+    assert.equal(hold.shortcuts.pttToggle, 'CommandOrControl+Alt+V')
+    assert.deepEqual(settingsStore.load(file).ptt, { mode: 'hold', holdKey: 'Shift+V' })
+    for (const bad of [{ mode: 'kanca' }, { mode: 'hold', holdKey: 'VolumeUp' }, { mode: 'hold', holdKey: 'V', keycode: 47 }, 'hold', ['hold']]) {
+      fs.writeFileSync(file, JSON.stringify(Object.assign({}, saved, { ptt: bad })))
+      assert.deepEqual(settingsStore.load(file).ptt, { mode: 'toggle', holdKey: null }, JSON.stringify(bad))
+    }
+    // Eski ayar dosyası (ptt ve pttToggle yok) okunur
+    fs.writeFileSync(file, JSON.stringify({ version: 2, server: 'https://telsiz.ornek.com', shortcuts: { toggleMute: 'F9', toggleDeafen: null } }))
+    const old = settingsStore.load(file)
+    assert.deepEqual(old.shortcuts, { toggleMute: 'F9', toggleDeafen: null, pttToggle: null })
+    assert.deepEqual(old.ptt, { mode: 'toggle', holdKey: null })
+    settingsStore.save(file, saved)
     assert.deepEqual(fs.readdirSync(path.dirname(file)), [settingsStore.FILE_NAME])
     if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600)
     fs.writeFileSync(file, JSON.stringify({ server: 'http://kotu.com', closeToTray: 'evet', shortcuts: { toggleMute: 'A' } }))

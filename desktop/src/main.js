@@ -23,6 +23,11 @@
 // - Güncellemeler (src/lib/updates.js): kurucu ve AppImage electron-updater ile arka planda indirir
 //   ve sha512 ile doğrular, kurulum yalnızca kullanıcı isteyince yapılır. Taşınabilir exe ve .deb
 //   için yalnızca yeni sürüm bildirilir. Ayar kapalıyken GitHub'a hiç istek gitmez.
+// - Bas konuş arka planda: bas aç, bas kapat bir genel kısayoldur (pttToggle). Basılı tut isteğe bağlıdır
+//   ve tuş kancasıyla (uiohook-napi, src/lib/ptt-hook.js) çalışır. Kanca yalnızca ayar açıkken ve sayfa ses
+//   odasında bas konuş modundayken çalışır, yerel modül yalnızca gerektiğinde yüklenir. Kanca olayları
+//   yalnızca burada işlenir, sayfaya yalnızca "konuş başla" ve "konuş bitti" gider, tuş kodları sayfaya
+//   veya günlüğe hiç gitmez.
 
 const path = require('node:path')
 const fs = require('node:fs')
@@ -61,8 +66,9 @@ const frequencies = require('./lib/frequencies')
 const updates = require('./lib/updates')
 const background = require('./lib/background')
 const serverIcon = require('./lib/server-icon')
+const pttHook = require('./lib/ptt-hook')
 
-const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG, BACKGROUND_ARG } = channels
+const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
 
 const APP_ID = 'io.github.yerlifan.telsiz'
 const HOMEPAGE = 'https://github.com/Yerlifan/telsiz'
@@ -130,6 +136,8 @@ const state = {
   quitting: false,
   registeredAccelerators: [],
   shortcutStatus: {},
+  // Uygulama penceresinin son bildirimi: ses odasında ve bas konuş modunda mı (basılı tut kancası için)
+  pttVoice: false,
   contexts: new Map(),
   preparedSessions: new WeakSet(),
   connectBusy: false,
@@ -547,10 +555,15 @@ function openMainWindow () {
   diag.log('window', { context: 'app', contents: id })
   state.mainWindow = win
   state.mainOrigin = origin
+  // Yeni sayfa ses odasında değildir, basılı tut kancası sayfa bildirene kadar durur
+  setPttVoice(false)
   // Bu frekansın arka plan penceresi uygulama penceresi yüklenmeden kapanır, diğerleri biraz sonra açılır
   backgroundWindows.setActive(origin)
   attachContextMenu(win.webContents)
   showWhenReady(win)
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument && state.mainWindow === win) setPttVoice(false)
+  })
   win.on('close', (event) => {
     if (state.quitting || state.mainWindow !== win) return
     if (state.settings.closeToTray && state.tray) {
@@ -570,8 +583,12 @@ function openMainWindow () {
       // Uygulama penceresi gerçekten kapandı (geçiş değil): arka plan pencereleri de kapanır
       backgroundWindows.stop()
     }
+    if (state.mainWindow === null) setPttVoice(false)
   })
-  win.webContents.on('render-process-gone', (event, details) => logError('renderer', new Error(details.reason)))
+  win.webContents.on('render-process-gone', (event, details) => {
+    logError('renderer', new Error(details.reason))
+    if (state.mainWindow === win) setPttVoice(false)
+  })
   win.loadURL(APP_ORIGIN + '/').catch((err) => logError('load', err))
 }
 
@@ -1054,6 +1071,45 @@ function sendShortcut (action) {
   win.webContents.send(CHANNELS.shortcut, action)
 }
 
+// Basılı tut kancasının "konuş başla" ve "konuş bitti" olayları yalnızca uygulama penceresine gider.
+// Olayda yalnızca bu iki değerden biri vardır (tuş kodu veya başka bir bilgi yok).
+function sendPttHold (talking) {
+  const phase = talking === true ? 'start' : 'end'
+  if (!HOLD_PHASES.includes(phase)) return
+  const win = state.mainWindow
+  if (!isAlive(win) || win.webContents.isDestroyed()) return
+  win.webContents.send(CHANNELS.pttHold, phase)
+}
+
+// Basılı tut kancası (src/lib/ptt-hook.js). uiohook-napi yalnızca kanca gerektiğinde veya ayarda basılı
+// tut açılırken yüklenir.
+const holdHook = pttHook.createPttHook({
+  platform: process.platform,
+  env: process.env,
+  load: () => require('uiohook-napi'),
+  onTalk: (talking) => sendPttHold(talking),
+  log: logError
+})
+
+// Kanca yalnızca basılı tut kipi açıkken, tuş atanmışken ve uygulama penceresi ses odasında bas konuş
+// modunda olduğunu bildirmişken çalışır
+function refreshHoldHook () {
+  const before = holdHook.isRunning()
+  const status = holdHook.update({
+    enabled: state.settings.ptt.mode === 'hold',
+    active: state.pttVoice && isAlive(state.mainWindow),
+    key: state.settings.ptt.holdKey
+  })
+  if (status.running !== before || status.error) diag.log('ptt-hook', { running: status.running, reason: status.reason, error: status.error })
+}
+
+function setPttVoice (value) {
+  const next = value === true
+  if (state.pttVoice === next) return
+  state.pttVoice = next
+  refreshHoldHook()
+}
+
 function applyShortcuts (map) {
   for (const accelerator of state.registeredAccelerators) {
     try {
@@ -1066,7 +1122,8 @@ function applyShortcuts (map) {
   const status = {}
   for (const action of ACTIONS) {
     const accelerator = map[action]
-    if (!accelerator) {
+    // Bas aç, bas kapat kısayolu basılı tut kipinde kaydedilmez (bas konuşu tuş kancası yönetir)
+    if (!accelerator || (action === 'pttToggle' && state.settings.ptt.mode === 'hold')) {
       status[action] = null
       continue
     }
@@ -1088,8 +1145,26 @@ function settingsSnapshot () {
     closeToTray: state.settings.closeToTray,
     trayAvailable: Boolean(state.tray),
     shortcuts: Object.assign({}, state.settings.shortcuts),
-    registered: Object.assign({}, state.shortcutStatus)
+    registered: Object.assign({}, state.shortcutStatus),
+    ptt: Object.assign({}, state.settings.ptt),
+    // { available, reason, running, error }: basılı tut seçeneği kullanılamıyorsa nedeni
+    pttHook: holdHook.availability()
   }
+}
+
+// Bas konuş ayarı: kip (toggle veya hold) ve basılı tut tuşu. Basılı tut açılırken yerel modül denenir,
+// yüklenemiyorsa ayar değişmez ve sayfa nedeni gösterir.
+function setPttSettings (input) {
+  const checked = shortcuts.validatePttSettings(input)
+  if (!checked.ok) return { ok: false, code: checked.code }
+  const value = checked.value
+  if (shortcuts.holdConflict(state.settings.shortcuts, value)) return { ok: false, code: 'duplicate' }
+  if (value.mode === 'hold' && !holdHook.check().available) return Object.assign({ ok: false, code: 'unavailable' }, settingsSnapshot())
+  state.settings.ptt = value
+  persistSettings()
+  applyShortcuts(state.settings.shortcuts)
+  refreshHoldHook()
+  return Object.assign({ ok: true }, settingsSnapshot())
 }
 
 function setCloseToTray (value) {
@@ -1126,10 +1201,19 @@ function registerIpc () {
     requireSender(event, 'app')
     const checked = shortcuts.validateShortcutMap(map)
     if (!checked.ok) return { ok: false, code: checked.code }
+    if (shortcuts.holdConflict(checked.map, state.settings.ptt)) return { ok: false, code: 'duplicate' }
     state.settings.shortcuts = checked.map
     persistSettings()
     applyShortcuts(checked.map)
     return Object.assign({ ok: true }, settingsSnapshot())
+  })
+  ipcMain.handle(CHANNELS.setPtt, (event, value) => {
+    requireSender(event, 'app')
+    return setPttSettings(value)
+  })
+  // Sayfa ses odasına girince veya çıkınca, bas konuş modu değişince bildirir (yalnızca true veya false)
+  ipcMain.on(CHANNELS.pttVoice, (event, value) => {
+    if (senderIs(event, 'app') && typeof value === 'boolean') setPttVoice(value)
   })
   ipcMain.handle(CHANNELS.setCloseToTray, (event, value) => {
     requireSender(event, 'app')
@@ -1388,6 +1472,7 @@ if (!singleInstance) {
   })
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    holdHook.stop()
   })
   app.on('window-all-closed', () => {
     app.quit()

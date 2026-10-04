@@ -111,6 +111,14 @@ let radioLastChannel = null
 
 function onVoiceChange (snapshot) {
   state.voiceSnap = snapshot || null
+  // Masaüstü uygulaması (20-desktop.js) basılı tut kancası için ses odası durumunu ana sürece bildirir
+  if (window.TelsizDesktopUI && typeof window.TelsizDesktopUI.onVoice === 'function') {
+    try {
+      window.TelsizDesktopUI.onVoice(state.voiceSnap)
+    } catch (err) {
+      window.console.error(err)
+    }
+  }
   const code = snapshot && snapshot.errorCode ? snapshot.errorCode : null
   const server = snapshot && snapshot.serverError ? snapshot.serverError : ''
   if (code && code !== lastVoiceError) toast(() => voiceErrorText(code, server), 'error', 8000)

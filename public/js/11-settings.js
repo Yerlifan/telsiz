@@ -2199,7 +2199,7 @@ function buildVoicePage (page) {
   const release = sRange('set-ptt-release', 0, 1000, 10, typeof s0.pttReleaseMs === 'number' ? s0.pttReleaseMs : 200)
   pttWrap.appendChild(release)
   pttWrap.appendChild(sHint(t('settings.voice.releaseHint')))
-  pttWrap.appendChild(h('p', 'settings-note', t('settings.voice.focusNote')))
+  pttWrap.appendChild(h('p', 'settings-note', voiceFocusNote()))
   release.addEventListener('input', () => {
     applyVoiceSettings({ pttReleaseMs: sliderValue(release, 0, 1000) })
   })
@@ -2642,6 +2642,13 @@ function cancelBindingCapture () {
 
 // 5. Tuş atamaları: Bas konuş, Mikrofonu aç/kapat, Sağırlaştır
 
+// Odak notu: tarayıcıda bas konuş tuşu yalnızca odaktaki sayfada çalışır. Masaüstü uygulamasında oyun
+// sırasında genel bas konuş kısayolu veya basılı tut kullanılabilir (20-desktop.js).
+function voiceFocusNote () {
+  const desktopUi = window.TelsizDesktopUI
+  return t(desktopUi && desktopUi.active ? 'settings.voice.focusNoteDesktop' : 'settings.voice.focusNote')
+}
+
 function sameBinding (a, b) {
   if (!a || !b || a.type !== b.type) return false
   if (a.type === 'key') return a.code === b.code
@@ -2649,7 +2656,7 @@ function sameBinding (a, b) {
 }
 
 function buildKeybindsPage (page) {
-  page.appendChild(h('p', 'settings-note settings-note-strong', t('settings.voice.focusNote')))
+  page.appendChild(h('p', 'settings-note settings-note-strong', voiceFocusNote()))
   const modeLine = h('p', 'settings-text')
   modeLine.id = 'set-bind-mode'
   page.appendChild(modeLine)

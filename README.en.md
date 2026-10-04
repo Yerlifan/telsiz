@@ -130,7 +130,7 @@ There are three ways to reach friends on the internet. The `tunel.bat` (Windows)
 
 **Phones, tablets and computers.** When Telsiz is opened at an https address it can be installed as an app. In browsers that support it, an "Install app" button appears in Settings > App. On iPhone and iPad, use "Add to Home Screen" in the Share menu of Safari. An installed app is bound to the address it was installed from.
 
-**Desktop app.** The desktop app for Windows and Linux carries the interface inside itself and verifies the integrity of its files at startup. It remembers several frequencies (address and sign-in), switches between them in the same window and counts the unread messages of frequencies that are not open in the background. It offers global shortcuts for mute and deafen and an option to minimize to the system tray.
+**Desktop app.** The desktop app for Windows and Linux carries the interface inside itself and verifies the integrity of its files at startup. It remembers several frequencies (address and sign-in), switches between them in the same window and counts the unread messages of frequencies that are not open in the background. It offers global shortcuts for mute, deafen and push to talk that also works while the app is in the background (press to start and stop, or hold to talk with an optional key hook), and an option to minimize to the system tray.
 
 **TVs and game consoles.** On wide screens the interface opens with large text and large buttons and can be navigated with the arrow keys. The PS5 has no official browser app, and voice chat in console browsers has not been verified. The person at the console can join voice chat with the same account from their phone.
 

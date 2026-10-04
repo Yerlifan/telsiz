@@ -16,6 +16,9 @@ const CHANNELS = {
   setShortcuts: 'telsiz:set-shortcuts',
   setCloseToTray: 'telsiz:set-close-to-tray',
   shortcut: 'telsiz:shortcut',
+  setPtt: 'telsiz:set-ptt',
+  pttVoice: 'telsiz:ptt-voice',
+  pttHold: 'telsiz:ptt-hold',
   userActivation: 'telsiz:user-activation',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
@@ -33,7 +36,9 @@ const CHANNELS = {
   bgState: 'telsiz:bg-state',
   bgGet: 'telsiz:bg-get'
 }
-const ACTIONS = ['toggleMute', 'toggleDeafen']
+const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
+const HOLD_PHASES = ['start', 'end']
+const PTT_MODES = ['toggle', 'hold']
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
@@ -62,6 +67,30 @@ ipcRenderer.on(CHANNELS.shortcut, (event, action) => {
     }
   }
 })
+
+// Basılı tut kancasının olayları: yalnızca 'start' (konuş başla) ve 'end' (konuş bitti) sayfaya iletilir
+const holdListeners = new Set()
+ipcRenderer.on(CHANNELS.pttHold, (event, phase) => {
+  if (!HOLD_PHASES.includes(phase)) return
+  for (const callback of Array.from(holdListeners)) {
+    try {
+      callback(phase)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
+// Bas konuş ayarının yalnızca bilinen alanları, türleri denetlenerek ana sürece gider (ana süreç yeniden doğrular)
+// Bilinmeyen kip boş dizgeye, metin olmayan tuş false değerine çevrilir, ikisini de ana süreç reddeder
+function copyPtt (value) {
+  const v = value && typeof value === 'object' ? value : {}
+  const key = v.holdKey
+  return {
+    mode: PTT_MODES.includes(v.mode) ? v.mode : '',
+    holdKey: key === undefined || key === null ? null : (typeof key === 'string' ? key : false)
+  }
+}
 
 // Ana süreçten gelen güncelleme durumunun yalnızca bilinen alanları, türleri denetlenerek kopyalanır
 function cleanUpdateState (raw) {
@@ -123,16 +152,28 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   getServer: () => ipcRenderer.invoke(CHANNELS.getServer),
   // Frekans adresi penceresini açar (yeni frekans ekleme)
   changeServer: () => ipcRenderer.invoke(CHANNELS.changeServer),
-  // { server, closeToTray, trayAvailable, shortcuts, registered, systemAudio }
+  // { server, closeToTray, trayAvailable, shortcuts, registered, ptt, pttHook }
   getSettings: () => ipcRenderer.invoke(CHANNELS.getSettings),
-  // map: { toggleMute: 'CommandOrControl+Shift+M' | null, toggleDeafen: ... }
+  // map: { toggleMute: 'CommandOrControl+Shift+M' | null, toggleDeafen: ..., pttToggle: ... }
   setShortcuts: (map) => ipcRenderer.invoke(CHANNELS.setShortcuts, map),
-  // callback(action): action 'toggleMute' veya 'toggleDeafen'. Dönen işlev aboneliği kaldırır.
+  // callback(action): action 'toggleMute', 'toggleDeafen' veya 'pttToggle'. Dönen işlev aboneliği kaldırır.
   onShortcut: (callback) => {
     if (typeof callback !== 'function') return () => {}
     listeners.add(callback)
     return () => {
       listeners.delete(callback)
+    }
+  },
+  // Bas konuş ayarı: { mode: 'toggle' | 'hold', holdKey: 'V' | null }
+  setPtt: (value) => ipcRenderer.invoke(CHANNELS.setPtt, copyPtt(value)),
+  // Sayfa ses odasında bas konuş modundayken true, değilken false bildirir (basılı tut kancası yalnızca true iken çalışır)
+  setVoiceActive: (value) => ipcRenderer.send(CHANNELS.pttVoice, value === true),
+  // callback(phase): 'start' veya 'end' (basılı tut kancası). Dönen işlev aboneliği kaldırır.
+  onPttHold: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    holdListeners.add(callback)
+    return () => {
+      holdListeners.delete(callback)
     }
   },
   setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null),

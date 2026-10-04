@@ -4,9 +4,17 @@
 // betiği window.telsizDesktop nesnesini verdiyse etkinleşir, tarayıcıda hiçbir şey yapmaz.
 // - Genel kısayol olaylarında (mikrofonu aç/kapat, sağırlaştır) ses modülünün toggleMute ve
 //   toggleDeafen işlevlerini çağırır (10-voice.js).
+// - Bas konuş arka planda: bas aç, bas kapat kısayolu (pttToggle) ve basılı tut kancasının 'start' ve 'end'
+//   olayları VoiceClient'ın bas konuş yolunu 'external' kaynağıyla kullanır (voice.pttDown('external'),
+//   voice.pttUp('external')). Pencerenin kendi bas konuş tuşu ve ekrandaki düğme ayrı kaynaklardır, biri
+//   bırakılınca diğeri basılıysa konuşma sürer. Kısayol yalnızca ses odasındayken çalışır. Ses etkinliği
+//   modunda bas konuş moduna geçilmez, kısayol mikrofonu aç/kapat gibi davranır. Açılış ve kapanışta kısa
+//   bir ses çalar (giriş ve çıkış sesleri ayarına uyar). Ses odası durumu (ses odasında ve bas konuş modunda mı) ana
+//   sürece bildirilir, basılı tut kancası yalnızca o zaman çalışır.
 // - Masaüstünde PWA yükleme önerisini engeller ve yükleme düğmesini gizler.
 // - Ayarlar sayfası için iki bölüm üretir: window.TelsizDesktopUI.renderShortcutSettings(kapsayici)
-//   genel kısayolları, renderAppSettings(kapsayici) sunucu adresini ve tepsiye küçültmeyi gösterir.
+//   genel kısayolları ve "Basılı tut (tuş kancası)" seçeneğini, renderAppSettings(kapsayici) sunucu
+//   adresini ve tepsiye küçültmeyi gösterir.
 //   İkisi de kapsayıcıyı temizleyip yeniden çizer, dil değişince yeniden çağrılabilir (veya
 //   refresh() kullanılır).
 // - Güncellemeler: uygulama ayarlarında "Güncellemeleri otomatik denetle" anahtarı, Şimdi denetle
@@ -14,7 +22,8 @@
 //   yeni sürüm bildirimi (taşınabilir exe ve .deb) için sayfanın köşesinde kapatılabilir bir şerit.
 //   Denetim, indirme ve kurulum ana süreçte yapılır (desktop/src/lib/updates.js), sayfa yalnızca
 //   telsizDesktop.updates API'sini çağırır ve hiçbir adres vermez.
-// Kısayollar ana süreçte yeniden doğrulanır ve kaydedilir, burada yalnızca tuş bileşimi yakalanır.
+// Kısayollar ve bas konuş ayarı ana süreçte yeniden doğrulanır ve kaydedilir, burada yalnızca tuş
+// bileşimi yakalanır.
 
 window.TelsizDesktopUI = (function () {
   const desktop = window.telsizDesktop
@@ -26,11 +35,16 @@ window.TelsizDesktopUI = (function () {
     renderAppSettings: function () {
       return false
     },
-    refresh: function () {}
+    refresh: function () {},
+    onVoice: function () {}
   }
   if (!desktop || typeof desktop !== 'object' || typeof desktop.onShortcut !== 'function') return inactive
 
-  const ACTIONS = ['toggleMute', 'toggleDeafen']
+  const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
+  // Basılı tut seçeneğinin kullanılamama nedenleri ve başlatma hatası (desktop/src/lib/ptt-hook.js)
+  const HOOK_REASONS = ['unsupported', 'no_display', 'load_failed']
+  const HOOK_ERRORS = ['start_failed']
+  const pttApi = typeof desktop.setPtt === 'function' && typeof desktop.onPttHold === 'function' && typeof desktop.setVoiceActive === 'function'
   const CAPTURE_TIMEOUT_MS = 10000
   // KeyboardEvent.code değerinden Electron tuş adına (klavye düzeninden bağımsız)
   const CODE_KEYS = {
@@ -98,6 +112,8 @@ window.TelsizDesktopUI = (function () {
   let banner = null
   // Şeritte "Sonra" denilen sürümler (yalnızca bu oturumda)
   const dismissed = {}
+  // Ana sürece son bildirilen ses odası durumu (ses odasında ve bas konuş modunda mı)
+  let voiceActiveSent = null
 
   function hasOwn (object, key) {
     return Object.prototype.hasOwnProperty.call(object, key)
@@ -163,6 +179,95 @@ window.TelsizDesktopUI = (function () {
     if (typeof state === 'undefined' || !state.inApp) return
     if (action === 'toggleMute' && typeof toggleMute === 'function') toggleMute()
     else if (action === 'toggleDeafen' && typeof toggleDeafen === 'function') toggleDeafen()
+    else if (action === 'pttToggle') pttToggle()
+  }
+
+  // ---------------------------------------------------------------- bas konuş
+
+  function voiceClient () {
+    return typeof voice !== 'undefined' && voice && typeof voice.pttDown === 'function' && typeof voice.pttUp === 'function' ? voice : null
+  }
+
+  // Ses modülünün anlık durumu (kısayola art arda basılınca da güncel olsun diye doğrudan okunur)
+  function voiceNow () {
+    const client = voiceClient()
+    if (!client || typeof client.snapshot !== 'function') return null
+    try {
+      return client.snapshot()
+    } catch (err) {
+      return null
+    }
+  }
+
+  function playCue (on) {
+    const client = voiceClient()
+    if (!client || typeof client.playCue !== 'function') return
+    try {
+      client.playCue(on ? 'pttOn' : 'pttOff')
+    } catch (err) {
+      // Ses çalınamadı
+    }
+  }
+
+  function releaseExternal () {
+    const client = voiceClient()
+    if (client) client.pttUp('external')
+  }
+
+  // Bas aç, bas kapat. Ses odasında değilken hiçbir şey yapmaz. Ses etkinliği modunda bas konuş moduna
+  // geçilmez, kısayol mikrofonu aç/kapat gibi davranır. Bas konuş modunda masaüstü kaynağı açılır veya
+  // kapanır. Mikrofon kapalıyken (susturulmuş, sağırlaştırılmış veya herkes için susturulmuş) konuşma
+  // başlamaz ve kapanış sesi çalar.
+  function pttToggle () {
+    const client = voiceClient()
+    const s = voiceNow()
+    if (!client || !s || !s.channelId) return
+    if (s.inputMode !== 'ptt') {
+      if (typeof toggleMute === 'function') toggleMute()
+      const after = voiceNow()
+      playCue(Boolean(after && !after.muted))
+      return
+    }
+    if (s.ptt && s.ptt.external) {
+      client.pttUp('external')
+      playCue(false)
+      return
+    }
+    if (s.muted) {
+      playCue(false)
+      return
+    }
+    client.pttDown('external')
+    const after = voiceNow()
+    playCue(Boolean(after && after.ptt && after.ptt.external))
+  }
+
+  // Basılı tut kancası: 'start' yalnızca ses odasında bas konuş modundayken konuşmayı başlatır, 'end' her
+  // durumda masaüstü kaynağını bırakır (takılı kalmasın)
+  function onPttHold (phase) {
+    if (phase === 'end') {
+      releaseExternal()
+      return
+    }
+    if (phase !== 'start' || typeof state === 'undefined' || !state.inApp) return
+    const client = voiceClient()
+    const s = voiceNow()
+    if (!client || !s || !s.channelId || s.inputMode !== 'ptt') return
+    client.pttDown('external')
+  }
+
+  // Ses durumu değişince (10-voice.js onVoiceChange) ana sürece yalnızca "ses odasında bas konuş modunda mı"
+  // bilgisi, değiştiyse gönderilir
+  function onVoice (snapshot) {
+    if (!pttApi) return
+    const active = Boolean(snapshot && snapshot.channelId && snapshot.inputMode === 'ptt')
+    if (active === voiceActiveSent) return
+    voiceActiveSent = active
+    try {
+      desktop.setVoiceActive(active)
+    } catch (err) {
+      voiceActiveSent = null
+    }
   }
 
   // PWA yükleme önerisi masaüstünde anlamsızdır: olay diğer işleyicilere ulaşmadan durdurulur
@@ -225,11 +330,13 @@ window.TelsizDesktopUI = (function () {
       if (MODIFIER_CODE_RE.test(e.code)) return
       const accelerator = acceleratorFromEvent(e)
       stopCapture()
+      const hold = action === 'pttHold'
       if (!accelerator) {
-        drawShortcuts({ ok: false, text: t('desktop.shortcuts.invalid') }, action)
+        drawShortcuts({ ok: false, text: t(hold ? 'desktop.ptt.invalid' : 'desktop.shortcuts.invalid') }, action)
         return
       }
-      saveShortcut(action, accelerator)
+      if (hold) savePtt({ mode: 'hold', holdKey: accelerator }, action)
+      else saveShortcut(action, accelerator)
     }
     capture = {
       action: action,
@@ -276,7 +383,108 @@ window.TelsizDesktopUI = (function () {
     row.appendChild(assign)
     row.appendChild(remove)
     if (current && registered === false) row.appendChild(node('p', 'hint is-error', t('desktop.shortcuts.taken')))
+    if (action === 'pttToggle' && currentPtt().mode === 'hold') row.appendChild(node('p', 'hint', t('desktop.ptt.toggleInactive')))
     return row
+  }
+
+  // ---------------------------------------------------------------- bas konuş ayarı
+
+  function currentPtt () {
+    const p = settings && settings.ptt && typeof settings.ptt === 'object' ? settings.ptt : null
+    return {
+      mode: p && p.mode === 'hold' ? 'hold' : 'toggle',
+      holdKey: p && typeof p.holdKey === 'string' && p.holdKey !== '' ? p.holdKey : null
+    }
+  }
+
+  function savePtt (value, focus) {
+    const before = currentPtt().mode
+    Promise.resolve(desktop.setPtt(value)).then((result) => {
+      // Başarısız sonuç da (ör. kullanılamıyor) güncel ayarları ve kancanın durumunu taşıyabilir
+      if (result && typeof result === 'object' && result.ptt && typeof result.ptt === 'object') settings = result
+      if (result && result.ok) {
+        // Kip değişince masaüstü kaynağı bırakılır (bas aç, bas kapat ile açık kalan konuşma sürmesin)
+        if (currentPtt().mode !== before) releaseExternal()
+        const cleared = focus === 'pttHold' && !value.holdKey
+        drawShortcuts({ ok: true, text: t(cleared ? 'desktop.ptt.keyCleared' : 'desktop.ptt.saved') }, focus)
+        return
+      }
+      const code = result && result.code
+      let text = 'desktop.ptt.invalid'
+      if (code === 'duplicate') text = 'desktop.shortcuts.duplicate'
+      else if (code === 'unavailable') text = 'desktop.ptt.unavailableSave'
+      drawShortcuts({ ok: false, text: t(text) }, focus)
+    }, () => {
+      drawShortcuts({ ok: false, text: t('desktop.ptt.invalid') }, focus)
+    })
+  }
+
+  // Basılı tut tuşu satırı: tuş, Ata ve Kaldır (yalnızca basılı tut açıkken gösterilir)
+  function holdKeyRow (ptt) {
+    const recording = Boolean(capture) && capture.action === 'pttHold'
+    const row = node('div', 'row desktop-shortcut desktop-ptt-key')
+    const labelId = 'desktop-shortcut-pttHold'
+    const label = node('span', 'label-inline', t('desktop.ptt.holdKey'))
+    label.id = labelId
+    const key = node('kbd', 'kbd', recording ? t('desktop.shortcuts.recording') : (ptt.holdKey ? acceleratorLabel(ptt.holdKey) : t('desktop.shortcuts.none')))
+    const assign = actionButton(t(recording ? 'desktop.shortcuts.cancel' : 'desktop.shortcuts.assign'))
+    assign.setAttribute('aria-describedby', labelId)
+    assign.setAttribute('data-desktop-assign', 'pttHold')
+    assign.addEventListener('click', () => {
+      if (capture && capture.action === 'pttHold') {
+        stopCapture()
+        drawShortcuts(null, 'pttHold')
+      } else {
+        startCapture('pttHold')
+      }
+    })
+    const remove = actionButton(t('desktop.shortcuts.clear'))
+    remove.setAttribute('aria-describedby', labelId)
+    remove.disabled = !ptt.holdKey || recording
+    remove.addEventListener('click', () => {
+      stopCapture()
+      savePtt({ mode: 'hold', holdKey: null }, 'pttHold')
+    })
+    row.appendChild(label)
+    row.appendChild(key)
+    row.appendChild(assign)
+    row.appendChild(remove)
+    return row
+  }
+
+  // "Basılı tut (tuş kancası)" seçeneği, açıklaması, kullanılamıyorsa nedeni ve basılı tut tuşu
+  function holdSection () {
+    const ptt = currentPtt()
+    const hook = settings && settings.pttHook && typeof settings.pttHook === 'object' ? settings.pttHook : null
+    const unavailable = Boolean(hook) && hook.available === false
+    const wrap = node('div', 'desktop-ptt-hold')
+    const toggle = node('label', 'switch desktop-ptt-switch')
+    const input = node('input')
+    input.type = 'checkbox'
+    input.checked = ptt.mode === 'hold'
+    // Kullanılamayan seçenek açılamaz, ama açık kalmışsa kapatılabilir
+    input.disabled = unavailable && ptt.mode !== 'hold'
+    input.setAttribute('data-desktop-ptt', 'pttMode')
+    const track = node('span', 'switch-track')
+    track.setAttribute('aria-hidden', 'true')
+    toggle.appendChild(input)
+    toggle.appendChild(track)
+    toggle.appendChild(node('span', null, t('desktop.ptt.hold')))
+    input.addEventListener('change', () => {
+      stopCapture()
+      savePtt({ mode: input.checked ? 'hold' : 'toggle', holdKey: ptt.holdKey }, 'pttMode')
+    })
+    wrap.appendChild(toggle)
+    wrap.appendChild(node('p', 'hint', t('desktop.ptt.holdHint')))
+    wrap.appendChild(node('p', 'hint', t('desktop.ptt.privacy')))
+    if (unavailable) {
+      const reason = HOOK_REASONS.indexOf(hook.reason) >= 0 ? hook.reason : 'load_failed'
+      wrap.appendChild(node('p', 'hint is-error', t('desktop.ptt.unavailable.' + reason)))
+    } else if (hook && HOOK_ERRORS.indexOf(hook.error) >= 0) {
+      wrap.appendChild(node('p', 'hint is-error', t('desktop.ptt.error.' + hook.error)))
+    }
+    if (ptt.mode === 'hold') wrap.appendChild(holdKeyRow(ptt))
+    return wrap
   }
 
   function drawShortcuts (message, focusAction) {
@@ -292,6 +500,7 @@ window.TelsizDesktopUI = (function () {
     ACTIONS.forEach((action) => {
       section.appendChild(shortcutRow(action))
     })
+    if (pttApi) section.appendChild(holdSection())
     const status = node('p', 'form-msg')
     status.setAttribute('role', 'status')
     status.setAttribute('aria-live', 'polite')
@@ -304,8 +513,8 @@ window.TelsizDesktopUI = (function () {
     if (desktop.platform === 'linux') section.appendChild(node('p', 'hint', t('desktop.shortcuts.waylandNote')))
     box.appendChild(section)
     if (focusAction) {
-      const target = box.querySelector('[data-desktop-assign="' + focusAction + '"]')
-      if (target) target.focus()
+      const target = box.querySelector('[data-desktop-assign="' + focusAction + '"]') || box.querySelector('[data-desktop-ptt="' + focusAction + '"]')
+      if (target && !target.disabled) target.focus()
     }
   }
 
@@ -557,6 +766,7 @@ window.TelsizDesktopUI = (function () {
   document.documentElement.setAttribute('data-desktop', '1')
   window.addEventListener('beforeinstallprompt', blockInstallPrompt, true)
   desktop.onShortcut(onShortcut)
+  if (pttApi) desktop.onPttHold(onPttHold)
   if (updatesApi) {
     if (typeof updatesApi.onState === 'function') updatesApi.onState(applyUpdateState)
     Promise.resolve(updatesApi.getState()).then(applyUpdateState, () => {})
@@ -569,6 +779,7 @@ window.TelsizDesktopUI = (function () {
     acceleratorLabel: acceleratorLabel,
     renderShortcutSettings: renderShortcutSettings,
     renderAppSettings: renderAppSettings,
-    refresh: refresh
+    refresh: refresh,
+    onVoice: onVoice
   }
 })()

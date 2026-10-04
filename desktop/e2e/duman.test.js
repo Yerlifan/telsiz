@@ -13,6 +13,8 @@
 // - tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur (yayın sahnesinin Tam ekran düğmesi)
 // - ekran paylaşımı seçicisi gerçek kullanıcı girişiyle açılır, seçim ve vazgeçme çalışır
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
+// - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
+//   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -406,7 +408,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -724,6 +726,95 @@ test('genel kısayol ayarları doğrulanır, olaylar yalnızca izinli eylemlerle
   })
   await waitFor(() => page.evaluate(() => window.__kisayollar.length > 0), 'shortcut event')
   assert.deepEqual(await page.evaluate(() => window.__kisayollar), ['toggleDeafen'])
+})
+
+// Bas konuş arka planda: bas aç, bas kapat genel kısayolu (pttToggle) ve isteğe bağlı basılı tut tuş kancası.
+// Gerçek tuş olayı üretilmez: kısayolun kaydı, sayfaya yalnızca izinli olayların ulaşması, ayar doğrulaması,
+// paketlenmiş derlemede yerel modülün asar dışına açılması ve kancanın yalnızca ses odasındayken çalışması denetlenir.
+test('bas konuş: pttToggle kısayolu kaydedilir, sayfaya yalnızca izinli olaylar gelir, kanca yalnızca ses odasında çalışır', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  const accelerator = 'CommandOrControl+Shift+F12'
+  const before = await page.evaluate(() => window.telsizDesktop.getSettings())
+  // Varsayılan: bas aç, bas kapat, tuş yok
+  assert.deepEqual(before.ptt, { mode: 'toggle', holdKey: null })
+  assert.equal(typeof before.pttHook.available, 'boolean')
+  assert.equal(before.pttHook.running, false)
+  const saved = await page.evaluate(() => window.telsizDesktop.setShortcuts({ toggleMute: 'ctrl+shift+f11', toggleDeafen: null, pttToggle: 'ctrl+shift+f12' }))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.shortcuts.pttToggle, accelerator)
+  const registered = await ctx.app.evaluate(({ globalShortcut }, value) => globalShortcut.isRegistered(value), accelerator)
+  assert.equal(saved.registered.pttToggle, registered)
+  // Linux'ta (xvfb, X11) genel kısayol gerçekten kaydedilir
+  if (process.platform === 'linux') assert.equal(registered, true)
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setShortcuts({ pttToggle: 'V' })), { ok: false, code: 'invalid' })
+
+  await page.evaluate(() => {
+    window.__basKonus = { shortcuts: [], hold: [] }
+    window.telsizDesktop.onShortcut((action) => window.__basKonus.shortcuts.push(action))
+    window.telsizDesktop.onPttHold((phase) => window.__basKonus.hold.push(phase))
+  })
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.webContents.send('telsiz:shortcut', 'pttToggle')
+    win.webContents.send('telsiz:ptt-hold', 'evil')
+    win.webContents.send('telsiz:ptt-hold', { keycode: 47 })
+    win.webContents.send('telsiz:ptt-hold', 47)
+    win.webContents.send('telsiz:ptt-hold', 'start')
+    win.webContents.send('telsiz:shortcut', 'start')
+    win.webContents.send('telsiz:ptt-hold', 'end')
+  })
+  await waitFor(() => page.evaluate(() => window.__basKonus.hold.length >= 2 && window.__basKonus.shortcuts.length >= 1), 'push to talk events')
+  assert.deepEqual(await page.evaluate(() => window.__basKonus), { shortcuts: ['pttToggle'], hold: ['start', 'end'] })
+
+  // Ayar doğrulaması ana süreçte yapılır
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'kanca' })), { ok: false, code: 'invalid' })
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'VolumeUp' })), { ok: false, code: 'invalid' })
+  // Basılı tut tuşu Mikrofonu aç/kapat kısayoluyla (Ctrl+Shift+F11) birlikte tetiklenirdi
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'F11' })), { ok: false, code: 'duplicate' })
+
+  // Paketlenmiş derlemede yerel modül asar dışındadır (electron-builder.json asarUnpack)
+  const packaged = await ctx.app.evaluate(({ app }) => app.isPackaged)
+  if (packaged) {
+    const resources = await ctx.app.evaluate(() => process.resourcesPath)
+    const native = path.join(resources, 'app.asar.unpacked', 'node_modules', 'uiohook-napi', 'prebuilds', process.platform + '-' + process.arch, 'uiohook-napi.node')
+    assert.ok(fs.existsSync(native), native)
+  }
+
+  const hold = await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'F13' }))
+  if (!hold.ok) {
+    // Modül bu makinede yüklenemiyorsa ayar değişmez ve neden bildirilir, uygulama çalışmaya devam eder
+    assert.equal(hold.code, 'unavailable')
+    assert.equal(hold.pttHook.available, false)
+    assert.deepEqual(hold.ptt, { mode: 'toggle', holdKey: null })
+    t.diagnostic('tuş kancası bu ortamda kullanılamıyor: ' + hold.pttHook.reason)
+    return
+  }
+  assert.deepEqual(hold.ptt, { mode: 'hold', holdKey: 'F13' })
+  // Basılı tut kipinde bas aç, bas kapat kısayolu kaydedilmez, ses odasında değilken kanca çalışmaz
+  assert.equal(hold.registered.pttToggle, null)
+  assert.equal(await ctx.app.evaluate(({ globalShortcut }, value) => globalShortcut.isRegistered(value), accelerator), false)
+  assert.equal(hold.pttHook.running, false)
+  const hookState = () => page.evaluate(() => window.telsizDesktop.getSettings().then((s) => s.pttHook))
+  await page.evaluate(() => window.telsizDesktop.setVoiceActive(true))
+  const started = await waitFor(async () => {
+    const s = await hookState()
+    return s.running || s.error ? s : null
+  }, 'key hook start')
+  if (started.error) {
+    t.diagnostic('tuş kancası bu ortamda başlatılamadı: ' + started.error)
+  } else {
+    assert.equal(started.running, true)
+    await page.evaluate(() => window.telsizDesktop.setVoiceActive(false))
+    await waitFor(async () => (await hookState()).running === false, 'key hook stop when leaving the voice room')
+    // Ses odasındayken ayar kapanınca da durur
+    await page.evaluate(() => window.telsizDesktop.setVoiceActive(true))
+    await waitFor(async () => (await hookState()).running === true, 'key hook start again')
+  }
+  const back = await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'toggle', holdKey: 'F13' }))
+  assert.equal(back.ok, true)
+  assert.equal(back.pttHook.running, false)
+  assert.equal(back.registered.pttToggle, registered)
+  await page.evaluate(() => window.telsizDesktop.setVoiceActive(false))
 })
 
 // Gözetimsiz çalıştırmada zamanlanmış denetim yoktur, burada GitHub'a hiçbir istek gönderilmez

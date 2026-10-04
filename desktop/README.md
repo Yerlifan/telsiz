@@ -71,7 +71,7 @@ Bütün komutlar `desktop/` klasöründe çalıştırılır.
 
 | Komut | Ne yapar |
 | --- | --- |
-| `npm ci` | Bağımlılıkları kurar: geliştirme araçları (electron, electron-builder, playwright) ve pakete giren tek çalışma zamanı bağımlılığı electron-updater |
+| `npm ci` | Bağımlılıkları kurar: geliştirme araçları (electron, electron-builder, playwright) ve pakete giren çalışma zamanı bağımlılıkları electron-updater ile uiohook-napi (basılı tut tuş kancası, bkz. Bas konuş arka planda) |
 | `npm run hazirla` | `public/` dosyalarını `app/` altına kopyalar, bütünlük bildirimini yazar, simgeleri `build/` altına üretir |
 | `npm start` | Hazırlığı yapar ve uygulamayı geliştirme düzeninde açar |
 | `npm test` | Birim testleri (Electron gerekmez, iletme mantığı gerçek bir yerel sunucuya karşı denenir) |
@@ -99,7 +99,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
@@ -114,6 +114,7 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 `public/js/20-desktop.js` yalnızca `window.telsizDesktop` varsa etkinleşir:
 
 - Genel kısayol olaylarında `toggleMute` ve `toggleDeafen` işlevlerini çağırır.
+- Bas konuş kısayolu (`pttToggle`) ve basılı tut kancasının olaylarında `public/voice.js` içindeki bas konuş yolunu `external` kaynağıyla kullanır (`voice.pttDown('external')`, `voice.pttUp('external')`). Ses odası durumunu `setVoiceActive` ile ana sürece bildirir (bkz. Bas konuş arka planda).
 - PWA yükleme önerisini engeller.
 - `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans, tepsiye küçültme ve güncellemeler bölümünü çizer.
 - İndirilmiş bir güncelleme veya yeni sürüm bildirimi için sağ altta kapatılabilir bir şerit gösterir.
@@ -126,9 +127,12 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `version`, `platform` | Uygulama sürümü ve işletim sistemi (`win32`, `linux`) |
 | `getServer()` | Ayarlardaki sunucu kökeni |
 | `changeServer()` | Frekans adresi penceresini açar (Frekans ekle) |
-| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered` |
-| `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, değerler Electron kısayol dizgesi veya `null` |
-| `onShortcut(cb)` | `cb('toggleMute' veya 'toggleDeafen')`, dönen işlev aboneliği kaldırır |
+| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered`, `ptt` (`{ mode, holdKey }`), `pttHook` (`{ available, reason, running, error }`) |
+| `setShortcuts(map)` | `{ toggleMute, toggleDeafen, pttToggle }`, değerler Electron kısayol dizgesi veya `null` |
+| `onShortcut(cb)` | `cb('toggleMute', 'toggleDeafen' veya 'pttToggle')`, dönen işlev aboneliği kaldırır |
+| `setPtt(ayar)` | `{ mode: 'toggle' veya 'hold', holdKey }`, basılı tut açılırken modül yüklenemezse `{ ok: false, code: 'unavailable' }` |
+| `setVoiceActive(bool)` | Sayfa ses odasında bas konuş modundayken `true`, değilken `false` (basılı tut kancası yalnızca `true` iken çalışır) |
+| `onPttHold(cb)` | Basılı tut kancasından `cb('start')` (konuş başla) veya `cb('end')` (konuş bitti), dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
@@ -145,6 +149,31 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 `window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb) }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open() }`.
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
+
+## Bas konuş arka planda
+
+Uygulamanın kendi bas konuş tuşu yalnızca Telsiz penceresi öndeyken çalışır. Bir oyun öndeyken konuşmak için Ayarlar > Tuş atamaları sayfasındaki genel kısayollar bölümünde iki yol vardır:
+
+- Bas aç, bas kapat (varsayılan): genel kısayol `pttToggle`. Bir kez basınca konuşma başlar, tekrar basınca biter. Açılış ve kapanışta kısa bir ses çalar (Ayarlar > Ses ve görüntü bölümündeki Giriş ve çıkış sesleri açıksa). Varsayılan olarak tuş atanmamıştır, kısayol diğer genel kısayollarla aynı kurallara uyar. Ses odasında değilken kısayol hiçbir şey yapmaz. Mikrofon kapalıyken (susturulmuş, sağırlaştırılmış veya herkes için susturulmuş) konuşma başlamaz, kapanış sesi çalar.
+- Basılı tut (tuş kancası, isteğe bağlı): açılırsa seçilen tuş veya tuş birleşimi basılıyken konuşulur, bırakınca susulur. Genel kısayollar yalnızca basmayı bildirdiği için bırakma olayı [uiohook-napi](https://github.com/SnosMe/uiohook-napi) tuş kancasıyla alınır. Basılı tut açıkken bas aç, bas kapat kısayolu kaydedilmez. Basılı tut tuşu tek başına harf veya rakam da olabilir, çünkü kanca tuşu diğer uygulamalardan almaz. Basılı tut tuşu Mikrofonu aç/kapat veya Sağırlaştır kısayoluyla birlikte tetiklenecekse kabul edilmez.
+
+Ses etkinliği modunda kısayol bas konuş moduna geçmez, Mikrofonu aç/kapat gibi davranır ve aynı açılış veya kapanış sesini çalar. Basılı tut kancası ses etkinliği modunda hiç başlatılmaz.
+
+Sayfa tarafında iki yol da `public/voice.js` içindeki bas konuş yolunu ayrı bir kaynakla (`external`) kullanır, yeni bir mikrofon yolu yoktur. Pencerenin kendi bas konuş tuşu, ekrandaki Bas konuş düğmesi ve masaüstü kaynağı ayrı izlenir: biri bırakılınca diğeri basılıysa konuşma sürer. Pencere odağı kaybedince veya gizlenince yalnızca pencere içi kaynaklar bırakılır, masaüstü kaynağı açık kalır. Ses odasından çıkınca veya giriş modu değişince her kaynak bırakılır.
+
+Tuş kancası ve gizlilik:
+
+- Kanca yalnızca basılı tut açıkken, bir tuş atanmışken ve sayfa ses odasında bas konuş modunda olduğunu bildirmişken çalışır (`src/lib/ptt-hook.js`). Ayar kapanınca, odadan çıkınca, pencere yeniden yüklenince veya kapanınca durdurulur. Konuşurken durdurulursa konuşma biter.
+- Kanca işletim sistemindeki bütün tuş olaylarını görür ama yalnızca seçilen tuşu işler. Olaylar yalnızca ana süreçte, tuş kodu atanan tuşla karşılaştırılarak işlenir ve saklanmaz. Sayfaya yalnızca `start` (konuş başla) ve `end` (konuş bitti) gider, ön yükleme betiği başka bir değeri iletmez. Tuş kodları ve diğer tuşlar sayfaya, sunucuya veya günlüğe hiç gitmez. Fare olayları dinlenmez.
+- Bazı antivirüs programları tuş kancası kullanan uygulamalar için uyarı verebilir. Basılı tut kapalıyken yerel modül hiç yüklenmez.
+- Modül yüklenemezse veya kanca başlatılamazsa uygulama çökmez, seçenek ayarlarda devre dışı görünür ve nedeni yazar.
+
+Platform notları:
+
+- Paket, uiohook-napi'nin hazır Node-API ikililerini kullanır (`prebuilds/win32-x64`, `prebuilds/linux-x64`). electron-builder yerel modülleri kaynaktan derlemez (`npmRebuild: false`) ve modülü asar dışına açar (`asarUnpack`).
+- Linux'ta kanca X11 kullanır (XRecord). Modül yüklenirken X11 ekranına bağlanır, `DISPLAY` tanımlı değilse modül hiç yüklenmez ve seçenek kullanılamaz görünür. Wayland oturumlarında çalışması garanti değildir. Modül `libXtst.so.6` ve `libXt.so.6` kitaplıklarını ister. Bu kitaplıklar yoksa seçenek kullanılamaz görünür.
+- Windows'ta yönetici olarak çalışan bir pencere öndeyken kanca tuşları göremeyebilir.
+- Bağımlılık: uiohook-napi 1.5.5 (MIT). Paket, derlenmiş olarak libuiohook kitaplığını içerir. libuiohook'un kaynak dosyaları LGPL 3.0 veya sonrası lisansını taşır ve kaynak kodu paketle birlikte gelir (`node_modules/uiohook-napi/libuiohook`).
 
 ## Güncellemeler
 
@@ -166,14 +195,14 @@ Yayın: `electron-builder.json` içindeki `publish` ayarı (GitHub, `Yerlifan/te
 
 ## Ayarlar ve veriler
 
-Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar, güncellemelerin otomatik denetimi) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
+Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar, bas konuş kipi ve basılı tut tuşu, güncellemelerin otomatik denetimi) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
 
 ## Bilinen sınırlar
 
 - Uygulama imzalı değildir. Windows SmartScreen ilk açılışta "Windows kişisel bilgisayarınızı korudu" uyarısı gösterebilir. "Ek bilgi" ve ardından "Yine de çalıştır" seçilir. İndirilen dosya sürüm sayfasındaki `SHA256SUMS.txt` ile doğrulanabilir.
 - Güncellemeler imzasızdır, güvence GitHub hesabının ve deposunun güvenliğine dayanır (bkz. Güncellemeler). Taşınabilir exe ve .deb kendiliğinden güncellenmez, yalnızca yeni sürüm bildirilir. Güncelleme denetimi depo herkese açıkken çalışır.
-- Basılı tutmalı bas-konuş genel kısayolu yoktur, çünkü bu yerel bir modül gerektirir. Bas-konuş tuşu yalnızca pencere öndeyken çalışır. Genel kısayollar yalnızca mikrofonu aç/kapat ve sağırlaştır içindir.
-- Linux'ta Wayland oturumlarında genel kısayolların çalışıp çalışmadığı doğrulanmadı.
+- Basılı tutmalı bas konuş yalnızca isteğe bağlı tuş kancasıyla çalışır (bkz. Bas konuş arka planda). Kancanın gerçek tuş olaylarıyla davranışı otomatik testlerde denenmez: birim testleri kancayı sahte modülle sınar, duman testi gerçek modülü xvfb altında yükleyip başlatır ve durdurur.
+- Linux'ta Wayland oturumlarında genel kısayolların ve tuş kancasının çalışıp çalışmadığı doğrulanmadı.
 - Electron belgelerine göre Windows bildirimleri Başlat menüsünde uygulama kısayolu gerektirir. Kurucu bu kısayolu oluşturur, taşınabilir sürümde bildirimler görünmeyebilir.
 - AppImage çalıştırmak için önce `chmod +x Telsiz-<sürüm>-linux-x86_64.AppImage` gerekir. Bazı dağıtımlarda AppImage için FUSE desteği kurulmalıdır. Yetkisiz kullanıcı ad alanlarını AppArmor ile kısıtlayan dağıtımlarda (ör. Ubuntu 24.04) AppImage, Chromium korumalı alanı açılamadığı için başlamayabilir. Bu durumda .deb paketi kullanılır, paket gerekli AppArmor profilini kurar. Korumalı alanı kapatan `--no-sandbox` bayrağı önerilmez.
 - Pencere arka plandayken ses etkinliği algılamasının sürmesi için Chromium'un arka plan zamanlayıcı kısması kapatılır (`disable-background-timer-throttling`). Sayfa görünürlüğü değişmez, bildirimler yine yalnızca pencere gizliyken çıkar.

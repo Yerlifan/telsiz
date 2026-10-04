@@ -130,7 +130,7 @@ Tarayıcılar mikrofona ve ekran yakalamaya yalnızca güvenli adreslerde izin v
 
 **Telefon, tablet ve bilgisayar.** Telsiz https adresinden açıldığında uygulama olarak yüklenebilir. Destekleyen tarayıcılarda Ayarlar > Uygulama bölümünde "Uygulamayı yükle" düğmesi görünür. iPhone ve iPad'de Safari'nin Paylaş menüsündeki "Ana Ekrana Ekle" seçeneği kullanılır. Yüklenen uygulama yüklendiği adrese bağlıdır.
 
-**Masaüstü uygulaması.** Windows ve Linux için hazırlanan masaüstü uygulaması arayüzü kendi içinde taşır ve açılışta dosyaların bütünlüğünü doğrular. Birden çok frekansı (adres ve giriş) hatırlar, aralarında aynı pencerede geçer ve açık olmayan frekansların okunmamış sayılarını arka planda sayar. Mikrofonu aç veya kapat ve sağırlaştır için genel kısayollar ile sistem tepsisine küçültme seçeneği sunar.
+**Masaüstü uygulaması.** Windows ve Linux için hazırlanan masaüstü uygulaması arayüzü kendi içinde taşır ve açılışta dosyaların bütünlüğünü doğrular. Birden çok frekansı (adres ve giriş) hatırlar, aralarında aynı pencerede geçer ve açık olmayan frekansların okunmamış sayılarını arka planda sayar. Mikrofonu aç veya kapat, sağırlaştır ve uygulama arka plandayken de çalışan bas konuş (bas aç, bas kapat veya isteğe bağlı tuş kancasıyla basılı tut) için genel kısayollar ile sistem tepsisine küçültme seçeneği sunar.
 
 **Televizyon ve oyun konsolları.** Arayüz geniş ekranda büyük yazı ve büyük düğmelerle açılır, yön tuşlarıyla gezilebilir. PS5'in resmi bir tarayıcı uygulaması yoktur ve konsol tarayıcılarında sesli sohbetin çalıştığı doğrulanmamıştır. Konsol başındaki kişi sesli sohbete aynı hesapla telefonundan katılabilir.
 
