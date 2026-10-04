@@ -22,6 +22,10 @@ function createVoice () {
       seal: (obj) => window.E2EE.sealJson(activeKid(), obj),
       open: (envelope) => window.E2EE.openJson(envelope),
       onChange: onVoiceChange,
+      // Ekran paylaşımı olayları (bildirim, sahne) 22-cast.js arayüzüne gider
+      onScreenEvent: (evt) => {
+        if (typeof castOnScreenEvent === 'function') castOnScreenEvent(evt)
+      },
       storage: {
         get: (key) => storeGet(key),
         set: (key, value) => {

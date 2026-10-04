@@ -920,7 +920,7 @@ test('YouTube oynatıcısı izni: durum, geri alma ve telsiz.djYoutubeConsent', 
   assert.strictEqual(run('youtubeConsentState()'), 'denied')
 })
 
-test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür, sunucu desteği gelene kadar devre dışı', () => {
+test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür ve sahipte etkin (POST /api/settings { music })', () => {
   const owner = load({ role: 'owner' })
   owner.run("openSettings('general', null)")
   const sec = owner.root.querySelector('#set-music-section')
@@ -929,8 +929,8 @@ test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür, sunucu deste�
   const yt = owner.root.querySelector('#set-music-youtube')
   assert.strictEqual(on.checked, true, 'varsayılan açık')
   assert.strictEqual(yt.checked, true)
-  assert.strictEqual(on.disabled, true)
-  assert.strictEqual(yt.disabled, true)
+  assert.strictEqual(on.disabled, false)
+  assert.strictEqual(yt.disabled, false)
   assert.strictEqual(on.getAttribute('role'), 'switch')
   owner.run('state.meta.music = { enabled: true, youtube: false }')
   owner.run('updateSettingsPage()')
@@ -939,6 +939,7 @@ test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür, sunucu deste�
   owner.run('updateSettingsPage()')
   assert.strictEqual(owner.root.querySelector('#set-music-enabled').checked, false)
   assert.strictEqual(owner.root.querySelector('#set-music-youtube').checked, false, 'DJ kapalıyken YouTube da kapalı görünür')
+  assert.strictEqual(owner.root.querySelector('#set-music-youtube').disabled, true, 'DJ kapalıyken YouTube anahtarı devre dışı')
   const admin = load({ role: 'admin' })
   admin.run("openSettings('general', null)")
   assert.strictEqual(admin.root.querySelector('#set-music-section').hidden, true, 'yönetici görmez')

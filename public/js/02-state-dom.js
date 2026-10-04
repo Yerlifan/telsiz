@@ -93,7 +93,7 @@ const ELEMENT_IDS = [
   'composer', 'attach-list', 'photo-note', 'composer-hint', 'composer-hint-text', 'composer-hint-action',
   'composer-form', 'btn-photo', 'btn-file', 'composer-input', 'btn-emoji', 'btn-send', 'char-counter', 'file-photo', 'file-any',
   'emoji-picker', 'emoji-tabs', 'emoji-title', 'emoji-grid', 'drop-overlay',
-  'cast', 'dj', 'side-right', 'inbox', 'inbox-list',
+  'cast', 'dj', 'dj-sheet-title', 'dj-card', 'side-right', 'inbox', 'inbox-list',
   'radio', 'radio-state', 'radio-pick', 'radio-support', 'voice-channels',
   'radio-tuned', 'radio-room', 'radio-room-meta', 'radio-crew', 'radio-talk', 'radio-talk-text', 'radio-mode',
   'radio-error', 'voice-error', 'voice-retry', 'radio-hint',

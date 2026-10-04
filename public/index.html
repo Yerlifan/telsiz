@@ -24,6 +24,8 @@
   <link rel="stylesheet" href="/css/convo.css">
   <link rel="stylesheet" href="/css/radio.css">
   <link rel="stylesheet" href="/css/people.css">
+  <link rel="stylesheet" href="/css/cast.css">
+  <link rel="stylesheet" href="/css/dj.css">
   <link rel="stylesheet" href="/css/skins/arcade.css">
   <link rel="stylesheet" href="/css/skins/gece.css">
   <link rel="stylesheet" href="/css/skins/turkuaz.css">
@@ -32,6 +34,8 @@
   <script src="/i18n.js" defer></script>
   <script src="/crypto.js" defer></script>
   <script src="/emoji.js" defer></script>
+  <script src="/music.js" defer></script>
+  <script src="/dj/youtube.js" defer></script>
   <script src="/voice.js" defer></script>
   <script src="/js/01-core.js" defer></script>
   <script src="/js/02-state-dom.js" defer></script>
@@ -54,6 +58,8 @@
   <script src="/js/19-typing.js" defer></script>
   <script src="/js/20-desktop.js" defer></script>
   <script src="/js/21-band.js" defer></script>
+  <script src="/js/22-cast.js" defer></script>
+  <script src="/js/23-dj.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -416,7 +422,16 @@
       </div>
 
       <!-- Telsiz DJ kartı (Ek L2): 23-dj.js ile doldurulur, geniş ekranda telsiz kartının solunda -->
-      <aside id="dj" class="side side-dj" aria-label="Telsiz DJ" data-i18n-aria-label="dj.region" hidden></aside>
+      <aside id="dj" class="side side-dj" aria-label="Telsiz DJ" data-i18n-aria-label="dj.region" hidden>
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-head dj-sheet-head">
+          <h2 id="dj-sheet-title" class="sheet-title" data-i18n="dj.region">Telsiz DJ</h2>
+          <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
+        </header>
+        <div class="dj-scroll">
+          <section id="dj-card" class="side-card dj-card" aria-labelledby="dj-sheet-title"></section>
+        </div>
+      </aside>
 
       <div id="side-right" class="side side-right">
         <section id="inbox" class="side-card inbox" aria-labelledby="inbox-title">

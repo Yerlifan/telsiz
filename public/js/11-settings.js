@@ -50,9 +50,9 @@ const NOTIFY_LEVELS = ['all', 'mentions', 'none']
 const SCREEN_HINT_CHOICES = ['motion', 'detail']
 const SCREEN_PRESET_CHOICES = ['720p15', '720p30', '1080p15', '1080p30']
 const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
-// Telsiz DJ sunucu ayarları (meta.music) için sunucuda henüz uç nokta yok. Anahtarlar hazırdır ama
-// devre dışıdır, entegrasyonda bu değer ve musicSwitchChange bağlanır.
-const MUSIC_SETTINGS_READY = false
+// Telsiz DJ sunucu ayarları (meta.music): POST /api/settings { music } (yalnızca sahip, Ek L2.10).
+// false olursa anahtarlar devre dışı kalır.
+const MUSIC_SETTINGS_READY = true
 const BIND_ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
 const SKIN_CHOICES = ['arcade', 'gece', 'turkuaz']
 const SCHEME_CHOICES = ['dark', 'light', 'system']
@@ -3268,12 +3268,32 @@ function musicServerSettings () {
   return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false) }
 }
 
-// Sunucu desteği gelene kadar anahtarlar devre dışıdır, değişiklik olursa sunucudaki değere dönülür
-function musicSwitchChange (field, checked, input) {
+// Anahtar değişince POST /api/settings { music: { <alan>: değer } } gönderilir. Başarısızlıkta anahtar
+// sunucudaki değere döner. Yeni değer meta güncellemesiyle (poll) gelir, DJ kartı djOnMeta ile güncellenir.
+async function musicSwitchChange (field, checked, input) {
+  const msg = byId('set-music-msg')
   if (!MUSIC_SETTINGS_READY || !isOwner()) {
     input.checked = musicServerSettings()[field]
     return
   }
+  const body = { music: {} }
+  body.music[field] = checked === true
+  input.disabled = true
+  setMsg(msg, '')
+  const res = await api('POST', '/api/settings', body)
+  input.disabled = false
+  if (res.status === 200) {
+    if (state.meta) {
+      const prev = state.meta.music && typeof state.meta.music === 'object' ? state.meta.music : { enabled: true, youtube: true }
+      state.meta.music = Object.assign({}, prev, body.music)
+    }
+    if (typeof djOnMeta === 'function') djOnMeta()
+    setMsg(msg, () => t(field === 'enabled' ? (checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff') : (checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff')), 'ok')
+    updateSettingsPage()
+    return
+  }
+  input.checked = musicServerSettings()[field]
+  setMsg(msg, () => errorText(res, t('dj.settings.failed'), { forbidden: t('dj.settings.ownerOnly') }), 'error')
   updateSettingsPage()
 }
 

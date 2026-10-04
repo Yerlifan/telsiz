@@ -39,7 +39,10 @@ async function pollLoop (generation) {
       // tv yalnızca yazıyor modülü yüklüyse gönderilir (tv yanıtı işlenmezse poll hemen dönmeye devam ederdi)
       (typeof typingPollParam === 'function' ? '&tv=' + encodeURIComponent(typingPollParam()) : '') +
       '&sig=' + encodeURIComponent(state.sigSeq) +
-      '&boot=' + encodeURIComponent(state.boot)
+      '&boot=' + encodeURIComponent(state.boot) +
+      // muv: Telsiz DJ müzik sürümü (23-dj.js motoru). Gönderilmezse poll müzik yazımıyla uyanmaz.
+      (typeof djPollParam === 'function' ? '&muv=' + encodeURIComponent(djPollParam()) : '')
+    const t0 = djClockNow()
     const pending = api('GET', path, null, { timeout: POLL_TIMEOUT_MS })
     state.activePoll = pending
     const res = await pending
@@ -54,6 +57,9 @@ async function pollLoop (generation) {
         // Beklenmeyen bir çizim hatası döngüyü durdurmamalı
         window.console.error(err)
       }
+      // Müzik haritası (music, muv) ve sunucu saati (now): saat farkı isteğin gönderilme ve alınma
+      // zamanlarıyla kestirilir
+      if (typeof djIngest === 'function') djIngest(res.data, t0, djClockNow())
       continue
     }
     if (res.status === 401 || (res.status === 403 && res.data && res.data.code === 'banned')) return
@@ -104,6 +110,15 @@ function applyMetaUpdate (meta) {
   const prevKid = activeKid()
   applyMeta(meta, false)
   socialAfterMeta(prevKid)
+  // Telsiz DJ: meta.music (sunucu ayarı), meta.voice (kadro) ve etkin anahtar motora verilir
+  if (typeof djOnMeta === 'function') djOnMeta()
+}
+
+// Saat farkı kestirimi için yerel zaman (music.js ile aynı taban: performance.timeOrigin + now)
+function djClockNow () {
+  const perf = window.performance
+  if (perf && typeof perf.now === 'function' && typeof perf.timeOrigin === 'number') return perf.timeOrigin + perf.now()
+  return Date.now()
 }
 
 function handleSignals (signals) {

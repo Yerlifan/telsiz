@@ -529,6 +529,8 @@ function applyStateData (data) {
   setFormerUsers(data.formerUsers)
   if (data.meta) applyMeta(data.meta, true)
   socialApplyState(data)
+  // Telsiz DJ: /api/state yanıtındaki müzik haritası, sunucu saati ve meta motora verilir
+  if (typeof djIngestState === 'function') djIngestState(data)
 }
 
 // Sayfa açılırken sunucu yanıtı yeni modüllerden önce gelirse modüller yüklenene kadar beklenir

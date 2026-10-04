@@ -220,7 +220,12 @@ function buildMessageNode (m) {
         content.appendChild(h('span', 'sr-only msg-mention-sr', t('mention.mentionsYou')))
       }
     }
-    if (result.files.length) body.appendChild(buildAttachments(result.files, m))
+    if (result.files.length) {
+      const attachments = buildAttachments(result.files, m)
+      // Ses dosyası kartının yanında "DJ'de çal" düğmesi (23-dj.js)
+      if (typeof djDecorateAttachments === 'function') djDecorateAttachments(attachments, result.files, m)
+      body.appendChild(attachments)
+    }
   } else {
     const notice = messageNoticeText(result.state)
     const text = h('div', 'msg-text msg-notice')
