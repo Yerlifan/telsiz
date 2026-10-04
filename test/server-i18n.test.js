@@ -8,7 +8,7 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const crypto = require('node:crypto')
+const http = require('node:http')
 const i18n = require('../src/i18n')
 const h = require('./server-yardimci')
 
@@ -17,6 +17,33 @@ const TURKISH_LETTERS = /[çğıİöşüÇĞÖŞÜ]/
 const PARAM_RE = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 // Görünmez ve yön denetim karakterleri, uzun ve kısa tire
 const FORBIDDEN_CHARS = /[\u00a0\u200b-\u200f\u2013\u2014\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/
+
+// Bildirilen boyutu sınırı aşan yükleme: yalnızca başlıklar gönderilir, gövde yazılmaz.
+// Sunucu bu durumda gövdeyi okumadan 413 verip bağlantıyı kapatır. Gövde yazılmaya devam
+// edilseydi Windows'ta yanıt okunmadan bağlantı sıfırlanabilirdi (ECONNRESET).
+function declaredTooLarge (ctx, token, bytes, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port: ctx.port,
+      method: 'POST',
+      path: '/api/uploads',
+      agent: false,
+      headers: Object.assign({ 'x-token': token, 'content-length': String(bytes) }, headers)
+    }, (res) => {
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        req.destroy()
+        resolve({ status: res.statusCode, text, data: JSON.parse(text) })
+      })
+      res.on('error', reject)
+    })
+    req.on('error', reject)
+    req.flushHeaders()
+  })
+}
 
 function paramsOf (text) {
   return Array.from(text.matchAll(PARAM_RE), (m) => m[1]).sort()
@@ -285,11 +312,11 @@ describe('API hata metinleri isteğin dilinde, kod aynı', () => {
     const ctx = await h.startServer({ uploadMaxBytes: 1024 * 1024 + 16 })
     try {
       const owner = await h.setupOwner(ctx)
-      const big = crypto.randomBytes(1024 * 1024 + 17)
-      const tr = await h.request(ctx, 'POST', '/api/uploads', { token: owner.token, raw: big, headers: { 'accept-language': 'tr' } })
+      const size = 1024 * 1024 + 17
+      const tr = await declaredTooLarge(ctx, owner.token, size, { 'accept-language': 'tr' })
       h.expectStatus(tr, 413, 'too_large')
       assert.equal(tr.data.error, 'Dosya çok büyük. En fazla 1 MB yüklenebilir.')
-      const en = await h.request(ctx, 'POST', '/api/uploads', { token: owner.token, raw: big })
+      const en = await declaredTooLarge(ctx, owner.token, size)
       h.expectStatus(en, 413, 'too_large')
       assert.equal(en.data.error, 'The file is too large. The maximum size is 1 MB.')
     } finally {
