@@ -472,6 +472,7 @@ module.exports = {
   sleep,
   call,
   loadE2EE,
+  createAccount,
   startServer,
   openBrowser,
   setupWorld,

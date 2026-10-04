@@ -128,9 +128,10 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
   }
   assert.ok(W.yt.deniz.every((u) => /youtube-nocookie\.com/.test(u)), 'yalnızca youtube-nocookie: ' + W.yt.deniz.join(' '))
   await A.waitForFunction(() => dj.engine.snapshot().player.status === 'playing' && document.querySelector('#dj .dj-state').textContent === 'Çalıyor', null, { timeout: h.LONG })
+  // DJ notası sağdaki İstasyonlar listesindeki ses odası satırında (bant yalnızca frekansları dizer)
   await A.waitForFunction((id) => {
-    const st = document.querySelector('#band-track .station[data-channel-id="' + id + '"]')
-    return st && st.querySelector('.station-dj') && /Telsiz DJ çalıyor/.test(st.getAttribute('aria-label'))
+    const st = document.querySelector('#inbox-list .room-row[data-channel-id="' + id + '"]')
+    return st && st.querySelector('.room-row-dj') && /Telsiz DJ çalıyor/.test(st.getAttribute('aria-label'))
   }, W.lobi.id, { timeout: h.LONG })
   await A.waitForFunction(() => {
     const line = document.getElementById('radio-dj')

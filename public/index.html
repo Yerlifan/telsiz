@@ -61,6 +61,7 @@
   <script src="/js/22-cast.js" defer></script>
   <script src="/js/23-dj.js" defer></script>
   <script src="/js/24-frekans.js" defer></script>
+  <script src="/js/25-arka-plan.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -303,6 +304,8 @@
       </nav>
       <span class="top-spacer"></span>
       <div id="top-cast" class="top-cast" hidden></div>
+      <!-- İstasyonlar düğmesi: sağ sütun görünmediğinde yazı ve ses odalarını sayfa olarak açar (frekans.css, 04-meta.js renderRoomsButton) -->
+      <button id="btn-rooms" class="top-chip top-rooms" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="İstasyonlar: yazı ve ses odaları" title="İstasyonlar: yazı ve ses odaları" data-i18n-aria-label="rooms.buttonLabel" data-i18n-title="rooms.buttonLabel"><svg class="icon" aria-hidden="true"><use href="#i-hash" xlink:href="#i-hash"></use></svg><span class="top-chip-label" data-i18n="rooms.button">İstasyonlar</span><span id="btn-rooms-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
       <button id="btn-search" class="top-chip top-find" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-panel" aria-label="Ara (Ctrl K)" title="Ara (Ctrl K)" data-i18n-aria-label="top.searchLabel" data-i18n-title="top.searchLabel"><svg class="icon" aria-hidden="true"><use href="#i-search" xlink:href="#i-search"></use></svg><span class="top-chip-label" data-i18n="layout.search">Ara</span><kbd class="kbd top-kbd" aria-hidden="true">Ctrl K</kbd></button>
       <button id="live-chip" class="top-chip top-live" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="people-sheet">
         <span class="top-live-dot" aria-hidden="true"></span>
@@ -328,9 +331,9 @@
         <span class="station station-skeleton" aria-hidden="true"></span>
       </div>
       <button id="band-next" class="band-step band-step-next" type="button" aria-label="Sonraki istasyon" title="Sonraki istasyon" data-i18n-aria-label="band.next" data-i18n-title="band.next"><svg class="icon" aria-hidden="true"><use href="#i-chev-right" xlink:href="#i-chev-right"></use></svg></button>
-      <button id="band-add" class="band-add" type="button" aria-label="Oda ekle" title="Oda ekle" data-i18n-aria-label="band.addRoom" data-i18n-title="band.addRoom" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg></button>
+      <button id="band-add" class="band-add" type="button" aria-label="Frekans ekle" title="Frekans ekle" data-i18n-aria-label="frekans.add" data-i18n-title="frekans.add"><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg></button>
       <button id="band-help" class="band-help" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hints-card" aria-label="İstasyon değiştirme rehberi" title="İstasyon değiştirme rehberi" data-i18n-aria-label="band.help" data-i18n-title="band.help"><svg class="icon" aria-hidden="true"><use href="#i-help" xlink:href="#i-help"></use></svg></button>
-      <button id="band-all" class="band-all" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="Tüm istasyonlar" title="Tüm istasyonlar" data-i18n-aria-label="band.allLabel" data-i18n-title="band.allLabel"><svg class="icon" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg><span class="band-all-text" data-i18n="band.all">Tümü</span></button>
+      <button id="band-all" class="band-all" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="frekans-sheet" aria-label="Tüm frekanslar" title="Tüm frekanslar" data-i18n-aria-label="band.allLabel" data-i18n-title="band.allLabel"><svg class="icon" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg><span class="band-all-text" data-i18n="band.all">Tümü</span></button>
     </nav>
 
     <div id="stage" class="stage">
@@ -445,7 +448,10 @@
       <div id="side-right" class="side side-right">
         <!-- İstasyonlar: yazı ve ses odalarının listesi (04-meta.js renderInbox) -->
         <section id="inbox" class="side-card inbox" aria-labelledby="inbox-title">
-          <h2 id="inbox-title" class="kicker" data-i18n="inbox.title">İstasyonlar</h2>
+          <div class="inbox-head">
+            <h2 id="inbox-title" class="kicker" data-i18n="inbox.title">İstasyonlar</h2>
+            <button id="inbox-add" class="icon-button inbox-add" type="button" aria-label="Oda ekle" title="Oda ekle" data-i18n-aria-label="band.addRoom" data-i18n-title="band.addRoom" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg></button>
+          </div>
           <div id="inbox-list" class="inbox-list"></div>
         </section>
         <aside id="radio" class="radio" data-state="off" aria-labelledby="radio-title">
@@ -519,10 +525,23 @@
     <section id="stations-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="stations-sheet-title" hidden>
       <span class="sheet-handle" aria-hidden="true"></span>
       <header class="sheet-head">
-        <h2 id="stations-sheet-title" class="sheet-title" data-i18n="band.allTitle">İstasyonlar</h2>
+        <h2 id="stations-sheet-title" class="sheet-title" data-i18n="inbox.title">İstasyonlar</h2>
+        <button id="rooms-sheet-add" class="icon-button rooms-sheet-add" type="button" aria-label="Oda ekle" title="Oda ekle" data-i18n-aria-label="band.addRoom" data-i18n-title="band.addRoom" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg></button>
         <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
       </header>
       <div id="stations-list" class="sheet-body"></div>
+    </section>
+    <!-- Frekanslar sayfası: bandın Tümü düğmesiyle açılır, katılınan frekanslar durum ve sayılarıyla (24-frekans.js) -->
+    <section id="frekans-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="frekans-sheet-title" hidden>
+      <span class="sheet-handle" aria-hidden="true"></span>
+      <header class="sheet-head">
+        <h2 id="frekans-sheet-title" class="sheet-title" data-i18n="frekans.title">Frekanslar</h2>
+        <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
+      </header>
+      <div id="frekans-sheet-list" class="sheet-body frekans-sheet-body"></div>
+      <div class="sheet-foot">
+        <button id="frekans-sheet-add" class="button button-secondary frekans-sheet-add" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"></use></svg><span data-i18n="frekans.add">Frekans ekle</span></button>
+      </div>
     </section>
     <section id="people-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="people-sheet-title" hidden>
       <span class="sheet-handle" aria-hidden="true"></span>

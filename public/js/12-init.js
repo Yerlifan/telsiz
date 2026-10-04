@@ -3,15 +3,18 @@
 // Sayfalar (yan ve alt sayfa), pencere boyutu, ayarlar kısayolu, PWA, dil değişimi, olay bağlama ve
 // uygulamanın başlatılması.
 
-// Sayfalar (Ek K, KONSEPT 6.7 ve 11): Tümü (#stations-sheet), Yayındakiler (#people-sheet) ve 1280 px
-// altında Oda bilgisi (#info-col, geniş ekranda sol sütun olarak her zaman görünür). Geniş ekranda sağdan
+// Sayfalar (Ek K, KONSEPT 6.7 ve 11): Frekanslar (#frekans-sheet, bandın Tümü düğmesi), İstasyonlar
+// (#stations-sheet, yazı ve ses odaları, sağ sütun görünmediğinde üst çubuktaki İstasyonlar düğmesi),
+// Yayındakiler (#people-sheet) ve 1280 px altında Oda bilgisi (#info-col, geniş ekranda sol sütun olarak her
+// zaman görünür). Geniş ekranda sağdan
 // açılan yan sayfa, telefonda alttan açılan sayfadır (biçim frekans.css içinde). Aynı anda tek sayfa açıktır,
 // ortak örtü #drawer-backdrop'tur. Sayfa katman yığınına 'sheet-<ad>' adıyla girer: açılınca odak sayfadaki
 // ilk anlamlı öğeye gider, odak sayfanın içinde kalır, Esc, örtüye tıklama, Kapat düğmesi ve tarayıcının
 // geri düğmesi (dar ekranda) kapatır, odak açan düğmeye döner.
 
 const SHEETS = {
-  stations: { id: 'stations-sheet', trigger: 'band-all' },
+  frekans: { id: 'frekans-sheet', trigger: 'band-all' },
+  stations: { id: 'stations-sheet', trigger: 'btn-rooms' },
   people: { id: 'people-sheet', trigger: 'live-chip' },
   info: { id: 'info-col', trigger: 'btn-room-info' }
 }
@@ -55,8 +58,8 @@ function isSheetOpen (name) {
 }
 
 function sheetInitialFocus (name, panel) {
-  if (name === 'stations') {
-    const current = panel.querySelector('.sheet-row[aria-current]')
+  if (name === 'stations' || name === 'frekans') {
+    const current = panel.querySelector('.room-row[aria-current], .sheet-row[aria-current]')
     if (current) return current
   }
   const items = focusables(panel).filter((node) => !node.hasAttribute('data-sheet-close'))
@@ -84,7 +87,7 @@ function openSheet (name, trigger) {
     closeLayer(other, false)
     sheetState.switching = false
   }
-  if (name === 'stations') renderBand()
+  if (name === 'stations' || name === 'frekans') renderBand()
   if (name === 'people') renderMembers()
   panel.hidden = false
   panel.classList.add('is-open')
@@ -350,7 +353,10 @@ function bindEvents () {
   // Frekans düzeni: bant (21-band.js), sayfalar, üst çubuk ve oda bilgisi kartı
   if (typeof bandInit === 'function') bandInit()
   on(el.bandAll, 'click', () => {
-    openSheet('stations', el.bandAll)
+    openSheet('frekans', el.bandAll)
+  })
+  on(byId('btn-rooms'), 'click', () => {
+    openSheet('stations', byId('btn-rooms'))
   })
   on(el.liveChip, 'click', () => {
     openSheet('people', el.liveChip)
@@ -358,8 +364,15 @@ function bindEvents () {
   on(el.btnRoomInfo, 'click', () => {
     openSheet('info', el.btnRoomInfo)
   })
+  // Bandın + düğmesi Frekans ekle, oda ekleme İstasyonlar başlığındadır (yalnızca sahip ve yönetici)
   on(el.bandAdd, 'click', () => {
-    openSettings('channels', el.bandAdd)
+    if (typeof frekansAdd === 'function') frekansAdd(el.bandAdd)
+  })
+  on(byId('inbox-add'), 'click', () => {
+    openSettings('channels', byId('inbox-add'))
+  })
+  on(byId('rooms-sheet-add'), 'click', () => {
+    openSettings('channels', byId('rooms-sheet-add'))
   })
   on(el.roomCardKeys, 'click', () => {
     openSettings('privacy', el.roomCardKeys)
@@ -369,6 +382,7 @@ function bindEvents () {
   })
   on(el.drawerBackdrop, 'click', onBackdropClick)
   on(el.stationsSheet, 'click', onSheetCloseClick)
+  on(byId('frekans-sheet'), 'click', onSheetCloseClick)
   on(el.peopleSheet, 'click', onSheetCloseClick)
   on(el.infoCol, 'click', onSheetCloseClick)
   on(window, 'popstate', onPopState)
@@ -526,6 +540,11 @@ function applyLanguage () {
 }
 
 function start () {
+  // Masaüstünün arka plan penceresi (25-arka-plan.js): yalnızca sayım, arayüz ve ses başlatılmaz
+  if (typeof bgModeActive === 'function' && bgModeActive()) {
+    bgStart()
+    return
+  }
   cacheElements()
   window.I18N.apply(document)
   renderLangSwitch()

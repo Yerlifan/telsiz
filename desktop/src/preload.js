@@ -21,7 +21,11 @@ const CHANNELS = {
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
   removeFrequency: 'telsiz:remove-frequency',
-  setFrequencyName: 'telsiz:set-frequency-name'
+  setFrequencyName: 'telsiz:set-frequency-name',
+  bgReport: 'telsiz:bg-report',
+  bgOpen: 'telsiz:bg-open',
+  bgState: 'telsiz:bg-state',
+  bgGet: 'telsiz:bg-get'
 }
 const ACTIONS = ['toggleMute', 'toggleDeafen']
 const VERSION_ARG = '--telsiz-version='
@@ -94,3 +98,91 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   // Etkin frekansın sunucudan öğrenilen adı (listede ve menüde gösterilir)
   setFrequencyName: (name) => ipcRenderer.invoke(CHANNELS.setFrequencyName, typeof name === 'string' ? name : '')
 })
+
+// Arka plan sayımı (src/lib/background.js, public/js/25-arka-plan.js). Ayrı bir nesnedir:
+// - Ana sürecin --telsiz-background=<köken> argümanıyla açtığı gizli pencerede { background: true, origin,
+//   report(rapor), open() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç göndereni ve her
+//   alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
+// - Uygulama penceresinde { background: false, getState(), onState(callback) }: açık olmayan frekansların
+//   durumu. Olay nesnesi verilmez, durum burada da süzülür.
+const BACKGROUND_ARG = '--telsiz-background='
+const BG_ORIGIN_RE = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
+const BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
+const BG_MAX_ITEMS = 60
+const BG_MAX_COUNT = 100000
+
+// Argüman varsa pencere her durumda arka plan kipindedir, köken biçime uymuyorsa boş kalır (ana süreç o
+// pencerenin raporlarını kabul etmez)
+function readBackgroundArg () {
+  const args = Array.isArray(process.argv) ? process.argv : []
+  const arg = args.find((value) => typeof value === 'string' && value.startsWith(BACKGROUND_ARG))
+  if (!arg) return null
+  const value = arg.slice(BACKGROUND_ARG.length)
+  return value.length <= 300 && BG_ORIGIN_RE.test(value) ? value : ''
+}
+
+function bgNumber (value, max) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max ? value : null
+}
+
+function bgCopyReport (report) {
+  const r = report && typeof report === 'object' ? report : {}
+  return {
+    origin: typeof r.origin === 'string' ? r.origin.slice(0, 1000) : '',
+    state: typeof r.state === 'string' ? r.state.slice(0, 20) : '',
+    unread: bgNumber(r.unread, BG_MAX_COUNT),
+    mention: bgNumber(r.mention, BG_MAX_COUNT),
+    online: r.online === true || r.online === false ? r.online : null,
+    lastError: typeof r.lastError === 'string' ? r.lastError.slice(0, 20) : null,
+    name: typeof r.name === 'string' ? r.name.slice(0, 1000) : null,
+    onlineUsers: bgNumber(r.onlineUsers, 1000000)
+  }
+}
+
+function bgCleanState (data) {
+  const items = data && Array.isArray(data.items) ? data.items.slice(0, BG_MAX_ITEMS) : []
+  return {
+    items: items.filter((item) => item && typeof item === 'object' && typeof item.origin === 'string' && BG_ORIGIN_RE.test(item.origin)).map((item) => ({
+      origin: item.origin,
+      active: item.active === true,
+      state: BG_STATES.includes(item.state) ? item.state : null,
+      unread: bgNumber(item.unread, BG_MAX_COUNT) || 0,
+      mention: bgNumber(item.mention, BG_MAX_COUNT) || 0,
+      online: item.online === true || item.online === false ? item.online : null,
+      onlineUsers: bgNumber(item.onlineUsers, 1000000)
+    }))
+  }
+}
+
+const backgroundOrigin = readBackgroundArg()
+if (backgroundOrigin !== null) {
+  contextBridge.exposeInMainWorld('telsizArkaPlan', {
+    background: true,
+    origin: backgroundOrigin,
+    report: (report) => ipcRenderer.send(CHANNELS.bgReport, bgCopyReport(report)),
+    open: () => ipcRenderer.invoke(CHANNELS.bgOpen)
+  })
+} else {
+  const stateListeners = new Set()
+  ipcRenderer.on(CHANNELS.bgState, (event, data) => {
+    const clean = bgCleanState(data)
+    for (const callback of Array.from(stateListeners)) {
+      try {
+        callback(clean)
+      } catch (err) {
+        // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+      }
+    }
+  })
+  contextBridge.exposeInMainWorld('telsizArkaPlan', {
+    background: false,
+    getState: () => ipcRenderer.invoke(CHANNELS.bgGet).then(bgCleanState),
+    onState: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      stateListeners.add(callback)
+      return () => {
+        stateListeners.delete(callback)
+      }
+    }
+  })
+}
