@@ -2,6 +2,33 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [2.1.0]
+
+### New features
+
+- Multiple frequencies: every Telsiz server is a frequency, and you can join several. The top band lists the frequencies you joined: open or closed, online count, unread and mention counts. Text and voice rooms are in the Stations list on the right. The Frequencies page adds frequencies and removes them from the list.
+- The desktop app opens saved frequencies in their own session partitions and counts unread messages and mentions in the background for up to 8 frequencies that are not open. It can show notifications for mentions and direct messages in those frequencies.
+- The desktop app updates from GitHub releases. The Windows installer and the AppImage download and install the update, the portable build and the .deb package announce the new version. It can be turned off in Settings.
+- Frequency landing page: a visitor who is not signed in sees the frequency name, the owner's about text, Telsiz's features, the desktop download link and a VPS and domain setup guide. The owner writes the about text in Settings > General. The text is public and not encrypted.
+- Frequency photo: the owner can upload a photo for each frequency (PNG, JPEG or WebP, up to 1 MB). The photo replaces the letter emblem on the frequency button, the band, the Frequencies page, the sign-in screen and the landing page. The desktop app also shows the photos of other frequencies. The photo is public and not encrypted.
+- Telsiz DJ: a track added with `/çal` is announced in the text room where the command was typed. The announcement is end-to-end encrypted.
+- Telsiz DJ docked player: while Settings or another window is open, or on narrow screens while the DJ sheet is closed, the YouTube player stays visible in a corner and the music keeps playing. Music stops when you leave the voice room, the DJ is turned off or the queue ends.
+- Shared footer on the sign-in page (desktop app, GitHub link, license and version) and a radio themed doodle background.
+- Per-user upload quota (`KULLANICI_YUKLEME_KOTASI_MB`, default 512 MB) and a total message cap across all rooms (`MAKS_TOPLAM_MESAJ`, default 500000). When the total cap is exceeded, the oldest messages of the busiest rooms are removed.
+
+### Changes
+
+- For security related actions such as changing a password, signing out, revoking sessions, deleting an account, blocking, changing a role, rotating the invite code and changing the group key, the response is sent after the change is written to disk and fsynced.
+- The default font size is 16 pixels. A size chosen earlier is kept.
+- While Telsiz DJ is playing, the DJ card sits at the top of the right column and the Stations list stays visible below it.
+- The npm package is published with GitHub OIDC trusted publishing instead of a token, with provenance.
+- End-to-end tests also run in Firefox and WebKit besides Chromium. Playwright was updated to 1.63.0.
+
+### Fixes
+
+- The chat column stayed limited to 46rem on wide screens because the rule that removed the limit came before the rule that set it. The column now takes all the width left by the side columns.
+- At the 16 pixel font size, the narrower DJ column made the YouTube player smaller than 200 pixels and it paused. The player area now stays at least 200x200 at every font size.
+
 ## [2.0.1]
 
 ### Fixes

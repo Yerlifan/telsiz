@@ -2,6 +2,33 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [2.1.0]
+
+### Yeni özellikler
+
+- Çok frekans: her Telsiz sunucusu bir frekanstır ve birden çok frekansa katılınabilir. Üst bant katılınan frekansları dizer: açık mı kapalı mı, çevrimiçi kişi sayısı, okunmamış ve anma sayıları. Yazı ve ses odaları sağdaki İstasyonlar listesindedir. Frekanslar sayfası frekans eklemeyi ve listeden çıkarmayı sağlar.
+- Masaüstü uygulaması kayıtlı frekansları kendi oturum bölümlerinde açar ve açık olmayan en fazla 8 frekansın okunmamış ve anma sayılarını arka planda sayar. Bu frekanslardaki anma ve özel mesajlar için bildirim gösterilebilir.
+- Masaüstü uygulaması GitHub sürümlerinden güncellenir. Windows yükleyicisi ve AppImage güncellemeyi indirip kurar, taşınabilir sürüm ve .deb paketi yeni sürümü bildirir. Ayarlardan kapatılabilir.
+- Frekans tanıtım sayfası: oturum açmamış ziyaretçi frekansın adını, sahibin tanıtım metnini, Telsiz'in özelliklerini, masaüstü indirme bağlantısını ve VPS ile alan adı kurulum rehberini görür. Sahip tanıtım metnini Ayarlar > Genel'den yazar. Metin herkese açıktır ve şifrelenmez.
+- Frekans fotoğrafı: sahip her frekansa bir fotoğraf yükleyebilir (PNG, JPEG veya WebP, en çok 1 MB). Fotoğraf frekans düğmesinde, bantta, Frekanslar sayfasında, giriş ekranında ve tanıtımda baş harf ambleminin yerine görünür. Masaüstü uygulaması diğer frekansların fotoğraflarını da gösterir. Fotoğraf herkese açıktır ve şifrelenmez.
+- Telsiz DJ: `/çal` ile kuyruğa eklenen parça komutun yazıldığı yazı odasında duyurulur. Duyuru uçtan uca şifrelidir.
+- Telsiz DJ köşedeki oynatıcı: Ayarlar veya başka bir pencere açıkken, ya da dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşede görünür kalır ve müzik kesilmez. Müzik ses odasından ayrılınca, DJ kapatılınca veya kuyruk bitince durur.
+- Giriş sayfasında ortak alt bilgi (masaüstü uygulaması, GitHub bağlantısı, lisans ve sürüm) ve telsiz temalı karalama desenli arka plan.
+- Kullanıcı başına yükleme kotası (`KULLANICI_YUKLEME_KOTASI_MB`, varsayılan 512 MB) ve tüm odalardaki toplam mesaj sınırı (`MAKS_TOPLAM_MESAJ`, varsayılan 500000). Toplam sınır aşılınca en kalabalık odaların en eski mesajları silinir.
+
+### Değişiklikler
+
+- Parola değişimi, oturum kapatma, hesap silme, engelleme, rol değişimi, davet kodu yenileme ve grup anahtarı değişimi gibi güvenlikle ilgili işlemlerde yanıt, değişiklik diske yazılıp fsync edildikten sonra gider.
+- Varsayılan yazı boyutu 16 pikseldir. Daha önce seçilmiş boyut korunur.
+- Telsiz DJ çalarken DJ kartı sağ sütunun üstüne yerleşir, İstasyonlar listesi altında görünür kalır.
+- npm paketi token yerine GitHub OIDC güvenilir yayın ile ve kaynak kanıtıyla (provenance) yayımlanır.
+- Uçtan uca testler Chromium'un yanında Firefox ve WebKit'te de çalışır. Playwright 1.63.0'a yükseltildi.
+
+### Düzeltmeler
+
+- Sohbet sütunu geniş ekranda 46rem ile sınırlı kalıyordu, çünkü sınırı kaldıran kural sınırı koyan kuraldan önce yazılmıştı. Sütun artık yan sütunlar dışındaki bütün genişliği alır.
+- 16 piksel yazı boyutunda DJ sütunu daralınca YouTube oynatıcısı 200 pikselin altına inip duraklıyordu. Oynatıcı alanı artık her yazı boyutunda en az 200x200 kalır.
+
 ## [2.0.1]
 
 ### Düzeltmeler
