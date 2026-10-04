@@ -92,9 +92,8 @@ test('özel mesaj iki yönlü: Özel istasyonunda rozet, iki tarafta görünür'
     const s = document.getElementById('top-dm-mark')
     return s && !s.hidden && s.textContent === '1'
   }, W.dmId, { timeout: h.LONG })
-  await ece.click('#band-all')
-  await ece.waitForSelector('#stations-sheet:not([hidden]) .sheet-row-dmitem[data-dm-id="' + W.dmId + '"]')
-  await ece.click('#stations-list .sheet-row-dmitem[data-dm-id="' + W.dmId + '"]')
+  // Üst çubuktaki Özel mesajlar düğmesi son özel konuşmayı açar
+  await ece.click('#top-dm')
   await ece.waitForFunction((id) => currentViewMode() === 'dm' && String(state.channelId) === String(id), W.dmId)
   await ece.waitForFunction((text) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === text), DENIZ_DM, { timeout: h.LONG })
   await ece.waitForFunction(() => !document.getElementById('composer-input').disabled)

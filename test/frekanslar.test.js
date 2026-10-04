@@ -220,9 +220,10 @@ test('masaüstünde liste ana süreçten gelir, parça yok sayılır', async () 
   assert.equal(page.F.mergeFragment(Buffer.from(JSON.stringify({ v: 1, f: [['https://a.com', null]] })).toString('base64url')), 0)
   page.run("state.serverName = 'Kankalar'")
   const items = JSON.parse(JSON.stringify(await page.run('frekansLoadItems()')))
+  // Kayıt sırası korunur (order), bant bu sırayla dizer
   assert.deepEqual(items, [
-    { origin: 'https://b.com', name: 'Kankalar', host: 'b.com', active: true },
-    { origin: 'https://a.com', name: 'A', host: 'a.com', active: false }
+    { origin: 'https://a.com', name: 'A', host: 'a.com', active: false, order: 0 },
+    { origin: 'https://b.com', name: 'Kankalar', host: 'b.com', active: true, order: 1 }
   ])
   // Ad yalnızca sunucu bilgisi geldikten sonra ve değişince bildirilir
   page.run("frekansNoteName('Kankalar')")
@@ -231,4 +232,86 @@ test('masaüstünde liste ana süreçten gelir, parça yok sayılır', async () 
   page.run("frekansNoteName('Kankalar')")
   page.run("frekansNoteName('Yeni ad')")
   assert.deepEqual(calls, ['list', 'name:Kankalar', 'name:Yeni ad'])
+})
+
+// ------------------------------------------------------------------ frekans bandı modeli
+
+test('bant modeli: durum noktası, sayılar ve sıra (masaüstü)', () => {
+  const page = load()
+  const M = page.F
+  const items = [
+    { origin: 'https://c.com', name: null, host: 'c.com', active: false, order: 2 },
+    { origin: 'https://a.com', name: 'Kankalar', host: 'a.com', active: true, order: 0 },
+    { origin: 'https://b.com', name: 'Bee', host: 'b.com', active: false, order: 1 },
+    { origin: 'https://d.com', name: 'Dee', host: 'd.com', active: false, order: 3 },
+    { origin: 'https://e.com', name: 'Eee', host: 'e.com', active: false, order: 4 }
+  ]
+  const bgState = M.cleanBackground({
+    items: [
+      { origin: 'https://b.com', state: 'ok', unread: 7, mention: 2, online: true, onlineUsers: 3 },
+      { origin: 'https://c.com', state: 'offline', unread: 5, mention: 1, online: false },
+      { origin: 'https://d.com', state: 'login', unread: 0, mention: 0, online: true },
+      { origin: 'javascript:alert(1)', state: 'ok', unread: 9 }
+    ]
+  })
+  const model = plain(M.bandModel(items, { desktop: true, bg: bgState, own: { unread: 4, mention: 1, online: 2 } }))
+  assert.deepEqual(model.map((st) => st.key), ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com', 'https://e.com'], 'kayıt sırası')
+  assert.deepEqual(model.map((st) => st.status), ['open', 'online', 'offline', 'login', 'unknown'])
+  assert.deepEqual(model.map((st) => [st.unread, st.mention, st.known]), [[4, 1, true], [7, 2, true], [0, 0, false], [0, 0, false], [0, 0, false]])
+  assert.deepEqual(model.map((st) => st.sub), ['açık · 2 çevrimiçi', '3 çevrimiçi', 'sunucu çevrimdışı', 'giriş gerekli', 'e.com'])
+  assert.equal(model[0].tuned, true)
+  assert.equal(model.filter((st) => st.tuned).length, 1)
+  assert.equal(model[2].name, 'c.com', 'adı bilinmeyen frekansta adres')
+  assert.equal(model[0].label, 'Kankalar, açık frekans, 4 okunmamış, 1 anma')
+  assert.equal(model[1].label, 'Bee, sunucu çevrimiçi, 7 okunmamış, 2 anma')
+  assert.equal(model[3].label, 'Dee, giriş gerekli')
+  assert.equal(model[1].title, 'b.com')
+  assert.equal(model[1].hidden, false)
+})
+
+test('bant modeli: tarayıcıda diğer frekansların durumu ve sayısı gösterilmez, nedeni söylenir', () => {
+  const page = load()
+  const items = [
+    { origin: 'https://a.com', name: 'Kankalar', active: true, order: 1 },
+    { origin: 'https://b.com', name: 'Bee', active: false, order: 0 }
+  ]
+  // Tarayıcıda arka plan durumu verilse bile kullanılmaz
+  const bgState = page.F.cleanBackground({ items: [{ origin: 'https://b.com', state: 'ok', unread: 7, mention: 2, online: true }] })
+  const model = plain(page.F.bandModel(items, { desktop: false, bg: bgState, own: { unread: 0, mention: 0, online: null } }))
+  assert.deepEqual(model.map((st) => st.key), ['https://b.com', 'https://a.com'])
+  assert.deepEqual(model.map((st) => st.status), ['unknown', 'open'])
+  assert.deepEqual(model.map((st) => st.unread + st.mention), [0, 0])
+  assert.equal(model[0].hidden, true)
+  assert.match(model[0].label, /^Bee, durumu bilinmiyor, durumu ve sayıları yalnızca açıkken görünür$/)
+  assert.match(model[0].title, /yalnızca açık frekans için görünür/)
+  assert.equal(model[1].sub, 'açık frekans', 'çevrimiçi sayısı bilinmeden')
+  assert.equal(model[1].label, 'Kankalar, açık frekans')
+  // Sayılar sınırlanır, bozuk öğeler atılır
+  const big = plain(page.F.bandModel([{ origin: 'https://a.com', active: true }, null, 'x'], { desktop: true, own: { unread: 5e9, mention: -3 } }))
+  assert.equal(big.length, 1)
+  assert.deepEqual([big[0].unread, big[0].mention], [100000, 0])
+  assert.equal(page.F.statusOf({ active: false }, { state: 'error', online: null }, true), 'unknown')
+  assert.equal(page.F.statusOf({ active: false }, { state: 'offline', online: null }, true), 'offline')
+})
+
+test('tarayıcıda bant sırası: parça yerel listeyi kapsıyorsa sıra ve bu frekansın yeri gelen listeye uyar', () => {
+  const page = load()
+  const enc = (list) => Buffer.from(JSON.stringify({ v: 1, f: list })).toString('base64url')
+  // İlk gelişte yerel liste boş: sıra parçadan, bu frekans ikinci sırada
+  page.F.mergeFragment(enc([['https://a.com', 'A'], [SELF, 'Ben'], ['https://c.com', null]]))
+  assert.deepEqual(plain(page.F.readLocal()).map((i) => i.origin), ['https://a.com', 'https://c.com'])
+  assert.equal(page.sandbox.localStorage.getItem('telsiz.frekanslar.konum'), '1')
+  page.run("state.serverName = 'Ben'")
+  const items = plain(page.run('frekansWebItems()'))
+  assert.deepEqual(items.map((i) => [i.origin, i.active, i.order]), [['https://a.com', false, 0], [SELF, true, 1], ['https://c.com', false, 2]])
+  // Geçişte parça bant sırasıyla yazılır
+  assert.deepEqual(plain(page.F.decodeList(page.F.encodeList(page.run('frekansWebItems()')))).map((i) => i.origin), ['https://a.com', SELF, 'https://c.com'])
+  // Yerelde parçada olmayan bir frekans varsa sıra korunur, yeniler sona eklenir
+  page.F.mergeFragment(enc([['https://c.com', null], [SELF, 'Ben'], ['https://d.com', 'D']]))
+  assert.deepEqual(plain(page.F.readLocal()).map((i) => i.origin), ['https://a.com', 'https://c.com', 'https://d.com'])
+  assert.equal(page.sandbox.localStorage.getItem('telsiz.frekanslar.konum'), '1')
+  // Bozuk konum değeri 0 sayılır
+  page.sandbox.localStorage.setItem('telsiz.frekanslar.konum', 'kotu')
+  page.run('frekansState.webList = null')
+  assert.equal(plain(page.run('frekansWebItems()'))[0].origin, SELF)
 })

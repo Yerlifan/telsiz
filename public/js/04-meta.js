@@ -1,9 +1,10 @@
 'use strict'
 
-// Uygulama ekranı, meta uygulama, üst çubuktaki sunucu kimliği ve Yayındakiler şeridi, frekans bandı
-// (istasyonlar, rozetler, ibre), Tümü sayfası, Gelenler kartı, oda bilgisi kartı, Yayındakiler sayfasındaki
-// üye listesi, konuşma başlığı, okunmamış ve anma sayaçları ve oda seçimi (Ek K, Frekans düzeni).
-// Bandın etkileşimi (tıklama, ibre sürükleme, klavye, tekerlek, kol) 21-band.js içindedir.
+// Uygulama ekranı, meta uygulama, üst çubuktaki sunucu kimliği ve Yayındakiler şeridi, frekans bandının
+// çizimi (katılınan frekanslar, istasyonları 24-frekans.js üretir), İstasyonlar listesi ve sayfası (yazı ve
+// ses odaları), oda bilgisi kartı, Yayındakiler sayfasındaki üye listesi, konuşma başlığı, okunmamış ve anma
+// sayaçları ve oda seçimi (Ek K, Frekans düzeni). Bandın etkileşimi (tıklama, ibre sürükleme, klavye,
+// tekerlek, kol) 21-band.js içindedir.
 
 // Uygulama ekranı
 
@@ -13,6 +14,8 @@ function openApp () {
   chatPlusReset()
   showView('app')
   renderServerName()
+  // Frekans listesi (masaüstünde ana süreçten) ve arka plan durumu yüklenir, gelince bant yenilenir
+  if (typeof frekansOnOpen === 'function') frekansOnOpen()
   renderBand()
   renderMembers()
   renderUserPanel()
@@ -225,11 +228,10 @@ function mentionCount (channelId) {
   return isFinite(value) && value > 0 ? Math.floor(value) : 0
 }
 
-// Frekans bandı (KONSEPT 6.2). Bant iki gruptur: Yazı odaları ve Ses odaları. Kişisel girişler (Özel ve
-// Arkadaşlar) üst çubuğun ortasındaki düğmelerdir (renderTopPersonal), veri modelinde Kişisel grubu olarak
-// kalır (Tümü sayfası ve üst çubuk kullanır). İbre yalnızca konuşma istasyonlarına (data-kind="conv")
-// oturur, ses istasyonuna basmak o odaya katılır. İstasyon anahtarları: 'dm', 'friends', 'text-<oda>',
-// 'voice-<oda>'.
+// Odaların modeli: üç grup, Kişisel (Özel ve Arkadaşlar, üst çubuğun ortasındaki düğmeler, renderTopPersonal),
+// Yazı odaları ve Ses odaları (sağdaki İstasyonlar listesi ve İstasyonlar sayfası). Yazı odasına basmak onu
+// ayarlar, ses odasına basmak o odaya katılır. Anahtarlar: 'dm', 'friends', 'text-<oda>', 'voice-<oda>'.
+// Üstteki bant odaları değil frekansları dizer (renderBand, 24-frekans.js).
 
 // Özel istasyonuna basınca açılacak son özel konuşma
 let bandLastDm = null
@@ -282,8 +284,8 @@ function countText (n) {
   return n > 99 ? '99+' : String(n)
 }
 
-// Bandın veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (bant, Tümü sayfası, İstasyonlar listesi
-// ve üst çubuktaki kişisel düğmeler kullanır).
+// Odaların veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (İstasyonlar listesi ve sayfası, üst
+// çubuktaki kişisel düğmeler ve İstasyonlar düğmesinin rozeti kullanır).
 function bandModel () {
   const tuned = tunedStationKey()
   const s = snap()
@@ -374,7 +376,7 @@ function bandStations (model) {
   return (model || bandModel()).reduce((all, g) => all.concat(g.stations), [])
 }
 
-// Bantta gösterilen gruplar: yalnızca yazı ve ses odaları
+// İstasyonlar listesinde gösterilen gruplar: yalnızca yazı ve ses odaları
 function bandGroups (model) {
   return (model || bandModel()).filter((g) => g.key !== 'personal')
 }
@@ -407,57 +409,13 @@ function buildNeedle () {
   return needle
 }
 
-function buildStation (st) {
-  const b = h('button', 'station station-' + st.type)
-  b.type = 'button'
-  b.setAttribute('data-station', st.key)
-  b.setAttribute('data-kind', st.kind)
-  b.setAttribute('data-focus-key', 'station-' + st.key)
-  if (st.id !== undefined) b.setAttribute('data-channel-id', String(st.id))
-  b.setAttribute('aria-label', st.label)
-  b.tabIndex = -1
-  if (st.tuned) {
-    b.classList.add('is-tuned')
-    b.setAttribute('aria-current', 'page')
-    b.appendChild(buildNeedle())
-  }
-  if (st.unread > 0 || st.mention > 0) b.classList.add('is-unread')
-  if (st.mention > 0) b.classList.add('is-mentioned')
-  if (st.connected) b.classList.add('is-connected')
-  if (st.joining) b.classList.add('is-joining')
-  if (st.live) b.classList.add('is-live')
-  b.appendChild(icon(st.icon, 'station-icon'))
-  const text = h('span', 'station-body')
-  text.appendChild(h('span', 'station-name', st.name))
-  const sub = h('span', 'station-meta')
-  if (st.freq) sub.appendChild(channelFreqNode(st.id))
-  sub.appendChild(h('span', 'station-sub', st.sub))
-  text.appendChild(sub)
-  b.appendChild(text)
-  if (st.kind === 'voice') {
-    const pulse = h('span', 'station-pulse')
-    pulse.setAttribute('aria-hidden', 'true')
-    b.appendChild(pulse)
-    if (st.dj) b.appendChild(icon('i-music', 'station-dj'))
-    if (st.people && st.people.length) {
-      const stack = h('span', 'mini-stack')
-      stack.setAttribute('aria-hidden', 'true')
-      st.people.slice(0, 3).forEach((id) => {
-        const av = avatar(id, 'xs')
-        av.removeAttribute('data-status')
-        stack.appendChild(av)
-      })
-      b.appendChild(stack)
-    }
-  }
-  const mark = buildStationMark(st)
-  if (mark) b.appendChild(mark)
-  return b
-}
-
 // Liste değişmediyse yeniden çizilmez: klavye odağı, gezici tabindex ve kaydırma konumu korunur
 let bandRenderKey = ''
 
+// Frekans bandı (KONSEPT 6.2, kullanıcı kararı 2026-10-04): bant katılınan frekansları dizer, her istasyon
+// bir frekanstır (24-frekans.js frekansStations ve frekansBuildStation). İbre açık frekanstadır. Odalarla
+// ilgili her şey (İstasyonlar listesi ve sayfası, kişisel düğmeler, oda kartı, İstasyonlar düğmesi) de
+// buradan, oda olayları geldikçe yenilenir.
 function renderBand () {
   if (!el.bandTrack) return
   // İbre sürüklenirken çizim bekletilir, sürükleme bitince 21-band.js yeniden çağırır
@@ -466,45 +424,40 @@ function renderBand () {
     return
   }
   const all = bandModel()
-  const model = bandGroups(all)
-  const tuned = tunedStationKey()
+  const rooms = bandGroups(all)
   if (currentViewMode() === 'dm' && state.channelId !== null && state.channelId !== undefined) bandLastDm = state.channelId
-  const key = [window.I18N ? window.I18N.lang : '', tuned].concat(model.map((g) => g.key + '=' + g.label + '=' + g.stations.map(stationKeyOf).join('|'))).join('#')
+  const stations = typeof frekansStations === 'function' ? frekansStations() : []
+  const tunedStation = stations.filter((st) => st.tuned)[0]
+  const tuned = tunedStation ? tunedStation.key : ''
+  const key = [window.I18N ? window.I18N.lang : '', tuned].concat(stations.map(frekansStationKey)).join('#')
   if (key !== bandRenderKey || !el.bandTrack.querySelector('.station[data-station]')) {
     bandRenderKey = key
     const focusKey = activeFocusKey(el.bandTrack)
     const scroll = el.bandTrack.scrollLeft
     clear(el.bandTrack)
     el.bandTrack.removeAttribute('aria-busy')
-    model.forEach((g, i) => {
-      if (i > 0) {
-        const sep = h('span', 'band-sep')
-        sep.setAttribute('aria-hidden', 'true')
-        el.bandTrack.appendChild(sep)
-      }
-      const group = h('div', 'band-group band-group-' + g.key)
-      group.setAttribute('role', 'group')
-      group.setAttribute('aria-label', g.label)
-      const label = h('span', 'band-group-label', g.label)
-      label.setAttribute('aria-hidden', 'true')
-      group.appendChild(label)
-      g.stations.forEach((st) => {
-        group.appendChild(buildStation(st))
-      })
-      if (!g.stations.length && g.empty) group.appendChild(h('span', 'band-empty', g.empty))
-      el.bandTrack.appendChild(group)
+    const group = h('div', 'band-group band-group-frekans')
+    group.setAttribute('role', 'group')
+    group.setAttribute('aria-label', t('bant.group'))
+    const label = h('span', 'band-group-label', t('bant.group'))
+    label.setAttribute('aria-hidden', 'true')
+    group.appendChild(label)
+    stations.forEach((st) => {
+      group.appendChild(frekansBuildStation(st))
     })
+    el.bandTrack.appendChild(group)
     el.bandTrack.scrollLeft = scroll
-    const stations = Array.from(el.bandTrack.querySelectorAll('.station[data-station]'))
-    const focusTarget = focusKey ? stations.filter((n) => n.getAttribute('data-focus-key') === focusKey)[0] : null
-    const rover = focusTarget || stations.filter((n) => n.classList.contains('is-tuned'))[0] || stations[0]
+    const nodes = Array.from(el.bandTrack.querySelectorAll('.station[data-station]'))
+    const focusTarget = focusKey ? nodes.filter((n) => n.getAttribute('data-focus-key') === focusKey)[0] : null
+    const rover = focusTarget || nodes.filter((n) => n.classList.contains('is-tuned'))[0] || nodes[0]
     if (rover) rover.tabIndex = 0
     if (focusTarget) focusNode(focusTarget)
   }
-  if (el.bandAdd) el.bandAdd.hidden = !(typeof isAdmin === 'function' && isAdmin())
   if (typeof bandAfterRender === 'function') bandAfterRender(tuned)
-  renderStationsSheet(all)
-  renderInbox(model)
+  if (typeof frekansRenderSheet === 'function') frekansRenderSheet(stations)
+  renderStationsSheet(rooms)
+  renderInbox(rooms)
+  renderRoomsButton(rooms)
   renderTopPersonal(all)
   renderRoomCard()
 }
@@ -536,127 +489,33 @@ function renderChannels () {
   renderBand()
 }
 
-// Konuşan ses odasının nabzı ve ses durumundaki küçük değişiklikler (10-voice.js updateVoiceLive çağırır)
+// Konuşan ses odasının nabzı (10-voice.js updateVoiceLive çağırır): İstasyonlar listesindeki ve sayfasındaki
+// ses odası satırları
 function updateBandLive () {
-  if (!el.bandTrack) return
-  Array.from(el.bandTrack.querySelectorAll('.station[data-kind="voice"]')).forEach((b) => {
-    b.classList.toggle('is-live', voiceSpeakingIn(b.getAttribute('data-channel-id')))
-  })
-  if (el.inboxList) {
-    Array.from(el.inboxList.querySelectorAll('.room-row-voice')).forEach((b) => {
+  const lists = [el.inboxList, el.stationsList]
+  lists.forEach((list) => {
+    if (!list) return
+    Array.from(list.querySelectorAll('.room-row-voice')).forEach((b) => {
       b.classList.toggle('is-live', voiceSpeakingIn(b.getAttribute('data-channel-id')))
     })
-  }
+  })
 }
 
-// Tümü sayfası (#stations-sheet): bandın tüm istasyonları gruplu ve büyük satırlarla, Özel grubunda
-// özel konuşmalar da ayrı satırdır. Sayfa açık değilken de çizilir, açılınca hazırdır.
+// İstasyonlar kartı (#inbox, sağ sütun) ve İstasyonlar sayfası (#stations-sheet, sağ sütun görünmediğinde
+// İstasyonlar düğmesiyle açılır): yazı ve ses odalarının listesi. Her satırda oda adı, okunmamış ve anma
+// rozeti, ses odasında kişi sayısı, konuşan göstergesi, Telsiz DJ notası ve bağlı olma durumu. Ayarlı oda
+// işaretlidir (aria-current). Satıra basmak yazı odasını ayarlar, ses odasına katılır (21-band.js
+// onStationRowClick). Yukarı ve aşağı ok, Home ve End satırlar arasında gezer (onRoomListKey). Oda ekle
+// düğmesi (#inbox-add, #rooms-sheet-add) yalnızca sahip ve yöneticilere görünür.
+let inboxRenderKey = ''
 let stationsRenderKey = ''
 
-function renderStationsSheet (model) {
-  const list = el.stationsList
-  if (!list) return
-  const groups = model || bandModel()
-  const dms = bandDmEntries()
-  const key = [window.I18N ? window.I18N.lang : '', state.channelId, currentViewMode()].concat(groups.map((g) => g.stations.map(stationKeyOf).join('|'))).concat(dms.map((d) => {
-    const name = typeof userDisplayName === 'function' ? userDisplayName(d.userId) : shownName(d.userId)
-    const sub = typeof dmRowSub === 'function' ? dmRowSub(d) : ''
-    return d.id + ':' + name + ':' + (state.unread[d.id] || 0) + ':' + sub + ':' + shownStatus(d.userId) + ':' + JSON.stringify(avatarInfoFor(d.userId))
-  })).join('#')
-  if (key === stationsRenderKey && list.childNodes.length) return
-  stationsRenderKey = key
-  const focusKey = activeFocusKey(list)
-  clear(list)
-  groups.forEach((g) => {
-    list.appendChild(h('h3', 'section-title sheet-section', g.label))
-    const ul = h('ul', 'sheet-list')
-    ul.setAttribute('aria-label', g.label)
-    g.stations.forEach((st) => {
-      ul.appendChild(buildSheetRow(st))
-      if (st.type === 'dm') {
-        dms.forEach((d) => {
-          ul.appendChild(buildSheetDmRow(d))
-        })
-      }
-    })
-    if (!g.stations.length && g.empty) ul.appendChild(h('li', 'sheet-empty hint', g.empty))
-    list.appendChild(ul)
-  })
-  restoreFocusKey(list, focusKey)
-}
-
-function buildSheetRow (st) {
-  const li = h('li', 'sheet-li')
-  const b = h('button', 'sheet-row sheet-row-' + st.type)
-  b.type = 'button'
-  b.setAttribute('data-station', st.key)
-  b.setAttribute('data-focus-key', 'sheet-' + st.key)
-  if (st.id !== undefined) b.setAttribute('data-channel-id', String(st.id))
-  b.setAttribute('aria-label', st.label)
-  if (st.tuned) {
-    b.classList.add('is-current')
-    b.setAttribute('aria-current', 'page')
-  }
-  if (st.connected) b.classList.add('is-connected')
-  const ic = h('span', 'sheet-row-icon')
-  ic.setAttribute('aria-hidden', 'true')
-  ic.appendChild(icon(st.icon))
-  b.appendChild(ic)
-  const text = h('span', 'sheet-row-body')
-  text.appendChild(h('span', 'sheet-row-name', st.name))
-  text.appendChild(h('span', 'sheet-row-sub', st.tuned ? t('band.tunedSub') : st.sub))
-  b.appendChild(text)
-  if (st.dj) b.appendChild(icon('i-music', 'sheet-row-dj'))
-  const mark = buildStationMark(st)
-  if (mark) b.appendChild(mark)
-  if (st.tuned) b.appendChild(icon('i-check', 'sheet-row-check'))
-  li.appendChild(b)
-  return li
-}
-
-function buildSheetDmRow (d) {
-  const li = h('li', 'sheet-li sheet-li-dm')
-  const b = h('button', 'sheet-row sheet-row-dmitem')
-  b.type = 'button'
-  b.setAttribute('data-dm-id', String(d.id))
-  b.setAttribute('data-focus-key', 'sheet-dm-' + d.id)
-  const name = typeof userDisplayName === 'function' ? userDisplayName(d.userId) : shownName(d.userId)
-  const count = Number(state.unread[d.id]) || 0
-  const current = currentViewMode() === 'dm' && sameId(d.id, state.channelId)
-  b.setAttribute('aria-label', count && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name }))
-  if (current) {
-    b.classList.add('is-current')
-    b.setAttribute('aria-current', 'page')
-  }
-  const av = typeof personAvatar === 'function' ? personAvatar(d.userId, 'sm') : avatar(d.userId, 'sm')
-  b.appendChild(av)
-  const text = h('span', 'sheet-row-body')
-  text.appendChild(h('span', 'sheet-row-name', name))
-  // Alt satır (15-dm.js): durum veya bulunduğu ses odası ve son mesaj saati
-  const sub = typeof dmRowSub === 'function' ? dmRowSub(d) : ''
-  if (sub) text.appendChild(h('span', 'sheet-row-sub', sub))
-  b.appendChild(text)
-  if (count && !current) {
-    const mark = h('span', 'station-mark mark-mention', countText(count))
-    mark.setAttribute('aria-hidden', 'true')
-    b.appendChild(mark)
-  }
-  li.appendChild(b)
-  return li
-}
-
-// İstasyonlar kartı (#inbox, sağ sütun): yazı ve ses odalarının listesi. Her satırda oda adı, okunmamış ve
-// anma rozeti, ses odasında kişi sayısı, konuşan göstergesi ve bağlı olma durumu. Ayarlı oda işaretlidir
-// (aria-current). Satıra basmak bantla aynı işi yapar (21-band.js onStationRowClick): yazı odasını ayarlar,
-// ses odasına katılır. Yukarı ve aşağı ok, Home ve End satırlar arasında gezer.
-let inboxRenderKey = ''
-
-function buildRoomRow (st) {
+function buildRoomRow (st, prefix) {
   const li = h('li', 'room-li')
   const b = h('button', 'room-row room-row-' + st.type)
   b.type = 'button'
   b.setAttribute('data-station', st.key)
-  b.setAttribute('data-focus-key', 'rooms-' + st.key)
+  b.setAttribute('data-focus-key', prefix + st.key)
   if (st.id !== undefined) b.setAttribute('data-channel-id', String(st.id))
   b.setAttribute('aria-label', st.label)
   if (st.tuned) {
@@ -668,6 +527,8 @@ function buildRoomRow (st) {
   if (st.joining) b.classList.add('is-joining')
   if (st.live) b.classList.add('is-live')
   b.appendChild(icon(st.icon, 'room-row-icon'))
+  // Gece temasında odanın süs frekansı (diğer temalarda gizli)
+  if (st.freq) b.appendChild(channelFreqNode(st.id))
   const text = h('span', 'room-row-body')
   text.appendChild(h('span', 'room-row-name', st.name))
   if (st.type === 'voice') text.appendChild(h('span', 'room-row-sub', st.sub))
@@ -691,24 +552,23 @@ function buildRoomRow (st) {
   return li
 }
 
-function renderInbox (model) {
-  const list = el.inboxList
-  if (!list) return
-  const groups = bandGroups(model)
-  const key = [window.I18N ? window.I18N.lang : ''].concat(groups.map((g) => g.key + '=' + g.label + '=' + g.stations.map((st) => stationKeyOf(st) + ':' + (st.live ? 1 : 0)).join('|'))).join('#')
-  if (key === inboxRenderKey && list.childNodes.length) return
-  inboxRenderKey = key
+function roomsKey (groups) {
+  return [window.I18N ? window.I18N.lang : ''].concat(groups.map((g) => g.key + '=' + g.label + '=' + g.stations.map((st) => stationKeyOf(st) + ':' + (st.live ? 1 : 0)).join('|'))).join('#')
+}
+
+// Oda listesini baştan çizer. idPrefix başlık kimliklerini, focusPrefix odak anahtarlarını ayırır.
+function fillRoomList (list, groups, idPrefix, focusPrefix) {
   const focusKey = activeFocusKey(list)
   clear(list)
   groups.forEach((g) => {
-    const titleId = 'rooms-title-' + g.key
+    const titleId = idPrefix + g.key
     const title = h('h3', 'rooms-group-title', g.label)
     title.id = titleId
     list.appendChild(title)
     const ul = h('ul', 'rooms-list')
     ul.setAttribute('aria-labelledby', titleId)
     g.stations.forEach((st) => {
-      ul.appendChild(buildRoomRow(st))
+      ul.appendChild(buildRoomRow(st, focusPrefix))
     })
     if (!g.stations.length && g.empty) ul.appendChild(h('li', 'rooms-empty hint', g.empty))
     list.appendChild(ul)
@@ -716,11 +576,59 @@ function renderInbox (model) {
   restoreFocusKey(list, focusKey)
 }
 
-// İstasyonlar listesinde ok tuşlarıyla gezinme
+function renderInbox (groups) {
+  const list = el.inboxList
+  if (!list) return
+  const add = byId('inbox-add')
+  if (add) add.hidden = !(typeof isAdmin === 'function' && isAdmin())
+  const key = roomsKey(groups)
+  if (key === inboxRenderKey && list.childNodes.length) return
+  inboxRenderKey = key
+  fillRoomList(list, groups, 'rooms-title-', 'rooms-')
+}
+
+// İstasyonlar sayfası: sayfa kapalıyken de çizilir, açılınca hazırdır
+function renderStationsSheet (groups) {
+  const list = el.stationsList
+  if (!list) return
+  const add = byId('rooms-sheet-add')
+  if (add) add.hidden = !(typeof isAdmin === 'function' && isAdmin())
+  const key = roomsKey(groups)
+  if (key === stationsRenderKey && list.childNodes.length) return
+  stationsRenderKey = key
+  fillRoomList(list, groups, 'sheet-rooms-title-', 'sheet-')
+}
+
+// İstasyonlar düğmesi (#btn-rooms, üst çubuk): sağ sütun görünmediğinde (frekans.css kesme noktaları) odaları
+// sayfa olarak açar. Rozeti ayarlı oda dışındaki okunmamış toplamıdır, anma varsa anma sayısını gösterir.
+function renderRoomsButton (groups) {
+  const b = byId('btn-rooms')
+  if (!b) return
+  let unread = 0
+  let mention = 0
+  groups.forEach((g) => {
+    g.stations.forEach((st) => {
+      unread += st.unread || 0
+      mention += st.mention || 0
+    })
+  })
+  let label = t('rooms.buttonLabel')
+  if (mention) label = t('rooms.buttonMentionLabel', { count: mention })
+  else if (unread) label = t('rooms.buttonUnreadLabel', { count: unread })
+  b.setAttribute('aria-label', label)
+  b.title = label
+  const mark = byId('btn-rooms-mark')
+  if (!mark) return
+  mark.hidden = !(unread || mention)
+  mark.className = 'station-mark ' + (mention ? 'mark-mention' : 'mark-unread')
+  mark.textContent = mention ? '@' + countText(mention) : (unread ? countText(unread) : '')
+}
+
+// İstasyonlar listesinde ve sayfasında ok tuşlarıyla gezinme
 function onRoomListKey (e) {
   const keys = ['ArrowDown', 'ArrowUp', 'Down', 'Up', 'Home', 'End']
-  if (keys.indexOf(e.key) === -1 || !el.inboxList) return
-  const rows = Array.from(el.inboxList.querySelectorAll('.room-row'))
+  if (keys.indexOf(e.key) === -1 || !e.currentTarget) return
+  const rows = Array.from(e.currentTarget.querySelectorAll('.room-row'))
   const i = rows.indexOf(document.activeElement)
   if (i === -1 || !rows.length) return
   e.preventDefault()

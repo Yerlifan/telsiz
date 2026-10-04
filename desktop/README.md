@@ -30,11 +30,28 @@ Arayüzde her Telsiz sunucusu bir frekanstır. Uygulama birden çok frekansı ha
 
 - Liste `ayarlar.json` içinde `frequencies` alanında tutulur: `[{ origin, name, lastUsed }]`, etkin frekans `server` alanıdır (`src/lib/frequencies.js`, `src/lib/settings-store.js`). Her köken `server-url.js` kurallarıyla doğrulanır, liste en fazla 50 frekanstır. Eski sürümün tek sunucu adresi ilk açılışta listeye eklenir, oturum bölümleri zaten kökene göre olduğu için girişler kaybolmaz.
 - Görünen ad bağlantı penceresinin denetlediği `/api/info` yanıtındaki sunucu adıdır. Web uygulaması adı sonradan öğrenirse (sunucu adı değişince) `setFrequencyName` ile bildirir, ad yalnızca pencerenin açık olduğu frekansa yazılır. Ad yoksa ana bilgisayar adı gösterilir.
-- Üst çubuktaki frekans adına basınca açılan menü (`public/js/24-frekans.js`) listeyi gösterir: açık frekans başta ve işaretli, diğerine basınca geçilir. Geçişte uygulama penceresi o frekansın oturum bölümüyle yeniden açılır ve eski pencere kapanır (ses bağlantısı da kapanır). Frekans ekle frekans adresi penceresini ekleme kipinde açar, başarılı bağlantıda yeni frekans listeye eklenir ve etkin olur. Listeden çıkar onay ister. O frekansın bu cihazdaki oturum verisi (giriş, yerel depo, önbellek) yalnızca onay penceresindeki kutu işaretlenirse silinir, varsayılan korumaktır. Etkin frekans çıkarılırsa en son kullanılan diğer frekansa geçilir, liste boşalırsa adres penceresi açılır.
+- Üstteki frekans bandı (`public/js/24-frekans.js`) listeyi kayıt sırasıyla gösterir: açık frekans işaretli (ibre), başka bir istasyona basınca, ibre sürüklenince, uç düğmeleriyle veya kolun L1 ve R1 düğmeleriyle geçilir. Bandın Tümü düğmesi aynı listeyi Frekanslar sayfasında açar. Geçişte uygulama penceresi o frekansın oturum bölümüyle yeniden açılır ve eski pencere kapanır (ses bağlantısı da kapanır). Frekans ekle (bandın + düğmesi) frekans adresi penceresini ekleme kipinde açar, başarılı bağlantıda yeni frekans listeye eklenir ve etkin olur. Frekanslar sayfasındaki Listeden çıkar onay ister. O frekansın bu cihazdaki oturum verisi (giriş, yerel depo, önbellek) yalnızca onay penceresindeki kutu işaretlenirse silinir, varsayılan korumaktır. Etkin frekans çıkarılırsa en son kullanılan diğer frekansa geçilir, liste boşalırsa adres penceresi açılır.
 - Uygulama menüsündeki ve tepsideki Frekanslar alt menüsü de listeyi gösterir ve aynı geçişi yapar.
 - Sayfadan gelen her köken ve ad ana süreçte yeniden doğrulanır: köken dize, uzunluğu sınırlı, geçerli ve listede kayıtlı olmalıdır. IPC işleyicileri diğerleri gibi çağrının uygulama penceresinin ana çerçevesinden ve `telsiz://app` kökeninden geldiğini denetler.
 
-Sınırlar: açık olmayan frekanslara arka planda bağlanılmaz, bu yüzden onların bildirimleri ve okunmamış sayıları gösterilmez. Geçişte ses bağlantısı kesilir. Liste cihazlar arasında eşitlenmez.
+Sınırlar: geçişte ses bağlantısı kesilir (ses odasındayken önce sorulur). Liste cihazlar arasında eşitlenmez. Açık olmayan frekansların sayıları aşağıdaki arka plan sayımıyla gösterilir.
+
+## Arka plan sayımı
+
+Üstteki frekans bandı açık olmayan frekansların da durumunu ve okunmamış sayılarını gösterir. Bunun için ana süreç (`src/lib/background.js`, `src/main.js createBackgroundWindow`) açık olmayan her kayıtlı frekans için o frekansın kendi oturum bölümünde gizli bir arka plan penceresi çalıştırır.
+
+- Üst sınır 8 pencere: en son kullanılan 8 frekans (`lastUsed`, açık frekans hariç). Bellek ve ağ yükü sınırlı kalsın diye pencereler açılıştan 3 saniye sonra ve 1,5 saniye arayla teker teker açılır. Sınırın dışındaki frekansların yalnızca erişilebilirliği gösterilir.
+- Pencere aynı uygulama paketini, aynı ön yükleme betiğini, korumalı alanı ve CSP'yi kullanır. Görünmezdir, görev çubuğunda yoktur, sesi kapalıdır, görseller yüklenmez ve otomatik oynatma kullanıcı etkileşimi ister. Yalnızca bildirim izni vardır (mikrofon dahil diğer izinler reddedilir), YouTube çerçevesi açılamaz.
+- Ön yükleme betiği arka plan kipini yalnızca ana sürecin eklediği `--telsiz-background=<köken>` argümanıyla açar ve sayfaya `window.telsizArkaPlan` nesnesini verir. Sayfa içeriği bu argümanı değiştiremez. İstemcinin arka plan kipi (`public/js/25-arka-plan.js`) arayüzü çizmez, ses, ekran paylaşımı, Telsiz DJ ve mesaj sesi başlatmaz, o frekansın kayıtlı oturumuyla long-poll yapar, okunmamışları ve anmaları normal istemcinin kuralıyla sayar (anma tespiti için mesajı bu cihazdaki anahtarla çözer) ve son okunan bilgisini yazmaz.
+- Pencere durumu (`origin`, `state`, `unread`, `mention`, `online`, `lastError`, `name`, `onlineUsers`) `telsiz:bg-report` kanalıyla en fazla saniyede bir bildirir. Ana süreç raporu yalnızca kayıtlı bir arka plan penceresinin ana çerçevesinden ve `telsiz://app` kökeninden kabul eder, köken o pencerenin frekansı olmalıdır, her alan türü ve sınırıyla denetlenir, bilinmeyen alan içeren rapor reddedilir. Toplanan durum `telsiz:bg-state` olayıyla uygulama penceresine gönderilir (`window.telsizArkaPlan.onState`, `getState()`).
+- Oturumu olmayan veya geçersiz frekans "giriş gerekli" bildirir: pencere kapanır ve o frekans bir kez açılana kadar yeniden açılmaz. Oturum bilgisine dokunulmaz. Çöken pencere 30 saniye sonra, art arda çökmede seyrelerek yeniden açılır.
+- Erişilebilirlik (çevrimiçi ve çevrimdışı noktası) için ana süreç her kayıtlı frekansa (sınırın dışındakiler dahil) kalıcı olmayan ayrı bir oturumla `GET <köken>/api/info` isteği gönderir: 8 saniye zaman aşımı, başarıda yaklaşık 60 saniyede bir, hatada katlanarak 10 dakikaya kadar seyrelir.
+- Bir frekansa geçince onun arka plan penceresi uygulama penceresi yüklenmeden kapanır (aynı oturumla iki istemci çalışmaz), önceki frekansın penceresi 3 saniye sonra açılır. Uygulama penceresi kapanınca ve uygulamadan çıkınca bütün arka plan pencereleri kapanır. Pencere tepsiye küçültülmüşken arka plan pencereleri çalışmaya devam eder.
+- O frekansta Ayarlar > Bildirimler'den masaüstü bildirimleri açıksa sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterilir (bildirim düzeyi ve Rahatsız etmeyin kuralı geçerlidir). Bildirime basınca o frekansa geçilir.
+
+Gizlilik: her arka plan penceresi o sunucuya oturumunuzla bağlı kalır. Sunucu sizi çevrimiçi görür ve poll isteklerini alır, diğer üyeler de sizi çevrimiçi görür. Arka plan penceresi mesaj göndermez, okundu bilgisi yazmaz.
+
+Sayılar oturuma özeldir: istemci okunmamışları sunucuda değil bu cihazda sayar. Uygulama yeniden açılınca arka plan pencereleri son okunan bilgisinden (oda ve özel konuşma başına son 50 mesaja kadar) yeniden sayar.
 
 ## Ekran paylaşımı seçicisi
 
@@ -80,7 +97,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
@@ -98,7 +115,7 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 - PWA yükleme önerisini engeller.
 - `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans, tepsiye küçültme ve güncellemeler bölümünü çizer.
 - İndirilmiş bir güncelleme veya yeni sürüm bildirimi için sağ altta kapatılabilir bir şerit gösterir.
-- Frekans menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir.
+- Frekans bandı ve menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir, açık olmayan frekansların durumunu `window.telsizArkaPlan` ile alır.
 
 `window.telsizDesktop` API'si:
 
@@ -111,7 +128,7 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, değerler Electron kısayol dizgesi veya `null` |
 | `onShortcut(cb)` | `cb('toggleMute' veya 'toggleDeafen')`, dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
-| `listFrequencies()` | `{ active, items: [{ origin, name, host, active }] }`, etkin frekans başta |
+| `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
 | `removeFrequency(origin, clearData)` | Frekansı listeden çıkarır, `clearData` yalnızca `true` ise oturum verisini siler |
@@ -122,6 +139,8 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `updates.install()` | İndirilmiş güncellemeyi kurar ve uygulamayı yeniden başlatır |
 | `updates.openRelease()` | Bulunan sürümün GitHub sayfasını varsayılan tarayıcıda açar (adresi ana süreç belirler) |
 | `updates.onState(cb)` | Durum değişince `cb(durum)`, dönen işlev aboneliği kaldırır |
+
+`window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb) }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open() }`.
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
 

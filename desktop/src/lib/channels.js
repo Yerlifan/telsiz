@@ -33,6 +33,12 @@ const CHANNELS = Object.freeze({
   updatesSetAuto: 'telsiz:updates-set-auto',
   updatesOpenRelease: 'telsiz:updates-open-release',
   updatesState: 'telsiz:updates-state',
+  // Arka plan sayımı (src/lib/background.js): pencerenin raporu, bildirimden frekansa geçiş, uygulama
+  // penceresine durum ve durumun okunması
+  bgReport: 'telsiz:bg-report',
+  bgOpen: 'telsiz:bg-open',
+  bgState: 'telsiz:bg-state',
+  bgGet: 'telsiz:bg-get',
   connectInit: 'telsiz:connect-init',
   connectSubmit: 'telsiz:connect-submit',
   connectCancel: 'telsiz:connect-cancel',
@@ -47,6 +53,10 @@ const ACTIONS = Object.freeze(['toggleMute', 'toggleDeafen'])
 // Uygulama sürümü ön yükleme betiğine bu önekle process.argv üzerinden verilir
 const VERSION_ARG = '--telsiz-version='
 
+// Arka plan penceresinin frekansı (kökeni) ön yükleme betiğine bu önekle verilir. Yalnızca ana süreç
+// ekler, sayfa içeriği süreç argümanlarını değiştiremez.
+const BACKGROUND_ARG = '--telsiz-background='
+
 module.exports = {
   SCHEME,
   APP_HOST,
@@ -57,5 +67,6 @@ module.exports = {
   PICKER_ORIGIN,
   CHANNELS,
   ACTIONS,
-  VERSION_ARG
+  VERSION_ARG,
+  BACKGROUND_ARG
 }

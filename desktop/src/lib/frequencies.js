@@ -125,14 +125,16 @@ function normalize (server, frequencies) {
   return { server: active, frequencies: list }
 }
 
-// Sayfaya verilen liste: etkin frekans başta, diğerleri kayıt sırasıyla. Oturum bilgisi içermez.
+// Sayfaya verilen liste: etkin frekans başta, diğerleri kayıt sırasıyla. order kayıt sırasıdır (frekans
+// bandı frekansları bu sırayla dizer, böylece geçişte istasyonların yeri değişmez). Oturum bilgisi içermez.
 function publicList (server, frequencies) {
   const list = sanitizeList(frequencies)
-  const items = list.map((item) => ({
+  const items = list.map((item, order) => ({
     origin: item.origin,
     name: item.name,
     host: hostOf(item.origin),
-    active: item.origin === server
+    active: item.origin === server,
+    order
   }))
   items.sort((a, b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)))
   return { active: isValidOrigin(server) ? server : null, items }
