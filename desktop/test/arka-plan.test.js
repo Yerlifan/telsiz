@@ -71,6 +71,7 @@ function makeWorld (list, active, opts) {
       return Promise.resolve(w.probeResult(origin))
     },
     push: (snapshot) => w.pushes.push(snapshot),
+    fetchIcon: o.fetchIcon,
     setName: (origin, name) => w.names.push([origin, name]),
     setTimer: clock.setTimer,
     clearTimer: clock.clearTimer,
@@ -188,7 +189,7 @@ test('rapor yalnızca kayıtlı pencereden, sayılar ve ad işlenir, durum gönd
   await w.clock.advance(400)
   const last = w.pushes[w.pushes.length - 1]
   const item = last.items.filter((entry) => entry.origin === B)[0]
-  assert.deepEqual(item, { origin: B, active: false, background: true, state: 'ok', unread: 7, mention: 2, online: true, lastError: null, onlineUsers: 5 })
+  assert.deepEqual(item, { origin: B, active: false, background: true, state: 'ok', unread: 7, mention: 2, online: true, lastError: null, onlineUsers: 5, icon: null })
   assert.deepEqual(w.names, [[B, 'Bee']])
   // Durum gönderimi seyreltilir: art arda raporlar tek gönderimde toplanır
   const before = w.pushes.length
@@ -297,4 +298,83 @@ test('ana süreç: arka plan penceresi sertleştirmeleri ve gönderen denetimi k
   assert.ok(main.includes("if (senderIs(event, 'background')) backgroundWindows.report(event.sender.id, report)"))
   assert.ok(main.includes("contextOf(contents) === 'background' && permission !== 'notifications'"))
   assert.ok(main.includes('backgroundWindows.stop()'))
+})
+
+test('frekans fotoğrafı: karma değişince indirilir, karmaya göre önbellekte, geçersiz sonuç ve deneme sınırı', async () => {
+  const H1 = 'a'.repeat(32)
+  const H2 = 'b'.repeat(32)
+  const urls = { [H1]: 'data:image/png;base64,iVBORw0KGgo=', [H2]: 'data:image/jpeg;base64,/9j/4AAQ' }
+  let icon = H1
+  let up = true
+  const fetches = []
+  let answer = (origin, hash) => urls[hash]
+  const w = makeWorld([{ origin: A, lastUsed: 2 }, { origin: B, lastUsed: 1 }, { origin: L, lastUsed: 0 }], A, {
+    max: 0,
+    probeResult: () => (up ? { ok: true, icon } : { ok: false }),
+    fetchIcon: (origin, hash) => {
+      fetches.push([origin, hash])
+      return Promise.resolve(answer(origin, hash))
+    }
+  })
+  const iconOf = (origin) => w.manager.snapshot().items.filter((item) => item.origin === origin)[0].icon
+  w.manager.setActive(A)
+  await w.clock.advance(bg.START_DELAY_MS + 1000)
+  // B ve L aynı karmayı bildirir: tek indirme, ikincisi önbellekten
+  assert.deepEqual(fetches, [[B, H1]])
+  assert.equal(iconOf(B), urls[H1])
+  assert.equal(iconOf(L), urls[H1])
+  assert.equal(iconOf(A), null, 'açık frekansın fotoğrafını sayfa kendisi yükler')
+  const pushed = w.pushes[w.pushes.length - 1].items.filter((item) => item.origin === B)[0]
+  assert.equal(pushed.icon, urls[H1])
+  // Aynı karma: sonraki yoklamalarda yeniden indirilmez
+  await w.clock.advance(bg.PROBE_INTERVAL_MS * 2)
+  assert.equal(fetches.length, 1)
+  // Sunucu çevrimdışı: son fotoğraf kalır
+  up = false
+  await w.clock.advance(bg.PROBE_INTERVAL_MS)
+  assert.equal(iconOf(B), urls[H1])
+  // Karma değişti: yeni fotoğraf indirilir
+  up = true
+  icon = H2
+  await w.clock.advance(bg.PROBE_MAX_MS)
+  assert.deepEqual(fetches.slice(1), [[B, H2]])
+  assert.equal(iconOf(B), urls[H2])
+  assert.equal(iconOf(L), urls[H2])
+  // Fotoğraf kaldırıldı
+  icon = null
+  await w.clock.advance(bg.PROBE_INTERVAL_MS)
+  assert.equal(iconOf(B), null)
+  assert.equal(iconOf(L), null)
+  // Geçersiz sonuç (SVG, düz metin) kabul edilmez ve aynı karma için en fazla ICON_ATTEMPTS kez denenir
+  const H3 = 'c'.repeat(32)
+  icon = H3
+  answer = () => 'data:image/svg+xml;base64,PHN2Zz4='
+  const before = fetches.length
+  await w.clock.advance(bg.PROBE_INTERVAL_MS * 6)
+  assert.equal(iconOf(B), null)
+  assert.equal(fetches.filter((f) => f[1] === H3 && f[0] === B).length, bg.ICON_ATTEMPTS)
+  assert.ok(fetches.length - before <= bg.ICON_ATTEMPTS * 2)
+  // Bozuk karma yok sayılır
+  icon = '../../etc'
+  answer = (origin, hash) => urls[hash]
+  await w.clock.advance(bg.PROBE_INTERVAL_MS)
+  assert.equal(iconOf(B), null)
+  assert.ok(fetches.every((f) => /^[0-9a-f]{32}$/.test(f[1])))
+  w.manager.stop()
+})
+
+test('yoklama eski biçimde (true/false) dönerse fotoğraf bilgisi değişmez', async () => {
+  const w = makeWorld([{ origin: A, lastUsed: 2 }, { origin: B, lastUsed: 1 }], A, { max: 0, fetchIcon: () => Promise.reject(new Error('çağrılmamalı')) })
+  w.manager.setActive(A)
+  await w.clock.advance(bg.START_DELAY_MS + 1000)
+  assert.equal(w.manager.snapshot().items.filter((item) => item.origin === B)[0].icon, null)
+  assert.equal(w.manager.snapshot().items.filter((item) => item.origin === B)[0].online, true)
+  w.manager.stop()
+})
+
+test('ana süreç fotoğrafı yoklama oturumuyla indirir ve yöneticiye verir', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8')
+  assert.match(main, /fetchIcon: \(origin, hash\) => fetchFrequencyIcon\(origin, hash\)/)
+  assert.match(main, /serverIcon\.fetchIcon\(\(url, init\) => ses\.fetch\(url, init\), origin, hash\)/)
+  assert.match(main, /return info\.ok === true \? \{ ok: true, icon: info\.serverIcon \} : \{ ok: false \}/)
 })

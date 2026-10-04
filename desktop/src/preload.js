@@ -176,6 +176,9 @@ const BG_ORIGIN_RE = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,
 const BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
 const BG_MAX_ITEMS = 60
 const BG_MAX_COUNT = 100000
+// Frekans fotoğrafı: ana sürecin doğruladığı PNG, JPEG veya WebP data: adresi (src/lib/server-icon.js)
+const BG_ICON_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+const BG_ICON_MAX = 1400000
 
 // Argüman varsa pencere her durumda arka plan kipindedir, köken biçime uymuyorsa boş kalır (ana süreç o
 // pencerenin raporlarını kabul etmez)
@@ -215,7 +218,8 @@ function bgCleanState (data) {
       unread: bgNumber(item.unread, BG_MAX_COUNT) || 0,
       mention: bgNumber(item.mention, BG_MAX_COUNT) || 0,
       online: item.online === true || item.online === false ? item.online : null,
-      onlineUsers: bgNumber(item.onlineUsers, 1000000)
+      onlineUsers: bgNumber(item.onlineUsers, 1000000),
+      icon: typeof item.icon === 'string' && item.icon.length <= BG_ICON_MAX && BG_ICON_RE.test(item.icon) ? item.icon : null
     }))
   }
 }

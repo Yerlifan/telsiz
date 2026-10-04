@@ -72,7 +72,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | --- | --- |
 | `server.js` | Giriş noktası: ortam değişkenleri, `telsiz.env`, başlatma, banner, `sifre-sifirla` komutu, kapanış |
 | `src/app.js` | `createChatServer(options)`, yönlendirme, API uç noktaları, yetkiler, hız sınırları, yüklemeler |
-| `src/store.js` | Kalıcılık: `state.json`, oda başına JSONL mesaj dosyaları, yüklemeler, kilit dosyası |
+| `src/store.js` | Kalıcılık: `state.json`, oda başına JSONL mesaj dosyaları, yüklemeler, frekans fotoğrafı, kilit dosyası |
 | `src/auth.js` | Parola karması, ad doğrulama, oturumlar, hız sınırlayıcı, güvenilir vekil |
 | `src/hub.js` | Çevrimiçi durumu, olay halkası, long-poll bekleyenleri, ses kadroları ve sinyal kuyrukları, yazıyor bilgisi |
 | `src/social.js` | Arkadaşlıklar, engellemeler ve özel mesaj kuralları |
@@ -119,7 +119,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
 | `22-cast.js` | Ekran paylaşımı arayüzü |
 | `23-dj.js` | Telsiz DJ arayüzü |
-| `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu |
+| `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.

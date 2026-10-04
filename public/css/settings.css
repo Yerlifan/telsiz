@@ -645,6 +645,27 @@
   margin: 0 0.5rem 0.5rem 0;
 }
 
+/* Frekans fotoğrafı önizlemesi: büyük frekans amblemi (fotoğraf yoksa baş harf), dar ekranda düğmeler
+   önizlemenin yanında alt alta durur */
+.settings-photo-row {
+  flex-wrap: nowrap;
+}
+
+.settings-photo-row .settings-avatar-buttons {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-photo-host .settings-photo-emblem {
+  width: 4.5rem;
+  height: 4.5rem;
+  margin: 0;
+  border-color: transparent;
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font-size: 1.75rem;
+}
+
 .settings-palette {
   display: flex;
   flex-wrap: wrap;

@@ -72,7 +72,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | --- | --- |
 | `server.js` | Entry point: environment variables, `telsiz.env`, startup, banner, the `sifre-sifirla` command, shutdown |
 | `src/app.js` | `createChatServer(options)`, routing, API endpoints, permissions, rate limits, uploads |
-| `src/store.js` | Persistence: `state.json`, JSONL message files per room, uploads, the lock file |
+| `src/store.js` | Persistence: `state.json`, JSONL message files per room, uploads, the frequency photo, the lock file |
 | `src/auth.js` | Password hashing, name validation, sessions, rate limiter, trusted proxies |
 | `src/hub.js` | Presence, the event ring, long poll waiters, voice rosters and signal queues, typing status |
 | `src/social.js` | Friendships, blocks and direct message rules |
@@ -119,7 +119,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
 | `22-cast.js` | Screen sharing interface |
 | `23-dj.js` | Telsiz DJ interface |
-| `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop |
+| `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.

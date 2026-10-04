@@ -196,8 +196,13 @@
           <div class="tanitim-body">
             <div class="tanitim-screen">
               <p class="tanitim-kicker"><span data-i18n="layout.serverLabel">Frekans</span><span class="tanitim-live"><span class="tanitim-live-dot" aria-hidden="true"></span><span data-i18n="landing.onAir">Yayında</span></span></p>
-              <h2 id="tanitim-name" class="tanitim-name">Telsiz</h2>
-              <p id="tanitim-host" class="tanitim-host"></p>
+              <div id="tanitim-ident" class="tanitim-ident">
+                <img id="tanitim-photo" class="tanitim-photo" alt="" draggable="false" hidden>
+                <div class="tanitim-ident-text">
+                  <h2 id="tanitim-name" class="tanitim-name">Telsiz</h2>
+                  <p id="tanitim-host" class="tanitim-host"></p>
+                </div>
+              </div>
               <span class="tanitim-needle" aria-hidden="true"></span>
             </div>
             <div class="tanitim-panel">
@@ -301,6 +306,7 @@
            ekranın altında kurulum, davet, giriş ve anahtar bölümleri, en altta güvence satırı -->
       <div class="auth-card">
         <div class="auth-brand auth-dial">
+          <img id="auth-server-icon" class="auth-photo" alt="" draggable="false" hidden>
           <div class="auth-brand-text">
             <p class="auth-kicker" data-i18n="layout.serverLabel">Frekans</p>
             <p id="auth-server-name" class="auth-server"></p>

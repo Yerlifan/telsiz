@@ -108,6 +108,46 @@
   word-break: break-word;
 }
 
+/* Frekans kimliği: varsa frekans fotoğrafı adın solunda, yoksa yalnızca ad ve adres (eski görünüm) */
+.tanitim-ident {
+  display: block;
+}
+
+.tanitim-ident.has-photo {
+  display: flex;
+  align-items: center;
+  margin-top: 0.875rem;
+}
+
+.tanitim-ident-text {
+  min-width: 0;
+}
+
+.tanitim-ident.has-photo .tanitim-ident-text {
+  flex: 1 1 auto;
+}
+
+.tanitim-ident.has-photo .tanitim-name {
+  margin-top: 0;
+}
+
+.tanitim-photo {
+  display: block;
+  flex: none;
+  width: 5.5rem;
+  height: 5.5rem;
+  margin-right: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 30%;
+  background-color: var(--screen-bg);
+  box-shadow: 0 0 0 4px var(--station-target);
+  object-fit: cover;
+}
+
+.tanitim-photo[hidden] {
+  display: none;
+}
+
 .tanitim-host {
   margin: 0;
   color: var(--text-3);
@@ -724,6 +764,12 @@
 
   .tanitim-name {
     font-size: 2rem;
+  }
+
+  .tanitim-photo {
+    width: 3.75rem;
+    height: 3.75rem;
+    margin-right: 0.875rem;
   }
 
   .tanitim-needle {

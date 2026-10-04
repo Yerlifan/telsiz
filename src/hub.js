@@ -44,7 +44,7 @@ function inAudience (audience, userId) {
 }
 
 // options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
-//   getBase: () => ({ serverName, activeKid, channels, users: [{ id, name, role, pv, status }], music }),
+//   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, pv, status }], music }),
 //   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
@@ -221,6 +221,7 @@ function createHub (options) {
     }
     metaCache = {
       serverName: base.serverName,
+      serverIcon: base.serverIcon === undefined ? null : base.serverIcon,
       activeKid: base.activeKid,
       channels: base.channels,
       users: base.users.map(presenceView),

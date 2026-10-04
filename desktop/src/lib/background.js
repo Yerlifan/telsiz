@@ -12,6 +12,11 @@
 // 60 saniyede bir, hatada katlanarak 10 dakikaya kadar seyrelen) yönetir. Yoklama üst sınırın dışında
 // kalan frekanslar için de yapılır.
 //
+// Frekans fotoğrafı: yoklama yanıtındaki karma (GET /api/info serverIcon) değişince fotoğraf deps.fetchIcon ile
+// indirilir (src/lib/server-icon.js indirir ve doğrular) ve karmaya göre önbelleğe alınır. Aynı karma için
+// yeniden indirilmez, başarısız indirme aynı karma için en fazla ICON_ATTEMPTS kez denenir. Fotoğraf data:
+// adresi olarak durumla birlikte uygulama penceresine gider, frekans çevrimdışı olsa da son fotoğraf kalır.
+//
 // Kurallar:
 // - Açık frekansın (uygulama penceresi) arka plan penceresi olmaz. Geçişte hedef frekansın penceresi hemen
 //   kapatılır, önceki frekansın penceresi START_DELAY_MS sonra açılır (eski pencere önce kapanır, aynı
@@ -40,6 +45,11 @@ const RESTART_MAX_MS = 10 * 60000
 const PUSH_GAP_MS = 300
 const MAX_COUNT = 100000
 const MAX_USERS = 1000000
+const ICON_HASH_RE = /^[0-9a-f]{32}$/
+const ICON_DATA_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+const ICON_DATA_MAX = 1400000
+const ICON_ATTEMPTS = 3
+const ICON_CACHE_MAX = 32
 const STATES = Object.freeze(['ok', 'login', 'offline', 'error', 'starting'])
 const ERRORS = Object.freeze(['session', 'banned', 'unreachable', 'no_key', 'crypto', 'error'])
 const REPORT_KEYS = Object.freeze(['origin', 'state', 'unread', 'mention', 'online', 'lastError', 'name', 'onlineUsers'])
@@ -107,7 +117,9 @@ function pickTargets (list, active, max) {
 //   frequencies(): kayıtlı liste [{ origin, name, lastUsed }], her çağrıda yeniden okunur
 //   active(): uygulama penceresinin açık olduğu frekans veya null
 //   createWindow(origin): { id, destroy() } (id: pencerenin webContents kimliği)
-//   probe(origin): Promise<boolean> (GET <köken>/api/info başarılı mı)
+//   probe(origin): Promise<boolean | { ok, icon }> (GET <köken>/api/info başarılı mı, icon: fotoğrafın karması
+//     veya null, alan yoksa fotoğraf bilgisi değişmez)
+//   fetchIcon(origin, hash): Promise<string | null> (doğrulanmış data: adresi, isteğe bağlı)
 //   push(snapshot): durum uygulama penceresine gönderilir
 //   setName(origin, name): arka plan penceresinin öğrendiği sunucu adı (isteğe bağlı)
 //   setTimer(fn, ms), clearTimer(handle), now()
@@ -119,11 +131,13 @@ function createManager (deps) {
   let running = false
   let syncTimer = null
   let pushTimer = null
+  // Frekans fotoğrafları: karma -> data: adresi (en fazla ICON_CACHE_MAX, en eski önce düşer)
+  const icons = new Map()
 
   function entryOf (origin) {
     let entry = entries.get(origin)
     if (!entry) {
-      entry = { origin, window: null, state: null, unread: 0, mention: 0, online: null, lastError: null, onlineUsers: null, probeFailures: 0, probeTimer: null, probing: false, restartFailures: 0, waitUntil: 0, blocked: false }
+      entry = { origin, window: null, state: null, unread: 0, mention: 0, online: null, lastError: null, onlineUsers: null, probeFailures: 0, probeTimer: null, probing: false, restartFailures: 0, waitUntil: 0, blocked: false, iconHash: null, icon: null, iconAttempts: 0, iconLoading: false }
       entries.set(origin, entry)
     }
     return entry
@@ -167,7 +181,8 @@ function createManager (deps) {
         mention: entry && !isActive && entry.state === 'ok' ? entry.mention : 0,
         online: entry && !isActive ? entry.online : null,
         lastError: entry && !isActive ? entry.lastError : null,
-        onlineUsers: entry && !isActive && entry.state === 'ok' ? entry.onlineUsers : null
+        onlineUsers: entry && !isActive && entry.state === 'ok' ? entry.onlineUsers : null,
+        icon: entry && !isActive ? entry.icon : null
       }
     })
     return { max, items }
@@ -198,15 +213,53 @@ function createManager (deps) {
     }, ms)
   }
 
+  function rememberIcon (hash, url) {
+    icons.delete(hash)
+    icons.set(hash, url)
+    while (icons.size > ICON_CACHE_MAX) icons.delete(icons.keys().next().value)
+  }
+
+  // Yoklamanın bildirdiği fotoğraf karması. Karma değişmediyse ve fotoğraf varsa hiçbir şey yapılmaz.
+  function noteIcon (entry, value) {
+    const hash = typeof value === 'string' && ICON_HASH_RE.test(value) ? value : null
+    if (hash !== entry.iconHash) {
+      entry.iconHash = hash
+      entry.iconAttempts = 0
+      entry.icon = null
+      schedulePush()
+    }
+    if (hash === null || entry.icon !== null || entry.iconLoading) return
+    if (icons.has(hash)) {
+      entry.icon = icons.get(hash)
+      rememberIcon(hash, entry.icon)
+      schedulePush()
+      return
+    }
+    if (typeof deps.fetchIcon !== 'function' || entry.iconAttempts >= ICON_ATTEMPTS) return
+    entry.iconAttempts += 1
+    entry.iconLoading = true
+    Promise.resolve().then(() => deps.fetchIcon(entry.origin, hash)).then((url) => url, () => null).then((url) => {
+      entry.iconLoading = false
+      const valid = typeof url === 'string' && url.length <= ICON_DATA_MAX && ICON_DATA_RE.test(url)
+      if (valid) rememberIcon(hash, url)
+      if (!running || !entries.has(entry.origin) || entry.iconHash !== hash || !valid) return
+      entry.icon = url
+      schedulePush()
+    })
+  }
+
   function runProbe (entry) {
     if (!running || entry.probing) return
     if (!savedOrigins().includes(entry.origin) || entry.origin === deps.active()) return
     entry.probing = true
-    Promise.resolve().then(() => deps.probe(entry.origin)).then((ok) => ok === true, () => false).then((ok) => {
+    Promise.resolve().then(() => deps.probe(entry.origin)).then((res) => res, () => false).then((res) => {
       entry.probing = false
       if (!running || !entries.has(entry.origin)) return
+      const detail = res && typeof res === 'object' ? res : null
+      const ok = res === true || Boolean(detail && detail.ok === true)
       entry.probeFailures = ok ? 0 : entry.probeFailures + 1
       entry.online = ok
+      if (ok && detail && Object.prototype.hasOwnProperty.call(detail, 'icon')) noteIcon(entry, detail.icon)
       schedulePush()
       scheduleProbe(entry, probeDelay(entry.probeFailures))
     })
@@ -369,6 +422,8 @@ module.exports = {
   PROBE_MAX_MS,
   PROBE_TIMEOUT_MS,
   RESTART_DELAY_MS,
+  ICON_ATTEMPTS,
+  ICON_CACHE_MAX,
   STATES,
   ERRORS,
   validateReport,

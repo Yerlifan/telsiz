@@ -1001,3 +1001,38 @@ test('Frekans tanıtımı: sahip yazar ve kaydeder (POST /api/settings { about }
   admin.root.querySelector('#set-about-save').click()
   assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path === '/api/settings').length, 0)
 })
+
+test('Frekans fotoğrafı: sahip seçer ve kaldırır (POST /api/server-icon/delete), yönetici yalnızca önizlemeyi görür', async () => {
+  const owner = load({ role: 'owner' })
+  owner.run("openSettings('general', null)")
+  const root = owner.root
+  assert.strictEqual(root.querySelector('#set-photo-section-title').textContent, 'Frekans fotoğrafı')
+  assert.ok(root.querySelector('#set-photo-hint').textContent.indexOf('herkese açıktır ve şifrelenmez') !== -1)
+  assert.strictEqual(root.querySelector('#set-photo-pick').hidden, false)
+  assert.strictEqual(root.querySelector('#set-photo-remove').hidden, true, 'fotoğraf yokken kaldır gizli')
+  assert.strictEqual(root.querySelector('#set-photo-owner-only').hidden, true)
+  // Fotoğraf yokken önizleme frekans adının baş harfidir
+  assert.strictEqual(root.querySelector('#set-photo-preview .emblem-letter').textContent, 'K')
+  // Meta yeni fotoğraf karması getirir: kaldır düğmesi görünür, kaldırınca istek gider ve durum sıfırlanır
+  owner.run("frekansOwnIconUrl = function () { return state.serverIcon ? '/api/server-icon?v=' + state.serverIcon : null }")
+  owner.run("state.serverIcon = '" + 'a'.repeat(32) + "'")
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(root.querySelector('#set-photo-remove').hidden, false)
+  root.querySelector('#set-photo-remove').click()
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+  const sent = owner.sandbox.__requests.filter((r) => r.path === '/api/server-icon/delete')
+  assert.strictEqual(sent.length, 1)
+  assert.strictEqual(sent[0].method, 'POST')
+  assert.strictEqual(owner.run('state.serverIcon'), null)
+  assert.strictEqual(root.querySelector('#set-photo-msg').textContent, 'Frekans fotoğrafı kaldırıldı.')
+  assert.strictEqual(root.querySelector('#set-photo-remove').hidden, true)
+
+  const admin = load({ role: 'admin' })
+  admin.run("openSettings('general', null)")
+  assert.strictEqual(admin.root.querySelector('#set-photo-pick').hidden, true)
+  assert.strictEqual(admin.root.querySelector('#set-photo-remove').hidden, true)
+  assert.strictEqual(admin.root.querySelector('#set-photo-owner-only').hidden, false)
+  admin.root.querySelector('#set-photo-pick').click()
+  assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path.indexOf('/api/server-icon') === 0).length, 0)
+})

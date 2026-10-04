@@ -60,6 +60,7 @@ const automation = require('./lib/automation')
 const frequencies = require('./lib/frequencies')
 const updates = require('./lib/updates')
 const background = require('./lib/background')
+const serverIcon = require('./lib/server-icon')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG, BACKGROUND_ARG } = channels
 
@@ -755,11 +756,19 @@ function createBackgroundWindow (origin) {
   }
 }
 
-// Erişilebilirlik yoklaması: GET <köken>/api/info zaman aşımıyla
+// Erişilebilirlik yoklaması: GET <köken>/api/info zaman aşımıyla. Yanıttaki frekans fotoğrafı karması da
+// döner (arka plan yöneticisi karma değişince fotoğrafı indirir).
 async function probeFrequency (origin) {
   const ses = session.fromPartition(PROBE_PARTITION)
   const info = await serverUrl.checkServer((url, init) => ses.fetch(url, init), origin, app.getVersion(), { timeoutMs: background.PROBE_TIMEOUT_MS })
-  return info.ok === true
+  return info.ok === true ? { ok: true, icon: info.serverIcon } : { ok: false }
+}
+
+// Frekans fotoğrafı: yoklamayla aynı çerezsiz oturum bölümünden indirilir, src/lib/server-icon.js tür, boyut
+// ve karma denetiminden sonra data: adresine çevirir
+function fetchFrequencyIcon (origin, hash) {
+  const ses = session.fromPartition(PROBE_PARTITION)
+  return serverIcon.fetchIcon((url, init) => ses.fetch(url, init), origin, hash)
 }
 
 // Arka plan penceresinin öğrendiği sunucu adı listeye yazılır (yalnızca o frekansın adı, değiştiyse)
@@ -782,6 +791,7 @@ const backgroundWindows = background.createManager({
   active: () => state.mainOrigin,
   createWindow: (origin) => createBackgroundWindow(origin),
   probe: (origin) => probeFrequency(origin),
+  fetchIcon: (origin, hash) => fetchFrequencyIcon(origin, hash),
   push: (snapshot) => pushBackgroundState(snapshot),
   setName: (origin, name) => noteBackgroundName(origin, name),
   setTimer: (fn, ms) => setTimeout(fn, ms),

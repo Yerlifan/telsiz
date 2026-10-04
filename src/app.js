@@ -156,6 +156,13 @@ const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
 // istemci için bile geniş pay). Yükleme gövdeleri bu sınıra değil UPLOAD_IDLE_MS'ye tabidir.
 const JSON_BODY_TIMEOUT_MS = 60000
 const UPLOAD_PREFIX = '/api/uploads/'
+// Frekans fotoğrafı: içeriğin sha256 karmasının ilk 32 onaltılık hanesi (sürüm ve ETag), yalnızca PNG, JPEG
+// ve WebP (gerçek dosya imzasıyla, Content-Type başlığına bakılmaz). SVG kabul edilmez.
+const SERVER_ICON_HASH_RE = /^[0-9a-f]{32}$/
+const SERVER_ICON_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex')
+// Açılışta diskteki fotoğraf için en büyük okuma boyutu (sınır sonradan düşürülse de kayıtlı fotoğraf korunur)
+const SERVER_ICON_READ_MAX = 16 * 1024 * 1024
 // Varsayılan temanın (Arcade) koyu zemin rengi
 const MANIFEST_COLOR = '#0f1015'
 
@@ -560,6 +567,13 @@ function normalizeLoadedState (state, config, log) {
     state.serverName = config.serverName
     changed = true
   }
+  // Frekans fotoğrafı eski durum dosyalarında yoktur (yazım gerekmez), geçersiz kayıt silinir
+  if (state.serverIcon === undefined) {
+    state.serverIcon = null
+  } else if (!sameJson(cleanServerIconRecord(state.serverIcon), state.serverIcon)) {
+    state.serverIcon = cleanServerIconRecord(state.serverIcon)
+    changed = true
+  }
   // Frekans tanıtımı eski durum dosyalarında yoktur, boş metinle başlar (yazım gerekmez)
   if (state.about === undefined) {
     state.about = ''
@@ -599,6 +613,7 @@ function prepareState (store, config, log) {
       serverName: config.serverName,
       // Frekans tanıtımı: sahibin yazdığı, herkese açık düz metin (GET /api/info)
       about: '',
+      serverIcon: null,
       inviteCode: auth.generateCode(),
       activeKid: null,
       counters: { user: 0, channel: 0, message: 0 },
@@ -665,14 +680,62 @@ function sameJson (a, b) {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+// Dosya imzasından resim türü: image/png, image/jpeg, image/webp veya null
+function imageType (data) {
+  if (!Buffer.isBuffer(data) || data.length < 16) return null
+  if (data.length >= 24 && data.subarray(0, 8).equals(PNG_SIGNATURE) && data.toString('latin1', 12, 16) === 'IHDR') return 'image/png'
+  if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
+  if (data.toString('latin1', 0, 4) === 'RIFF' && data.toString('latin1', 8, 12) === 'WEBP' && /^VP8[ LX]$/.test(data.toString('latin1', 12, 16))) return 'image/webp'
+  return null
+}
+
+function serverIconHash (data) {
+  return crypto.createHash('sha256').update(data).digest('hex').slice(0, 32)
+}
+
+// Kayıtlı frekans fotoğrafı: { hash, type, size } veya null
+function cleanServerIconRecord (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (typeof value.hash !== 'string' || !SERVER_ICON_HASH_RE.test(value.hash) || !SERVER_ICON_TYPES.has(value.type)) return null
+  if (!Number.isSafeInteger(value.size) || value.size <= 0) return null
+  return { hash: value.hash, type: value.type, size: value.size }
+}
+
+// Açılışta kayıtlı fotoğrafı belleğe okur ve doğrular (tür ve karma). Dosya eksik veya bozuksa kayıt
+// silinir. Kayıtlı fotoğraf dışındaki dosyalar (yarım kalmış yazımlar, eski fotoğraflar) temizlenir.
+async function loadServerIcon (store, state, config, log) {
+  const rec = state.serverIcon
+  let icon = null
+  if (rec) {
+    const data = await store.readServerIcon(rec.hash, SERVER_ICON_READ_MAX)
+    const type = data ? imageType(data) : null
+    if (data && type && serverIconHash(data) === rec.hash) {
+      icon = { hash: rec.hash, type, data }
+      if (rec.type !== type || rec.size !== data.length) {
+        state.serverIcon = { hash: rec.hash, type, size: data.length }
+        store.saveState()
+      }
+    } else {
+      log.warn(i18n.t(config.lang, 'log.serverIconMissing'))
+      state.serverIcon = null
+      store.saveState()
+    }
+  }
+  await store.removeServerIconsExcept(icon ? icon.hash : null)
+  return icon
+}
+
 async function createChatServer (options) {
   const config = resolveOptions(options)
   const log = makeLogger(config.log)
   const store = await openStore({ dir: config.dataDir, maxMessagesPerChannel: config.maxMessagesPerChannel, maxTotalMessages: config.maxTotalMessages, log: config.log, lang: config.lang })
   let state
   let dummyHash
+  // Frekans fotoğrafı bellekte tutulur: { hash, type, data } veya null
+  let serverIcon = null
   try {
     state = prepareState(store, config, log)
+    serverIcon = await loadServerIcon(store, state, config, log)
     // Bilinmeyen kullanıcı girişlerinde aynı maliyette doğrulama yapılır
     dummyHash = await auth.hashPassword(crypto.randomBytes(16).toString('hex'), config.scryptN)
   } catch (err) {
@@ -788,7 +851,9 @@ async function createChatServer (options) {
     aboutMax: auth.ABOUT_MAX,
     aboutMaxLines: auth.ABOUT_MAX_LINES,
     maxProfileChars: config.maxProfileChars,
-    avatarMaxBytes: config.avatarMaxBytes
+    avatarMaxBytes: config.avatarMaxBytes,
+    // Frekans fotoğrafı profil resmiyle aynı sınırı kullanır
+    serverIconMaxBytes: config.avatarMaxBytes
   }
 
   // ---------------------------------------------------------------- durum yardımcıları
@@ -816,7 +881,7 @@ async function createChatServer (options) {
       .filter((u) => !u.banned && !u.deleted)
       .sort((a, b) => collator.compare(a.name, b.name) || a.id - b.id)
       .map(metaUser)
-    return { serverName: state.serverName, activeKid: state.activeKid, channels, users, music: { enabled: state.music.enabled, youtube: state.music.youtube } }
+    return { serverName: state.serverName, serverIcon: serverIcon ? serverIcon.hash : null, activeKid: state.activeKid, channels, users, music: { enabled: state.music.enabled, youtube: state.music.youtube } }
   }
 
   function lastMessageOf (channelId) {
@@ -1196,7 +1261,8 @@ async function createChatServer (options) {
 
   function handleInfo (ctx) {
     // about herkese açıktır ve şifrelenmez: giriş yapmamış ziyaretçiler tanıtım sayfasında görür
-    ok(ctx, { serverName: state.serverName, about: state.about, setupRequired: !ownerExists(), version: VERSION, limits })
+    // Frekans fotoğrafının karması da herkese açıktır (GET /api/server-icon)
+    ok(ctx, { serverName: state.serverName, serverIcon: serverIcon ? serverIcon.hash : null, about: state.about, setupRequired: !ownerExists(), version: VERSION, limits })
   }
 
   function codeAccepted (setup, input) {
@@ -2304,6 +2370,82 @@ async function createChatServer (options) {
     ok(ctx, { ok: true })
   }
 
+  // ---------------------------------------------------------------- uç noktalar: frekans fotoğrafı
+
+  // Frekans fotoğrafı herkese açık üst veridir (frekans adı gibi), uçtan uca şifrelenmez. Giriş öncesi
+  // ekranlar ve diğer frekansların bantları için oturumsuz sunulur. ETag içeriğin karmasıdır.
+  function handleServerIconGet (ctx) {
+    const icon = serverIcon
+    if (!icon) return fail(ctx, 404, 'not_found')
+    const res = ctx.res
+    if (!util.canRespond(res)) return
+    const etag = '"' + icon.hash + '"'
+    res.setHeader('Content-Type', icon.type)
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('ETag', etag)
+    res.setHeader('Content-Security-Policy', util.DOWNLOAD_CSP)
+    if (closing) res.setHeader('Connection', 'close')
+    if (util.etagMatches(ctx.req.headers['if-none-match'], etag)) {
+      res.statusCode = 304
+      res.end()
+      return
+    }
+    res.statusCode = 200
+    res.setHeader('Content-Length', icon.data.length)
+    if (ctx.req.method === 'HEAD') res.end()
+    else res.end(icon.data)
+  }
+
+  // Frekans adı gibi yalnızca sahip değiştirebilir. Yüklemede gövde okunmadan önce denetlenir.
+  function serverIconAllowed (ctx) {
+    if (ctx.user.role !== 'owner') {
+      fail(ctx, 403, 'forbidden', 'detail.serverIconOwnerOnly')
+      return false
+    }
+    return takeAdminSlot(ctx)
+  }
+
+  function failServerIconTooLarge (ctx) {
+    return fail(ctx, 413, 'server_icon_too_large', null, null, { kb: Math.floor(config.avatarMaxBytes / 1024) })
+  }
+
+  // Eski fotoğrafın dosyası yeni kayıt diske yazıldıktan sonra silinir (o sırada yeniden seçildiyse silinmez)
+  function dropServerIconFile (icon) {
+    if (!icon || (serverIcon && serverIcon.hash === icon.hash)) return
+    store.removeServerIcon(icon.hash).catch((err) => log.warn(i18n.t(config.lang, 'log.serverIconRemoveFailed', { error: errText(err, config.lang) })))
+  }
+
+  // POST /api/server-icon: gövde resmin kendisidir (Content-Type'a bakılmaz, tür dosya imzasından). Dosya
+  // önce atomik yazılır, sonra kayıt state.json'a geçer ve yanıt kayıt diske yazılınca gider.
+  async function handleServerIconUpload (ctx) {
+    const data = ctx.raw
+    if (!data || data.length === 0) return fail(ctx, 400, 'empty_upload')
+    const type = imageType(data)
+    if (!type) return fail(ctx, 400, 'bad_server_icon')
+    const hash = serverIconHash(data)
+    if (serverIcon && serverIcon.hash === hash) return ok(ctx, { ok: true, serverIcon: hash })
+    await store.writeServerIcon(hash, data)
+    const previous = serverIcon
+    serverIcon = { hash, type, data }
+    state.serverIcon = { hash, type, size: data.length }
+    store.saveState()
+    hub.bumpMeta()
+    await okDurable(ctx, { ok: true, serverIcon: hash })
+    dropServerIconFile(previous)
+  }
+
+  async function handleServerIconDelete (ctx) {
+    if (!serverIconAllowed(ctx)) return
+    if (!serverIcon) return ok(ctx, { ok: true, serverIcon: null })
+    const previous = serverIcon
+    serverIcon = null
+    state.serverIcon = null
+    store.saveState()
+    hub.bumpMeta()
+    await okDurable(ctx, { ok: true, serverIcon: null })
+    dropServerIconFile(previous)
+  }
+
   function handleInviteRotate (ctx) {
     if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
     state.inviteCode = auth.generateCode()
@@ -2441,6 +2583,10 @@ async function createChatServer (options) {
   route('/api/dms/open', 'POST', handleDmOpen)
   route('/api/settings', 'POST', handleSettings)
   route('/api/invite/rotate', 'POST', handleInviteRotate)
+  route('/api/server-icon', 'GET', handleServerIconGet, { auth: false })
+  route('/api/server-icon', 'HEAD', handleServerIconGet, { auth: false })
+  route('/api/server-icon', 'POST', handleServerIconUpload, { body: 'binary', maxBytes: config.avatarMaxBytes, before: serverIconAllowed, tooLarge: failServerIconTooLarge })
+  route('/api/server-icon/delete', 'POST', handleServerIconDelete)
   route('/api/voice/join', 'POST', handleVoiceJoin)
   route('/api/voice/leave', 'POST', handleVoiceLeave)
   route('/api/voice/state', 'POST', handleVoiceState)
@@ -2471,6 +2617,28 @@ async function createChatServer (options) {
       ctx.now = Date.now()
       if (closing) return fail(ctx, 503, 'shutting_down')
       if (def.auth && !stillSignedIn(ctx)) return failSignedOut(ctx)
+    } else if (def.body === 'binary') {
+      // Ham ikili gövde (frekans fotoğrafı): oturum, yetki (def.before) ve bildirilen boyut gövde
+      // okunmadan denetlenir
+      const maxBytes = def.maxBytes || config.maxJsonBytes
+      ctx.drainable = true
+      ctx.drainLimit = maxBytes
+      let allowed = authenticate(ctx) && (!def.before || def.before(ctx))
+      const declared = util.contentLength(ctx.req)
+      if (allowed && declared !== null && declared > maxBytes) {
+        if (def.tooLarge) def.tooLarge(ctx)
+        else fail(ctx, 413, 'too_large')
+        allowed = false
+      }
+      ctx.drainable = false
+      if (!allowed) return
+      const result = await util.readBody(ctx.req, maxBytes, JSON_BODY_TIMEOUT_MS, true)
+      if (result.aborted) return
+      if (result.tooLarge) return def.tooLarge ? def.tooLarge(ctx) : fail(ctx, 413, 'too_large')
+      ctx.raw = result.buffer
+      ctx.now = Date.now()
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (!stillSignedIn(ctx)) return failSignedOut(ctx)
     } else {
       if (closing) return fail(ctx, 503, 'shutting_down')
       if (def.auth && !authenticate(ctx)) return
@@ -2489,7 +2657,7 @@ async function createChatServer (options) {
     const def = byMethod.get(req.method)
     if (!def) return failEarly(req, res, 405, 'method_not_allowed', { Allow: Array.from(byMethod.keys()).join(', ') })
     if (closing) return failEarly(req, res, 503, 'shutting_down')
-    const ctx = { req, res, query, param, body: {}, now: Date.now(), user: null, session: null, rt: null, drainable: def.body === 'stream', drainLimit: config.uploadMaxBytes }
+    const ctx = { req, res, query, param, body: {}, raw: null, now: Date.now(), user: null, session: null, rt: null, drainable: def.body === 'stream', drainLimit: config.uploadMaxBytes }
     const label = req.method + ' ' + (param === null ? pathname : UPLOAD_PREFIX + '<id>')
     runRoute(ctx, def).catch((err) => internalError(res, err, label))
   }

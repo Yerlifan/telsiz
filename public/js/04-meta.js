@@ -115,6 +115,7 @@ function applyMeta (meta, isInitial) {
   const prevUsersKey = mentionUsersKey(state.meta)
   state.meta = meta
   if (typeof meta.serverName === 'string' && meta.serverName) state.serverName = meta.serverName
+  if (meta.serverIcon === null || (typeof meta.serverIcon === 'string' && /^[0-9a-f]{32}$/.test(meta.serverIcon))) state.serverIcon = meta.serverIcon
   const users = Array.isArray(meta.users) ? meta.users : []
   users.forEach((u) => {
     if (u && u.id !== undefined) {
@@ -174,13 +175,27 @@ function applyMeta (meta, isInitial) {
   refreshSettings()
 }
 
-// Üst çubuktaki frekans kimliği (frekans değiştirici düğmesi, 24-frekans.js): amblem (frekans adının baş
-// harfi), ad ve aşağı ok, alt satırda "Frekans · üye sayısı" ve şifreleme notu
+// Üst çubuktaki frekans kimliği (frekans değiştirici düğmesi, 24-frekans.js): amblem (frekans fotoğrafı,
+// yoksa frekans adının baş harfi), ad ve aşağı ok, alt satırda "Frekans · üye sayısı" ve şifreleme notu
+
+function renderServerEmblem () {
+  const em = el.serverEmblem
+  if (!em) return
+  let letter = em.querySelector('.emblem-letter')
+  if (!letter) {
+    clear(em)
+    letter = h('span', 'emblem-letter')
+    em.appendChild(letter)
+  }
+  letter.textContent = initial(state.serverName)
+  if (typeof frekansPhoto === 'function') frekansPhoto(em, frekansOwnIconUrl())
+}
 
 function renderServerName () {
   if (el.serverName) el.serverName.textContent = state.serverName
   if (el.authServerName) el.authServerName.textContent = state.serverName
-  if (el.serverEmblem) el.serverEmblem.textContent = initial(state.serverName)
+  renderServerEmblem()
+  if (typeof frekansRenderIdentity === 'function') frekansRenderIdentity()
   renderServerMeta()
   updateTitle()
   if (typeof frekansRenderButton === 'function') frekansRenderButton()

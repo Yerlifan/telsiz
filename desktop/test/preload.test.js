@@ -188,9 +188,9 @@ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik
   const fire = p.listeners[channels.CHANNELS.bgState]
   fire({ sender: 'gizli' }, {
     items: [
-      { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4, gizli: 'x' },
+      { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4, gizli: 'x', icon: 'data:image/png;base64,iVBORw0KGgo=' },
       { origin: 'javascript:alert(1)', state: 'ok', unread: 1 },
-      { origin: 'https://b.com:8443', state: 'kotu', unread: -2, mention: 1.5, online: 'evet' },
+      { origin: 'https://b.com:8443', state: 'kotu', unread: -2, mention: 1.5, online: 'evet', icon: 'data:image/svg+xml;base64,PHN2Zz4=' },
       null
     ]
   })
@@ -200,8 +200,8 @@ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik
   assert.deepEqual(JSON.parse(JSON.stringify(got)), [
     {
       items: [
-        { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4 },
-        { origin: 'https://b.com:8443', active: false, state: null, unread: 0, mention: 0, online: null, onlineUsers: null }
+        { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4, icon: 'data:image/png;base64,iVBORw0KGgo=' },
+        { origin: 'https://b.com:8443', active: false, state: null, unread: 0, mention: 0, online: null, onlineUsers: null, icon: null }
       ]
     },
     { items: [] }

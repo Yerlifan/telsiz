@@ -315,3 +315,34 @@ test('tarayıcıda bant sırası: parça yerel listeyi kapsıyorsa sıra ve bu f
   page.run('frekansState.webList = null')
   assert.equal(plain(page.run('frekansWebItems()'))[0].origin, SELF)
 })
+
+test('frekans fotoğrafı: açık frekansın adresi, masaüstünden gelen data: adresinin doğrulaması, bant modeli', () => {
+  const page = load()
+  const F = page.F
+  assert.equal(F.ownIconUrl(), null)
+  page.run("state.serverIcon = '" + 'a'.repeat(32) + "'")
+  assert.equal(F.ownIconUrl(), '/api/server-icon?v=' + 'a'.repeat(32))
+  page.run("state.serverIcon = '../x'")
+  assert.equal(F.ownIconUrl(), null, 'bozuk karma')
+  const png = 'data:image/png;base64,iVBORw0KGgo='
+  assert.equal(F.cleanIconData(png), png)
+  assert.equal(F.cleanIconData('data:image/webp;base64,UklGRg=='), 'data:image/webp;base64,UklGRg==')
+  for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', 'https://kotu.com/a.png', 'data:image/png;base64,a"b', 'javascript:alert(1)', null, 5, 'data:image/png;base64,' + 'A'.repeat(1400000)]) {
+    assert.equal(F.cleanIconData(bad), null, String(bad).slice(0, 40))
+  }
+  const bg = F.cleanBackground({ items: [{ origin: 'https://b.com', state: 'ok', unread: 0, mention: 0, online: true, icon: png }, { origin: 'https://c.com', state: 'ok', icon: 'data:text/html;base64,PGI+' }] })
+  assert.equal(bg['https://b.com'].icon, png)
+  assert.equal(bg['https://c.com'].icon, null)
+  const items = [
+    { origin: 'https://a.com', name: 'A', active: true, order: 0 },
+    { origin: 'https://b.com', name: 'B', active: false, order: 1 },
+    { origin: 'https://c.com', name: 'C', active: false, order: 2 }
+  ]
+  const own = '/api/server-icon?v=' + 'b'.repeat(32)
+  const desk = plain(F.bandModel(items, { desktop: true, bg, own: { unread: 0, mention: 0, online: 1 }, ownIcon: own }))
+  assert.deepEqual(desk.map((st) => st.icon), [own, png, null])
+  // Tarayıcıda diğer frekansların fotoğrafı yüklenemez (CSP img-src 'self'), yalnızca açık frekansınki
+  const web = plain(F.bandModel(items, { desktop: false, bg, own: { unread: 0, mention: 0, online: 1 }, ownIcon: own }))
+  assert.deepEqual(web.map((st) => st.icon), [own, null, null])
+  assert.deepEqual(plain(F.bandModel(items, { desktop: true, bg })).map((st) => st.icon), [null, png, null])
+})

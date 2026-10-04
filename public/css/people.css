@@ -105,6 +105,33 @@
   margin: 0;
 }
 
+/* Frekans fotoğrafı varsa ekranda adın solunda (24-frekans.js frekansRenderIdentity) */
+.auth-dial.has-photo {
+  display: flex;
+  align-items: center;
+}
+
+.auth-dial.has-photo .auth-brand-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.auth-photo {
+  display: block;
+  flex: none;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-right: 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: 30%;
+  background-color: var(--surface-3);
+  object-fit: cover;
+}
+
+.auth-photo[hidden] {
+  display: none;
+}
+
 .auth-dial .auth-kicker {
   margin: 0;
   color: var(--text-3);
@@ -818,6 +845,12 @@
 
   .auth-dial .auth-server {
     font-size: var(--text-xl);
+  }
+
+  .auth-photo {
+    width: 3rem;
+    height: 3rem;
+    margin-right: 0.75rem;
   }
 
   .dm-header-sub {

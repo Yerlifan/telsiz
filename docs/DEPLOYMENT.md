@@ -208,13 +208,15 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency introduction (owner only, admins see it read only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
 | Settings > Rooms | Owner and admins | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
 | Settings > Members | Owner and admins | Changing roles, banning and unbanning, resetting a password with a temporary password |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |
 | Settings > Privacy and security > Encryption keys | Owner and admins | Creating a new group key |
 
 The frequency introduction is plain text of at most 600 characters and 6 lines. When someone who is not signed in opens the frequency address in a browser, they first see the introduction page: the frequency name, this text, a short description of Telsiz, links to download the desktop app and to set up a frequency, and the Sign in and Join with an invite buttons. This text is public and not encrypted (the `about` field of the `GET /api/info` response), do not write anything secret in it. People who arrive through an invite link, a server that is not set up yet, the desktop app and browsers that signed in before skip the introduction page.
+
+The frequency photo can be a PNG, JPEG or WebP image (the server checks the file signature and does not accept SVG) and has the same size limit as profile pictures (1 MB by default). Before uploading, the app crops the chosen image to a square from its center and scales it down to 256x256. Like the frequency name, the photo is public and not encrypted: it is served without a session at `GET /api/server-icon`, and its hash is in the `serverIcon` field of the `GET /api/info` response. Only the desktop app shows the photos of other frequencies, in the browser the stations of other frequencies keep the first letter. The photo lives in the data folder under `server-icon/` and is part of the backup.
 
 Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes.
 
@@ -284,6 +286,7 @@ All persistent data is in the data folder. The "data folder" line that the conso
 | `state.json.bak` | The previous valid `state.json` |
 | `messages/<room>.jsonl` | Encrypted message envelopes for each room and direct message conversation |
 | `uploads/<id>.bin` | Encrypted files and profile pictures |
+| `server-icon/<hash>.bin` | The frequency photo (not encrypted, public) |
 | `.kilit` | The lock of the running process, not needed in a backup |
 
 Message and file contents are encrypted, but account information and metadata are plain text. Store backups as carefully as the data folder itself. The encryption keys are not on the server but on the users' devices. A backup does not reveal messages to someone who does not know the key, but a group that loses its key cannot recover its messages from a backup either.
