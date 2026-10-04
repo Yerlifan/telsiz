@@ -1,0 +1,34 @@
+{
+  "name": "telsiz-masaustu",
+  "productName": "Telsiz",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Telsiz masaüstü uygulaması: arayüzü uygulamanın içinde taşıyan, uçtan uca şifreli yazılı ve sesli iletişim istemcisi.",
+  "homepage": "https://github.com/Yerlifan/telsiz#readme",
+  "bugs": {
+    "url": "https://github.com/Yerlifan/telsiz/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yerlifan/telsiz.git",
+    "directory": "desktop"
+  },
+  "license": "MIT",
+  "author": "Burak Aslancan Pak",
+  "main": "src/main.js",
+  "desktopName": "io.github.yerlifan.telsiz.desktop",
+  "scripts": {
+    "hazirla": "node scripts/hazirla.js",
+    "simge": "node scripts/simge.js",
+    "start": "node scripts/hazirla.js && electron .",
+    "test": "node ../scripts/test-calistir.js test",
+    "test:duman": "node ../scripts/test-calistir.js e2e --test-concurrency=1",
+    "derle:win": "node scripts/hazirla.js && electron-builder --win --x64 --publish never",
+    "derle:linux": "node scripts/hazirla.js && electron-builder --linux --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "playwright": "1.63.0"
+  }
+}

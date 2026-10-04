@@ -1,0 +1,853 @@
+/*
+  Frekans: konuşma sütunu (Ek K, KONSEPT 6.4, 6.9, 6.10). Sahibi: sohbet ayrıntıları bileşeni.
+  Kapsam: #main.convo içindeki başlık (.convo-head, #dm-header, #e2e-pill, #btn-room-info), mesaj akışı
+  (#messages), boş, yükleniyor ve hata durumları, arama katmanı (#search-panel), yazıyor satırı
+  (#typing-line), anma ve komut öneri listesi (#mention-popover), yazma alanı (#composer), emoji seçici
+  ve bırakma katmanı. Yayın sahnesi (#cast) ayrıntıları da bu dosyaya veya 22-cast.js ile gelecek
+  dosyaya yazılır. Sütunun kabı ve kesme noktaları frekans.css içindedir. Gelenler kartının içi ve
+  tek satırlık çip biçimi de buradadır (bölüm 8).
+  Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz.
+  Yük sırası: components.css ve chat-plus.css'ten sonra, temalardan önce. Temaların aynı öğeye verdiği
+  kuralı ezmesi gereken birkaç yerde (Gönder düğmesinin biçimi) kimlik öneki (#composer) kullanılır.
+*/
+
+/* =========================================================
+   1. Başlık
+   ========================================================= */
+
+.convo-head .convo-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.convo-head .pill .icon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* =========================================================
+   2. Mesaj akışı: satır, avatar, ad, rol, saat, metin, anma, ekler
+   ========================================================= */
+
+.convo .messages {
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.convo .msg {
+  margin: 0 0 0.125rem;
+  padding: 0.3125rem 0.75rem 0.3125rem 0;
+  border-radius: var(--radius-control);
+}
+
+.convo .msg-first {
+  margin-top: 0.75rem;
+}
+
+/* Avatar 44 px (maket), sütun genişliği avatar ile aradaki boşluk kadar */
+.convo .msg-gutter {
+  width: 4rem;
+  padding: 0.125rem 0.75rem 0 0.5rem;
+}
+
+.convo .msg-avatar.avatar-md {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: var(--text-base, 1rem);
+}
+
+.convo .msg-hover-time {
+  font-size: var(--text-xs);
+}
+
+.convo .msg-head {
+  align-items: center;
+  line-height: 1.35;
+}
+
+.convo .msg-author {
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.convo .msg-own .msg-author {
+  color: var(--accent-text);
+}
+
+.convo .msg-head .badge {
+  margin-right: 0.5rem;
+}
+
+.convo .msg-time {
+  font-size: var(--text-xs);
+}
+
+.convo .msg-text {
+  margin-top: 0.125rem;
+}
+
+/* Beni anan mesaj: hafif zemin ve 3 px sol çizgi (KONSEPT 6.4) */
+.convo .msg.is-mentioned {
+  background-color: var(--mention-bg);
+  box-shadow: inset 3px 0 0 var(--mention-line);
+}
+
+.convo .msg-actions {
+  right: 0.75rem;
+}
+
+/* =========================================================
+   3. Başlangıç bloğu (boş oda) ve durumlar: yükleniyor, hata
+   ========================================================= */
+
+/* Odada: solda kilit simgesi, sağda "<oda> odasının başlangıcı" ve "Mesajlar uçtan uca şifrelidir."
+   Özel mesajda karşı tarafın büyük avatarı üstte kalır (chat-plus.css). */
+.convo .channel-start {
+  position: relative;
+  margin: 0 0 0.25rem;
+  padding: 0.75rem 0.5rem 0.75rem;
+}
+
+.convo .channel-start:not(.is-dm) {
+  min-height: 4.25rem;
+  padding-left: 4rem;
+}
+
+.convo .channel-start:not(.is-dm) .channel-start-icon {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: var(--live-bg);
+  color: var(--live);
+  box-shadow: none;
+}
+
+.convo .channel-start:not(.is-dm) .channel-start-icon .icon {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.convo .channel-start-title {
+  margin: 0 0 0.125rem;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+  line-height: 1.3;
+}
+
+.convo .channel-start.is-dm .channel-start-title {
+  margin-top: 0.75rem;
+  font-size: var(--text-xl);
+}
+
+.convo .channel-start-text {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+/* Yükleniyor: üç iskelet mesaj satırı, metin yalnızca ekran okuyucuya */
+.messages-skeleton {
+  padding: 0.75rem 0.5rem 0;
+}
+
+.msg-skeleton {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 1.125rem;
+}
+
+.msg-skeleton-avatar {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-right: 0.75rem;
+  border-radius: var(--avatar-radius);
+  background-color: var(--surface-3);
+}
+
+.msg-skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 0.25rem;
+}
+
+.msg-skeleton-line {
+  display: block;
+  height: 0.75rem;
+  margin-bottom: 0.625rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+}
+
+.msg-skeleton-name {
+  width: 7rem;
+  max-width: 40%;
+}
+
+.msg-skeleton-wide .msg-skeleton-text {
+  width: 82%;
+}
+
+.msg-skeleton-mid .msg-skeleton-text {
+  width: 58%;
+}
+
+.msg-skeleton-short .msg-skeleton-text {
+  width: 36%;
+}
+
+.msg-skeleton-avatar,
+.msg-skeleton-line {
+  -webkit-animation: msg-skeleton-pulse 1.4s var(--ease) infinite alternate;
+  animation: msg-skeleton-pulse 1.4s var(--ease) infinite alternate;
+}
+
+@-webkit-keyframes msg-skeleton-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.45; }
+}
+
+@keyframes msg-skeleton-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-skeleton-avatar,
+  .msg-skeleton-line {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
+.messages-status.is-loading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* Hata: açıklama ve Tekrar dene sütunun ortasında */
+.convo .messages.is-error {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.convo .messages.is-error .messages-status {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 0 1rem 0.25rem;
+}
+
+/* =========================================================
+   4. Yazıyor satırı
+   ========================================================= */
+
+.convo .typing-line {
+  min-height: 1.75rem;
+  margin: 0 0 0.125rem 0.5rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+.convo .typing-line strong,
+.convo .typing-line .typing-name {
+  color: var(--text-2);
+}
+
+/* =========================================================
+   5. Yazma alanı: Fotoğraf, Dosya, metin, Emoji, Gönder (KONSEPT 6.4)
+   ========================================================= */
+
+.convo .composer {
+  padding: 0 0.875rem 0.875rem;
+  padding-bottom: calc(0.875rem + env(safe-area-inset-bottom));
+}
+
+.convo .composer-box {
+  align-items: flex-end;
+  padding: 0.375rem;
+  border-color: var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-sunken);
+}
+
+.convo .tool-button {
+  padding: 0 0.625rem;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+
+.convo .tool-label {
+  margin-left: 0.375rem;
+}
+
+.convo .composer-input {
+  margin: 0 0.25rem;
+  padding: 0.6875rem 0.5rem;
+}
+
+.convo .composer-input::placeholder {
+  color: var(--text-3);
+  opacity: 1;
+}
+
+/* Gönder: etiketli dolgu düğmesi, yazısı --on-accent-fill (K7.5). Boşken de dolgu, yalnızca soluk. */
+#composer .send-button {
+  min-width: var(--target);
+  margin-left: 0.25rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-control);
+  background-color: var(--accent-fill-a);
+  background-image: linear-gradient(135deg, var(--accent-fill-a), var(--accent-fill-b));
+  color: var(--on-accent-fill);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#composer .send-button .icon {
+  margin-right: 0.375rem;
+}
+
+#composer .send-button:disabled {
+  background-color: var(--accent-fill-a);
+  background-image: linear-gradient(135deg, var(--accent-fill-a), var(--accent-fill-b));
+  color: var(--on-accent-fill);
+  box-shadow: none;
+  opacity: 0.45;
+}
+
+/* =========================================================
+   6. Anma ve komut öneri listesi (#mention-popover, KONSEPT 6.10 ve 8.4)
+   ========================================================= */
+
+.convo .mention-popover {
+  left: 0.875rem;
+  width: 23rem;
+  max-width: calc(100% - 1.75rem);
+  padding: 0.375rem;
+}
+
+.convo .mention-popover.is-commands {
+  width: 27rem;
+}
+
+.mention-title {
+  margin: 0.25rem 0.5rem 0.375rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.convo .mention-option {
+  padding: 0.25rem 0.5rem;
+  color: var(--text-2);
+}
+
+.convo .mention-option:hover {
+  background-color: var(--surface-hover);
+}
+
+.convo .mention-option[aria-selected="true"] {
+  background-color: var(--mention-bg);
+  box-shadow: inset 3px 0 0 var(--mention-line);
+  color: var(--text);
+}
+
+.convo .mention-option > .avatar,
+.convo .mention-option > .mention-option-icon {
+  margin-right: 0.625rem;
+}
+
+.convo .mention-option-name {
+  flex: 0 1 auto;
+  margin-right: 0.5rem;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.convo .mention-option-handle {
+  flex: 1 1 auto;
+  max-width: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.convo .mention-option-everyone .mention-option-handle {
+  text-align: left;
+}
+
+.mention-option-key {
+  flex: none;
+  min-width: 0;
+  margin-left: 0.5rem;
+  padding: 0 0.375rem;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  box-shadow: none;
+}
+
+.mention-option-cmd {
+  flex: none;
+  width: 7.5rem;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.mention-option-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+.convo .mention-option[aria-selected="true"] .mention-option-desc {
+  color: var(--text-2);
+}
+
+.mention-warning {
+  display: flex;
+  align-items: flex-start;
+  margin: 0.125rem 0.5rem 0.5rem;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.mention-warning .icon {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.0625rem 0.5rem 0 0;
+  color: var(--warn);
+}
+
+/* =========================================================
+   7. Arama katmanı (#search-panel, KONSEPT 6.9): konuşma sütununun üstünde, telefonda tam ekran
+   ========================================================= */
+
+.convo .search-panel {
+  top: 0.75rem;
+  right: 0.75rem;
+  left: 0.75rem;
+  max-height: calc(100% - 1.5rem);
+}
+
+.convo .search-bar {
+  padding: 0.375rem 0.5rem 0.375rem 1rem;
+}
+
+.convo .search-bar:focus-within {
+  box-shadow: inset 0 -2px 0 var(--focus);
+}
+
+.convo .search-glyph {
+  margin: 0 0.125rem 0 0;
+}
+
+.convo .search-bar .search-input {
+  min-height: var(--target);
+  padding: 0 0.25rem;
+  border: 0;
+  background-color: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+  box-shadow: none;
+}
+
+.convo .search-bar .search-input:focus,
+.convo .search-bar .search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.search-esc {
+  flex: none;
+  min-width: 0;
+  padding: 0 0.375rem;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  box-shadow: none;
+}
+
+.convo .search-filters {
+  padding: 0.75rem 1rem 0.375rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.convo .search-filters > * {
+  margin: 0 0.5rem 0.375rem 0;
+}
+
+/* Kapsam: bölümlü seçim kendi satırında */
+.convo .search-scope {
+  display: flex;
+  flex: 1 1 100%;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 0 0.625rem;
+  padding: 0.25rem;
+  overflow-x: auto;
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+}
+
+.search-scope-option {
+  flex: none;
+  min-height: var(--target);
+  margin: 0 0.125rem 0 0;
+  padding: 0 1rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-small);
+  background-color: transparent;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.search-scope-option:hover {
+  background-color: var(--surface-hover);
+  color: var(--text);
+}
+
+.search-scope-option[aria-checked="true"] {
+  border-color: var(--line-strong);
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-card);
+}
+
+.search-scope-option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Kimden: hap biçiminde simge, etiket ve giriş alanı (kişi seçilince yalnızca kişi çipi) */
+.convo .search-from {
+  min-height: var(--target);
+  padding: 0 0.25rem 0 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+
+.convo .search-from:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.convo .search-from.has-person {
+  padding: 0;
+  border-color: transparent;
+}
+
+.convo .search-from.has-person .search-from-icon,
+.convo .search-from.has-person .search-from-label {
+  display: none;
+}
+
+.search-from-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.375rem;
+  color: var(--text-3);
+}
+
+.convo .search-from-label {
+  margin-right: 0.25rem;
+  font-weight: 400;
+}
+
+.convo .search-from-input {
+  width: 8.5rem;
+  min-height: calc(var(--target) - 2px);
+  padding: 0 0.5rem;
+  border: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.convo .search-from-input:focus,
+.convo .search-from-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Süzgeç çipleri: simge ve etiket, basılıyken anma renkleri */
+.convo .search-chip {
+  padding: 0 0.875rem;
+  background-color: transparent;
+  font-weight: 400;
+}
+
+.convo .search-chip::before {
+  display: none;
+}
+
+.search-chip-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.375rem;
+}
+
+.convo .search-chip[aria-pressed="true"],
+.convo .search-chip.is-on {
+  border-color: var(--accent-text);
+  background-color: var(--mention-bg);
+  color: var(--mention-text);
+  font-weight: var(--weight-strong);
+}
+
+.convo .search-from-chip {
+  padding-left: 0.375rem;
+}
+
+.convo .search-status {
+  padding: 0.375rem 0.5rem 0.375rem 1rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.convo .search-results {
+  padding: 0.375rem;
+}
+
+.convo .search-result {
+  margin-bottom: 0.125rem;
+  padding: 0.625rem;
+}
+
+.convo .search-result-meta {
+  align-items: center;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.convo .search-result-meta > span {
+  margin-right: 0.5rem;
+}
+
+.convo .search-result-meta > span + span::before {
+  content: none;
+}
+
+.convo .search-result-author {
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+}
+
+.convo .search-result-channel {
+  padding: 0 0.375rem;
+  border-radius: var(--radius-small);
+  background-color: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.convo .search-result-text {
+  font-size: var(--text-sm);
+}
+
+.convo mark.search-hit {
+  padding: 0 0.125rem;
+  background-color: var(--warn-bg);
+  color: var(--text-strong);
+  box-shadow: inset 0 -2px 0 var(--warn-line);
+}
+
+.convo .search-note {
+  padding: 0.625rem 1rem 0.75rem;
+}
+
+/* =========================================================
+   8. Gelenler kartı (#inbox, KONSEPT 6.5): diğer frekanslardaki okunmamış, anma ve özel mesajlar
+   ========================================================= */
+
+.inbox {
+  padding: 0.875rem 0.875rem 0.625rem;
+}
+
+.inbox .kicker {
+  margin: 0 0 0.25rem 0.375rem;
+}
+
+.inbox-row {
+  margin: 0 0 0.125rem;
+  padding: 0.25rem 0.375rem;
+}
+
+.inbox-row-name {
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+}
+
+.inbox-row-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.inbox-empty {
+  padding: 0.25rem 0.375rem 0.375rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+/* Telsiz DJ kartı sütunda açıkken Gelenler tek satırlık çip biçimine geçer (KONSEPT 4 ve 6.5) */
+.side-dj:not([hidden]) ~ .side-right .inbox-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.side-dj:not([hidden]) ~ .side-right .inbox-row {
+  width: auto;
+  max-width: 100%;
+  margin: 0 0.375rem 0.25rem 0;
+  padding: 0 0.625rem 0 0.25rem;
+  border-color: var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-alt);
+}
+
+.side-dj:not([hidden]) ~ .side-right .inbox-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.side-dj:not([hidden]) ~ .side-right .inbox-row .station-mark {
+  min-width: 1.75rem;
+  margin-right: 0.375rem;
+}
+
+.side-dj:not([hidden]) ~ .side-right .inbox-row-sub {
+  display: none;
+}
+
+/* =========================================================
+   9. Genişliğe göre
+   ========================================================= */
+
+/* Geniş dar (1000 ile 1279 px): araç etiketleri görünür kalır (KONSEPT 6.4, yalnız orta ve darda gizli) */
+@media (min-width: 1000px) {
+  .convo .tool-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0 0 0 0.375rem;
+    overflow: visible;
+    clip: auto;
+    white-space: nowrap;
+  }
+
+  .convo .tool-button {
+    padding: 0 0.625rem;
+  }
+}
+
+/* Orta ve dar: araç etiketleri gizli (erişilebilir adlar kalır), Gönder yalnızca simge değil, kısaltılmış */
+@media (max-width: 999px) {
+  .convo .tool-button {
+    padding: 0;
+  }
+}
+
+@media (max-width: 759px) {
+  .convo .messages {
+    padding: 0.25rem 0.5rem 0.5rem;
+  }
+
+  .convo .msg-gutter {
+    width: 3.5rem;
+    padding-right: 0.625rem;
+    padding-left: 0.25rem;
+  }
+
+  .convo .msg-avatar.avatar-md {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .convo .channel-start:not(.is-dm) {
+    padding-left: 3.75rem;
+  }
+
+  .convo .channel-start:not(.is-dm) .channel-start-icon {
+    left: 0.25rem;
+  }
+
+  .convo .composer {
+    padding: 0 0.5rem 0.5rem;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+
+  /* Telefonda Gönder kare simge düğmesi, etiket erişilebilir ad olarak kalır */
+  #composer .send-button {
+    padding: 0;
+  }
+
+  #composer .send-button .icon {
+    margin-right: 0;
+  }
+
+  #composer .send-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .convo .mention-popover,
+  .convo .mention-popover.is-commands {
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+    max-width: none;
+  }
+
+  .mention-option-cmd {
+    width: 6rem;
+  }
+
+  .convo .search-panel {
+    top: 0;
+    right: 0;
+    left: 0;
+    max-height: none;
+  }
+
+  .convo .search-filters {
+    padding: 0.625rem 0.75rem 0.25rem;
+  }
+
+  .convo .search-from {
+    flex: 1 1 100%;
+  }
+
+  .convo .search-from-input {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}

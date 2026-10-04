@@ -1,0 +1,349 @@
+# Sürüm yayını: v ile başlayan bir etiket (ör. v2.0.0) gönderilince çalışır.
+# Release: runs when a tag that starts with v (for example v2.0.0) is pushed.
+#
+# 1. Denetim ve testler. Etiket package.json sürümüyle aynı olmalı, sürüm notları
+#    CHANGELOG.md ve CHANGELOG.en.md dosyalarında bulunmalı. Başarısızsa hiçbir şey yayımlanmaz.
+#    Lint and tests. The tag must match the package.json version and the release notes must be
+#    in CHANGELOG.md and CHANGELOG.en.md. If anything fails, nothing is published.
+# 2. Sunucu ikilileri (exe.yml) ve masaüstü uygulaması (desktop.yml) derlenir ve denenir.
+#    The server binaries (exe.yml) and the desktop app (desktop.yml) are built and tested.
+# 3. GitHub Release: tüm dosyalar, birleşik SHA256SUMS.txt ve CHANGELOG'dan sürüm notları.
+#    GitHub Release: all files, a combined SHA256SUMS.txt and the notes from the CHANGELOG.
+# 4. Docker imajı ghcr.io/yerlifan/telsiz (sürüm etiketi ve latest, linux/amd64 ve linux/arm64).
+#    Docker image ghcr.io/yerlifan/telsiz (version tag and latest, linux/amd64 and linux/arm64).
+# 5. npm paketi telsiz, yalnızca NPM_TOKEN gizli değişkeni tanımlıysa (provenance ile).
+#    npm package telsiz, only if the NPM_TOKEN secret is defined (with provenance).
+name: Sürüm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Denetim ve testler
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Node.js kur
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Geliştirme bağımlılıklarını kur
+        run: npm ci
+
+      - name: Etiket package.json sürümüyle aynı olmalı
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::Etiket (${TAG}) package.json sürümüyle (v${version}) aynı değil."
+            exit 1
+          fi
+          prerelease=false
+          if [ "${version#*-}" != "${version}" ]; then prerelease=true; fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
+      - name: Sürüm notları CHANGELOG dosyalarında olmalı
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/surum-notlari.js "${VERSION}" > /dev/null
+
+      - name: Stil ve güvenlik denetimi
+        run: npm run denetle
+
+      - name: Birim ve sunucu testleri
+        run: npm test
+
+  server:
+    name: Sunucu ikilileri
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/exe.yml
+
+  desktop:
+    name: Masaüstü uygulaması
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop.yml
+
+  release:
+    name: GitHub Release
+    needs:
+      - check
+      - server
+      - desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Sunucu ikililerini indir
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: telsiz-server-*
+          path: artifacts/server
+
+      - name: Masaüstü paketlerini indir
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: telsiz-desktop-*
+          path: artifacts/desktop
+
+      - name: Dosyaları topla, denetle ve SHA256SUMS.txt üret
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir dagitim
+          add() {
+            name=$(basename "$1")
+            if [ -e "dagitim/${name}" ]; then
+              echo "::error::Aynı adlı iki dosya var: ${name}"
+              exit 1
+            fi
+            cp "$1" "dagitim/${name}"
+          }
+          server_exe="telsiz-${VERSION}-windows-x64.exe"
+          while IFS= read -r -d '' file; do
+            case "$(basename "${file}")" in
+              "${server_exe}" | "telsiz-${VERSION}-linux-x64" | "telsiz-${VERSION}-linux-arm64") add "${file}" ;;
+              *) echo "::warning::Beklenmeyen sunucu dosyası yayına eklenmedi: ${file}" ;;
+            esac
+          done < <(find artifacts/server -type f -print0)
+          while IFS= read -r -d '' file; do
+            case "${file}" in
+              *.exe | *.AppImage | *.deb) add "${file}" ;;
+              *) echo "::notice::Masaüstü artifact'indeki bu dosya yayına eklenmedi: ${file}" ;;
+            esac
+          done < <(find artifacts/desktop -type f -print0)
+          for required in "${server_exe}" "telsiz-${VERSION}-linux-x64" "telsiz-${VERSION}-linux-arm64"; do
+            if [ ! -f "dagitim/${required}" ]; then
+              echo "::error::Eksik sunucu dosyası: ${required}"
+              exit 1
+            fi
+          done
+          desktop_exe=$(find dagitim -maxdepth 1 -type f -name '*.exe' ! -name "${server_exe}" | wc -l)
+          appimage=$(find dagitim -maxdepth 1 -type f -name '*.AppImage' | wc -l)
+          deb=$(find dagitim -maxdepth 1 -type f -name '*.deb' | wc -l)
+          if [ "${desktop_exe}" -lt 2 ] || [ "${appimage}" -lt 1 ] || [ "${deb}" -lt 1 ]; then
+            echo "::error::Masaüstü paketleri eksik (Windows exe: ${desktop_exe}, AppImage: ${appimage}, deb: ${deb}). Kurucu ve taşınabilir exe, AppImage ve .deb gerekir."
+            exit 1
+          fi
+          cd dagitim
+          find . -maxdepth 1 -type f -printf '%P\0' | sort -z | xargs -0 sha256sum -- > "${RUNNER_TEMP}/SHA256SUMS.txt"
+          mv "${RUNNER_TEMP}/SHA256SUMS.txt" SHA256SUMS.txt
+          {
+            echo "### SHA256SUMS.txt"
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sürüm notlarını CHANGELOG dosyalarından çıkar
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: node scripts/surum-notlari.js "${VERSION}" > "${RUNNER_TEMP}/surum-notlari.md"
+
+      - name: GitHub Release oluştur veya güncelle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          notes="${RUNNER_TEMP}/surum-notlari.md"
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            # İş akışı yeniden çalıştırıldıysa: notlar güncellenir, dosyalar değiştirilir
+            gh release edit "${TAG}" --title "Telsiz ${VERSION}" --notes-file "${notes}" --prerelease="${PRERELEASE}"
+            gh release upload "${TAG}" dagitim/* --clobber
+          else
+            gh release create "${TAG}" dagitim/* --verify-tag --title "Telsiz ${VERSION}" --notes-file "${notes}" --prerelease="${PRERELEASE}"
+          fi
+
+  image:
+    name: Docker imajı (GHCR)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/yerlifan/telsiz
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: QEMU kur (arm64 derlemesi için)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Docker Buildx kur
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: İmaj etiketleri ve bilgileri
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+          flavor: |
+            latest=auto
+
+      - name: linux/amd64 imajını derle (gönderilmez, önce denenir)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: telsiz:surum-deneme
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Kapsayıcıyı başlat, /api/info ve sürümü denetle
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          docker run --detach --name telsiz-surum --publish 127.0.0.1:4230:3000 --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true telsiz:surum-deneme
+          ok=false
+          for _ in $(seq 1 60); do
+            body=$(curl --silent --max-time 2 http://127.0.0.1:4230/api/info || true)
+            if [ -n "${body}" ]; then
+              echo "${body}"
+              found=$(printf '%s' "${body}" | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).version")
+              if [ "${found}" = "${VERSION}" ]; then ok=true; fi
+              break
+            fi
+            sleep 1
+          done
+          docker logs telsiz-surum
+          docker rm --force telsiz-surum
+          if [ "${ok}" != "true" ]; then
+            echo "::error::Kapsayıcı /api/info yanıtında ${VERSION} sürümünü döndürmedi."
+            exit 1
+          fi
+
+      - name: GHCR'ye giriş yap
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Çoklu mimari imajı derle ve gönder (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Özet
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### Docker imajı"
+            echo
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo "Depo herkese açık yapıldıktan sonra paketin görünürlüğü de GitHub'daki paket ayarlarından herkese açık yapılmalıdır."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  npm:
+    name: npm yayını
+    needs:
+      - check
+      - release
+      - image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Gizli değişkenin yalnızca tanımlı olup olmadığı okunur, değeri hiçbir yere yazılmaz
+      # Only whether the secret is defined is read, its value is never printed
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Node.js kur (npm kayıt defteri)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: npm'e yayımla (provenance ile)
+        if: env.HAS_NPM_TOKEN == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          if npm view "telsiz@${VERSION}" version > /dev/null 2>&1; then
+            echo "telsiz@${VERSION} npm'de zaten yayımlanmış, yayın adımı atlandı." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          dist_tag=latest
+          if [ "${PRERELEASE}" = "true" ]; then dist_tag=next; fi
+          npm publish --provenance --access public --tag "${dist_tag}"
+          echo "telsiz@${VERSION} npm'e yayımlandı (dağıtım etiketi: ${dist_tag})." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: NPM_TOKEN tanımlı değilse yayın atlanır
+        if: env.HAS_NPM_TOKEN != 'true'
+        run: |
+          echo "::notice::NPM_TOKEN gizli değişkeni tanımlı olmadığı için npm yayını atlandı."
+          {
+            echo "### npm yayını atlandı"
+            echo
+            echo "NPM_TOKEN gizli değişkeni tanımlı olmadığı için telsiz paketi npm'e yayımlanmadı."
+            echo "Yayımlamak için depo ayarlarındaki Actions gizli değişkenlerine NPM_TOKEN ekleyip bu iş akışını yeniden çalıştırın."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,60 @@
+{
+  "name": "telsiz",
+  "version": "2.0.0",
+  "description": "Kendi sunucunuzda çalışan, uçtan uca şifreli, açık kaynak yazılı ve sesli iletişim sistemi.",
+  "keywords": [
+    "telsiz",
+    "chat",
+    "voice-chat",
+    "e2ee",
+    "end-to-end-encryption",
+    "webrtc",
+    "self-hosted",
+    "pwa",
+    "privacy",
+    "open-source"
+  ],
+  "homepage": "https://github.com/Yerlifan/telsiz#readme",
+  "bugs": {
+    "url": "https://github.com/Yerlifan/telsiz/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yerlifan/telsiz.git"
+  },
+  "license": "MIT",
+  "author": "Burak Aslancan Pak",
+  "bin": {
+    "telsiz": "server.js"
+  },
+  "files": [
+    "server.js",
+    "src/",
+    "public/",
+    "LICENSE",
+    "README.md",
+    "README.en.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "test": "node scripts/test-calistir.js test",
+    "test:e2e": "node scripts/test-calistir.js e2e --test-concurrency=1",
+    "denetle": "node scripts/denetle.js",
+    "lint": "npm run denetle",
+    "exe": "node scripts/sea-derle.js",
+    "exe:duman": "node scripts/sea-duman.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "acorn": "8.18.0",
+    "playwright": "1.56.1",
+    "postject": "1.0.0-alpha.6"
+  }
+}

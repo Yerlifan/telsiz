@@ -1,0 +1,228 @@
+/* Ekran paylaşımı seçicisi. Renkler varsayılan temanın (Arcade) koyu ve açık değerleridir. */
+
+:root {
+  --bg: #0f1015;
+  --surface: #181a24;
+  --surface-2: #20232f;
+  --line: #2e3242;
+  --text: #f2f3f8;
+  --text-2: #b9bdcc;
+  --text-3: #8d92a6;
+  --accent-a: #8f6bff;
+  --accent-b: #33d1e6;
+  --on-accent: #0e0d16;
+  --focus: #33d1e6;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f5fa;
+    --surface: #ffffff;
+    --surface-2: #eef0f6;
+    --line: #d4d8e4;
+    --text: #151724;
+    --text-2: #3c4155;
+    --text-3: #5d6378;
+    --accent-a: #6a45f0;
+    --accent-b: #0f8fa3;
+    --on-accent: #ffffff;
+    --focus: #6a45f0;
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 20px 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin-right: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.lead {
+  margin: 8px 0 12px;
+  color: var(--text-2);
+}
+
+.sources {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.group-title {
+  margin: 8px 0;
+  color: var(--text-2);
+  font-size: 0.95rem;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -6px;
+}
+
+.source {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  margin: 6px;
+  padding: 8px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background-color: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source:hover {
+  background-color: var(--surface-2);
+}
+
+.source:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.source[aria-pressed="true"] {
+  border-color: var(--accent-a);
+  background-color: var(--surface-2);
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 102px;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: #000;
+}
+
+.thumb img {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.name {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  color: var(--text-2);
+}
+
+.footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  margin: 0 10px 0 0;
+  accent-color: var(--accent-a);
+}
+
+.hint {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button + .button {
+  margin-left: 10px;
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button-primary {
+  background-color: var(--accent-a);
+  background-image: linear-gradient(120deg, var(--accent-a), var(--accent-b));
+  color: var(--on-accent);
+}
+
+.button-ghost {
+  border-color: var(--line);
+  background-color: transparent;
+  color: var(--text);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

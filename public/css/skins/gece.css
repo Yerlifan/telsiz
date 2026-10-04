@@ -1,0 +1,268 @@
+/*
+  Gece Frekansı teması. Sunucu bir istasyon, kanallar kadran üzerindeki frekanslar.
+  Kehribar sinyal tek vurgu, yayında yeşili yalnızca canlı olan şeyler için (bağlı ses,
+  konuşan kişi). Durumlar cihaz panelindeki LED ışıklar gibi, saatler ve etiketler tek
+  aralıklı gösterge yazısıyla.
+*/
+
+/* Düz paneller, ince ayırıcı çizgiler, telsiz kartı konsol zemininde */
+:root[data-skin="gece"] .sheet-head {
+  border-bottom: 1px solid var(--line-strong);
+}
+
+:root[data-skin="gece"] .radio {
+  background-color: var(--console);
+}
+
+/* Bölüm etiketleri: gösterge yazısı */
+:root[data-skin="gece"] .section-title,
+:root[data-skin="gece"] .settings-group-title,
+:root[data-skin="gece"] .settings-section-title,
+:root[data-skin="gece"] .emoji-title,
+:root[data-skin="gece"] .auth-kicker {
+  font-weight: 500;
+}
+
+/* Frekans rozeti */
+:root[data-skin="gece"] .channel-freq {
+  display: inline-block;
+  flex: none;
+  min-width: 3.4rem;
+  margin-right: 0.6rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background-color: var(--surface-sunken);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Banttaki istasyonda frekans alt satırda kutusuz ve küçük durur (KONSEPT 6.2: isteğe bağlı frekans),
+   rozet kutusu yalnız listelerde */
+:root[data-skin="gece"] .station-meta .channel-freq {
+  min-width: 0;
+  margin-right: 0.375rem;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  color: var(--text-3);
+  font-size: 0.6875rem;
+  text-align: left;
+}
+
+:root[data-skin="gece"] .station.is-tuned .station-meta .channel-freq {
+  color: var(--text-2);
+}
+
+/* Açık özel konuşma satırı */
+:root[data-skin="gece"] .dm-item[aria-current],
+:root[data-skin="gece"] .dm-item.is-active {
+  border-color: transparent;
+  background-color: var(--surface-active);
+}
+
+/* Okunmamış: kehribar nokta, anma sayısı kehribar dolgu */
+:root[data-skin="gece"] .unread-badge {
+  background-color: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* Durum noktası avatarın köşesinde ince kenarlı LED (Ek K6: şekil avatarla aynı aileden) */
+:root[data-skin="gece"] .avatar[data-status="online"]::after {
+  box-shadow: 0 0 6px var(--ok);
+}
+
+/* Konuşan kişi: yeşil halka ve ekolayzır çubukları */
+:root[data-skin="gece"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="gece"] .is-speaking > .avatar.has-face .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 12px 2px var(--halo-1);
+}
+
+:root[data-skin="gece"] .member.is-speaking .member-sub::after {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 1.1rem;
+  height: 0.9rem;
+  margin-left: 0.4rem;
+  background-image: linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live)), linear-gradient(var(--live), var(--live));
+  background-repeat: no-repeat;
+  background-position: 0 100%, 33% 100%, 66% 100%, 100% 100%;
+  background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%;
+  -webkit-animation: gece-eq 0.9s steps(3) infinite alternate;
+  animation: gece-eq 0.9s steps(3) infinite alternate;
+}
+
+:root[data-skin="gece"] .member.is-speaking .member-sub::after {
+  width: 0.9rem;
+  height: 0.7rem;
+  vertical-align: baseline;
+}
+
+@-webkit-keyframes gece-eq {
+  0% { background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%; }
+  100% { background-size: 3px 100%, 3px 40%, 3px 90%, 3px 55%; }
+}
+
+@keyframes gece-eq {
+  0% { background-size: 3px 60%, 3px 100%, 3px 45%, 3px 80%; }
+  100% { background-size: 3px 100%, 3px 40%, 3px 90%, 3px 55%; }
+}
+
+:root[data-skin="gece"] .member.is-speaking {
+  background-color: transparent;
+}
+
+:root[data-skin="gece"] .member.is-speaking .member-name {
+  color: var(--live);
+}
+
+/* Kayıt defteri akışı: saatler solda tek aralıklı sütun */
+:root[data-skin="gece"] .msg-hover-time,
+:root[data-skin="gece"] .msg-time,
+:root[data-skin="gece"] .members-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+:root[data-skin="gece"] .msg:not(.msg-first) .msg-hover-time {
+  display: block;
+  color: var(--text-3);
+}
+
+:root[data-skin="gece"] .message-list {
+  background-image: linear-gradient(var(--line-strong), var(--line-strong));
+  background-repeat: repeat-y;
+  background-position: 4rem 0;
+  background-size: 1px 100%;
+}
+
+:root[data-skin="gece"] .msg-content {
+  padding-left: 0.6rem;
+}
+
+:root[data-skin="gece"] .msg-first .msg-content::before {
+  content: "";
+  position: absolute;
+  top: 0.85rem;
+  left: 4rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: -0.25rem;
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  background-color: var(--surface-2);
+}
+
+@media (max-width: 759px) {
+  :root[data-skin="gece"] .message-list {
+    background-image: none;
+  }
+
+  :root[data-skin="gece"] .msg-first .msg-content::before {
+    display: none;
+  }
+
+  :root[data-skin="gece"] .msg-content {
+    padding-left: 0;
+  }
+}
+
+/* Gönder ve birincil düğmeler: kehribar dolgu ve halka */
+:root[data-skin="gece"] .button:not(.button-secondary):not(.button-ghost):not(.button-danger),
+:root[data-skin="gece"] .send-button:not(:disabled) {
+  border: 1px solid var(--accent-lip);
+}
+
+:root[data-skin="gece"] .send-button {
+  border-radius: 50%;
+}
+
+/* Bahsetme: kehribar sol şerit */
+:root[data-skin="gece"] .mention {
+  background-color: transparent;
+  color: var(--mention-text);
+}
+
+/* Anahtarsız şifreli mesaj: çukur, kesikli kenar */
+:root[data-skin="gece"] .msg-notice {
+  display: inline-flex;
+  padding: 0.45rem 0.75rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+  font-style: normal;
+}
+
+/* Tuş kapağı ve gösterge yazıları */
+:root[data-skin="gece"] .kbd,
+:root[data-skin="gece"] .secret,
+:root[data-skin="gece"] .kid {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Giriş ekranı: istasyon kadranı zemini */
+:root[data-skin="gece"] .auth-view {
+  background-image: repeating-linear-gradient(90deg, var(--line) 0, var(--line) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 2.5rem);
+  background-position: 0 100%;
+  background-size: 100% 0.75rem;
+  background-repeat: repeat-x;
+}
+
+:root[data-skin="gece"] .auth-card {
+  background-color: var(--surface-2);
+}
+
+/* Profil kartı: ses izi bandı */
+:root[data-skin="gece"] .profile-card-band {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0, rgba(0, 0, 0, 0.18) 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 6px);
+}
+
+/* Seviye ölçer: bölütlü LED */
+:root[data-skin="gece"] .meter-bar {
+  background-color: var(--live);
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 8px, var(--surface-sunken) 8px, var(--surface-sunken) 10px);
+}
+
+:root[data-skin="gece"] .meter-threshold {
+  background-color: var(--accent-text);
+}
+
+/* Odak: ay ışığı çizgi, kehribar hale */
+:root[data-skin="gece"] :focus-visible {
+  box-shadow: 0 0 0 6px var(--focus-halo);
+}
+
+/* Ayarlar: seçili kategoride kehribar LED, panellerde ince kadran çizgisi */
+:root[data-skin="gece"] .settings-cat[aria-current="page"] {
+  border-color: transparent;
+  background-color: var(--surface-active);
+}
+
+:root[data-skin="gece"] .settings-view:not(.is-narrow) .settings-cat[aria-current="page"]::after {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.75rem;
+  border-radius: 50%;
+  background-color: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+:root[data-skin="gece"] .settings-section,
+:root[data-skin="gece"] .settings-profile-form {
+  border-top: 2px solid var(--line-strong);
+}
+
+:root[data-skin="gece"] .settings-fingerprint,
+:root[data-skin="gece"] .settings-version,
+:root[data-skin="gece"] .settings-side-version {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}

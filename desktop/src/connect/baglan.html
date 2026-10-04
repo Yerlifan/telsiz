@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="no-referrer">
+  <title>Telsiz</title>
+  <link rel="stylesheet" href="/baglan.css">
+  <script src="/baglan.js" defer></script>
+</head>
+<body>
+  <main class="card">
+    <header class="brand">
+      <img class="logo" src="/logo.svg" alt="" width="44" height="44">
+      <h1 id="title" class="title"></h1>
+    </header>
+    <p id="lead" class="lead"></p>
+    <p id="current" class="current" hidden></p>
+    <form id="form" class="form" novalidate>
+      <label id="label" class="label" for="address"></label>
+      <input id="address" class="input" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" maxlength="300" required aria-describedby="hint status">
+      <p id="hint" class="hint"></p>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="warning" class="warning" role="alert" hidden>
+        <p id="warning-text" class="warning-text"></p>
+        <button id="anyway" class="button button-secondary" type="button"></button>
+      </div>
+      <div class="actions">
+        <button id="cancel" class="button button-ghost" type="button" hidden></button>
+        <button id="submit" class="button button-primary" type="submit"></button>
+      </div>
+    </form>
+    <p id="security" class="security"></p>
+  </main>
+</body>
+</html>

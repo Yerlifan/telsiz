@@ -1,0 +1,1280 @@
+/*
+  Ekran paylaşımı (Ek L1, KONSEPT 7): üst çubuktaki yayında çipi (#top-cast), paylaşım bildirimi
+  (.cast-notice), yayın sahnesi (#cast: .cast-panel ve sohbet şeridi .cast-dock), sahne açıkken
+  konuşma sütununun daraltılması ve paylaşım başlatma penceresi (#cast-dialog). Davranış 22-cast.js.
+  Durum öznitelikleri: body[data-cast="live"] (sahne açık), body[data-cast-chat="open" | "closed"],
+  #cast[data-mode="watch" | "own"]. DJ kartı body[data-cast="live"] iken sayfaya iner (23-dj.js, K7.2).
+  Kurallar: renkler yalnızca var(--...), grid, flex gap, clamp, :is, :where, aspect-ratio ve inset yok.
+*/
+
+/* =========================================================
+   1. Ortak parçalar
+   ========================================================= */
+
+.cast-led {
+  display: inline-block;
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background-color: var(--live);
+}
+
+.cast-led.is-rec {
+  background-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+
+.cast-led.is-live {
+  box-shadow: 0 0 0 3px var(--live-bg);
+}
+
+/* =========================================================
+   2. Üst çubuk çipi (#top-cast)
+   ========================================================= */
+
+.top-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--target);
+  margin-left: 0.625rem;
+  padding: 0 0.25rem 0 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+
+.top-cast-chip.is-own {
+  border-color: var(--danger-edge);
+  background-color: var(--danger-bg);
+}
+
+.top-cast-chip.is-remote {
+  padding-right: 0.375rem;
+  cursor: pointer;
+}
+
+.top-cast-chip.is-remote:hover {
+  background-color: var(--surface-hover);
+}
+
+.top-cast-text {
+  margin: 0 0.625rem 0 0.5rem;
+}
+
+.top-cast-stop,
+.top-cast-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.top-cast-stop {
+  background-color: var(--danger-fill);
+  color: var(--on-danger);
+  cursor: pointer;
+}
+
+.top-cast-stop .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+}
+
+.top-cast-action {
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+/* =========================================================
+   3. Paylaşım bildirimi
+   ========================================================= */
+
+.cast-notice {
+  position: fixed;
+  top: calc(var(--top-h) + 0.5rem);
+  right: 1.25rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  max-width: 30rem;
+  padding: 0.5rem 0.375rem 0.5rem 0.625rem;
+  border: var(--border-width) solid var(--live-edge);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+
+.cast-notice-avatar {
+  margin-right: 0.625rem;
+}
+
+.cast-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0.75rem;
+  font-weight: var(--weight-strong);
+}
+
+.cast-notice-watch {
+  flex: none;
+  margin-right: 0.25rem;
+}
+
+.cast-notice-close {
+  flex: none;
+}
+
+/* =========================================================
+   4. Sahne açıkken yerleşim: sol ve orta bölge birleşir, sohbet altta daraltılır
+   ========================================================= */
+
+body[data-cast="live"] .center {
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+body[data-cast="live"] .cast {
+  -webkit-box-ordinal-group: 0;
+  order: -1;
+  flex: 1 1 auto;
+}
+
+/* Yazma alanının açılır pencereleri (emoji, anma önerileri) sahnenin üstünde çizilsin */
+body[data-cast="live"] #main.convo {
+  z-index: 2;
+  max-width: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top: 0;
+}
+
+/* Sohbet şeridi konuşmanın başlığıdır, ayrıca başlık ve yazıyor satırı gösterilmez */
+body[data-cast="live"] #main .convo-head,
+body[data-cast="live"] #main .typing-line {
+  display: none;
+}
+
+body[data-cast="live"][data-cast-chat="closed"] .cast {
+  flex: 1 1 auto;
+}
+
+body[data-cast="live"][data-cast-chat="closed"] #main.convo {
+  flex: none;
+  overflow: visible;
+}
+
+body[data-cast="live"][data-cast-chat="closed"] #main .messages,
+body[data-cast="live"][data-cast-chat="closed"] #main .home-view {
+  display: none;
+}
+
+body[data-cast="live"][data-cast-chat="closed"] #main .composer {
+  padding-top: 0.75rem;
+}
+
+/* Sohbet açıkken sahne ve sohbet kalan yüksekliği paylaşır */
+body[data-cast="live"][data-cast-chat="open"] .cast {
+  flex: 3 1 0;
+  min-height: 0;
+}
+
+body[data-cast="live"][data-cast-chat="open"] .cast-screen {
+  min-height: 8rem;
+}
+
+body[data-cast="live"][data-cast-chat="open"] #main.convo {
+  flex: 2 1 0;
+  min-height: 10rem;
+}
+
+@media (min-width: 1280px) {
+  body[data-cast="live"] .side-left {
+    display: none;
+  }
+}
+
+/* =========================================================
+   5. Yayın paneli
+   ========================================================= */
+
+.cast-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-panel);
+}
+
+.cast-panel.is-own {
+  border-color: var(--danger-edge);
+}
+
+.cast-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: none;
+  min-height: 3.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.cast-head > .cast-button,
+.cast-head > .cast-fit,
+.cast-head > .cast-viewers {
+  margin: 0.125rem 0 0.125rem 0.5rem;
+  flex: none;
+}
+
+.cast-pick {
+  display: flex;
+  flex: none;
+  margin-right: 0.75rem;
+  padding: 0.1875rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+}
+
+.cast-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  margin-right: 0.1875rem;
+  padding: 0 0.75rem 0 0.375rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-small);
+  background-color: transparent;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+.cast-chip:last-child {
+  margin-right: 0;
+}
+
+.cast-chip:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-chip[aria-pressed="true"] {
+  border-bottom-color: var(--live);
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+}
+
+.cast-chip-avatar {
+  margin-right: 0.5rem;
+}
+
+.cast-rec {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-right: 0.75rem;
+  border-radius: var(--radius-control);
+  background-color: var(--danger-bg);
+}
+
+.cast-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 10rem;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.cast-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-sub {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-viewers {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--live-bg);
+  color: var(--live);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cast-viewers.is-empty {
+  background-color: var(--surface-3);
+  color: var(--text-2);
+}
+
+.cast-viewers .icon {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.375rem;
+}
+
+.cast-viewers-stack {
+  display: inline-flex;
+}
+
+.cast-viewers-stack .avatar {
+  margin-right: 0.25rem;
+}
+
+.cast-viewers-stack:empty {
+  display: none;
+}
+
+.cast-fit {
+  display: inline-flex;
+  padding: 0.1875rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+}
+
+.cast-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target);
+  min-height: var(--target);
+  padding: 0 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cast-button:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-button .icon {
+  margin-right: 0.5rem;
+}
+
+.cast-fit .cast-button {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--text-2);
+}
+
+.cast-fit .cast-button + .cast-button {
+  margin-left: 0.1875rem;
+}
+
+.cast-fit .cast-button[aria-pressed="true"] {
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+}
+
+.cast-button.is-danger {
+  border-color: var(--danger-edge);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.cast-button.is-danger:hover {
+  background-color: var(--danger-fill);
+  color: var(--on-danger);
+}
+
+.cast-button.is-stop {
+  border-color: transparent;
+  background-color: var(--danger-fill);
+  color: var(--on-danger);
+}
+
+/* Görüntü alanı */
+.cast-screen {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 12rem;
+  overflow: hidden;
+  background-color: var(--viewer-bg);
+}
+
+.cast-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: var(--viewer-bg);
+}
+
+.cast-screen[data-fit="cover"] .cast-video {
+  object-fit: cover;
+}
+
+.cast-panel.is-own .cast-video {
+  top: 1.25rem;
+  left: 1.5rem;
+  width: calc(100% - 3rem);
+  height: calc(100% - 2.5rem);
+}
+
+.cast-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 1.5rem;
+  color: var(--text);
+  text-align: center;
+}
+
+.cast-skeleton {
+  display: block;
+  width: 60%;
+  height: 50%;
+  margin-bottom: 1rem;
+  border-radius: var(--radius-card);
+  background-color: var(--surface-2);
+  opacity: 0.6;
+  -webkit-animation: cast-pulse 1.6s ease-in-out infinite;
+  animation: cast-pulse 1.6s ease-in-out infinite;
+}
+
+@-webkit-keyframes cast-pulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 0.7; }
+  100% { opacity: 0.35; }
+}
+
+@keyframes cast-pulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 0.7; }
+  100% { opacity: 0.35; }
+}
+
+.cast-state-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--danger);
+}
+
+.cast-state-title {
+  margin: 0 0 0.25rem;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+}
+
+.cast-state-text {
+  margin: 0 0 0.75rem;
+  color: var(--text-2);
+}
+
+.cast-tag {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-pill);
+  /* Görüntünün üstünde durur: açık modda da koyu zemin ve açık yazı (görüntü ne renkte olursa olsun okunur) */
+  background-color: var(--viewer-bg);
+  color: var(--on-viewer);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cast-tag .cast-led {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.5rem;
+  box-shadow: none;
+}
+
+.cast-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Paylaşım sesi satırı */
+.cast-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: none;
+  padding: 0.25rem 0.75rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+.cast-mute {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--target);
+  height: var(--target);
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.cast-mute:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-mute[aria-pressed="true"] {
+  color: var(--danger);
+}
+
+.cast-mute:disabled,
+.cast-volume:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.cast-volume-label {
+  flex: none;
+  margin: 0 0.75rem 0 0.25rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+}
+
+.cast-volume {
+  flex: 0 1 12rem;
+  width: auto;
+  min-width: 6rem;
+}
+
+.cast-volume-value {
+  flex: none;
+  min-width: 3rem;
+  margin-left: 0.5rem;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.cast-volume-note {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0 0 0 0.75rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+/* Tam ekran: API ile veya yedek olarak sayfayı kaplayan panel */
+.cast-panel:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.cast-panel:fullscreen {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.cast-panel.is-full {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 80;
+  border: 0;
+  border-radius: 0;
+}
+
+/* =========================================================
+   6. Sohbet şeridi (daraltılmış sohbet)
+   ========================================================= */
+
+.cast-dock {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 3.25rem;
+  margin-top: 0.75rem;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
+  border: var(--border-width) solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  background-color: var(--surface-1);
+}
+
+.cast-dock-icon {
+  flex: none;
+  margin-right: 0.5rem;
+  color: var(--accent-text);
+}
+
+.cast-dock-title {
+  flex: none;
+  max-width: 14rem;
+  margin-right: 0.75rem;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-dock-last {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-dock-mention {
+  display: inline-block;
+  margin-right: 0.375rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-small);
+  background-color: var(--mention-bg);
+  color: var(--mention-text);
+  font-weight: 700;
+}
+
+.cast-dock-author {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.cast-dock-typing {
+  flex: none;
+  max-width: 14rem;
+  margin: 0 0.75rem;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cast-dock-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--target);
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cast-dock-toggle:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-dock-toggle .icon {
+  margin-right: 0.5rem;
+}
+
+/* =========================================================
+   7. Paylaşım başlatma penceresi (#cast-dialog)
+   ========================================================= */
+
+.cast-dialog {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 72;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: var(--overlay);
+}
+
+.cast-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 36rem;
+  max-height: 100%;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+
+.cast-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  flex: none;
+  padding: 1rem 0.75rem 0.875rem 1.25rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.cast-dialog-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-right: 0.875rem;
+  border-radius: var(--radius-control);
+  background-color: var(--surface-3);
+  color: var(--accent-text);
+}
+
+.cast-dialog-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cast-dialog-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+}
+
+.cast-dialog-sub {
+  margin: 0.125rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.cast-dialog-close {
+  flex: none;
+  margin-left: 0.5rem;
+}
+
+.cast-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 1.25rem 1rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cast-dialog-h {
+  margin: 0.875rem 0 0.5rem;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+}
+
+.cast-choices {
+  display: flex;
+}
+
+.cast-choice {
+  display: flex;
+  align-items: flex-start;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--target);
+  padding: 0.75rem 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cast-choice + .cast-choice {
+  margin-left: 0.75rem;
+}
+
+.cast-choice:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-choice[aria-checked="true"] {
+  border-color: var(--accent);
+  background-color: var(--surface-active);
+}
+
+.cast-choice-dot,
+.cast-preset-dot {
+  position: relative;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.0625rem 0.625rem 0 0;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+.cast-choice[aria-checked="true"] .cast-choice-dot {
+  border-color: var(--accent);
+}
+
+.cast-choice[aria-checked="true"] .cast-choice-dot::after {
+  content: "";
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--accent);
+}
+
+.cast-choice-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cast-choice-label {
+  color: var(--text-strong);
+}
+
+.cast-choice-hint {
+  margin-top: 0.125rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.cast-presets {
+  display: flex;
+  padding: 0.25rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+}
+
+.cast-preset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--target);
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius-small);
+  background-color: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cast-preset + .cast-preset {
+  margin-left: 0.25rem;
+}
+
+.cast-preset:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-preset[aria-checked="true"] {
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+}
+
+.cast-preset-dot {
+  display: none;
+}
+
+.cast-preset-label {
+  font-weight: 500;
+}
+
+.cast-dialog-hint {
+  margin: 0.5rem 0 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.cast-switch-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  margin-top: 1rem;
+  padding: 0.625rem 0.875rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cast-switch-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.cast-switch-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0.75rem;
+}
+
+.cast-switch-label {
+  color: var(--text-strong);
+}
+
+.cast-switch-hint {
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+.cast-switch {
+  position: relative;
+  flex: none;
+  width: 3rem;
+  height: 1.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-sunken);
+}
+
+.cast-switch-knob {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background-color: var(--text-2);
+}
+
+.cast-switch-row[aria-checked="true"] .cast-switch {
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+
+.cast-switch-row[aria-checked="true"] .cast-switch-knob {
+  left: auto;
+  right: 0.1875rem;
+  background-color: var(--on-accent-fill);
+}
+
+.cast-dialog-note {
+  display: flex;
+  align-items: center;
+  margin: 1rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.cast-dialog-note .icon {
+  flex: none;
+  margin-right: 0.5rem;
+  color: var(--ok);
+}
+
+.cast-dialog-status {
+  margin: 0.875rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-control);
+  background-color: var(--surface-3);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.cast-dialog-status.is-error {
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.cast-dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: none;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+.cast-dialog-foot > .button {
+  margin: 0.25rem 0 0.25rem 0.5rem;
+}
+
+.cast-dialog-foot > .cast-source {
+  margin-right: auto;
+  margin-left: 0;
+}
+
+.cast-primary {
+  background-color: var(--accent-fill-a);
+  background-image: linear-gradient(90deg, var(--accent-fill-a), var(--accent-fill-b));
+  color: var(--on-accent-fill);
+}
+
+.cast-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+/* =========================================================
+   8. Kesme noktaları
+   ========================================================= */
+
+/* Orta (999 px ve altı): yerleşim düğmeleri ve yazıyor bilgisi gizli, başlık etiketleri kısalır */
+@media (max-width: 999px) {
+  .cast-head .cast-fit,
+  .cast-dock-typing {
+    display: none;
+  }
+
+  .cast-volume-note {
+    display: none;
+  }
+}
+
+/* Dar (759 px ve altı, telefon): sahne üstte tam genişlik 16:9, sohbet altında açık, telsiz kartı altta,
+   başlıktaki düğmeler simgeye iner (erişilebilir adları korunur), pencere alttan açılır */
+@media (max-width: 759px) {
+  .top-cast-chip {
+    margin-left: 0.375rem;
+    padding-left: 0.5rem;
+  }
+
+  .top-cast-text {
+    display: none;
+  }
+
+  .top-cast-chip.is-remote .cast-led,
+  .top-cast-chip.is-own .cast-led {
+    margin-right: 0.375rem;
+  }
+
+  .cast-notice {
+    top: auto;
+    right: 0.5rem;
+    bottom: calc(10rem + env(safe-area-inset-bottom));
+    left: 0.5rem;
+    max-width: none;
+  }
+
+  body[data-cast="live"] .cast,
+  body[data-cast="live"][data-cast-chat="open"] .cast {
+    flex: none;
+  }
+
+  .cast-panel {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    flex: none;
+  }
+
+  .cast-head {
+    padding: 0.375rem 0.5rem;
+  }
+
+  .cast-pick {
+    margin: 0 0.5rem 0.25rem 0;
+  }
+
+  .cast-head > .cast-button {
+    padding: 0 0.625rem;
+  }
+
+  .cast-head > .cast-button .icon {
+    margin-right: 0;
+  }
+
+  .cast-head .cast-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .cast-head > .cast-stop .icon {
+    margin-right: 0.375rem;
+  }
+
+  .cast-head > .cast-stop .cast-button-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+
+  .cast-screen,
+  body[data-cast="live"][data-cast-chat="open"] .cast-screen {
+    flex: none;
+    height: 56.25vw;
+    min-height: 0;
+  }
+
+  body[data-cast="live"][data-cast-chat="closed"] .cast,
+  body[data-cast="live"][data-cast-chat="closed"] .cast-panel {
+    flex: 1 1 auto;
+  }
+
+  body[data-cast="live"][data-cast-chat="closed"] .cast-screen {
+    flex: 1 1 auto;
+  }
+
+  .cast-panel.is-own .cast-video {
+    top: 0.5rem;
+    left: 0.5rem;
+    width: calc(100% - 1rem);
+    height: calc(100% - 1rem);
+  }
+
+  .cast-foot {
+    padding: 0 0.5rem;
+  }
+
+  .cast-volume-label {
+    display: none;
+  }
+
+  .cast-dock {
+    min-height: 2.75rem;
+    margin-top: 0;
+    padding: 0 0.25rem 0 0.75rem;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  .cast-dock-title {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+
+  .cast-dock-last {
+    display: none;
+  }
+
+  body[data-cast="live"] #main.convo {
+    border-top: 0;
+  }
+
+  body[data-cast="live"][data-cast-chat="open"] #main.convo {
+    flex: 1 1 auto;
+    min-height: 8rem;
+  }
+
+  .cast-dialog {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .cast-dialog-panel {
+    max-width: none;
+    max-height: 92%;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 1.25rem 1.25rem 0 0;
+  }
+
+  .cast-dialog-foot {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .cast-choices {
+    flex-direction: column;
+  }
+
+  /* Sütunda flex-basis 0 yüksekliğe uygulanır ve kart 44 px'e iner, açıklama alttakinin üstüne taşardı */
+  .cast-choice {
+    flex: none;
+  }
+
+  .cast-choice + .cast-choice {
+    margin: 0.5rem 0 0;
+  }
+
+  /* Dört ön ayar telefonda tek satıra sığmaz (etiketler birbirine değerdi): iki satır, iki sütun */
+  .cast-presets {
+    flex-wrap: wrap;
+  }
+
+  .cast-preset {
+    flex: 0 0 50%;
+    font-size: var(--text-xs);
+  }
+
+  .cast-preset + .cast-preset {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cast-skeleton {
+    -webkit-animation: none;
+    animation: none;
+  }
+}

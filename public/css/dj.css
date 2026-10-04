@@ -1,0 +1,659 @@
+/*
+  Telsiz DJ (Ek L2, KONSEPT 8): #dj kartı, kadrodaki Telsiz DJ öğesi ve mesajdaki "DJ'de çal" düğmesi.
+  Geniş ekranda (1280 ve üstü) kart telsiz kartının solunda, alta hizalı bir sütundur. 1280 altında ve ekran
+  paylaşımı sahnesi açıkken (K7.2) #dj.is-sheet-mode olur ve yalnızca kadrodaki öğeden açılan sayfada görünür
+  (#dj.is-open: geniş ekranda sağdan yan sayfa, telefonda alt sayfa). Renkler yalnızca belirteçlerden gelir.
+  YouTube oynatıcı alanı (.dj-yt) her zaman en az 200 x 200 CSS pikselidir (yazı boyutundan bağımsız) ve
+  üstüne hiçbir öğe konmaz.
+*/
+
+/* ===== 1. Sütun ve sayfa kabuğu ===== */
+
+.side-dj {
+  min-width: 15rem;
+}
+
+.dj-sheet-head {
+  display: none;
+}
+
+.dj-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dj-card {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-width: 232px;
+  margin: auto 0 0;
+  padding: 1rem;
+}
+
+/* Sayfa kipinde kart yalnızca açıkken görünür */
+.side-dj.is-sheet-mode:not(.is-open) {
+  display: none;
+}
+
+.side-dj.is-open {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: var(--sheet-w);
+  min-width: 0;
+  max-width: calc(100% - 1.5rem);
+  margin: 0;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-pop);
+  -webkit-animation: sheet-from-right var(--dur-med) var(--ease);
+  animation: sheet-from-right var(--dur-med) var(--ease);
+}
+
+.side-dj.is-open .dj-sheet-head {
+  display: flex;
+}
+
+.side-dj.is-open .dj-scroll {
+  padding: 0 0.25rem 0.5rem;
+}
+
+/* Sayfanın içindeki kart kenarsız ve camsız (temaların .side-card kurallarından daha özgül) */
+:root .side-dj.is-open .side-card.dj-card {
+  margin: 0;
+  border: 0;
+  background-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.side-dj.is-open .dj-card > .dj-kicker {
+  display: none;
+}
+
+/* DJ sütunu görünürken sol bilgi sütunu kalkar, oda bilgisi başlıktaki düğmeyle yan sayfada açılır (KONSEPT 3) */
+.app-view[data-dj-col="on"] .side-left:not(.is-open) {
+  display: none;
+}
+
+.app-view[data-dj-col="on"] .convo-head .room-info-button {
+  display: inline-flex;
+}
+
+/* ===== 2. Üst etiket: LED, "Lobi · Telsiz DJ", bot etiketi, durum ===== */
+
+.dj-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dj-led {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--text-3);
+  flex: none;
+}
+
+.dj-card.is-playing .dj-led {
+  background-color: var(--live);
+  box-shadow: 0 0 6px 1px var(--halo-1);
+}
+
+.dj-kicker-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dj-tag {
+  margin-left: 0.5rem;
+  padding: 0 0.375rem;
+  border: 1px dashed var(--live);
+  border-radius: var(--radius-small);
+  color: var(--live);
+  font-family: var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.dj-state {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  color: var(--text-2);
+  font-family: var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ===== 3. Oynatıcı alanı ===== */
+
+.dj-stage {
+  position: relative;
+  margin-top: 0.25rem;
+}
+
+/* Resmi gömülü oynatıcının yeri (TelsizYouTube çerçeveyi buraya ekler). Politika: en az 200 x 200 ve görünür. */
+.dj-yt {
+  position: relative;
+  width: 100%;
+  height: 12.5rem;
+  min-width: 200px;
+  min-height: 200px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  overflow: hidden;
+}
+
+.dj-yt .dj-youtube-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Rıza kartı: oynatıcı alanıyla aynı yerde ve en az aynı boyutta */
+.dj-consent,
+.dj-blocked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 200px;
+  padding: 1rem 0.75rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-sunken);
+  text-align: center;
+}
+
+.dj-consent-icon,
+.dj-blocked-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--warn);
+}
+
+.dj-consent-title {
+  margin: 0.375rem 0 0.25rem;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.dj-consent-text,
+.dj-blocked-text {
+  margin: 0 0 0.75rem;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.dj-blocked-text {
+  margin: 0.5rem 0 0;
+  font-size: var(--text-sm);
+}
+
+.dj-consent-accept {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+}
+
+.dj-consent-decline {
+  width: 100%;
+  margin-top: 0.375rem;
+}
+
+/* Dosya parçası: dalga biçimi, çalınan kısım --live */
+.dj-wave {
+  display: flex;
+  align-items: center;
+  height: 6rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-card);
+  background-color: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.dj-wave-bars {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 4rem;
+}
+
+.dj-wave-bars i {
+  margin-right: 3px;
+  border-radius: 2px;
+  background-color: var(--line-strong);
+  flex: 1 1 0;
+}
+
+.dj-wave-bars i:last-child {
+  margin-right: 0;
+}
+
+.dj-wave-bars i.is-played {
+  background-color: var(--live);
+}
+
+/* Boş durum */
+.dj-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 9rem;
+  padding: 1rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-sunken);
+  text-align: center;
+}
+
+.dj-empty-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--live);
+}
+
+.dj-empty-title {
+  margin: 0.5rem 0 0.25rem;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.dj-empty-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+/* Uyarı satırı (oynatıcının altında, üstüne binmez) */
+.dj-alert {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-control);
+  background-color: var(--warn-bg);
+}
+
+.dj-alert.is-error {
+  border-color: var(--danger-edge);
+  background-color: var(--danger-bg);
+}
+
+.dj-alert-text {
+  margin: 0 0 0.375rem;
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.dj-alert-text[hidden] + .dj-alert-action {
+  margin-top: 0;
+}
+
+.dj-alert-action.dj-tap {
+  min-height: var(--target);
+  font-size: var(--text-md);
+}
+
+.dj-alert:not(.is-error) .dj-alert-action.dj-tap {
+  border-color: transparent;
+}
+
+/* ===== 4. Çalan parça, konum ve denetimler ===== */
+
+.dj-title {
+  margin: 0.75rem 0 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+  word-wrap: break-word;
+}
+
+.dj-by {
+  margin: 0.125rem 0 0;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  word-wrap: break-word;
+}
+
+.dj-time {
+  display: flex;
+  align-items: center;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.dj-bar {
+  position: relative;
+  height: 0.375rem;
+  margin: 0.75rem 0.625rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+  flex: 1 1 auto;
+}
+
+.dj-bar-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-color: var(--accent-text);
+}
+
+.dj-bar.is-unknown .dj-bar-fill {
+  width: 100%;
+  opacity: 0.25;
+}
+
+.dj-card.is-paused .dj-bar-fill {
+  background-color: var(--text-3);
+}
+
+.dj-ctrl {
+  display: flex;
+}
+
+.dj-ctrl .button {
+  margin-right: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  flex: 1 1 0;
+}
+
+.dj-ctrl .button:last-child {
+  margin-right: 0;
+}
+
+.dj-last {
+  margin: 0.5rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  word-wrap: break-word;
+}
+
+/* ===== 5. Kişisel ses seviyesi ve susturma ===== */
+
+.dj-vol {
+  display: flex;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.dj-vol.is-muted {
+  opacity: 0.5;
+}
+
+.dj-vol-icon {
+  color: var(--text-3);
+  flex: none;
+}
+
+.dj-vol-label {
+  margin: 0 0.5rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.dj-vol-range {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dj-vol-value {
+  min-width: 2.75rem;
+  margin-left: 0.5rem;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.dj-mute {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-alt);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dj-mute:hover {
+  background-color: var(--surface-hover);
+}
+
+.dj-mute-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dj-mute-label {
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+}
+
+.dj-mute-hint {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.dj-switch {
+  position: relative;
+  width: 3rem;
+  height: 1.625rem;
+  margin-left: 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+  flex: none;
+}
+
+.dj-switch i {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--text-3);
+}
+
+.dj-mute[aria-checked="true"] .dj-switch {
+  background-color: var(--accent-fill-a);
+}
+
+.dj-mute[aria-checked="true"] .dj-switch i {
+  right: 0.1875rem;
+  left: auto;
+  background-color: var(--on-accent);
+}
+
+/* ===== 6. Kuyruk ve ipuçları ===== */
+
+.dj-queue-title {
+  margin: 0.875rem 0 0.25rem 0.25rem;
+}
+
+.dj-queue {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dj-queue-item {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0.25rem 0 0.25rem 0.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.dj-queue-n {
+  min-width: 1.5rem;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  flex: none;
+}
+
+.dj-queue-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dj-queue-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dj-queue-by {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dj-queue-remove {
+  margin-left: 0.25rem;
+}
+
+.dj-hint {
+  margin: 0.5rem 0 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.dj-queue-empty {
+  margin-left: 0.25rem;
+}
+
+/* ===== 7. Kadrodaki Telsiz DJ öğesi: gerçek kullanıcı değil, ayrı görünüm ===== */
+
+.crew-dj .crew-avatar.dj-avatar {
+  border: 2px dashed var(--live);
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+.dj-avatar-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.crew-dj .dj-crew-name {
+  color: var(--live);
+}
+
+.crew-dj.is-playing .crew-avatar.dj-avatar {
+  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 6px 5px var(--halo-1);
+}
+
+.crew-dj.needs-tap .crew-avatar.dj-avatar {
+  border-style: solid;
+  -webkit-animation: band-pulse 1.6s var(--ease) infinite;
+  animation: band-pulse 1.6s var(--ease) infinite;
+}
+
+.dj-crew-badge {
+  color: var(--text-2);
+}
+
+/* ===== 8. Mesajdaki ses dosyası kartının "DJ'de çal" düğmesi ===== */
+
+.dj-file-actions {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.dj-play-file .icon {
+  color: var(--live);
+}
+
+.app-view[data-dj="off"] .dj-file-actions {
+  display: none;
+}
+
+/* ===== 9. Kesme noktaları ===== */
+
+/* Televizyon (1800 ve üstü): daha geniş sütun ve oynatıcı */
+@media (min-width: 1800px) {
+  .side-dj:not(.is-sheet-mode) {
+    width: calc(var(--side-w) + 4rem);
+  }
+
+  .dj-yt {
+    height: 15rem;
+  }
+}
+
+/* Telefon (759 ve altı): alttan açılan sayfa */
+@media (max-width: 759px) {
+  .side-dj.is-open {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    max-height: 88%;
+    border-bottom: 0;
+    border-radius: 1.5rem 1.5rem 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    -webkit-animation: sheet-from-bottom var(--dur-med) var(--ease);
+    animation: sheet-from-bottom var(--dur-med) var(--ease);
+  }
+
+  .crew-dj .dj-avatar-icon {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-dj.is-open,
+  .crew-dj.needs-tap .crew-avatar.dj-avatar {
+    -webkit-animation: none;
+    animation: none;
+  }
+}

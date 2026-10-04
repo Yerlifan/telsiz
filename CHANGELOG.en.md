@@ -1,0 +1,124 @@
+# Changelog
+
+Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
+
+## [2.0.0]
+
+The first public release of Telsiz: open source, end-to-end encrypted text and voice communication that runs on your own server or on a hosting service. It works on any device with a browser, and the server has no runtime dependencies.
+
+### Frequency layout
+
+- A new interface layout: rooms sit as stations on a horizontal frequency band at the top of the screen, and a needle above the band shows the open conversation. The needle can be dragged with a mouse or a finger and dropped on the nearest station. Unread and mention badges sit on the corners of stations, and a voice room with someone speaking in it pulses.
+- A single conversation column in the middle, and on wide screens a left info column and an inbox card that collects unread messages on other frequencies.
+- A radio card that opens when you join a voice room: the people in the room, a halo around the speaker, a large Push to talk button, and Microphone, Deafen, Screen and Leave buttons.
+- Direct messages and friends in the Personal group of the band, people in a sheet opened from the On air strip in the top bar, and profile, status and settings in the avatar menu at the top right.
+- The band works with the keyboard (arrow keys, Home, End, Enter), the wheel (horizontal scrolling only) and a gamepad (L1 and R1). On phones the band scrolls with a finger, the All sheet lists every station and the radio card sticks to the bottom of the screen. At TV width text grows, and a hint bar appears when a gamepad is detected.
+- Avatars are soft squares in every theme.
+
+### Encryption and privacy
+
+- Text room messages, files and images, profile information (display name, about me, custom status, profile picture), the connection setup messages of voice chat and screen sharing, and the Telsiz DJ state are encrypted in the browser with the group key (TweetNaCl-js, XSalsa20-Poly1305). The server stores and relays this content only in encrypted form.
+- Direct messages are encrypted with the personal keys of the two people (X25519). The other person's key can be verified with a safety number, it is pinned on first sight and a warning is shown when it changes.
+- The password is never sent to the server. The browser derives an authentication key from the password with scrypt, and the server stores a scrypt hash of that key. The personal private key is stored wrapped with a key derived from the password.
+- The group key travels in the part of the invite link after the # sign, which browsers do not send to the server. The key can also be entered by hand.
+- A new group key can be created, and the new key protects the messages that follow. Keys for older messages are kept in the keyring on the device.
+- Photos other than GIFs are re-encoded before they are sent, which removes metadata including the location.
+- Message search and @ mentions run entirely in the browser, the server never sees the search text or the message content.
+
+### Server security
+
+- Authorization checks on the server at every endpoint, type and length checks on every input, limits on bodies, queues and counts.
+- Rate limits per account and per IP address (sign in, registration, messages, uploads, administration, friend requests, typing notifications, voice signals, Telsiz DJ writes).
+- Session tokens are stored on disk only as hashes, and comparisons run in constant time.
+- A strict Content Security Policy (CSP), security headers and no CORS headers. The only allowed frame is the YouTube embedded player (`youtube-nocookie.com`). Static files are served only from an allowlist, and path traversal attempts are rejected.
+- Behind a reverse proxy, the client address is read only from headers sent by trusted proxies (`GUVENILIR_VEKIL` or `TRUSTED_PROXY`).
+- Data files are written atomically. If a corrupt `state.json` is recovered from the backup it is first copied to a separate file, and if it cannot be recovered the server does not start.
+
+### Text communication
+
+- Multiple text rooms, persistent and encrypted message history (the last 20000 messages per room), paging through the history.
+- Editing and deleting messages.
+- Sharing files and images: up to 10 files per message, a default limit of 25 MB per file and a configurable total quota, inline images, an image viewer, file cards, paste and drag and drop.
+- Emoji picker with categories, recently used emoji and keyboard navigation.
+- @ mentions with a suggestion list. Owners and admins can mention everyone in text rooms.
+- Unread message and mention counters.
+- Typing indicator. You can turn off sending your own typing status.
+- Message search in this room or conversation, in all text rooms or in direct messages, with filters for a person and for messages with images or files, and jumping from a result to the message in context.
+- Desktop notifications and a message sound, with a notification level (all messages, only mentions and direct messages, or none).
+
+### Voice communication
+
+- Multiple voice rooms with up to 8 people per room. Audio flows directly between people over WebRTC (DTLS-SRTP) and does not pass through the server.
+- Speaking indicator, mute, deafen, per person volume and an overall output volume.
+- Two input modes: voice activity (automatic or manual sensitivity threshold) and push to talk (with a release delay and an on screen Push to talk button).
+- Key bindings for push to talk, mute and deafen: a keyboard key, a mouse side button or a gamepad button.
+- Microphone selection and test, an input level meter, echo cancellation, noise suppression and automatic gain options, join and leave sounds.
+- Your own TURN server can be configured for networks that need it (`TURN_URL`, `TURN_KULLANICI`, `TURN_SIFRE`).
+
+### Screen sharing
+
+- Sharing a screen, window or tab in a voice room. Video is sent only to people who press Watch.
+- Four quality levels (720p at 15 frames per second by default, 720p at 30, 1080p at 15, 1080p at 30), a smooth motion or sharp text preference, and share audio separate from the microphone if the browser provides it.
+- A broadcast stage: choosing between several shares, fit and fill, full screen, a collapsed chat strip, a preview for the person sharing and a "Your screen is live" chip visible on every station.
+- In the desktop app, its own screen and window picker with thumbnails, and an option to share system audio on Windows.
+
+### Telsiz DJ
+
+- A built-in music bot in voice rooms. Everyone hears the track at the same time on their own device, and position drift is corrected automatically.
+- Adding tracks: `/play` and a YouTube link in the message box, or "Play in DJ" on an audio file in a message. The other commands are `/skip`, `/pause`, `/resume`, `/queue` and `/stop`, and in the Turkish interface `/çal`, `/geç`, `/duraklat`, `/devam`, `/kuyruk` and `/dur`.
+- A DJ card with the player, a position bar, the queue, a personal volume and muting the DJ only on your own device.
+- YouTube tracks load in the official YouTube embedded player, and only after the person gives consent on that device. Consent can be withdrawn in Settings > Privacy and security. Shared audio files play without consent.
+- The DJ state is encrypted with the group key and kept only in memory on the server. The owner can turn off Telsiz DJ or only the YouTube source in Settings > General.
+
+### People, profiles and direct messages
+
+- Friend requests (send, accept, decline, withdraw), a friends list and removing friends.
+- Blocking: text room messages of a blocked person are collapsed, their voice is muted on your side and they cannot send you direct messages.
+- Direct messages with a conversation list and unread counters. You can stop accepting direct messages from server members.
+- Profiles: display name, about me, profile color, a profile picture that can be cropped, a custom status and a status (online, idle, do not disturb, invisible), and a profile card.
+
+### Accounts and administration
+
+- Roles: owner, admin and member. The owner account is created with a one time setup code shown in the server console, other accounts are created with an invite code.
+- Creating, renaming, reordering and deleting rooms. The last text room cannot be deleted.
+- Changing the server name and renewing the invite code.
+- Member management: changing roles, banning and unbanning, resetting a password with a temporary password.
+- Account settings: changing the password and the username, deleting the account, viewing and signing out active sessions.
+- If the owner forgets the password, it can be reset from the command line while the server is stopped: `sifre-sifirla` or `reset-password`.
+
+### Appearance and languages
+
+- Three themes (Arcade, Night Frequency, Turquoise and Copper), each with a dark and a light mode and an option to follow the system setting.
+- A full screen settings view, font size, compact message view and reduced motion settings.
+- Turkish and English interface. Server error messages follow the language of the request, and console messages follow the `DIL` setting or the system language.
+
+### Installation and running
+
+- Installing as an app (PWA): it opens in its own window on phones, tablets and computers (https is required).
+- Real time communication uses HTTP long polling, WebSocket is not needed.
+- The server runs on Node.js 20 or newer, has no runtime dependencies and keeps its data in JSON and JSONL files.
+- npm package: `npx telsiz`. The data folder is the `veri` folder in the folder where the command is run.
+- Standalone server: a single file for Windows (x64) and Linux (x64, arm64) that contains Node.js and the app files. The data folder is the `veri` folder next to the file, and settings can also be read from a `telsiz.env` file next to it. The window does not close right away when starting fails.
+- Docker image `ghcr.io/yerlifan/telsiz` (linux/amd64 and linux/arm64) with a non root user, a persistent data volume and a health check. Docker Compose, systemd, Caddy and nginx examples are in the `deploy/` folder.
+- `baslat.bat` and `tunel.bat` for Windows, `baslat.sh` and `tunel.sh` for Linux and macOS. The tunnel scripts open a temporary https address with a Cloudflare quick tunnel.
+- `SHA256SUMS.txt` to verify the release files. Third party actions in the GitHub Actions workflows are pinned by commit SHA.
+
+### Desktop app
+
+- A desktop app for Windows and Linux. The app files are shipped inside the app and verified against a sha256 manifest at startup, they are not downloaded from the server.
+- The server address must use https (http://localhost is allowed for a server on the same computer). Requests to the server go through the main process of the app.
+- Only microphone, notification and clipboard write permissions are granted, all other permissions are denied. Screen capture is granted only through the app's picker. The only frame that can open is the YouTube player of Telsiz DJ.
+- Global shortcuts for mute and deafen, and an option to minimize to the system tray on close.
+
+### Known limitations
+
+- In the web version the app code comes from the server. An active attacker who controls the server or an intermediary that terminates the HTTPS connection could serve modified code. In the desktop app the app code ships inside the app, so the server cannot change it.
+- The server sees metadata: who wrote, when, in which room and how much, who is online and who is in which voice room. Room names, usernames and the typing status are not encrypted.
+- A malicious server can replay and hide messages and roll back edits. Text rooms have no sender signatures, so anyone with the group key can create messages in another member's name.
+- The group key is shared by everyone on the server and there is no forward secrecy. A new key protects only the messages that follow.
+- In voice chat and screen sharing people can see each other's IP address. The full mesh design is meant for small groups.
+- The IP address and tracking data of a device that gives consent for a YouTube track go to Google.
+- Voice chat, screen sharing and installing the app require https (except at the localhost address on the computer that runs the server).
+- The standalone server and the desktop app are not code signed, so Windows may show a warning on first start. The desktop app has no automatic updates and no global push to talk shortcut that works while held down.
+- No standalone server or desktop package is published for macOS. On macOS use `npx telsiz`, `baslat.sh` or Docker.
+- The full list of limits is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#limits).

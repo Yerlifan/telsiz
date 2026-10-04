@@ -1,0 +1,199 @@
+# Masaüstü uygulaması (Electron): birim testleri, Linux ve Windows derlemeleri ve gerçek
+# derlemeyle Playwright _electron duman testi (Linux'ta xvfb altında). Yayın yapmaz, sürüm iş
+# akışı (release.yml) bu iş akışını çağırır ve artifact'leri GitHub Release'e ekler.
+# Desktop app (Electron): unit tests, Linux and Windows builds and a Playwright _electron smoke
+# test with the real build (under xvfb on Linux). It does not publish anything, the release
+# workflow (release.yml) calls it and attaches the artifacts to the GitHub Release.
+#
+# Artifact adları (release.yml bunlara güvenir):
+# Artifact names (release.yml relies on them):
+#   telsiz-desktop-windows   Telsiz-Kurulum-<sürüm>.exe, Telsiz-<sürüm>-tasinabilir.exe
+#   telsiz-desktop-linux     Telsiz-<sürüm>-linux-x86_64.AppImage, telsiz-masaustu_<sürüm>_amd64.deb
+name: Masaüstü
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Çağrıldığında da diğer iş akışlarıyla (ör. exe-) çakışmayan bir grup, yalnızca çekme isteklerinde eskisi iptal edilir
+# A group that does not collide with other workflows (for example exe-) when called, only pull requests cancel older runs
+concurrency:
+  group: desktop-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Electron'u electron-builder kendisi indirir (sağlama toplamıyla), npm ci ikinci kez indirmez
+  # electron-builder downloads Electron itself (with checksums), npm ci does not download it again
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  linux:
+    name: Linux (birim testleri, AppImage ve .deb, duman testi)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Node.js kur
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Geliştirme bağımlılıklarını kur
+        working-directory: desktop
+        run: npm ci
+
+      - name: Birim testleri
+        working-directory: desktop
+        run: npm test
+
+      - name: AppImage ve .deb derle
+        working-directory: desktop
+        run: npm run derle:linux
+
+      - name: Paket dosyalarını denetle
+        working-directory: desktop
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test -f "dist/Telsiz-${version}-linux-x86_64.AppImage"
+          test -f "dist/telsiz-masaustu_${version}_amd64.deb"
+          test -x dist/linux-unpacked/telsiz-masaustu
+          dpkg-deb --info "dist/telsiz-masaustu_${version}_amd64.deb"
+
+      # Ubuntu 24.04 yetkisiz kullanıcı ad alanlarını AppArmor ile kısıtlar, Chromium'un korumalı
+      # alanı (sandbox) bu yüzden test makinesinde açılamaz. Duman testi korumalı alanla çalışmalıdır.
+      # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor, so the Chromium sandbox
+      # cannot start on the runner. The smoke test must run with the sandbox enabled.
+      - name: Chromium korumalı alanı için kullanıcı ad alanlarına izin ver
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: xvfb kur
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      # Hata anında duman-sonuclar/ altına ana süreç günlüğü, uygulama çıktısı, başlatma hatası ve
+      # Playwright protokol günlüğü (DEBUG_FILE) yazılır, aşağıdaki adım bunları yükler.
+      # On failure the main process log, the app output, the launch error and the Playwright
+      # protocol log (DEBUG_FILE) are written under duman-sonuclar/, the step below uploads them.
+      - name: Duman testi (paketlenmiş Linux derlemesi, xvfb)
+        working-directory: desktop
+        env:
+          TELSIZ_UYGULAMA: dist/linux-unpacked/telsiz-masaustu
+          DEBUG: pw:protocol,pw:browser
+          DEBUG_FILE: duman-sonuclar/playwright-protokol.log
+        run: xvfb-run --auto-servernum npm run test:duman
+
+      - name: Linux paketlerini yükle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: telsiz-desktop-linux
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Hata anındaki ekran görüntülerini ve günlükleri yükle
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: telsiz-desktop-duman-linux
+          path: desktop/duman-sonuclar/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    name: Windows (birim testleri, kurucu ve taşınabilir exe, duman testi)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Node.js kur
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Geliştirme bağımlılıklarını kur
+        working-directory: desktop
+        run: npm ci
+
+      - name: Birim testleri
+        working-directory: desktop
+        run: npm test
+
+      # İmza yok: CSC_IDENTITY_AUTO_DISCOVERY kapalı, sertifika aranmaz
+      # No code signing: CSC_IDENTITY_AUTO_DISCOVERY is off, no certificate is looked up
+      - name: NSIS kurucu ve taşınabilir exe derle
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run derle:win
+
+      - name: Paket dosyalarını denetle
+        working-directory: desktop
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test -f "dist/Telsiz-Kurulum-${version}.exe"
+          test -f "dist/Telsiz-${version}-tasinabilir.exe"
+          test -f dist/win-unpacked/Telsiz.exe
+
+      # Hata anında duman-sonuclar/ altına teşhis dosyaları yazılır (Linux adımındaki gibi). Başlatma
+      # uzarsa zaman aşımından önce Telsiz süreçlerinin pencere başlıkları, yanıt durumu ve masaüstü
+      # görüntüsü de kaydedilir (baslatma-durumu.txt, baslatma-ekrani.png).
+      # On failure diagnostics are written under duman-sonuclar/ (as in the Linux step). If the
+      # launch takes long, the window titles and responsiveness of the Telsiz processes and a desktop
+      # screenshot are also recorded before the timeout.
+      - name: Duman testi (paketlenmiş Windows derlemesi)
+        working-directory: desktop
+        env:
+          TELSIZ_UYGULAMA: dist/win-unpacked/Telsiz.exe
+          DEBUG: pw:protocol,pw:browser
+          DEBUG_FILE: duman-sonuclar/playwright-protokol.log
+        run: npm run test:duman
+
+      - name: Windows paketlerini yükle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: telsiz-desktop-windows
+          path: |
+            desktop/dist/Telsiz-Kurulum-*.exe
+            desktop/dist/Telsiz-*-tasinabilir.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Hata anındaki ekran görüntülerini ve günlükleri yükle
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: telsiz-desktop-duman-windows
+          path: desktop/duman-sonuclar/
+          if-no-files-found: ignore
+          retention-days: 7

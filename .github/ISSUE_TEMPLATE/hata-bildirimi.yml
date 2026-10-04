@@ -1,0 +1,96 @@
+name: Hata bildirimi
+description: Uygulamada beklenmeyen bir davranışı bildirin.
+title: "[Hata] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bildiriminiz için teşekkürler. Güvenlik açıklarını burada açık issue olarak bildirmeyin, SECURITY.md dosyasında anlatılan özel bildirim yolunu kullanın.
+
+        Bildirime parola, şifreleme anahtarı, davet bağlantısı, davet kodu veya kurulum kodu yazmayın. Ekran görüntülerinde de bu bilgilerin görünmediğinden emin olun.
+  - type: dropdown
+    id: device
+    attributes:
+      label: Cihaz
+      description: Sorunu hangi cihazlarda yaşadınız? Birden fazla seçebilirsiniz.
+      multiple: true
+      options:
+        - PC
+        - PS5
+        - Android
+        - iOS
+        - Tablet
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Tarayıcı ve sürümü
+      description: Biliyorsanız tarayıcının adını ve sürümünü yazın. Uygulama olarak yüklediyseniz bunu da belirtin.
+      placeholder: "ör. Chrome 130, Safari 18, PS5 tarayıcısı"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Uygulama sürümü
+      description: package.json dosyasındaki sürüm veya kullandığınız commit.
+      placeholder: "ör. 2.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Bağlantı biçimi
+      description: Sunucuya nasıl bağlandınız?
+      options:
+        - Yerel ağ adresi (http)
+        - Cloudflare tüneli (https)
+        - Sunucu bilgisayarında localhost
+        - Diğer veya bilmiyorum
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Yeniden oluşturma adımları
+      description: Sorunu yeniden oluşturmak için izlenecek adımları sırayla yazın.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Beklenen davranış
+      description: Ne olmasını bekliyordunuz?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Gerçekleşen davranış
+      description: Bunun yerine ne oldu? Hata iletilerini ve gerekirse ekran görüntüsünü ekleyin.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sunucu penceresi veya tarayıcı konsolu çıktısı
+      description: Varsa ilgili satırları yapıştırın. Kurulum kodu gibi gizli bilgileri silin.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Kontrol
+      options:
+        - label: Aynı sorun için açık bir issue olmadığını kontrol ettim.
+          required: true
+        - label: Bildirimde parola, şifreleme anahtarı, davet bağlantısı veya kurulum kodu paylaşmadım.
+          required: true
