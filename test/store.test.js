@@ -189,9 +189,12 @@ test('saveState 200 ms içinde tek yazım planlar, flush hemen yazar', async () 
   const dir = tempDir()
   const statePath = path.join(dir, 'state.json')
   let stateRenames = 0
-  const restore = patchFs('rename', (original) => function (from, to) {
+  // Yalnız başarılı taşımalar sayılır: Windows'ta aşağıdaki waitFor okuması taşımayla
+  // çakışınca rename EPERM verir ve yeniden denenir, deneme sayısı yazım sayısı değildir
+  const restore = patchFs('rename', (original) => async function (from, to) {
+    const result = await original.call(this, from, to)
     if (path.basename(String(to)) === 'state.json') stateRenames++
-    return original.call(this, from, to)
+    return result
   })
   try {
     const store = await openStore({ dir, log: makeLog() })
