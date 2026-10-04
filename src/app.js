@@ -2,7 +2,8 @@
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz liste ve düzgün kapanış.
+// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
+// liste ve düzgün kapanış.
 // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
 // token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
@@ -19,6 +20,7 @@ const util = require('./http-util')
 const { createHub } = require('./hub')
 const { createSocial } = require('./social')
 const { createMusic } = require('./music')
+const { createCalls } = require('./calls')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
@@ -88,6 +90,10 @@ const DEFAULTS = Object.freeze({
   musicLimit: 30,
   musicWindowMs: 10000,
   musicIdleMs: 30 * 60 * 1000,
+  // Özel mesaj aramaları: başlatma ve reddetme kullanıcı başına 10 / 60 sn, cevaplanmayan arama 45 sn sonra düşer
+  callLimit: 10,
+  callWindowMs: 60000,
+  callRingMs: 45000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -113,9 +119,10 @@ const POSITIVE_OPTIONS = [
   'uploadWindowMs', 'adminLimit', 'adminWindowMs', 'signalLimit', 'signalWindowMs',
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
-  'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages'
+  'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
+  'callRingMs'
 ]
-const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs']
+const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs']
 
 // Yazı kanalı ve profil zarfı (grup anahtarı) ile özel mesaj zarfı (kişisel anahtarlar)
 const ENVELOPE_RE = /^1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{24,}$/
@@ -154,6 +161,10 @@ const VOICE_CAPACITY_MAX = 12
 const MAX_CAMERAS_MIN = 1
 const MAX_CAMERAS_MAX = 12
 const DEFAULT_MAX_CAMERAS = 4
+// Özel mesaj aramasının odası: yalnızca konuşmanın iki üyesi, ikisi de kamera açabilir (frekansın maxCameras ayarı
+// uygulanmaz, sahibin kameraları kapatması uygulanır)
+const CALL_CAPACITY = 2
+const CALL_MAX_CAMERAS = 2
 const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
 const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
 const PROFILE_IDS_MAX = 100
@@ -912,8 +923,10 @@ async function createChatServer (options) {
   const profileLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
   const typingLimiter = new auth.RateLimiter(config.typingLimit, config.typingWindowMs)
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
+  // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
+  const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
 
   let closing = false
@@ -940,7 +953,23 @@ async function createChatServer (options) {
     },
     // Engel ilişkisi olan iki kullanıcı (hangi yönde olursa olsun) birbirinin yazıyor bilgisini görmez
     canSeeTyping: (viewerId, typerId) => !social.isBlockedEither(viewerId, typerId),
+    // Özel mesaj konuşmasının kanalı aramanın ses odasıdır: herkese açık metaya girmez
+    isPrivateRoom: (channelId) => {
+      const channel = channelsById.get(channelId)
+      return Boolean(channel) && channel.type === 'dm'
+    },
+    onPrivateVoice: callVoiceChanged,
     send: (res, status, payload) => util.sendJson(res, status, payload, closingHeaders())
+  })
+
+  // Özel mesaj aramaları: yalnızca bellekte, konuşma başına (src/calls.js). Biten aramanın odasındaki oturumlar
+  // çıkarılır, iki üyenin özel görünümü yenilenir.
+  const calls = createCalls({
+    ringMs: config.callRingMs,
+    onEnd: (rec) => {
+      hub.kickVoiceRoom(rec.dmId)
+      privateChanged(rec.members)
+    }
   })
 
   const social = createSocial({
@@ -1023,12 +1052,69 @@ async function createChatServer (options) {
 
   function privateOf (userId) {
     let view = privateCache.get(userId)
+    // Önbellekteki görünümün çalan aramasının zil süresi dolduysa görünüm yeniden kurulur (süpürme kaydı henüz
+    // silmemiş olabilir, süresi dolmuş arama görünmez)
+    if (view && view.call && view.call.state === 'ringing' && Date.now() >= view.call.ringUntil) view = null
     if (!view) {
       const user = usersById.get(userId)
-      view = user ? social.privateView(user) : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online' }
+      view = user
+        ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
+        : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
       privateCache.set(userId, view)
     }
     return view
+  }
+
+  // Aramanın bir üyeye görünümü. members: arama odasındaki etkin oturumlar.
+  function callView (rec, userId) {
+    return {
+      dmId: rec.dmId,
+      userId: rec.caller === userId ? rec.callee : rec.caller,
+      video: rec.video,
+      state: rec.state,
+      role: rec.caller === userId ? 'caller' : 'callee',
+      createdAt: rec.createdAt,
+      ringUntil: rec.ringUntil,
+      answeredAt: rec.answeredAt,
+      members: hub.voiceMembersOf(rec.dmId)
+    }
+  }
+
+  // Kullanıcının özel görünümündeki arama (etkin olan öncelikli, sonra en yeni, zil süresi dolmuş olan hariç) veya null
+  function callViewFor (userId) {
+    const rec = calls.latestOf(userId, Date.now())
+    return rec ? callView(rec, userId) : null
+  }
+
+  // Özel arama odasının ses üyeliği veya durumu değişti (hub bildirir): iki üye de odadayken arama etkin olur, odaya
+  // katılmış bir üye ayrılınca (çıkış, oturumun düşmesi, başka odaya geçiş) arama biter. Genel meta sürümü artmaz,
+  // yalnızca iki üyenin özel görünümü yenilenir.
+  function callVoiceChanged (channelId) {
+    const rec = calls.get(channelId)
+    if (!rec) return
+    if (!calls.sync(rec, hub.voiceUserIds(channelId), Date.now())) {
+      calls.end(rec)
+      return
+    }
+    privateChanged(rec.members)
+  }
+
+  // Kullanıcının çalan ve süren aramaları biter (yasaklama, frekanstan atma, hesap silme)
+  function endCallsOf (userId) {
+    for (const rec of calls.ofUser(userId)) calls.end(rec)
+  }
+
+  // Kullanıcının başka konuşmalardaki çalan aramaları iptal edilir (yeni arama, kabul veya bir aramanın odasına
+  // katılma)
+  function cancelRingingBy (userId, exceptDmId) {
+    for (const rec of calls.ringingBy(userId, exceptDmId)) calls.end(rec)
+  }
+
+  // İki kullanıcı arasındaki arama biter (engel, arkadaşlıktan çıkarma)
+  function endCallBetween (a, b) {
+    const dm = social.dmBetween(a, b)
+    const rec = dm ? calls.get(dm.id) : null
+    if (rec) calls.end(rec)
   }
 
   // Kişiye özel görünümü değişen kullanıcılar: yalnızca onların bekleyen poll'ları uyanır
@@ -1136,6 +1222,11 @@ async function createChatServer (options) {
     for (const s of list) {
       sessionsByHash.delete(s.hash)
       hub.removeSession(s.hash, reply)
+    }
+    // Hiç oturumu kalmayan arayanın çalan aramaları biter (odaya hiç katılmamış olsa da arama sahipsiz kalmaz)
+    for (const userId of new Set(list.map((s) => s.userId))) {
+      if (sessionsOf(userId).length > 0) continue
+      for (const rec of calls.ringingBy(userId, null)) calls.end(rec)
     }
     for (const job of uploadJobs) {
       if (job.finish && doomed.has(job.session)) {
@@ -1689,6 +1780,7 @@ async function createChatServer (options) {
   // silinir, ad serbest kalır. Mesajlar ve özel mesaj geçmişi kalır, yazar silinmiş görünür. reason
   // bekleyen poll'lara giden yanıtı seçer (deleteSessions).
   function deleteAccount (user, reason = 'invalid_token') {
+    endCallsOf(user.id)
     deleteSessions(sessionsOf(user.id), reason)
     usersByKey.delete(user.key)
     user.deleted = true
@@ -1924,21 +2016,27 @@ async function createChatServer (options) {
     socialResult(ctx, social.decline(ctx.user.id, target.id), target.id)
   }
 
+  // Arkadaşlık bitince aralarındaki çalan veya süren arama da biter
   function handleFriendRemove (ctx) {
     if (!takeSocialSlot(ctx)) return
     const target = socialTarget(ctx, ctx.body.userId)
     if (!target) return
-    socialResult(ctx, social.remove(ctx.user.id, target.id), target.id)
+    const result = social.remove(ctx.user.id, target.id)
+    if (!result.error) endCallBetween(ctx.user.id, target.id)
+    socialResult(ctx, result, target.id)
   }
 
-  // Sunucudan engellenmiş kişi de kişisel olarak engellenebilir
+  // Sunucudan engellenmiş kişi de kişisel olarak engellenebilir. Aralarındaki çalan veya süren arama biter.
   function handleBlockAdd (ctx) {
     if (!takeSocialSlot(ctx)) return
     const target = findLiveUser(ctx.body.userId)
     if (!target) return fail(ctx, 404, 'user_not_found')
     if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
     const result = social.block(ctx.user.id, target.id, Date.now())
-    if (!result.error) hub.typingPairChanged(ctx.user.id, target.id)
+    if (!result.error) {
+      hub.typingPairChanged(ctx.user.id, target.id)
+      endCallBetween(ctx.user.id, target.id)
+    }
     if (!result.error) return okDurable(ctx, { ok: true, userId: target.id, state: result.state })
     socialResult(ctx, result, target.id)
   }
@@ -2426,7 +2524,7 @@ async function createChatServer (options) {
     channelsById.delete(channel.id)
     renumber(channel.type)
     if (channel.type === 'voice') {
-      hub.kickVoiceChannel(channel.id)
+      hub.kickVoiceRoom(channel.id)
       music.remove(channel.id)
     } else {
       hub.clearTypingChannel(channel.id)
@@ -2470,7 +2568,10 @@ async function createChatServer (options) {
     if (target.id === ctx.user.id || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     if (target.banned !== b.banned) {
       target.banned = b.banned
-      if (b.banned) deleteSessions(sessionsOf(target.id), 'banned')
+      if (b.banned) {
+        endCallsOf(target.id)
+        deleteSessions(sessionsOf(target.id), 'banned')
+      }
       store.saveState()
       hub.bumpMeta()
     }
@@ -2834,10 +2935,27 @@ async function createChatServer (options) {
     return false
   }
 
+  // Oturum özel mesaj aramasının odasında mı
+  function inCallRoom (rt) {
+    if (rt.voiceChannelId === null) return false
+    const channel = findChannel(rt.voiceChannelId)
+    return Boolean(channel) && channel.type === 'dm'
+  }
+
+  // Ses odasına veya özel mesaj aramasının odasına katılma. Aramanın odasına yalnızca konuşmanın iki üyesi, arkadaşken,
+  // yazışma engeli yokken ve konuşmada çalan veya süren bir arama varken katılabilir. Aksi halde konuşma yok görünür.
+  // Sunucu susturması özel aramaya uygulanmaz.
   function handleVoiceJoin (ctx) {
     if (!takeVoiceSlot(ctx)) return
-    const channel = findChannelOfType(toId(ctx.body.channelId), 'voice')
-    if (!channel) return fail(ctx, 404, 'channel_not_found')
+    const channel = findChannel(toId(ctx.body.channelId))
+    if (channel && channel.type === 'dm') {
+      if (!callableDm(channel, ctx.user) || !calls.live(channel.id, Date.now())) return fail(ctx, 404, 'channel_not_found')
+      const callMembers = hub.voiceJoin(ctx.rt, channel.id, CALL_CAPACITY)
+      if (callMembers === null) return fail(ctx, 409, 'voice_full')
+      cancelRingingBy(ctx.user.id, channel.id)
+      return ok(ctx, { ok: true, peerId: ctx.rt.peerId, members: callMembers, iceServers: config.iceServers })
+    }
+    if (!channel || channel.type !== 'voice') return fail(ctx, 404, 'channel_not_found')
     const members = hub.voiceJoin(ctx.rt, channel.id, state.voice.capacity)
     if (members === null) return fail(ctx, 409, 'voice_full')
     if (ctx.user.voiceMuted === true) hub.forceMute(ctx.user.id)
@@ -2845,15 +2963,16 @@ async function createChatServer (options) {
   }
 
   // POST /api/voice/camera { on }: kameranın açık olduğu bilgisi (görüntünün kendisi kişiler arasında doğrudan
-  // akar, sunucudan geçmez). Sunucu yalnızca sahibin ayarını ve oda başına kamera sınırını uygular.
+  // akar, sunucudan geçmez). Sunucu yalnızca sahibin ayarını ve oda başına kamera sınırını uygular (özel aramada 2).
   function handleVoiceCamera (ctx) {
     const b = ctx.body
     if (typeof b.on !== 'boolean') return fail(ctx, 400, 'bad_request')
     if (!takeVoiceSlot(ctx)) return
     if (b.on && !state.voice.cameras) return fail(ctx, 403, 'camera_disabled')
-    const result = hub.setCamera(ctx.rt, b.on, state.voice.maxCameras)
+    const max = inCallRoom(ctx.rt) ? CALL_MAX_CAMERAS : state.voice.maxCameras
+    const result = hub.setCamera(ctx.rt, b.on, max)
     if (result === 'not_in_voice') return fail(ctx, 403, 'not_in_voice')
-    if (result === 'camera_limit') return fail(ctx, 409, 'camera_limit', null, null, { max: state.voice.maxCameras })
+    if (result === 'camera_limit') return fail(ctx, 409, 'camera_limit', null, null, { max })
     ok(ctx, { ok: true, camera: b.on })
   }
 
@@ -2867,8 +2986,9 @@ async function createChatServer (options) {
     const b = ctx.body
     if (typeof b.muted !== 'boolean' || typeof b.deafened !== 'boolean') return fail(ctx, 400, 'bad_request')
     if (!takeVoiceSlot(ctx)) return
-    // Herkes için susturulmuş kişinin mikrofonu kapalı görünür
-    hub.setVoiceState(ctx.rt, b.muted || ctx.user.voiceMuted === true, b.deafened)
+    // Herkes için susturulmuş kişinin mikrofonu ses odalarında kapalı görünür (özel aramada değil)
+    const forced = ctx.user.voiceMuted === true && !inCallRoom(ctx.rt)
+    hub.setVoiceState(ctx.rt, b.muted || forced, b.deafened)
     ok(ctx, { ok: true })
   }
 
@@ -2877,7 +2997,8 @@ async function createChatServer (options) {
   // yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
   // istemcisi mikrofonu kapatır, diğerlerinin istemcisi o kişinin sesini çalmaz. Çıkarma kişiyi yalnızca o anki
   // odadan çıkarır, yeniden katılabilir. Kamerayı kapatma tek seferliktir: sunucu kişinin kamerasını kapalı yapar,
-  // kişinin istemcisi metadan görüp yerel kamerayı durdurur, kişi kamerasını yeniden açabilir.
+  // kişinin istemcisi metadan görüp yerel kamerayı durdurur, kişi kamerasını yeniden açabilir. Denetim özel mesaj
+  // aramalarına uzanmaz: hedef yalnızca bir aramadaysa seste değilmiş gibi yanıt verilir (aramanın varlığı sızmaz).
   function handleVoiceModerate (ctx) {
     if (!requirePerm(ctx, 'voice') || !takeAdminSlot(ctx)) return
     const b = ctx.body
@@ -2917,12 +3038,75 @@ async function createChatServer (options) {
     const wait = signalLimiter.consume('u' + ctx.user.id, ctx.now)
     if (wait > 0) return tooMany(ctx, wait)
     const b = ctx.body
-    if (typeof b.to !== 'string' || !PEER_ID_RE.test(b.to) || !validEnvelope(b.data, config.maxSignalChars)) {
+    // Özel aramada sinyaller çiftin kişisel anahtarlarıyla şifrelenir ('2.' zarfı), ses odasında grup anahtarıyla
+    const envelopeOk = inCallRoom(ctx.rt) ? validDmEnvelope(b.data, config.maxSignalChars) : validEnvelope(b.data, config.maxSignalChars)
+    if (typeof b.to !== 'string' || !PEER_ID_RE.test(b.to) || !envelopeOk) {
       return fail(ctx, 400, 'bad_signal')
     }
     const result = hub.signal(ctx.rt, b.to, b.data)
     if (result === 'not_in_voice') return fail(ctx, 403, 'not_in_voice')
     if (result === 'peer_not_found') return fail(ctx, 404, 'peer_not_found')
+    ok(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: özel mesaj aramaları
+
+  function takeCallSlot (ctx) {
+    const wait = callLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait === 0) return true
+    tooMany(ctx, wait)
+    return false
+  }
+
+  // Kullanıcının üyesi olduğu özel konuşma, değilse veya yoksa null (varlığı sızdırılmaz)
+  function memberDm (value, user) {
+    const channel = findChannel(toId(value))
+    return channel && social.isMember(channel, user.id) ? channel : null
+  }
+
+  // Konuşmada arama yapılabilir mi: yazışma engeli yok (iki yönde kişisel engel, yasaklı veya silinmiş hesap) ve
+  // taraflar arkadaş
+  function callableDm (channel, user) {
+    return social.isMember(channel, user.id) && canWriteDm(channel, user) && social.areFriends(user.id, social.otherMember(channel, user.id))
+  }
+
+  // POST /api/calls/start { dmId, video }: konuşmanın iki üyesi arkadaşsa sesli (video false) veya görüntülü arama
+  // başlatır. Karşı taraf bu konuşmada zaten arıyorsa (iki taraf aynı anda aradı) arama kabul sayılır (answer: true),
+  // istemci odaya katılınca arama başlar. Aynı arayanın çalan araması veya süren arama olduğu gibi döner. Yeni arama,
+  // arayanın başka konuşmalardaki çalan aramalarını iptal eder. Zil, karşı tarafın çevrimiçi, görünmez veya meşgul
+  // olmasından bağımsız olarak her durumda kaydedilir.
+  function handleCallStart (ctx) {
+    if (!takeCallSlot(ctx)) return
+    const b = ctx.body
+    if (b.video !== undefined && typeof b.video !== 'boolean') return fail(ctx, 400, 'bad_request')
+    const dm = memberDm(b.dmId, ctx.user)
+    if (!dm) return fail(ctx, 404, 'channel_not_found')
+    if (!canWriteDm(dm, ctx.user)) return fail(ctx, 403, 'dm_not_allowed')
+    if (!social.areFriends(ctx.user.id, social.otherMember(dm, ctx.user.id))) return fail(ctx, 403, 'call_not_allowed')
+    const now = Date.now()
+    const existing = calls.live(dm.id, now)
+    if (existing) {
+      const answer = existing.state === 'ringing' && existing.callee === ctx.user.id
+      if (!answer) return ok(ctx, { ok: true, call: callView(existing, ctx.user.id) })
+      // Kabul eden kişinin kendi çalan aramaları iptal edilir
+      cancelRingingBy(ctx.user.id, dm.id)
+      return ok(ctx, { ok: true, call: callView(existing, ctx.user.id), answer: true })
+    }
+    const rec = calls.create(dm, ctx.user.id, b.video === true, now)
+    cancelRingingBy(ctx.user.id, dm.id)
+    privateChanged(rec.members)
+    ok(ctx, { ok: true, call: callView(rec, ctx.user.id) })
+  }
+
+  // POST /api/calls/decline { dmId }: çalan aramayı aranan reddeder veya arayan iptal eder, süren aramada aramayı
+  // bitirir. Reddetme ile cevapsız kalma arayan için ayırt edilemez (ikisinde de kayıt silinir, odadaki oturumlar
+  // çıkarılır). Kayıt yoksa da başarılı döner.
+  function handleCallDecline (ctx) {
+    if (!takeCallSlot(ctx)) return
+    const dm = memberDm(ctx.body.dmId, ctx.user)
+    if (!dm) return fail(ctx, 404, 'channel_not_found')
+    const rec = calls.live(dm.id, Date.now())
+    if (rec) calls.end(rec)
     ok(ctx, { ok: true })
   }
 
@@ -3031,6 +3215,8 @@ async function createChatServer (options) {
   route('/api/voice/signal', 'POST', handleVoiceSignal)
   route('/api/voice/camera', 'POST', handleVoiceCamera)
   route('/api/voice/moderate', 'POST', handleVoiceModerate)
+  route('/api/calls/start', 'POST', handleCallStart)
+  route('/api/calls/decline', 'POST', handleCallDecline)
   route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
@@ -3167,6 +3353,7 @@ async function createChatServer (options) {
     try {
       const now = Date.now()
       hub.sweep(now)
+      for (const rec of calls.expired(now)) calls.end(rec)
       music.sweep(now, (channelId) => hub.voiceOccupied(channelId))
       const expired = state.sessions.filter((s) => {
         const user = usersById.get(s.userId)

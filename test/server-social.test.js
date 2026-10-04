@@ -36,7 +36,7 @@ describe('arkadaşlık durum makinesi', () => {
     const { ctx, owner, ayse, mehmet } = await group()
     try {
       const st = await h.stateOf(ctx, ayse.token)
-      assert.deepEqual(st.private, { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: 'online' })
+      assert.deepEqual(st.private, { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: 'online', call: null })
       assert.equal(typeof st.pmv, 'number')
 
       const sent = await act(ctx, ayse, 'friends/request', { name: 'mehmet' })

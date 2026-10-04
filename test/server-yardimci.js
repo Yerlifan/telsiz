@@ -93,7 +93,8 @@ const TEST_DEFAULTS = {
   adminLimit: 100000,
   signalLimit: 100000,
   friendRequestLimit: 100000,
-  musicLimit: 100000
+  musicLimit: 100000,
+  callLimit: 100000
 }
 
 // İstemci türetmesinin testlerdeki bağımsız Node uygulaması
