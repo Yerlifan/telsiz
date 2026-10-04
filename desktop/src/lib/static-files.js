@@ -22,7 +22,7 @@ const SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'DENY',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), geolocation=(), microphone=(self)'
+  'Permissions-Policy': 'camera=(self), geolocation=(), microphone=(self)'
 })
 
 const FIXED = new Map()

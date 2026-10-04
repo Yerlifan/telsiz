@@ -45,8 +45,15 @@ test('izin isteği kararları', () => {
   const main = { isMainFrame: true, requestingUrl: 'telsiz://app/', securityOrigin: 'telsiz://app/' }
   const req = (permission, extra) => perm.decideRequest(permission, Object.assign({}, main, extra || {}), APP)
   assert.equal(req('media', { mediaTypes: ['audio'] }), 'allow')
-  assert.equal(req('media', { mediaTypes: ['video'] }), 'deny')
-  assert.equal(req('media', { mediaTypes: ['audio', 'video'] }), 'deny')
+  // Kamera (ses odasındaki Kamera düğmesi) yalnızca uygulamanın ana çerçevesine verilir
+  assert.equal(req('media', { mediaTypes: ['video'] }), 'allow')
+  assert.equal(req('media', { mediaTypes: ['audio', 'video'] }), 'allow')
+  assert.equal(req('media', { mediaTypes: ['video', 'screen'] }), 'deny')
+  assert.equal(req('media', { mediaTypes: ['unknown'] }), 'deny')
+  assert.equal(req('media', { mediaTypes: ['video'], isMainFrame: false }), 'deny')
+  assert.equal(req('media', { mediaTypes: ['video'], requestingUrl: 'https://www.youtube-nocookie.com/embed/x' }), 'deny')
+  assert.equal(req('media', { mediaTypes: ['video'], requestingUrl: 'telsiz://baglan/' }), 'deny')
+  assert.equal(req('media', { mediaTypes: ['video'], securityOrigin: 'https://kotu.com' }), 'deny')
   assert.equal(req('media', { mediaTypes: [] }), 'display')
   assert.equal(req('media', { mediaTypes: undefined }), 'deny')
   assert.equal(req('notifications'), 'allow')
@@ -65,8 +72,11 @@ test('izin isteği kararları', () => {
 test('izin denetimi kararları', () => {
   const d = { isMainFrame: true, requestingUrl: 'telsiz://app/' }
   assert.equal(perm.decideCheck('media', 'telsiz://app/', Object.assign({ mediaType: 'audio' }, d), APP), true)
-  assert.equal(perm.decideCheck('media', 'telsiz://app', Object.assign({ mediaType: 'video' }, d), APP), false)
+  assert.equal(perm.decideCheck('media', 'telsiz://app', Object.assign({ mediaType: 'video' }, d), APP), true)
   assert.equal(perm.decideCheck('media', 'telsiz://app', Object.assign({ mediaType: 'unknown' }, d), APP), false)
+  assert.equal(perm.decideCheck('media', 'telsiz://app/', { isMainFrame: false, mediaType: 'video' }, APP), false)
+  assert.equal(perm.decideCheck('media', 'https://www.youtube-nocookie.com', { isMainFrame: true, mediaType: 'video' }, APP), false)
+  assert.equal(perm.decideCheck('media', 'telsiz://app/', { isMainFrame: true, mediaType: 'video', requestingUrl: 'telsiz://baglan/' }, APP), false)
   assert.equal(perm.decideCheck('notifications', 'telsiz://app/', d, APP), true)
   assert.equal(perm.decideCheck('clipboard-sanitized-write', 'telsiz://app/', d, APP), true)
   assert.equal(perm.decideCheck('clipboard-read', 'telsiz://app/', d, APP), false)
@@ -74,6 +84,15 @@ test('izin denetimi kararları', () => {
   assert.equal(perm.decideCheck('notifications', 'telsiz://app/', { isMainFrame: false }, APP), false)
   assert.equal(perm.decideCheck('notifications', 'telsiz://app/', { isMainFrame: true, requestingUrl: 'https://x.com/' }, APP), false)
   assert.equal(perm.decideCheck('notifications', 'telsiz://app/', d, null), false)
+})
+
+test('arka plan penceresi yalnızca bildirim alabilir: mikrofon ve kamera reddedilir', () => {
+  for (const p of ['media', 'clipboard-sanitized-write', 'geolocation', 'display-capture', 'unknown']) {
+    assert.equal(perm.deniedFor('background', p), true, p)
+  }
+  assert.equal(perm.deniedFor('background', 'notifications'), false)
+  for (const ctx of ['app', 'connect', 'picker', undefined]) assert.equal(perm.deniedFor(ctx, 'media'), false, String(ctx))
+  assert.deepEqual(Array.from(perm.MEDIA_TYPES).sort(), ['audio', 'video'])
 })
 
 test('ekran paylaşımı: kullanıcı girişi, istek ve bekleyen seçim', () => {

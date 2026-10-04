@@ -79,9 +79,10 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `src/music.js` | Telsiz DJ'nin bellekteki şifreli oda durumları |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, CSP, gövde okuma, statik dosya beyaz listesi |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Sunucu metinleri, sürüm ve tek dosya bilgisi, `telsiz.env` okuyucusu |
+| `src/system-info.js` | Sunucu bilgileri: işlemci, bellek ve cgroup sınırı, disk alanı (`GET /api/server-info`) |
 | `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
 | `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
-| `public/voice.js` | `window.VoiceClient`: WebRTC ses ve ekran paylaşımı motoru |
+| `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru |
 | `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
 | `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
 | `public/theme-init.js`, `public/css/` | Tema ön yükleyicisi, belirteçler, düzen, bileşenler ve temalar ([docs/TASARIM.md](docs/TASARIM.md)) |
@@ -105,7 +106,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
-| `10-voice.js` | Ses arayüzü ve telsiz kartı |
+| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi ve kadrodaki kamera kutuları dahil) |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
 | `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
 | `13-profile.js` | Profiller, profil kartı, durum menüsü |
@@ -117,10 +118,12 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
-| `22-cast.js` | Ekran paylaşımı arayüzü |
+| `22-cast.js` | Ekran paylaşımı arayüzü ve kameralar ızgarası |
 | `23-dj.js` | Telsiz DJ arayüzü |
 | `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
+| `26-tanitim.js` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası |
+| `27-kapasite.js` | Ayarlar > Genel içindeki sunucu bilgileri bölümü, ses odası kapasitesi ve kamera sınırı önerisi, sunucu ipuçları |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 

@@ -16,7 +16,7 @@ function assertSecurityHeaders (res) {
   assert.equal(res.headers['x-frame-options'], 'DENY')
   assert.equal(res.headers['cross-origin-opener-policy'], 'same-origin')
   assert.equal(res.headers['cross-origin-resource-policy'], 'same-origin')
-  assert.equal(res.headers['permissions-policy'], 'camera=(), geolocation=(), microphone=(self)')
+  assert.equal(res.headers['permissions-policy'], 'camera=(self), geolocation=(), microphone=(self)')
   for (const name of Object.keys(res.headers)) assert.ok(!name.startsWith('access-control-'), name)
 }
 

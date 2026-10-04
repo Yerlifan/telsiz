@@ -296,7 +296,7 @@ test('ana süreç: arka plan penceresi sertleştirmeleri ve gönderen denetimi k
   }
   assert.ok(main.includes("if (context === 'background' && !backgroundWindows.ownerOf(contents.id)) return false"))
   assert.ok(main.includes("if (senderIs(event, 'background')) backgroundWindows.report(event.sender.id, report)"))
-  assert.ok(main.includes("contextOf(contents) === 'background' && permission !== 'notifications'"))
+  assert.ok(main.includes('permissions.deniedFor(contextOf(contents), permission)'))
   assert.ok(main.includes('backgroundWindows.stop()'))
 })
 

@@ -457,6 +457,7 @@ async function openStore (options) {
     writeUpload,
     removeUpload,
     uploadsBytes,
+    messageCount: () => index.size,
     createUploadWriteStream,
     commitUpload,
     discardUpload,

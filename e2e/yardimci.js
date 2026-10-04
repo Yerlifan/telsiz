@@ -45,12 +45,10 @@ if (!BROWSERS.includes(BROWSER)) throw new Error('TELSIZ_E2E_BROWSER chromium, f
 const FAKE_MIC = BROWSER !== 'webkit'
 const MIC_BROWSERS = ['chromium', 'firefox']
 
-// Konsolda beklenen ve hata sayılmayan iletiler. Sunucu tüm yanıtlarda "Permissions-Policy: camera=()"
-// gönderir (src/http-util.js). Sahte ortam bayraklarıyla açılan Chromium, getUserMedia ve
-// enumerateDevices çağrılarında sahte kamerayı da yoklar ve politika kamerayı yasakladığı için konsola
-// "Permissions policy violation: camera is not allowed in this document." yazar. Uygulama kamera
-// istemez, ileti tarayıcının kendi yoklamasından gelir ve gerçek bir hata değildir.
-const BENIGN_CONSOLE = [/Permissions policy violation: camera/]
+// Konsolda beklenen ve hata sayılmayan iletiler (düzenli ifadeler). Sunucu artık
+// "Permissions-Policy: camera=(self)" gönderdiği için (src/http-util.js, ses odasında kamera) Chromium'un
+// sahte aygıt yoklamasındaki "Permissions policy violation: camera" iletisi de beklenmez, liste boştur.
+const BENIGN_CONSOLE = []
 
 function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))

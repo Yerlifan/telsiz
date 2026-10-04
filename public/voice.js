@@ -1,5 +1,5 @@
 // Sesli sohbet istemcisi (window.VoiceClient)
-// WebRTC tam örgü, yalnızca ses. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır,
+// WebRTC tam örgü: ses, ekran paylaşımı ve kamera. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır,
 // böylece sunucu bağlantı kurulumuna müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
 // Mikrofon sesi WebAudio hattından geçer: algılama kolu (gecikmesiz analizör) ve ses kolu (ileri bakış gecikmesi,
 // kapı kazancı, eşlere giden hedef iz). Bu dosya kullanıcıya görünen metin üretmez, hata ve durumlar kod olarak bildirilir.
@@ -79,6 +79,18 @@ window.VoiceClient = (function () {
   var SCREEN_ERRORS = ['screen_unsupported', 'insecure', 'unsupported', 'not_in_voice', 'screen_busy', 'screen_denied',
     'screen_gesture', 'screen_not_found', 'screen_failed', 'screen_negotiation_failed', 'screen_audio_limited', 'screen_watch_failed',
     'no_share']
+  // Kamera: 640x360, 15 kare. Görüntü kişiler arasında doğrudan akar (DTLS-SRTP), sunucu yalnızca açık bilgisini
+  // ve oda başına sınırı bilir (POST /api/voice/camera). Gönderim sınırı arayüzdeki öneri hesabının varsaydığı
+  // yaklaşık 400 kbps'dir (public/js/28-kapasite.js CAMERA_KBPS).
+  var CAMERA_SIZE = { width: 640, height: 360, frameRate: 15 }
+  var CAMERA_ENCODING = { maxBitrate: 400000, maxFramerate: 15 }
+  var CAMERA_KEYS = ['type', 'sid', 'n', 'on', 'mid']
+  var CAMERA_STOP_REASONS = ['user', 'ended', 'left', 'server', 'disabled']
+  // Kamera hata kodları (arayüz t('camera.errors.' + kod) ile çevirir). 'cancelled' gösterilmez.
+  var CAMERA_ERRORS = ['camera_unsupported', 'insecure', 'not_in_voice', 'camera_denied', 'camera_not_found', 'camera_in_use',
+    'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed']
+  var MID_RE = /^[A-Za-z0-9_.{}~+-]{1,64}$/
+  var UPLINK_MAX_KBPS = 10000000
   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
   var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
   var MOUSE_BITS = { 1: 4, 3: 8, 4: 16 }
@@ -594,6 +606,57 @@ window.VoiceClient = (function () {
     return { type: 'screen', on: true, id: d.id, audio: d.audio, hint: d.hint, preset: d.preset }
   }
 
+  // Kamera desteği: sesli sohbet desteği, aktarıcı listesi ve replaceTrack (kamera izi mevcut bağlantılara eklenir)
+  function cameraSupport () {
+    var base = support()
+    if (!base.ok) return { ok: false, reason: base.reason === 'insecure' ? 'insecure' : 'camera_unsupported' }
+    var P = window.RTCPeerConnection
+    var proto = P && P.prototype
+    var S = window.RTCRtpSender
+    var ok = !!(proto && typeof proto.addTrack === 'function' && typeof proto.getTransceivers === 'function' &&
+      S && S.prototype && typeof S.prototype.replaceTrack === 'function')
+    return { ok: ok, reason: ok ? null : 'camera_unsupported' }
+  }
+
+  // getUserMedia isteği (yalnızca görüntü, ses ayrı mikrofon hattındadır) ve izin alındıktan sonra izine
+  // applyConstraints ile uygulanan sınırlar
+  function cameraConstraints () {
+    return {
+      audio: false,
+      video: { width: { ideal: CAMERA_SIZE.width }, height: { ideal: CAMERA_SIZE.height }, frameRate: { ideal: CAMERA_SIZE.frameRate, max: CAMERA_SIZE.frameRate } }
+    }
+  }
+
+  function cameraTrackConstraints () {
+    return { width: { ideal: CAMERA_SIZE.width, max: CAMERA_SIZE.width }, height: { ideal: CAMERA_SIZE.height, max: CAMERA_SIZE.height }, frameRate: { max: CAMERA_SIZE.frameRate } }
+  }
+
+  function cameraEncoding () {
+    return { maxBitrate: CAMERA_ENCODING.maxBitrate, maxFramerate: CAMERA_ENCODING.maxFramerate }
+  }
+
+  function cameraErrorCode (e) {
+    if (e && typeof e.code === 'string' && CAMERA_ERRORS.indexOf(e.code) >= 0) return e.code
+    if (e && e.code === 'cancelled') return 'cancelled'
+    var name = e && e.name
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return 'camera_denied'
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') return 'camera_not_found'
+    if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') return 'camera_in_use'
+    if (name === 'TypeError' || name === 'NotSupportedError') return 'camera_unsupported'
+    return 'camera_failed'
+  }
+
+  // Kamera sinyali: hangi m satırının (mid) kameranın olduğunu karşı tarafa bildirir. Aktarıcılar ekran
+  // paylaşımıyla ve iki yönde ortak kullanıldığı için alıcı görüntü izinin kamera mı ekran mı olduğunu buradan
+  // anlar. Dönüş: { type: 'camera', on: true, mid } | { type: 'camera', on: false } veya null.
+  function validCameraSignal (d) {
+    if (!d || typeof d !== 'object' || Array.isArray(d) || d.type !== 'camera' || typeof d.on !== 'boolean') return null
+    if (!onlyKeys(d, CAMERA_KEYS)) return null
+    if (!d.on) return d.mid === undefined ? { type: 'camera', on: false } : null
+    if (typeof d.mid !== 'string' || !MID_RE.test(d.mid)) return null
+    return { type: 'camera', on: true, mid: d.mid }
+  }
+
   // Yerel paylaşım durum makinesi: idle -> starting -> live -> idle.
   // live iken start kaynak değişimidir (live kalır), kaynak değişimi başarısız olursa paylaşım sürer.
   function shareStep (state, ev) {
@@ -629,6 +692,7 @@ window.VoiceClient = (function () {
     var open = opts.open
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : null
     var onScreenEvent = typeof opts.onScreenEvent === 'function' ? opts.onScreenEvent : null
+    var onCameraEvent = typeof opts.onCameraEvent === 'function' ? opts.onCameraEvent : null
     var storage = opts.storage && typeof opts.storage === 'object' ? opts.storage : null
     var ctx = null
     var seen = new Map()
@@ -732,7 +796,17 @@ window.VoiceClient = (function () {
       // Sunucudan son yanıt zamanı ve paylaşım sürerken erişim denetimi (bkz. startLinkWatch)
       serverAt: 0,
       linkTimer: null,
-      linkProbe: null
+      linkProbe: null,
+      // Kamera: yerel kamera (yalnızca canlıyken), açılırken bekleyen iş, sunucuya giden açık bilgisi kuyruğu,
+      // metada kendi kameramızın açık görüldüğü (sunucu kapatırsa durdurmak için), zarf sınırı veya red yüzünden
+      // kamera gönderilmeyen eşler
+      camera: null,
+      cameraStarting: null,
+      cameraGen: 0,
+      cameraError: null,
+      cameraPost: Promise.resolve(),
+      cameraSeen: false,
+      camBlocked: Object.create(null)
     }
 
     loadSettings()
@@ -991,7 +1065,9 @@ window.VoiceClient = (function () {
           localMute: st.localMutes[r.userId] === true,
           muted: r.muted,
           deafened: r.deafened,
-          sharing: !!st.remote[pid]
+          sharing: !!st.remote[pid],
+          camera: r.camera,
+          camStream: r.camera ? remoteCamStream(p) : null
         }
       })
       var s = st.settings
@@ -1019,7 +1095,20 @@ window.VoiceClient = (function () {
         serverError: st.errorCode ? st.serverError : null,
         autoplayBlocked: st.autoplayBlocked,
         peers: peers,
-        screen: screenSnapshot()
+        screen: screenSnapshot(),
+        camera: cameraSnapshot()
+      }
+    }
+
+    function cameraSnapshot () {
+      var sup = cameraSupport()
+      var cam = st.camera
+      return {
+        canUse: sup.ok,
+        reason: sup.reason,
+        state: cam ? 'on' : st.cameraStarting ? 'starting' : 'off',
+        preview: cam ? cam.preview : null,
+        errorCode: st.cameraError
       }
     }
 
@@ -2099,6 +2188,12 @@ window.VoiceClient = (function () {
       peer.speaking = false
       peer.scrT = { video: null, audio: null }
       peer.rx = { video: null, audio: null }
+      peer.camT = null
+      peer.camSent = null
+      peer.camMid = null
+      peer.camOn = false
+      if (peer.camStream) setStreamTracks(peer.camStream, [])
+      peer.camStream = null
       if (peer.viewing) {
         peer.viewing = null
         var r = st.roster[peer.peerId]
@@ -2170,7 +2265,16 @@ window.VoiceClient = (function () {
         viewing: null,
         scrT: { video: null, audio: null },
         rx: { video: null, audio: null },
-        rejected: { video: false, audio: false }
+        rejected: { video: false, audio: false },
+        // Kamera: camT = kamera gönderim aktarıcısı, camSent = karşı tarafa bildirilen kamera mid'i, camMid ve
+        // camOn = karşı tarafın bildirdiği kamera mid'i ve açık mı, camStream = karşı tarafın kamera akışı,
+        // camRejected = karşı taraf kamera m satırını reddetti (bu bağlantıda yeniden eklenmez)
+        camT: null,
+        camSent: null,
+        camMid: null,
+        camOn: false,
+        camStream: null,
+        camRejected: false
       }
       st.peers[pid] = peer
       st.roster[pid].noOffer = false
@@ -2225,6 +2329,10 @@ window.VoiceClient = (function () {
     function onRemoteTrack (peer, e) {
       if (peer.closed || !e || !e.track) return
       var role = trackRole(peer, e)
+      if (role === 'video' && isCamTransceiver(peer, e.transceiver)) {
+        emit()
+        return
+      }
       if (role === 'video' || role === 'audio') {
         onScreenTrack(peer, role, e.track)
         return
@@ -2461,10 +2569,16 @@ window.VoiceClient = (function () {
       var pid = peer.peerId
       var rd = peer.pc.remoteDescription
       var before = rd && rd.sdp ? mlineCount(rd.sdp) : 0
-      if (pend && mlineCount(pend.sdp) > before && (st.screenLimit[pid] || 0) < 2) {
+      var r = st.roster[pid]
+      var grew = !!pend && mlineCount(pend.sdp) > before
+      if (grew && st.share && (st.screenLimit[pid] || 0) < 2) {
         st.screenLimit[pid] = 2
-        var r = st.roster[pid]
         if (r) screenEvent({ type: 'error', code: 'screen_negotiation_failed', userId: r.userId, peerId: pid })
+      } else if (grew && st.camera && !st.camBlocked[pid]) {
+        st.camBlocked[pid] = true
+        if (r) cameraEvent('camera_negotiation_failed', r.userId)
+      } else if (grew) {
+        st.screenLimit[pid] = 2
       }
       rebuildPeer(peer)
     }
@@ -2485,11 +2599,18 @@ window.VoiceClient = (function () {
       var mlines = mlineCount(sdp)
       var level = st.screenLimit[pid] || 0
       var sh = st.share
-      if (mlines > 1) {
+      var cam = !!(peer.camT && peer.camT.sender && peer.camT.sender.track)
+      if (mlines > 1 && sh && level < 2) {
         // Paylaşılan ses varsa önce o bırakılır, yoksa doğrudan ekran kapatılır
-        level = level < 1 && sh && sh.audio && mlines > 2 ? 1 : 2
+        level = level < 1 && sh.audio && mlines > 2 ? 1 : 2
         st.screenLimit[pid] = level
         if (r) screenEvent({ type: 'error', code: level >= 2 ? 'screen_negotiation_failed' : 'screen_audio_limited', userId: r.userId, peerId: pid })
+      } else if (mlines > 1 && cam) {
+        // Ekran zaten gönderilmiyorsa bu eşe kamera da gönderilmez (yeniden kurulan bağlantı tekrar büyümesin)
+        st.camBlocked[pid] = true
+        if (r) cameraEvent('camera_negotiation_failed', r.userId)
+      } else if (mlines > 1) {
+        st.screenLimit[pid] = 2
       }
       rebuildPeer(peer)
     }
@@ -2620,6 +2741,10 @@ window.VoiceClient = (function () {
         if (!m) return
         if (m.type === 'screen') onScreenSignal(peer, m)
         else await onWatchSignal(peer, m)
+      } else if (d.type === 'camera') {
+        if (!peer || peer.sid !== sid || !peer.ready) return
+        var cm = validCameraSignal(d)
+        if (cm) onCameraSignal(peer, cm)
       } else if (d.type === 'candidate') {
         if (!peer || peer.sid !== sid) return
         var c = parseCandidate(d.candidate)
@@ -2703,11 +2828,13 @@ window.VoiceClient = (function () {
       var d = v.d
       if (!d || typeof d !== 'object') return null
       var screenType = d.type === 'screen' || d.type === 'watch'
-      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate' && !screenType) return null
+      var cameraType = d.type === 'camera'
+      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate' && !screenType && !cameraType) return null
       if (typeof d.sid !== 'string' || !SID_RE.test(d.sid)) return null
       if (typeof d.n !== 'number' || d.n < 1 || d.n > 1e9 || Math.floor(d.n) !== d.n) return null
       // Ekran sinyalleri katı doğrulanır, geçersizi sıra numarası tüketmeden atılır
       if (screenType && !validScreenSignal(d)) return null
+      if (cameraType && !validCameraSignal(d)) return null
       if (!fresh(from, d.sid, d.n)) return null
       return v
     }
@@ -2851,7 +2978,7 @@ window.VoiceClient = (function () {
         var t = list[i]
         i++
         if (t === peer.micT || isStopped(t) || kindOf(t) !== kind || !t.sender) continue
-        if (t === peer.scrT.video || t === peer.scrT.audio) continue
+        if (t === peer.scrT.video || t === peer.scrT.audio || t === peer.camT) continue
         if (t.sender.track && t.sender.track !== track) continue
         return t
       }
@@ -2886,6 +3013,15 @@ window.VoiceClient = (function () {
     // Görüntü reddedildiyse bu eşe ekran gönderilmez, ses reddedildiyse yalnız görüntü gider.
     function noteRejected (peer) {
       var r = st.roster[peer.peerId]
+      if (peer.camT && isStopped(peer.camT)) {
+        peer.camT = null
+        peer.camSent = null
+        if (!peer.camRejected) {
+          peer.camRejected = true
+          if (r) cameraEvent('camera_negotiation_failed', r.userId)
+          emit()
+        }
+      }
       SCREEN_KINDS.forEach(function (kind) {
         var t = peer.scrT[kind]
         if (!t || !isStopped(t)) return
@@ -3015,9 +3151,13 @@ window.VoiceClient = (function () {
         // Beklerken paylaşım değiştiyse sıradaki eşitleme işlemi son durumu uygular
         if (peer.closed || st.share !== sh) return
       }
+      await syncCameraNow(peer)
+      if (peer.closed) return
       await applyScreenParams(peer)
       if (peer.closed) return
       if (peer.ready && (peer.wantNego || peer.restartWanted || needsNegotiation(peer))) await sendOffer(peer, false)
+      if (peer.closed) return
+      await announceCamera(peer)
     }
 
     function syncScreenSenders (peer) {
@@ -3714,13 +3854,321 @@ window.VoiceClient = (function () {
       emit()
     }
 
+    // Kamera. Yerel kamera izi ekran paylaşımı gibi mevcut ses bağlantılarına ek bir aktarıcıyla eklenir, ama
+    // izlemek istenmesi beklenmez: kamera açıkken odadaki herkese gider. Hangi m satırının kamera olduğu şifreli
+    // 'camera' sinyaliyle bildirilir (ekran ve kamera aktarıcıları ayrı tutulur, iki yönde ortak kullanılır).
+    // Kameranın açık olduğu bilgisi sunucudan geçer (POST /api/voice/camera), sunucu oda başına sınırı ve sahibin
+    // ayarını uygular. Kamera düğmeye basılmadan hiçbir zaman istenmez.
+
+    function cameraEvent (code, userId) {
+      if (!onCameraEvent) return
+      Promise.resolve().then(function () {
+        try {
+          onCameraEvent({ type: 'error', code: code, userId: userId === undefined ? null : userId })
+        } catch (e) {
+          setTimeout(function () { throw e }, 0)
+        }
+      })
+    }
+
+    // Karşı tarafın kamera olarak bildirdiği aktarıcı mı
+    function isCamTransceiver (peer, t) {
+      return !!t && t !== peer.micT && peer.camMid !== null && t.mid === peer.camMid
+    }
+
+    function camReceiverTrack (peer) {
+      if (!peer || peer.closed || peer.camMid === null) return null
+      var list = transceiversOf(peer.pc)
+      var i = 0
+      while (i < list.length) {
+        var t = list[i]
+        i++
+        if (isCamTransceiver(peer, t) && t.receiver && t.receiver.track && t.receiver.track.kind === 'video') return t.receiver.track
+      }
+      return null
+    }
+
+    // Kamera dışındaki uzak görüntü izi (ekran paylaşımı)
+    function otherVideoTrack (peer) {
+      var list = transceiversOf(peer.pc)
+      var found = null
+      list.forEach(function (t) {
+        if (found || t === peer.micT || isCamTransceiver(peer, t) || isStopped(t)) return
+        var tr = t.receiver && t.receiver.track
+        if (tr && tr.kind === 'video' && tr.readyState !== 'ended') found = tr
+      })
+      return found
+    }
+
+    function remoteCamStream (peer) {
+      if (!peer || peer.closed || !peer.camOn) return null
+      var track = usableTrack(camReceiverTrack(peer))
+      if (!track) return null
+      if (!peer.camStream) peer.camStream = new MediaStream()
+      setStreamTracks(peer.camStream, [track])
+      return peer.camStream
+    }
+
+    function onCameraSignal (peer, m) {
+      peer.camOn = m.on
+      if (m.on) peer.camMid = m.mid
+      // Kamera izi daha önce ekran izi sanıldıysa ekran izi düzeltilir
+      var cam = camReceiverTrack(peer)
+      if (cam && peer.rx.video === cam) {
+        peer.rx.video = otherVideoTrack(peer)
+        refreshRemote(peer.peerId)
+      }
+      emit()
+    }
+
+    // Kamera için kullanılabilecek mevcut aktarıcı: mikrofon ve ekran dışı, görüntü türünde, göndericisi boş
+    function adoptCamTransceiver (peer, track) {
+      if (!peer.micT) return null
+      var list = transceiversOf(peer.pc)
+      var i = 0
+      while (i < list.length) {
+        var t = list[i]
+        i++
+        if (t === peer.micT || t === peer.scrT.video || t === peer.scrT.audio || isStopped(t) || kindOf(t) !== 'video' || !t.sender) continue
+        if (t.sender.track && t.sender.track !== track) continue
+        return t
+      }
+      return null
+    }
+
+    // Bu eşe gönderilen kamera izi: kamera açıkken ve ilk anlaşma tamamlanmışken. Eş işlemleri içinde (runOp).
+    async function syncCameraNow (peer) {
+      var cam = st.camera
+      var track = cam && peer.ready && !peer.camRejected && !st.camBlocked[peer.peerId] ? cam.track : null
+      var t = peer.camT
+      if (!track) {
+        if (t && t.sender && t.sender.track) {
+          await replaceSender(t.sender, null)
+          if (t.mid !== null) await deactivateEncoding(t.sender)
+        }
+        return
+      }
+      if (!t) t = adoptCamTransceiver(peer, track)
+      if (t) {
+        peer.camT = t
+        if (!sendsDir(t.direction)) {
+          try {
+            t.direction = 'sendrecv'
+            peer.wantNego = true
+          } catch (e) {}
+        }
+        if (t.sender.track !== track) await replaceSender(t.sender, track)
+        return
+      }
+      var sender = null
+      try {
+        sender = peer.pc.addTrack(track, cam.stream)
+      } catch (e) {
+        sender = null
+      }
+      peer.camT = sender ? transceiverOf(peer.pc, sender) : null
+      if (peer.camT) applyCodecPrefs(peer.camT, 'video')
+    }
+
+    // Anlaşma kararlıyken karşı tarafa kameranın mid'i (veya kapandığı) bildirilir, kodlama sınırı uygulanır
+    async function announceCamera (peer) {
+      if (peer.closed || !peer.ready || peer.pc.signalingState !== 'stable') return
+      var cam = st.camera
+      var t = peer.camT
+      var live = !!(cam && t && t.mid !== null && t.sender && t.sender.track === cam.track && !isStopped(t))
+      var want = live ? t.mid : null
+      if (live) await setEncoding(t.sender, cameraEncoding())
+      if (peer.closed || want === peer.camSent) return
+      peer.camSent = want
+      sendSignal(peer, want !== null ? { type: 'camera', on: true, mid: want } : { type: 'camera', on: false })
+    }
+
+    // Açık bilgisi sunucuya sırayla gider (açma ve kapatma birbirini geçmesin). Dönüş: { ok, code, text }
+    function postCamera (on) {
+      var job = st.cameraPost.then(function () {
+        return callApi('POST', '/api/voice/camera', { on: on })
+      }).then(function (res) {
+        var data = res && res.data && typeof res.data === 'object' ? res.data : null
+        var okStatus = !!res && typeof res.status === 'number' && res.status >= 200 && res.status < 300
+        if (okStatus) return { ok: true, code: null, text: null }
+        var code = data && typeof data.code === 'string' && CODE_RE.test(data.code) ? data.code : 'camera_failed'
+        var text = data && typeof data.error === 'string' && data.error ? data.error.slice(0, MAX_SERVER_TEXT) : null
+        return { ok: false, code: code, text: text }
+      }, function () {
+        return { ok: false, code: 'camera_failed', text: null }
+      })
+      st.cameraPost = job.then(noop, noop)
+      return job
+    }
+
+    // İdeal kısıtları tanımayan tarayıcıda yalın istekle denenir
+    async function getCamera () {
+      var md = navigator.mediaDevices
+      try {
+        return await md.getUserMedia(cameraConstraints())
+      } catch (e) {
+        if (!e || (e.name !== 'TypeError' && e.name !== 'OverconstrainedError')) throw e
+      }
+      return md.getUserMedia({ audio: false, video: true })
+    }
+
+    // Kamerayı açar: önce sunucudan yer istenir (sınır doluysa kamera hiç açılmaz), sonra kamera istenir.
+    // Dönüş: Promise<null>, ret Error.code ile (camera_limit, camera_disabled, camera_denied ...).
+    function startCamera () {
+      var sup = cameraSupport()
+      if (!sup.ok) return Promise.reject(makeError(sup.reason))
+      if (!st.inVoice) return Promise.reject(makeError('not_in_voice'))
+      if (st.camera) return Promise.resolve(null)
+      if (st.cameraStarting) return st.cameraStarting
+      var gen = st.gen
+      var cgen = ++st.cameraGen
+      var stale = function () {
+        return gen !== st.gen || cgen !== st.cameraGen || !st.inVoice
+      }
+      var job = (async function () {
+        var res = await postCamera(true)
+        if (stale()) throw makeError('cancelled')
+        if (!res.ok) throw makeError(CAMERA_ERRORS.indexOf(res.code) >= 0 ? res.code : 'camera_failed', res.text)
+        var stream = null
+        try {
+          stream = await getCamera()
+        } catch (e) {
+          if (!stale()) postCamera(false)
+          throw makeError(cameraErrorCode(e))
+        }
+        if (stale()) {
+          stopStream(stream)
+          throw makeError('cancelled')
+        }
+        beginCamera(stream)
+        return null
+      })()
+      st.cameraError = null
+      st.cameraStarting = job
+      emit()
+      return job.then(function (v) {
+        if (st.cameraStarting === job) st.cameraStarting = null
+        emit()
+        return v
+      }, function (e) {
+        if (st.cameraStarting === job) {
+          st.cameraStarting = null
+          if (e.code !== 'cancelled') st.cameraError = e.code
+          emit()
+        }
+        throw e
+      })
+    }
+
+    function beginCamera (stream) {
+      var track = stream.getVideoTracks()[0] || null
+      stream.getTracks().forEach(function (t) {
+        if (t !== track) stopTrack(t)
+      })
+      if (!track || track.readyState === 'ended') {
+        postCamera(false)
+        throw makeError('camera_failed')
+      }
+      try {
+        if ('contentHint' in track) track.contentHint = 'motion'
+      } catch (e) {}
+      try {
+        if (typeof track.applyConstraints === 'function') Promise.resolve(track.applyConstraints(cameraTrackConstraints())).catch(noop)
+      } catch (e) {}
+      var cam = { track: track, stream: new MediaStream([track]), preview: new MediaStream([track]), onEnded: null }
+      // Kamera çıkarıldı veya başka uygulama aldı
+      cam.onEnded = function () {
+        if (st.camera !== cam) return
+        st.cameraError = 'camera_lost'
+        stopCamera('ended', false)
+      }
+      track.addEventListener('ended', cam.onEnded)
+      st.camera = cam
+      st.cameraSeen = false
+      syncAllSenders()
+      emit()
+    }
+
+    // Kamerayı kapatır. silent: oturum kapanıyor (sunucu ve eşler zaten bırakılıyor), istek ve sinyal gitmez.
+    function stopCamera (reason, silent) {
+      var why = CAMERA_STOP_REASONS.indexOf(reason) >= 0 ? reason : 'user'
+      st.cameraGen++
+      var starting = !!st.cameraStarting
+      st.cameraStarting = null
+      var cam = st.camera
+      st.camera = null
+      st.cameraSeen = false
+      if (cam) {
+        try {
+          cam.track.removeEventListener('ended', cam.onEnded)
+        } catch (e) {}
+        stopTrack(cam.track)
+      }
+      if (!cam && !starting) return
+      if (!silent && st.inVoice && why !== 'server' && why !== 'disabled') postCamera(false)
+      if (!silent) syncAllSenders()
+      emit()
+    }
+
+    // Metada kendi kameramız: sunucu kapattıysa (sahip kameraları kapattı) yerel kamera da durur. Açılıştan
+    // önce üretilmiş eski bir meta yanlışlıkla durdurmasın diye önce açık görülmüş olmalıdır.
+    function checkOwnCamera (meta, list) {
+      if (!st.camera) return
+      var settings = meta && meta.voiceSettings && typeof meta.voiceSettings === 'object' ? meta.voiceSettings : null
+      if (settings && settings.cameras === false) {
+        st.cameraError = 'camera_disabled'
+        stopCamera('disabled', false)
+        return
+      }
+      var mine = null
+      list.forEach(function (m) {
+        if (m && m.peerId === st.myPeerId) mine = m
+      })
+      if (!mine) return
+      if (mine.camera === true) {
+        st.cameraSeen = true
+      } else if (st.cameraSeen) {
+        stopCamera('server', false)
+      }
+    }
+
+    // Bu cihazın bağlantılarında tarayıcının tahmin ettiği gönderim hızı (availableOutgoingBitrate, kbps). Yalnızca
+    // bu cihazın kendi ölçümüdür, sunucuya veya başka birine gönderilmez. Ölçüm yoksa null.
+    function uplinkEstimate () {
+      var jobs = []
+      Object.keys(st.peers).forEach(function (pid) {
+        var p = st.peers[pid]
+        if (p.closed || p.status !== 'connected' || typeof p.pc.getStats !== 'function') return
+        try {
+          jobs.push(Promise.resolve(p.pc.getStats()).then(function (rep) {
+            var best = null
+            rep.forEach(function (r) {
+              if (r.type !== 'candidate-pair' || !isNum(r.availableOutgoingBitrate)) return
+              if (r.nominated === false && r.selected !== true) return
+              if (best === null || r.availableOutgoingBitrate > best) best = r.availableOutgoingBitrate
+            })
+            return best
+          }, function () {
+            return null
+          }))
+        } catch (e) {}
+      })
+      return Promise.all(jobs).then(function (list) {
+        var best = null
+        list.forEach(function (v) {
+          if (v !== null && (best === null || v > best)) best = v
+        })
+        return best === null ? null : Math.min(UPLINK_MAX_KBPS, Math.round(best / 1000))
+      })
+    }
+
     // Kadro (meta)
     function parseMember (m) {
       if (!m || typeof m !== 'object' || !isPeerId(m.peerId)) return null
       var uid = normId(m.userId)
       if (uid === null) return null
       if (st.myUserId !== null && uid === st.myUserId) return null
-      return { peerId: m.peerId, userId: uid, muted: m.muted === true, deafened: m.deafened === true }
+      return { peerId: m.peerId, userId: uid, muted: m.muted === true, deafened: m.deafened === true, camera: m.camera === true }
     }
 
     function addMembers (list) {
@@ -3729,7 +4177,7 @@ window.VoiceClient = (function () {
       list.slice(0, MAX_ROSTER).forEach(function (m) {
         var e = parseMember(m)
         if (!e || e.peerId === st.myPeerId) return
-        st.roster[e.peerId] = { userId: e.userId, muted: e.muted, deafened: e.deafened, since: now, noOffer: false }
+        st.roster[e.peerId] = { userId: e.userId, muted: e.muted, deafened: e.deafened, camera: e.camera, since: now, noOffer: false }
       })
     }
 
@@ -3747,6 +4195,7 @@ window.VoiceClient = (function () {
         return
       }
       st.seenSelf = true
+      checkOwnCamera(meta, list)
       var next = Object.create(null)
       var added = false
       var removed = false
@@ -3759,6 +4208,7 @@ window.VoiceClient = (function () {
           userId: e.userId,
           muted: e.muted,
           deafened: e.deafened,
+          camera: e.camera,
           since: prev ? prev.since : now,
           noOffer: prev ? prev.noOffer : false
         }
@@ -3771,6 +4221,7 @@ window.VoiceClient = (function () {
         delete st.sendQueues[pid]
         delete st.rewatch[pid]
         delete st.screenLimit[pid]
+        delete st.camBlocked[pid]
       })
       st.roster = next
       applyAllAudio()
@@ -3809,6 +4260,8 @@ window.VoiceClient = (function () {
     // Ses odasından çıkışta, oda değişiminde ve yerel kapatmada ekran paylaşımı da kesin olarak durur
     function resetSession () {
       stopShare('left', true)
+      stopCamera('left', true)
+      st.camBlocked = Object.create(null)
       Object.keys(st.peers).forEach(function (pid) { closePeer(st.peers[pid]) })
       Object.keys(st.remote).forEach(function (pid) { dropRemote(pid, 'left') })
       st.remote = Object.create(null)
@@ -4184,7 +4637,12 @@ window.VoiceClient = (function () {
       unwatchScreen: unwatchScreen,
       getScreenStream: getScreenStream,
       setScreenVolume: setScreenVolume,
-      setScreenMuted: setScreenMuted
+      setScreenMuted: setScreenMuted,
+      // Kamera
+      cameraSupport: cameraSupport,
+      startCamera: startCamera,
+      stopCamera: function () { stopCamera('user', false) },
+      uplinkEstimate: uplinkEstimate
     }
   }
 
@@ -4196,6 +4654,16 @@ window.VoiceClient = (function () {
     screenSupport: screenSupport,
     screenPresets: screenPresets,
     screenDefaults: screenDefaults,
+    cameraSupport: cameraSupport,
+    cameraUtils: {
+      errorCodes: CAMERA_ERRORS.slice(),
+      size: { width: CAMERA_SIZE.width, height: CAMERA_SIZE.height, frameRate: CAMERA_SIZE.frameRate },
+      constraints: cameraConstraints,
+      trackConstraints: cameraTrackConstraints,
+      encoding: cameraEncoding,
+      errorCode: cameraErrorCode,
+      validateSignal: validCameraSignal
+    },
     // Saf yardımcılar (Node testleri ve arayüz için, durum tutmaz)
     screenUtils: {
       errorCodes: SCREEN_ERRORS.slice(),

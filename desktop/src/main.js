@@ -314,8 +314,8 @@ function prepareAppSession (ses, origin) {
   ses.protocol.handle(SCHEME, (request) => handleAppRequest(request, apiProxy))
   ses.setPermissionRequestHandler(onPermissionRequest)
   ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-    // Arka plan penceresi yalnızca bildirim gösterebilir (mikrofon ve diğer izinler yok)
-    if (contents && contextOf(contents) === 'background' && permission !== 'notifications') return false
+    // Arka plan penceresi yalnızca bildirim gösterebilir (mikrofon, kamera ve diğer izinler yok)
+    if (contents && permissions.deniedFor(contextOf(contents), permission)) return false
     return permissions.decideCheck(permission, requestingOrigin, details, APP_ORIGIN)
   })
   ses.setDisplayMediaRequestHandler(onDisplayMediaRequest)
@@ -346,7 +346,7 @@ function handleAppRequest (request, apiProxy) {
 }
 
 function onPermissionRequest (contents, permission, callback, details) {
-  if (contents && contextOf(contents) === 'background' && permission !== 'notifications') {
+  if (contents && permissions.deniedFor(contextOf(contents), permission)) {
     callback(false)
     return
   }

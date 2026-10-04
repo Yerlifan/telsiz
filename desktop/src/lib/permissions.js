@@ -2,13 +2,15 @@
 
 // İzin kararları (Electron session.setPermissionRequestHandler ve setPermissionCheckHandler).
 // Electron'a bağımlı değildir. Yalnızca telsiz://app kökeninin ana çerçevesine şu izinler verilir:
-//   media, yalnızca ses: mikrofon (getUserMedia audio), kamera hiçbir zaman
+//   media, ses ve görüntü: mikrofon ve kamera (getUserMedia audio ve video). Kamerayı uygulama yalnızca
+//     kullanıcı ses odasında Kamera düğmesine basınca ister.
 //   media, ekran yakalama: yalnızca kullanıcı ekran seçicide bir kaynak seçerse (src/lib/screen-share.js)
 //   notifications: sistem bildirimleri
 //   clipboard-sanitized-write: panoya metin yazma (kopyala düğmeleri)
-// Geri kalan her izin (konum, kamera, pano okuma, HID, USB, seri port, tam ekran, MIDI, dış
-// uygulama açma ve diğerleri) reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir
-// izin verilmez.
+// Geri kalan her izin (konum, pano okuma, HID, USB, seri port, tam ekran, MIDI, dış uygulama açma ve
+// diğerleri) reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir izin verilmez. Arka plan
+// pencereleri (src/lib/background.js) yalnızca bildirim gösterebilir: mikrofon ve kamera dahil diğer
+// her izin reddedilir (decideFor).
 //
 // Ekran yakalama neden ayrıca ele alınır: Electron 44'te getDisplayMedia önce mediaTypes listesi
 // boş bir 'media' izin isteği üretir, ekran seçimi bu izin verildikten sonra gelir. Eski
@@ -20,6 +22,10 @@
 const { originOf } = require('./navigation')
 
 const SIMPLE_PERMISSIONS = new Set(['notifications', 'clipboard-sanitized-write'])
+// getUserMedia ile istenebilen ortam türleri (ekran yakalama boş listeyle ayrıca ele alınır)
+const MEDIA_TYPES = new Set(['audio', 'video'])
+// Arka plan penceresinin alabildiği tek izin
+const BACKGROUND_PERMISSIONS = new Set(['notifications'])
 
 function sameOrigin (value, allowedOrigin) {
   return typeof allowedOrigin === 'string' && allowedOrigin !== '' && originOf(value) === allowedOrigin
@@ -35,7 +41,7 @@ function decideRequest (permission, details, allowedOrigin) {
   if (permission === 'media') {
     if (!Array.isArray(d.mediaTypes)) return 'deny'
     if (d.mediaTypes.length === 0) return 'display'
-    return d.mediaTypes.every((type) => type === 'audio') ? 'allow' : 'deny'
+    return d.mediaTypes.every((type) => MEDIA_TYPES.has(type)) ? 'allow' : 'deny'
   }
   return 'deny'
 }
@@ -49,8 +55,15 @@ function decideCheck (permission, requestingOrigin, details, allowedOrigin) {
   if (typeof d.requestingUrl === 'string' && d.requestingUrl !== '' && !sameOrigin(d.requestingUrl, allowedOrigin)) return false
   if (typeof d.securityOrigin === 'string' && d.securityOrigin !== '' && !sameOrigin(d.securityOrigin, allowedOrigin)) return false
   if (SIMPLE_PERMISSIONS.has(permission)) return true
-  if (permission === 'media') return d.mediaType === 'audio'
+  if (permission === 'media') return MEDIA_TYPES.has(d.mediaType)
   return false
 }
 
-module.exports = { SIMPLE_PERMISSIONS, decideRequest, decideCheck }
+// Pencere bağlamına göre ilk eleme: arka plan penceresi bildirim dışındaki her izni (mikrofon, kamera,
+// ekran) reddeder. true dönerse istek veya denetim reddedilir, false dönerse decideRequest veya
+// decideCheck karar verir.
+function deniedFor (context, permission) {
+  return context === 'background' && !BACKGROUND_PERMISSIONS.has(permission)
+}
+
+module.exports = { SIMPLE_PERMISSIONS, MEDIA_TYPES, decideRequest, decideCheck, deniedFor }

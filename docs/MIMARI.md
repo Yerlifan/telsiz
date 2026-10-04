@@ -2,21 +2,21 @@
 
 [Türkçe](MIMARI.md) | [English](ARCHITECTURE.md)
 
-Bu belge Telsiz'in sunucusunu, istemcisini, şifreleme tasarımını, ses, ekran paylaşımı ve Telsiz DJ altyapısını, masaüstü uygulamasını ve yayın sürecini anlatır. Son bölüm sistemin neyi koruyup neyi korumadığını açıkça listeler. Kurulum için [KURULUM.md](KURULUM.md), görsel tasarım için [TASARIM.md](TASARIM.md) dosyasına bakın.
+Bu belge Telsiz'in sunucusunu, istemcisini, şifreleme tasarımını, ses, ekran paylaşımı, kamera ve Telsiz DJ altyapısını, ses odası sınırlarını ve sunucu bilgilerini, masaüstü uygulamasını ve yayın sürecini anlatır. Son bölüm sistemin neyi koruyup neyi korumadığını açıkça listeler. Kurulum için [KURULUM.md](KURULUM.md), görsel tasarım için [TASARIM.md](TASARIM.md) dosyasına bakın.
 
 ## Genel bakış
 
-Telsiz üç parçadan oluşur: tek süreçli bir Node.js sunucusu, tarayıcıda çalışan ve derleme adımı olmayan bir web istemcisi ve aynı istemciyi kendi içinde taşıyan isteğe bağlı bir masaüstü uygulaması. Sunucu hesapları, odaları ve şifreli içerikleri saklar, istemciler arasında olayları dağıtır. Şifreleme ve şifre çözme yalnızca istemcide yapılır. Ses ve ekran görüntüsü kişiler arasında doğrudan akar, sunucu yalnızca bağlantı kurulumunun şifreli mesajlarını iletir.
+Telsiz üç parçadan oluşur: tek süreçli bir Node.js sunucusu, tarayıcıda çalışan ve derleme adımı olmayan bir web istemcisi ve aynı istemciyi kendi içinde taşıyan isteğe bağlı bir masaüstü uygulaması. Sunucu hesapları, odaları ve şifreli içerikleri saklar, istemciler arasında olayları dağıtır. Şifreleme ve şifre çözme yalnızca istemcide yapılır. Ses, ekran ve kamera görüntüsü kişiler arasında doğrudan akar, sunucu yalnızca bağlantı kurulumunun şifreli mesajlarını iletir.
 
 ```text
  Tarayıcı veya masaüstü uygulaması                 Telsiz sunucusu (Node.js)
  +----------------------------------+   HTTPS     +-----------------------------+
- | public/js/01..23, crypto.js      |  JSON API   | src/app.js   uç noktalar    |
+ | public/js/01..27, crypto.js      |  JSON API   | src/app.js   uç noktalar    |
  | anahtarlar yalnızca burada       |<----------->| src/hub.js   long-polling   |
  | şifreleme, çözme, arama          | long-poll   | src/store.js JSON ve JSONL  |
  +----------------------------------+             +-----------------------------+
         ^        WebRTC (DTLS-SRTP)
-        |   ses ve ekran, kişiden kişiye
+        |   ses, ekran ve kamera, kişiden kişiye
         v
  +----------------------------------+
  | diğer katılımcılar               |
@@ -61,7 +61,7 @@ Her olayın bir hedef kitlesi vardır: ya bütün üyeler ya da yalnızca belirl
 
 İstemci `public/` klasöründeki düz betik dosyalarından oluşur. Derleme adımı, paket yöneticisi veya çerçeve yoktur. Eski WebKit tabanlı konsol tarayıcılarıyla uyum için kod en fazla ES2017 sözdizimiyle yazılır ve ağ istekleri `XMLHttpRequest` ile yapılır. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır, HTML dizesinden DOM üretilmez.
 
-`index.html` tek sayfadır. Önce `theme-init.js` temayı ilk çizimden önce uygular, sonra şifreleme kütüphaneleri (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), sözlükler (`i18n.js`), şifreleme yardımcıları (`crypto.js`), emoji verisi, Telsiz DJ motoru (`music.js`, `dj/youtube.js`), ses motoru (`voice.js`) ve `public/js/01-core.js` ile `25-arka-plan.js` arasındaki numaralı modüller yüklenir. Modüllerin görev listesi [CONTRIBUTING.md](../CONTRIBUTING.md#proje-yapısı) dosyasındadır.
+`index.html` tek sayfadır. Önce `theme-init.js` temayı ilk çizimden önce uygular, sonra şifreleme kütüphaneleri (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), sözlükler (`i18n.js`), şifreleme yardımcıları (`crypto.js`), emoji verisi, Telsiz DJ motoru (`music.js`, `dj/youtube.js`), ses motoru (`voice.js`) ve `public/js/01-core.js` ile `27-kapasite.js` arasındaki numaralı modüller yüklenir. Modüllerin görev listesi [CONTRIBUTING.md](../CONTRIBUTING.md#proje-yapısı) dosyasındadır.
 
 Arayüz Frekans düzenini kullanır: üst çubuk, katılınan frekansların (her biri ayrı bir Telsiz sunucusu) istasyon olarak dizildiği frekans bandı (`24-frekans.js`, istasyona basmak o frekansa geçer), ortada konuşma sütunu, geniş ekranda solda telsiz kartı ve oda bilgisi, sağda açık frekansın yazı ve ses odalarının listesi (İstasyonlar, dar ekranda İstasyonlar düğmesiyle açılan sayfa). Masaüstü uygulamasında açık olmayan frekansların okunmamış sayılarını gizli arka plan pencereleri sayar (`25-arka-plan.js`, [desktop/README.md](../desktop/README.md)). Ayrıntılar [TASARIM.md](TASARIM.md) dosyasındadır. Service worker (`sw.js`) yalnızca uygulama kabuğunu önbelleğe alır ve `/api/` isteklerine hiçbir zaman dokunmaz.
 
@@ -97,7 +97,7 @@ Bir parola sahip, yönetici veya komut satırı tarafından sıfırlanırsa sunu
 
 ## Ses
 
-Ses WebRTC ile tam örgü (full mesh) olarak akar: ses odasındaki her kişi diğer her kişiyle ayrı bir bağlantı kurar ve sesini her birine ayrı gönderir. Ses WebRTC'nin zorunlu şifrelemesiyle (DTLS-SRTP) korunur ve sunucudan geçmez. Bir ses odasına en fazla 8 kişi katılabilir.
+Ses WebRTC ile tam örgü (full mesh) olarak akar: ses odasındaki her kişi diğer her kişiyle ayrı bir bağlantı kurar ve sesini her birine ayrı gönderir. Ses WebRTC'nin zorunlu şifrelemesiyle (DTLS-SRTP) korunur ve sunucudan geçmez. Bir ses odasına varsayılan olarak en fazla 8 kişi katılabilir, sahip bu sınırı 2 ile 12 arasında değiştirebilir (bkz. Ses odası sınırları ve sunucu bilgileri).
 
 Bağlantı kurulumu (SDP teklifleri, yanıtlar ve ICE adayları) `POST /api/voice/signal` ile gönderilir ve alıcının poll yanıtında gelir. Her sinyal grup anahtarıyla şifrelenir ve düz metninde gönderenin ve alıcının eş kimliğini, bağlantı kimliğini ve artan bir sıra numarasını taşır. Alıcı etkin anahtarı, gönderen ve alıcı eşleşmesini ve sıra numarasını denetler, eski veya tekrarlanan sinyalleri atar. Böylece grup anahtarına sahip olmayan bir sunucu bağlantı kurulumunu değiştiremez veya başka birine yönlendiremez. STUN ve TURN adresleri ses odasına katılırken sunucudan gelir.
 
@@ -108,6 +108,29 @@ Mikrofon sesi bir WebAudio hattından geçer. Algılama kolu sesi gecikmesiz öl
 Ekran paylaşımı ses bağlantılarının üzerine kurulur. Paylaşan kişi `getDisplayMedia` ile ekran, pencere veya sekme seçer ve odaya şifreli bir paylaşım duyurusu gönderir. Görüntü parçası yalnızca İzle diyen kişilerle olan bağlantılara eklenir. İzleme isteği ve bırakma da şifreli sinyallerdir. Bağlantıya görüntü parçası eklemek veya çıkarmak WebRTC yeniden anlaşmasıyla yapılır.
 
 Paylaşan kişi dört kaliteden birini seçer: 720p 15 kare (varsayılan), 720p 30 kare, 1080p 15 kare ve 1080p 30 kare. Akıcılık veya net metin önceliği tarayıcıya içerik ipucu olarak verilir. Tarayıcı sekme veya sistem sesi sağlıyorsa paylaşım sesi de mikrofondan ayrı bir parça olarak gönderilebilir. Tam örgüde paylaşanın yükleme hızı her izleyici için ayrı kullanılır. Masaüstü uygulamasında tarayıcının seçicisi yerine uygulamanın kendi ekran ve pencere seçicisi açılır.
+
+## Kamera
+
+Kamera da ses bağlantılarının üzerine kurulur ve ekran paylaşımının yeniden anlaşma hattını kullanır. Kişi telsiz kartındaki Kamera düğmesine basmadan kamera hiçbir zaman istenmez. Basınca istemci önce sunucudan yer ister (`POST /api/voice/camera { on: true }`), sunucu sahibin ayarını ve oda başına kamera sınırını denetler. Sınır doluysa veya kameralar kapalıysa `409 camera_limit` ya da `403 camera_disabled` döner ve kamera hiç açılmaz. Yer alınınca `getUserMedia` ile yalnızca görüntü istenir (640x360, 15 kare, izin alındıktan sonra `applyConstraints` ile de sınırlanır) ve görüntü parçası odadaki her bağlantıya eklenir. Ekran paylaşımından farklı olarak izleme isteği beklenmez, kamera açıkken odadaki herkese gider. Gönderim yaklaşık 400 kbps ile sınırlanır (`setParameters`).
+
+Aktarıcılar ekran paylaşımıyla ve iki yönde ortak kullanıldığı için hangi m satırının kamera olduğu şifreli bir `camera` sinyaliyle (`{ on, mid }`) karşı tarafa bildirilir, alıcı görüntü parçasının kamera mı ekran mı olduğunu buradan anlar. Kameranın açık olduğu bilgisi sunucuda ses kadrosunun bir alanıdır (`meta.voice[oda][].camera`), böylece sınırı sunucu uygular ve açık istemciler meta güncellemesiyle görür. Görüntünün kendisi kişiler arasında DTLS-SRTP ile şifreli akar ve Telsiz sunucusundan geçmez. Kamera şu durumlarda durur: kişi düğmeye yeniden basar, ses odasından ayrılır veya bağlantısı düşer (sunucu ses üyeliğiyle birlikte kamera bilgisini de siler), kamera aygıtı çıkarılır veya başka uygulamaya geçer (`ended`), sahip kameraları kapatır (sunucu açık kameraları kapalı sayar, istemci kendi kamerasını metada kapalı görünce durdurur).
+
+## Ses odası sınırları ve sunucu bilgileri
+
+Ses odası ayarları `state.json` içinde `voice: { capacity, cameras, maxCameras }` alanındadır ve her ses odasına ayrı uygulanır. Kapasite 2 ile 12 arasındadır, varsayılanı `maxVoicePerChannel` seçeneğidir (8). Kamera sınırı 1 ile 12 arasındadır, varsayılanı 4'tür ve kapasiteyi aşamaz. Yalnızca sahip `POST /api/settings { voice }` ile değiştirebilir (yönetici `403 forbidden`), sunucu her alanı doğrular (`400 invalid_voice_settings`), yanıt durum dosyası diske yazılıp zorlandıktan sonra gider ve meta sürümü artar. Kapasite katılmada uygulanır, düşürülen kapasite odadakileri çıkarmaz. Kameralar kapatılınca açık kameralar kapalı sayılır.
+
+`GET /api/server-info` (yalnızca sahip ve yöneticiler, yönetim hız sınırı) sunucunun yalnızca sayısal bilgilerini döner: işlemci modeli ve çekirdek sayısı, yük ortalaması (Windows'ta yok), toplam ve boş bellek, kapsayıcı bellek sınırı (`/sys/fs/cgroup/memory.max`, yoksa cgroup v1 `memory/memory.limit_in_bytes`, `max` ve okunamayan değer yok sayılır), veri klasörünün diskinin boş ve toplam alanı (`fs.statfs`, Node.js 18.15 ve sonrası, yoksa boş), Node.js sürümü, platform, süreç çalışma süresi, yükleme ve mesaj kullanımı ile sınırları, çevrimiçi kişi sayısı, seste ve kamerası açık kişi sayısı ve TURN'ün yapılandırılıp yapılandırılmadığı ve bu makinede olup olmadığı (`src/system-info.js`).
+
+Ayarlardaki öneri istemcide belirlenimci formüllerle hesaplanır (`public/js/27-kapasite.js`) ve arayüzde tahmin olduğu yazar. Ses ve görüntü tam örgüde aktığı için kapasite sunucudan çok üyelerin yükleme hızına bağlıdır. Girdi "üyelerin tipik yükleme hızı"dır (varsayılan 5 Mbps, yalnızca sahibin tarayıcısında saklanır). İsteğe bağlı olarak sahibin kendi cihazının son görüşmesinde tarayıcının tahmin ettiği gönderim hızı (`getStats` içindeki `availableOutgoingBitrate`) gösterilir, bu ölçüm de yalnızca o cihazda kalır ve başka üyelerden hiçbir ölçüm toplanmaz. Sabitler: ses yaklaşık 40 kbps (`KAPASITE_AUDIO_KBPS`), 360p 15 karelik kamera yaklaşık 400 kbps (`KAPASITE_CAMERA_KBPS`), kullanılabilir pay yüzde 70 (`KAPASITE_USABLE_SHARE`).
+
+```text
+kullanılabilir = yükleme (kbps) x 0,7
+yalnızca ses kapasitesi = (N - 1) x 40 <= kullanılabilir koşulunu sağlayan en büyük N = taban(kullanılabilir / 40) + 1
+önerilen kapasite = (N - 1) x (40 + 400) <= kullanılabilir koşulunu sağlayan en büyük N = taban(kullanılabilir / 440) + 1
+önerilen kamera sınırı = önerilen kapasite
+```
+
+Tam örgüde kamerasını açan kişi sesini ve görüntüsünü odadaki diğer herkese ayrı ayrı gönderir, darboğaz onun yüklemesidir. Önerilen kapasite bu kişinin yüklemesine göre hesaplanır, böylece odadaki herkes kamerasını açabilir. Kamera sınırında indirme hızının yükleme hızından düşük olmadığı varsayılır, çünkü önerilen odada her kişi en çok kamera açan kişinin yüklemesi kadar görüntü indirir. Kapasite 2 ile 12, kamera sınırı 1 ile en fazla kapasite arasına sıkıştırılır. Örneğin 5 Mbps için kullanılabilir 3500 kbps, önerilen kapasite 8 ve kamera sınırı 8'dir (kamera kullanılmazsa ses odası 12 kişiye kadar çıkabilir), 50 Mbps için ikisi de 12'dir. Sunucu ipuçları da bilgilerden hesaplanır: boş disk yükleme kotasının kalanından azsa veya 1 GB'tan azsa, mesaj sınırının bellekte tutacağı tahmini yer (mesaj başına 1500 bayt) kullanılabilir belleğin (cgroup sınırı varsa o) yarısını aşıyorsa, 5 dakikalık yük ortalaması çekirdek başına 1'i aşıyorsa uyarı, TURN bu makinedeyse veya yapılandırılmamışsa bilgi gösterilir.
 
 ## Telsiz DJ
 
@@ -123,7 +146,7 @@ Sunucu sahibi Telsiz DJ'yi kapatırsa sunucu DJ yazımlarını reddeder. YouTube
 
 Masaüstü uygulaması (`desktop/`) Electron ile Windows ve Linux için hazırlanır. Web sürümünde arayüz kodu her açılışta sunucudan gelir. Masaüstü uygulamasında ise `public/` klasöründeki dosyalar derleme sırasında uygulamanın içine kopyalanır, her birinin sha256 değeri bir bütünlük bildirimine yazılır ve uygulama açılışta her dosyayı doğrular. Sayfa `telsiz://app/` ayrıcalıklı şemasından yüklenir ve sunucudan hiçbir arayüz dosyası indirilmez.
 
-Sayfanın API istekleri ana süreçteki bir vekilden ayarlardaki sunucuya iletilir. Yalnızca gerekli başlıklar geçer, yönlendirmeler izlenmez, çerez ve önbellek kullanılmaz. Sunucu adresi yalnızca `https://` olabilir, tek istisna aynı bilgisayardaki sunucudur. Pencereler bağlam yalıtımı ve korumalı alan açık olarak çalışır. İzinler yalnızca mikrofon, bildirim ve panoya yazmayla sınırlıdır, ekran yakalama yalnızca uygulamanın kendi seçicisiyle verilir. Alt çerçeve olarak yalnızca Telsiz DJ'nin YouTube oynatıcısına izin verilir: uygulama penceresinin ana çerçevesinin doğrudan alt çerçevesi ve yalnızca `https://www.youtube-nocookie.com` kökeni. Bu çerçevenin içindeki çerçeveler ve diğer bütün alt çerçeveler engellenir. Paketlenmiş uygulamada Electron sigortaları Node.js kipini ve `NODE_OPTIONS` değişkenini kapatır. Ayrıntılı güvenlik mimarisi [desktop/README.md](../desktop/README.md) dosyasındadır.
+Sayfanın API istekleri ana süreçteki bir vekilden ayarlardaki sunucuya iletilir. Yalnızca gerekli başlıklar geçer, yönlendirmeler izlenmez, çerez ve önbellek kullanılmaz. Sunucu adresi yalnızca `https://` olabilir, tek istisna aynı bilgisayardaki sunucudur. Pencereler bağlam yalıtımı ve korumalı alan açık olarak çalışır. İzinler yalnızca mikrofon, kamera, bildirim ve panoya yazmayla sınırlıdır ve yalnızca uygulama penceresinin ana çerçevesine verilir, ekran yakalama yalnızca uygulamanın kendi seçicisiyle verilir. Arka plan pencereleri yalnızca bildirim gösterebilir, mikrofon ve kamera dahil diğer izinler reddedilir. Alt çerçeve olarak yalnızca Telsiz DJ'nin YouTube oynatıcısına izin verilir: uygulama penceresinin ana çerçevesinin doğrudan alt çerçevesi ve yalnızca `https://www.youtube-nocookie.com` kökeni. Bu çerçevenin içindeki çerçeveler ve diğer bütün alt çerçeveler engellenir. Paketlenmiş uygulamada Electron sigortaları Node.js kipini ve `NODE_OPTIONS` değişkenini kapatır. Ayrıntılı güvenlik mimarisi [desktop/README.md](../desktop/README.md) dosyasındadır.
 
 Güncellemeler (`desktop/src/lib/updates.js`): Windows kurucusu ve Linux AppImage electron-updater ile GitHub sürümündeki `latest.yml` veya `latest-linux.yml` dosyasını okur, yeni sürümü arka planda indirir ve sha512 değeriyle doğrular. Kurulum yalnızca kullanıcı Yeniden başlat ve güncelle dediğinde yapılır. Taşınabilir exe ve .deb yalnızca GitHub API'sinden son kararlı sürümü okur ve sürüm sayfasını açan bir bildirim gösterir. Güncellemeleri otomatik denetle ayarı varsayılan açıktır, kapalıyken GitHub'a hiçbir istek gönderilmez. Sayfa IPC ile hiçbir adres veya dosya yolu veremez, sürüm sayfası yalnızca projenin GitHub sürüm adresleriyle açılır.
 
@@ -151,7 +174,7 @@ GitHub Actions iş akışları:
 
 Telsiz içerikleri sunucudan gizlemek için tasarlanmıştır, ancak her şeyi gizlemez ve hiçbir yazılım gibi açıksız olduğu garanti edilemez. Proje bağımsız bir güvenlik denetiminden geçmemiştir. Bilinen sınırlar şunlardır.
 
-**Sunucunun gördüğü üst veri.** Sunucu mesaj, dosya, profil ve DJ içeriklerini göremez, ancak şunları görür: hangi kullanıcının ne zaman çevrimiçi olduğu ve durumu (görünmez durumu dahil), kullanıcı adları, oda adları ve oda listesi, roller, kimin hangi odaya ve özel mesaj konuşmasına ne zaman ve hangi boyutta yazdığı, düzenleme ve silme olayları, yüklenen dosyaların boyutları, arkadaşlık ve engelleme ilişkileri, yazıyor bilgisi (kimin hangi konuşmada ne zaman yazdığı), ses odalarında kimin bulunduğu ve mikrofon ile sağırlaştırma durumu, ses sinyallerinin zamanı ve boyutu, hangi ses odalarında Telsiz DJ durumu bulunduğu, DJ zarfının boyutu ve onu kimin ne zaman güncellediği, tarayıcının kullanıcı aracısından türetilen oturum etiketleri (ör. tarayıcı ve işletim sistemi adı) ve bağlanan cihazların IP adresleri. Görünen ad, hakkımda, özel durum metni ve profil resmi şifrelidir. Frekans adı, frekans tanıtımı ve frekans fotoğrafı şifresizdir ve herkese açıktır.
+**Sunucunun gördüğü üst veri.** Sunucu mesaj, dosya, profil ve DJ içeriklerini göremez, ancak şunları görür: hangi kullanıcının ne zaman çevrimiçi olduğu ve durumu (görünmez durumu dahil), kullanıcı adları, oda adları ve oda listesi, roller, kimin hangi odaya ve özel mesaj konuşmasına ne zaman ve hangi boyutta yazdığı, düzenleme ve silme olayları, yüklenen dosyaların boyutları, arkadaşlık ve engelleme ilişkileri, yazıyor bilgisi (kimin hangi konuşmada ne zaman yazdığı), ses odalarında kimin bulunduğu, mikrofon ve sağırlaştırma durumu ve kimin kamerasının açık olduğu, ses sinyallerinin zamanı ve boyutu, hangi ses odalarında Telsiz DJ durumu bulunduğu, DJ zarfının boyutu ve onu kimin ne zaman güncellediği, tarayıcının kullanıcı aracısından türetilen oturum etiketleri (ör. tarayıcı ve işletim sistemi adı) ve bağlanan cihazların IP adresleri. Görünen ad, hakkımda, özel durum metni ve profil resmi şifrelidir. Frekans adı, frekans tanıtımı ve frekans fotoğrafı şifresizdir ve herkese açıktır.
 
 **Web sürümünde kod teslimi.** Web sürümünde uygulama kodu her açılışta sunucudan gelir. Sunucuyu veya HTTPS bağlantısını sonlandıran bir aracıyı (ters vekil, tünel sağlayıcısı) ele geçiren etkin bir saldırgan değiştirilmiş kod sunarak anahtarları çalabilir. Tarayıcıda çalışan her uçtan uca şifreli uygulamanın bilinen sınırı budur. Masaüstü uygulaması arayüzü kendi içinde taşıdığı için bu riski ortadan kaldırır.
 
@@ -165,7 +188,7 @@ Telsiz içerikleri sunucudan gizlemek için tasarlanmıştır, ancak her şeyi g
 
 **Cihazda saklanan anahtarlar.** Grup anahtarları, kişisel kimlik anahtarı ve oturum belirteci tarayıcının yerel depolamasındadır. Cihaza veya tarayıcı profiline erişebilen biri bunlara da erişebilir.
 
-**Ses ve ekran paylaşımı.** Ses ve görüntü kişiler arasında doğrudan aktığı için katılımcılar birbirinin IP adresini görebilir. Tam örgüde her kişi sesini ve paylaştığı görüntüyü her alıcıya ayrı gönderir. Bu yüzden yapı küçük gruplar içindir ve ses odası 8 kişiyle sınırlıdır. Varsayılan STUN sunucusu Google'a aittir, ses odasına katılan cihazlar onunla iletişim kurar. TURN yapılandırılırsa kullanıcı adı ve parola sabittir ve ses odasına katılan her oturum açmış kişiye gönderilir.
+**Ses, ekran paylaşımı ve kamera.** Ses ve görüntü kişiler arasında doğrudan aktığı için katılımcılar birbirinin IP adresini görebilir. Tam örgüde her kişi sesini, paylaştığı ekranı ve kamera görüntüsünü her alıcıya ayrı gönderir. Kamerası açık olan kişinin yükleme hızı odadaki kişi sayısının bir eksiği kadar kamera akışına bölünür, kişi ve kamera sayısı arttıkça üyelerin bağlantısı yetmeyebilir ve görüntü kalitesi düşer. Bu yüzden yapı küçük gruplar içindir: ses odası varsayılan olarak 8, en fazla 12 kişiyle ve aynı anda açık kamera sayısı varsayılan olarak 4 ile sınırlıdır. Sunucu kamera sınırını uygular, görüntünün içeriğini göremez. Ayarlardaki kapasite önerisi bir tahmindir, ölçüm değildir. Varsayılan STUN sunucusu Google'a aittir, ses odasına katılan cihazlar onunla iletişim kurar. TURN yapılandırılırsa kullanıcı adı ve parola sabittir ve ses odasına katılan her oturum açmış kişiye gönderilir.
 
 **Arama.** Arama yalnızca cihazda, sunucudan sayfa sayfa çekilip çözülen geçmiş üzerinde çalışır. Oda başına en fazla 20000 mesaj taranır, anahtarı cihazda olmayan mesajlar aranamaz ve büyük geçmişlerde tarama zaman alır.
 

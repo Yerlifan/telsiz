@@ -1,6 +1,6 @@
 'use strict'
 
-// Gerçek zamanlı merkez: varlık ve durum, olay halkası, meta sürümü, kişiye özel meta sürümleri, bekleyen long-poll istekleri, ses kadroları, ses sinyal kuyrukları ve yazıyor durumu.
+// Gerçek zamanlı merkez: varlık ve durum, olay halkası, meta sürümü, kişiye özel meta sürümleri, bekleyen long-poll istekleri, ses kadroları (mikrofon, sağırlaştırma ve kamera açık bilgisi), ses sinyal kuyrukları ve yazıyor durumu.
 // Her olay bir hedef kitle taşır: null tüm üyeler, dizi yalnızca o kullanıcı kimlikleri demektir.
 // Hedef kitlede olmayan bir kullanıcının poll yanıtına olay hiçbir zaman girmez.
 // Görünmez durumdaki kullanıcı başkalarına çevrimdışı görünür, çevrimiçi olup olmadığı meta
@@ -32,7 +32,7 @@ function parseCounter (value) {
 }
 
 function memberView (rt) {
-  return { userId: rt.userId, peerId: rt.peerId, muted: rt.muted, deafened: rt.deafened }
+  return { userId: rt.userId, peerId: rt.peerId, muted: rt.muted, deafened: rt.deafened, camera: rt.camera }
 }
 
 function visibleTo (item, userId) {
@@ -44,7 +44,8 @@ function inAudience (audience, userId) {
 }
 
 // options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
-//   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, pv, status }], music }),
+//   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, pv, status }], music,
+//     voiceSettings }),
 //   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
@@ -121,6 +122,7 @@ function createHub (options) {
         voiceSince: 0,
         muted: false,
         deafened: false,
+        camera: false,
         signals: [],
         sigSeq: 0
       }
@@ -152,6 +154,7 @@ function createHub (options) {
     rt.voiceChannelId = null
     rt.muted = false
     rt.deafened = false
+    rt.camera = false
     rt.signals = []
     return true
   }
@@ -226,7 +229,8 @@ function createHub (options) {
       channels: base.channels,
       users: base.users.map(presenceView),
       voice,
-      music: base.music
+      music: base.music,
+      voiceSettings: base.voiceSettings === undefined ? null : base.voiceSettings
     }
     return metaCache
   }
@@ -582,6 +586,36 @@ function createHub (options) {
     if (changed && rt.voiceChannelId !== null) bumpMeta()
   }
 
+  // Kamera açık bilgisi. Açarken odadaki diğer açık kameralar maxCameras'a ulaştıysa reddedilir.
+  // Sonuç: 'ok' | 'not_in_voice' | 'camera_limit'
+  function setCamera (rt, on, maxCameras) {
+    if (rt.voiceChannelId === null) return 'not_in_voice'
+    if (on && !rt.camera) {
+      let count = 0
+      for (const o of sessions.values()) {
+        if (o !== rt && o.voiceChannelId === rt.voiceChannelId && o.camera) count++
+      }
+      if (count >= maxCameras) return 'camera_limit'
+    }
+    if (rt.camera !== on) {
+      rt.camera = on
+      bumpMeta()
+    }
+    return 'ok'
+  }
+
+  // Sahip kameraları kapattı: açık kameraların hepsi kapalı sayılır
+  function clearCameras () {
+    let changed = false
+    for (const rt of sessions.values()) {
+      if (rt.camera) {
+        rt.camera = false
+        changed = true
+      }
+    }
+    if (changed) bumpMeta()
+  }
+
   // Kullanıcının herhangi bir oturumu bu ses kanalında mı (ses üyeliği kullanıcı başınadır)
   function userInVoice (userId, channelId) {
     const set = byUser.get(userId)
@@ -673,6 +707,8 @@ function createHub (options) {
     voiceJoin,
     voiceLeave,
     setVoiceState,
+    setCamera,
+    clearCameras,
     kickVoiceChannel,
     userInVoice,
     voiceOccupied,

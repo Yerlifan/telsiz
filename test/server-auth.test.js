@@ -84,7 +84,11 @@ describe('kurulum ve kayıt', () => {
         aboutMaxLines: 6,
         maxProfileChars: 6000,
         avatarMaxBytes: 1024 * 1024 + 16,
-        serverIconMaxBytes: 1024 * 1024 + 16
+        serverIconMaxBytes: 1024 * 1024 + 16,
+        voiceCapacityMin: 2,
+        voiceCapacityMax: 12,
+        maxCamerasMin: 1,
+        maxCamerasMax: 12
       })
 
       // Kod büyük/küçük harf ve tire duyarsız, O ve 0, I/L ve 1 eşlenir

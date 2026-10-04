@@ -22,6 +22,7 @@ const { createMusic } = require('./music')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
+const systemInfo = require('./system-info')
 
 const DEFAULT_SERVER_NAME = 'Telsiz'
 // Varsayılan günlük dili (server.js konsol dilini verir)
@@ -138,6 +139,15 @@ const IDENTITY_MAX_CHARS = 2000
 const MUSIC_ENV_MAX_CHARS = 131072
 // POST /api/music/state gövde sınırı: zarf ve alan adları için pay (genel maxJsonBytes yetmez)
 const MUSIC_JSON_MAX_BYTES = 140000
+// Ses odası sınırları (frekans ayarı, yalnızca sahip değiştirir). Kapasite yeni katılımlara uygulanır,
+// kimse odadan çıkarılmaz. maxVoicePerChannel seçeneği kapasitenin varsayılanıdır (bu aralığa sıkıştırılır).
+const VOICE_CAPACITY_MIN = 2
+const VOICE_CAPACITY_MAX = 12
+// Oda başına aynı anda açık kamera sayısı, hiçbir zaman kapasiteden fazla olamaz
+const MAX_CAMERAS_MIN = 1
+const MAX_CAMERAS_MAX = 12
+const DEFAULT_MAX_CAMERAS = 4
+const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
 const MUSIC_SETTING_KEYS = ['enabled', 'youtube']
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
@@ -594,6 +604,14 @@ function normalizeLoadedState (state, config, log) {
     state.music = music
     changed = true
   }
+  // Ses odası ayarı eski durum dosyalarında yoktur, varsayılanlarla başlar (yazım gerekmez)
+  const voice = cleanVoiceSettings(state.voice, defaultVoiceCapacity(config))
+  if (state.voice === undefined) {
+    state.voice = voice
+  } else if (!sameJson(voice, state.voice)) {
+    state.voice = voice
+    changed = true
+  }
   return changed
 }
 
@@ -603,6 +621,28 @@ function cleanMusicSettings (value) {
   return {
     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
     youtube: typeof src.youtube === 'boolean' ? src.youtube : true
+  }
+}
+
+function intInRange (value, min, max) {
+  return Number.isSafeInteger(value) && value >= min && value <= max
+}
+
+// Varsayılan ses odası kapasitesi: maxVoicePerChannel seçeneği, izin verilen aralığa sıkıştırılmış
+function defaultVoiceCapacity (config) {
+  return Math.min(VOICE_CAPACITY_MAX, Math.max(VOICE_CAPACITY_MIN, config.maxVoicePerChannel))
+}
+
+// Ses odası ayarı: { capacity, cameras, maxCameras }. Eksik veya geçersiz alan varsayılana döner,
+// kamera sınırı kapasiteyi aşamaz.
+function cleanVoiceSettings (value, defaultCapacity) {
+  const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const capacity = intInRange(src.capacity, VOICE_CAPACITY_MIN, VOICE_CAPACITY_MAX) ? src.capacity : defaultCapacity
+  const maxCameras = intInRange(src.maxCameras, MAX_CAMERAS_MIN, MAX_CAMERAS_MAX) ? src.maxCameras : DEFAULT_MAX_CAMERAS
+  return {
+    capacity,
+    cameras: typeof src.cameras === 'boolean' ? src.cameras : true,
+    maxCameras: Math.min(maxCameras, capacity)
   }
 }
 
@@ -626,7 +666,9 @@ function prepareState (store, config, log) {
       friendships: [],
       blocks: [],
       // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
-      music: { enabled: true, youtube: true }
+      music: { enabled: true, youtube: true },
+      // Ses odası kapasitesi ve kameralar (sahip değiştirir)
+      voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
     })
     const now = Date.now()
     for (const def of DEFAULT_CHANNELS) {
@@ -853,7 +895,12 @@ async function createChatServer (options) {
     maxProfileChars: config.maxProfileChars,
     avatarMaxBytes: config.avatarMaxBytes,
     // Frekans fotoğrafı profil resmiyle aynı sınırı kullanır
-    serverIconMaxBytes: config.avatarMaxBytes
+    serverIconMaxBytes: config.avatarMaxBytes,
+    // Ses odası ayarlarının izin verilen aralıkları
+    voiceCapacityMin: VOICE_CAPACITY_MIN,
+    voiceCapacityMax: VOICE_CAPACITY_MAX,
+    maxCamerasMin: MAX_CAMERAS_MIN,
+    maxCamerasMax: MAX_CAMERAS_MAX
   }
 
   // ---------------------------------------------------------------- durum yardımcıları
@@ -881,7 +928,15 @@ async function createChatServer (options) {
       .filter((u) => !u.banned && !u.deleted)
       .sort((a, b) => collator.compare(a.name, b.name) || a.id - b.id)
       .map(metaUser)
-    return { serverName: state.serverName, serverIcon: serverIcon ? serverIcon.hash : null, activeKid: state.activeKid, channels, users, music: { enabled: state.music.enabled, youtube: state.music.youtube } }
+    return {
+      serverName: state.serverName,
+      serverIcon: serverIcon ? serverIcon.hash : null,
+      activeKid: state.activeKid,
+      channels,
+      users,
+      music: { enabled: state.music.enabled, youtube: state.music.youtube },
+      voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
+    }
   }
 
   function lastMessageOf (channelId) {
@@ -2335,6 +2390,20 @@ async function createChatServer (options) {
     return value
   }
 
+  // Ses odası ayar değişikliği: { capacity?, cameras?, maxCameras? } (en az biri). Mevcut ayarla birleşmiş
+  // yeni ayar döner, geçersizse null. Kamera sınırı kapasiteyi aşarsa istek reddedilir (sessizce düşürülmez).
+  function voiceSettingsPatch (value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const keys = Object.keys(value)
+    if (keys.length === 0 || !keys.every((k) => VOICE_SETTING_KEYS.includes(k))) return null
+    if (value.capacity !== undefined && !intInRange(value.capacity, VOICE_CAPACITY_MIN, VOICE_CAPACITY_MAX)) return null
+    if (value.maxCameras !== undefined && !intInRange(value.maxCameras, MAX_CAMERAS_MIN, MAX_CAMERAS_MAX)) return null
+    if (value.cameras !== undefined && typeof value.cameras !== 'boolean') return null
+    const next = Object.assign({}, state.voice, value)
+    if (next.maxCameras > next.capacity) return null
+    return next
+  }
+
   function handleSettings (ctx) {
     if (!requireStaff(ctx)) return
     const b = ctx.body
@@ -2342,10 +2411,12 @@ async function createChatServer (options) {
     const hasKid = b.activeKid !== undefined
     const hasMusic = b.music !== undefined
     const hasAbout = b.about !== undefined
-    if (!hasName && !hasKid && !hasMusic && !hasAbout) return fail(ctx, 400, 'bad_request')
+    const hasVoice = b.voice !== undefined
+    if (!hasName && !hasKid && !hasMusic && !hasAbout && !hasVoice) return fail(ctx, 400, 'bad_request')
     if (hasName && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.serverNameOwnerOnly')
     if (hasMusic && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.musicOwnerOnly')
     if (hasAbout && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.aboutOwnerOnly')
+    if (hasVoice && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.voiceOwnerOnly')
     if (!takeAdminSlot(ctx)) return
     let serverName = null
     if (hasName) {
@@ -2359,14 +2430,25 @@ async function createChatServer (options) {
     if (hasMusic && musicPatch === null) return fail(ctx, 400, 'bad_request')
     const about = hasAbout ? auth.cleanAbout(b.about) : null
     if (hasAbout && about === null) return fail(ctx, 400, 'invalid_about')
+    const voicePatch = hasVoice ? voiceSettingsPatch(b.voice) : null
+    if (hasVoice && voicePatch === null) {
+      return fail(ctx, 400, 'invalid_voice_settings', null, null, {
+        min: VOICE_CAPACITY_MIN, max: VOICE_CAPACITY_MAX, camMin: MAX_CAMERAS_MIN, camMax: MAX_CAMERAS_MAX
+      })
+    }
     if (hasName) state.serverName = serverName
     if (hasAbout) state.about = about
     if (hasKid) state.activeKid = b.activeKid
     if (musicPatch) state.music = cleanMusicSettings(Object.assign({}, state.music, musicPatch))
+    if (voicePatch) {
+      state.voice = cleanVoiceSettings(voicePatch, defaultVoiceCapacity(config))
+      // Kameralar kapatıldıysa açık kameralar da kapanır (istemciler metadan görüp yayını durdurur)
+      if (!state.voice.cameras) hub.clearCameras()
+    }
     store.saveState()
     hub.bumpMeta()
-    // Grup anahtarı değişimi (activeKid) kalıcı olmadan yanıt verilmez
-    if (hasKid) return okDurable(ctx, { ok: true })
+    // Grup anahtarı değişimi (activeKid) ve ses odası sınırları kalıcı olmadan yanıt verilmez
+    if (hasKid || hasVoice) return okDurable(ctx, { ok: true, voice: state.voice })
     ok(ctx, { ok: true })
   }
 
@@ -2453,6 +2535,63 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true, inviteCode: state.inviteCode })
   }
 
+  // ---------------------------------------------------------------- uç noktalar: sunucu bilgileri
+
+  // TURN adreslerinin ana makinesi (turn:ad:port?transport=udp biçiminden)
+  function turnHosts () {
+    const hosts = []
+    for (const server of config.iceServers) {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls]
+      for (const url of urls) {
+        const m = /^turns?:(\[[^\]]+\]|[^:?/]+)/i.exec(String(url))
+        if (m) hosts.push(m[1].replace(/^\[|\]$/g, '').toLowerCase())
+      }
+    }
+    return hosts
+  }
+
+  // TURN bu makinede mi: adres isteğin Host başlığındaki adla aynı veya geri döngü adresi
+  function turnIsLocal (req, hosts) {
+    const header = typeof req.headers.host === 'string' ? req.headers.host.toLowerCase() : ''
+    const own = header.replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
+    return hosts.some((h) => h === own || h === 'localhost' || h === '::1' || /^127\./.test(h))
+  }
+
+  // GET /api/server-info (sahip ve yöneticiler): donanım, disk, bellek ve kullanım bilgileri. Yalnızca
+  // sayısal üst veri döner, içerik ve kişisel bilgi yoktur. Öneriyi istemci bu bilgilerden hesaplar.
+  async function handleServerInfo (ctx) {
+    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    const facts = await systemInfo.collect({ dataDir: store.dir })
+    let online = 0
+    for (const u of state.users) {
+      if (!u.deleted && !u.banned && u.status !== 'invisible' && hub.isUserOnline(u.id)) online++
+    }
+    let inVoice = 0
+    let cameras = 0
+    const voiceMeta = hub.meta().voice
+    for (const id of Object.keys(voiceMeta)) {
+      for (const m of voiceMeta[id]) {
+        inVoice++
+        if (m.camera) cameras++
+      }
+    }
+    const hosts = turnHosts()
+    ok(ctx, Object.assign(facts, {
+      version: VERSION,
+      data: {
+        uploadsBytes: uploadsUsed,
+        uploadQuotaBytes: config.uploadQuotaBytes,
+        messageCount: store.messageCount(),
+        maxTotalMessages: config.maxTotalMessages,
+        users: liveUserCount(),
+        maxUsers: config.maxUsers
+      },
+      online,
+      voice: { inVoice, cameras },
+      turn: { configured: hosts.length > 0, local: hosts.length > 0 && turnIsLocal(ctx.req, hosts) }
+    }))
+  }
+
   // ---------------------------------------------------------------- uç noktalar: ses
 
   function takeVoiceSlot (ctx) {
@@ -2466,9 +2605,22 @@ async function createChatServer (options) {
     if (!takeVoiceSlot(ctx)) return
     const channel = findChannelOfType(toId(ctx.body.channelId), 'voice')
     if (!channel) return fail(ctx, 404, 'channel_not_found')
-    const members = hub.voiceJoin(ctx.rt, channel.id, config.maxVoicePerChannel)
+    const members = hub.voiceJoin(ctx.rt, channel.id, state.voice.capacity)
     if (members === null) return fail(ctx, 409, 'voice_full')
     ok(ctx, { ok: true, peerId: ctx.rt.peerId, members, iceServers: config.iceServers })
+  }
+
+  // POST /api/voice/camera { on }: kameranın açık olduğu bilgisi (görüntünün kendisi kişiler arasında doğrudan
+  // akar, sunucudan geçmez). Sunucu yalnızca sahibin ayarını ve oda başına kamera sınırını uygular.
+  function handleVoiceCamera (ctx) {
+    const b = ctx.body
+    if (typeof b.on !== 'boolean') return fail(ctx, 400, 'bad_request')
+    if (!takeVoiceSlot(ctx)) return
+    if (b.on && !state.voice.cameras) return fail(ctx, 403, 'camera_disabled')
+    const result = hub.setCamera(ctx.rt, b.on, state.voice.maxCameras)
+    if (result === 'not_in_voice') return fail(ctx, 403, 'not_in_voice')
+    if (result === 'camera_limit') return fail(ctx, 409, 'camera_limit', null, null, { max: state.voice.maxCameras })
+    ok(ctx, { ok: true, camera: b.on })
   }
 
   function handleVoiceLeave (ctx) {
@@ -2591,6 +2743,8 @@ async function createChatServer (options) {
   route('/api/voice/leave', 'POST', handleVoiceLeave)
   route('/api/voice/state', 'POST', handleVoiceState)
   route('/api/voice/signal', 'POST', handleVoiceSignal)
+  route('/api/voice/camera', 'POST', handleVoiceCamera)
+  route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 

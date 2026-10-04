@@ -3234,6 +3234,12 @@ function buildGeneralPage (page) {
   musicSec.appendChild(musicYt.row)
   musicSec.appendChild(sMsg('set-music-msg'))
 
+  // Ses odaları ve kameralar (yalnızca sahip değiştirir, yönetici salt okunur görür)
+  const voiceLimits = buildVoiceLimitsSection(page)
+
+  // Sunucu bilgileri ve kapasite önerisi (27-kapasite.js)
+  const serverInfo = typeof buildServerInfoSection === 'function' ? buildServerInfoSection(page, voiceLimits.apply) : null
+
   const sumSec = sSection(page, t('settings.general.summaryTitle'), 'set-summary-section')
   const summary = h('ul', 'plain-list settings-summary')
   summary.id = 'set-server-summary'
@@ -3254,6 +3260,8 @@ function buildGeneralPage (page) {
     musicYt.input.checked = music.youtube
     musicOn.input.disabled = !MUSIC_SETTINGS_READY || !owner
     musicYt.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
+    voiceLimits.update(owner)
+    if (serverInfo) serverInfo.update(owner)
     clear(summary)
     const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
     const online = users.filter((u) => u && u.online === true).length
@@ -3269,6 +3277,132 @@ function buildGeneralPage (page) {
   }
   update()
   return { update: update }
+}
+
+// ------------------------------------------------------------------ ses odaları ve kameralar
+
+// Sınırlar /api/info limits alanından, yoksa sunucunun varsayılan aralıkları
+function voiceLimitRange (key, fallback) {
+  const l = state.info && state.info.limits ? state.info.limits : null
+  return l && typeof l[key] === 'number' ? l[key] : fallback
+}
+
+// Ses odası kapasitesi, kameralar açık mı ve oda başına kamera sınırı (meta.voiceSettings). Kaydedilince
+// POST /api/settings { voice } gider, yeni değer meta güncellemesiyle bütün açık istemcilere ulaşır.
+// Düşürülen kapasite yalnızca yeni katılımlara uygulanır. Dönüş: { update(owner), apply(capacity, cameras) }
+function buildVoiceLimitsSection (page) {
+  const capMin = voiceLimitRange('voiceCapacityMin', 2)
+  const capMax = voiceLimitRange('voiceCapacityMax', 12)
+  const camMin = voiceLimitRange('maxCamerasMin', 1)
+  const camMax = voiceLimitRange('maxCamerasMax', 12)
+  const sec = sSection(page, t('settings.voiceLimits.title'), 'set-voice-limits-section')
+  sec.appendChild(sHint(t('settings.voiceLimits.intro'), 'set-voice-limits-intro'))
+  const form = h('form', 'settings-voice-limits')
+  form.id = 'set-voice-limits-form'
+  form.noValidate = true
+  form.setAttribute('autocomplete', 'off')
+  const capacity = sInput('number', 'settings-number')
+  capacity.min = String(capMin)
+  capacity.max = String(capMax)
+  capacity.step = '1'
+  capacity.inputMode = 'numeric'
+  sField(form, 'set-voice-capacity', t('settings.voiceLimits.capacity'), capacity, t('settings.voiceLimits.capacityHint', { min: capMin, max: capMax }))
+  const cameras = sSwitch('set-voice-cameras', t('settings.voiceLimits.cameras'), true, () => {
+    dirty = true
+    syncDisabled()
+  }, t('settings.voiceLimits.camerasHint'))
+  form.appendChild(cameras.row)
+  const maxCameras = sInput('number', 'settings-number')
+  maxCameras.min = String(camMin)
+  maxCameras.max = String(camMax)
+  maxCameras.step = '1'
+  maxCameras.inputMode = 'numeric'
+  sField(form, 'set-voice-max-cameras', t('settings.voiceLimits.maxCameras'), maxCameras, t('settings.voiceLimits.maxCamerasHint', { min: camMin, max: camMax }))
+  form.appendChild(sHint(t('settings.voiceLimits.mesh'), 'set-voice-limits-mesh'))
+  const actions = sActions(form)
+  const save = sButton('button', t('common.save'), 'set-voice-limits-save')
+  save.type = 'submit'
+  actions.appendChild(save)
+  sec.appendChild(form)
+  const ownerOnly = sHint(t('settings.voiceLimits.ownerOnly'), 'set-voice-limits-owner-only')
+  sec.appendChild(ownerOnly)
+  const msg = sMsg('set-voice-limits-msg')
+  sec.appendChild(msg)
+  let dirty = false
+  let owner = false
+
+  const fill = () => {
+    const v = voiceServerSettings()
+    capacity.value = String(v.capacity)
+    cameras.input.checked = v.cameras
+    maxCameras.value = String(v.maxCameras)
+  }
+  const syncDisabled = () => {
+    capacity.disabled = !owner
+    cameras.input.disabled = !owner
+    maxCameras.disabled = !owner || !cameras.input.checked
+  }
+  const readInt = (input) => {
+    const text = String(input.value).trim()
+    return /^\d{1,3}$/.test(text) ? Number(text) : NaN
+  }
+  const numberInputs = [capacity, maxCameras]
+  numberInputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      dirty = true
+      setMsg(msg, '')
+    })
+  })
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    if (!isOwner()) return
+    const cap = readInt(capacity)
+    const cams = readInt(maxCameras)
+    if (!(cap >= capMin && cap <= capMax)) {
+      setMsg(msg, () => t('settings.voiceLimits.capacityInvalid', { min: capMin, max: capMax }), 'error')
+      focusNode(capacity)
+      return
+    }
+    if (!(cams >= camMin && cams <= camMax) || cams > cap) {
+      setMsg(msg, () => t('settings.voiceLimits.maxCamerasInvalid', { min: camMin, max: Math.min(camMax, cap) }), 'error')
+      focusNode(maxCameras)
+      return
+    }
+    save.disabled = true
+    const body = { voice: { capacity: cap, cameras: cameras.input.checked, maxCameras: cams } }
+    const res = await api('POST', '/api/settings', body)
+    save.disabled = false
+    if (res.status === 200) {
+      dirty = false
+      if (state.meta) state.meta.voiceSettings = Object.assign({}, body.voice)
+      setMsg(msg, () => t('settings.voiceLimits.saved'), 'ok')
+      if (typeof renderVoiceAll === 'function' && state.inApp) renderVoiceAll()
+      return
+    }
+    setMsg(msg, () => errorText(res, t('settings.voiceLimits.failed'), { forbidden: t('settings.voiceLimits.ownerOnly') }), 'error')
+  })
+  fill()
+  return {
+    update: (isOwnerNow) => {
+      owner = Boolean(isOwnerNow)
+      const focused = form.contains(document.activeElement)
+      if (!dirty && !focused) fill()
+      syncDisabled()
+      actions.hidden = !owner
+      ownerOnly.hidden = owner
+    },
+    // Öneri uygulanınca alanlar doldurulur, sahip Kaydet ile onaylar
+    apply: (cap, cams) => {
+      if (!owner) return
+      capacity.value = String(cap)
+      maxCameras.value = String(Math.min(cams, cap))
+      if (!cameras.input.checked) cameras.input.checked = true
+      dirty = true
+      syncDisabled()
+      setMsg(msg, () => t('settings.voiceLimits.appliedNote'))
+      focusNode(capacity)
+    }
+  }
 }
 
 // ------------------------------------------------------------------ frekans fotoğrafı
