@@ -49,7 +49,7 @@ Bütün komutlar `desktop/` klasöründe çalıştırılır.
 
 Duman testi varsayılan olarak geliştirme düzenindeki uygulamayı açar. `TELSIZ_UYGULAMA` ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör. `dist/linux-unpacked/telsiz-masaustu` veya `dist/win-unpacked/Telsiz.exe`) test onunla yapılır. Test 4300 ile 4349 arasındaki ilk boş portta bir Telsiz sunucusu başlatır ve uygulamayı boş bir kullanıcı verisi klasörüyle açar.
 
-Test uygulamayı `TELSIZ_TANI_GUNLUGU` ortam değişkeniyle açar. Bu değişken mutlak bir dosya yolu verirse ana süreç açılış adımlarını (tek örnek kilidi, bütünlük denetimi, pencereler, sayfa yüklemeleri, alt süreç çökmeleri) o dosyaya ve stderr'e yazar ve açılışı durduran hatayı engelleyici bir hata kutusu yerine günlükle bildirir (`src/lib/diagnostics.js`). Değişken yokken kullanıcı hatayı her zamanki gibi hata kutusunda görür. Bir test düşerse ana süreç günlüğü, uygulamanın çıktısı, başlatma hatası ve ekran görüntüsü `duman-sonuclar/` altına yazılır. `DEBUG=pw:protocol` ile `DEBUG_FILE` verilirse Playwright protokol günlüğü de o dosyaya yazılır.
+Test uygulamayı `TELSIZ_TANI_GUNLUGU` ortam değişkeniyle açar. Bu değişken mutlak bir dosya yolu verirse ana süreç açılış adımlarını (tek örnek kilidi, bütünlük denetimi, pencereler, sayfa yüklemeleri, alt süreç çökmeleri) o dosyaya ve stderr'e yazar ve açılışı durduran hatayı engelleyici bir hata kutusu yerine günlükle bildirir (`src/lib/diagnostics.js`). Değişken yokken kullanıcı hatayı her zamanki gibi hata kutusunda görür. Test ayrıca `TELSIZ_PLAYWRIGHT=1` verir: Node.js denetleyicisi açıksa uygulama ilk pencereyi Playwright bağlanıp ana süreçte `__playwright_run()` çağrılana kadar açmaz (`src/lib/automation.js`). Playwright paketlenmiş uygulamaya kendi yükleyicisini eklemediği için, bağlanma ilk gezinmenin ortasına denk gelirse (Windows'ta) gezinme olayı Playwright'a ulaşmaz ve başlatma sonsuza dek beklerdi. Çağrı 30 saniye içinde gelmezse uygulama yine açılır. Bir test düşerse ana süreç günlüğü, uygulamanın çıktısı, başlatma hatası ve ekran görüntüsü `duman-sonuclar/` altına yazılır. `DEBUG=pw:protocol` ile `DEBUG_FILE` verilirse Playwright protokol günlüğü de o dosyaya yazılır.
 
 Derleme çıktıları:
 
@@ -66,7 +66,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Sunucu adresi ekranı |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `test/` | Birim testleri |

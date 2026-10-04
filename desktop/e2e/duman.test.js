@@ -304,7 +304,9 @@ function launchOptions (userDataDir, diagFile) {
     args: packaged ? common : [DESKTOP_DIR].concat(common),
     // Linux'ta Playwright varsayılan olarak --no-sandbox ekler, uygulama korumalı alanla denenmelidir
     chromiumSandbox: true,
-    env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '1', [DIAG_ENV]: diagFile }),
+    // TELSIZ_PLAYWRIGHT: ilk pencere Playwright bağlandıktan sonra açılır (src/lib/automation.js),
+    // aksi halde bağlanma ilk gezinmenin ortasına denk gelince başlatma sonsuza dek bekleyebilir
+    env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '1', [DIAG_ENV]: diagFile, TELSIZ_PLAYWRIGHT: '1' }),
     timeout: LAUNCH_TIMEOUT
   }
 }

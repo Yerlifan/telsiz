@@ -48,6 +48,7 @@ const integrity = require('./lib/integrity')
 const strings = require('./lib/strings')
 const settingsStore = require('./lib/settings-store')
 const diagnostics = require('./lib/diagnostics')
+const automation = require('./lib/automation')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
 
@@ -999,6 +1000,11 @@ if (!singleInstance) {
   })
   app.whenReady().then(() => {
     diag.log('ready')
+    // Playwright otomasyonunda ilk pencere Playwright bağlandıktan sonra açılır (src/lib/automation.js)
+    return automation.waitForAutomation({ env: process.env, inspectorUrl: () => require('node:inspector').url(), target: globalThis })
+  }).then((gate) => {
+    if (gate !== 'off') diag.log('automation', { gate })
+    if (gate === 'timeout') logError('automation', new Error('__playwright_run was not called, starting anyway'))
     start()
   }).catch((err) => {
     logError('start', err)

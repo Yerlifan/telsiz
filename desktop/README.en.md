@@ -49,7 +49,7 @@ All commands run in the `desktop/` folder.
 
 By default the smoke test opens the app in development mode. If the `TELSIZ_UYGULAMA` environment variable points to a packaged executable (for example `dist/linux-unpacked/telsiz-masaustu` or `dist/win-unpacked/Telsiz.exe`), the test uses it. The test starts a Telsiz server on the first free port between 4300 and 4349 and opens the app with an empty user data folder.
 
-The test opens the app with the `TELSIZ_TANI_GUNLUGU` environment variable. When it holds an absolute file path, the main process writes its startup steps (single instance lock, integrity check, windows, page loads, child process crashes) to that file and to stderr, and reports an error that stops the startup in the log instead of a blocking error box (`src/lib/diagnostics.js`). Without the variable the user sees the error in an error box as usual. When a test fails, the main process log, the app output, the launch error and a screenshot are written under `duman-sonuclar/`. With `DEBUG=pw:protocol` and `DEBUG_FILE`, Playwright also writes its protocol log to that file.
+The test opens the app with the `TELSIZ_TANI_GUNLUGU` environment variable. When it holds an absolute file path, the main process writes its startup steps (single instance lock, integrity check, windows, page loads, child process crashes) to that file and to stderr, and reports an error that stops the startup in the log instead of a blocking error box (`src/lib/diagnostics.js`). Without the variable the user sees the error in an error box as usual. The test also sets `TELSIZ_PLAYWRIGHT=1`: when the Node.js inspector is active, the app does not open its first window until Playwright has connected and called `__playwright_run()` in the main process (`src/lib/automation.js`). Playwright does not inject its own loader into a packaged app, so when the connection landed in the middle of the first navigation (on Windows) the navigation event never reached Playwright and the launch waited forever. If the call does not arrive within 30 seconds the app opens anyway. When a test fails, the main process log, the app output, the launch error and a screenshot are written under `duman-sonuclar/`. With `DEBUG=pw:protocol` and `DEBUG_FILE`, Playwright also writes its protocol log to that file.
 
 Build outputs:
 
@@ -66,7 +66,7 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Server address screen |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log |
+| `src/lib/` | Pure modules independent of Electron: address validation, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `test/` | Unit tests |
