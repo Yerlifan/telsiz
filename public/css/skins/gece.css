@@ -14,10 +14,6 @@
   background-color: var(--console);
 }
 
-:root[data-skin="gece"] .radio .voice-panel {
-  border-top: 1px solid var(--line-strong);
-}
-
 /* Bölüm etiketleri: gösterge yazısı */
 :root[data-skin="gece"] .section-title,
 :root[data-skin="gece"] .group-title,
@@ -168,7 +164,7 @@
 :root[data-skin="gece"] .message-list {
   background-image: linear-gradient(var(--line-strong), var(--line-strong));
   background-repeat: repeat-y;
-  background-position: 4.5rem 0;
+  background-position: 4rem 0;
   background-size: 1px 100%;
 }
 
@@ -180,7 +176,7 @@
   content: "";
   position: absolute;
   top: 0.85rem;
-  left: 4.5rem;
+  left: 4rem;
   width: 0.5rem;
   height: 0.5rem;
   margin-left: -0.25rem;

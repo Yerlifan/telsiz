@@ -1,10 +1,1033 @@
 /*
-  Frekans: telsiz kartı (Ek K, KONSEPT 6.6). Sahibi: telsiz kartı bileşeni.
+  Frekans: telsiz kartı ve avatar menüsü (Ek K, KONSEPT 6.6 ve 6.8). Sahibi: telsiz kartı bileşeni.
   Kapsam: aside#radio[data-state="off|joining|on"] içindeki başlık satırı (.radio-head, #radio-state),
-  ekran (.radio-screen: oda adı, kadro, konuşma satırı), ses odaları listesi (#voice-channels), ses paneli
-  (#voice-panel), Bas konuş (#ptt-button), mikrofon (#btn-mute), sağırlaştırma (#btn-deafen), ayrılma
-  (#voice-leave) ve ekran paylaşımı düğmesi için #radio-row, kişi ses ayarı katmanı (#peer-popover),
-  Telsiz DJ kadro öğesi ve DJ kartı (#dj, 23-dj.js). Kartın kabı ve kesme noktaları frekans.css içindedir.
+  ekran (.radio-screen: kapalıyken ses odaları ve Katıl, bağlıyken oda adı, kadro .crew ve konuşma
+  satırı), hata satırı, ipucu, ses paneli (#voice-panel.radio-panel), Bas konuş (#ptt-button.radio-ptt),
+  ses etkinliği seviye çubuğu (#radio-vad), düğme sırası (#radio-row: Mikrofon, Sağırlaştır, Ekran,
+  Ayrıl), kişi ses ayarı katmanı (#peer-popover) ve avatar menüsü (#status-menu.avatar-menu).
+  Kartın kabı frekans.css bölüm 6'dadır; bu dosya frekans.css'ten sonra yüklendiği için kabın
+  ayrıntılı görünümünü ve kesme noktalarındaki düzenini burada ezer (.radio öneki).
   Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
   aspect-ratio ve inset kullanılmaz.
 */
+
+/* =========================================================
+   1. Gövde, anten, başlık satırı
+   ========================================================= */
+
+.radio {
+  box-shadow: var(--shadow-pop);
+}
+
+/* Anten (telefonda gizli) */
+.radio::before {
+  content: "";
+  position: absolute;
+  top: -1.125rem;
+  right: 2.25rem;
+  width: 0.75rem;
+  height: 1.125rem;
+  border-radius: 0.375rem 0.375rem 0 0;
+  background-color: var(--edge);
+}
+
+.radio .radio-head {
+  margin-bottom: 0.5rem;
+}
+
+.radio .radio-label {
+  color: var(--text-3);
+}
+
+.radio[data-state="on"] .radio-led {
+  box-shadow: 0 0 6px var(--halo-1);
+}
+
+.radio .radio-grille {
+  width: 3.5rem;
+  border-radius: 3px;
+  background-image: repeating-linear-gradient(90deg, var(--line-strong) 0, var(--line-strong) 3px, transparent 3px, transparent 6px);
+}
+
+/* =========================================================
+   2. Ekran: kapalıyken ses odaları, bağlıyken oda, kadro ve konuşma satırı
+   ========================================================= */
+
+.radio .radio-screen {
+  padding: 0.625rem 0.875rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--screen-bg);
+}
+
+.radio .radio-pick {
+  margin: 0 0 0.25rem;
+  color: var(--text-2);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+}
+
+.radio .radio-support {
+  margin: 0.25rem 0 0.5rem;
+  color: var(--warn);
+  font-size: var(--text-sm);
+}
+
+.radio .radio-rooms {
+  max-height: 14rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.radio-channel {
+  display: flex;
+  align-items: center;
+  min-height: 3.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.radio-channel:first-child {
+  border-top: 0;
+}
+
+.radio-channel-icon {
+  flex: none;
+  margin-right: 0.625rem;
+  color: var(--text-3);
+}
+
+.radio-channel.is-busy .radio-channel-icon {
+  color: var(--live);
+}
+
+.radio-channel-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0.5rem;
+  line-height: 1.3;
+}
+
+.radio-channel-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-channel-sub {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.radio .radio-join {
+  flex: none;
+  min-height: var(--target);
+  min-width: 4.5rem;
+}
+
+.radio-screen-top {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 0.625rem;
+}
+
+.radio-room {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-xl);
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-room-meta {
+  flex: none;
+  margin-left: 0.5rem;
+  color: var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.radio[data-state="joining"] .radio-room-meta {
+  color: var(--text-2);
+}
+
+/* Kadro: 44 px yumuşak kare avatarlar ve adlar */
+.crew {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  max-height: 12rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.crew-item {
+  flex: none;
+  margin-right: 0.25rem;
+}
+
+.crew-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 4.25rem;
+  padding: 0.3125rem 0 0.25rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text-2);
+}
+
+button.crew-button {
+  cursor: pointer;
+}
+
+button.crew-button:hover {
+  background-color: var(--surface-hover);
+}
+
+.crew-avatar.avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.0625rem;
+  --status-ring: var(--screen-bg);
+}
+
+.crew-name {
+  max-width: 100%;
+  margin-top: 0.375rem;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Konuşanın halesi: şekli izleyen çerçeve ve parıltı */
+.crew-item.is-speaking .crew-avatar {
+  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 0 5px var(--live), 0 0 18px 4px var(--halo-1);
+}
+
+.crew-item.is-speaking .crew-name {
+  color: var(--live);
+  font-weight: 700;
+}
+
+/* Köşe işaretleri: susturma ve sağırlaştırma sağ altta, ekran paylaşımı sağ üstte */
+.crew-badge {
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.25rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid var(--screen-bg);
+  border-radius: var(--dot-radius);
+  background-color: var(--surface-3);
+  color: var(--danger);
+}
+
+.crew-badge .icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  stroke-width: 2.25;
+}
+
+.crew-badge.is-error {
+  color: var(--warn);
+}
+
+.crew-badge.is-screen {
+  top: -0.25rem;
+  bottom: auto;
+  color: var(--live);
+}
+
+/* Konuşma satırı: dalga çubukları, kim konuşuyor, sağda mod veya yayın bilgisi */
+.radio-talk {
+  display: flex;
+  align-items: center;
+  margin: 0.375rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.radio-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  flex: none;
+  height: 1rem;
+  margin-right: 0.5rem;
+}
+
+.radio-bars i {
+  width: 3px;
+  margin-right: 2px;
+  border-radius: 2px;
+  background-color: var(--live);
+  -webkit-animation: radio-bar 0.9s ease-in-out infinite alternate;
+  animation: radio-bar 0.9s ease-in-out infinite alternate;
+}
+
+.radio-bars i:nth-child(1) { height: 40%; }
+.radio-bars i:nth-child(2) { height: 90%; -webkit-animation-delay: -0.3s; animation-delay: -0.3s; }
+.radio-bars i:nth-child(3) { height: 60%; -webkit-animation-delay: -0.6s; animation-delay: -0.6s; }
+.radio-bars i:nth-child(4) { height: 100%; -webkit-animation-delay: -0.15s; animation-delay: -0.15s; }
+.radio-bars i:nth-child(5) { height: 35%; -webkit-animation-delay: -0.45s; animation-delay: -0.45s; }
+
+@-webkit-keyframes radio-bar {
+  0% { -webkit-transform: scaleY(0.45); transform: scaleY(0.45); }
+  100% { -webkit-transform: scaleY(1); transform: scaleY(1); }
+}
+
+@keyframes radio-bar {
+  0% { -webkit-transform: scaleY(0.45); transform: scaleY(0.45); }
+  100% { -webkit-transform: scaleY(1); transform: scaleY(1); }
+}
+
+.radio-bars i {
+  -webkit-transform-origin: 50% 100%;
+  transform-origin: 50% 100%;
+}
+
+.radio-talk.is-quiet {
+  color: var(--text-3);
+}
+
+.radio-talk.is-quiet .radio-bars i {
+  height: 20%;
+  background-color: var(--line-strong);
+  -webkit-animation: none;
+  animation: none;
+}
+
+.radio-talk-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-mode {
+  flex: none;
+  margin-left: 0.5rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* =========================================================
+   3. Hata, ipucu, ses kilidi
+   ========================================================= */
+
+.radio-error {
+  margin-top: 0.625rem;
+}
+
+.radio-error-text {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.radio .radio-retry {
+  min-height: var(--target);
+  margin-top: 0.375rem;
+}
+
+.radio-hint {
+  margin: 0.625rem 0.25rem 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.radio-hint .kbd {
+  min-width: 0;
+  padding: 0.0625rem 0.4375rem;
+  font-size: var(--text-xs);
+}
+
+.radio .radio-panel {
+  margin-top: 0.75rem;
+  padding: 0;
+  border: 0;
+}
+
+.radio .radio-unlock {
+  min-height: var(--target);
+  margin: 0 0 0.875rem;
+}
+
+/* =========================================================
+   4. Bas konuş: dolgulu büyük düğme, kubbe, ad, ipucu ve tuş kapağı
+   ========================================================= */
+
+.radio .radio-ptt {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 4rem;
+  margin: 0 0 0.875rem;
+  padding: 0.375rem 1rem 0.375rem 0.375rem;
+  border: 0;
+  border-radius: 1.25rem;
+  background-color: var(--accent-fill-a);
+  background-image: linear-gradient(135deg, var(--accent-fill-a), var(--accent-fill-b));
+  color: var(--on-accent-fill);
+  box-shadow: 0 4px 0 var(--accent-lip), 0 10px 24px var(--halo-2);
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  -webkit-transition: -webkit-transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.radio .radio-ptt.is-active {
+  -webkit-transform: translateY(3px);
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--accent-lip), 0 0 0 4px var(--live), 0 0 24px var(--halo-1);
+}
+
+.radio-ptt-dome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-right: 0.875rem;
+  border-radius: 50%;
+  background-color: var(--surface-1);
+  color: var(--accent-text);
+}
+
+.radio-ptt.is-active .radio-ptt-dome {
+  color: var(--live);
+}
+
+.radio-ptt-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.radio-ptt-label {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-ptt-hint {
+  margin-top: 0.125rem;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.9;
+}
+
+.radio-ptt-key {
+  flex: none;
+  max-width: 6rem;
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  overflow: hidden;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-small);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-ptt-key:empty {
+  display: none;
+}
+
+/* Ses etkinliği modu: Bas konuş yerinde seviye çubuğu */
+.radio-vad {
+  display: flex;
+  align-items: center;
+  min-height: 4rem;
+  margin: 0 0 0.875rem;
+  padding: 0.375rem 1rem 0.375rem 0.375rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: 1.25rem;
+  background-color: var(--surface-3);
+}
+
+.radio-vad-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-right: 0.875rem;
+  border-radius: 50%;
+  background-color: var(--surface-1);
+  color: var(--text-2);
+}
+
+.radio-vad.is-open .radio-vad-icon {
+  background-color: var(--live-bg);
+  color: var(--live);
+  box-shadow: 0 0 0 2px var(--live);
+}
+
+.radio-vad-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.radio-vad-label {
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-md);
+}
+
+.radio-vad-state {
+  margin-top: 0.125rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.radio-vad-meter {
+  flex: none;
+  width: 4.5rem;
+  height: 0.5rem;
+  margin-left: 0.5rem;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background-color: var(--screen-bg);
+}
+
+.radio-vad-bar {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-color: var(--text-3);
+  -webkit-transition: width 0.1s linear;
+  transition: width 0.1s linear;
+}
+
+.radio-vad.is-open .radio-vad-bar {
+  background-color: var(--live);
+}
+
+/* =========================================================
+   5. Düğme sırası: Mikrofon, Sağırlaştır, Ekran, Ayrıl
+   ========================================================= */
+
+.radio .radio-row {
+  display: flex;
+  flex-wrap: nowrap;
+  margin-top: 0;
+}
+
+.radio .radio-button {
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 3.5rem;
+  margin: 0 0.375rem 0 0;
+  padding: 0.25rem 0.1875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-3);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  line-height: 1.2;
+}
+
+.radio .radio-button:last-child {
+  margin-right: 0;
+}
+
+.radio .radio-button:hover {
+  background-color: var(--surface-hover);
+}
+
+.radio .radio-button .icon {
+  flex: none;
+  margin: 0 0 0.25rem;
+}
+
+.radio-button-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.radio-button-label,
+.radio-button-state {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.radio-button-state {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.radio-button-state:empty {
+  display: none;
+}
+
+/* Mikrofon kapalı veya sağır */
+.radio .radio-button.is-off,
+.radio .radio-button[aria-pressed="true"] {
+  border-color: var(--danger);
+  background-color: var(--surface-3);
+  color: var(--danger);
+}
+
+.radio .radio-button.is-off .radio-button-state {
+  color: var(--danger);
+}
+
+.radio .radio-button.is-danger {
+  border-color: var(--danger);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.radio .radio-button.is-danger .radio-button-state {
+  color: var(--danger);
+}
+
+.radio .radio-button.is-live {
+  border-color: var(--live);
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+.radio .radio-button.is-live .radio-button-state {
+  color: var(--live);
+}
+
+/* Paylaşamayan cihazda Ekran: görünür, odaklanabilir, devre dışı */
+.radio .radio-button.is-disabled {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.radio .radio-button.is-disabled:hover {
+  background-color: transparent;
+}
+
+.radio-note {
+  margin: 0.5rem 0.25rem 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+/* =========================================================
+   6. Kişi ses ayarı katmanı (#peer-popover, kadrodan açılır)
+   ========================================================= */
+
+#peer-popover .popover-title {
+  margin: 0 0 0.5rem;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+}
+
+#peer-popover .button {
+  min-height: var(--target);
+  margin-top: 0.75rem;
+}
+
+/* =========================================================
+   7. Avatar menüsü (#status-menu.avatar-menu, KONSEPT 6.8)
+   ========================================================= */
+
+.avatar-menu.popup-menu {
+  width: 20rem;
+  max-width: calc(100% - 1rem);
+  max-height: calc(100% - var(--top-h) - 1rem);
+  padding: 0.5rem;
+  overflow-y: auto;
+}
+
+.avatar-menu .menu-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.375rem;
+  padding: 0.625rem 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.avatar-menu .menu-head .avatar {
+  margin-right: 0.875rem;
+  --status-ring: var(--surface-float);
+}
+
+.avatar-menu .menu-head-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.avatar-menu .menu-head-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.avatar-menu .menu-head-sub {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.avatar-menu .menu-item {
+  padding: 0 0.625rem;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+}
+
+.avatar-menu .menu-item > .icon {
+  flex: none;
+  margin-right: 0.75rem;
+  color: var(--text-2);
+}
+
+.avatar-menu .menu-item[aria-checked="true"] {
+  background-color: var(--surface-hover);
+}
+
+.avatar-menu .status-option {
+  min-height: var(--target);
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.avatar-menu .status-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: 0 0.875rem 0 0.25rem;
+}
+
+.avatar-menu .status-option-text {
+  flex: 1 1 auto;
+}
+
+.avatar-menu .status-option-label {
+  font-weight: var(--weight-strong);
+}
+
+.avatar-menu .status-option-hint {
+  font-weight: 400;
+}
+
+.avatar-menu .menu-item > .avatar-menu-check {
+  margin: 0 0 0 0.5rem;
+  color: var(--accent-text);
+}
+
+.avatar-menu .menu-entry-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.avatar-menu .menu-entry-end {
+  flex: none;
+  margin-left: 0.75rem;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.avatar-menu .menu-separator {
+  margin: 0.375rem 0;
+}
+
+.avatar-menu .menu-danger,
+.avatar-menu .menu-danger > .icon {
+  color: var(--danger);
+}
+
+/* =========================================================
+   8. Kesme noktaları
+   ========================================================= */
+
+/* Orta (760 ile 999 px): kart 17rem, dört düğme ikişerli iki satır ve etiketli, ipuçları gizli */
+@media (min-width: 760px) and (max-width: 999px) {
+  .radio .radio-row {
+    flex-wrap: wrap;
+  }
+
+  .radio .radio-button {
+    flex: 0 0 48.5%;
+    flex-direction: row;
+    min-height: var(--target);
+    margin: 0 0 0.375rem;
+  }
+
+  .radio .radio-button:nth-child(odd) {
+    margin-right: 3%;
+  }
+
+  .radio .radio-button .icon {
+    margin: 0 0.375rem 0 0;
+  }
+
+  .radio .radio-button-state,
+  .radio .radio-ptt-hint,
+  .radio .radio-mode,
+  .radio .radio-vad-state {
+    display: none;
+  }
+
+  .radio .crew-button {
+    width: 3.625rem;
+  }
+}
+
+/* Dar (759 px ve altı, telefon): kart ekranın altında, üst satırda oda ve kadro, alt satırda Bas
+   konuş ve dört simge düğme. Kapalıyken yalnızca "Bir ses odası seçin" satırı (odalar bantta ve Tümü). */
+@media (max-width: 759px) {
+  .radio::before,
+  .radio .radio-head,
+  .radio .crew-name,
+  .radio .radio-talk,
+  .radio .radio-hint,
+  .radio .radio-button-text,
+  .radio .radio-ptt-hint,
+  .radio .radio-ptt-key {
+    display: none;
+  }
+
+  .radio .radio-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .radio .radio-screen {
+    width: 100%;
+    flex: 1 1 100%;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .radio[data-state="on"] .radio-screen,
+  .radio[data-state="joining"] .radio-screen {
+    display: block;
+  }
+
+  .radio[data-state="off"] .radio-rooms {
+    display: none;
+  }
+
+  .radio .radio-pick {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .radio-tuned {
+    display: flex;
+    align-items: center;
+  }
+
+  .radio-screen-top {
+    flex-direction: column;
+    align-items: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0 0.5rem 0 0;
+  }
+
+  .radio-room {
+    max-width: 100%;
+    font-size: var(--text-md);
+  }
+
+  .radio-room-meta {
+    margin: 0.125rem 0 0;
+  }
+
+  .crew {
+    flex: none;
+    flex-wrap: nowrap;
+    max-width: 60%;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .crew-item {
+    margin-right: -0.375rem;
+  }
+
+  .crew-item:last-child {
+    margin-right: 0;
+  }
+
+  .radio .crew-button {
+    justify-content: center;
+    width: var(--target);
+    height: var(--target);
+    padding: 0;
+  }
+
+  .crew-avatar.avatar {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid var(--screen-bg);
+    font-size: var(--text-xs);
+  }
+
+  .crew-item.is-speaking .crew-avatar {
+    box-shadow: 0 0 0 2px var(--live), 0 0 10px 2px var(--halo-1);
+  }
+
+  .crew-badge {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .radio .radio-error {
+    flex: 1 1 100%;
+    margin: 0.375rem 0 0;
+  }
+
+  .radio .radio-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: 1 1 100%;
+    margin-top: 0.5rem;
+  }
+
+  .radio .radio-unlock {
+    flex: 1 1 auto;
+    width: auto;
+    margin: 0 0.5rem 0 0;
+  }
+
+  .radio .radio-ptt,
+  .radio .radio-vad {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 3.5rem;
+    margin: 0 0.5rem 0 0;
+    padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+    border-radius: 1rem;
+  }
+
+  .radio-ptt-dome,
+  .radio-vad-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    margin-right: 0.5rem;
+  }
+
+  .radio-ptt-label,
+  .radio-vad-label {
+    font-size: var(--text-sm);
+  }
+
+  .radio-vad-state {
+    display: none;
+  }
+
+  .radio-vad-meter {
+    width: 2.5rem;
+  }
+
+  .radio .radio-row {
+    flex: none;
+    margin-left: auto;
+  }
+
+  .radio .radio-button {
+    flex: none;
+    width: var(--target);
+    min-height: 3.5rem;
+    margin: 0 0.25rem 0 0;
+    padding: 0;
+  }
+
+  .radio .radio-button:nth-child(odd) {
+    margin-right: 0.25rem;
+  }
+
+  .radio .radio-button:last-child {
+    margin-right: 0;
+  }
+
+  .radio .radio-button .icon {
+    margin: 0;
+  }
+
+  .radio-note {
+    flex: 1 1 100%;
+  }
+
+  .avatar-menu.popup-menu {
+    width: calc(100% - 1rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radio-bars i {
+    -webkit-animation: none;
+    animation: none;
+  }
+
+  .radio .radio-ptt,
+  .radio-vad-bar {
+    -webkit-transition: none;
+    transition: none;
+  }
+}

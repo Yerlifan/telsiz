@@ -683,20 +683,17 @@
 
 /* Konuşan kişi: varsayılan halka, temalar kendi halesini çizer */
 .avatar.is-speaking,
-.is-speaking > .avatar,
-.is-speaking .voice-member-inner > .avatar {
+.is-speaking > .avatar {
   box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live);
 }
 
 .avatar.has-face.is-speaking,
-.is-speaking > .avatar.has-face,
-.is-speaking .voice-member-inner > .avatar.has-face {
+.is-speaking > .avatar.has-face {
   box-shadow: none;
 }
 
 .avatar.has-face.is-speaking .avatar-face,
-.is-speaking > .avatar.has-face .avatar-face,
-.is-speaking .voice-member-inner > .avatar.has-face .avatar-face {
+.is-speaking > .avatar.has-face .avatar-face {
   box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live);
 }
 
@@ -721,7 +718,6 @@
 
 .channel-list,
 .member-list,
-.voice-members,
 .plain-list,
 .list {
   list-style: none;
@@ -1328,228 +1324,6 @@
   font-weight: 400;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.voice-row {
-  margin-bottom: 0.4rem;
-}
-
-.voice-count {
-  flex: none;
-  margin-left: 0.5rem;
-  color: var(--text-3);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.voice-channel.is-joined {
-  color: var(--text);
-}
-
-.voice-channel.is-joined .channel-icon {
-  color: var(--live);
-}
-
-.voice-members {
-  padding: 0.1rem 0 0.35rem 1rem;
-}
-
-.voice-member-inner {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: var(--target);
-  padding: 0.25rem 0.5rem;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-2);
-  text-align: left;
-}
-
-button.voice-member-inner {
-  cursor: pointer;
-}
-
-button.voice-member-inner:hover {
-  background-color: var(--surface-hover);
-  color: var(--text);
-}
-
-.voice-member-inner > .avatar {
-  margin-right: 0.6rem;
-  --status-ring: var(--surface-1);
-}
-
-.voice-member.is-speaking .voice-member-inner {
-  background-color: var(--speaking-bg);
-}
-
-.voice-member.is-speaking .voice-member-name {
-  color: var(--text);
-}
-
-.voice-member-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.9375rem;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.voice-flag {
-  display: inline-flex;
-  flex: none;
-  margin-left: 0.3rem;
-  color: var(--danger);
-}
-
-.voice-flag .icon {
-  width: 1.05rem;
-  height: 1.05rem;
-}
-
-/* Ses paneli */
-.voice-panel {
-  flex: none;
-  padding: 0.6rem 0.5rem 0.6rem 0.75rem;
-  border-top: var(--border-width) solid var(--line);
-}
-
-.voice-panel-row {
-  display: flex;
-  align-items: center;
-}
-
-.voice-signal {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  margin-right: 0.6rem;
-  border-radius: var(--radius-small);
-  background-color: var(--live-bg);
-  color: var(--live);
-}
-
-.voice-panel-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.voice-panel-status {
-  overflow: hidden;
-  color: var(--warn);
-  font-size: 0.9rem;
-  font-weight: 700;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.voice-panel-status.is-connected {
-  color: var(--live);
-}
-
-.voice-panel-channel {
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: 0.85rem;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.voice-error {
-  margin: 0.4rem 0 0;
-  color: var(--danger);
-  font-size: 0.85rem;
-}
-
-.voice-panel .button-wide {
-  margin-top: 0.5rem;
-}
-
-/* Bas konuş: tüm temalarda aynı işaretleme (kubbe, ad, ipucu, tuş), biçim temadan gelir */
-.ptt-button {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 3.75rem;
-  margin-top: 0.6rem;
-  padding: 0.5rem 0.6rem;
-  border: var(--border-width) solid var(--line-strong);
-  border-radius: var(--radius-card);
-  background-color: var(--surface-3);
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: none;
-}
-
-.ptt-dome {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
-  background-color: var(--accent);
-  color: var(--on-accent);
-}
-
-.ptt-text {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0 0.6rem;
-}
-
-.ptt-label {
-  overflow: hidden;
-  font-family: var(--font-display);
-  font-weight: var(--weight-display);
-  font-size: 0.9375rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.ptt-hint {
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: 0.75rem;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.ptt-key {
-  flex: none;
-  max-width: 6rem;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.ptt-key:empty {
-  display: none;
-}
-
-.ptt-button.is-active {
-  border-color: var(--live);
-  background-color: var(--live-bg);
-}
-
-.ptt-button.is-active .ptt-dome {
-  background-color: var(--live);
 }
 
 /* Üst çubuktaki avatar çipinin adı ve durum satırı (#me-name, #me-status) */

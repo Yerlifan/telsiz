@@ -17,7 +17,9 @@ const socialState = {
   uiBound: false,
   expanded: new Set(),
   incomingSeen: null,
-  menuUserId: null
+  menuUserId: null,
+  // Sol bilgi sütunu sayfada görünüyor mu (Arkadaş ekle formunun yeri, onSocialResize)
+  inline: null
 }
 
 function emptyPrivate () {
@@ -176,6 +178,7 @@ function socialAfterKeyring () {
 function socialRender () {
   renderHomeEntry()
   renderDmList()
+  renderPersonalCards()
   if (socialState.view === 'home') renderHomeView()
   if (socialState.view === 'dm') dmRefreshChrome()
 }
@@ -183,6 +186,8 @@ function socialRender () {
 function bindSocialUi () {
   if (socialState.uiBound) return
   socialState.uiBound = true
+  socialState.inline = homeAddInline()
+  window.addEventListener('resize', onSocialResize)
   // Dil değişince (html lang) bu modüllerin çizdiği bölgeler yeniden üretilir
   if (typeof window.MutationObserver === 'function') {
     try {
@@ -234,6 +239,7 @@ function setConversationMode (mode) {
   if (el.composer) el.composer.hidden = mode === 'home'
   if (el.keyState && mode !== 'channel') el.keyState.hidden = true
   if (el.e2ePill && mode !== 'channel') el.e2ePill.hidden = true
+  renderPersonalCards()
 }
 
 // Kanal yüklenirken (kanal listesinden seçildiğinde) kanal moduna dönülür
@@ -246,7 +252,10 @@ function socialOnChannelLoad (channelId) {
   }
 }
 
-// Ana sayfa (arkadaşlar görünümü)
+// Arkadaşlar istasyonu (#home-view, KONSEPT 6.3 ve 3.2): başlık ("Arkadaşlar", "Kişisel istasyon · yalnızca siz
+// görürsünüz"), sekmeler (Çevrimiçi, Tümü, Bekleyen, Engellenenler, sol sütun gizliyken Arkadaş ekle) ve listeler.
+// Geniş ekranda (1280 px ve üstü) Arkadaş ekle formu ve gönderilen istekler sol sütundaki kartlardadır
+// (renderPersonalCards), Özel istasyonunda sol sütunda gelen arkadaşlık istekleri kartı durur.
 
 function showHome (tab, opts) {
   if (!state.inApp) return
@@ -254,6 +263,7 @@ function showHome (tab, opts) {
   closeDrawers()
   cancelEdit()
   closeMessageMenu()
+  const wantAdd = tab === 'add'
   if (tab && HOME_TABS.indexOf(tab) !== -1) socialState.homeTab = tab
   if (socialState.view !== 'home') {
     state.loadGen += 1
@@ -270,6 +280,12 @@ function showHome (tab, opts) {
   renderChannels()
   renderDmList()
   renderHomeView()
+  // Geniş ekranda Arkadaş ekle sekmesi yoktur, form sol sütundaki karttadır
+  if (wantAdd && homeAddInline()) {
+    const input = byId('friend-add-name')
+    if (input) focusNode(input)
+    return
+  }
   if (options.focus) {
     const selected = byId('home-tab-' + socialState.homeTab)
     if (selected) focusNode(selected)
@@ -282,11 +298,26 @@ function renderHomeEntry () {
   renderBand()
 }
 
+// Sol bilgi sütunu sayfada görünür mü (1280 px ve üstü): Arkadaş ekle formu orada durur
+function homeAddInline () {
+  return typeof isInfoInline === 'function' ? isInfoInline() : window.innerWidth >= 1280
+}
+
+// Görünen sekmeler: sol sütun görünürken Arkadaş ekle sekmesi yoktur
+function homeTabs () {
+  return homeAddInline() ? HOME_TABS.filter((name) => name !== 'add') : HOME_TABS.slice()
+}
+
+function currentHomeTab () {
+  return homeTabs().indexOf(socialState.homeTab) !== -1 ? socialState.homeTab : 'online'
+}
+
 function homeLists () {
   const p = priv()
   const friends = p.friends.slice().sort((a, b) => userDisplayName(a).localeCompare(userDisplayName(b), window.I18N.locale()))
   return {
     online: friends.filter((id) => userStatus(id) !== 'offline'),
+    offline: friends.filter((id) => userStatus(id) === 'offline'),
     all: friends,
     incoming: p.incoming.slice(),
     outgoing: p.outgoing.slice(),
@@ -294,53 +325,71 @@ function homeLists () {
   }
 }
 
+function tabCount (text, kind) {
+  const badge = h('span', 'station-mark home-tab-count ' + (kind === 'mention' ? 'mark-mention' : 'mark-unread'), text)
+  badge.setAttribute('aria-hidden', 'true')
+  return badge
+}
+
 function renderHomeView () {
   const root = byId('home-view')
   if (!root || socialState.view !== 'home') return
   const focusKey = activeFocusKey(root)
-  const keepInput = document.activeElement && document.activeElement.id === 'friend-add-name'
+  const keepInput = document.activeElement && document.activeElement.id === 'friend-add-name' && root.contains(document.activeElement)
+  const scrollBox = root.querySelector('.home-page')
+  const scroll = scrollBox ? scrollBox.scrollTop : 0
   clear(root)
+  const tab = currentHomeTab()
   const lists = homeLists()
-  const head = h('div', 'home-view-head')
-  const title = h('h2', 'home-view-title')
-  title.appendChild(icon('i-users'))
-  title.appendChild(h('span', '', t('social.friends')))
-  head.appendChild(title)
+  const head = h('header', 'home-view-head')
+  const titles = h('div', 'home-view-titles')
+  const title = h('h2', 'home-view-title', t('social.friends'))
+  title.id = 'home-view-title'
+  titles.appendChild(title)
+  titles.appendChild(h('p', 'home-view-sub', t('people.friendsSub')))
+  head.appendChild(titles)
+  root.appendChild(head)
+  const page = h('div', 'home-page')
   const tabs = h('div', 'tabs home-tabs')
   tabs.setAttribute('role', 'tablist')
   tabs.setAttribute('aria-label', t('social.tabsLabel'))
-  HOME_TABS.forEach((name) => {
-    const tab = h('button', 'tab home-tab' + (name === 'add' ? ' home-tab-add' : ''))
-    tab.type = 'button'
-    tab.id = 'home-tab-' + name
-    tab.setAttribute('role', 'tab')
-    tab.setAttribute('aria-controls', 'home-panel')
-    tab.setAttribute('data-tab', name)
-    tab.setAttribute('data-focus-key', 'home-tab-' + name)
-    const selected = name === socialState.homeTab
-    tab.setAttribute('aria-selected', selected ? 'true' : 'false')
-    tab.tabIndex = selected ? 0 : -1
-    tab.appendChild(h('span', 'home-tab-label', t('social.tab.' + name)))
-    if (name === 'pending' && lists.incoming.length) {
-      const count = h('span', 'unread-badge home-tab-count', lists.incoming.length > 99 ? '99+' : String(lists.incoming.length))
-      tab.appendChild(count)
-      tab.setAttribute('aria-label', t('social.pendingTabLabel', { count: lists.incoming.length }))
+  homeTabs().forEach((name) => {
+    const b = h('button', 'tab home-tab' + (name === 'add' ? ' home-tab-add' : ''))
+    b.type = 'button'
+    b.id = 'home-tab-' + name
+    b.setAttribute('role', 'tab')
+    b.setAttribute('aria-controls', 'home-panel')
+    b.setAttribute('data-tab', name)
+    b.setAttribute('data-focus-key', 'home-tab-' + name)
+    const selected = name === tab
+    b.setAttribute('aria-selected', selected ? 'true' : 'false')
+    b.tabIndex = selected ? 0 : -1
+    if (name === 'add') b.appendChild(icon('i-user-plus'))
+    b.appendChild(h('span', 'home-tab-label', t('social.tab.' + name)))
+    if (name === 'online' && lists.online.length) {
+      b.appendChild(tabCount(countLabel(lists.online.length), 'unread'))
+      b.setAttribute('aria-label', t('people.onlineTabLabel', { count: lists.online.length }))
     }
-    tab.addEventListener('click', () => {
+    if (name === 'pending' && lists.incoming.length) {
+      b.appendChild(tabCount(countLabel(lists.incoming.length), 'mention'))
+      b.setAttribute('aria-label', t('social.pendingTabLabel', { count: lists.incoming.length }))
+    }
+    b.addEventListener('click', () => {
       selectHomeTab(name, false)
     })
-    tab.addEventListener('keydown', onHomeTabKey)
-    tabs.appendChild(tab)
+    b.addEventListener('keydown', onHomeTabKey)
+    tabs.appendChild(b)
   })
-  head.appendChild(tabs)
-  root.appendChild(head)
+  page.appendChild(tabs)
   const panel = h('div', 'home-panel')
   panel.id = 'home-panel'
   panel.setAttribute('role', 'tabpanel')
-  panel.setAttribute('aria-labelledby', 'home-tab-' + socialState.homeTab)
-  panel.setAttribute('data-tab', socialState.homeTab)
-  fillHomePanel(panel, socialState.homeTab, lists)
-  root.appendChild(panel)
+  panel.setAttribute('aria-labelledby', 'home-tab-' + tab)
+  panel.setAttribute('data-tab', tab)
+  fillHomePanel(panel, tab, lists)
+  page.appendChild(panel)
+  root.appendChild(page)
+  page.scrollTop = scroll
   if (keepInput) {
     const input = byId('friend-add-name')
     if (input) focusNode(input)
@@ -349,8 +398,12 @@ function renderHomeView () {
   }
 }
 
+function countLabel (n) {
+  return n > 99 ? '99+' : String(n)
+}
+
 function selectHomeTab (name, focusTab) {
-  if (HOME_TABS.indexOf(name) === -1) return
+  if (homeTabs().indexOf(name) === -1) return
   socialState.homeTab = name
   renderHomeView()
   if (focusTab) {
@@ -363,20 +416,21 @@ function selectHomeTab (name, focusTab) {
 }
 
 function onHomeTabKey (e) {
-  const i = HOME_TABS.indexOf(socialState.homeTab)
+  const tabs = homeTabs()
+  const i = tabs.indexOf(currentHomeTab())
   let next = -1
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % HOME_TABS.length
-  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + HOME_TABS.length) % HOME_TABS.length
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % tabs.length
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + tabs.length) % tabs.length
   else if (e.key === 'Home') next = 0
-  else if (e.key === 'End') next = HOME_TABS.length - 1
+  else if (e.key === 'End') next = tabs.length - 1
   if (next === -1) return
   e.preventDefault()
-  selectHomeTab(HOME_TABS[next], true)
+  selectHomeTab(tabs[next], true)
 }
 
 function fillHomePanel (panel, tab, lists) {
   if (tab === 'add') {
-    panel.appendChild(buildAddFriendForm())
+    panel.appendChild(buildAddFriendForm(false))
     return
   }
   if (tab === 'pending') {
@@ -390,14 +444,21 @@ function fillHomePanel (panel, tab, lists) {
     if (!lists.blocked.length) panel.appendChild(h('p', 'home-empty hint', t('social.emptyBlocked')))
     return
   }
-  const ids = tab === 'online' ? lists.online : lists.all
-  appendFriendSection(panel, tab === 'online' ? 'social.onlineTitle' : 'social.allTitle', ids, 'friend')
-  if (!ids.length) panel.appendChild(h('p', 'home-empty hint', t(tab === 'online' ? (lists.all.length ? 'social.emptyOnline' : 'social.emptyFriends') : 'social.emptyFriends')))
+  if (tab === 'online') {
+    // Yanıt bekleyen gelen istekler Çevrimiçi sekmesinin başında da görünür
+    appendFriendSection(panel, 'social.incomingTitle', lists.incoming, 'incoming')
+    appendFriendSection(panel, 'social.onlineTitle', lists.online, 'friend', 'online')
+    if (!lists.online.length) panel.appendChild(h('p', 'home-empty hint', t(lists.all.length ? 'social.emptyOnline' : 'social.emptyFriends')))
+    return
+  }
+  appendFriendSection(panel, 'social.onlineTitle', lists.online, 'friend', 'online')
+  appendFriendSection(panel, 'people.offlineTitle', lists.offline, 'friend', 'offline')
+  if (!lists.all.length) panel.appendChild(h('p', 'home-empty hint', t('social.emptyFriends')))
 }
 
-function appendFriendSection (panel, titleKey, ids, kind) {
+function appendFriendSection (panel, titleKey, ids, kind, part) {
   if (!ids.length) return
-  const titleId = 'home-section-' + kind
+  const titleId = 'home-section-' + kind + (part ? '-' + part : '')
   const heading = h('h3', 'section-title home-section-title', t(titleKey, { count: ids.length }))
   heading.id = titleId
   panel.appendChild(heading)
@@ -409,21 +470,44 @@ function appendFriendSection (panel, titleKey, ids, kind) {
   panel.appendChild(list)
 }
 
+// Satırın alt metni. Arkadaşta bulunduğu ses odası veya durum ve özel durum metni, isteklerde ve
+// engellenende kullanıcı adının yanında açıklama.
 function friendSubText (id, kind) {
   if (kind === 'incoming') return t('social.incomingSub')
   if (kind === 'outgoing') return t('social.outgoingSub')
   if (kind === 'blocked') return t('social.blockedSub')
-  const custom = userStatusText(id)
-  const label = statusLabel(userStatus(id))
+  const status = userStatus(id)
+  const room = status !== 'offline' && typeof voiceChannelOf === 'function' ? voiceChannelOf(id) : null
+  if (room) return t('people.inVoice', { name: room.name })
+  const custom = status !== 'offline' ? userStatusText(id) : ''
+  const label = statusLabel(status)
   return custom ? t('social.statusWithText', { status: label, text: custom }) : label
 }
 
-function rowButton (className, text, label, focusKey, handler) {
-  const b = button('button button-small ' + className, text)
+function rowButton (className, text, label, focusKey, handler, iconName) {
+  const b = button('button button-small ' + className, text, iconName)
   b.setAttribute('data-focus-key', focusKey)
   if (label) b.setAttribute('aria-label', label)
   b.addEventListener('click', handler)
   return b
+}
+
+// Kişi satırının avatar, ad ve alt satır kısmı (Arkadaşlar listeleri ve sol sütundaki istek kartları)
+function personMain (id, subText, nameKey, withHandle) {
+  const main = h('span', 'list-main friend-main')
+  main.appendChild(personAvatar(id, 'md'))
+  const text = h('span', 'list-text')
+  const name = h('span', 'list-name friend-name', userDisplayName(id))
+  makeUserLink(name, id)
+  name.setAttribute('data-focus-key', nameKey)
+  text.appendChild(name)
+  const sub = h('span', 'list-sub friend-sub')
+  const handle = withHandle ? userHandle(id) : ''
+  if (handle) sub.appendChild(h('span', 'friend-handle', handle))
+  if (subText) sub.appendChild(h('span', 'friend-sub-text', subText))
+  text.appendChild(sub)
+  main.appendChild(text)
+  return main
 }
 
 function buildFriendRow (id, kind) {
@@ -432,27 +516,23 @@ function buildFriendRow (id, kind) {
   li.setAttribute('data-kind', kind)
   const status = userStatus(id)
   li.setAttribute('data-status', status)
-  const main = h('span', 'list-main friend-main')
-  const av = h('span', 'avatar-wrap')
-  av.setAttribute('data-status', status)
-  av.appendChild(personAvatar(id, 'md'))
-  main.appendChild(av)
-  const text = h('span', 'list-text')
-  const name = h('span', 'list-name friend-name', userDisplayName(id))
-  makeUserLink(name, id)
-  name.setAttribute('data-focus-key', 'fname-' + kind + '-' + id)
-  text.appendChild(name)
-  const handle = userHandle(id)
-  if (handle) text.appendChild(h('span', 'list-handle friend-handle', handle))
-  text.appendChild(h('span', 'list-sub friend-sub', friendSubText(id, kind)))
-  main.appendChild(text)
+  if (kind === 'friend' && status === 'offline') li.classList.add('is-offline')
+  const room = kind === 'friend' && status !== 'offline' && typeof voiceChannelOf === 'function' ? voiceChannelOf(id) : null
+  const main = personMain(id, friendSubText(id, kind), 'fname-' + kind + '-' + id, kind !== 'friend')
+  if (room) {
+    const sub = main.querySelector('.friend-sub-text')
+    if (sub) {
+      sub.classList.add('friend-voice-tag')
+      sub.insertBefore(icon('i-speaker'), sub.firstChild)
+    }
+  }
   li.appendChild(main)
   const actions = h('span', 'row-actions friend-actions')
   const params = { name: userDisplayName(id) }
   if (kind === 'friend') {
     actions.appendChild(rowButton('button-secondary act-message', t('social.message'), t('social.messageLabel', params), 'msg-' + id, () => {
       openDmWith(id)
-    }))
+    }, 'i-chat'))
     const more = button('icon-button act-more', '', 'i-more', t('social.moreLabel', params))
     more.setAttribute('aria-haspopup', 'menu')
     more.setAttribute('aria-expanded', 'false')
@@ -464,7 +544,7 @@ function buildFriendRow (id, kind) {
   } else if (kind === 'incoming') {
     actions.appendChild(rowButton('act-accept', t('social.accept'), t('social.acceptLabel', params), 'acc-' + id, () => {
       acceptFriend(id)
-    }))
+    }, 'i-check'))
     actions.appendChild(rowButton('button-secondary act-decline', t('social.decline'), t('social.declineLabel', params), 'dec-' + id, () => {
       declineFriend(id)
     }))
@@ -481,10 +561,11 @@ function buildFriendRow (id, kind) {
   return li
 }
 
-function buildAddFriendForm () {
-  const wrap = h('div', 'friend-add')
-  wrap.appendChild(h('h3', 'section-title', t('social.addTitle')))
-  wrap.appendChild(h('p', 'hint', t('social.addLead')))
+// Arkadaş ekle formu. inCard: sol sütundaki kartta (alan ve tam genişlik düğme alt alta), değilse sekme panelinde.
+function buildAddFriendForm (inCard) {
+  const wrap = h('div', 'friend-add' + (inCard ? ' friend-add-card-body' : ''))
+  if (!inCard) wrap.appendChild(h('h3', 'section-title', t('social.addTitle')))
+  wrap.appendChild(h('p', inCard ? 'side-card-text friend-add-lead' : 'hint friend-add-lead', t('social.addLead')))
   const form = h('form', 'form friend-add-form')
   form.id = 'friend-add-form'
   form.noValidate = true
@@ -506,7 +587,7 @@ function buildAddFriendForm () {
     socialState.addText = input.value
   })
   row.appendChild(input)
-  const submit = button('button act-send-request', t('social.sendRequest'))
+  const submit = button('button act-send-request' + (inCard ? ' button-wide' : ''), t('social.sendRequest'), 'i-user-plus')
   submit.type = 'submit'
   submit.id = 'friend-add-submit'
   row.appendChild(submit)
@@ -542,6 +623,124 @@ function buildAddFriendForm () {
   })
   wrap.appendChild(form)
   return wrap
+}
+
+// Sol bilgi sütunundaki kişisel kartlar (KONSEPT 6.3). Özel istasyonunda gelen arkadaşlık istekleri (Kabul et,
+// Reddet), Arkadaşlar istasyonunda Arkadaş ekle formu (yalnızca sol sütun sayfada görünürken) ve gönderilen
+// istekler (İsteği geri al). Kartlar #dm-section'dan sonra eklenir, görünürlükleri görünüm moduna bağlıdır.
+const REQUEST_CARD_MAX = 3
+let addCardKey = ''
+
+function personalCard (id, titleId) {
+  let card = byId(id)
+  if (!card) {
+    const scroll = el.infoCol ? el.infoCol.querySelector('.side-scroll') : null
+    if (!scroll) return null
+    card = h('section', 'side-card people-card ' + id)
+    card.id = id
+    card.setAttribute('aria-labelledby', titleId)
+    card.hidden = true
+    const anchor = byId('hints-card')
+    scroll.insertBefore(card, anchor && anchor.parentNode === scroll ? anchor : null)
+  }
+  return card
+}
+
+function cardHead (card, titleId, text) {
+  const title = h('h3', 'kicker', text)
+  title.id = titleId
+  card.appendChild(title)
+}
+
+function renderPersonalCards () {
+  const view = state.inApp ? socialState.view : 'channel'
+  const lists = state.me ? homeLists() : { incoming: [], outgoing: [] }
+  const req = personalCard('req-card', 'req-card-title')
+  const add = personalCard('friend-add-card', 'friend-add-card-title')
+  const out = personalCard('outgoing-card', 'outgoing-card-title')
+  if (!req || !add || !out) return
+  // Özel istasyonu: gelen istekler
+  const reqFocus = activeFocusKey(req)
+  clear(req)
+  req.hidden = !(view === 'dm' && lists.incoming.length)
+  if (!req.hidden) {
+    cardHead(req, 'req-card-title', t('people.requestsTitle', { count: lists.incoming.length }))
+    lists.incoming.slice(0, REQUEST_CARD_MAX).forEach((id) => {
+      const params = { name: userDisplayName(id) }
+      const row = h('div', 'req-row')
+      row.setAttribute('data-user-id', String(id))
+      row.appendChild(personMain(id, t('social.incomingSub'), 'req-name-' + id, true))
+      req.appendChild(row)
+      const actions = h('div', 'btn-row req-actions')
+      actions.setAttribute('data-user-id', String(id))
+      actions.appendChild(rowButton('req-accept', t('social.accept'), t('social.acceptLabel', params), 'req-acc-' + id, () => {
+        acceptFriend(id)
+      }, 'i-check'))
+      actions.appendChild(rowButton('button-secondary req-decline', t('social.decline'), t('social.declineLabel', params), 'req-dec-' + id, () => {
+        declineFriend(id)
+      }))
+      req.appendChild(actions)
+    })
+    if (lists.incoming.length > REQUEST_CARD_MAX) {
+      const more = button('link-button req-more', t('people.allRequests', { count: lists.incoming.length }), 'i-users')
+      more.setAttribute('data-focus-key', 'req-more')
+      more.addEventListener('click', () => {
+        showHome('pending', { focus: true })
+      })
+      req.appendChild(more)
+    }
+    restoreFocusKey(req, reqFocus)
+  }
+  // Arkadaşlar istasyonu, geniş ekran: Arkadaş ekle formu (dil değişmedikçe yeniden kurulmaz, yazılan korunur)
+  const addVisible = view === 'home' && homeAddInline()
+  add.hidden = !addVisible
+  const key = window.I18N ? window.I18N.lang : ''
+  if (!addVisible) {
+    if (add.firstChild) clear(add)
+    addCardKey = ''
+  } else if (addCardKey !== key || !add.firstChild) {
+    const keepInput = document.activeElement && document.activeElement.id === 'friend-add-name'
+    addCardKey = key
+    clear(add)
+    cardHead(add, 'friend-add-card-title', t('social.addTitle'))
+    add.appendChild(buildAddFriendForm(true))
+    if (keepInput) focusNode(byId('friend-add-name'))
+  }
+  // Arkadaşlar istasyonu: gönderilen istekler
+  const outFocus = activeFocusKey(out)
+  clear(out)
+  out.hidden = !(view === 'home' && homeAddInline() && lists.outgoing.length)
+  if (!out.hidden) {
+    cardHead(out, 'outgoing-card-title', t('people.outgoingTitle', { count: lists.outgoing.length }))
+    lists.outgoing.forEach((id) => {
+      const params = { name: userDisplayName(id) }
+      const row = h('div', 'req-row')
+      row.setAttribute('data-user-id', String(id))
+      row.appendChild(personMain(id, t('people.outgoingWaiting'), 'out-name-' + id, false))
+      out.appendChild(row)
+      const cancel = rowButton('button-secondary button-wide req-cancel', t('people.cancelRequest'), t('social.cancelRequestLabel', params), 'out-can-' + id, () => {
+        removeFriend(id, true)
+      })
+      cancel.setAttribute('data-user-id', String(id))
+      out.appendChild(cancel)
+    })
+    restoreFocusKey(out, outFocus)
+  }
+}
+
+// Pencere 1280 px sınırını geçince Arkadaş ekle formu sekme paneli ile sol sütun arasında yer değiştirir
+function onSocialResize () {
+  const inline = homeAddInline()
+  if (inline === socialState.inline) return
+  const hadFocus = document.activeElement && document.activeElement.id === 'friend-add-name'
+  socialState.inline = inline
+  if (!state.inApp) return
+  if (socialState.view === 'home') renderHomeView()
+  renderPersonalCards()
+  if (hadFocus) {
+    const input = byId('friend-add-name')
+    if (input) focusNode(input)
+  }
 }
 
 // Arkadaş satırındaki "..." menüsü

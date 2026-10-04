@@ -773,9 +773,10 @@ function openStatusMenu (anchorEl) {
   }
   closeProfileCard()
   buildStatusMenu(menu)
+  menu.classList.add('avatar-menu')
   menu.hidden = false
   menu.setAttribute('role', 'menu')
-  menu.setAttribute('aria-label', t('status.menuLabel'))
+  menu.setAttribute('aria-label', t('layout.statusMenu', { name: userDisplayName(state.me.id) }))
   if (anchorEl) {
     positionPopup(menu, anchorEl)
     anchorEl.setAttribute('aria-expanded', 'true')
@@ -811,7 +812,11 @@ function buildStatusMenu (menu) {
   headText.appendChild(h('span', 'menu-head-sub', handle ? t('top.menuHandle', { handle: handle, role: roleLabel(state.me.role) }) : roleLabel(state.me.role)))
   head.appendChild(headText)
   menu.appendChild(head)
+  // Durum seçenekleri tek seçimli bir grup: seçili olanda onay işareti
   const current = myChosenStatus()
+  const group = h('div', 'avatar-menu-statuses')
+  group.setAttribute('role', 'group')
+  group.setAttribute('aria-label', t('status.menuLabel'))
   STATUS_CHOICES.forEach((status) => {
     const item = h('button', 'menu-item status-option')
     item.type = 'button'
@@ -825,18 +830,19 @@ function buildStatusMenu (menu) {
       text.appendChild(h('span', 'status-option-hint', t(status === 'dnd' ? 'status.dndHint' : 'status.invisibleHint')))
     }
     item.appendChild(text)
+    if (status === current) item.appendChild(icon('i-check', 'avatar-menu-check'))
     item.addEventListener('click', () => {
       closeStatusMenu()
       setMyStatus(status)
     })
-    menu.appendChild(item)
+    group.appendChild(item)
   })
-  menu.appendChild(h('div', 'menu-separator'))
+  menu.appendChild(group)
   const custom = h('button', 'menu-item status-custom')
   custom.type = 'button'
   custom.setAttribute('role', 'menuitem')
-  custom.appendChild(icon('i-smile'))
-  custom.appendChild(h('span', '', t('status.custom')))
+  custom.appendChild(icon('i-edit'))
+  custom.appendChild(h('span', 'menu-entry-label', t('status.custom')))
   custom.addEventListener('click', () => {
     const layer = findLayer('status-menu')
     const trigger = layer ? layer.trigger : null
@@ -844,11 +850,12 @@ function buildStatusMenu (menu) {
     openCustomStatusDialog(trigger)
   })
   menu.appendChild(custom)
+  menu.appendChild(menuSeparator())
   const edit = h('button', 'menu-item status-edit-profile')
   edit.type = 'button'
   edit.setAttribute('role', 'menuitem')
-  edit.appendChild(icon('i-edit'))
-  edit.appendChild(h('span', '', t('profile.edit')))
+  edit.appendChild(icon('i-user'))
+  edit.appendChild(h('span', 'menu-entry-label', t('profile.edit')))
   edit.addEventListener('click', () => {
     closeStatusMenu()
     openProfileEditor()
@@ -866,13 +873,19 @@ function buildStatusMenu (menu) {
   menu.appendChild(menuEntry('menu-language', 'i-globe', t('settings.appearance.language'), t('top.langName'), () => {
     openSettings('appearance', el.meButton)
   }))
-  menu.appendChild(h('div', 'menu-separator'))
+  menu.appendChild(menuSeparator())
   const out = menuEntry('menu-logout', 'i-logout', t('auth.logout'), '', () => {
     logout()
   })
   out.classList.add('menu-danger')
   menu.appendChild(out)
   menu.addEventListener('keydown', onPopupMenuKey)
+}
+
+function menuSeparator () {
+  const sep = h('div', 'menu-separator')
+  sep.setAttribute('role', 'separator')
+  return sep
 }
 
 // Avatar menüsünün gezinme öğesi: simge, ad ve isteğe bağlı sağda kısa bilgi

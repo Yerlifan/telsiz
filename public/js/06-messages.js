@@ -460,6 +460,45 @@ function observeMessagesSize () {
   }
 }
 
+// Mesaj akışının durumları (KONSEPT 6.4): yükleniyor (üç iskelet satır görünür, "Mesajlar yükleniyor"
+// metni yalnızca ekran okuyucuya), hata (sütun ortasında açıklama ve Tekrar dene) ve olağan akış.
+// İskelet satırlar bir kez kurulur ve süsleme olduğu için ekran okuyuculardan gizlidir.
+
+let messagesSkeleton = null
+
+function messagesSkeletonEl () {
+  if (messagesSkeleton || !el.messages) return messagesSkeleton
+  messagesSkeleton = h('div', 'messages-skeleton')
+  messagesSkeleton.setAttribute('aria-hidden', 'true')
+  messagesSkeleton.hidden = true
+  const sizes = ['wide', 'mid', 'short']
+  sizes.forEach((size) => {
+    const row = h('div', 'msg-skeleton msg-skeleton-' + size)
+    row.appendChild(h('span', 'msg-skeleton-avatar'))
+    const lines = h('span', 'msg-skeleton-lines')
+    lines.appendChild(h('span', 'msg-skeleton-line msg-skeleton-name'))
+    lines.appendChild(h('span', 'msg-skeleton-line msg-skeleton-text'))
+    row.appendChild(lines)
+    messagesSkeleton.appendChild(row)
+  })
+  el.messages.insertBefore(messagesSkeleton, el.messagesStatus || null)
+  return messagesSkeleton
+}
+
+function setMessagesView (kind, res) {
+  const box = el.messages
+  if (!box) return
+  box.classList.toggle('is-loading', kind === 'loading')
+  box.classList.toggle('is-error', kind === 'error')
+  const skeleton = messagesSkeletonEl()
+  if (skeleton) skeleton.hidden = kind !== 'loading'
+  if (kind === 'loading') setMsg(el.messagesStatus, () => t('messages.loading'))
+  else if (kind === 'error') setMsg(el.messagesStatus, () => errorText(res, t('messages.loadFailed')), 'error')
+  else setMsg(el.messagesStatus, '')
+  el.messagesStatus.classList.toggle('is-loading', kind === 'loading')
+  el.messagesRetryWrap.hidden = kind !== 'error'
+}
+
 // Kanal mesajlarını yükleme ve sayfalama
 
 async function loadChannel () {
@@ -482,8 +521,7 @@ async function loadChannel () {
   decryptCache.clear()
   state.editingId = null
   clear(el.messageList)
-  el.messagesRetryWrap.hidden = true
-  setMsg(el.messagesStatus, () => t('messages.loading'))
+  setMessagesView('loading')
   renderListChrome()
   chatPlusOnChannelLoad(channelId)
   const query = jump ? '&around=' + encodeURIComponent(jump.messageId) + '&limit=' + JUMP_LIMIT : '&limit=' + PAGE_SIZE
@@ -491,14 +529,13 @@ async function loadChannel () {
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
   state.loading = false
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
-    setMsg(el.messagesStatus, () => errorText(res, t('messages.loadFailed')), 'error')
-    el.messagesRetryWrap.hidden = false
+    setMessagesView('error', res)
     state.pendingEvents = []
     renderListChrome()
     el.channelStart.hidden = true
     return
   }
-  setMsg(el.messagesStatus, '')
+  setMessagesView('')
   state.messages = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true
   state.hasNewer = Boolean(jump) && res.data.hasNewer === true

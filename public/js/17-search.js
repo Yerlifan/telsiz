@@ -613,18 +613,59 @@ function isSearchOpen () {
 }
 
 function searchOption (value, key) {
-  const opt = h('option', '', t(key))
-  opt.value = value
+  const opt = h('button', 'search-scope-option', t(key))
+  opt.type = 'button'
+  opt.setAttribute('role', 'radio')
+  opt.setAttribute('aria-checked', 'false')
+  opt.setAttribute('data-value', value)
   opt.setAttribute('data-key', key)
+  opt.addEventListener('click', () => {
+    setSearchScope(value)
+  })
   return opt
 }
 
-function searchChip (id, key, field) {
-  const b = h('button', 'search-chip', t(key))
+function setSearchScope (value) {
+  const next = value === 'text' || value === 'dm' ? value : 'channel'
+  if (next === 'channel' && searchState.channelId === null) return
+  if (next === searchState.scope) return
+  searchState.scope = next
+  if (searchState.fromId !== null && !searchFromCandidates().some((id) => sameId(id, searchState.fromId))) searchState.fromId = null
+  renderSearchFilters()
+  executeSearch()
+}
+
+function searchScopeOptions () {
+  const scope = byId('search-scope')
+  return scope ? Array.from(scope.querySelectorAll('.search-scope-option')) : []
+}
+
+// Kapsam seçiminde oklar seçimi değiştirir (radyo grubu davranışı), Home ve End ilk ve son seçenek
+function onSearchScopeKey (e) {
+  const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Left', 'Right', 'Up', 'Down', 'Home', 'End']
+  if (keys.indexOf(e.key) === -1) return
+  const options = searchScopeOptions().filter((o) => !o.disabled)
+  const i = options.indexOf(document.activeElement)
+  if (i === -1 || !options.length) return
+  e.preventDefault()
+  let next = i
+  if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = options.length - 1
+  else if (e.key === 'ArrowLeft' || e.key === 'Left' || e.key === 'ArrowUp' || e.key === 'Up') next = (i - 1 + options.length) % options.length
+  else next = (i + 1) % options.length
+  setSearchScope(options[next].getAttribute('data-value'))
+  focusNode(options[next])
+}
+
+// Süzgeç çipi: simge ve etiket (KONSEPT 6.9), etiket dil değişince yeniden yazılır
+function searchChip (id, key, field, iconId) {
+  const b = h('button', 'search-chip')
   b.type = 'button'
   b.id = id
   b.setAttribute('aria-pressed', 'false')
   b.setAttribute('data-key', key)
+  b.appendChild(icon(iconId, 'search-chip-icon'))
+  b.appendChild(h('span', 'search-chip-text', t(key)))
   b.addEventListener('click', () => {
     searchState[field] = !searchState[field]
     renderSearchFilters()
@@ -659,17 +700,18 @@ function buildSearchPanel () {
   })
   input.addEventListener('keydown', onSearchInputKey)
   bar.appendChild(input)
-  const scope = h('select', 'input select select-small search-scope')
+  // Kapsam: Bu oda (özel mesajda Bu konuşma), Tüm yazı odaları, Özel mesajlar. Bölümlü seçim
+  // (role radiogroup, gezici tabindex, sol ve sağ ok), KONSEPT 6.9 ve arama maketi.
+  const scope = h('div', 'search-scope')
   scope.id = 'search-scope'
+  scope.setAttribute('role', 'radiogroup')
   scope.appendChild(searchOption('channel', 'search.scope.channel'))
   scope.appendChild(searchOption('text', 'search.scope.text'))
   scope.appendChild(searchOption('dm', 'search.scope.dms'))
-  scope.addEventListener('change', () => {
-    searchState.scope = scope.value === 'text' || scope.value === 'dm' ? scope.value : 'channel'
-    if (searchState.fromId !== null && !searchFromCandidates().some((id) => sameId(id, searchState.fromId))) searchState.fromId = null
-    renderSearchFilters()
-    executeSearch()
-  })
+  scope.addEventListener('keydown', onSearchScopeKey)
+  const esc = h('kbd', 'kbd search-esc', 'Esc')
+  esc.setAttribute('aria-hidden', 'true')
+  bar.appendChild(esc)
   const close = button('icon-button search-close', '', 'i-close', t('search.close'))
   close.id = 'search-close'
   close.addEventListener('click', () => {
@@ -685,6 +727,7 @@ function buildSearchPanel () {
   filters.appendChild(scope)
   const fromWrap = h('div', 'search-from')
   fromWrap.id = 'search-from-wrap'
+  fromWrap.appendChild(icon('i-user', 'search-from-icon'))
   const fromLabel = h('label', 'search-from-label', t('search.from'))
   fromLabel.id = 'search-from-label'
   fromLabel.setAttribute('for', 'search-from')
@@ -733,9 +776,9 @@ function buildSearchPanel () {
   }
   fromWrap.appendChild(fromList)
   filters.appendChild(fromWrap)
-  filters.appendChild(searchChip('search-has-image', 'search.hasImage', 'hasImage'))
-  filters.appendChild(searchChip('search-has-file', 'search.hasFile', 'hasFile'))
-  filters.appendChild(searchChip('search-mentions-me', 'search.mentionsMe', 'mentionsMe'))
+  filters.appendChild(searchChip('search-has-image', 'search.hasImage', 'hasImage', 'i-image'))
+  filters.appendChild(searchChip('search-has-file', 'search.hasFile', 'hasFile', 'i-file'))
+  filters.appendChild(searchChip('search-mentions-me', 'search.mentionsMe', 'mentionsMe', 'i-at'))
   panel.appendChild(filters)
 
   const status = h('div', 'search-status')
@@ -799,8 +842,9 @@ function searchApplyLanguage () {
   const scope = byId('search-scope')
   if (scope) {
     scope.setAttribute('aria-label', t('search.scopeLabel'))
-    Array.from(scope.options).forEach((opt) => {
-      const key = opt.value === 'channel' ? (searchIsDm(searchState.channelId) ? 'search.scope.dm' : 'search.scope.channel') : opt.getAttribute('data-key')
+    searchScopeOptions().forEach((opt) => {
+      const value = opt.getAttribute('data-value')
+      const key = value === 'channel' ? (searchIsDm(searchState.channelId) ? 'search.scope.dm' : 'search.scope.channel') : opt.getAttribute('data-key')
       opt.textContent = t(key)
     })
   }
@@ -818,7 +862,8 @@ function searchApplyLanguage () {
   const fromList = byId('search-from-list')
   if (fromList) fromList.setAttribute('aria-label', t('search.fromList'))
   Array.from(document.querySelectorAll('#search-filters .search-chip[data-key]')).forEach((chip) => {
-    chip.textContent = t(chip.getAttribute('data-key'))
+    const label = chip.querySelector('.search-chip-text')
+    if (label) label.textContent = t(chip.getAttribute('data-key'))
   })
   const results = byId('search-results')
   if (results) results.setAttribute('aria-label', t('search.resultsLabel'))
@@ -835,12 +880,16 @@ function renderSearchFilters () {
   if (!searchState.built) return
   const scope = byId('search-scope')
   if (scope) {
-    scope.value = searchState.scope
-    const channelOpt = Array.from(scope.options).filter((o) => o.value === 'channel')[0]
-    if (channelOpt) {
-      channelOpt.disabled = searchState.channelId === null
-      channelOpt.textContent = t(searchIsDm(searchState.channelId) ? 'search.scope.dm' : 'search.scope.channel')
-    }
+    searchScopeOptions().forEach((opt) => {
+      const value = opt.getAttribute('data-value')
+      const on = value === searchState.scope
+      opt.setAttribute('aria-checked', on ? 'true' : 'false')
+      opt.tabIndex = on ? 0 : -1
+      if (value === 'channel') {
+        opt.disabled = searchState.channelId === null
+        opt.textContent = t(searchIsDm(searchState.channelId) ? 'search.scope.dm' : 'search.scope.channel')
+      }
+    })
   }
   const pairs = [['search-has-image', 'hasImage'], ['search-has-file', 'hasFile'], ['search-mentions-me', 'mentionsMe']]
   pairs.forEach((pair) => {
@@ -856,6 +905,8 @@ function renderSearchFilters () {
     const keepFocus = document.activeElement === fromInput && has
     fromInput.hidden = has
     fromChip.hidden = !has
+    const fromWrap = byId('search-from-wrap')
+    if (fromWrap) fromWrap.classList.toggle('has-person', has)
     clear(fromChip)
     if (has) {
       const name = typeof userDisplayName === 'function' ? userDisplayName(searchState.fromId) : shownName(searchState.fromId)
@@ -1016,8 +1067,9 @@ function buildSearchResult (entry, terms, marks) {
   b.appendChild(personAvatar(entry.authorId, 'sm'))
   const body = h('span', 'search-result-body')
   const meta = h('span', 'search-result-meta')
-  meta.appendChild(h('span', 'search-result-channel', searchChannelLabel(entry.channelId)))
+  // Sıra arama maketindeki gibi: yazar, oda etiketi, tarih
   meta.appendChild(h('span', 'search-result-author', name))
+  meta.appendChild(h('span', 'search-result-channel', searchChannelLabel(entry.channelId)))
   const date = h('span', 'search-result-date', formatShort(entry.createdAt))
   date.title = formatLong(entry.createdAt)
   meta.appendChild(date)

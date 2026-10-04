@@ -52,6 +52,7 @@
   <script src="/js/17-search.js" defer></script>
   <script src="/js/18-mentions.js" defer></script>
   <script src="/js/19-typing.js" defer></script>
+  <script src="/js/20-desktop.js" defer></script>
   <script src="/js/21-band.js" defer></script>
 </head>
 <body>
@@ -166,7 +167,7 @@
         <h1 class="auth-title wordmark-text" data-i18n="app.name">Telsiz</h1>
       </div>
       <div class="auth-tools">
-        <button id="auth-scheme" class="icon-button scheme-toggle" type="button" aria-label="Açık moda geç" title="Açık moda geç"><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun" xlink:href="#i-sun"></use></svg><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon" xlink:href="#i-moon"></use></svg></button>
+        <button id="auth-scheme" class="icon-button scheme-toggle auth-scheme" type="button" aria-label="Açık moda geç" title="Açık moda geç"><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun" xlink:href="#i-sun"></use></svg><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon" xlink:href="#i-moon"></use></svg><span class="auth-scheme-label auth-scheme-light" data-i18n="auth.modeLight">Açık mod</span><span class="auth-scheme-label auth-scheme-dark" data-i18n="auth.modeDark">Koyu mod</span></button>
         <div id="auth-lang" class="lang-switch" role="group" aria-label="Dil / Language">
           <button class="lang-button" type="button" data-lang="tr" lang="tr" aria-pressed="true" aria-label="Türkçe" title="Türkçe">TR</button>
           <span class="lang-sep" aria-hidden="true">|</span>
@@ -175,13 +176,16 @@
       </div>
     </header>
     <div class="auth-stage">
+      <!-- Kart bir telsiz gövdesidir (KONSEPT 6.12): anten, sunucu adını gösteren ekran (dikey ibre ve ölçek),
+           ekranın altında kurulum, davet, giriş ve anahtar bölümleri, en altta güvence satırı -->
       <div class="auth-card">
-        <div class="auth-brand">
-          <span class="server-emblem" aria-hidden="true"><svg class="logo"><use href="#i-logo" xlink:href="#i-logo"></use></svg></span>
+        <div class="auth-brand auth-dial">
           <div class="auth-brand-text">
             <p class="auth-kicker" data-i18n="layout.serverLabel">Sunucu</p>
             <p id="auth-server-name" class="auth-server"></p>
+            <p class="auth-meta"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="auth.dialMeta">uçtan uca şifreli · davetle katılım</span></p>
           </div>
+          <span class="auth-needle" aria-hidden="true"></span>
         </div>
         <p id="auth-notice" class="notice" role="alert" hidden></p>
 
@@ -262,6 +266,7 @@
           <button id="key-skip" class="button button-ghost button-wide" type="button" data-i18n="key.skip">Anahtar olmadan devam et</button>
           <button id="key-logout" class="button button-ghost button-wide" type="button" data-i18n="auth.logout">Çıkış yap</button>
         </section>
+        <p class="auth-foot"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="auth.foot">Mesajlar bu cihazda şifrelenir, anahtar sunucuya gönderilmez.</span></p>
       </div>
     </div>
   </main>
@@ -424,33 +429,51 @@
             <span class="radio-grille" aria-hidden="true"></span>
           </div>
           <div class="radio-body">
+            <!-- Ekran: kapalıyken ses odaları ve Katıl, bağlanırken ve bağlıyken oda adı, kadro ve konuşma satırı (10-voice.js) -->
             <div class="radio-screen">
               <p id="radio-pick" class="radio-pick" data-i18n="radio.pick">Bir ses odası seçin</p>
-              <ul id="voice-channels" class="channel-list radio-rooms" aria-label="Ses odaları" data-i18n-aria-label="channels.voice"></ul>
-            </div>
-            <div id="voice-panel" class="voice-panel" hidden>
-              <div class="voice-panel-row">
-                <span class="voice-signal" aria-hidden="true"><svg class="icon"><use href="#i-signal" xlink:href="#i-signal"></use></svg></span>
-                <div class="voice-panel-text">
-                  <div id="voice-panel-status" class="voice-panel-status"></div>
-                  <div id="voice-panel-channel" class="voice-panel-channel"></div>
+              <p id="radio-support" class="radio-support" hidden></p>
+              <ul id="voice-channels" class="radio-rooms" aria-label="Ses odaları" data-i18n-aria-label="channels.voice"></ul>
+              <div id="radio-tuned" class="radio-tuned" hidden>
+                <div class="radio-screen-top">
+                  <span id="radio-room" class="radio-room"></span>
+                  <span id="radio-room-meta" class="radio-room-meta"></span>
                 </div>
+                <ul id="radio-crew" class="crew" aria-label="Odadakiler" data-i18n-aria-label="radio.crew"></ul>
+                <p id="radio-talk" class="radio-talk"><span class="radio-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span id="radio-talk-text" class="radio-talk-text"></span><span id="radio-mode" class="radio-mode"></span></p>
               </div>
-              <p id="voice-error" class="voice-error" role="alert" hidden></p>
-              <button id="voice-unlock" class="button button-wide" type="button" data-i18n="voice.unlock" hidden>Sesi başlat</button>
-              <button id="ptt-button" class="ptt-button" type="button" hidden>
-                <span class="ptt-dome" aria-hidden="true"><svg class="icon"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span>
-                <span class="ptt-text">
-                  <span id="ptt-label" class="ptt-label" data-i18n="voice.pushToTalk">Bas konuş</span>
-                  <span class="ptt-hint" data-i18n="layout.pttHint">Basılı tut, bırakınca susar</span>
+            </div>
+            <div id="radio-error" class="radio-error" hidden>
+              <p id="voice-error" class="radio-error-text" role="alert" hidden></p>
+              <button id="voice-retry" class="button button-small button-secondary radio-retry" type="button" data-i18n="common.retry" hidden>Tekrar dene</button>
+            </div>
+            <p id="radio-hint" class="radio-hint" hidden></p>
+            <div id="voice-panel" class="radio-panel" hidden>
+              <p id="voice-panel-status" class="sr-only" role="status"></p>
+              <button id="voice-unlock" class="button button-wide radio-unlock" type="button" data-i18n="voice.unlock" hidden>Sesi başlat</button>
+              <button id="ptt-button" class="radio-ptt" type="button" aria-labelledby="ptt-label" aria-describedby="ptt-hint" hidden>
+                <span class="radio-ptt-dome" aria-hidden="true"><svg class="icon"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span>
+                <span class="radio-ptt-text">
+                  <span id="ptt-label" class="radio-ptt-label" data-i18n="voice.pushToTalk">Bas konuş</span>
+                  <span id="ptt-hint" class="radio-ptt-hint" data-i18n="layout.pttHint">Basılı tut, bırakınca susar</span>
                 </span>
-                <kbd id="ptt-key" class="kbd ptt-key" aria-hidden="true"></kbd>
+                <kbd id="ptt-key" class="radio-ptt-key" aria-hidden="true"></kbd>
               </button>
-              <div id="radio-row" class="radio-row">
-                <button id="btn-mute" class="radio-button" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" title="Mikrofonu kapat" data-i18n-aria-label="user.mute" data-i18n-title="user.mute"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text" data-i18n="radio.mic">Mikrofon</span></button>
-                <button id="btn-deafen" class="radio-button" type="button" aria-pressed="false" aria-label="Sağırlaştır" title="Sağırlaştır" data-i18n-aria-label="user.deafen" data-i18n-title="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text" data-i18n="radio.deafen">Sağırlaştır</span></button>
-                <button id="voice-leave" class="radio-button is-danger" type="button" aria-label="Bağlantıyı kes" title="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect" data-i18n-title="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span class="radio-button-text" data-i18n="voice.leave">Ayrıl</span></button>
+              <div id="radio-vad" class="radio-vad" hidden>
+                <span class="radio-vad-icon" aria-hidden="true"><svg class="icon"><use href="#i-mic" xlink:href="#i-mic"></use></svg></span>
+                <span class="radio-vad-text">
+                  <span class="radio-vad-label" data-i18n="radio.vad">Ses etkinliği</span>
+                  <span id="radio-vad-state" class="radio-vad-state"></span>
+                </span>
+                <span class="radio-vad-meter" aria-hidden="true"><span id="radio-vad-bar" class="radio-vad-bar"></span></span>
               </div>
+              <div id="radio-row" class="radio-row">
+                <button id="btn-mute" class="radio-button" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" data-i18n-aria-label="user.mute"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.mic">Mikrofon</span><span id="btn-mute-state" class="radio-button-state"></span></span></button>
+                <button id="btn-deafen" class="radio-button" type="button" aria-pressed="false" aria-label="Sağırlaştır" data-i18n-aria-label="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.deafen">Sağırlaştır</span><span id="btn-deafen-state" class="radio-button-state"></span></span></button>
+                <button id="btn-screen" class="radio-button" type="button" aria-haspopup="dialog" aria-controls="cast-dialog" aria-label="Ekranı paylaş" data-i18n-aria-label="screen.share"><svg class="icon" aria-hidden="true"><use href="#i-screen" xlink:href="#i-screen"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.screen">Ekran</span><span id="btn-screen-state" class="radio-button-state"></span></span></button>
+                <button id="voice-leave" class="radio-button is-danger" type="button" aria-label="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="voice.leave">Ayrıl</span><span id="voice-leave-state" class="radio-button-state"></span></span></button>
+              </div>
+              <p id="radio-screen-note" class="radio-note" hidden></p>
             </div>
           </div>
         </aside>

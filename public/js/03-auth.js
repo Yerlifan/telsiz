@@ -23,6 +23,8 @@ const AUTH_CARDS = ['setup', 'invite', 'login', 'key']
 
 function showAuthCard (name, notice) {
   showView('auth')
+  // Giriş kartının hangi bölümü gösterdiği (people.css telsiz gövdesi biçimi için)
+  el.authView.setAttribute('data-card', name)
   AUTH_CARDS.forEach((card) => {
     el[card + 'Card'].hidden = card !== name
   })

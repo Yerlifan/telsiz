@@ -33,7 +33,34 @@ function dmPartner (channelId) {
   return null
 }
 
-// Konuşma listesi (son mesaja göre yeniden eskiye)
+// Konuşma listesi (Özel istasyonunun sol kartı, #dm-list, KONSEPT 6.3): son mesaja göre yeniden eskiye. Satırda
+// yumuşak kare avatar ve durum noktası, ad, alt satırda bulunduğu ses odası veya durumu ve son mesaj saati,
+// okunmamış rozeti. Açık olan konuşma aria-current taşır. Aynı konuşmalar Tümü sayfasında da satırdır
+// (04-meta.js buildSheetDmRow alt satırı dmRowSub ile çizer).
+
+// Son mesaj zamanı: bugünse saat, dünse "dün", daha eskiyse tarih
+function dmWhen (ts) {
+  const date = toDate(ts)
+  const now = new Date()
+  if (sameDay(date, now)) return formatClock(date.getTime())
+  if (sameDay(date, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return t('people.yesterday')
+  return window.I18N.formatDate(date.getTime(), 'date')
+}
+
+function dmRowParts (d) {
+  const status = userStatus(d.userId)
+  const blocked = isBlocked(d.userId)
+  const room = !blocked && status !== 'offline' && typeof voiceChannelOf === 'function' ? voiceChannelOf(d.userId) : null
+  let text = statusLabel(status)
+  if (blocked) text = t('social.blockedSub')
+  else if (room) text = t('people.inVoice', { name: room.name })
+  return { status: status, room: room, text: text, when: d.lastMessageAt ? dmWhen(d.lastMessageAt) : '' }
+}
+
+function dmRowSub (d) {
+  const parts = dmRowParts(d)
+  return parts.when ? t('people.pair', { a: parts.text, b: parts.when }) : parts.text
+}
 
 function renderDmList () {
   const list = byId('dm-list')
@@ -43,20 +70,26 @@ function renderDmList () {
   if (!state.me) return
   const entries = dmEntries().slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0))
   entries.forEach((d) => {
-    const li = h('li', 'channel-row dm-row')
-    const b = h('button', 'channel-item dm-item')
+    const li = h('li', 'dm-row')
+    const b = h('button', 'dm-item')
     b.type = 'button'
     b.setAttribute('data-channel-id', String(d.id))
     b.setAttribute('data-user-id', String(d.userId))
     b.setAttribute('data-focus-key', 'dm-' + d.id)
-    const status = userStatus(d.userId)
-    b.setAttribute('data-status', status)
-    const av = h('span', 'avatar-wrap dm-avatar')
-    av.setAttribute('data-status', status)
-    av.appendChild(personAvatar(d.userId, 'sm'))
-    b.appendChild(av)
+    const parts = dmRowParts(d)
+    b.setAttribute('data-status', parts.status)
+    b.appendChild(personAvatar(d.userId, 'md'))
     const name = userDisplayName(d.userId)
-    b.appendChild(h('span', 'channel-name dm-name', name))
+    const text = h('span', 'dm-text')
+    text.appendChild(h('span', 'dm-name', name))
+    const sub = h('span', 'dm-sub')
+    const lead = h('span', parts.room ? 'dm-sub-text dm-voice-tag' : 'dm-sub-text')
+    if (parts.room) lead.appendChild(icon('i-speaker'))
+    lead.appendChild(h('span', '', parts.text))
+    sub.appendChild(lead)
+    if (parts.when) sub.appendChild(h('span', 'dm-sub-time', parts.when))
+    text.appendChild(sub)
+    b.appendChild(text)
     const count = state.unread[d.id] || 0
     const current = socialState.view === 'dm' && sameId(d.id, state.channelId)
     if (current) {
@@ -64,13 +97,14 @@ function renderDmList () {
       b.classList.add('is-active')
     }
     if (isBlocked(d.userId)) b.classList.add('is-blocked')
+    const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name })
     if (count > 0 && !current) {
       b.classList.add('is-unread')
-      b.appendChild(h('span', 'unread-badge', count > 99 ? '99+' : String(count)))
-      b.setAttribute('aria-label', t('dm.itemUnreadLabel', { name: name, count: count }))
-    } else {
-      b.setAttribute('aria-label', t('dm.itemLabel', { name: name }))
+      const badge = h('span', 'unread-badge station-mark mark-mention', count > 99 ? '99+' : String(count))
+      badge.setAttribute('aria-hidden', 'true')
+      b.appendChild(badge)
     }
+    b.setAttribute('aria-label', t('people.pair', { a: label, b: dmRowSub(d) }))
     if (d.lastMessageAt) b.title = t('dm.lastMessageAt', { date: formatLong(d.lastMessageAt) })
     b.addEventListener('click', () => {
       showDm(d.id, { focus: true })
@@ -78,8 +112,23 @@ function renderDmList () {
     li.appendChild(b)
     list.appendChild(li)
   })
-  if (!entries.length) list.appendChild(h('li', 'empty-row dm-empty', t('dm.empty')))
+  if (!entries.length) list.appendChild(h('li', 'empty-row dm-empty hint', t('dm.empty')))
   restoreFocusKey(list, focusKey)
+  const hint = dmHintEl()
+  if (hint) hint.textContent = t('people.dmHint')
+}
+
+// Kartın altındaki ipucu: yeni özel konuşma profil kartından veya Arkadaşlar istasyonundan başlar
+function dmHintEl () {
+  const section = byId('dm-section')
+  if (!section) return null
+  let hint = byId('dm-hint')
+  if (!hint) {
+    hint = h('p', 'hint dm-hint')
+    hint.id = 'dm-hint'
+    section.appendChild(hint)
+  }
+  return hint
 }
 
 // Konuşmayı açar (yoksa sunucuda oluşturur) ve görünüme geçer
@@ -273,6 +322,9 @@ function dmRefreshChrome () {
   updateSendState()
 }
 
+// Özel mesaj başlığı (KONSEPT 6.4): kişinin avatarı ve durum noktası (profil kartını açar), ad, "@ad · durum ·
+// özel mesaj", güvenlik numarası rozeti (doğrulandıysa "Doğrulandı", değilse uyarı renginde "Doğrulanmadı",
+// basınca güvenlik numarası penceresi) ve Profil düğmesi.
 function renderDmHeader (partner, name) {
   const header = byId('dm-header')
   if (!header) return
@@ -282,7 +334,7 @@ function renderDmHeader (partner, name) {
   const status = userStatus(partner)
   const av = h('span', 'avatar-wrap dm-header-avatar')
   av.setAttribute('data-status', status)
-  av.appendChild(personAvatar(partner, 'sm'))
+  av.appendChild(personAvatar(partner, 'md'))
   makeUserLink(av, partner)
   av.setAttribute('aria-label', t('dm.profileLabel', { name: name }))
   av.setAttribute('data-focus-key', 'dmh-avatar')
@@ -291,8 +343,13 @@ function renderDmHeader (partner, name) {
   const title = h('h2', 'dm-header-name', name)
   title.id = 'dm-header-name'
   text.appendChild(title)
+  const sub = h('span', 'dm-header-sub')
   const handle = userHandle(partner)
-  if (handle) text.appendChild(h('span', 'dm-header-handle', handle))
+  if (handle) sub.appendChild(h('span', 'dm-header-handle', handle))
+  const room = status !== 'offline' && typeof voiceChannelOf === 'function' ? voiceChannelOf(partner) : null
+  sub.appendChild(h('span', 'dm-header-status', isBlocked(partner) ? t('social.blockedSub') : room ? t('people.inVoice', { name: room.name }) : statusLabel(status)))
+  sub.appendChild(h('span', 'dm-header-kind', t('people.dmKind')))
+  text.appendChild(sub)
   header.appendChild(text)
   let pin = null
   try {
@@ -300,21 +357,29 @@ function renderDmHeader (partner, name) {
   } catch (err) {
     pin = null
   }
-  if (pin && pin.verified && pin.status !== 'changed') {
-    const verified = h('span', 'dm-verified')
-    verified.appendChild(icon('i-check'))
-    verified.appendChild(h('span', 'sr-only', t('dm.verified')))
-    verified.title = t('dm.verified')
-    header.appendChild(verified)
-  }
-  const safety = button('button button-small button-secondary dm-safety-button', t('dm.safetyNumber'), 'i-lock')
+  const verified = Boolean(pin && pin.verified && pin.status !== 'changed')
+  const safety = h('button', 'pill dm-safety ' + (verified ? 'dm-verified' : 'dm-unverified'))
+  safety.type = 'button'
   safety.id = 'dm-safety-button'
   safety.setAttribute('aria-haspopup', 'dialog')
   safety.setAttribute('data-focus-key', 'dmh-safety')
+  safety.setAttribute('aria-label', t(verified ? 'people.safetyVerifiedLabel' : 'people.safetyUnverifiedLabel', { name: name }))
+  safety.title = t(verified ? 'dm.verified' : 'people.safetyUnverifiedTitle')
+  safety.appendChild(icon(verified ? 'i-verified' : 'i-shield'))
+  safety.appendChild(h('span', 'pill-text', t(verified ? 'people.verified' : 'people.unverified')))
   safety.addEventListener('click', () => {
     openSafetyDialog(safety)
   })
   header.appendChild(safety)
+  const profile = button('button button-secondary dm-profile-button', t('people.profile'), 'i-user')
+  profile.id = 'dm-profile-button'
+  profile.setAttribute('aria-haspopup', 'dialog')
+  profile.setAttribute('aria-label', t('dm.profileLabel', { name: name }))
+  profile.setAttribute('data-focus-key', 'dmh-profile')
+  profile.addEventListener('click', () => {
+    openProfileCard(partner, profile)
+  })
+  header.appendChild(profile)
   restoreFocusKey(header, focusKey)
 }
 

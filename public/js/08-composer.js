@@ -32,6 +32,58 @@ function onComposerInput () {
   if (typeof mentionOnInput === 'function') mentionOnInput()
 }
 
+// Telsiz DJ komut kancası (KONSEPT 6.10 ve 8.4, dj-interface uiIntegration 08-composer.js). Yazma alanı
+// "/" ile başlayınca 18-mentions.js öneri listesi komutları gösterir. Komutların işlevini DJ arayüzü
+// (23-dj.js) composerSetCommandHandler(fn) ile bağlar: fn(text, { files, pending }) metin bir DJ komutu
+// değilse null döner ve metin mesaj olarak gider, komutsa bir sonuç (Promise) döner ve metin mesaj olarak
+// GÖNDERİLMEZ (TelsizMusic.runCommand ile aynı sözleşme; sonucu bildirmek ve ekleri kullanmak
+// işleyicinin işidir). İşleyici yokken liste yalnızca bilgilendirir, gönderim değişmez.
+// Olaylar (yazma alanında, kabarcıklı CustomEvent): 'telsiz:commands' liste açılınca, süzülünce ve
+// kapanınca { open, query, inVoice, items: [{ name, label }] }, 'telsiz:command-pick' komut seçilince
+// { name, label, text }, 'telsiz:command' işleyiciye verilen komutta { text, files }.
+
+let composerCommandHandler = null
+
+function composerSetCommandHandler (fn) {
+  composerCommandHandler = typeof fn === 'function' ? fn : null
+  if (typeof mentionUpdate === 'function' && state.inApp) mentionUpdate()
+}
+
+function composerCommandsLive () {
+  return Boolean(composerCommandHandler)
+}
+
+function composerEmit (name, detail) {
+  const input = el.composerInput
+  if (!input || typeof window.CustomEvent !== 'function') return
+  try {
+    input.dispatchEvent(new window.CustomEvent(name, { bubbles: true, detail: detail }))
+  } catch (err) {
+    // Olay kurulamadı (eski tarayıcı), kanca yine çalışır
+  }
+}
+
+// Metin bir DJ komutuysa işleyiciye verir ve true döner (yazma alanı boşalır, mesaj gönderilmez)
+function composerRunCommand (raw, text, ready) {
+  if (!composerCommandHandler || text.charAt(0) !== '/') return false
+  let result = null
+  try {
+    result = composerCommandHandler(text, { files: ready.slice(), pending: pendingUploads() })
+  } catch (err) {
+    window.console.error(err)
+    result = null
+  }
+  if (result === null || result === undefined) return false
+  composerEmit('telsiz:command', { text: text, files: ready.length })
+  if (el.composerInput.value === raw) el.composerInput.value = ''
+  if (typeof mentionClose === 'function') mentionClose()
+  onComposerInput()
+  Promise.resolve(result).catch((err) => {
+    window.console.error(err)
+  })
+  return true
+}
+
 function updateCounter () {
   const len = cpLength(el.composerInput.value)
   const max = state.limits.messageMaxChars
@@ -82,6 +134,7 @@ async function sendMessage () {
   const channelId = state.channelId
   const raw = el.composerInput.value
   const text = raw.trim()
+  if (composerRunCommand(raw, text, state.attachments.filter((a) => a.status === 'done'))) return
   if (pendingUploads() > 0) {
     toast(() => t('composer.waitUploads'))
     return

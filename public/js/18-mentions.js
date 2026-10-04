@@ -264,8 +264,13 @@ function matchPeople (query, ids, max) {
 
 // Yazma alanındaki öneri listesi
 
+// mode: 'user' (@ ile kişi önerileri) veya 'command' (yazma alanı "/" ile başlayınca Telsiz DJ komutları,
+// KONSEPT 6.10 ve 8.4). Komut kipinde ses odasında değilken liste yerine tek bir uyarı satırı gösterilir
+// (warning true, items boş).
 const mentionState = {
   open: false,
+  mode: 'user',
+  warning: false,
   items: [],
   index: 0,
   start: -1,
@@ -273,6 +278,90 @@ const mentionState = {
   query: '',
   dismissed: -1,
   blurTimer: 0
+}
+
+// Telsiz DJ komutları (dj-interface commands). Adlar ve açıklamalar i18n'dedir (dj.cmd.<ad>,
+// dj.cmdDesc.<ad>). Eş adlar motor yüklüyse TelsizMusic.COMMANDS'tan, değilse iki dilin adlarından ve
+// Türkçe klavyesi olmayanlar için ASCII eşlerinden gelir. Komutların işlevi 08-composer.js kancasıyla
+// DJ arayüzüne bağlanır.
+const DJ_COMMAND_ORDER = ['play', 'skip', 'pause', 'resume', 'queue', 'stop']
+const DJ_COMMAND_ASCII = { play: ['/cal'], skip: ['/gec'] }
+
+function commandFold (text) {
+  let s = String(text || '')
+  try {
+    s = s.normalize('NFC')
+  } catch (err) {
+    s = String(text || '')
+  }
+  return s.replace(/[İı]/g, 'i').toLowerCase()
+}
+
+function djCommandAliases (name) {
+  const engine = window.TelsizMusic && window.TelsizMusic.COMMANDS ? window.TelsizMusic.COMMANDS[name] : null
+  const out = []
+  const add = (value) => {
+    if (typeof value === 'string' && value.charAt(0) === '/' && out.indexOf(value) === -1) out.push(value)
+  }
+  add(t('dj.cmd.' + name))
+  if (Array.isArray(engine)) engine.forEach(add)
+  const dicts = window.I18N && window.I18N.messages ? window.I18N.messages : {}
+  Object.keys(dicts).forEach((lang) => {
+    if (dicts[lang]) add(dicts[lang]['dj.cmd.' + name])
+  })
+  const ascii = DJ_COMMAND_ASCII[name] || []
+  ascii.forEach(add)
+  return out
+}
+
+// Yazma alanı "/" ile başlıyorsa ve imleç ilk kelimedeyse { start: 0, end (kelimenin sonu), query }
+function commandQueryAt (text, caret) {
+  const s = typeof text === 'string' ? text : ''
+  if (s.charAt(0) !== '/' || typeof caret !== 'number' || caret < 1 || caret > s.length) return null
+  const space = s.search(/\s/)
+  const end = space === -1 ? s.length : space
+  if (caret > end || end > 40) return null
+  return { start: 0, end: end, query: commandFold(s.slice(1, caret)) }
+}
+
+// Sorguya uyan komutlar: geçerli dildeki ad önce, yazılan eş ad yalnızca dildeki ad uymuyorsa gösterilir
+function commandCandidates (query) {
+  const q = commandFold(query)
+  const out = []
+  DJ_COMMAND_ORDER.forEach((name) => {
+    const aliases = djCommandAliases(name)
+    if (!aliases.length) return
+    const hit = aliases.filter((a) => commandFold(a.slice(1)).indexOf(q) === 0)[0]
+    if (!hit) return
+    const label = commandFold(aliases[0].slice(1)).indexOf(q) === 0 ? aliases[0] : hit
+    out.push({ kind: 'command', name: name, label: label, desc: t('dj.cmdDesc.' + name) })
+  })
+  return out
+}
+
+function commandInVoice () {
+  try {
+    return typeof snap === 'function' && snap().channelId !== null && snap().channelId !== undefined
+  } catch (err) {
+    return false
+  }
+}
+
+function commandVoiceName () {
+  const id = commandInVoice() ? snap().channelId : null
+  const ch = id !== null && typeof findChannel === 'function' ? findChannel(id) : null
+  return ch ? ch.name : ''
+}
+
+// Komut kipindeki değişiklikler yazma alanında 'telsiz:commands' olayıyla duyurulur (23-dj.js dinler)
+function commandAnnounce () {
+  if (typeof composerEmit !== 'function') return
+  composerEmit('telsiz:commands', {
+    open: mentionState.open && mentionState.mode === 'command',
+    query: mentionState.query,
+    inVoice: commandInVoice(),
+    items: mentionState.items.map((item) => ({ name: item.name, label: item.label }))
+  })
 }
 
 function mentionPopoverEl () {
@@ -338,7 +427,13 @@ function mentionUpdate () {
     mentionClose()
     return
   }
-  const found = mentionQueryAt(input.value, composerCaret())
+  const caret = composerCaret()
+  const command = commandQueryAt(input.value, caret)
+  if (command) {
+    commandUpdate(command)
+    return
+  }
+  const found = mentionQueryAt(input.value, caret)
   if (!found) {
     mentionState.dismissed = -1
     mentionClose()
@@ -353,6 +448,9 @@ function mentionUpdate () {
     mentionClose()
     return
   }
+  if (mentionState.open && mentionState.mode !== 'user') mentionClose()
+  mentionState.mode = 'user'
+  mentionState.warning = false
   const sameToken = mentionState.open && mentionState.start === found.start
   const prevKey = sameToken && mentionState.items[mentionState.index] ? mentionItemKey(mentionState.items[mentionState.index]) : ''
   mentionState.items = items
@@ -363,6 +461,34 @@ function mentionUpdate () {
   mentionState.index = keep !== -1 ? keep : 0
   mentionState.open = true
   renderMentionPopover()
+}
+
+// Komut kipi: "/" ile başlayan ilk kelime. Ses odasında değilken liste yerine uyarı satırı, uyan komut
+// yoksa liste kapanır (metin olağan mesajdır).
+function commandUpdate (found) {
+  if (found.start === mentionState.dismissed) {
+    mentionClose()
+    return
+  }
+  const inVoice = commandInVoice()
+  const items = inVoice ? commandCandidates(found.query) : []
+  if (inVoice && !items.length) {
+    mentionClose()
+    return
+  }
+  if (mentionState.open && mentionState.mode !== 'command') mentionClose()
+  const prevKey = mentionState.open && mentionState.items[mentionState.index] ? mentionItemKey(mentionState.items[mentionState.index]) : ''
+  mentionState.mode = 'command'
+  mentionState.warning = !inVoice
+  mentionState.items = items
+  mentionState.start = found.start
+  mentionState.end = found.end
+  mentionState.query = found.query
+  const keep = prevKey ? items.map(mentionItemKey).indexOf(prevKey) : -1
+  mentionState.index = keep !== -1 ? keep : 0
+  mentionState.open = true
+  renderMentionPopover()
+  commandAnnounce()
 }
 
 function mentionItemKey (item) {
@@ -378,21 +504,54 @@ function renderMentionPopover () {
   const input = el.composerInput
   if (!pop) return
   clear(pop)
+  const command = mentionState.mode === 'command'
+  pop.classList.toggle('is-commands', mentionState.open && command)
+  pop.classList.toggle('is-warning', mentionState.open && mentionState.warning)
   if (!mentionState.open) {
     pop.hidden = true
+    pop.setAttribute('role', 'listbox')
+    pop.setAttribute('aria-label', t('layout.mentionList'))
     if (input) {
       input.setAttribute('aria-expanded', 'false')
       input.removeAttribute('aria-activedescendant')
     }
     return
   }
+  // Başlık satırı: kişi listesinde tuş ipucu, komut listesinde kapsam (ses odası) ve gönderim notu
+  const voiceName = command ? commandVoiceName() : ''
+  let title = t('composer.mentionHint')
+  if (command) title = typeof composerCommandsLive === 'function' && composerCommandsLive() && voiceName ? t('dj.cmdTitleLive', { room: voiceName }) : t('dj.cmdTitle')
+  const head = h('p', 'mention-title', title)
+  head.setAttribute('aria-hidden', 'true')
+  pop.appendChild(head)
+  if (command && mentionState.warning) {
+    // Ses odasında değil: liste yerine uyarı (ekran okuyucuya durum olarak okunur)
+    pop.setAttribute('role', 'status')
+    pop.setAttribute('aria-label', t('dj.cmdTitle'))
+    const warn = h('p', 'mention-warning')
+    warn.appendChild(icon('i-alert'))
+    warn.appendChild(h('span', '', t('dj.cmdNoVoice')))
+    pop.appendChild(warn)
+    pop.hidden = false
+    if (input) {
+      input.setAttribute('aria-expanded', 'false')
+      input.removeAttribute('aria-activedescendant')
+    }
+    return
+  }
+  pop.setAttribute('role', 'listbox')
+  pop.setAttribute('aria-label', t(command ? 'dj.cmdTitle' : 'layout.mentionList'))
   mentionState.items.forEach((item, i) => {
-    const opt = h('div', 'mention-option' + (item.kind === 'everyone' ? ' mention-option-everyone' : ''))
+    const opt = h('div', 'mention-option' + (item.kind === 'everyone' ? ' mention-option-everyone' : '') + (item.kind === 'command' ? ' mention-option-command' : ''))
     opt.id = 'mention-opt-' + i
     opt.setAttribute('role', 'option')
     opt.setAttribute('data-index', String(i))
     opt.setAttribute('aria-selected', i === mentionState.index ? 'true' : 'false')
-    if (item.kind === 'user') {
+    if (item.kind === 'command') {
+      opt.setAttribute('data-command', item.name)
+      opt.appendChild(h('span', 'mention-option-cmd', item.label))
+      opt.appendChild(h('span', 'mention-option-desc', item.desc))
+    } else if (item.kind === 'user') {
       opt.setAttribute('data-user-id', String(item.id))
       const av = typeof personAvatar === 'function' ? personAvatar(item.id, 'sm') : avatar(item.id, 'sm')
       opt.appendChild(av)
@@ -405,6 +564,12 @@ function renderMentionPopover () {
       opt.appendChild(ic)
       opt.appendChild(h('span', 'mention-option-name', '@' + item.name))
       opt.appendChild(h('span', 'handle mention-option-handle', t('mention.everyoneHint')))
+    }
+    if (i === mentionState.index) {
+      // Seçili satırda ekleme tuşunun ipucu (kişide Enter, komutta Tab)
+      const key = h('kbd', 'kbd mention-option-key', item.kind === 'command' ? 'Tab' : 'Enter')
+      key.setAttribute('aria-hidden', 'true')
+      opt.appendChild(key)
     }
     opt.addEventListener('click', (e) => {
       e.preventDefault()
@@ -443,10 +608,39 @@ function mentionClose () {
     if (pop && !pop.hidden) renderMentionPopover()
     return
   }
+  const wasCommand = mentionState.mode === 'command'
   mentionState.open = false
   mentionState.items = []
   mentionState.index = 0
+  mentionState.warning = false
   renderMentionPopover()
+  mentionState.mode = 'user'
+  if (wasCommand) commandAnnounce()
+}
+
+// Seçilen komut ilk kelimenin yerine '/ad ' olarak konur, 'telsiz:command-pick' olayı yayılır
+function commandSelect (item, input) {
+  const text = input.value
+  const end = Math.max(mentionState.end, 1)
+  if (text.charAt(0) !== '/') {
+    mentionClose()
+    return
+  }
+  const after = text.slice(end)
+  const insert = item.label + (/^\s/.test(after) ? '' : ' ')
+  input.value = insert + after
+  let caret = insert.length
+  if (/^\s/.test(after)) caret += 1
+  try {
+    input.setSelectionRange(caret, caret)
+  } catch (err) {
+    // Seçim desteklenmiyor
+  }
+  mentionState.dismissed = 0
+  mentionClose()
+  focusNode(input)
+  if (typeof onComposerInput === 'function') onComposerInput()
+  if (typeof composerEmit === 'function') composerEmit('telsiz:command-pick', { name: item.name, label: item.label, text: input.value })
 }
 
 // Seçilen kişi '@kullanıcıadı ' olarak yazılan kelimenin yerine konur
@@ -454,6 +648,10 @@ function mentionSelect (index) {
   const item = mentionState.items[index]
   const input = el.composerInput
   if (!item || !input || input.disabled) return
+  if (item.kind === 'command') {
+    commandSelect(item, input)
+    return
+  }
   const text = input.value
   const start = mentionState.start
   const end = Math.max(mentionState.end, start + 1)
@@ -480,9 +678,27 @@ function mentionSelect (index) {
 // Yazma alanının tuşları: liste açıkken oklar seçer, Enter ve Tab ekler, Esc kapatır.
 // Olay ele alındıysa true döner (mesaj gönderilmez).
 function mentionOnKeydown (e) {
-  if (!mentionState.open || !mentionState.items.length) return false
+  if (!mentionState.open) return false
   if (e.altKey || e.ctrlKey || e.metaKey) return false
   const key = e.key
+  if (!mentionState.items.length) {
+    // Yalnızca uyarı satırı açık (komut kipi, ses odasında değil): Esc kapatır, diğer tuşlar yazma alanının
+    if (key !== 'Escape' && key !== 'Esc') return false
+    e.preventDefault()
+    e.stopPropagation()
+    mentionState.dismissed = mentionState.start
+    mentionClose()
+    return true
+  }
+  // Komut tam yazılmışsa Enter listeyi değil gönderimi tetikler (Tab yine tamamlar)
+  if (key === 'Enter' && !e.shiftKey && mentionState.mode === 'command') {
+    const input = el.composerInput
+    const word = input ? commandFold(input.value.slice(0, mentionState.end)) : ''
+    if (mentionState.items.some((item) => word === commandFold(item.label))) {
+      mentionClose()
+      return false
+    }
+  }
   if (key === 'ArrowDown' || key === 'Down') {
     e.preventDefault()
     mentionMove(1)

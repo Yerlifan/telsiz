@@ -1,10 +1,863 @@
 /*
-  Frekans: kişisel alanlar (Ek K, KONSEPT 6.3, 6.5, 6.7, 6.8). Sahibi: kişisel alanlar bileşeni.
-  Kapsam: Yayındakiler sayfası (#people-sheet, #members-online, #members-offline), üst çubuktaki
-  Yayındakiler şeridi (#live-chip) ve avatar menüsü (#status-menu), Gelenler kartı (#inbox), sol
-  sütundaki özel mesaj listesi (#dm-section, #dm-list), Arkadaşlar istasyonunun görünümü (#home-view),
-  profil kartı (#profile-card) ve Tümü sayfasındaki özel konuşma satırları. Sayfa kabuğu, bant ve
-  kesme noktaları frekans.css içindedir.
+  Frekans: kişisel alanlar ve giriş (Ek K, KONSEPT 6.3, 6.4, 6.7, 6.12). Sahibi: kişisel alanlar bileşeni.
+  Kapsam: giriş, kurulum, davet ve anahtar kartı (#auth-view, telsiz gövdesi), Yayındakiler sayfası
+  (#people-sheet: ses odası bölümleri, #members-online, #members-offline) ve üst çubuktaki Yayındakiler
+  şeridi (#live-chip), sol sütundaki özel mesaj listesi (#dm-section, #dm-list) ve kişisel kartlar
+  (#req-card, #friend-add-card, #outgoing-card), özel mesaj başlığı (#dm-header), Arkadaşlar istasyonu
+  (#home-view) ve Tümü sayfasındaki özel konuşma satırları (.sheet-row-dmitem). Avatar menüsü (#status-menu)
+  ve profil kartı 13-profile.js ile telsiz kartı bileşenindedir. Sayfa kabuğu, bant ve kesme noktaları
+  frekans.css içindedir.
   Kurallar: renkler yalnızca var(--...) belirteçleriyle, grid, flex gap, clamp, :is, :where,
   aspect-ratio ve inset kullanılmaz.
 */
+
+/* =========================================================
+   1. Giriş kartı: telsiz gövdesi (anten, ekran, ibre, ölçek), sekmeler, alanlar, güvence satırı
+   ========================================================= */
+
+.auth-top .wordmark .logo {
+  width: 2rem;
+  height: 2rem;
+}
+
+.auth-title {
+  font-size: var(--text-xl);
+}
+
+/* Mod düğmesi etiketli çiptir (geçilecek mod yazar), telefonda yalnızca simge */
+.auth-tools .auth-scheme {
+  min-width: var(--target);
+  padding: 0 1rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  color: var(--text);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-sm);
+}
+
+.auth-tools .auth-scheme:hover {
+  background-color: var(--surface-hover);
+}
+
+.auth-scheme-label {
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+.auth-scheme-dark {
+  display: none;
+}
+
+:root[data-scheme="light"] .auth-scheme-light {
+  display: none;
+}
+
+:root[data-scheme="light"] .auth-scheme-dark {
+  display: inline;
+}
+
+.auth-stage {
+  padding-top: 2.75rem;
+}
+
+.auth-card {
+  position: relative;
+  width: 100%;
+  max-width: 27rem;
+  padding: 1.5rem 1.5rem 1.25rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: 1.75rem;
+  background-color: var(--radio-bg);
+  box-shadow: var(--shadow-pop);
+}
+
+/* Anten */
+.auth-card::before {
+  content: "";
+  position: absolute;
+  top: -1.75rem;
+  right: 2.5rem;
+  width: 0.875rem;
+  height: 1.75rem;
+  border-radius: 0.4375rem 0.4375rem 0 0;
+  background-color: var(--edge);
+}
+
+/* Ekran: sunucu adı, şifreleme notu, sağda dikey ibre, altta ölçek */
+.auth-dial {
+  position: relative;
+  display: block;
+  min-height: 6.75rem;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 3rem 1.25rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--screen-bg);
+  background-image: repeating-linear-gradient(90deg, var(--tick) 0, var(--tick) 1px, transparent 1px, transparent 10px), repeating-linear-gradient(90deg, var(--tick-major) 0, var(--tick-major) 1px, transparent 1px, transparent 50px);
+  background-size: 100% 0.5rem, 100% 0.875rem;
+  background-position: 0 100%, 0 100%;
+  background-repeat: repeat-x;
+  overflow: hidden;
+}
+
+.auth-dial .auth-brand-text {
+  margin: 0;
+}
+
+.auth-dial .auth-kicker {
+  margin: 0;
+  color: var(--text-3);
+}
+
+.auth-dial .auth-server {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--text-2xl);
+  line-height: 1.15;
+}
+
+.auth-meta {
+  display: flex;
+  align-items: flex-start;
+  margin: 0.25rem 0 0;
+  color: var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.auth-meta .icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0.0625rem 0.375rem 0 0;
+}
+
+.auth-needle {
+  position: absolute;
+  top: 0.625rem;
+  right: 1.5rem;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background-color: var(--needle);
+}
+
+.auth-needle::before {
+  content: "";
+  position: absolute;
+  top: -0.25rem;
+  left: -0.4375rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 3px solid var(--screen-bg);
+  border-radius: 50%;
+  background-color: var(--needle-knob);
+  box-shadow: 0 0 0 1px var(--needle);
+}
+
+.auth-card .tabs {
+  margin-bottom: 0.25rem;
+}
+
+.auth-card .tab {
+  font-size: var(--text-sm);
+}
+
+.auth-card .label {
+  margin-top: 0.875rem;
+  color: var(--text-2);
+}
+
+.auth-card .button-wide[type="submit"] {
+  min-height: 3.25rem;
+  margin-top: 1.25rem;
+  font-size: var(--text-md);
+}
+
+.auth-card .section-heading {
+  margin: 0;
+}
+
+.auth-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1rem 0 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.auth-foot .icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+  color: var(--ok);
+}
+
+/* Davet ekranında anahtar uyarısı zaten kartın içindedir */
+.auth-view[data-card="invite"] .auth-foot {
+  display: none;
+}
+
+/* =========================================================
+   2. Yayındakiler sayfası ve şeridi
+   ========================================================= */
+
+#people-sheet .avatar {
+  --status-ring: var(--surface-float);
+}
+
+#people-sheet .section-title {
+  margin: 1rem 0.5rem 0.375rem;
+}
+
+#people-sheet .member {
+  min-height: 3.5rem;
+  padding: 0.375rem 0.5rem;
+}
+
+#people-sheet .member > .avatar {
+  margin-right: 0.75rem;
+}
+
+#people-sheet .member-name {
+  color: var(--text-strong);
+}
+
+#people-sheet .member.is-offline .member-name {
+  color: var(--text-2);
+}
+
+#people-sheet .member-sub {
+  display: flex;
+  align-items: center;
+  font-size: var(--text-xs);
+}
+
+.member-talk {
+  display: none;
+  align-items: center;
+  color: var(--live);
+}
+
+.member-talk .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.25rem;
+}
+
+.member.is-speaking .member-talk {
+  display: inline-flex;
+}
+
+.member.is-speaking .member-state {
+  display: none;
+}
+
+#people-sheet .member.is-speaking {
+  background-color: transparent;
+}
+
+.member-flag {
+  flex: none;
+  margin-left: 0.5rem;
+  color: var(--danger);
+}
+
+#people-sheet .member .member-role {
+  flex: none;
+  margin: 0 0 0 0.5rem;
+}
+
+.people-note {
+  margin: 0.75rem 0.5rem 0;
+  font-size: var(--text-xs);
+}
+
+/* =========================================================
+   3. Sol bilgi sütunu: özel mesaj listesi ve kişisel kartlar
+   ========================================================= */
+
+/* KONSEPT 6.3: Özel istasyonunda konuşma listesi ve gelen istekler, Arkadaşlar istasyonunda Arkadaş ekle
+   ve gönderilen istekler. İstasyon değiştirme ipuçları kişisel istasyonlarda gösterilmez. */
+.app-view[data-view="home"] .dm-section,
+.app-view[data-view="dm"] .hints-card,
+.app-view[data-view="home"] .hints-card {
+  display: none;
+}
+
+.people-card .kicker,
+.dm-section .kicker {
+  margin-bottom: 0.625rem;
+}
+
+.dm-section .dm-list {
+  margin: 0 -0.25rem;
+}
+
+.dm-row {
+  margin: 0 0 0.125rem;
+}
+
+.dm-section .dm-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.375rem 0.5rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dm-section .dm-item:hover {
+  background-color: var(--surface-hover);
+}
+
+.dm-section .dm-item[aria-current="page"] {
+  border-color: var(--line-strong);
+  background-color: var(--station-tuned-bg);
+}
+
+.dm-section .dm-item > .avatar {
+  margin-right: 0.75rem;
+}
+
+.dm-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dm-item.is-blocked .dm-name {
+  text-decoration: line-through;
+}
+
+.dm-section .dm-sub {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-weight: 400;
+}
+
+.dm-sub-text {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dm-sub-time {
+  flex: none;
+}
+
+.dm-sub-time::before {
+  content: "\00B7";
+  margin: 0 0.3125rem;
+}
+
+.dm-voice-tag,
+.friend-voice-tag {
+  color: var(--live);
+}
+
+.dm-voice-tag .icon,
+.friend-voice-tag .icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.25rem;
+}
+
+.dm-section .dm-item .station-mark {
+  margin-left: 0.5rem;
+}
+
+.dm-section .dm-empty {
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.dm-hint {
+  margin: 0.5rem 0 0;
+  font-size: var(--text-xs);
+}
+
+.req-row {
+  display: flex;
+  align-items: center;
+  margin: 0 0 0.75rem;
+}
+
+.people-card .friend-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.people-card .friend-main > .avatar,
+.home-view .friend-main > .avatar {
+  margin-right: 0.75rem;
+}
+
+.btn-row {
+  display: flex;
+  margin: 0 0 0.75rem;
+}
+
+.btn-row:last-child {
+  margin-bottom: 0;
+}
+
+.btn-row .button {
+  flex: 1 1 0;
+  min-height: var(--target);
+  margin-right: 0.5rem;
+  padding: 0 0.5rem;
+}
+
+.btn-row .button:last-child {
+  margin-right: 0;
+}
+
+.people-card .req-cancel {
+  min-height: var(--target);
+  margin: 0 0 0.75rem;
+}
+
+.people-card .req-cancel:last-child {
+  margin-bottom: 0;
+}
+
+.people-card .req-more {
+  margin-top: 0.5rem;
+}
+
+.friend-add-card-body .friend-add-lead {
+  margin: 0 0 0.75rem;
+}
+
+.friend-add-card-body .friend-add-row {
+  display: block;
+}
+
+.friend-add-card-body .button-wide {
+  min-height: var(--target);
+  margin-top: 0.625rem;
+}
+
+/* =========================================================
+   4. Kişi satırları (Arkadaşlar istasyonu ve kartlar): ad, alt satır (kullanıcı adı · açıklama)
+   ========================================================= */
+
+.friend-main .list-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--text-md);
+  line-height: 1.3;
+}
+
+.friend-main .friend-name {
+  display: block;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.friend-main .friend-sub {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.friend-sub-text {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friend-handle {
+  flex: none;
+}
+
+.friend-handle + .friend-sub-text::before {
+  content: "\00B7";
+  margin: 0 0.3125rem;
+  color: var(--text-3);
+}
+
+/* =========================================================
+   5. Özel mesaj başlığı (#dm-header)
+   ========================================================= */
+
+.convo-head .dm-header {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.dm-header > * + * {
+  margin-left: 0.75rem;
+}
+
+.dm-header .dm-header-avatar {
+  flex: none;
+  border-radius: var(--avatar-radius);
+  cursor: pointer;
+}
+
+.dm-header-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dm-header .dm-header-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dm-header-sub {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.dm-header-sub > span {
+  flex: none;
+}
+
+.dm-header-sub > span:last-child {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dm-header-sub > span + span::before {
+  content: "\00B7";
+  margin: 0 0.3125rem;
+}
+
+.dm-header .dm-header-handle {
+  color: var(--text-3);
+  font-size: inherit;
+}
+
+.dm-header .dm-safety {
+  flex: none;
+  min-height: var(--target);
+  padding: 0 0.875rem;
+  border: var(--border-width) solid transparent;
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+.dm-header .dm-safety.dm-verified {
+  border-color: var(--live-edge);
+  background-color: var(--live-bg);
+  color: var(--live);
+}
+
+.dm-header .dm-safety.dm-unverified {
+  border-color: var(--warn-line);
+  background-color: var(--warn-bg);
+  color: var(--warn);
+}
+
+.dm-header .dm-profile-button {
+  flex: none;
+}
+
+/* =========================================================
+   6. Arkadaşlar istasyonu (#home-view)
+   ========================================================= */
+
+.convo .home-view {
+  padding: 0;
+  overflow: hidden;
+}
+
+.home-view .home-view-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: nowrap;
+  min-height: 3.75rem;
+  margin: 0;
+  padding: 0.5rem 1.25rem;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.home-view-titles {
+  min-width: 0;
+}
+
+.home-view .home-view-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+}
+
+.home-view-sub {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.home-view .home-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 0.5rem;
+}
+
+.home-view .home-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: var(--target);
+  margin-right: 0.25rem;
+  padding: 0 0.875rem;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.home-view .home-tab:last-child {
+  margin-right: 0;
+}
+
+.home-view .home-tab .icon {
+  margin-right: 0.375rem;
+}
+
+.home-tab .home-tab-count {
+  margin-left: 0.5rem;
+}
+
+.home-view .home-section-title {
+  margin: 1rem 0 0.375rem 0.5rem;
+}
+
+.home-view .friend-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-height: 3.5rem;
+  margin: 0 0 0.125rem;
+  padding: 0.375rem 0.5rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+}
+
+.home-view .friend-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.home-view .friend-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0.5rem;
+}
+
+.home-view .friend-row.is-offline .friend-name {
+  color: var(--text-2);
+}
+
+.home-view .friend-row.is-offline .avatar {
+  --av-bg: var(--av-offline);
+  --av-color: var(--av-offline-fg, var(--av-fg));
+}
+
+.home-view .friend-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.home-view .friend-actions .button {
+  min-height: var(--target);
+  margin-left: 0.375rem;
+  padding: 0 0.875rem;
+}
+
+.home-view .friend-actions .icon-button {
+  margin-left: 0.375rem;
+  border: var(--border-width) solid var(--line-strong);
+  background-color: var(--surface-3);
+  color: var(--text);
+}
+
+.home-view .friend-add .friend-add-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.home-view .friend-add .friend-add-row .input {
+  flex: 1 1 12rem;
+  margin: 0 0.5rem 0.5rem 0;
+}
+
+/* =========================================================
+   7. Tümü sayfasındaki özel konuşma satırları
+   ========================================================= */
+
+.sheet-row-dmitem .avatar {
+  --status-ring: var(--surface-float);
+}
+
+.sheet-row-dmitem .sheet-row-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   8. Kesme noktaları
+   ========================================================= */
+
+/* Orta ve dar: başlıkta güvenlik rozetinin ve Profil düğmesinin yazısı gizlenir, erişilebilir adı kalır */
+@media (max-width: 999px) {
+  .dm-header .dm-safety {
+    padding: 0 0.625rem;
+  }
+
+  .dm-header .dm-safety .pill-text,
+  .dm-header .dm-profile-button .button-text {
+    display: none;
+  }
+
+  .dm-header .dm-safety .icon {
+    margin-right: 0;
+  }
+
+  .dm-header .dm-profile-button {
+    min-width: var(--target);
+    padding: 0;
+  }
+
+  .dm-header .dm-profile-button .icon {
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 759px) {
+  .auth-tools .auth-scheme .auth-scheme-label {
+    display: none;
+  }
+
+  .auth-tools .auth-scheme {
+    padding: 0;
+  }
+
+  .auth-stage {
+    align-items: center;
+    padding: 2.75rem 1rem 2rem;
+  }
+
+  .auth-card {
+    padding: 1.25rem 1rem 1rem;
+    border: var(--border-width) solid var(--line-strong);
+    border-radius: 1.75rem;
+    box-shadow: var(--shadow-pop);
+  }
+
+  .auth-dial .auth-server {
+    font-size: var(--text-xl);
+  }
+
+  .dm-header-sub {
+    font-size: var(--text-xs);
+  }
+
+  .dm-header > * + * {
+    margin-left: 0.5rem;
+  }
+
+  .home-view .home-view-head {
+    padding: 0.5rem 1rem;
+  }
+
+  .home-page {
+    padding: 0.75rem;
+  }
+
+  /* Sekmeler tek satırda kalır ve yatay kayar */
+  .home-view .home-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .home-view .friend-actions .act-message .button-text {
+    display: none;
+  }
+
+  .home-view .friend-actions .act-message {
+    min-width: var(--target);
+    padding: 0;
+  }
+
+  .home-view .friend-actions .act-message .icon {
+    margin-right: 0;
+  }
+
+  .home-view .friend-actions .act-accept,
+  .home-view .friend-actions .act-decline,
+  .home-view .friend-actions .act-cancel,
+  .home-view .friend-actions .act-unblock {
+    padding: 0 0.625rem;
+  }
+}

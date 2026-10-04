@@ -13,7 +13,6 @@
 }
 
 :root[data-skin="turkuaz"] .sheet-head::after,
-:root[data-skin="turkuaz"] .auth-brand::after,
 :root[data-skin="turkuaz"] .profile-card-head::after {
   content: "";
   position: absolute;
@@ -28,11 +27,6 @@
   background-repeat: repeat-x, repeat-x, repeat-x;
   background-position: 0 0, 0 0, 0 50%;
   background-size: 12px 9px, 12px 9px, 100% 1px;
-}
-
-:root[data-skin="turkuaz"] .auth-brand {
-  position: relative;
-  padding-bottom: 1.25rem;
 }
 
 /* Bölüm başlıkları: Young Serif, normal harf, sağa uzanan çizgi */
@@ -244,35 +238,6 @@
 :root[data-skin="turkuaz"] .composer-box {
   background-color: var(--surface-3);
   box-shadow: var(--shadow-card);
-}
-
-/* Giriş kartı: kemer ve bakır iç çizgi */
-:root[data-skin="turkuaz"] .auth-card {
-  position: relative;
-  padding-top: 3rem;
-  border-top-left-radius: 50% 4.5rem;
-  border-top-right-radius: 50% 4.5rem;
-}
-
-:root[data-skin="turkuaz"] .auth-card::before {
-  content: "";
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  left: 0.5rem;
-  height: 4rem;
-  border: 1px solid var(--pattern-2);
-  border-bottom: 0;
-  border-top-left-radius: 50% 4rem;
-  border-top-right-radius: 50% 4rem;
-  pointer-events: none;
-}
-
-:root[data-skin="turkuaz"] .auth-view {
-  background-image:
-    linear-gradient(45deg, rgba(0, 0, 0, 0) 49%, var(--line) 49%, var(--line) 51%, rgba(0, 0, 0, 0) 51%),
-    linear-gradient(-45deg, rgba(0, 0, 0, 0) 49%, var(--line) 49%, var(--line) 51%, rgba(0, 0, 0, 0) 51%);
-  background-size: 3.5rem 3.5rem;
 }
 
 /* Profil kartı: kemer afiş ve yıldız deseni */

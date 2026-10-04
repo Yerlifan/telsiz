@@ -515,7 +515,8 @@ function renderStationsSheet (model) {
   const dms = bandDmEntries()
   const key = [window.I18N ? window.I18N.lang : '', state.channelId, currentViewMode()].concat(groups.map((g) => g.stations.map(stationKeyOf).join('|'))).concat(dms.map((d) => {
     const name = typeof userDisplayName === 'function' ? userDisplayName(d.userId) : shownName(d.userId)
-    return d.id + ':' + name + ':' + (state.unread[d.id] || 0)
+    const sub = typeof dmRowSub === 'function' ? dmRowSub(d) : ''
+    return d.id + ':' + name + ':' + (state.unread[d.id] || 0) + ':' + sub + ':' + shownStatus(d.userId) + ':' + JSON.stringify(avatarInfoFor(d.userId))
   })).join('#')
   if (key === stationsRenderKey && list.childNodes.length) return
   stationsRenderKey = key
@@ -585,6 +586,9 @@ function buildSheetDmRow (d) {
   b.appendChild(av)
   const text = h('span', 'sheet-row-body')
   text.appendChild(h('span', 'sheet-row-name', name))
+  // Alt satır (15-dm.js): durum veya bulunduğu ses odası ve son mesaj saati
+  const sub = typeof dmRowSub === 'function' ? dmRowSub(d) : ''
+  if (sub) text.appendChild(h('span', 'sheet-row-sub', sub))
   b.appendChild(text)
   if (count && !current) {
     const mark = h('span', 'station-mark mark-mention', countText(count))
@@ -678,8 +682,11 @@ function restoreFocusKey (container, key) {
   if (found) focusNode(found)
 }
 
-// Üye listesi (Yayındakiler sayfası, #people-sheet): görünen ad, durum, ses odası, özel durum metni.
-// Satıra tıklamak profil kartını açar (13-profile.js). Üst çubuktaki Yayındakiler şeridi de burada çizilir.
+// Yayındakiler sayfası (#people-sheet, KONSEPT 6.7): ses odalarındakiler oda oda ("<oda> odasında · n", konuşuyor,
+// mikrofonu kapalı, bas konuş modu), sonra çevrimiçi ve çevrimdışı kişiler. Satırda yumuşak kare avatar ve durum
+// noktası, ad, alt satırda durum ve özel durum metni, sağda rol etiketi ve susturma işareti. Satıra basmak profil
+// kartını açar (13-profile.js). Üst çubuktaki Yayındakiler şeridi de burada çizilir. Konuşan kişinin halesi ve
+// "konuşuyor" satırı 10-voice.js updateVoiceLive'ın .member.is-speaking sınıfıyla CSS'te gösterilir.
 
 function voiceChannelOf (userId) {
   const rosters = state.meta && state.meta.voice ? state.meta.voice : null
@@ -691,20 +698,73 @@ function voiceChannelOf (userId) {
   return found === undefined ? null : findChannel(found)
 }
 
-function memberStatusText (userId, status) {
-  const ch = voiceChannelOf(userId)
-  if (ch && status !== 'offline') return t('voice.inChannel', { name: ch.name })
-  if (typeof userStatusText === 'function') {
+// Çevrimiçi ve çevrimdışı satırlarının alt satırı: durum (boşta, rahatsız etmeyin, çevrimdışı) ve özel durum metni
+function memberPresenceText (userId, status) {
+  let custom = ''
+  if (status !== 'offline' && typeof userStatusText === 'function') {
     try {
-      const custom = userStatusText(userId)
-      if (custom && status !== 'offline') return String(custom)
+      custom = String(userStatusText(userId) || '')
     } catch (err) {
-      // Profil modülü hazır değil
+      custom = ''
     }
   }
-  if (status === 'idle') return t('layout.status.idle')
-  if (status === 'dnd') return t('layout.status.dnd')
-  return ''
+  if (status === 'online') return custom
+  const label = typeof statusLabel === 'function' ? statusLabel(status) : t('status.' + status)
+  return custom ? t('people.statusWithText', { status: label, text: custom }) : label
+}
+
+// Ses odasındaki kişinin durumu: sağırlaştırılmış, mikrofonu kapalı, kendisi için bas konuş veya ses etkinliği modu,
+// yerel susturma ya da bağlı. Kendi satırım bu cihazdaki ses durumundan, diğerleri sunucunun kadro bilgisinden.
+function memberVoiceState (entry) {
+  const v = entry.voice
+  const s = snap()
+  const self = Boolean(state.me && sameId(entry.user.id, state.me.id))
+  const mine = self && sameId(s.channelId, v.channelId)
+  const muted = mine ? s.muted === true : v.muted
+  const deafened = mine ? s.deafened === true : v.deafened
+  let text = t('people.voiceIdle')
+  if (deafened) text = t('voice.deafenedState')
+  else if (muted) text = t('voice.mutedState')
+  else if (mine) text = t(s.inputMode === 'ptt' ? 'people.pttMode' : 'people.vadMode')
+  else if (!self && s.peers && s.peers[String(entry.user.id)] && s.peers[String(entry.user.id)].localMute) text = t('voice.localMuted')
+  return { text: text, muted: muted, deafened: deafened }
+}
+
+// Ses odalarındaki kişiler bant sırasıyla oda oda gruplanır, her kişi yalnızca bir odada sayılır
+function memberVoiceGroups (entries) {
+  const index = new Map(entries.map((e) => [String(e.user.id), e]))
+  const seen = new Set()
+  const groups = []
+  voiceChannels().forEach((c) => {
+    const people = []
+    voiceRoster(c.id).forEach((r) => {
+      const key = r ? String(r.userId) : ''
+      const e = index.get(key)
+      if (!e || seen.has(key)) return
+      seen.add(key)
+      people.push({ user: e.user, status: e.status, name: e.name, voice: { channelId: c.id, muted: r.muted === true, deafened: r.deafened === true } })
+    })
+    if (people.length) groups.push({ channel: c, people: people })
+  })
+  return { groups: groups, seen: seen }
+}
+
+// Yayındakiler sayfasının ses bölümü kabı ve alttaki not (ilk çizimde eklenir)
+function membersExtras () {
+  if (!el.members) return null
+  let voiceBox = byId('members-voice')
+  if (!voiceBox) {
+    voiceBox = h('div', 'members-voice')
+    voiceBox.id = 'members-voice'
+    el.members.insertBefore(voiceBox, el.members.firstChild)
+  }
+  let note = byId('members-note')
+  if (!note) {
+    note = h('p', 'hint people-note')
+    note.id = 'members-note'
+    el.members.appendChild(note)
+  }
+  return { voiceBox: voiceBox, note: note }
 }
 
 let membersRenderKey = ''
@@ -722,18 +782,39 @@ function renderMembers () {
       return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
     }
   })
-  const online = entries.filter((e) => e.status !== 'offline')
-  const offline = entries.filter((e) => e.status === 'offline')
-  el.membersOnlineTitle.textContent = t('members.online', { count: online.length })
-  el.membersOfflineTitle.textContent = t('members.offline', { count: offline.length })
+  const voiceInfo = memberVoiceGroups(entries)
+  const voicePeople = voiceInfo.groups.reduce((all, g) => all.concat(g.people), [])
+  const online = entries.filter((e) => e.status !== 'offline' && !voiceInfo.seen.has(String(e.user.id)))
+  const offline = entries.filter((e) => e.status === 'offline' && !voiceInfo.seen.has(String(e.user.id)))
+  el.membersOnlineTitle.textContent = t('people.onlineTitle', { count: online.length })
+  el.membersOfflineTitle.textContent = t('people.offlineTitle', { count: offline.length })
+  el.membersOnlineTitle.hidden = online.length === 0 && voicePeople.length > 0
   el.membersOfflineTitle.hidden = offline.length === 0
   if (el.membersCount) el.membersCount.textContent = formatNumber(entries.length)
   renderServerMeta()
-  renderLiveChip(online)
+  // Şeritte önce ses odalarındakiler, sonra diğer çevrimiçi kişiler
+  renderLiveChip(voicePeople.filter((e) => e.status !== 'offline').concat(online))
   renderRoomCard()
-  const key = entries.map((e) => memberRowKey(e)).join('|')
+  const extras = membersExtras()
+  const key = [window.I18N ? window.I18N.lang : ''].concat(voiceInfo.groups.map((g) => g.channel.id + '=' + g.channel.name + '=' + g.people.map((e) => memberRowKey(e)).join(',')), online.map((e) => memberRowKey(e)), ['|'], offline.map((e) => memberRowKey(e))).join('|')
   if (key !== membersRenderKey || !el.membersOnline.childNodes.length) {
     membersRenderKey = key
+    if (extras) {
+      clear(extras.voiceBox)
+      voiceInfo.groups.forEach((g) => {
+        const titleId = 'members-voice-title-' + g.channel.id
+        const title = h('h3', 'section-title members-voice-title', t('people.inRoom', { name: g.channel.name, count: g.people.length }))
+        title.id = titleId
+        extras.voiceBox.appendChild(title)
+        const list = h('ul', 'member-list members-voice-list')
+        list.setAttribute('aria-labelledby', titleId)
+        list.setAttribute('data-channel-id', String(g.channel.id))
+        fillMemberList(list, g.people)
+        extras.voiceBox.appendChild(list)
+      })
+      extras.voiceBox.hidden = voiceInfo.groups.length === 0
+      extras.note.textContent = t('people.note')
+    }
     fillMemberList(el.membersOnline, online)
     fillMemberList(el.membersOffline, offline)
     restoreFocusKey(el.members, focusKey)
@@ -780,7 +861,8 @@ function memberRowKey (entry) {
       blocked = false
     }
   }
-  return [u.id, entry.status, entry.name, u.role, memberStatusText(u.id, entry.status), blocked, info.colorIndex, info.blobUrl || '', info.initial, window.I18N ? window.I18N.lang : ''].join(':')
+  const sub = entry.voice ? JSON.stringify(memberVoiceState(entry)) : memberPresenceText(u.id, entry.status)
+  return [u.id, entry.status, entry.name, u.role, sub, blocked, info.colorIndex, info.blobUrl || '', info.initial].join(':')
 }
 
 function fillMemberList (list, entries) {
@@ -795,7 +877,7 @@ function buildMemberRow (entry) {
   const status = entry.status
   const li = h('li', 'member-li')
   const clickable = typeof openProfileCard === 'function'
-  const row = h(clickable ? 'button' : 'div', 'member ' + (status === 'offline' ? 'is-offline' : 'is-online'))
+  const row = h(clickable ? 'button' : 'div', 'member ' + (status === 'offline' ? 'is-offline' : 'is-online') + (entry.voice ? ' is-voice' : ''))
   row.setAttribute('data-user-id', String(u.id))
   row.setAttribute('data-status', status)
   if (clickable) {
@@ -820,12 +902,30 @@ function buildMemberRow (entry) {
   const line = h('span', 'member-line')
   line.appendChild(h('span', 'member-name', entry.name))
   if (self) line.appendChild(h('span', 'member-you', t('common.you')))
-  const badge = roleBadge(u.role)
-  if (badge) line.appendChild(badge)
   text.appendChild(line)
-  const sub = memberStatusText(u.id, status)
-  if (sub) text.appendChild(h('span', 'member-sub', sub))
+  let flag = null
+  if (entry.voice) {
+    const vs = memberVoiceState(entry)
+    const sub = h('span', 'member-sub')
+    const talk = h('span', 'member-talk')
+    talk.appendChild(icon('i-wave'))
+    talk.appendChild(h('span', 'member-talk-text', t('people.talking')))
+    sub.appendChild(talk)
+    sub.appendChild(h('span', 'member-state', vs.text))
+    text.appendChild(sub)
+    if (vs.deafened) flag = icon('i-headphones-off', 'member-flag')
+    else if (vs.muted) flag = icon('i-mic-off', 'member-flag')
+  } else {
+    const subText = memberPresenceText(u.id, status)
+    if (subText) text.appendChild(h('span', 'member-sub', subText))
+  }
   row.appendChild(text)
+  if (flag) row.appendChild(flag)
+  const badge = roleBadge(u.role)
+  if (badge) {
+    badge.classList.add('member-role')
+    row.appendChild(badge)
+  }
   li.appendChild(row)
   return li
 }

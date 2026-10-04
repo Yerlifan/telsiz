@@ -500,6 +500,14 @@ function rebuildSettingsSide () {
 
 // Dil değişince görünüm yeniden çizilir, odak aynı kimlikli öğeye döner
 function settingsOnLanguage () {
+  // Masaüstü bölümleri (20-desktop.js) kendi metinlerini yeniden üretir, tarayıcıda işlem yapmaz
+  if (window.TelsizDesktopUI && typeof window.TelsizDesktopUI.refresh === 'function') {
+    try {
+      window.TelsizDesktopUI.refresh()
+    } catch (err) {
+      window.console.error(err)
+    }
+  }
   if (!isSettingsOpen()) return
   const active = document.activeElement
   const focusId = active && settingsRoot().contains(active) ? active.id : ''
@@ -2672,15 +2680,8 @@ function buildKeybindsPage (page) {
   })
   page.appendChild(sMsg('set-bind-msg'))
   page.appendChild(sHint(t('settings.keybinds.conflictHint')))
-  // Masaüstü uygulamasının genel kısayolları varsa ek bölüm olarak gösterilir
-  if (typeof desktopKeybindsSection === 'function') {
-    try {
-      const extra = desktopKeybindsSection()
-      if (extra) page.appendChild(extra)
-    } catch (err) {
-      window.console.error(err)
-    }
-  }
+  // Masaüstü uygulamasının genel kısayolları (20-desktop.js): tarayıcıda çağrı false döner ve kap kaldırılır
+  desktopSettingsBox(page, 'set-desktop-shortcuts', 'renderShortcutSettings')
   renderKeybinds()
   return {
     update: renderKeybinds,
@@ -3059,8 +3060,33 @@ function refreshThemeSettings () {
 
 // 8. Uygulama: yükleme, iOS ipucu, sürüm, açık kaynak ve lisans
 
+// Masaüstü uygulamasının ayar bölümleri (20-desktop.js, window.TelsizDesktopUI) için kap. Bölümü modül
+// çizer, tarayıcıda çağrı false döner ve kap sayfadan kaldırılır. Dil değişince ayarlar görünümü yeniden
+// kurulur ve kap yeniden çizilir (ayrıca settingsOnLanguage TelsizDesktopUI.refresh çağırır).
+function desktopSettingsBox (page, id, method) {
+  const ui = window.TelsizDesktopUI
+  if (!ui || typeof ui[method] !== 'function') return null
+  const box = h('div', 'settings-section settings-desktop')
+  box.id = id
+  page.appendChild(box)
+  let drawn = false
+  try {
+    drawn = ui[method](box) === true
+  } catch (err) {
+    window.console.error(err)
+  }
+  if (!drawn) {
+    if (box.parentNode) box.parentNode.removeChild(box)
+    return null
+  }
+  return box
+}
+
 function buildAppPage (page) {
+  // Masaüstü uygulamasında sunucu adresi ve tepsi ayarları en üstte, tarayıcıya özgü yükleme bölümü gizli
+  const desktopBox = desktopSettingsBox(page, 'set-desktop-app', 'renderAppSettings')
   const installSec = sSection(page, t('settings.app.installTitle'), 'set-install-section')
+  if (desktopBox) installSec.hidden = true
   const installState = h('p', 'settings-text')
   installState.id = 'set-install-state'
   installSec.appendChild(installState)
