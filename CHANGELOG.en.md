@@ -2,6 +2,12 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Fixes
+
+- When system audio was shared with a screen share, the conversation in Telsiz was also captured and listeners heard their own voices back. The share audio is now requested with the `restrictOwnAudio` constraint: the desktop app and browsers that support it remove the sounds Telsiz itself plays (the conversation, notification sounds, Telsiz DJ) from the shared audio. On older Windows versions that cannot separate it, all system audio is still shared.
+
 ## [2.2.0]
 
 ### New features

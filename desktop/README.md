@@ -57,7 +57,7 @@ Sayılar oturuma özeldir: istemci okunmamışları sunucuda değil bu cihazda s
 
 ## Ekran paylaşımı seçicisi
 
-Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici penceresini açar (`src/picker/`). Seçici ekranları ve pencereleri küçük resim ve adlarıyla gösterir. Seçici yalnızca son birkaç saniyede gerçek bir kullanıcı girişi (tıklama veya tuş) olduysa açılır ve yalnızca kullanıcının seçtiği kaynak verilir. Vazgeçilirse istek reddedilir. Eski `chromeMediaSource: 'desktop'` çağrısı seçiciyi atlayamaz. Sistem sesini paylaşma seçeneği yalnızca Windows'ta gösterilir, çünkü Electron belgelerine göre sistem sesi yakalama (`loopback`) şu an yalnızca Windows'ta desteklenir.
+Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici penceresini açar (`src/picker/`). Seçici ekranları ve pencereleri küçük resim ve adlarıyla gösterir. Seçici yalnızca son birkaç saniyede gerçek bir kullanıcı girişi (tıklama veya tuş) olduysa açılır ve yalnızca kullanıcının seçtiği kaynak verilir. Vazgeçilirse istek reddedilir. Eski `chromeMediaSource: 'desktop'` çağrısı seçiciyi atlayamaz. Sistem sesini paylaşma seçeneği yalnızca Windows'ta gösterilir, çünkü Electron belgelerine göre sistem sesi yakalama (`loopback`) şu an yalnızca Windows'ta desteklenir. Web uygulaması sesi `restrictOwnAudio` kısıtıyla ister ve Electron bu durumda uygulamanın kendi sesini yakalamanın dışında tutar: Telsiz'de çalan konuşmalar, bildirim sesleri ve Telsiz DJ paylaşılan sese girmez. Bu ayrımı desteklemeyen eski Windows sürümlerinde bütün sistem sesi yakalanır.
 
 ## Gereksinimler
 

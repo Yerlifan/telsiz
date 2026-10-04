@@ -57,7 +57,7 @@ The counts belong to the session: the client counts unread messages on this devi
 
 ## Screen sharing picker
 
-When the web app calls `getDisplayMedia`, the main process opens its own picker window (`src/picker/`). The picker shows screens and windows with thumbnails and names. It only opens if there was real user input (a click or a key press) in the last few seconds, and only the source the user picked is granted. If the user cancels, the request is denied. The old `chromeMediaSource: 'desktop'` call cannot bypass the picker. The option to share system audio is only shown on Windows, because according to the Electron documentation system audio capture (`loopback`) is currently only supported on Windows.
+When the web app calls `getDisplayMedia`, the main process opens its own picker window (`src/picker/`). The picker shows screens and windows with thumbnails and names. It only opens if there was real user input (a click or a key press) in the last few seconds, and only the source the user picked is granted. If the user cancels, the request is denied. The old `chromeMediaSource: 'desktop'` call cannot bypass the picker. The option to share system audio is only shown on Windows, because according to the Electron documentation system audio capture (`loopback`) is currently only supported on Windows. The web app requests the audio with the `restrictOwnAudio` constraint, and Electron then leaves the app's own sound out of the capture: the conversation, notification sounds and Telsiz DJ playing in Telsiz do not reach the shared audio. On older Windows versions that cannot separate it, all system audio is captured.
 
 ## Requirements
 

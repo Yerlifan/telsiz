@@ -17,7 +17,11 @@
 // 3. İzin verildiği hâlde seçim kısa süre içinde tüketilmezse istek getDisplayMedia değildir
 //    (eski yol), ana süreç sayfayı yeniden yükleyerek yakalamayı durdurur.
 // Sistem sesi (audio: 'loopback') Electron belgelerine göre (electron.d.ts, Streams.audio) şu an
-// yalnızca Windows'ta desteklenir, diğer sistemlerde seçenek gösterilmez.
+// yalnızca Windows'ta desteklenir, diğer sistemlerde seçenek gösterilmez. Sayfa sesi
+// restrictOwnAudio ile ister. Electron 43.4 ve 44 ile sonraki sürümler bu istekte 'loopback'
+// yanıtını uygulamanın kendi süreç ağacının sesi hariç yakalamaya (loopbackWithoutChrome) çevirir,
+// böylece Telsiz'de çalan konuşmalar paylaşılan sese girmez. Bu ayrımı desteklemeyen eski Windows
+// sürümlerinde Chromium düz yakalamaya döner.
 
 const { originOf } = require('./navigation')
 
