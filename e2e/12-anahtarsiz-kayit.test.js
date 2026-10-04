@@ -25,11 +25,11 @@ async function skipAndStay (page) {
   await page.click('#key-skip')
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
   const before = W.stateCalls
-  for (let i = 0; i < 6; i++) {
+  for (const step of [1, 2, 3, 4, 5, 6]) {
     await h.sleep(500)
     const ids = await visibleIds(page)
-    assert.ok(ids.indexOf('app-view') !== -1, 'uygulama ekranı açık kalmalı: ' + ids.join(','))
-    assert.equal(ids.indexOf('key-card'), -1, 'anahtar ekranı geri gelmemeli')
+    assert.ok(ids.indexOf('app-view') !== -1, step + '. denetimde uygulama ekranı açık kalmalı: ' + ids.join(','))
+    assert.equal(ids.indexOf('key-card'), -1, step + '. denetimde anahtar ekranı geri gelmemeli')
   }
   assert.equal(W.stateCalls, before, 'oturum durumu yeniden istenmemeli')
   // Anahtarsız uygulama: yazma alanında anahtar uyarısı
