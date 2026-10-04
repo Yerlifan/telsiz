@@ -1,7 +1,7 @@
 {
   "appId": "io.github.yerlifan.telsiz",
   "productName": "Telsiz",
-  "copyright": "Copyright (c) 2026 Burak",
+  "copyright": "Copyright (c) 2026 Burak Aslancan Pak",
   "directories": {
     "output": "dist",
     "buildResources": "build"

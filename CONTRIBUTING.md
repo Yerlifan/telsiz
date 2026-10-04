@@ -1,6 +1,8 @@
 # Katkıda bulunma rehberi
 
-PS5 + PC Sohbet'e katkı yapmak istediğiniz için teşekkür ederiz. Proje, Discord'a erişemeyen arkadaş gruplarının bilgisayardan, PS5'ten, telefondan ve tabletten ortak kullanabileceği, uçtan uca şifreli bir sohbet uygulamasıdır. Hata bildirimleri, gerçek cihazlardan (özellikle PS5'ten) gelen deneme sonuçları, belge düzeltmeleri ve kod katkıları memnuniyetle karşılanır. Projenin dili Türkçedir. Issue'ları, PR açıklamalarını ve arayüz metinlerini Türkçe yazmanızı rica ederiz.
+[Türkçe](CONTRIBUTING.md) | [English](CONTRIBUTING.en.md)
+
+Telsiz'e katkı yapmak istediğiniz için teşekkür ederiz. Telsiz, kendi sunucunuzda çalışan, uçtan uca şifreli ve açık kaynaklı bir yazılı ve sesli iletişim uygulamasıdır. Hata bildirimleri, gerçek cihazlardan (telefon, tablet, televizyon ve oyun konsolu tarayıcıları dahil) gelen deneme sonuçları, çeviri ve belge düzeltmeleri ve kod katkıları memnuniyetle karşılanır. Proje Türkçe ve İngilizce olarak sürdürülür. Issue'ları ve PR açıklamalarını iki dilden birinde yazabilirsiniz, arayüz metinleri ve belgeler her zaman iki dilde birlikte güncellenir.
 
 ## Davranış ilkesi
 
@@ -12,108 +14,162 @@ Güvenlik açıklarını herkese açık bir issue, tartışma veya PR olarak bil
 
 ## Hata bildirimi ve özellik isteği
 
-Hataları ve özellik isteklerini deponun GitHub sayfasındaki Issues sekmesinden, hazır hata bildirimi ve özellik isteği formlarıyla açın. Hata bildiriminde cihazı ve tarayıcıyı (PC, PS5, Android, iOS veya tablet), kullandığınız sürümü veya commit'i, hatayı yeniden oluşturma adımlarını, beklediğiniz davranışı ve gerçekleşen davranışı yazın. Açmadan önce aynı konuda başka bir issue olup olmadığına bakın.
+Hataları ve özellik isteklerini deponun GitHub sayfasındaki Issues sekmesinden, hazır hata bildirimi ve özellik isteği formlarıyla açın. Hata bildiriminde cihazı ve tarayıcıyı, kullandığınız sürümü veya commit'i, kurulum yolunu (npm, tek dosya, Docker, depo veya masaüstü uygulaması), hatayı yeniden oluşturma adımlarını, beklediğiniz davranışı ve gerçekleşen davranışı yazın. Açmadan önce aynı konuda başka bir issue olup olmadığına bakın.
 
-Issue'lara mesaj içeriklerini, anahtar kodlarını, davet bağlantılarını, parolaları, tünel adreslerini veya `veri` klasöründen dosyaları eklemeyin. Ekran görüntülerinde de bu bilgilerin görünmediğinden emin olun.
+Issue'lara mesaj içeriklerini, anahtar kodlarını, davet bağlantılarını, kurulum kodlarını, parolaları, tünel adreslerini veya veri klasöründen dosyaları eklemeyin. Ekran görüntülerinde de bu bilgilerin görünmediğinden emin olun.
 
 ## Geliştirme ortamı
 
-Geliştirme için git ve Node.js 20 veya daha yeni bir sürüm gerekir. CI testleri Ubuntu ve Windows üzerinde Node.js 20, 22 ve 24 ile çalıştırır.
+Geliştirme için git ve Node.js 20 veya daha yeni bir sürüm gerekir. CI denetimi ve testleri Ubuntu ve Windows üzerinde Node.js 20, 22 ve 24 ile çalıştırır.
 
 1. Depoyu GitHub'da kendi hesabınıza çatallayın (fork).
 2. Çatalınızı bilgisayarınıza klonlayın.
 3. Proje klasöründe `npm ci` komutunu çalıştırın.
-4. `npm test` komutuyla testlerin geçtiğini doğrulayın.
+4. `npm run denetle` ve `npm test` komutlarıyla her şeyin geçtiğini doğrulayın.
 
-`npm ci`, `package-lock.json` dosyasındaki sabit sürümlerle yalnızca geliştirme araçlarını (`acorn` ve `playwright`) kurar. Sunucuyu çalıştırmak için bu adım gerekmez.
+`npm ci`, `package-lock.json` dosyasındaki sabit sürümlerle yalnızca geliştirme araçlarını kurar: denetleyicinin kullandığı `acorn`, uçtan uca testlerin kullandığı `playwright` ve tek dosya derlemesinin kullandığı `postject`. Sunucuyu çalıştırmak için bu adım gerekmez.
 
-| Komut | Görevi |
-|---|---|
-| `npm start` | Sunucuyu başlatır (`node server.js`) |
-| `npm test` | `test/` klasöründeki birim ve sunucu testlerini çalıştırır |
-| `npm run denetle` | Yazım, sözdizimi ve güvenlik kurallarını denetler (`scripts/denetle.js`) |
-| `npm run lint` | `npm run denetle` ile aynı işi yapar |
-| `npm run test:e2e` | `e2e/` klasöründeki uçtan uca testleri Chromium ile, sırayla çalıştırır |
-
-Test komutları, `node:test` ile çalışan test dosyalarını `scripts/test-calistir.js` aracılığıyla bulur. Bu betik, Node.js sürümleri ve işletim sistemleri arasındaki klasör ve dosya kalıbı farklarını ortadan kaldırır.
-
-Uçtan uca testler Playwright kütüphanesiyle gerçek bir Chromium tarayıcısı açar. Playwright'ın Chromium tarayıcısını `npx playwright install chromium` komutuyla indirebilirsiniz. Linux'ta tarayıcının sistem kütüphaneleri de gerekebilir, CI bunları `npx playwright install --with-deps chromium` komutuyla kurar. Başarısız olan testler ekran görüntülerini `e2e-sonuclar/` klasörüne yazar. Tarayıcının hangi seçeneklerle başlatıldığı `e2e/yardimci.js` dosyasında görülebilir.
-
-Uygulamayı elle denerken gerçek verinizi korumak için sunucuyu ayrı bir veri klasörüyle başlatabilirsiniz. Linux ve macOS'ta:
+Uygulamayı elle denerken gerçek verinizi korumak için sunucuyu ayrı bir veri klasörüyle başlatın. Linux ve macOS'ta:
 
 ```sh
-VERI_KLASORU=/tmp/sohbet-deneme node server.js
+VERI_KLASORU=/tmp/telsiz-deneme node server.js
 ```
 
 Windows komut isteminde:
 
 ```bat
-set "VERI_KLASORU=%TEMP%\sohbet-deneme"
+set "VERI_KLASORU=%TEMP%\telsiz-deneme"
 node server.js
 ```
 
-Birden çok kullanıcıyı aynı bilgisayarda denemek için `http://localhost:3000` adresini farklı tarayıcı profillerinde veya gizli pencerelerde açın. Tarayıcı giriş bilgisini ve anahtarı adrese göre sakladığı için aynı profildeki sekmeler aynı hesabı kullanır. Sesli sohbet yalnızca https adreslerinde ve `localhost` üzerinde çalışır.
+Birden çok kullanıcıyı aynı bilgisayarda denemek için `http://localhost:3000` adresini farklı tarayıcı profillerinde veya gizli pencerelerde açın. Tarayıcı oturumu ve anahtarı adrese göre sakladığı için aynı profildeki sekmeler aynı hesabı kullanır. Sesli sohbet ve ekran paylaşımı yalnızca https adreslerinde ve `localhost` üzerinde çalışır.
 
-## Mimari özet
+## Testler ve denetim
 
-Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulamasıdır ve verileri JSON ve JSONL dosyalarında saklar. Gerçek zamanlı iletişim yalnızca HTTP long-polling ile yapılır, PS5 tarayıcısındaki desteği doğrulanamadığı için WebSocket ve Server-Sent Events kullanılmaz. İstemci, derleme adımı olmayan düz script dosyalarından oluşur ve PS5 tarayıcısıyla uyum için en fazla ES2017 sözdizimiyle yazılır. Uçtan uca şifreleme istemcide TweetNaCl-js ile yapılır, sunucu yalnızca şifreli zarfları saklar ve iletir. Ses, WebRTC ile kişiler arasında tam örgü (mesh) olarak akar, sinyalleşme sunucu üzerinden grup anahtarıyla şifreli olarak taşınır.
+| Komut | Görevi |
+| --- | --- |
+| `npm start` | Sunucuyu başlatır (`node server.js`) |
+| `npm run denetle` | Yazım, sözdizimi, güvenlik, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
+| `npm run lint` | `npm run denetle` ile aynı işi yapar |
+| `npm test` | `test/` klasöründeki birim ve sunucu testlerini çalıştırır |
+| `npm run test:e2e` | `e2e/` klasöründeki uçtan uca testleri Chromium ile, sırayla çalıştırır |
+| `npm run exe` | Bu sistem için tek dosyalık sunucuyu `dist/` altına derler (`scripts/sea-derle.js`) |
+| `npm run exe:duman` | Derlenen tek dosyalık sunucunun duman testini yapar (`scripts/sea-duman.js`) |
 
-Başlıca dosyalar:
+Test komutları, `node:test` ile çalışan test dosyalarını `scripts/test-calistir.js` aracılığıyla bulur. Bu betik Node.js sürümleri ve işletim sistemleri arasındaki klasör ve dosya kalıbı farklarını ortadan kaldırır.
 
-| Dosya | Görevi |
-|---|---|
-| `server.js` | Giriş noktası: ortam değişkenleri, başlatma, banner, `sifre-sifirla` komutu, kapanış |
-| `src/app.js` | `createChatServer(options)`, yönlendirme ve API uç noktaları |
-| `src/store.js` | Kalıcılık: `state.json`, kanal başına JSONL mesaj dosyaları, yüklemeler |
-| `src/auth.js` | Parola karması (scrypt), ad doğrulama, oturumlar, hız sınırlayıcı |
-| `src/hub.js` | Çevrimiçi durumu, olay halkası, long-poll bekleyenleri, ses sinyal kuyrukları |
-| `src/http-util.js` | Gövde okuma, JSON yanıtlar, güvenlik başlıkları, statik dosya sunumu |
-| `public/app.js` | Arayüz, API istemcisi, poll döngüsü, mesajlar, yüklemeler, ayarlar, PWA |
-| `public/crypto.js` | `window.E2EE`: anahtar kodu, anahtar türetme, zarf, dosya şifreleme |
-| `public/voice.js` | `window.VoiceClient`: WebRTC ses istemcisi |
-| `public/emoji.js` | Emoji seçicinin verisi |
+Uçtan uca testler Playwright ile gerçek bir Chromium tarayıcısı açar. Tarayıcıyı `npx playwright install chromium` komutuyla indirebilirsiniz. Linux'ta tarayıcının sistem kütüphaneleri de gerekebilir, CI bunları `npx playwright install --with-deps chromium` komutuyla kurar. Playwright kendi kurulumunu bulamıyorsa `TELSIZ_E2E_CHROMIUM` ortam değişkeni Chromium'un yolunu verir, diğer seçenekler `e2e/yardimci.js` dosyasının başında anlatılır. Başarısız olan testler ekran görüntülerini `e2e-sonuclar/` klasörüne yazar.
+
+Masaüstü uygulamasının kendi bağımlılıkları ve testleri vardır. Komutlar `desktop/` klasöründe çalıştırılır: `npm ci`, birim testleri için `npm test` ve paketlenmiş veya geliştirme düzenindeki uygulamanın duman testi için `npm run test:duman` (Linux'ta `xvfb-run -a npm run test:duman`). Ayrıntılar [desktop/README.md](desktop/README.md) dosyasındadır.
+
+CI ayrıca kabuk betiklerini ShellCheck ve POSIX sözdizimi denetimiyle sınar, Docker imajını derleyip kapsayıcıyı başlatır ve tek dosyalık sunucuyu Windows, Linux x64 ve Linux arm64 için derleyip duman testinden geçirir.
+
+## Proje yapısı
+
+Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulamasıdır ve verileri JSON ve JSONL dosyalarında saklar. Gerçek zamanlı iletişim yalnızca HTTP long-polling ile yapılır. İstemci derleme adımı olmayan düz betik dosyalarından oluşur ve eski WebKit tabanlı konsol tarayıcılarıyla uyum için en fazla ES2017 sözdizimiyle yazılır. Ayrıntılı mimari [docs/MIMARI.md](docs/MIMARI.md) dosyasındadır.
+
+| Yol | Görevi |
+| --- | --- |
+| `server.js` | Giriş noktası: ortam değişkenleri, `telsiz.env`, başlatma, banner, `sifre-sifirla` komutu, kapanış |
+| `src/app.js` | `createChatServer(options)`, yönlendirme, API uç noktaları, yetkiler, hız sınırları, yüklemeler |
+| `src/store.js` | Kalıcılık: `state.json`, oda başına JSONL mesaj dosyaları, yüklemeler, kilit dosyası |
+| `src/auth.js` | Parola karması, ad doğrulama, oturumlar, hız sınırlayıcı, güvenilir vekil |
+| `src/hub.js` | Çevrimiçi durumu, olay halkası, long-poll bekleyenleri, ses kadroları ve sinyal kuyrukları, yazıyor bilgisi |
+| `src/social.js` | Arkadaşlıklar, engellemeler ve özel mesaj kuralları |
+| `src/music.js` | Telsiz DJ'nin bellekteki şifreli oda durumları |
+| `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, CSP, gövde okuma, statik dosya beyaz listesi |
+| `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Sunucu metinleri, sürüm ve tek dosya bilgisi, `telsiz.env` okuyucusu |
+| `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
+| `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
+| `public/voice.js` | `window.VoiceClient`: WebRTC ses ve ekran paylaşımı motoru |
+| `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
+| `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
+| `public/theme-init.js`, `public/css/` | Tema ön yükleyicisi, belirteçler, düzen, bileşenler ve temalar ([docs/TASARIM.md](docs/TASARIM.md)) |
 | `public/sw.js` | Service worker, uygulama kabuğunun önbelleği |
-| `public/vendor/` | TweetNaCl-js 1.0.3, değiştirilmez |
-| `test/` | `node:test` ile birim ve sunucu testleri |
-| `e2e/` | Playwright ile uçtan uca testler |
-| `scripts/denetle.js` | Yazım ve güvenlik denetleyicisi |
-| `scripts/test-calistir.js` | Test dosyalarını bulup `node --test` ile çalıştıran yardımcı betik |
-| `baslat.bat`, `tunel.bat` | Windows betikleri |
+| `public/vendor/` | TweetNaCl-js 1.0.3 ve scrypt-js 3.0.1, değiştirilmez |
+| `desktop/` | Electron masaüstü uygulaması |
+| `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
+| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
+| `test/`, `e2e/` | Birim ve sunucu testleri, uçtan uca testler |
 
-HTTP API, long-poll protokolü, kalıcılık biçimleri, E2EE protokolü, ses mimarisi ve tehdit modeli [docs/MIMARI.md](docs/MIMARI.md) dosyasında ayrıntılı olarak anlatılır. Kullanıcıya yönelik belgeler [README.md](README.md) dosyasındadır.
+İstemci modülleri `public/js/` altında numaralı dosyalardır ve `index.html` içinde bu sırayla yüklenir. Hepsi aynı genel kapsamı paylaşır, sonraki modül öncekilerin işlevlerini kullanabilir.
+
+| Modül | Görevi |
+| --- | --- |
+| `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
+| `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
+| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
+| `04-meta.js` | Üst çubuk, frekans bandı, Gelenler kartı, oda bilgisi, Yayındakiler listesi, oda seçimi |
+| `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
+| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
+| `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
+| `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
+| `09-emoji.js` | Emoji seçici |
+| `10-voice.js` | Ses arayüzü ve telsiz kartı |
+| `11-settings.js` | Tam ekran ayarlar görünümü |
+| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
+| `13-profile.js` | Profiller, profil kartı, durum menüsü |
+| `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
+| `15-dm.js` | Özel mesajlar ve güvenlik numarası |
+| `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
+| `17-search.js` | Cihazda arama |
+| `18-mentions.js` | @ ile anma ve öneri listesi |
+| `19-typing.js` | Yazıyor göstergesi |
+| `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
+| `21-band.js` | Frekans bandının etkileşimi (ibre, klavye, tekerlek, oyun kolu) |
+| `22-cast.js` | Ekran paylaşımı arayüzü |
+| `23-dj.js` | Telsiz DJ arayüzü |
+
+Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
 ## Kod kuralları
 
-Bu kuralların çoğu `npm run denetle` tarafından otomatik olarak denetlenir ve CI'da zorunludur.
+Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak denetlenir ve CI'da zorunludur. Denetleyici git'te izlenen dosyaları ve `.gitignore` dışında kalan yeni dosyaları tarar, `node_modules`, `public/vendor/` ve derleme çıktılarını atlar.
 
-1. JavaScript dosyaları noktalı virgülsüz yazılır (StandardJS stili). Denetleyici, acorn ile ayrıştırılan dosyalarda noktalı virgül token'ına izin vermez. Satırlar açılış parantezi, açılış köşeli parantezi veya ters tırnakla başlatılmaz.
-2. Girinti iki boşluktur ve dizgilerde tek tırnak kullanılır.
-3. Hiçbir dosyada uzun tire (U+2014) ve kısa tire (U+2013) karakteri bulunmaz. Gerektiğinde normal kısa çizgi (-) kullanılır.
-4. Düzyazıda, yani yorumlarda, arayüz metinlerinde, belgelerde ve `.bat` dosyalarında noktalı virgül kullanılmaz.
-5. İstemci kodu (`public/*.js`) modülsüz, düz script olarak ve en fazla ES2017 sözdizimiyle yazılır. İsteğe bağlı zincirleme, boş birleştirme işleci, sınıf alanları, özel alanlar, üst düzey await, `import`, regex lookbehind ve `\p{}` regex kullanılmaz.
-6. İstemcide ağ istekleri `fetch` yerine `XMLHttpRequest` ile yapılır. Tek istisna service worker'dır (`public/sw.js`). `replaceAll`, `structuredClone`, `Object.hasOwn` ve `Array.prototype.at` kullanılmaz.
-7. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır. `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval` ve `Function` yapıcısı yasaktır. Kullanıcı verisi hiçbir zaman `href` veya `src` değeri olarak kullanılmaz. `index.html` içinde satır içi script, stil ve olay işleyicisi bulunmaz.
-8. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır. WebSocket veya Server-Sent Events eklenmez.
-9. Çalışma zamanı bağımlılığı eklenmez, `package.json` içindeki `dependencies` boş kalır. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
-10. Arayüz metinleri, yorumlar ve belgeler Türkçe, resmi ve sade yazılır. Türkçe karakterler (ş, ğ, ı, İ, ç, ö, ü) doğrudan kullanılır. Yorumlar Türkçedir ve seyrek tutulur. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir.
-11. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js` dosyasının sha256 değerini doğrular.
-12. `.bat` dosyaları BOM'suz UTF-8 ve CRLF satır sonlarıyla kaydedilir ve `chcp 65001` satırını içerir.
-13. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
+1. Hiçbir metin dosyasında uzun tire (U+2014) ve kısa tire (U+2013) bulunmaz. Gerektiğinde normal kısa çizgi (-), virgül veya iki nokta kullanılır.
+2. Görünmez ve metnin yönünü değiştiren karakterler (sıfır genişlikli karakterler, bölünmez boşluk, yön işaretleri, dosya içindeki BOM) kullanılmaz. Kodda gerekiyorsa `\u` kaçışıyla yazılır.
+3. Sunucu, betikler, testler ve masaüstü uygulaması dahil bütün JavaScript dosyaları noktalı virgülsüz yazılır (StandardJS stili). Satırlar açılış parantezi, açılış köşeli parantezi veya ters tırnakla başlatılmaz, çünkü noktalı virgülsüz yazımda önceki satırla birleşebilir. Girinti iki boşluktur ve dizgilerde tek tırnak kullanılır.
+4. `public/` altındaki istemci kodu modülsüz düz betiktir ve ES2017 sözdizimiyle ayrıştırılabilmelidir. İsteğe bağlı zincirleme, boş birleştirme işleci, sınıf alanları, `import` ve `\p{...}` düzenli ifade kaçışları kullanılmaz.
+5. İstemcide `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `Function` yapıcısı, `structuredClone`, `.replaceAll`, `Object.hasOwn` ve `.at()` yasaktır. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır. Ağ istekleri `XMLHttpRequest` ile yapılır, `fetch` yalnızca `public/sw.js` içinde serbesttir.
+6. HTML dosyalarında `style` özniteliği, `on...` olay öznitelikleri, `<style>` öğesi ve gövdeli `<script>` bulunmaz, çünkü içerik güvenliği politikası bunları engeller.
+7. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js` ve `scrypt.js` dosyalarının sha256 değerini doğrular.
+8. `.bat` dosyaları BOM'suz ve CRLF satır sonlarıyla kaydedilir, hiçbir satırında noktalı virgül bulunmaz. `.sh` dosyaları BOM'suz ve yalnızca LF satır sonlarıyla kaydedilir ve git'te çalıştırılabilir kipte (100755) saklanır.
+9. JSON dosyaları geçerli JSON olmalıdır.
+10. Markdown belgelerinde düzyazıda noktalı virgül kullanılmaz. Kod örnekleri kod bloğuna veya satır içi koda yazılır.
+11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
+12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
+13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
+14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
+
+## İki dil kuralları
+
+Kullanıcıya görünen her metin Türkçe ve İngilizce sözlüklerde birlikte bulunur. İstemcinin sözlükleri `public/i18n.js`, sunucunun sözlükleri `src/i18n.js` içindedir. Denetleyici şunları zorunlu tutar:
+
+1. İki dilin anahtar kümeleri birebir aynıdır ve hiçbir değer boş değildir.
+2. Bir anahtarın `{ad}` biçimindeki parametreleri iki dilde aynıdır.
+3. Çoğul metinler `_one` ve `_other` sonekli iki anahtarla birlikte tanımlanır.
+4. `t('...')` çağrılarındaki ve `data-i18n` özniteliklerindeki anahtarlar sözlükte vardır.
+5. İstemci kodunda ve `src/` altında Türkçeye özgü harf içeren sabit metin bulunmaz. Bu tür metinler sözlüğe eklenir ve `t()` ile kullanılır.
+
+Belgeler de iki dilde tutulur. `scripts/denetle.js` içindeki `DOC_PAIRS` listesindeki her Türkçe belgenin İngilizce eşi bulunmalı ve iki belgedeki `## ` başlık sayısı eşit olmalıdır. Örneğin `README.md` ile `README.en.md`, `docs/MIMARI.md` ile `docs/ARCHITECTURE.md`. Bir belgeyi değiştiren PR eşini de aynı içerikle günceller.
 
 ## Güvenlik açısından hassas alanlar
 
 Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'larda değişikliğin güvenliğe etkisini açıklamanız, değişikliği testlerle desteklemeniz ve incelemenin daha uzun sürebileceğini hesaba katmanız beklenir.
 
 | Alan | Neden hassas |
-|---|---|
-| `public/crypto.js` | Anahtar kodu, anahtar türetme, zarf biçimi ve dosya şifreleme. Biçim değişirse kayıtlı mesaj geçmişi okunamaz hâle gelebilir. |
-| `public/voice.js` | Ses sinyallerinin şifrelenmesi ve gönderen ile alıcının doğrulanması |
-| `src/auth.js` | Parola karması, oturumlar, hız sınırları |
-| Yüklemeler (`src/app.js`, `src/store.js`, `public/app.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi, indirilen dosyaların sitenin içinde çalıştırılmaması |
-| `src/http-util.js` | Güvenlik başlıkları, içerik güvenlik politikası, statik dosya beyaz listesi |
+| --- | --- |
+| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
+| `public/voice.js` | Ses ve ekran paylaşımı sinyallerinin şifrelenmesi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
+| `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
+| `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
+| Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
+| `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, içerik güvenliği politikası, statik dosya beyaz listesi |
 | `public/sw.js` | Önbelleğe alınan içerik ve `/api/` isteklerinin önbelleğe alınmaması |
+| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları |
 
-Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya mesaj düz metni biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın.
+Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın.
 
 ## Dal ve PR süreci
 
@@ -123,13 +179,12 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 4. `npm run denetle` komutunu çalıştırın.
 5. `npm test` komutunu çalıştırın.
 6. Arayüzü etkileyen değişikliklerde `npm run test:e2e` komutunu da çalıştırın.
-7. PR'ı bu deponun `main` dalına açın.
-8. PR şablonundaki bölümleri doldurun.
-9. CI denetimlerinin başarılı olduğunu kontrol edin.
-10. İnceleme yorumlarını yanıtlayın.
+7. Masaüstü uygulamasını etkileyen değişikliklerde `desktop/` klasöründe `npm test` komutunu çalıştırın.
+8. PR'ı bu deponun `main` dalına açın ve PR şablonundaki bölümleri doldurun.
+9. CI denetimlerinin başarılı olduğunu kontrol edin ve inceleme yorumlarını yanıtlayın.
 
-Birbirinden bağımsız değişiklikleri ayrı PR'lar olarak gönderin. Davranışı değiştiren bir değişiklikte `README.md` ve `docs/MIMARI.md` dosyalarını da güncelleyin. Commit mesajlarını kısa ve açıklayıcı yazın. Büyük bir değişikliğe başlamadan önce bir issue açıp yaklaşımı tartışmanız, emeğinizin boşa gitmemesi için önerilir.
+Birbirinden bağımsız değişiklikleri ayrı PR'lar olarak gönderin. Kullanıcının gördüğü davranışı değiştiren bir değişiklikte README dosyalarını, mimariyi değiştiren bir değişiklikte `docs/MIMARI.md` ve `docs/ARCHITECTURE.md` dosyalarını, sürüme girecek önemli değişikliklerde iki CHANGELOG dosyasını da güncelleyin. Büyük bir değişikliğe başlamadan önce bir issue açıp yaklaşımı tartışmanız, emeğinizin boşa gitmemesi için önerilir.
 
 ## Lisans
 
-Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js kendi lisansıyla (Unlicense) dağıtılır.
+Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js (Unlicense) ve scrypt-js (MIT) ile `public/fonts/` altındaki yazı tipleri (SIL Open Font License) kendi lisanslarıyla dağıtılır.

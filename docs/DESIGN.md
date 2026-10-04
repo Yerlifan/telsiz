@@ -2,170 +2,207 @@
 
 [Türkçe](TASARIM.md) | [English](DESIGN.md)
 
-Telsiz's interface is built on a single HTML structure and three visual themes. A theme only changes CSS tokens and theme specific decoration, the markup is the same in every theme. Arcade is the default theme, and on first launch the mode follows the system preference (dark when the system preference is unknown). This document covers the tokens, the themes, the layout, the components, the computed contrast ratios and the steps for adding a new theme.
+The Telsiz interface is built on a single HTML structure, a layout called Frequency and three visual themes. The layout arranges the app like a radio dial: rooms sit as stations on a horizontal frequency band, a single conversation column stands in the middle, and when you join a voice room a radio card that looks like a handheld radio opens. Themes change only CSS tokens and theme specific ornaments, and the markup never changes between themes. The default theme is Arcade, and on first start the mode follows the system preference (dark if unknown). This document describes the files, the layout, the breakpoints, the tokens, the themes, the components, the contrast measurements and the steps to add a new theme.
 
 ## Files and load order
 
-| File | Role |
+| File | Purpose |
 | --- | --- |
-| `public/theme-init.js` | Loaded in `<head>` without `defer`, before the stylesheets. Reads the saved preference and writes the root attributes, so the page paints with the right theme from the first frame. Defines the `window.TelsizTheme` interface. |
-| `public/css/tokens.css` | Theme independent scales (spacing, type, target size, column widths, motion) plus the color, font and shape tokens of every theme and mode. The text size rules also live here. |
-| `public/css/base.css` | Local fonts (`@font-face`, `font-display: swap`), reset, body and background glow, focus ring, scrollbars, icons, the reduce motion rule. |
-| `public/css/layout.css` | App layout: member list, center area, channel column, drawers and breakpoints, the skeleton of the sign in screens. |
-| `public/css/components.css` | Every component: button, input, select, switch, slider, card, tag, badge, avatar and status mark, menu, popover, modal, bottom sheet, tabs, list, empty state, toast, keycap, loading, messages, composer, emoji picker, profile card, home view and direct message parts. |
-| `public/css/skins/arcade.css` | Arcade specific styling: glass panels, keycap lips, gradient edges, speaking halo, cabinet button. |
-| `public/css/skins/gece.css` | Night Frequency specific styling: tuning dial and needle, frequency badges, LED status lights, equalizer, broadcast log feed. |
-| `public/css/skins/turkuaz.css` | Turquoise and Copper specific styling: octagonal avatars, diamond status marks, star halo, border friezes, arched cards. |
-| `public/fonts/` | Local woff2 fonts and their OFL license texts. |
+| `public/theme-init.js` | Loaded in `<head>` without `defer`, before the stylesheets. It reads the stored preference and writes the attributes of the root element, so the page opens with the right theme on first paint. It defines the `window.TelsizTheme` interface. |
+| `public/css/tokens.css` | Theme independent scales (spacing, type, target size, motion), the measurements of the Frequency layout, the avatar shape, color, font and shape tokens for each theme and mode, and the font size rules. |
+| `public/css/base.css` | Local fonts (`@font-face`, `font-display: swap`), reset, body and background glow, focus ring, scrollbars, icons, the reduced motion rule. |
+| `public/css/frekans.css` | The core layout: the shell of the startup and identity screens, the top bar, the frequency band and stations, the stage (left info column, conversation column, DJ column, right column), the inbox card container, the radio card container, side and bottom sheets, the TV hint bar, breakpoints. |
+| `public/css/components.css` | General components: button, input, select, switch, slider, card, tag, badge, avatar and status marker, menu, popover, modal, tabs, list, notification, key cap, loading, message, emoji picker, profile card. |
+| `public/css/settings.css` | The full screen settings view. |
+| `public/css/chat-plus.css` | Search panel, @ mention badges and the suggestion list, typing line. |
+| `public/css/convo.css` | The conversation column: header, message flow, empty, loading and error states, composer, suggestion list, search layer, inbox card. |
+| `public/css/radio.css` | The radio card (screen, crew, Push to talk, button row), the per person volume popover and the avatar menu. |
+| `public/css/people.css` | The sign in card, the On air sheet and strip, the direct message list and personal cards, the direct message header, the Friends station. |
+| `public/css/cast.css` | Screen sharing: the live chip, share notice, broadcast stage, collapsed chat strip, share start dialog. |
+| `public/css/dj.css` | The Telsiz DJ card, the Telsiz DJ item in the crew, the "Play in DJ" button in messages. |
+| `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Theme specific styles. |
+| `public/fonts/` | Local woff2 fonts and OFL license texts. |
 
-`index.html` links the stylesheets in this order: tokens, base, layout, components, then the three theme files. Every rule in a theme file starts with `:root[data-skin="..."]`, so only the active theme applies, and loading all three files lets the theme switch instantly without a reload.
+`index.html` links the stylesheets in this order: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, then the three theme files. Every rule in a theme file starts with `:root[data-skin="..."]`, so only the rules of the active theme apply. Loading all three files together makes theme switching instant without a page reload.
 
 ## Theme interface
 
-`theme-init.js` exposes the interface below. The Settings > Appearance page and the app only use this interface.
+`theme-init.js` provides the following interface. The Settings > Appearance page and the app use only this interface.
 
 | Member | Description |
 | --- | --- |
-| `TelsizTheme.get()` | Returns `{ skin, scheme, resolvedScheme, fontSize, compact, reduceMotion, motionReduced }`. `scheme` is the user's choice (`dark`, `light`, `system`), `resolvedScheme` is the applied mode (`dark` or `light`), `motionReduced` tells whether motion is currently reduced. |
-| `TelsizTheme.set(partial)` | Validates the given fields, saves them on the device, updates the root attributes and calls the listeners. `reduceMotion` accepts `system`, `on`, `off` (or `true`, `false`). |
+| `TelsizTheme.get()` | Returns the current preferences: theme (`skin`), chosen mode (`scheme`: `dark`, `light`, `system`), applied mode (`resolvedScheme`), font size, compact view and reduced motion. |
+| `TelsizTheme.set(partial)` | Validates the given fields, stores them on the device, updates the root attributes and calls the listeners. |
 | `TelsizTheme.skins` | `['arcade', 'gece', 'turkuaz']` |
-| `TelsizTheme.onChange(fn)` | Adds a change listener and returns a function that removes it. Also called when the system color scheme or motion preference changes (only while "System" is selected). |
+| `TelsizTheme.onChange(fn)` | Adds a change listener and returns a function that removes it. If "System" is selected, it is also called when the system mode changes. |
 
-Root (`<html>`) attributes: `data-skin` (`arcade`, `gece`, `turkuaz`), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` (`true`, `false`), `data-reduce-motion` (`true`, `false`). The name `data-theme` is not used, because embedded preview frames write their own `data-theme` attribute on the root element.
+Root element (`<html>`) attributes: `data-skin` (`arcade`, `gece`, `turkuaz`), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` and `data-reduce-motion` (`true`, `false`). The keys on the device are `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact` and `telsiz.reduceMotion`. If storage is unavailable, the choice lasts only for that session.
 
-Device storage keys: `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact`, `telsiz.reduceMotion`. When storage is blocked (private window) the choice lasts for the current session only.
+`12-init.js` updates the `theme-color` meta tag to the `--theme-color` token of the active theme and the `color-scheme` meta tag to the applied mode every time the theme changes. With the `auto` font size, the root font size is 16 pixels, 18 pixels at 1280 pixels wide and up, and 22 pixels at 1800 pixels and up. `small` is 14, `normal` 16, `large` 18 and `tv` 22 pixels. All measurements use `rem`, so the interface grows with the font size.
 
-Whenever the theme changes, `12-init.js` sets the `theme-color` meta tag to the active theme's `--theme-color` token and the `color-scheme` meta tag to the applied mode. The sun and moon button on the sign in screen (`#auth-scheme`) switches between dark and light. The manifest `theme_color` and `background_color` are the Arcade dark background (`#0f1015`), set by the server.
+## Frequency layout
 
-Text size: with `auto` the root font size is 16 px, 18 px from 1280 px wide and 22 px from 1800 px (TV and game consoles). `small` is 14, `normal` 16, `large` 18 and `tv` 22 pixels. All sizes are in `rem`, so the interface grows with the text size. In the compact view messages hide the avatar, the time sits on the left and the name shares one line with the text.
+The app screen (`#app-view`) consists of the following regions from top to bottom:
+
+1. **Top bar (`#top`).** At the top left, the community identity (logo, server name, member count). On the right, the Search chip, the On air strip (small avatars of online people, which opens the people list) and the avatar chip (`#me-button`, which opens the avatar menu: status, custom status, profile, settings, appearance, language, sign out). While you share your screen, the "Your screen is live" chip (`#top-cast`) shown on every station is also here. When the connection drops, a banner (`#conn-banner`) appears below the top bar.
+2. **Frequency band (`#band`, `#band-track`).** Personal (Direct, Friends), text room and voice room stations in a single row. The scale ticks scroll with the content, and the needle above a station shows the open conversation. When dragged and dropped, the needle settles on the nearest conversation station and never on a voice station. Pressing a voice station joins that room without changing the conversation column. The ends of the band hold previous and next station buttons, an Add room button for owners and admins, and an All button on narrow screens. The band is a single tab stop on the keyboard (arrow keys, Home, End, Enter), and the wheel only scrolls the band horizontally and never changes the station. On a gamepad, L1 and R1 select the previous and next conversation station.
+3. **Stage (`#stage`).** On wide screens from left to right: the left info column (`#info-col`: the card of the tuned station and station switching hints, the conversation list on the Direct station), the conversation column (`#main`: header, messages, typing line, composer), the DJ column (`#dj`) while Telsiz DJ is playing, and the right column (`#side-right`: on top the inbox card `#inbox` that collects unread messages and mentions on other frequencies, below it the radio card `#radio`).
+4. **Broadcast stage (`#cast`).** While watching a screen share or previewing your own, the left and middle regions merge and the chat moves down into a collapsed strip.
+5. **Sheets.** All (`#stations-sheet`), On air (`#people-sheet`) and, below 1280 pixels, Room info are side sheets that open from the right on wide screens and bottom sheets on phones. Only one sheet is open at a time, and they share the `#drawer-backdrop` overlay.
+6. **TV hint bar (`#tvbar`).** Appears at the bottom at 1800 pixels and up when a gamepad is detected.
+
+The state of the radio card is in the `#radio[data-state]` attribute: `off` (not in a voice room, the screen lists voice rooms with Join buttons), `joining` (connecting), `on` (connected: room name, crew, talk line, Push to talk or the voice activity level bar, and the Microphone, Deafen, Screen and Leave buttons). The view mode is in the `#app-view[data-view]` attribute (`channel`, `home`, `dm`).
+
+The layout follows the markup order, and `dir` or `flex-direction: row-reverse` are not used. Keyboard and screen reader order follows the visual order: top bar, band, left column, conversation, right column.
+
+## Breakpoints
+
+`12-init.js` writes the `#app-view[data-layout]` attribute according to the window width (`tv`, `wide`, `wide-narrow`, `medium`, `narrow`) and closes open sheets when the layout class changes. CSS applies the same limits with media queries.
+
+| Name | Condition | What changes |
+| --- | --- | --- |
+| TV | `min-width: 1800px` | Root font 22 pixels (with the automatic font size), larger focus ring, hint bar when a gamepad is present, header row of the radio card hidden |
+| Wide | `min-width: 1280px` | Three region stage, left info column, DJ column |
+| Wide narrow | 1000 to 1279 pixels | Left column hidden, room info in a side sheet from the header button, DJ card in a sheet opened from the Telsiz DJ item in the crew |
+| Medium | `max-width: 999px` | Radio card 17rem, buttons in two rows, inbox card hidden |
+| Narrow (phone) | `max-width: 759px` | The band runs edge to edge and scrolls with a finger, All button, full width conversation, the radio card sticks to the bottom of the screen, layers open from the bottom |
+| Short | `max-height: 860px` | Inbox card hidden |
 
 ## Design tokens
 
-Components never write color values, they only use the semantic tokens below. Every theme and mode defines all of these names.
+Components never write color values and use only semantic tokens. Every theme and mode defines all color tokens. The tokens of the Frequency layout refer only to theme tokens, so they get the right color in all three themes and both modes automatically.
 
-Scales (theme independent):
+Scales and layout (theme independent):
 
 | Token | Value | Use |
 | --- | --- | --- |
 | `--space-1` to `--space-8` | 0.25rem to 2rem | Spacing scale |
-| `--target` | 2.75rem (44 px at a 16 px root) | Smallest touch and pointer target |
+| `--target` | 2.75rem (44 pixels at a 16 pixel root) | Smallest touch and pointer target |
 | `--text-xs` to `--text-2xl` | 0.75rem to 1.75rem | Type scale |
-| `--members-width`, `--sidebar-width`, `--drawer-width` | 16rem, 17rem, 20rem | Column and drawer widths |
 | `--dur-fast`, `--dur-med`, `--dur-slow`, `--ease` | 0.14s, 0.24s, 1.8s, `cubic-bezier(0.2, 0.7, 0.2, 1)` | Motion |
+| `--top-h` | 3.75rem (narrow 3.5rem) | Top bar height |
+| `--band-h`, `--band-pad`, `--dial-top` | 6.75rem (narrow 5.75rem), 0.5rem, 1.5rem (narrow 1.25rem) | Frequency band height, bottom padding, distance of the scale line from the top |
+| `--station-h` | 3.25rem (narrow 2.75rem) | Station height |
+| `--column-max` | 46rem | Widest conversation column |
+| `--side-w` | 17.5rem | Left info column and DJ column |
+| `--radio-w` | 21rem (medium 17rem) | Right column and radio card |
+| `--sheet-w` | 25rem | Side sheet width |
+| `--avatar-radius` | `28%` | Avatar corner radius, in every theme |
+| `--dot-radius` | `32%` | Status dot and corner markers |
+
+Frequency color tokens:
+
+| Token | Value | Meaning |
+| --- | --- | --- |
+| `--needle`, `--needle-knob` | `var(--accent)` | Needle line and knob |
+| `--needle-ring` | `var(--surface-1)` | Knob ring |
+| `--tick`, `--tick-major` | `var(--line-strong)`, `var(--edge)` | Scale ticks |
+| `--band-bg` | `var(--surface-1)` | Band background |
+| `--station-tuned-bg` | `var(--surface-3)` | Tuned station |
+| `--station-target` | `var(--focus-halo)` | Target station while dragging the needle |
+| `--radio-bg`, `--screen-bg` | `var(--surface-2)`, `var(--surface-sunken)` | Radio body and screen |
 
 Surfaces and lines:
 
 | Token | Meaning |
 | --- | --- |
-| `--bg`, `--bg-glow-a`, `--bg-glow-b` | Page background and the two soft lights behind it |
-| `--surface-1` | Side columns (members, channels) |
-| `--surface-1-glass` | Arcade's glass panel (only when `backdrop-filter` is supported) |
-| `--surface-2` | Center area, message feed |
-| `--surface-3` | Raised surface: active row, keycap, secondary button |
-| `--surface-alt` | Cards, file card, voice lobby, message hover |
-| `--surface-sunken` | Inputs, composer, meter track |
+| `--bg`, `--bg-glow-a`, `--bg-glow-b` | Page background and the two soft glows behind it |
+| `--surface-1`, `--surface-1-glass` | Band, column cards and the Arcade glass panel (only when `backdrop-filter` is supported) |
+| `--surface-2` | Conversation column and radio body |
+| `--surface-3` | Raised surface: tuned station, key cap, secondary button |
+| `--surface-alt` | Cards, file card, message hover |
+| `--surface-sunken` | Input, composer, radio screen, meter track |
 | `--surface-hover`, `--surface-active` | Hover and selected row |
 | `--surface-float` | Menu, popover, profile card, dialog |
-| `--overlay`, `--viewer-bg` | Drawer and modal scrim, image viewer background |
-| `--line`, `--line-strong` | Decorative divider and card border |
+| `--overlay`, `--viewer-bg` | Sheet and dialog overlay, image viewer background |
+| `--line`, `--line-strong` | Decorative separator and card border |
 | `--edge` | Border of interactive elements (at least 3:1) |
 
 Text, accent and status:
 
 | Token | Meaning |
 | --- | --- |
-| `--text`, `--text-2`, `--text-3` | Primary, secondary and muted text |
+| `--text`, `--text-2`, `--text-3`, `--text-strong` | Main, secondary, muted and emphasized text |
 | `--link` | Link |
-| `--accent`, `--accent-hover`, `--on-accent` | Primary fill, its hover and the text on it |
-| `--accent-2` | Second accent (the second end of Arcade's gradient, the on air green in Night Frequency, copper in Turquoise and Copper) |
-| `--accent-text`, `--accent-2-text` | Accent colored text on surfaces |
-| `--accent-lip` | Bottom lip or ring of the primary button |
-| `--accent-fill-a`, `--accent-fill-b` | Switch, meter and progress fill |
-| `--attention`, `--on-attention` | Mention count and home total badge |
-| `--mention-bg`, `--mention-text`, `--mention-line` | Mention pill and the highlight of messages that mention me |
+| `--accent`, `--accent-hover`, `--on-accent` | Primary accent, hover and text on the accent |
+| `--accent-fill-a`, `--accent-fill-b`, `--on-accent-fill` | The gradient of Send, Push to talk and primary filled buttons, and the text on it. It is `--on-accent` in dark modes and white in light modes. |
+| `--accent-2`, `--accent-text`, `--accent-2-text`, `--accent-lip` | Second accent (the second stop of the Arcade gradient, on air green in Gece, copper in Turkuaz), accent colored text on surfaces, the lip of the primary button |
+| `--attention`, `--on-attention` | Mention count badge |
+| `--mention-bg`, `--mention-text`, `--mention-line` | Mention badge and the highlight of messages that mention you |
 | `--focus`, `--focus-halo` | Focus ring and its halo |
-| `--ok`, `--idle`, `--dnd`, `--offline` | Status marks (component, 3:1) |
-| `--live`, `--live-bg`, `--speaking-bg` | Connected voice, speaking person (also used as text, 4.5:1) |
+| `--ok`, `--idle`, `--dnd`, `--offline` | Status markers (component, 3:1) |
+| `--live`, `--live-bg`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, speaking person and the speaking halo |
 | `--danger`, `--danger-bg`, `--danger-fill`, `--on-danger` | Danger text, background and fill |
 | `--warn`, `--warn-bg`, `--warn-line` | Warning text, background and border |
-| `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In Night Frequency each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
-| `--theme-color` | Browser toolbar color |
+| `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
+| `--theme-color` | Browser bar color |
 
-Shape and type (vary by theme):
+Shape and type (they change per theme):
 
-| Token | Arcade | Night Frequency | Turquoise and Copper |
+| Token | Arcade | Night Frequency (Gece) | Turquoise and Copper (Turkuaz) |
 | --- | --- | --- | --- |
 | `--font-body` | Rubik | Manrope | Figtree |
 | `--font-display` | Unbounded 700 | Manrope 800 | Young Serif 400 |
-| `--font-label` | Unbounded, uppercase | Martian Mono, uppercase | Young Serif, sentence case |
+| `--font-label` | Unbounded | Martian Mono | Young Serif |
 | `--radius-panel` | 24px (floating panels) | 0 (flat panels) | 0 (flat panels) |
 | `--radius-card`, `--radius-control` | 18px, 14px | 14px, 12px | 1.125rem, 0.75rem |
-| `--avatar-radius` | 32% (cartridge) | 50% (circle) | octagonal tile (`clip-path`) |
 | `--layout-pad`, `--column-gap` | 1rem, 0.875rem | 0, 0 | 0, 0 |
 
 ## Themes
 
-**Arcade (default).** An arcade lobby. Glass panels floating on a charcoal background, keycap buttons with a bottom lip that sink when pressed, and a violet to cyan gradient reserved for small, meaningful surfaces (the edge of the active row, badges, send, the push to talk dome, the speaking halo). Cartridge shaped avatars, a domed push to talk button like a cabinet button, a segmented level meter and a small "arcade cursor" to the left of a focused list row. The light mode carries the same shape language into a lavender gray. The logo, favicon and app icons use the Arcade identity (a handheld radio silhouette with a gradient body and an arcade cabinet button).
+**Arcade (default).** An arcade lobby. Floating glass panels on a dark charcoal background, key cap buttons with a lip on their bottom edge that sink when pressed, and a purple to cyan gradient only on small, meaningful surfaces (the edge of the tuned station, badges, Send, the Push to talk dome, the speaking halo). A domed Push to talk button like an arcade cabinet button, a segmented level meter, and a small "arcade cursor" to the left of a focused list row. The light mode carries the same language to lavender grey. The logo, favicon and app icons use the Arcade identity.
 
-**Night Frequency.** A radio station. A night blue background, amber signal as the single accent and on air green only for live things. The channel list is a tuning dial with a scale line and ticks, every channel has a frequency badge derived from its id (only visible in this theme and hidden from screen readers), and an amber needle marks the active channel. Status marks sit at the right end of member rows like LEDs on a device panel (full, half, bar, ring). The speaking person gets a green ring and equalizer bars, and the message feed shows times in a monospace column with a thin timeline.
+**Night Frequency (Gece Frekansı).** A radio station. A night blue background, a single amber signal accent, and on air green only for things that are live. Flat panels and thin separators, the radio card on a console background. The bottom line of stations on the band shows a frequency derived from the room id (visible only in this theme), with an amber badge on the tuned station. Status dots look like LEDs on a device panel. A green ring and equalizer bars on the speaking person, times in a monospaced column in the message flow, a knurled round Push to talk button and an ON AIR lamp.
 
-**Turquoise and Copper.** The Anatolian tile and geometric pattern tradition. Turquoise means "place and trust", copper means "attention and voice aimed at you". Avatars are octagonal tiles, status marks are diamonds, the speaking person gets a breathing, turning eight pointed star, headers sit on a border frieze, the sign in card and the profile card are arched, text channels use a diamond tile instead of #, and push to talk is an asymmetric copper button. Text containing digits uses Figtree, because Young Serif has old style figures.
+**Turquoise and Copper (Turkuaz ve Bakır).** The tradition of tiles and geometric patterns. Turquoise means "place and trust", copper means "attention and sound directed at you". A frieze of diamond chains under headings, arch shaped emblem and cards, diamond patterned status fills, a breathing green halo on the speaking person, an asymmetric copper Push to talk button, and a copper sealed card for encrypted messages. Patterns sit only on edges and empty areas, and text always sits on a plain background. Text with digits uses Figtree, because the digits of Young Serif are old style.
 
-The speaking indicator looks different in every theme but is always driven by the same state class (`.is-speaking`). With reduce motion on, the halo, the equalizer and the star stay on a fully visible still frame, so no information is lost.
+The speaking indicator looks different in each theme but is always triggered by the same state class (`.is-speaking`). With reduced motion on, the halo, pulse, equalizer and typing dots stay still, and no information is lost. Theme specific ornament icons sit in the markup with the `.skin-arcade`, `.skin-gece` and `.skin-turkuaz` classes and are visible only in their own theme, for example the icon of the Send button.
 
-## Layout
+## Avatar and status shape
 
-On wide screens (1000 px and up) the member list (`#members`), the center area (`#main`) and the channel column (`#sidebar`) run from left to right. From top to bottom the channel column holds the server identity, the Home entry (`#home-entry`), direct messages (`#dm-section`, `#dm-list`), text channels, voice channels with their rosters, the voice connection panel and, at the bottom, the user panel with its controls.
+All avatars are soft squares in all three themes, never circles: in the message flow, the crew of the radio card, the On air strip and sheet, the small avatar stack on the band, the profile card, the avatar menu, friends, direct messages, suggestion lists and search results. The corner radius is set by `--avatar-radius: 28%`. Because the value is a percentage, the ratio is the same for a small stack avatar and a large profile avatar.
 
-At medium width (760 to 999 px) the channel column stays visible on the right and the member list becomes a layer that opens from the left. On narrow screens (below 760 px) only the center area is visible, the member drawer opens from the left and the channel drawer from the right. The header buttons follow suit: members at the top left, channels at the top right. On narrow screens, while connected to voice, a voice strip and (in push to talk mode) a push to talk pill appear above the composer, under the thumb.
-
-The layout follows the markup order and never uses `dir` or `flex-direction: row-reverse`. Keyboard and screen reader order match the visual order. In the settings window the category list stays on the left.
-
-Containers filled by other modules: `#home-view` (home view), `#dm-header` (direct message header), `#key-warning` (key changed strip), `#profile-card`, `#status-menu`, `#dialog-root` (safety number and identity unlock dialogs), `#typing-line` (typing line), `#btn-search` and `#search-panel` (search), `#mention-popover` (@ suggestions). The view mode lives in `#app-view[data-view]` (`channel`, `home`, `dm`).
+Status dots and corner markers (muted, deafened, sharing the screen) are soft squares of the same family (`--dot-radius: 32%`), sit on the bottom right corner of the avatar and are separated by a border in the background color. The speaking halo is drawn with `box-shadow`, so it follows the outside of the square frame. Telsiz DJ is not a real user: its avatar is a note icon with a dashed border and it carries a "bot" tag. The circles that remain are not avatars: the needle knob, the pulse dot, the LED, the Push to talk dome and radio selection dots.
 
 ## Components
 
-| Component | Classes | Notes |
+| Component | Classes | Note |
 | --- | --- | --- |
-| Button | `.button`, `.button-secondary`, `.button-ghost`, `.button-danger`, `.button-small`, `.button-wide`, `.icon-button` | At least 44 px. Keycap lip and primary gradient in Arcade. `.icon-button.is-off` for a muted microphone or deafened state. |
-| Input and select | `.input`, `.select`, `.label`, `.hint`, `.form-error`, `.form-msg`, `.field-status` | Border uses `--edge` (3:1). |
-| Check and switch | `.check`, `.switch` (`input` + `.switch-track`), `.segmented` | Diamond knob in Turquoise and Copper. |
-| Slider and meter | `.range`, `.meter`, `.meter-bar`, `.meter-threshold`, `.password-strength` | Segmented in Arcade, LED segments in Night Frequency, tile cells in Turquoise and Copper. |
-| Keycap | `.kbd` | Push to talk key and binding display. |
-| Badge and tag | `.badge-owner`, `.badge-admin`, `.badge-active`, `.tag`, `.tag-ok`, `.tag-warn`, `.tag-danger` | |
-| Unread and mention | `.unread-badge` (dot), `.mention-badge` (count), `.entry-badge` (home total) | Mention and total badges use `--attention`. |
-| Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` to `.avatar-c7`, `.avatar-xs/-sm/-md/-lg/-xl` | Status mark through the `data-status` attribute (`online`, `idle`, `dnd`, `offline`), speaking through `.is-speaking`. `.status-dot` is a standalone status mark. |
-| Card and list | `.card`, `.list-row`, `.list-main`, `.list-name`, `.list-sub`, `.empty-state`, `.empty-row` | |
-| Loading | `.spinner`, `.typing-dots` | Three dots, still with reduce motion. |
-| Tabs | `.tabs`, `.tab[aria-selected]` | |
-| Notices | `.toast`, `.toast-error`, `.toast-ok`, `.conn-banner`, `.notice`, `.warning` | |
-| Menu and popover | `.popup-menu`, `.menu-item`, `.menu-danger`, `.menu-separator`, `.popover`, `.status-option` | |
-| Profile card | `.profile-card`, `.profile-card-band[data-color]`, `.profile-card-head`, `.profile-card-body`, `.profile-card-name`, `.profile-card-handle`, `.profile-card-status`, `.profile-card-section`, `.profile-card-bio`, `.profile-card-actions` | The color band follows the profile color. |
-| Modal | `.modal`, `.modal-dialog`, `.app-dialog`, `.dialog`, `.dialog-actions`, `.sheet` | Full screen or bottom sheet on narrow screens. |
-| Channel column | `.server-identity`, `.server-emblem`, `.home-entry`, `.channel-item`, `.dm-item`, `.voice-row`, `.voice-member`, `.voice-panel`, `.ptt-button`, `.user-panel` | `.channel-freq` frequency badge in Night Frequency. |
-| Center area | `.channel-header`, `.channel-title`, `.dm-header`, `.key-warning`, `.search-panel`, `.home-view`, `.friend-row`, `.voice-strip`, `.ptt-pill` | |
-| Messages | `.msg`, `.msg-first`, `.msg-author`, `.msg-text`, `.jumbo`, `.mention`, `.msg.is-mentioned`, `.msg-blocked`, `.file-card`, `.msg-image` | A message without its key has its own look in each theme (static noise, sunken card, wax seal). |
-| Composer | `.composer`, `.composer-box`, `.tool-button`, `.send-button`, `.typing-line`, `.mention-popover`, `.mention-option` | The send icon depends on the theme (play triangle, up arrow, paper plane). |
-| Emoji picker | `.emoji-picker`, `.emoji-tabs`, `.emoji-tab`, `.emoji-grid`, `.emoji-button`, `.is-sheet` | Bottom sheet on narrow screens. |
-| Security | `.safety-number`, `.safety-group`, `.fingerprint`, `.verified-icon` | |
-
-Theme specific decorative icons sit in the markup with the `.skin-arcade`, `.skin-gece` and `.skin-turkuaz` classes and only show in their own theme.
+| Button | `.button`, `.button-secondary`, `.button-ghost`, `.button-danger`, `.button-small`, `.button-wide`, `.icon-button` | At least 44 pixels. Key cap lip and primary gradient in Arcade. |
+| Input and select | `.input`, `.select`, `.label`, `.hint`, `.form-error`, `.form-msg`, `.field-status` | Border `--edge` (3:1). |
+| Check and switch | `.check`, `.switch`, `.segmented` | Diamond knob in Turkuaz. |
+| Slider and meter | `.range`, `.meter`, `.meter-bar`, `.meter-threshold` | Segmented in Arcade, LED segments in Gece, tiled in Turkuaz. |
+| Key cap | `.kbd` | Push to talk key and binding display. |
+| Badge and tag | `.badge-owner`, `.badge-admin`, `.tag`, `.unread-badge`, `.mention-badge` | The mention badge uses `--attention`. |
+| Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` to `.avatar-c7`, `.avatar-xs`, `.avatar-sm`, `.avatar-md`, `.avatar-lg`, `.avatar-xl` | Status through the `data-status` attribute (`online`, `idle`, `dnd`, `offline`), speaking through `.is-speaking`. |
+| Top bar | `.top-bar`, `.top-chip`, `.top-me`, `.top-stack` | Search, On air and avatar chips. |
+| Frequency band | `.band-track`, `.band-step`, `.band-all`, `.station`, `.station-voice`, `.station-meta`, `.station-pulse`, `.needle`, `.mini-stack` | Station states: `.is-tuned`, `.is-target`, `.is-unread`, and for voice `.is-connected`, `.is-joining`, `.is-live`. Needle: `.is-dragging`. |
+| Left column and inbox | `.side-left`, `.facts`, `.hints`, `.dm-section`, `.inbox`, `.inbox-row` | |
+| Conversation column | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | A message that mentions you gets the `--mention-bg` background and a left line. |
+| Radio card | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-button` | `.is-speaking` on crew items, `aria-pressed` on buttons. |
+| Avatar menu | `.avatar-menu` | Status options are `menuitemradio`. |
+| People | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | The On air sheet, the Friends station, the direct message header. |
+| Sign in card | `.auth-card`, `.auth-dial`, `.auth-needle` | A card shaped like a radio body. |
+| Screen sharing | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open. |
+| Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | The YouTube player area (`.dj-yt`) is always at least 200x200 CSS pixels regardless of font size, and nothing is drawn on top of it. |
+| Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-card`, `.settings-switch` | The selected category is marked with a left line in the needle color. |
+| Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. |
 
 ## State classes and JavaScript contract
 
-All modules use the same state names: `.is-speaking`, `.is-unread`, `.is-mentioned`, `.is-active`, `.is-blocked`, `.is-own` and `data-status`. Selected elements are also styled through `aria-current`, `aria-selected`, `aria-pressed` and `aria-checked`.
+All modules use the same state names: `.is-speaking`, `.is-unread`, `.is-mentioned`, `.is-active`, `.is-blocked`, `.is-own` and `data-status`. Selected items are also styled through `aria-current`, `aria-selected`, `aria-pressed` and `aria-checked`. Region states are carried in attributes: `#app-view[data-layout]`, `#app-view[data-view]`, `#radio[data-state]`, `body[data-cast]` and `body[data-cast-chat]`. When a gamepad is detected, the `.has-gamepad` class is added to `#app-view`.
 
-`avatar(userId, size)` in `02-state-dom.js` draws an avatar (`size`: `xs`, `sm`, `md`, `lg`, `xl`), and `fillAvatar(node, userId, size)` redraws an existing avatar element. Display name, `@username`, status and avatar data come from the `userDisplayName`, `userHandle`, `userStatus` and `userAvatarInfo` helpers in `13-profile.js`, with the username and its initial as a fallback. An avatar image is only shown when its address is a `blob:` URL. The channel and member lists are not redrawn when nothing changed, which keeps keyboard focus and the focus ring in place.
+`avatar(userId, size)` in `02-state-dom.js` draws an avatar (`size`: `xs`, `sm`, `md`, `lg`, `xl`), and `fillAvatar(node, userId, size)` redraws an existing avatar element. Display name, `@username`, status and avatar information come from helpers in `13-profile.js`. An avatar image is shown only if it is a `blob:` address. `04-meta.js` draws the band and `21-band.js` binds its interaction. Lists that have not changed are not redrawn, so keyboard focus is kept. Layers use the layer stack in `02-state-dom.js`: when opened, focus moves to the first meaningful element, Esc and an outside click close them, and focus returns to the button that opened them.
 
 ## Accessibility and contrast
 
-The focus ring is part of the design: a 3 px `--focus` line with a translucent halo around it. Older browsers without `:focus-visible` get the same ring through `:focus`. Every button and field is at least 2.75rem tall (44 px at a 16 px root). Status is never shown by color alone, shape carries it too (full, crescent, bar, ring, and diamonds in Turquoise and Copper). The reduce motion option stops every transition and loop and can follow the system `prefers-reduced-motion` setting.
+The focus ring is part of the design: a 3 pixel `--focus` line with a semi transparent halo around it, thicker at TV width. In older browsers without `:focus-visible`, the same ring comes with `:focus`. All buttons and fields are at least 2.75rem tall (44 pixels at a 16 pixel root). States are distinguished not only by color but also by shape and text, and the accessible names of stations and crew items include the unread count and the connection and speaking state. The reduced motion option stops transitions and loops and can follow the system `prefers-reduced-motion` setting.
 
-The table below shows, for each role, the lowest contrast ratio in that theme and mode. The ratios were computed by `scripts/kontrast.js` from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, interface component 3:1). Translucent surfaces were blended with the surface beneath them, and Arcade's glass panel was measured both over the plain background and over the brightest glow. All 626 measurements pass.
+The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). All values in the table meet the threshold.
 
-| Role | Minimum | Arcade dark | Arcade light | Night Frequency dark | Night Frequency light | Turquoise and Copper dark | Turquoise and Copper light |
+| Role | Threshold | Arcade dark | Arcade light | Night Frequency dark | Night Frequency light | Turquoise and Copper dark | Turquoise and Copper light |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Body text | 4.5:1 | 12.92 | 15.23 | 13.16 | 12.60 | 10.08 | 11.27 |
+| Main text | 4.5:1 | 12.92 | 15.23 | 13.16 | 12.60 | 10.08 | 11.27 |
 | Secondary text | 4.5:1 | 7.90 | 8.02 | 7.35 | 6.09 | 6.61 | 6.53 |
 | Muted text (time, label, placeholder) | 4.5:1 | 5.57 | 5.76 | 5.50 | 4.83 | 4.85 | 4.81 |
 | Accent text | 4.5:1 | 5.68 | 5.78 | 8.65 | 4.95 | 6.67 | 4.66 |
@@ -176,30 +213,31 @@ The table below shows, for each role, the lowest contrast ratio in that theme an
 | Warning text | 4.5:1 | 7.91 | 5.63 | 9.33 | 5.35 | 8.57 | 5.31 |
 | Mention text | 4.5:1 | 8.14 | 7.58 | 9.33 | 5.35 | 6.60 | 5.64 |
 | Text on accent fill | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 7.11 | 5.41 |
-| Text on gradient end (Arcade only) | 4.5:1 | 10.48 | 10.48 | n/a | n/a | n/a | n/a |
+| Filled button text | 4.5:1 | 5.25 | 4.82 | 10.47 | 5.01 | 7.11 | 5.41 |
+| Text on second gradient stop (Arcade only) | 4.5:1 | 10.48 | 10.48 | n/a | n/a | n/a | n/a |
 | Attention badge text | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
 | Text on danger fill | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
-| Input and card edge | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
+| Input and card border | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
 | Focus ring | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
 | Status: online | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
 | Status: idle | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |
 | Status: do not disturb | 3:1 | 5.96 | 4.87 | 6.05 | 4.28 | 5.62 | 5.27 |
 | Status: offline | 3:1 | 5.18 | 4.46 | 4.85 | 3.88 | 4.73 | 3.59 |
 | Fill (send, switch, meter) | 3:1 | 4.56 | 4.88 | 9.89 | 3.92 | 6.63 | 4.36 |
-| Fill second end | 3:1 | 9.10 | 3.39 | 9.89 | 3.92 | 6.63 | 4.36 |
+| Fill second stop | 3:1 | 9.10 | 4.28 | 9.89 | 3.92 | 6.63 | 4.36 |
 | Avatar initial (8 colors) | 4.5:1 | 8.64 | 8.64 | 7.26 | 6.62 | 5.49 | 5.49 |
 | Offline avatar initial | 4.5:1 | 7.49 | 10.02 | 7.66 | 6.27 | 5.98 | 5.10 |
 
 ## Adding a new theme
 
-1. Pick a theme name (lowercase, for example `kumsal`) and add it to the `SKINS` list in `public/theme-init.js`.
-2. In `public/css/tokens.css` add a `:root[data-skin="kumsal"]` block (fonts, radii, `--layout-pad`, `--column-gap`) and the `:root[data-skin="kumsal"][data-scheme="dark"]` and `:root[data-skin="kumsal"][data-scheme="light"]` blocks. Define every name listed under "Design tokens", a missing token falls back to the Arcade dark value.
-3. Create `public/css/skins/kumsal.css` for theme specific styling. Every selector must start with `:root[data-skin="kumsal"]`, and the markup is not changed. Draw the speaking indicator through `.is-speaking` and status marks through `data-status`.
-4. Link the file in `index.html` after the other theme files and add it to the cache list in `public/sw.js`. If you need a new font, put the woff2 file and its license under `public/fonts/` (name pattern `^[a-z0-9-]+\.woff2$`) and add an `@font-face` rule to `base.css` (`font-display: swap`, `unicode-range` for latin and latin-ext). The total font size must stay under 300 KB.
-5. For the theme card in Settings > Appearance, add the `theme.skin.kumsal` and `theme.skinHint.kumsal` keys to `public/i18n.js` in Turkish and English, and define the `.theme-swatch-kumsal` preview colors in `components.css`.
-6. Add the new theme to the `SKINS` and `SKIN_NAMES` lists in `scripts/kontrast.js` and run `node scripts/kontrast.js`. Adjust the colors until no pair fails, then update the table in this document with the output of `node scripts/kontrast.js --md`.
-7. Open the app at 1920x1080, 1280x800 and 390x844 in dark and light mode and review the main screen, a voice channel, the emoji picker, the settings and the sign in screen. There must be no horizontal overflow, no unreadable text and no invisible focus ring.
+1. Choose a name for the theme (lowercase, for example `kumsal`) and add it to the `SKINS` list in `public/theme-init.js`.
+2. Add a `:root[data-skin="kumsal"]` block (fonts, radii, `--layout-pad`, `--column-gap`) and the `:root[data-skin="kumsal"][data-scheme="dark"]` and `:root[data-skin="kumsal"][data-scheme="light"]` blocks to `public/css/tokens.css`. Define all color names from the "Design tokens" section, including `--on-accent-fill`. A missing token falls back to the Arcade dark value. Do not change the Frequency tokens or `--avatar-radius`.
+3. Create `public/css/skins/kumsal.css` for theme specific styles. Every selector must start with `:root[data-skin="kumsal"]`, and the markup is not changed. Draw the speaking indicator through `.is-speaking` and status markers through `data-status`, and keep the avatar shape.
+4. Link the file in `index.html` after the other theme files and add it to the cache list in `public/sw.js`. If a new font is needed, put the woff2 file and its license under `public/fonts/` (file name in lowercase letters, digits and hyphens) and add an `@font-face` rule (`font-display: swap`) to `base.css`.
+5. For the theme card in Settings > Appearance, add the `theme.skin.kumsal` and `theme.skinHint.kumsal` keys in Turkish and English to `public/i18n.js`, and define the `.theme-swatch-kumsal` preview colors in `components.css`.
+6. Measure the contrast of all text and component pairs with the WCAG 2.x formula and add the new columns to the table above. No pair may stay below its threshold.
+7. Open the app at 1920x1080, 1440x900, 1280x800, 900x800 and 390x844 in dark and light mode and review the band, a voice room, screen sharing, Telsiz DJ, the emoji picker, settings and the sign in screen. There must be no horizontal overflow, unreadable text or invisible focus ring.
 
 ## Older browser support
 
-The stylesheets are written to also work in the older WebKit based browsers of game consoles. Layout uses only flexbox and margins. `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Animations and transforms also carry `-webkit-` prefixes. `backdrop-filter` is only used inside `@supports` and together with `-webkit-backdrop-filter`, when it is unsupported the panels fall back to the opaque `--surface-1` color and the contrast table holds for that fallback too. There are no inline styles or scripts (the content security policy blocks them), and icons come from the SVG sprite in `index.html` through `<use>` (with both `href` and `xlink:href`).
+Stylesheets are written to work in the older WebKit based browsers of game consoles too. Layout uses only flexbox and margins. `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Animations and transforms are also written with `-webkit-` prefixes. `backdrop-filter` is used only inside `@supports` and together with `-webkit-backdrop-filter`, and when it is not supported the panels fall back to the opaque `--surface-1` color. The scale ticks of the band scroll with `background-attachment: local`, and in browsers without support only the decoration is lost. There are no inline styles or scripts (the Content Security Policy blocks them), and icons come from the SVG sprite in `index.html` through `<use>` (with both `href` and `xlink:href`).

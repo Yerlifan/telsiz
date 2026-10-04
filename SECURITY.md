@@ -1,78 +1,117 @@
-# Güvenlik politikası
+# Güvenlik politikası / Security policy
 
-PS5 + PC Sohbet uçtan uca şifreleme sunan bir sohbet uygulamasıdır. Güvenlik açıklarının sorumlu bir şekilde bildirilmesi, uygulamayı kullanan arkadaş gruplarını korumak için önemlidir. Bu belge hangi sürümlerin desteklendiğini, bir açığın nasıl bildirileceğini ve projenin bilinen, kabul edilmiş sınırlarını anlatır.
+[Türkçe](#türkçe) | [English](#english)
 
-## Desteklenen sürümler
+## Türkçe
+
+Telsiz uçtan uca şifreleme sunan, kendi sunucunuzda çalışan bir iletişim uygulamasıdır. Güvenlik açıklarının sorumlu bir şekilde bildirilmesi, Telsiz kullanan grupları korumak için önemlidir. Bu bölüm hangi sürümlerin desteklendiğini, bir açığın nasıl bildirileceğini ve projenin bilinen, kabul edilmiş sınırlarını anlatır.
+
+### Desteklenen sürümler
 
 | Sürüm | Güvenlik düzeltmesi |
-|---|---|
-| `main` dalının son hâli | Evet |
-| Daha eski commit'ler ve sürümler | Hayır |
+| --- | --- |
+| Son yayımlanan sürüm ve `main` dalı | Evet |
+| Daha eski sürümler ve commit'ler | Hayır |
 
-Düzeltmeler yalnızca `main` dalına yapılır. Sunucu çalıştıranların düzeltmelerden yararlanmak için kendi kopyalarını `main` dalının son hâline güncellemesi gerekir.
+Düzeltmeler `main` dalına yapılır ve yeni bir sürümle yayımlanır. Sunucu çalıştıranların düzeltmelerden yararlanmak için son sürüme güncellemesi gerekir ([docs/KURULUM.md](docs/KURULUM.md#güncelleme)). Masaüstü uygulamasında otomatik güncelleme yoktur, yeni sürüm elle kurulur.
 
-## Bir açığı bildirme
+### Bir açığı bildirme
 
-Güvenlik açıklarını herkese açık bir issue, tartışma veya PR olarak bildirmeyin. Bunun yerine GitHub'ın özel güvenlik açığı bildirme özelliğini kullanın.
+Güvenlik açıklarını herkese açık bir issue, tartışma veya PR olarak bildirmeyin. Bunun yerine GitHub'ın özel güvenlik açığı bildirme özelliğini (GitHub Security Advisories) kullanın.
 
-1. https://github.com/Yerlifan/ps5-pc-communication adresini açın.
-2. Deponun Security sekmesine geçin.
-3. Özel güvenlik açığı bildirme formunu açın.
-4. Formu aşağıda anlatılan bilgilerle doldurun.
-5. Bildirimi gönderin.
+1. Deponun GitHub sayfasında Security sekmesini açın.
+2. "Report a vulnerability" düğmesine basın.
+3. Formu aşağıda anlatılan bilgilerle doldurun ve gönderin.
 
-Bu özellik depo sahibi tarafından depo ayarlarından etkinleştirilmiş olmalıdır. Security sekmesinde bildirme seçeneğini göremiyorsanız açığın hiçbir ayrıntısını yazmadan bir issue açın ve depo sahibinden özel bir iletişim yolu isteyin.
+Bildirim yalnızca depo sahibi tarafından görülür. Security sekmesinde bildirme seçeneğini göremiyorsanız açığın hiçbir ayrıntısını yazmadan bir issue açın ve depo sahibinden özel bir iletişim yolu isteyin.
 
-Bildiriminizde etkilenen dosyayı veya bileşeni, açığı gördüğünüz commit'i, açığı yeniden oluşturma adımlarını, açığın etkisini (kimin neye erişebildiğini) ve varsa önerdiğiniz düzeltmeyi yazın. Gerçek kişilere ait mesajları, anahtar kodlarını, parolaları, davet bağlantılarını veya tünel adreslerini bildirime eklemeyin.
+Bildiriminizde etkilenen dosyayı veya bileşeni, açığı gördüğünüz sürümü veya commit'i, kurulum yolunu, açığı yeniden oluşturma adımlarını, açığın etkisini (kimin neye erişebildiğini) ve varsa önerdiğiniz düzeltmeyi yazın. Gerçek kişilere ait mesajları, anahtar kodlarını, parolaları, davet bağlantılarını, kurulum kodlarını veya tünel adreslerini bildirime eklemeyin.
 
-Proje gönüllü olarak sürdürüldüğü için belirli bir yanıt süresi garanti edilemez, ancak güvenlik bildirimleri öncelikli olarak incelenir. Doğrulanan açıklar için düzeltme hazırlanır. Düzeltme yayımlanana kadar ayrıntıları herkese açık olarak paylaşmamanızı rica ederiz. Projenin bir ödül programı yoktur.
+Proje gönüllü olarak sürdürüldüğü için belirli bir yanıt süresi garanti edilemez, ancak güvenlik bildirimleri öncelikli olarak incelenir. Doğrulanan açıklar için düzeltme hazırlanır ve sürüm notlarında belirtilir. Düzeltme yayımlanana kadar ayrıntıları herkese açık olarak paylaşmamanızı rica ederiz. Projenin bir ödül programı yoktur.
 
-## Kapsam
+### Kapsam
 
-Kapsamdaki bileşenler sunucu kodu (`server.js` ve `src/`), istemci kodu (`public/`, `public/vendor/` hariç), şifreleme kütüphanesinin bu projede nasıl kullanıldığı, Windows betikleri (`baslat.bat`, `tunel.bat`) ve CI yapılandırmasıdır.
+Kapsamdaki bileşenler: sunucu kodu (`server.js`, `src/`), istemci kodu (`public/`, `public/vendor/` hariç), şifreleme kütüphanelerinin bu projede nasıl kullanıldığı, masaüstü uygulaması (`desktop/`), başlatma ve tünel betikleri, `Dockerfile`, `deploy/` örnekleri ve GitHub Actions iş akışları.
 
-Bildirilmesi beklenen açıklara örnekler şunlardır: yetki denetiminin atlatılması, anahtarı bilmeyen birinin mesajları veya dosyaları okuyabilmesi, sunucunun düz metne veya şifreleme anahtarına ulaşabilmesi, uygulamada betik çalıştırılabilmesi (XSS), yol geçişiyle sunucudaki başka dosyaların okunabilmesi, boyut veya hız sınırlarının atlatılması, tek bir istekle sunucunun çökertilebilmesi ve ses sinyallerinin sunucu tarafından değiştirilebilmesi.
+Bildirilmesi beklenen açıklara örnekler: yetki denetiminin atlatılması, anahtarı bilmeyen birinin mesajları, dosyaları, profilleri veya Telsiz DJ durumunu okuyabilmesi, sunucunun düz metne, parolaya veya şifreleme anahtarlarına ulaşabilmesi, grup anahtarı olmayan bir sunucunun ses veya ekran paylaşımı sinyallerini değiştirebilmesi, uygulamada betik çalıştırılabilmesi (XSS), içerik güvenliği politikasının veya YouTube çerçevesi yalıtımının aşılması, yol geçişiyle sunucudaki başka dosyaların okunabilmesi, boyut veya hız sınırlarının atlatılması, tek bir istekle sunucunun çökertilebilmesi ve masaüstü uygulamasının bütünlük denetiminin veya izin kurallarının aşılması.
 
-TweetNaCl-js kütüphanesinin kendisindeki açıklar kütüphanenin kendi projesine bildirilmelidir. Cloudflare, `cloudflared`, tarayıcılar ve PS5 sistem yazılımındaki açıklar bu projenin kapsamı dışındadır. Aşağıda anlatılan kabul edilmiş sınırlar da tek başlarına açık sayılmaz.
+TweetNaCl-js ve scrypt-js kütüphanelerinin kendisindeki açıklar kendi projelerine bildirilmelidir. Tarayıcılar, Electron, Node.js, Cloudflare, `cloudflared`, YouTube ve işletim sistemlerindeki açıklar bu projenin kapsamı dışındadır. Aşağıda anlatılan kabul edilmiş sınırlar da tek başlarına açık sayılmaz.
 
-## Tehdit modelinin özeti
+### Tehdit modelinin özeti
 
-Uygulama, mesajların, fotoğrafların, dosyaların ve ses sinyalleşmesinin içeriğini sunucudan ve tünel sağlayıcısından gizlemeyi amaçlar. Sunucu yalnızca şifreli veriyi görür ve saklar, bu yüzden veri klasörünün çalınması içerikleri açığa çıkarmamalıdır. Hesaplar scrypt ile karma alınan parolalarla ve diskte yalnızca karması tutulan oturum belirteçleriyle korunur. Sunucu her istekte yetkiyi denetler, tüm girdileri doğrular ve boyut, sayı ve hız sınırları uygular.
+Telsiz, mesajların, dosyaların, profillerin, Telsiz DJ durumunun ve ses ile ekran paylaşımı sinyalleşmesinin içeriğini sunucudan, barındırma sağlayıcısından ve tünel sağlayıcısından gizlemeyi amaçlar. Sunucu yalnızca şifreli veriyi görür ve saklar, bu yüzden veri klasörünün çalınması içerikleri açığa çıkarmamalıdır. Parola sunucuya hiç gönderilmez. Sunucu her istekte yetkiyi denetler, girdileri doğrular ve boyut, sayı ve hız sınırları uygular. Ayrıntılı tasarım [docs/MIMARI.md](docs/MIMARI.md) dosyasındadır.
 
-Ayrıntılı açıklama için [README.md](README.md) dosyasındaki "Güvenlik ve şifreleme modeli" bölümüne ve [docs/MIMARI.md](docs/MIMARI.md) dosyasına bakın.
+### Bilinen ve kabul edilmiş sınırlar
 
-## Bilinen ve kabul edilmiş sınırlar
+Aşağıdaki durumlar tasarımın bilinen sınırlarıdır ve tek başlarına güvenlik açığı sayılmaz. Tam açıklama [docs/MIMARI.md](docs/MIMARI.md#sınırlar) dosyasının "Sınırlar" bölümündedir. Bu sınırları azaltacak önerilerinizi normal bir issue olarak açabilirsiniz.
 
-Aşağıdaki durumlar tasarımın bilinen sınırlarıdır ve tek başlarına güvenlik açığı sayılmaz. Bu sınırları azaltacak önerilerinizi normal bir issue olarak açabilirsiniz.
+1. **Üst veri.** Sunucu kimin ne zaman çevrimiçi olduğunu, kullanıcı ve oda adlarını, kimin hangi konuşmaya ne zaman ve hangi boyutta yazdığını, yazıyor bilgisini, ses odası üyeliğini ve mikrofon durumunu, Telsiz DJ bulunan odaları ve DJ zarflarının boyutunu, yazanların kullanıcı kimliklerini, kullanıcı aracısından türetilen oturum etiketlerini ve IP adreslerini görür.
+2. **Web sürümünde kod teslimi.** Uygulama kodu her açılışta sunucudan gelir. Sunucuyu veya TLS'yi sonlandıran bir aracıyı (ters vekil, tünel sağlayıcısı) ele geçiren etkin bir saldırgan değiştirilmiş kod sunabilir. Masaüstü uygulaması arayüzü kendi içinde taşır.
+3. **Kötü niyetli sunucu ve bütünlük.** Sunucu mesajları yeniden oynatabilir, çoğaltabilir, gizleyebilir ve düzenlemeleri geri alabilir. Yazı odalarında gönderen imzası yoktur, grup anahtarına sahip biri (ör. sunucuyla iş birliği yapan bir üye) başka bir üyenin adına mesaj üretebilir.
+4. **Grup anahtarı.** Grup anahtarı herkes için ortaktır, ileriye dönük gizlilik yoktur. İstemci anahtarlıktaki eski anahtarlarla mühürlenmiş içeriği de kabul eder, bu yüzden çıkarılan bir üye sunucunun yardımıyla içerik ekleyebilir. Bir üye çıkarıldığında yeni grup anahtarı oluşturulmalıdır.
+5. **Özel mesajlar.** İleriye dönük gizlilik yoktur. İlk konuşmada kimlik, grup anahtarına sahip ve sunucuyla iş birliği yapan birinin ortadaki adam saldırısına açıktır. Sonraki değişiklikleri ilk görüşte sabitleme, ilk konuşmayı ise güvenlik numarası karşılaştırması yakalar.
+6. **Ses ve ekran paylaşımı.** Katılımcılar birbirinin IP adresini görebilir. Varsayılan STUN sunucusu Google'a aittir. TURN yapılandırılırsa kimlik bilgileri sabittir ve ses odasına katılan her oturum açmış kişiye gönderilir.
+7. **YouTube.** Onay veren cihazın IP adresi ve izleme bilgisi Google'a gider. YouTube kaynağını kapatma ayarı istemcilerde uygulanır, DJ durumu şifreli olduğu için sunucu içeriği denetleyemez.
+8. **Cihazda saklanan anahtarlar.** Anahtarlar ve oturum bilgisi tarayıcının yerel depolamasındadır. Cihaza erişebilen biri bunlara da erişebilir.
+9. **Ev ağında https olmadan kullanım.** `http://` bağlantısında oturum bilgisi ağda şifresiz gider ve aynı ağdaki etkin bir saldırgan uygulama kodunu değiştirebilir.
+10. **Kaynak kullanımı.** Yükleme kotası sunucu genelinde ortaktır, kullanıcı başına depolama kotası yoktur. Oturum açmış bir üye ortak kaynakları tüketebilir, bu yüzden sunucu güvenilen kişilerle paylaşılmalıdır.
+11. **Paylaşılan dosyalar.** Her türden dosya paylaşılabilir ve sunucu içerikleri göremediği için zararlı dosya denetimi yapılamaz.
+12. **Paketleme.** Tek dosyalık sunucu ve masaüstü uygulaması imzasızdır. Docker taban imajı özet değeriyle sabitlenmez. npm paketi `NPM_TOKEN` ile provenance bilgisiyle yayımlanır. linux-arm64 derlemesindeki Node.js ikilisi `SHASUMS256.txt` ile doğrulanır, GPG imzası denetlenmez. Yayın dosyaları `SHA256SUMS.txt` ile doğrulanabilir.
+13. **Denetim.** Bu proje bağımsız bir güvenlik denetiminden geçmemiştir ve hiçbir yazılım için hiç açığı olmadığı garanti edilemez. scrypt-js yaygın olarak kullanılır, ancak resmi bir güvenlik denetimi bilinmemektedir.
 
-### Web tabanlı şifrelemede kod teslimi
+## English
 
-Uygulamanın kodu her açılışta sunucudan gelir. Sunucuyu veya tüneli ele geçiren etkin bir saldırgan, tarayıcıya değiştirilmiş bir kod göndererek şifreleme anahtarını çalabilir. Cloudflare hızlı tüneli TLS bağlantısını Cloudflare tarafında sonlandırdığı için bu durum tünel sağlayıcısını da kapsar. Uçtan uca şifreleme bu nedenle sunucuyu çalıştıran kişiye veya tünel sağlayıcısına karşı ancak uygulama kodu değiştirilmediği sürece koruma sağlar.
+Telsiz is a self-hosted communication app that offers end-to-end encryption. Responsible disclosure of security vulnerabilities is important to protect the groups that use Telsiz. This section explains which versions are supported, how to report a vulnerability and the known, accepted limits of the project.
 
-### Üst veri
+### Supported versions
 
-Sunucu kimin, ne zaman, hangi kanala yazdığını, mesajların ve dosyaların boyutlarını, kimin çevrimiçi olduğunu, kimin hangi ses kanalında bulunduğunu ve bağlanan cihazların IP adreslerini görür. Kanal adları ve kullanıcı adları şifrelenmez.
+| Version | Security fixes |
+| --- | --- |
+| The latest release and the `main` branch | Yes |
+| Older releases and commits | No |
 
-### Ortak grup anahtarı ve ileriye dönük gizlilik
+Fixes are made on the `main` branch and published in a new release. Server operators need to update to the latest release to benefit from fixes ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#updating)). The desktop app has no automatic updates, so a new version is installed by hand.
 
-Tüm grup tek bir ortak anahtar kullanır. Anahtarı bilen herkes, şifreli veriye ulaşabildiği sürece tüm mesajları okuyabilir. İleriye dönük gizlilik (forward secrecy) yoktur. Gruptan çıkarılan biri eski anahtarı bilmeye devam eder ve anahtar yenileme yalnızca bundan sonraki mesajları korur. Davet bağlantısı anahtarı içerdiği için bağlantıyı gören herkes anahtarı da öğrenir.
+### Reporting a vulnerability
 
-### Sesli sohbette IP adresleri
+Do not report security vulnerabilities as a public issue, discussion or pull request. Use GitHub's private vulnerability reporting (GitHub Security Advisories) instead.
 
-Ses kişiler arasında WebRTC ile doğrudan aktığı için sesli sohbetteki kişiler birbirinin IP adresini görebilir.
+1. Open the Security tab on the GitHub page of the repository.
+2. Press the "Report a vulnerability" button.
+3. Fill in the form with the information described below and submit it.
 
-### Ev ağında https olmadan kullanım
+Only the repository owner sees the report. If you cannot see the reporting option in the Security tab, open an issue without any details of the vulnerability and ask the repository owner for a private contact channel.
 
-Ev ağındaki `http://` adresiyle bağlanıldığında bağlantı TLS ile korunmaz. Mesaj içerikleri yine uçtan uca şifrelidir, ancak giriş parolası ve oturum bilgisi ağda şifresiz gider ve aynı ağdaki etkin bir saldırgan uygulama kodunu değiştirebilir.
+In your report, describe the affected file or component, the version or commit where you saw the vulnerability, the installation path, the steps to reproduce it, its impact (who can access what) and, if you have one, a suggested fix. Do not include messages of real people, key codes, passwords, invite links, setup codes or tunnel addresses in the report.
 
-### Cihazda saklanan anahtar
+Because the project is maintained by volunteers, no specific response time can be guaranteed, but security reports are reviewed with priority. Fixes are prepared for confirmed vulnerabilities and mentioned in the release notes. Please do not share details publicly until a fix is released. The project has no bug bounty program.
 
-Şifreleme anahtarı ve oturum bilgisi cihazdaki tarayıcının yerel depolamasında saklanır. Cihaza veya tarayıcı profiline erişebilen biri bunlara da erişebilir.
+### Scope
 
-### Paylaşılan dosyalar
+In scope: the server code (`server.js`, `src/`), the client code (`public/`, except `public/vendor/`), how the encryption libraries are used in this project, the desktop app (`desktop/`), the start and tunnel scripts, the `Dockerfile`, the `deploy/` examples and the GitHub Actions workflows.
 
-Her türden dosya paylaşılabilir. Uygulama, program çalıştırabilen dosyaları işaretler ve indirmeden önce uyarır, ancak dosyaların zararsız olduğunu denetlemez. Sunucu dosyaların içeriğini göremediği için sunucu tarafında bir tür denetimi de yapılmaz.
+Examples of vulnerabilities we want to hear about: bypassing authorization checks, someone without the key being able to read messages, files, profiles or the Telsiz DJ state, the server being able to reach plaintext, passwords or encryption keys, a server without the group key being able to change voice or screen sharing signals, running scripts in the app (XSS), bypassing the Content Security Policy or the isolation of the YouTube frame, reading other files on the server through path traversal, bypassing size or rate limits, crashing the server with a single request, and bypassing the integrity check or the permission rules of the desktop app.
 
-### Denetim
+Vulnerabilities in the TweetNaCl-js and scrypt-js libraries themselves should be reported to their own projects. Vulnerabilities in browsers, Electron, Node.js, Cloudflare, `cloudflared`, YouTube and operating systems are out of scope. The accepted limits below are not vulnerabilities on their own.
 
-Bu proje bağımsız bir güvenlik denetiminden geçmemiştir ve hiçbir yazılım için hiç açığı olmadığı garanti edilemez.
+### Threat model summary
+
+Telsiz aims to hide the content of messages, files, profiles, the Telsiz DJ state and the signaling of voice and screen sharing from the server, the hosting provider and the tunnel provider. The server only sees and stores encrypted data, so a stolen data folder should not reveal content. The password is never sent to the server. The server checks authorization on every request, validates input and applies size, count and rate limits. The detailed design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### Known and accepted limits
+
+The following are known limits of the design and are not vulnerabilities on their own. The full explanation is in the "Limits" section of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#limits). You can open suggestions that reduce these limits as normal issues.
+
+1. **Metadata.** The server sees who is online and when, user and room names, who writes to which conversation when and with what size, typing status, voice room membership and microphone state, rooms with a Telsiz DJ state and the size of DJ envelopes, the user ids of writers, session labels derived from the user agent, and IP addresses.
+2. **Code delivery in the web version.** The app code comes from the server on every visit. An active attacker who takes over the server or an intermediary that terminates TLS (a reverse proxy or a tunnel provider) could serve modified code. The desktop app carries the interface inside itself.
+3. **A malicious server and integrity.** The server can replay, duplicate and hide messages and roll back edits. Text rooms have no sender signatures, so anyone with the group key (for example a member colluding with the server) can create messages in another member's name.
+4. **The group key.** The group key is shared by everyone and has no forward secrecy. The client also accepts content sealed with older keys in the keyring, so a removed member can add content with the server's help. Create a new group key when a member is removed.
+5. **Direct messages.** There is no forward secrecy. On the first conversation, identity is open to a man in the middle attack by someone who has the group key and colludes with the server. Pinning on first sight catches later changes, and comparing safety numbers catches the first conversation.
+6. **Voice and screen sharing.** Participants can see each other's IP address. The default STUN server belongs to Google. If TURN is configured, its credentials are static and are sent to every signed in person who joins a voice room.
+7. **YouTube.** The IP address and tracking data of a device that gives consent go to Google. Turning off the YouTube source is enforced on clients, and the server cannot check the content because the DJ state is encrypted.
+8. **Keys stored on the device.** Keys and session information are in the browser's local storage. Anyone with access to the device can access them too.
+9. **Use on a home network without https.** On an `http://` connection, session information travels unencrypted on the network, and an active attacker on the same network could modify the app code.
+10. **Resource use.** The upload quota is shared by the whole server, and there is no per user storage quota. A signed in member can use up shared resources, so share the server only with people you trust.
+11. **Shared files.** Files of any type can be shared, and since the server cannot see their contents, no malware scanning is possible.
+12. **Packaging.** The single file server and the desktop app are not code signed. The Docker base image is not pinned by digest. The npm package is published with `NPM_TOKEN` and with provenance. The Node.js binary in the linux-arm64 build is verified with `SHASUMS256.txt`, and no GPG signature is checked. Release files can be verified with `SHA256SUMS.txt`.
+13. **Audit.** This project has not had an independent security audit, and no software can be guaranteed to be free of vulnerabilities. scrypt-js is widely used, but no formal security audit of it is known.

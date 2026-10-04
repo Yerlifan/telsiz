@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Güvenlik açığı bildirimi
-    url: https://github.com/Yerlifan/ps5-pc-communication/blob/main/SECURITY.md
+    url: https://github.com/Yerlifan/telsiz/blob/main/SECURITY.md
     about: Güvenlik açıklarını açık issue olarak değil, SECURITY.md dosyasında anlatılan özel bildirim yoluyla iletin.
