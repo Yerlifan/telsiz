@@ -57,7 +57,7 @@ function loadPreload (file, argv) {
 
 test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', async () => {
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
-  assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop'])
+  assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
   assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
@@ -175,6 +175,62 @@ test('sürüm argümanı doğrulanır', () => {
   assert.equal(loadPreload('preload.js', ['--telsiz-version=<b>']).exposed.telsizDesktop.version, '')
 })
 
+test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik, durum süzülür', async () => {
+  const p = loadPreload('preload.js', ['--telsiz-version=2.0.0'])
+  const bg = p.exposed.telsizArkaPlan
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'onState'])
+  assert.equal(bg.background, false)
+  await bg.getState()
+  assert.deepEqual(p.invoked, [[channels.CHANNELS.bgGet]])
+  const got = []
+  const off = bg.onState((data) => got.push(data))
+  assert.equal(typeof bg.onState(5), 'function')
+  const fire = p.listeners[channels.CHANNELS.bgState]
+  fire({ sender: 'gizli' }, {
+    items: [
+      { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4, gizli: 'x' },
+      { origin: 'javascript:alert(1)', state: 'ok', unread: 1 },
+      { origin: 'https://b.com:8443', state: 'kotu', unread: -2, mention: 1.5, online: 'evet' },
+      null
+    ]
+  })
+  fire({}, 'bozuk')
+  off()
+  fire({}, { items: [{ origin: 'https://c.com', state: 'ok' }] })
+  assert.deepEqual(JSON.parse(JSON.stringify(got)), [
+    {
+      items: [
+        { origin: 'https://a.com', active: false, state: 'ok', unread: 3, mention: 1, online: true, onlineUsers: 4 },
+        { origin: 'https://b.com:8443', active: false, state: null, unread: 0, mention: 0, online: null, onlineUsers: null }
+      ]
+    },
+    { items: [] }
+  ])
+})
+
+test('arka plan penceresi: yalnızca ana sürecin argümanıyla, rapor bilinen alanlarla kopyalanır', async () => {
+  const p = loadPreload('preload.js', ['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com:8443'])
+  const bg = p.exposed.telsizArkaPlan
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'open', 'origin', 'report'])
+  assert.equal(bg.background, true)
+  assert.equal(bg.origin, 'https://b.ornek.com:8443')
+  bg.report({ origin: 'https://b.ornek.com:8443', state: 'ok', unread: 2, mention: 1, online: true, lastError: null, name: 'Bee', onlineUsers: 3, fazla: { kotu: 1 } })
+  bg.report('bozuk')
+  bg.report({ unread: '5', mention: -1, online: 'evet', state: 7 })
+  await bg.open('https://kotu.com')
+  assert.deepEqual(JSON.parse(JSON.stringify(p.sent)), [
+    [channels.CHANNELS.bgReport, { origin: 'https://b.ornek.com:8443', state: 'ok', unread: 2, mention: 1, online: true, lastError: null, name: 'Bee', onlineUsers: 3 }],
+    [channels.CHANNELS.bgReport, { origin: '', state: '', unread: null, mention: null, online: null, lastError: null, name: null, onlineUsers: null }],
+    [channels.CHANNELS.bgReport, { origin: '', state: '', unread: null, mention: null, online: null, lastError: null, name: null, onlineUsers: null }]
+  ])
+  assert.deepEqual(p.invoked, [[channels.CHANNELS.bgOpen]])
+  // Biçime uymayan köken: pencere yine arka plan kipindedir ama köken boştur (ana süreç raporu reddeder)
+  const odd = loadPreload('preload.js', ['--telsiz-background=https://a.com/yol?x'])
+  assert.equal(odd.exposed.telsizArkaPlan.background, true)
+  assert.equal(odd.exposed.telsizArkaPlan.origin, '')
+  assert.equal(loadPreload('preload.js', ['--telsiz-background=http://[::1]:4800']).exposed.telsizArkaPlan.origin, 'http://[::1]:4800')
+})
+
 test('sunucu adresi ve seçici ön yüklemeleri', async () => {
   const c = loadPreload('connect-preload.js')
   assert.deepEqual(Object.keys(c.exposed.telsizConnect).sort(), ['cancel', 'init', 'submit'])
@@ -198,6 +254,7 @@ test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
   const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
   assert.ok(preload.includes("const ACTIONS = ['" + channels.ACTIONS.join("', '") + "']"))
   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
+  assert.ok(preload.includes("const BACKGROUND_ARG = '" + channels.BACKGROUND_ARG + "'"))
 })
 
 test('ana süreç sertleştirmeleri kaynakta bulunur', () => {

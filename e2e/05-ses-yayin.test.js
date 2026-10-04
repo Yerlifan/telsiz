@@ -65,10 +65,11 @@ test('iki kullanıcı Lobi\'ye katılır, kadroda ikisi ve Telsiz DJ görünür'
   // İki kişi ve kadronun sonunda Telsiz DJ öğesi (DJ sunucuda açıkken)
   assert.deepEqual([r.all, r.dj, r.djLast], [3, true, true])
   const station = await deniz.evaluate((id) => {
-    const n = document.querySelector('#band-track .station[data-channel-id="' + id + '"]')
-    return { connected: n.classList.contains('is-connected'), tuned: n.classList.contains('is-tuned') }
+    const n = document.querySelector('#inbox-list .room-row[data-channel-id="' + id + '"]')
+    const tuned = document.querySelector('#band-track .station.is-tuned')
+    return { connected: n.classList.contains('is-connected'), current: n.getAttribute('aria-current'), band: tuned.getAttribute('data-kind') }
   }, W.lobi.id)
-  assert.deepEqual(station, { connected: true, tuned: false }, 'ses istasyonu bağlı, ibre konuşmada kalır')
+  assert.deepEqual(station, { connected: true, current: null, band: 'frekans' }, 'ses odası satırı bağlı, ibre frekansta kalır')
 })
 
 test('sahte mikrofonla konuşma halesi görünür ve avatarın yumuşak kare şeklini izler', async () => {

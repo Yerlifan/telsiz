@@ -99,7 +99,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
 | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
 | `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
-| `04-meta.js` | Üst çubuk, frekans bandı, İstasyonlar listesi, oda bilgisi, Yayındakiler listesi, oda seçimi |
+| `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası, oda bilgisi, Yayındakiler listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
 | `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
@@ -116,10 +116,11 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `18-mentions.js` | @ ile anma ve öneri listesi |
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
-| `21-band.js` | Frekans bandının etkileşimi (ibre, klavye, tekerlek, oyun kolu) |
+| `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
 | `22-cast.js` | Ekran paylaşımı arayüzü |
 | `23-dj.js` | Telsiz DJ arayüzü |
-| `24-frekans.js` | Frekanslar: üst çubuktaki frekans değiştirici menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste taşıma, masaüstünde ana süreç çağrıları |
+| `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu |
+| `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 

@@ -1,21 +1,24 @@
 'use strict'
 
-// Frekans bandının etkileşimi (Ek K5, KONSEPT 5.1). Bandı 04-meta.js renderBand çizer, bu modül olayları
-// bağlar ve ibreyi yönetir:
-// - Fare ve dokunma: konuşma istasyonuna (Özel, Arkadaşlar, yazı odası) basmak onu ayarlar, ses istasyonuna
-//   basmak o odaya katılır. Ölçek şeridine (istasyonların üstündeki boş kadran) tıklamak en yakın konuşma
-//   istasyonunu ayarlar.
-// - İbre: topuzundan tutulup sürüklenir (fare, kalem, parmak), bırakınca en yakın konuşma istasyonuna oturur.
-//   Ses istasyonuna oturmaz. Sürüklerken Esc vazgeçer, bandın kenarına gelince bant kendiliğinden kayar.
-// - Tekerlek: bant taşıyorsa yalnızca yatay kaydırır, hiçbir zaman istasyon değiştirmez. Taşmıyorsa
+// Frekans bandının etkileşimi (Ek K5, KONSEPT 5.1). Bant katılınan frekansları dizer (her istasyon bir
+// frekans, 24-frekans.js), bandı 04-meta.js renderBand çizer, bu modül olayları bağlar ve ibreyi yönetir.
+// Bir frekansı ayarlamak o frekansa geçer (24-frekans.js frekansTune: masaüstünde switchFrequency, tarayıcıda
+// listeyi adres parçasıyla taşıyan gezinme). Ses odasındayken geçiş önce onay ister. Açık frekansı
+// ayarlamak bir şey yapmaz.
+// - Fare ve dokunma: istasyona basmak o frekansı ayarlar. Ölçek şeridine (istasyonların üstündeki boş
+//   kadran) tıklamak en yakın frekansı ayarlar.
+// - İbre: topuzundan tutulup sürüklenir (fare, kalem, parmak), bırakınca en yakın frekansa oturur.
+//   Sürüklerken Esc vazgeçer, bandın kenarına gelince bant kendiliğinden kayar.
+// - Tekerlek: bant taşıyorsa yalnızca yatay kaydırır, hiçbir zaman frekans değiştirmez. Taşmıyorsa
 //   olay sayfaya bırakılır.
-// - Uç düğmeleri: önceki ve sonraki konuşma istasyonu (döngüsel), erişilebilir adları hedefi söyler.
+// - Uç düğmeleri: önceki ve sonraki frekans (döngüsel), erişilebilir adları hedefi söyler.
 // - Klavye: bant tek sekme durağıdır (gezici tabindex, role="toolbar"). Sol ve sağ ok odağı gezdirir,
-//   Home ve End ilk ve son istasyon, Enter ve Boşluk ayarlar veya katılır. Ayarlamak odağı bantta bırakır.
-// - Kol (Gamepad API): L1 ve R1 (standart düzende 4 ve 5) önceki ve sonraki konuşma istasyonu, daire
-//   düğmesi (1) en üstteki katmanı kapatır. Yalnızca sayfa görünür ve odaktayken yoklanır. Kol gerçekten
-//   algılanınca #app-view.has-gamepad sınıfı eklenir, L1 ve R1 ipuçları yalnızca o zaman görünür (Ek K7.6).
-// Tümü sayfasındaki ve Gelenler kartındaki satırlar da aynı ayarlama işlevini kullanır.
+//   Home ve End ilk ve son istasyon, Enter ve Boşluk ayarlar. Ayarlamak odağı bantta bırakır.
+// - Kol (Gamepad API): L1 ve R1 (standart düzende 4 ve 5) önceki ve sonraki frekans, daire düğmesi (1) en
+//   üstteki katmanı kapatır. Yalnızca sayfa görünür ve odaktayken yoklanır. Kol gerçekten algılanınca
+//   #app-view.has-gamepad sınıfı eklenir, L1 ve R1 ipuçları yalnızca o zaman görünür (Ek K7.6).
+// Yazı ve ses odaları sağdaki İstasyonlar listesinde ve İstasyonlar sayfasındadır. Satırları
+// (onStationRowClick) ve üst çubuktaki kişisel düğmeler odaları ve konuşmaları bandTune ile açar.
 
 const BAND_EDGE_PX = 32
 const BAND_AUTOSCROLL_PX = 12
@@ -46,8 +49,14 @@ function bandStationEls () {
   return el.bandTrack ? Array.from(el.bandTrack.querySelectorAll('.station[data-station]')) : []
 }
 
+// Ayarlanabilir istasyonlar: banttaki frekanslar
 function bandConvEls () {
-  return bandStationEls().filter((node) => node.getAttribute('data-kind') === 'conv')
+  return bandStationEls().filter((node) => node.getAttribute('data-kind') === 'frekans')
+}
+
+// Frekans istasyonunun anahtarı kökendir (masaüstünde liste gelene kadar açık frekans 'self')
+function bandIsFrekansKey (key) {
+  return key === 'self' || /^https?:\/\//.test(key)
 }
 
 function bandTunedEl () {
@@ -163,7 +172,8 @@ function bandAfterRender (tuned) {
   bandState.lastTuned = tuned
 }
 
-// Ayarlama: konuşma istasyonları konuşmayı açar, ses istasyonu odaya katılır
+// Ayarlama: frekans istasyonu o frekansa geçer. Oda listelerinden ve kişisel düğmelerden gelen anahtarlar:
+// yazı odası ve kişisel girişler konuşmayı açar, ses odası katılır.
 
 function bandOpenDm () {
   const entries = bandDmEntries()
@@ -184,6 +194,10 @@ function bandJoinVoice (id) {
 
 function bandTune (key) {
   if (!state.inApp || !key) return
+  if (bandIsFrekansKey(key)) {
+    if (typeof frekansTune === 'function') frekansTune(key, bandTunedEl())
+    return
+  }
   if (key === 'dm') {
     bandOpenDm()
     return
@@ -200,7 +214,7 @@ function bandTune (key) {
 
 function bandStep (dir) {
   const list = bandConvEls()
-  if (!list.length) return
+  if (list.length < 2) return
   let i = list.indexOf(bandTunedEl())
   if (i === -1) i = dir > 0 ? -1 : 0
   const target = list[(i + dir + list.length) % list.length]
@@ -238,7 +252,7 @@ function onBandClick (e) {
   bandTune(node.getAttribute('data-station'))
 }
 
-// Ölçek şeridi: istasyonların üstündeki boş kadrana fareyle tıklamak en yakın konuşma istasyonunu ayarlar
+// Ölçek şeridi: istasyonların üstündeki boş kadrana fareyle tıklamak en yakın frekansı ayarlar
 function onBandScalePointer (e) {
   if (e.pointerType === 'touch' || (typeof e.button === 'number' && e.button > 0)) return
   const target = e.target
@@ -458,7 +472,7 @@ function onGamepadDisconnected () {
   if (!padList().length) setGamepadPresent(false)
 }
 
-// İstasyon değiştirme rehberi (#hints-card): bandın sonundaki ? düğmesiyle (#band-help) açılan küçük açılır
+// Frekans değiştirme rehberi (#hints-card): bandın sonundaki ? düğmesiyle (#band-help) açılan küçük açılır
 // pencere. Esc, dışarı tıklama, Kapat ve kolun daire düğmesi kapatır, odak düğmeye döner.
 function bandHelpOpen () {
   const pop = byId('hints-card')
@@ -487,7 +501,7 @@ function bandHelpOpen () {
   })
 }
 
-// Sağ sütundaki İstasyonlar listesi ve Tümü sayfası: satırlar istasyonu ayarlar veya özel konuşmayı açar
+// Sağ sütundaki İstasyonlar listesi ve İstasyonlar sayfası: satırlar odayı ayarlar veya ses odasına katılır
 
 function onStationRowClick (e) {
   const row = e.target && e.target.closest ? e.target.closest('[data-station], [data-dm-id]') : null
@@ -527,7 +541,10 @@ function bandInit () {
       bandStep(1)
     })
   }
-  if (el.stationsList) el.stationsList.addEventListener('click', onStationRowClick)
+  if (el.stationsList) {
+    el.stationsList.addEventListener('click', onStationRowClick)
+    el.stationsList.addEventListener('keydown', onRoomListKey)
+  }
   if (el.inboxList) {
     el.inboxList.addEventListener('click', onStationRowClick)
     el.inboxList.addEventListener('keydown', onRoomListKey)
