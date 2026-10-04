@@ -43,7 +43,7 @@ VERI_KLASORU=/srv/telsiz-veri npx telsiz
 
 ### Windows tek dosya
 
-1. GitHub'daki [Sürümler](https://github.com/Yerlifan/telsiz/releases) sayfasından `telsiz-<sürüm>-windows-x64.exe` dosyasını ve `SHA256SUMS.txt` dosyasını indirin.
+1. GitHub'daki [Sürümler](https://github.com/Yerlifan/telsiz/releases) sayfasından `telsiz-<sürüm>-server-windows-x64.exe` dosyasını ve `SHA256SUMS.txt` dosyasını indirin.
 2. Dosyayı kendine ait boş bir klasöre koyun, örneğin `C:\Telsiz`.
 3. Dosyaya çift tıklayın. Dosya imzalı olmadığı için Windows SmartScreen uyarı gösterebilir. Bu durumda "Ek bilgi" ve ardından "Yine de çalıştır" seçilir.
 4. Açılan pencere sunucunun kendisidir ve Telsiz kullanıldığı sürece açık kalmalıdır. Durdurmak için pencerede Ctrl+C tuşlarına basın.
@@ -52,11 +52,11 @@ Veri klasörü dosyanın yanındaki `veri` klasörüdür. Başlatma bir hatayla 
 
 ### Linux tek dosya
 
-x64 için `telsiz-<sürüm>-linux-x64`, arm64 (ör. Raspberry Pi) için `telsiz-<sürüm>-linux-arm64` dosyasını indirin.
+x64 için `telsiz-<sürüm>-server-linux-x64`, arm64 (ör. Raspberry Pi) için `telsiz-<sürüm>-server-linux-arm64` dosyasını indirin.
 
 ```sh
-chmod +x telsiz-<sürüm>-linux-x64
-./telsiz-<sürüm>-linux-x64
+chmod +x telsiz-<sürüm>-server-linux-x64
+./telsiz-<sürüm>-server-linux-x64
 ```
 
 Veri klasörü ve `telsiz.env` dosyası Windows sürümünde olduğu gibi yürütülebilir dosyanın yanındadır.
@@ -280,7 +280,7 @@ Güncellemeden önce veri klasörünü yedekleyin ve sürüm notlarını ([CHANG
 | Docker Compose | `git pull` ve `docker compose -f deploy/docker-compose.yml up -d --build` |
 | systemd | `cd /opt/telsiz`, `sudo git pull` ve `sudo systemctl restart telsiz` |
 
-Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasındadır. Linux'ta `sha256sum -c SHA256SUMS.txt --ignore-missing`, Windows PowerShell'de `Get-FileHash telsiz-<sürüm>-windows-x64.exe` komutuyla doğrulanabilir. Uygulamadaki Ayarlar > Uygulama bölümü sunucunun sürümünü gösterir.
+Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasındadır. Linux'ta `sha256sum -c SHA256SUMS.txt --ignore-missing`, Windows PowerShell'de `Get-FileHash telsiz-<sürüm>-server-windows-x64.exe` komutuyla doğrulanabilir. Uygulamadaki Ayarlar > Uygulama bölümü sunucunun sürümünü gösterir.
 
 ## Parola sıfırlama ve sorun giderme
 
@@ -291,7 +291,7 @@ Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasında
 ```sh
 npx telsiz sifre-sifirla <kullanıcı adı>
 node server.js reset-password <kullanıcı adı>
-./telsiz-<sürüm>-linux-x64 sifre-sifirla <kullanıcı adı>
+./telsiz-<sürüm>-server-linux-x64 sifre-sifirla <kullanıcı adı>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js sifre-sifirla <kullanıcı adı>
 ```
 

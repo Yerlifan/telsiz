@@ -57,7 +57,7 @@ For a permanent installation, run `npm install -g telsiz` and then the `telsiz` 
 
 ### Single file for Windows
 
-1. Download `telsiz-<version>-windows-x64.exe` from the [Releases](https://github.com/Yerlifan/telsiz/releases) page.
+1. Download `telsiz-<version>-server-windows-x64.exe` from the [Releases](https://github.com/Yerlifan/telsiz/releases) page.
 2. Put the file in an empty folder of its own.
 3. Double click the file. If Windows SmartScreen shows a warning, choose "More info" and then "Run anyway".
 
@@ -68,8 +68,8 @@ Data is written to the `veri` folder next to the file. Settings are read from a 
 Separate files are published for x64 and arm64 (for example Raspberry Pi).
 
 ```sh
-chmod +x telsiz-<version>-linux-x64
-./telsiz-<version>-linux-x64
+chmod +x telsiz-<version>-server-linux-x64
+./telsiz-<version>-server-linux-x64
 ```
 
 ### From the repository

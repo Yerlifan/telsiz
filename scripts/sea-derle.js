@@ -81,7 +81,7 @@ function readHeader (file) {
 }
 
 function outputName (version, target) {
-  return 'telsiz-' + version + '-' + target + (target.startsWith('windows-') ? '.exe' : '')
+  return 'telsiz-' + version + '-server-' + target + (target.startsWith('windows-') ? '.exe' : '')
 }
 
 // public/ klasöründeki tüm dosyalar (alt klasörler dahil, sıralı). Nokta ile başlayan adlar

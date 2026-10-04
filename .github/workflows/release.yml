@@ -138,10 +138,10 @@ jobs:
             fi
             cp "$1" "dagitim/${name}"
           }
-          server_exe="telsiz-${VERSION}-windows-x64.exe"
+          server_exe="telsiz-${VERSION}-server-windows-x64.exe"
           while IFS= read -r -d '' file; do
             case "$(basename "${file}")" in
-              "${server_exe}" | "telsiz-${VERSION}-linux-x64" | "telsiz-${VERSION}-linux-arm64") add "${file}" ;;
+              "${server_exe}" | "telsiz-${VERSION}-server-linux-x64" | "telsiz-${VERSION}-server-linux-arm64") add "${file}" ;;
               *) echo "::warning::Beklenmeyen sunucu dosyası yayına eklenmedi: ${file}" ;;
             esac
           done < <(find artifacts/server -type f -print0)
@@ -151,7 +151,7 @@ jobs:
               *) echo "::notice::Masaüstü artifact'indeki bu dosya yayına eklenmedi: ${file}" ;;
             esac
           done < <(find artifacts/desktop -type f -print0)
-          for required in "${server_exe}" "telsiz-${VERSION}-linux-x64" "telsiz-${VERSION}-linux-arm64"; do
+          for required in "${server_exe}" "telsiz-${VERSION}-server-linux-x64" "telsiz-${VERSION}-server-linux-arm64"; do
             if [ ! -f "dagitim/${required}" ]; then
               echo "::error::Eksik sunucu dosyası: ${required}"
               exit 1

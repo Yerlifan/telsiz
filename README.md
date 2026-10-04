@@ -57,7 +57,7 @@ Kalıcı kurulum için `npm install -g telsiz` komutundan sonra `telsiz` komutun
 
 ### Windows için tek dosya
 
-1. [Sürümler](https://github.com/Yerlifan/telsiz/releases) sayfasından `telsiz-<sürüm>-windows-x64.exe` dosyasını indirin.
+1. [Sürümler](https://github.com/Yerlifan/telsiz/releases) sayfasından `telsiz-<sürüm>-server-windows-x64.exe` dosyasını indirin.
 2. Dosyayı kendine ait boş bir klasöre koyun.
 3. Dosyaya çift tıklayın. Windows SmartScreen uyarı gösterirse "Ek bilgi" ve ardından "Yine de çalıştır" seçeneğini kullanın.
 
@@ -68,8 +68,8 @@ Veriler dosyanın yanındaki `veri` klasörüne yazılır. Ayarlar dosyanın yan
 x64 ve arm64 (ör. Raspberry Pi) için ayrı dosyalar yayımlanır.
 
 ```sh
-chmod +x telsiz-<sürüm>-linux-x64
-./telsiz-<sürüm>-linux-x64
+chmod +x telsiz-<sürüm>-server-linux-x64
+./telsiz-<sürüm>-server-linux-x64
 ```
 
 ### Depodan çalıştırma

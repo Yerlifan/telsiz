@@ -81,9 +81,9 @@ describe('SEA derlemesi: yardımcılar', () => {
     assert.equal(sea.hostTarget('win32', 'arm64'), null)
     assert.equal(sea.hostTarget('darwin', 'arm64'), null)
     assert.equal(sea.hostTarget('linux', 'ia32'), null)
-    assert.equal(sea.outputName('2.0.0', 'windows-x64'), 'telsiz-2.0.0-windows-x64.exe')
-    assert.equal(sea.outputName('2.0.0', 'linux-x64'), 'telsiz-2.0.0-linux-x64')
-    assert.equal(sea.outputName('2.1.0-beta.1', 'linux-arm64'), 'telsiz-2.1.0-beta.1-linux-arm64')
+    assert.equal(sea.outputName('2.0.0', 'windows-x64'), 'telsiz-2.0.0-server-windows-x64.exe')
+    assert.equal(sea.outputName('2.0.0', 'linux-x64'), 'telsiz-2.0.0-server-linux-x64')
+    assert.equal(sea.outputName('2.1.0-beta.1', 'linux-arm64'), 'telsiz-2.1.0-beta.1-server-linux-arm64')
     assert.equal(sea.SEA_FUSE, 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2')
   })
 
