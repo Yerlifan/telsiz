@@ -626,7 +626,13 @@ function buildProfileCard (card, userId) {
   if (handle) body.appendChild(h('p', 'profile-card-handle', handle))
   const user = metaUser(userId)
   const badge = user ? roleBadge(user.role) : null
-  if (badge) body.appendChild(badge)
+  const custom = user ? customRoleBadge(userId) : null
+  if (badge || custom) {
+    const badges = h('p', 'profile-card-badges')
+    if (badge) badges.appendChild(badge)
+    if (custom) badges.appendChild(custom)
+    body.appendChild(badges)
+  }
   const statusRow = h('p', 'profile-card-status')
   statusRow.setAttribute('data-status', status)
   statusRow.appendChild(statusDot(status))
@@ -697,6 +703,26 @@ function buildCardVoice (userId) {
     nextFrame(refreshProfileCard)
   })
   section.appendChild(mute)
+  // Ses odası denetimi izni olan, kişiden üst rütbedeyse herkes için susturur veya odadan çıkarır
+  if (typeof moderateVoice === 'function' && hasPerm('voice') && outranksUser(userId)) {
+    const rec = metaRecordOf(userId)
+    const serverMuted = Boolean(rec && rec.voiceMuted)
+    const serverMute = button('button button-secondary button-small profile-card-server-mute', t(serverMuted ? 'peer.serverUnmute' : 'peer.serverMute'))
+    serverMute.setAttribute('aria-pressed', serverMuted ? 'true' : 'false')
+    serverMute.setAttribute('data-focus-key', 'card-server-mute')
+    serverMute.addEventListener('click', async () => {
+      await moderateVoice(userId, serverMuted ? 'unmute' : 'mute', null, serverMute)
+      nextFrame(refreshProfileCard)
+    })
+    section.appendChild(serverMute)
+    const kick = button('button button-danger button-small profile-card-disconnect', t('peer.disconnect'))
+    kick.setAttribute('data-focus-key', 'card-disconnect')
+    kick.addEventListener('click', async () => {
+      await moderateVoice(userId, 'disconnect', null, kick)
+      nextFrame(refreshProfileCard)
+    })
+    section.appendChild(kick)
+  }
   return section
 }
 

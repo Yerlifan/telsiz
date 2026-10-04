@@ -715,6 +715,10 @@ window.VoiceClient = (function () {
       kid: null,
       iceServers: [],
       muted: false,
+      // Herkes için susturma (ses odası denetimi, meta.users[].voiceMuted): kendi mikrofonum kapalı tutulur,
+      // susturulan diğer kişilerin sesi bu cihazda çalınmaz. st.muted kişinin kendi tercihidir, korunur.
+      serverMuted: false,
+      serverMutedUsers: Object.create(null),
       deafened: false,
       settings: defaultSettings(),
       volumes: Object.create(null),
@@ -1015,7 +1019,7 @@ window.VoiceClient = (function () {
       try {
         a.volume = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, 1)
       } catch (e) {}
-      a.muted = st.deafened || st.localMutes[r.userId] === true
+      a.muted = st.deafened || st.localMutes[r.userId] === true || st.serverMutedUsers[r.userId] === true
     }
 
     function applyAllAudio () {
@@ -1063,6 +1067,7 @@ window.VoiceClient = (function () {
           speaking: !!(p && p.speaking),
           volume: volumeOf(r.userId),
           localMute: st.localMutes[r.userId] === true,
+          serverMuted: st.serverMutedUsers[r.userId] === true,
           muted: r.muted,
           deafened: r.deafened,
           sharing: !!st.remote[pid],
@@ -1076,7 +1081,8 @@ window.VoiceClient = (function () {
       return {
         channelId: st.channelId,
         joining: st.joining,
-        muted: st.muted || st.deafened,
+        muted: st.muted || st.deafened || st.serverMuted,
+        serverMuted: st.serverMuted,
         deafened: st.deafened,
         inputMode: s.inputMode,
         gateOpen: st.gate,
@@ -1349,7 +1355,7 @@ window.VoiceClient = (function () {
     }
 
     function computeGate () {
-      if (!st.local || st.muted || st.deafened) return false
+      if (!st.local || st.muted || st.serverMuted || st.deafened) return false
       if (st.settings.inputMode === 'ptt') return st.pttActive || st.pttTail
       // Seviye ölçülemiyorsa ses etkinliği modu mikrofonu açık tutar
       if (!analysisOk()) return true
@@ -1375,7 +1381,7 @@ window.VoiceClient = (function () {
     function applyGate () {
       var local = st.local
       if (!local) return
-      var live = !st.muted && !st.deafened
+      var live = !st.muted && !st.serverMuted && !st.deafened
       var pipe = st.pipe
       if (pipe && pipe.ok) {
         setGain(pipe, st.mode === 'pipe' && st.gate ? 1 : 0)
@@ -3271,7 +3277,7 @@ window.VoiceClient = (function () {
         release()
         finish(false)
       }, LINK_PROBE_MS)
-      var body = { muted: st.muted || st.deafened, deafened: st.deafened }
+      var body = { muted: st.muted || st.serverMuted || st.deafened, deafened: st.deafened }
       callApi('POST', '/api/voice/state', body).then(function (res) {
         return !!res && typeof res.status === 'number' && res.status > 0
       }, function () {
@@ -4233,6 +4239,30 @@ window.VoiceClient = (function () {
       emit()
     }
 
+    // Herkes için susturulanlar metadaki kullanıcı kayıtlarından okunur
+    function applyServerMutes (meta) {
+      var next = Object.create(null)
+      var users = Array.isArray(meta.users) ? meta.users.slice(0, MAX_STORED_USERS) : []
+      users.forEach(function (u) {
+        if (!u || typeof u !== 'object' || u.voiceMuted !== true) return
+        var uid = normId(u.id)
+        if (uid !== null) next[uid] = true
+      })
+      var self = st.myUserId !== null && next[st.myUserId] === true
+      var before = Object.keys(st.serverMutedUsers).sort().join(',')
+      var after = Object.keys(next).sort().join(',')
+      if (before === after && self === st.serverMuted) return
+      st.serverMutedUsers = next
+      var selfChanged = self !== st.serverMuted
+      st.serverMuted = self
+      applyAllAudio()
+      if (selfChanged) {
+        updateGate(true)
+        if (st.inVoice) postState()
+      }
+      emit()
+    }
+
     function handleMeta (meta, me) {
       if (me && typeof me === 'object') {
         var uid = normId(me.id)
@@ -4241,6 +4271,7 @@ window.VoiceClient = (function () {
       if (!meta || typeof meta !== 'object') return
       st.serverAt = Date.now()
       st.lastMeta = meta
+      applyServerMutes(meta)
       if (st.inVoice) applyRoster(meta)
     }
 
@@ -4477,7 +4508,7 @@ window.VoiceClient = (function () {
       }
       st.statePosting = true
       var gen = st.gen
-      var body = { muted: st.muted || st.deafened, deafened: st.deafened }
+      var body = { muted: st.muted || st.serverMuted || st.deafened, deafened: st.deafened }
       callApi('POST', '/api/voice/state', body).then(noop, noop).then(function () {
         statePosted(gen)
       })

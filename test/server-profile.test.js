@@ -244,7 +244,7 @@ describe('durum ve görünmezlik', () => {
       let st = await h.stateOf(ctx, ayse.token)
       assert.equal(st.me.status, 'online')
       assert.equal(st.private.status, 'online')
-      assert.deepEqual(await metaUser(ctx, owner.token, ayse.user.id), { id: ayse.user.id, name: 'ayse', role: 'member', online: true, status: 'online', pv: 0 })
+      assert.deepEqual(await metaUser(ctx, owner.token, ayse.user.id), { id: ayse.user.id, name: 'ayse', role: 'member', roleId: null, voiceMuted: false, online: true, status: 'online', pv: 0 })
       for (const status of ['idle', 'dnd']) {
         const res = await h.post(ctx, '/api/me/status', ayse.token, { status })
         h.expectStatus(res, 200)

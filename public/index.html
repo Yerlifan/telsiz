@@ -701,6 +701,12 @@
     <input id="peer-volume" class="range" type="range" min="0" max="100" step="1" value="100">
     <button id="peer-mute" class="button button-secondary button-wide" type="button" aria-pressed="false"></button>
     <p id="peer-note" class="hint" hidden></p>
+    <div id="peer-mod" class="peer-mod" role="group" aria-labelledby="peer-mod-title" hidden>
+      <p id="peer-mod-title" class="label peer-mod-title" data-i18n="peer.moderation">Ses odası denetimi</p>
+      <button id="peer-server-mute" class="button button-secondary button-wide" type="button" aria-pressed="false"></button>
+      <button id="peer-disconnect" class="button button-danger button-wide" type="button" data-i18n="peer.disconnect">Odadan çıkar</button>
+      <p id="peer-mod-msg" class="form-msg" role="status" aria-live="polite" hidden></p>
+    </div>
   </div>
 
   <!-- Profil kartı ve durum menüsü (içerik 13-profile.js ile gelir) -->

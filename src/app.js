@@ -131,6 +131,11 @@ const CLIENT_MESSAGE_ID_RE = /^[0-9a-f]{16,64}$/
 // Kullanıcı başına hatırlanan son istemci kimliği sayısı
 const CLIENT_IDS_PER_USER = 50
 const ROLES = new Set(['owner', 'admin', 'member'])
+// Özel roller (yalnızca sahip yönetir): izin ve renk anahtarları, en fazla rol sayısı. Rollerin dizideki sırası
+// rütbedir, ilk rol en üsttedir. Sahip ve yönetici her izne sahiptir, özel rol yalnızca üyeye izin kazandırır.
+const ROLE_PERMS = ['messages', 'ban', 'voice', 'channels', 'dj']
+const ROLE_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink']
+const MAX_ROLES = 20
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
 const IDENTITY_MAX_CHARS = 2000
@@ -148,7 +153,7 @@ const MAX_CAMERAS_MIN = 1
 const MAX_CAMERAS_MAX = 12
 const DEFAULT_MAX_CAMERAS = 4
 const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
-const MUSIC_SETTING_KEYS = ['enabled', 'youtube']
+const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
 const USER_RECORDS_FACTOR = 4
@@ -360,6 +365,18 @@ function corruptError (store, kindKey, lang) {
   return new StoreError(i18n.t(lang, 'log.corruptRecord', { file, kind: i18n.t(lang, kindKey) }), 'corrupt')
 }
 
+// Özel rol kaydı: { id, name, color, perms }. Geçersizse null. İzinler ROLE_PERMS sırasıyla ve tekrarsız tutulur.
+function cleanRole (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !isId(value.id)) return null
+  const name = auth.cleanRoleName(value.name)
+  if (name === null || !ROLE_COLORS.includes(value.color) || !Array.isArray(value.perms)) return null
+  return { id: value.id, name, color: value.color, perms: ROLE_PERMS.filter((p) => value.perms.includes(p)) }
+}
+
+function publicRole (role) {
+  return { id: role.id, name: role.name, color: role.color, perms: role.perms.slice() }
+}
+
 // Yüklenen durumun temel kayıtlarını denetler. Bozuksa hiçbir şeyi değiştirmeden hata fırlatır.
 // Silinmiş hesaplar (deleted: true) adsız ve karmasız kalır, mesaj yazarı olarak tutulur.
 function checkLoadedState (store, state, lang) {
@@ -567,6 +584,44 @@ function normalizeLoadedState (state, config, log) {
     changed = true
   }
 
+  // Özel roller eski durum dosyalarında yoktur, boş listeyle başlar (yazım gerekmez)
+  if (state.roles === undefined) {
+    state.roles = []
+  } else {
+    const seenRoles = new Set()
+    const roles = (Array.isArray(state.roles) ? state.roles : []).map(cleanRole).filter((r) => {
+      if (!r || seenRoles.has(r.id)) return false
+      seenRoles.add(r.id)
+      return true
+    }).slice(0, MAX_ROLES)
+    if (!sameJson(roles, state.roles)) {
+      log.warn(i18n.t(lang, 'log.invalidRoles'))
+      state.roles = roles
+      changed = true
+    }
+  }
+  const maxRole = state.roles.reduce((max, r) => Math.max(max, r.id), 0)
+  if (!Number.isSafeInteger(state.counters.role) || state.counters.role < maxRole) {
+    if (state.counters.role !== undefined || maxRole > 0) changed = true
+    state.counters.role = Math.max(maxRole, Number.isSafeInteger(state.counters.role) && state.counters.role > 0 ? state.counters.role : 0)
+  }
+  // Hesabın özel rolü ve ses susturması eski kayıtlarda yoktur (yazım gerekmez), silinen role bağlı rol kalkar
+  const roleIds = new Set(state.roles.map((r) => r.id))
+  for (const u of state.users) {
+    if (u.roleId === undefined) {
+      u.roleId = null
+    } else if (u.roleId !== null && !roleIds.has(u.roleId)) {
+      u.roleId = null
+      changed = true
+    }
+    if (u.voiceMuted === undefined) {
+      u.voiceMuted = false
+    } else if (typeof u.voiceMuted !== 'boolean') {
+      u.voiceMuted = u.voiceMuted === true
+      changed = true
+    }
+  }
+
   const invite = auth.normalizeCode(state.inviteCode)
   if (invite === null || invite.length !== 10) {
     state.inviteCode = auth.generateCode()
@@ -615,12 +670,14 @@ function normalizeLoadedState (state, config, log) {
   return changed
 }
 
-// Telsiz DJ sunucu ayarı: { enabled, youtube }, eksik veya geçersiz alan varsayılan olarak açıktır
+// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted }. enabled ve youtube eksikse açık, restricted (kuyruğu
+// odada DJ izni olan biri varken yalnızca o yönetir) eksikse kapalıdır.
 function cleanMusicSettings (value) {
   const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
-    youtube: typeof src.youtube === 'boolean' ? src.youtube : true
+    youtube: typeof src.youtube === 'boolean' ? src.youtube : true,
+    restricted: typeof src.restricted === 'boolean' ? src.restricted : false
   }
 }
 
@@ -656,7 +713,7 @@ function prepareState (store, config, log) {
       serverIcon: null,
       inviteCode: auth.generateCode(),
       activeKid: null,
-      counters: { user: 0, channel: 0, message: 0 },
+      counters: { user: 0, channel: 0, message: 0, role: 0 },
       users: [],
       sessions: [],
       channels: [],
@@ -665,8 +722,10 @@ function prepareState (store, config, log) {
       serverSecret: auth.newServerSecret(),
       friendships: [],
       blocks: [],
+      // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
+      roles: [],
       // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
-      music: { enabled: true, youtube: true },
+      music: { enabled: true, youtube: true, restricted: false },
       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
       voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
     })
@@ -690,7 +749,15 @@ function publicUser (user) {
 
 // Hub bu kayıttan başkalarına gösterilen biçimi üretir (görünmez durum hiçbir zaman gönderilmez)
 function metaUser (user) {
-  return { id: user.id, name: user.name, role: user.role, pv: user.pv, status: user.status }
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    roleId: user.roleId === undefined ? null : user.roleId,
+    voiceMuted: user.voiceMuted === true,
+    pv: user.pv,
+    status: user.status
+  }
 }
 
 function ownKeys (user) {
@@ -934,7 +1001,8 @@ async function createChatServer (options) {
       activeKid: state.activeKid,
       channels,
       users,
-      music: { enabled: state.music.enabled, youtube: state.music.youtube },
+      roles: state.roles.map(publicRole),
+      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted },
       voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
     }
   }
@@ -1206,6 +1274,36 @@ async function createChatServer (options) {
     return false
   }
 
+  function findRole (id) {
+    return state.roles.find((r) => r.id === id) || null
+  }
+
+  // Kullanıcının izni var mı: sahip ve yönetici her izne, üye özel rolünün izinlerine sahiptir
+  function hasPerm (user, perm) {
+    if (isStaff(user)) return true
+    const role = isId(user.roleId) ? findRole(user.roleId) : null
+    return Boolean(role) && role.perms.includes(perm)
+  }
+
+  function requirePerm (ctx, perm) {
+    if (hasPerm(ctx.user, perm)) return true
+    fail(ctx, 403, 'forbidden')
+    return false
+  }
+
+  // Rütbe (küçük sayı üstte): sahip, yönetici, özel roller dizideki sırayla, rolsüz üye en altta
+  function rankOf (user) {
+    if (user.role === 'owner') return -2
+    if (user.role === 'admin') return -1
+    const index = isId(user.roleId) ? state.roles.findIndex((r) => r.id === user.roleId) : -1
+    return index === -1 ? MAX_ROLES : index
+  }
+
+  // Engelleme ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir
+  function outranks (actor, target) {
+    return rankOf(actor) < rankOf(target)
+  }
+
   function takeAdminSlot (ctx) {
     const wait = adminLimiter.consume('u' + ctx.user.id)
     if (wait === 0) return true
@@ -1394,7 +1492,9 @@ async function createChatServer (options) {
       pv: 0,
       createdAt: Date.now(),
       banned: false,
-      deleted: false
+      deleted: false,
+      roleId: null,
+      voiceMuted: false
     }
     state.users.push(user)
     usersById.set(user.id, user)
@@ -1459,11 +1559,9 @@ async function createChatServer (options) {
       // Sunucudan engellenen hesaplar metada yoktur, eski mesajlarında adları buradan gösterilir
       formerUsers: bannedUsers().map((u) => ({ id: u.id, name: u.name }))
     }
-    if (isStaff(ctx.user)) {
-      data.inviteCode = state.inviteCode
-      // Yönetim ekranında engeli kaldırmak için
-      data.bannedUsers = bannedUsers().map((u) => ({ id: u.id, name: u.name, role: u.role }))
-    }
+    if (isStaff(ctx.user)) data.inviteCode = state.inviteCode
+    // Yönetim ekranında engeli kaldırmak için (engelleme izni olanlar)
+    if (hasPerm(ctx.user, 'ban')) data.bannedUsers = bannedUsers().map((u) => ({ id: u.id, name: u.name, role: u.role }))
     ok(ctx, data)
   }
 
@@ -2016,13 +2114,14 @@ async function createChatServer (options) {
     ok(ctx, { ok: true, message: updated })
   }
 
-  // Yazı kanalında kendi mesajı veya sahip/yönetici, özel konuşmada yalnızca kendi mesajı
+  // Yazı kanalında kendi mesajı veya mesaj silme izni olan (sahip, yönetici, izinli rol), özel konuşmada
+  // yalnızca kendi mesajı
   function handleMessageDelete (ctx) {
     const found = findLiveMessage(ctx.body.id, ctx.user)
     if (!found) return fail(ctx, 404, 'message_not_found')
     const { message, channel } = found
     const own = message.authorId === ctx.user.id
-    if (!own && (channel.type === 'dm' || !isStaff(ctx.user))) return fail(ctx, 403, 'forbidden')
+    if (!own && (channel.type === 'dm' || !hasPerm(ctx.user, 'messages'))) return fail(ctx, 403, 'forbidden')
     const removed = store.deleteMessage(message.id)
     if (!removed) return fail(ctx, 404, 'message_not_found')
     removeUploads(removed.uploads)
@@ -2248,7 +2347,7 @@ async function createChatServer (options) {
   // ---------------------------------------------------------------- uç noktalar: kanallar
 
   function handleChannelCreate (ctx) {
-    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    if (!requirePerm(ctx, 'channels') || !takeAdminSlot(ctx)) return
     const b = ctx.body
     const name = auth.cleanChannelName(b.name)
     if (name === null) return fail(ctx, 400, 'invalid_channel_name')
@@ -2272,7 +2371,7 @@ async function createChatServer (options) {
   }
 
   function handleChannelUpdate (ctx) {
-    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    if (!requirePerm(ctx, 'channels') || !takeAdminSlot(ctx)) return
     const b = ctx.body
     const channel = findManagedChannel(toId(b.id))
     if (!channel) return fail(ctx, 404, 'channel_not_found')
@@ -2302,7 +2401,7 @@ async function createChatServer (options) {
   }
 
   function handleChannelDelete (ctx) {
-    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    if (!requirePerm(ctx, 'channels') || !takeAdminSlot(ctx)) return
     const channel = findManagedChannel(toId(ctx.body.id))
     if (!channel) return fail(ctx, 404, 'channel_not_found')
     if (channel.type === 'text' && channelsOfType('text').length <= 1) return fail(ctx, 409, 'last_text_channel')
@@ -2343,18 +2442,122 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true })
   }
 
-  // Sahip herkesi (kendisi hariç), yönetici yalnızca üyeleri engeller veya engelini kaldırır.
+  // Engelleme izni olan, kendinden alt rütbedeki birini engeller veya engelini kaldırır: sahip herkesi (kendisi
+  // hariç), yönetici üyeleri, izinli rol rolsüz üyeleri ve listede kendinden aşağıdaki rollerin üyelerini.
   function handleUserBan (ctx) {
-    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    if (!requirePerm(ctx, 'ban') || !takeAdminSlot(ctx)) return
     const b = ctx.body
     if (typeof b.banned !== 'boolean') return fail(ctx, 400, 'bad_request')
     const target = findUser(b.userId)
     if (!target) return fail(ctx, 404, 'user_not_found')
-    if (target.id === ctx.user.id || target.role === 'owner') return fail(ctx, 403, 'forbidden')
-    if (ctx.user.role === 'admin' && target.role !== 'member') return fail(ctx, 403, 'forbidden')
+    if (target.id === ctx.user.id || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     if (target.banned !== b.banned) {
       target.banned = b.banned
       if (b.banned) deleteSessions(sessionsOf(target.id), 'banned')
+      store.saveState()
+      hub.bumpMeta()
+    }
+    return okDurable(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: özel roller
+
+  // İzin listesi: ROLE_PERMS içinden, tekrarsız ve ROLE_PERMS sırasıyla. Geçersizse null.
+  function rolePerms (value) {
+    if (!Array.isArray(value) || value.length > ROLE_PERMS.length || !value.every((p) => ROLE_PERMS.includes(p))) return null
+    if (new Set(value).size !== value.length) return null
+    return ROLE_PERMS.filter((p) => value.includes(p))
+  }
+
+  function roleNameTaken (name, exceptId) {
+    const key = name.toLocaleLowerCase('tr')
+    return state.roles.some((r) => r.id !== exceptId && r.name.toLocaleLowerCase('tr') === key)
+  }
+
+  // POST /api/roles/create { name, color, perms }: yalnızca sahip. Yeni rol listenin sonuna (en alta) eklenir.
+  function handleRoleCreate (ctx) {
+    if (!requireOwner(ctx) || !takeAdminSlot(ctx)) return
+    const b = ctx.body
+    const name = auth.cleanRoleName(b.name)
+    if (name === null) return fail(ctx, 400, 'invalid_role_name', null, null, { max: auth.ROLE_NAME_MAX })
+    if (!ROLE_COLORS.includes(b.color)) return fail(ctx, 400, 'bad_request')
+    const perms = rolePerms(b.perms)
+    if (perms === null) return fail(ctx, 400, 'bad_request')
+    if (state.roles.length >= MAX_ROLES) return fail(ctx, 409, 'too_many_roles', null, null, { max: MAX_ROLES })
+    if (roleNameTaken(name, null)) return fail(ctx, 409, 'role_exists')
+    state.counters.role++
+    const role = { id: state.counters.role, name, color: b.color, perms }
+    state.roles.push(role)
+    store.saveState()
+    hub.bumpMeta()
+    return okDurable(ctx, { ok: true, role: publicRole(role) })
+  }
+
+  // POST /api/roles/update { id, name?, color?, perms?, position? } (en az biri): yalnızca sahip. position rolün
+  // listedeki yeni sırasıdır (0 en üst), rütbeyi belirler.
+  function handleRoleUpdate (ctx) {
+    if (!requireOwner(ctx) || !takeAdminSlot(ctx)) return
+    const b = ctx.body
+    const role = findRole(toId(b.id))
+    if (!role) return fail(ctx, 404, 'role_not_found')
+    const hasName = b.name !== undefined
+    const hasColor = b.color !== undefined
+    const hasPerms = b.perms !== undefined
+    const hasPosition = b.position !== undefined
+    if (!hasName && !hasColor && !hasPerms && !hasPosition) return fail(ctx, 400, 'bad_request')
+    let name = null
+    if (hasName) {
+      name = auth.cleanRoleName(b.name)
+      if (name === null) return fail(ctx, 400, 'invalid_role_name', null, null, { max: auth.ROLE_NAME_MAX })
+      if (roleNameTaken(name, role.id)) return fail(ctx, 409, 'role_exists')
+    }
+    if (hasColor && !ROLE_COLORS.includes(b.color)) return fail(ctx, 400, 'bad_request')
+    const perms = hasPerms ? rolePerms(b.perms) : null
+    if (hasPerms && perms === null) return fail(ctx, 400, 'bad_request')
+    if (hasPosition && (!Number.isSafeInteger(b.position) || b.position < 0 || b.position >= MAX_ROLES)) return fail(ctx, 400, 'bad_request')
+    if (name !== null) role.name = name
+    if (hasColor) role.color = b.color
+    if (perms !== null) role.perms = perms
+    if (hasPosition) {
+      const list = state.roles.filter((r) => r !== role)
+      list.splice(Math.min(b.position, list.length), 0, role)
+      state.roles = list
+    }
+    store.saveState()
+    hub.bumpMeta()
+    return okDurable(ctx, { ok: true, role: publicRole(role) })
+  }
+
+  // POST /api/roles/delete { id }: yalnızca sahip. Rolü taşıyan üyeler rolsüz kalır.
+  function handleRoleDelete (ctx) {
+    if (!requireOwner(ctx) || !takeAdminSlot(ctx)) return
+    const role = findRole(toId(ctx.body.id))
+    if (!role) return fail(ctx, 404, 'role_not_found')
+    state.roles = state.roles.filter((r) => r !== role)
+    for (const u of state.users) {
+      if (u.roleId === role.id) u.roleId = null
+    }
+    store.saveState()
+    hub.bumpMeta()
+    return okDurable(ctx, { ok: true })
+  }
+
+  // POST /api/users/custom-role { userId, roleId: kimlik | null }: yalnızca sahip, sahibe rol verilemez
+  function handleUserCustomRole (ctx) {
+    if (!requireOwner(ctx) || !takeAdminSlot(ctx)) return
+    const b = ctx.body
+    if (b.roleId === undefined) return fail(ctx, 400, 'bad_request')
+    const target = findUser(b.userId)
+    if (!target) return fail(ctx, 404, 'user_not_found')
+    if (target.role === 'owner') return fail(ctx, 403, 'forbidden', 'detail.ownerRoleLocked')
+    let roleId = null
+    if (b.roleId !== null) {
+      const role = findRole(toId(b.roleId))
+      if (!role) return fail(ctx, 404, 'role_not_found')
+      roleId = role.id
+    }
+    if (target.roleId !== roleId) {
+      target.roleId = roleId
       store.saveState()
       hub.bumpMeta()
     }
@@ -2607,6 +2810,7 @@ async function createChatServer (options) {
     if (!channel) return fail(ctx, 404, 'channel_not_found')
     const members = hub.voiceJoin(ctx.rt, channel.id, state.voice.capacity)
     if (members === null) return fail(ctx, 409, 'voice_full')
+    if (ctx.user.voiceMuted === true) hub.forceMute(ctx.user.id)
     ok(ctx, { ok: true, peerId: ctx.rt.peerId, members, iceServers: config.iceServers })
   }
 
@@ -2633,8 +2837,43 @@ async function createChatServer (options) {
     const b = ctx.body
     if (typeof b.muted !== 'boolean' || typeof b.deafened !== 'boolean') return fail(ctx, 400, 'bad_request')
     if (!takeVoiceSlot(ctx)) return
-    hub.setVoiceState(ctx.rt, b.muted, b.deafened)
+    // Herkes için susturulmuş kişinin mikrofonu kapalı görünür
+    hub.setVoiceState(ctx.rt, b.muted || ctx.user.voiceMuted === true, b.deafened)
     ok(ctx, { ok: true })
+  }
+
+  // POST /api/voice/moderate { userId, action: 'mute' | 'unmute' | 'disconnect' } (ses odası denetimi izni). Hedef
+  // işlemi yapandan alt rütbede olmalıdır. Susturma hesaba yazılır: kişi odadan çıkıp girse de, sunucu yeniden
+  // başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
+  // istemcisi mikrofonu kapatır, diğerlerinin istemcisi o kişinin sesini çalmaz. Çıkarma kişiyi yalnızca o anki
+  // odadan çıkarır, yeniden katılabilir.
+  function handleVoiceModerate (ctx) {
+    if (!requirePerm(ctx, 'voice') || !takeAdminSlot(ctx)) return
+    const b = ctx.body
+    if (b.action !== 'mute' && b.action !== 'unmute' && b.action !== 'disconnect') return fail(ctx, 400, 'bad_request')
+    const target = findUser(b.userId)
+    if (!target || target.banned) return fail(ctx, 404, 'user_not_found')
+    if (target.id === ctx.user.id || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
+    if (b.action === 'disconnect') {
+      if (!hub.kickVoiceUser(target.id)) return fail(ctx, 409, 'target_not_in_voice')
+      return ok(ctx, { ok: true })
+    }
+    const muted = b.action === 'mute'
+    if (target.voiceMuted !== muted) {
+      target.voiceMuted = muted
+      if (muted) hub.forceMute(target.id)
+      store.saveState()
+      hub.bumpMeta()
+    }
+    return okDurable(ctx, { ok: true })
+  }
+
+  // Ses odasında DJ izni olan (sahip ve yönetici dahil) biri var mı
+  function djInRoom (channelId) {
+    return hub.voiceUserIds(channelId).some((id) => {
+      const u = usersById.get(id)
+      return Boolean(u) && !u.banned && !u.deleted && hasPerm(u, 'dj')
+    })
   }
 
   function handleVoiceSignal (ctx) {
@@ -2667,6 +2906,11 @@ async function createChatServer (options) {
     const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
     if (!channel) return musicFail(ctx, 404, 'channel_not_found')
     if (!hub.userInVoice(ctx.user.id, channel.id)) return musicFail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
+    // Kısıtlı kipte odada DJ izni olan biri varken kuyruğu yalnızca DJ izni olanlar yönetir. Odada kimse yoksa
+    // herkes yazabilir, böylece DJ odadan çıkınca müzik takılı kalmaz.
+    if (state.music.restricted && !hasPerm(ctx.user, 'dj') && djInRoom(channel.id)) {
+      return musicFail(ctx, 403, 'dj_restricted', 'detail.musicRestricted')
+    }
     if (!Number.isSafeInteger(b.expect) || b.expect < 0) return musicFail(ctx, 400, 'bad_request')
     if (typeof b.env !== 'string') return musicFail(ctx, 400, 'bad_envelope')
     if (b.env.length > MUSIC_ENV_MAX_CHARS) return musicFail(ctx, 413, 'too_large')
@@ -2714,6 +2958,10 @@ async function createChatServer (options) {
   route('/api/channels/delete', 'POST', handleChannelDelete)
   route('/api/users/role', 'POST', handleUserRole)
   route('/api/users/ban', 'POST', handleUserBan)
+  route('/api/users/custom-role', 'POST', handleUserCustomRole)
+  route('/api/roles/create', 'POST', handleRoleCreate)
+  route('/api/roles/update', 'POST', handleRoleUpdate)
+  route('/api/roles/delete', 'POST', handleRoleDelete)
   route('/api/users/reset-password', 'POST', handleResetPassword)
   route('/api/me/password', 'POST', handleMyPassword)
   route('/api/me/keys', 'POST', handleMyKeys)
@@ -2744,6 +2992,7 @@ async function createChatServer (options) {
   route('/api/voice/state', 'POST', handleVoiceState)
   route('/api/voice/signal', 'POST', handleVoiceSignal)
   route('/api/voice/camera', 'POST', handleVoiceCamera)
+  route('/api/voice/moderate', 'POST', handleVoiceModerate)
   route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])

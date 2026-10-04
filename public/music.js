@@ -38,6 +38,8 @@ var TelsizMusic = (function (root) {
   const MAX_SEEK_LEAD_MS = 5000
   // Bu kadar süreden uzun yükleniyorsa (BUFFERING) oynatma yeniden denenir
   const BUFFER_STALL_MS = 10000
+  // Ses komutundan sonra oynatıcının bildirdiği ses düzeyinin yok sayıldığı süre (kendi komutumuzun yankısı)
+  const SOUND_ECHO_MS = 1500
   const START_LEAD_MS = 1500
   const MAX_LEAD_MS = 5000
   const END_GRACE_MS = 2500
@@ -1055,6 +1057,8 @@ var TelsizMusic = (function (root) {
     let metaRoom = null
     let deviceRoom = null
     let lastBoot = null
+    // Son ses düzeyi veya susturma komutunun zamanı (SOUND_ECHO_MS)
+    let soundCommandAt = -Infinity
     let muv = 0
     const rooms = new Map()
     const marks = new Map()
@@ -1334,12 +1338,14 @@ var TelsizMusic = (function (root) {
       const n = Number(value)
       if (!isFinite(n)) return
       storage.set(KEY_VOLUME, String(Math.max(0, Math.min(1, n))))
+      soundCommandAt = now()
       applyAudioSettings()
       changed()
     }
 
     function setMuted (value) {
       storage.set(KEY_MUTED, value === true ? '1' : '0')
+      soundCommandAt = now()
       applyAudioSettings()
       changed()
     }
@@ -1426,7 +1432,8 @@ var TelsizMusic = (function (root) {
 
     // raw: { v, at, by, env, since, writes, authors } veya null (odada durum yok). timing: { t0 } poll'un
     // gönderilme zamanı.
-    function acceptRecord (room, raw, timing, own) {
+    // force: aynı sürüm yeniden çözülür (anahtar sonradan eklenince, retryNoKey)
+    function acceptRecord (room, raw, timing, own, force) {
       const prev = rooms.get(room) || null
       if (raw === null) {
         if (!prev) return false
@@ -1437,7 +1444,7 @@ var TelsizMusic = (function (root) {
       }
       if (!isObj(raw) || !isSafeInt(raw.v, 1, Number.MAX_SAFE_INTEGER)) return false
       if (prev && raw.v < prev.v) return false
-      if (prev && raw.v === prev.v && raw.env === prev.env) return false
+      if (prev && raw.v === prev.v && raw.env === prev.env && force !== true) return false
       const at = isSafeInt(raw.at, 0, MAX_TIME_MS) ? raw.at : 0
       let rec
       if (own) {
@@ -1449,6 +1456,9 @@ var TelsizMusic = (function (root) {
       } else {
         const d = decode(raw.env, room, at, prev, parseProvenance(raw))
         rec = { v: raw.v, at: at, env: raw.env, status: d.status, state: d.state, receivedAt: now() }
+        // Anahtar bu cihaza sonradan eklenebilir (ör. girişten sonra anahtar ekranında): kayıt yeniden çözülmek
+        // üzere saklanır
+        if (d.status === 'no_key') rec.raw = raw
         if (d.status === 'invalid') emitError('invalid_state', null, false)
         if (d.status === 'replay') emitError('replay', null, false)
       }
@@ -1460,6 +1470,19 @@ var TelsizMusic = (function (root) {
       rooms.set(room, rec)
       afterRoomChange(room, prev, rec)
       return true
+    }
+
+    // Anahtarı olmadığı için açılamayan kayıtlar, anahtar artık bu cihazdaysa yeniden çözülür. Anahtar hâlâ
+    // yoksa hiçbir şey değişmez (yeniden çizim tetiklenmez).
+    function retryNoKey () {
+      if (destroyed) return
+      Array.from(rooms.keys()).forEach((room) => {
+        const rec = rooms.get(room)
+        if (!rec || rec.status !== 'no_key' || !rec.raw) return
+        const opened = open(rec.env)
+        if (opened && opened.ok !== true && opened.reason === 'no_key') return
+        acceptRecord(room, rec.raw, null, null, true)
+      })
     }
 
     function afterRoomChange (room, prev, rec) {
@@ -1490,6 +1513,7 @@ var TelsizMusic = (function (root) {
         if (lastBoot !== null && lastBoot !== payload.boot) reset()
         lastBoot = payload.boot
       }
+      retryNoKey()
       if (isObj(payload.music)) {
         const seen = {}
         const keys = Object.keys(payload.music)
@@ -1538,6 +1562,7 @@ var TelsizMusic = (function (root) {
         }
       }
       metaRoom = room
+      retryNoKey()
       maybePurge()
       reconcile()
       restartTicker()
@@ -1584,7 +1609,7 @@ var TelsizMusic = (function (root) {
     function statusCode (res) {
       const code = res.data && typeof res.data.code === 'string' ? res.data.code : ''
       if (res.status === 403) {
-        if (code === 'dj_disabled' || code === 'not_in_voice') return code
+        if (code === 'dj_disabled' || code === 'not_in_voice' || code === 'dj_restricted') return code
         return 'forbidden'
       }
       if (res.status === 404) return code === 'channel_not_found' ? 'not_in_voice' : 'dj_unsupported'
@@ -1990,7 +2015,31 @@ var TelsizMusic = (function (root) {
 
     function hooksFor (room, track) {
       const alive = () => player && player.trackId === track.id
+      // Oynatıcı bu cihazın ses düzeyini bir kez bildirdikten sonra (o zamana kadar YouTube'un hatırladığı eski
+      // değer gelebilir) oynatıcının kendi denetimleriyle yapılan değişiklik "Sizin için" ayarına yansıtılır
+      let soundSynced = false
       return {
+        volume: (v, m) => {
+          // Kaydırıcı sürüklenirken gecikmeli gelen eski değerler kendi komutumuzun yankısıdır
+          if (!alive() || now() - soundCommandAt < SOUND_ECHO_MS) return
+          const ours = Math.round(volumeValue() * 100)
+          const v100 = Math.max(0, Math.min(100, Math.round(v)))
+          if (!soundSynced) {
+            if (Math.abs(v100 - ours) > 1 || m !== mutedValue()) return
+            soundSynced = true
+            return
+          }
+          let adopted = false
+          if (Math.abs(v100 - ours) > 1) {
+            storage.set(KEY_VOLUME, String(v100 / 100))
+            adopted = true
+          }
+          if (m !== mutedValue()) {
+            storage.set(KEY_MUTED, m ? '1' : '0')
+            adopted = true
+          }
+          if (adopted) changed()
+        },
         ready: () => {
           if (!alive()) return
           // Geç de olsa hazır olan oynatıcı yanıt veriyor demektir
@@ -2205,6 +2254,7 @@ var TelsizMusic = (function (root) {
       else if (ev.type === 'blocked') hooks.blocked()
       else if (ev.type === 'error') hooks.error(hasOwn(YT_ERRORS, ev.code) ? YT_ERRORS[ev.code] : 'yt_player_error')
       else if (ev.type === 'unresponsive') hooks.error('yt_unresponsive')
+      else if (ev.type === 'volume' && isFiniteNumber(ev.volume) && typeof hooks.volume === 'function') hooks.volume(ev.volume, ev.muted === true)
     }
 
     function wrapYouTube (track, impl) {
@@ -2601,6 +2651,7 @@ var TelsizMusic = (function (root) {
 
     function tick () {
       if (destroyed) return
+      retryNoKey()
       checkConsent()
       syncPlayer()
       endFallback()
@@ -2779,6 +2830,7 @@ var TelsizMusic = (function (root) {
       setMuted: setMuted,
       unlock: unlock,
       resync: resync,
+      rekey: retryNoKey,
       serverNow: () => clock.serverNow(),
       destroy: destroy
     })

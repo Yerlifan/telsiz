@@ -35,6 +35,12 @@ Frekans fotoğrafı (`/api/server-icon`) frekans adı gibi herkese açık üst v
 
 API hata metinleri isteğin `Accept-Language` başlığına göre, konsol ve günlük metinleri `DIL` ayarına veya sistemin diline göre Türkçe ya da İngilizcedir (`src/i18n.js`). Tek dosyalık derlemede (`telsiz.exe` ve Linux ikilileri) arayüz dosyaları yürütülebilir dosyanın içine gömülüdür ve aynı beyaz listeyle `src/static-source.js` üzerinden okunur.
 
+### Roller ve izinler
+
+Hesabın temel rolü sahip, yönetici veya üyedir. Sahip bunlara ek olarak `state.json` içindeki `roles` listesinde en çok 20 özel rol tutar: `{ id, name, color, perms }`. İzin anahtarları `messages` (yazı odalarında başkasının mesajını silme), `ban` (engelleme), `voice` (ses odası denetimi), `channels` (oda yönetimi) ve `dj` (Telsiz DJ kısıtlı kipinde kuyruğu yönetme), renkler sekiz sabit anahtardan biridir. Hesap kaydındaki `roleId` üyenin tek özel rolünü gösterir. Sahip ve yönetici her izne sahiptir, özel rol yalnızca izin ekler. Listenin sırası rütbedir: sahip, yönetici, listedeki sırayla özel roller ve rolsüz üye. Engelleme ve ses odası denetimi yalnızca alt rütbedeki birine uygulanır. Roller yalnızca sahip tarafından yönetilir (`POST /api/roles/create`, `/api/roles/update`, `/api/roles/delete`, `/api/users/custom-role`), yanıtlar durum dosyası diske yazılıp zorlandıktan sonra gider. Roller ve hesapların `roleId` ile `voiceMuted` alanları metada yayımlanır, izin denetimi her uç noktada sunucuda yapılır, istemci yalnızca arayüzü buna göre gösterir.
+
+Ses odası denetimi `POST /api/voice/moderate { userId, action }` ile yapılır. `mute` ve `unmute` hesabın `voiceMuted` alanını değiştirir: alan kalıcıdır, kişi odaya yeniden katılsa da sürer ve sunucu kişinin kadrodaki mikrofon durumunu kapalı gösterir. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi istemcisi mikrofon izini kapalı tutar, diğer istemciler o kişinin sesini çalmaz. `disconnect` kişinin ses oturumlarını sunucudan çıkarır, diğer istemciler kadrodan düşen kişiyle bağlantıyı kapatır.
+
 ## Gerçek zamanlı iletişim
 
 Gerçek zamanlı iletişim yalnızca düz HTTP istekleriyle, long-polling yöntemiyle yapılır. Bunun nedeni, oyun konsolu tarayıcıları gibi ortamlarda WebSocket ve Server-Sent Events desteğinin doğrulanamamasıdır. İstemci `GET /api/poll` isteği gönderir. Sunucu yeni bir şey varsa hemen yanıt verir, yoksa isteği yaklaşık 25 saniye bekletir ve süre dolunca boş yanıt döner.
@@ -140,7 +146,9 @@ Sunucu (`src/music.js`) bu zarfı yalnızca bellekte tutar ve içeriğini görem
 
 Her cihaz müziği kendi oynatıcısında çalar ve konumu çapadan hesaplar. Sapma 1,5 saniyeyi aşarsa konum sessizce düzeltilir. Paylaşılan ses dosyaları mesaj ekleri gibi şifreli yüklemelerdir, cihazda çözülüp çalınır. YouTube parçaları YouTube'un resmi gömülü oynatıcısıyla `youtube-nocookie.com` kökeninden yalıtılmış bir çerçevede çalar. Uygulamanın kendi kökeninde Google kodu çalışmaz, YouTube'un API betikleri yüklenmez. Çerçeve, kişi o cihazda onay vermeden hiçbir zaman yüklenmez, onay Ayarlar > Gizlilik ve güvenlik bölümünden geri alınabilir.
 
-Sunucu sahibi Telsiz DJ'yi kapatırsa sunucu DJ yazımlarını reddeder. YouTube kaynağı kapatılırsa sunucu şifreli durumu göremediği için kısıt üyelerin cihazlarında uygulanır.
+Sunucu sahibi Telsiz DJ'yi kapatırsa sunucu DJ yazımlarını reddeder. YouTube kaynağı kapatılırsa sunucu şifreli durumu göremediği için kısıt üyelerin cihazlarında uygulanır. Kısıtlı kip (`music.restricted`) açıksa ve odada DJ izni olan biri varsa sunucu izni olmayanların yazımlarını `403 dj_restricted` ile reddeder. Odada DJ izni olan kimse yoksa herkes yazabilir, böylece parça sonu geçişleri (istemcilerin otomatik yazımları) DJ odadan çıkınca da sürer.
+
+Bir cihaz müzik durumunu anahtarı olmadığı için açamazsa kaydı saklar ve anahtar eklendiğinde (anahtar ekranı, Ayarlar veya her poll ve meta güncellemesinde) aynı sürümü yeniden çözer.
 
 ## Masaüstü uygulaması
 

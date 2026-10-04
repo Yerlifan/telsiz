@@ -158,6 +158,7 @@ function renderVoiceAll () {
   renderUserPanel()
   updateVoiceLive()
   if (focusInRadio) radioKeepFocus()
+  if (popoverUserId !== null && findLayer('peer')) renderPeerMute()
   if (typeof settingsOnVoice === 'function') settingsOnVoice()
   // Kameralar ızgarası yayın sahnesindedir, kamera değişince sahne de güncellenir
   if (typeof castSync === 'function') castSync()
@@ -348,6 +349,8 @@ function buildVoiceMember (entry, sameChannel, streams) {
   const peer = s.peers ? s.peers[String(userId)] : null
   const muted = self ? s.muted : entry.muted === true
   const deafened = self ? s.deafened : entry.deafened === true
+  const rec = metaRecordOf(userId)
+  const serverMuted = self ? Boolean(s.serverMuted) : Boolean(rec && rec.voiceMuted)
   const sharing = self ? radioScreen(s).state === 'live' : Boolean(peer && peer.sharing)
   const failed = Boolean(!self && sameChannel && peer && peer.status === 'failed')
   const cam = sameChannel && streams ? streams[String(userId)] || null : null
@@ -371,7 +374,7 @@ function buildVoiceMember (entry, sameChannel, streams) {
     av.classList.add('has-camera')
     av.appendChild(cameraVideoFor('crew-' + userId, cam.stream, cam.self))
   }
-  const badge = crewBadge(failed, deafened, muted)
+  const badge = crewBadge(failed, deafened, muted, serverMuted)
   if (badge) av.appendChild(badge)
   if (sharing) {
     const screen = h('span', 'crew-badge is-screen')
@@ -385,6 +388,7 @@ function buildVoiceMember (entry, sameChannel, streams) {
   if (failed) states.push(t('voice.peerFailed'))
   if (!self && peer && peer.localMute) states.push(t('voice.localMuted'))
   if (deafened) states.push(t('voice.deafenedState'))
+  else if (serverMuted) states.push(t('voice.serverMuted'))
   else if (muted) states.push(t('voice.mutedState'))
   if (sharing) states.push(t(self ? 'radio.stateSelfSharing' : 'radio.stateSharing'))
   if (cam) states.push(t(self ? 'radio.stateSelfCamera' : 'radio.stateCamera'))
@@ -394,7 +398,7 @@ function buildVoiceMember (entry, sameChannel, streams) {
   return li
 }
 
-function crewBadge (failed, deafened, muted) {
+function crewBadge (failed, deafened, muted, serverMuted) {
   let name = null
   let title = ''
   let kind = ''
@@ -405,6 +409,10 @@ function crewBadge (failed, deafened, muted) {
   } else if (deafened) {
     name = 'i-headphones-off'
     title = t('voice.deafenedTitle')
+  } else if (serverMuted) {
+    name = 'i-mic-off'
+    title = t('voice.serverMutedTitle')
+    kind = ' is-server-muted'
   } else if (muted) {
     name = 'i-mic-off'
     title = t('voice.mutedTitle')
@@ -814,7 +822,7 @@ function renderUserPanel () {
   el.btnMute.setAttribute('aria-pressed', s.muted ? 'true' : 'false')
   setIcon(el.btnMute, s.muted ? 'i-mic-off' : 'i-mic')
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
-  setText(el.btnMuteState, t(s.muted ? 'radio.micOff' : 'radio.micOn'))
+  setText(el.btnMuteState, t(s.serverMuted ? 'voice.serverMutedTitle' : s.muted ? 'radio.micOff' : 'radio.micOn'))
   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
   setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))
@@ -889,6 +897,11 @@ function toggleMute () {
     return
   }
   const s = snap()
+  if (s.serverMuted) {
+    // Herkes için susturulan kişi mikrofonunu açamaz
+    toast(() => t('voice.serverMutedSelf'), 'error')
+    return
+  }
   if (s.deafened) {
     // Sağırken mikrofonu açmak sağırlaştırmayı da kaldırır
     voice.setDeafened(false)
@@ -991,6 +1004,7 @@ function openPeerPopover (userId, trigger, sameChannel) {
   el.peerVolume.value = String(value)
   el.peerVolumeValue.textContent = formatPercent(value)
   renderPeerMute()
+  if (el.peerModMsg) setMsg(el.peerModMsg, '')
   setMsg(el.peerNote, sameChannel ? '' : () => t('peer.note'))
   el.peerPopover.hidden = false
   positionPopup(el.peerPopover, trigger)
@@ -1024,6 +1038,51 @@ function renderPeerMute () {
   el.peerMute.setAttribute('aria-pressed', muted ? 'true' : 'false')
   el.peerMute.textContent = t(muted ? 'peer.unmute' : 'peer.mute')
   el.peerMute.disabled = !peer
+  renderPeerMod()
+}
+
+// Ses odası denetimi (izinli ve kişiden üst rütbedeyse): herkes için susturma ve odadan çıkarma
+function renderPeerMod () {
+  if (!el.peerMod) return
+  const uid = popoverUserId
+  const can = uid !== null && hasPerm('voice') && outranksUser(uid)
+  el.peerMod.hidden = !can
+  if (!can) return
+  const rec = metaRecordOf(uid)
+  const muted = Boolean(rec && rec.voiceMuted)
+  el.peerServerMute.textContent = t(muted ? 'peer.serverUnmute' : 'peer.serverMute')
+  el.peerServerMute.setAttribute('aria-pressed', muted ? 'true' : 'false')
+  el.peerDisconnect.disabled = !voiceChannelOf(uid)
+}
+
+// Herkes için susturma ve odadan çıkarma isteği (kişi ses kartından ve profil kartından)
+async function moderateVoice (userId, action, msgEl, button) {
+  const name = shownName(userId)
+  if (action === 'disconnect' && !window.confirm(t('peer.disconnectConfirm', { name: name }))) return false
+  if (button) button.disabled = true
+  const res = await api('POST', '/api/voice/moderate', { userId: voiceUserArg(userId), action: action })
+  if (button && isConnected(button)) button.disabled = false
+  const okKey = action === 'mute' ? 'peer.serverMutedOk' : action === 'unmute' ? 'peer.serverUnmutedOk' : 'peer.disconnectedOk'
+  if (res.status === 200) {
+    if (msgEl) setMsg(msgEl, () => t(okKey, { name: name }), 'ok')
+    else toast(() => t(okKey, { name: name }), 'ok')
+    return true
+  }
+  if (msgEl) setMsg(msgEl, () => errorText(res, t('peer.moderationFailed')), 'error')
+  else toast(() => errorText(res, t('peer.moderationFailed')), 'error')
+  return false
+}
+
+function onPeerServerMuteClick () {
+  if (popoverUserId === null) return
+  const uid = popoverUserId
+  const rec = metaRecordOf(uid)
+  moderateVoice(uid, rec && rec.voiceMuted ? 'unmute' : 'mute', el.peerModMsg, el.peerServerMute)
+}
+
+function onPeerDisconnectClick () {
+  if (popoverUserId === null) return
+  moderateVoice(popoverUserId, 'disconnect', el.peerModMsg, el.peerDisconnect)
 }
 
 function onPeerVolumeInput () {

@@ -1291,6 +1291,39 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
   })
 })
 
+describe('motor: anahtar sonradan eklenince', () => {
+  test('anahtarı olmadığı için açılamayan durum, anahtar eklenince yeniden çözülür', async () => {
+    const { timers, clients: [a, b] } = await setup({ client: [{}, { noKey: true }] })
+    a.storage.set(CONSENT_KEY, '1')
+    assert.equal((await a.engine.addYouTube('https://youtu.be/' + VID, { title: 'Deneme' })).ok, true)
+    b.sync()
+    assert.equal(b.engine.snapshot().sessionStatus, 'no_key')
+    const changesBefore = b.count('change')
+    // Anahtar hâlâ yokken yeniden deneme hiçbir şeyi değiştirmez
+    b.engine.rekey()
+    assert.equal(b.engine.snapshot().sessionStatus, 'no_key')
+    assert.equal(b.count('change'), changesBefore)
+    b.device.E2EE.keyring.add(GROUP_CODE)
+    b.engine.rekey()
+    const snap = b.engine.snapshot()
+    assert.equal(snap.sessionStatus, 'ok')
+    assert.equal(snap.session.current.videoId, VID)
+    // Eski işlem yeniden bildirilmez
+    assert.equal(b.count('notice'), 0)
+    await timers.advance(10)
+  })
+
+  test('aynı sürüm yeni bir pollda gelince de anahtar eklendiyse çözülür', async () => {
+    const { clients: [a, b] } = await setup({ client: [{}, { noKey: true }] })
+    assert.equal((await a.engine.addYouTube(VID)).ok, true)
+    b.sync()
+    assert.equal(b.engine.snapshot().sessionStatus, 'no_key')
+    b.device.E2EE.keyring.add(GROUP_CODE)
+    b.sync()
+    assert.equal(b.engine.snapshot().sessionStatus, 'ok')
+  })
+})
+
 describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
   test('rıza yoksa YouTube oynatıcısı kurulmaz ve rıza istenir, rıza verilince kurulur', async () => {
     const { timers, clients: [a, b] } = await setup()
@@ -1330,6 +1363,36 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     assert.equal(b.ytPlayers.length, 1)
     b.engine.detachPlayer()
     assert.equal(b.ytPlayers[0].state.destroyed, true)
+  })
+
+  test('YouTube oynatıcısının kendi denetimleriyle değişen ses düzeyi ve susturma "Sizin için" ayarına yansır', async () => {
+    const { timers, clients: [a, b] } = await setup()
+    b.storage.set(CONSENT_KEY, '1')
+    b.engine.attachPlayer({ appendChild () {} })
+    await a.engine.addYouTube(VID, { durationMs: 300000 })
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    assert.equal(b.engine.snapshot().volume, 0.5)
+    // Eşitlenmeden önce gelen değer (YouTube'un hatırladığı eski düzey) benimsenmez
+    p.emit({ type: 'volume', volume: 100, muted: false })
+    assert.equal(b.engine.snapshot().volume, 0.5)
+    // Oynatıcı bu cihazın değerini bildirince eşitlenir, sonraki değişiklikler benimsenir
+    p.emit({ type: 'volume', volume: 50, muted: false })
+    p.emit({ type: 'volume', volume: 12, muted: false })
+    assert.equal(b.engine.snapshot().volume, 0.12)
+    p.emit({ type: 'volume', volume: 12, muted: true })
+    assert.equal(b.engine.snapshot().muted, true)
+    // Kaydırıcıyla verilen komuttan hemen sonra gelen eski değer yankı sayılır, yok sayılır
+    b.engine.setMuted(false)
+    b.engine.setVolume(0.8)
+    assert.ok(p.state.commands.includes('volume:80'))
+    p.emit({ type: 'volume', volume: 30, muted: false })
+    assert.equal(b.engine.snapshot().volume, 0.8)
+    await timers.advance(2000)
+    p.emit({ type: 'volume', volume: 30, muted: false })
+    assert.equal(b.engine.snapshot().volume, 0.3)
+    assert.equal(b.engine.snapshot().muted, false)
   })
 
   test('YouTube parçası çapa zamanında başlar, sapma 1,5 sn aşılınca düzeltilir', async () => {
@@ -1732,6 +1795,23 @@ describe('YouTube bağdaştırıcısı (yol ii)', () => {
     assert.ok(cmds.includes('mute:[]'))
     p.destroy()
     assert.equal(listeners.length, 0)
+  })
+
+  test('oynatıcının bildirdiği ses düzeyi ve susturma değişince volume olayı gelir', () => {
+    const { YT, frames, deliver } = loadYouTube()
+    const timers = makeTimers()
+    const events = []
+    const p = YT.create({ container: { appendChild () {} }, videoId: VID, now: timers.now, timers, onEvent: (e) => events.push(e) })
+    const f = frames[0]
+    f.fire('load')
+    deliver(f, { event: 'onReady', id: p.widgetId })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 40, muted: false } })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 40, muted: false, currentTime: 3 } })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { muted: true } })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 250 } })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 'çok' } })
+    same(events.filter((e) => e.type === 'volume'), [{ type: 'volume', volume: 40, muted: false }, { type: 'volume', volume: 40, muted: true }])
+    p.destroy()
   })
 
   test('bilgi iletileri, oynatma sözü, engellenen oynatma, hata ve görünürlük', async () => {

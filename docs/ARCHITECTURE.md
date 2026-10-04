@@ -35,6 +35,12 @@ The frequency photo (`/api/server-icon`) is public metadata like the frequency n
 
 API error messages are in Turkish or English according to the `Accept-Language` header of the request, and console and log messages according to the `DIL` setting or the system language (`src/i18n.js`). In the single file build (`telsiz.exe` and the Linux binaries) the app files are embedded in the executable and read through `src/static-source.js` with the same allowlist.
 
+### Roles and permissions
+
+An account's base role is owner, admin or member. In addition, the owner keeps up to 20 custom roles in the `roles` list of `state.json`: `{ id, name, color, perms }`. The permission keys are `messages` (deleting other people's messages in text rooms), `ban` (banning), `voice` (voice room moderation), `channels` (managing rooms) and `dj` (managing the queue in Telsiz DJ restricted mode), and the color is one of eight fixed keys. The `roleId` of an account record points to the member's single custom role. The owner and admins have every permission, a custom role only adds permissions. The order of the list is the rank: owner, admins, custom roles in list order, and members without a role. Banning and voice room moderation only apply to someone ranked lower. Only the owner manages roles (`POST /api/roles/create`, `/api/roles/update`, `/api/roles/delete`, `/api/users/custom-role`), and the responses are sent after the state file is written and synced to disk. Roles and the `roleId` and `voiceMuted` fields of accounts are published in the meta, permissions are checked on the server at every endpoint, and the client only adjusts its interface.
+
+Voice room moderation uses `POST /api/voice/moderate { userId, action }`. `mute` and `unmute` change the account's `voiceMuted` field: the field is persistent, stays when the person joins again, and the server shows the person's microphone as off in the crew. Since audio flows directly between people, the mute is applied by the clients: the person's own client keeps the microphone track off and the other clients do not play that person's audio. `disconnect` removes the person's voice sessions on the server, and the other clients close their connection to the person who dropped from the crew.
+
 ## Real time communication
 
 Real time communication uses only plain HTTP requests with long polling. The reason is that WebSocket and Server-Sent Events support could not be verified in environments such as game console browsers. The client sends a `GET /api/poll` request. If there is something new, the server answers right away, otherwise it holds the request for about 25 seconds and returns an empty answer when the time runs out.
@@ -140,7 +146,9 @@ The server (`src/music.js`) keeps this envelope only in memory and cannot see it
 
 Each device plays the music in its own player and computes the position from the anchor. If the drift exceeds 1.5 seconds, the position is corrected silently. Shared audio files are encrypted uploads like message attachments and are decrypted and played on the device. YouTube tracks play in the official YouTube embedded player inside an isolated frame from the `youtube-nocookie.com` origin. No Google code runs in the app's own origin, and the YouTube API scripts are not loaded. The frame is never loaded before the person gives consent on that device, and the consent can be withdrawn in Settings > Privacy and security.
 
-If the server owner turns off Telsiz DJ, the server rejects DJ writes. If the YouTube source is turned off, the restriction is applied on the members' devices, since the server cannot see the encrypted state.
+If the server owner turns off Telsiz DJ, the server rejects DJ writes. If the YouTube source is turned off, the restriction is applied on the members' devices, since the server cannot see the encrypted state. When restricted mode (`music.restricted`) is on and someone with the DJ permission is in the room, the server rejects writes from people without the permission with `403 dj_restricted`. If nobody with the DJ permission is in the room, everyone can write, so end of track transitions (the clients' automatic writes) continue after the DJ leaves.
+
+If a device cannot open the music state because it does not have the key, it keeps the record and decrypts the same version again once the key is added (on the key screen, in Settings, or on every poll and meta update).
 
 ## Desktop app
 

@@ -464,6 +464,69 @@ function isOwner () {
   return Boolean(state.me && state.me.role === 'owner')
 }
 
+// Özel roller (meta.roles, yalnızca sahip yönetir). İzin ve renk anahtarları sunucudakilerle aynıdır
+// (src/app.js ROLE_PERMS, ROLE_COLORS). Sahip ve yönetici her izne sahiptir, özel rol yalnızca üyeye izin
+// kazandırır. Rollerin listedeki sırası rütbedir. Asıl denetim sunucudadır, burası yalnızca arayüzü belirler.
+const ROLE_PERMS = ['messages', 'ban', 'voice', 'channels', 'dj']
+const ROLE_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink']
+const ROLE_NAME_MAX = 24
+
+function metaRoles () {
+  return state.meta && Array.isArray(state.meta.roles) ? state.meta.roles.filter((r) => r && r.id !== undefined) : []
+}
+
+function findRole (roleId) {
+  if (roleId === null || roleId === undefined) return null
+  return metaRoles().filter((r) => sameId(r.id, roleId))[0] || null
+}
+
+function metaRecordOf (userId) {
+  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+  return users.filter((u) => u && sameId(u.id, userId))[0] || null
+}
+
+// Kişinin özel rolü (rol kaydı) veya null
+function userRoleOf (userId) {
+  const u = metaRecordOf(userId)
+  return u ? findRole(u.roleId) : null
+}
+
+function userHasPerm (userId, perm) {
+  const u = metaRecordOf(userId)
+  if (!u) return false
+  if (u.role === 'owner' || u.role === 'admin') return true
+  const role = findRole(u.roleId)
+  return Boolean(role && Array.isArray(role.perms) && role.perms.indexOf(perm) !== -1)
+}
+
+function hasPerm (perm) {
+  if (isAdmin()) return true
+  return Boolean(state.me) && userHasPerm(state.me.id, perm)
+}
+
+// Rütbe (küçük sayı üstte): sahip, yönetici, özel roller listedeki sırayla, rolsüz üye en altta
+function userRank (userId) {
+  const u = metaRecordOf(userId)
+  if (!u) return Number.MAX_SAFE_INTEGER
+  if (u.role === 'owner') return -2
+  if (u.role === 'admin') return -1
+  const roles = metaRoles()
+  const index = u.roleId === null || u.roleId === undefined ? -1 : roles.findIndex((r) => sameId(r.id, u.roleId))
+  return index === -1 ? roles.length + 1 : index
+}
+
+// Engelleme ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir (kendine hiçbir zaman)
+function outranksUser (userId) {
+  if (!state.me || sameId(userId, state.me.id)) return false
+  if (state.me.role === 'owner') return true
+  return userRank(state.me.id) < userRank(userId)
+}
+
+// İzinlerin imzası: değişince izne bağlı arayüz (mesaj silme, oda yönetimi, ayar kategorileri) yeniden çizilir
+function myPermsKey () {
+  return ROLE_PERMS.filter((perm) => hasPerm(perm)).join(',')
+}
+
 function activeKid () {
   const kid = state.meta ? state.meta.activeKid : null
   return typeof kid === 'string' && KID_RE.test(kid) ? kid : null
@@ -578,6 +641,8 @@ function startSession (data) {
 function enterApp () {
   openApp()
   socialAfterOpen()
+  // Anahtar ekranında eklenen anahtarla, girişte açılamayan müzik durumları da açılır
+  if (typeof djRekey === 'function') djRekey()
 }
 
 function userKey (name) {

@@ -460,6 +460,31 @@
   color: var(--accent-text);
 }
 
+.badge-custom {
+  border: var(--border-width) solid currentColor;
+  background-color: transparent;
+}
+
+/* Özel rol rengi: rozet ve renk örneği metin rengini kullanır */
+.role-color-red { color: var(--role-red); }
+.role-color-orange { color: var(--role-orange); }
+.role-color-yellow { color: var(--role-yellow); }
+.role-color-green { color: var(--role-green); }
+.role-color-teal { color: var(--role-teal); }
+.role-color-blue { color: var(--role-blue); }
+.role-color-purple { color: var(--role-purple); }
+.role-color-pink { color: var(--role-pink); }
+
+.role-swatch {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.625rem;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
 .badge-active {
   margin-left: 0.5rem;
   background-color: var(--live-bg);
@@ -3084,6 +3109,16 @@ button.member:hover {
   margin: 0 0 0.4rem;
 }
 
+.profile-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-card-badges .badge {
+  margin-right: 0.4rem;
+}
+
 .profile-card-status {
   display: flex;
   align-items: center;
@@ -3139,8 +3174,11 @@ button.member:hover {
   margin-top: 0;
 }
 
-.profile-card-mute {
+.profile-card-mute,
+.profile-card-server-mute,
+.profile-card-disconnect {
   margin-top: 0.25rem;
+  margin-right: 0.4rem;
 }
 
 .profile-card-actions,
