@@ -2,6 +2,22 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [2.0.1]
+
+### Düzeltmeler
+
+- Masaüstü uygulamasında Telsiz DJ'nin YouTube videoları "Hata 153: Video oynatıcı yapılandırma hatası" veriyordu. Uygulama artık YouTube oynatıcısının çerçeve isteğine sunucunun kökenini Referer olarak ekler. Web sürümündeki davranışla aynı bilgi gider.
+- Kullanıcı bir dosya yüklerken engellenir, çıkış yapar, oturumu kapatılır veya hesabını silerse yükleme artık kaydedilmez. Oturum yükleme bitince yeniden denetlenir, kapanan oturumun süren yüklemeleri kesilir.
+- Yanıtı kaybolan bir mesaj yeniden gönderilince ikinci bir mesaj oluşmaz. Her gönderim bir istemci kimliği (`clientMessageId`) taşır, sunucu yinelenen gönderimde ilk mesajı döner. Ekli mesajlarda yineleme artık `bad_uploads` hatası vermez.
+- Hesabı silinen kişilerle yapılan özel konuşmalar geçmiş olarak kalır ama etkin konuşma üst sınırına sayılmaz.
+- Aynı veri klasöründe neredeyse aynı anda başlatılan iki sunucu sürecinden yalnız biri veri kilidini alır, diğeri açılmaz.
+- Service worker yalnız Telsiz'in eski önbelleklerini siler, aynı kökendeki başka uygulamaların önbelleklerine dokunmaz.
+
+### Değişiklikler
+
+- Sunucu ikilileri sürüm sayfasında masaüstü uygulamasından kolay ayrılsın diye `telsiz-<sürüm>-server-windows-x64.exe`, `telsiz-<sürüm>-server-linux-x64` ve `telsiz-<sürüm>-server-linux-arm64` adını taşır.
+- CI ve sürüm iş akışlarındaki GitHub eylemleri Node.js 24 ile çalışan sürümlere yükseltildi.
+
 ## [2.0.0]
 
 Telsiz'in ilk herkese açık sürümü: kendi sunucunuzda veya bir barındırma hizmetinde çalışan, uçtan uca şifreli, açık kaynak yazılı ve sesli iletişim sistemi. Tarayıcısı olan her cihazda çalışır, sunucunun çalışma zamanı bağımlılığı yoktur.
