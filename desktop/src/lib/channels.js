@@ -21,7 +21,18 @@ const CHANNELS = Object.freeze({
   setShortcuts: 'telsiz:set-shortcuts',
   setCloseToTray: 'telsiz:set-close-to-tray',
   shortcut: 'telsiz:shortcut',
+  // Bas konuş (src/lib/ptt-hook.js): bas konuş ayarı, sayfanın ses odası durumu ve basılı tut kancasının
+  // "konuş başla" ve "konuş bitti" olayları
+  setPtt: 'telsiz:set-ptt',
+  pttVoice: 'telsiz:ptt-voice',
+  pttHold: 'telsiz:ptt-hold',
   userActivation: 'telsiz:user-activation',
+  // Başlık şeridi (src/lib/title-bar.js): kaplama bilgisi ve menü etiketleri, tema renkleri, menü açma ve
+  // pencerenin tam ekrana girip çıkması (ana süreçten sayfaya)
+  titleBarInfo: 'telsiz:title-bar-info',
+  titleBarColors: 'telsiz:title-bar-colors',
+  titleBarMenu: 'telsiz:title-bar-menu',
+  titleBarFullscreen: 'telsiz:title-bar-fullscreen',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -47,8 +58,12 @@ const CHANNELS = Object.freeze({
   pickerCancel: 'telsiz:picker-cancel'
 })
 
-// Genel kısayollarla tetiklenebilen eylemler (basılı tutmalı bas-konuş bu sürümde yoktur)
-const ACTIONS = Object.freeze(['toggleMute', 'toggleDeafen'])
+// Genel kısayollarla tetiklenebilen eylemler. pttToggle bas konuşu açar veya kapatır (bas aç, bas kapat).
+// Basılı tutmalı bas konuş genel kısayol değildir, tuş kancasıyla çalışır (HOLD_PHASES).
+const ACTIONS = Object.freeze(['toggleMute', 'toggleDeafen', 'pttToggle'])
+
+// Basılı tut kancasının sayfaya gönderebildiği tek olaylar: konuş başla ve konuş bitti
+const HOLD_PHASES = Object.freeze(['start', 'end'])
 
 // Uygulama sürümü ön yükleme betiğine bu önekle process.argv üzerinden verilir
 const VERSION_ARG = '--telsiz-version='
@@ -67,6 +82,7 @@ module.exports = {
   PICKER_ORIGIN,
   CHANNELS,
   ACTIONS,
+  HOLD_PHASES,
   VERSION_ARG,
   BACKGROUND_ARG
 }

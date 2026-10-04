@@ -104,16 +104,16 @@ test('iki dilde metinler ve abartısız güvenlik dili', () => {
   vm.runInContext(fs.readFileSync(path.join(PUB, 'i18n.js'), 'utf8'), sandbox)
   const I18N = sandbox.I18N
   I18N.setLang('tr')
-  assert.equal(I18N.t('landing.login'), 'Giriş yap')
-  assert.equal(I18N.t('landing.join'), 'Davetin varsa katıl')
-  assert.equal(I18N.t('landing.back'), 'Telsiz\'i tanı')
+  assert.equal(I18N.t('landing.login'), 'Giriş Yap')
+  assert.equal(I18N.t('landing.join'), 'Davetin Varsa Katıl')
+  assert.equal(I18N.t('landing.back'), 'Telsiz\'i Tanı')
   assert.equal(I18N.t('landing.version', { version: '2.0.1' }), 'Telsiz 2.0.1')
   const tr = []
   const en = []
   const keys = ['landing.whatLead', 'landing.feature.e2eTitle', 'landing.feature.e2eText', 'landing.joinNote', 'landing.desktopText', 'landing.guide.step4Text', 'settings.general.aboutHint']
   keys.forEach((k) => tr.push(I18N.t(k)))
   I18N.setLang('en')
-  assert.equal(I18N.t('landing.login'), 'Sign in')
+  assert.equal(I18N.t('landing.login'), 'Sign In')
   assert.equal(I18N.t('landing.guide.domain'), 'example.com')
   keys.forEach((k) => en.push(I18N.t(k)))
   for (const text of tr.concat(en)) {

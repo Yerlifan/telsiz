@@ -33,6 +33,14 @@ window.VoiceClient = (function () {
   var SELF_GRACE_MS = 15000
   var UNKNOWN_TTL_MS = 15000
   var OTHER_TONE_QUIET_MS = 1500
+  // Kısa sesler (giriş ve çıkış sesleri ayarı): notalar (Hz), notalar arası süre (sn) ve düzey. Bas konuş ipuçları kısa ve tizdir,
+  // katılma ve ayrılma seslerinden ayırt edilir.
+  var TONES = {
+    join: { freqs: [523.25, 659.25], step: 0.12, peak: 0.12 },
+    leave: { freqs: [659.25, 523.25], step: 0.12, peak: 0.12 },
+    pttOn: { freqs: [880, 1174.66], step: 0.06, peak: 0.1 },
+    pttOff: { freqs: [1174.66, 880], step: 0.06, peak: 0.1 }
+  }
   var CONTEXT_CLOSE_DELAY_MS = 700
   var MAX_UNKNOWN = 50
   var MAX_CANDIDATES = 200
@@ -43,6 +51,13 @@ window.VoiceClient = (function () {
   var MAX_CANDIDATE_CHARS = 2000
   var MAX_SIGNAL_CHARS = 100000
   var MAX_STORED_USERS = 500
+  // Kişi bazlı ses en fazla %200'dür (applyPeerAudio, yükseltme yolu)
+  var PEER_VOLUME_MAX = 2
+  // Yükseltilmiş sesin tepelerinde sert kırpılmayı yumuşatan sınırlayıcı (DynamicsCompressor): eşik dBFS, oran,
+  // diz genişliği, saldırı ve bırakma saniye
+  var BOOST_LIMITER = { threshold: -3, ratio: 20, knee: 0, attack: 0.003, release: 0.25 }
+  // Kazanç değişince tıkırtı olmaması için hedef değere yaklaşma zaman sabiti (saniye)
+  var BOOST_RAMP_S = 0.015
   var MAX_SEEN_PEERS = 256
   var MAX_SEEN_SIDS = 32
   var MAX_SERVER_TEXT = 500
@@ -88,11 +103,18 @@ window.VoiceClient = (function () {
   var CAMERA_STOP_REASONS = ['user', 'ended', 'left', 'server', 'disabled']
   // Kamera hata kodları (arayüz t('camera.errors.' + kod) ile çevirir). 'cancelled' gösterilmez.
   var CAMERA_ERRORS = ['camera_unsupported', 'insecure', 'not_in_voice', 'camera_denied', 'camera_not_found', 'camera_in_use',
-    'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed']
+    'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed', 'camera_moderated']
   var MID_RE = /^[A-Za-z0-9_.{}~+-]{1,64}$/
   var UPLINK_MAX_KBPS = 10000000
   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
   var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
+  // Gelişmiş gürültü engelleme (RNNoise): AudioWorklet işlemcisi ve WebAssembly derlemesi. İşlemci hazır
+  // olduğunu RNNOISE_READY_MS içinde bildirmezse (bağlam çalışırken) RNNoise bu oturumda kullanılmaz.
+  var RNNOISE_WORKLET_URL = '/rnnoise-worklet.js'
+  var RNNOISE_WASM_URL = '/vendor/rnnoise/rnnoise.wasm'
+  var RNNOISE_PROCESSOR = 'telsiz-rnnoise'
+  var RNNOISE_LOAD_MS = 20000
+  var RNNOISE_READY_MS = 15000
   var MOUSE_BITS = { 1: 4, 3: 8, 4: 16 }
   var ID_RE = /^[A-Za-z0-9_-]{1,64}$/
   var SID_RE = /^[0-9a-f]{16}$/
@@ -205,6 +227,43 @@ window.VoiceClient = (function () {
     return { ok: true, reason: null }
   }
 
+  // RNNoise için AudioWorklet ve WebAssembly gerekir (bağlamın audioWorklet alanı ayrıca denetlenir)
+  function rnnoiseSupport () {
+    if (typeof window === 'undefined') return false
+    var AC = window.AudioContext || window.webkitAudioContext
+    var wasm = typeof WebAssembly === 'object' && WebAssembly ? WebAssembly : null
+    return !!(AC && typeof window.AudioWorkletNode === 'function' && wasm && typeof wasm.instantiate === 'function' &&
+      typeof window.XMLHttpRequest === 'function')
+  }
+
+  // RNNoise wasm baytları sayfa başına bir kez indirilir, indirme başarısız olursa sonraki denemede yeniden istenir
+  var rnnoiseDownload = null
+
+  function rnnoiseBytes () {
+    if (rnnoiseDownload) return rnnoiseDownload
+    var p = new Promise(function (resolve, reject) {
+      var x = new window.XMLHttpRequest()
+      var fail = function () { reject(makeError('rnnoise_failed')) }
+      x.open('GET', RNNOISE_WASM_URL)
+      x.responseType = 'arraybuffer'
+      x.timeout = RNNOISE_LOAD_MS
+      x.onload = function () {
+        var buf = x.response
+        if (x.status === 200 && buf && typeof buf.byteLength === 'number' && buf.byteLength > 0) resolve(buf)
+        else fail()
+      }
+      x.onerror = fail
+      x.ontimeout = fail
+      x.onabort = fail
+      x.send()
+    })
+    rnnoiseDownload = p
+    p.then(noop, function () {
+      if (rnnoiseDownload === p) rnnoiseDownload = null
+    })
+    return p
+  }
+
   function micErrorCode (e) {
     if (e && typeof e.code === 'string' && /^mic_/.test(e.code)) return e.code
     var name = e && e.name
@@ -223,6 +282,7 @@ window.VoiceClient = (function () {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
+      rnnoise: true,
       outputVolume: 1,
       sounds: true,
       bindings: { ptt: { type: 'key', code: 'KeyV' }, toggleMute: null, toggleDeafen: null }
@@ -698,6 +758,7 @@ window.VoiceClient = (function () {
     var onCameraEvent = typeof opts.onCameraEvent === 'function' ? opts.onCameraEvent : null
     var storage = opts.storage && typeof opts.storage === 'object' ? opts.storage : null
     var ctx = null
+    var rnModule = null
     var seen = new Map()
     var emitScheduled = false
     var listening = false
@@ -733,6 +794,9 @@ window.VoiceClient = (function () {
       micGen: 0,
       pipe: null,
       mode: null,
+      // RNNoise yüklenemedi veya işlerken hata verdi: bu sayfa oturumunda yeniden denenmez (ayar kapatılıp
+      // açılırsa denenir), ses tarayıcının kendi işlemesiyle sürer
+      rnFailed: false,
       testing: false,
       testPromise: null,
       // Ölçüm ve kapı
@@ -750,8 +814,8 @@ window.VoiceClient = (function () {
       emittedThreshold: null,
       levelEmitAt: 0,
       tickCount: 0,
-      // Bas konuş ve atamalar
-      held: { key: false, mouse: false, pad: false, touch: false },
+      // Bas konuş ve atamalar. external: masaüstü uygulamasının genel bas konuş kısayolu veya tuş kancası
+      held: noneHeld(),
       pttActive: false,
       pttTail: false,
       pttTimer: null,
@@ -896,7 +960,7 @@ window.VoiceClient = (function () {
       if (obj) mergeSettings(obj)
       var p = readStored(PEERS_KEY)
       if (p) {
-        copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
+        copyMap(p.volumes, st.volumes, function (v) { return typeof v === 'number' && v >= 0 && v <= PEER_VOLUME_MAX })
         copyMap(p.localMutes, st.localMutes, function (v) { return v === true })
         copyMap(p.screenVolumes, st.screenVolumes, function (v) { return typeof v === 'number' && v >= 0 && v <= 1 })
       }
@@ -934,6 +998,7 @@ window.VoiceClient = (function () {
         echoCancellation: s.echoCancellation,
         noiseSuppression: s.noiseSuppression,
         autoGainControl: s.autoGainControl,
+        rnnoise: s.rnnoise,
         outputVolume: s.outputVolume,
         sounds: s.sounds,
         bindings: copyBindings()
@@ -943,7 +1008,7 @@ window.VoiceClient = (function () {
     // Geçersiz alanlar yok sayılır. Dönüş: hangi tür değişiklik olduğu
     function mergeSettings (partial) {
       var s = st.settings
-      var out = { mic: false, device: false, bindings: false, mode: false }
+      var out = { mic: false, device: false, bindings: false, mode: false, rnnoise: false }
       if (!partial || typeof partial !== 'object') return out
       if (hasOwn(partial, 'inputDeviceId')) {
         var d = partial.inputDeviceId
@@ -967,6 +1032,11 @@ window.VoiceClient = (function () {
           out.mic = true
         }
       })
+      // RNNoise mikrofonu yeniden almadan hattın içinde açılır ve kapanır (getUserMedia kısıtlarını değiştirmez)
+      if (typeof partial.rnnoise === 'boolean' && partial.rnnoise !== s.rnnoise) {
+        s.rnnoise = partial.rnnoise
+        out.rnnoise = true
+      }
       if (isNum(partial.outputVolume)) s.outputVolume = clamp(partial.outputVolume, 0, 1)
       if (typeof partial.sounds === 'boolean') s.sounds = partial.sounds
       var pb = partial.bindings
@@ -993,10 +1063,17 @@ window.VoiceClient = (function () {
     function setSettings (partial) {
       var ch = mergeSettings(partial)
       saveSettings()
-      if (ch.mode || ch.bindings) releaseAll()
+      // Mod değişince her kaynak bırakılır, yalnızca atamalar değişince masaüstü kaynağı açık kalır
+      if (ch.mode) releaseAll(false)
+      else if (ch.bindings) releaseAll(true)
       if (ch.bindings) {
         st.padInit = true
         updateMouseGuard()
+      }
+      if (ch.rnnoise) {
+        // Kişi ayarı yeniden açarsa önceki hata unutulur ve yükleme yeniden denenir
+        if (st.settings.rnnoise) st.rnFailed = false
+        syncRnnoise()
       }
       updatePadPoll()
       applyAllAudio()
@@ -1015,14 +1092,72 @@ window.VoiceClient = (function () {
       return typeof v === 'number' ? v : 1
     }
 
+    // Kişinin sesi: genel çıkış x kişi bazlı ses (en fazla %200), sağırlaştırma, yerel ve sunucu susturması.
+    // Etkin düzey 1'e kadar ses öğesinin volume alanıyla uygulanır. Öğenin volume alanı en fazla 1 olduğu için
+    // 1'in üstünde (ör. kişi %200, genel çıkış %100) o kişinin akışı ses bağlamında yükseltilir (ensureBoost):
+    // kaynak -> kazanç -> sınırlayıcı -> hoparlör. Bu sırada ses öğesi sessiz olarak çalmaya devam eder, çünkü
+    // Chromium uzak WebRTC akışını ses bağlamına yalnızca akış bir medya öğesine bağlıyken verir. Ses bağlamı
+    // kurulamazsa düzey 1'de kalır. Etkin düzey 1'e inince yükseltme kaldırılır.
     function applyPeerAudio (peer) {
       var a = peer.audio
       var r = st.roster[peer.peerId]
       if (!a || !r) return
+      var muted = st.deafened || st.localMutes[r.userId] === true || st.serverMutedUsers[r.userId] === true
+      var level = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, PEER_VOLUME_MAX)
+      var boost = level > 1 ? ensureBoost(peer) : null
+      if (!boost) dropBoost(peer)
       try {
-        a.volume = clamp(st.settings.outputVolume * volumeOf(r.userId), 0, 1)
+        a.volume = Math.min(level, 1)
       } catch (e) {}
-      a.muted = st.deafened || st.localMutes[r.userId] === true || st.serverMutedUsers[r.userId] === true
+      a.muted = boost ? true : muted
+      if (boost) setBoostGain(boost, muted ? 0 : level)
+    }
+
+    function ensureBoost (peer) {
+      var stream = peer.stream
+      var c = stream ? ensureContext() : null
+      if (!c || c.state === 'closed' || typeof c.createGain !== 'function' || typeof c.createMediaStreamSource !== 'function') return null
+      var b = peer.boost
+      if (b && b.ctx === c && b.stream === stream) return b
+      dropBoost(peer)
+      var nodes = { ctx: c, stream: stream, source: null, gain: null, limiter: null }
+      try {
+        nodes.source = c.createMediaStreamSource(stream)
+        nodes.gain = c.createGain()
+        nodes.gain.gain.value = 0
+        nodes.source.connect(nodes.gain)
+        var last = nodes.gain
+        if (typeof c.createDynamicsCompressor === 'function') {
+          nodes.limiter = c.createDynamicsCompressor()
+          Object.keys(BOOST_LIMITER).forEach(function (key) {
+            if (nodes.limiter[key]) nodes.limiter[key].value = BOOST_LIMITER[key]
+          })
+          nodes.gain.connect(nodes.limiter)
+          last = nodes.limiter
+        }
+        last.connect(c.destination)
+      } catch (e) {
+        disconnectNodes([nodes.source, nodes.gain, nodes.limiter])
+        return null
+      }
+      peer.boost = nodes
+      return nodes
+    }
+
+    function setBoostGain (boost, value) {
+      var p = boost.gain.gain
+      try {
+        if (typeof p.setTargetAtTime === 'function') p.setTargetAtTime(value, boost.ctx.currentTime, BOOST_RAMP_S)
+        else p.value = value
+      } catch (e) {
+        p.value = value
+      }
+    }
+
+    function dropBoost (peer) {
+      var b = peer.boost
+      peer.boost = null
+      if (b) disconnectNodes([b.source, b.gain, b.limiter])
     }
 
     function applyAllAudio () {
@@ -1097,7 +1232,8 @@ window.VoiceClient = (function () {
         testing: st.testing,
         capturing: !!st.capture,
         fallback: st.mode === 'raw',
-        ptt: { enabled: s.inputMode === 'ptt', active: st.pttActive },
+        rnnoise: rnnoiseState(),
+        ptt: { enabled: s.inputMode === 'ptt', active: st.pttActive, external: st.held.external },
         selfSpeaking: st.selfSpeaking,
         inputLevel: st.inputLevel,
         errorCode: code,
@@ -1226,13 +1362,13 @@ window.VoiceClient = (function () {
       }, CONTEXT_CLOSE_DELAY_MS)
     }
 
-    // Giriş hattı: kaynak -> analizör (algılama) ve kaynak -> gecikme -> kapı -> hedef (eşlere giden iz)
+    // Giriş hattı: kaynak -> analizör (algılama) ve kaynak -> [RNNoise] -> gecikme -> kapı -> hedef (eşlere giden iz)
     function ensurePipe () {
       var c = ensureContext()
       if (st.pipe && st.pipe.ctx === c && c) return st.pipe
       destroyPipe()
       if (!c) return null
-      var pipe = { ctx: c, analyser: null, delay: null, gain: null, dest: null, track: null, source: null, ok: false, target: null, fbuf: null, bbuf: null }
+      var pipe = { ctx: c, analyser: null, delay: null, gain: null, dest: null, track: null, source: null, ok: false, target: null, fbuf: null, bbuf: null, rn: null, rnJob: null }
       try {
         pipe.analyser = c.createAnalyser()
         pipe.analyser.fftSize = LOCAL_FFT
@@ -1280,10 +1416,18 @@ window.VoiceClient = (function () {
       var p = st.pipe
       st.pipe = null
       if (!p) return
+      cancelRnnoiseJob(p)
+      dropRnnoiseNode(p.rn)
+      p.rn = null
       disconnectNodes([p.source, p.analyser, p.delay, p.gain, p.dest])
       try {
         if (p.track) p.track.stop()
       } catch (e) {}
+    }
+
+    // Ses kolunun girişi: hatta giren RNNoise düğümü, yoksa ileri bakış gecikmesi
+    function audioInput (pipe) {
+      return pipe.rn || pipe.delay
     }
 
     // Cihaz değişiminde yalnızca kaynak düğümü değişir, eşlerdeki iz aynı kalır
@@ -1294,7 +1438,7 @@ window.VoiceClient = (function () {
       try {
         src = pipe.ctx.createMediaStreamSource(local.srcStream)
         if (pipe.analyser) src.connect(pipe.analyser)
-        if (pipe.ok) src.connect(pipe.delay)
+        if (pipe.ok) src.connect(audioInput(pipe))
       } catch (e) {
         if (src) disconnectNodes([src])
         src = null
@@ -1304,6 +1448,237 @@ window.VoiceClient = (function () {
       if (old) disconnectNodes([old])
     }
 
+    // Gelişmiş gürültü engelleme (RNNoise, public/rnnoise-worklet.js). Düğüm yalnızca ses koluna, kaynak ile
+    // ileri bakış gecikmesi arasına girer. Algılama kolu (analizör) kaynağı doğrudan ölçmeye devam eder, bu
+    // yüzden ses etkinliği eşiği, gürültü tabanı ve seviye ölçer RNNoise'dan bağımsız olarak önceki gibi
+    // çalışır. Kapı, susturma, sunucu susturması ve bas konuş gecikmeden sonraki kazanç düğümünde ve iz
+    // üzerinde uygulandığı için değişmez. RNNoise'un eklediği yaklaşık 20 ms gecikme (çerçeve tamponu ve
+    // RNNoise'un kendi çerçevesi) yalnızca ses kolunu geciktirir, kapı sesten biraz daha erken açılır. Bas
+    // konuşta bırakma süresi 0 ise tuş bırakılınca konuşmanın son yaklaşık 70 ms'si (önceden 50 ms) kesilir.
+    // Düğüm, işlemci wasm'ı derleyip 'ready' bildirdikten sonra hatta girer. O zamana kadar ve herhangi bir
+    // hatada (AudioWorklet veya WebAssembly yok, modül veya wasm yüklenemedi, CSP derlemeyi engelledi,
+    // işlemci hata verdi) kaynak gecikmeye doğrudan bağlı kalır, ses kesilmez ve hata gösterilmez.
+    //
+    // Tarayıcının gürültü bastırması (getUserMedia noiseSuppression) RNNoise açıkken kapatılmaz, kişinin
+    // "Gürültü bastırma" ayarı olduğu gibi uygulanır. Karar ölçüme dayanır: Chromium 141'de sahte mikrofona
+    // verilen 48 kHz sentetik sinyalde (ünlü dizisi, klavye tıkırtıları, pembe gürültü) tarayıcının gürültü
+    // bastırması tek başına tıkırtıları yalnızca yaklaşık 6 dB azalttı. RNNoise tıkırtıları tarayıcınınki
+    // açıkken 26 ile 29 dB, kapalıyken 22 ile 33 dB azalttı (üç ölçüm). Konuşma seviyesi iki durumda da
+    // yaklaşık 1 dB düştü ve spektral bozulma (log spektral uzaklık) farkı ölçümden ölçüme değişimin içinde
+    // kaldı (0,3 dB'den az). İkisi birlikteyken sabit gürültü tabanı yaklaşık 5 dB daha düşük kaldı. Ayrıca
+    // RNNoise yüklenemezse veya işlerken hata verirse mikrofonu yeniden başlatmaya gerek kalmadan tarayıcının
+    // kendi işlemesi zaten sürer ve algılama kolu aynı sinyali ölçmeye devam eder.
+    function rnnoiseUsable () {
+      return st.settings.rnnoise === true && !st.rnFailed && rnnoiseSupport()
+    }
+
+    // Arayüz için durum: 'off' (ayar kapalı), 'unavailable' (desteklenmiyor veya yüklenemedi, tarayıcının kendi
+    // işlemesi sürer), 'loading', 'on' (ses RNNoise'dan geçiyor) veya 'idle' (mikrofon kullanılmıyor)
+    function rnnoiseState () {
+      if (st.settings.rnnoise !== true) return 'off'
+      if (st.rnFailed || !rnnoiseSupport()) return 'unavailable'
+      var p = st.pipe
+      if (!st.local || !p) return 'idle'
+      // WebAudio hattı kurulamadıysa ham iz gönderilir, RNNoise uygulanamaz
+      if (!p.ok) return 'unavailable'
+      if (p.rn && st.mode === 'pipe') return 'on'
+      return p.rnJob ? 'loading' : 'idle'
+    }
+
+    // Hattı ayara uydurur: RNNoise isteniyorsa hazırlar, istenmiyorsa hattan çıkarır. Tekrar çağrılabilir.
+    function syncRnnoise () {
+      var pipe = st.pipe
+      if (!pipe) return
+      if (!pipe.ok || !st.local || !rnnoiseUsable()) {
+        cancelRnnoiseJob(pipe)
+        detachRnnoise(pipe)
+        return
+      }
+      if (pipe.rn || pipe.rnJob) return
+      var c = pipe.ctx
+      if (!c.audioWorklet || typeof c.audioWorklet.addModule !== 'function') {
+        rnnoiseFailed()
+        return
+      }
+      var job = { node: null, cancelled: false, timer: null }
+      pipe.rnJob = job
+      Promise.all([rnnoiseModule(c), rnnoiseBytes()]).then(function (res) {
+        if (job.cancelled) throw makeError('cancelled')
+        return rnnoiseNode(c, res[1], job)
+      }).then(function (node) {
+        if (pipe.rnJob === job) pipe.rnJob = null
+        if (job.cancelled || st.pipe !== pipe || !rnnoiseUsable()) {
+          dropRnnoiseNode(node)
+          return
+        }
+        attachRnnoise(pipe, node)
+      }, function (e) {
+        if (pipe.rnJob === job) pipe.rnJob = null
+        if (job.cancelled || (e && e.code === 'cancelled')) return
+        rnnoiseFailed()
+      })
+      emit()
+    }
+
+    // AudioWorklet modülü ses bağlamı başına bir kez yüklenir (rnModule: { ctx, promise })
+    function rnnoiseModule (c) {
+      if (rnModule && rnModule.ctx === c) return rnModule.promise
+      var entry = { ctx: c, promise: null }
+      entry.promise = Promise.resolve().then(function () {
+        return c.audioWorklet.addModule(RNNOISE_WORKLET_URL)
+      })
+      entry.promise.then(noop, function () {
+        if (rnModule === entry) rnModule = null
+      })
+      rnModule = entry
+      return entry.promise
+    }
+
+    // İşlemci düğümünü kurar, işlemci wasm'ı derleyip 'ready' bildirince düğümle çözülür. Bağlam çalışırken
+    // RNNOISE_READY_MS içinde yanıt gelmezse reddedilir, bağlam askıdayken beklenir.
+    function rnnoiseNode (c, bytes, job) {
+      return new Promise(function (resolve, reject) {
+        var node = new window.AudioWorkletNode(c, RNNOISE_PROCESSOR, {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+          channelCount: 1,
+          channelCountMode: 'explicit',
+          channelInterpretation: 'speakers',
+          processorOptions: { wasm: bytes }
+        })
+        job.node = node
+        var done = false
+        var finish = function (ok) {
+          if (done) return
+          done = true
+          if (job.timer) clearTimeout(job.timer)
+          job.timer = null
+          node.port.onmessage = null
+          node.onprocessorerror = null
+          if (ok) {
+            resolve(node)
+            return
+          }
+          dropRnnoiseNode(node)
+          reject(makeError('rnnoise_failed'))
+        }
+        var startedAt = Date.now()
+        var check = function () {
+          job.timer = null
+          if (done || job.cancelled) return
+          if (c.state !== 'running') startedAt = Date.now()
+          if (Date.now() - startedAt >= RNNOISE_READY_MS) {
+            finish(false)
+            return
+          }
+          job.timer = setTimeout(check, 1000)
+        }
+        node.port.onmessage = function (e) {
+          var d = e ? e.data : null
+          if (!d || typeof d !== 'object') return
+          if (d.type === 'ready') finish(true)
+          else if (d.type === 'error') finish(false)
+        }
+        node.onprocessorerror = function () { finish(false) }
+        job.timer = setTimeout(check, 1000)
+      })
+    }
+
+    // Hazır düğüm hatta girer: düğüm -> gecikme bağlanır, sonra kaynak gecikmeden düğüme taşınır
+    function attachRnnoise (pipe, node) {
+      try {
+        node.connect(pipe.delay)
+      } catch (e) {
+        dropRnnoiseNode(node)
+        rnnoiseFailed()
+        return
+      }
+      if (!moveSource(pipe, pipe.delay, node)) {
+        dropRnnoiseNode(node)
+        rnnoiseFailed()
+        return
+      }
+      pipe.rn = node
+      // Hatta girdikten sonra işlemci hata verirse kaynak yeniden doğrudan gecikmeye bağlanır
+      node.port.onmessage = function (e) {
+        var d = e ? e.data : null
+        if (d && d.type === 'error' && pipe.rn === node) rnnoiseFailed()
+      }
+      node.onprocessorerror = function () {
+        if (pipe.rn === node) rnnoiseFailed()
+      }
+      emit()
+    }
+
+    function detachRnnoise (pipe) {
+      var node = pipe.rn
+      if (!node) return
+      pipe.rn = null
+      moveSource(pipe, node, pipe.delay)
+      dropRnnoiseNode(node)
+      emit()
+    }
+
+    // Kaynağın ses kolu bağlantısını from düğümünden to düğümüne taşır, analizör bağlantısı korunur.
+    // Önce yeni bağlantı kurulur, bu yüzden ses hiçbir an kaynaksız kalmaz. Başarısızsa false döner.
+    function moveSource (pipe, from, to) {
+      var src = pipe.source
+      if (!src) return true
+      try {
+        src.connect(to)
+      } catch (e) {
+        return false
+      }
+      try {
+        src.disconnect(from)
+      } catch (e) {
+        // Belirli bir hedefi ayırmayı desteklemeyen tarayıcıda bağlantılar baştan kurulur
+        try {
+          src.disconnect()
+          if (pipe.analyser) src.connect(pipe.analyser)
+          src.connect(to)
+        } catch (e2) {
+          try {
+            src.connect(from)
+          } catch (e3) {}
+          return false
+        }
+      }
+      return true
+    }
+
+    function cancelRnnoiseJob (pipe) {
+      var job = pipe.rnJob
+      if (!job) return
+      pipe.rnJob = null
+      job.cancelled = true
+      if (job.timer) clearTimeout(job.timer)
+      job.timer = null
+      if (job.node) dropRnnoiseNode(job.node)
+    }
+
+    function dropRnnoiseNode (node) {
+      if (!node) return
+      try {
+        node.onprocessorerror = null
+        node.port.onmessage = null
+        node.port.postMessage('destroy')
+      } catch (e) {}
+      disconnectNodes([node])
+    }
+
+    // RNNoise bu sayfa oturumunda bırakılır, ses tarayıcının kendi işlemesiyle sürer
+    function rnnoiseFailed () {
+      st.rnFailed = true
+      var pipe = st.pipe
+      if (pipe) {
+        cancelRnnoiseJob(pipe)
+        detachRnnoise(pipe)
+      }
+      emit()
+    }
+
     function desiredMode () {
       if (!st.local) return null
       var p = st.pipe
@@ -1311,6 +1686,7 @@ window.VoiceClient = (function () {
     }
 
     function updateMode () {
+      syncRnnoise()
       var m = desiredMode()
       if (m === st.mode) return
       st.mode = m
@@ -1522,15 +1898,17 @@ window.VoiceClient = (function () {
       node.lastLoud = 0
     }
 
+    // Katılma ve ayrılma sesleri ile bas konuşun kısa açılış ve kapanış ipucu (masaüstü genel kısayolu)
     function playTone (kind, other) {
       if (!st.settings.sounds || !ctx || ctx.state !== 'running') return
       if (other && st.deafened) return
-      var freqs = kind === 'join' ? [523.25, 659.25] : [659.25, 523.25]
-      var peak = other ? 0.08 : 0.12
+      var tone = TONES[kind]
+      if (!tone) return
+      var peak = other ? 0.08 : tone.peak
       var t0 = ctx.currentTime + 0.02
       var c = ctx
-      freqs.forEach(function (f, i) {
-        var start = t0 + i * 0.12
+      tone.freqs.forEach(function (f, i) {
+        var start = t0 + i * tone.step
         try {
           var osc = c.createOscillator()
           var gain = c.createGain()
@@ -1538,14 +1916,14 @@ window.VoiceClient = (function () {
           osc.frequency.setValueAtTime(f, start)
           gain.gain.setValueAtTime(0, start)
           gain.gain.linearRampToValueAtTime(peak, start + 0.02)
-          gain.gain.linearRampToValueAtTime(0, start + 0.11)
+          gain.gain.linearRampToValueAtTime(0, start + tone.step - 0.01)
           osc.connect(gain)
           gain.connect(c.destination)
           osc.onended = function () {
             disconnectNodes([osc, gain])
           }
           osc.start(start)
-          osc.stop(start + 0.12)
+          osc.stop(start + tone.step)
         } catch (e) {}
       })
     }
@@ -1587,6 +1965,7 @@ window.VoiceClient = (function () {
 
     function removeAudio (peer) {
       var a = peer.audio
+      dropBoost(peer)
       peer.audio = null
       peer.stream = null
       if (!a) return
@@ -1731,7 +2110,7 @@ window.VoiceClient = (function () {
       stopTick()
       removeListeners()
       clearPttTimer()
-      st.held = { key: false, mouse: false, pad: false, touch: false }
+      st.held = noneHeld()
       st.pttActive = false
       st.pttTail = false
       st.gate = false
@@ -1781,7 +2160,17 @@ window.VoiceClient = (function () {
       emit()
     }
 
-    // Bas konuş: kaynaklar (klavye, fare, oyun kolu, dokunmatik düğme) ayrı izlenir
+    // Bas konuş: kaynaklar (klavye, fare, oyun kolu, dokunmatik düğme, masaüstü uygulamasının genel
+    // kısayolu veya tuş kancası) ayrı izlenir. Biri bırakılınca diğeri basılıysa konuşma sürer.
+    function noneHeld () {
+      return { key: false, mouse: false, pad: false, touch: false, external: false }
+    }
+
+    function anyHeld () {
+      var h = st.held
+      return h.key || h.mouse || h.pad || h.touch || h.external
+    }
+
     function clearPttTimer () {
       if (st.pttTimer) clearTimeout(st.pttTimer)
       st.pttTimer = null
@@ -1813,13 +2202,16 @@ window.VoiceClient = (function () {
     function pttRelease (src) {
       if (!st.held[src]) return
       st.held[src] = false
-      if (!st.held.key && !st.held.mouse && !st.held.pad && !st.held.touch) setPttActive(false)
+      if (!anyHeld()) setPttActive(false)
     }
 
-    // Odak kaybında basılı her şey bırakılmış sayılır (gecikme uygulanmaz)
-    function releaseAll () {
-      st.held = { key: false, mouse: false, pad: false, touch: false }
-      st.pttActive = false
+    // Odak kaybında basılı her şey bırakılmış sayılır (gecikme uygulanmaz). keepExternal: pencere dışındaki
+    // kaynak (masaüstü kısayolu veya tuş kancası) odak ve görünürlükten bağımsızdır, açık kalır.
+    function releaseAll (keepExternal) {
+      var external = keepExternal === true && st.held.external
+      st.held = noneHeld()
+      st.held.external = external
+      st.pttActive = external
       clearPttTimer()
       st.pttTail = false
       updateGate(false)
@@ -2083,14 +2475,14 @@ window.VoiceClient = (function () {
 
     // Klavye, odak ve görünürlük dinleyicileri (mikrofon açıkken)
     function onBlur () {
-      releaseAll()
+      releaseAll(true)
     }
 
     function onVisibility () {
       if (document.visibilityState === 'visible') {
         requestWakeLock()
       } else {
-        releaseAll()
+        releaseAll(true)
       }
       updatePadPoll()
     }
@@ -2237,6 +2629,8 @@ window.VoiceClient = (function () {
         sender: null,
         audio: null,
         stream: null,
+        // Ses %100'ün üstündeyken yükseltme düğümleri (ensureBoost): { ctx, stream, source, gain, limiter }
+        boost: null,
         source: null,
         analyser: null,
         fbuf: null,
@@ -4053,6 +4447,7 @@ window.VoiceClient = (function () {
         return null
       })()
       st.cameraError = null
+      st.cameraSeen = false
       st.cameraStarting = job
       emit()
       return job.then(function (v) {
@@ -4093,7 +4488,6 @@ window.VoiceClient = (function () {
       }
       track.addEventListener('ended', cam.onEnded)
       st.camera = cam
-      st.cameraSeen = false
       syncAllSenders()
       emit()
     }
@@ -4119,10 +4513,12 @@ window.VoiceClient = (function () {
       emit()
     }
 
-    // Metada kendi kameramız: sunucu kapattıysa (sahip kameraları kapattı) yerel kamera da durur. Açılıştan
-    // önce üretilmiş eski bir meta yanlışlıkla durdurmasın diye önce açık görülmüş olmalıdır.
+    // Metada kendi kameramız: sunucu kapattıysa (sahip kameraları kapattı veya ses odası denetimiyle kapatıldı) yerel
+    // kamera da durur, açılmakta olan kamera iptal edilir. Açılıştan önce üretilmiş eski bir meta yanlışlıkla durdurmasın
+    // diye kamera metada önce açık görülmüş olmalıdır. Sunucu açık bilgisini kamera istenmeden önce aldığı için bu meta
+    // çoğunlukla kamera açılırken gelir, o da sayılır.
     function checkOwnCamera (meta, list) {
-      if (!st.camera) return
+      if (!st.camera && !st.cameraStarting) return
       var settings = meta && meta.voiceSettings && typeof meta.voiceSettings === 'object' ? meta.voiceSettings : null
       if (settings && settings.cameras === false) {
         st.cameraError = 'camera_disabled'
@@ -4137,6 +4533,7 @@ window.VoiceClient = (function () {
       if (mine.camera === true) {
         st.cameraSeen = true
       } else if (st.cameraSeen) {
+        st.cameraError = 'camera_moderated'
         stopCamera('server', false)
       }
     }
@@ -4550,7 +4947,7 @@ window.VoiceClient = (function () {
       var uid = normId(userId)
       var n = Number(volume)
       if (uid === null || !isFinite(n)) return
-      n = clamp(n, 0, 1)
+      n = clamp(n, 0, PEER_VOLUME_MAX)
       if (n === 1) {
         delete st.volumes[uid]
       } else if (uid in st.volumes || Object.keys(st.volumes).length < MAX_STORED_USERS) {
@@ -4646,8 +5043,13 @@ window.VoiceClient = (function () {
       setPeerLocalMute: setPeerLocalMute,
       setSettings: setSettings,
       settings: getSettings,
-      pttDown: function () { pttPress('touch') },
-      pttUp: function () { pttRelease('touch') },
+      // Kaynak verilmezse ekrandaki Bas konuş düğmesi, 'external' masaüstü uygulamasının genel kısayolu veya tuş kancası
+      pttDown: function (source) { pttPress(source === 'external' ? 'external' : 'touch') },
+      pttUp: function (source) { pttRelease(source === 'external' ? 'external' : 'touch') },
+      // Bas konuş açılış ve kapanış sesi ('pttOn', 'pttOff'), giriş ve çıkış sesleri ayarına (sounds) uyar
+      playCue: function (kind) {
+        if (kind === 'pttOn' || kind === 'pttOff') playTone(kind, false)
+      },
       captureBinding: captureBinding,
       cancelCapture: cancelCapture,
       bindingLabel: bindingLabel,

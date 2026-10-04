@@ -136,6 +136,8 @@ const ROLES = new Set(['owner', 'admin', 'member'])
 const ROLE_PERMS = ['messages', 'ban', 'voice', 'channels', 'dj']
 const ROLE_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink']
 const MAX_ROLES = 20
+// Ses odası denetimi eylemleri (POST /api/voice/moderate)
+const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
 const IDENTITY_MAX_CHARS = 2000
@@ -197,6 +199,7 @@ const HTML_TYPE = 'text/html; charset=utf-8'
 const JS_TYPE = 'text/javascript; charset=utf-8'
 const TEXT_TYPE = 'text/plain; charset=utf-8'
 const CSS_TYPE = 'text/css; charset=utf-8'
+const WASM_TYPE = 'application/wasm'
 addStatic('/', 'index.html', HTML_TYPE, util.HTML_CSP)
 addStatic('/index.html', 'index.html', HTML_TYPE, util.HTML_CSP)
 addStatic('/i18n.js', 'i18n.js', JS_TYPE, util.API_CSP)
@@ -204,6 +207,8 @@ addStatic('/theme-init.js', 'theme-init.js', JS_TYPE, util.API_CSP)
 addStatic('/crypto.js', 'crypto.js', JS_TYPE, util.API_CSP)
 addStatic('/emoji.js', 'emoji.js', JS_TYPE, util.API_CSP)
 addStatic('/voice.js', 'voice.js', JS_TYPE, util.API_CSP)
+// Gelişmiş gürültü engelleme: voice.js'in ses bağlamına yüklediği AudioWorklet işlemcisi
+addStatic('/rnnoise-worklet.js', 'rnnoise-worklet.js', JS_TYPE, util.API_CSP)
 addStatic('/music.js', 'music.js', JS_TYPE, util.API_CSP)
 addStatic('/dj/youtube.js', 'dj/youtube.js', JS_TYPE, util.API_CSP)
 // Service worker kendi yanıtının CSP'sini kullanır, sayfa ile aynı politika verilir
@@ -217,6 +222,10 @@ addStatic('/vendor/nacl-fast.min.js', 'vendor/nacl-fast.min.js', JS_TYPE, util.A
 addStatic('/vendor/TWEETNACL-LICENSE.txt', 'vendor/TWEETNACL-LICENSE.txt', TEXT_TYPE, util.API_CSP)
 addStatic('/vendor/scrypt.js', 'vendor/scrypt.js', JS_TYPE, util.API_CSP)
 addStatic('/vendor/SCRYPT-JS-LICENSE.txt', 'vendor/SCRYPT-JS-LICENSE.txt', TEXT_TYPE, util.API_CSP)
+// RNNoise'un WebAssembly derlemesi ve lisansları (@shiguredo/rnnoise-wasm 2022.2.0, değiştirilmemiş kopya)
+addStatic('/vendor/rnnoise/rnnoise.wasm', 'vendor/rnnoise/rnnoise.wasm', WASM_TYPE, util.API_CSP)
+addStatic('/vendor/rnnoise/RNNOISE-LICENSE.txt', 'vendor/rnnoise/RNNOISE-LICENSE.txt', TEXT_TYPE, util.API_CSP)
+addStatic('/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', 'vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', TEXT_TYPE, util.API_CSP)
 
 // Desenle sunulan klasörler: yalnızca adı desene uyan, alt klasörü olmayan dosyalar. Desenler
 // bölü, ters bölü, yüzde ve ardışık nokta içeremez, bu yüzden yol geçişi mümkün değildir.
@@ -1110,13 +1119,20 @@ async function createChatServer (options) {
     util.sendJson(res, 403, errorBody(langOf(res.req), 'banned'), closingHeaders())
   }
 
+  // Frekanstan atılan kişinin bekleyen poll'ları: oturum geçersizdir (401), kod istemcinin "frekanstan
+  // çıkarıldınız" demesi içindir. Sonraki istekler oturum bulunamadığı için 401 invalid_token alır.
+  function replyKicked (res) {
+    util.sendJson(res, 401, errorBody(langOf(res.req), 'kicked'), closingHeaders())
+  }
+
   // Oturumları diskten ve bellekten siler, bekleyen poll'larına hata yanıtı gider. Bu oturumlarla
   // sürmekte olan yüklemeler kesilir (işleyici geçici dosyayı siler ve 401 veya 403 döner).
+  // reason: 'invalid_token', 'banned' (403 banned) veya 'kicked' (401 kicked)
   function deleteSessions (list, reason) {
     if (list.length === 0) return
     const doomed = new Set(list)
     state.sessions = state.sessions.filter((s) => !doomed.has(s))
-    const reply = reason === 'banned' ? replyBanned : replyInvalidToken
+    const reply = reason === 'banned' ? replyBanned : reason === 'kicked' ? replyKicked : replyInvalidToken
     for (const s of list) {
       sessionsByHash.delete(s.hash)
       hub.removeSession(s.hash, reply)
@@ -1299,7 +1315,7 @@ async function createChatServer (options) {
     return index === -1 ? MAX_ROLES : index
   }
 
-  // Engelleme ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir
+  // Engelleme, frekanstan atma ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir
   function outranks (actor, target) {
     return rankOf(actor) < rankOf(target)
   }
@@ -1669,10 +1685,11 @@ async function createChatServer (options) {
     ok(ctx, { ok: true, user: publicUser(user) })
   }
 
-  // Hesap silme (authKey ile): oturumlar, ses, anahtarlar, arkadaşlık ve engel kayıtları
-  // silinir, ad serbest kalır. Mesajlar ve özel mesaj geçmişi kalır, yazar silinmiş görünür.
-  function deleteAccount (user) {
-    deleteSessions(sessionsOf(user.id), 'invalid_token')
+  // Hesap silme (authKey ile veya frekanstan atma): oturumlar, ses, anahtarlar, arkadaşlık ve engel kayıtları
+  // silinir, ad serbest kalır. Mesajlar ve özel mesaj geçmişi kalır, yazar silinmiş görünür. reason
+  // bekleyen poll'lara giden yanıtı seçer (deleteSessions).
+  function deleteAccount (user, reason = 'invalid_token') {
+    deleteSessions(sessionsOf(user.id), reason)
     usersByKey.delete(user.key)
     user.deleted = true
     user.name = ''
@@ -2460,6 +2477,19 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true })
   }
 
+  // POST /api/users/kick { userId }: engelleme izni olan, kendinden alt rütbedeki birini frekanstan atar (izin
+  // ve rütbe kuralı engellemeyle aynı). Atma hesabı siler (deleteAccount): oturumlar kapanır, ad serbest kalır,
+  // mesajlar kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak dönebilir. Sahip
+  // hiçbir zaman atılamaz.
+  function handleUserKick (ctx) {
+    if (!requirePerm(ctx, 'ban') || !takeAdminSlot(ctx)) return
+    const target = findUser(ctx.body.userId)
+    if (!target) return fail(ctx, 404, 'user_not_found')
+    if (target.id === ctx.user.id || target.role === 'owner' || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
+    deleteAccount(target, 'kicked')
+    return okDurable(ctx, { ok: true })
+  }
+
   // ---------------------------------------------------------------- uç noktalar: özel roller
 
   // İzin listesi: ROLE_PERMS içinden, tekrarsız ve ROLE_PERMS sırasıyla. Geçersizse null.
@@ -2842,20 +2872,27 @@ async function createChatServer (options) {
     ok(ctx, { ok: true })
   }
 
-  // POST /api/voice/moderate { userId, action: 'mute' | 'unmute' | 'disconnect' } (ses odası denetimi izni). Hedef
-  // işlemi yapandan alt rütbede olmalıdır. Susturma hesaba yazılır: kişi odadan çıkıp girse de, sunucu yeniden
-  // başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
+  // POST /api/voice/moderate { userId, action: 'mute' | 'unmute' | 'disconnect' | 'camera-off' } (ses odası denetimi
+  // izni). Hedef işlemi yapandan alt rütbede olmalıdır. Susturma hesaba yazılır: kişi odadan çıkıp girse de, sunucu
+  // yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
   // istemcisi mikrofonu kapatır, diğerlerinin istemcisi o kişinin sesini çalmaz. Çıkarma kişiyi yalnızca o anki
-  // odadan çıkarır, yeniden katılabilir.
+  // odadan çıkarır, yeniden katılabilir. Kamerayı kapatma tek seferliktir: sunucu kişinin kamerasını kapalı yapar,
+  // kişinin istemcisi metadan görüp yerel kamerayı durdurur, kişi kamerasını yeniden açabilir.
   function handleVoiceModerate (ctx) {
     if (!requirePerm(ctx, 'voice') || !takeAdminSlot(ctx)) return
     const b = ctx.body
-    if (b.action !== 'mute' && b.action !== 'unmute' && b.action !== 'disconnect') return fail(ctx, 400, 'bad_request')
+    if (!VOICE_MOD_ACTIONS.includes(b.action)) return fail(ctx, 400, 'bad_request')
     const target = findUser(b.userId)
     if (!target || target.banned) return fail(ctx, 404, 'user_not_found')
     if (target.id === ctx.user.id || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     if (b.action === 'disconnect') {
       if (!hub.kickVoiceUser(target.id)) return fail(ctx, 409, 'target_not_in_voice')
+      return ok(ctx, { ok: true })
+    }
+    if (b.action === 'camera-off') {
+      const result = hub.forceCameraOff(target.id)
+      if (result === 'not_in_voice') return fail(ctx, 409, 'target_not_in_voice')
+      if (result === 'camera_off') return fail(ctx, 409, 'target_camera_off')
       return ok(ctx, { ok: true })
     }
     const muted = b.action === 'mute'
@@ -2958,6 +2995,7 @@ async function createChatServer (options) {
   route('/api/channels/delete', 'POST', handleChannelDelete)
   route('/api/users/role', 'POST', handleUserRole)
   route('/api/users/ban', 'POST', handleUserBan)
+  route('/api/users/kick', 'POST', handleUserKick)
   route('/api/users/custom-role', 'POST', handleUserCustomRole)
   route('/api/roles/create', 'POST', handleRoleCreate)
   route('/api/roles/update', 'POST', handleRoleUpdate)

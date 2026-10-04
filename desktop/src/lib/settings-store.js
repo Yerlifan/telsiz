@@ -1,7 +1,8 @@
 'use strict'
 
 // Masaüstü ayarları: etkin frekans (sunucu adresi), kayıtlı frekans listesi, kapatınca tepsiye
-// küçültme, genel kısayollar ve güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık).
+// küçültme, genel kısayollar, bas konuş (ptt: kip ve basılı tut tuşu, varsayılan bas aç, bas kapat)
+// ve güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık).
 // Uygulama verisi klasöründe (Electron app.getPath('userData')) ayarlar.json olarak saklanır.
 // Dosya her okunuşta doğrulanır, geçersiz alanlar varsayılan değere döner. Yazma atomiktir
 // (geçici dosya ve yeniden adlandırma), böylece yarım kalan bir yazma ayarları bozmaz.
@@ -13,7 +14,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { isValidOrigin } = require('./server-url')
-const { validateShortcutMap, emptyMap } = require('./shortcuts')
+const { validateShortcutMap, emptyMap, validatePttSettings, defaultPtt } = require('./shortcuts')
 const frequencies = require('./frequencies')
 
 const FILE_NAME = 'ayarlar.json'
@@ -21,7 +22,7 @@ const FORMAT_VERSION = 2
 const MAX_BYTES = 64 * 1024
 
 function defaults () {
-  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), autoUpdate: true }
+  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), ptt: defaultPtt(), autoUpdate: true }
 }
 
 // Okunan nesneden geçerli ayarları çıkarır
@@ -37,6 +38,11 @@ function sanitize (raw) {
   if (raw.shortcuts && typeof raw.shortcuts === 'object') {
     const checked = validateShortcutMap(raw.shortcuts)
     if (checked.ok) out.shortcuts = checked.map
+  }
+  // Geçersiz bas konuş ayarı varsayılana (bas aç, bas kapat, tuş yok) döner, basılı tut kendiliğinden açılmaz
+  if (raw.ptt && typeof raw.ptt === 'object') {
+    const checked = validatePttSettings(raw.ptt)
+    if (checked.ok) out.ptt = checked.value
   }
   return out
 }

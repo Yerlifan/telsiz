@@ -30,6 +30,7 @@ const profileState = {
   changed: new Set(),
   cardUserId: null,
   cardTrigger: null,
+  cardModKey: '',
   metaIds: null
 }
 
@@ -98,6 +99,8 @@ function profilesOnMeta () {
   const before = profileState.metaIds
   profileState.metaIds = ids
   if (before && Array.from(before).some((id) => !ids.has(id))) refreshFormerUsers()
+  // Açık profil kartının ses odası denetimi düğmeleri (herkes için susturma, kamerasını kapat) metaya uyar
+  if (profileState.cardUserId !== null && cardModKey(profileState.cardUserId) !== profileState.cardModKey) refreshProfileCard()
   users.forEach((u) => {
     if (!u || u.id === undefined) return
     const rec = profileRecord(u.id)
@@ -594,6 +597,12 @@ function closeProfileCard () {
   if (layer) closeLayer(layer, false)
 }
 
+// Kart sahibinin ses odası denetimi durumu: herkes için susturulmuş mu, kamerası açık mı
+function cardModKey (userId) {
+  const rec = metaRecordOf(userId)
+  return (rec && rec.voiceMuted ? 'm' : '-') + (userCameraOn(userId) ? 'c' : '-')
+}
+
 function refreshProfileCard () {
   const card = byId('profile-card')
   if (!card || profileState.cardUserId === null || card.hidden) return
@@ -604,6 +613,7 @@ function refreshProfileCard () {
 
 function buildProfileCard (card, userId) {
   clear(card)
+  profileState.cardModKey = cardModKey(userId)
   const profile = activeProfile(userId)
   const self = Boolean(state.me && sameId(userId, state.me.id))
   const status = userStatus(userId)
@@ -675,12 +685,12 @@ function buildCardVoice (userId) {
   range.id = 'profile-card-volume'
   range.type = 'range'
   range.min = '0'
-  range.max = '100'
+  range.max = String(PEER_VOLUME_MAX_PCT)
   range.step = '1'
   range.value = String(value)
   range.setAttribute('data-focus-key', 'card-volume')
   const onRange = () => {
-    const v = Math.max(0, Math.min(100, Math.round(Number(range.value) || 0)))
+    const v = clampPeerVolume(range.value)
     valueText.textContent = formatPercent(v)
     const stored = storeGetJson(KEYS.peerVolume, {})
     stored[String(userId)] = v
@@ -703,7 +713,8 @@ function buildCardVoice (userId) {
     nextFrame(refreshProfileCard)
   })
   section.appendChild(mute)
-  // Ses odası denetimi izni olan, kişiden üst rütbedeyse herkes için susturur veya odadan çıkarır
+  // Ses odası denetimi izni olan, kişiden üst rütbedeyse herkes için susturur, kamerasını kapatır (yalnızca kamerası
+  // açıkken) veya odadan çıkarır
   if (typeof moderateVoice === 'function' && hasPerm('voice') && outranksUser(userId)) {
     const rec = metaRecordOf(userId)
     const serverMuted = Boolean(rec && rec.voiceMuted)
@@ -715,6 +726,15 @@ function buildCardVoice (userId) {
       nextFrame(refreshProfileCard)
     })
     section.appendChild(serverMute)
+    if (userCameraOn(userId)) {
+      const camOff = button('button button-secondary button-small profile-card-camera-off', t('peer.cameraOff'))
+      camOff.setAttribute('data-focus-key', 'card-camera-off')
+      camOff.addEventListener('click', async () => {
+        await moderateVoice(userId, 'camera-off', null, camOff)
+        nextFrame(refreshProfileCard)
+      })
+      section.appendChild(camOff)
+    }
     const kick = button('button button-danger button-small profile-card-disconnect', t('peer.disconnect'))
     kick.setAttribute('data-focus-key', 'card-disconnect')
     kick.addEventListener('click', async () => {

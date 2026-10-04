@@ -4,7 +4,43 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ## [Unreleased]
 
+### New features
+
+- Notifications: a short list of events above the radio card in the left column. When someone in the same voice room starts sharing their screen it is listed with a Watch button and removed when the share ends. Joining and leaving voice rooms are listed too.
+- The Stations list shows the people in each voice room below it: avatar, name, mute and camera icons, and a ring around the avatar of the person speaking.
+- Fit and Fill buttons on the camera grid. The choice is kept separately from screen sharing, Fill by default.
+- The font size can be set by hand between 12 and 28 pixels with the slider in Settings > Appearance (Custom).
+- Hovering over someone sharing their screen in the crew of the radio card shows a Watch stream button (always visible on touch screens).
+- Right clicking the Microphone button (Shift+F10 on the keyboard) switches between Push to talk and Voice activity.
+- Kicking from the frequency: the Kick button in Settings > Members deletes the person's account after a confirmation (`POST /api/users/kick`). Their sessions are signed out and their open app says they were kicked from the frequency, the username becomes free, and their messages stay with a deleted author. To come back, they need to register again with an invite code. The permission and rank rule is the same as for banning (the Ban members permission also covers kicking), and the owner can never be kicked.
+- Turn off camera in voice room moderation: someone with the voice room moderation permission can turn off the open camera of a person ranked lower from the voice card or the profile card (`POST /api/voice/moderate`, the `camera-off` action). The button shows only while the person's camera is on. Turning it off is a one time action: the person's app stops the camera and tells them, and they can turn it on again.
+- Advanced noise suppression (RNNoise): non-speech sounds such as keyboard clicks and hum are suppressed on the device before they reach others. It sits next to the browser's noise suppression switch in Settings > Voice and video > Voice processing, is on by default and turns on and off without restarting the microphone. The WebAssembly build of RNNoise (`@shiguredo/rnnoise-wasm` 2022.2.0, BSD-3-Clause and Apache-2.0) ships with the app and runs in an AudioWorklet. If the browser does not support AudioWorklet or WebAssembly, or the files cannot be loaded, the audio continues without a gap with the browser's own processing. `'wasm-unsafe-eval'`, which allows only WebAssembly compilation, was added to the page's Content Security Policy (server and desktop app). If a reverse proxy writes this header itself, it needs the same keyword.
+- Push to talk in the desktop app while Telsiz is in the background (for example while a game is open): a push to talk row was added to the global shortcuts on the Settings > Keybinds page. In the default "press to start, press to stop" mode, pressing once starts talking, pressing again stops, and a short sound plays. If the optional "Hold to talk (key hook)" option is turned on, you talk while the chosen key is held and go quiet when you release it. The hook only runs while you are in a voice room in push to talk mode, it sees every key event on the system but only handles the chosen key, and key codes never go to the page or the log. In Voice activity mode the shortcut toggles the microphone. The uiohook-napi 1.5.5 dependency was added to the desktop app.
+- In the desktop app (Windows and Linux) a thin title strip in the theme color replaces the native title bar and menu bar: the minimize, maximize and close buttons take the background and text color of the theme and change with it. The app menus (Telsiz, Edit, View, Help) open from the buttons on the left of the strip, and menu shortcuts keep working. In full screen the strip goes away.
+- The voice of people in a voice room can be boosted up to 200%: the Volume slider on the person's volume card and profile card goes from 0 to 200. Up to 100% the voice plays from the audio element as before, above it that person's voice is boosted with a gain node in the audio context and passes through a limiter that softens hard clipping. With speakers, Chromium's echo cancellation may not take the boosted voice into account.
+
+### Changes
+
+- The default font size is 15 pixels instead of 16 (Normal). All measurements shrink with the font size.
+- Top bar: the On air chip is now called Online and sits right next to the frequency information, Search is exactly in the middle, and Direct messages and Friends sit right to the left of the profile button.
+- The frequency band is 3.5rem high instead of 4rem, and the needle knob is smaller.
+- On wide screens the tuned station card at the bottom left was removed (the room name and the encryption state are in the conversation header, Encryption details and Manage room are in Settings). The radio card sits at the very bottom of the left column.
+- The buttons of the radio card are in two rows: Camera, Microphone and Deafen on top, Screen and Leave below. Each button has its own color.
+- Enlarge and Telsiz DJ are wide labeled buttons in a separate row below the crew instead of items at the end of the crew. Enlarge shows the number of cameras on.
+- The voice activity strip is a single line, half as tall.
+- The avatars in the crew of the radio card are 3.125rem instead of 2.75rem, and camera tiles are 4.75rem instead of 4.25rem.
+- While the camera grid is open the right column (Stations) stays in place, the stage only covers the conversation column and the latest messages stay open below the stage.
+- While Telsiz DJ is playing the Stations list is at the top of the right column and the DJ card below it.
+- On wide screens Settings is centered together with its sidebar and content, slightly to the left.
+- On wide screens the screen share notice no longer opens separately at the top right, it is in the Notifications list.
+- Role names start with a capital letter: Owner, Admin, Member.
+- Every word in button, menu item, tab and chip labels starts with a capital letter in both languages (for example Direct Messages, Try Again, Remove From Room). English uses standard Title Case, and Turkish conjunctions such as ve, ile and veya stay lowercase. The header lines follow the same style: "Frekans · 9 Üye · Şifreli", "Açık · 4 Çevrimiçi", "Yazı Odası" and "Uçtan Uca Şifreli".
+- Someone else's screen share is no longer shown in the top bar (the "X is live · Watch" chip was removed). The "Your screen is live · Stop" chip of your own share stays.
+- The crew of the radio card is centered, and three people fit on one row while a camera is on.
+
 ### Fixes
+
+- In the desktop app the Full screen button of the stage did not cover the whole screen (the app denied the full screen permission). The full screen permission is now granted only to the app's main frame, and the YouTube player cannot go full screen.
 
 - When system audio was shared with a screen share, the conversation in Telsiz was also captured and listeners heard their own voices back. The share audio is now requested with the `restrictOwnAudio` constraint: the desktop app and browsers that support it remove the sounds Telsiz itself plays (the conversation, notification sounds, Telsiz DJ) from the shared audio. On older Windows versions that cannot separate it, all system audio is still shared.
 

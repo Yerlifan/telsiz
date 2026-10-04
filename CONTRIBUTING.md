@@ -83,11 +83,12 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
 | `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
 | `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru |
+| `public/rnnoise-worklet.js` | Gelişmiş gürültü engelleme: RNNoise wasm modülünü çalıştıran AudioWorklet işlemcisi |
 | `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
 | `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
 | `public/theme-init.js`, `public/css/` | Tema ön yükleyicisi, belirteçler, düzen, bileşenler ve temalar ([docs/TASARIM.md](docs/TASARIM.md)) |
 | `public/sw.js` | Service worker, uygulama kabuğunun önbelleği |
-| `public/vendor/` | TweetNaCl-js 1.0.3 ve scrypt-js 3.0.1, değiştirilmez |
+| `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 ve RNNoise wasm derlemesi (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), değiştirilmez |
 | `desktop/` | Electron masaüstü uygulaması |
 | `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
 | `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
@@ -100,13 +101,13 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
 | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
 | `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
-| `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası, oda bilgisi, Yayındakiler listesi, oda seçimi |
+| `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
 | `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
-| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi ve kadrodaki kamera kutuları dahil) |
+| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil) |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
 | `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
 | `13-profile.js` | Profiller, profil kartı, durum menüsü |
@@ -124,6 +125,9 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 | `26-tanitim.js` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası |
 | `27-kapasite.js` | Ayarlar > Genel içindeki sunucu bilgileri bölümü, ses odası kapasitesi ve kamera sınırı önerisi, sunucu ipuçları |
+| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), ses odasına katılma ve ayrılma |
+| `29-mikrofon.js` | Mikrofon düğmesinin bağlam menüsü (sağ tık, Shift+F10 veya Menü tuşu): Bas konuş ve Ses etkinliği seçimi |
+| `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -137,14 +141,14 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
 4. `public/` altındaki istemci kodu modülsüz düz betiktir ve ES2017 sözdizimiyle ayrıştırılabilmelidir. İsteğe bağlı zincirleme, boş birleştirme işleci, sınıf alanları, `import` ve `\p{...}` düzenli ifade kaçışları kullanılmaz.
 5. İstemcide `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `Function` yapıcısı, `structuredClone`, `.replaceAll`, `Object.hasOwn` ve `.at()` yasaktır. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır. Ağ istekleri `XMLHttpRequest` ile yapılır, `fetch` yalnızca `public/sw.js` içinde serbesttir.
 6. HTML dosyalarında `style` özniteliği, `on...` olay öznitelikleri, `<style>` öğesi ve gövdeli `<script>` bulunmaz, çünkü içerik güvenliği politikası bunları engeller.
-7. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js` ve `scrypt.js` dosyalarının sha256 değerini doğrular.
+7. `public/vendor/` altındaki dosyalar hiçbir zaman değiştirilmez. Denetleyici `nacl-fast.min.js`, `scrypt.js`, `rnnoise/rnnoise.wasm` ve RNNoise lisans dosyalarının sha256 değerini doğrular.
 8. `.bat` dosyaları BOM'suz ve CRLF satır sonlarıyla kaydedilir, hiçbir satırında noktalı virgül bulunmaz. `.sh` dosyaları BOM'suz ve yalnızca LF satır sonlarıyla kaydedilir ve git'te çalıştırılabilir kipte (100755) saklanır.
 9. JSON dosyaları geçerli JSON olmalıdır.
 10. Markdown belgelerinde düzyazıda noktalı virgül kullanılmaz. Kod örnekleri kod bloğuna veya satır içi koda yazılır.
 11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
-14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
 15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
 
 ## İki dil kuralları
@@ -203,4 +207,4 @@ Masaüstü güncellemeleri imzasız olduğu için bütünlükleri GitHub hesabı
 
 ## Lisans
 
-Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js (Unlicense) ve scrypt-js (MIT) ile `public/fonts/` altındaki yazı tipleri (SIL Open Font License) kendi lisanslarıyla dağıtılır.
+Katkılarınız projenin MIT lisansı altında dağıtılır, ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. `public/vendor/` altındaki TweetNaCl-js (Unlicense), scrypt-js (MIT) ve RNNoise wasm derlemesi (BSD-3-Clause ve Apache-2.0) ile `public/fonts/` altındaki yazı tipleri (SIL Open Font License) kendi lisanslarıyla dağıtılır.

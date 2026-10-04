@@ -55,21 +55,11 @@
   background-color: var(--danger-bg);
 }
 
-.top-cast-chip.is-remote {
-  padding-right: 0.375rem;
-  cursor: pointer;
-}
-
-.top-cast-chip.is-remote:hover {
-  background-color: var(--surface-hover);
-}
-
 .top-cast-text {
   margin: 0 0.625rem 0 0.5rem;
 }
 
-.top-cast-stop,
-.top-cast-action {
+.top-cast-stop {
   display: inline-flex;
   align-items: center;
   min-height: 2.25rem;
@@ -92,18 +82,13 @@
   margin-right: 0.375rem;
 }
 
-.top-cast-action {
-  background-color: var(--live-bg);
-  color: var(--live);
-}
-
 /* =========================================================
    3. Paylaşım bildirimi
    ========================================================= */
 
 .cast-notice {
   position: fixed;
-  top: calc(var(--top-h) + 0.5rem);
+  top: calc(var(--titlebar-h, 0px) + var(--top-h) + 0.5rem);
   right: 1.25rem;
   z-index: 60;
   display: flex;
@@ -619,6 +604,11 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
   border-radius: 0;
 }
 
+/* Sığdır: görüntünün tamamı kutuya sığar, kalan alan koyu zemin olur (varsayılan Doldur kırpar) */
+.cast-screen[data-fit="contain"] .cam-tile .cam-video {
+  object-fit: contain;
+}
+
 .cam-tile-name {
   position: absolute;
   left: 0.5rem;
@@ -726,7 +716,7 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 
 .cast-panel.is-full {
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h, 0px);
   right: 0;
   bottom: 0;
   left: 0;
@@ -835,7 +825,7 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 
 .cast-dialog {
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h, 0px);
   right: 0;
   bottom: 0;
   left: 0;
@@ -1199,7 +1189,6 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
     display: none;
   }
 
-  .top-cast-chip.is-remote .cast-led,
   .top-cast-chip.is-own .cast-led {
     margin-right: 0.375rem;
   }

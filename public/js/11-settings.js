@@ -57,7 +57,9 @@ const MUSIC_SETTINGS_READY = true
 const BIND_ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
 const SKIN_CHOICES = ['arcade', 'gece', 'turkuaz']
 const SCHEME_CHOICES = ['dark', 'light', 'system']
-const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv']
+const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+// Elle ayarlanan yazı boyutunun sınırları (theme-init.js ile aynı) ve varsayılanı, piksel
+const FONT_PX_RANGE = { min: 12, max: 28, initial: 15 }
 const MOTION_CHOICES = ['system', 'on', 'off']
 const AVATAR_SOURCE_MAX = 20 * 1024 * 1024
 const AVATAR_PENDING_MS = 20000
@@ -67,7 +69,9 @@ const ADMIN_REFRESH_MS = 2000
 const REPO_URL = 'https://github.com/Yerlifan/telsiz'
 const LICENSE_LINKS = [
   { key: 'settings.app.licenseNacl', href: '/vendor/TWEETNACL-LICENSE.txt' },
-  { key: 'settings.app.licenseScrypt', href: '/vendor/SCRYPT-JS-LICENSE.txt' }
+  { key: 'settings.app.licenseScrypt', href: '/vendor/SCRYPT-JS-LICENSE.txt' },
+  { key: 'settings.app.licenseRnnoise', href: '/vendor/rnnoise/RNNOISE-LICENSE.txt' },
+  { key: 'settings.app.licenseRnnoiseWasm', href: '/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt' }
 ]
 
 const settingsUi = {
@@ -1992,7 +1996,7 @@ function buildKeyringSection (page) {
     linkHint.hidden = !entry
     setKeyVisible(settingsUi.keyVisible)
     adminWrap.hidden = !admin
-    generate.textContent = t(kid ? 'settings.crypto.newKey' : 'key.generate')
+    generate.textContent = t(kid ? 'settings.crypto.newKeyButton' : 'key.generate')
     newWrap.hidden = !settingsUi.newInvite
     newText.value = settingsUi.newInvite
   }
@@ -2195,7 +2199,7 @@ function buildVoicePage (page) {
   const release = sRange('set-ptt-release', 0, 1000, 10, typeof s0.pttReleaseMs === 'number' ? s0.pttReleaseMs : 200)
   pttWrap.appendChild(release)
   pttWrap.appendChild(sHint(t('settings.voice.releaseHint')))
-  pttWrap.appendChild(h('p', 'settings-note', t('settings.voice.focusNote')))
+  pttWrap.appendChild(h('p', 'settings-note', voiceFocusNote()))
   release.addEventListener('input', () => {
     applyVoiceSettings({ pttReleaseMs: sliderValue(release, 0, 1000) })
   })
@@ -2240,19 +2244,21 @@ function buildVoicePage (page) {
   testRow.appendChild(test)
   levelSec.appendChild(sMsg('set-mic-test-msg'))
 
-  // Ses işleme
+  // Ses işleme. Gelişmiş gürültü engelleme (RNNoise) tarayıcının gürültü bastırmasının yanında durur, varsayılan
+  // açıktır, açıklaması durumla değişir (renderSettingsVoice). Desteklenmezse ses tarayıcının işlemesiyle sürer.
   const procSec = sSection(page, t('settings.voice.processingTitle'), 'set-processing-section')
   const procs = [
-    ['set-echo', 'echoCancellation', 'settings.voice.echo'],
-    ['set-noise', 'noiseSuppression', 'settings.voice.noise'],
-    ['set-agc', 'autoGainControl', 'settings.voice.agc']
+    ['set-echo', 'echoCancellation', 'settings.voice.echo', null],
+    ['set-noise', 'noiseSuppression', 'settings.voice.noise', null],
+    ['set-rnnoise', 'rnnoise', 'settings.voice.rnnoise', 'settings.voice.rnnoiseHint'],
+    ['set-agc', 'autoGainControl', 'settings.voice.agc', null]
   ]
   procs.forEach((p) => {
     const sw = sSwitch(p[0], t(p[2]), s0[p[1]] !== false, (checked) => {
       const partial = {}
       partial[p[1]] = checked
       applyVoiceSettings(partial)
-    }, null)
+    }, p[3] ? t(p[3]) : null)
     procSec.appendChild(sw.row)
   })
   procSec.appendChild(sHint(t('settings.voice.processingHint')))
@@ -2424,11 +2430,13 @@ function renderSettingsVoice () {
   const change = toggle('set-ptt-change', !enabled)
   change.textContent = t(capturing ? 'common.cancel' : 'settings.voice.changeKey')
   byId('set-ptt-key').textContent = capturing ? t('settings.keybinds.waiting') : bindingText(settings && settings.bindings ? settings.bindings.ptt : null)
-  const switches = [['set-echo', 'echoCancellation'], ['set-noise', 'noiseSuppression'], ['set-agc', 'autoGainControl'], ['set-sounds', 'sounds']]
+  const switches = [['set-echo', 'echoCancellation'], ['set-noise', 'noiseSuppression'], ['set-rnnoise', 'rnnoise'], ['set-agc', 'autoGainControl'], ['set-sounds', 'sounds']]
   switches.forEach((p) => {
     const node = toggle(p[0], !enabled)
     node.checked = !settings || settings[p[1]] !== false
   })
+  const rnHint = byId('set-rnnoise-hint')
+  if (rnHint) rnHint.textContent = t(rnnoiseHintKey(snap().rnnoise))
   const volume = toggle('set-output-volume', !enabled)
   const out = settings && typeof settings.outputVolume === 'number' ? settings.outputVolume : 1
   if (document.activeElement !== volume) volume.value = String(Math.round(out * 100))
@@ -2439,6 +2447,13 @@ function renderSettingsVoice () {
   setButtonText(test, t(testing ? 'settings.voice.testStop' : 'settings.voice.testStart'))
   updateLevelMeter()
   renderScreenQuality()
+}
+
+// Gelişmiş gürültü engelleme açıklaması: ses hattındaki duruma göre (voice.js snapshot.rnnoise)
+function rnnoiseHintKey (status) {
+  if (status === 'on') return 'settings.voice.rnnoiseOn'
+  if (status === 'unavailable') return 'settings.voice.rnnoiseUnavailable'
+  return 'settings.voice.rnnoiseHint'
 }
 
 // dBFS değerini (-100..0) çubuktaki yüzdeye çevirir
@@ -2627,6 +2642,13 @@ function cancelBindingCapture () {
 
 // 5. Tuş atamaları: Bas konuş, Mikrofonu aç/kapat, Sağırlaştır
 
+// Odak notu: tarayıcıda bas konuş tuşu yalnızca odaktaki sayfada çalışır. Masaüstü uygulamasında oyun
+// sırasında genel bas konuş kısayolu veya basılı tut kullanılabilir (20-desktop.js).
+function voiceFocusNote () {
+  const desktopUi = window.TelsizDesktopUI
+  return t(desktopUi && desktopUi.active ? 'settings.voice.focusNoteDesktop' : 'settings.voice.focusNote')
+}
+
 function sameBinding (a, b) {
   if (!a || !b || a.type !== b.type) return false
   if (a.type === 'key') return a.code === b.code
@@ -2634,7 +2656,7 @@ function sameBinding (a, b) {
 }
 
 function buildKeybindsPage (page) {
-  page.appendChild(h('p', 'settings-note settings-note-strong', t('settings.voice.focusNote')))
+  page.appendChild(h('p', 'settings-note settings-note-strong', voiceFocusNote()))
   const modeLine = h('p', 'settings-text')
   modeLine.id = 'set-bind-mode'
   page.appendChild(modeLine)
@@ -2955,7 +2977,7 @@ function playMessageSound (opts) {
 
 function themeState () {
   const theme = window.TelsizTheme
-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', compact: false, reduceMotion: 'system' }
+  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system' }
   return theme.get()
 }
 
@@ -3020,6 +3042,22 @@ function buildAppearancePage (page) {
     setTheme({ fontSize: value })
   }, 'is-chips')
   sizeSec.appendChild(sizes.group)
+  // Elle ayar: kaydırıcı Özel boyutu belirler, oynatınca Özel seçilir
+  const pxOf = (state) => (typeof state.fontPx === 'number' ? state.fontPx : FONT_PX_RANGE.initial)
+  const pxValue = rangeLabel(sizeSec, 'set-font-px', t('theme.fontPx'))
+  const pxRange = sRange('set-font-px', FONT_PX_RANGE.min, FONT_PX_RANGE.max, 1, pxOf(current))
+  const showPx = (px) => {
+    const text = t('theme.fontPxValue', { px: px })
+    pxValue.textContent = text
+    pxRange.setAttribute('aria-valuetext', text)
+  }
+  pxRange.addEventListener('input', () => {
+    const px = sliderValue(pxRange, FONT_PX_RANGE.min, FONT_PX_RANGE.max)
+    showPx(px)
+    setTheme({ fontSize: 'custom', fontPx: px })
+  })
+  sizeSec.appendChild(pxRange)
+  showPx(pxOf(current))
 
   const compactSec = sSection(page, t('settings.appearance.messagesTitle'), 'set-compact-section')
   const compact = sSwitch('set-compact', t('theme.compact'), current.compact, (checked) => {
@@ -3062,6 +3100,10 @@ function buildAppearancePage (page) {
     })
     setRadioValue(schemes.inputs, now.scheme)
     setRadioValue(sizes.inputs, now.fontSize)
+    if (document.activeElement !== pxRange) {
+      pxRange.value = String(pxOf(now))
+      showPx(pxOf(now))
+    }
     compact.input.checked = Boolean(now.compact)
     setRadioValue(motions.inputs, now.reduceMotion)
     if (lang.value !== window.I18N.lang) lang.value = window.I18N.lang
@@ -3997,8 +4039,8 @@ async function deleteChannel (c) {
   setMsg(msg, () => errorText(res, t('settings.server.deleteFailed')), 'error')
 }
 
-// 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme ve engeli kaldırma (engelleme izni),
-// parola sıfırlama (sahip)
+// 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme, engeli kaldırma ve frekanstan atma
+// (engelleme izni), parola sıfırlama (sahip)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4144,6 +4186,16 @@ function buildMemberAdminRow (u, banned) {
     })
     actions.appendChild(banBtn)
   }
+  // Frekanstan atma engellemeyle aynı izin ve rütbe kuralına bağlıdır (engellenenler listesinde gösterilmez)
+  if (canBan && !banned) {
+    const kickBtn = button('button button-small button-danger act-kick', t('settings.members.kick'))
+    kickBtn.setAttribute('data-focus-key', 'kick-' + u.id)
+    kickBtn.setAttribute('aria-label', t('settings.members.kickLabel', { name: display }))
+    kickBtn.addEventListener('click', () => {
+      kickUser(u, kickBtn)
+    })
+    actions.appendChild(kickBtn)
+  }
   if (owner && !self && !banned) {
     const reset = button('button button-small button-ghost act-reset', t('settings.members.resetPassword'))
     reset.setAttribute('data-focus-key', 'reset-' + u.id)
@@ -4233,6 +4285,22 @@ async function setUserBan (u, banned, b) {
     updateSettingsPage()
     focusNode(byId('set-members-filter'))
     refreshAdminState(true)
+    return
+  }
+  if (isConnected(b)) b.disabled = false
+  setMsg(msg, () => errorText(res, t('settings.members.actionFailed')), 'error')
+}
+
+// Frekanstan atma hesabı siler: onaydan sonra istek gider, satır meta güncellemesiyle listeden düşer
+async function kickUser (u, b) {
+  const msg = byId('set-members-msg')
+  const name = shownName(u.id)
+  if (!window.confirm(t('settings.members.kickConfirm', { name: name }))) return
+  b.disabled = true
+  const res = await api('POST', '/api/users/kick', { userId: u.id })
+  if (res.status === 200) {
+    setMsg(msg, () => t('settings.members.kickedOk', { name: name }), 'ok')
+    focusNode(byId('set-members-filter'))
     return
   }
   if (isConnected(b)) b.disabled = false

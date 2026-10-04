@@ -6,8 +6,13 @@
 
 // frame-src: Telsiz DJ YouTube parçaları yalnızca YouTube'un resmi gömülü oynatıcısıyla, çapraz kökenli
 // çerçeve olarak çalınır (Ek L2.4 yol ii, public/dj/youtube.js). Google kodu uygulamanın kökeninde çalışmaz,
-// script-src 'self' kalır. Başka hiçbir çerçeve kaynağına izin yoktur.
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
+// betikler yalnızca 'self' kaynağından yüklenir. Başka hiçbir çerçeve kaynağına izin yoktur.
+// 'wasm-unsafe-eval': gelişmiş gürültü engelleme, kendi kökeninden indirilen RNNoise WebAssembly modülünü
+// (public/vendor/rnnoise/rnnoise.wasm) AudioWorklet içinde derler. Worklet sayfanın politikasını devralır ve
+// bu anahtar olmadan derleme engellenir (Chromium 141'de ölçüldü). Anahtar yalnızca WebAssembly derlemesine
+// izin verir, eval, new Function ve satır içi betik yine engellidir ('unsafe-eval' ve 'unsafe-inline' yoktur).
+// Derleme bir tarayıcıda yine de engellenirse ses tarayıcının kendi işlemesiyle sürer.
+const HTML_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 const DOWNLOAD_CSP = "default-src 'none'; sandbox"
 

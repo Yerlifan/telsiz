@@ -23,6 +23,11 @@
 // - Güncellemeler (src/lib/updates.js): kurucu ve AppImage electron-updater ile arka planda indirir
 //   ve sha512 ile doğrular, kurulum yalnızca kullanıcı isteyince yapılır. Taşınabilir exe ve .deb
 //   için yalnızca yeni sürüm bildirilir. Ayar kapalıyken GitHub'a hiç istek gitmez.
+// - Bas konuş arka planda: bas aç, bas kapat bir genel kısayoldur (pttToggle). Basılı tut isteğe bağlıdır
+//   ve tuş kancasıyla (uiohook-napi, src/lib/ptt-hook.js) çalışır. Kanca yalnızca ayar açıkken ve sayfa ses
+//   odasında bas konuş modundayken çalışır, yerel modül yalnızca gerektiğinde yüklenir. Kanca olayları
+//   yalnızca burada işlenir, sayfaya yalnızca "konuş başla" ve "konuş bitti" gider, tuş kodları sayfaya
+//   veya günlüğe hiç gitmez.
 
 const path = require('node:path')
 const fs = require('node:fs')
@@ -61,8 +66,10 @@ const frequencies = require('./lib/frequencies')
 const updates = require('./lib/updates')
 const background = require('./lib/background')
 const serverIcon = require('./lib/server-icon')
+const pttHook = require('./lib/ptt-hook')
+const titleBar = require('./lib/title-bar')
 
-const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG, BACKGROUND_ARG } = channels
+const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
 
 const APP_ID = 'io.github.yerlifan.telsiz'
 const HOMEPAGE = 'https://github.com/Yerlifan/telsiz'
@@ -130,6 +137,8 @@ const state = {
   quitting: false,
   registeredAccelerators: [],
   shortcutStatus: {},
+  // Uygulama penceresinin son bildirimi: ses odasında ve bas konuş modunda mı (basılı tut kancası için)
+  pttVoice: false,
   contexts: new Map(),
   preparedSessions: new WeakSet(),
   connectBusy: false,
@@ -142,7 +151,10 @@ const state = {
   updateStatus: null,
   // Zamanlanmış güncelleme denetimi (gözetimsiz çalıştırmada ve otomasyonda kapalı)
   scheduleUpdates: false,
-  lastBackgroundOpen: 0
+  lastBackgroundOpen: 0,
+  // Başlık çubuğu (src/lib/title-bar.js): uygulama penceresi kaplamayla mı açıldı, sayfanın son bildirdiği renkler
+  titleBarOverlay: false,
+  titleBarColors: null
 }
 
 function t (key, params) {
@@ -529,7 +541,10 @@ function openMainWindow () {
   }
   const partition = partitionFor(origin)
   prepareAppSession(session.fromPartition(partition), origin)
-  const win = new BrowserWindow({
+  // Windows ve Linux'ta yerel başlık çubuğu yerine tema renginde Pencere Denetimleri Kaplaması
+  // (src/lib/title-bar.js). Pencere yeniden açılınca sayfanın son bildirdiği renklerle başlar.
+  const overlay = titleBar.supported(process.platform)
+  const win = new BrowserWindow(Object.assign({
     width: 1280,
     height: 820,
     minWidth: 380,
@@ -541,16 +556,31 @@ function openMainWindow () {
     webPreferences: webPreferences(path.join(__dirname, 'preload.js'), partition, {
       additionalArguments: [VERSION_ARG + app.getVersion()]
     })
-  })
+  }, titleBar.windowOptions(process.platform, state.titleBarColors)))
+  state.titleBarOverlay = overlay
+  if (overlay) {
+    // Tam ekranda şerit kalkar. Kaplamanın CSS değişkenleri platforma göre tanımlı kalabildiği için sayfaya
+    // ayrıca bildirilir (public/js/30-pencere.js).
+    const sendFullscreen = (value) => {
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.titleBarFullscreen, value)
+    }
+    win.on('enter-full-screen', () => sendFullscreen(true))
+    win.on('leave-full-screen', () => sendFullscreen(false))
+  }
   const id = win.webContents.id
   state.contexts.set(id, 'app')
   diag.log('window', { context: 'app', contents: id })
   state.mainWindow = win
   state.mainOrigin = origin
+  // Yeni sayfa ses odasında değildir, basılı tut kancası sayfa bildirene kadar durur
+  setPttVoice(false)
   // Bu frekansın arka plan penceresi uygulama penceresi yüklenmeden kapanır, diğerleri biraz sonra açılır
   backgroundWindows.setActive(origin)
   attachContextMenu(win.webContents)
   showWhenReady(win)
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument && state.mainWindow === win) setPttVoice(false)
+  })
   win.on('close', (event) => {
     if (state.quitting || state.mainWindow !== win) return
     if (state.settings.closeToTray && state.tray) {
@@ -570,8 +600,12 @@ function openMainWindow () {
       // Uygulama penceresi gerçekten kapandı (geçiş değil): arka plan pencereleri de kapanır
       backgroundWindows.stop()
     }
+    if (state.mainWindow === null) setPttVoice(false)
   })
-  win.webContents.on('render-process-gone', (event, details) => logError('renderer', new Error(details.reason)))
+  win.webContents.on('render-process-gone', (event, details) => {
+    logError('renderer', new Error(details.reason))
+    if (state.mainWindow === win) setPttVoice(false)
+  })
   win.loadURL(APP_ORIGIN + '/').catch((err) => logError('load', err))
 }
 
@@ -945,6 +979,57 @@ function showAbout () {
   shown.catch(noop)
 }
 
+// ------------------------------------------------------------------ Başlık çubuğu
+
+// Sayfanın şeridi için: kaplama açık mı, pencere tam ekranda mı, uygulama menüsünün üst düzey etiketleri ve
+// şeridin erişilebilir adı
+function titleBarInfo () {
+  const enabled = state.titleBarOverlay && isAlive(state.mainWindow)
+  return {
+    enabled,
+    fullscreen: enabled && state.mainWindow.isFullScreen(),
+    label: t('titleBar.menus'),
+    menus: enabled ? titleBar.menuLabels(Menu.getApplicationMenu()) : []
+  }
+}
+
+// Sayfa tema rengini bildirir (zemin ve simge rengi). Aynı renkler yeniden uygulanmaz.
+function applyTitleBarColors (value) {
+  const colors = titleBar.cleanColors(value)
+  const win = state.mainWindow
+  if (!colors || !state.titleBarOverlay || !isAlive(win)) return false
+  if (titleBar.sameColors(colors, state.titleBarColors)) return true
+  state.titleBarColors = colors
+  try {
+    win.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor, height: titleBar.OVERLAY_HEIGHT })
+  } catch (err) {
+    logError('titleBar', err)
+    return false
+  }
+  diag.log('title-bar-colors', colors)
+  return true
+}
+
+// Şeritteki menü düğmesi: uygulama menüsünün o bölümü düğmenin altında açılır. Konum sayfanın CSS
+// pikselidir, yakınlaştırma katsayısıyla pencere koordinatına çevrilir. Menü kapanınca söz true ile çözülür.
+function popupTitleBarMenu (index, x, y) {
+  const win = state.mainWindow
+  const menu = Menu.getApplicationMenu()
+  if (!state.titleBarOverlay || !isAlive(win) || !menu) return Promise.resolve(false)
+  const request = titleBar.cleanMenuRequest(index, x, y, menu.items.length)
+  const item = request ? menu.items[request.index] : null
+  if (!item || !item.submenu) return Promise.resolve(false)
+  const zoom = win.webContents.getZoomFactor()
+  return new Promise((resolve) => {
+    item.submenu.popup({
+      window: win,
+      x: Math.round(request.x * zoom),
+      y: Math.round(request.y * zoom),
+      callback: () => resolve(true)
+    })
+  })
+}
+
 function buildMenu () {
   const view = [
     { label: t('menu.reload'), role: 'reload' },
@@ -1054,6 +1139,45 @@ function sendShortcut (action) {
   win.webContents.send(CHANNELS.shortcut, action)
 }
 
+// Basılı tut kancasının "konuş başla" ve "konuş bitti" olayları yalnızca uygulama penceresine gider.
+// Olayda yalnızca bu iki değerden biri vardır (tuş kodu veya başka bir bilgi yok).
+function sendPttHold (talking) {
+  const phase = talking === true ? 'start' : 'end'
+  if (!HOLD_PHASES.includes(phase)) return
+  const win = state.mainWindow
+  if (!isAlive(win) || win.webContents.isDestroyed()) return
+  win.webContents.send(CHANNELS.pttHold, phase)
+}
+
+// Basılı tut kancası (src/lib/ptt-hook.js). uiohook-napi yalnızca kanca gerektiğinde veya ayarda basılı
+// tut açılırken yüklenir.
+const holdHook = pttHook.createPttHook({
+  platform: process.platform,
+  env: process.env,
+  load: () => require('uiohook-napi'),
+  onTalk: (talking) => sendPttHold(talking),
+  log: logError
+})
+
+// Kanca yalnızca basılı tut kipi açıkken, tuş atanmışken ve uygulama penceresi ses odasında bas konuş
+// modunda olduğunu bildirmişken çalışır
+function refreshHoldHook () {
+  const before = holdHook.isRunning()
+  const status = holdHook.update({
+    enabled: state.settings.ptt.mode === 'hold',
+    active: state.pttVoice && isAlive(state.mainWindow),
+    key: state.settings.ptt.holdKey
+  })
+  if (status.running !== before || status.error) diag.log('ptt-hook', { running: status.running, reason: status.reason, error: status.error })
+}
+
+function setPttVoice (value) {
+  const next = value === true
+  if (state.pttVoice === next) return
+  state.pttVoice = next
+  refreshHoldHook()
+}
+
 function applyShortcuts (map) {
   for (const accelerator of state.registeredAccelerators) {
     try {
@@ -1066,7 +1190,8 @@ function applyShortcuts (map) {
   const status = {}
   for (const action of ACTIONS) {
     const accelerator = map[action]
-    if (!accelerator) {
+    // Bas aç, bas kapat kısayolu basılı tut kipinde kaydedilmez (bas konuşu tuş kancası yönetir)
+    if (!accelerator || (action === 'pttToggle' && state.settings.ptt.mode === 'hold')) {
       status[action] = null
       continue
     }
@@ -1088,8 +1213,26 @@ function settingsSnapshot () {
     closeToTray: state.settings.closeToTray,
     trayAvailable: Boolean(state.tray),
     shortcuts: Object.assign({}, state.settings.shortcuts),
-    registered: Object.assign({}, state.shortcutStatus)
+    registered: Object.assign({}, state.shortcutStatus),
+    ptt: Object.assign({}, state.settings.ptt),
+    // { available, reason, running, error }: basılı tut seçeneği kullanılamıyorsa nedeni
+    pttHook: holdHook.availability()
   }
+}
+
+// Bas konuş ayarı: kip (toggle veya hold) ve basılı tut tuşu. Basılı tut açılırken yerel modül denenir,
+// yüklenemiyorsa ayar değişmez ve sayfa nedeni gösterir.
+function setPttSettings (input) {
+  const checked = shortcuts.validatePttSettings(input)
+  if (!checked.ok) return { ok: false, code: checked.code }
+  const value = checked.value
+  if (shortcuts.holdConflict(state.settings.shortcuts, value)) return { ok: false, code: 'duplicate' }
+  if (value.mode === 'hold' && !holdHook.check().available) return Object.assign({ ok: false, code: 'unavailable' }, settingsSnapshot())
+  state.settings.ptt = value
+  persistSettings()
+  applyShortcuts(state.settings.shortcuts)
+  refreshHoldHook()
+  return Object.assign({ ok: true }, settingsSnapshot())
 }
 
 function setCloseToTray (value) {
@@ -1126,10 +1269,19 @@ function registerIpc () {
     requireSender(event, 'app')
     const checked = shortcuts.validateShortcutMap(map)
     if (!checked.ok) return { ok: false, code: checked.code }
+    if (shortcuts.holdConflict(checked.map, state.settings.ptt)) return { ok: false, code: 'duplicate' }
     state.settings.shortcuts = checked.map
     persistSettings()
     applyShortcuts(checked.map)
     return Object.assign({ ok: true }, settingsSnapshot())
+  })
+  ipcMain.handle(CHANNELS.setPtt, (event, value) => {
+    requireSender(event, 'app')
+    return setPttSettings(value)
+  })
+  // Sayfa ses odasına girince veya çıkınca, bas konuş modu değişince bildirir (yalnızca true veya false)
+  ipcMain.on(CHANNELS.pttVoice, (event, value) => {
+    if (senderIs(event, 'app') && typeof value === 'boolean') setPttVoice(value)
   })
   ipcMain.handle(CHANNELS.setCloseToTray, (event, value) => {
     requireSender(event, 'app')
@@ -1175,6 +1327,18 @@ function registerIpc () {
   ipcMain.handle(CHANNELS.updatesOpenRelease, (event) => {
     requireSender(event, 'app')
     return openReleasePage()
+  })
+  // Başlık şeridi (src/lib/title-bar.js): bilgi, tema renkleri ve menü açma
+  ipcMain.handle(CHANNELS.titleBarInfo, (event) => {
+    requireSender(event, 'app')
+    return titleBarInfo()
+  })
+  ipcMain.on(CHANNELS.titleBarColors, (event, value) => {
+    if (senderIs(event, 'app')) applyTitleBarColors(value)
+  })
+  ipcMain.handle(CHANNELS.titleBarMenu, (event, index, x, y) => {
+    requireSender(event, 'app')
+    return popupTitleBarMenu(index, x, y)
   })
   ipcMain.on(CHANNELS.userActivation, (event) => {
     if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
@@ -1388,6 +1552,7 @@ if (!singleInstance) {
   })
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    holdHook.stop()
   })
   app.on('window-all-closed', () => {
     app.quit()

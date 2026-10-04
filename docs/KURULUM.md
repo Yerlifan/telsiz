@@ -210,7 +210,7 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 | --- | --- | --- |
 | Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ, YouTube kaynağı ve kısıtlı kip anahtarları (yalnızca sahip), Ses odaları ve kameralar bölümünde ses odası kapasitesi, kameralar ve oda başına kamera sınırı (yalnızca sahip, yönetici salt okunur görür), Sunucu bilgileri bölümünde makine ve kullanım bilgileri ile kapasite önerisi |
 | Ayarlar > Odalar | Sahip, yönetici ve oda yönetme izni olan roller | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
-| Ayarlar > Üyeler | Sahip, yönetici ve engelleme izni olan roller | Rol değiştirme ve üyeye özel rol verme (yalnızca sahip), alt sıradakileri engelleme ve engellerini kaldırma, geçici parolayla parola sıfırlama (yalnızca sahip) |
+| Ayarlar > Üyeler | Sahip, yönetici ve engelleme izni olan roller | Rol değiştirme ve üyeye özel rol verme (yalnızca sahip), alt sıradakileri engelleme, engellerini kaldırma ve frekanstan atma, geçici parolayla parola sıfırlama (yalnızca sahip) |
 | Ayarlar > Roller | Yalnızca sahip | Özel rol oluşturma, adlandırma, renk seçme, izinleri açıp kapatma, sıralama ve silme |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |
 | Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları | Sahip ve yönetici | Yeni grup anahtarı oluşturma |
@@ -228,12 +228,14 @@ Sahip ve yönetici rollerinin yanında sahip Ayarlar > Roller sayfasından en ç
 | İzin | Verdiği yetki |
 | --- | --- |
 | Mesajları sil | Yazı odalarında başkalarının mesajlarını silme (özel mesajlarda kimse başkasının mesajını silemez) |
-| Üyeleri engelle | Alt sıradaki üyeleri engelleme ve engellerini kaldırma |
-| Ses odasını denetle | Alt sıradaki birini herkes için susturma veya ses odasından çıkarma |
+| Üyeleri engelle | Alt sıradaki üyeleri engelleme, engellerini kaldırma ve frekanstan atma |
+| Ses odasını denetle | Alt sıradaki birini herkes için susturma, kamerasını kapatma veya ses odasından çıkarma |
 | Odaları yönet | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme |
 | Telsiz DJ kuyruğunu yönet | Kısıtlı kip açıkken odada bulunduğunda kuyruğu yönetme, bu sırada izni olmayanlar yalnızca dinler |
 
-Rütbe sırası sahip, yönetici, Ayarlar > Roller listesindeki sırayla özel roller ve en altta rolsüz üyelerdir. Engelleme ve ses odası denetimi yalnızca kendinden alt sıradaki birine uygulanabilir. Herkes için susturma hesaba yazılır, kişi odadan çıkıp girse de sunucu yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin uygulaması mikrofonunu kapalı tutar, diğerlerinin uygulaması o kişinin sesini çalmaz. Değiştirilmiş bir istemci kullanan kişi bu kuralı kendi cihazında atlayabilir. Odadan çıkarılan kişi yeniden katılabilir, kalıcı olarak uzaklaştırmak için engelleme kullanılır.
+Rütbe sırası sahip, yönetici, Ayarlar > Roller listesindeki sırayla özel roller ve en altta rolsüz üyelerdir. Engelleme, frekanstan atma ve ses odası denetimi yalnızca kendinden alt sıradaki birine uygulanabilir, sahip hiçbir zaman atılamaz. Herkes için susturma hesaba yazılır, kişi odadan çıkıp girse de sunucu yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin uygulaması mikrofonunu kapalı tutar, diğerlerinin uygulaması o kişinin sesini çalmaz. Değiştirilmiş bir istemci kullanan kişi bu kuralı kendi cihazında atlayabilir. Kamerasını kapat düğmesi kişi ses kartında ve profil kartında yalnızca kişinin kamerası açıkken görünür. Kapatma tek seferliktir, kişinin uygulaması kamerayı durdurur ve bunu bildirir, kişi kamerasını yeniden açabilir. Odadan çıkarılan kişi yeniden katılabilir, kalıcı olarak uzaklaştırmak için engelleme kullanılır.
+
+Frekanstan atma (Ayarlar > Üyeler > Frekanstan at) hesabı siler: kişinin bütün oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak yeni bir hesapla dönebilir. Kişiyi uzak tutmak için engelleme kullanılır. Atılan veya engellenen kişi grup şifreleme anahtarını bilmeye devam eder, yeni mesajları korumak için Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları bölümünden yeni anahtar oluşturun.
 
 Ses odaları ve kameralar bölümündeki üç ayar her ses odasına ayrı uygulanır ve sunucuda saklanır (`state.json`, `voice` alanı). Ses odası kapasitesi varsayılan olarak 8'dir ve 2 ile 12 kişi arasında seçilir. Düşürülen kapasite yalnızca yeni katılımlara uygulanır, odadaki kimse çıkarılmaz. Kameralar varsayılan olarak açıktır, kapatılınca açık kameralar da kapanır. Oda başına aynı anda açık kamera sayısı varsayılan olarak 4'tür, 1 ile 12 arasında seçilir ve kapasiteden büyük olamaz. Değişiklik kaydedilince açık uygulamalara hemen ulaşır. Ses ve görüntü kişiler arasında doğrudan aktığı için bu sınırlar sunucunun değil üyelerin yükleme hızının korunması içindir: tam örgüde kamerası açık olan herkes görüntüsünü odadaki diğer her kişiye ayrı gönderir.
 
@@ -266,6 +268,7 @@ Hangi vekili kullanırsanız kullanın şu noktalara dikkat edin:
 2. **Yükleme boyutu.** Vekilin istek gövdesi sınırı `MAKS_YUKLEME_MB` değerinin biraz üstünde olmalıdır. İki örnek de varsayılan 25 MB için 30 MB kullanır.
 3. **İstemci adresi.** Hız sınırları istemci IP'sine göre uygulanır. Sunucu `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarına yalnızca `GUVENILIR_VEKIL` listesindeki adreslerden gelen bağlantılarda güvenir. Varsayılan `loopback` değeri aynı makinedeki bir vekil için doğrudur. Vekil istemcinin gönderdiği bu başlıkları silmeli veya ezmelidir, iki örnek de bunu yapar.
 4. **HSTS.** İki örnek de `Strict-Transport-Security` başlığı ekler. Alan adını daha sonra https olmadan kullanmayı düşünüyorsanız bu satırı kaldırın.
+5. **İçerik güvenliği politikası.** Sunucu içerik güvenliği politikasını (CSP) ve diğer güvenlik başlıklarını kendisi gönderir, iki örnek de bunlara dokunmaz. Sayfanın politikasında `script-src 'self' 'wasm-unsafe-eval'` bulunur: `'wasm-unsafe-eval'` yalnızca WebAssembly derlemesine izin verir ve gelişmiş gürültü engellemenin RNNoise modülü içindir. Vekil bu başlığı kendi politikasıyla değiştirirse o politikada da bu anahtar olmalıdır. İkinci bir CSP başlığı eklerse tarayıcı iki politikayı birlikte uygular, eklenen politikada da bu anahtar bulunmalıdır. Aksi halde gelişmiş gürültü engelleme çalışmaz ve ses tarayıcının kendi işlemesiyle gider.
 
 ## Tünel
 
@@ -350,7 +353,7 @@ Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasında
 
 ## Parola sıfırlama ve sorun giderme
 
-**Bir üyenin parolası.** Sahip veya yönetici Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
+**Bir üyenin parolası.** Sahip Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
 
 **Sahibin parolası.** Sunucuyu durdurun ve aynı veri klasörüyle sıfırlama komutunu çalıştırın. Komut geçici bir parola yazar.
 
@@ -368,5 +371,7 @@ Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi
 **Veri klasörü kullanımda.** Aynı veri klasörünü iki süreç kullanamaz. Sunucu çalışmıyorken bu hata görünüyorsa, hata metninde adı geçen `.kilit` dosyasını silip yeniden deneyin.
 
 **Ses bağlanmıyor.** Adresin https veya localhost olduğunu, tarayıcının mikrofon izninin verildiğini ve gerekiyorsa bir TURN sunucusunun tanımlı olduğunu denetleyin.
+
+**Gelişmiş gürültü engelleme kullanılamıyor.** Ayarlar > Ses ve görüntü > Ses işleme bölümünde anahtarın altında "Bu tarayıcıda kullanılamıyor" yazıyorsa ses tarayıcının kendi işlemesiyle gider, bağlantı etkilenmez. Tarayıcının AudioWorklet ve WebAssembly desteklediğini, `/rnnoise-worklet.js` ve `/vendor/rnnoise/rnnoise.wasm` adreslerinin açıldığını ve ters vekilin içerik güvenliği politikasını değiştirmediğini denetleyin (bkz. Ters vekil).
 
 **Kamera açılmıyor.** Kamera da yalnızca https veya localhost üzerinde çalışır ve tarayıcının kamera izni gerekir. Sunucunun güvenlik başlığı (`Permissions-Policy: camera=(self)`) kamerayı yalnızca Telsiz'in kendi sayfasına açar. Ters vekil bu başlığı değiştiriyorsa kamera engellenir. Sahip kameraları kapattıysa veya odadaki kamera sınırı dolduysa düğme bunu yazar.

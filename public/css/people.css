@@ -1,7 +1,7 @@
 /*
   Frekans: kişisel alanlar ve giriş (Ek K, KONSEPT 6.3, 6.4, 6.7, 6.12). Sahibi: kişisel alanlar bileşeni.
-  Kapsam: giriş, kurulum, davet ve anahtar kartı (#auth-view, telsiz gövdesi), Yayındakiler sayfası
-  (#people-sheet: ses odası bölümleri, #members-online, #members-offline) ve üst çubuktaki Yayındakiler
+  Kapsam: giriş, kurulum, davet ve anahtar kartı (#auth-view, telsiz gövdesi), Çevrimiçi sayfası
+  (#people-sheet: ses odası bölümleri, #members-online, #members-offline) ve üst çubuktaki Çevrimiçi
   şeridi (#live-chip), sol sütundaki özel mesaj listesi (#dm-section, #dm-list) ve kişisel kartlar
   (#req-card, #friend-add-card, #outgoing-card), özel mesaj başlığı (#dm-header), Arkadaşlar istasyonu
   (#home-view) ve Tümü sayfasındaki özel konuşma satırları (.sheet-row-dmitem). Avatar menüsü (#status-menu)
@@ -231,7 +231,7 @@
 }
 
 /* =========================================================
-   2. Yayındakiler sayfası ve şeridi
+   2. Çevrimiçi sayfası ve şeridi
    ========================================================= */
 
 #people-sheet .avatar {

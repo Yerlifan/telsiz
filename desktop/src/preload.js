@@ -16,7 +16,14 @@ const CHANNELS = {
   setShortcuts: 'telsiz:set-shortcuts',
   setCloseToTray: 'telsiz:set-close-to-tray',
   shortcut: 'telsiz:shortcut',
+  setPtt: 'telsiz:set-ptt',
+  pttVoice: 'telsiz:ptt-voice',
+  pttHold: 'telsiz:ptt-hold',
   userActivation: 'telsiz:user-activation',
+  titleBarInfo: 'telsiz:title-bar-info',
+  titleBarColors: 'telsiz:title-bar-colors',
+  titleBarMenu: 'telsiz:title-bar-menu',
+  titleBarFullscreen: 'telsiz:title-bar-fullscreen',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -33,7 +40,9 @@ const CHANNELS = {
   bgState: 'telsiz:bg-state',
   bgGet: 'telsiz:bg-get'
 }
-const ACTIONS = ['toggleMute', 'toggleDeafen']
+const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
+const HOLD_PHASES = ['start', 'end']
+const PTT_MODES = ['toggle', 'hold']
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
@@ -63,6 +72,30 @@ ipcRenderer.on(CHANNELS.shortcut, (event, action) => {
   }
 })
 
+// Basılı tut kancasının olayları: yalnızca 'start' (konuş başla) ve 'end' (konuş bitti) sayfaya iletilir
+const holdListeners = new Set()
+ipcRenderer.on(CHANNELS.pttHold, (event, phase) => {
+  if (!HOLD_PHASES.includes(phase)) return
+  for (const callback of Array.from(holdListeners)) {
+    try {
+      callback(phase)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
+// Bas konuş ayarının yalnızca bilinen alanları, türleri denetlenerek ana sürece gider (ana süreç yeniden doğrular)
+// Bilinmeyen kip boş dizgeye, metin olmayan tuş false değerine çevrilir, ikisini de ana süreç reddeder
+function copyPtt (value) {
+  const v = value && typeof value === 'object' ? value : {}
+  const key = v.holdKey
+  return {
+    mode: PTT_MODES.includes(v.mode) ? v.mode : '',
+    holdKey: key === undefined || key === null ? null : (typeof key === 'string' ? key : false)
+  }
+}
+
 // Ana süreçten gelen güncelleme durumunun yalnızca bilinen alanları, türleri denetlenerek kopyalanır
 function cleanUpdateState (raw) {
   const s = raw && typeof raw === 'object' ? raw : {}
@@ -87,6 +120,40 @@ function cleanUpdateResult (raw) {
   if (UPDATE_CODES.includes(r.code)) out.code = r.code
   if (r.state && typeof r.state === 'object') out.state = cleanUpdateState(r.state)
   return out
+}
+
+// Başlık şeridinin bilgisi: kaplama açık mı, şeridin erişilebilir adı ve uygulama menüsünün üst düzey etiketleri
+const TITLE_BAR_MAX_MENUS = 12
+function cleanTitleBarInfo (raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const menus = Array.isArray(r.menus) ? r.menus.slice(0, TITLE_BAR_MAX_MENUS) : []
+  return {
+    enabled: r.enabled === true,
+    fullscreen: r.fullscreen === true,
+    label: typeof r.label === 'string' ? r.label.slice(0, 80) : '',
+    menus: menus.map((label) => (typeof label === 'string' ? label.slice(0, 60) : ''))
+  }
+}
+
+// Pencere tam ekrana girince true, çıkınca false (olay nesnesi verilmez, yalnızca true veya false iletilir)
+const fullscreenListeners = new Set()
+ipcRenderer.on(CHANNELS.titleBarFullscreen, (event, value) => {
+  if (typeof value !== 'boolean') return
+  for (const callback of Array.from(fullscreenListeners)) {
+    try {
+      callback(value)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
+function shortText (value, max) {
+  return typeof value === 'string' ? value.slice(0, max) : ''
+}
+
+function finiteNumber (value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : -1
 }
 
 const updateListeners = new Set()
@@ -123,11 +190,11 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   getServer: () => ipcRenderer.invoke(CHANNELS.getServer),
   // Frekans adresi penceresini açar (yeni frekans ekleme)
   changeServer: () => ipcRenderer.invoke(CHANNELS.changeServer),
-  // { server, closeToTray, trayAvailable, shortcuts, registered, systemAudio }
+  // { server, closeToTray, trayAvailable, shortcuts, registered, ptt, pttHook }
   getSettings: () => ipcRenderer.invoke(CHANNELS.getSettings),
-  // map: { toggleMute: 'CommandOrControl+Shift+M' | null, toggleDeafen: ... }
+  // map: { toggleMute: 'CommandOrControl+Shift+M' | null, toggleDeafen: ..., pttToggle: ... }
   setShortcuts: (map) => ipcRenderer.invoke(CHANNELS.setShortcuts, map),
-  // callback(action): action 'toggleMute' veya 'toggleDeafen'. Dönen işlev aboneliği kaldırır.
+  // callback(action): action 'toggleMute', 'toggleDeafen' veya 'pttToggle'. Dönen işlev aboneliği kaldırır.
   onShortcut: (callback) => {
     if (typeof callback !== 'function') return () => {}
     listeners.add(callback)
@@ -135,7 +202,35 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
       listeners.delete(callback)
     }
   },
+  // Bas konuş ayarı: { mode: 'toggle' | 'hold', holdKey: 'V' | null }
+  setPtt: (value) => ipcRenderer.invoke(CHANNELS.setPtt, copyPtt(value)),
+  // Sayfa ses odasında bas konuş modundayken true, değilken false bildirir (basılı tut kancası yalnızca true iken çalışır)
+  setVoiceActive: (value) => ipcRenderer.send(CHANNELS.pttVoice, value === true),
+  // callback(phase): 'start' veya 'end' (basılı tut kancası). Dönen işlev aboneliği kaldırır.
+  onPttHold: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    holdListeners.add(callback)
+    return () => {
+      holdListeners.delete(callback)
+    }
+  },
   setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null),
+  // Başlık şeridi (Windows ve Linux, public/js/30-pencere.js): getInfo() { enabled, fullscreen, label, menus },
+  // setColors('#rrggbb', '#rrggbb') pencere düğmelerinin zemini ve simge rengi, openMenu(sıra, x, y) uygulama
+  // menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar ve menü kapanınca true ile çözülür,
+  // onFullscreen(cb) pencere tam ekrana girince cb(true), çıkınca cb(false). Değerler ana süreçte yeniden doğrulanır.
+  titleBar: {
+    getInfo: () => ipcRenderer.invoke(CHANNELS.titleBarInfo).then(cleanTitleBarInfo),
+    setColors: (color, symbolColor) => ipcRenderer.send(CHANNELS.titleBarColors, { color: shortText(color, 7), symbolColor: shortText(symbolColor, 7) }),
+    openMenu: (index, x, y) => ipcRenderer.invoke(CHANNELS.titleBarMenu, Number.isInteger(index) ? index : -1, finiteNumber(x), finiteNumber(y)).then((value) => value === true),
+    onFullscreen: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      fullscreenListeners.add(callback)
+      return () => {
+        fullscreenListeners.delete(callback)
+      }
+    }
+  },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)

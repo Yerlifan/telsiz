@@ -7,8 +7,11 @@
 //   media, ekran yakalama: yalnızca kullanıcı ekran seçicide bir kaynak seçerse (src/lib/screen-share.js)
 //   notifications: sistem bildirimleri
 //   clipboard-sanitized-write: panoya metin yazma (kopyala düğmeleri)
-// Geri kalan her izin (konum, pano okuma, HID, USB, seri port, tam ekran, MIDI, dış uygulama açma ve
-// diğerleri) reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir izin verilmez. Arka plan
+//   fullscreen: yayın sahnesinin (ekran paylaşımı ve kamera ızgarası) Tam ekran düğmesi. Tarayıcı bunu
+//     yalnızca kullanıcı hareketiyle başlatır, Esc ile çıkılır. Alt çerçeveler (YouTube oynatıcısı) tam
+//     ekran olamaz.
+// Geri kalan her izin (konum, pano okuma, HID, USB, seri port, MIDI, dış uygulama açma ve diğerleri)
+// reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir izin verilmez. Arka plan
 // pencereleri (src/lib/background.js) yalnızca bildirim gösterebilir: mikrofon ve kamera dahil diğer
 // her izin reddedilir (decideFor).
 //
@@ -21,7 +24,7 @@
 
 const { originOf } = require('./navigation')
 
-const SIMPLE_PERMISSIONS = new Set(['notifications', 'clipboard-sanitized-write'])
+const SIMPLE_PERMISSIONS = new Set(['notifications', 'clipboard-sanitized-write', 'fullscreen'])
 // getUserMedia ile istenebilen ortam türleri (ekran yakalama boş listeyle ayrıca ele alınır)
 const MEDIA_TYPES = new Set(['audio', 'video'])
 // Arka plan penceresinin alabildiği tek izin

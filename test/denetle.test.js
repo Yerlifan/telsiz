@@ -11,11 +11,14 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
-const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256 } = require('../scripts/denetle.js')
+const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256, VENDOR_FILES } = require('../scripts/denetle.js')
 
 const ROOT = path.join(__dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts', 'denetle.js')
 const VENDOR = fs.readFileSync(path.join(ROOT, ...NACL_PATH.split('/')))
+// RNNoise wasm dosyası ve lisansları da zorunlu üçüncü taraf dosyalardır, temiz örneğe depodaki kopyaları konur
+const RNNOISE_FILES = VENDOR_FILES.filter((item) => item.path.startsWith('public/vendor/rnnoise/'))
+const RNNOISE_WASM = 'public/vendor/rnnoise/rnnoise.wasm'
 
 function lines (...rows) {
   return rows.join('\n') + '\n'
@@ -111,6 +114,7 @@ function cleanFiles () {
     'public/vendor/ek.js': 'var a = 1; el.innerHTML = "\u2014\u200b"\n'
   }
   files[NACL_PATH] = VENDOR
+  for (const item of RNNOISE_FILES) files[item.path] = fs.readFileSync(path.join(ROOT, ...item.path.split('/')))
   return files
 }
 
@@ -418,6 +422,22 @@ test('üçüncü taraf şifreleme dosyasının sha256 değeri denetlenir', (t) =
   const missing = check(t, { [NACL_PATH]: null })
   assert.deepEqual(of(missing, NACL_PATH), [{ line: 1, rule: 'vendor' }])
   assert.match(messageAt(missing, NACL_PATH, 1), /bulunamadı/)
+  assert.equal(missing.length, 1)
+})
+
+test('RNNoise wasm dosyası ve iki lisans metni zorunludur, sha256 değerleri denetlenir', (t) => {
+  assert.deepEqual(RNNOISE_FILES.map((item) => item.path).sort(), [
+    'public/vendor/rnnoise/RNNOISE-LICENSE.txt', 'public/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt', RNNOISE_WASM
+  ])
+  assert.ok(RNNOISE_FILES.every((item) => item.required && /^[0-9a-f]{64}$/.test(item.sha256)))
+  const changed = check(t, { [RNNOISE_WASM]: Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]) })
+  assert.deepEqual(of(changed, RNNOISE_WASM), [{ line: 1, rule: 'vendor' }])
+  assert.match(messageAt(changed, RNNOISE_WASM, 1), /sha256.*@shiguredo\/rnnoise-wasm 2022\.2\.0/)
+  assert.equal(changed.length, 1)
+
+  const missing = check(t, { 'public/vendor/rnnoise/RNNOISE-LICENSE.txt': null })
+  assert.deepEqual(of(missing, 'public/vendor/rnnoise/RNNOISE-LICENSE.txt'), [{ line: 1, rule: 'vendor' }])
+  assert.match(messageAt(missing, 'public/vendor/rnnoise/RNNOISE-LICENSE.txt', 1), /bulunamadı/)
   assert.equal(missing.length, 1)
 })
 

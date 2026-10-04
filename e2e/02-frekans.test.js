@@ -96,12 +96,13 @@ test('geniş düzen: bant frekansları dizer, odalar sağdaki İstasyonlar liste
       otherDot: stations[1].querySelector('.frekans-dot').className,
       tunedDot: stations[0].querySelector('.frekans-dot').className,
       radioLeft: Boolean(document.getElementById('info-col').contains(document.getElementById('radio'))),
-      radioAboveRoom: radio.bottom <= room.top + 1,
-      roomAtBottom: Math.abs(info.bottom - room.bottom) < 4 || room.bottom > info.bottom - 24,
+      roomHidden: room.width === 0 && room.height === 0,
+      radioAtBottom: Math.abs(info.bottom - radio.bottom) < 4 || radio.bottom > info.bottom - 24,
       convoW: Math.round(convo.width),
       rightW: Math.round(right.width),
       stationRows: Array.from(document.querySelectorAll('#inbox-list .room-row')).length,
       minStationH: Math.min.apply(null, stations.map((n) => n.getBoundingClientRect().height)),
+      rootPx: parseFloat(getComputedStyle(document.documentElement).fontSize),
       personal: Array.from(document.querySelectorAll('#top-personal .top-personal-button')).map((b) => b.getAttribute('data-station')),
       inboxTitle: document.getElementById('inbox-title').textContent,
       inboxAdd: [document.getElementById('inbox-add').hidden, document.getElementById('inbox-add').getAttribute('aria-label')],
@@ -110,21 +111,23 @@ test('geniş düzen: bant frekansları dizer, odalar sağdaki İstasyonlar liste
     }
   })
   assert.ok(r.bandH <= 76, 'bant tek satır: ' + r.bandH)
-  assert.ok(r.minStationH >= 44, 'istasyon dokunma hedefi en az 44 px: ' + r.minStationH)
+  // Dokunma hedefi 2.75rem: 16 piksel kökte 44, varsayılan 15 piksel kökte 41,25 piksel
+  assert.equal(r.rootPx, 15)
+  assert.ok(r.minStationH >= 2.75 * r.rootPx - 0.5, 'istasyon dokunma hedefi en az 2.75rem: ' + r.minStationH)
   assert.deepEqual(r.groups, ['Frekanslar'])
   assert.deepEqual(r.kinds, ['frekans'])
   assert.equal(r.roomsInBand, false, 'bantta oda yok')
   assert.deepEqual(r.tuned, [[W.w.base, 'page', true]], 'ibre açık frekansta')
   assert.equal(r.firstName, 'Kankalar')
-  assert.equal(r.firstLabel, 'Kankalar, açık frekans')
-  assert.equal(r.otherLabel, 'Frekans 1, durumu bilinmiyor, durumu ve sayıları yalnızca açıkken görünür')
+  assert.equal(r.firstLabel, 'Kankalar, Açık Frekans')
+  assert.equal(r.otherLabel, 'Frekans 1, Durumu Bilinmiyor, durumu ve sayıları yalnızca açıkken görünür')
   assert.match(r.otherTitle, /ayrı bir sitedir/)
   assert.match(r.tunedDot, /is-open/)
   assert.match(r.otherDot, /is-unknown/)
   assert.deepEqual(r.personal, ['dm', 'friends'])
   assert.equal(r.radioLeft, true, 'telsiz kartı sol sütunda')
-  assert.equal(r.radioAboveRoom, true, 'telsiz kartı oda kartının üstünde')
-  assert.ok(r.roomAtBottom, 'oda kartı sütunun altında')
+  assert.equal(r.roomHidden, true, 'ayarlı istasyon kartı geniş ekranda gösterilmez')
+  assert.ok(r.radioAtBottom, 'telsiz kartı sütunun altında')
   assert.ok(r.convoW >= 720, 'sohbet sütunu geniş: ' + r.convoW)
   assert.ok(r.rightW <= 280, 'sağ sütun dar: ' + r.rightW)
   assert.equal(r.inboxTitle, 'İstasyonlar')
@@ -157,7 +160,7 @@ test('İstasyonlar listesi: ayarlı oda işaretli, ok tuşları gezer, satır od
     const b = document.querySelector('#inbox-list .room-row[data-station="' + k + '"]')
     return { sub: b.querySelector('.room-row-sub').textContent, label: b.getAttribute('aria-label') }
   }, W.K.lobi)
-  assert.equal(voiceRow.sub, 'boş')
+  assert.equal(voiceRow.sub, 'Boş')
   assert.ok(/Lobi/.test(voiceRow.label))
   await page.click('#inbox-add')
   await page.waitForSelector('#settings-view:not([hidden])')
@@ -239,7 +242,8 @@ test('başka frekansa tıklamak ve ibreyi sürükleyip bırakmak o frekansa geç
     el.bandTrack.scrollLeft = 0
     const needle = document.querySelector('#band-track .station.is-tuned .needle').getBoundingClientRect()
     const st = document.querySelector('#band-track .station[data-station="' + k + '"]').getBoundingClientRect()
-    return { x: needle.left + needle.width / 2, y: needle.top + 10, tx: st.left + st.width / 2 }
+    // Topuzun ortası (ibrenin üst kenarı çevresinde)
+    return { x: needle.left + needle.width / 2, y: needle.top + 4, tx: st.left + st.width / 2 }
   }, target)
   await expectSwitch(page, target, async () => {
     await page.mouse.move(geo.x, geo.y)
@@ -260,7 +264,7 @@ test('ses odasındayken frekans değiştirmek onay ister, vazgeçince geçilmez'
   await h.clickStation(page, fakeOrigin(3))
   await page.waitForSelector('#frekans-voice-dialog')
   assert.match(await page.textContent('#frekans-voice-dialog'), /ses bağlantınız kesilir/)
-  assert.equal(await page.textContent('#frekans-voice-confirm'), 'Frekans 3 frekansına geç')
+  assert.equal(await page.textContent('#frekans-voice-confirm'), 'Frekans 3 Frekansına Geç')
   await page.click('#frekans-voice-cancel')
   await page.waitForFunction(() => !document.getElementById('frekans-voice-dialog'))
   assert.equal(new URL(page.url()).origin, W.w.base)
@@ -284,7 +288,7 @@ test('Tümü Frekanslar sayfasını açar: açık frekans işaretli, satırlar, 
   assert.deepEqual(r.rows[0], [W.w.base, 'page'])
   assert.equal(r.focus, W.w.base, 'odak açık frekansta')
   assert.equal(r.removable, FREKANS_COUNT, 'tarayıcıda açık frekans listeden çıkarılamaz')
-  assert.equal(r.add, 'Frekans ekle')
+  assert.equal(r.add, 'Frekans Ekle')
   assert.match(r.note, /ayrı bir sitedir/)
   await page.keyboard.press('ArrowDown')
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-frekans-remove') || document.activeElement.getAttribute('data-frekans')), fakeOrigin(1))
@@ -324,7 +328,7 @@ test('anma: başka odadaki @ad İstasyonlar satırında @1 ve banttaki açık fr
     return { label: n.getAttribute('aria-label'), mention: (n.querySelector('.frekans-mention') || {}).textContent }
   })
   assert.equal(band.mention, '@1')
-  assert.match(band.label, /^Kankalar, açık frekans, \d+ okunmamış, 1 anma$/)
+  assert.match(band.label, /^Kankalar, Açık Frekans, \d+ okunmamış, 1 anma$/)
   await page.click('#inbox-list .room-row[data-station="' + W.K.foto + '"]')
   await waitChannel(page, W.R.fotograflar.id)
   await page.waitForFunction((k) => !document.querySelector('#inbox-list .room-row[data-station="' + k + '"] .station-mark') && !document.querySelector('#band-track .station.is-tuned .frekans-mention'), W.K.foto)

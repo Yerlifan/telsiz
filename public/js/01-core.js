@@ -281,11 +281,13 @@ function api (method, path, body, options) {
   return out
 }
 
+// 401 kicked: frekanstan atılan kişinin bekleyen poll'u (hesap silindi). İstemcideki errors.kicked ses
+// bağlantısının kesilmesidir, bu kod errorText ile değil burada ayrıca gösterilir.
 function checkAuthFailure (res) {
   if (!state.token || !res) return
   const code = res.data && typeof res.data.code === 'string' ? res.data.code : ''
   if (res.status === 401 && code !== 'bad_credentials') {
-    handleSessionLost('expired')
+    handleSessionLost(code === 'kicked' ? 'kicked' : 'expired')
   } else if (res.status === 403 && code === 'banned') {
     handleSessionLost('banned')
   }

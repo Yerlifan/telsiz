@@ -11,8 +11,8 @@
 // (#radio-vad) ve beş düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Kamera, Ayrıl) durur.
 // Kamerası açık kişinin kadro öğesi aynı yumuşak kare biçimde canlı görüntüye döner (kendi görüntünüz
 // aynalı), kamera açıkken düğme sırasının üstünde her zaman görünen bir "Kameranız açık" satırı durur.
-// Odada kamera varsa kadronun sonunda (Telsiz DJ öğesinden önce) Büyüt öğesi (#radio-cams) durur, kameraları
-// yayın sahnesinde ızgara olarak açar (22-cast.js).
+// Odada kamera varsa kadronun altındaki araç satırında (#radio-tools, Telsiz DJ düğmesinden önce) Büyüt
+// düğmesi (#radio-cams) durur, kameraları yayın sahnesinde ızgara olarak açar (22-cast.js).
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.
@@ -111,12 +111,20 @@ let radioLastChannel = null
 
 function onVoiceChange (snapshot) {
   state.voiceSnap = snapshot || null
+  // Masaüstü uygulaması (20-desktop.js) basılı tut kancası için ses odası durumunu ana sürece bildirir
+  if (window.TelsizDesktopUI && typeof window.TelsizDesktopUI.onVoice === 'function') {
+    try {
+      window.TelsizDesktopUI.onVoice(state.voiceSnap)
+    } catch (err) {
+      window.console.error(err)
+    }
+  }
   const code = snapshot && snapshot.errorCode ? snapshot.errorCode : null
   const server = snapshot && snapshot.serverError ? snapshot.serverError : ''
   if (code && code !== lastVoiceError) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
-  if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' ? '' : 'error', 8000)
+  if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
   lastCameraError = camCode
   if (voiceRenderQueued) return
   voiceRenderQueued = true
@@ -394,6 +402,16 @@ function buildVoiceMember (entry, sameChannel, streams) {
   if (cam) states.push(t(self ? 'radio.stateSelfCamera' : 'radio.stateCamera'))
   crewInfo.set(li, { labelName: labelName, states: states, self: self })
   li.appendChild(inner)
+  // Ekran paylaşan kişinin öğesinde, üstüne gelince veya odaklanınca (dokunmatik ekranda her zaman) Yayına
+  // katıl düğmesi (radio.css .crew-watch). İzlerken basmak sahneyi o paylaşıma getirir.
+  if (sharing && !self && sameChannel) {
+    const watch = button('crew-watch', t('radio.watchShare'), 'i-eye', t('cast.watchLabel', { name: name }))
+    watch.setAttribute('data-focus-key', 'crew-watch-' + userId)
+    watch.addEventListener('click', () => {
+      if (typeof castWatch === 'function') castWatch(String(userId), true)
+    })
+    li.appendChild(watch)
+  }
   setCrewSpeaking(li, Boolean(sameChannel && speakingIn(s, userId)), true)
   return li
 }
@@ -449,35 +467,41 @@ function renderCrew (s) {
     })
   }
   pruneCameraVideos('crew-', keep)
-  const count = Object.keys(streams).length
-  if (count > 0) el.radioCrew.appendChild(buildCamsItem(count))
+  renderRadioCams(Object.keys(streams).length)
   restoreFocusKey(el.radioCrew, focusKey)
 }
 
-// Kadrodaki Büyüt öğesi: kameraları yayın sahnesinde ızgara olarak açar veya kapatır. Telsiz DJ gibi gerçek
-// bir kişi değildir, kesik çizgili kenarlı bir ızgara simgesiyle çizilir.
-function buildCamsItem (count) {
+// Araç satırındaki Büyüt düğmesi: kameraları yayın sahnesinde ızgara olarak açar veya kapatır. Odada kamera
+// yokken kaldırılır. Düğme bir kez üretilir ve yerinde güncellenir (odak korunur), satırın başında durur.
+function renderRadioCams (count) {
+  const box = el.radioTools
+  if (!box) return
+  let b = byId('radio-cams')
+  if (!count) {
+    if (b && b.parentNode) b.parentNode.removeChild(b)
+    return
+  }
+  if (!b) {
+    b = h('button', 'radio-tool cams-tool')
+    b.type = 'button'
+    b.id = 'radio-cams'
+    b.setAttribute('data-focus-key', 'tool-cams')
+    b.setAttribute('aria-controls', 'cast')
+    b.appendChild(icon('i-grid', 'radio-tool-icon'))
+    const name = h('span', 'radio-tool-label')
+    name.id = 'radio-cams-text'
+    b.appendChild(name)
+    b.appendChild(h('span', 'radio-tool-count'))
+    b.addEventListener('click', () => {
+      if (typeof castToggleCams === 'function') castToggleCams()
+    })
+  }
+  if (b.parentNode !== box || box.firstElementChild !== b) box.insertBefore(b, box.firstElementChild)
   const open = typeof castCamsOpen === 'function' && castCamsOpen()
-  const li = h('li', 'crew-item crew-cams')
-  const b = h('button', 'crew-button cams-button')
-  b.type = 'button'
-  b.id = 'radio-cams'
-  b.setAttribute('data-focus-key', 'crew-cams')
-  b.setAttribute('aria-controls', 'cast')
   b.setAttribute('aria-expanded', open ? 'true' : 'false')
   b.setAttribute('aria-label', t(open ? 'camera.gridCloseLabel' : 'camera.gridOpenLabel') + ', ' + t('radio.cameras', { count: count }))
-  const av = h('span', 'avatar avatar-md crew-avatar cams-avatar')
-  av.setAttribute('aria-hidden', 'true')
-  av.appendChild(icon('i-grid', 'cams-avatar-icon'))
-  b.appendChild(av)
-  const name = h('span', 'crew-name cams-name', t(open ? 'camera.gridClose' : 'camera.gridOpen'))
-  name.id = 'radio-cams-text'
-  b.appendChild(name)
-  b.addEventListener('click', () => {
-    if (typeof castToggleCams === 'function') castToggleCams()
-  })
-  li.appendChild(b)
-  return li
+  b.querySelector('.radio-tool-label').textContent = t(open ? 'camera.gridClose' : 'camera.gridOpen')
+  b.querySelector('.radio-tool-count').textContent = String(count)
 }
 
 // Konuşma halesi ve giriş seviyesi gibi sık değişen göstergeler
@@ -531,7 +555,7 @@ function updateVoiceLive () {
     el.radioTalk.classList.toggle('is-quiet', !talk)
     setText(el.radioMode, radioModeText(s))
   }
-  // Yayındakiler sayfasında da aynı odadaki konuşan kişi işaretlenir
+  // Çevrimiçi sayfasında da aynı odadaki konuşan kişi işaretlenir
   if (el.members) {
     Array.from(el.members.querySelectorAll('.member[data-user-id]')).forEach((row) => {
       const userId = row.getAttribute('data-user-id')
@@ -822,7 +846,7 @@ function renderUserPanel () {
   el.btnMute.setAttribute('aria-pressed', s.muted ? 'true' : 'false')
   setIcon(el.btnMute, s.muted ? 'i-mic-off' : 'i-mic')
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
-  setText(el.btnMuteState, t(s.serverMuted ? 'voice.serverMutedTitle' : s.muted ? 'radio.micOff' : 'radio.micOn'))
+  setText(el.btnMuteState, t(s.serverMuted ? 'radio.micServerMuted' : s.muted ? 'radio.micOff' : 'radio.micOn'))
   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
   setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))
@@ -981,14 +1005,21 @@ function bindPttTarget (target) {
 let popoverUserId = null
 
 // Kişi ses seviyesi voice.js tarafından kullanıcı kimliğine göre saklanır. Kişi aynı odada
-// değilken gösterim için yerel kopya da tutulur.
+// değilken gösterim için yerel kopya da tutulur. Değer yüzde olarak 0 ile PEER_VOLUME_MAX_PCT arasıdır,
+// %100'ün üstü sesi yükseltir (voice.js applyPeerAudio).
+const PEER_VOLUME_MAX_PCT = 200
+
+function clampPeerVolume (value) {
+  return Math.max(0, Math.min(PEER_VOLUME_MAX_PCT, Math.round(Number(value) || 0)))
+}
+
 function peerVolumeValue (userId) {
   const s = snap()
   const peer = s.peers ? s.peers[String(userId)] : null
-  if (peer && typeof peer.volume === 'number') return Math.round(Math.max(0, Math.min(1, peer.volume)) * 100)
+  if (peer && typeof peer.volume === 'number') return clampPeerVolume(peer.volume * 100)
   const stored = storeGetJson(KEYS.peerVolume, {})
   const value = stored[String(userId)]
-  return typeof value === 'number' && value >= 0 && value <= 100 ? value : 100
+  return typeof value === 'number' && value >= 0 && value <= PEER_VOLUME_MAX_PCT ? value : 100
 }
 
 function openPeerPopover (userId, trigger, sameChannel) {
@@ -1041,7 +1072,8 @@ function renderPeerMute () {
   renderPeerMod()
 }
 
-// Ses odası denetimi (izinli ve kişiden üst rütbedeyse): herkes için susturma ve odadan çıkarma
+// Ses odası denetimi (izinli ve kişiden üst rütbedeyse): herkes için susturma, kamerasını kapatma (yalnızca kamerası
+// açıkken) ve odadan çıkarma
 function renderPeerMod () {
   if (!el.peerMod) return
   const uid = popoverUserId
@@ -1052,17 +1084,20 @@ function renderPeerMod () {
   const muted = Boolean(rec && rec.voiceMuted)
   el.peerServerMute.textContent = t(muted ? 'peer.serverUnmute' : 'peer.serverMute')
   el.peerServerMute.setAttribute('aria-pressed', muted ? 'true' : 'false')
+  if (el.peerCameraOff) el.peerCameraOff.hidden = !userCameraOn(uid)
   el.peerDisconnect.disabled = !voiceChannelOf(uid)
 }
 
-// Herkes için susturma ve odadan çıkarma isteği (kişi ses kartından ve profil kartından)
+const VOICE_MOD_OK_KEYS = { mute: 'peer.serverMutedOk', unmute: 'peer.serverUnmutedOk', 'camera-off': 'peer.cameraOffOk', disconnect: 'peer.disconnectedOk' }
+
+// Herkes için susturma, kamerasını kapatma ve odadan çıkarma isteği (kişi ses kartından ve profil kartından)
 async function moderateVoice (userId, action, msgEl, button) {
   const name = shownName(userId)
   if (action === 'disconnect' && !window.confirm(t('peer.disconnectConfirm', { name: name }))) return false
   if (button) button.disabled = true
   const res = await api('POST', '/api/voice/moderate', { userId: voiceUserArg(userId), action: action })
   if (button && isConnected(button)) button.disabled = false
-  const okKey = action === 'mute' ? 'peer.serverMutedOk' : action === 'unmute' ? 'peer.serverUnmutedOk' : 'peer.disconnectedOk'
+  const okKey = VOICE_MOD_OK_KEYS[action] || 'peer.disconnectedOk'
   if (res.status === 200) {
     if (msgEl) setMsg(msgEl, () => t(okKey, { name: name }), 'ok')
     else toast(() => t(okKey, { name: name }), 'ok')
@@ -1085,9 +1120,18 @@ function onPeerDisconnectClick () {
   moderateVoice(popoverUserId, 'disconnect', el.peerModMsg, el.peerDisconnect)
 }
 
+// İstek sürerken düğme devre dışı kalır ve odak düşer. Başarıda düğme metayla gizleneceği için odak susturma
+// düğmesine, hatada düğmenin kendisine döner.
+async function onPeerCameraOffClick () {
+  if (popoverUserId === null) return
+  const hadFocus = document.activeElement === el.peerCameraOff
+  const done = await moderateVoice(popoverUserId, 'camera-off', el.peerModMsg, el.peerCameraOff)
+  if (hadFocus && findLayer('peer')) focusNode(done ? el.peerServerMute : el.peerCameraOff)
+}
+
 function onPeerVolumeInput () {
   if (popoverUserId === null) return
-  const value = Math.max(0, Math.min(100, Math.round(Number(el.peerVolume.value) || 0)))
+  const value = clampPeerVolume(el.peerVolume.value)
   el.peerVolumeValue.textContent = formatPercent(value)
   const stored = storeGetJson(KEYS.peerVolume, {})
   stored[String(popoverUserId)] = value

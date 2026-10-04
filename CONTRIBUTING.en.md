@@ -83,11 +83,12 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `public/index.html` | Single page markup and the SVG icon sprite |
 | `public/crypto.js` | `window.E2EE`: key code, envelopes, file encryption, personal keys, pinning |
 | `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine |
+| `public/rnnoise-worklet.js` | Advanced noise suppression: the AudioWorklet processor that runs the RNNoise wasm module |
 | `public/music.js`, `public/dj/youtube.js` | The Telsiz DJ engine and the YouTube player adapter |
 | `public/i18n.js` | The Turkish and English dictionaries of the client |
 | `public/theme-init.js`, `public/css/` | Theme preloader, tokens, layout, components and themes ([docs/DESIGN.md](docs/DESIGN.md)) |
 | `public/sw.js` | Service worker, the cache of the app shell |
-| `public/vendor/` | TweetNaCl-js 1.0.3 and scrypt-js 3.0.1, never modified |
+| `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 and the RNNoise wasm build (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), never modified |
 | `desktop/` | Electron desktop app |
 | `deploy/` | Docker Compose, Caddy, nginx and systemd examples |
 | `scripts/` | Checker, test runner, single file build, release notes |
@@ -100,13 +101,13 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `01-core.js` | Constants, storage keys, `t()`, server requests, formatting helpers |
 | `02-state-dom.js` | App state, element cache, DOM helpers, the layer stack, notifications |
 | `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
-| `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet, room info, the On air list, room selection |
+| `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
 | `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
-| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator and the camera tiles in the crew) |
+| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button) |
 | `11-settings.js` | Full screen settings view |
 | `12-init.js` | Sheets, window size, PWA, event binding and startup |
 | `13-profile.js` | Profiles, the profile card, the status menu |
@@ -124,6 +125,9 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
 | `26-tanitim.js` | The frequency introduction page that visitors who are not signed in see |
 | `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
+| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), joining and leaving voice rooms |
+| `29-mikrofon.js` | The context menu of the Microphone button (right click, Shift+F10 or the Menu key): choosing between Push to talk and Voice activity |
+| `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
@@ -137,14 +141,14 @@ Most of the following rules are checked automatically by `npm run denetle` and a
 4. Client code under `public/` is a plain script without modules and must parse with ES2017 syntax. Optional chaining, the nullish coalescing operator, class fields, `import` and `\p{...}` regular expression escapes are not used.
 5. In the client, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, the `Function` constructor, `structuredClone`, `.replaceAll`, `Object.hasOwn` and `.at()` are forbidden. The page is written only with `createElement` and `textContent`. Network requests use `XMLHttpRequest`, and `fetch` is allowed only in `public/sw.js`.
 6. HTML files contain no `style` attribute, no `on...` event attributes, no `<style>` element and no `<script>` with a body, because the Content Security Policy blocks them.
-7. Files under `public/vendor/` are never modified. The checker verifies the sha256 values of `nacl-fast.min.js` and `scrypt.js`.
+7. Files under `public/vendor/` are never modified. The checker verifies the sha256 values of `nacl-fast.min.js`, `scrypt.js`, `rnnoise/rnnoise.wasm` and the RNNoise license files.
 8. `.bat` files are saved without a BOM and with CRLF line endings, and none of their lines contains a semicolon. `.sh` files are saved without a BOM and with LF line endings only, and are stored in git with the executable mode (100755).
 9. JSON files must be valid JSON.
 10. Markdown documents use no semicolons in prose. Code examples go into code blocks or inline code.
 11. Real time communication uses only long polling. WebSocket or Server-Sent Events are not added.
 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
-14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Details are in [docs/DESIGN.md](docs/DESIGN.md).
+14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
 15. Tests must also pass on Windows. Paths are joined with `path.join`, temporary folders are created under `os.tmpdir()`, nothing is assumed about line endings and tests do not rely on process signals such as SIGINT.
 
 ## Bilingual rules
@@ -203,4 +207,4 @@ Since desktop updates are unsigned, their integrity rests on the security of the
 
 ## License
 
-Your contributions are distributed under the MIT license of the project, see the [LICENSE](LICENSE) file for details. TweetNaCl-js (Unlicense) and scrypt-js (MIT) under `public/vendor/` and the fonts under `public/fonts/` (SIL Open Font License) are distributed under their own licenses.
+Your contributions are distributed under the MIT license of the project, see the [LICENSE](LICENSE) file for details. TweetNaCl-js (Unlicense), scrypt-js (MIT) and the RNNoise wasm build (BSD-3-Clause and Apache-2.0) under `public/vendor/` and the fonts under `public/fonts/` (SIL Open Font License) are distributed under their own licenses.

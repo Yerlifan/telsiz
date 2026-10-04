@@ -22,8 +22,9 @@ test('CSP sunucudakiyle birebir aynıdır', () => {
   assert.equal(csp.HTML_CSP, httpUtil.HTML_CSP)
   assert.equal(csp.STATIC_CSP, httpUtil.API_CSP)
   assert.match(csp.HTML_CSP, /connect-src 'self'/)
-  assert.match(csp.HTML_CSP, /script-src 'self';/)
-  assert.doesNotMatch(csp.HTML_CSP, /unsafe/)
+  // RNNoise wasm'ı AudioWorklet içinde derlenir: yalnızca WebAssembly derleme izni, eval ve satır içi betik yok
+  assert.match(csp.HTML_CSP, /script-src 'self' 'wasm-unsafe-eval';/)
+  assert.doesNotMatch(csp.HTML_CSP.replace("'wasm-unsafe-eval'", ''), /unsafe/)
   assert.match(csp.API_CSP, /sandbox/)
   assert.match(csp.CONNECT_CSP, /connect-src 'none'/)
   assert.match(csp.PICKER_CSP, /img-src 'self' data:/)
@@ -45,10 +46,17 @@ test('beyaz liste ve yol geçişi', () => {
   assert.equal(sf.resolveStatic('/js/01-core.js').file, 'js/01-core.js')
   assert.equal(sf.resolveStatic('/css/skins/arcade.css').file, 'css/skins/arcade.css')
   assert.equal(sf.resolveStatic('/fonts/OFL-Rubik.txt').file, 'fonts/OFL-Rubik.txt')
+  assert.equal(sf.resolveStatic('/rnnoise-worklet.js').type, sf.JS_TYPE)
+  assert.equal(sf.resolveStatic('/vendor/rnnoise/rnnoise.wasm').type, 'application/wasm')
+  assert.equal(sf.resolveStatic('/vendor/rnnoise/rnnoise.wasm').csp, csp.STATIC_CSP)
+  for (const rel of ['rnnoise-worklet.js', 'vendor/rnnoise/rnnoise.wasm', 'vendor/rnnoise/RNNOISE-LICENSE.txt', 'vendor/rnnoise/RNNOISE-WASM-LICENSE.txt']) {
+    assert.equal(sf.isServableFile(rel), true, rel)
+  }
   const blocked = [
     '/sw.js', '/manifest.webmanifest', '/butunluk.json', '/app.js', '/server.js', '/package.json',
     '/js/../server.js', '/js/..%2fserver.js', '/js/%2e%2e/server.js', '/js/alt/ic.js', '/js/X.js', '/js/a.JS',
     '/js/con.js', '/css/nul.css', '/js/', '/js', '/fonts/a.woff', '/vendor/other.js', '//js/01-core.js',
+    '/vendor/rnnoise/', '/vendor/rnnoise/other.wasm', '/vendor/rnnoise.wasm', '/vendor/rnnoise/RNNOISE.wasm',
     '/js\\01-core.js', '/index.html/', '/INDEX.html', '', 'js/01-core.js', null, 5
   ]
   for (const p of blocked) assert.equal(sf.resolveStatic(p), null, String(p))
@@ -119,7 +127,8 @@ test('gerçek sunucuyla eşdeğerlik: public/ dosyaları ve saldırı yolları',
   const paths = publicFiles().map((rel) => '/' + rel).concat([
     '/', '/index.html', '/style.css', '/js/../index.html', '/js/%2e%2e/index.html', '/js/..%2fserver.js',
     '/%2e%2e/package.json', '/js/alt/ic.js', '/js/con.js', '/fonts/con.txt', '/css/skins/', '/INDEX.HTML',
-    '/js/01-core.js/', '/vendor/', '/icons/icon-512.png', '/favicon.svg', '/sw.js', '/manifest.webmanifest'
+    '/js/01-core.js/', '/vendor/', '/icons/icon-512.png', '/favicon.svg', '/sw.js', '/manifest.webmanifest',
+    '/vendor/rnnoise/', '/vendor/rnnoise/../rnnoise/rnnoise.wasm', '/vendor/rnnoise/%2e%2e/scrypt.js'
   ])
   const files = new Map(publicFiles().filter((rel) => sf.isServableFile(rel)).map((rel) => [rel, fs.readFileSync(path.join(PUBLIC_DIR, ...rel.split('/')))]))
   for (const p of paths) {

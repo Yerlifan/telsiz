@@ -15,12 +15,12 @@ In the desktop app the interface code ships inside the app and is never download
 - At build time only the files of `public/` that match the server whitelist are copied to `desktop/app/` (except the service worker). The sha256 and size of every file are written to the `desktop/app/butunluk.json` manifest.
 - At startup the app verifies every file in the manifest and serves files only from this verified copy in memory. If a single file is missing or different, the app does not start.
 - The page is loaded from the privileged `telsiz://app/` scheme. `telsiz://app/api/*` requests are forwarded by the main process to the configured server (`src/lib/proxy.js`). Only the `X-Token`, `Content-Type` and `Accept-Language` request headers are passed on. Redirects are not followed, cookies and the cache are not used. Long-poll, upload and download bodies are streamed.
-- The page CSP is identical to the one of the server (`connect-src 'self'`). The page cannot connect to the server directly, every request goes through the proxy. Responses from the proxy carry a CSP that cannot run scripts and only a JSON, binary or plain text type.
+- The page CSP is identical to the one of the server (`connect-src 'self'`). The `'wasm-unsafe-eval'` keyword in the script source allows only WebAssembly compilation and is there to compile the bundled RNNoise module (advanced noise suppression, `vendor/rnnoise/rnnoise.wasm`) in an AudioWorklet. `eval` and inline scripts are blocked. The page cannot connect to the server directly, every request goes through the proxy. Responses from the proxy carry a CSP that cannot run scripts and only a JSON, binary or plain text type.
 - The only frame the page can open is the YouTube player of Telsiz DJ: a direct child frame of the app window's main frame, and only for the `https://www.youtube-nocookie.com` origin (`src/lib/navigation.js`, `frame-src` in the CSP). Frames inside it and all other subframes are blocked. The web app does not load this frame before the person gives consent. Because YouTube rejects a player request without a Referer header with error 153 and the `telsiz://app` origin sends no Referer, the app adds the server origin (for example `https://telsiz.example.com/`) as the Referer of this frame's document request only. In the web version the browser sends YouTube the same information, the page origin.
 - The server address can only be `https://`. The only exception is a server on this computer (`http://localhost` and `http://127.0.0.1`). Certificate errors are never ignored. The server address screen checks the server's `/api/info` response and shows a warning if the server's major version differs from the app's or the server does not report its version, and the user can still connect.
 - Every server uses its own session partition. The session token and local data of one server can never be sent to another server.
 - Windows open with `contextIsolation`, `sandbox` and `webSecurity` on and `nodeIntegration` off. Navigation outside the scheme and new windows are blocked, `https://` links open in the default browser. There is no webview. A service worker cannot be registered on this scheme. Developer tools only open in development mode (unpackaged).
-- Permissions are only granted to the main frame of the `telsiz://app` origin: microphone and camera (`getUserMedia` audio and video), system notifications and writing to the clipboard. The app requests the camera only when the person presses the Camera button in a voice room, and subframes (the YouTube player included) and other windows cannot get the camera or the microphone. The page's `Permissions-Policy` header also opens the camera and the microphone only to the app's own origin (`camera=(self)`, `microphone=(self)`). Location, reading the clipboard, HID, USB and others are denied. Screen capture is only granted through the screen picker below.
+- Permissions are only granted to the main frame of the `telsiz://app` origin: microphone and camera (`getUserMedia` audio and video), system notifications, writing to the clipboard and full screen for the Full screen button of the stage (screen sharing and the camera grid). The app requests the camera only when the person presses the Camera button in a voice room, and subframes (the YouTube player included) and other windows cannot get the camera or the microphone. Subframes cannot go full screen either. The page's `Permissions-Policy` header also opens the camera and the microphone only to the app's own origin (`camera=(self)`, `microphone=(self)`). Location, reading the clipboard, HID, USB and others are denied. Screen capture is only granted through the screen picker below.
 - The preload script exposes only a narrow API to the page (`window.telsizDesktop`). IPC channels have fixed names, the window and origin of every call and every input are checked in the main process.
 - The packaged app sets Electron fuses: `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` are ignored, the app is only loaded from `app.asar` and asar integrity is validated on Windows. The `--inspect` flag is deliberately left enabled. The smoke test runs with Playwright against the published build itself using this flag. A local program with the same user rights can already read the app data directly, so the flag does not grant anything extra.
 
@@ -59,6 +59,17 @@ The counts belong to the session: the client counts unread messages on this devi
 
 When the web app calls `getDisplayMedia`, the main process opens its own picker window (`src/picker/`). The picker shows screens and windows with thumbnails and names. It only opens if there was real user input (a click or a key press) in the last few seconds, and only the source the user picked is granted. If the user cancels, the request is denied. The old `chromeMediaSource: 'desktop'` call cannot bypass the picker. The option to share system audio is only shown on Windows, because according to the Electron documentation system audio capture (`loopback`) is currently only supported on Windows. The web app requests the audio with the `restrictOwnAudio` constraint, and Electron then leaves the app's own sound out of the capture: the conversation, notification sounds and Telsiz DJ playing in Telsiz do not reach the shared audio. On older Windows versions that cannot separate it, all system audio is captured.
 
+## Title bar
+
+On Windows and Linux the app window opens without the native title bar and menu bar, with Electron's Window Controls Overlay (`titleBarStyle: 'hidden'` and `titleBarOverlay`) (`src/lib/title-bar.js`). The operating system draws the minimize, maximize and close buttons in the top right corner, and their background and symbol color come from the theme. At the top of the page there is a thin strip as tall as the buttons (32 pixels) (`public/js/30-pencere.js`): the app menus (Telsiz, Edit, View, Help) on the left and the window title in the middle.
+
+- The height of the strip and the area outside the buttons come from CSS environment variables (`titlebar-area-*`). The page and full screen layers (Settings, dialogs, side sheets) start below the strip (`--titlebar-h`). `theme-init.js` adds the `has-titlebar` class to the root element before the first paint, so the page does not shift on startup.
+- When the window enters full screen, the main process tells the page (`titleBar.onFullscreen`), the strip is hidden and the page starts at the very top. The overlay's CSS variables can stay defined in full screen on some platforms, so the page relies on this notice.
+- The strip is the drag area of the window, and a double click maximizes it. The menu buttons are not part of the drag area.
+- The page reports its background and text color as `#rrggbb` (`titleBar.setColors`) and reports them again when the theme changes. The main process rejects colors in any other format and does not apply the same colors twice. When the window opens again (for example on a frequency switch), it starts with the last colors.
+- Pressing a menu button makes the main process open that part of the app menu below the button (`titleBar.openMenu`). The request is only accepted with an existing menu index and a position inside the window. Because the app menu stays registered, menu shortcuts (for example Ctrl+Q, Ctrl+0) keep working. Like the native menu, the menu labels are in the desktop app's language.
+- The frequency address window and the screen sharing picker keep the native title bar. On macOS (there is no official build) the native title bar is kept.
+
 ## Requirements
 
 - Node.js 22 and npm
@@ -71,7 +82,7 @@ All commands run in the `desktop/` folder.
 
 | Command | What it does |
 | --- | --- |
-| `npm ci` | Installs the dependencies: the development tools (electron, electron-builder, playwright) and electron-updater, the only runtime dependency that goes into the package |
+| `npm ci` | Installs the dependencies: the development tools (electron, electron-builder, playwright) and the runtime dependencies that go into the package, electron-updater and uiohook-napi (hold to talk key hook, see Push to talk in the background) |
 | `npm run hazirla` | Copies the `public/` files to `app/`, writes the integrity manifest, generates icons in `build/` |
 | `npm start` | Runs the preparation and opens the app in development mode |
 | `npm test` | Unit tests (no Electron needed, the forwarding logic is tested against a real local server) |
@@ -99,7 +110,7 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`) |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
@@ -114,10 +125,13 @@ The texts of the desktop menu, tray, server address screen and picker are in `sr
 `public/js/20-desktop.js` only activates if `window.telsizDesktop` exists:
 
 - On global shortcut events it calls the `toggleMute` and `toggleDeafen` functions.
+- On push to talk shortcut (`pttToggle`) and hold to talk hook events it uses the push to talk path in `public/voice.js` with the `external` source (`voice.pttDown('external')`, `voice.pttUp('external')`). It reports the voice room state to the main process with `setVoiceActive` (see Push to talk in the background).
 - It blocks the PWA install prompt.
 - `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the active frequency, minimize to tray and updates section.
 - Shows a dismissible strip in the bottom right corner for a downloaded update or a new version notice.
 - The frequency band and menu (`public/js/24-frekans.js`) manage the list on the desktop with the frequency calls below instead of the browser's local storage, and get the status of frequencies that are not open from `window.telsizArkaPlan`.
+
+A separate module, `public/js/30-pencere.js`, draws the title strip (see Title bar).
 
 The `window.telsizDesktop` API:
 
@@ -126,10 +140,17 @@ The `window.telsizDesktop` API:
 | `version`, `platform` | App version and operating system (`win32`, `linux`) |
 | `getServer()` | Server origin from the settings |
 | `changeServer()` | Opens the frequency address window (Add a frequency) |
-| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered` |
-| `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, values are Electron accelerator strings or `null` |
-| `onShortcut(cb)` | `cb('toggleMute' or 'toggleDeafen')`, the returned function unsubscribes |
+| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered`, `ptt` (`{ mode, holdKey }`), `pttHook` (`{ available, reason, running, error }`) |
+| `setShortcuts(map)` | `{ toggleMute, toggleDeafen, pttToggle }`, values are Electron accelerator strings or `null` |
+| `onShortcut(cb)` | `cb('toggleMute', 'toggleDeafen' or 'pttToggle')`, the returned function unsubscribes |
+| `setPtt(setting)` | `{ mode: 'toggle' or 'hold', holdKey }`, `{ ok: false, code: 'unavailable' }` if the module cannot be loaded while hold to talk is turned on |
+| `setVoiceActive(bool)` | `true` while the page is in a voice room in push to talk mode, `false` otherwise (the hold to talk hook only runs while it is `true`) |
+| `onPttHold(cb)` | `cb('start')` (start talking) or `cb('end')` (stop talking) from the hold to talk hook, the returned function unsubscribes |
 | `setCloseToTray(bool)` | Minimize to the tray when the window is closed |
+| `titleBar.getInfo()` | `{ enabled, fullscreen, label, menus }`: whether the overlay is on, whether the window is in full screen, the accessible name of the strip, the top level labels of the app menu |
+| `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
+| `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
+| `titleBar.onFullscreen(cb)` | `cb(true)` when the window enters full screen, `cb(false)` when it leaves, the returned function removes the subscription |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
 | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
 | `addFrequency()` | Opens the frequency address window in add mode |
@@ -145,6 +166,31 @@ The `window.telsizDesktop` API:
 `window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb) }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open() }`.
 
 Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
+
+## Push to talk in the background
+
+The app's own push to talk key only works while the Telsiz window is in front. To talk while a game is in front, the global shortcuts section of Settings > Keybinds offers two ways:
+
+- Press to start, press to stop (default): the `pttToggle` global shortcut. Press it once to start talking and again to stop. A short sound plays when talking starts and stops (if Join and leave sounds in Settings > Voice and video is on). No key is assigned by default, and the shortcut follows the same rules as the other global shortcuts. Outside a voice room the shortcut does nothing. While the microphone is off (muted, deafened or muted for everyone) talking does not start and the stop sound plays.
+- Hold to talk (key hook, optional): when turned on, you talk while the chosen key or key combination is held and go quiet when you release it. Global shortcuts only report the press, so the release is received with the [uiohook-napi](https://github.com/SnosMe/uiohook-napi) key hook. While hold to talk is on, the press to start, press to stop shortcut is not registered. The hold to talk key can also be a single letter or number, because the hook does not take the key away from other applications. A hold to talk key that would also fire with the Toggle microphone or Deafen shortcut is not accepted.
+
+In Voice activity mode the shortcut does not switch to push to talk mode, it acts like Toggle microphone and plays the same start or stop sound. The hold to talk hook is never started in Voice activity mode.
+
+On the page both ways use the push to talk path in `public/voice.js` with a separate source (`external`), there is no new microphone path. The window's own push to talk key, the on-screen Push to talk button and the desktop source are tracked separately: when one is released while another is held, talking continues. When the window loses focus or is hidden, only the sources inside the window are released, the desktop source stays on. Leaving the voice room or changing the input mode releases every source.
+
+The key hook and privacy:
+
+- The hook only runs while hold to talk is on, a key is assigned and the page has reported that it is in a voice room in push to talk mode (`src/lib/ptt-hook.js`). It is stopped when the setting is turned off, when you leave the room, or when the window reloads or closes. If it is stopped while you talk, talking ends.
+- The hook sees every key event on the operating system but only handles the chosen key. Events are handled only in the main process, by comparing the key code with the assigned key, and are not stored. Only `start` (start talking) and `end` (stop talking) go to the page, and the preload script passes no other value. Key codes and other keys never go to the page, the server or the log. Mouse events are not listened to.
+- Some antivirus programs may warn about applications that use a key hook. While hold to talk is off, the native module is not loaded at all.
+- If the module cannot be loaded or the hook cannot be started, the app does not crash, the option shows as unavailable in Settings with the reason.
+
+Platform notes:
+
+- The package uses the prebuilt Node-API binaries of uiohook-napi (`prebuilds/win32-x64`, `prebuilds/linux-x64`). electron-builder does not build native modules from source (`npmRebuild: false`) and unpacks the module outside the asar archive (`asarUnpack`).
+- On Linux the hook uses X11 (XRecord). The module connects to the X11 display when it is loaded, and if `DISPLAY` is not set the module is not loaded at all and the option shows as unavailable. It is not guaranteed to work in Wayland sessions. The module needs the `libXtst.so.6` and `libXt.so.6` libraries. If they are missing, the option shows as unavailable.
+- On Windows the hook may not see keys while a window running as administrator is in front.
+- Dependency: uiohook-napi 1.5.5 (MIT). The package contains the libuiohook library in compiled form. The libuiohook source files carry the LGPL 3.0 or later license, and the source code ships with the package (`node_modules/uiohook-napi/libuiohook`).
 
 ## Updates
 
@@ -166,14 +212,14 @@ Publishing: the `publish` setting in `electron-builder.json` (GitHub, `Yerlifan/
 
 ## Settings and data
 
-The desktop settings (active frequency, frequency list, minimize to tray, shortcuts, automatic update checks) are in `ayarlar.json` in the app data folder (format 2, a format 1 file is converted to a list when read). This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every frequency (server).
+The desktop settings (active frequency, frequency list, minimize to tray, shortcuts, push to talk mode and hold to talk key, automatic update checks) are in `ayarlar.json` in the app data folder (format 2, a format 1 file is converted to a list when read). This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every frequency (server).
 
 ## Known limitations
 
 - The app is not signed. On first start Windows SmartScreen may show "Windows protected your PC". Choose "More info" and then "Run anyway". The downloaded file can be verified with `SHA256SUMS.txt` on the release page.
 - Updates are unsigned, their integrity rests on the security of the GitHub account and repository (see Updates). The portable exe and the .deb are not updated by themselves, a new version is only announced. Update checks work while the repository is public.
-- There is no hold to talk global shortcut, because it needs a native module. The push to talk key only works while the window is in front. Global shortcuts only exist for toggle microphone and deafen.
-- Whether global shortcuts work in Wayland sessions on Linux has not been verified.
+- Hold to talk only works with the optional key hook (see Push to talk in the background). The behavior of the hook with real key events is not covered by the automated tests: the unit tests check the hook with a fake module, and the smoke test loads, starts and stops the real module under xvfb.
+- Whether global shortcuts and the key hook work in Wayland sessions on Linux has not been verified.
 - According to the Electron documentation, Windows notifications need a Start menu shortcut of the app. The installer creates this shortcut, in the portable version notifications may not appear.
 - To run the AppImage, first run `chmod +x Telsiz-<version>-linux-x86_64.AppImage`. Some distributions need FUSE support to be installed for AppImages. On distributions that restrict unprivileged user namespaces with AppArmor (for example Ubuntu 24.04), the AppImage may not start because the Chromium sandbox cannot start. In that case use the .deb package, which installs the required AppArmor profile. The `--no-sandbox` flag, which turns the sandbox off, is not recommended.
 - Chromium background timer throttling is turned off (`disable-background-timer-throttling`) so that voice activity detection keeps working while the window is in the background. Page visibility does not change, notifications still only appear while the window is hidden.

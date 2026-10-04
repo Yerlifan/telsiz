@@ -87,7 +87,7 @@ test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async (
   }))
   assert.deepEqual(en.groups, ['Frequencies'])
   assert.deepEqual(en.rooms, ['Text rooms', 'Voice rooms'])
-  assert.match(en.station, /, open frequency/)
+  assert.match(en.station, /, Open Frequency/)
   assert.deepEqual([en.radio, en.all, en.inbox], ['Radio · off', 'All', 'Stations'])
   assert.notEqual(en.placeholder, tr.placeholder, 'yazma alanı yer tutucusu çevrildi')
 })

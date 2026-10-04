@@ -1,11 +1,13 @@
 'use strict'
 
 // Özel roller ve ses odası denetimi. Sahip Deniz Ayarlar > Roller'den Moderatör rolünü oluşturur, Ses odasını
-// denetle iznini açar ve rolü Ayarlar > Üyeler'den Ece'ye verir. Rol Yayındakiler listesinde rozet olarak
+// denetle iznini açar ve rolü Ayarlar > Üyeler'den Ece'ye verir. Rol Çevrimiçi listesinde rozet olarak
 // görünür. Ece ve Mert Lobi'ye katılır: Ece'nin Mert için açtığı kişi ses kartında Ses odası denetimi bölümü
 // vardır, Mert'in Ece için açtığında yoktur. Ece Mert'i herkes için susturur: Mert'in mikrofon düğmesi
 // "Herkes için susturuldu" der ve mikrofonunu açamaz, Ece'nin kadrosunda Mert'in rozeti değişir. Susturma
-// kaldırılınca Mert'in kendi durumu geri gelir. Ece Mert'i odadan çıkarınca Mert'in telsizi kapanır.
+// kaldırılınca Mert'in kendi durumu geri gelir. Ece Mert'i odadan çıkarınca Mert'in telsizi kapanır. Sonunda
+// Deniz Mert'i Üyeler sayfasından frekanstan atar: onay sorulur, Mert listeden düşer ve Mert'in uygulaması giriş
+// ekranında frekanstan çıkarıldığını yazar.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -69,7 +71,7 @@ test('sahip Roller sayfasında rol oluşturur, izin açar ve rolü Üyeler sayfa
   }, eceId, { timeout: h.LONG })
   await deniz.keyboard.press('Escape')
   await deniz.waitForSelector('#settings-view', { state: 'hidden' })
-  // Yayındakiler listesinde rozet
+  // Çevrimiçi listesinde rozet
   await deniz.waitForFunction((id) => {
     const badge = document.querySelector('#members .member[data-user-id="' + id + '"] .badge-custom')
     return Boolean(badge && badge.textContent === 'Moderatör')
@@ -94,19 +96,19 @@ test('moderatör ses odasında birini herkes için susturur, susturmayı kaldır
   // Ece'nin Mert için açtığı kartta denetim bölümü var
   await ece.click(crewSel(mertId) + ' .crew-button')
   await ece.waitForSelector('#peer-popover:not([hidden]) #peer-mod:not([hidden])')
-  assert.equal(await ece.textContent('#peer-server-mute'), 'Herkes için sustur')
+  assert.equal(await ece.textContent('#peer-server-mute'), 'Herkes İçin Sustur')
   await ece.click('#peer-server-mute')
-  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent === 'Herkes için susturuldu', null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent === 'Herkes İçin Susturuldu', null, { timeout: h.LONG })
   assert.equal(await mert.getAttribute('#btn-mute', 'aria-pressed'), 'true')
   // Mikrofonunu açmaya çalışınca açılmaz ve açıklama görünür
   await mert.click('#btn-mute')
   await mert.waitForFunction(() => /Herkes için susturuldunuz/.test(document.getElementById('toast').textContent), null, { timeout: h.LONG })
   assert.equal(await mert.evaluate(() => snap().serverMuted), true)
   await ece.waitForSelector(crewSel(mertId) + ' .crew-badge.is-server-muted', { timeout: h.LONG })
-  await ece.waitForFunction(() => document.getElementById('peer-server-mute').textContent === 'Herkes için susturmayı kaldır', null, { timeout: h.LONG })
+  await ece.waitForFunction(() => document.getElementById('peer-server-mute').textContent === 'Herkes İçin Susturmayı Kaldır', null, { timeout: h.LONG })
   // Susturma kalkınca Mert'in kendi tercihi (mikrofon açık) geri gelir
   await ece.click('#peer-server-mute')
-  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent !== 'Herkes için susturuldu', null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent !== 'Herkes İçin Susturuldu', null, { timeout: h.LONG })
   assert.equal(await mert.evaluate(() => snap().serverMuted), false)
   await ece.waitForSelector(crewSel(mertId) + ' .crew-badge.is-server-muted', { state: 'detached', timeout: h.LONG })
   // Odadan çıkarma: Mert'in telsizi kapanır, Ece'nin kadrosunda yalnızca kendisi kalır
@@ -115,4 +117,30 @@ test('moderatör ses odasında birini herkes için susturur, susturmayı kaldır
   await ece.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 1, null, { timeout: h.LONG })
   const meta = await metaOf()
   assert.deepEqual((meta.voice[String(W.lobi.id)] || []).map((m) => m.userId), [eceId])
+})
+
+test('sahip Üyeler sayfasından Mert\'i frekanstan atar, Mert\'in uygulaması frekanstan çıkarıldığını söyler', async () => {
+  const { deniz, mert } = W
+  const mertId = W.w.P.mert.id
+  await deniz.evaluate(() => openSettings('members'))
+  const kickSel = '#set-members-list .member-row[data-user-id="' + mertId + '"] .act-kick'
+  await deniz.waitForSelector(kickSel)
+  assert.equal(await deniz.textContent(kickSel), 'Frekanstan At')
+  // Atma onay ister
+  const asked = new Promise((resolve) => {
+    deniz.once('dialog', (d) => {
+      resolve(d.message())
+      d.accept()
+    })
+  })
+  await deniz.click(kickSel)
+  assert.match(await asked, /frekanstan atılsın mı\?/)
+  await deniz.waitForSelector('#set-members-list .member-row[data-user-id="' + mertId + '"]', { state: 'detached', timeout: h.LONG })
+  await deniz.waitForFunction(() => /frekanstan atıldı/.test(document.getElementById('set-members-msg').textContent), null, { timeout: h.LONG })
+  // Mert'in bekleyen poll'u 401 kicked alır: giriş ekranı açılır ve neden yazar
+  await mert.waitForFunction(() => /Frekanstan çıkarıldınız/.test(document.getElementById('auth-notice').textContent), null, { timeout: h.LONG })
+  assert.equal(await mert.isHidden('#auth-notice'), false)
+  const meta = await metaOf()
+  assert.equal(meta.users.some((u) => u.id === mertId), false)
+  await deniz.keyboard.press('Escape')
 })

@@ -346,6 +346,9 @@ test('kişi bazlı paylaşım sesi mikrofon sesinden ayrı saklanır, susturma o
   const v = client(VC, { storage })
   v.setScreenVolume('7', 0.25)
   v.setPeerVolume('7', 0.5)
+  // Kişi sesi %200'e kadar yükseltilebilir, üstü 2'ye kırpılır (paylaşım sesi en fazla 1)
+  v.setPeerVolume('5', 1.5)
+  v.setPeerVolume('6', 3)
   v.setScreenVolume('8', 2)
   v.setScreenVolume('__proto__', 0.1)
   v.setScreenVolume('9', 'yarım')
@@ -353,7 +356,7 @@ test('kişi bazlı paylaşım sesi mikrofon sesinden ayrı saklanır, susturma o
   const saved = JSON.parse(storage.map.get('telsiz.voice.peers'))
   // 2 değeri 1'e kırpılır, 1 varsayılandır ve saklanmaz. Geçersiz kimlik ve değer yok sayılır.
   assert.deepStrictEqual(saved.screenVolumes, { 7: 0.25 })
-  assert.deepStrictEqual(saved.volumes, { 7: 0.5 })
+  assert.deepStrictEqual(saved.volumes, { 5: 1.5, 6: 2, 7: 0.5 })
   assert.strictEqual(Object.prototype.hasOwnProperty.call(saved, 'screenMutes'), false)
   // Yeni örnek kayıtlı paylaşım sesini okur
   v.setScreenVolume('7', 1)
@@ -362,6 +365,11 @@ test('kişi bazlı paylaşım sesi mikrofon sesinden ayrı saklanır, susturma o
   const again = client(VC, { storage })
   again.setPeerVolume('1', 1)
   assert.deepStrictEqual(JSON.parse(storage.map.get('telsiz.voice.peers')).screenVolumes, { 7: 0.3 })
+  // Kayıtlı %100 üstü kişi sesi yeni örnekte korunur, 2'nin üstündeki bozuk kayıt okunmaz
+  assert.deepStrictEqual(JSON.parse(storage.map.get('telsiz.voice.peers')).volumes, { 5: 1.5, 6: 2, 7: 0.5 })
+  const tampered = storageStub({ 'telsiz.voice.peers': '{"volumes":{"3":2.5,"4":1.75}}' })
+  client(VC, { storage: tampered }).setPeerVolume('1', 1)
+  assert.deepStrictEqual(JSON.parse(tampered.map.get('telsiz.voice.peers')).volumes, { 4: 1.75 })
 })
 
 test('olay dinleyicisi isteğe bağlıdır, geçersiz dinleyici yok sayılır', () => {
@@ -398,7 +406,7 @@ test('her ekran hata kodunun ve arayüz anahtarlarının iki dilde metni var', (
   // Şartnamedeki metinler
   assert.strictEqual(msgs.tr['screen.unsupported'], 'Bu cihaz ekran paylaşımını başlatamıyor, ama izleyebilirsiniz.')
   assert.strictEqual(msgs.tr['screen.hint.motion'], 'Akıcı')
-  assert.strictEqual(msgs.tr['screen.hint.detail'], 'Net metin')
+  assert.strictEqual(msgs.tr['screen.hint.detail'], 'Net Metin')
   assert.strictEqual(msgs.tr['screen.audio'], 'Sesi de paylaş')
 })
 

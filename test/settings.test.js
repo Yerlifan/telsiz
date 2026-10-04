@@ -589,10 +589,10 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
     privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
-    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-compact', 'set-motion-on', 'set-lang'],
+    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
     app: ['set-install', 'set-version', 'set-repo-link'],
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
@@ -734,20 +734,23 @@ test('oturum listesi: bu cihaz rozeti, bilinmeyen cihaz etiketi, kapatma yalnız
   assert.deepStrictEqual(JSON.parse(JSON.stringify(revoke[0].body)), { id: 'bbbbbbbbbbbbbbbb' })
 })
 
-test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca üyeyi engeller, kendine işlem yok', () => {
+test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca üyeyi engeller ve atar, kendine işlem yok', () => {
   const owner = load({ role: 'owner' })
   owner.run("openSettings('members', null)")
   const row = (ctx, id) => ctx.root.querySelector('#set-members-list .member-row[data-user-id="' + id + '"]')
   assert.strictEqual(row(owner, 1).querySelector('button'), null, 'kendi satırında düğme yok')
   assert.ok(row(owner, 2).querySelector('.act-role'), 'sahip yöneticiyi üye yapabilir')
   assert.ok(row(owner, 2).querySelector('.act-ban'))
+  assert.ok(row(owner, 2).querySelector('.act-kick'), 'sahip yöneticiyi atabilir')
   assert.ok(row(owner, 3).querySelector('.act-reset'))
-  assert.strictEqual(row(owner, 2).querySelector('.list-sub').textContent, 'yönetici, boşta')
+  assert.strictEqual(row(owner, 2).querySelector('.list-sub').textContent, 'Yönetici, boşta')
   assert.strictEqual(row(owner, 3).querySelector('.settings-handle').textContent, '@mert')
   const admin = load({ role: 'admin' })
   admin.run("openSettings('members', null)")
   assert.strictEqual(row(admin, 2).querySelector('.act-ban'), null, 'yönetici başka yöneticiyi engelleyemez')
+  assert.strictEqual(row(admin, 2).querySelector('.act-kick'), null, 'yönetici başka yöneticiyi atamaz')
   assert.ok(row(admin, 3).querySelector('.act-ban'), 'yönetici üyeyi engelleyebilir')
+  assert.ok(row(admin, 3).querySelector('.act-kick'), 'yönetici üyeyi atabilir')
   assert.strictEqual(row(admin, 3).querySelector('.act-role'), null)
   assert.strictEqual(row(admin, 3).querySelector('.act-reset'), null)
   // Arama süzgeci
@@ -772,21 +775,50 @@ test('özel rol izinleri: moderatör izinli kategorileri görür, yalnızca alt 
   assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
   const row = (id) => root.querySelector('#set-members-list .member-row[data-user-id="' + id + '"]')
   assert.strictEqual(row(2).querySelector('.act-ban'), null)
+  assert.strictEqual(row(2).querySelector('.act-kick'), null)
   assert.ok(row(3).querySelector('.act-ban'))
+  assert.ok(row(3).querySelector('.act-kick'))
   assert.strictEqual(row(3).querySelector('.act-role'), null)
   assert.strictEqual(row(3).querySelector('.act-custom-role'), null)
   assert.strictEqual(row(3).querySelector('.act-reset'), null)
-  assert.strictEqual(row(3).querySelector('.list-sub').textContent, 'üye, DJ, çevrimdışı')
+  assert.strictEqual(row(3).querySelector('.list-sub').textContent, 'Üye, DJ, çevrimdışı')
   // DJ rolü üste taşınınca moderatör onu engelleyemez
   run('state.meta.roles.reverse()')
   run('refreshSettings()')
   assert.strictEqual(run('outranksUser(3)'), false)
   assert.strictEqual(row(3).querySelector('.act-ban'), null)
+  assert.strictEqual(row(3).querySelector('.act-kick'), null)
   // Rol kalkınca Odalar ve Üyeler kategorileri kaybolur
   run('state.meta.users[0].roleId = null')
   run('refreshSettings()')
   assert.strictEqual(root.querySelector('#settings-cat-members'), null)
   assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'account')
+})
+
+test('frekanstan atma: onay istenir, iptalde istek gitmez, onayda istek gider, engellenenlerde düğme yok', async () => {
+  const { run, root, sandbox } = load({ role: 'owner' })
+  run("state.bannedUsers = [{ id: 9, name: 'eski', role: 'member' }]")
+  run("openSettings('members', null)")
+  const kickBtn = () => root.querySelector('#set-members-list .member-row[data-user-id="3"] .act-kick')
+  const kicks = () => sandbox.__requests.filter((r) => r.path === '/api/users/kick')
+  assert.strictEqual(kickBtn().textContent, 'Frekanstan At')
+  assert.strictEqual(kickBtn().getAttribute('aria-label'), 'Frekanstan at: mert')
+  assert.ok(root.querySelector('#set-banned-list .member-row[data-user-id="9"] .act-ban'), 'engellenende engeli kaldır düğmesi var')
+  assert.strictEqual(root.querySelector('#set-banned-list .act-kick'), null)
+  const asked = []
+  sandbox.confirm = (text) => {
+    asked.push(text)
+    return false
+  }
+  kickBtn().click()
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(kicks().length, 0, 'onay verilmezse istek gitmez')
+  assert.ok(asked[0].indexOf('mert frekanstan atılsın mı?') === 0)
+  sandbox.confirm = () => true
+  kickBtn().click()
+  await new Promise((r) => setImmediate(r))
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(kicks()[0].body)), { userId: 3 })
+  assert.strictEqual(root.querySelector('#set-members-msg').textContent, 'mert frekanstan atıldı.')
 })
 
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
@@ -849,6 +881,9 @@ test('ayarlar görünümündeki tüm sabit anahtarlar iki dilde var ve dinamik a
   states.forEach((st) => keys.add('settings.notify.state.' + st))
   keys.add('settings.app.licenseNacl')
   keys.add('settings.app.licenseScrypt')
+  keys.add('settings.app.licenseRnnoise')
+  keys.add('settings.app.licenseRnnoiseWasm')
+  for (const status of ['on', 'unavailable', 'off', 'idle', 'loading']) keys.add(run('rnnoiseHintKey')(status))
   assert.ok(keys.size > 150)
   for (const key of keys) {
     assert.ok(has(tr, key), 'tr: ' + key)
@@ -867,7 +902,7 @@ test('dil değişince görünüm yeniden çizilir ve odak aynı öğeye döner',
   run("I18N.setLang('en')")
   run('settingsOnLanguage()')
   assert.strictEqual(root.querySelector('#settings-page-title').textContent, 'Appearance')
-  assert.strictEqual(root.querySelector('#settings-cat-account .settings-cat-label').textContent, 'My account')
+  assert.strictEqual(root.querySelector('#settings-cat-account .settings-cat-label').textContent, 'My Account')
   assert.strictEqual(doc.activeElement.id, 'set-lang')
   assert.notStrictEqual(doc.activeElement, null)
   run("I18N.setLang('tr')")
@@ -882,6 +917,19 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   assert.strictEqual(sandbox.TelsizTheme.prefs.scheme, 'light')
   root.querySelector('#set-font-tv').click()
   assert.strictEqual(sandbox.TelsizTheme.prefs.fontSize, 'tv')
+  // Elle ayar: kaydırıcı Özel boyutu seçer ve pikseli yazar (12 ile 28 arası)
+  const px = root.querySelector('#set-font-px')
+  assert.strictEqual(px.value, '15')
+  assert.strictEqual(root.querySelector('#set-font-px-value').textContent, '15 px')
+  px.value = '20'
+  px.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontSize, 'custom')
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontPx, 20)
+  assert.strictEqual(root.querySelector('#set-font-px-value').textContent, '20 px')
+  px.value = '99'
+  px.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontPx, 28)
+  root.querySelector('#set-font-tv').click()
   root.querySelector('#set-compact').click()
   assert.strictEqual(sandbox.TelsizTheme.prefs.compact, true)
   root.querySelector('#set-motion-off').click()
@@ -945,13 +993,13 @@ test('ekran paylaşımı kalitesi: varsayılan Net metin ve 720p 15, tercih tels
   assert.deepStrictEqual(JSON.parse(JSON.stringify(run('screenQuality()'))), { hint: 'detail', preset: '720p15' })
   // Paylaşım desteklenmeyen cihazda seçimler kapalı ve açıklama görünür
   run("openSettings('voice', null)")
-  assert.strictEqual(root.querySelector('#settings-page-title').textContent, 'Ses ve görüntü')
+  assert.strictEqual(root.querySelector('#settings-page-title').textContent, 'Ses ve Görüntü')
   assert.strictEqual(root.querySelector('#set-screen-unsupported').hidden, false)
   assert.strictEqual(root.querySelector('#set-screen-preset-720p15').disabled, true)
   assert.strictEqual(root.querySelector('#set-screen-hint-detail').checked, true)
   assert.strictEqual(root.querySelector('#set-screen-preset-720p15').checked, true)
-  assert.ok(root.querySelector('label[for="set-screen-preset-1080p30"]').textContent.indexOf('1080p, saniyede 30 kare') !== -1)
-  assert.ok(root.querySelector('label[for="set-screen-preset-720p15"]').textContent.indexOf('720p, saniyede 15 kare (varsayılan)') !== -1)
+  assert.ok(root.querySelector('label[for="set-screen-preset-1080p30"]').textContent.indexOf('1080p, Saniyede 30 Kare') !== -1)
+  assert.ok(root.querySelector('label[for="set-screen-preset-720p15"]').textContent.indexOf('720p, Saniyede 15 Kare (Varsayılan)') !== -1)
   run('closeSettings(false)')
   // Destekleyen cihaz: seçim saklanır, ses istemcisine paylaşım varsayılanı ve sürmekte olan paylaşıma kalite olarak gider
   sandbox.__screen = []
@@ -995,7 +1043,7 @@ test('YouTube oynatıcısı izni: durum, geri alma ve telsiz.djYoutubeConsent', 
   storage.setItem('telsiz.djYoutubeConsent', '0')
   run('settingsWatchTick()')
   assert.strictEqual(root.querySelector('#set-youtube-state').getAttribute('data-state'), 'denied')
-  assert.strictEqual(root.querySelector('#set-youtube-revoke').textContent, 'Yeniden sor')
+  assert.strictEqual(root.querySelector('#set-youtube-revoke').textContent, 'Yeniden Sor')
   root.querySelector('#set-youtube-revoke').click()
   assert.strictEqual(storage.getItem('telsiz.djYoutubeConsent'), null)
   assert.ok(root.querySelector('#set-youtube-msg').textContent.indexOf('yeniden sorulacak') !== -1)
@@ -1039,6 +1087,73 @@ test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam �
   run("openSettings('keybinds', null)")
   assert.ok(root.querySelector('#set-bind-mode').textContent.length > 0, 'giriş modu satırı yazıldı')
   assert.ok(root.querySelector('#set-bind-ptt-key').textContent.length > 0, 'atama adı yazıldı')
+})
+
+test('Gelişmiş gürültü engelleme (RNNoise): tarayıcının gürültü bastırmasının yanında, varsayılan açık, durumla değişen açıklama', () => {
+  const { run, root, sandbox } = load()
+  sandbox.__voiceCalls = []
+  sandbox.__rn = true
+  run(`voice = {
+    support () { return { ok: true, reason: null } },
+    settings () {
+      return { inputDeviceId: null, inputMode: 'vad', vadAuto: true, vadThreshold: -50, pttReleaseMs: 200, echoCancellation: true,
+        noiseSuppression: true, autoGainControl: true, rnnoise: __rn, outputVolume: 1, sounds: true,
+        bindings: { ptt: { type: 'key', code: 'KeyV' }, toggleMute: null, toggleDeafen: null } }
+    },
+    setSettings (p) {
+      __voiceCalls.push(JSON.parse(JSON.stringify(p)))
+      if (typeof p.rnnoise === 'boolean') __rn = p.rnnoise
+      return Promise.resolve(null)
+    },
+    bindingLabel () { return 'V' },
+    listInputDevices () { return Promise.resolve([]) },
+    snapshot () { return null }
+  }`)
+  run("openSettings('voice', null)")
+  const sw = root.querySelector('#set-rnnoise')
+  assert.ok(sw, 'anahtar var')
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.strictEqual(sw.checked, true, 'varsayılan açık')
+  assert.strictEqual(root.querySelector('label[for="set-rnnoise"] .settings-switch-text').textContent, 'Gelişmiş gürültü engelleme (RNNoise)')
+  assert.strictEqual(sw.getAttribute('aria-describedby'), 'set-rnnoise-hint')
+  const hint = () => root.querySelector('#set-rnnoise-hint').textContent
+  assert.ok(hint().indexOf('Klavye tıkırtısı') === 0, hint())
+  // Tarayıcının gürültü bastırması anahtarının hemen ardından gelir
+  const noiseRow = root.querySelector('#set-noise').parentNode
+  assert.ok(noiseRow.nextSibling && noiseRow.nextSibling.contains(sw), 'set-noise satırının yanında')
+  // Açıklama ses hattındaki durumu izler
+  run("state.voiceSnap = Object.assign({}, snap(), { rnnoise: 'on' })")
+  run('settingsOnVoice()')
+  assert.strictEqual(hint(), 'Etkin. Mikrofon sesiniz cihazınızda RNNoise ile temizleniyor.')
+  run("state.voiceSnap = Object.assign({}, snap(), { rnnoise: 'unavailable' })")
+  run('settingsOnVoice()')
+  assert.strictEqual(hint(), 'Bu tarayıcıda kullanılamıyor. Sesiniz tarayıcının kendi ses işlemesiyle gönderiliyor.')
+  // Anahtar yalnızca rnnoise ayarını değiştirir
+  root.querySelector('#set-rnnoise').click()
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sandbox.__voiceCalls)), [{ rnnoise: false }])
+  run('settingsOnVoice()')
+  assert.strictEqual(root.querySelector('#set-rnnoise').checked, false)
+  root.querySelector('#set-noise').click()
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sandbox.__voiceCalls[1])), { noiseSuppression: false })
+  // İngilizce
+  run("I18N.setLang('en')")
+  run('settingsOnLanguage()')
+  assert.strictEqual(root.querySelector('label[for="set-rnnoise"] .settings-switch-text').textContent, 'Advanced noise suppression (RNNoise)')
+  assert.strictEqual(hint(), 'Not available in this browser. Your audio is sent with the browser\'s own voice processing.')
+  run("I18N.setLang('tr')")
+  run('voice = null')
+  run('state.voiceSnap = null')
+})
+
+test('Uygulama sayfası üçüncü taraf lisanslarında RNNoise bağlantıları var', () => {
+  const { run, root } = load()
+  run("openSettings('app', null)")
+  const links = root.querySelectorAll('.settings-links a').map((a) => [a.childNodes[0].textContent, a.getAttribute('href')])
+  const rn = links.filter((l) => /rnnoise/i.test(l[1]))
+  assert.deepStrictEqual(rn, [
+    ['RNNoise, gelişmiş gürültü engelleme (BSD-3-Clause)', '/vendor/rnnoise/RNNOISE-LICENSE.txt'],
+    ['@shiguredo/rnnoise-wasm 2022.2.0, RNNoise WebAssembly derlemesi (Apache-2.0)', '/vendor/rnnoise/RNNOISE-WASM-LICENSE.txt']
+  ])
 })
 
 test('Frekans tanıtımı: sahip yazar ve kaydeder (POST /api/settings { about }), yönetici salt okunur görür', async () => {

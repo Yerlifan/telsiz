@@ -10,8 +10,13 @@
 //   sunucuya doğrudan bağlantıyı engeller, service worker kaydedilemez
 // - şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya verilir
 // - izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı girişsiz ekran yakalama yok
+// - tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur (yayın sahnesinin Tam ekran düğmesi)
+// - başlık şeridi (Windows ve Linux): pencere düğmeleri kaplamada, renkleri temadan gelir, şeritteki menü
+//   düğmeleri uygulama menüsünü açar, tam ekranda şerit kalkar
 // - ekran paylaşımı seçicisi gerçek kullanıcı girişiyle açılır, seçim ve vazgeçme çalışır
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
+// - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
+//   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -405,7 +410,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -538,6 +543,39 @@ test('CSP satır içi betiği ve sunucuya doğrudan bağlantıyı engeller, serv
   assert.notEqual(sw, 'registered')
 })
 
+test('gelişmiş gürültü engelleme: AudioWorklet modülü ve RNNoise wasm paketten yüklenir, CSP derlemeye izin verir', async () => {
+  const page = ctx.page
+  const index = await xhr(page, 'GET', '/index.html')
+  assert.match(index.csp, /script-src 'self' 'wasm-unsafe-eval';/)
+  const r = await page.evaluate(async () => {
+    const ac = new AudioContext()
+    try {
+      await ac.audioWorklet.addModule('/rnnoise-worklet.js')
+      const loaded = await new Promise((resolve, reject) => {
+        const x = new XMLHttpRequest()
+        x.open('GET', '/vendor/rnnoise/rnnoise.wasm')
+        x.responseType = 'arraybuffer'
+        x.onload = () => resolve({ status: x.status, type: x.getResponseHeader('content-type'), bytes: x.response })
+        x.onerror = () => reject(new Error('xhr'))
+        x.send()
+      })
+      const node = new AudioWorkletNode(ac, 'telsiz-rnnoise', { outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', processorOptions: { wasm: loaded.bytes } })
+      const message = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ type: 'timeout' }), 10000)
+        node.port.onmessage = (e) => {
+          clearTimeout(timer)
+          resolve(e.data)
+        }
+      })
+      node.port.postMessage('destroy')
+      return { status: loaded.status, type: loaded.type, size: loaded.bytes.byteLength, message }
+    } finally {
+      await ac.close()
+    }
+  })
+  assert.deepEqual([r.status, r.type, r.size, r.message.type], [200, 'application/wasm', 152656, 'ready'])
+})
+
 test('şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya gider', async () => {
   const page = ctx.page
   await ctx.app.evaluate(({ shell }) => {
@@ -584,6 +622,140 @@ test('izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı giriş
   assert.equal(await page.evaluate(() => window.Notification.permission), 'granted')
   const geo = await page.evaluate(() => navigator.permissions.query({ name: 'geolocation' }).then((r) => r.state, (e) => e.name))
   assert.notEqual(geo, 'granted')
+})
+
+test('tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur ve çıkar', async () => {
+  const page = ctx.page
+  // Yayın sahnesinin Tam ekran düğmesi gibi tıklamayla requestFullscreen çağıran geçici bir düğme
+  await page.evaluate(() => {
+    const b = document.createElement('button')
+    b.id = 'duman-tam-ekran'
+    b.type = 'button'
+    b.textContent = 'Tam ekran'
+    b.style.position = 'fixed'
+    b.style.left = '0'
+    b.style.top = '0'
+    b.style.width = '40px'
+    b.style.height = '40px'
+    b.style.zIndex = '2147483647'
+    window.__tamEkran = null
+    b.addEventListener('click', () => {
+      b.requestFullscreen().then(() => {
+        window.__tamEkran = 'ok'
+      }, (e) => {
+        window.__tamEkran = e.name
+      })
+    })
+    document.body.appendChild(b)
+  })
+  // Ekran seçicisi testindeki gibi fareyle gerçek kullanıcı girişi
+  await page.mouse.click(20, 20)
+  await page.waitForFunction(() => window.__tamEkran !== null, null, { timeout: TIMEOUT })
+  assert.equal(await page.evaluate(() => window.__tamEkran), 'ok')
+  assert.equal(await page.evaluate(() => document.fullscreenElement && document.fullscreenElement.id), 'duman-tam-ekran')
+  const windowFull = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isFullScreen()))
+  await page.evaluate(() => document.exitFullscreen())
+  await page.waitForFunction(() => !document.fullscreenElement, null, { timeout: TIMEOUT })
+  // Sonraki testler normal pencereyle sürsün: pencerenin de tam ekrandan çıkması beklenir
+  const until = Date.now() + TIMEOUT
+  while (await windowFull()) {
+    if (Date.now() > until) throw new Error('pencere tam ekrandan çıkmadı')
+    await sleep(100)
+  }
+  await page.evaluate(() => document.getElementById('duman-tam-ekran').remove())
+})
+
+test('başlık şeridi: pencere düğmeleri kaplamada, renk temadan gelir, menüler açılır, tam ekranda şerit kalkar', { timeout: 60000 }, async (t) => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') {
+    t.skip('kaplama yalnızca Windows ve Linux için')
+    return
+  }
+  const page = ctx.page
+  const layout = () => page.evaluate(() => {
+    const bar = document.getElementById('titlebar')
+    // Görünen ana görünüm (duman testinde kurulum ekranı açık kalır)
+    const top = ['app-view', 'auth-view', 'boot-view'].map((id) => document.getElementById(id)).find((node) => node && !node.hidden)
+    const o = navigator.windowControlsOverlay
+    return {
+      cls: document.documentElement.classList.contains('has-titlebar'),
+      bar: bar ? Math.round(bar.getBoundingClientRect().height) : null,
+      top: top ? Math.round(top.getBoundingClientRect().top) : null,
+      overlay: Boolean(o && o.visible),
+      menus: bar ? Array.from(bar.querySelectorAll('.titlebar-menu')).map((b) => b.textContent) : [],
+      title: bar ? bar.querySelector('.titlebar-title').textContent : null,
+      docTitle: document.title
+    }
+  })
+  await page.waitForFunction(() => document.querySelector('#titlebar .titlebar-menu'), null, { timeout: TIMEOUT })
+  const normal = await layout()
+  assert.equal(normal.cls, true)
+  assert.equal(normal.overlay, true, 'pencere denetimleri kaplaması görünür')
+  assert.equal(normal.bar, 32, 'şerit kaplama yüksekliğinde')
+  assert.equal(normal.top, 32, 'görünüm şeridin altından başlar')
+  // Menü etiketleri uygulama menüsünün üst düzey bölümleridir (dil sistem dilinden seçilir: Telsiz, Düzen veya
+  // Edit, Görünüm veya View, Yardım veya Help)
+  const appMenus = await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.filter((item) => item.submenu).map((item) => item.label))
+  assert.equal(appMenus.length, 4)
+  assert.deepEqual(normal.menus, appMenus)
+  assert.equal(normal.title, normal.docTitle)
+  const menuState = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).map((w) => w.isMenuBarVisible()))
+  assert.ok(menuState.every((visible) => visible === false), 'yerel menü çubuğu gizli')
+
+  // Renk: sayfanın zemini ve metin rengi ana sürece gider (tanı günlüğü), tema değişince yenilenir
+  const colorsOf = () => page.evaluate(() => {
+    const hex = (v) => '#' + v.match(/\d+/g).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, '0')).join('')
+    const s = getComputedStyle(document.body)
+    return { color: hex(s.backgroundColor), symbolColor: hex(s.color) }
+  })
+  const logged = (colors) => fs.readFileSync(ctx.diagFile, 'utf8').split('\n').some((line) => line.includes('title-bar-colors') && line.includes(colors.color) && line.includes(colors.symbolColor))
+  const before = await page.evaluate(() => window.TelsizTheme.get().scheme)
+  await page.evaluate(() => window.TelsizTheme.set({ scheme: 'dark' }))
+  const dark = await colorsOf()
+  await waitFor(() => logged(dark), 'koyu tema renkleri', TIMEOUT)
+  await page.evaluate(() => window.TelsizTheme.set({ scheme: 'light' }))
+  const light = await colorsOf()
+  assert.notEqual(light.color, dark.color)
+  await waitFor(() => logged(light), 'açık tema renkleri', TIMEOUT)
+  await page.evaluate((scheme) => window.TelsizTheme.set({ scheme }), before)
+
+  // Menü: geçersiz istek reddedilir, geçerli istek menüyü açar ve kapanınca true döner
+  assert.equal(await page.evaluate(() => window.telsizDesktop.titleBar.openMenu(99, 10, 32)), false)
+  assert.equal(await page.evaluate(() => window.telsizDesktop.titleBar.openMenu(0, -5, 32)), false)
+  // Şeritteki düğme menüyü açar (aria-expanded true), menü kapanınca false olur
+  await page.evaluate(() => document.querySelector('#titlebar .titlebar-menu').click())
+  assert.equal(await page.evaluate(() => document.querySelector('#titlebar .titlebar-menu').getAttribute('aria-expanded')), 'true')
+  await sleep(500)
+  await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.closePopup())
+  await page.waitForFunction(() => document.querySelector('#titlebar .titlebar-menu').getAttribute('aria-expanded') === 'false', null, { timeout: TIMEOUT })
+  // API doğrudan: menü kapanınca söz true ile çözülür
+  await page.evaluate(() => {
+    window.__menu = null
+    window.telsizDesktop.titleBar.openMenu(1, 60, 32).then((v) => {
+      window.__menu = v
+    })
+  })
+  await sleep(500)
+  await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[1].submenu.closePopup())
+  await page.waitForFunction(() => window.__menu !== null, null, { timeout: TIMEOUT })
+  assert.equal(await page.evaluate(() => window.__menu), true)
+
+  // Tam ekranda kaplama ve şerit kalkar, sayfa en üstten başlar. Çıkınca geri gelir.
+  const setFull = (on) => ctx.app.evaluate(({ BrowserWindow }, value) => {
+    BrowserWindow.getAllWindows().filter((w) => w.isVisible()).forEach((w) => w.setFullScreen(value))
+  }, on)
+  // Kaplamanın kendi durumu (görünür mü) platforma göre değişebildiği için yalnızca günlüğe yazılır
+  let last = null
+  const settle = (check, label) => waitFor(async () => {
+    last = await layout()
+    return check(last)
+  }, label, TIMEOUT).catch((err) => {
+    throw new Error(err.message + ': ' + JSON.stringify(last))
+  })
+  await setFull(true)
+  await settle((l) => l.bar === 0 && l.top === 0 && !l.cls, 'tam ekranda şerit kalkar')
+  console.log('başlık şeridi tam ekranda: ' + JSON.stringify(last))
+  await setFull(false)
+  await settle((l) => l.bar === 32 && l.top === 32 && l.cls && l.overlay, 'tam ekrandan çıkınca şerit gelir')
 })
 
 test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme ve seçim çalışır', { timeout: 60000 }, async (t) => {
@@ -649,6 +821,95 @@ test('genel kısayol ayarları doğrulanır, olaylar yalnızca izinli eylemlerle
   })
   await waitFor(() => page.evaluate(() => window.__kisayollar.length > 0), 'shortcut event')
   assert.deepEqual(await page.evaluate(() => window.__kisayollar), ['toggleDeafen'])
+})
+
+// Bas konuş arka planda: bas aç, bas kapat genel kısayolu (pttToggle) ve isteğe bağlı basılı tut tuş kancası.
+// Gerçek tuş olayı üretilmez: kısayolun kaydı, sayfaya yalnızca izinli olayların ulaşması, ayar doğrulaması,
+// paketlenmiş derlemede yerel modülün asar dışına açılması ve kancanın yalnızca ses odasındayken çalışması denetlenir.
+test('bas konuş: pttToggle kısayolu kaydedilir, sayfaya yalnızca izinli olaylar gelir, kanca yalnızca ses odasında çalışır', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  const accelerator = 'CommandOrControl+Shift+F12'
+  const before = await page.evaluate(() => window.telsizDesktop.getSettings())
+  // Varsayılan: bas aç, bas kapat, tuş yok
+  assert.deepEqual(before.ptt, { mode: 'toggle', holdKey: null })
+  assert.equal(typeof before.pttHook.available, 'boolean')
+  assert.equal(before.pttHook.running, false)
+  const saved = await page.evaluate(() => window.telsizDesktop.setShortcuts({ toggleMute: 'ctrl+shift+f11', toggleDeafen: null, pttToggle: 'ctrl+shift+f12' }))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.shortcuts.pttToggle, accelerator)
+  const registered = await ctx.app.evaluate(({ globalShortcut }, value) => globalShortcut.isRegistered(value), accelerator)
+  assert.equal(saved.registered.pttToggle, registered)
+  // Linux'ta (xvfb, X11) genel kısayol gerçekten kaydedilir
+  if (process.platform === 'linux') assert.equal(registered, true)
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setShortcuts({ pttToggle: 'V' })), { ok: false, code: 'invalid' })
+
+  await page.evaluate(() => {
+    window.__basKonus = { shortcuts: [], hold: [] }
+    window.telsizDesktop.onShortcut((action) => window.__basKonus.shortcuts.push(action))
+    window.telsizDesktop.onPttHold((phase) => window.__basKonus.hold.push(phase))
+  })
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.webContents.send('telsiz:shortcut', 'pttToggle')
+    win.webContents.send('telsiz:ptt-hold', 'evil')
+    win.webContents.send('telsiz:ptt-hold', { keycode: 47 })
+    win.webContents.send('telsiz:ptt-hold', 47)
+    win.webContents.send('telsiz:ptt-hold', 'start')
+    win.webContents.send('telsiz:shortcut', 'start')
+    win.webContents.send('telsiz:ptt-hold', 'end')
+  })
+  await waitFor(() => page.evaluate(() => window.__basKonus.hold.length >= 2 && window.__basKonus.shortcuts.length >= 1), 'push to talk events')
+  assert.deepEqual(await page.evaluate(() => window.__basKonus), { shortcuts: ['pttToggle'], hold: ['start', 'end'] })
+
+  // Ayar doğrulaması ana süreçte yapılır
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'kanca' })), { ok: false, code: 'invalid' })
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'VolumeUp' })), { ok: false, code: 'invalid' })
+  // Basılı tut tuşu Mikrofonu aç/kapat kısayoluyla (Ctrl+Shift+F11) birlikte tetiklenirdi
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'F11' })), { ok: false, code: 'duplicate' })
+
+  // Paketlenmiş derlemede yerel modül asar dışındadır (electron-builder.json asarUnpack)
+  const packaged = await ctx.app.evaluate(({ app }) => app.isPackaged)
+  if (packaged) {
+    const resources = await ctx.app.evaluate(() => process.resourcesPath)
+    const native = path.join(resources, 'app.asar.unpacked', 'node_modules', 'uiohook-napi', 'prebuilds', process.platform + '-' + process.arch, 'uiohook-napi.node')
+    assert.ok(fs.existsSync(native), native)
+  }
+
+  const hold = await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'hold', holdKey: 'F13' }))
+  if (!hold.ok) {
+    // Modül bu makinede yüklenemiyorsa ayar değişmez ve neden bildirilir, uygulama çalışmaya devam eder
+    assert.equal(hold.code, 'unavailable')
+    assert.equal(hold.pttHook.available, false)
+    assert.deepEqual(hold.ptt, { mode: 'toggle', holdKey: null })
+    t.diagnostic('tuş kancası bu ortamda kullanılamıyor: ' + hold.pttHook.reason)
+    return
+  }
+  assert.deepEqual(hold.ptt, { mode: 'hold', holdKey: 'F13' })
+  // Basılı tut kipinde bas aç, bas kapat kısayolu kaydedilmez, ses odasında değilken kanca çalışmaz
+  assert.equal(hold.registered.pttToggle, null)
+  assert.equal(await ctx.app.evaluate(({ globalShortcut }, value) => globalShortcut.isRegistered(value), accelerator), false)
+  assert.equal(hold.pttHook.running, false)
+  const hookState = () => page.evaluate(() => window.telsizDesktop.getSettings().then((s) => s.pttHook))
+  await page.evaluate(() => window.telsizDesktop.setVoiceActive(true))
+  const started = await waitFor(async () => {
+    const s = await hookState()
+    return s.running || s.error ? s : null
+  }, 'key hook start')
+  if (started.error) {
+    t.diagnostic('tuş kancası bu ortamda başlatılamadı: ' + started.error)
+  } else {
+    assert.equal(started.running, true)
+    await page.evaluate(() => window.telsizDesktop.setVoiceActive(false))
+    await waitFor(async () => (await hookState()).running === false, 'key hook stop when leaving the voice room')
+    // Ses odasındayken ayar kapanınca da durur
+    await page.evaluate(() => window.telsizDesktop.setVoiceActive(true))
+    await waitFor(async () => (await hookState()).running === true, 'key hook start again')
+  }
+  const back = await page.evaluate(() => window.telsizDesktop.setPtt({ mode: 'toggle', holdKey: 'F13' }))
+  assert.equal(back.ok, true)
+  assert.equal(back.pttHook.running, false)
+  assert.equal(back.registered.pttToggle, registered)
+  await page.evaluate(() => window.telsizDesktop.setVoiceActive(false))
 })
 
 // Gözetimsiz çalıştırmada zamanlanmış denetim yoktur, burada GitHub'a hiçbir istek gönderilmez

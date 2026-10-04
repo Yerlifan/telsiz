@@ -663,7 +663,7 @@ function handleSessionLost (reason) {
   if (state.me) forgetIdentity(state.me.id)
   clearToken()
   resetAppState()
-  showLogin(() => t(reason === 'banned' ? 'auth.banned' : 'auth.sessionEnded'))
+  showLogin(() => t(reason === 'banned' ? 'auth.banned' : reason === 'kicked' ? 'auth.kicked' : 'auth.sessionEnded'))
 }
 
 async function logout () {
@@ -696,6 +696,7 @@ async function logout () {
 function resetAppState () {
   closeAllLayers()
   socialReset()
+  if (typeof activityReset === 'function') activityReset()
   state.inApp = false
   state.me = null
   state.meta = null

@@ -13,7 +13,7 @@
 
 .settings-view {
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h, 0px);
   right: 0;
   bottom: 0;
   left: 0;
@@ -23,11 +23,32 @@
   color: var(--text);
 }
 
+/* Geniş ekranda kenar çubuğu ve içerik birlikte ortalanır, hafif sola yatık durur: soldaki boşluk sağdakinin
+   üçte ikisidir (iki boş sözde öğe 2 ve 3 oranında büyür). Ekran dar kaldığında boşluklar sıfırlanır. */
+.settings-view::before,
+.settings-view::after {
+  content: "";
+  flex: 2 1 0;
+  min-width: 0;
+}
+
+.settings-view::after {
+  flex-grow: 3;
+}
+
 .settings-shell {
   display: flex;
+  flex: 0 1 76rem;
   width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
+}
+
+@media (min-width: 1280px) {
+  .settings-side {
+    border-left: var(--border-width) solid var(--line-strong);
+  }
 }
 
 .settings-side {

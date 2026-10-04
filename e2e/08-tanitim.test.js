@@ -198,7 +198,7 @@ test('390 genişlikte yatay taşma yok, düğmeler klavyeyle erişilir, dil değ
   assert.ok(reached, 'Giriş yap sekmeyle odaklanır')
   // İngilizce
   await page.click('#auth-lang [data-lang="en"]')
-  await page.waitForFunction(() => document.querySelector('#tanitim-login span').textContent === 'Sign in')
+  await page.waitForFunction(() => document.querySelector('#tanitim-login span').textContent === 'Sign In')
   const en = await page.evaluate(() => ({
     title: document.getElementById('tanitim-what-title').textContent,
     cmd: Array.from(document.querySelectorAll('#tanitim .tanitim-cmd-text')).map((n) => n.textContent).filter((t) => t.indexOf('nslookup') === 0)[0],

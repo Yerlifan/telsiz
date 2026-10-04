@@ -783,7 +783,7 @@ function frekansAdd (trigger) {
   }
   openAppDialog({
     name: 'frekans-add',
-    titleKey: 'frekans.add',
+    titleKey: 'frekans.addTitle',
     trigger: trigger,
     build: (body, close) => {
       const form = h('form', 'form frekans-add-form')

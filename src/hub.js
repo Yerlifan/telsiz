@@ -671,6 +671,27 @@ function createHub (options) {
     return changed
   }
 
+  // Kullanıcının ses odasındaki açık kamerasını kapalı yapar (ses odası denetimi, tek seferlik). Kişinin istemcisi
+  // metada kendi kamerasını kapalı görünce yerel kamerayı durdurur, kişi kamerasını yeniden açabilir.
+  // Sonuç: 'ok' | 'not_in_voice' | 'camera_off'
+  function forceCameraOff (userId) {
+    const set = byUser.get(userId)
+    let inVoice = false
+    let changed = false
+    for (const rt of set || []) {
+      if (rt.voiceChannelId === null) continue
+      inVoice = true
+      if (rt.camera) {
+        rt.camera = false
+        changed = true
+      }
+    }
+    if (!inVoice) return 'not_in_voice'
+    if (!changed) return 'camera_off'
+    bumpMeta()
+    return 'ok'
+  }
+
   // Herkes için susturulan kullanıcının ses odasındaki oturumları susturulmuş görünür
   function forceMute (userId) {
     const set = byUser.get(userId)
@@ -757,6 +778,7 @@ function createHub (options) {
     clearCameras,
     kickVoiceChannel,
     kickVoiceUser,
+    forceCameraOff,
     forceMute,
     voiceUserIds,
     userInVoice,

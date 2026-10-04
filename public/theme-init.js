@@ -2,24 +2,29 @@
 
 // Tema ön yükleyicisi (Ek G1.5). <head> içinde defer olmadan, stil dosyalarından önce yüklenir.
 // Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact ve
-// data-reduce-motion özniteliklerini yazar, böylece sayfa ilk çizimde doğru temayla açılır.
+// data-reduce-motion özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
+// çizimde doğru temayla açılır.
 // window.TelsizTheme arayüzü ayarlar görünümü ve uygulama tarafından kullanılır.
 // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
 
 function createTelsizTheme () {
   const SKINS = ['arcade', 'gece', 'turkuaz']
   const SCHEMES = ['dark', 'light', 'system']
-  const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv']
+  const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
   const STORE = {
     skin: 'telsiz.skin',
     scheme: 'telsiz.scheme',
     fontSize: 'telsiz.fontSize',
+    fontPx: 'telsiz.fontPx',
     compact: 'telsiz.compact',
     reduceMotion: 'telsiz.reduceMotion'
   }
-  // Yazı boyutu varsayılanı 16 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür
-  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', compact: false, reduceMotion: 'system' }
+  // Elle ayarlanan yazı boyutunun (custom) sınırları, piksel
+  const FONT_PX = { min: 12, max: 28 }
+  // Yazı boyutu varsayılanı 15 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür. Özel boyut
+  // da ilk açılışta 15 pikseldir.
+  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system' }
   const root = document.documentElement
   const listeners = []
 
@@ -43,6 +48,13 @@ function createTelsizTheme () {
     return list.indexOf(value) !== -1 ? value : fallback
   }
 
+  // Tam sayı piksel, sınırlar içinde. Geçersizse null.
+  function fontPx (value) {
+    const n = typeof value === 'number' ? value : Number(String(value === null || value === undefined ? '' : value).trim())
+    if (!Number.isInteger(n) || n < FONT_PX.min || n > FONT_PX.max) return null
+    return n
+  }
+
   function media (query) {
     try {
       return window.matchMedia ? window.matchMedia(query) : null
@@ -59,6 +71,7 @@ function createTelsizTheme () {
     skin: pick(SKINS, read(STORE.skin), DEFAULTS.skin),
     scheme: pick(SCHEMES, read(STORE.scheme), DEFAULTS.scheme),
     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
+    fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,
     compact: read(STORE.compact) === 'true',
     reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion)
   }
@@ -85,6 +98,7 @@ function createTelsizTheme () {
       scheme: prefs.scheme,
       resolvedScheme: resolvedScheme(),
       fontSize: prefs.fontSize,
+      fontPx: prefs.fontPx,
       compact: prefs.compact,
       reduceMotion: prefs.reduceMotion,
       motionReduced: resolvedMotion()
@@ -95,6 +109,9 @@ function createTelsizTheme () {
     root.setAttribute('data-skin', prefs.skin)
     root.setAttribute('data-scheme', resolvedScheme())
     root.setAttribute('data-font-size', prefs.fontSize)
+    // Özel boyut CSSOM ile kök öğenin değişkenine yazılır (CSP satır içi stil özniteliğine izin vermez,
+    // CSSOM ataması izinlidir), tokens.css html[data-font-size="custom"] kuralı kullanır
+    if (root.style && typeof root.style.setProperty === 'function') root.style.setProperty('--font-px', prefs.fontPx + 'px')
     root.setAttribute('data-compact', prefs.compact ? 'true' : 'false')
     root.setAttribute('data-reduce-motion', resolvedMotion() ? 'true' : 'false')
   }
@@ -127,6 +144,14 @@ function createTelsizTheme () {
       prefs.fontSize = next.fontSize
       write(STORE.fontSize, prefs.fontSize)
       changed = true
+    }
+    if (next.fontPx !== undefined) {
+      const px = fontPx(next.fontPx)
+      if (px !== null && px !== prefs.fontPx) {
+        prefs.fontPx = px
+        write(STORE.fontPx, String(px))
+        changed = true
+      }
     }
     if (next.compact !== undefined && Boolean(next.compact) !== prefs.compact) {
       prefs.compact = Boolean(next.compact)
@@ -171,6 +196,11 @@ function createTelsizTheme () {
     else if (typeof query.addListener === 'function') query.addListener(handler)
   }
 
+  // Masaüstü uygulamasında (Windows ve Linux) pencere düğmeleri sayfanın üstüne çizilir (Pencere Denetimleri
+  // Kaplaması). Sayfa ilk çizimden önce başlık şeridi kadar aşağıdan başlar, yükseklik CSS ortam değişkeninden
+  // gelir (components.css .has-titlebar), kaplama yoksa veya tam ekranda sıfırdır. Şerit js/30-pencere.js ile çizilir.
+  if (window.telsizDesktop && typeof navigator !== 'undefined' && navigator.windowControlsOverlay && root.classList) root.classList.add('has-titlebar')
+
   watch(darkQuery, () => prefs.scheme === 'system')
   watch(lightQuery, () => prefs.scheme === 'system')
   watch(motionQuery, () => prefs.reduceMotion === 'system')
@@ -182,6 +212,7 @@ function createTelsizTheme () {
     skins: SKINS.slice(),
     schemes: SCHEMES.slice(),
     fontSizes: FONT_SIZES.slice(),
+    fontPxRange: { min: FONT_PX.min, max: FONT_PX.max },
     onChange: onChange
   }
 }

@@ -13,16 +13,22 @@
 // - body[data-cast="live"]: yayın sahnesi görünür (izleme veya kendi paylaşımının önizlemesi). Bu sırada
 //   DJ kartı (#dj) kendi sütununda durmaz, kadrodaki "Telsiz DJ" öğesinden açılan sayfaya iner (23-dj.js).
 //   Sahne kapanınca öznitelik kaldırılır.
-// - body[data-cast-chat="open" | "closed"]: sahne açıkken sohbetin açık mı daraltılmış mı olduğu.
+// - body[data-cast-chat="open" | "closed"]: sahne açıkken sohbetin açık mı daraltılmış mı olduğu. Kamera
+//   ızgarasında sohbet varsayılan olarak açıktır (son mesajlar sahnenin altında görünür).
+// - body[data-cast-mode="watch" | "own" | "cams"]: #cast[data-mode] ile aynı. Kamera ızgarasında sağ sütun
+//   (İstasyonlar) gizlenmez, sahne yalnızca konuşma sütununu kaplar (frekans.css).
 // - #cast[data-mode="watch" | "own" | "cams"]: sahnenin kipi. cams: odadaki kameraların ızgarası (telsiz
 //   kartındaki Büyüt düğmesi açar, kamera kalmayınca kendiliğinden kapanır). İzlenen bir ekran paylaşımı
 //   ızgaranın, ızgara kendi paylaşımının önizlemesinin önüne geçer.
+// - .cast-screen[data-fit="contain" | "cover"]: Sığdır ve Doldur seçimi. İzlenen paylaşım ve kamera ızgarası
+//   ayrı seçim tutar (paylaşımda varsayılan Sığdır, kameralarda Doldur).
 //
 // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
 // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
 // Esc tam ekrandan çıkar.
 
 const CAST_FIT_KEY = 'telsiz.castFit'
+const CAM_FIT_KEY = 'telsiz.camFit'
 const CAST_QUALITY_KEY = 'telsiz.screenQuality'
 const CAST_NOTICE_MS = 20000
 const CAST_REWATCH_MS = 20000
@@ -36,6 +42,7 @@ const castState = {
   watching: null,
   chatOpen: null,
   fit: 'contain',
+  camFit: 'cover',
   full: false,
   pseudoFull: false,
   dialog: null,
@@ -152,14 +159,18 @@ function castOnScreenEvent (evt) {
   if (!evt || typeof evt.type !== 'string') return
   const uid = evt.userId === null || evt.userId === undefined ? null : String(evt.userId)
   if (evt.type === 'share-start') {
+    // Bildirimler listesine (28-bildirim.js) yazılır, liste ekrandaysa sağ üstteki bildirim açılmaz
+    const listed = typeof activityShare === 'function'
+    if (listed) activityShare(uid, true)
     const back = castState.rewatch
     castState.rewatch = null
     if (back && back.userId === uid && Date.now() - back.at < CAST_REWATCH_MS && !castState.watching) {
       castWatch(uid, false)
       return
     }
-    if (castState.watching !== uid) castShowNotice(uid)
+    if (castState.watching !== uid && !(listed && activityShown())) castShowNotice(uid)
   } else if (evt.type === 'share-stop') {
+    if (typeof activityShare === 'function') activityShare(uid, false)
     if (castState.notice && castState.notice.userId === uid) castHideNotice()
     if (castState.watching === uid) {
       castState.watching = null
@@ -199,6 +210,7 @@ function castSync () {
   const remote = inVoice && sc.remote && typeof sc.remote === 'object' ? sc.remote : {}
   if (castState.watching && !remote[castState.watching]) castState.watching = null
   if (!inVoice) {
+    if (typeof activityClearShares === 'function') activityClearShares()
     castState.watching = null
     castState.rewatch = null
     castHideNotice()
@@ -214,8 +226,9 @@ function castSync () {
   if (castState.dialog) castRenderDialogState()
 }
 
-// Üst çubuk çipi (#top-cast): kendi paylaşımın sürerken "Ekranınız yayında · Durdur" (başka istasyona
-// geçilse de görünür), izlemediğin bir paylaşım varken "X yayında · İzle".
+// Üst çubuk çipi (#top-cast): yalnızca kendi paylaşımın sürerken "Ekranınız yayında · Durdur" (başka
+// istasyona geçilse de görünür). Başkasının paylaşımı üst çubukta gösterilmez, telsiz kartının kadrosundaki
+// Yayına katıl düğmesi (10-voice.js buildVoiceMember) ve Bildirimler listesinden izlenir.
 
 function castRemoteIds (remote) {
   return Object.keys(remote).sort()
@@ -224,9 +237,7 @@ function castRemoteIds (remote) {
 function castRenderTop (sc, remote, sharing) {
   const box = el.topCast
   if (!box) return
-  const ids = castRemoteIds(remote)
-  const showRemote = ids.length > 0 && !castState.watching
-  const key = [sharing ? 1 : 0, showRemote ? ids.join(',') : '', window.I18N ? window.I18N.lang : ''].join('|')
+  const key = [sharing ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
   if (key === castState.topKey) return
   castState.topKey = key
   const hadFocus = box.contains(document.activeElement)
@@ -246,23 +257,6 @@ function castRenderTop (sc, remote, sharing) {
     stop.addEventListener('click', castStopShare)
     own.appendChild(stop)
     box.appendChild(own)
-  }
-  if (showRemote) {
-    const first = ids[0]
-    const chip = h('button', 'top-cast-chip is-remote')
-    chip.type = 'button'
-    chip.setAttribute('data-focus-key', 'cast-top-watch')
-    const led = h('span', 'cast-led is-live')
-    led.setAttribute('aria-hidden', 'true')
-    chip.appendChild(led)
-    const text = ids.length === 1 ? t('cast.remoteChip', { name: castName(first) }) : t('cast.screens', { count: ids.length })
-    chip.appendChild(h('span', 'top-cast-text', text))
-    chip.appendChild(h('span', 'top-cast-action', t('screen.watch')))
-    chip.setAttribute('aria-label', t('cast.watchLabel', { name: castName(first) }))
-    chip.addEventListener('click', () => {
-      castWatch(first, true)
-    })
-    box.appendChild(chip)
   }
   box.hidden = !box.firstChild
   if (hadFocus) focusNode(box.querySelector('button'))
@@ -551,6 +545,11 @@ function castBuildStage () {
   } catch (err) {
     castState.fit = 'contain'
   }
+  try {
+    castState.camFit = storeGet(CAM_FIT_KEY) === 'contain' ? 'contain' : 'cover'
+  } catch (err) {
+    castState.camFit = 'cover'
+  }
   return n
 }
 
@@ -589,23 +588,25 @@ function castRenderStage (mode, sc, remote) {
   root.hidden = false
   root.setAttribute('data-mode', mode)
   document.body.setAttribute('data-cast', 'live')
+  document.body.setAttribute('data-cast-mode', mode)
   castApplyChat()
   castRefreshAttrs(root)
   castRenderPick(sc, remote, mode)
-  n.screen.setAttribute('data-fit', castState.fit)
-  n.fitContain.setAttribute('aria-pressed', castState.fit === 'contain' ? 'true' : 'false')
-  n.fitCover.setAttribute('aria-pressed', castState.fit === 'cover' ? 'true' : 'false')
-  setLive(n.full.querySelector('.cast-button-label'), n.full.castLabel)
-  setIcon(n.full, castState.full ? 'i-close' : 'i-expand')
   const own = mode === 'own'
   const cams = mode === 'cams'
+  const fit = cams ? castState.camFit : castState.fit
+  n.screen.setAttribute('data-fit', fit)
+  n.fitContain.setAttribute('aria-pressed', fit === 'contain' ? 'true' : 'false')
+  n.fitCover.setAttribute('aria-pressed', fit === 'cover' ? 'true' : 'false')
+  setLive(n.full.querySelector('.cast-button-label'), n.full.castLabel)
+  setIcon(n.full, castState.full ? 'i-close' : 'i-expand')
   n.panel.classList.toggle('is-own', own)
   n.panel.classList.toggle('is-cams', cams)
   n.rec.hidden = !own
   n.viewers.hidden = !own
   n.quality.hidden = !own
   n.stop.hidden = !own
-  n.fitGroup.hidden = own || cams
+  n.fitGroup.hidden = own
   n.unwatch.hidden = own || cams
   n.full.hidden = own
   n.foot.hidden = own || cams
@@ -799,6 +800,7 @@ function castCloseStage () {
   root.hidden = true
   root.removeAttribute('data-mode')
   document.body.removeAttribute('data-cast')
+  document.body.removeAttribute('data-cast-mode')
   document.body.removeAttribute('data-cast-chat')
   castState.chatOpen = null
   castState.pickKey = ''
@@ -814,9 +816,16 @@ function castCloseStage () {
   if (hadFocus) castFocusAfterClose()
 }
 
+// Seçim sahnenin o anki kipine yazılır: kamera ızgarasında kameralara, izlenen paylaşımda paylaşıma
 function castSetFit (fit) {
-  castState.fit = fit === 'cover' ? 'cover' : 'contain'
-  storeSet(CAST_FIT_KEY, castState.fit)
+  const value = fit === 'cover' ? 'cover' : 'contain'
+  if (el.cast && el.cast.getAttribute('data-mode') === 'cams') {
+    castState.camFit = value
+    storeSet(CAM_FIT_KEY, value)
+  } else {
+    castState.fit = value
+    storeSet(CAST_FIT_KEY, value)
+  }
   castSync()
 }
 
@@ -841,7 +850,7 @@ function castToggleMute () {
 
 function castChatOpen () {
   if (castState.chatOpen !== null) return castState.chatOpen
-  return isNarrow()
+  return isNarrow() || (el.cast && el.cast.getAttribute('data-mode') === 'cams')
 }
 
 function castApplyChat () {

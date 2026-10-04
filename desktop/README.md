@@ -15,12 +15,12 @@ Masaüstü uygulamasında arayüz kodu uygulamanın içinde taşınır ve sunucu
 - Derleme sırasında `public/` klasöründen yalnızca sunucunun beyaz listesine uyan dosyalar `desktop/app/` altına kopyalanır (service worker hariç). Her dosyanın sha256 değeri ve boyutu `desktop/app/butunluk.json` bildirimine yazılır.
 - Uygulama açılışta bildirimdeki her dosyayı doğrular ve dosyaları yalnızca bu doğrulanmış bellek kopyasından sunar. Tek bir dosya eksik veya farklıysa uygulama açılmaz.
 - Sayfa `telsiz://app/` ayrıcalıklı şemasından yüklenir. `telsiz://app/api/*` istekleri ana süreçte ayarlardaki sunucuya iletilir (`src/lib/proxy.js`). İstekten yalnızca `X-Token`, `Content-Type` ve `Accept-Language` başlıkları geçer. Yönlendirmeler izlenmez, çerez ve önbellek kullanılmaz. Long-poll, yükleme ve indirme gövdeleri akış olarak geçer.
-- Sayfanın CSP'si sunucudakiyle birebir aynıdır (`connect-src 'self'`). Sayfa sunucuya doğrudan bağlanamaz, her istek vekilden geçer. Vekilden dönen yanıtlar betik çalıştıramayan bir CSP ile ve yalnızca JSON, ikili veya düz metin türüyle geçer.
+- Sayfanın CSP'si sunucudakiyle birebir aynıdır (`connect-src 'self'`). Betik kaynağındaki `'wasm-unsafe-eval'` yalnızca WebAssembly derlemesine izin verir ve paketlenmiş RNNoise modülünün (gelişmiş gürültü engelleme, `vendor/rnnoise/rnnoise.wasm`) AudioWorklet içinde derlenmesi içindir. `eval` ve satır içi betik engellidir. Sayfa sunucuya doğrudan bağlanamaz, her istek vekilden geçer. Vekilden dönen yanıtlar betik çalıştıramayan bir CSP ile ve yalnızca JSON, ikili veya düz metin türüyle geçer.
 - Sayfada çerçeve olarak yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir: uygulama penceresinin ana çerçevesinin doğrudan alt çerçevesi ve yalnızca `https://www.youtube-nocookie.com` kökeni (`src/lib/navigation.js`, CSP'de `frame-src`). Bu çerçevenin içindeki çerçeveler ve diğer bütün alt çerçeveler engellenir. Web uygulaması bu çerçeveyi kişi onay vermeden yüklemez. YouTube, Referer başlığı olmayan oynatıcı isteğini 153 hatasıyla reddettiği ve `telsiz://app` kökeninden Referer gitmediği için uygulama yalnız bu çerçevenin belge isteğine sunucunun kökenini (ör. `https://telsiz.ornek.com/`) Referer olarak ekler. Web sürümünde tarayıcı da YouTube'a aynı bilgiyi, sayfanın kökenini gönderir.
 - Sunucu adresi yalnızca `https://` olabilir. Tek istisna bu bilgisayardaki sunucudur (`http://localhost` ve `http://127.0.0.1`). Sertifika hataları hiçbir zaman yok sayılır. Sunucu adresi ekranı sunucunun `/api/info` yanıtını denetler, sunucunun ana sürümü uygulamanınkinden farklıysa veya sunucu sürümünü bildirmiyorsa uyarı gösterir, kullanıcı yine de bağlanabilir.
 - Her sunucu kendi oturum bölümünü kullanır. Bir sunucunun oturum anahtarı ve yerel verisi başka bir sunucuya gönderilemez.
 - Pencereler `contextIsolation`, `sandbox` ve `webSecurity` açık, `nodeIntegration` kapalı olarak açılır. Şema dışı gezinme ve yeni pencere engellenir, `https://` bağlantılar varsayılan tarayıcıda açılır. Webview yoktur. Service worker bu şemada kaydedilemez. Geliştirici araçları yalnızca geliştirme düzeninde (paketlenmemiş) açılır.
-- İzinler yalnızca `telsiz://app` kökeninin ana çerçevesine verilir: mikrofon ve kamera (`getUserMedia` ses ve görüntü), sistem bildirimleri ve panoya yazma. Kamerayı uygulama yalnızca kişi ses odasında Kamera düğmesine basınca ister, alt çerçeveler (YouTube oynatıcısı dahil) ve diğer pencereler kamera ve mikrofon alamaz. Sayfanın `Permissions-Policy` başlığı da kamerayı ve mikrofonu yalnızca uygulamanın kendi kökenine açar (`camera=(self)`, `microphone=(self)`). Konum, pano okuma, HID, USB ve diğerleri reddedilir. Ekran yakalama yalnızca aşağıdaki ekran seçiciyle verilir.
+- İzinler yalnızca `telsiz://app` kökeninin ana çerçevesine verilir: mikrofon ve kamera (`getUserMedia` ses ve görüntü), sistem bildirimleri, panoya yazma ve yayın sahnesinin (ekran paylaşımı ve kamera ızgarası) Tam ekran düğmesi için tam ekran. Kamerayı uygulama yalnızca kişi ses odasında Kamera düğmesine basınca ister, alt çerçeveler (YouTube oynatıcısı dahil) ve diğer pencereler kamera ve mikrofon alamaz. Alt çerçeveler tam ekran da olamaz. Sayfanın `Permissions-Policy` başlığı da kamerayı ve mikrofonu yalnızca uygulamanın kendi kökenine açar (`camera=(self)`, `microphone=(self)`). Konum, pano okuma, HID, USB ve diğerleri reddedilir. Ekran yakalama yalnızca aşağıdaki ekran seçiciyle verilir.
 - Ön yükleme betiği sayfaya yalnızca dar bir API açar (`window.telsizDesktop`). IPC kanalları sabit adlıdır, her çağrının hangi pencereden ve kökenden geldiği ve her girdi ana süreçte denetlenir.
 - Paketlenmiş uygulamada Electron sigortaları ayarlıdır: `ELECTRON_RUN_AS_NODE` ve `NODE_OPTIONS` yok sayılır, uygulama yalnızca `app.asar` içinden yüklenir ve Windows'ta asar bütünlüğü doğrulanır. `--inspect` bayrağı bilerek açık bırakılır. Duman testi Playwright ile yayımlanan derlemenin kendisi üzerinde bu bayrakla çalışır. Aynı kullanıcı haklarına sahip yerel bir program uygulama verisine zaten doğrudan erişebildiği için bu bayrak ek bir yetki vermez.
 
@@ -59,6 +59,17 @@ Sayılar oturuma özeldir: istemci okunmamışları sunucuda değil bu cihazda s
 
 Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici penceresini açar (`src/picker/`). Seçici ekranları ve pencereleri küçük resim ve adlarıyla gösterir. Seçici yalnızca son birkaç saniyede gerçek bir kullanıcı girişi (tıklama veya tuş) olduysa açılır ve yalnızca kullanıcının seçtiği kaynak verilir. Vazgeçilirse istek reddedilir. Eski `chromeMediaSource: 'desktop'` çağrısı seçiciyi atlayamaz. Sistem sesini paylaşma seçeneği yalnızca Windows'ta gösterilir, çünkü Electron belgelerine göre sistem sesi yakalama (`loopback`) şu an yalnızca Windows'ta desteklenir. Web uygulaması sesi `restrictOwnAudio` kısıtıyla ister ve Electron bu durumda uygulamanın kendi sesini yakalamanın dışında tutar: Telsiz'de çalan konuşmalar, bildirim sesleri ve Telsiz DJ paylaşılan sese girmez. Bu ayrımı desteklemeyen eski Windows sürümlerinde bütün sistem sesi yakalanır.
 
+## Başlık çubuğu
+
+Windows ve Linux'ta uygulama penceresi yerel başlık çubuğu ve menü çubuğu olmadan, Electron'un Pencere Denetimleri Kaplamasıyla (`titleBarStyle: 'hidden'` ve `titleBarOverlay`) açılır (`src/lib/title-bar.js`). Küçült, ekranı boyutla ve kapat düğmelerini işletim sistemi sağ üste çizer, düğmelerin zemini ve simge rengi temadan gelir. Sayfanın en üstünde düğmeler kadar yükseklikte (32 piksel) ince bir şerit vardır (`public/js/30-pencere.js`): solda uygulama menüleri (Telsiz, Düzen, Görünüm, Yardım), ortada pencere başlığı.
+
+- Şeridin yüksekliği ve düğmelerin dışında kalan alan CSS ortam değişkenlerinden (`titlebar-area-*`) gelir. Sayfa ve tam ekran katmanlar (Ayarlar, pencereler, yan sayfalar) şeridin altından başlar (`--titlebar-h`). Kök öğedeki `has-titlebar` sınıfını `theme-init.js` ilk çizimden önce ekler, böylece açılışta sayfa kaymaz.
+- Pencere tam ekrana girince ana süreç sayfaya bildirir (`titleBar.onFullscreen`), şerit gizlenir ve sayfa en üstten başlar. Kaplamanın CSS değişkenleri platforma göre tam ekranda da tanımlı kalabildiği için bu bildirime dayanılır.
+- Şerit pencereyi sürükleme bölgesidir, çift tıklama pencereyi büyütür. Menü düğmeleri sürükleme bölgesi değildir.
+- Sayfa zemin ve metin rengini `#rrggbb` biçiminde bildirir (`titleBar.setColors`), tema değişince yeniden bildirir. Ana süreç başka biçimdeki rengi reddeder ve aynı rengi yeniden uygulamaz. Pencere yeniden açılınca (ör. frekans geçişinde) son renklerle başlar.
+- Menü düğmesine basınca ana süreç uygulama menüsünün o bölümünü düğmenin altında açar (`titleBar.openMenu`). İstek yalnızca var olan bir menü sırası ve pencere içindeki bir konumla kabul edilir. Uygulama menüsü kayıtlı kaldığı için menü kısayolları (ör. Ctrl+Q, Ctrl+0) çalışmaya devam eder. Menü etiketleri yerel menüdeki gibi masaüstü uygulamasının dilindedir.
+- Frekans adresi penceresi ve ekran paylaşımı seçicisi yerel başlık çubuğunu korur. macOS'ta (resmi derleme yoktur) yerel başlık çubuğu korunur.
+
 ## Gereksinimler
 
 - Node.js 22 ve npm
@@ -71,7 +82,7 @@ Bütün komutlar `desktop/` klasöründe çalıştırılır.
 
 | Komut | Ne yapar |
 | --- | --- |
-| `npm ci` | Bağımlılıkları kurar: geliştirme araçları (electron, electron-builder, playwright) ve pakete giren tek çalışma zamanı bağımlılığı electron-updater |
+| `npm ci` | Bağımlılıkları kurar: geliştirme araçları (electron, electron-builder, playwright) ve pakete giren çalışma zamanı bağımlılıkları electron-updater ile uiohook-napi (basılı tut tuş kancası, bkz. Bas konuş arka planda) |
 | `npm run hazirla` | `public/` dosyalarını `app/` altına kopyalar, bütünlük bildirimini yazar, simgeleri `build/` altına üretir |
 | `npm start` | Hazırlığı yapar ve uygulamayı geliştirme düzeninde açar |
 | `npm test` | Birim testleri (Electron gerekmez, iletme mantığı gerçek bir yerel sunucuya karşı denenir) |
@@ -99,7 +110,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`) |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
@@ -114,10 +125,13 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 `public/js/20-desktop.js` yalnızca `window.telsizDesktop` varsa etkinleşir:
 
 - Genel kısayol olaylarında `toggleMute` ve `toggleDeafen` işlevlerini çağırır.
+- Bas konuş kısayolu (`pttToggle`) ve basılı tut kancasının olaylarında `public/voice.js` içindeki bas konuş yolunu `external` kaynağıyla kullanır (`voice.pttDown('external')`, `voice.pttUp('external')`). Ses odası durumunu `setVoiceActive` ile ana sürece bildirir (bkz. Bas konuş arka planda).
 - PWA yükleme önerisini engeller.
 - `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans, tepsiye küçültme ve güncellemeler bölümünü çizer.
 - İndirilmiş bir güncelleme veya yeni sürüm bildirimi için sağ altta kapatılabilir bir şerit gösterir.
 - Frekans bandı ve menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir, açık olmayan frekansların durumunu `window.telsizArkaPlan` ile alır.
+
+Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Başlık çubuğu).
 
 `window.telsizDesktop` API'si:
 
@@ -126,10 +140,17 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `version`, `platform` | Uygulama sürümü ve işletim sistemi (`win32`, `linux`) |
 | `getServer()` | Ayarlardaki sunucu kökeni |
 | `changeServer()` | Frekans adresi penceresini açar (Frekans ekle) |
-| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered` |
-| `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, değerler Electron kısayol dizgesi veya `null` |
-| `onShortcut(cb)` | `cb('toggleMute' veya 'toggleDeafen')`, dönen işlev aboneliği kaldırır |
+| `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered`, `ptt` (`{ mode, holdKey }`), `pttHook` (`{ available, reason, running, error }`) |
+| `setShortcuts(map)` | `{ toggleMute, toggleDeafen, pttToggle }`, değerler Electron kısayol dizgesi veya `null` |
+| `onShortcut(cb)` | `cb('toggleMute', 'toggleDeafen' veya 'pttToggle')`, dönen işlev aboneliği kaldırır |
+| `setPtt(ayar)` | `{ mode: 'toggle' veya 'hold', holdKey }`, basılı tut açılırken modül yüklenemezse `{ ok: false, code: 'unavailable' }` |
+| `setVoiceActive(bool)` | Sayfa ses odasında bas konuş modundayken `true`, değilken `false` (basılı tut kancası yalnızca `true` iken çalışır) |
+| `onPttHold(cb)` | Basılı tut kancasından `cb('start')` (konuş başla) veya `cb('end')` (konuş bitti), dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
+| `titleBar.getInfo()` | `{ enabled, fullscreen, label, menus }`: kaplama açık mı, pencere tam ekranda mı, şeridin erişilebilir adı, uygulama menüsünün üst düzey etiketleri |
+| `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
+| `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
+| `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
@@ -145,6 +166,31 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 `window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb) }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open() }`.
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
+
+## Bas konuş arka planda
+
+Uygulamanın kendi bas konuş tuşu yalnızca Telsiz penceresi öndeyken çalışır. Bir oyun öndeyken konuşmak için Ayarlar > Tuş atamaları sayfasındaki genel kısayollar bölümünde iki yol vardır:
+
+- Bas aç, bas kapat (varsayılan): genel kısayol `pttToggle`. Bir kez basınca konuşma başlar, tekrar basınca biter. Açılış ve kapanışta kısa bir ses çalar (Ayarlar > Ses ve görüntü bölümündeki Giriş ve çıkış sesleri açıksa). Varsayılan olarak tuş atanmamıştır, kısayol diğer genel kısayollarla aynı kurallara uyar. Ses odasında değilken kısayol hiçbir şey yapmaz. Mikrofon kapalıyken (susturulmuş, sağırlaştırılmış veya herkes için susturulmuş) konuşma başlamaz, kapanış sesi çalar.
+- Basılı tut (tuş kancası, isteğe bağlı): açılırsa seçilen tuş veya tuş birleşimi basılıyken konuşulur, bırakınca susulur. Genel kısayollar yalnızca basmayı bildirdiği için bırakma olayı [uiohook-napi](https://github.com/SnosMe/uiohook-napi) tuş kancasıyla alınır. Basılı tut açıkken bas aç, bas kapat kısayolu kaydedilmez. Basılı tut tuşu tek başına harf veya rakam da olabilir, çünkü kanca tuşu diğer uygulamalardan almaz. Basılı tut tuşu Mikrofonu aç/kapat veya Sağırlaştır kısayoluyla birlikte tetiklenecekse kabul edilmez.
+
+Ses etkinliği modunda kısayol bas konuş moduna geçmez, Mikrofonu aç/kapat gibi davranır ve aynı açılış veya kapanış sesini çalar. Basılı tut kancası ses etkinliği modunda hiç başlatılmaz.
+
+Sayfa tarafında iki yol da `public/voice.js` içindeki bas konuş yolunu ayrı bir kaynakla (`external`) kullanır, yeni bir mikrofon yolu yoktur. Pencerenin kendi bas konuş tuşu, ekrandaki Bas konuş düğmesi ve masaüstü kaynağı ayrı izlenir: biri bırakılınca diğeri basılıysa konuşma sürer. Pencere odağı kaybedince veya gizlenince yalnızca pencere içi kaynaklar bırakılır, masaüstü kaynağı açık kalır. Ses odasından çıkınca veya giriş modu değişince her kaynak bırakılır.
+
+Tuş kancası ve gizlilik:
+
+- Kanca yalnızca basılı tut açıkken, bir tuş atanmışken ve sayfa ses odasında bas konuş modunda olduğunu bildirmişken çalışır (`src/lib/ptt-hook.js`). Ayar kapanınca, odadan çıkınca, pencere yeniden yüklenince veya kapanınca durdurulur. Konuşurken durdurulursa konuşma biter.
+- Kanca işletim sistemindeki bütün tuş olaylarını görür ama yalnızca seçilen tuşu işler. Olaylar yalnızca ana süreçte, tuş kodu atanan tuşla karşılaştırılarak işlenir ve saklanmaz. Sayfaya yalnızca `start` (konuş başla) ve `end` (konuş bitti) gider, ön yükleme betiği başka bir değeri iletmez. Tuş kodları ve diğer tuşlar sayfaya, sunucuya veya günlüğe hiç gitmez. Fare olayları dinlenmez.
+- Bazı antivirüs programları tuş kancası kullanan uygulamalar için uyarı verebilir. Basılı tut kapalıyken yerel modül hiç yüklenmez.
+- Modül yüklenemezse veya kanca başlatılamazsa uygulama çökmez, seçenek ayarlarda devre dışı görünür ve nedeni yazar.
+
+Platform notları:
+
+- Paket, uiohook-napi'nin hazır Node-API ikililerini kullanır (`prebuilds/win32-x64`, `prebuilds/linux-x64`). electron-builder yerel modülleri kaynaktan derlemez (`npmRebuild: false`) ve modülü asar dışına açar (`asarUnpack`).
+- Linux'ta kanca X11 kullanır (XRecord). Modül yüklenirken X11 ekranına bağlanır, `DISPLAY` tanımlı değilse modül hiç yüklenmez ve seçenek kullanılamaz görünür. Wayland oturumlarında çalışması garanti değildir. Modül `libXtst.so.6` ve `libXt.so.6` kitaplıklarını ister. Bu kitaplıklar yoksa seçenek kullanılamaz görünür.
+- Windows'ta yönetici olarak çalışan bir pencere öndeyken kanca tuşları göremeyebilir.
+- Bağımlılık: uiohook-napi 1.5.5 (MIT). Paket, derlenmiş olarak libuiohook kitaplığını içerir. libuiohook'un kaynak dosyaları LGPL 3.0 veya sonrası lisansını taşır ve kaynak kodu paketle birlikte gelir (`node_modules/uiohook-napi/libuiohook`).
 
 ## Güncellemeler
 
@@ -166,14 +212,14 @@ Yayın: `electron-builder.json` içindeki `publish` ayarı (GitHub, `Yerlifan/te
 
 ## Ayarlar ve veriler
 
-Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar, güncellemelerin otomatik denetimi) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
+Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar, bas konuş kipi ve basılı tut tuşu, güncellemelerin otomatik denetimi) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
 
 ## Bilinen sınırlar
 
 - Uygulama imzalı değildir. Windows SmartScreen ilk açılışta "Windows kişisel bilgisayarınızı korudu" uyarısı gösterebilir. "Ek bilgi" ve ardından "Yine de çalıştır" seçilir. İndirilen dosya sürüm sayfasındaki `SHA256SUMS.txt` ile doğrulanabilir.
 - Güncellemeler imzasızdır, güvence GitHub hesabının ve deposunun güvenliğine dayanır (bkz. Güncellemeler). Taşınabilir exe ve .deb kendiliğinden güncellenmez, yalnızca yeni sürüm bildirilir. Güncelleme denetimi depo herkese açıkken çalışır.
-- Basılı tutmalı bas-konuş genel kısayolu yoktur, çünkü bu yerel bir modül gerektirir. Bas-konuş tuşu yalnızca pencere öndeyken çalışır. Genel kısayollar yalnızca mikrofonu aç/kapat ve sağırlaştır içindir.
-- Linux'ta Wayland oturumlarında genel kısayolların çalışıp çalışmadığı doğrulanmadı.
+- Basılı tutmalı bas konuş yalnızca isteğe bağlı tuş kancasıyla çalışır (bkz. Bas konuş arka planda). Kancanın gerçek tuş olaylarıyla davranışı otomatik testlerde denenmez: birim testleri kancayı sahte modülle sınar, duman testi gerçek modülü xvfb altında yükleyip başlatır ve durdurur.
+- Linux'ta Wayland oturumlarında genel kısayolların ve tuş kancasının çalışıp çalışmadığı doğrulanmadı.
 - Electron belgelerine göre Windows bildirimleri Başlat menüsünde uygulama kısayolu gerektirir. Kurucu bu kısayolu oluşturur, taşınabilir sürümde bildirimler görünmeyebilir.
 - AppImage çalıştırmak için önce `chmod +x Telsiz-<sürüm>-linux-x86_64.AppImage` gerekir. Bazı dağıtımlarda AppImage için FUSE desteği kurulmalıdır. Yetkisiz kullanıcı ad alanlarını AppArmor ile kısıtlayan dağıtımlarda (ör. Ubuntu 24.04) AppImage, Chromium korumalı alanı açılamadığı için başlamayabilir. Bu durumda .deb paketi kullanılır, paket gerekli AppArmor profilini kurar. Korumalı alanı kapatan `--no-sandbox` bayrağı önerilmez.
 - Pencere arka plandayken ses etkinliği algılamasının sürmesi için Chromium'un arka plan zamanlayıcı kısması kapatılır (`disable-background-timer-throttling`). Sayfa görünürlüğü değişmez, bildirimler yine yalnızca pencere gizliyken çıkar.

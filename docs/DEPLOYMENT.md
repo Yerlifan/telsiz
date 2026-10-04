@@ -210,7 +210,7 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 | --- | --- | --- |
 | Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ, the YouTube source and restricted mode (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
 | Settings > Rooms | Owner, admins and roles with the manage rooms permission | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
-| Settings > Members | Owner, admins and roles with the ban permission | Changing roles and giving a member a custom role (owner only), banning and unbanning people ranked lower, resetting a password with a temporary password (owner only) |
+| Settings > Members | Owner, admins and roles with the ban permission | Changing roles and giving a member a custom role (owner only), banning, unbanning and kicking people ranked lower, resetting a password with a temporary password (owner only) |
 | Settings > Roles | Owner only | Creating, naming, coloring, turning permissions on and off for, ordering and deleting custom roles |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |
 | Settings > Privacy and security > Encryption keys | Owner and admins | Creating a new group key |
@@ -228,12 +228,14 @@ Besides the owner and admin roles, the owner can create up to 20 custom roles in
 | Permission | What it allows |
 | --- | --- |
 | Delete messages | Deleting other people's messages in text rooms (nobody can delete someone else's direct messages) |
-| Ban members | Banning and unbanning members ranked lower |
-| Moderate voice rooms | Muting someone ranked lower for everyone or removing them from the voice room |
+| Ban members | Banning, unbanning and kicking members ranked lower |
+| Moderate voice rooms | Muting someone ranked lower for everyone, turning off their camera or removing them from the voice room |
 | Manage rooms | Creating, renaming, reordering and deleting text and voice rooms |
 | Manage the Telsiz DJ queue | Managing the queue while restricted mode is on and they are in the room, while people without the permission only listen |
 
-The rank order is the owner, admins, custom roles in the order of the Settings > Roles list, and members without a role at the bottom. Banning and voice room moderation only apply to someone ranked lower than yourself. A mute for everyone is stored on the account and stays when the person leaves and joins again or the server restarts. Since audio flows directly between people, the mute is applied by the clients: the muted person's app keeps their microphone off and the other apps do not play that person's audio. Someone using a modified client can bypass this on their own device. A person removed from a voice room can join again, use banning to keep someone out.
+The rank order is the owner, admins, custom roles in the order of the Settings > Roles list, and members without a role at the bottom. Banning, kicking and voice room moderation only apply to someone ranked lower than yourself, and the owner can never be kicked. A mute for everyone is stored on the account and stays when the person leaves and joins again or the server restarts. Since audio flows directly between people, the mute is applied by the clients: the muted person's app keeps their microphone off and the other apps do not play that person's audio. Someone using a modified client can bypass this on their own device. The Turn off camera button shows on the person's voice card and profile card only while their camera is on. Turning it off is a one time action: the person's app stops the camera and tells them, and they can turn it on again. A person removed from a voice room can join again, use banning to keep someone out.
+
+Kicking someone from the frequency (Settings > Members > Kick) deletes the account: all of the person's sessions are signed out and their open app says they were kicked from the frequency, the username becomes free, and their messages stay with a deleted author. The person can only come back by registering again with an invite code, as a new account. Use banning to keep someone out. A kicked or banned person still knows the group encryption key. To protect new messages, create a new key in Settings > Privacy and security > Encryption keys.
 
 The three settings in the Voice rooms and cameras section apply to each voice room separately and are stored on the server (`state.json`, the `voice` field). The voice room capacity is 8 by default and can be set between 2 and 12 people. A lower capacity applies to new joins only, nobody in the room is removed. Cameras are on by default, and turning them off also turns off cameras that are on. The number of cameras that can be on at the same time per room is 4 by default, can be set between 1 and 12 and cannot be larger than the capacity. Saved changes reach open apps right away. Since voice and video flow directly between people, these limits protect the members' upload speed rather than the server: in a full mesh everyone with their camera on sends their video separately to every other person in the room.
 
@@ -266,6 +268,7 @@ Whichever proxy you use, keep the following in mind:
 2. **Upload size.** The request body limit of the proxy must be slightly above `MAKS_YUKLEME_MB`. Both examples use 30 MB for the default of 25 MB.
 3. **Client address.** Rate limits are applied per client IP. The server trusts the `X-Forwarded-For` and `CF-Connecting-IP` headers only on connections from addresses in the `GUVENILIR_VEKIL` list. The default `loopback` value is correct for a proxy on the same machine. The proxy must remove or overwrite these headers when a client sends them, and both examples do so.
 4. **HSTS.** Both examples add a `Strict-Transport-Security` header. If you plan to use the domain without https later, remove that line.
+5. **Content Security Policy.** The server sends the Content Security Policy (CSP) and the other security headers itself, and the two examples do not touch them. The page policy contains `script-src 'self' 'wasm-unsafe-eval'`: `'wasm-unsafe-eval'` allows only WebAssembly compilation and is there for the RNNoise module of advanced noise suppression. If the proxy replaces this header with its own policy, that policy needs this keyword too. If it adds a second CSP header, the browser applies both policies together, so the added policy needs this keyword as well. Otherwise advanced noise suppression does not work and the audio goes with the browser's own processing.
 
 ## Tunnel
 
@@ -350,7 +353,7 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You 
 
 ## Password reset and troubleshooting
 
-**A member's password.** The owner or an admin creates a temporary password in Settings > Members. The person's sessions are closed.
+**A member's password.** The owner creates a temporary password in Settings > Members. The person's sessions are closed.
 
 **The owner's password.** Stop the server and run the reset command with the same data folder. The command prints a temporary password.
 
@@ -368,5 +371,7 @@ A password reset also resets the person's personal security key. The person crea
 **Data folder in use.** Two processes cannot use the same data folder. If this error appears while the server is not running, delete the `.kilit` file named in the error message and try again.
 
 **Voice does not connect.** Check that the address is https or localhost, that the browser has microphone permission and, if needed, that a TURN server is configured.
+
+**Advanced noise suppression is not available.** If Settings > Voice and video > Voice processing says "Not available in this browser" under the switch, the audio goes with the browser's own processing and the connection is not affected. Check that the browser supports AudioWorklet and WebAssembly, that the `/rnnoise-worklet.js` and `/vendor/rnnoise/rnnoise.wasm` addresses open, and that the reverse proxy does not change the Content Security Policy (see Reverse proxy).
 
 **The camera does not turn on.** The camera also works only on https or localhost and needs the browser's camera permission. The server's security header (`Permissions-Policy: camera=(self)`) opens the camera only to Telsiz's own page. If a reverse proxy changes this header, the camera is blocked. If the owner turned cameras off or the room's camera limit is reached, the button says so.
