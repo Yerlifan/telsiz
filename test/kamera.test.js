@@ -242,7 +242,7 @@ test('kamera, ses odası ayarları ve sunucu bilgileri metinleri iki dilde', () 
   for (const lang of ['tr', 'en']) {
     for (const key of required) assert.ok(typeof msgs[lang][key] === 'string' && msgs[lang][key].trim(), lang + ': ' + key)
   }
-  assert.strictEqual(msgs.tr['serverInfo.apply'], 'Öneriyi uygula')
+  assert.strictEqual(msgs.tr['serverInfo.apply'], 'Öneriyi Uygula')
   assert.strictEqual(msgs.tr['serverInfo.title'], 'Sunucu bilgileri')
   assert.match(msgs.tr['serverInfo.recIntro'], /tahmindir/)
   assert.match(msgs.en['serverInfo.recIntro'], /estimates/)

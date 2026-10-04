@@ -1052,7 +1052,7 @@ function renderComposerState () {
     el.composerHint.hidden = false
     el.composerHintText.textContent = t(activeKid() ? 'composer.keyNeeded' : 'composer.noActiveKey')
     el.composerHintAction.hidden = Boolean(!activeKid() && !isAdmin())
-    el.composerHintAction.textContent = t(activeKid() ? 'key.addShort' : 'key.generate')
+    el.composerHintAction.textContent = t(activeKid() ? 'key.addShortButton' : 'key.generate')
   } else {
     el.composerHint.hidden = true
   }

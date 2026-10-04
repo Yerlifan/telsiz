@@ -85,7 +85,7 @@ test('kamera düğmesi kapalı başlar, ses odasına katılmak kamerayı istemez
       tiles: document.querySelectorAll('#radio-crew .has-camera').length
     }
   })
-  assert.deepEqual(r, { visible: true, pressed: 'false', state: 'kapalı', label: 'Kamerayı aç', live: true, tiles: 0 })
+  assert.deepEqual(r, { visible: true, pressed: 'false', state: 'Kapalı', label: 'Kamerayı aç', live: true, tiles: 0 })
   assert.equal(await camCalls(mert), 0)
   assert.equal(await camCalls(deniz), 0)
 })
@@ -115,7 +115,7 @@ test('kamera açılır, öteki kişi kadroda canlı görüntü kutusunu görür,
   assert.notEqual(own.radius, '0px', 'görüntü kutusu yumuşak kare kalır')
   assert.equal(own.liveShown, true)
   assert.equal(own.liveText, 'Kameranız açık, odadaki herkes görüyor')
-  assert.equal(own.state, 'açık')
+  assert.equal(own.state, 'Açık')
   assert.match(own.label, /kameranız açık/)
   assert.equal(await camCalls(mert), 1)
   // Deniz Mert'in görüntüsünü kadroda görür (aynalı değil)
@@ -172,7 +172,7 @@ test('sahip kişi ses kartından Mert\'in kamerasını kapatır, Mert bildirim a
   const mertId = W.w.P.mert.id
   await deniz.click(crewSel(mertId) + ' .crew-button')
   await deniz.waitForSelector('#peer-popover:not([hidden]) #peer-mod:not([hidden]) #peer-camera-off:not([hidden])')
-  assert.equal(await deniz.textContent('#peer-camera-off'), 'Kamerasını kapat')
+  assert.equal(await deniz.textContent('#peer-camera-off'), 'Kamerasını Kapat')
   await deniz.click('#peer-camera-off')
   await deniz.waitForFunction(() => /kamerası kapatıldı/.test(document.getElementById('peer-mod-msg').textContent), null, { timeout: h.LONG })
   await mert.waitForFunction(() => document.getElementById('btn-camera').getAttribute('aria-pressed') === 'false' && document.getElementById('radio-cam-live').hidden, null, { timeout: h.LONG })
@@ -241,7 +241,7 @@ test('sahip Ayarlar > Genel bölümünden kapasite ve kamera sınırını deği�
     note: document.getElementById('radio-camera-note').textContent,
     tracks: voice.snapshot().camera.state
   }))
-  assert.deepEqual(m, { disabled: 'true', state: 'kapatıldı', note: 'Kameralar bu frekansta kapalı.', tracks: 'off' })
+  assert.deepEqual(m, { disabled: 'true', state: 'Kapatıldı', note: 'Kameralar bu frekansta kapalı.', tracks: 'off' })
   await deniz.waitForFunction((sel) => !document.querySelector(sel + ' .has-camera'), crewSel(W.w.P.mert.id), { timeout: h.LONG })
   assert.equal((await metaCamera(W.w.P.mert.id)).camera, false)
 })

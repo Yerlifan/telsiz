@@ -846,7 +846,7 @@ function renderUserPanel () {
   el.btnMute.setAttribute('aria-pressed', s.muted ? 'true' : 'false')
   setIcon(el.btnMute, s.muted ? 'i-mic-off' : 'i-mic')
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
-  setText(el.btnMuteState, t(s.serverMuted ? 'voice.serverMutedTitle' : s.muted ? 'radio.micOff' : 'radio.micOn'))
+  setText(el.btnMuteState, t(s.serverMuted ? 'radio.micServerMuted' : s.muted ? 'radio.micOff' : 'radio.micOn'))
   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
   setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))

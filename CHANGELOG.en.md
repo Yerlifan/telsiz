@@ -32,6 +32,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 - On wide screens Settings is centered together with its sidebar and content, slightly to the left.
 - On wide screens the screen share notice no longer opens separately at the top right, it is in the Notifications list.
 - Role names start with a capital letter: Owner, Admin, Member.
+- Every word in button, menu item, tab and chip labels starts with a capital letter in both languages (for example Direct Messages, Try Again, Remove From Room). English uses standard Title Case, and Turkish conjunctions such as ve, ile and veya stay lowercase. The header lines follow the same style: "Frekans · 9 Üye · Şifreli", "Açık · 4 Çevrimiçi", "Yazı Odası" and "Uçtan Uca Şifreli".
 - Someone else's screen share is no longer shown in the top bar (the "X is live · Watch" chip was removed). The "Your screen is live · Stop" chip of your own share stays.
 - The crew of the radio card is centered, and three people fit on one row while a camera is on.
 

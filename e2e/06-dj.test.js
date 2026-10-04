@@ -230,7 +230,7 @@ test('duraklat ve devam iki istemcide eşitlenir', async () => {
   await B.click('#dj .dj-toggle')
   await A.waitForFunction(() => {
     const s = dj.engine.snapshot()
-    return s.session && s.session.playing === false && document.querySelector('#dj .dj-toggle').textContent === 'Devam et'
+    return s.session && s.session.playing === false && document.querySelector('#dj .dj-toggle').textContent === 'Devam Et'
   }, null, { timeout: h.LONG })
   assert.equal(await A.textContent('#dj .dj-state'), 'Duraklatıldı')
   await h.until(async () => {
@@ -355,7 +355,7 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
   await W.w.say('mert', W.genel, 'lobi teması', [{ u: up.data.id, k: enc.key, n: enc.nonce, kind: 'file', name: 'lobi-temasi.wav', m: 'audio/wav', s: wav.length }], [up.data.id])
   await B.evaluate((id) => selectChannel(id, {}), W.genel.id)
   await B.waitForSelector('#message-list .dj-play-file', { timeout: h.LONG })
-  assert.equal(await B.textContent('#message-list .dj-play-file'), 'DJ\'de çal')
+  assert.equal(await B.textContent('#message-list .dj-play-file'), 'DJ\'de Çal')
   await B.click('#message-list .dj-play-file')
   await A.waitForFunction(() => document.querySelectorAll('#dj .dj-queue .dj-queue-item').length === 1 && /lobi-temasi/.test(document.querySelector('#dj .dj-queue-name').textContent), null, { timeout: h.LONG })
   await A.click('#dj .dj-skip')

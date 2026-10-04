@@ -96,19 +96,19 @@ test('moderatör ses odasında birini herkes için susturur, susturmayı kaldır
   // Ece'nin Mert için açtığı kartta denetim bölümü var
   await ece.click(crewSel(mertId) + ' .crew-button')
   await ece.waitForSelector('#peer-popover:not([hidden]) #peer-mod:not([hidden])')
-  assert.equal(await ece.textContent('#peer-server-mute'), 'Herkes için sustur')
+  assert.equal(await ece.textContent('#peer-server-mute'), 'Herkes İçin Sustur')
   await ece.click('#peer-server-mute')
-  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent === 'Herkes için susturuldu', null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent === 'Herkes İçin Susturuldu', null, { timeout: h.LONG })
   assert.equal(await mert.getAttribute('#btn-mute', 'aria-pressed'), 'true')
   // Mikrofonunu açmaya çalışınca açılmaz ve açıklama görünür
   await mert.click('#btn-mute')
   await mert.waitForFunction(() => /Herkes için susturuldunuz/.test(document.getElementById('toast').textContent), null, { timeout: h.LONG })
   assert.equal(await mert.evaluate(() => snap().serverMuted), true)
   await ece.waitForSelector(crewSel(mertId) + ' .crew-badge.is-server-muted', { timeout: h.LONG })
-  await ece.waitForFunction(() => document.getElementById('peer-server-mute').textContent === 'Herkes için susturmayı kaldır', null, { timeout: h.LONG })
+  await ece.waitForFunction(() => document.getElementById('peer-server-mute').textContent === 'Herkes İçin Susturmayı Kaldır', null, { timeout: h.LONG })
   // Susturma kalkınca Mert'in kendi tercihi (mikrofon açık) geri gelir
   await ece.click('#peer-server-mute')
-  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent !== 'Herkes için susturuldu', null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('btn-mute-state').textContent !== 'Herkes İçin Susturuldu', null, { timeout: h.LONG })
   assert.equal(await mert.evaluate(() => snap().serverMuted), false)
   await ece.waitForSelector(crewSel(mertId) + ' .crew-badge.is-server-muted', { state: 'detached', timeout: h.LONG })
   // Odadan çıkarma: Mert'in telsizi kapanır, Ece'nin kadrosunda yalnızca kendisi kalır
@@ -125,7 +125,7 @@ test('sahip Üyeler sayfasından Mert\'i frekanstan atar, Mert\'in uygulaması f
   await deniz.evaluate(() => openSettings('members'))
   const kickSel = '#set-members-list .member-row[data-user-id="' + mertId + '"] .act-kick'
   await deniz.waitForSelector(kickSel)
-  assert.equal(await deniz.textContent(kickSel), 'Frekanstan at')
+  assert.equal(await deniz.textContent(kickSel), 'Frekanstan At')
   // Atma onay ister
   const asked = new Promise((resolve) => {
     deniz.once('dialog', (d) => {

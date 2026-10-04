@@ -32,6 +32,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 - Ayarlar geniş ekranda kenar çubuğu ve içerikle birlikte ortalanır, hafif sola yatık durur.
 - Geniş ekranda ekran paylaşımı bildirimi sağ üstte ayrıca açılmaz, Bildirimler listesindedir.
 - Rol adları büyük harfle başlar: Sahip, Yönetici, Üye.
+- Düğme, menü öğesi, sekme ve çip etiketlerinde her kelime büyük harfle başlar (ör. Özel Mesajlar, Tekrar Dene, Odadan Çıkar). Türkçede ve, ile, veya gibi bağlaçlar küçük kalır. Üst bilgi satırları da aynı biçimdedir: "Frekans · 9 Üye · Şifreli", "Açık · 4 Çevrimiçi", "Yazı Odası" ve "Uçtan Uca Şifreli".
 - Başkasının ekran paylaşımı üst çubukta gösterilmez ("X yayında · İzle" çipi kaldırıldı). Kendi paylaşımınızın "Ekranınız yayında · Durdur" çipi kalır.
 - Telsiz kartının kadrosu ortalanır, kamera açıkken üç kişi tek satıra sığar.
 

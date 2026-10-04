@@ -124,7 +124,7 @@ test('frekans adı menüsü: açık frekansın bilgisi ve kısayollar, oklar gez
   await page.waitForFunction(() => document.getElementById('frekans-button').getAttribute('aria-label') === 'Kankalar frekansı. Frekansları göster')
   await page.waitForFunction(() => {
     const n = document.querySelector('#server-meta .server-members')
-    return n && n.textContent === 'Frekans · 3 üye'
+    return n && n.textContent === 'Frekans · 3 Üye'
   })
   await openMenu(page)
   assert.equal(await page.getAttribute('#frekans-button', 'aria-expanded'), 'true')
@@ -136,7 +136,7 @@ test('frekans adı menüsü: açık frekansın bilgisi ve kısayollar, oklar gez
     list: document.querySelectorAll('#frekans-menu [data-frekans]').length
   }))
   assert.equal(r.name, 'Kankalar')
-  assert.match(r.sub, /^127\.0\.0\.1:\d+ · 3 üye · \d çevrimiçi$/)
+  assert.match(r.sub, /^127\.0\.0\.1:\d+ · 3 Üye · \d Çevrimiçi$/)
   assert.deepEqual(r.entries, ['frekans-menu-all', 'frekans-add', 'frekans-menu-settings', 'frekans-menu-invite', 'frekans-menu-keys'])
   assert.equal(r.list, 0, 'menü frekans listesini tekrarlamaz (bant ve Tümü sayfası)')
   await page.keyboard.press('ArrowDown')
@@ -172,7 +172,7 @@ test('bandın + düğmesi Frekans ekle: geçersiz adres reddedilir, eklenen frek
     const n = document.querySelector('#band-track .station[data-station="' + o + '"]')
     return { name: n.querySelector('.station-name').textContent, sub: n.querySelector('.station-sub').textContent, dot: n.querySelector('.frekans-dot').className, marks: n.querySelectorAll('.station-mark').length }
   }, W.other.base)
-  assert.deepEqual(other, { name: W.other.base.replace('http://', ''), sub: 'geçmek için seçin', dot: 'frekans-dot is-unknown', marks: 0 })
+  assert.deepEqual(other, { name: W.other.base.replace('http://', ''), sub: 'Geçmek İçin Seçin', dot: 'frekans-dot is-unknown', marks: 0 })
   // Frekanslar sayfasında çıkarma onay ister, tarayıcıda veri silme seçeneği yoktur
   await page.click('#band-all')
   await page.waitForSelector('#frekans-sheet:not([hidden])')

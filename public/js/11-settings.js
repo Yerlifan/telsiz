@@ -1996,7 +1996,7 @@ function buildKeyringSection (page) {
     linkHint.hidden = !entry
     setKeyVisible(settingsUi.keyVisible)
     adminWrap.hidden = !admin
-    generate.textContent = t(kid ? 'settings.crypto.newKey' : 'key.generate')
+    generate.textContent = t(kid ? 'settings.crypto.newKeyButton' : 'key.generate')
     newWrap.hidden = !settingsUi.newInvite
     newText.value = settingsUi.newInvite
   }

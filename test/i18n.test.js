@@ -124,10 +124,10 @@ test('setLang dili değiştirir, kalıcı yapar ve <html lang> değerini güncel
   assert.strictEqual(loaded.store.get('telsiz.lang'), 'en')
   assert.strictEqual(loaded.documentElement.lang, 'en')
   assert.strictEqual(I18N.locale(), 'en-US')
-  assert.strictEqual(I18N.t('auth.login'), 'Sign in')
+  assert.strictEqual(I18N.t('auth.login'), 'Sign In')
   assert.strictEqual(I18N.setLang('de'), 'en', 'desteklenmeyen dil yok sayılır')
   assert.strictEqual(I18N.setLang('TR'), 'tr')
-  assert.strictEqual(I18N.t('auth.login'), 'Giriş yap')
+  assert.strictEqual(I18N.t('auth.login'), 'Giriş Yap')
   const blocked = load({ languages: ['tr-TR'], noStorage: true })
   assert.strictEqual(blocked.I18N.setLang('en'), 'en', 'depolama yoksa da dil değişir')
 })
@@ -167,7 +167,7 @@ test('eksik anahtar: bir kez uyarı, öteki dil veya anahtarın kendisi', () => 
   assert.strictEqual(I18N.t('yok.boyle.bir.anahtar'), 'yok.boyle.bir.anahtar')
   assert.strictEqual(loaded.warnings.length, 1)
   assert.ok(/missing key "yok\.boyle\.bir\.anahtar"/.test(loaded.warnings[0]))
-  assert.strictEqual(I18N.t('auth.login'), 'Giriş yap')
+  assert.strictEqual(I18N.t('auth.login'), 'Giriş Yap')
   assert.strictEqual(loaded.warnings.length, 1, 'var olan anahtar uyarı üretmez')
 })
 
@@ -191,14 +191,14 @@ test('apply: data-i18n öznitelikleri metin, placeholder, aria-label ve title ol
     }
   }
   I18N.apply(root)
-  assert.strictEqual(text.textContent, 'Sign in')
+  assert.strictEqual(text.textContent, 'Sign In')
   assert.strictEqual(input.attrs.placeholder, 'New room name')
   assert.strictEqual(input.textContent, 'eski', 'yalnızca placeholder değişir')
   assert.strictEqual(both.attrs['aria-label'], 'Mute microphone')
   assert.strictEqual(both.attrs.title, 'Mute microphone')
   I18N.setLang('tr')
   I18N.apply(root)
-  assert.strictEqual(text.textContent, 'Giriş yap')
+  assert.strictEqual(text.textContent, 'Giriş Yap')
   assert.strictEqual(both.attrs['aria-label'], 'Mikrofonu kapat')
 })
 
