@@ -1328,6 +1328,21 @@ button.crew-button:hover {
     margin: 0;
   }
 
+  /* Telefonda kadro öğesi küçüktür: Yayına katıl yalnızca simge olarak avatarın alt köşesinde durur */
+  .crew-watch {
+    top: auto;
+    bottom: 0;
+    padding: 0.125rem 0.25rem;
+  }
+
+  .crew-watch .button-text {
+    display: none;
+  }
+
+  .crew-watch .icon {
+    margin-right: 0;
+  }
+
   .radio-note {
     flex: 1 1 100%;
   }
