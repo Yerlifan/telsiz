@@ -36,10 +36,12 @@ jobs:
           - 24
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Node.js kur
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -62,10 +64,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Node.js kur
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -81,7 +85,7 @@ jobs:
 
       - name: Hata anındaki ekran görüntülerini ve izleri yükle
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-sonuclar
           path: e2e-sonuclar/
@@ -96,7 +100,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: ShellCheck (yoksa kur)
         run: |
@@ -136,7 +142,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Compose örneğini doğrula
         run: docker compose -f deploy/docker-compose.yml config --quiet

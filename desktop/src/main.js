@@ -902,12 +902,30 @@ function watchContents (contents) {
   contents.once('destroyed', () => diag.log('contents-destroyed', { contents: id }))
 }
 
+// Çerçevenin ana çerçeveye uzaklığı (doğrudan alt çerçeve 1). Çerçeve bilinmiyorsa veya kapanmışsa -1.
+function frameDepth (frame) {
+  let depth = 0
+  try {
+    let current = frame
+    if (!current) return -1
+    while (current.parent) {
+      depth++
+      current = current.parent
+      if (depth > 32) return -1
+    }
+  } catch (err) {
+    return -1
+  }
+  return depth
+}
+
 function installGuards () {
   app.on('web-contents-created', (event, contents) => {
     if (diag.enabled) watchContents(contents)
     contents.on('will-attach-webview', (e) => e.preventDefault())
     contents.setWindowOpenHandler((details) => {
-      if (contextOf(contents) === 'app' && navigation.decideWindowOpen(details.url) === 'external') openExternal(details.url)
+      const referrer = details.referrer && typeof details.referrer.url === 'string' ? details.referrer.url : ''
+      if (contextOf(contents) === 'app' && navigation.decideAppWindowOpen(details.url, referrer) === 'external') openExternal(details.url)
       return { action: 'deny' }
     })
     contents.on('will-navigate', (details) => {
@@ -917,12 +935,18 @@ function installGuards () {
       details.preventDefault()
       if (decision === 'external' && context === 'app') openExternal(details.url)
     })
-    // Alt çerçeve gezinmesi hiç yoktur (uygulama çerçeve kullanmaz), ana çerçeve yukarıda ele alınır
+    // Alt çerçevelerde yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir (navigation.decideFrameNavigation),
+    // ana çerçeve yukarıda ele alınır
     contents.on('will-frame-navigate', (details) => {
-      if (!details.isMainFrame) details.preventDefault()
+      if (details.isMainFrame) return
+      if (navigation.decideFrameNavigation(details.url, contextOf(contents), frameDepth(details.frame)) !== 'allow') details.preventDefault()
     })
     contents.on('will-redirect', (details) => {
-      if (navigation.decideNavigation(details.url, contextOf(contents)) !== 'allow') details.preventDefault()
+      const context = contextOf(contents)
+      const decision = details.isMainFrame === false
+        ? navigation.decideFrameNavigation(details.url, context, frameDepth(details.frame))
+        : navigation.decideNavigation(details.url, context)
+      if (decision !== 'allow') details.preventDefault()
     })
   })
   // Sertifika hataları hiçbir zaman yok sayılmaz

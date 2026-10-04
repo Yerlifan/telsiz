@@ -142,6 +142,9 @@ const UPLOAD_IDLE_MS = 60000
 // Kapanışta açık bağlantılar için tanınan süre
 const CLOSE_GRACE_MS = 2000
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
+// JSON gövdesi bu süre içinde tamamlanmazsa bağlantı kesilir (en büyük gövde 140 KB, en yavaş meşru
+// istemci için bile geniş pay). Yükleme gövdeleri bu sınıra değil UPLOAD_IDLE_MS'ye tabidir.
+const JSON_BODY_TIMEOUT_MS = 60000
 const UPLOAD_PREFIX = '/api/uploads/'
 // Varsayılan temanın (Arcade) koyu zemin rengi
 const MANIFEST_COLOR = '#0f1015'
@@ -977,10 +980,12 @@ async function createChatServer (options) {
   // Yükleme gövdesi okunmadan verilen ret yanıtında, boyutu bilinen ve sınırı aşmayan gövde
   // bağlantı açıkken okunup atılır. Böylece tarayıcı yanıtı (ör. 503 busy) bağlantı sıfırlanmadan alır.
   // Boyutu bilinmeyen veya sınırı aşan gövdede bağlantı yanıttan sonra kapatılır.
+  // Kimlik doğrulaması gövde okunmadan yapılan JSON isteklerinde de aynı kural geçerlidir, sınır
+  // o yolun gövde sınırıdır (ctx.drainLimit).
   function canDrain (ctx) {
     if (!ctx.drainable || closing) return false
     const declared = util.contentLength(ctx.req)
-    return declared !== null && declared <= config.uploadMaxBytes
+    return declared !== null && declared <= ctx.drainLimit
   }
 
   function tooMany (ctx, waitMs, detailKey) {
@@ -2322,18 +2327,33 @@ async function createChatServer (options) {
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 
+  // Kimlik isteyen yollarda oturum, gövde okunmadan önce (yalnızca X-Token başlığıyla) doğrulanır.
+  // Böylece oturumu olmayan biri sunucuya gövde (müzik yolunda 140 KB'a kadar) okutamaz ve bellekte
+  // tutturamaz. Gövde okunurken oturum kapanmış veya hesap engellenmiş olabilir, okumadan sonra yeniden
+  // denetlenir.
   async function runRoute (ctx, def) {
     if (def.body === 'json') {
-      const result = await util.readBody(ctx.req, def.maxBytes || config.maxJsonBytes)
+      const maxBytes = def.maxBytes || config.maxJsonBytes
+      if (def.auth) {
+        ctx.drainable = true
+        ctx.drainLimit = maxBytes
+        const signedIn = authenticate(ctx)
+        ctx.drainable = false
+        if (!signedIn) return
+      }
+      const result = await util.readBody(ctx.req, maxBytes, JSON_BODY_TIMEOUT_MS)
       if (result.aborted) return
       if (result.tooLarge) return fail(ctx, 413, 'too_large')
       const body = util.parseJsonObject(result.text)
       if (body === null) return fail(ctx, 400, 'bad_request')
       ctx.body = body
       ctx.now = Date.now()
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (def.auth && !stillSignedIn(ctx)) return ctx.user.banned ? fail(ctx, 403, 'banned') : fail(ctx, 401, 'invalid_token')
+    } else {
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (def.auth && !authenticate(ctx)) return
     }
-    if (closing) return fail(ctx, 503, 'shutting_down')
-    if (def.auth && !authenticate(ctx)) return
     await def.handler(ctx)
   }
 
@@ -2348,7 +2368,7 @@ async function createChatServer (options) {
     const def = byMethod.get(req.method)
     if (!def) return failEarly(req, res, 405, 'method_not_allowed', { Allow: Array.from(byMethod.keys()).join(', ') })
     if (closing) return failEarly(req, res, 503, 'shutting_down')
-    const ctx = { req, res, query, param, body: {}, now: Date.now(), user: null, session: null, rt: null, drainable: def.body === 'stream' }
+    const ctx = { req, res, query, param, body: {}, now: Date.now(), user: null, session: null, rt: null, drainable: def.body === 'stream', drainLimit: config.uploadMaxBytes }
     const label = req.method + ' ' + (param === null ? pathname : UPLOAD_PREFIX + '<id>')
     runRoute(ctx, def).catch((err) => internalError(res, err, label))
   }

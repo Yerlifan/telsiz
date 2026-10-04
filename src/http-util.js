@@ -88,9 +88,10 @@ function contentLength (req) {
   return Number(raw)
 }
 
-// Gövdeyi en fazla limit bayta kadar okur.
+// Gövdeyi en fazla limit bayta kadar okur. timeoutMs verilirse gövde bu süre içinde tamamlanmazsa
+// bağlantı kesilir (yavaş gövdeyle bağlantı ve bellek tutma saldırılarına karşı).
 // Sonuç: { text } | { tooLarge: true } | { aborted: true }
-function readBody (req, limit) {
+function readBody (req, limit, timeoutMs) {
   return new Promise((resolve) => {
     const declared = contentLength(req)
     if (declared !== null && declared > limit) {
@@ -100,9 +101,19 @@ function readBody (req, limit) {
     const chunks = []
     let size = 0
     let done = false
+    let timer = null
+    if (Number.isSafeInteger(timeoutMs) && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        chunks.length = 0
+        finish({ aborted: true })
+        req.destroy()
+      }, timeoutMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    }
     function finish (value) {
       if (done) return
       done = true
+      clearTimeout(timer)
       req.removeListener('data', onData)
       req.removeListener('end', onEnd)
       req.removeListener('error', onError)
