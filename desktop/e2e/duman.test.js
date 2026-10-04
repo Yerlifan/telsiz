@@ -692,7 +692,11 @@ test('başlık şeridi: pencere düğmeleri kaplamada, renk temadan gelir, menü
   assert.equal(normal.overlay, true, 'pencere denetimleri kaplaması görünür')
   assert.equal(normal.bar, 32, 'şerit kaplama yüksekliğinde')
   assert.equal(normal.top, 32, 'görünüm şeridin altından başlar')
-  assert.deepEqual(normal.menus, ['Telsiz', 'Düzen', 'Görünüm', 'Yardım'])
+  // Menü etiketleri uygulama menüsünün üst düzey bölümleridir (dil sistem dilinden seçilir: Telsiz, Düzen veya
+  // Edit, Görünüm veya View, Yardım veya Help)
+  const appMenus = await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.filter((item) => item.submenu).map((item) => item.label))
+  assert.equal(appMenus.length, 4)
+  assert.deepEqual(normal.menus, appMenus)
   assert.equal(normal.title, normal.docTitle)
   const menuState = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).map((w) => w.isMenuBarVisible()))
   assert.ok(menuState.every((visible) => visible === false), 'yerel menü çubuğu gizli')
