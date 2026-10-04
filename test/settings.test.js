@@ -734,20 +734,23 @@ test('oturum listesi: bu cihaz rozeti, bilinmeyen cihaz etiketi, kapatma yalnız
   assert.deepStrictEqual(JSON.parse(JSON.stringify(revoke[0].body)), { id: 'bbbbbbbbbbbbbbbb' })
 })
 
-test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca üyeyi engeller, kendine işlem yok', () => {
+test('üye yönetimi satırları: sahip rol değiştirir, yönetici yalnızca üyeyi engeller ve atar, kendine işlem yok', () => {
   const owner = load({ role: 'owner' })
   owner.run("openSettings('members', null)")
   const row = (ctx, id) => ctx.root.querySelector('#set-members-list .member-row[data-user-id="' + id + '"]')
   assert.strictEqual(row(owner, 1).querySelector('button'), null, 'kendi satırında düğme yok')
   assert.ok(row(owner, 2).querySelector('.act-role'), 'sahip yöneticiyi üye yapabilir')
   assert.ok(row(owner, 2).querySelector('.act-ban'))
+  assert.ok(row(owner, 2).querySelector('.act-kick'), 'sahip yöneticiyi atabilir')
   assert.ok(row(owner, 3).querySelector('.act-reset'))
   assert.strictEqual(row(owner, 2).querySelector('.list-sub').textContent, 'yönetici, boşta')
   assert.strictEqual(row(owner, 3).querySelector('.settings-handle').textContent, '@mert')
   const admin = load({ role: 'admin' })
   admin.run("openSettings('members', null)")
   assert.strictEqual(row(admin, 2).querySelector('.act-ban'), null, 'yönetici başka yöneticiyi engelleyemez')
+  assert.strictEqual(row(admin, 2).querySelector('.act-kick'), null, 'yönetici başka yöneticiyi atamaz')
   assert.ok(row(admin, 3).querySelector('.act-ban'), 'yönetici üyeyi engelleyebilir')
+  assert.ok(row(admin, 3).querySelector('.act-kick'), 'yönetici üyeyi atabilir')
   assert.strictEqual(row(admin, 3).querySelector('.act-role'), null)
   assert.strictEqual(row(admin, 3).querySelector('.act-reset'), null)
   // Arama süzgeci
@@ -772,7 +775,9 @@ test('özel rol izinleri: moderatör izinli kategorileri görür, yalnızca alt 
   assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
   const row = (id) => root.querySelector('#set-members-list .member-row[data-user-id="' + id + '"]')
   assert.strictEqual(row(2).querySelector('.act-ban'), null)
+  assert.strictEqual(row(2).querySelector('.act-kick'), null)
   assert.ok(row(3).querySelector('.act-ban'))
+  assert.ok(row(3).querySelector('.act-kick'))
   assert.strictEqual(row(3).querySelector('.act-role'), null)
   assert.strictEqual(row(3).querySelector('.act-custom-role'), null)
   assert.strictEqual(row(3).querySelector('.act-reset'), null)
@@ -782,11 +787,38 @@ test('özel rol izinleri: moderatör izinli kategorileri görür, yalnızca alt 
   run('refreshSettings()')
   assert.strictEqual(run('outranksUser(3)'), false)
   assert.strictEqual(row(3).querySelector('.act-ban'), null)
+  assert.strictEqual(row(3).querySelector('.act-kick'), null)
   // Rol kalkınca Odalar ve Üyeler kategorileri kaybolur
   run('state.meta.users[0].roleId = null')
   run('refreshSettings()')
   assert.strictEqual(root.querySelector('#settings-cat-members'), null)
   assert.strictEqual(root.querySelector('#settings-page').getAttribute('data-cat'), 'account')
+})
+
+test('frekanstan atma: onay istenir, iptalde istek gitmez, onayda istek gider, engellenenlerde düğme yok', async () => {
+  const { run, root, sandbox } = load({ role: 'owner' })
+  run("state.bannedUsers = [{ id: 9, name: 'eski', role: 'member' }]")
+  run("openSettings('members', null)")
+  const kickBtn = () => root.querySelector('#set-members-list .member-row[data-user-id="3"] .act-kick')
+  const kicks = () => sandbox.__requests.filter((r) => r.path === '/api/users/kick')
+  assert.strictEqual(kickBtn().textContent, 'Frekanstan at')
+  assert.strictEqual(kickBtn().getAttribute('aria-label'), 'Frekanstan at: mert')
+  assert.ok(root.querySelector('#set-banned-list .member-row[data-user-id="9"] .act-ban'), 'engellenende engeli kaldır düğmesi var')
+  assert.strictEqual(root.querySelector('#set-banned-list .act-kick'), null)
+  const asked = []
+  sandbox.confirm = (text) => {
+    asked.push(text)
+    return false
+  }
+  kickBtn().click()
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(kicks().length, 0, 'onay verilmezse istek gitmez')
+  assert.ok(asked[0].indexOf('mert frekanstan atılsın mı?') === 0)
+  sandbox.confirm = () => true
+  kickBtn().click()
+  await new Promise((r) => setImmediate(r))
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(kicks()[0].body)), { userId: 3 })
+  assert.strictEqual(root.querySelector('#set-members-msg').textContent, 'mert frekanstan atıldı.')
 })
 
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {

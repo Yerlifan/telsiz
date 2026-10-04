@@ -1110,13 +1110,20 @@ async function createChatServer (options) {
     util.sendJson(res, 403, errorBody(langOf(res.req), 'banned'), closingHeaders())
   }
 
+  // Frekanstan atılan kişinin bekleyen poll'ları: oturum geçersizdir (401), kod istemcinin "frekanstan
+  // çıkarıldınız" demesi içindir. Sonraki istekler oturum bulunamadığı için 401 invalid_token alır.
+  function replyKicked (res) {
+    util.sendJson(res, 401, errorBody(langOf(res.req), 'kicked'), closingHeaders())
+  }
+
   // Oturumları diskten ve bellekten siler, bekleyen poll'larına hata yanıtı gider. Bu oturumlarla
   // sürmekte olan yüklemeler kesilir (işleyici geçici dosyayı siler ve 401 veya 403 döner).
+  // reason: 'invalid_token', 'banned' (403 banned) veya 'kicked' (401 kicked)
   function deleteSessions (list, reason) {
     if (list.length === 0) return
     const doomed = new Set(list)
     state.sessions = state.sessions.filter((s) => !doomed.has(s))
-    const reply = reason === 'banned' ? replyBanned : replyInvalidToken
+    const reply = reason === 'banned' ? replyBanned : reason === 'kicked' ? replyKicked : replyInvalidToken
     for (const s of list) {
       sessionsByHash.delete(s.hash)
       hub.removeSession(s.hash, reply)
@@ -1299,7 +1306,7 @@ async function createChatServer (options) {
     return index === -1 ? MAX_ROLES : index
   }
 
-  // Engelleme ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir
+  // Engelleme, frekanstan atma ve ses odası denetimi yalnızca alt rütbedeki birine uygulanabilir
   function outranks (actor, target) {
     return rankOf(actor) < rankOf(target)
   }
@@ -1669,10 +1676,11 @@ async function createChatServer (options) {
     ok(ctx, { ok: true, user: publicUser(user) })
   }
 
-  // Hesap silme (authKey ile): oturumlar, ses, anahtarlar, arkadaşlık ve engel kayıtları
-  // silinir, ad serbest kalır. Mesajlar ve özel mesaj geçmişi kalır, yazar silinmiş görünür.
-  function deleteAccount (user) {
-    deleteSessions(sessionsOf(user.id), 'invalid_token')
+  // Hesap silme (authKey ile veya frekanstan atma): oturumlar, ses, anahtarlar, arkadaşlık ve engel kayıtları
+  // silinir, ad serbest kalır. Mesajlar ve özel mesaj geçmişi kalır, yazar silinmiş görünür. reason
+  // bekleyen poll'lara giden yanıtı seçer (deleteSessions).
+  function deleteAccount (user, reason = 'invalid_token') {
+    deleteSessions(sessionsOf(user.id), reason)
     usersByKey.delete(user.key)
     user.deleted = true
     user.name = ''
@@ -2460,6 +2468,19 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true })
   }
 
+  // POST /api/users/kick { userId }: engelleme izni olan, kendinden alt rütbedeki birini frekanstan atar (izin
+  // ve rütbe kuralı engellemeyle aynı). Atma hesabı siler (deleteAccount): oturumlar kapanır, ad serbest kalır,
+  // mesajlar kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak dönebilir. Sahip
+  // hiçbir zaman atılamaz.
+  function handleUserKick (ctx) {
+    if (!requirePerm(ctx, 'ban') || !takeAdminSlot(ctx)) return
+    const target = findUser(ctx.body.userId)
+    if (!target) return fail(ctx, 404, 'user_not_found')
+    if (target.id === ctx.user.id || target.role === 'owner' || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
+    deleteAccount(target, 'kicked')
+    return okDurable(ctx, { ok: true })
+  }
+
   // ---------------------------------------------------------------- uç noktalar: özel roller
 
   // İzin listesi: ROLE_PERMS içinden, tekrarsız ve ROLE_PERMS sırasıyla. Geçersizse null.
@@ -2958,6 +2979,7 @@ async function createChatServer (options) {
   route('/api/channels/delete', 'POST', handleChannelDelete)
   route('/api/users/role', 'POST', handleUserRole)
   route('/api/users/ban', 'POST', handleUserBan)
+  route('/api/users/kick', 'POST', handleUserKick)
   route('/api/users/custom-role', 'POST', handleUserCustomRole)
   route('/api/roles/create', 'POST', handleRoleCreate)
   route('/api/roles/update', 'POST', handleRoleUpdate)

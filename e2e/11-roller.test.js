@@ -5,7 +5,9 @@
 // görünür. Ece ve Mert Lobi'ye katılır: Ece'nin Mert için açtığı kişi ses kartında Ses odası denetimi bölümü
 // vardır, Mert'in Ece için açtığında yoktur. Ece Mert'i herkes için susturur: Mert'in mikrofon düğmesi
 // "Herkes için susturuldu" der ve mikrofonunu açamaz, Ece'nin kadrosunda Mert'in rozeti değişir. Susturma
-// kaldırılınca Mert'in kendi durumu geri gelir. Ece Mert'i odadan çıkarınca Mert'in telsizi kapanır.
+// kaldırılınca Mert'in kendi durumu geri gelir. Ece Mert'i odadan çıkarınca Mert'in telsizi kapanır. Sonunda
+// Deniz Mert'i Üyeler sayfasından frekanstan atar: onay sorulur, Mert listeden düşer ve Mert'in uygulaması giriş
+// ekranında frekanstan çıkarıldığını yazar.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -115,4 +117,30 @@ test('moderatör ses odasında birini herkes için susturur, susturmayı kaldır
   await ece.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 1, null, { timeout: h.LONG })
   const meta = await metaOf()
   assert.deepEqual((meta.voice[String(W.lobi.id)] || []).map((m) => m.userId), [eceId])
+})
+
+test('sahip Üyeler sayfasından Mert\'i frekanstan atar, Mert\'in uygulaması frekanstan çıkarıldığını söyler', async () => {
+  const { deniz, mert } = W
+  const mertId = W.w.P.mert.id
+  await deniz.evaluate(() => openSettings('members'))
+  const kickSel = '#set-members-list .member-row[data-user-id="' + mertId + '"] .act-kick'
+  await deniz.waitForSelector(kickSel)
+  assert.equal(await deniz.textContent(kickSel), 'Frekanstan at')
+  // Atma onay ister
+  const asked = new Promise((resolve) => {
+    deniz.once('dialog', (d) => {
+      resolve(d.message())
+      d.accept()
+    })
+  })
+  await deniz.click(kickSel)
+  assert.match(await asked, /frekanstan atılsın mı\?/)
+  await deniz.waitForSelector('#set-members-list .member-row[data-user-id="' + mertId + '"]', { state: 'detached', timeout: h.LONG })
+  await deniz.waitForFunction(() => /frekanstan atıldı/.test(document.getElementById('set-members-msg').textContent), null, { timeout: h.LONG })
+  // Mert'in bekleyen poll'u 401 kicked alır: giriş ekranı açılır ve neden yazar
+  await mert.waitForFunction(() => /Frekanstan çıkarıldınız/.test(document.getElementById('auth-notice').textContent), null, { timeout: h.LONG })
+  assert.equal(await mert.isHidden('#auth-notice'), false)
+  const meta = await metaOf()
+  assert.equal(meta.users.some((u) => u.id === mertId), false)
+  await deniz.keyboard.press('Escape')
 })

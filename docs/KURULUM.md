@@ -210,7 +210,7 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 | --- | --- | --- |
 | Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ, YouTube kaynağı ve kısıtlı kip anahtarları (yalnızca sahip), Ses odaları ve kameralar bölümünde ses odası kapasitesi, kameralar ve oda başına kamera sınırı (yalnızca sahip, yönetici salt okunur görür), Sunucu bilgileri bölümünde makine ve kullanım bilgileri ile kapasite önerisi |
 | Ayarlar > Odalar | Sahip, yönetici ve oda yönetme izni olan roller | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
-| Ayarlar > Üyeler | Sahip, yönetici ve engelleme izni olan roller | Rol değiştirme ve üyeye özel rol verme (yalnızca sahip), alt sıradakileri engelleme ve engellerini kaldırma, geçici parolayla parola sıfırlama (yalnızca sahip) |
+| Ayarlar > Üyeler | Sahip, yönetici ve engelleme izni olan roller | Rol değiştirme ve üyeye özel rol verme (yalnızca sahip), alt sıradakileri engelleme, engellerini kaldırma ve frekanstan atma, geçici parolayla parola sıfırlama (yalnızca sahip) |
 | Ayarlar > Roller | Yalnızca sahip | Özel rol oluşturma, adlandırma, renk seçme, izinleri açıp kapatma, sıralama ve silme |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |
 | Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları | Sahip ve yönetici | Yeni grup anahtarı oluşturma |
@@ -228,12 +228,14 @@ Sahip ve yönetici rollerinin yanında sahip Ayarlar > Roller sayfasından en ç
 | İzin | Verdiği yetki |
 | --- | --- |
 | Mesajları sil | Yazı odalarında başkalarının mesajlarını silme (özel mesajlarda kimse başkasının mesajını silemez) |
-| Üyeleri engelle | Alt sıradaki üyeleri engelleme ve engellerini kaldırma |
+| Üyeleri engelle | Alt sıradaki üyeleri engelleme, engellerini kaldırma ve frekanstan atma |
 | Ses odasını denetle | Alt sıradaki birini herkes için susturma veya ses odasından çıkarma |
 | Odaları yönet | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme |
 | Telsiz DJ kuyruğunu yönet | Kısıtlı kip açıkken odada bulunduğunda kuyruğu yönetme, bu sırada izni olmayanlar yalnızca dinler |
 
-Rütbe sırası sahip, yönetici, Ayarlar > Roller listesindeki sırayla özel roller ve en altta rolsüz üyelerdir. Engelleme ve ses odası denetimi yalnızca kendinden alt sıradaki birine uygulanabilir. Herkes için susturma hesaba yazılır, kişi odadan çıkıp girse de sunucu yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin uygulaması mikrofonunu kapalı tutar, diğerlerinin uygulaması o kişinin sesini çalmaz. Değiştirilmiş bir istemci kullanan kişi bu kuralı kendi cihazında atlayabilir. Odadan çıkarılan kişi yeniden katılabilir, kalıcı olarak uzaklaştırmak için engelleme kullanılır.
+Rütbe sırası sahip, yönetici, Ayarlar > Roller listesindeki sırayla özel roller ve en altta rolsüz üyelerdir. Engelleme, frekanstan atma ve ses odası denetimi yalnızca kendinden alt sıradaki birine uygulanabilir, sahip hiçbir zaman atılamaz. Herkes için susturma hesaba yazılır, kişi odadan çıkıp girse de sunucu yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin uygulaması mikrofonunu kapalı tutar, diğerlerinin uygulaması o kişinin sesini çalmaz. Değiştirilmiş bir istemci kullanan kişi bu kuralı kendi cihazında atlayabilir. Odadan çıkarılan kişi yeniden katılabilir, kalıcı olarak uzaklaştırmak için engelleme kullanılır.
+
+Frekanstan atma (Ayarlar > Üyeler > Frekanstan at) hesabı siler: kişinin bütün oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak, yeni bir hesapla dönebilir. Kişiyi uzak tutmak için engelleme kullanılır. Atılan veya engellenen kişi grup şifreleme anahtarını bilmeye devam eder, yeni mesajları korumak için Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları bölümünden yeni anahtar oluşturun.
 
 Ses odaları ve kameralar bölümündeki üç ayar her ses odasına ayrı uygulanır ve sunucuda saklanır (`state.json`, `voice` alanı). Ses odası kapasitesi varsayılan olarak 8'dir ve 2 ile 12 kişi arasında seçilir. Düşürülen kapasite yalnızca yeni katılımlara uygulanır, odadaki kimse çıkarılmaz. Kameralar varsayılan olarak açıktır, kapatılınca açık kameralar da kapanır. Oda başına aynı anda açık kamera sayısı varsayılan olarak 4'tür, 1 ile 12 arasında seçilir ve kapasiteden büyük olamaz. Değişiklik kaydedilince açık uygulamalara hemen ulaşır. Ses ve görüntü kişiler arasında doğrudan aktığı için bu sınırlar sunucunun değil üyelerin yükleme hızının korunması içindir: tam örgüde kamerası açık olan herkes görüntüsünü odadaki diğer her kişiye ayrı gönderir.
 

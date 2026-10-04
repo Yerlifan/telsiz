@@ -286,7 +286,7 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       { oldAuthKey: {}, newAuthKey: [], kdf: { salt: {}, N: [] }, wrappedKey: {} }, { authKey: 1, kdf: [], publicKey: {} },
       { identity: {}, allowMemberDms: 'evet', ids: [] }, { __proto__: { admin: true } }, { constructor: { prototype: {} } }]
     const routes = ['/api/messages', '/api/messages/edit', '/api/messages/delete', '/api/channels/create',
-      '/api/channels/update', '/api/channels/delete', '/api/users/role', '/api/users/ban',
+      '/api/channels/update', '/api/channels/delete', '/api/users/role', '/api/users/ban', '/api/users/kick',
       '/api/users/reset-password', '/api/me/password', '/api/settings', '/api/voice/join',
       '/api/voice/state', '/api/voice/signal', '/api/voice/leave', '/api/register', '/api/login', '/api/prelogin',
       '/api/username-available', '/api/me/keys', '/api/me/identity', '/api/me/username', '/api/me/settings',

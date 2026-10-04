@@ -4019,8 +4019,8 @@ async function deleteChannel (c) {
   setMsg(msg, () => errorText(res, t('settings.server.deleteFailed')), 'error')
 }
 
-// 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme ve engeli kaldırma (engelleme izni),
-// parola sıfırlama (sahip)
+// 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme, engeli kaldırma ve frekanstan atma
+// (engelleme izni), parola sıfırlama (sahip)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4166,6 +4166,16 @@ function buildMemberAdminRow (u, banned) {
     })
     actions.appendChild(banBtn)
   }
+  // Frekanstan atma engellemeyle aynı izin ve rütbe kuralına bağlıdır (engellenenler listesinde gösterilmez)
+  if (canBan && !banned) {
+    const kickBtn = button('button button-small button-danger act-kick', t('settings.members.kick'))
+    kickBtn.setAttribute('data-focus-key', 'kick-' + u.id)
+    kickBtn.setAttribute('aria-label', t('settings.members.kickLabel', { name: display }))
+    kickBtn.addEventListener('click', () => {
+      kickUser(u, kickBtn)
+    })
+    actions.appendChild(kickBtn)
+  }
   if (owner && !self && !banned) {
     const reset = button('button button-small button-ghost act-reset', t('settings.members.resetPassword'))
     reset.setAttribute('data-focus-key', 'reset-' + u.id)
@@ -4255,6 +4265,22 @@ async function setUserBan (u, banned, b) {
     updateSettingsPage()
     focusNode(byId('set-members-filter'))
     refreshAdminState(true)
+    return
+  }
+  if (isConnected(b)) b.disabled = false
+  setMsg(msg, () => errorText(res, t('settings.members.actionFailed')), 'error')
+}
+
+// Frekanstan atma hesabı siler: onaydan sonra istek gider, satır meta güncellemesiyle listeden düşer
+async function kickUser (u, b) {
+  const msg = byId('set-members-msg')
+  const name = shownName(u.id)
+  if (!window.confirm(t('settings.members.kickConfirm', { name: name }))) return
+  b.disabled = true
+  const res = await api('POST', '/api/users/kick', { userId: u.id })
+  if (res.status === 200) {
+    setMsg(msg, () => t('settings.members.kickedOk', { name: name }), 'ok')
+    focusNode(byId('set-members-filter'))
     return
   }
   if (isConnected(b)) b.disabled = false

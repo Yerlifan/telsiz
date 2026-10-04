@@ -12,6 +12,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 - Yazı boyutu Ayarlar > Görünüm'deki kaydırıcıyla 12 ile 28 piksel arasında elle ayarlanabilir (Özel).
 - Telsiz kartının kadrosunda ekran paylaşan kişinin üstüne gelince Yayına katıl düğmesi çıkar (dokunmatik ekranda her zaman görünür).
 - Mikrofon düğmesine sağ tıklayınca (klavyede Shift+F10) Bas konuş ile Ses etkinliği arasında geçilir.
+- Frekanstan atma: Ayarlar > Üyeler sayfasındaki Frekanstan at düğmesi, onaydan sonra kişinin hesabını siler (`POST /api/users/kick`). Oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Geri dönmek için davet koduyla yeniden kayıt olmak gerekir. İzin ve rütbe kuralı engellemeyle aynıdır (Üyeleri engelle izni atmayı da kapsar), sahip hiçbir zaman atılamaz.
 
 ### Değişiklikler
 

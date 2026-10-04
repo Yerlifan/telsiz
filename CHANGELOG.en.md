@@ -12,6 +12,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 - The font size can be set by hand between 12 and 28 pixels with the slider in Settings > Appearance (Custom).
 - Hovering over someone sharing their screen in the crew of the radio card shows a Watch stream button (always visible on touch screens).
 - Right clicking the Microphone button (Shift+F10 on the keyboard) switches between Push to talk and Voice activity.
+- Kicking from the frequency: the Kick button in Settings > Members deletes the person's account after a confirmation (`POST /api/users/kick`). Their sessions are signed out and their open app says they were kicked from the frequency, the username becomes free, and their messages stay with a deleted author. To come back, they need to register again with an invite code. The permission and rank rule is the same as for banning (the Ban members permission also covers kicking), and the owner can never be kicked.
 
 ### Changes
 
