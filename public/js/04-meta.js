@@ -747,6 +747,16 @@ function voiceChannelOf (userId) {
   return found === undefined ? null : findChannel(found)
 }
 
+// Kişinin ses odasında kamerası açık mı (meta ses kadrolarındaki camera alanı)
+function userCameraOn (userId) {
+  const rosters = state.meta && state.meta.voice ? state.meta.voice : null
+  if (!rosters) return false
+  return Object.keys(rosters).some((id) => {
+    const roster = rosters[id]
+    return Array.isArray(roster) && roster.some((entry) => entry && sameId(entry.userId, userId) && entry.camera === true)
+  })
+}
+
 // Çevrimiçi ve çevrimdışı satırlarının alt satırı: durum (boşta, rahatsız etmeyin, çevrimdışı) ve özel durum metni
 function memberPresenceText (userId, status) {
   let custom = ''

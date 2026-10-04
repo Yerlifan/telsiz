@@ -3,10 +3,12 @@
 // Ses odasında kamera (sahte kamera) ve sahibin ses odası ayarları. Kamera düğmesi kapalı başlar ve
 // basılmadan kamera istenmez. Mert kamerasını açar: kendi kutusu aynalı canlı görüntü, düğme sırasının
 // üstünde "Kameranız açık" göstergesi, Deniz'in kadrosunda Mert'in avatarı canlı görüntü kutusuna döner ve
-// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar. Sahip kamera sınırını 1'e indirince ikinci
-// kamera sunucuda reddedilir ve kamera hiç istenmez. Sahip Ayarlar > Genel'den kapasite ve kamera sınırını
-// değiştirir, kameraları kapatınca açık kamera kapanır. Sunucu bilgileri bölümü bilgileri, öneriyi ve
-// ipuçlarını gösterir, Öneriyi uygula alanları doldurur. Ayrılınca kamera kapanır.
+// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar. Sahip kişi ses kartındaki Kamerasını kapat
+// düğmesiyle Mert'in kamerasını kapatır: Mert'in kamerası durur, bildirim görür ve kamerasını yeniden açar.
+// Sahip kamera sınırını 1'e indirince ikinci kamera sunucuda reddedilir ve kamera hiç istenmez. Sahip
+// Ayarlar > Genel'den kapasite ve kamera sınırını değiştirir, kameraları kapatınca açık kamera kapanır.
+// Sunucu bilgileri bölümü bilgileri, öneriyi ve ipuçlarını gösterir, Öneriyi uygula alanları doldurur.
+// Ayrılınca kamera kapanır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -163,6 +165,31 @@ test('Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar', asy
   assert.equal(await fitOf(), 'cover')
   await deniz.click('#cast .cast-cams-close')
   await deniz.waitForSelector('#cast', { state: 'hidden' })
+})
+
+test('sahip kişi ses kartından Mert\'in kamerasını kapatır, Mert bildirim alır ve kamerasını yeniden açabilir', async () => {
+  const { deniz, mert } = W
+  const mertId = W.w.P.mert.id
+  await deniz.click(crewSel(mertId) + ' .crew-button')
+  await deniz.waitForSelector('#peer-popover:not([hidden]) #peer-mod:not([hidden]) #peer-camera-off:not([hidden])')
+  assert.equal(await deniz.textContent('#peer-camera-off'), 'Kamerasını kapat')
+  await deniz.click('#peer-camera-off')
+  await deniz.waitForFunction(() => /kamerası kapatıldı/.test(document.getElementById('peer-mod-msg').textContent), null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('btn-camera').getAttribute('aria-pressed') === 'false' && document.getElementById('radio-cam-live').hidden, null, { timeout: h.LONG })
+  await mert.waitForFunction(() => document.getElementById('toast').textContent === 'Kameranız ses odası denetimiyle kapatıldı. Yeniden açabilirsiniz.', null, { timeout: h.LONG })
+  assert.equal(await mert.evaluate(() => voice.snapshot().camera.state), 'off')
+  // Kamerası kapanan kişide düğme gizlenir, odak kartta kalır
+  await deniz.waitForSelector('#peer-camera-off', { state: 'hidden', timeout: h.LONG })
+  assert.equal(await deniz.evaluate(() => document.getElementById('peer-popover').contains(document.activeElement)), true)
+  await deniz.waitForFunction((sel) => !document.querySelector(sel + ' .has-camera'), crewSel(mertId), { timeout: h.LONG })
+  assert.equal((await metaCamera(mertId)).camera, false)
+  await deniz.keyboard.press('Escape')
+  await deniz.waitForSelector('#peer-popover', { state: 'hidden' })
+  // Kapatma tek seferliktir: Mert kamerasını yeniden açar
+  await mert.click('#btn-camera')
+  await mert.waitForFunction(() => document.getElementById('btn-camera').getAttribute('aria-pressed') === 'true', null, { timeout: h.LONG })
+  await tileLive(deniz, mertId)
+  assert.equal((await metaCamera(mertId)).camera, true)
 })
 
 test('kamera sınırı sunucuda uygulanır, sınır doluyken kamera hiç istenmez', async () => {

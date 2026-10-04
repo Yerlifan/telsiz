@@ -413,6 +413,7 @@ function bindEvents () {
   on(el.peerVolume, 'change', onPeerVolumeInput)
   on(el.peerMute, 'click', onPeerMuteClick)
   on(el.peerServerMute, 'click', onPeerServerMuteClick)
+  on(el.peerCameraOff, 'click', onPeerCameraOffClick)
   on(el.peerDisconnect, 'click', onPeerDisconnectClick)
 
   on(el.loadOlder, 'click', loadOlder)

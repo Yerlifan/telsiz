@@ -116,7 +116,7 @@ function onVoiceChange (snapshot) {
   if (code && code !== lastVoiceError) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
-  if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' ? '' : 'error', 8000)
+  if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
   lastCameraError = camCode
   if (voiceRenderQueued) return
   voiceRenderQueued = true
@@ -1057,7 +1057,8 @@ function renderPeerMute () {
   renderPeerMod()
 }
 
-// Ses odası denetimi (izinli ve kişiden üst rütbedeyse): herkes için susturma ve odadan çıkarma
+// Ses odası denetimi (izinli ve kişiden üst rütbedeyse): herkes için susturma, kamerasını kapatma (yalnızca kamerası
+// açıkken) ve odadan çıkarma
 function renderPeerMod () {
   if (!el.peerMod) return
   const uid = popoverUserId
@@ -1068,17 +1069,20 @@ function renderPeerMod () {
   const muted = Boolean(rec && rec.voiceMuted)
   el.peerServerMute.textContent = t(muted ? 'peer.serverUnmute' : 'peer.serverMute')
   el.peerServerMute.setAttribute('aria-pressed', muted ? 'true' : 'false')
+  if (el.peerCameraOff) el.peerCameraOff.hidden = !userCameraOn(uid)
   el.peerDisconnect.disabled = !voiceChannelOf(uid)
 }
 
-// Herkes için susturma ve odadan çıkarma isteği (kişi ses kartından ve profil kartından)
+const VOICE_MOD_OK_KEYS = { mute: 'peer.serverMutedOk', unmute: 'peer.serverUnmutedOk', 'camera-off': 'peer.cameraOffOk', disconnect: 'peer.disconnectedOk' }
+
+// Herkes için susturma, kamerasını kapatma ve odadan çıkarma isteği (kişi ses kartından ve profil kartından)
 async function moderateVoice (userId, action, msgEl, button) {
   const name = shownName(userId)
   if (action === 'disconnect' && !window.confirm(t('peer.disconnectConfirm', { name: name }))) return false
   if (button) button.disabled = true
   const res = await api('POST', '/api/voice/moderate', { userId: voiceUserArg(userId), action: action })
   if (button && isConnected(button)) button.disabled = false
-  const okKey = action === 'mute' ? 'peer.serverMutedOk' : action === 'unmute' ? 'peer.serverUnmutedOk' : 'peer.disconnectedOk'
+  const okKey = VOICE_MOD_OK_KEYS[action] || 'peer.disconnectedOk'
   if (res.status === 200) {
     if (msgEl) setMsg(msgEl, () => t(okKey, { name: name }), 'ok')
     else toast(() => t(okKey, { name: name }), 'ok')
@@ -1099,6 +1103,15 @@ function onPeerServerMuteClick () {
 function onPeerDisconnectClick () {
   if (popoverUserId === null) return
   moderateVoice(popoverUserId, 'disconnect', el.peerModMsg, el.peerDisconnect)
+}
+
+// İstek sürerken düğme devre dışı kalır ve odak düşer. Başarıda düğme metayla gizleneceği için odak susturma
+// düğmesine, hatada düğmenin kendisine döner.
+async function onPeerCameraOffClick () {
+  if (popoverUserId === null) return
+  const hadFocus = document.activeElement === el.peerCameraOff
+  const done = await moderateVoice(popoverUserId, 'camera-off', el.peerModMsg, el.peerCameraOff)
+  if (hadFocus && findLayer('peer')) focusNode(done ? el.peerServerMute : el.peerCameraOff)
 }
 
 function onPeerVolumeInput () {

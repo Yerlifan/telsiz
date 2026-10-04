@@ -13,6 +13,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 - Telsiz kartının kadrosunda ekran paylaşan kişinin üstüne gelince Yayına katıl düğmesi çıkar (dokunmatik ekranda her zaman görünür).
 - Mikrofon düğmesine sağ tıklayınca (klavyede Shift+F10) Bas konuş ile Ses etkinliği arasında geçilir.
 - Frekanstan atma: Ayarlar > Üyeler sayfasındaki Frekanstan at düğmesi, onaydan sonra kişinin hesabını siler (`POST /api/users/kick`). Oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Geri dönmek için davet koduyla yeniden kayıt olmak gerekir. İzin ve rütbe kuralı engellemeyle aynıdır (Üyeleri engelle izni atmayı da kapsar), sahip hiçbir zaman atılamaz.
+- Ses odası denetiminde Kamerasını kapat: Ses odasını denetle izni olan biri, kişi ses kartından veya profil kartından alt sıradaki birinin açık kamerasını kapatabilir (`POST /api/voice/moderate`, `camera-off` eylemi). Düğme yalnızca kişinin kamerası açıkken görünür. Kapatma tek seferliktir, kişinin uygulaması kamerayı durdurup bunu bildirir, kişi kamerasını yeniden açabilir.
 
 ### Değişiklikler
 

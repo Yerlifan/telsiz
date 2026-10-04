@@ -3186,6 +3186,7 @@ button.member:hover {
 
 .profile-card-mute,
 .profile-card-server-mute,
+.profile-card-camera-off,
 .profile-card-disconnect {
   margin-top: 0.25rem;
   margin-right: 0.4rem;

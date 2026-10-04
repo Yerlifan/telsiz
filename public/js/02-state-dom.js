@@ -110,7 +110,7 @@ const ELEMENT_IDS = [
   'people-sheet', 'members', 'members-count', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline',
   'msg-menu', 'msg-menu-edit', 'msg-menu-delete',
   'peer-popover', 'peer-name', 'peer-volume', 'peer-volume-value', 'peer-mute', 'peer-note',
-  'peer-mod', 'peer-server-mute', 'peer-disconnect', 'peer-mod-msg',
+  'peer-mod', 'peer-server-mute', 'peer-camera-off', 'peer-disconnect', 'peer-mod-msg',
   'profile-card', 'status-menu', 'dialog-root', 'cast-dialog',
   'viewer', 'viewer-name', 'viewer-download', 'viewer-close', 'viewer-stage', 'viewer-img'
 ]

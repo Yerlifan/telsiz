@@ -2,8 +2,8 @@
 
 // Ses odası sınırları ve kameralar: sahibin ayarı (kapasite, kameralar açık mı, oda başına kamera sınırı),
 // doğrulama ve yetki, kalıcılık ve meta yayını, kapasitenin katılmada uygulanması, kamera açık bilgisinin
-// sunucudan geçmesi ve sınırın uygulanması, sunucu bilgileri ucu (GET /api/server-info) ve src/system-info.js
-// içindeki cgroup ve statfs yedekleri.
+// sunucudan geçmesi ve sınırın uygulanması, ses odası denetimiyle kameranın kapatılması (camera-off), sunucu
+// bilgileri ucu (GET /api/server-info) ve src/system-info.js içindeki cgroup ve statfs yedekleri.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -259,6 +259,60 @@ describe('kameralar', () => {
       h.expectStatus(await settings(ctx, owner.token, { maxCameras: 1 }), 200)
       assert.deepEqual((await metaOf(ctx, owner.token)).voice['3'].map((m) => m.camera), [true, true, false])
       h.expectStatus(await camera(ctx, mehmet.token, true), 409, 'camera_limit')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+})
+
+describe('ses odası denetimi: kamerasını kapat', () => {
+  function cameraOff (ctx, token, userId, lang) {
+    return h.request(ctx, 'POST', '/api/voice/moderate', { token, body: { userId, action: 'camera-off' }, headers: lang ? { 'accept-language': lang } : undefined })
+  }
+
+  it('izin ve rütbe denetlenir, kamera tek seferlik kapanır, kişi yeniden açabilir, açık değilse 409', async () => {
+    const { ctx, owner, ayse, mehmet, zeynep } = await room()
+    try {
+      await h.makeAdmin(ctx, owner.token, ayse.user.id)
+      const role = await h.post(ctx, '/api/roles/create', owner.token, { name: 'Moderatör', color: 'blue', perms: ['voice'] })
+      h.expectStatus(role, 200)
+      h.expectStatus(await h.post(ctx, '/api/users/custom-role', owner.token, { userId: mehmet.user.id, roleId: role.data.role.id }), 200)
+      // Ses odasında olmayan kişinin kamerası kapatılamaz
+      h.expectStatus(await cameraOff(ctx, mehmet.token, zeynep.user.id), 409, 'target_not_in_voice')
+      for (const u of [owner, ayse, mehmet, zeynep]) h.expectStatus(await join(ctx, u.token, 3), 200)
+      h.expectStatus(await camera(ctx, zeynep.token, true), 200)
+      h.expectStatus(await camera(ctx, ayse.token, true), 200)
+      // İzinsiz üye, kendine ve üst rütbedekine uygulanamaz, bilinmeyen eylem 400
+      h.expectStatus(await cameraOff(ctx, zeynep.token, mehmet.user.id), 403, 'forbidden')
+      h.expectStatus(await cameraOff(ctx, mehmet.token, mehmet.user.id), 403, 'forbidden')
+      h.expectStatus(await cameraOff(ctx, mehmet.token, ayse.user.id), 403, 'forbidden')
+      h.expectStatus(await h.post(ctx, '/api/voice/moderate', mehmet.token, { userId: zeynep.user.id, action: 'camera_off' }), 400, 'bad_request')
+      h.expectStatus(await cameraOff(ctx, mehmet.token, 9999), 404, 'user_not_found')
+      // Bekleyen poll kişinin kamerasını kapalı görür (istemci yerel kamerayı bundan durdurur)
+      const before = await h.stateOf(ctx, zeynep.token)
+      const p = h.poller(ctx, zeynep.token, before)
+      const waiting = h.nextRequest(ctx.server, '/api/poll')
+      const pending = p.poll()
+      await waiting
+      const res = await cameraOff(ctx, mehmet.token, zeynep.user.id)
+      h.expectStatus(res, 200)
+      assert.deepEqual(res.data, { ok: true })
+      const polled = await pending
+      h.expectStatus(polled, 200)
+      const mine = polled.data.meta.voice['3'].filter((m) => m.userId === zeynep.user.id)
+      assert.deepEqual(mine.map((m) => m.camera), [false])
+      // Başkasının kamerası etkilenmez. Kapatma tek seferliktir, ikinci istek 409 alır, kişi kamerasını yeniden açabilir
+      let list = (await metaOf(ctx, owner.token)).voice['3']
+      assert.deepEqual(list.map((m) => [m.userId, m.camera]), [[owner.user.id, false], [ayse.user.id, true], [mehmet.user.id, false], [zeynep.user.id, false]])
+      const again = await cameraOff(ctx, mehmet.token, zeynep.user.id, 'tr')
+      h.expectStatus(again, 409, 'target_camera_off')
+      assert.equal(again.data.error, 'Bu kişinin kamerası açık değil.')
+      assert.equal((await cameraOff(ctx, mehmet.token, zeynep.user.id, 'en')).data.error, 'This person\'s camera is not on.')
+      h.expectStatus(await camera(ctx, zeynep.token, true), 200)
+      // Sahip yöneticinin kamerasını kapatabilir
+      h.expectStatus(await cameraOff(ctx, owner.token, ayse.user.id), 200)
+      list = (await metaOf(ctx, owner.token)).voice['3']
+      assert.deepEqual(list.map((m) => [m.userId, m.camera]), [[owner.user.id, false], [ayse.user.id, false], [mehmet.user.id, false], [zeynep.user.id, true]])
     } finally {
       await ctx.cleanup()
     }

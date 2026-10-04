@@ -136,6 +136,8 @@ const ROLES = new Set(['owner', 'admin', 'member'])
 const ROLE_PERMS = ['messages', 'ban', 'voice', 'channels', 'dj']
 const ROLE_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink']
 const MAX_ROLES = 20
+// Ses odası denetimi eylemleri (POST /api/voice/moderate)
+const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
 const IDENTITY_MAX_CHARS = 2000
@@ -2863,20 +2865,27 @@ async function createChatServer (options) {
     ok(ctx, { ok: true })
   }
 
-  // POST /api/voice/moderate { userId, action: 'mute' | 'unmute' | 'disconnect' } (ses odası denetimi izni). Hedef
-  // işlemi yapandan alt rütbede olmalıdır. Susturma hesaba yazılır: kişi odadan çıkıp girse de, sunucu yeniden
-  // başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
+  // POST /api/voice/moderate { userId, action: 'mute' | 'unmute' | 'disconnect' | 'camera-off' } (ses odası denetimi
+  // izni). Hedef işlemi yapandan alt rütbede olmalıdır. Susturma hesaba yazılır: kişi odadan çıkıp girse de, sunucu
+  // yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: kişinin kendi
   // istemcisi mikrofonu kapatır, diğerlerinin istemcisi o kişinin sesini çalmaz. Çıkarma kişiyi yalnızca o anki
-  // odadan çıkarır, yeniden katılabilir.
+  // odadan çıkarır, yeniden katılabilir. Kamerayı kapatma tek seferliktir: sunucu kişinin kamerasını kapalı yapar,
+  // kişinin istemcisi metadan görüp yerel kamerayı durdurur, kişi kamerasını yeniden açabilir.
   function handleVoiceModerate (ctx) {
     if (!requirePerm(ctx, 'voice') || !takeAdminSlot(ctx)) return
     const b = ctx.body
-    if (b.action !== 'mute' && b.action !== 'unmute' && b.action !== 'disconnect') return fail(ctx, 400, 'bad_request')
+    if (!VOICE_MOD_ACTIONS.includes(b.action)) return fail(ctx, 400, 'bad_request')
     const target = findUser(b.userId)
     if (!target || target.banned) return fail(ctx, 404, 'user_not_found')
     if (target.id === ctx.user.id || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     if (b.action === 'disconnect') {
       if (!hub.kickVoiceUser(target.id)) return fail(ctx, 409, 'target_not_in_voice')
+      return ok(ctx, { ok: true })
+    }
+    if (b.action === 'camera-off') {
+      const result = hub.forceCameraOff(target.id)
+      if (result === 'not_in_voice') return fail(ctx, 409, 'target_not_in_voice')
+      if (result === 'camera_off') return fail(ctx, 409, 'target_camera_off')
       return ok(ctx, { ok: true })
     }
     const muted = b.action === 'mute'

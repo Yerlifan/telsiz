@@ -13,6 +13,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 - Hovering over someone sharing their screen in the crew of the radio card shows a Watch stream button (always visible on touch screens).
 - Right clicking the Microphone button (Shift+F10 on the keyboard) switches between Push to talk and Voice activity.
 - Kicking from the frequency: the Kick button in Settings > Members deletes the person's account after a confirmation (`POST /api/users/kick`). Their sessions are signed out and their open app says they were kicked from the frequency, the username becomes free, and their messages stay with a deleted author. To come back, they need to register again with an invite code. The permission and rank rule is the same as for banning (the Ban members permission also covers kicking), and the owner can never be kicked.
+- Turn off camera in voice room moderation: someone with the voice room moderation permission can turn off the open camera of a person ranked lower from the voice card or the profile card (`POST /api/voice/moderate`, the `camera-off` action). The button shows only while the person's camera is on. Turning it off is a one time action: the person's app stops the camera and tells them, and they can turn it on again.
 
 ### Changes
 

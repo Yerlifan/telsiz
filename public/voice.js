@@ -88,7 +88,7 @@ window.VoiceClient = (function () {
   var CAMERA_STOP_REASONS = ['user', 'ended', 'left', 'server', 'disabled']
   // Kamera hata kodları (arayüz t('camera.errors.' + kod) ile çevirir). 'cancelled' gösterilmez.
   var CAMERA_ERRORS = ['camera_unsupported', 'insecure', 'not_in_voice', 'camera_denied', 'camera_not_found', 'camera_in_use',
-    'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed']
+    'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed', 'camera_moderated']
   var MID_RE = /^[A-Za-z0-9_.{}~+-]{1,64}$/
   var UPLINK_MAX_KBPS = 10000000
   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
@@ -4053,6 +4053,7 @@ window.VoiceClient = (function () {
         return null
       })()
       st.cameraError = null
+      st.cameraSeen = false
       st.cameraStarting = job
       emit()
       return job.then(function (v) {
@@ -4093,7 +4094,6 @@ window.VoiceClient = (function () {
       }
       track.addEventListener('ended', cam.onEnded)
       st.camera = cam
-      st.cameraSeen = false
       syncAllSenders()
       emit()
     }
@@ -4119,10 +4119,12 @@ window.VoiceClient = (function () {
       emit()
     }
 
-    // Metada kendi kameramız: sunucu kapattıysa (sahip kameraları kapattı) yerel kamera da durur. Açılıştan
-    // önce üretilmiş eski bir meta yanlışlıkla durdurmasın diye önce açık görülmüş olmalıdır.
+    // Metada kendi kameramız: sunucu kapattıysa (sahip kameraları kapattı veya ses odası denetimiyle kapatıldı) yerel
+    // kamera da durur, açılmakta olan kamera iptal edilir. Açılıştan önce üretilmiş eski bir meta yanlışlıkla durdurmasın
+    // diye kamera metada önce açık görülmüş olmalıdır. Sunucu açık bilgisini kamera istenmeden önce aldığı için bu meta
+    // çoğunlukla kamera açılırken gelir, o da sayılır.
     function checkOwnCamera (meta, list) {
-      if (!st.camera) return
+      if (!st.camera && !st.cameraStarting) return
       var settings = meta && meta.voiceSettings && typeof meta.voiceSettings === 'object' ? meta.voiceSettings : null
       if (settings && settings.cameras === false) {
         st.cameraError = 'camera_disabled'
@@ -4137,6 +4139,7 @@ window.VoiceClient = (function () {
       if (mine.camera === true) {
         st.cameraSeen = true
       } else if (st.cameraSeen) {
+        st.cameraError = 'camera_moderated'
         stopCamera('server', false)
       }
     }
