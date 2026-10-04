@@ -121,18 +121,18 @@ test('sunucu adresi ve seçici ön yüklemeleri', async () => {
 
 test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
   for (const file of ['preload.js', 'connect-preload.js', 'picker-preload.js']) {
-    const text = fs.readFileSync(path.join(SRC, file), 'utf8')
+    const text = fs.readFileSync(path.join(SRC, file), 'utf8').replace(/\r\n/g, '\n')
     for (const match of text.matchAll(/(\w+): '(telsiz:[a-z-]+)'/g)) {
       assert.equal(channels.CHANNELS[match[1]], match[2], file + ' ' + match[1])
     }
   }
-  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8')
+  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
   assert.ok(preload.includes("const ACTIONS = ['" + channels.ACTIONS.join("', '") + "']"))
   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
 })
 
 test('ana süreç sertleştirmeleri kaynakta bulunur', () => {
-  const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8')
+  const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8').replace(/\r\n/g, '\n')
   for (const needle of [
     'contextIsolation: true', 'sandbox: true', 'nodeIntegration: false', 'webSecurity: true',
     'allowRunningInsecureContent: false', 'spellcheck: false', 'webviewTag: false', 'devTools: IS_DEV',
