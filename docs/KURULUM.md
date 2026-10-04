@@ -235,7 +235,7 @@ Sahip ve yönetici rollerinin yanında sahip Ayarlar > Roller sayfasından en ç
 
 Rütbe sırası sahip, yönetici, Ayarlar > Roller listesindeki sırayla özel roller ve en altta rolsüz üyelerdir. Engelleme, frekanstan atma ve ses odası denetimi yalnızca kendinden alt sıradaki birine uygulanabilir, sahip hiçbir zaman atılamaz. Herkes için susturma hesaba yazılır, kişi odadan çıkıp girse de sunucu yeniden başlasa da sürer. Ses kişiler arasında doğrudan aktığı için susturmayı istemciler uygular: susturulan kişinin uygulaması mikrofonunu kapalı tutar, diğerlerinin uygulaması o kişinin sesini çalmaz. Değiştirilmiş bir istemci kullanan kişi bu kuralı kendi cihazında atlayabilir. Kamerasını kapat düğmesi kişi ses kartında ve profil kartında yalnızca kişinin kamerası açıkken görünür. Kapatma tek seferliktir, kişinin uygulaması kamerayı durdurur ve bunu bildirir, kişi kamerasını yeniden açabilir. Odadan çıkarılan kişi yeniden katılabilir, kalıcı olarak uzaklaştırmak için engelleme kullanılır.
 
-Frekanstan atma (Ayarlar > Üyeler > Frekanstan at) hesabı siler: kişinin bütün oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak, yeni bir hesapla dönebilir. Kişiyi uzak tutmak için engelleme kullanılır. Atılan veya engellenen kişi grup şifreleme anahtarını bilmeye devam eder, yeni mesajları korumak için Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları bölümünden yeni anahtar oluşturun.
+Frekanstan atma (Ayarlar > Üyeler > Frekanstan at) hesabı siler: kişinin bütün oturumları kapanır ve açık uygulaması frekanstan çıkarıldığını söyler, kullanıcı adı serbest kalır, mesajları kalır ve yazarı silinmiş görünür. Kişi ancak davet koduyla yeniden kayıt olarak yeni bir hesapla dönebilir. Kişiyi uzak tutmak için engelleme kullanılır. Atılan veya engellenen kişi grup şifreleme anahtarını bilmeye devam eder, yeni mesajları korumak için Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları bölümünden yeni anahtar oluşturun.
 
 Ses odaları ve kameralar bölümündeki üç ayar her ses odasına ayrı uygulanır ve sunucuda saklanır (`state.json`, `voice` alanı). Ses odası kapasitesi varsayılan olarak 8'dir ve 2 ile 12 kişi arasında seçilir. Düşürülen kapasite yalnızca yeni katılımlara uygulanır, odadaki kimse çıkarılmaz. Kameralar varsayılan olarak açıktır, kapatılınca açık kameralar da kapanır. Oda başına aynı anda açık kamera sayısı varsayılan olarak 4'tür, 1 ile 12 arasında seçilir ve kapasiteden büyük olamaz. Değişiklik kaydedilince açık uygulamalara hemen ulaşır. Ses ve görüntü kişiler arasında doğrudan aktığı için bu sınırlar sunucunun değil üyelerin yükleme hızının korunması içindir: tam örgüde kamerası açık olan herkes görüntüsünü odadaki diğer her kişiye ayrı gönderir.
 
@@ -352,7 +352,7 @@ Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasında
 
 ## Parola sıfırlama ve sorun giderme
 
-**Bir üyenin parolası.** Sahip veya yönetici Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
+**Bir üyenin parolası.** Sahip Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
 
 **Sahibin parolası.** Sunucuyu durdurun ve aynı veri klasörüyle sıfırlama komutunu çalıştırın. Komut geçici bir parola yazar.
 

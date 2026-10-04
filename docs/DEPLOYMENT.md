@@ -352,7 +352,7 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You 
 
 ## Password reset and troubleshooting
 
-**A member's password.** The owner or an admin creates a temporary password in Settings > Members. The person's sessions are closed.
+**A member's password.** The owner creates a temporary password in Settings > Members. The person's sessions are closed.
 
 **The owner's password.** Stop the server and run the reset command with the same data folder. The command prints a temporary password.
 
