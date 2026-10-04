@@ -154,6 +154,56 @@ describe('yüklemeler', () => {
     }
   })
 
+  it('yükleme sürerken oturum kapanırsa (engel, çıkış, oturum kapatma, hesap silme) dosya kaydedilmez', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      // Yükleme yarıdayken act çalışır. Sunucu yanıtı gövde bitmeden verebilir, vermezse gövde tamamlanır.
+      async function interrupted (token, act, status, code) {
+        const up = openUpload(ctx, token, { 'content-length': '2000' })
+        up.req.write(crypto.randomBytes(1000))
+        await h.waitFor(() => ctx.server.stats().activeUploads === 1 && tmpFiles(ctx).length === 1)
+        await act()
+        let res = await Promise.race([up.response, h.sleep(200).then(() => null)])
+        if (res === null) {
+          up.req.end(crypto.randomBytes(1000))
+          res = await up.response
+        }
+        up.req.destroy()
+        h.expectStatus(res, status, code)
+        await h.waitFor(() => ctx.server.stats().activeUploads === 0 && tmpFiles(ctx).length === 0)
+        assert.deepEqual(listUploads(ctx), [])
+        assert.equal(ctx.server.stats().uploadsBytes, 0)
+      }
+
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      await interrupted(ayse.token, async () => {
+        h.expectStatus(await h.post(ctx, '/api/users/ban', owner.token, { userId: ayse.user.id, banned: true }), 200)
+      }, 403, 'banned')
+
+      const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
+      await interrupted(mehmet.token, async () => {
+        h.expectStatus(await h.post(ctx, '/api/logout', mehmet.token), 200)
+      }, 401, 'invalid_token')
+
+      const ali = await h.addUser(ctx, owner.token, 'ali')
+      const second = await h.login(ctx, 'ali')
+      h.expectStatus(second, 200)
+      await interrupted(ali.token, async () => {
+        h.expectStatus(await h.post(ctx, '/api/me/sessions/revoke', second.data.token, { others: true }), 200)
+      }, 401, 'invalid_token')
+
+      await interrupted(second.data.token, async () => {
+        h.expectStatus(await h.post(ctx, '/api/me/delete', second.data.token, { authKey: h.authKeyFor(h.PASSWORD) }), 200)
+      }, 401, 'invalid_token')
+
+      // Oturumu açık kalan kullanıcının yüklemesi etkilenmez
+      await uploadOk(ctx, owner.token, crypto.randomBytes(10))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
   it('eşzamanlı yükleme sınırı aşılınca 503 busy', async () => {
     const ctx = await h.startServer({ maxConcurrentUploads: 1 })
     try {

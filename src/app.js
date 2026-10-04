@@ -119,6 +119,10 @@ const KID_RE = /^[0-9a-f]{16}$/
 const SESSION_HASH_RE = /^[0-9a-f]{64}$/
 const SERVER_SECRET_RE = /^[0-9a-f]{64}$/
 const SESSION_ID_RE = /^[0-9a-f]{16}$/
+// İstemcinin her yeni mesaj için ürettiği, yeniden göndermede aynı kalan kimlik
+const CLIENT_MESSAGE_ID_RE = /^[0-9a-f]{16,64}$/
+// Kullanıcı başına hatırlanan son istemci kimliği sayısı
+const CLIENT_IDS_PER_USER = 50
 const ROLES = new Set(['owner', 'admin', 'member'])
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
@@ -676,6 +680,10 @@ async function createChatServer (options) {
   let inflightBytes = 0
   let activeUploads = 0
   const uploadJobs = new Set()
+  // Kullanıcı kimliği -> (clientMessageId -> mesaj kimliği), en eski önce. Yalnızca bellekte tutulur:
+  // yanıtı kaybolan gönderim saniyeler içinde yinelenir, yeniden başlatmadan sonra kimliklerin
+  // unutulması en kötü durumda eski davranışa (yinelenen mesaja) döner ve her mesajda diske yazmaya değmez.
+  const sentByClientId = new Map()
 
   let setupCode = null
   let setupCodeDisplay = null
@@ -891,7 +899,8 @@ async function createChatServer (options) {
     util.sendJson(res, 403, errorBody(langOf(res.req), 'banned'), closingHeaders())
   }
 
-  // Oturumları diskten ve bellekten siler, bekleyen poll'larına hata yanıtı gider.
+  // Oturumları diskten ve bellekten siler, bekleyen poll'larına hata yanıtı gider. Bu oturumlarla
+  // sürmekte olan yüklemeler kesilir (işleyici geçici dosyayı siler ve 401 veya 403 döner).
   function deleteSessions (list, reason) {
     if (list.length === 0) return
     const doomed = new Set(list)
@@ -900,6 +909,12 @@ async function createChatServer (options) {
     for (const s of list) {
       sessionsByHash.delete(s.hash)
       hub.removeSession(s.hash, reply)
+    }
+    for (const job of uploadJobs) {
+      if (job.finish && doomed.has(job.session)) {
+        job.req.pause()
+        job.finish('signed_out')
+      }
     }
     store.saveState()
   }
@@ -1072,6 +1087,11 @@ async function createChatServer (options) {
   // await sonrası oturum hâlâ geçerli mi
   function stillSignedIn (ctx) {
     return sessionsByHash.get(ctx.session.hash) === ctx.session && !ctx.user.banned && !ctx.user.deleted
+  }
+
+  // Oturum await sırasında kapandıysa kimlik katmanının vereceği yanıt: engelliyse 403, değilse 401
+  function failSignedOut (ctx) {
+    return ctx.user.banned ? fail(ctx, 403, 'banned') : fail(ctx, 401, 'invalid_token')
   }
 
   // Silinmemiş hesap (sunucudan engelli olanlar dahil), yoksa null
@@ -1407,6 +1427,7 @@ async function createChatServer (options) {
     removeUploads(doomed)
     social.removeUser(user.id)
     privateCache.delete(user.id)
+    sentByClientId.delete(user.id)
     store.saveState()
     hub.bumpMeta()
   }
@@ -1739,10 +1760,37 @@ async function createChatServer (options) {
     for (const channel of touched) social.touchDm(channel)
   }
 
+  // Bu kullanıcının bu istemci kimliğiyle bu kanala daha önce gönderdiği ve hâlâ duran mesaj, yoksa null
+  function sentMessageOf (user, clientId, channel) {
+    const sent = sentByClientId.get(user.id)
+    const messageId = sent ? sent.get(clientId) : undefined
+    if (messageId === undefined) return null
+    const message = store.getMessage(messageId)
+    if (!message || message.channelId !== channel.id || message.authorId !== user.id) return null
+    return message
+  }
+
+  function rememberClientId (user, clientId, messageId) {
+    let sent = sentByClientId.get(user.id)
+    if (!sent) {
+      sent = new Map()
+      sentByClientId.set(user.id, sent)
+    }
+    sent.delete(clientId)
+    sent.set(clientId, messageId)
+    if (sent.size > CLIENT_IDS_PER_USER) sent.delete(sent.keys().next().value)
+  }
+
+  // clientMessageId (isteğe bağlı): aynı kimlikle gelen yineleme yeni mesaj açmaz, ilk mesaj aynı
+  // yanıt şekliyle döner. Ekler, hız sınırı ve yazma izni yinelemede yeniden işlenmez.
   function handleMessageSend (ctx) {
     const b = ctx.body
+    const clientId = b.clientMessageId
+    if (clientId !== undefined && (typeof clientId !== 'string' || !CLIENT_MESSAGE_ID_RE.test(clientId))) return fail(ctx, 400, 'bad_request')
     const channel = readableChannel(toId(b.channelId), ctx.user)
     if (!channel) return fail(ctx, 404, 'channel_not_found')
+    const earlier = clientId === undefined ? null : sentMessageOf(ctx.user, clientId, channel)
+    if (earlier) return ok(ctx, { ok: true, message: earlier })
     if (channel.type === 'dm' && !canWriteDm(channel, ctx.user)) return fail(ctx, 403, 'dm_not_allowed')
     if (!validBody(channel, b.body)) return fail(ctx, 400, 'bad_body')
     const records = pickUploads(b.uploads, ctx.user)
@@ -1761,6 +1809,7 @@ async function createChatServer (options) {
     const dropped = store.addMessage(message)
     for (const rec of records) rec.messageId = message.id
     store.saveState()
+    if (clientId !== undefined) rememberClientId(ctx.user, clientId, message.id)
     const saved = store.getMessage(message.id) || message
     emitMessageEvent(channel, { type: 'msg', channelId: channel.id, message: saved })
     // Mesajı gönderen artık bu kanalda yazmıyordur
@@ -1831,7 +1880,7 @@ async function createChatServer (options) {
   // ---------------------------------------------------------------- uç noktalar: yüklemeler
 
   // İstek gövdesini akışla geçici dosyaya yazar.
-  // Sonuç: 'ok' | 'too_large' | 'quota_full' | 'aborted' | 'error'
+  // Sonuç: 'ok' | 'too_large' | 'quota_full' | 'aborted' | 'error' | 'signed_out' (deleteSessions keser)
   function receiveUpload (job, ws) {
     const req = job.req
     return new Promise((resolve) => {
@@ -1916,7 +1965,7 @@ async function createChatServer (options) {
     ctx.drainable = false
 
     const id = crypto.randomBytes(16).toString('hex')
-    const job = { req: ctx.req, bytes: 0, finish: null }
+    const job = { req: ctx.req, session: ctx.session, bytes: 0, finish: null }
     activeUploads++
     uploadJobs.add(job)
     try {
@@ -1927,9 +1976,15 @@ async function createChatServer (options) {
         if (result === 'too_large') return failTooLarge(ctx)
         if (result === 'quota_full') return fail(ctx, 507, 'quota_full')
         if (result === 'error') return fail(ctx, 500, 'server_error')
+        if (result === 'signed_out') return failSignedOut(ctx)
         return
       }
       const size = await store.commitUpload(id)
+      // Gövde okunurken veya dosya kaydedilirken oturum kapanmış ya da hesap engellenmiş, silinmiş olabilir
+      if (!stillSignedIn(ctx)) {
+        await store.removeUpload(id).catch(noop)
+        return failSignedOut(ctx)
+      }
       if (size === 0) {
         await store.removeUpload(id).catch(noop)
         return fail(ctx, 400, 'empty_upload')
@@ -2349,7 +2404,7 @@ async function createChatServer (options) {
       ctx.body = body
       ctx.now = Date.now()
       if (closing) return fail(ctx, 503, 'shutting_down')
-      if (def.auth && !stillSignedIn(ctx)) return ctx.user.banned ? fail(ctx, 403, 'banned') : fail(ctx, 401, 'invalid_token')
+      if (def.auth && !stillSignedIn(ctx)) return failSignedOut(ctx)
     } else {
       if (closing) return fail(ctx, 503, 'shutting_down')
       if (def.auth && !authenticate(ctx)) return
