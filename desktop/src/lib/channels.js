@@ -27,6 +27,10 @@ const CHANNELS = Object.freeze({
   pttVoice: 'telsiz:ptt-voice',
   pttHold: 'telsiz:ptt-hold',
   userActivation: 'telsiz:user-activation',
+  // Başlık şeridi (src/lib/title-bar.js): kaplama bilgisi ve menü etiketleri, tema renkleri, menü açma
+  titleBarInfo: 'telsiz:title-bar-info',
+  titleBarColors: 'telsiz:title-bar-colors',
+  titleBarMenu: 'telsiz:title-bar-menu',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',

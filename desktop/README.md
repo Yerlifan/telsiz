@@ -59,6 +59,17 @@ Sayılar oturuma özeldir: istemci okunmamışları sunucuda değil bu cihazda s
 
 Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici penceresini açar (`src/picker/`). Seçici ekranları ve pencereleri küçük resim ve adlarıyla gösterir. Seçici yalnızca son birkaç saniyede gerçek bir kullanıcı girişi (tıklama veya tuş) olduysa açılır ve yalnızca kullanıcının seçtiği kaynak verilir. Vazgeçilirse istek reddedilir. Eski `chromeMediaSource: 'desktop'` çağrısı seçiciyi atlayamaz. Sistem sesini paylaşma seçeneği yalnızca Windows'ta gösterilir, çünkü Electron belgelerine göre sistem sesi yakalama (`loopback`) şu an yalnızca Windows'ta desteklenir. Web uygulaması sesi `restrictOwnAudio` kısıtıyla ister ve Electron bu durumda uygulamanın kendi sesini yakalamanın dışında tutar: Telsiz'de çalan konuşmalar, bildirim sesleri ve Telsiz DJ paylaşılan sese girmez. Bu ayrımı desteklemeyen eski Windows sürümlerinde bütün sistem sesi yakalanır.
 
+## Başlık çubuğu
+
+Windows ve Linux'ta uygulama penceresi yerel başlık çubuğu ve menü çubuğu olmadan, Electron'un Pencere Denetimleri Kaplamasıyla (`titleBarStyle: 'hidden'` ve `titleBarOverlay`) açılır (`src/lib/title-bar.js`). Küçült, ekranı boyutla ve kapat düğmelerini işletim sistemi sağ üste çizer, düğmelerin zemini ve simge rengi temadan gelir. Sayfanın en üstünde düğmeler kadar yükseklikte (32 piksel) ince bir şerit vardır (`public/js/30-pencere.js`): solda uygulama menüleri (Telsiz, Düzen, Görünüm, Yardım), ortada pencere başlığı.
+
+- Şeridin yüksekliği ve düğmelerin dışında kalan alan CSS ortam değişkenlerinden (`titlebar-area-*`) gelir. Sayfa ve tam ekran katmanlar (Ayarlar, pencereler, yan sayfalar) şeridin altından başlar (`--titlebar-h`). Kök öğedeki `has-titlebar` sınıfını `theme-init.js` ilk çizimden önce ekler, böylece açılışta sayfa kaymaz.
+- Pencere tam ekrandayken kaplama ve şerit kalkar, sayfa en üstten başlar.
+- Şerit pencereyi sürükleme bölgesidir, çift tıklama pencereyi büyütür. Menü düğmeleri sürükleme bölgesi değildir.
+- Sayfa zemin ve metin rengini `#rrggbb` biçiminde bildirir (`titleBar.setColors`), tema değişince yeniden bildirir. Ana süreç başka biçimdeki rengi reddeder ve aynı rengi yeniden uygulamaz. Pencere yeniden açılınca (ör. frekans geçişinde) son renklerle başlar.
+- Menü düğmesine basınca ana süreç uygulama menüsünün o bölümünü düğmenin altında açar (`titleBar.openMenu`). İstek yalnızca var olan bir menü sırası ve pencere içindeki bir konumla kabul edilir. Uygulama menüsü kayıtlı kaldığı için menü kısayolları (ör. Ctrl+Q, Ctrl+0) çalışmaya devam eder. Menü etiketleri yerel menüdeki gibi masaüstü uygulamasının dilindedir.
+- Frekans adresi penceresi ve ekran paylaşımı seçicisi yerel başlık çubuğunu korur. macOS'ta (resmi derleme yoktur) yerel başlık çubuğu korunur.
+
 ## Gereksinimler
 
 - Node.js 22 ve npm
@@ -99,7 +110,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`) |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
@@ -120,6 +131,8 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 - İndirilmiş bir güncelleme veya yeni sürüm bildirimi için sağ altta kapatılabilir bir şerit gösterir.
 - Frekans bandı ve menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir, açık olmayan frekansların durumunu `window.telsizArkaPlan` ile alır.
 
+Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Başlık çubuğu).
+
 `window.telsizDesktop` API'si:
 
 | Üye | Açıklama |
@@ -134,6 +147,9 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `setVoiceActive(bool)` | Sayfa ses odasında bas konuş modundayken `true`, değilken `false` (basılı tut kancası yalnızca `true` iken çalışır) |
 | `onPttHold(cb)` | Basılı tut kancasından `cb('start')` (konuş başla) veya `cb('end')` (konuş bitti), dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
+| `titleBar.getInfo()` | `{ enabled, label, menus }`: kaplama açık mı, şeridin erişilebilir adı, uygulama menüsünün üst düzey etiketleri |
+| `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
+| `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |

@@ -196,6 +196,11 @@ function createTelsizTheme () {
     else if (typeof query.addListener === 'function') query.addListener(handler)
   }
 
+  // Masaüstü uygulamasında (Windows ve Linux) pencere düğmeleri sayfanın üstüne çizilir (Pencere Denetimleri
+  // Kaplaması). Sayfa ilk çizimden önce başlık şeridi kadar aşağıdan başlar, yükseklik CSS ortam değişkeninden
+  // gelir (components.css .has-titlebar), kaplama yoksa veya tam ekranda sıfırdır. Şerit js/30-pencere.js ile çizilir.
+  if (window.telsizDesktop && typeof navigator !== 'undefined' && navigator.windowControlsOverlay && root.classList) root.classList.add('has-titlebar')
+
   watch(darkQuery, () => prefs.scheme === 'system')
   watch(lightQuery, () => prefs.scheme === 'system')
   watch(motionQuery, () => prefs.reduceMotion === 'system')

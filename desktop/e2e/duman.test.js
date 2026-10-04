@@ -11,6 +11,8 @@
 // - şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya verilir
 // - izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı girişsiz ekran yakalama yok
 // - tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur (yayın sahnesinin Tam ekran düğmesi)
+// - başlık şeridi (Windows ve Linux): pencere düğmeleri kaplamada, renkleri temadan gelir, şeritteki menü
+//   düğmeleri uygulama menüsünü açar, tam ekranda şerit kalkar
 // - ekran paylaşımı seçicisi gerçek kullanıcı girişiyle açılır, seçim ve vazgeçme çalışır
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
@@ -408,7 +410,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -661,6 +663,92 @@ test('tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur 
     await sleep(100)
   }
   await page.evaluate(() => document.getElementById('duman-tam-ekran').remove())
+})
+
+test('başlık şeridi: pencere düğmeleri kaplamada, renk temadan gelir, menüler açılır, tam ekranda şerit kalkar', { timeout: 60000 }, async (t) => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') {
+    t.skip('kaplama yalnızca Windows ve Linux için')
+    return
+  }
+  const page = ctx.page
+  const layout = () => page.evaluate(() => {
+    const bar = document.getElementById('titlebar')
+    // Görünen ana görünüm (duman testinde kurulum ekranı açık kalır)
+    const top = ['app-view', 'auth-view', 'boot-view'].map((id) => document.getElementById(id)).find((node) => node && !node.hidden)
+    const o = navigator.windowControlsOverlay
+    return {
+      cls: document.documentElement.classList.contains('has-titlebar'),
+      bar: bar ? Math.round(bar.getBoundingClientRect().height) : null,
+      top: top ? Math.round(top.getBoundingClientRect().top) : null,
+      overlay: Boolean(o && o.visible),
+      menus: bar ? Array.from(bar.querySelectorAll('.titlebar-menu')).map((b) => b.textContent) : [],
+      title: bar ? bar.querySelector('.titlebar-title').textContent : null,
+      docTitle: document.title
+    }
+  })
+  await page.waitForFunction(() => document.querySelector('#titlebar .titlebar-menu'), null, { timeout: TIMEOUT })
+  const normal = await layout()
+  assert.equal(normal.cls, true)
+  assert.equal(normal.overlay, true, 'pencere denetimleri kaplaması görünür')
+  assert.equal(normal.bar, 32, 'şerit kaplama yüksekliğinde')
+  assert.equal(normal.top, 32, 'görünüm şeridin altından başlar')
+  assert.deepEqual(normal.menus, ['Telsiz', 'Düzen', 'Görünüm', 'Yardım'])
+  assert.equal(normal.title, normal.docTitle)
+  const menuState = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).map((w) => w.isMenuBarVisible()))
+  assert.ok(menuState.every((visible) => visible === false), 'yerel menü çubuğu gizli')
+
+  // Renk: sayfanın zemini ve metin rengi ana sürece gider (tanı günlüğü), tema değişince yenilenir
+  const colorsOf = () => page.evaluate(() => {
+    const hex = (v) => '#' + v.match(/\d+/g).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, '0')).join('')
+    const s = getComputedStyle(document.body)
+    return { color: hex(s.backgroundColor), symbolColor: hex(s.color) }
+  })
+  const logged = (colors) => fs.readFileSync(ctx.diagFile, 'utf8').split('\n').some((line) => line.includes('title-bar-colors') && line.includes(colors.color) && line.includes(colors.symbolColor))
+  const before = await page.evaluate(() => window.TelsizTheme.get().scheme)
+  await page.evaluate(() => window.TelsizTheme.set({ scheme: 'dark' }))
+  const dark = await colorsOf()
+  await waitFor(() => logged(dark), 'koyu tema renkleri', TIMEOUT)
+  await page.evaluate(() => window.TelsizTheme.set({ scheme: 'light' }))
+  const light = await colorsOf()
+  assert.notEqual(light.color, dark.color)
+  await waitFor(() => logged(light), 'açık tema renkleri', TIMEOUT)
+  await page.evaluate((scheme) => window.TelsizTheme.set({ scheme }), before)
+
+  // Menü: geçersiz istek reddedilir, geçerli istek menüyü açar ve kapanınca true döner
+  assert.equal(await page.evaluate(() => window.telsizDesktop.titleBar.openMenu(99, 10, 32)), false)
+  assert.equal(await page.evaluate(() => window.telsizDesktop.titleBar.openMenu(0, -5, 32)), false)
+  // Şeritteki düğme menüyü açar (aria-expanded true), menü kapanınca false olur
+  await page.evaluate(() => document.querySelector('#titlebar .titlebar-menu').click())
+  assert.equal(await page.evaluate(() => document.querySelector('#titlebar .titlebar-menu').getAttribute('aria-expanded')), 'true')
+  await sleep(500)
+  await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.closePopup())
+  await page.waitForFunction(() => document.querySelector('#titlebar .titlebar-menu').getAttribute('aria-expanded') === 'false', null, { timeout: TIMEOUT })
+  // API doğrudan: menü kapanınca söz true ile çözülür
+  await page.evaluate(() => {
+    window.__menu = null
+    window.telsizDesktop.titleBar.openMenu(1, 60, 32).then((v) => {
+      window.__menu = v
+    })
+  })
+  await sleep(500)
+  await ctx.app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[1].submenu.closePopup())
+  await page.waitForFunction(() => window.__menu !== null, null, { timeout: TIMEOUT })
+  assert.equal(await page.evaluate(() => window.__menu), true)
+
+  // Tam ekranda kaplama ve şerit kalkar, sayfa en üstten başlar. Çıkınca geri gelir.
+  const setFull = (on) => ctx.app.evaluate(({ BrowserWindow }, value) => {
+    BrowserWindow.getAllWindows().filter((w) => w.isVisible()).forEach((w) => w.setFullScreen(value))
+  }, on)
+  await setFull(true)
+  await waitFor(async () => {
+    const l = await layout()
+    return l.bar === 0 && l.top === 0 && !l.overlay
+  }, 'tam ekranda şerit kalkar', TIMEOUT)
+  await setFull(false)
+  await waitFor(async () => {
+    const l = await layout()
+    return l.bar === 32 && l.top === 32 && l.overlay
+  }, 'tam ekrandan çıkınca şerit gelir', TIMEOUT)
 })
 
 test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme ve seçim çalışır', { timeout: 60000 }, async (t) => {

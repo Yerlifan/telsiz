@@ -88,7 +88,7 @@
 
 .cast-notice {
   position: fixed;
-  top: calc(var(--top-h) + 0.5rem);
+  top: calc(var(--titlebar-h, 0px) + var(--top-h) + 0.5rem);
   right: 1.25rem;
   z-index: 60;
   display: flex;
@@ -716,7 +716,7 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 
 .cast-panel.is-full {
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h, 0px);
   right: 0;
   bottom: 0;
   left: 0;
@@ -825,7 +825,7 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 
 .cast-dialog {
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h, 0px);
   right: 0;
   bottom: 0;
   left: 0;

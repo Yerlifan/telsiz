@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
@@ -113,6 +113,27 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   off()
   fire({}, 'toggleMute')
   assert.deepEqual(got, ['toggleMute', 'toggleDeafen', 'pttToggle'])
+})
+
+test('başlık şeridi API: bilgi süzülür, renkler kısaltılır, menü isteği yalnızca tam sayı ve sonlu konumla gider', async () => {
+  const p = loadPreload('preload.js', ['electron'])
+  const api = p.exposed.telsizDesktop.titleBar
+  assert.deepEqual(Object.keys(api).sort(), ['getInfo', 'openMenu', 'setColors'])
+  api.setColors('#0f1015', '#f2f1f8')
+  api.setColors('#0f1015ffffff', { toString: () => '#ffffff' })
+  const plain = (value) => JSON.parse(JSON.stringify(value))
+  assert.deepEqual(plain(p.sent), [
+    [channels.CHANNELS.titleBarColors, { color: '#0f1015', symbolColor: '#f2f1f8' }],
+    [channels.CHANNELS.titleBarColors, { color: '#0f1015', symbolColor: '' }]
+  ])
+  await api.openMenu(1, 12.5, 32)
+  await api.openMenu('1', NaN, Infinity)
+  assert.deepEqual(plain(await api.getInfo()), { enabled: false, label: '', menus: [] })
+  assert.deepEqual(plain(p.invoked), [
+    [channels.CHANNELS.titleBarMenu, 1, 12.5, 32],
+    [channels.CHANNELS.titleBarMenu, -1, -1, -1],
+    [channels.CHANNELS.titleBarInfo]
+  ])
 })
 
 test('bas konuş API: ayar alanları süzülür, ses odası durumu yalnızca true veya false, kanca olayları yalnızca start ve end', async () => {

@@ -20,6 +20,9 @@ const CHANNELS = {
   pttVoice: 'telsiz:ptt-voice',
   pttHold: 'telsiz:ptt-hold',
   userActivation: 'telsiz:user-activation',
+  titleBarInfo: 'telsiz:title-bar-info',
+  titleBarColors: 'telsiz:title-bar-colors',
+  titleBarMenu: 'telsiz:title-bar-menu',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -118,6 +121,26 @@ function cleanUpdateResult (raw) {
   return out
 }
 
+// Başlık şeridinin bilgisi: kaplama açık mı, şeridin erişilebilir adı ve uygulama menüsünün üst düzey etiketleri
+const TITLE_BAR_MAX_MENUS = 12
+function cleanTitleBarInfo (raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const menus = Array.isArray(r.menus) ? r.menus.slice(0, TITLE_BAR_MAX_MENUS) : []
+  return {
+    enabled: r.enabled === true,
+    label: typeof r.label === 'string' ? r.label.slice(0, 80) : '',
+    menus: menus.map((label) => (typeof label === 'string' ? label.slice(0, 60) : ''))
+  }
+}
+
+function shortText (value, max) {
+  return typeof value === 'string' ? value.slice(0, max) : ''
+}
+
+function finiteNumber (value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : -1
+}
+
 const updateListeners = new Set()
 ipcRenderer.on(CHANNELS.updatesState, (event, raw) => {
   const value = cleanUpdateState(raw)
@@ -177,6 +200,15 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
     }
   },
   setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null),
+  // Başlık şeridi (Windows ve Linux, public/js/30-pencere.js): getInfo() { enabled, label, menus },
+  // setColors('#rrggbb', '#rrggbb') pencere düğmelerinin zemini ve simge rengi, openMenu(sıra, x, y) uygulama
+  // menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar ve menü kapanınca true ile çözülür.
+  // Değerler ana süreçte yeniden doğrulanır.
+  titleBar: {
+    getInfo: () => ipcRenderer.invoke(CHANNELS.titleBarInfo).then(cleanTitleBarInfo),
+    setColors: (color, symbolColor) => ipcRenderer.send(CHANNELS.titleBarColors, { color: shortText(color, 7), symbolColor: shortText(symbolColor, 7) }),
+    openMenu: (index, x, y) => ipcRenderer.invoke(CHANNELS.titleBarMenu, Number.isInteger(index) ? index : -1, finiteNumber(x), finiteNumber(y)).then((value) => value === true)
+  },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)

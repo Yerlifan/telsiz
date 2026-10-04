@@ -59,6 +59,17 @@ The counts belong to the session: the client counts unread messages on this devi
 
 When the web app calls `getDisplayMedia`, the main process opens its own picker window (`src/picker/`). The picker shows screens and windows with thumbnails and names. It only opens if there was real user input (a click or a key press) in the last few seconds, and only the source the user picked is granted. If the user cancels, the request is denied. The old `chromeMediaSource: 'desktop'` call cannot bypass the picker. The option to share system audio is only shown on Windows, because according to the Electron documentation system audio capture (`loopback`) is currently only supported on Windows. The web app requests the audio with the `restrictOwnAudio` constraint, and Electron then leaves the app's own sound out of the capture: the conversation, notification sounds and Telsiz DJ playing in Telsiz do not reach the shared audio. On older Windows versions that cannot separate it, all system audio is captured.
 
+## Title bar
+
+On Windows and Linux the app window opens without the native title bar and menu bar, with Electron's Window Controls Overlay (`titleBarStyle: 'hidden'` and `titleBarOverlay`) (`src/lib/title-bar.js`). The operating system draws the minimize, maximize and close buttons in the top right corner, and their background and symbol color come from the theme. At the top of the page there is a thin strip as tall as the buttons (32 pixels) (`public/js/30-pencere.js`): the app menus (Telsiz, Edit, View, Help) on the left and the window title in the middle.
+
+- The height of the strip and the area outside the buttons come from CSS environment variables (`titlebar-area-*`). The page and full screen layers (Settings, dialogs, side sheets) start below the strip (`--titlebar-h`). `theme-init.js` adds the `has-titlebar` class to the root element before the first paint, so the page does not shift on startup.
+- While the window is in full screen, the overlay and the strip go away and the page starts at the very top.
+- The strip is the drag area of the window, and a double click maximizes it. The menu buttons are not part of the drag area.
+- The page reports its background and text color as `#rrggbb` (`titleBar.setColors`) and reports them again when the theme changes. The main process rejects colors in any other format and does not apply the same colors twice. When the window opens again (for example on a frequency switch), it starts with the last colors.
+- Pressing a menu button makes the main process open that part of the app menu below the button (`titleBar.openMenu`). The request is only accepted with an existing menu index and a position inside the window. Because the app menu stays registered, menu shortcuts (for example Ctrl+Q, Ctrl+0) keep working. Like the native menu, the menu labels are in the desktop app's language.
+- The frequency address window and the screen sharing picker keep the native title bar. On macOS (there is no official build) the native title bar is kept.
+
 ## Requirements
 
 - Node.js 22 and npm
@@ -99,7 +110,7 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`) |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
@@ -120,6 +131,8 @@ The texts of the desktop menu, tray, server address screen and picker are in `sr
 - Shows a dismissible strip in the bottom right corner for a downloaded update or a new version notice.
 - The frequency band and menu (`public/js/24-frekans.js`) manage the list on the desktop with the frequency calls below instead of the browser's local storage, and get the status of frequencies that are not open from `window.telsizArkaPlan`.
 
+A separate module, `public/js/30-pencere.js`, draws the title strip (see Title bar).
+
 The `window.telsizDesktop` API:
 
 | Member | Description |
@@ -134,6 +147,9 @@ The `window.telsizDesktop` API:
 | `setVoiceActive(bool)` | `true` while the page is in a voice room in push to talk mode, `false` otherwise (the hold to talk hook only runs while it is `true`) |
 | `onPttHold(cb)` | `cb('start')` (start talking) or `cb('end')` (stop talking) from the hold to talk hook, the returned function unsubscribes |
 | `setCloseToTray(bool)` | Minimize to the tray when the window is closed |
+| `titleBar.getInfo()` | `{ enabled, label, menus }`: whether the overlay is on, the accessible name of the strip, the top level labels of the app menu |
+| `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
+| `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
 | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
 | `addFrequency()` | Opens the frequency address window in add mode |

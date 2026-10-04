@@ -127,6 +127,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
 | `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), joining and leaving voice rooms |
 | `29-mikrofon.js` | The context menu of the Microphone button (right click, Shift+F10 or the Menu key): choosing between Push to talk and Voice activity |
+| `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 

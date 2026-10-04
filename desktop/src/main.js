@@ -67,6 +67,7 @@ const updates = require('./lib/updates')
 const background = require('./lib/background')
 const serverIcon = require('./lib/server-icon')
 const pttHook = require('./lib/ptt-hook')
+const titleBar = require('./lib/title-bar')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
 
@@ -150,7 +151,10 @@ const state = {
   updateStatus: null,
   // Zamanlanmış güncelleme denetimi (gözetimsiz çalıştırmada ve otomasyonda kapalı)
   scheduleUpdates: false,
-  lastBackgroundOpen: 0
+  lastBackgroundOpen: 0,
+  // Başlık çubuğu (src/lib/title-bar.js): uygulama penceresi kaplamayla mı açıldı, sayfanın son bildirdiği renkler
+  titleBarOverlay: false,
+  titleBarColors: null
 }
 
 function t (key, params) {
@@ -537,7 +541,10 @@ function openMainWindow () {
   }
   const partition = partitionFor(origin)
   prepareAppSession(session.fromPartition(partition), origin)
-  const win = new BrowserWindow({
+  // Windows ve Linux'ta yerel başlık çubuğu yerine tema renginde Pencere Denetimleri Kaplaması
+  // (src/lib/title-bar.js). Pencere yeniden açılınca sayfanın son bildirdiği renklerle başlar.
+  const overlay = titleBar.supported(process.platform)
+  const win = new BrowserWindow(Object.assign({
     width: 1280,
     height: 820,
     minWidth: 380,
@@ -549,7 +556,8 @@ function openMainWindow () {
     webPreferences: webPreferences(path.join(__dirname, 'preload.js'), partition, {
       additionalArguments: [VERSION_ARG + app.getVersion()]
     })
-  })
+  }, titleBar.windowOptions(process.platform, state.titleBarColors)))
+  state.titleBarOverlay = overlay
   const id = win.webContents.id
   state.contexts.set(id, 'app')
   diag.log('window', { context: 'app', contents: id })
@@ -962,6 +970,55 @@ function showAbout () {
   shown.catch(noop)
 }
 
+// ------------------------------------------------------------------ Başlık çubuğu
+
+// Sayfanın şeridi için: kaplama açık mı, uygulama menüsünün üst düzey etiketleri ve şeridin erişilebilir adı
+function titleBarInfo () {
+  const enabled = state.titleBarOverlay && isAlive(state.mainWindow)
+  return {
+    enabled,
+    label: t('titleBar.menus'),
+    menus: enabled ? titleBar.menuLabels(Menu.getApplicationMenu()) : []
+  }
+}
+
+// Sayfa tema rengini bildirir (zemin ve simge rengi). Aynı renkler yeniden uygulanmaz.
+function applyTitleBarColors (value) {
+  const colors = titleBar.cleanColors(value)
+  const win = state.mainWindow
+  if (!colors || !state.titleBarOverlay || !isAlive(win)) return false
+  if (titleBar.sameColors(colors, state.titleBarColors)) return true
+  state.titleBarColors = colors
+  try {
+    win.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor, height: titleBar.OVERLAY_HEIGHT })
+  } catch (err) {
+    logError('titleBar', err)
+    return false
+  }
+  diag.log('title-bar-colors', colors)
+  return true
+}
+
+// Şeritteki menü düğmesi: uygulama menüsünün o bölümü düğmenin altında açılır. Konum sayfanın CSS
+// pikselidir, yakınlaştırma katsayısıyla pencere koordinatına çevrilir. Menü kapanınca söz true ile çözülür.
+function popupTitleBarMenu (index, x, y) {
+  const win = state.mainWindow
+  const menu = Menu.getApplicationMenu()
+  if (!state.titleBarOverlay || !isAlive(win) || !menu) return Promise.resolve(false)
+  const request = titleBar.cleanMenuRequest(index, x, y, menu.items.length)
+  const item = request ? menu.items[request.index] : null
+  if (!item || !item.submenu) return Promise.resolve(false)
+  const zoom = win.webContents.getZoomFactor()
+  return new Promise((resolve) => {
+    item.submenu.popup({
+      window: win,
+      x: Math.round(request.x * zoom),
+      y: Math.round(request.y * zoom),
+      callback: () => resolve(true)
+    })
+  })
+}
+
 function buildMenu () {
   const view = [
     { label: t('menu.reload'), role: 'reload' },
@@ -1259,6 +1316,18 @@ function registerIpc () {
   ipcMain.handle(CHANNELS.updatesOpenRelease, (event) => {
     requireSender(event, 'app')
     return openReleasePage()
+  })
+  // Başlık şeridi (src/lib/title-bar.js): bilgi, tema renkleri ve menü açma
+  ipcMain.handle(CHANNELS.titleBarInfo, (event) => {
+    requireSender(event, 'app')
+    return titleBarInfo()
+  })
+  ipcMain.on(CHANNELS.titleBarColors, (event, value) => {
+    if (senderIs(event, 'app')) applyTitleBarColors(value)
+  })
+  ipcMain.handle(CHANNELS.titleBarMenu, (event, index, x, y) => {
+    requireSender(event, 'app')
+    return popupTitleBarMenu(index, x, y)
   })
   ipcMain.on(CHANNELS.userActivation, (event) => {
     if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
