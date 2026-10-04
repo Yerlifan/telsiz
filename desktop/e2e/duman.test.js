@@ -22,11 +22,12 @@
 // adımlarını bir dosyaya yazar ve açılışı durduran hatayı engelleyici kutu yerine günlükle bildirir.
 // Bir test düşerse duman-sonuclar/ altına şunlar yazılır: ana süreç günlüğü (ana-surec.log),
 // uygulamanın stdout ve stderr çıktısı (uygulama-cikisi.log), başlatma hatası ve Playwright çağrı
-// günlüğü (baslatma-hatasi.txt) ve açık pencerelerin ekran görüntüleri. Başlatma uzarsa Windows'ta
-// zaman aşımından önce uygulama süreçlerinin pencere başlıkları ve yanıt durumu ile masaüstü
-// görüntüsü alınır (baslatma-durumu.txt, baslatma-ekrani.png). DEBUG=pw:protocol ve DEBUG_FILE
-// verilirse Playwright protokol günlüğünü o dosyaya yazar (iş akışı bunu duman-sonuclar/ altına
-// yönlendirir).
+// günlüğü (baslatma-hatasi.txt) ve açık pencerelerin ekran görüntüleri. DEBUG=pw:protocol ve
+// DEBUG_FILE verilirse Playwright protokol günlüğünü o dosyaya yazar (iş akışı bunu duman-sonuclar/
+// altına yönlendirir). Başlatma uzarsa zaman aşımından önce yanıtı gelmemiş Playwright istekleri,
+// protokol günlüğünün son satırları, tarayıcının ve Node.js denetleyicisinin hedef listeleri ve
+// Windows'ta süreç ve pencere durumu ile masaüstü görüntüsü alınır, iş günlüğüne de yazılır
+// (baslatma-durumu.txt, baslatma-ekrani.png).
 
 const { test: nodeTest, before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -103,6 +104,108 @@ function windowsSnapshot (imageFile) {
   })
 }
 
+// Playwright protokol günlüğünden (DEBUG_FILE) yanıtı gelmemiş istekler. Node.js denetleyicisi ve
+// Chromium bağlantısı kimlikleri ayrı ayrı 1'den sayar: oturumsuz Runtime.* istekleri ana sürecin
+// Node.js denetleyicisine, diğer oturumsuz istekler tarayıcı köküne gider. Oturumsuz bir yanıt aynı
+// kimlikli en eski bekleyen isteğe eşlenir (her iki bağlantıda aynı kimlik aynı anda nadiren bekler).
+function pendingRequests (text) {
+  const pending = []
+  for (const line of text.split(/\r?\n/)) {
+    const send = /pw:protocol SEND \S+ \{"id":(\d+),"method":"([^"]+)"/.exec(line)
+    const session = /"sessionId":"([0-9A-Fa-f]+)"/.exec(line)
+    if (send) {
+      const target = session ? 'oturum ' + session[1].slice(0, 8) : (send[2].startsWith('Runtime.') ? 'node' : 'tarayici')
+      pending.push({ id: send[1], method: send[2], target, session: session ? session[1] : null, time: line.slice(0, 24) })
+      continue
+    }
+    const recv = /pw:protocol \S+ RECV \{"id":(\d+),/.exec(line)
+    if (!recv) continue
+    const index = pending.findIndex((p) => p.id === recv[1] && p.session === (session ? session[1] : null))
+    if (index !== -1) pending.splice(index, 1)
+  }
+  return pending
+}
+
+// Bağlanılan sayfa hedefleri ve her birinde ilk gezinmenin (Page.frameNavigated) görülüp
+// görülmediği. Playwright başlatmayı bitirmek için her sayfada ilk gerçek gezinmenin işlenmesini
+// bekler (FrameSession._initialize), bekleyen istek yokken takılma bu olayın gelmemesidir.
+function attachedPages (text) {
+  const pages = new Map()
+  for (const line of text.split(/\r?\n/)) {
+    const attached = /"method":"Target\.attachedToTarget","params":\{"sessionId":"([0-9A-Fa-f]+)","targetInfo":\{"targetId":"[0-9A-Fa-f]+","type":"([a-z_]+)","title":"[^"]*","url":"([^"]*)"/.exec(line)
+    if (attached) {
+      pages.set(attached[1], { session: attached[1].slice(0, 8), type: attached[2], url: attached[3], frameTreeUrl: null, navigated: [] })
+      continue
+    }
+    const session = /"sessionId":"([0-9A-Fa-f]+)"/.exec(line)
+    const page = session ? pages.get(session[1]) : null
+    if (!page) continue
+    const tree = /RECV \{"id":\d+,"result":\{"frameTree":\{"frame":\{"id":"[0-9A-Fa-f]+","loaderId":"[0-9A-Fa-f]+","url":"([^"]*)"/.exec(line)
+    if (tree && page.frameTreeUrl === null) page.frameTreeUrl = tree[1]
+    const nav = /"method":"Page\.frameNavigated","params":\{"frame":\{"id":"[0-9A-Fa-f]+",(?:"parentId":"[0-9A-Fa-f]+",)?"loaderId":"[0-9A-Fa-f]+","url":"([^"]*)"/.exec(line)
+    if (nav) page.navigated.push(nav[1])
+  }
+  return Array.from(pages.values())
+}
+
+function devtoolsPorts (text) {
+  const node = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(text)
+  const browser = /DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(text)
+  return { node: node ? Number(node[1]) : null, browser: browser ? Number(browser[1]) : null }
+}
+
+function getJson (port, urlPath) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: urlPath, agent: false, timeout: 5000 }, (res) => {
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8').slice(0, 20000)))
+    })
+    req.on('timeout', () => req.destroy(new Error('timeout')))
+    req.on('error', (err) => resolve('hata: ' + err.message))
+  })
+}
+
+// Protokol günlüğünün özeti: bekleyen istekler ve son satırlar (her satır kısaltılır)
+function protocolSummary (lineCount) {
+  const file = process.env.DEBUG_FILE ? path.resolve(process.env.DEBUG_FILE) : null
+  if (!file || !fs.existsSync(file)) return { text: 'Playwright protokol günlüğü yok (DEBUG=pw:protocol ve DEBUG_FILE verilmedi)', log: '' }
+  const log = fs.readFileSync(file, 'utf8')
+  const pending = pendingRequests(log)
+  const pages = attachedPages(log)
+  const lines = log.split(/\r?\n/).filter(Boolean).slice(-lineCount).map((l) => l.length > 400 ? l.slice(0, 400) + ' ...' : l)
+  return {
+    log,
+    text: [
+      'Yanıtı gelmemiş Playwright istekleri (' + pending.length + '):',
+      ...pending.map((p) => '  ' + p.time + ' ' + p.target + ' #' + p.id + ' ' + p.method),
+      'Bağlanılan hedefler (' + pages.length + '):',
+      ...pages.map((p) => '  oturum ' + p.session + ' ' + p.type + ' ' + JSON.stringify(p.url) + ', getFrameTree adresi ' + JSON.stringify(p.frameTreeUrl) + ', Page.frameNavigated: ' + (p.navigated.length > 0 ? JSON.stringify(p.navigated) : 'yok')),
+      'Protokol günlüğünün son ' + lines.length + ' satırı:',
+      ...lines.map((l) => '  ' + l)
+    ].join('\n')
+  }
+}
+
+// Başlatma uzadığında (zaman aşımından önce) uygulamanın durumu: bekleyen protokol istekleri,
+// tarayıcının ve Node.js denetleyicisinin kendi HTTP uç noktalarından hedef listesi, Windows'ta
+// süreç ve pencere durumu. Sonuç iş günlüğüne de yazılır (artifact indirilemeyen ortamlar için).
+async function launchProbe () {
+  const parts = []
+  const summary = protocolSummary(150)
+  parts.push(summary.text)
+  const ports = devtoolsPorts(summary.log)
+  if (ports.browser) {
+    parts.push('Tarayıcı /json/version: ' + await getJson(ports.browser, '/json/version'))
+    parts.push('Tarayıcı /json/list: ' + await getJson(ports.browser, '/json/list'))
+  }
+  if (ports.node) parts.push('Node.js denetleyicisi /json/list: ' + await getJson(ports.node, '/json/list'))
+  if (process.platform === 'win32') parts.push(await windowsSnapshot(path.join(RESULTS_DIR, 'baslatma-ekrani.png')))
+  const text = parts.join('\n\n')
+  process.stderr.write('\n===== duman testi: başlatma durumu =====\n' + text + '\n===== son =====\n')
+  return text
+}
+
 // Başarısızlıkta teşhis dosyalarını duman-sonuclar/ altına yazar
 async function writeResults () {
   fs.mkdirSync(RESULTS_DIR, { recursive: true })
@@ -114,6 +217,8 @@ async function writeResults () {
     }
   }
   if (ctx.launchError) write('baslatma-hatasi.txt', String(ctx.launchError.stack || ctx.launchError.message || ctx.launchError) + '\n')
+  // Başlatma, durum kaydı alınmadan düştüyse protokol özeti iş günlüğüne yazılır
+  if (ctx.launchError && !ctx.snapshot) process.stderr.write('\n===== duman testi: protokol özeti =====\n' + protocolSummary(80).text + '\n===== son =====\n')
   if (ctx.snapshot) write('baslatma-durumu.txt', ctx.snapshot + '\n')
   if (ctx.output.length > 0) write('uygulama-cikisi.log', ctx.output.join(''))
   if (ctx.diagFile && fs.existsSync(ctx.diagFile)) {
@@ -228,14 +333,14 @@ before(async () => {
   fs.mkdirSync(userData, { recursive: true })
   ctx.diagFile = path.join(ctx.root, 'ana-surec.log')
   let snapshotRun = null
-  const snapshotTimer = process.platform === 'win32'
-    ? setTimeout(() => {
-      fs.mkdirSync(RESULTS_DIR, { recursive: true })
-      snapshotRun = windowsSnapshot(path.join(RESULTS_DIR, 'baslatma-ekrani.png')).then((text) => {
-        ctx.snapshot = text
-      })
-    }, LAUNCH_SNAPSHOT_MS)
-    : null
+  const snapshotTimer = setTimeout(() => {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true })
+    snapshotRun = launchProbe().then((text) => {
+      ctx.snapshot = text
+    }, (err) => {
+      ctx.snapshot = 'durum alınamadı: ' + err.message
+    })
+  }, LAUNCH_SNAPSHOT_MS)
   try {
     ctx.app = await electron.launch(launchOptions(userData, ctx.diagFile))
   } catch (err) {
@@ -243,7 +348,7 @@ before(async () => {
     ctx.launchError = err
     throw err
   } finally {
-    if (snapshotTimer) clearTimeout(snapshotTimer)
+    clearTimeout(snapshotTimer)
     // Zaman aşımından önce başlamış durum kaydının bitmesi beklenir (hiçbir zaman reddedilmez)
     if (snapshotRun) await snapshotRun
   }
