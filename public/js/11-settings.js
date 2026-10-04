@@ -57,7 +57,9 @@ const MUSIC_SETTINGS_READY = true
 const BIND_ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
 const SKIN_CHOICES = ['arcade', 'gece', 'turkuaz']
 const SCHEME_CHOICES = ['dark', 'light', 'system']
-const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv']
+const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+// Elle ayarlanan yazı boyutunun sınırları (theme-init.js ile aynı) ve varsayılanı, piksel
+const FONT_PX_RANGE = { min: 12, max: 28, initial: 15 }
 const MOTION_CHOICES = ['system', 'on', 'off']
 const AVATAR_SOURCE_MAX = 20 * 1024 * 1024
 const AVATAR_PENDING_MS = 20000
@@ -2955,7 +2957,7 @@ function playMessageSound (opts) {
 
 function themeState () {
   const theme = window.TelsizTheme
-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', compact: false, reduceMotion: 'system' }
+  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system' }
   return theme.get()
 }
 
@@ -3020,6 +3022,22 @@ function buildAppearancePage (page) {
     setTheme({ fontSize: value })
   }, 'is-chips')
   sizeSec.appendChild(sizes.group)
+  // Elle ayar: kaydırıcı Özel boyutu belirler, oynatınca Özel seçilir
+  const pxOf = (state) => (typeof state.fontPx === 'number' ? state.fontPx : FONT_PX_RANGE.initial)
+  const pxValue = rangeLabel(sizeSec, 'set-font-px', t('theme.fontPx'))
+  const pxRange = sRange('set-font-px', FONT_PX_RANGE.min, FONT_PX_RANGE.max, 1, pxOf(current))
+  const showPx = (px) => {
+    const text = t('theme.fontPxValue', { px: px })
+    pxValue.textContent = text
+    pxRange.setAttribute('aria-valuetext', text)
+  }
+  pxRange.addEventListener('input', () => {
+    const px = sliderValue(pxRange, FONT_PX_RANGE.min, FONT_PX_RANGE.max)
+    showPx(px)
+    setTheme({ fontSize: 'custom', fontPx: px })
+  })
+  sizeSec.appendChild(pxRange)
+  showPx(pxOf(current))
 
   const compactSec = sSection(page, t('settings.appearance.messagesTitle'), 'set-compact-section')
   const compact = sSwitch('set-compact', t('theme.compact'), current.compact, (checked) => {
@@ -3062,6 +3080,10 @@ function buildAppearancePage (page) {
     })
     setRadioValue(schemes.inputs, now.scheme)
     setRadioValue(sizes.inputs, now.fontSize)
+    if (document.activeElement !== pxRange) {
+      pxRange.value = String(pxOf(now))
+      showPx(pxOf(now))
+    }
     compact.input.checked = Boolean(now.compact)
     setRadioValue(motions.inputs, now.reduceMotion)
     if (lang.value !== window.I18N.lang) lang.value = window.I18N.lang

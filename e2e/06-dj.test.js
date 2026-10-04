@@ -118,23 +118,23 @@ after(async () => {
   if (W.w) await W.w.close()
 })
 
-test('ses odasında kadronun sonunda Telsiz DJ öğesi, boş DJ sütun açmaz ve yan sayfada açılır', async () => {
+test('ses odasında kadronun altında Telsiz DJ düğmesi, boş DJ sütun açmaz ve yan sayfada açılır', async () => {
   for (const page of [W.A, W.B]) await h.joinVoice(page, W.lobi.id)
   for (const page of [W.A, W.B]) {
-    await page.waitForFunction(() => document.querySelector('#radio-crew .crew-dj'), null, { timeout: h.LONG })
-    await page.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item').length === 3, null, { timeout: h.LONG })
+    await page.waitForFunction(() => document.querySelector('#radio-tools .crew-dj'), null, { timeout: h.LONG })
+    await page.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item').length === 2, null, { timeout: h.LONG })
   }
   const r = await W.A.evaluate(() => ({
     hidden: document.getElementById('dj').hidden,
     col: document.getElementById('app-view').getAttribute('data-dj-col'),
-    crew: document.querySelector('#radio-crew .crew-dj .crew-name').textContent,
-    last: document.getElementById('radio-crew').lastElementChild.classList.contains('crew-dj'),
+    crew: document.querySelector('#radio-tools .crew-dj .dj-crew-name').textContent,
+    last: document.getElementById('radio-tools').lastElementChild.classList.contains('crew-dj'),
     infoInline: isInfoInline(),
     infoCol: document.getElementById('info-col').getBoundingClientRect().width > 0
   }))
   // Boş DJ ayrı sütun açmaz, sol bilgi sütunu yerinde kalır
   assert.deepEqual(r, { hidden: true, col: 'off', crew: 'Telsiz DJ', last: true, infoInline: true, infoCol: true })
-  await W.A.click('#radio-crew .crew-dj button')
+  await W.A.click('#radio-tools .crew-dj button')
   await W.A.waitForFunction(() => {
     const d = document.getElementById('dj')
     return !d.hidden && d.classList.contains('is-open') && d.getAttribute('role') === 'dialog'
@@ -173,7 +173,7 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
     assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false })
   }
   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
-  // Parça gelince kart sağ sütunun üstüne yerleşir, İstasyonlar listesi altında görünür kalır, sol sütun
+  // Parça gelince kart sağ sütunda İstasyonlar listesinin altına yerleşir, liste görünür kalır, sol sütun
   // (telsiz kartı) yerinde kalır
   const col = await A.evaluate(() => {
     const djBox = document.getElementById('dj').getBoundingClientRect()
@@ -185,7 +185,8 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
       infoCol: document.getElementById('info-col').getBoundingClientRect().width > 0,
       dj: djBox.width > 0,
       inbox: inbox.width > 0 && inbox.height >= 12 * parseFloat(getComputedStyle(document.documentElement).fontSize) - 1,
-      stacked: djBox.bottom <= inbox.top && Math.abs(djBox.left - inbox.left) < 2,
+      // İstasyonlar listesi sağ sütunun üstünde, DJ kartı altında
+      stacked: inbox.bottom <= djBox.top && Math.abs(djBox.left - inbox.left) < 2,
       rows: document.querySelectorAll('#inbox-list .room-row').length > 0,
       roomsButton: document.getElementById('btn-rooms').getClientRects().length > 0
     }
@@ -402,7 +403,7 @@ test('telefon 390: DJ alt sayfası tam genişlik, yatay taşma yok', async () =>
   const { B } = W
   await B.setViewportSize({ width: 390, height: 844 })
   await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-sheet-mode'))
-  await B.click('#radio-crew .crew-dj button')
+  await B.click('#radio-tools .crew-dj button')
   await B.waitForFunction(() => {
     const d = document.getElementById('dj')
     if (d.hidden) return false

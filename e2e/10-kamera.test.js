@@ -147,6 +147,20 @@ test('Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar', asy
   }))
   assert.deepEqual(r, { title: 'Kameralar', tiles: 1, name: 'Mert', body: 'live', expanded: 'true' })
   assert.ok(await h.overflowX(deniz) <= 0)
+  // Kamera ızgarasında sağ sütun (İstasyonlar) yerinde kalır, sohbet açıktır, Sığdır ve Doldur seçilebilir
+  const fitOf = () => deniz.evaluate(() => getComputedStyle(document.querySelector('#cast .cam-tile video.cam-video')).objectFit)
+  const layout = await deniz.evaluate(() => ({
+    right: document.getElementById('side-right').getClientRects().length > 0,
+    chat: document.body.getAttribute('data-cast-chat'),
+    fit: document.querySelector('#cast .cast-fit').getClientRects().length > 0
+  }))
+  assert.deepEqual(layout, { right: true, chat: 'open', fit: true })
+  assert.equal(await fitOf(), 'cover')
+  await deniz.click('#cast .cast-fit .cast-fit-button:first-child')
+  assert.equal(await fitOf(), 'contain')
+  assert.deepEqual(await deniz.evaluate(() => [localStorage.getItem('telsiz.camFit'), localStorage.getItem('telsiz.castFit')]), ['contain', null])
+  await deniz.click('#cast .cast-fit .cast-fit-button:last-child')
+  assert.equal(await fitOf(), 'cover')
   await deniz.click('#cast .cast-cams-close')
   await deniz.waitForSelector('#cast', { state: 'hidden' })
 })
@@ -249,8 +263,8 @@ test('kamera açıkken ekran paylaşımı ayrı izlenir, sonradan katılan kişi
   await mert.click('#btn-screen')
   await mert.waitForSelector('#cast-dialog:not([hidden]) .cast-dialog-panel')
   await mert.click('#cast-dialog .cast-primary')
-  await deniz.waitForSelector('.cast-notice-watch', { timeout: h.LONG })
-  await deniz.click('.cast-notice-watch')
+  await deniz.waitForSelector('#activity .activity-watch', { timeout: h.LONG })
+  await deniz.click('#activity .activity-watch')
   await deniz.waitForSelector('#cast[data-mode="watch"]:not([hidden])')
   await deniz.waitForFunction(() => {
     const v = document.querySelector('#cast .cast-video')

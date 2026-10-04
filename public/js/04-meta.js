@@ -1,8 +1,8 @@
 'use strict'
 
-// Uygulama ekranı, meta uygulama, üst çubuktaki sunucu kimliği ve Yayındakiler şeridi, frekans bandının
+// Uygulama ekranı, meta uygulama, üst çubuktaki sunucu kimliği ve Çevrimiçi şeridi, frekans bandının
 // çizimi (katılınan frekanslar, istasyonları 24-frekans.js üretir), İstasyonlar listesi ve sayfası (yazı ve
-// ses odaları), oda bilgisi kartı, Yayındakiler sayfasındaki üye listesi, konuşma başlığı, okunmamış ve anma
+// ses odaları), oda bilgisi kartı, Çevrimiçi sayfasındaki üye listesi, konuşma başlığı, okunmamış ve anma
 // sayaçları ve oda seçimi (Ek K, Frekans düzeni). Bandın etkileşimi (tıklama, ibre sürükleme, klavye,
 // tekerlek, kol) 21-band.js içindedir.
 
@@ -144,6 +144,8 @@ function applyMeta (meta, isInitial) {
       window.console.error(err)
     }
   }
+  // Ses odasına katılma ve ayrılma bildirimleri (28-bildirim.js)
+  if (typeof activityOnMeta === 'function') activityOnMeta(meta)
   if (isInitial || !state.inApp) return
   renderServerName()
   renderBand()
@@ -378,6 +380,8 @@ function bandModel () {
       live: voiceSpeakingIn(c.id),
       dj: djOn,
       people: roster.map((entry) => entry.userId),
+      // İstasyonlar listesinde odanın altında gösterilen kişiler ve durumları
+      members: roster.map((entry) => ({ id: entry.userId, muted: entry.muted === true, deafened: entry.deafened === true, camera: entry.camera === true })),
       label: label
     }
   })
@@ -401,7 +405,44 @@ function stationKeyOf (st) {
   return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, (st.people || []).map((id) => {
     const info = avatarInfoFor(id)
     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
-  }).join(','), st.label].join(':')
+  }).join(','), (st.members || []).map((m) => [m.id, shownName(m.id), memberVoiceIcon(m), m.camera ? 1 : 0].join('.')).join(','), st.label].join(':')
+}
+
+// Ses odasındaki kişinin durum simgesi: sağırlaştırılmış, herkes için susturulmuş, mikrofonu kapalı veya yok
+function memberVoiceIcon (m) {
+  if (m.deafened) return 'deafened'
+  const rec = typeof metaRecordOf === 'function' ? metaRecordOf(m.id) : null
+  if (rec && rec.voiceMuted === true) return 'server-muted'
+  return m.muted ? 'muted' : ''
+}
+
+const MEMBER_VOICE_ICONS = {
+  deafened: ['i-headphones-off', 'voice.deafenedTitle'],
+  'server-muted': ['i-mic-off', 'voice.serverMutedTitle'],
+  muted: ['i-mic-off', 'voice.mutedTitle']
+}
+
+// Ses odası satırının altındaki kişi listesi: avatar, ad, susturma ve kamera simgesi. Konuşan kişi (yalnızca
+// bağlı olunan odada bilinir) updateBandLive ile işaretlenir.
+function buildRoomPeople (st) {
+  const ul = h('ul', 'room-people')
+  ul.setAttribute('aria-label', t('band.voiceMembersLabel', { name: st.name }))
+  st.members.forEach((m) => {
+    const voiceState = memberVoiceIcon(m)
+    const li = h('li', 'room-person' + (voiceState ? ' is-' + voiceState : ''))
+    li.setAttribute('data-user-id', String(m.id))
+    li.appendChild(avatar(m.id, 'xs', 'room-person-avatar'))
+    li.appendChild(h('span', 'room-person-name', shownName(m.id)))
+    const marks = []
+    if (voiceState) marks.push(MEMBER_VOICE_ICONS[voiceState])
+    if (m.camera) marks.push(['i-camera', 'radio.stateCamera'])
+    marks.forEach((mark) => {
+      li.appendChild(icon(mark[0], 'room-person-state'))
+      li.appendChild(h('span', 'sr-only', t(mark[1])))
+    })
+    ul.appendChild(li)
+  })
+  return ul
 }
 
 function buildStationMark (st) {
@@ -509,10 +550,15 @@ function renderChannels () {
 // ses odası satırları
 function updateBandLive () {
   const lists = [el.inboxList, el.stationsList]
+  const s = typeof snap === 'function' ? snap() : null
+  const speaking = typeof speakingIn === 'function' && s ? (id) => Boolean(speakingIn(s, id)) : () => false
   lists.forEach((list) => {
     if (!list) return
     Array.from(list.querySelectorAll('.room-row-voice')).forEach((b) => {
       b.classList.toggle('is-live', voiceSpeakingIn(b.getAttribute('data-channel-id')))
+    })
+    Array.from(list.querySelectorAll('.room-person')).forEach((p) => {
+      p.classList.toggle('is-speaking', speaking(p.getAttribute('data-user-id')))
     })
   })
 }
@@ -565,6 +611,7 @@ function buildRoomRow (st, prefix) {
   const mark = buildStationMark(st)
   if (mark) b.appendChild(mark)
   li.appendChild(b)
+  if (st.type === 'voice' && st.members && st.members.length) li.appendChild(buildRoomPeople(st))
   return li
 }
 
@@ -684,10 +731,10 @@ function restoreFocusKey (container, key) {
   if (found) focusNode(found)
 }
 
-// Yayındakiler sayfası (#people-sheet, KONSEPT 6.7): ses odalarındakiler oda oda ("<oda> odasında · n", konuşuyor,
+// Çevrimiçi sayfası (#people-sheet, KONSEPT 6.7): ses odalarındakiler oda oda ("<oda> odasında · n", konuşuyor,
 // mikrofonu kapalı, bas konuş modu), sonra çevrimiçi ve çevrimdışı kişiler. Satırda yumuşak kare avatar ve durum
 // noktası, ad, alt satırda durum ve özel durum metni, sağda rol etiketi ve susturma işareti. Satıra basmak profil
-// kartını açar (13-profile.js). Üst çubuktaki Yayındakiler şeridi de burada çizilir. Konuşan kişinin halesi ve
+// kartını açar (13-profile.js). Üst çubuktaki Çevrimiçi şeridi de burada çizilir. Konuşan kişinin halesi ve
 // "konuşuyor" satırı 10-voice.js updateVoiceLive'ın .member.is-speaking sınıfıyla CSS'te gösterilir.
 
 function voiceChannelOf (userId) {
@@ -753,7 +800,7 @@ function memberVoiceGroups (entries) {
   return { groups: groups, seen: seen }
 }
 
-// Yayındakiler sayfasının ses bölümü kabı ve alttaki not (ilk çizimde eklenir)
+// Çevrimiçi sayfasının ses bölümü kabı ve alttaki not (ilk çizimde eklenir)
 function membersExtras () {
   if (!el.members) return null
   let voiceBox = byId('members-voice')
@@ -828,8 +875,8 @@ function renderMembers () {
   if (typeof renderTypingLine === 'function') renderTypingLine()
 }
 
-// Üst çubuktaki Yayındakiler şeridi (#live-chip): canlı noktası, en fazla dört çevrimiçi kişinin avatarı
-// ve sayı. Basınca Yayındakiler sayfası açılır (12-init.js).
+// Üst çubuktaki Çevrimiçi şeridi (#live-chip): canlı noktası, en fazla dört çevrimiçi kişinin avatarı
+// ve sayı. Basınca Çevrimiçi sayfası açılır (12-init.js).
 let liveChipKey = ''
 
 function renderLiveChip (online) {

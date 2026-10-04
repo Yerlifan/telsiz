@@ -10,6 +10,7 @@
 //   sunucuya doğrudan bağlantıyı engeller, service worker kaydedilemez
 // - şema dışı gezinme ve yeni pencere engellenir, https bağlantılar dış tarayıcıya verilir
 // - izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı girişsiz ekran yakalama yok
+// - tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur (yayın sahnesinin Tam ekran düğmesi)
 // - ekran paylaşımı seçicisi gerçek kullanıcı girişiyle açılır, seçim ve vazgeçme çalışır
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 //
@@ -584,6 +585,47 @@ test('izinler: mikrofon ve kamera var (ses odasında kamera), kullanıcı giriş
   assert.equal(await page.evaluate(() => window.Notification.permission), 'granted')
   const geo = await page.evaluate(() => navigator.permissions.query({ name: 'geolocation' }).then((r) => r.state, (e) => e.name))
   assert.notEqual(geo, 'granted')
+})
+
+test('tam ekran: ana çerçevedeki öğe kullanıcı hareketiyle tam ekran olur ve çıkar', async () => {
+  const page = ctx.page
+  // Yayın sahnesinin Tam ekran düğmesi gibi tıklamayla requestFullscreen çağıran geçici bir düğme
+  await page.evaluate(() => {
+    const b = document.createElement('button')
+    b.id = 'duman-tam-ekran'
+    b.type = 'button'
+    b.textContent = 'Tam ekran'
+    b.style.position = 'fixed'
+    b.style.left = '0'
+    b.style.top = '0'
+    b.style.width = '40px'
+    b.style.height = '40px'
+    b.style.zIndex = '2147483647'
+    window.__tamEkran = null
+    b.addEventListener('click', () => {
+      b.requestFullscreen().then(() => {
+        window.__tamEkran = 'ok'
+      }, (e) => {
+        window.__tamEkran = e.name
+      })
+    })
+    document.body.appendChild(b)
+  })
+  // Ekran seçicisi testindeki gibi fareyle gerçek kullanıcı girişi
+  await page.mouse.click(20, 20)
+  await page.waitForFunction(() => window.__tamEkran !== null, null, { timeout: TIMEOUT })
+  assert.equal(await page.evaluate(() => window.__tamEkran), 'ok')
+  assert.equal(await page.evaluate(() => document.fullscreenElement && document.fullscreenElement.id), 'duman-tam-ekran')
+  const windowFull = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isFullScreen()))
+  await page.evaluate(() => document.exitFullscreen())
+  await page.waitForFunction(() => !document.fullscreenElement, null, { timeout: TIMEOUT })
+  // Sonraki testler normal pencereyle sürsün: pencerenin de tam ekrandan çıkması beklenir
+  const until = Date.now() + TIMEOUT
+  while (await windowFull()) {
+    if (Date.now() > until) throw new Error('pencere tam ekrandan çıkmadı')
+    await sleep(100)
+  }
+  await page.evaluate(() => document.getElementById('duman-tam-ekran').remove())
 })
 
 test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme ve seçim çalışır', { timeout: 60000 }, async (t) => {

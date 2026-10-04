@@ -59,13 +59,28 @@ test('iki kullanıcı Lobi\'ye katılır, kadroda ikisi ve Telsiz DJ görünür'
     room: document.getElementById('radio-room').textContent,
     names: Array.from(document.querySelectorAll('#radio-crew .crew-item[data-user-id] .crew-name')).map((n) => n.textContent),
     all: document.querySelectorAll('#radio-crew .crew-item').length,
-    dj: Boolean(document.querySelector('#radio-crew .crew-item.crew-dj')),
-    djLast: document.getElementById('radio-crew').lastElementChild.classList.contains('crew-dj')
+    dj: Boolean(document.querySelector('#radio-tools .crew-dj')),
+    djLast: document.getElementById('radio-tools').lastElementChild.classList.contains('crew-dj'),
+    // İki satırlı düğme sırası: Kamera, Mikrofon, Sağırlaştır, altında Ekran ve Ayrıl
+    buttons: Array.from(document.querySelectorAll('#radio-row .radio-button')).map((b) => [b.id, Math.round(b.getBoundingClientRect().top)])
   }))
   assert.deepEqual([r.led, r.room], ['Telsiz · bağlı', 'Lobi'])
   assert.ok(r.names.indexOf('Deniz (siz)') !== -1 && r.names.indexOf('Mert') !== -1, r.names.join(','))
-  // İki kişi ve kadronun sonunda Telsiz DJ öğesi (DJ sunucuda açıkken)
-  assert.deepEqual([r.all, r.dj, r.djLast], [3, true, true])
+  // Kadroda iki kişi, altındaki araç satırının sonunda Telsiz DJ düğmesi (DJ sunucuda açıkken)
+  assert.deepEqual([r.all, r.dj, r.djLast], [2, true, true])
+  assert.deepEqual(r.buttons.map((b) => b[0]), ['btn-camera', 'btn-mute', 'btn-deafen', 'btn-screen', 'voice-leave'])
+  assert.equal(new Set(r.buttons.slice(0, 3).map((b) => b[1])).size, 1, 'ilk üç düğme aynı satırda')
+  assert.equal(r.buttons[3][1], r.buttons[4][1], 'Ekran ve Ayrıl aynı satırda')
+  assert.ok(r.buttons[3][1] > r.buttons[0][1], 'Ekran ve Ayrıl ikinci satırda')
+  // Mikrofon düğmesine sağ tık: Bas konuş ve Ses etkinliği seçimi
+  await deniz.click('#btn-mute', { button: 'right' })
+  await deniz.waitForSelector('#mic-menu:not([hidden]) .mic-menu-item[data-mode="ptt"]')
+  assert.equal(await deniz.getAttribute('#mic-menu .mic-menu-item[data-mode="vad"]', 'aria-checked'), 'true')
+  await deniz.click('#mic-menu .mic-menu-item[data-mode="ptt"]')
+  await deniz.waitForFunction(() => snap().inputMode === 'ptt' && document.getElementById('mic-menu').hidden, null, { timeout: h.LONG })
+  await deniz.click('#btn-mute', { button: 'right' })
+  await deniz.click('#mic-menu .mic-menu-item[data-mode="vad"]')
+  await deniz.waitForFunction(() => snap().inputMode === 'vad', null, { timeout: h.LONG })
   const station = await deniz.evaluate((id) => {
     const n = document.querySelector('#inbox-list .room-row[data-channel-id="' + id + '"]')
     const tuned = document.querySelector('#band-track .station.is-tuned')
@@ -128,9 +143,18 @@ test('ekran paylaşımı başlar: başlatma penceresi, sahne ve kendi önizleme 
 
 test('izleyici bildirimi görür, İzle ile görüntü gerçekten oynar', async () => {
   const { deniz, mert } = W
-  await mert.waitForSelector('.cast-notice', { timeout: h.LONG })
-  assert.equal(await mert.textContent('.cast-notice-text'), 'Deniz ekranını paylaşıyor.')
-  await mert.click('.cast-notice-watch')
+  // Geniş ekranda bildirim sol sütundaki Bildirimler listesindedir, sağ üstte ayrıca açılmaz
+  await mert.waitForSelector('#activity:not([hidden]) .activity-item.is-share', { timeout: h.LONG })
+  assert.equal(await mert.textContent('#activity .activity-item.is-share .activity-text'), 'Deniz ekranını paylaşıyor')
+  assert.equal(await mert.$('.cast-notice'), null)
+  // Üst çubukta başkasının paylaşımı gösterilmez, kadroda paylaşan kişinin öğesinde Yayına katıl düğmesi vardır
+  assert.equal(await mert.$('#top-cast .top-cast-chip'), null)
+  const crewWatch = '#radio-crew .crew-item[data-user-id="' + W.w.P.deniz.id + '"] .crew-watch'
+  await mert.waitForSelector(crewWatch, { state: 'attached', timeout: h.LONG })
+  await mert.hover('#radio-crew .crew-item[data-user-id="' + W.w.P.deniz.id + '"] .crew-button')
+  await mert.waitForFunction((sel) => getComputedStyle(document.querySelector(sel)).opacity === '1', crewWatch, { timeout: h.LONG })
+  assert.equal(await mert.textContent(crewWatch), 'Yayına katıl')
+  await mert.click('#activity .activity-watch')
   await mert.waitForSelector('#cast[data-mode="watch"]:not([hidden])')
   await mert.waitForFunction(() => {
     const v = document.querySelector('#cast .cast-video')

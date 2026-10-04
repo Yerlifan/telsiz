@@ -5,7 +5,7 @@
 
 // Sayfalar (Ek K, KONSEPT 6.7 ve 11): Frekanslar (#frekans-sheet, bandın Tümü düğmesi), İstasyonlar
 // (#stations-sheet, yazı ve ses odaları, sağ sütun görünmediğinde üst çubuktaki İstasyonlar düğmesi),
-// Yayındakiler (#people-sheet) ve 1280 px altında Oda bilgisi (#info-col, geniş ekranda sol sütun olarak her
+// Çevrimiçi (#people-sheet) ve 1280 px altında Oda bilgisi (#info-col, geniş ekranda sol sütun olarak her
 // zaman görünür). Geniş ekranda sağdan
 // açılan yan sayfa, telefonda alttan açılan sayfadır (biçim frekans.css içinde). Aynı anda tek sayfa açıktır,
 // ortak örtü #drawer-backdrop'tur. Sayfa katman yığınına 'sheet-<ad>' adıyla girer: açılınca odak sayfadaki
@@ -401,6 +401,8 @@ function bindEvents () {
   })
   on(el.authScheme, 'click', toggleScheme)
   on(el.btnMute, 'click', toggleMute)
+  // Sağ tık ve Shift+F10: Bas konuş veya Ses etkinliği (29-mikrofon.js)
+  if (typeof bindMicModeMenu === 'function') bindMicModeMenu()
   on(el.btnDeafen, 'click', toggleDeafen)
   on(el.voiceLeave, 'click', leaveVoice)
   on(el.voiceUnlock, 'click', () => {

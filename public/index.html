@@ -65,6 +65,8 @@
   <script src="/js/25-arka-plan.js" defer></script>
   <script src="/js/26-tanitim.js" defer></script>
   <script src="/js/27-kapasite.js" defer></script>
+  <script src="/js/28-bildirim.js" defer></script>
+  <script src="/js/29-mikrofon.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -407,45 +409,49 @@
   </main>
 
   <!-- Uygulama (Ek K, Frekans): üst çubuk, frekans bandı, altında sol bilgi sütunu, konuşma sütunu
-       ve sağda Gelenler ile telsiz kartı. Yan ve alt sayfalar (istasyonlar, yayındakiler) ortak örtüyle açılır. -->
+       ve sağda Gelenler ile telsiz kartı. Yan ve alt sayfalar (istasyonlar, çevrimiçi kişiler) ortak örtüyle açılır. -->
   <div id="app-view" class="app-view" data-view="channel" hidden>
     <header id="top" class="top-bar">
-      <!-- Frekans değiştirici: her Telsiz sunucusu bir frekanstır, ada basınca kayıtlı frekanslar açılır (24-frekans.js) -->
-      <div class="top-brand">
-        <h1 class="top-brand-heading">
-          <button id="frekans-button" class="top-brand-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="frekans-menu">
-            <span id="server-emblem" class="server-emblem" aria-hidden="true"></span>
-            <span class="top-brand-text">
-              <span class="top-brand-row"><span id="server-name" class="server-name">Telsiz</span><svg class="icon top-brand-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg></span>
-              <span id="server-meta" class="server-meta"></span>
-            </span>
-          </button>
-        </h1>
+      <!-- Üç bölüm: solda frekans bilgisi ve Çevrimiçi, tam ortada Ara, sağda yayın çipi, İstasyonlar,
+           Özel mesajlar ile Arkadaşlar ve profil. İki yan bölüm eşit esner, Ara ortada kalır (frekans.css .top-side) -->
+      <div class="top-side top-side-start">
+        <!-- Frekans değiştirici: her Telsiz sunucusu bir frekanstır, ada basınca kayıtlı frekanslar açılır (24-frekans.js) -->
+        <div class="top-brand">
+          <h1 class="top-brand-heading">
+            <button id="frekans-button" class="top-brand-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="frekans-menu">
+              <span id="server-emblem" class="server-emblem" aria-hidden="true"></span>
+              <span class="top-brand-text">
+                <span class="top-brand-row"><span id="server-name" class="server-name">Telsiz</span><svg class="icon top-brand-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg></span>
+                <span id="server-meta" class="server-meta"></span>
+              </span>
+            </button>
+          </h1>
+        </div>
+        <button id="live-chip" class="top-chip top-live" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="people-sheet">
+          <span class="top-live-dot" aria-hidden="true"></span>
+          <span id="live-stack" class="top-stack" aria-hidden="true"></span>
+          <span id="live-chip-text" class="top-live-text" data-i18n="top.live">Çevrimiçi</span>
+        </button>
       </div>
-      <span class="top-spacer"></span>
-      <!-- Kişisel girişler: Özel mesajlar ve Arkadaşlar, üst çubuğun ortasında (04-meta.js renderTopPersonal) -->
-      <nav id="top-personal" class="top-personal" aria-label="Kişisel" data-i18n-aria-label="band.groupPersonal">
-        <button id="top-dm" class="top-personal-button" type="button" data-station="dm"><svg class="icon" aria-hidden="true"><use href="#i-chat" xlink:href="#i-chat"></use></svg><span class="top-personal-label" data-i18n="layout.dms">Özel mesajlar</span><span id="top-dm-mark" class="station-mark mark-mention" aria-hidden="true" hidden></span></button>
-        <button id="top-friends" class="top-personal-button" type="button" data-station="friends"><svg class="icon" aria-hidden="true"><use href="#i-users" xlink:href="#i-users"></use></svg><span class="top-personal-label" data-i18n="band.friends">Arkadaşlar</span><span id="top-friends-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
-      </nav>
-      <span class="top-spacer"></span>
-      <div id="top-cast" class="top-cast" hidden></div>
-      <!-- İstasyonlar düğmesi: sağ sütun görünmediğinde yazı ve ses odalarını sayfa olarak açar (frekans.css, 04-meta.js renderRoomsButton) -->
-      <button id="btn-rooms" class="top-chip top-rooms" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="İstasyonlar: yazı ve ses odaları" title="İstasyonlar: yazı ve ses odaları" data-i18n-aria-label="rooms.buttonLabel" data-i18n-title="rooms.buttonLabel"><svg class="icon" aria-hidden="true"><use href="#i-hash" xlink:href="#i-hash"></use></svg><span class="top-chip-label" data-i18n="rooms.button">İstasyonlar</span><span id="btn-rooms-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
       <button id="btn-search" class="top-chip top-find" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-panel" aria-label="Ara (Ctrl K)" title="Ara (Ctrl K)" data-i18n-aria-label="top.searchLabel" data-i18n-title="top.searchLabel"><svg class="icon" aria-hidden="true"><use href="#i-search" xlink:href="#i-search"></use></svg><span class="top-chip-label" data-i18n="layout.search">Ara</span><kbd class="kbd top-kbd" aria-hidden="true">Ctrl K</kbd></button>
-      <button id="live-chip" class="top-chip top-live" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="people-sheet">
-        <span class="top-live-dot" aria-hidden="true"></span>
-        <span id="live-stack" class="top-stack" aria-hidden="true"></span>
-        <span id="live-chip-text" class="top-live-text" data-i18n="top.live">Yayındakiler</span>
-      </button>
-      <button id="me-button" class="top-chip top-me" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="status-menu">
-        <span id="me-avatar" class="avatar" aria-hidden="true"></span>
-        <span class="top-me-text">
-          <span id="me-name" class="me-name"></span>
-          <span id="me-status" class="me-status"></span>
-        </span>
-        <svg class="icon top-me-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg>
-      </button>
+      <div class="top-side top-side-end">
+        <div id="top-cast" class="top-cast" hidden></div>
+        <!-- İstasyonlar düğmesi: sağ sütun görünmediğinde yazı ve ses odalarını sayfa olarak açar (frekans.css, 04-meta.js renderRoomsButton) -->
+        <button id="btn-rooms" class="top-chip top-rooms" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="İstasyonlar: yazı ve ses odaları" title="İstasyonlar: yazı ve ses odaları" data-i18n-aria-label="rooms.buttonLabel" data-i18n-title="rooms.buttonLabel"><svg class="icon" aria-hidden="true"><use href="#i-hash" xlink:href="#i-hash"></use></svg><span class="top-chip-label" data-i18n="rooms.button">İstasyonlar</span><span id="btn-rooms-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
+        <!-- Kişisel girişler: Özel mesajlar ve Arkadaşlar, profil düğmesinin hemen solunda (04-meta.js renderTopPersonal) -->
+        <nav id="top-personal" class="top-personal" aria-label="Kişisel" data-i18n-aria-label="band.groupPersonal">
+          <button id="top-dm" class="top-personal-button" type="button" data-station="dm"><svg class="icon" aria-hidden="true"><use href="#i-chat" xlink:href="#i-chat"></use></svg><span class="top-personal-label" data-i18n="layout.dms">Özel mesajlar</span><span id="top-dm-mark" class="station-mark mark-mention" aria-hidden="true" hidden></span></button>
+          <button id="top-friends" class="top-personal-button" type="button" data-station="friends"><svg class="icon" aria-hidden="true"><use href="#i-users" xlink:href="#i-users"></use></svg><span class="top-personal-label" data-i18n="band.friends">Arkadaşlar</span><span id="top-friends-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
+        </nav>
+        <button id="me-button" class="top-chip top-me" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="status-menu">
+          <span id="me-avatar" class="avatar" aria-hidden="true"></span>
+          <span class="top-me-text">
+            <span id="me-name" class="me-name"></span>
+            <span id="me-status" class="me-status"></span>
+          </span>
+          <svg class="icon top-me-caret" aria-hidden="true"><use href="#i-down" xlink:href="#i-down"></use></svg>
+        </button>
+      </div>
     </header>
     <div id="conn-banner" class="conn-banner" role="status" aria-live="polite" data-i18n="app.reconnecting" hidden>Bağlantı koptu, yeniden deneniyor...</div>
 
@@ -473,8 +479,13 @@
             <h3 id="dm-title" class="kicker" data-i18n="layout.dms">Özel mesajlar</h3>
             <ul id="dm-list" class="channel-list dm-list"></ul>
           </section>
-          <!-- Sütunun altı: geniş ekranda telsiz kartı (#radio, 12-init.js placeRadio taşır) ve ayarlı istasyon kartı -->
+          <!-- Sütunun altı: bildirimler (10-voice.js renderActivity), geniş ekranda telsiz kartı (#radio, 12-init.js
+               placeRadio taşır) ve oda bilgisi kartı (yalnızca 1280 pikselin altında Oda bilgisi sayfasında görünür) -->
           <div id="info-bottom" class="info-bottom">
+            <section id="activity" class="side-card activity-card" aria-labelledby="activity-title" hidden>
+              <h3 id="activity-title" class="kicker" data-i18n="activity.title">Bildirimler</h3>
+              <ul id="activity-list" class="activity-list" aria-live="polite"></ul>
+            </section>
             <div id="radio-slot" class="radio-slot"></div>
             <section id="room-card" class="side-card room-card" aria-labelledby="room-card-name">
               <p class="kicker" data-i18n="band.tunedKicker">Ayarlı istasyon</p>
@@ -597,6 +608,8 @@
                   <span id="radio-room-meta" class="radio-room-meta"></span>
                 </div>
                 <ul id="radio-crew" class="crew" aria-label="Odadakiler" data-i18n-aria-label="radio.crew"></ul>
+                <!-- Araç satırı: kameralar varken Büyüt (10-voice.js renderRadioCams) ve Telsiz DJ (23-dj.js djEnsureCrewItem) -->
+                <div id="radio-tools" class="radio-tools"></div>
                 <p id="radio-talk" class="radio-talk"><span class="radio-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span id="radio-talk-text" class="radio-talk-text"></span><span id="radio-mode" class="radio-mode"></span></p>
                 <p id="radio-dj" class="radio-dj" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-music" xlink:href="#i-music"></use></svg><span id="radio-dj-text" class="radio-dj-text"></span></p>
               </div>
@@ -626,11 +639,12 @@
                 </span>
                 <span class="radio-vad-meter" aria-hidden="true"><span id="radio-vad-bar" class="radio-vad-bar"></span></span>
               </div>
+              <!-- İki satır: Kamera, Mikrofon, Sağırlaştır ve altında Ekran ile Ayrıl. Her düğmenin kendi rengi var (radio.css tone-*) -->
               <div id="radio-row" class="radio-row">
-                <button id="btn-mute" class="radio-button" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" data-i18n-aria-label="user.mute"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.mic">Mikrofon</span><span id="btn-mute-state" class="radio-button-state"></span></span></button>
-                <button id="btn-deafen" class="radio-button" type="button" aria-pressed="false" aria-label="Sağırlaştır" data-i18n-aria-label="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.deafen">Sağırlaştır</span><span id="btn-deafen-state" class="radio-button-state"></span></span></button>
-                <button id="btn-screen" class="radio-button" type="button" aria-haspopup="dialog" aria-controls="cast-dialog" aria-label="Ekranı paylaş" data-i18n-aria-label="screen.share"><svg class="icon" aria-hidden="true"><use href="#i-screen" xlink:href="#i-screen"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.screen">Ekran</span><span id="btn-screen-state" class="radio-button-state"></span></span></button>
-                <button id="btn-camera" class="radio-button" type="button" aria-pressed="false" aria-label="Kamerayı aç" data-i18n-aria-label="camera.start"><svg class="icon" aria-hidden="true"><use href="#i-camera" xlink:href="#i-camera"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.camera">Kamera</span><span id="btn-camera-state" class="radio-button-state"></span></span></button>
+                <button id="btn-camera" class="radio-button tone-camera" type="button" aria-pressed="false" aria-label="Kamerayı aç" data-i18n-aria-label="camera.start"><svg class="icon" aria-hidden="true"><use href="#i-camera" xlink:href="#i-camera"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.camera">Kamera</span><span id="btn-camera-state" class="radio-button-state"></span></span></button>
+                <button id="btn-mute" class="radio-button tone-mic" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" data-i18n-aria-label="user.mute" title="Sağ tıklayın: Bas konuş veya Ses etkinliği" data-i18n-title="radio.micMenuHint"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.mic">Mikrofon</span><span id="btn-mute-state" class="radio-button-state"></span></span></button>
+                <button id="btn-deafen" class="radio-button tone-deafen" type="button" aria-pressed="false" aria-label="Sağırlaştır" data-i18n-aria-label="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.deafen">Sağırlaştır</span><span id="btn-deafen-state" class="radio-button-state"></span></span></button>
+                <button id="btn-screen" class="radio-button tone-screen" type="button" aria-haspopup="dialog" aria-controls="cast-dialog" aria-label="Ekranı paylaş" data-i18n-aria-label="screen.share"><svg class="icon" aria-hidden="true"><use href="#i-screen" xlink:href="#i-screen"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.screen">Ekran</span><span id="btn-screen-state" class="radio-button-state"></span></span></button>
                 <button id="voice-leave" class="radio-button is-danger" type="button" aria-label="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="voice.leave">Ayrıl</span><span id="voice-leave-state" class="radio-button-state"></span></span></button>
               </div>
               <p id="radio-screen-note" class="radio-note" hidden></p>
@@ -675,7 +689,7 @@
     <section id="people-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="people-sheet-title" hidden>
       <span class="sheet-handle" aria-hidden="true"></span>
       <header class="sheet-head">
-        <h2 id="people-sheet-title" class="sheet-title" data-i18n="top.live">Yayındakiler</h2>
+        <h2 id="people-sheet-title" class="sheet-title" data-i18n="top.live">Çevrimiçi</h2>
         <span id="members-count" class="members-count"></span>
         <button class="icon-button sheet-close" type="button" data-sheet-close aria-label="Kapat" title="Kapat" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg class="icon" aria-hidden="true"><use href="#i-close" xlink:href="#i-close"></use></svg></button>
       </header>

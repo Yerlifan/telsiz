@@ -592,7 +592,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
-    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-compact', 'set-motion-on', 'set-lang'],
+    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
     app: ['set-install', 'set-version', 'set-repo-link'],
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
@@ -882,6 +882,19 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   assert.strictEqual(sandbox.TelsizTheme.prefs.scheme, 'light')
   root.querySelector('#set-font-tv').click()
   assert.strictEqual(sandbox.TelsizTheme.prefs.fontSize, 'tv')
+  // Elle ayar: kaydırıcı Özel boyutu seçer ve pikseli yazar (12 ile 28 arası)
+  const px = root.querySelector('#set-font-px')
+  assert.strictEqual(px.value, '15')
+  assert.strictEqual(root.querySelector('#set-font-px-value').textContent, '15 px')
+  px.value = '20'
+  px.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontSize, 'custom')
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontPx, 20)
+  assert.strictEqual(root.querySelector('#set-font-px-value').textContent, '20 px')
+  px.value = '99'
+  px.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(sandbox.TelsizTheme.prefs.fontPx, 28)
+  root.querySelector('#set-font-tv').click()
   root.querySelector('#set-compact').click()
   assert.strictEqual(sandbox.TelsizTheme.prefs.compact, true)
   root.querySelector('#set-motion-off').click()

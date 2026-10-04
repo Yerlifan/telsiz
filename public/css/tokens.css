@@ -48,7 +48,7 @@
      Dar ve orta ekrandaki değerler dosyanın sonundaki kesme noktalarındadır. */
   --top-h: 3.75rem;
   /* Bant tek satırdır: üstte ibrenin topuzu ve ölçek şeridi, altında 44 px istasyonlar */
-  --band-h: 4rem;
+  --band-h: 3.5rem;
   --band-pad: 0.25rem;
   --dial-top: 0.125rem;
   --station-h: 2.75rem;
@@ -662,9 +662,10 @@
   --av-offline: #6f6a5e;
 }
 
-/* Yazı boyutu (Ek D2): varsayılan 16px (normal). Otomatikte 16px, 1280px ve üstü 18px, TV (1800px ve üstü) 22px */
+/* Yazı boyutu (Ek D2): varsayılan 15px (normal). Otomatikte 15px, 1280px ve üstü 18px, TV (1800px ve üstü) 22px.
+   Özel boyut (12 ile 28px arası) theme-init.js'in kök öğeye yazdığı --font-px değişkenindedir. */
 html {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 @media (min-width: 1280px) {
@@ -684,7 +685,7 @@ html[data-font-size="small"] {
 }
 
 html[data-font-size="normal"] {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 html[data-font-size="large"] {
@@ -693,6 +694,11 @@ html[data-font-size="large"] {
 
 html[data-font-size="tv"] {
   font-size: 22px;
+}
+
+html[data-font-size="custom"] {
+  font-size: 15px;
+  font-size: var(--font-px, 15px);
 }
 
 /* Frekans düzeninin kesme noktaları (KONSEPT bölüm 11): orta 760 ile 999 px, dar 760 px altı */

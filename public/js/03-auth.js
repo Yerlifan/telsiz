@@ -696,6 +696,7 @@ async function logout () {
 function resetAppState () {
   closeAllLayers()
   socialReset()
+  if (typeof activityReset === 'function') activityReset()
   state.inApp = false
   state.me = null
   state.meta = null

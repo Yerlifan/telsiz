@@ -258,8 +258,10 @@ test('index.html, sw.js ve güvenlik başlığı kamerayı bağlar', () => {
   for (const id of ['btn-camera', 'btn-camera-state', 'radio-cam-live', 'radio-camera-note', 'i-camera', 'i-camera-off', 'i-grid']) {
     assert.ok(html.indexOf('id="' + id + '"') !== -1, id)
   }
-  // Kamera düğmesi Ekran ile Ayrıl arasındadır
-  assert.ok(html.indexOf('id="btn-screen"') < html.indexOf('id="btn-camera"') && html.indexOf('id="btn-camera"') < html.indexOf('id="voice-leave"'))
+  // Düğme sırası: üst satırda Kamera, Mikrofon, Sağırlaştır, alt satırda Ekran ve Ayrıl
+  const order = ['btn-camera', 'btn-mute', 'btn-deafen', 'btn-screen', 'voice-leave'].map((id) => html.indexOf('id="' + id + '"'))
+  assert.deepEqual(order.slice().sort((a, b) => a - b), order)
+  assert.ok(order[0] !== -1)
   const util = require('../src/http-util')
   const headers = util.SECURITY_HEADERS || null
   const source = fs.readFileSync(path.join(ROOT, 'src', 'http-util.js'), 'utf8')

@@ -1,7 +1,7 @@
 'use strict'
 
 // Özel roller ve ses odası denetimi. Sahip Deniz Ayarlar > Roller'den Moderatör rolünü oluşturur, Ses odasını
-// denetle iznini açar ve rolü Ayarlar > Üyeler'den Ece'ye verir. Rol Yayındakiler listesinde rozet olarak
+// denetle iznini açar ve rolü Ayarlar > Üyeler'den Ece'ye verir. Rol Çevrimiçi listesinde rozet olarak
 // görünür. Ece ve Mert Lobi'ye katılır: Ece'nin Mert için açtığı kişi ses kartında Ses odası denetimi bölümü
 // vardır, Mert'in Ece için açtığında yoktur. Ece Mert'i herkes için susturur: Mert'in mikrofon düğmesi
 // "Herkes için susturuldu" der ve mikrofonunu açamaz, Ece'nin kadrosunda Mert'in rozeti değişir. Susturma
@@ -69,7 +69,7 @@ test('sahip Roller sayfasında rol oluşturur, izin açar ve rolü Üyeler sayfa
   }, eceId, { timeout: h.LONG })
   await deniz.keyboard.press('Escape')
   await deniz.waitForSelector('#settings-view', { state: 'hidden' })
-  // Yayındakiler listesinde rozet
+  // Çevrimiçi listesinde rozet
   await deniz.waitForFunction((id) => {
     const badge = document.querySelector('#members .member[data-user-id="' + id + '"] .badge-custom')
     return Boolean(badge && badge.textContent === 'Moderatör')

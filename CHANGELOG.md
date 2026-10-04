@@ -4,7 +4,35 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 
 ## [Yayımlanmamış]
 
+### Yeni özellikler
+
+- Bildirimler: sol sütunda telsiz kartının üstünde kısa bir olay listesi. Aynı ses odasında biri ekranını paylaşmaya başlayınca İzle düğmesiyle yazılır, paylaşım bitince kalkar. Ses odalarına katılma ve ayrılma da yazılır.
+- İstasyonlar listesinde her ses odasının altında odadaki kişiler görünür: avatar, ad, susturma ve kamera simgesi, konuşan kişinin avatarında halka.
+- Kamera ızgarasında Sığdır ve Doldur düğmeleri. Seçim ekran paylaşımından ayrı saklanır, varsayılan Doldur.
+- Yazı boyutu Ayarlar > Görünüm'deki kaydırıcıyla 12 ile 28 piksel arasında elle ayarlanabilir (Özel).
+- Telsiz kartının kadrosunda ekran paylaşan kişinin üstüne gelince Yayına katıl düğmesi çıkar (dokunmatik ekranda her zaman görünür).
+- Mikrofon düğmesine sağ tıklayınca (klavyede Shift+F10) Bas konuş ile Ses etkinliği arasında geçilir.
+
+### Değişiklikler
+
+- Varsayılan yazı boyutu 16 yerine 15 pikseldir (Normal). Bütün ölçüler yazı boyutuyla birlikte küçülür.
+- Üst çubuk: Yayındakiler çipinin adı Çevrimiçi oldu ve frekans bilgisinin hemen sağına geçti, Ara tam ortada, Özel mesajlar ve Arkadaşlar profil düğmesinin hemen solunda.
+- Frekans bandı 4rem yerine 3.5rem yüksekliğindedir, ibrenin topuzu küçüldü.
+- Geniş ekranda sol alttaki Ayarlı istasyon kartı kaldırıldı (oda adı ve şifreleme durumu konuşmanın başlığında, Şifreleme ayrıntıları ve Odayı yönet Ayarlar'da). Telsiz kartı sol sütunun en altındadır.
+- Telsiz kartının düğmeleri iki satırdadır: üstte Kamera, Mikrofon ve Sağırlaştır, altta Ekran ve Ayrıl. Her düğmenin kendi rengi vardır.
+- Büyüt ve Telsiz DJ kadronun sonundaki öğeler yerine kadronun altındaki ayrı bir satırda, geniş ve etiketli düğmelerdir. Büyüt açık kamera sayısını gösterir.
+- Ses etkinliği şeridi tek satırdır, yüksekliği yarıya indi.
+- Telsiz kartının kadrosundaki avatarlar 2.75rem yerine 3.125rem, kamera kutuları 4.25rem yerine 4.75rem boyutundadır.
+- Kamera ızgarası açıkken sağ sütun (İstasyonlar) yerinde kalır, sahne yalnızca konuşma sütununu kaplar ve son mesajlar sahnenin altında açık durur.
+- Telsiz DJ çalarken İstasyonlar listesi sağ sütunun üstünde, DJ kartı altındadır.
+- Ayarlar geniş ekranda kenar çubuğu ve içerikle birlikte ortalanır, hafif sola yatık durur.
+- Geniş ekranda ekran paylaşımı bildirimi sağ üstte ayrıca açılmaz, Bildirimler listesindedir.
+- Başkasının ekran paylaşımı üst çubukta gösterilmez ("X yayında · İzle" çipi kaldırıldı). Kendi paylaşımınızın "Ekranınız yayında · Durdur" çipi kalır.
+- Telsiz kartının kadrosu ortalanır, kamera açıkken üç kişi tek satıra sığar.
+
 ### Düzeltmeler
+
+- Masaüstü uygulamasında yayın sahnesinin Tam ekran düğmesi bütün ekranı kaplamıyordu (uygulama tam ekran iznini reddediyordu). Tam ekran izni yalnızca uygulamanın ana çerçevesine verilir, YouTube oynatıcısı tam ekran olamaz.
 
 - Ekran paylaşımında sistem sesi paylaşılırken Telsiz'deki konuşmalar da paylaşılan sese giriyor, dinleyenler kendi seslerini geri duyuyordu. Paylaşım sesi artık `restrictOwnAudio` kısıtıyla istenir: masaüstü uygulaması ve bunu destekleyen tarayıcılar Telsiz'in kendi çaldığı sesleri (konuşmalar, bildirim sesleri, Telsiz DJ) paylaşılan sesten çıkarır. Bu ayrımı desteklemeyen eski Windows sürümlerinde bütün sistem sesi paylaşılmaya devam eder.
 

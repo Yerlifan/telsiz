@@ -2754,7 +2754,7 @@ button.msg-author:hover {
 }
 
 /* =========================================================
-   14. Üye listesi (Yayındakiler sayfası, #people-sheet)
+   14. Üye listesi (Çevrimiçi sayfası, #people-sheet)
    ========================================================= */
 
 .members-count {
@@ -2920,6 +2920,16 @@ button.member:hover {
 .menu-item:focus {
   background-color: var(--surface-hover);
   color: var(--text);
+}
+
+/* Mikrofon modu menüsü (29-mikrofon.js): seçili modda sağda onay işareti */
+.mic-menu .mic-menu-label {
+  flex: 1 1 auto;
+}
+
+.mic-menu .mic-menu-check {
+  margin: 0 0 0 0.6rem;
+  color: var(--accent-text);
 }
 
 .menu-item[aria-checked="true"],

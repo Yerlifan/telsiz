@@ -4,7 +4,35 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ## [Unreleased]
 
+### New features
+
+- Notifications: a short list of events above the radio card in the left column. When someone in the same voice room starts sharing their screen it is listed with a Watch button and removed when the share ends. Joining and leaving voice rooms are listed too.
+- The Stations list shows the people in each voice room below it: avatar, name, mute and camera icons, and a ring around the avatar of the person speaking.
+- Fit and Fill buttons on the camera grid. The choice is kept separately from screen sharing, Fill by default.
+- The font size can be set by hand between 12 and 28 pixels with the slider in Settings > Appearance (Custom).
+- Hovering over someone sharing their screen in the crew of the radio card shows a Watch stream button (always visible on touch screens).
+- Right clicking the Microphone button (Shift+F10 on the keyboard) switches between Push to talk and Voice activity.
+
+### Changes
+
+- The default font size is 15 pixels instead of 16 (Normal). All measurements shrink with the font size.
+- Top bar: the On air chip is now called Online and sits right next to the frequency information, Search is exactly in the middle, and Direct messages and Friends sit right to the left of the profile button.
+- The frequency band is 3.5rem high instead of 4rem, and the needle knob is smaller.
+- On wide screens the tuned station card at the bottom left was removed (the room name and the encryption state are in the conversation header, Encryption details and Manage room are in Settings). The radio card sits at the very bottom of the left column.
+- The buttons of the radio card are in two rows: Camera, Microphone and Deafen on top, Screen and Leave below. Each button has its own color.
+- Enlarge and Telsiz DJ are wide labeled buttons in a separate row below the crew instead of items at the end of the crew. Enlarge shows the number of cameras on.
+- The voice activity strip is a single line, half as tall.
+- The avatars in the crew of the radio card are 3.125rem instead of 2.75rem, and camera tiles are 4.75rem instead of 4.25rem.
+- While the camera grid is open the right column (Stations) stays in place, the stage only covers the conversation column and the latest messages stay open below the stage.
+- While Telsiz DJ is playing the Stations list is at the top of the right column and the DJ card below it.
+- On wide screens Settings is centered together with its sidebar and content, slightly to the left.
+- On wide screens the screen share notice no longer opens separately at the top right, it is in the Notifications list.
+- Someone else's screen share is no longer shown in the top bar (the "X is live · Watch" chip was removed). The "Your screen is live · Stop" chip of your own share stays.
+- The crew of the radio card is centered, and three people fit on one row while a camera is on.
+
 ### Fixes
+
+- In the desktop app the Full screen button of the stage did not cover the whole screen (the app denied the full screen permission). The full screen permission is now granted only to the app's main frame, and the YouTube player cannot go full screen.
 
 - When system audio was shared with a screen share, the conversation in Telsiz was also captured and listeners heard their own voices back. The share audio is now requested with the `restrictOwnAudio` constraint: the desktop app and browsers that support it remove the sounds Telsiz itself plays (the conversation, notification sounds, Telsiz DJ) from the shared audio. On older Windows versions that cannot separate it, all system audio is still shared.
 

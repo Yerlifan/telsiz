@@ -11,8 +11,8 @@
 // (#radio-vad) ve beş düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Kamera, Ayrıl) durur.
 // Kamerası açık kişinin kadro öğesi aynı yumuşak kare biçimde canlı görüntüye döner (kendi görüntünüz
 // aynalı), kamera açıkken düğme sırasının üstünde her zaman görünen bir "Kameranız açık" satırı durur.
-// Odada kamera varsa kadronun sonunda (Telsiz DJ öğesinden önce) Büyüt öğesi (#radio-cams) durur, kameraları
-// yayın sahnesinde ızgara olarak açar (22-cast.js).
+// Odada kamera varsa kadronun altındaki araç satırında (#radio-tools, Telsiz DJ düğmesinden önce) Büyüt
+// düğmesi (#radio-cams) durur, kameraları yayın sahnesinde ızgara olarak açar (22-cast.js).
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.
@@ -394,6 +394,16 @@ function buildVoiceMember (entry, sameChannel, streams) {
   if (cam) states.push(t(self ? 'radio.stateSelfCamera' : 'radio.stateCamera'))
   crewInfo.set(li, { labelName: labelName, states: states, self: self })
   li.appendChild(inner)
+  // Ekran paylaşan kişinin öğesinde, üstüne gelince veya odaklanınca (dokunmatik ekranda her zaman) Yayına
+  // katıl düğmesi (radio.css .crew-watch). İzlerken basmak sahneyi o paylaşıma getirir.
+  if (sharing && !self && sameChannel) {
+    const watch = button('crew-watch', t('radio.watchShare'), 'i-eye', t('cast.watchLabel', { name: name }))
+    watch.setAttribute('data-focus-key', 'crew-watch-' + userId)
+    watch.addEventListener('click', () => {
+      if (typeof castWatch === 'function') castWatch(String(userId), true)
+    })
+    li.appendChild(watch)
+  }
   setCrewSpeaking(li, Boolean(sameChannel && speakingIn(s, userId)), true)
   return li
 }
@@ -449,35 +459,41 @@ function renderCrew (s) {
     })
   }
   pruneCameraVideos('crew-', keep)
-  const count = Object.keys(streams).length
-  if (count > 0) el.radioCrew.appendChild(buildCamsItem(count))
+  renderRadioCams(Object.keys(streams).length)
   restoreFocusKey(el.radioCrew, focusKey)
 }
 
-// Kadrodaki Büyüt öğesi: kameraları yayın sahnesinde ızgara olarak açar veya kapatır. Telsiz DJ gibi gerçek
-// bir kişi değildir, kesik çizgili kenarlı bir ızgara simgesiyle çizilir.
-function buildCamsItem (count) {
+// Araç satırındaki Büyüt düğmesi: kameraları yayın sahnesinde ızgara olarak açar veya kapatır. Odada kamera
+// yokken kaldırılır. Düğme bir kez üretilir ve yerinde güncellenir (odak korunur), satırın başında durur.
+function renderRadioCams (count) {
+  const box = el.radioTools
+  if (!box) return
+  let b = byId('radio-cams')
+  if (!count) {
+    if (b && b.parentNode) b.parentNode.removeChild(b)
+    return
+  }
+  if (!b) {
+    b = h('button', 'radio-tool cams-tool')
+    b.type = 'button'
+    b.id = 'radio-cams'
+    b.setAttribute('data-focus-key', 'tool-cams')
+    b.setAttribute('aria-controls', 'cast')
+    b.appendChild(icon('i-grid', 'radio-tool-icon'))
+    const name = h('span', 'radio-tool-label')
+    name.id = 'radio-cams-text'
+    b.appendChild(name)
+    b.appendChild(h('span', 'radio-tool-count'))
+    b.addEventListener('click', () => {
+      if (typeof castToggleCams === 'function') castToggleCams()
+    })
+  }
+  if (b.parentNode !== box || box.firstElementChild !== b) box.insertBefore(b, box.firstElementChild)
   const open = typeof castCamsOpen === 'function' && castCamsOpen()
-  const li = h('li', 'crew-item crew-cams')
-  const b = h('button', 'crew-button cams-button')
-  b.type = 'button'
-  b.id = 'radio-cams'
-  b.setAttribute('data-focus-key', 'crew-cams')
-  b.setAttribute('aria-controls', 'cast')
   b.setAttribute('aria-expanded', open ? 'true' : 'false')
   b.setAttribute('aria-label', t(open ? 'camera.gridCloseLabel' : 'camera.gridOpenLabel') + ', ' + t('radio.cameras', { count: count }))
-  const av = h('span', 'avatar avatar-md crew-avatar cams-avatar')
-  av.setAttribute('aria-hidden', 'true')
-  av.appendChild(icon('i-grid', 'cams-avatar-icon'))
-  b.appendChild(av)
-  const name = h('span', 'crew-name cams-name', t(open ? 'camera.gridClose' : 'camera.gridOpen'))
-  name.id = 'radio-cams-text'
-  b.appendChild(name)
-  b.addEventListener('click', () => {
-    if (typeof castToggleCams === 'function') castToggleCams()
-  })
-  li.appendChild(b)
-  return li
+  b.querySelector('.radio-tool-label').textContent = t(open ? 'camera.gridClose' : 'camera.gridOpen')
+  b.querySelector('.radio-tool-count').textContent = String(count)
 }
 
 // Konuşma halesi ve giriş seviyesi gibi sık değişen göstergeler
@@ -531,7 +547,7 @@ function updateVoiceLive () {
     el.radioTalk.classList.toggle('is-quiet', !talk)
     setText(el.radioMode, radioModeText(s))
   }
-  // Yayındakiler sayfasında da aynı odadaki konuşan kişi işaretlenir
+  // Çevrimiçi sayfasında da aynı odadaki konuşan kişi işaretlenir
   if (el.members) {
     Array.from(el.members.querySelectorAll('.member[data-user-id]')).forEach((row) => {
       const userId = row.getAttribute('data-user-id')

@@ -26,7 +26,7 @@
 const DJ_TICK_MS = 500
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
-const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search']
+const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
 const DJ_WAVE_BARS = 30
 const DJ_OK_KEYS = {
   play: 'music.ok.added',
@@ -961,10 +961,11 @@ function djReveal (trigger) {
   djRender()
 }
 
-// ------------------------------------------------------------------ kadrodaki Telsiz DJ öğesi
+// ------------------------------------------------------------------ telsiz kartındaki Telsiz DJ düğmesi
 
+// Düğme kadronun altındaki araç satırında (#radio-tools) Büyüt düğmesinden sonra durur
 function djEnsureCrewItem (show) {
-  const list = el.radioCrew
+  const list = el.radioTools
   if (!list) return
   let li = dj.crewLi
   if (!show) {
@@ -972,17 +973,17 @@ function djEnsureCrewItem (show) {
     return
   }
   if (!li) {
-    li = h('li', 'crew-item crew-dj')
+    li = h('span', 'radio-tool-wrap crew-dj')
     dj.crewLi = li
-    const btn = h('button', 'crew-button dj-crew-button')
+    const btn = h('button', 'radio-tool dj-crew-button')
     btn.type = 'button'
     btn.setAttribute('data-focus-key', 'crew-dj')
     btn.setAttribute('aria-controls', 'dj')
-    const av = h('span', 'avatar avatar-md crew-avatar dj-avatar')
+    const av = h('span', 'radio-tool-mark dj-avatar')
     av.setAttribute('aria-hidden', 'true')
-    av.appendChild(icon('i-music', 'dj-avatar-icon'))
+    av.appendChild(icon('i-music', 'radio-tool-icon dj-avatar-icon'))
     btn.appendChild(av)
-    btn.appendChild(h('span', 'crew-name dj-crew-name'))
+    btn.appendChild(h('span', 'radio-tool-label dj-crew-name'))
     btn.addEventListener('click', () => {
       const engine = djEngine()
       const s = djSnapshot()
@@ -998,8 +999,8 @@ function djEnsureCrewItem (show) {
     })
     li.appendChild(btn)
   }
-  // Öğe her zaman kadronun sonunda durur. Kadro yeniden çizilince (10-voice.js renderCrew) aynı öğe geri
-  // eklenir, odaktaysa odak geri verilir.
+  // Düğme her zaman araç satırının sonunda durur. Satır yeniden düzenlenince (10-voice.js renderRadioCams)
+  // aynı öğe geri eklenir, odaktaysa odak geri verilir.
   if (li.parentNode !== list || li !== list.lastElementChild) {
     list.appendChild(li)
     const active = document.activeElement

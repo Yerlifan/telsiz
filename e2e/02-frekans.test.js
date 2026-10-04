@@ -96,12 +96,13 @@ test('geniş düzen: bant frekansları dizer, odalar sağdaki İstasyonlar liste
       otherDot: stations[1].querySelector('.frekans-dot').className,
       tunedDot: stations[0].querySelector('.frekans-dot').className,
       radioLeft: Boolean(document.getElementById('info-col').contains(document.getElementById('radio'))),
-      radioAboveRoom: radio.bottom <= room.top + 1,
-      roomAtBottom: Math.abs(info.bottom - room.bottom) < 4 || room.bottom > info.bottom - 24,
+      roomHidden: room.width === 0 && room.height === 0,
+      radioAtBottom: Math.abs(info.bottom - radio.bottom) < 4 || radio.bottom > info.bottom - 24,
       convoW: Math.round(convo.width),
       rightW: Math.round(right.width),
       stationRows: Array.from(document.querySelectorAll('#inbox-list .room-row')).length,
       minStationH: Math.min.apply(null, stations.map((n) => n.getBoundingClientRect().height)),
+      rootPx: parseFloat(getComputedStyle(document.documentElement).fontSize),
       personal: Array.from(document.querySelectorAll('#top-personal .top-personal-button')).map((b) => b.getAttribute('data-station')),
       inboxTitle: document.getElementById('inbox-title').textContent,
       inboxAdd: [document.getElementById('inbox-add').hidden, document.getElementById('inbox-add').getAttribute('aria-label')],
@@ -110,7 +111,9 @@ test('geniş düzen: bant frekansları dizer, odalar sağdaki İstasyonlar liste
     }
   })
   assert.ok(r.bandH <= 76, 'bant tek satır: ' + r.bandH)
-  assert.ok(r.minStationH >= 44, 'istasyon dokunma hedefi en az 44 px: ' + r.minStationH)
+  // Dokunma hedefi 2.75rem: 16 piksel kökte 44, varsayılan 15 piksel kökte 41,25 piksel
+  assert.equal(r.rootPx, 15)
+  assert.ok(r.minStationH >= 2.75 * r.rootPx - 0.5, 'istasyon dokunma hedefi en az 2.75rem: ' + r.minStationH)
   assert.deepEqual(r.groups, ['Frekanslar'])
   assert.deepEqual(r.kinds, ['frekans'])
   assert.equal(r.roomsInBand, false, 'bantta oda yok')
@@ -123,8 +126,8 @@ test('geniş düzen: bant frekansları dizer, odalar sağdaki İstasyonlar liste
   assert.match(r.otherDot, /is-unknown/)
   assert.deepEqual(r.personal, ['dm', 'friends'])
   assert.equal(r.radioLeft, true, 'telsiz kartı sol sütunda')
-  assert.equal(r.radioAboveRoom, true, 'telsiz kartı oda kartının üstünde')
-  assert.ok(r.roomAtBottom, 'oda kartı sütunun altında')
+  assert.equal(r.roomHidden, true, 'ayarlı istasyon kartı geniş ekranda gösterilmez')
+  assert.ok(r.radioAtBottom, 'telsiz kartı sütunun altında')
   assert.ok(r.convoW >= 720, 'sohbet sütunu geniş: ' + r.convoW)
   assert.ok(r.rightW <= 280, 'sağ sütun dar: ' + r.rightW)
   assert.equal(r.inboxTitle, 'İstasyonlar')
@@ -239,7 +242,8 @@ test('başka frekansa tıklamak ve ibreyi sürükleyip bırakmak o frekansa geç
     el.bandTrack.scrollLeft = 0
     const needle = document.querySelector('#band-track .station.is-tuned .needle').getBoundingClientRect()
     const st = document.querySelector('#band-track .station[data-station="' + k + '"]').getBoundingClientRect()
-    return { x: needle.left + needle.width / 2, y: needle.top + 10, tx: st.left + st.width / 2 }
+    // Topuzun ortası (ibrenin üst kenarı çevresinde)
+    return { x: needle.left + needle.width / 2, y: needle.top + 4, tx: st.left + st.width / 2 }
   }, target)
   await expectSwitch(page, target, async () => {
     await page.mouse.move(geo.x, geo.y)

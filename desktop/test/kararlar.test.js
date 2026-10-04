@@ -58,7 +58,11 @@ test('izin isteği kararları', () => {
   assert.equal(req('media', { mediaTypes: undefined }), 'deny')
   assert.equal(req('notifications'), 'allow')
   assert.equal(req('clipboard-sanitized-write'), 'allow')
-  for (const p of ['clipboard-read', 'geolocation', 'display-capture', 'fullscreen', 'openExternal', 'hid', 'usb', 'serial', 'midi', 'midiSysex', 'pointerLock', 'screen-wake-lock', 'speaker-selection', 'window-management', 'unknown', 'fileSystem', 'local-network-access']) {
+  // Yayın sahnesinin Tam ekran düğmesi yalnızca ana çerçevede (YouTube çerçevesi tam ekran olamaz)
+  assert.equal(req('fullscreen'), 'allow')
+  assert.equal(req('fullscreen', { isMainFrame: false, requestingUrl: 'https://www.youtube-nocookie.com/embed/x' }), 'deny')
+  assert.equal(req('fullscreen', { requestingUrl: 'telsiz://baglan/' }), 'deny')
+  for (const p of ['clipboard-read', 'geolocation', 'display-capture', 'automatic-fullscreen', 'openExternal', 'hid', 'usb', 'serial', 'midi', 'midiSysex', 'pointerLock', 'screen-wake-lock', 'speaker-selection', 'window-management', 'unknown', 'fileSystem', 'local-network-access']) {
     assert.equal(req(p), 'deny', p)
   }
   assert.equal(perm.decideRequest('notifications', Object.assign({}, main, { isMainFrame: false }), APP), 'deny')

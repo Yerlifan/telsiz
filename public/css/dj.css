@@ -565,28 +565,26 @@
   margin-left: 0.25rem;
 }
 
-/* ===== 7. Kadrodaki Telsiz DJ öğesi: gerçek kullanıcı değil, ayrı görünüm ===== */
+/* ===== 7. Telsiz kartının araç satırındaki Telsiz DJ düğmesi (radio.css .radio-tool) ===== */
 
-.crew-dj .crew-avatar.dj-avatar {
-  border: 2px dashed var(--live);
+.crew-dj .dj-crew-button {
+  border-color: var(--live);
   background-color: var(--live-bg);
   color: var(--live);
 }
 
-.dj-avatar-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+.crew-dj .dj-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
 }
 
-.crew-dj .dj-crew-name {
-  color: var(--live);
+.crew-dj.is-playing .dj-crew-button {
+  border-style: solid;
+  box-shadow: 0 0 6px 2px var(--halo-1);
 }
 
-.crew-dj.is-playing .crew-avatar.dj-avatar {
-  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 6px 5px var(--halo-1);
-}
-
-.crew-dj.needs-tap .crew-avatar.dj-avatar {
+.crew-dj.needs-tap .dj-crew-button {
   border-style: solid;
   -webkit-animation: band-pulse 1.6s var(--ease) infinite;
   animation: band-pulse 1.6s var(--ease) infinite;
@@ -796,16 +794,11 @@ body.has-dj-dock .settings-side {
     -webkit-animation: sheet-from-bottom var(--dur-med) var(--ease);
     animation: sheet-from-bottom var(--dur-med) var(--ease);
   }
-
-  .crew-dj .dj-avatar-icon {
-    width: 1rem;
-    height: 1rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .side-dj.is-open,
-  .crew-dj.needs-tap .crew-avatar.dj-avatar,
+  .crew-dj.needs-tap .dj-crew-button,
   .dj-dock.needs-tap .dj-dock-toggle {
     -webkit-animation: none;
     animation: none;
