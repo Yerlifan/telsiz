@@ -1906,7 +1906,7 @@ window.VoiceClient = (function () {
     // Katılma ve ayrılma sesleri ile bas konuşun kısa açılış ve kapanış ipucu (masaüstü genel kısayolu)
     // Katılma, ayrılma ve düşme sayfanın bildirim sesleriyle (window.TelsizSesler) ve sayfanın kendi ses bağlamında
     // çalar: 2 saniye sürer ve ses odasından çıkınca kapanan bu bağlamda yarıda kesilmez. Bas konuş ipuçları kısa
-    // tonlardır ve bu bağlamda çalar. Giriş ve çıkış sesleri ayarı kapalıysa hiçbiri çalmaz, sağırlaştırılmışken
+    // tonlardır ve bu bağlamda çalar. Ses odası sesleri ayarı kapalıysa hiçbiri çalmaz, sağırlaştırılmışken
     // başkalarının hareketleri sessizdir.
     function playTone (kind, other) {
       if (!st.settings.sounds) return

@@ -2815,6 +2815,7 @@ function buildNotificationsPage (page) {
   const volume = sRange('set-notify-volume', 0, 100, 1, notifyVolume())
   soundSec.appendChild(volume)
   soundSec.appendChild(sHint(t('settings.notify.volumeHint'), 'set-notify-volume-hint'))
+  volume.setAttribute('aria-describedby', 'set-notify-volume-hint')
   const showVolume = () => {
     volumeValue.textContent = formatPercent(sliderValue(volume, 0, 100))
   }
@@ -2908,7 +2909,7 @@ function onDesktopNotifyChange (checked, input, msg) {
 
 // Mesaj sesi ve bildirim sesleri (31-sesler.js, window.TelsizSesler). Mesaj sesi: sayfa gizliyken başkasının
 // mesajında kısa iki tonlu ses. Özel mesaj ve arkadaşlık isteği kendi 2 saniyelik seslerini çalar. Üçü de
-// Mesaj sesi ayarına ve Rahatsız etmeyin durumuna uyar. Çağıran taraf sayfanın durumunu, mesajın başkasının
+// Mesaj ve istek sesleri ayarına ve Rahatsız etmeyin durumuna uyar. Çağıran taraf sayfanın durumunu, mesajın başkasının
 // olduğunu ve bildirim düzeyini denetler. opts.test ayar sayfasındaki dinleme düğmeleri içindir. Ses düzeyi
 // Bildirimler bölümündeki kaydırıcıdan gelir (telsiz.notifyVolume). Ses odası sesleri (katılma, ayrılma,
 // ekran yayını, odadan düşme) Ses ve Görüntü bölümündeki Ses odası sesleri ayarına uyar.

@@ -54,13 +54,31 @@ function fakeAudio () {
     stats.delays++
     return node({ delayTime: param([]) })
   }
+  // stats.resumeHold: resume() tarayıcının izin vermediği durumdaki gibi bekler, stats.release() açar.
+  // stats.suspendHold: suspend() bekler, durum ancak stats.finishSuspend() ile suspended olur (tarayıcıdaki gibi).
   Ctx.prototype.resume = function () {
     stats.resumed++
+    if (stats.resumeHold) {
+      return new Promise((resolve) => {
+        stats.release = () => {
+          this.state = 'running'
+          resolve()
+        }
+      })
+    }
     this.state = 'running'
     return Promise.resolve()
   }
   Ctx.prototype.suspend = function () {
     stats.suspended++
+    if (stats.suspendHold) {
+      return new Promise((resolve) => {
+        stats.finishSuspend = () => {
+          this.state = 'suspended'
+          resolve()
+        }
+      })
+    }
     this.state = 'suspended'
     return Promise.resolve()
   }
@@ -71,6 +89,8 @@ function load (opts) {
   const o = opts || {}
   const audio = fakeAudio()
   if (o.startState) audio.stats.startState = o.startState
+  if (o.resumeHold) audio.stats.resumeHold = true
+  if (o.suspendHold) audio.stats.suspendHold = true
   const store = new Map(Object.entries(o.store || {}))
   const timers = []
   const sandbox = {
@@ -209,4 +229,51 @@ test('çalma: askıdaki bağlam önce açılır, ses sonra kurulur', async () =>
   await flush()
   assert.equal(env.stats.resumed, 1)
   assert.ok(env.stats.oscillators.length > 0)
+})
+
+test('çalma: ilk etkileşimden önce istenen sesler tek açma isteği bekler, açılınca eskiler çalmaz', async () => {
+  let now = 1000000
+  const env = load({ startState: 'suspended', resumeHold: true, Date: { now: () => now } })
+  assert.equal(env.api.play('dm'), true)
+  now += 500
+  assert.equal(env.api.play('friend'), true)
+  now += 2000
+  assert.equal(env.api.play('dm'), true)
+  assert.equal(env.stats.resumed, 1, 'tek açma isteği')
+  await flush()
+  assert.equal(env.stats.oscillators.length, 0)
+  // Kullanıcı tıklayınca bağlam açılır: 1.5 saniyeden eski iki istek atlanır, yalnızca son özel mesaj çalar
+  now += 200
+  env.stats.release()
+  await flush()
+  const one = load()
+  one.api.schedule(new one.sandbox.AudioContext(), 'dm', { when: 0 })
+  assert.equal(env.stats.oscillators.length, one.stats.oscillators.length, 'yalnızca son özel mesaj sesi çaldı')
+})
+
+test('çalma: askıya alma sürerken istenen ses askıya alma bitince bağlamı yeniden açar', async () => {
+  let now = 1000000
+  const env = load({ suspendHold: true, Date: { now: () => now } })
+  assert.equal(env.api.play('join'), true)
+  const first = env.stats.oscillators.length
+  // Uyanık kalma süresi doldu, askıya alma başladı ama durum henüz running
+  env.timers[env.timers.length - 1].fn()
+  assert.equal(env.stats.suspended, 1)
+  now += 3000
+  assert.equal(env.api.play('leave'), true)
+  assert.equal(env.stats.oscillators.length, first, 'askıya alınmakta olan bağlama ses kurulmadı')
+  env.stats.finishSuspend()
+  await flush()
+  assert.equal(env.stats.resumed, 1, 'askıya alma bitince bağlam açıldı')
+  assert.ok(env.stats.oscillators.length > first, 'ses açılan bağlamda kuruldu')
+})
+
+test('çalma: saat geri alınınca yineleme sınırı sesi susturmaz', () => {
+  let now = 1000000
+  const env = load({ Date: { now: () => now } })
+  env.api.play('join')
+  const first = env.stats.oscillators.length
+  now -= 3600000
+  env.api.play('join')
+  assert.equal(env.stats.oscillators.length, first * 2)
 })

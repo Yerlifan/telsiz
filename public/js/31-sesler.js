@@ -14,7 +14,7 @@
 // Ses düzeyi 0 ile 100 arasıdır (telsiz.notifyVolume, varsayılan DEFAULT_VOLUME). Algıya yakın olsun diye
 // genlik düzeyin karesiyle ölçeklenir. Ses bağlamı sayfa başına birdir, ilk kullanıcı etkileşiminde açılır ve
 // ses bitince askıya alınır. Masaüstü uygulamasının arka plan penceresinde hiç ses çalınmaz.
-// Hangi olayda çalınacağına ve ayarlara (Giriş ve çıkış sesleri, Mesaj sesi, Rahatsız etmeyin, sağırlaştırma)
+// Hangi olayda çalınacağına ve ayarlara (Ses odası sesleri, Mesaj ve istek sesleri, Rahatsız etmeyin, sağırlaştırma)
 // çağıran modül karar verir: public/voice.js (katılma, ayrılma, düşme), 22-cast.js (ekran yayını),
 // 05-poll.js ve 11-settings.js (özel mesaj, mesaj sesi), 14-social.js (arkadaşlık isteği).
 
@@ -31,6 +31,9 @@ window.TelsizSesler = (function () {
   // Aynı ses bu süre içinde yeniden istenirse (ör. aynı anda birkaç kişi katılınca) bir kez çalar
   const REPEAT_GAP_MS = 900
   const SLEEP_AFTER_MS = 600
+  // Askıdaki bağlam bu süreden geç açılırsa istenen ses çalınmaz (ilk etkileşimden önce biriken eski bildirimler
+  // ilk tıklamada üst üste çalmasın)
+  const STALE_MS = 1500
 
   // Tınılar: [frekans oranı, genlik, sönme katsayısı]. Sönme katsayısı notanın sönme süresiyle çarpılır, üst
   // kısmi tonlar daha çabuk söner.
@@ -117,7 +120,13 @@ window.TelsizSesler = (function () {
     }
   }
 
-  const state = { ctx: null, timer: 0, sleepAt: 0, last: Object.create(null) }
+  const state = { ctx: null, timer: 0, sleepAt: 0, last: Object.create(null), waking: null, suspending: null }
+
+  // Yineleme sınırı ve uyanık kalma süresi monoton saatle ölçülür (sistem saati geri alınınca sesler susmasın)
+  function clock () {
+    if (typeof performance === 'object' && performance && typeof performance.now === 'function') return performance.now()
+    return Date.now()
+  }
 
   function readStore (key) {
     try {
@@ -178,22 +187,48 @@ window.TelsizSesler = (function () {
   }
 
   // Ses bağlamı en az ms boyunca açık kalır, sonra askıya alınır (boşta işlemci harcamaz)
+  // Askıya alma sürerken bağlamın durumu hâlâ running okunabilir, bu yüzden süren askıya alma ayrıca izlenir.
   function keepAwake (ms) {
-    const until = Date.now() + ms
+    const until = clock() + ms
     if (until <= state.sleepAt) return
     state.sleepAt = until
     clearTimeout(state.timer)
     state.timer = setTimeout(() => {
       const c = state.ctx
-      if (c && c.state === 'running' && typeof c.suspend === 'function') {
-        try {
-          const p = c.suspend()
-          if (p && typeof p.catch === 'function') p.catch(() => {})
-        } catch (err) {
-          // Askıya alınamadı
+      if (!c || c.state !== 'running' || typeof c.suspend !== 'function' || state.waking) return
+      try {
+        const p = c.suspend()
+        if (!p || typeof p.then !== 'function') return
+        state.suspending = p
+        const settle = () => {
+          if (state.suspending === p) state.suspending = null
         }
+        p.then(settle, settle)
+      } catch (err) {
+        // Askıya alınamadı
       }
     }, ms)
+  }
+
+  function needsWake (c) {
+    return Boolean(state.suspending) || c.state === 'suspended'
+  }
+
+  // Bağlamı açar (süren askıya alma varsa bittikten sonra). Aynı anda tek bir açma isteği bekler, sonraki
+  // sesler onu bekler.
+  function wake (c) {
+    if (state.waking) return state.waking
+    const resume = () => c.resume()
+    const started = state.suspending ? state.suspending.then(resume, resume) : Promise.resolve(resume())
+    const done = () => {
+      if (state.waking === waking) state.waking = null
+    }
+    const waking = started.then(done, (err) => {
+      done()
+      throw err
+    })
+    state.waking = waking
+    return waking
   }
 
   // İlk kullanıcı etkileşiminde bağlam açılır (tarayıcılar sesi ancak bir etkileşimden sonra başlatır)
@@ -309,13 +344,15 @@ window.TelsizSesler = (function () {
     const test = Boolean(opts && opts.test)
     if (kind !== 'message' && !SOUNDS[kind]) return false
     if (background()) return false
-    const now = Date.now()
-    if (!test && state.last[kind] && now - state.last[kind] < REPEAT_GAP_MS) return true
+    const now = clock()
+    const last = state.last[kind]
+    if (!test && typeof last === 'number' && now >= last && now - last < REPEAT_GAP_MS) return true
     state.last[kind] = now
     const c = context()
     if (!c) return false
     const length = kind === 'message' ? 0.3 : DURATION
     const run = () => {
+      if (!test && clock() - now > STALE_MS) return
       try {
         schedule(c, kind, null)
         keepAwake(Math.round((length + START_DELAY) * 1000) + SLEEP_AFTER_MS)
@@ -323,11 +360,9 @@ window.TelsizSesler = (function () {
         // Ses kurulamadı, bildirim sessiz geçer
       }
     }
-    if (c.state === 'suspended' && typeof c.resume === 'function') {
+    if (needsWake(c) && typeof c.resume === 'function') {
       try {
-        const p = c.resume()
-        if (p && typeof p.then === 'function') p.then(run, () => {})
-        else run()
+        wake(c).then(run, () => {})
       } catch (err) {
         return false
       }

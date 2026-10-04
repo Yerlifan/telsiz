@@ -156,7 +156,7 @@ function castRememberQuality (preset, hint) {
 // Motor olayları (10-voice.js createVoice -> onScreenEvent)
 
 // Yeni başlayan ekran yayını sesli bildirim verir (31-sesler.js). Zaten süren bir paylaşımın duyurusu (ses
-// odasına yeni girildi, bağlantı yenilendi) evt.fresh false gelir ve sessiz geçer. Giriş ve çıkış sesleri ayarı
+// odasına yeni girildi, bağlantı yenilendi) evt.fresh false gelir ve sessiz geçer. Ses odası sesleri ayarı
 // kapalıysa veya sağırlaştırılmışken çalmaz.
 function castPlayShareSound (evt) {
   if (!evt.fresh || !voice || !window.TelsizSesler) return

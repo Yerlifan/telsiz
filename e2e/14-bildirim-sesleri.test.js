@@ -1,7 +1,7 @@
 'use strict'
 
-// Sesli bildirimler (public/js/31-sesler.js) gerçek tarayıcıda. Deniz ve Mert'in sayfasında
-// window.TelsizSesler.play sarmalanır, çalınan ses türleri kaydedilir (asıl çalma yolu da çalışır).
+// Sesli bildirimler (public/js/31-sesler.js) gerçek tarayıcıda. Deniz, Mert ve Ece'nin
+// sayfasında window.TelsizSesler.play sarmalanır, çalınan ses türleri kaydedilir (asıl çalma yolu da çalışır).
 // - Ses odasına katılma ve ayrılma: kişinin kendisinde ve odadaki diğer kişide join ve leave
 // - Ekran yayını: oda kurulduktan sonra başlayan paylaşımda izleyicide share, zaten süren paylaşımın
 //   duyurusunda (sonradan katılan kişi) ses yok
@@ -26,7 +26,7 @@ before(async () => {
   W.deniz = await W.w.pageFor('deniz')
   W.mert = await W.w.pageFor('mert')
   W.ece = await W.w.pageFor('ece')
-  for (const page of [W.deniz, W.mert]) {
+  for (const page of [W.deniz, W.mert, W.ece]) {
     await page.evaluate(() => {
       window.__sesler = []
       const api = window.TelsizSesler
@@ -84,6 +84,20 @@ test('ekran yayını başlayınca izleyicide yayın sesi çalar', async () => {
   await mert.waitForSelector('#cast[data-mode="own"]:not([hidden])', { timeout: h.LONG })
   await waitKind(deniz, 'share')
   assert.deepEqual((await kinds(mert)).filter((k) => k === 'share'), [], 'paylaşan kişide yayın sesi yok')
+})
+
+test('zaten süren ekran yayınına sonradan katılan kişide yayın sesi çalmaz', async () => {
+  const { deniz, ece } = W
+  await clear(ece)
+  await h.joinVoice(ece, W.lobi.id)
+  await waitKind(ece, 'join')
+  // Paylaşım duyurusu geldi: Ece'nin Bildirimler listesinde Mert'in paylaşımı görünür
+  await ece.waitForSelector('#activity:not([hidden]) .activity-item.is-share', { timeout: h.LONG })
+  await h.sleep(1500)
+  assert.deepEqual((await kinds(ece)).filter((k) => k === 'share'), [], 'süregelen paylaşımda yayın sesi yok')
+  await ece.click('#voice-leave')
+  await ece.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  await deniz.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 2, null, { timeout: h.LONG })
 })
 
 test('özel mesaj: başka konuşmadayken gelen özel mesajda özel mesaj sesi', async () => {
