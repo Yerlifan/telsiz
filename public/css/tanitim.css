@@ -621,30 +621,131 @@
   margin-left: 0.375rem;
 }
 
-.tanitim-foot {
+/* Ortak alt bilgi (#site-foot): giriş görünümünün en altında, tanıtımda ve giriş kartında. Küçük ve sakin:
+   üstte bağlantı hapları, altta sürüm ve geliştiren satırı. */
+.site-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  padding: 0.5rem 1rem 1.5rem;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.site-foot-links {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  margin-top: 3rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  color: var(--text-3);
-  font-size: var(--text-sm);
-  text-align: center;
+  margin-bottom: 0.375rem;
 }
 
-.tanitim-version {
+/* Eski tarayıcılarda gap yok: haplar kendi kenar boşluklarıyla ayrılır */
+.site-foot-links > * {
+  margin: 0.25rem;
+}
+
+.site-foot-link,
+.site-foot-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-pill, 999px);
+  background-color: var(--surface-1);
+  color: var(--text-2);
+  font-weight: var(--weight-strong);
+  text-decoration: none;
+}
+
+.site-foot-note {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.site-foot-link:hover {
+  border-color: var(--line-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.site-foot-link .icon,
+.site-foot-note .icon {
+  flex: none;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin-right: 0.4375rem;
+  color: var(--accent-text);
+}
+
+.site-foot-credit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.site-foot-version {
   font-family: var(--font-mono);
 }
 
-.tanitim-foot-sep {
+.site-foot-sep {
   flex: none;
-  width: 0.3125rem;
-  height: 0.3125rem;
-  margin: 0 0.875rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  margin: 0 0.625rem;
   border-radius: var(--dot-radius);
   background-color: var(--line-strong);
+}
+
+.site-foot-name {
+  color: var(--text-2);
+  font-weight: var(--weight-strong);
+}
+
+/* Giriş kartının arkasında yayın halkaları: kartın merkezinden dışa doğru silikleşen ince çemberler */
+.auth-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.auth-stage::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: min(64rem, 170vw);
+  height: min(64rem, 170vw);
+  background-image: repeating-radial-gradient(circle at center, transparent 0, transparent 3.5rem, var(--line) 3.5rem, var(--line) calc(3.5rem + 1px));
+  -webkit-mask-image: radial-gradient(circle at center, black 18%, transparent 68%);
+  mask-image: radial-gradient(circle at center, black 18%, transparent 68%);
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Kartın hemen arkasında hafif, temanın vurgu renginde bir parıltı */
+.auth-stage::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: min(36rem, 110vw);
+  height: min(36rem, 110vw);
+  border-radius: 50%;
+  background-image: radial-gradient(circle at center, var(--bg-glow-a) 0, transparent 65%);
+  opacity: 0.8;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .tanitim-back {
@@ -830,14 +931,6 @@
 
   .tanitim-feature-title {
     margin-top: 0.125rem;
-  }
-
-  .tanitim-foot-sep {
-    display: none;
-  }
-
-  .tanitim-foot > * {
-    margin: 0 0.5rem;
   }
 
   .tanitim-card {
