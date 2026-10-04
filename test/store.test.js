@@ -216,7 +216,8 @@ test('saveState 200 ms içinde tek yazım planlar, flush hemen yazar', async () 
     assert.equal(readJson(statePath).serverName, 'Ad 49')
     await waitFor(() => readJson(statePath).serverName === 'Zamanlayıcı', 5000)
     assert.ok(Date.now() - started >= 150, 'yazım beklemeden yapıldı')
-    assert.equal(stateRenames, 2)
+    // Sayaç taşıma sözü çözüldükten sonra artar, dosya diskte bundan biraz önce görünebilir
+    await waitFor(() => stateRenames === 2, 5000)
 
     // değişiklik yoksa flush yazmaz
     await store.flush()
