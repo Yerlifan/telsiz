@@ -325,6 +325,24 @@ function makeTest (file, getPages, opts) {
 // Sunucu, Node tarafı hesaplar ve örnek odalar. Kişiler: deniz (sahip), ece, mert ve opts.extraPeople.
 // opts.slot: TELSIZ_E2E_PORT_BASE verilmişse bu dosyanın port yuvası. opts.chromiumArgs: Chromium'a ek bayraklar.
 // Odalar: genel, oyun-gecesi, fotograflar (yazı), Lobi, Oyun (ses).
+// Uygulama hazır olduktan sonra load olayı SLOW_LOAD_MS içinde gelmezse sayfanın durumu ve tamamlanmamış
+// kaynaklar (resim, biçem, yazı tipi) TAP açıklaması olarak yazılır. Test bu yüzden düşmez.
+const SLOW_LOAD_MS = 10000
+async function slowLoad (page, label) {
+  try {
+    await page.waitForFunction(() => document.readyState === 'complete', null, { timeout: SLOW_LOAD_MS })
+  } catch (err) {
+    const info = await page.evaluate(() => ({
+      readyState: document.readyState,
+      fonts: document.fonts ? document.fonts.status : '',
+      images: Array.from(document.images).filter((img) => !img.complete).map((img) => img.currentSrc || img.src).slice(0, 10),
+      styles: Array.from(document.querySelectorAll('link[rel="stylesheet"]')).filter((l) => !l.sheet).map((l) => l.href).slice(0, 10),
+      done: performance.getEntriesByType('resource').length
+    })).catch((e) => ({ error: String(e && e.message) }))
+    console.log('# yavaş yükleme (' + BROWSER + ', ' + label + '): ' + JSON.stringify(info))
+  }
+}
+
 async function setupWorld (opts) {
   const o = opts || {}
   const srv = await startServer(o.server, o.slot)
@@ -374,10 +392,13 @@ async function setupWorld (opts) {
   const pageFor = async (who, opts2) => {
     const o2 = opts2 || {}
     const page = await tb.newPage(o2.label || who, Object.assign({}, o2, { person: P[who], extra: Object.assign({ 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' }, o2.extra || {}) }))
-    // Firefox'ta yeni bağlamın ilk yüklemesi CI'da kısa süreyi aşabilir
-    await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode), { timeout: LONG })
+    // Sayfanın hazır olduğu uygulama görünümü ve bant ile beklenir, pencerenin load olayı beklenmez (uygulamada
+    // load olayına bağlı iş yok). Firefox'ta CI'da yeni sayfanın load olayı zaman zaman 30 saniyeyi aştı, bu
+    // durumda bekleyen kaynaklar test çıktısına yazılır (slowLoad).
+    await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode), { timeout: LONG, waitUntil: 'domcontentloaded' })
     await page.waitForSelector('#app-view:not([hidden])', { timeout: LONG })
     await page.waitForSelector('#band-track .station[data-station]', { timeout: LONG })
+    await slowLoad(page, o2.label || who)
     return page
   }
   const close = async () => {
