@@ -131,7 +131,7 @@ test('ön ayar eşleme: setParameters kodlama sınırları ve applyConstraints k
   assert.deepStrictEqual(plain(u.trackConstraints('nope')), { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 15 } })
 })
 
-test('getDisplayMedia kısıtları: yalnızca üst sınır, ses isteğe bağlı ve işlemesiz, kendi sekmesi hariç', () => {
+test('getDisplayMedia kısıtları: yalnızca üst sınır, ses isteğe bağlı, işlemesiz ve kendi sesi hariç, kendi sekmesi hariç', () => {
   const u = load().VC.screenUtils
   assert.deepStrictEqual(plain(u.displayConstraints({ preset: '720p30', audio: false })), {
     video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
@@ -141,7 +141,7 @@ test('getDisplayMedia kısıtları: yalnızca üst sınır, ses isteğe bağlı 
   })
   assert.deepStrictEqual(plain(u.displayConstraints({ audio: true })), {
     video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 15 } },
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
     systemAudio: 'include'

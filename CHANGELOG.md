@@ -2,6 +2,12 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Düzeltmeler
+
+- Ekran paylaşımında sistem sesi paylaşılırken Telsiz'deki konuşmalar da paylaşılan sese giriyor, dinleyenler kendi seslerini geri duyuyordu. Paylaşım sesi artık `restrictOwnAudio` kısıtıyla istenir: masaüstü uygulaması ve bunu destekleyen tarayıcılar Telsiz'in kendi çaldığı sesleri (konuşmalar, bildirim sesleri, Telsiz DJ) paylaşılan sesten çıkarır. Bu ayrımı desteklemeyen eski Windows sürümlerinde bütün sistem sesi paylaşılmaya devam eder.
+
 ## [2.2.0]
 
 ### Yeni özellikler

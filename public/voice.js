@@ -547,12 +547,15 @@ window.VoiceClient = (function () {
   }
 
   // getDisplayMedia isteği. Tanımayan tarayıcılar ek alanları yok sayar. Ses isteğe bağlıdır, işleme kapalıdır
-  // (müzik ve oyun sesi bozulmasın). Kendi sekmesi listede yer almaz (sonsuz yansıma olmasın).
+  // (müzik ve oyun sesi bozulmasın). Kendi sekmesi listede yer almaz (sonsuz yansıma olmasın). restrictOwnAudio
+  // sistem sesinden Telsiz'in kendi çaldığı sesleri (konuşmalar, bildirimler, Telsiz DJ) çıkarır, böylece
+  // dinleyenler kendi seslerini paylaşımdan geri duymaz. Masaüstü uygulamasında Electron bu istekle sistem sesi
+  // yakalamasını uygulamanın kendi sesi hariç yakalamaya çevirir.
   function displayConstraints (opts) {
     var o = screenOptions(opts, null)
     var c = {
       video: trackConstraints(o.preset),
-      audio: o.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+      audio: o.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } : false,
       selfBrowserSurface: 'exclude',
       surfaceSwitching: 'include'
     }

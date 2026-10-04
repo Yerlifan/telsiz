@@ -113,7 +113,7 @@ Mikrofon sesi bir WebAudio hattından geçer. Algılama kolu sesi gecikmesiz öl
 
 Ekran paylaşımı ses bağlantılarının üzerine kurulur. Paylaşan kişi `getDisplayMedia` ile ekran, pencere veya sekme seçer ve odaya şifreli bir paylaşım duyurusu gönderir. Görüntü parçası yalnızca İzle diyen kişilerle olan bağlantılara eklenir. İzleme isteği ve bırakma da şifreli sinyallerdir. Bağlantıya görüntü parçası eklemek veya çıkarmak WebRTC yeniden anlaşmasıyla yapılır.
 
-Paylaşan kişi dört kaliteden birini seçer: 720p 15 kare (varsayılan), 720p 30 kare, 1080p 15 kare ve 1080p 30 kare. Akıcılık veya net metin önceliği tarayıcıya içerik ipucu olarak verilir. Tarayıcı sekme veya sistem sesi sağlıyorsa paylaşım sesi de mikrofondan ayrı bir parça olarak gönderilebilir. Tam örgüde paylaşanın yükleme hızı her izleyici için ayrı kullanılır. Masaüstü uygulamasında tarayıcının seçicisi yerine uygulamanın kendi ekran ve pencere seçicisi açılır.
+Paylaşan kişi dört kaliteden birini seçer: 720p 15 kare (varsayılan), 720p 30 kare, 1080p 15 kare ve 1080p 30 kare. Akıcılık veya net metin önceliği tarayıcıya içerik ipucu olarak verilir. Tarayıcı sekme veya sistem sesi sağlıyorsa paylaşım sesi de mikrofondan ayrı bir parça olarak gönderilebilir. Ses `restrictOwnAudio` kısıtıyla istenir: bunu destekleyen tarayıcı ve masaüstü uygulaması Telsiz'in kendi çaldığı sesleri (konuşmalar, bildirim sesleri, Telsiz DJ) sistem sesinden çıkarır, böylece dinleyenler kendi seslerini paylaşımdan geri duymaz. Tam örgüde paylaşanın yükleme hızı her izleyici için ayrı kullanılır. Masaüstü uygulamasında tarayıcının seçicisi yerine uygulamanın kendi ekran ve pencere seçicisi açılır.
 
 ## Kamera
 
