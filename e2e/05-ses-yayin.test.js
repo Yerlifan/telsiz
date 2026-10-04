@@ -9,11 +9,13 @@ const assert = require('node:assert/strict')
 const h = require('./yardimci')
 
 const W = { w: null, deniz: null, mert: null, lobi: null }
-const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
+// Sahte mikrofon, ekran yakalama ve kendiliğinden oynatma Chromium bayraklarıyla sağlanır
+const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte medya aygıtı yalnızca Chromium bayraklarıyla' })
 
 const crewSel = (id) => '#radio-crew .crew-item[data-user-id="' + id + '"]'
 
 before(async () => {
+  if (test.skipped) return
   W.w = await h.setupWorld({ slot: 4 })
   W.lobi = W.w.room('Lobi')
   W.deniz = await W.w.pageFor('deniz')

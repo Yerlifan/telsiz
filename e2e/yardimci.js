@@ -8,6 +8,8 @@
 // ayrıca 01-kurulum.test.js içinde tarayıcıdan sınanır.
 //
 // Ortam değişkenleri:
+//   TELSIZ_E2E_BROWSER    chromium (varsayılan), firefox veya webkit. Sahte mikrofon ve ekran yakalama
+//                         gerektiren dosyalar yalnızca Chromium'da çalışır, diğerlerinde atlandı olarak görünür
 //   TELSIZ_E2E_CHROMIUM   Chromium yürütülebilir dosyası (Playwright kendi kurulumunu bulamıyorsa)
 //   TELSIZ_E2E_PORT_BASE  Sunucu portları bu sayıdan başlar (verilmezse işletim sistemi boş port seçer)
 //   TELSIZ_E2E_HEADED     1 ise tarayıcı görünür açılır (yerel hata ayıklama)
@@ -23,7 +25,7 @@ const vm = require('node:vm')
 const http = require('node:http')
 const crypto = require('node:crypto')
 const { test } = require('node:test')
-const { chromium } = require('playwright')
+const playwright = require('playwright')
 const { createChatServer } = require('../src/app')
 
 const ROOT = path.join(__dirname, '..')
@@ -36,6 +38,9 @@ const TEST_TIMEOUT = 180000
 // Yerel geliştirme ortamındaki sabit Chromium yolu, yalnızca varsa ve Playwright kendi kurulumunu
 // bulamazsa kullanılır (CI'da npx playwright install ile gelen kurulum bulunur)
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium'
+const BROWSERS = ['chromium', 'firefox', 'webkit']
+const BROWSER = process.env.TELSIZ_E2E_BROWSER || 'chromium'
+if (!BROWSERS.includes(BROWSER)) throw new Error('TELSIZ_E2E_BROWSER chromium, firefox veya webkit olmalıdır: ' + BROWSER)
 
 // Konsolda beklenen ve hata sayılmayan iletiler. Sunucu tüm yanıtlarda "Permissions-Policy: camera=()"
 // gönderir (src/http-util.js). Sahte ortam bayraklarıyla açılan Chromium, getUserMedia ve
@@ -64,7 +69,7 @@ function chromiumLaunchOptions () {
   }
   let own = ''
   try {
-    own = chromium.executablePath()
+    own = playwright.chromium.executablePath()
   } catch (err) {
     own = ''
   }
@@ -74,6 +79,21 @@ function chromiumLaunchOptions () {
     return options
   }
   if (fs.existsSync(LOCAL_CHROMIUM)) options.executablePath = LOCAL_CHROMIUM
+  return options
+}
+
+// Firefox sahte mikrofonu ve izin istemini tercihlerle açar, WebKit için ek seçenek gerekmez
+function launchOptions () {
+  if (BROWSER === 'chromium') return chromiumLaunchOptions()
+  const options = { headless: process.env.TELSIZ_E2E_HEADED !== '1' }
+  if (BROWSER === 'firefox') {
+    options.firefoxUserPrefs = {
+      'media.navigator.streams.fake': true,
+      'media.navigator.permission.disabled': true,
+      'media.autoplay.default': 0,
+      'media.autoplay.block-webaudio': false
+    }
+  }
   return options
 }
 
@@ -222,7 +242,7 @@ const initScript = (v) => {
 
 // Tarayıcıyı başlatır, sayfaları izler, düşen testte ekran görüntüsü alır
 async function openBrowser () {
-  const browser = await chromium.launch(chromiumLaunchOptions())
+  const browser = await playwright[BROWSER].launch(launchOptions())
   const logs = []
   const pages = []
   return {
@@ -275,9 +295,13 @@ async function failureShots (pages, file, name) {
 
 // node:test test() sarmalayıcısı: düşen testte açık sayfaların ekran görüntüsünü yazar.
 // getPages: o anda açık sayfaları veren işlev (dünya henüz kurulmamışsa boş dizi)
-function makeTest (file, getPages) {
-  return function e2eTest (name, fn) {
-    test(name, { timeout: TEST_TIMEOUT }, async (t) => {
+// opts.browsers: dosyanın çalıştığı tarayıcılar (verilmezse hepsi), diğerlerinde testler nedeniyle atlanır
+// opts.reason: atlama nedeni
+function makeTest (file, getPages, opts) {
+  const o = opts || {}
+  const skip = o.browsers && !o.browsers.includes(BROWSER) ? (o.reason || 'bu tarayıcıda çalışmaz') + ' (' + BROWSER + ')' : false
+  function e2eTest (name, fn) {
+    test(name, { timeout: TEST_TIMEOUT, skip }, async (t) => {
       try {
         await fn(t)
       } catch (err) {
@@ -286,6 +310,9 @@ function makeTest (file, getPages) {
       }
     })
   }
+  // Atlanan dosyada before() sunucu ve tarayıcı kurmaz
+  e2eTest.skipped = skip !== false
+  return e2eTest
 }
 
 // Sunucu, Node tarafı hesaplar ve örnek odalar. Kişiler: deniz (sahip), ece, mert ve opts.extraPeople.
@@ -463,6 +490,7 @@ function makeWav (seconds, rate) {
 }
 
 module.exports = {
+  BROWSER,
   ROOT,
   PUBLIC_DIR,
   RESULTS_DIR,
