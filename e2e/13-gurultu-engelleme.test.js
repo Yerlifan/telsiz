@@ -7,6 +7,10 @@
 // açıklaması). Deniz'e ulaşan sesin seviyesi, Deniz'in sayfasında Mert'in uzak ses akışından ölçülür: RNNoise
 // açıkken tıkırtılar, ayar kapalıyken ulaşan aynı tıkırtılardan en az 8 dB daha zayıftır. Ayar kapalıyken
 // Deniz Mert'i konuşuyor görür. Ayar yeniden açılınca seviye yine düşer. Konsol temizdir.
+// RNNoise düğümü hatta girdikten sonraki yaklaşık 2 saniye boyunca ağın durumu henüz oturmadığı için tıkırtılar
+// neredeyse bastırılmadan geçer (yerelde 2 saniyelik pencerelerle ölçüldü: ilk pencere kapalı duruma yakın,
+// sonrakiler 30 ile 45 dB daha düşük). Bu yüzden ölçümden önce SETTLE_MS beklenir. Ölçüm, döngünün içindeki
+// tıkırtı dağılımından bağımsız olsun diye dosyanın iki tam döngüsü (MEASURE_MS) boyunca yapılır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -20,6 +24,8 @@ const W = { w: null, deniz: null, mert: null, lobi: null, dir: null }
 const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte mikrofona dosya yalnızca Chromium bayrağıyla verilir' })
 
 const RATE = 48000
+const SETTLE_MS = 4000
+const MEASURE_MS = 8000
 
 // 4 saniyelik döngü: tuş başına basma ve bırakma tıkırtısı (kısa, sönümlü, geniş bantlı patlama) ve pembe
 // benzeri hafif gürültü. Belirlenimci üreteçle her çalıştırmada aynı dosya üretilir.
@@ -208,9 +214,9 @@ test('iki kişi Lobi\'ye katılır, Mert\'te RNNoise düğümü gerçekten hatta
 test('RNNoise açıkken Deniz\'e ulaşan tıkırtılar, ayar kapalıyken ulaşanlardan en az 8 dB zayıftır', async (t) => {
   const { deniz, mert } = W
   const mertId = W.w.P.mert.id
-  // Düğüm hatta girdikten sonra kısa bir oturma süresi
-  await h.sleep(1500)
-  const on = await receivedLevel(4000)
+  // Düğüm hatta girdikten sonra ağın durumu oturana kadar beklenir
+  await h.sleep(SETTLE_MS)
+  const on = await receivedLevel(MEASURE_MS)
   assert.equal(typeof on, 'number', 'Mert\'in uzak ses akışı bulunamadı')
   await setRnnoiseFromSettings(mert, false)
   // Mikrofon yeniden alınmadan yalnızca hat değişir, ses tarayıcının kendi işlemesiyle gider
@@ -219,12 +225,12 @@ test('RNNoise açıkken Deniz\'e ulaşan tıkırtılar, ayar kapalıyken ulaşan
     return Boolean(p && p.speaking)
   }, mertId, { timeout: h.LONG })
   await h.sleep(1000)
-  const off = await receivedLevel(4000)
+  const off = await receivedLevel(MEASURE_MS)
   await setRnnoiseFromSettings(mert, true)
   await mert.keyboard.press('Escape')
   await mert.waitForSelector('#settings-view', { state: 'hidden' })
-  await h.sleep(1500)
-  const again = await receivedLevel(4000)
+  await h.sleep(SETTLE_MS)
+  const again = await receivedLevel(MEASURE_MS)
   const report = 'açık ' + on.toFixed(1) + ' dB, kapalı ' + off.toFixed(1) + ' dB, yeniden açık ' + again.toFixed(1) + ' dB'
   t.diagnostic(report)
   assert.ok(off - on >= 8, report)

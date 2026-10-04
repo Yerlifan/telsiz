@@ -155,10 +155,22 @@ function castRememberQuality (preset, hint) {
 
 // Motor olayları (10-voice.js createVoice -> onScreenEvent)
 
+// Yeni başlayan ekran yayını sesli bildirim verir (31-sesler.js). Zaten süren bir paylaşımın duyurusu (ses
+// odasına yeni girildi, bağlantı yenilendi) evt.fresh false gelir ve sessiz geçer. Ses odası sesleri ayarı
+// kapalıysa veya sağırlaştırılmışken çalmaz.
+function castPlayShareSound (evt) {
+  if (!evt.fresh || !voice || !window.TelsizSesler) return
+  const settings = typeof voice.settings === 'function' ? voice.settings() : null
+  if (settings && settings.sounds === false) return
+  if (snap().deafened) return
+  window.TelsizSesler.play('share')
+}
+
 function castOnScreenEvent (evt) {
   if (!evt || typeof evt.type !== 'string') return
   const uid = evt.userId === null || evt.userId === undefined ? null : String(evt.userId)
   if (evt.type === 'share-start') {
+    castPlayShareSound(evt)
     // Bildirimler listesine (28-bildirim.js) yazılır, liste ekrandaysa sağ üstteki bildirim açılmaz
     const listed = typeof activityShare === 'function'
     if (listed) activityShare(uid, true)

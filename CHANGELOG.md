@@ -2,7 +2,7 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
-## [Yayımlanmamış]
+## [2.3.0]
 
 ### Yeni özellikler
 
@@ -18,6 +18,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 - Masaüstü uygulamasında Telsiz arka plandayken (ör. bir oyun açıkken) bas konuş: Ayarlar > Tuş atamaları sayfasındaki genel kısayollara bas konuş satırı eklendi. Varsayılan "Bas aç, bas kapat" kipinde bir kez basınca konuşma başlar, tekrar basınca biter ve kısa bir ses çalar. İsteğe bağlı "Basılı tut (tuş kancası)" seçeneği açılırsa seçilen tuş basılıyken konuşulur, bırakınca susulur. Kanca yalnızca bir ses odasında bas konuş modundayken çalışır, sistemdeki bütün tuş olaylarını görür ama yalnızca seçilen tuşu işler, tuş kodları sayfaya veya günlüğe gitmez. Ses etkinliği modunda kısayol mikrofonu açıp kapatır. Masaüstü uygulamasına uiohook-napi 1.5.5 bağımlılığı eklendi.
 - Masaüstü uygulamasında (Windows ve Linux) yerel başlık çubuğu ve menü çubuğu yerine tema renginde ince bir başlık şeridi: küçült, ekranı boyutla ve kapat düğmeleri temanın zemin ve yazı rengini alır, tema değişince renkleri de değişir. Uygulama menüleri (Telsiz, Düzen, Görünüm, Yardım) şeridin solundaki düğmelerle açılır, menü kısayolları çalışmaya devam eder. Tam ekranda şerit kalkar.
 - Ses odasındaki kişilerin sesi %200'e kadar yükseltilebilir: kişi ses kartındaki ve profil kartındaki Ses seviyesi kaydırıcısı 0 ile 200 arasındadır. %100'e kadar ses eskisi gibi ses öğesinden çalar, üstünde o kişinin sesi ses bağlamında bir kazanç düğümüyle yükseltilir ve sert kırpılmayı yumuşatan bir sınırlayıcıdan geçer. Hoparlörle kullanırken Chromium'un yankı engellemesi yükseltilmiş sesi hesaba katmayabilir.
+- Sesli bildirimler: ses odasına biri katılınca veya ayrılınca, biri ekran yayını başlatınca, özel mesaj veya arkadaşlık isteği gelince ve ses odasından düşünce her biri kendine özgü, 2 saniyelik bir ses çalar (`public/js/31-sesler.js`). Sesler dosyadan çalınmaz, Web Audio ile sentezlenir (çan, marimba ve cam tınılı kısa melodiler). Ayarlar > Bildirimler'de bütün bildirim seslerinin düzeyi için kaydırıcı (varsayılan %40, alçak) ve her sesi dinleme düğmeleri vardır. Ses odası sesleri Ses odası sesleri ayarına uyar ve sağırlaştırılmışken başkalarının hareketlerinde çalmaz. Özel mesaj ve arkadaşlık isteği sesleri Mesaj ve istek sesleri ayarına ve Rahatsız etmeyin durumuna uyar. Odaya girdiğinizde zaten süren bir ekran yayını ses çalmaz. Masaüstü uygulamasının arka plan pencereleri ses çalmaz.
 
 ### Değişiklikler
 
@@ -37,6 +38,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 - Düğme, menü öğesi, sekme ve çip etiketlerinde her kelime büyük harfle başlar (ör. Özel Mesajlar, Tekrar Dene, Odadan Çıkar). Türkçede ve, ile, veya gibi bağlaçlar küçük kalır. Üst bilgi satırları da aynı biçimdedir: "Frekans · 9 Üye · Şifreli", "Açık · 4 Çevrimiçi", "Yazı Odası" ve "Uçtan Uca Şifreli".
 - Başkasının ekran paylaşımı üst çubukta gösterilmez ("X yayında · İzle" çipi kaldırıldı). Kendi paylaşımınızın "Ekranınız yayında · Durdur" çipi kalır.
 - Telsiz kartının kadrosu ortalanır, kamera açıkken üç kişi tek satıra sığar.
+- Ses ve Görüntü'deki Giriş ve çıkış sesleri ayarının adı Ses odası sesleri oldu, Bildirimler'deki Mesaj sesi bölümü Bildirim sesleri oldu. Katılma ve ayrılma sesleri artık ses odasından çıkınca yarıda kesilmez, ses odasından düşünce ayrılma sesi yerine düşme sesi çalar.
 
 ### Düzeltmeler
 

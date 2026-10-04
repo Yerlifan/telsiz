@@ -950,6 +950,14 @@ function notifyNewRequests (incoming) {
   if (!fresh.length || myChosenStatus() === 'dnd') return
   const id = fresh[0]
   profilesEnsure([id])
+  // Arkadaşlık isteği sesi (Mesaj ve istek sesleri ayarına uyar, 11-settings.js playAlertSound)
+  if (typeof playAlertSound === 'function') {
+    try {
+      playAlertSound('friend')
+    } catch (err) {
+      window.console.error(err)
+    }
+  }
   if (document.hidden) {
     showNotification(t('social.requestNotifyTitle'), t('social.requestNotifyBody', { name: userDisplayName(id) }), 'telsiz-friend', () => {
       showHome('pending')

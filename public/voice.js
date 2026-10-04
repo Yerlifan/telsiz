@@ -33,6 +33,11 @@ window.VoiceClient = (function () {
   var SELF_GRACE_MS = 15000
   var UNKNOWN_TTL_MS = 15000
   var OTHER_TONE_QUIET_MS = 1500
+  // Bağlantı kurulduktan veya ses odasına girildikten sonra bu süre içinde gelen paylaşım duyurusu zaten süren
+  // bir paylaşımdır (yeni başlamış sayılmaz, sesli bildirim çalmaz)
+  var SHARE_FRESH_MS = 4000
+  // Sayfanın bildirim sesleriyle çalınan türler (public/js/31-sesler.js): katılma, ayrılma, ses odasından düşme
+  var NOTIFY_TONES = { join: true, leave: true, drop: true }
   // Kısa sesler (giriş ve çıkış sesleri ayarı): notalar (Hz), notalar arası süre (sn) ve düzey. Bas konuş ipuçları kısa ve tizdir,
   // katılma ve ayrılma seslerinden ayırt edilir.
   var TONES = {
@@ -1899,9 +1904,24 @@ window.VoiceClient = (function () {
     }
 
     // Katılma ve ayrılma sesleri ile bas konuşun kısa açılış ve kapanış ipucu (masaüstü genel kısayolu)
+    // Katılma, ayrılma ve düşme sayfanın bildirim sesleriyle (window.TelsizSesler) ve sayfanın kendi ses bağlamında
+    // çalar: 2 saniye sürer ve ses odasından çıkınca kapanan bu bağlamda yarıda kesilmez. Bas konuş ipuçları kısa
+    // tonlardır ve bu bağlamda çalar. Ses odası sesleri ayarı kapalıysa hiçbiri çalmaz, sağırlaştırılmışken
+    // başkalarının hareketleri sessizdir.
     function playTone (kind, other) {
-      if (!st.settings.sounds || !ctx || ctx.state !== 'running') return
+      if (!st.settings.sounds) return
       if (other && st.deafened) return
+      if (NOTIFY_TONES[kind]) {
+        var sounds = typeof window !== 'undefined' ? window.TelsizSesler : null
+        if (sounds && typeof sounds.play === 'function') {
+          try {
+            sounds.play(kind)
+          } catch (e) {}
+          return
+        }
+        if (kind === 'drop') kind = 'leave'
+      }
+      if (!ctx || ctx.state !== 'running') return
       var tone = TONES[kind]
       if (!tone) return
       var peak = other ? 0.08 : tone.peak
@@ -2638,6 +2658,8 @@ window.VoiceClient = (function () {
         lastLoud: 0,
         speaking: false,
         status: 'connecting',
+        // Bağlantının son kurulduğu an (yeni başlayan paylaşımı süregelenden ayırmak için, SHARE_FRESH_MS)
+        connectedAt: 0,
         lastState: 'new',
         restarted: false,
         waited: false,
@@ -2774,6 +2796,7 @@ window.VoiceClient = (function () {
       if (s === 'connected') {
         clearPeerTimer(peer)
         peer.status = 'connected'
+        peer.connectedAt = Date.now()
         peer.restarted = false
         peer.waited = false
       } else {
@@ -3887,9 +3910,12 @@ window.VoiceClient = (function () {
       if (!rs) {
         rs = { id: m.id, userId: r.userId, audio: m.audio, hint: m.hint, preset: m.preset, watch: watchStep('none', 'announce'), stream: null, audioEl: null, audioTrack: null, watchTimer: null, flow: false, probe: null }
         st.remote[pid] = rs
-        screenEvent(Object.assign({ type: 'share-start' }, info))
         // Bağlantı yenilendiyse ve aynı paylaşım izleniyorduysa yeniden istenir
         var again = st.rewatch[pid] === m.id
+        // fresh: paylaşım şimdi başladı (ses odasına yeni girilmedi, bağlantı yeni kurulmadı, yenileme değil)
+        var nowMs = Date.now()
+        info.fresh = !again && nowMs - st.joinedAt > SHARE_FRESH_MS && peer.connectedAt > 0 && nowMs - peer.connectedAt > SHARE_FRESH_MS
+        screenEvent(Object.assign({ type: 'share-start' }, info))
         delete st.rewatch[pid]
         if (again) {
           watchPid(pid)
@@ -4680,8 +4706,11 @@ window.VoiceClient = (function () {
       if (st.inVoice && !st.seenSelf && st.lastMeta) applyRoster(st.lastMeta)
     }
 
+    // Sunucu ses odasından çıkardı veya bağlantı düştü: ayrılma sesi yerine düşme sesi çalar
     function dropped () {
-      teardownLocal(true)
+      var wasIn = st.inVoice
+      teardownLocal(false)
+      if (wasIn) playTone('drop', false)
       st.errorCode = 'kicked'
       st.serverError = null
       emit()
