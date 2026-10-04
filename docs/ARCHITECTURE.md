@@ -122,14 +122,16 @@ The desktop app (`desktop/`) is built with Electron for Windows and Linux. In th
 
 The page's API requests are forwarded to the configured server by a proxy in the main process. Only the required headers pass, redirects are not followed, and no cookies or cache are used. The server address must be `https://`, with the only exception being a server on the same computer. Windows run with context isolation and the sandbox on. Permissions are limited to the microphone, notifications and writing to the clipboard, and screen capture is granted only through the app's own picker. The only allowed subframe is the YouTube player of Telsiz DJ: a direct child frame of the app window's main frame, and only for the `https://www.youtube-nocookie.com` origin. Frames inside it and all other subframes are blocked. In the packaged app, Electron fuses turn off the Node.js mode and the `NODE_OPTIONS` variable. The detailed security architecture is in [desktop/README.en.md](../desktop/README.en.md).
 
+Updates (`desktop/src/lib/updates.js`): the Windows installer and the Linux AppImage use electron-updater to read `latest.yml` or `latest-linux.yml` from the GitHub release, download the new version in the background and verify it with its sha512. It is installed only when the user chooses Restart and update. The portable exe and the .deb only read the latest stable release from the GitHub API and show a notice that opens the release page. The Check for updates automatically setting is on by default, and while it is off no request is sent to GitHub. The page cannot pass any address or file path over IPC, and the release page is opened only with the project's GitHub release addresses.
+
 ## Packaging and releases
 
 | Format | How it is produced |
 | --- | --- |
-| npm package `telsiz` | The `files` list in `package.json` contains only `server.js`, `src/`, `public/`, the license and the documents. The `bin` field maps the `telsiz` command to `server.js`. Publishing uses provenance. |
+| npm package `telsiz` | The `files` list in `package.json` contains only `server.js`, `src/`, `public/`, the license and the documents. The `bin` field maps the `telsiz` command to `server.js`. Publishing uses npm trusted publishing (OIDC) without a token, and provenance. |
 | Single file server | `scripts/sea-derle.js` bundles the server code into one CommonJS file with `scripts/paketle.js`, embeds the `public/` files as assets and builds a Node.js single executable application (SEA). The targets are `windows-x64`, `linux-x64` and `linux-arm64`. `scripts/sea-duman.js` tests the build with a real start. |
 | Docker image | The `Dockerfile` uses the official Node.js 22 Alpine image, copies only runtime files and runs as a non root user. It is published as `ghcr.io/yerlifan/telsiz` for linux/amd64 and linux/arm64. |
-| Desktop packages | electron-builder produces a Windows NSIS installer and a portable exe, and a Linux AppImage and .deb. |
+| Desktop packages | electron-builder produces a Windows NSIS installer and a portable exe, and a Linux AppImage and .deb. The same build writes the auto update info (`latest.yml`, the installer `.blockmap` file, `latest-linux.yml`), and electron-builder uploads nothing itself (`--publish never`). |
 
 GitHub Actions workflows:
 
@@ -138,7 +140,7 @@ GitHub Actions workflows:
 | `ci.yml` | Checker and tests (Ubuntu and Windows, Node.js 20, 22 and 24), end-to-end tests with Chromium, shell script checks, building and running the Docker image |
 | `exe.yml` | Building and smoke testing the single file server (with QEMU for linux-arm64) |
 | `desktop.yml` | Unit tests of the desktop app, packaging, and a smoke test of the packaged build |
-| `release.yml` | Runs when a tag starting with `v` is pushed: checks that the tag matches the `package.json` version and the CHANGELOG files, runs the tests, attaches all files and a combined `SHA256SUMS.txt` to the GitHub Release, and publishes the Docker image and (if `NPM_TOKEN` is set) the npm package |
+| `release.yml` | Runs when a tag starting with `v` is pushed: checks that the tag matches the `package.json` version and the CHANGELOG files, runs the tests, attaches the whitelisted files (including the auto update info, with their names and sha512 values checked) and a combined `SHA256SUMS.txt` to the GitHub Release, and publishes the Docker image and the npm package through npm trusted publishing (OIDC) (`NPM_TOKEN` is only a fallback) |
 
 Third party actions in the workflows are pinned by commit SHA rather than by tag. Release notes are extracted from the two CHANGELOG files with `scripts/surum-notlari.js`.
 
@@ -174,6 +176,6 @@ Telsiz is designed to hide content from the server, but it does not hide everyth
 
 **Shared files.** Files of any type can be shared. Since the server cannot see the contents of files, no malware scanning is possible.
 
-**Unsigned binaries.** The single file server and the desktop app are not code signed. Windows SmartScreen may show a warning on first start. Files can be verified with `SHA256SUMS.txt` on the release page. The Node.js base image of the Docker image is selected by a version tag and is not pinned by digest. The npm package is published with the `NPM_TOKEN` secret and with provenance. The Node.js binary used for the linux-arm64 build is verified against `SHASUMS256.txt` from nodejs.org, and no GPG signature is checked. The desktop app has no automatic updates. No single file server or desktop package is published for macOS.
+**Unsigned binaries.** The single file server and the desktop app are not code signed. Windows SmartScreen may show a warning on first start. Files can be verified with `SHA256SUMS.txt` on the release page. The Node.js base image of the Docker image is selected by a version tag and is not pinned by digest. The npm package is published through npm trusted publishing (OIDC), without a long lived token and with provenance. The Node.js binary used for the linux-arm64 build is verified against `SHASUMS256.txt` from nodejs.org, and no GPG signature is checked. Desktop updates are unsigned too: electron-updater verifies the package against the sha512 in the release's `latest.yml`, but that file is in the same GitHub release. The integrity of updates therefore rests on the security of the GitHub account and repository, and the repository owner and everyone with write access should use two factor authentication (2FA). Update checks show GitHub the IP address and the app version and can be turned off in the settings. The portable exe and the .deb are not updated by themselves. No single file server or desktop package is published for macOS.
 
 **Use on a home network without https.** On an `http://` connection the content is still end-to-end encrypted, but session information travels unencrypted on the network, and an active attacker on the same network could modify the app code.

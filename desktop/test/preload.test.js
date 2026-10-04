@@ -59,7 +59,8 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
   await api.getServer()
@@ -109,6 +110,52 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   off()
   fire({}, 'toggleMute')
   assert.deepEqual(got, ['toggleMute', 'toggleDeafen'])
+})
+
+test('güncelleme API: girdiler ve ana süreçten gelen durum doğrulanır', async () => {
+  const p = loadPreload('preload.js', [])
+  const api = p.exposed.telsizDesktop.updates
+  await api.getState('fazla')
+  await api.checkNow({ url: 'https://kotu.com' })
+  await api.install('C:\\kotu.exe')
+  await api.setEnabled(true)
+  await api.setEnabled('evet')
+  await api.openRelease('https://kotu.com')
+  assert.deepEqual(p.invoked, [
+    [channels.CHANNELS.updatesGet],
+    [channels.CHANNELS.updatesCheck],
+    [channels.CHANNELS.updatesInstall],
+    [channels.CHANNELS.updatesSetAuto, true],
+    [channels.CHANNELS.updatesSetAuto, null],
+    [channels.CHANNELS.updatesOpenRelease]
+  ])
+  // Sahte ipcRenderer 'ok' döndürür: sonuç yine de güvenli biçime getirilir
+  // vm içindeki nesnelerin prototipi farklıdır, karşılaştırma JSON kopyasıyla yapılır
+  const plain = (value) => JSON.parse(JSON.stringify(value))
+  assert.deepEqual(plain(await api.checkNow()), { ok: false })
+  assert.deepEqual(plain(await api.getState()), { enabled: false, mode: 'notify', kind: 'other', current: '', status: 'idle', version: null, percent: null, lastCheckAt: null, error: null, canInstall: false })
+  const got = []
+  const off = api.onState((value) => got.push(value))
+  assert.equal(typeof api.onState(5), 'function')
+  const fire = p.listeners[channels.CHANNELS.updatesState]
+  fire({ sender: 'gizli' }, { enabled: true, mode: 'auto', kind: 'nsis', current: '2.0.1', status: 'downloaded', version: '2.1.0', url: 'https://kotu.com', percent: 100, lastCheckAt: 5, error: null, canInstall: true, fazla: 'x' })
+  fire({}, { enabled: 'evet', mode: 'kotu', kind: '<b>', current: '<script>', status: 'kotu', version: '2.1.0<', percent: 101.5, lastCheckAt: -1, error: 'kotu', canInstall: 1 })
+  fire({}, null)
+  off()
+  fire({}, { status: 'checking' })
+  assert.deepEqual(plain(got), [
+    { enabled: true, mode: 'auto', kind: 'nsis', current: '2.0.1', status: 'downloaded', version: '2.1.0', percent: 100, lastCheckAt: 5, error: null, canInstall: true },
+    { enabled: false, mode: 'notify', kind: 'other', current: '', status: 'idle', version: null, percent: null, lastCheckAt: null, error: null, canInstall: false },
+    { enabled: false, mode: 'notify', kind: 'other', current: '', status: 'idle', version: null, percent: null, lastCheckAt: null, error: null, canInstall: false }
+  ])
+})
+
+test('ön yüklemedeki güncelleme değerleri src/lib/updates.js ile aynıdır', () => {
+  const updates = require('../src/lib/updates')
+  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
+  assert.ok(preload.includes("const UPDATE_STATUSES = ['" + updates.STATUSES.join("', '") + "']"))
+  assert.ok(preload.includes("const UPDATE_ERRORS = ['" + updates.ERROR_CODES.join("', '") + "']"))
+  for (const kind of ['nsis', 'appimage', 'portable', 'deb', 'dev', 'other']) assert.ok(preload.includes("'" + kind + "'"), kind)
 })
 
 test('uygulama ön yüklemesi yalnızca gerçek kullanıcı girişini bildirir', () => {
@@ -171,5 +218,13 @@ test('ana süreç sertleştirmeleri kaynakta bulunur', () => {
   const handlers = main.match(/ipcMain\.(handle|on)\(CHANNELS\.\w+, \([^)]*\) => \{\n\s+(requireSender|if \(senderIs)/g) || []
   const total = main.match(/ipcMain\.(handle|on)\(/g) || []
   assert.equal(handlers.length, total.length)
-  assert.ok(total.length >= 17)
+  assert.ok(total.length >= 22)
+  // Güncelleme kanallarının hepsi uygulama penceresine bağlıdır
+  for (const name of ['updatesGet', 'updatesCheck', 'updatesInstall', 'updatesSetAuto', 'updatesOpenRelease']) {
+    assert.match(main, new RegExp('ipcMain\\.handle\\(CHANNELS\\.' + name + ', \\([^)]*\\) => \\{\\n\\s+requireSender\\(event, \'app\'\\)'), name)
+  }
+  // Sürüm sayfası yalnızca doğrulanmış adresle açılır, electron-updater yalnızca gerektiğinde yüklenir
+  assert.ok(main.includes('updates.isReleasePageUrl(url)'))
+  assert.ok(main.includes("loadUpdater: () => require('electron-updater').autoUpdater"))
+  assert.doesNotMatch(main, /^const .*require\('electron-updater'\)/m)
 })

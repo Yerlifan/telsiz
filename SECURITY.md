@@ -13,7 +13,7 @@ Telsiz uçtan uca şifreleme sunan, kendi sunucunuzda çalışan bir iletişim u
 | Son yayımlanan sürüm ve `main` dalı | Evet |
 | Daha eski sürümler ve commit'ler | Hayır |
 
-Düzeltmeler `main` dalına yapılır ve yeni bir sürümle yayımlanır. Sunucu çalıştıranların düzeltmelerden yararlanmak için son sürüme güncellemesi gerekir ([docs/KURULUM.md](docs/KURULUM.md#güncelleme)). Masaüstü uygulamasında otomatik güncelleme yoktur, yeni sürüm elle kurulur.
+Düzeltmeler `main` dalına yapılır ve yeni bir sürümle yayımlanır. Sunucu çalıştıranların düzeltmelerden yararlanmak için son sürüme güncellemesi gerekir ([docs/KURULUM.md](docs/KURULUM.md#güncelleme)). Masaüstü uygulamasının kurucusu ve AppImage sürümü yeni sürümü arka planda indirir ve kullanıcı onaylayınca kurar, taşınabilir exe ve .deb yalnızca yeni sürümü bildirir ([desktop/README.md](desktop/README.md#güncellemeler)).
 
 ### Bir açığı bildirme
 
@@ -56,8 +56,9 @@ Aşağıdaki durumlar tasarımın bilinen sınırlarıdır ve tek başlarına g�
 9. **Ev ağında https olmadan kullanım.** `http://` bağlantısında oturum bilgisi ağda şifresiz gider ve aynı ağdaki etkin bir saldırgan uygulama kodunu değiştirebilir.
 10. **Kaynak kullanımı.** Yükleme kotası sunucu genelinde ortaktır, kullanıcı başına depolama kotası yoktur. Oturum açmış bir üye ortak kaynakları tüketebilir, bu yüzden sunucu güvenilen kişilerle paylaşılmalıdır.
 11. **Paylaşılan dosyalar.** Her türden dosya paylaşılabilir ve sunucu içerikleri göremediği için zararlı dosya denetimi yapılamaz.
-12. **Paketleme.** Tek dosyalık sunucu ve masaüstü uygulaması imzasızdır. Docker taban imajı özet değeriyle sabitlenmez. npm paketi `NPM_TOKEN` ile provenance bilgisiyle yayımlanır. linux-arm64 derlemesindeki Node.js ikilisi `SHASUMS256.txt` ile doğrulanır, GPG imzası denetlenmez. Yayın dosyaları `SHA256SUMS.txt` ile doğrulanabilir.
-13. **Denetim.** Bu proje bağımsız bir güvenlik denetiminden geçmemiştir ve hiçbir yazılım için hiç açığı olmadığı garanti edilemez. scrypt-js yaygın olarak kullanılır, ancak resmi bir güvenlik denetimi bilinmemektedir.
+12. **Paketleme.** Tek dosyalık sunucu ve masaüstü uygulaması imzasızdır. Docker taban imajı özet değeriyle sabitlenmez. npm paketi npm trusted publishing (OIDC) ile, uzun ömürlü token olmadan ve provenance bilgisiyle yayımlanır. linux-arm64 derlemesindeki Node.js ikilisi `SHASUMS256.txt` ile doğrulanır, GPG imzası denetlenmez. Yayın dosyaları `SHA256SUMS.txt` ile doğrulanabilir.
+13. **Masaüstü güncellemeleri.** Güncellemeler kod imzalı değildir. electron-updater indirilen paketi sürümdeki `latest.yml` veya `latest-linux.yml` dosyasındaki sha512 değeriyle doğrular, ancak bu dosyalar da aynı GitHub sürümündedir. Güncellemenin bütünlüğü bu yüzden GitHub hesabının ve deposunun güvenliğine dayanır, depo sahibi ve yazma yetkisi olanlar iki adımlı doğrulama (2FA) kullanmalıdır. Güncelleme denetimi GitHub'a bağlanır, GitHub IP adresini ve uygulama sürümünü görebilir. Denetim ayarlardan kapatılabilir, kapalıyken hiçbir istek gönderilmez.
+14. **Denetim.** Bu proje bağımsız bir güvenlik denetiminden geçmemiştir ve hiçbir yazılım için hiç açığı olmadığı garanti edilemez. scrypt-js yaygın olarak kullanılır, ancak resmi bir güvenlik denetimi bilinmemektedir.
 
 ## English
 
@@ -70,7 +71,7 @@ Telsiz is a self-hosted communication app that offers end-to-end encryption. Res
 | The latest release and the `main` branch | Yes |
 | Older releases and commits | No |
 
-Fixes are made on the `main` branch and published in a new release. Server operators need to update to the latest release to benefit from fixes ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#updating)). The desktop app has no automatic updates, so a new version is installed by hand.
+Fixes are made on the `main` branch and published in a new release. Server operators need to update to the latest release to benefit from fixes ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#updating)). The installer and the AppImage of the desktop app download a new version in the background and install it when the user confirms, the portable exe and the .deb only announce a new version ([desktop/README.en.md](desktop/README.en.md#updates)).
 
 ### Reporting a vulnerability
 
@@ -113,5 +114,6 @@ The following are known limits of the design and are not vulnerabilities on thei
 9. **Use on a home network without https.** On an `http://` connection, session information travels unencrypted on the network, and an active attacker on the same network could modify the app code.
 10. **Resource use.** The upload quota is shared by the whole server, and there is no per user storage quota. A signed in member can use up shared resources, so share the server only with people you trust.
 11. **Shared files.** Files of any type can be shared, and since the server cannot see their contents, no malware scanning is possible.
-12. **Packaging.** The single file server and the desktop app are not code signed. The Docker base image is not pinned by digest. The npm package is published with `NPM_TOKEN` and with provenance. The Node.js binary in the linux-arm64 build is verified with `SHASUMS256.txt`, and no GPG signature is checked. Release files can be verified with `SHA256SUMS.txt`.
-13. **Audit.** This project has not had an independent security audit, and no software can be guaranteed to be free of vulnerabilities. scrypt-js is widely used, but no formal security audit of it is known.
+12. **Packaging.** The single file server and the desktop app are not code signed. The Docker base image is not pinned by digest. The npm package is published through npm trusted publishing (OIDC), without a long lived token and with provenance. The Node.js binary in the linux-arm64 build is verified with `SHASUMS256.txt`, and no GPG signature is checked. Release files can be verified with `SHA256SUMS.txt`.
+13. **Desktop updates.** Updates are not code signed. electron-updater verifies the downloaded package against the sha512 in `latest.yml` or `latest-linux.yml` of the release, but these files are in the same GitHub release. The integrity of updates therefore rests on the security of the GitHub account and repository, and the repository owner and everyone with write access should use two factor authentication (2FA). Update checks connect to GitHub, which can see the IP address and the app version. Checks can be turned off in the settings, and while they are off no request is sent.
+14. **Audit.** This project has not had an independent security audit, and no software can be guaranteed to be free of vulnerabilities. scrypt-js is widely used, but no formal security audit of it is known.

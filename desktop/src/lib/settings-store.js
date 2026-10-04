@@ -1,7 +1,7 @@
 'use strict'
 
 // Masaüstü ayarları: etkin frekans (sunucu adresi), kayıtlı frekans listesi, kapatınca tepsiye
-// küçültme ve genel kısayollar.
+// küçültme, genel kısayollar ve güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık).
 // Uygulama verisi klasöründe (Electron app.getPath('userData')) ayarlar.json olarak saklanır.
 // Dosya her okunuşta doğrulanır, geçersiz alanlar varsayılan değere döner. Yazma atomiktir
 // (geçici dosya ve yeniden adlandırma), böylece yarım kalan bir yazma ayarları bozmaz.
@@ -21,7 +21,7 @@ const FORMAT_VERSION = 2
 const MAX_BYTES = 64 * 1024
 
 function defaults () {
-  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap() }
+  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), autoUpdate: true }
 }
 
 // Okunan nesneden geçerli ayarları çıkarır
@@ -32,6 +32,8 @@ function sanitize (raw) {
   out.server = list.server
   out.frequencies = list.frequencies
   if (typeof raw.closeToTray === 'boolean') out.closeToTray = raw.closeToTray
+  // Alan yoksa (eski ayar dosyası) varsayılan açık kalır, yalnızca açıkça false kapatır
+  if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate
   if (raw.shortcuts && typeof raw.shortcuts === 'object') {
     const checked = validateShortcutMap(raw.shortcuts)
     if (checked.ok) out.shortcuts = checked.map

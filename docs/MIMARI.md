@@ -122,14 +122,16 @@ Masaüstü uygulaması (`desktop/`) Electron ile Windows ve Linux için hazırla
 
 Sayfanın API istekleri ana süreçteki bir vekilden ayarlardaki sunucuya iletilir. Yalnızca gerekli başlıklar geçer, yönlendirmeler izlenmez, çerez ve önbellek kullanılmaz. Sunucu adresi yalnızca `https://` olabilir, tek istisna aynı bilgisayardaki sunucudur. Pencereler bağlam yalıtımı ve korumalı alan açık olarak çalışır. İzinler yalnızca mikrofon, bildirim ve panoya yazmayla sınırlıdır, ekran yakalama yalnızca uygulamanın kendi seçicisiyle verilir. Alt çerçeve olarak yalnızca Telsiz DJ'nin YouTube oynatıcısına izin verilir: uygulama penceresinin ana çerçevesinin doğrudan alt çerçevesi ve yalnızca `https://www.youtube-nocookie.com` kökeni. Bu çerçevenin içindeki çerçeveler ve diğer bütün alt çerçeveler engellenir. Paketlenmiş uygulamada Electron sigortaları Node.js kipini ve `NODE_OPTIONS` değişkenini kapatır. Ayrıntılı güvenlik mimarisi [desktop/README.md](../desktop/README.md) dosyasındadır.
 
+Güncellemeler (`desktop/src/lib/updates.js`): Windows kurucusu ve Linux AppImage electron-updater ile GitHub sürümündeki `latest.yml` veya `latest-linux.yml` dosyasını okur, yeni sürümü arka planda indirir ve sha512 değeriyle doğrular. Kurulum yalnızca kullanıcı Yeniden başlat ve güncelle dediğinde yapılır. Taşınabilir exe ve .deb yalnızca GitHub API'sinden son kararlı sürümü okur ve sürüm sayfasını açan bir bildirim gösterir. Güncellemeleri otomatik denetle ayarı varsayılan açıktır, kapalıyken GitHub'a hiçbir istek gönderilmez. Sayfa IPC ile hiçbir adres veya dosya yolu veremez, sürüm sayfası yalnızca projenin GitHub sürüm adresleriyle açılır.
+
 ## Paketleme ve yayın
 
 | Biçim | Nasıl üretilir |
 | --- | --- |
-| npm paketi `telsiz` | `package.json` içindeki `files` listesi yalnızca `server.js`, `src/`, `public/`, lisans ve belgeleri içerir. `bin` alanı `telsiz` komutunu `server.js` dosyasına bağlar. Yayın provenance ile yapılır. |
+| npm paketi `telsiz` | `package.json` içindeki `files` listesi yalnızca `server.js`, `src/`, `public/`, lisans ve belgeleri içerir. `bin` alanı `telsiz` komutunu `server.js` dosyasına bağlar. Yayın npm trusted publishing (OIDC) ile tokensız ve provenance ile yapılır. |
 | Tek dosyalık sunucu | `scripts/sea-derle.js` sunucu kodunu `scripts/paketle.js` ile tek bir CommonJS dosyasında toplar, `public/` dosyalarını varlık olarak gömer ve Node.js tek dosya uygulaması (SEA) olarak derler. Hedefler `windows-x64`, `linux-x64` ve `linux-arm64`. `scripts/sea-duman.js` derlemeyi gerçek bir başlatmayla dener. |
 | Docker imajı | `Dockerfile` resmi Node.js 22 Alpine imajını kullanır, yalnızca çalışma zamanı dosyalarını kopyalar ve root olmayan kullanıcıyla çalışır. `ghcr.io/yerlifan/telsiz` olarak linux/amd64 ve linux/arm64 için yayımlanır. |
-| Masaüstü paketleri | electron-builder ile Windows NSIS kurucusu ve taşınabilir exe, Linux AppImage ve .deb. |
+| Masaüstü paketleri | electron-builder ile Windows NSIS kurucusu ve taşınabilir exe, Linux AppImage ve .deb. Aynı derleme otomatik güncelleme bilgilerini (`latest.yml`, kurucunun `.blockmap` dosyası, `latest-linux.yml`) üretir, electron-builder kendisi hiçbir şey yüklemez (`--publish never`). |
 
 GitHub Actions iş akışları:
 
@@ -138,7 +140,7 @@ GitHub Actions iş akışları:
 | `ci.yml` | Denetleyici ve testler (Ubuntu ve Windows, Node.js 20, 22 ve 24), Chromium ile uçtan uca testler, kabuk betiği denetimi, Docker imajının derlenip çalıştırılması |
 | `exe.yml` | Tek dosyalık sunucunun derlenmesi ve duman testi (linux-arm64 için QEMU ile) |
 | `desktop.yml` | Masaüstü uygulamasının birim testleri, paketlenmesi ve paketlenmiş derlemenin duman testi |
-| `release.yml` | `v` ile başlayan bir etiket gönderilince çalışır: etiketin `package.json` sürümüyle ve CHANGELOG dosyalarıyla uyumunu denetler, testleri çalıştırır, tüm dosyaları ve birleşik `SHA256SUMS.txt` dosyasını GitHub Release'e ekler, Docker imajını ve (`NPM_TOKEN` tanımlıysa) npm paketini yayımlar |
+| `release.yml` | `v` ile başlayan bir etiket gönderilince çalışır: etiketin `package.json` sürümüyle ve CHANGELOG dosyalarıyla uyumunu denetler, testleri çalıştırır, beyaz listedeki dosyaları (otomatik güncelleme bilgileri dahil, adları ve sha512 değerleri denetlenerek) ve birleşik `SHA256SUMS.txt` dosyasını GitHub Release'e ekler, Docker imajını ve npm trusted publishing (OIDC) ile npm paketini yayımlar (`NPM_TOKEN` yalnızca yedektir) |
 
 İş akışlarındaki üçüncü taraf eylemler etiketle değil commit SHA değeriyle sabitlenir. Sürüm notları `scripts/surum-notlari.js` ile iki CHANGELOG dosyasından çıkarılır.
 
@@ -174,6 +176,6 @@ Telsiz içerikleri sunucudan gizlemek için tasarlanmıştır, ancak her şeyi g
 
 **Paylaşılan dosyalar.** Her türden dosya paylaşılabilir. Sunucu dosyaların içeriğini göremediği için zararlı dosya denetimi yapılamaz.
 
-**İmzasız ikililer.** Tek dosyalık sunucu ve masaüstü uygulaması kod imzalı değildir. Windows SmartScreen ilk açılışta uyarı gösterebilir. Dosyalar sürüm sayfasındaki `SHA256SUMS.txt` ile doğrulanabilir. Docker imajının Node.js taban imajı sürüm etiketiyle seçilir, özet değeriyle (digest) sabitlenmez. npm paketi `NPM_TOKEN` gizli değişkeniyle ve provenance bilgisiyle yayımlanır. linux-arm64 derlemesinde kullanılan Node.js ikilisi nodejs.org'daki `SHASUMS256.txt` ile doğrulanır, GPG imzası denetlenmez. Masaüstü uygulamasında otomatik güncelleme yoktur. macOS için tek dosyalık sunucu ve masaüstü paketi yayımlanmaz.
+**İmzasız ikililer.** Tek dosyalık sunucu ve masaüstü uygulaması kod imzalı değildir. Windows SmartScreen ilk açılışta uyarı gösterebilir. Dosyalar sürüm sayfasındaki `SHA256SUMS.txt` ile doğrulanabilir. Docker imajının Node.js taban imajı sürüm etiketiyle seçilir, özet değeriyle (digest) sabitlenmez. npm paketi npm trusted publishing (OIDC) ile, uzun ömürlü token olmadan ve provenance bilgisiyle yayımlanır. linux-arm64 derlemesinde kullanılan Node.js ikilisi nodejs.org'daki `SHASUMS256.txt` ile doğrulanır, GPG imzası denetlenmez. Masaüstü güncellemeleri de imzasızdır: electron-updater paketi sürümdeki `latest.yml` dosyasının sha512 değeriyle doğrular, ancak bu dosya da aynı GitHub sürümündedir. Güncellemenin bütünlüğü bu yüzden GitHub hesabının ve deposunun güvenliğine dayanır, depo sahibi ve yazma yetkisi olanlar iki adımlı doğrulama (2FA) kullanmalıdır. Güncelleme denetimi GitHub'a IP adresini ve uygulama sürümünü gösterir, ayarlardan kapatılabilir. Taşınabilir exe ve .deb kendiliğinden güncellenmez. macOS için tek dosyalık sunucu ve masaüstü paketi yayımlanmaz.
 
 **Ev ağında https olmadan kullanım.** `http://` bağlantısında içerikler yine uçtan uca şifrelidir, ancak oturum bilgisi ağda şifresiz gider ve aynı ağdaki etkin bir saldırgan uygulama kodunu değiştirebilir.

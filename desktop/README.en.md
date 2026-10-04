@@ -52,13 +52,13 @@ All commands run in the `desktop/` folder.
 
 | Command | What it does |
 | --- | --- |
-| `npm ci` | Installs the development dependencies (electron, electron-builder, playwright) |
+| `npm ci` | Installs the dependencies: the development tools (electron, electron-builder, playwright) and electron-updater, the only runtime dependency that goes into the package |
 | `npm run hazirla` | Copies the `public/` files to `app/`, writes the integrity manifest, generates icons in `build/` |
 | `npm start` | Runs the preparation and opens the app in development mode |
 | `npm test` | Unit tests (no Electron needed, the forwarding logic is tested against a real local server) |
 | `npm run test:duman` | Playwright `_electron` smoke test (on Linux `xvfb-run -a npm run test:duman`) |
-| `npm run derle:win` | Windows NSIS installer and portable exe (`dist/`) |
-| `npm run derle:linux` | Linux AppImage and .deb (`dist/`) |
+| `npm run derle:win` | Windows NSIS installer and portable exe, `latest.yml` and the installer `.blockmap` file (`dist/`) |
+| `npm run derle:linux` | Linux AppImage and .deb, `latest-linux.yml` (`dist/`) |
 
 By default the smoke test opens the app in development mode. If the `TELSIZ_UYGULAMA` environment variable points to a packaged executable (for example `dist/linux-unpacked/telsiz-masaustu` or `dist/win-unpacked/Telsiz.exe`), the test uses it. The test starts a Telsiz server on the first free port between 4300 and 4349 and opens the app with an empty user data folder.
 
@@ -70,6 +70,7 @@ Build outputs:
 - `Telsiz-<version>-tasinabilir.exe` (Windows portable)
 - `Telsiz-<version>-linux-x86_64.AppImage`
 - `telsiz-masaustu_<version>_amd64.deb`
+- `latest.yml`, `Telsiz-Kurulum-<version>.exe.blockmap` and `latest-linux.yml` (auto update info, see below)
 
 ## File layout
 
@@ -79,9 +80,10 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
+| `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
 | `test/` | Unit tests |
 | `e2e/duman.test.js` | Smoke test |
 | `electron-builder.json` | Packaging configuration |
@@ -94,7 +96,8 @@ The texts of the desktop menu, tray, server address screen and picker are in `sr
 
 - On global shortcut events it calls the `toggleMute` and `toggleDeafen` functions.
 - It blocks the PWA install prompt.
-- `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the active frequency and minimize to tray section.
+- `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the active frequency, minimize to tray and updates section.
+- Shows a dismissible strip in the bottom right corner for a downloaded update or a new version notice.
 - The frequency menu (`public/js/24-frekans.js`) manages the list on the desktop with the frequency calls below instead of the browser's local storage.
 
 The `window.telsizDesktop` API:
@@ -113,17 +116,41 @@ The `window.telsizDesktop` API:
 | `addFrequency()` | Opens the frequency address window in add mode |
 | `removeFrequency(origin, clearData)` | Removes the frequency from the list, deletes its session data only if `clearData` is `true` |
 | `setFrequencyName(name)` | The name of the open frequency learned from the server |
+| `updates.getState()` | `{ enabled, mode, kind, current, status, version, percent, lastCheckAt, error, canInstall }` |
+| `updates.checkNow()` | Checks now (`{ ok: false, code: 'disabled' }` if the setting is off) |
+| `updates.setEnabled(bool)` | The check for updates automatically setting |
+| `updates.install()` | Installs the downloaded update and restarts the app |
+| `updates.openRelease()` | Opens the GitHub page of the found release in the default browser (the main process decides the address) |
+| `updates.onState(cb)` | `cb(state)` when the state changes, the returned function removes the subscription |
 
 Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
 
+## Updates
+
+The app checks for new versions on the GitHub release page (`src/lib/updates.js`). How it works depends on the package type:
+
+| Package | Behavior |
+| --- | --- |
+| Windows installer (`Telsiz-Kurulum-<version>.exe`) | electron-updater downloads the new version in the background. It is installed only when the user chooses Restart and update, it is never installed by itself on quit. |
+| Linux AppImage (`APPIMAGE` environment variable) | Same as the installer, the AppImage file is replaced with the new version. |
+| Windows portable (`PORTABLE_EXECUTABLE_DIR` environment variable), .deb and development mode | The latest stable release is read from the GitHub API (`/repos/Yerlifan/telsiz/releases/latest`). If it is newer, a New version available strip and a button that opens the release page are shown. No file is downloaded. |
+
+- The App section of the settings page has the Check for updates automatically switch (on by default), a Check now button, the version and the result of the last check. The Help menu has Check for updates, and when an update is downloaded or a new version is found, the matching action appears in the app menu and at the top of the tray menu.
+- While the switch is on, the first check runs 30 seconds after start and then every 6 hours. While it is off, no request is sent to GitHub and the electron-updater module is not even loaded. Unattended runs (smoke test, `TELSIZ_TANI_GUNLUGU`) do no scheduled checks.
+- electron-updater verifies the sha512 of the downloaded file against `latest.yml` or `latest-linux.yml` in the release. Pre-releases and older versions are not installed. The page cannot pass any address or file path over IPC: the release page is opened in the main process only with a validated address under `https://github.com/Yerlifan/telsiz/releases/`.
+- Privacy: checking connects to GitHub. GitHub can see the IP address and the app version (the `User-Agent` of the request). Nothing else is sent, the request uses a cookieless session separate from the server sessions.
+- Trust: the packages are not code signed. The integrity of updates rests on the security of the GitHub account and repository: anyone who can change the release files can also change `latest.yml`. The repository owners and everyone with write access should therefore have two factor authentication (2FA) turned on. A user who does not accept this can turn the switch off, download releases by hand and verify them with `SHA256SUMS.txt`.
+
+Publishing: the `publish` setting in `electron-builder.json` (GitHub, `Yerlifan/telsiz`) makes electron-builder write `latest.yml`, `latest-linux.yml` and `app-update.yml` inside the app. The build always runs with `--publish never`, electron-builder uploads nothing. The release workflow (`release.yml`) adds the files to the release with a narrow whitelist: `latest.yml`, `latest-linux.yml` and `Telsiz-Kurulum-<version>.exe.blockmap`. The AppImage block map is embedded in the file, there is no separate `.blockmap` file. `latest-linux.yml` also lists the .deb package, the AppImage updater only picks the AppImage file. Before publishing, `scripts/guncelleme-dosyalari.js` checks that every file named in the info files is in the release with the same name and a matching sha512, otherwise updates would fail with a 404 error.
+
 ## Settings and data
 
-The desktop settings (active frequency, frequency list, minimize to tray, shortcuts) are in `ayarlar.json` in the app data folder (format 2, a format 1 file is converted to a list when read). This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every frequency (server).
+The desktop settings (active frequency, frequency list, minimize to tray, shortcuts, automatic update checks) are in `ayarlar.json` in the app data folder (format 2, a format 1 file is converted to a list when read). This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every frequency (server).
 
 ## Known limitations
 
 - The app is not signed. On first start Windows SmartScreen may show "Windows protected your PC". Choose "More info" and then "Run anyway". The downloaded file can be verified with `SHA256SUMS.txt` on the release page.
-- There is no automatic update, because unsigned updates are not safe. New versions are downloaded and installed manually.
+- Updates are unsigned, their integrity rests on the security of the GitHub account and repository (see Updates). The portable exe and the .deb are not updated by themselves, a new version is only announced. Update checks work while the repository is public.
 - There is no hold to talk global shortcut, because it needs a native module. The push to talk key only works while the window is in front. Global shortcuts only exist for toggle microphone and deafen.
 - Whether global shortcuts work in Wayland sessions on Linux has not been verified.
 - According to the Electron documentation, Windows notifications need a Start menu shortcut of the app. The installer creates this shortcut, in the portable version notifications may not appear.
@@ -132,4 +159,4 @@ The desktop settings (active frequency, frequency list, minimize to tray, shortc
 
 ## Continuous integration
 
-`.github/workflows/desktop.yml` runs the unit tests on pull requests and pushes to `main`, builds the Linux and Windows packages and runs the smoke test with the packaged build (under xvfb on Linux). The artifact names are `telsiz-desktop-windows` and `telsiz-desktop-linux`. The workflow is also called from the release workflow through `workflow_call` and does not publish anything itself.
+`.github/workflows/desktop.yml` runs the unit tests on pull requests and pushes to `main`, builds the Linux and Windows packages and runs the smoke test with the packaged build (under xvfb on Linux). The artifact names are `telsiz-desktop-windows` and `telsiz-desktop-linux`. Next to the packages, `latest.yml` and the installer `.blockmap` file (Windows) and `latest-linux.yml` (Linux) are uploaded and checked with `scripts/guncelleme-dosyalari.js`. The workflow is also called from the release workflow through `workflow_call` and does not publish anything itself.

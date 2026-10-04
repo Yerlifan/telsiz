@@ -168,7 +168,8 @@ Changes that touch the following areas need extra review. In these pull requests
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
 | `src/http-util.js`, `src/static-source.js` | Security headers, Content Security Policy, the static file allowlist |
 | `public/sw.js` | Cached content, and making sure `/api/` requests are never cached |
-| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules |
+| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, update checks (`desktop/src/lib/updates.js`) |
+| `.github/workflows/release.yml`, `desktop/electron-builder.json` | The whitelist of files that go into a release, the auto update info files, the authentication of the npm publish |
 
 Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code.
 
@@ -185,6 +186,16 @@ Discuss a proposal that changes the encryption protocol (key code, key derivatio
 9. Check that the CI checks pass and respond to review comments.
 
 Send unrelated changes as separate pull requests. For a change in user visible behavior, also update the README files, for an architectural change `docs/MIMARI.md` and `docs/ARCHITECTURE.md`, and for notable changes that go into a release both CHANGELOG files. Before starting a large change, opening an issue to discuss the approach is recommended so your effort is not wasted.
+
+## Releases
+
+The repository owner publishes releases: `package.json`, `desktop/package.json` and both CHANGELOG files are updated, and a tag starting with `v` (for example `v2.1.0`) is pushed for the commit on `main`. `.github/workflows/release.yml` does the rest:
+
+- After the checks and tests, the server binaries and the desktop packages are built. Only whitelisted files are added to the GitHub Release: the server binaries, the desktop packages, the auto update info (`latest.yml`, `latest-linux.yml`, `Telsiz-Kurulum-<version>.exe.blockmap`) and a `SHA256SUMS.txt` for all of them. `desktop/scripts/guncelleme-dosyalari.js` checks that the packages named in the info files are in the release with the same names and matching sha512 values.
+- The Docker image is published as `ghcr.io/yerlifan/telsiz`.
+- The npm package `telsiz` is published without a token through npm trusted publishing (OIDC) and with provenance. A trusted publisher is configured in the package settings on npmjs.com: GitHub Actions, `Yerlifan/telsiz`, workflow file `release.yml`, no environment. According to the npm docs this requires npm CLI 11.5.1 or later and Node.js 22.14.0 or later, the job installs a pinned npm 11 version and checks both. If the `NPM_TOKEN` secret is defined it is only a fallback: npm tries OIDC first. After the first successful OIDC publish, `NPM_TOKEN` can be deleted and token publishing can be turned off for the package on npmjs.com ("Require two-factor authentication and disallow tokens"). If the workflow file is renamed, the trusted publisher setting must be changed too.
+
+Since desktop updates are unsigned, their integrity rests on the security of the GitHub account and repository. The repository owner and everyone with write access should have two factor authentication (2FA) turned on. Update checks work while the repository is public.
 
 ## License
 

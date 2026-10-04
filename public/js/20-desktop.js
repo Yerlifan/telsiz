@@ -9,6 +9,11 @@
 //   genel kısayolları, renderAppSettings(kapsayici) sunucu adresini ve tepsiye küçültmeyi gösterir.
 //   İkisi de kapsayıcıyı temizleyip yeniden çizer, dil değişince yeniden çağrılabilir (veya
 //   refresh() kullanılır).
+// - Güncellemeler: uygulama ayarlarında "Güncellemeleri otomatik denetle" anahtarı, Şimdi denetle
+//   düğmesi, sürüm ve son denetimin sonucu. İndirilmiş bir güncelleme (kurucu ve AppImage) veya
+//   yeni sürüm bildirimi (taşınabilir exe ve .deb) için sayfanın köşesinde kapatılabilir bir şerit.
+//   Denetim, indirme ve kurulum ana süreçte yapılır (desktop/src/lib/updates.js), sayfa yalnızca
+//   telsizDesktop.updates API'sini çağırır ve hiçbir adres vermez.
 // Kısayollar ana süreçte yeniden doğrulanır ve kaydedilir, burada yalnızca tuş bileşimi yakalanır.
 
 window.TelsizDesktopUI = (function () {
@@ -85,6 +90,14 @@ window.TelsizDesktopUI = (function () {
   let shortcutBox = null
   let appBox = null
   let capture = null
+  const updatesApi = desktop.updates && typeof desktop.updates === 'object' && typeof desktop.updates.getState === 'function' ? desktop.updates : null
+  let updateState = null
+  let updateBox = null
+  let updateStatusEl = null
+  let updateMessage = null
+  let banner = null
+  // Şeritte "Sonra" denilen sürümler (yalnızca bu oturumda)
+  const dismissed = {}
 
   function hasOwn (object, key) {
     return Object.prototype.hasOwnProperty.call(object, key)
@@ -360,7 +373,168 @@ window.TelsizDesktopUI = (function () {
     section.appendChild(status)
     section.appendChild(node('p', 'hint', t('desktop.app.security')))
     if (desktop.version) section.appendChild(node('p', 'hint', t('desktop.app.version', { version: desktop.version })))
+    if (updatesApi) {
+      updateBox = node('div', 'desktop-updates')
+      section.appendChild(updateBox)
+      drawUpdates()
+    }
     box.appendChild(section)
+  }
+
+  // ---------------------------------------------------------------- güncellemeler
+
+  function updateStatusText (u) {
+    if (!u) return t('desktop.update.status.idle')
+    const version = u.version || ''
+    if (u.status === 'checking') return t('desktop.update.status.checking')
+    if (u.status === 'up-to-date') return t('desktop.update.status.upToDate')
+    if (u.status === 'available') return t('desktop.update.status.available', { version: version })
+    if (u.status === 'downloading') return t('desktop.update.status.downloading', { version: version, percent: u.percent === null ? 0 : u.percent })
+    if (u.status === 'downloaded') return t('desktop.update.status.downloaded', { version: version })
+    if (u.status === 'error') return t('desktop.update.error.' + (u.error || 'failed'))
+    return t(u.enabled ? 'desktop.update.status.idle' : 'desktop.update.status.disabled')
+  }
+
+  function lastCheckText (ms) {
+    if (typeof formatShort === 'function') return formatShort(ms)
+    return new Date(ms).toString()
+  }
+
+  function updateButton (text, key, primary, onClick) {
+    const b = node('button', primary ? 'button button-small' : 'button button-secondary button-small', text)
+    b.type = 'button'
+    b.setAttribute('data-desktop-update', key)
+    b.addEventListener('click', onClick)
+    return b
+  }
+
+  function afterUpdateCall (result, okKey, failKey) {
+    if (result && result.state) applyUpdateState(result.state)
+    updateMessage = null
+    if (result && result.ok && okKey) updateMessage = { ok: true, text: t(okKey) }
+    else if (!(result && result.ok) && failKey) updateMessage = { ok: false, text: t(failKey) }
+    drawUpdates()
+  }
+
+  function runInstall () {
+    Promise.resolve(updatesApi.install()).then((result) => {
+      if (!(result && result.ok)) afterUpdateCall(result, null, 'desktop.update.installFailed')
+    }, () => afterUpdateCall(null, null, 'desktop.update.installFailed'))
+  }
+
+  function runOpenRelease () {
+    Promise.resolve(updatesApi.openRelease()).catch(() => {})
+  }
+
+  function drawUpdates () {
+    const box = updateBox
+    if (!box || !updatesApi) return
+    const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.getAttribute('data-desktop-update') : null
+    clearNode(box)
+    const u = updateState
+    const enabled = Boolean(u && u.enabled)
+    const title = node('h4', 'section-title', t('desktop.update.title'))
+    title.id = 'desktop-update-title'
+    box.setAttribute('role', 'group')
+    box.setAttribute('aria-labelledby', title.id)
+    box.appendChild(title)
+
+    const toggle = node('label', 'switch desktop-update-auto')
+    const input = node('input')
+    input.type = 'checkbox'
+    input.checked = enabled
+    input.disabled = !u
+    input.setAttribute('data-desktop-update', 'auto')
+    const track = node('span', 'switch-track')
+    track.setAttribute('aria-hidden', 'true')
+    toggle.appendChild(input)
+    toggle.appendChild(track)
+    toggle.appendChild(node('span', null, t('desktop.update.auto')))
+    input.addEventListener('change', () => {
+      const wanted = input.checked
+      Promise.resolve(updatesApi.setEnabled(wanted)).then((result) => {
+        afterUpdateCall(result, 'desktop.tray.saved', 'desktop.tray.failed')
+      }, () => afterUpdateCall(null, null, 'desktop.tray.failed'))
+    })
+    box.appendChild(toggle)
+    box.appendChild(node('p', 'hint', t(u && u.mode === 'auto' ? 'desktop.update.hintAuto' : 'desktop.update.hintNotify')))
+    box.appendChild(node('p', 'hint', t('desktop.update.privacy')))
+
+    updateStatusEl = node('p', 'label-value desktop-update-status', updateStatusText(u))
+    box.appendChild(updateStatusEl)
+    if (u && u.lastCheckAt) box.appendChild(node('p', 'hint', t('desktop.update.lastCheck', { time: lastCheckText(u.lastCheckAt) })))
+
+    const actions = node('div', 'row desktop-update-actions')
+    const busy = Boolean(u) && (u.status === 'checking' || u.status === 'downloading')
+    const check = updateButton(t('desktop.update.checkNow'), 'check', false, () => {
+      updateMessage = null
+      Promise.resolve(updatesApi.checkNow()).then((result) => {
+        if (result && result.state) applyUpdateState(result.state)
+        drawUpdates()
+      }, () => afterUpdateCall(null, null, 'desktop.update.error.failed'))
+    })
+    check.disabled = !enabled || busy
+    actions.appendChild(check)
+    if (u && u.canInstall) actions.appendChild(updateButton(t('desktop.update.install'), 'install', true, runInstall))
+    if (u && u.mode === 'notify' && u.status === 'available') actions.appendChild(updateButton(t('desktop.update.openRelease'), 'open', true, runOpenRelease))
+    box.appendChild(actions)
+
+    const status = node('p', 'form-msg')
+    status.setAttribute('role', 'status')
+    status.setAttribute('aria-live', 'polite')
+    if (updateMessage) {
+      status.textContent = updateMessage.text
+      status.classList.add(updateMessage.ok ? 'is-ok' : 'is-error')
+    }
+    box.appendChild(status)
+    if (focused) {
+      const target = box.querySelector('[data-desktop-update="' + focused + '"]')
+      if (target && !target.disabled) target.focus()
+    }
+  }
+
+  // Köşedeki şerit: indirilmiş güncelleme veya (bildirim kipinde) yeni sürüm
+  function drawBanner () {
+    const u = updateState
+    let kind = null
+    if (u && u.canInstall && u.version) kind = 'downloaded'
+    else if (u && u.mode === 'notify' && u.status === 'available' && u.version) kind = 'available'
+    if (!kind || dismissed[kind + ':' + u.version]) {
+      if (banner) banner.hidden = true
+      return
+    }
+    if (!banner) {
+      if (!document.body) return
+      banner = node('div', 'desktop-update-banner')
+      banner.id = 'desktop-update-banner'
+      banner.setAttribute('role', 'status')
+      banner.setAttribute('aria-live', 'polite')
+      document.body.appendChild(banner)
+    }
+    clearNode(banner)
+    banner.appendChild(node('p', 'desktop-update-text', t('desktop.update.banner.' + kind, { version: u.version })))
+    const actions = node('div', 'desktop-update-actions')
+    if (kind === 'downloaded') actions.appendChild(updateButton(t('desktop.update.install'), 'banner-install', true, runInstall))
+    else actions.appendChild(updateButton(t('desktop.update.openRelease'), 'banner-open', true, runOpenRelease))
+    actions.appendChild(updateButton(t('desktop.update.later'), 'banner-later', false, () => {
+      dismissed[kind + ':' + u.version] = true
+      banner.hidden = true
+    }))
+    banner.appendChild(actions)
+    banner.hidden = false
+  }
+
+  function applyUpdateState (value) {
+    if (!value || typeof value !== 'object') return
+    const prev = updateState
+    updateState = value
+    const same = prev && prev.status === value.status && prev.enabled === value.enabled && prev.version === value.version &&
+      prev.lastCheckAt === value.lastCheckAt && prev.error === value.error && prev.canInstall === value.canInstall
+    if (!same) drawBanner()
+    if (!updateBox || !updateBox.isConnected) return
+    // Yalnızca indirme yüzdesi değiştiyse durum satırı güncellenir, bölüm yeniden çizilmez
+    if (same && updateStatusEl) updateStatusEl.textContent = updateStatusText(value)
+    else drawUpdates()
   }
 
   function renderAppSettings (container) {
@@ -377,11 +551,16 @@ window.TelsizDesktopUI = (function () {
   function refresh () {
     if (shortcutBox && shortcutBox.isConnected) renderShortcutSettings(shortcutBox)
     if (appBox && appBox.isConnected) renderAppSettings(appBox)
+    drawBanner()
   }
 
   document.documentElement.setAttribute('data-desktop', '1')
   window.addEventListener('beforeinstallprompt', blockInstallPrompt, true)
   desktop.onShortcut(onShortcut)
+  if (updatesApi) {
+    if (typeof updatesApi.onState === 'function') updatesApi.onState(applyUpdateState)
+    Promise.resolve(updatesApi.getState()).then(applyUpdateState, () => {})
+  }
 
   return {
     active: true,
