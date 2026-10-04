@@ -587,7 +587,7 @@
 }
 
 .crew-dj.is-playing .crew-avatar.dj-avatar {
-  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 14px 2px var(--halo-1);
+  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 6px 5px var(--halo-1);
 }
 
 .crew-dj.needs-tap .crew-avatar.dj-avatar {

@@ -271,9 +271,9 @@ describe('Telsiz DJ: durum alanları ve yazım', () => {
     try {
       const tr = await h.request(ctx, 'POST', '/api/music/state', { token: ayse.token, headers: { 'accept-language': 'tr' }, body: { channelId: VOICE, expect: 0, env: h.envelope() } })
       h.expectStatus(tr, 403, 'not_in_voice')
-      assert.match(tr.data.error, /ses kanal/)
+      assert.match(tr.data.error, /ses odas/)
       const en = await h.request(ctx, 'POST', '/api/music/state', { token: ayse.token, headers: { 'accept-language': 'en' }, body: { channelId: VOICE, expect: 0, env: h.envelope() } })
-      assert.match(en.data.error, /voice channel/)
+      assert.match(en.data.error, /voice room/)
       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { enabled: false } }), 200)
       const off = await h.request(ctx, 'POST', '/api/music/state', { token: ayse.token, headers: { 'accept-language': 'tr' }, body: { channelId: VOICE, expect: 0, env: h.envelope() } })
       h.expectStatus(off, 403, 'dj_disabled')

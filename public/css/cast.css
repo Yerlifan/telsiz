@@ -527,8 +527,9 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
   max-width: calc(100% - 1.5rem);
   padding: 0.25rem 0.625rem;
   border-radius: var(--radius-pill);
-  background-color: var(--overlay);
-  color: var(--text-strong);
+  /* Görüntünün üstünde durur: açık modda da koyu zemin ve açık yazı (görüntü ne renkte olursa olsun okunur) */
+  background-color: var(--viewer-bg);
+  color: var(--on-viewer);
   font-size: var(--text-xs);
   font-weight: 700;
   white-space: nowrap;
@@ -1247,12 +1248,27 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
     flex-direction: column;
   }
 
+  /* Sütunda flex-basis 0 yüksekliğe uygulanır ve kart 44 px'e iner, açıklama alttakinin üstüne taşardı */
+  .cast-choice {
+    flex: none;
+  }
+
   .cast-choice + .cast-choice {
     margin: 0.5rem 0 0;
   }
 
+  /* Dört ön ayar telefonda tek satıra sığmaz (etiketler birbirine değerdi): iki satır, iki sütun */
+  .cast-presets {
+    flex-wrap: wrap;
+  }
+
   .cast-preset {
+    flex: 0 0 50%;
     font-size: var(--text-xs);
+  }
+
+  .cast-preset + .cast-preset {
+    margin-left: 0;
   }
 }
 

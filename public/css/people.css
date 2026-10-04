@@ -655,10 +655,14 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.home-view .home-tabs {
+/* Sekmeler her genişlikte tek satırda kalır, sığmazsa yatay kayar (dar konuşma sütununda, ör. Telsiz DJ
+   sütunu açıkken, iki satıra bölünüp hap biçimli kabı bozmasın diye) */
+.home-view .tabs.home-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin: 0 0 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .home-view .home-tab {
@@ -832,13 +836,6 @@
 
   .home-page {
     padding: 0.75rem;
-  }
-
-  /* Sekmeler tek satırda kalır ve yatay kayar */
-  .home-view .home-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
   }
 
   .home-view .friend-actions .act-message .button-text {

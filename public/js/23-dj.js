@@ -11,8 +11,8 @@
 // Bu cihazın ses odası VoiceClient anlık görüntüsünden (snap) izlenir: #radio[data-state] ve kadro değişimi
 // MutationObserver ile, ayrıca saniyelik denetimle.
 //
-// Yerleşim: geniş ekranda (1280 ve üstü) kart telsiz kartının solunda bir sütundur. 1280 altında ve ekran
-// paylaşımı sahnesi açıkken (K7.2: #cast görünür veya data-cast="live") kart kadrodaki Telsiz DJ öğesinden açılan
+// Yerleşim: geniş ekranda (1280 ve üstü) çalan veya kuyrukta parça varken kart telsiz kartının solunda bir
+// sütundur. Boşken, 1280 altında ve ekran paylaşımı sahnesi açıkken (K7.2: #cast görünür veya data-cast="live") kart kadrodaki Telsiz DJ öğesinden açılan
 // sayfaya iner (12-init.js sayfa yığını, 'dj' adıyla), telefonda alttan açılır. Yayın bitince yerine döner.
 // YouTube oynatıcı alanı (.dj-yt) motora attachPlayer ile bir kez verilir ve hiç temizlenmez. Alan en az
 // 200x200 CSS pikseli ve görünürdür, üstüne hiçbir öğe konmaz (dokunarak başlat, uyarılar ve hata metinleri
@@ -43,7 +43,8 @@ const dj = {
   notice: null,
   crewLi: null,
   crewFocus: false,
-  renderQueued: false
+  renderQueued: false,
+  marksKey: ''
 }
 
 function djMusic () {
@@ -220,8 +221,18 @@ function djDetectCast () {
   return Boolean((cast && !cast.hidden) || live(cast) || live(el.appView) || live(document.body))
 }
 
+// Çalan veya kuyrukta bekleyen parça var mı
+function djHasTracks () {
+  const s = djSnapshot()
+  const session = s ? s.session : null
+  return Boolean(session && (session.current || (session.queue && session.queue.length)))
+}
+
+// Sayfa kipi: dar ekran, yayın sahnesi (K7.2) veya boş DJ. KONSEPT 3: sütun "Telsiz DJ çalarken" açılır. Boş
+// kart ("Henüz parça yok") geniş ekranda ayrı sütun açıp ortada boşluk bırakmaz, kadrodaki Telsiz DJ öğesinden
+// yan sayfada açılır. Parça eklenince kart sütuna geçer, kuyruk boşalınca sayfaya döner.
 function djIsSheetMode () {
-  return window.innerWidth < 1280 || dj.castLive
+  return window.innerWidth < 1280 || dj.castLive || !djHasTracks()
 }
 
 function djButton (className, text, iconName) {
@@ -438,9 +449,48 @@ function djRenderSoon () {
   })
 }
 
+// ------------------------------------------------------------------ bant ve telsiz kartı işaretleri
+
+// DJ'nin çaldığı ses odaları (motorun bildiği tüm odalar, KONSEPT 8.3 "Çalıyor" durumu)
+function djPlayingRooms () {
+  const engine = dj.ready ? djEngine() : null
+  const s = engine ? djSnapshot() : null
+  if (!s || !s.supported || !s.enabled) return []
+  let rooms = []
+  try {
+    rooms = engine.activeRooms()
+  } catch (err) {
+    return []
+  }
+  return rooms.filter((r) => r && r.playing && r.current)
+}
+
+// 04-meta.js bandModel: bu ses istasyonunda nota işareti gösterilir mi
+function djPlayingIn (roomId) {
+  return djPlayingRooms().some((r) => sameId(r.room, roomId))
+}
+
+// Çalan odalar değişince bant yeniden çizilir, telsiz kartında "DJ çalıyor" satırı güncellenir
+function djSyncMarks () {
+  const rooms = djPlayingRooms()
+  const key = rooms.map((r) => String(r.room)).sort().join(',')
+  if (key !== dj.marksKey) {
+    dj.marksKey = key
+    if (typeof renderBand === 'function') renderBand()
+  }
+  const line = byId('radio-dj')
+  const text = byId('radio-dj-text')
+  if (!line || !text) return
+  const here = dj.voiceRoom !== null ? rooms.filter((r) => sameId(r.room, dj.voiceRoom))[0] : null
+  const value = here ? t('music.radioPlayingTrack', { title: djTrackTitle(here.current) }) : ''
+  djSetText(text, value)
+  if (line.hidden !== !here) line.hidden = !here
+}
+
 // Kartı, yerleşimi ve kadro öğesini anlık görüntüye göre günceller
 function djRender () {
   if (!dj.ready || !el.dj) return
+  djSyncMarks()
   const s = djSnapshot()
   const show = djShouldShow()
   djApplyLayout(show)
@@ -700,7 +750,7 @@ function djApplyLayout (show) {
     if (!sheetMode && layer) closeLayer(layer, false)
   }
   // Sütun görünürken sol bilgi sütunu kalkar (KONSEPT 3: "sol bilgi sütunu kalkar"), oda bilgisi başlıktaki
-  // düğmeyle yan sayfada açılır (dj.css ve djWrapInfoInline)
+  // düğmeyle yan sayfada açılır (dj.css ve 12-init.js isInfoInline)
   djAttr(el.appView, 'data-dj-col', !sheetMode && show ? 'on' : 'off')
   node.classList.toggle('is-sheet-mode', sheetMode)
   node.classList.toggle('is-cast-docked', sheetMode && dj.castLive && window.innerWidth >= 1280)
@@ -719,18 +769,6 @@ function djLayout () {
   const cast = djDetectCast()
   if (cast !== dj.castLive) dj.castLive = cast
   djRenderSoon()
-}
-
-// 12-init.js isInfoInline: DJ sütunu görünürken sol bilgi sütunu sayfada değildir, Oda bilgisi düğmesi yan
-// sayfayı açar ve Arkadaşlar görünümünde Arkadaş ekle sekmesi görünür (14-social.js homeAddInline)
-function djWrapInfoInline () {
-  const base = window.isInfoInline
-  if (typeof base !== 'function' || base.djWrapped) return
-  const wrapped = function () {
-    return base() && !(el.appView && el.appView.getAttribute('data-dj-col') === 'on')
-  }
-  wrapped.djWrapped = true
-  window.isInfoInline = wrapped
 }
 
 // Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar
@@ -960,7 +998,6 @@ function djInit () {
   if (!engine || !el.dj || !el.djCard) return
   if (typeof SHEETS === 'object' && SHEETS && !SHEETS.dj) SHEETS.dj = { id: 'dj', trigger: null }
   djBuild()
-  djWrapInfoInline()
   dj.ready = true
   el.dj.addEventListener('click', onSheetCloseClick)
   if (typeof window.MutationObserver === 'function') {
@@ -989,6 +1026,8 @@ function djInit () {
     if (djCardShown()) {
       dj.snap = engine.snapshot()
       djRender()
+    } else {
+      djSyncMarks()
     }
   }, DJ_TICK_MS)
   if (typeof composerSetCommandHandler === 'function') composerSetCommandHandler(djCommand)

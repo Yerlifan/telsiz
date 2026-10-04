@@ -334,6 +334,9 @@ function bandModel () {
     } else if (count) {
       sub = t('band.voicePeople', { count: count })
     }
+    // Telsiz DJ bu odada çalıyorsa nota işareti (23-dj.js, KONSEPT 6.2)
+    const djOn = typeof djPlayingIn === 'function' && djPlayingIn(c.id)
+    if (djOn) label = label + ', ' + t('band.djPlaying')
     return {
       key: 'voice-' + c.id,
       kind: 'voice',
@@ -349,6 +352,7 @@ function bandModel () {
       connected: connected && !joining,
       joining: joining,
       live: voiceSpeakingIn(c.id),
+      dj: djOn,
       people: roster.map((entry) => entry.userId),
       label: label
     }
@@ -365,7 +369,7 @@ function bandStations (model) {
 }
 
 function stationKeyOf (st) {
-  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, (st.people || []).map((id) => {
+  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, (st.people || []).map((id) => {
     const info = avatarInfoFor(id)
     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
   }).join(','), st.label].join(':')
@@ -423,6 +427,7 @@ function buildStation (st) {
     const pulse = h('span', 'station-pulse')
     pulse.setAttribute('aria-hidden', 'true')
     b.appendChild(pulse)
+    if (st.dj) b.appendChild(icon('i-music', 'station-dj'))
     if (st.people && st.people.length) {
       const stack = h('span', 'mini-stack')
       stack.setAttribute('aria-hidden', 'true')
@@ -561,6 +566,7 @@ function buildSheetRow (st) {
   text.appendChild(h('span', 'sheet-row-name', st.name))
   text.appendChild(h('span', 'sheet-row-sub', st.tuned ? t('band.tunedSub') : st.sub))
   b.appendChild(text)
+  if (st.dj) b.appendChild(icon('i-music', 'sheet-row-dj'))
   const mark = buildStationMark(st)
   if (mark) b.appendChild(mark)
   if (st.tuned) b.appendChild(icon('i-check', 'sheet-row-check'))

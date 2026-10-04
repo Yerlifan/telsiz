@@ -165,13 +165,16 @@
 }
 
 /* Kadro: 44 px yumuşak kare avatarlar ve adlar */
+/* Kaydırılabilir kadro taşan çizimi kırpar: konuşma halesinin parıltısı kesilip avatarın dışında dik
+   köşeli bir kutu gibi görünmesin diye kadronun çevresinde hale kadar boşluk bırakılır, eksi kenar
+   boşluğu yerleşimi aynı tutar */
 .crew {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  max-height: 12rem;
-  margin: 0;
-  padding: 0;
+  max-height: 13rem;
+  margin: -0.5rem;
+  padding: 0.5rem;
   overflow-y: auto;
   list-style: none;
 }
@@ -218,9 +221,10 @@ button.crew-button:hover {
   text-overflow: ellipsis;
 }
 
-/* Konuşanın halesi: şekli izleyen çerçeve ve parıltı */
+/* Konuşanın halesi: avatarın yumuşak kare şeklini (--avatar-radius) izleyen çerçeve ve dar parıltı.
+   Parıltı kadronun boşluğuna sığar (bkz. .crew), kırpılıp kutuya dönmez. */
 .crew-item.is-speaking .crew-avatar {
-  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 0 5px var(--live), 0 0 18px 4px var(--halo-1);
+  box-shadow: 0 0 0 3px var(--screen-bg), 0 0 0 5px var(--live), 0 0 6px 5px var(--halo-1);
 }
 
 .crew-item.is-speaking .crew-name {
@@ -320,6 +324,35 @@ button.crew-button:hover {
 }
 
 .radio-talk-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Telsiz DJ bu odada çalarken (23-dj.js djSyncMarks): nota simgesi ve parça adı */
+.radio-dj {
+  display: flex;
+  align-items: center;
+  margin: 0.25rem 0 0;
+  color: var(--live);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+}
+
+.radio-dj[hidden] {
+  display: none;
+}
+
+.radio-dj .icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+}
+
+.radio-dj-text {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -840,6 +873,7 @@ button.crew-button:hover {
   .radio .radio-head,
   .radio .crew-name,
   .radio .radio-talk,
+  .radio .radio-dj,
   .radio .radio-hint,
   .radio .radio-button-text,
   .radio .radio-ptt-hint,
@@ -900,6 +934,8 @@ button.crew-button:hover {
     flex-wrap: nowrap;
     max-width: 60%;
     max-height: none;
+    margin: 0;
+    padding: 0;
     overflow-x: auto;
     overflow-y: hidden;
   }
@@ -927,7 +963,7 @@ button.crew-button:hover {
   }
 
   .crew-item.is-speaking .crew-avatar {
-    box-shadow: 0 0 0 2px var(--live), 0 0 10px 2px var(--halo-1);
+    box-shadow: 0 0 0 2px var(--live), 0 0 3px 3px var(--halo-1);
   }
 
   .crew-badge {
@@ -954,9 +990,11 @@ button.crew-button:hover {
     margin: 0 0.5rem 0 0;
   }
 
+  /* Bas konuş veya ses etkinliği dört düğmeyle aynı satırda kalan alanı doldurur. Taban 0: içeriğin
+     doğal genişliği satırı taşırıp düğmeleri alt satırda sağa itmesin. */
   .radio .radio-ptt,
   .radio .radio-vad {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     width: auto;
     min-width: 0;
     min-height: 3.5rem;
@@ -967,22 +1005,26 @@ button.crew-button:hover {
 
   .radio-ptt-dome,
   .radio-vad-icon {
-    width: 2.75rem;
-    height: 2.75rem;
-    margin-right: 0.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-right: 0.375rem;
   }
 
   .radio-ptt-label,
   .radio-vad-label {
+    overflow: hidden;
     font-size: var(--text-sm);
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .radio-vad-state {
     display: none;
   }
 
+  /* Telefonda seviye çubuğuna yer yok: konuşma, simgenin yeşil halkasıyla (is-open) görünür */
   .radio-vad-meter {
-    width: 2.5rem;
+    display: none;
   }
 
   .radio .radio-row {

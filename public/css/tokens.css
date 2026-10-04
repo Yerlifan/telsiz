@@ -60,6 +60,10 @@
      Durum noktası ve köşe işaretleri aynı aileden yumuşak karedir. */
   --avatar-radius: 28%;
   --dot-radius: 32%;
+
+  /* Her temada ve modda koyu kalan sahnelerin (resim görüntüleyici, yayın sahnesi, --viewer-bg)
+     üstündeki yazı. Açık modda da koyu zemin üstünde durduğu için moddan bağımsızdır. */
+  --on-viewer: #f5f5f7;
 }
 
 /* Renge bağlı Frekans belirteçleri yalnızca tema belirteçlerine başvurur, bu yüzden üç temada ve
@@ -220,7 +224,7 @@
   --accent-2-text: #06707f;
   --accent-lip: #6e55d6;
   --accent-fill-a: #7046f0;
-  --accent-fill-b: #0e8fa6;
+  --accent-fill-b: #0b7d91;
   --attention: #8f6bff;
   --on-attention: #0e0d16;
   --mention-bg: rgba(112, 70, 240, 0.12);

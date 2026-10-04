@@ -21,9 +21,12 @@ const sheetState = {
   switching: false
 }
 
-// 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz
+// 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz. Telsiz DJ sütunu görünürken
+// (23-dj.js, #app-view[data-dj-col="on"]) sol bilgi sütunu kalkar: Oda bilgisi düğmesi yan sayfayı açar
+// ve Arkadaşlar görünümünde Arkadaş ekle sekmesi görünür (14-social.js homeAddInline)
 function isInfoInline () {
-  return window.innerWidth >= 1280
+  if (window.innerWidth < 1280) return false
+  return !(el.appView && el.appView.getAttribute('data-dj-col') === 'on')
 }
 
 function sheetLayer (name) {
