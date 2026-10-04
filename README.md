@@ -4,13 +4,17 @@
 
 Telsiz, kendi sunucunuzda çalışan, açık kaynaklı (MIT) ve uçtan uca şifreli bir yazılı ve sesli iletişim uygulamasıdır. Sunucu gruptan bir kişinin bilgisayarında, bir ev sunucusunda veya kiralık bir sunucuda çalışır, herkes tarayıcıdan bağlanır. Bilgisayarda, Mac'te, Linux'ta, Android ve iOS telefonlarda, tabletlerde ve oyun konsollarının tarayıcılarında aynı arayüz açılır. İsteyen kişi Telsiz'i uygulama olarak yükleyebilir veya Windows ve Linux için hazırlanan masaüstü uygulamasını kullanabilir.
 
+Her Telsiz sunucusu bir **frekanstır**: kendi adı, odaları, üyeleri ve şifreleme anahtarı olan bir topluluk. Bir kişi birden çok frekansa katılabilir, üst çubuktaki frekans adından kayıtlı frekanslar arasında geçer.
+
 Mesajlar, dosyalar, profiller ve ses bağlantısının kurulum mesajları cihazda şifrelenir. Sunucu bu içerikleri yalnızca şifreli olarak saklar ve iletir. Sunucunun çalışma zamanı bağımlılığı yoktur, Node.js 20 veya daha yeni bir sürümle ya da Node.js gerektirmeyen tek dosyalık sürümle çalışır.
 
 ![Telsiz ana görünümü, Arcade teması, koyu mod](docs/img/ana-arcade-koyu.png)
 
 ## Özellikler
 
-**Odalar ve frekans bandı.** Telsiz bir radyo kadranı gibi düzenlenir. Yazı odaları ve ses odaları ekranın üstündeki yatay frekans bandında birer istasyon olarak durur. Açık olan konuşmayı bandın üstündeki ibre gösterir, ibre fareyle veya parmakla sürüklenip bırakıldığında en yakın istasyona oturur. Okunmamış mesajlar ve anmalar istasyonların köşesinde rozet olarak görünür, içinde konuşan olan ses odası nabız gibi atar. Özel mesajlar ve arkadaşlar bandın solundaki Kişisel grupta, profil, durum ve ayarlar sağ üstteki avatar menüsündedir.
+**Odalar ve frekans bandı.** Telsiz bir radyo kadranı gibi düzenlenir. Yazı odaları ve ses odaları ekranın üstündeki yatay frekans bandında birer istasyon olarak durur. Açık olan konuşmayı bandın üstündeki ibre gösterir, ibre fareyle veya parmakla sürüklenip bırakıldığında en yakın istasyona oturur. Okunmamış mesajlar ve anmalar istasyonların köşesinde rozet olarak görünür, içinde konuşan olan ses odası nabız gibi atar. Geniş ekranda sağ sütunda aynı odaların listesi (İstasyonlar), sol sütunda telsiz kartı ve ayarlı odanın bilgisi, ortada geniş konuşma sütunu durur. Özel mesajlar ve arkadaşlar üst çubuğun ortasındaki iki düğmede, profil, durum ve ayarlar sağ üstteki avatar menüsündedir. Bandın sonundaki ? düğmesi istasyon değiştirme rehberini açar.
+
+**Birden çok frekans.** Üst çubuğun solundaki frekans adına basınca kayıtlı frekanslar açılır: açık olan işaretlidir, diğerine basınca o frekansa geçilir, Frekans ekle yeni bir adres ekler (`https://` veya bu bilgisayardaki sunucu için `http://localhost`), her satır listeden çıkarılabilir. Masaüstü uygulamasında her frekansın girişi ayrı saklanır ve geçiş aynı pencerede olur. Tarayıcıda her frekans ayrı bir sitedir: liste o tarayıcıda tutulur, başka frekansa geçince sekme o adrese gider ve liste adresin `#` bölümünde (yalnızca adresler ve adlar, anahtar yok) karşı frekansa taşınır. Açık olmayan frekansların bildirimleri ve okunmamış sayıları gösterilmez, geçişte ses bağlantısı kesilir, liste cihazlar arasında eşitlenmez.
 
 **Uçtan uca şifreli yazışma.** Yazı odalarındaki mesajlar, fotoğraflar ve dosyalar grup anahtarıyla, özel mesajlar ise iki kişinin kişisel anahtarlarıyla şifrelenir. GIF dışındaki fotoğraflar gönderilmeden önce cihazda yeniden kodlanır, böylece konum bilgisi dahil üst veriler silinir. Bir mesaja en fazla 10 dosya eklenebilir, bir dosya varsayılan olarak 25 MB'a kadar olabilir. Mesajlar düzenlenip silinebilir, emoji seçici, @ ile anma ve yazıyor göstergesi vardır. Özel mesajlarda karşı tarafın anahtarı güvenlik numarasıyla doğrulanabilir.
 
@@ -20,7 +24,7 @@ Mesajlar, dosyalar, profiller ve ses bağlantısının kurulum mesajları cihazd
 
 **Ekran paylaşımı.** Ses odasındaki herkes ekranını, bir pencereyi veya bir sekmeyi paylaşabilir. Görüntü yalnızca İzle düğmesine basan kişilere gönderilir. Paylaşan kişi akıcılık veya net metin önceliğini, 720p ve 1080p arasında çözünürlüğü, 15 veya 30 kare hızını ve isteğe bağlı olarak sesi seçer.
 
-**Telsiz DJ.** Ses odalarında yerleşik bir müzik botu vardır. Yazma alanına `/çal` ve bir YouTube bağlantısı yazmak veya mesajdaki bir ses dosyasında "DJ'de çal" düğmesine basmak parçayı kuyruğa ekler. Herkes parçayı aynı anda kendi cihazında dinler. YouTube parçaları YouTube'un resmi gömülü oynatıcısıyla ve yalnızca kişi bu cihazda onay verdikten sonra yüklenir. Paylaşılan ses dosyaları onaysız çalar. Sunucu sahibi Telsiz DJ'yi veya yalnızca YouTube kaynağını kapatabilir.
+**Telsiz DJ.** Ses odalarında yerleşik bir müzik botu vardır. Yazma alanına `/çal` ve bir YouTube bağlantısı yazmak veya mesajdaki bir ses dosyasında "DJ'de çal" düğmesine basmak parçayı kuyruğa ekler. Herkes parçayı aynı anda kendi cihazında dinler. YouTube parçaları YouTube'un resmi gömülü oynatıcısıyla ve yalnızca kişi bu cihazda onay verdikten sonra yüklenir. Paylaşılan ses dosyaları onaysız çalar. Frekansın sahibi Telsiz DJ'yi veya yalnızca YouTube kaynağını kapatabilir.
 
 **Cihazda arama.** Mesajlarda arama tamamen cihazda yapılır. Sunucu aranan metni ve mesaj içeriğini görmez.
 
@@ -101,12 +105,12 @@ Sürümler sayfasında Windows için kurucu (`Telsiz-Kurulum-<sürüm>.exe`) ve 
 
 1. Sunucuyu başlatın ve konsolda çerçeve içinde gösterilen kurulum kodunu not edin.
 2. Tarayıcıda sunucunun adresini açın.
-3. Kurulum ekranında kurulum kodunu, kullanıcı adınızı ve parolanızı girin. Bu hesap sunucunun sahibi olur.
+3. Kurulum ekranında kurulum kodunu, kullanıcı adınızı ve parolanızı girin. Bu hesap frekansın (bu sunucunun) sahibi olur.
 4. Telsiz grup için bir şifreleme anahtarı oluşturur ve davet ekranını gösterir. Davet bağlantısını kopyalayıp arkadaşlarınızla paylaşın.
 
 Davet bağlantısı davet kodunu ve şifreleme anahtarını adresin `#` işaretinden sonraki bölümünde taşır. Tarayıcılar bu bölümü sunucuya göndermez, ancak bağlantıyı gören herkes anahtarı da öğrenir. Bu yüzden bağlantıyı yalnızca güvendiğiniz kanallardan paylaşın. Anahtar kodu istenirse elle de yazılabilir. Davet kodu daha sonra Ayarlar > Davet bölümünden yenilenebilir.
 
-Sahip ve yöneticiler odaları Ayarlar > Odalar bölümünden, üyeleri Ayarlar > Üyeler bölümünden yönetir. Sunucu adı ile Telsiz DJ ve YouTube kaynağı anahtarları Ayarlar > Genel bölümündedir ve yalnızca sahip tarafından değiştirilir.
+Sahip ve yöneticiler odaları Ayarlar > Odalar bölümünden, üyeleri Ayarlar > Üyeler bölümünden yönetir. Frekans adı ile Telsiz DJ ve YouTube kaynağı anahtarları Ayarlar > Genel bölümündedir ve yalnızca sahip tarafından değiştirilir.
 
 ## HTTPS ve internete açma
 
@@ -118,7 +122,7 @@ Tarayıcılar mikrofona ve ekran yakalamaya yalnızca güvenli adreslerde izin v
 
 **Telefon, tablet ve bilgisayar.** Telsiz https adresinden açıldığında uygulama olarak yüklenebilir. Destekleyen tarayıcılarda Ayarlar > Uygulama bölümünde "Uygulamayı yükle" düğmesi görünür. iPhone ve iPad'de Safari'nin Paylaş menüsündeki "Ana Ekrana Ekle" seçeneği kullanılır. Yüklenen uygulama yüklendiği adrese bağlıdır.
 
-**Masaüstü uygulaması.** Windows ve Linux için hazırlanan masaüstü uygulaması arayüzü kendi içinde taşır ve açılışta dosyaların bütünlüğünü doğrular. Mikrofonu aç veya kapat ve sağırlaştır için genel kısayollar ile sistem tepsisine küçültme seçeneği sunar.
+**Masaüstü uygulaması.** Windows ve Linux için hazırlanan masaüstü uygulaması arayüzü kendi içinde taşır ve açılışta dosyaların bütünlüğünü doğrular. Birden çok frekansı (adres ve giriş) hatırlar, aralarında aynı pencerede geçer. Mikrofonu aç veya kapat ve sağırlaştır için genel kısayollar ile sistem tepsisine küçültme seçeneği sunar.
 
 **Televizyon ve oyun konsolları.** Arayüz geniş ekranda büyük yazı ve büyük düğmelerle açılır, yön tuşlarıyla gezilebilir. PS5'in resmi bir tarayıcı uygulaması yoktur ve konsol tarayıcılarında sesli sohbetin çalıştığı doğrulanmamıştır. Konsol başındaki kişi sesli sohbete aynı hesapla telefonundan katılabilir.
 

@@ -24,6 +24,18 @@ In the desktop app the interface code ships inside the app and is never download
 - The preload script exposes only a narrow API to the page (`window.telsizDesktop`). IPC channels have fixed names, the window and origin of every call and every input are checked in the main process.
 - The packaged app sets Electron fuses: `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` are ignored, the app is only loaded from `app.asar` and asar integrity is validated on Windows. The `--inspect` flag is deliberately left enabled. The smoke test runs with Playwright against the published build itself using this flag. A local program with the same user rights can already read the app data directly, so the flag does not grant anything extra.
 
+## Frequencies
+
+In the interface every Telsiz server is a frequency. The app remembers several frequencies and the user switches between them. The server side and the encryption model do not change: each frequency is a separate server, a separate account and a separate key.
+
+- The list is kept in the `frequencies` field of `ayarlar.json`: `[{ origin, name, lastUsed }]`, and the active frequency is the `server` field (`src/lib/frequencies.js`, `src/lib/settings-store.js`). Every origin is validated with the `server-url.js` rules, and the list holds at most 50 frequencies. The single server address of the earlier version is added to the list on first start. Session partitions were already per origin, so no sign-in is lost.
+- The display name is the server name from the `/api/info` response that the connect window checks. If the web app learns a new name later (when the server name changes), it reports it with `setFrequencyName`, and the name is written only to the frequency the window is open on. Without a name the host name is shown.
+- The menu that opens from the frequency name in the top bar (`public/js/24-frekans.js`) shows the list: the open frequency comes first and is marked, and pressing another one switches to it. On a switch the app window is opened again with that frequency's session partition and the old window closes (the voice connection closes too). Add a frequency opens the frequency address window in add mode, and after a successful connection the new frequency is added to the list and becomes active. Remove from list asks for confirmation. The session data of that frequency on this device (sign-in, local storage, cache) is deleted only if the box in the confirmation dialog is checked, keeping it is the default. If the active frequency is removed, the app switches to the most recently used other frequency, and if the list becomes empty the address window opens.
+- The Frequencies submenu in the app menu and in the tray shows the list too and performs the same switch.
+- Every origin and name that comes from the page is validated again in the main process: the origin must be a string of limited length, valid and saved in the list. Like the others, these IPC handlers check that the call comes from the main frame of the app window and from the `telsiz://app` origin.
+
+Limits: the app does not connect to frequencies that are not open in the background, so their notifications and unread counts are not shown. Switching ends the voice connection. The list is not synced between devices.
+
 ## Screen sharing picker
 
 When the web app calls `getDisplayMedia`, the main process opens its own picker window (`src/picker/`). The picker shows screens and windows with thumbnails and names. It only opens if there was real user input (a click or a key press) in the last few seconds, and only the source the user picked is granted. If the user cancels, the request is denied. The old `chromeMediaSource: 'desktop'` call cannot bypass the picker. The option to share system audio is only shown on Windows, because according to the Electron documentation system audio capture (`loopback`) is currently only supported on Windows.
@@ -65,9 +77,9 @@ Build outputs:
 | --- | --- |
 | `src/main.js` | Main process: windows, scheme, session policies, menu, tray, shortcuts, IPC |
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
-| `src/connect/`, `src/connect-preload.js` | Server address screen |
+| `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, shortcut validation, whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `test/` | Unit tests |
@@ -82,7 +94,8 @@ The texts of the desktop menu, tray, server address screen and picker are in `sr
 
 - On global shortcut events it calls the `toggleMute` and `toggleDeafen` functions.
 - It blocks the PWA install prompt.
-- `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the server address and minimize to tray section.
+- `window.TelsizDesktopUI.renderShortcutSettings(container)` draws the global shortcut section, `window.TelsizDesktopUI.renderAppSettings(container)` draws the active frequency and minimize to tray section.
+- The frequency menu (`public/js/24-frekans.js`) manages the list on the desktop with the frequency calls below instead of the browser's local storage.
 
 The `window.telsizDesktop` API:
 
@@ -90,17 +103,22 @@ The `window.telsizDesktop` API:
 | --- | --- |
 | `version`, `platform` | App version and operating system (`win32`, `linux`) |
 | `getServer()` | Server origin from the settings |
-| `changeServer()` | Opens the server address window |
+| `changeServer()` | Opens the frequency address window (Add a frequency) |
 | `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered` |
 | `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, values are Electron accelerator strings or `null` |
 | `onShortcut(cb)` | `cb('toggleMute' or 'toggleDeafen')`, the returned function unsubscribes |
 | `setCloseToTray(bool)` | Minimize to the tray when the window is closed |
+| `listFrequencies()` | `{ active, items: [{ origin, name, host, active }] }`, the active frequency first |
+| `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
+| `addFrequency()` | Opens the frequency address window in add mode |
+| `removeFrequency(origin, clearData)` | Removes the frequency from the list, deletes its session data only if `clearData` is `true` |
+| `setFrequencyName(name)` | The name of the open frequency learned from the server |
 
 Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
 
 ## Settings and data
 
-The desktop settings (server address, minimize to tray, shortcuts) are in `ayarlar.json` in the app data folder. This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every server.
+The desktop settings (active frequency, frequency list, minimize to tray, shortcuts) are in `ayarlar.json` in the app data folder (format 2, a format 1 file is converted to a list when read). This folder is `%APPDATA%\Telsiz` on Windows and `~/.config/Telsiz` on Linux. The local data of the web app is in the same folder, in a separate session partition for every frequency (server).
 
 ## Known limitations
 

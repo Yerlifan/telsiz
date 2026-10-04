@@ -4,6 +4,8 @@
 
 This document explains how to run the Telsiz server on your own computer or on a server, how to put it online, how to back it up and how to update it. For a short introduction and a quick start see [README.en.md](../README.en.md), and for how the system works see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+In the interface every Telsiz server appears as a **frequency**: the server you set up, with its own name, rooms and members, is one frequency. Users can join several frequencies and switch between them from the frequency name in the top bar. In this document "server" means the program and the machine that runs it.
+
 ## Requirements
 
 The server is a single process with no runtime dependencies. The table below summarizes what each installation path needs.
@@ -156,7 +158,7 @@ The npm package, the repository copy and the Docker image do not read `telsiz.en
 
 1. Start the server. If there is no owner account yet, a setup code appears in the console inside a frame made of equals signs. In Docker it is shown by `docker logs telsiz`, and with systemd by `journalctl -u telsiz`.
 2. Open the server address in a browser. On the computer that runs the server the address is `http://localhost:3000`, and the console also lists the addresses on the same network.
-3. On the setup screen, enter the setup code, your username and your password. A username can contain lowercase English letters, digits, underscores and dots. This account is the owner of the server.
+3. On the setup screen, enter the setup code, your username and your password. A username can contain lowercase English letters, digits, underscores and dots. This account is the owner of the server, that is of this frequency.
 4. Telsiz creates an encryption key for the group and shows the invite screen. Copy the invite link. If needed, also write down the key code.
 5. Send the invite link to your friends. A person who opens the link registers with their own username and password, and the key is added to their browser automatically.
 
@@ -164,11 +166,11 @@ The setup code is valid only until the owner account is created and changes ever
 
 ## Owner and admin settings
 
-Server settings are in the "Server settings" group of the full screen settings view in the app. Settings open from the avatar menu at the top right.
+The settings of the frequency (the server) are in the "Frequency settings" group of the full screen settings view in the app. Settings open from the avatar menu at the top right.
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Server name (owner only), server summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency summary, and in the Music bot section the switches for Telsiz DJ and the YouTube source (owner only) |
 | Settings > Rooms | Owner and admins | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
 | Settings > Members | Owner and admins | Changing roles, banning and unbanning, resetting a password with a temporary password |
 | Settings > Invite | Owner and admins | Copying the invite link and renewing the invite code. A renewed code invalidates old links. |

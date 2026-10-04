@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['changeServer', 'getServer', 'getSettings', 'onShortcut', 'platform', 'setCloseToTray', 'setShortcuts', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'version'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
   await api.getServer()
@@ -75,6 +75,28 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
     [channels.CHANNELS.setShortcuts, { toggleMute: 'F9' }],
     [channels.CHANNELS.setCloseToTray, true],
     [channels.CHANNELS.setCloseToTray, null]
+  ])
+  // Frekans çağrıları: türü yanlış girdiler ana sürece güvenli varsayılanla gider
+  p.invoked.length = 0
+  await api.listFrequencies('fazla')
+  await api.switchFrequency('https://b.com')
+  await api.switchFrequency({ toString: () => 'https://kotu.com' })
+  await api.addFrequency(1)
+  await api.removeFrequency('https://b.com', true)
+  await api.removeFrequency('https://b.com', 'evet')
+  await api.removeFrequency(5)
+  await api.setFrequencyName('Kankalar')
+  await api.setFrequencyName(['x'])
+  assert.deepEqual(p.invoked, [
+    [channels.CHANNELS.listFrequencies],
+    [channels.CHANNELS.switchFrequency, 'https://b.com'],
+    [channels.CHANNELS.switchFrequency, ''],
+    [channels.CHANNELS.addFrequency],
+    [channels.CHANNELS.removeFrequency, 'https://b.com', true],
+    [channels.CHANNELS.removeFrequency, 'https://b.com', false],
+    [channels.CHANNELS.removeFrequency, '', false],
+    [channels.CHANNELS.setFrequencyName, 'Kankalar'],
+    [channels.CHANNELS.setFrequencyName, '']
   ])
   const got = []
   const off = api.onShortcut((action) => got.push(action))
@@ -149,5 +171,5 @@ test('ana süreç sertleştirmeleri kaynakta bulunur', () => {
   const handlers = main.match(/ipcMain\.(handle|on)\(CHANNELS\.\w+, \([^)]*\) => \{\n\s+(requireSender|if \(senderIs)/g) || []
   const total = main.match(/ipcMain\.(handle|on)\(/g) || []
   assert.equal(handlers.length, total.length)
-  assert.ok(total.length >= 12)
+  assert.ok(total.length >= 17)
 })

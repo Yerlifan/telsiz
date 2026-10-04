@@ -10,7 +10,9 @@
 //   yapılandırılmış sunucuya iletilir (src/lib/proxy.js), diğer yollar beyaz listeden sunulur
 //   (src/lib/static-files.js). Sayfa sunucuya doğrudan bağlanamaz (CSP connect-src 'self').
 // - Her sunucu kendi oturum bölümünü (partition) kullanır: bir sunucunun oturum bilgisi ve yerel
-//   verisi başka bir sunucuya hiçbir zaman gönderilemez.
+//   verisi başka bir sunucuya hiçbir zaman gönderilemez. Arayüzde her sunucu bir "frekans"tır:
+//   uygulama birden çok frekansı hatırlar (src/lib/frequencies.js), geçişte uygulama penceresi o
+//   frekansın oturum bölümüyle yeniden açılır, böylece her frekansın girişi ayrı ayrı korunur.
 // - Pencereler bağlam yalıtımı ve korumalı alanla açılır, Node.js sayfaya hiç verilmez. Gezinme,
 //   yeni pencere, webview, izinler, indirmeler ve sertifika hataları sıkı biçimde denetlenir.
 // - Ön yükleme betikleri yalnızca sabit adlı IPC kanallarını kullanır, her girdi burada yeniden
@@ -49,6 +51,7 @@ const strings = require('./lib/strings')
 const settingsStore = require('./lib/settings-store')
 const diagnostics = require('./lib/diagnostics')
 const automation = require('./lib/automation')
+const frequencies = require('./lib/frequencies')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
 
@@ -626,13 +629,71 @@ async function submitServer (address, acceptMismatch) {
     if (!info.compatible && acceptMismatch !== true) {
       return { ok: false, code: 'version', reason: info.reason, origin: parsed.origin, serverName: info.serverName, serverVersion: info.version, appVersion: app.getVersion() }
     }
-    state.settings.server = parsed.origin
-    persistSettings()
-    setImmediate(() => applyServer(parsed.origin))
+    // Yeni frekans listeye eklenir (zaten varsa adı ve kullanım zamanı güncellenir) ve etkin olur
+    frequencyControl.added(parsed.origin, info.serverName)
     return { ok: true, origin: parsed.origin, serverName: info.serverName }
   } finally {
     state.connectBusy = false
   }
+}
+
+// ------------------------------------------------------------------ frekanslar
+
+// Bir frekansın bu cihazdaki oturum verisi (giriş, yerel depolama, önbellek). Yalnızca kullanıcı
+// açıkça isterse silinir.
+async function clearFrequencyData (origin) {
+  try {
+    const ses = session.fromPartition(partitionFor(origin))
+    await ses.clearStorageData()
+    await ses.clearCache()
+  } catch (err) {
+    logError('clear data', err)
+  }
+}
+
+// Son frekans listeden çıkarılınca: uygulama penceresi kapanır, frekans adresi penceresi açılır
+function closeToConnect () {
+  const old = state.mainWindow
+  state.mainWindow = null
+  state.mainOrigin = null
+  openConnectWindow()
+  if (isAlive(old)) old.destroy()
+}
+
+// Geçiş, ekleme, çıkarma ve ad bildirimi (src/lib/frequencies.js). Geçişte uygulama penceresi o
+// frekansın oturum bölümüyle yeniden açılır, eski pencere (ve varsa ses bağlantısı) kapanır.
+const frequencyControl = frequencies.createController({
+  settings: () => state.settings,
+  persist: () => {
+    persistSettings()
+    refreshMenus()
+  },
+  windowOrigin: () => state.mainOrigin,
+  apply: (origin) => applyServer(origin),
+  closeToConnect,
+  clearData: (origin) => clearFrequencyData(origin),
+  defer: (fn) => setImmediate(fn),
+  now: () => Date.now()
+})
+
+// Menüde ve tepside frekans listesi: etkin frekans işaretli, en altta Frekans ekle
+function frequencyMenuItems () {
+  const list = frequencies.publicList(state.settings.server, state.settings.frequencies).items
+  const items = list.map((item) => ({
+    // Windows menüleri & işaretini kısayol harfi sayar
+    label: frequencies.displayName(item).replace(/&/g, '&&'),
+    type: 'radio',
+    checked: item.active,
+    click: () => frequencyControl.switchTo(item.origin)
+  }))
+  if (items.length > 0) items.push({ type: 'separator' })
+  items.push({ label: t('menu.changeServer'), click: () => openConnectWindow() })
+  return items
+}
+
+function refreshMenus () {
+  buildMenu()
+  updateTrayMenu()
 }
 
 // ------------------------------------------------------------------ menü, tepsi, kısayollar
@@ -665,7 +726,7 @@ function buildMenu () {
     {
       label: t('menu.app'),
       submenu: [
-        { label: t('menu.changeServer'), click: () => openConnectWindow() },
+        { label: t('menu.frequencies'), submenu: frequencyMenuItems() },
         { type: 'separator' },
         { label: t('menu.closeToTray'), type: 'checkbox', checked: state.settings.closeToTray, enabled: Boolean(state.tray), click: (item) => setCloseToTray(item.checked) },
         { type: 'separator' },
@@ -721,13 +782,19 @@ function createTray () {
     return
   }
   state.tray.setToolTip(t('tray.tooltip'))
+  updateTrayMenu()
+  state.tray.on('click', () => showMain())
+}
+
+function updateTrayMenu () {
+  if (!state.tray) return
   state.tray.setContextMenu(Menu.buildFromTemplate([
     { label: t('tray.open'), click: () => showMain() },
     { label: t('tray.toggleMute'), click: () => sendShortcut('toggleMute') },
+    { label: t('tray.frequencies'), submenu: frequencyMenuItems() },
     { type: 'separator' },
     { label: t('tray.quit'), click: () => quitApp() }
   ]))
-  state.tray.on('click', () => showMain())
 }
 
 function showTrayHint () {
@@ -830,6 +897,27 @@ function registerIpc () {
     requireSender(event, 'app')
     return setCloseToTray(value)
   })
+  ipcMain.handle(CHANNELS.listFrequencies, (event) => {
+    requireSender(event, 'app')
+    return frequencyControl.list()
+  })
+  ipcMain.handle(CHANNELS.switchFrequency, (event, origin) => {
+    requireSender(event, 'app')
+    return frequencyControl.switchTo(origin)
+  })
+  ipcMain.handle(CHANNELS.addFrequency, (event) => {
+    requireSender(event, 'app')
+    openConnectWindow()
+    return true
+  })
+  ipcMain.handle(CHANNELS.removeFrequency, (event, origin, clearData) => {
+    requireSender(event, 'app')
+    return frequencyControl.remove(origin, clearData)
+  })
+  ipcMain.handle(CHANNELS.setFrequencyName, (event, name) => {
+    requireSender(event, 'app')
+    return frequencyControl.setName(name)
+  })
   ipcMain.on(CHANNELS.userActivation, (event) => {
     if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
   })
@@ -840,6 +928,7 @@ function registerIpc () {
       lang: state.lang,
       strings: strings.subset(state.lang, 'connect.'),
       current: state.settings.server,
+      mode: state.settings.frequencies.length > 0 ? 'add' : 'first',
       canCancel: Boolean(state.settings.server),
       appVersion: app.getVersion()
     }
@@ -996,7 +1085,7 @@ function start () {
   diag.log('integrity-ok', { files: state.files.size, lang: state.lang })
   state.settingsFile = path.join(app.getPath('userData'), settingsStore.FILE_NAME)
   state.settings = settingsStore.load(state.settingsFile)
-  diag.log('settings', { userData: app.getPath('userData'), hasServer: Boolean(state.settings.server) })
+  diag.log('settings', { userData: app.getPath('userData'), hasServer: Boolean(state.settings.server), frequencies: state.settings.frequencies.length })
   installGuards()
   registerIpc()
   createTray()

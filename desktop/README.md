@@ -24,6 +24,18 @@ Masaüstü uygulamasında arayüz kodu uygulamanın içinde taşınır ve sunucu
 - Ön yükleme betiği sayfaya yalnızca dar bir API açar (`window.telsizDesktop`). IPC kanalları sabit adlıdır, her çağrının hangi pencereden ve kökenden geldiği ve her girdi ana süreçte denetlenir.
 - Paketlenmiş uygulamada Electron sigortaları ayarlıdır: `ELECTRON_RUN_AS_NODE` ve `NODE_OPTIONS` yok sayılır, uygulama yalnızca `app.asar` içinden yüklenir ve Windows'ta asar bütünlüğü doğrulanır. `--inspect` bayrağı bilerek açık bırakılır. Duman testi Playwright ile yayımlanan derlemenin kendisi üzerinde bu bayrakla çalışır. Aynı kullanıcı haklarına sahip yerel bir program uygulama verisine zaten doğrudan erişebildiği için bu bayrak ek bir yetki vermez.
 
+## Frekanslar
+
+Arayüzde her Telsiz sunucusu bir frekanstır. Uygulama birden çok frekansı hatırlar ve kullanıcı aralarında geçer. Sunucu tarafı ve şifreleme modeli değişmez: her frekans ayrı bir sunucu, ayrı hesap ve ayrı anahtardır.
+
+- Liste `ayarlar.json` içinde `frequencies` alanında tutulur: `[{ origin, name, lastUsed }]`, etkin frekans `server` alanıdır (`src/lib/frequencies.js`, `src/lib/settings-store.js`). Her köken `server-url.js` kurallarıyla doğrulanır, liste en fazla 50 frekanstır. Eski sürümün tek sunucu adresi ilk açılışta listeye eklenir, oturum bölümleri zaten kökene göre olduğu için girişler kaybolmaz.
+- Görünen ad bağlantı penceresinin denetlediği `/api/info` yanıtındaki sunucu adıdır. Web uygulaması adı sonradan öğrenirse (sunucu adı değişince) `setFrequencyName` ile bildirir, ad yalnızca pencerenin açık olduğu frekansa yazılır. Ad yoksa ana bilgisayar adı gösterilir.
+- Üst çubuktaki frekans adına basınca açılan menü (`public/js/24-frekans.js`) listeyi gösterir: açık frekans başta ve işaretli, diğerine basınca geçilir. Geçişte uygulama penceresi o frekansın oturum bölümüyle yeniden açılır ve eski pencere kapanır (ses bağlantısı da kapanır). Frekans ekle frekans adresi penceresini ekleme kipinde açar, başarılı bağlantıda yeni frekans listeye eklenir ve etkin olur. Listeden çıkar onay ister. O frekansın bu cihazdaki oturum verisi (giriş, yerel depo, önbellek) yalnızca onay penceresindeki kutu işaretlenirse silinir, varsayılan korumaktır. Etkin frekans çıkarılırsa en son kullanılan diğer frekansa geçilir, liste boşalırsa adres penceresi açılır.
+- Uygulama menüsündeki ve tepsideki Frekanslar alt menüsü de listeyi gösterir ve aynı geçişi yapar.
+- Sayfadan gelen her köken ve ad ana süreçte yeniden doğrulanır: köken dize, uzunluğu sınırlı, geçerli ve listede kayıtlı olmalıdır. IPC işleyicileri diğerleri gibi çağrının uygulama penceresinin ana çerçevesinden ve `telsiz://app` kökeninden geldiğini denetler.
+
+Sınırlar: açık olmayan frekanslara arka planda bağlanılmaz, bu yüzden onların bildirimleri ve okunmamış sayıları gösterilmez. Geçişte ses bağlantısı kesilir. Liste cihazlar arasında eşitlenmez.
+
 ## Ekran paylaşımı seçicisi
 
 Web uygulaması `getDisplayMedia` çağırdığında ana süreç kendi seçici penceresini açar (`src/picker/`). Seçici ekranları ve pencereleri küçük resim ve adlarıyla gösterir. Seçici yalnızca son birkaç saniyede gerçek bir kullanıcı girişi (tıklama veya tuş) olduysa açılır ve yalnızca kullanıcının seçtiği kaynak verilir. Vazgeçilirse istek reddedilir. Eski `chromeMediaSource: 'desktop'` çağrısı seçiciyi atlayamaz. Sistem sesini paylaşma seçeneği yalnızca Windows'ta gösterilir, çünkü Electron belgelerine göre sistem sesi yakalama (`loopback`) şu an yalnızca Windows'ta desteklenir.
@@ -65,9 +77,9 @@ Derleme çıktıları:
 | --- | --- |
 | `src/main.js` | Ana süreç: pencereler, şema, oturum politikaları, menü, tepsi, kısayollar, IPC |
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
-| `src/connect/`, `src/connect-preload.js` | Sunucu adresi ekranı |
+| `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `test/` | Birim testleri |
@@ -82,7 +94,8 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 
 - Genel kısayol olaylarında `toggleMute` ve `toggleDeafen` işlevlerini çağırır.
 - PWA yükleme önerisini engeller.
-- `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` sunucu adresi ve tepsiye küçültme bölümünü çizer.
+- `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans ve tepsiye küçültme bölümünü çizer.
+- Frekans menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir.
 
 `window.telsizDesktop` API'si:
 
@@ -90,17 +103,22 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | --- | --- |
 | `version`, `platform` | Uygulama sürümü ve işletim sistemi (`win32`, `linux`) |
 | `getServer()` | Ayarlardaki sunucu kökeni |
-| `changeServer()` | Sunucu adresi penceresini açar |
+| `changeServer()` | Frekans adresi penceresini açar (Frekans ekle) |
 | `getSettings()` | `server`, `closeToTray`, `trayAvailable`, `shortcuts`, `registered` |
 | `setShortcuts(map)` | `{ toggleMute, toggleDeafen }`, değerler Electron kısayol dizgesi veya `null` |
 | `onShortcut(cb)` | `cb('toggleMute' veya 'toggleDeafen')`, dönen işlev aboneliği kaldırır |
 | `setCloseToTray(bool)` | Pencere kapatılınca tepsiye küçültme |
+| `listFrequencies()` | `{ active, items: [{ origin, name, host, active }] }`, etkin frekans başta |
+| `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
+| `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
+| `removeFrequency(origin, clearData)` | Frekansı listeden çıkarır, `clearData` yalnızca `true` ise oturum verisini siler |
+| `setFrequencyName(name)` | Açık frekansın sunucudan öğrenilen adı |
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
 
 ## Ayarlar ve veriler
 
-Masaüstü ayarları (sunucu adresi, tepsiye küçültme, kısayollar) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır. Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her sunucu için ayrı bir oturum bölümündedir.
+Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
 
 ## Bilinen sınırlar
 

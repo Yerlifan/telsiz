@@ -99,7 +99,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `01-core.js` | Constants, storage keys, `t()`, server requests, formatting helpers |
 | `02-state-dom.js` | App state, element cache, DOM helpers, the layer stack, notifications |
 | `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
-| `04-meta.js` | Top bar, frequency band, inbox card, room info, the On air list, room selection |
+| `04-meta.js` | Top bar, frequency band, Stations list, room info, the On air list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
 | `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
@@ -119,6 +119,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `21-band.js` | Frequency band interaction (needle, keyboard, wheel, gamepad) |
 | `22-cast.js` | Screen sharing interface |
 | `23-dj.js` | Telsiz DJ interface |
+| `24-frekans.js` | Frequencies: the frequency switcher menu in the top bar, add and remove, carrying the list in the address fragment in the browser, main process calls on the desktop |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 

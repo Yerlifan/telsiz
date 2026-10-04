@@ -16,7 +16,12 @@ const CHANNELS = {
   setShortcuts: 'telsiz:set-shortcuts',
   setCloseToTray: 'telsiz:set-close-to-tray',
   shortcut: 'telsiz:shortcut',
-  userActivation: 'telsiz:user-activation'
+  userActivation: 'telsiz:user-activation',
+  listFrequencies: 'telsiz:list-frequencies',
+  switchFrequency: 'telsiz:switch-frequency',
+  addFrequency: 'telsiz:add-frequency',
+  removeFrequency: 'telsiz:remove-frequency',
+  setFrequencyName: 'telsiz:set-frequency-name'
 }
 const ACTIONS = ['toggleMute', 'toggleDeafen']
 const VERSION_ARG = '--telsiz-version='
@@ -63,7 +68,7 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   platform: process.platform,
   // Ayarlardaki sunucu kökeni (ör. https://telsiz.ornek.com)
   getServer: () => ipcRenderer.invoke(CHANNELS.getServer),
-  // Sunucu adresi penceresini açar
+  // Frekans adresi penceresini açar (yeni frekans ekleme)
   changeServer: () => ipcRenderer.invoke(CHANNELS.changeServer),
   // { server, closeToTray, trayAvailable, shortcuts, registered, systemAudio }
   getSettings: () => ipcRenderer.invoke(CHANNELS.getSettings),
@@ -77,5 +82,15 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
       listeners.delete(callback)
     }
   },
-  setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null)
+  setCloseToTray: (value) => ipcRenderer.invoke(CHANNELS.setCloseToTray, typeof value === 'boolean' ? value : null),
+  // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
+  listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
+  // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
+  switchFrequency: (origin) => ipcRenderer.invoke(CHANNELS.switchFrequency, typeof origin === 'string' ? origin : ''),
+  // Frekans adresi penceresini ekleme kipinde açar, başarılı bağlantıda frekans eklenir ve etkin olur
+  addFrequency: () => ipcRenderer.invoke(CHANNELS.addFrequency),
+  // Frekansı listeden çıkarır. clearData true ise o frekansın bu cihazdaki oturum verisi de silinir.
+  removeFrequency: (origin, clearData) => ipcRenderer.invoke(CHANNELS.removeFrequency, typeof origin === 'string' ? origin : '', clearData === true),
+  // Etkin frekansın sunucudan öğrenilen adı (listede ve menüde gösterilir)
+  setFrequencyName: (name) => ipcRenderer.invoke(CHANNELS.setFrequencyName, typeof name === 'string' ? name : '')
 })

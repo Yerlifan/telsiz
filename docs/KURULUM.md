@@ -4,6 +4,8 @@
 
 Bu belge Telsiz sunucusunu kendi bilgisayarınızda veya bir sunucuda çalıştırmayı, internete açmayı, yedeklemeyi ve güncellemeyi anlatır. Kısa bir tanıtım ve hızlı başlangıç için [README.md](../README.md), sistemin nasıl çalıştığı için [MIMARI.md](MIMARI.md) dosyasına bakın.
 
+Arayüzde her Telsiz sunucusu bir **frekans** olarak görünür: kurduğunuz sunucu, kendi adı, odaları ve üyeleriyle bir frekanstır. Kullanıcılar birden çok frekansa katılabilir ve aralarında üst çubuktaki frekans adından geçer. Bu belgede "sunucu" programı ve onu çalıştıran makineyi anlatır.
+
 ## Gereksinimler
 
 Sunucu tek bir süreçtir ve çalışma zamanı bağımlılığı yoktur. Hangi kurulum yolunun neye ihtiyaç duyduğu aşağıdaki tabloda özetlenir.
@@ -156,7 +158,7 @@ npm paketi, depo kopyası ve Docker imajı `telsiz.env` dosyasını okumaz, bu k
 
 1. Sunucuyu başlatın. Sahip hesabı henüz yoksa konsolda eşittir işaretlerinden oluşan bir çerçeve içinde kurulum kodu görünür. Docker'da `docker logs telsiz`, systemd'de `journalctl -u telsiz` komutuyla görülür.
 2. Tarayıcıda sunucunun adresini açın. Sunucunun çalıştığı bilgisayarda bu adres `http://localhost:3000` olur, konsol aynı ağdaki adresleri de listeler.
-3. Kurulum ekranında kurulum kodunu, kullanıcı adınızı ve parolanızı girin. Kullanıcı adı küçük İngilizce harf, rakam, alt çizgi ve nokta içerebilir. Bu hesap sunucunun sahibidir.
+3. Kurulum ekranında kurulum kodunu, kullanıcı adınızı ve parolanızı girin. Kullanıcı adı küçük İngilizce harf, rakam, alt çizgi ve nokta içerebilir. Bu hesap sunucunun, yani bu frekansın sahibidir.
 4. Telsiz grup için bir şifreleme anahtarı oluşturur ve davet ekranını gösterir. Davet bağlantısını kopyalayın. Gerekirse anahtar kodunu ayrıca not edin.
 5. Davet bağlantısını arkadaşlarınıza gönderin. Bağlantıyı açan kişi kendi kullanıcı adı ve parolasıyla kayıt olur, anahtar tarayıcısına kendiliğinden eklenir.
 
@@ -164,11 +166,11 @@ Kurulum kodu yalnızca sahip hesabı oluşturulana kadar geçerlidir ve sunucu h
 
 ## Sahip ve yönetici ayarları
 
-Sunucu ayarları uygulamadaki tam ekran ayarlar görünümünün "Sunucu ayarları" grubundadır. Ayarlar sağ üstteki avatar menüsünden açılır.
+Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün "Frekans ayarları" grubundadır. Ayarlar sağ üstteki avatar menüsünden açılır.
 
 | Yer | Kim | İçerik |
 | --- | --- | --- |
-| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Sunucu adı (yalnızca sahip), sunucu özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
+| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans özeti, Müzik botu bölümünde Telsiz DJ ve YouTube kaynağı anahtarları (yalnızca sahip) |
 | Ayarlar > Odalar | Sahip ve yönetici | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
 | Ayarlar > Üyeler | Sahip ve yönetici | Rol değiştirme, engelleme ve engeli kaldırma, geçici parolayla parola sıfırlama |
 | Ayarlar > Davet | Sahip ve yönetici | Davet bağlantısını kopyalama ve davet kodunu yenileme. Yenilenen kod eski bağlantıları geçersiz kılar. |

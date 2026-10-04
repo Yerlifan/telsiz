@@ -11,11 +11,11 @@ Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç gör
 | `public/theme-init.js` | `<head>` içinde `defer` olmadan, stil dosyalarından önce yüklenir. Cihazdaki tercihi okuyup kök öğenin özniteliklerini yazar, böylece sayfa ilk çizimde doğru temayla açılır. `window.TelsizTheme` arayüzünü tanımlar. |
 | `public/css/tokens.css` | Tema bağımsız ölçekler (aralık, yazı, hedef boyutu, hareket), Frekans düzeninin ölçüleri, avatar şekli, her tema ve mod için renk, yazı tipi ve biçim belirteçleri, yazı boyutu kuralları. |
 | `public/css/base.css` | Yerel yazı tipleri (`@font-face`, `font-display: swap`), sıfırlama, gövde ve zemin ışığı, odak çerçevesi, kaydırma çubukları, simgeler, hareketi azalt kuralı. |
-| `public/css/frekans.css` | Çekirdek yerleşim: açılış ve kimlik ekranlarının kabuğu, üst çubuk, frekans bandı ve istasyonlar, sahne (sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun), Gelenler kartı kabı, telsiz kartı kabı, yan ve alt sayfalar, televizyon ipucu çubuğu, kesme noktaları. |
+| `public/css/frekans.css` | Çekirdek yerleşim: açılış ve kimlik ekranlarının kabuğu, üst çubuk, frekans bandı ve istasyonlar, sahne (sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun), İstasyonlar listesi, telsiz kartı kabı, frekans menüsü, yan ve alt sayfalar, televizyon ipucu çubuğu, kesme noktaları. |
 | `public/css/components.css` | Genel bileşenler: düğme, giriş, seçim, anahtar, kaydırıcı, kart, etiket, rozet, avatar ve durum işareti, menü, açılır panel, kalıcı pencere, sekmeler, liste, bildirim, tuş kapağı, yükleniyor, mesaj, emoji seçici, profil kartı. |
 | `public/css/settings.css` | Tam ekran ayarlar görünümü. |
 | `public/css/chat-plus.css` | Arama paneli, @ anma rozetleri ve öneri listesi, yazıyor satırı. |
-| `public/css/convo.css` | Konuşma sütunu: başlık, mesaj akışı, boş, yükleniyor ve hata durumları, yazma alanı, öneri listesi, arama katmanı, Gelenler kartı. |
+| `public/css/convo.css` | Konuşma sütunu: başlık, mesaj akışı, boş, yükleniyor ve hata durumları, yazma alanı, öneri listesi, arama katmanı. |
 | `public/css/radio.css` | Telsiz kartı (ekran, kadro, Bas konuş, düğme sırası), kişi ses ayarı katmanı ve avatar menüsü. |
 | `public/css/people.css` | Giriş kartı, Yayındakiler sayfası ve şeridi, özel mesaj listesi ve kişisel kartlar, özel mesaj başlığı, Arkadaşlar istasyonu. |
 | `public/css/cast.css` | Ekran paylaşımı: yayında çipi, paylaşım bildirimi, yayın sahnesi, daraltılmış sohbet şeridi, paylaşım başlatma penceresi. |
@@ -44,9 +44,9 @@ Kök öğe (`<html>`) öznitelikleri: `data-skin` (`arcade`, `gece`, `turkuaz`),
 
 Uygulama ekranı (`#app-view`) yukarıdan aşağı şu bölgelerden oluşur:
 
-1. **Üst çubuk (`#top`).** Sol üstte topluluk kimliği (logo, sunucu adı, üye sayısı). Sağda Ara çipi, Yayındakiler şeridi (çevrimiçi kişilerin küçük avatarları, basınca kişi listesi) ve avatar çipi (`#me-button`, basınca avatar menüsü: durum, özel durum, profil, ayarlar, görünüm, dil, çıkış). Ekran paylaşırken her istasyonda görünen "Ekranınız yayında" çipi (`#top-cast`) de buradadır. Bağlantı koptuğunda üst çubuğun altında bir şerit (`#conn-banner`) çıkar.
-2. **Frekans bandı (`#band`, `#band-track`).** Kişisel (Özel, Arkadaşlar), yazı odaları ve ses odaları istasyonları tek satırda. Ölçek çizgileri içerikle birlikte kayar, açık konuşmayı istasyonun üstündeki ibre gösterir. İbre sürüklenip bırakıldığında en yakın konuşma istasyonuna oturur, ses istasyonlarına oturmaz. Ses istasyonuna basmak o odaya katılır, konuşma sütununu değiştirmez. Bandın uçlarında önceki ve sonraki istasyon düğmeleri, sahip ve yöneticiler için Oda ekle düğmesi, dar ekranda Tümü düğmesi bulunur. Bant klavyede tek bir sekme durağıdır (ok tuşları, Home, End, Enter), tekerlek bandı yalnızca yatay kaydırır ve hiçbir zaman istasyon değiştirmez. Oyun kolunda L1 ve R1 önceki ve sonraki konuşma istasyonudur.
-3. **Sahne (`#stage`).** Geniş ekranda soldan sağa: sol bilgi sütunu (`#info-col`: ayarlı istasyonun kartı ve istasyon değiştirme ipuçları, Özel istasyonunda konuşma listesi), konuşma sütunu (`#main`: başlık, mesajlar, yazıyor satırı, yazma alanı), Telsiz DJ çalarken DJ sütunu (`#dj`) ve sağ sütun (`#side-right`: üstte diğer frekanslardaki okunmamış ve anmaları toplayan Gelenler kartı `#inbox`, altta telsiz kartı `#radio`).
+1. **Üst çubuk (`#top`).** Sol üstte frekans değiştirici (`#frekans-button`: amblem, frekans adı ve aşağı ok, alt satırda "Frekans · üye sayısı" ve şifreli notu). Basınca kayıtlı frekansların menüsü (`#frekans-menu`, `24-frekans.js`) açılır: açık frekans başta ve işaretli, diğerine geçme, Frekans ekle, Listeden çıkar. Ortada Özel mesajlar ve Arkadaşlar düğmeleri (`#top-personal`, okunmamış özel mesaj ve bekleyen istek rozetleriyle). Sağda Ara çipi, Yayındakiler şeridi (çevrimiçi kişilerin küçük avatarları, basınca kişi listesi) ve avatar çipi (`#me-button`, basınca avatar menüsü: durum, özel durum, profil, ayarlar, görünüm, dil, çıkış). Ekran paylaşırken her istasyonda görünen "Ekranınız yayında" çipi (`#top-cast`) de buradadır. Bağlantı koptuğunda üst çubuğun altında bir şerit (`#conn-banner`) çıkar.
+2. **Frekans bandı (`#band`, `#band-track`).** Yazı odaları ve ses odaları istasyonları tek satırda, grup etiketleri grubun başında. Bant tek satırlıktır (`--band-h` 4rem): üstte ölçek şeridi ve ibrenin topuzu, altında 44 piksellik istasyonlar. Ölçek çizgileri içerikle birlikte kayar, açık konuşmayı istasyonun üstündeki ibre gösterir. İbre sürüklenip bırakıldığında en yakın konuşma istasyonuna oturur, ses istasyonlarına oturmaz. Ses istasyonuna basmak o odaya katılır, konuşma sütununu değiştirmez. Bandın uçlarında önceki ve sonraki istasyon düğmeleri, sahip ve yöneticiler için Oda ekle düğmesi, istasyon değiştirme rehberini küçük bir açılır pencerede gösteren ? düğmesi (`#band-help`, `#hints-card`) ve Tümü düğmesi bulunur. Bant klavyede tek bir sekme durağıdır (ok tuşları, Home, End, Enter), tekerlek bandı yalnızca yatay kaydırır ve hiçbir zaman istasyon değiştirmez. Oyun kolunda L1 ve R1 önceki ve sonraki konuşma istasyonudur.
+3. **Sahne (`#stage`).** Geniş ekranda soldan sağa: dar ve sabit sol sütun (`#info-col`, `--side-left-w`: Özel görünümünde konuşma listesi ve kişisel kartlar, sütunun altında telsiz kartı `#radio` ve hemen altında ayarlı istasyonun kartı), kalan alanı alan konuşma sütunu (`#main`: başlık, mesajlar, yazıyor satırı, yazma alanı) ve dar ve sabit sağ sütun (`#side-right`, `--side-right-w`: yazı ve ses odalarının listesi İstasyonlar `#inbox`, okunmamış ve anma rozetleri, ses odasında kişi sayısı ve konuşan göstergesi). Telsiz DJ çalarken DJ kartı (`#dj`) sağ sütunun yerini alır, ekran paylaşımı yayındayken sağ sütun gizlenir. 1280 pikselin altında telsiz kartı sağ sütuna taşınır (`12-init.js placeRadio`).
 4. **Yayın sahnesi (`#cast`).** Ekran paylaşımı izlenirken veya kişi kendi paylaşımının önizlemesine bakarken sol ve orta bölge birleşir, sohbet altta daraltılmış bir şeride iner.
 5. **Sayfalar.** Tümü (`#stations-sheet`), Yayındakiler (`#people-sheet`) ve 1280 pikselin altında Oda bilgisi geniş ekranda sağdan açılan yan sayfa, telefonda alttan açılan sayfadır. Aynı anda tek sayfa açıktır, ortak örtü `#drawer-backdrop`'tur.
 6. **Televizyon ipucu çubuğu (`#tvbar`).** 1800 piksel ve üstünde, oyun kolu algılandığında altta görünür.
@@ -62,11 +62,11 @@ Düzen işaretleme sırasıyla kurulur, `dir` veya `flex-direction: row-reverse`
 | Ad | Koşul | Değişen |
 | --- | --- | --- |
 | Televizyon | `min-width: 1800px` | Kök yazı 22 piksel (otomatik yazı boyutunda), büyük odak halkası, oyun kolu varsa ipucu çubuğu, telsiz kartının başlık satırı gizli |
-| Geniş | `min-width: 1280px` | Üç bölgeli sahne, sol bilgi sütunu, DJ sütunu |
-| Geniş dar | 1000 ile 1279 piksel | Sol sütun gizli, oda bilgisi başlıktaki düğmeyle yan sayfada, DJ kartı kadrodaki Telsiz DJ öğesinden açılan sayfada |
-| Orta | `max-width: 999px` | Telsiz kartı 17rem, düğmeler iki satırda, Gelenler kartı gizli |
+| Geniş | `min-width: 1280px` | Üç bölgeli sahne: solda telsiz kartı ve oda bilgisi, ortada genişleyen konuşma, sağda İstasyonlar veya DJ kartı |
+| Geniş dar | 1000 ile 1279 piksel | Sol sütun gizli, telsiz kartı sağ sütunda, üst çubuktaki kişisel düğmeler simge, oda bilgisi başlıktaki düğmeyle yan sayfada, DJ kartı kadrodaki Telsiz DJ öğesinden açılan sayfada |
+| Orta | `max-width: 999px` | Telsiz kartı 17rem, düğmeler iki satırda, İstasyonlar kartı gizli |
 | Dar (telefon) | `max-width: 759px` | Bant kenardan kenara ve parmakla kayar, Tümü düğmesi, konuşma tam genişlik, telsiz kartı ekranın altına yapışır, katmanlar alttan açılır |
-| Alçak | `max-height: 860px` | Gelenler kartı gizli |
+| Alçak | `max-height: 860px` ve 1280 pikselin altı | İstasyonlar kartı gizli |
 
 ## Tasarım belirteçleri
 
@@ -81,11 +81,12 @@ Bileşenler renk değeri yazmaz, yalnızca anlamsal belirteçleri kullanır. Her
 | `--text-xs` ile `--text-2xl` | 0.75rem ile 1.75rem | Yazı ölçeği |
 | `--dur-fast`, `--dur-med`, `--dur-slow`, `--ease` | 0.14s, 0.24s, 1.8s, `cubic-bezier(0.2, 0.7, 0.2, 1)` | Hareket |
 | `--top-h` | 3.75rem (dar 3.5rem) | Üst çubuk yüksekliği |
-| `--band-h`, `--band-pad`, `--dial-top` | 6.75rem (dar 5.75rem), 0.5rem, 1.5rem (dar 1.25rem) | Frekans bandı yüksekliği, alt boşluğu, ölçek çizgisinin üstten uzaklığı |
-| `--station-h` | 3.25rem (dar 2.75rem) | İstasyon yüksekliği |
+| `--band-h`, `--band-pad`, `--dial-top` | 4rem, 0.25rem, 0.125rem | Frekans bandı yüksekliği, alt boşluğu, ölçek çizgisinin üstten uzaklığı |
+| `--station-h` | 2.75rem | İstasyon yüksekliği |
 | `--column-max` | 46rem | Konuşma sütununun en geniş hâli |
-| `--side-w` | 17.5rem | Sol bilgi sütunu ve DJ sütunu |
-| `--radio-w` | 21rem (orta 17rem) | Sağ sütun ve telsiz kartı |
+| `--side-w` | 17.5rem | Yan sayfadaki DJ kartı |
+| `--side-left-w`, `--side-right-w` | 19.5rem, 14.5rem | Geniş ekranda sol sütun (telsiz kartı, oda bilgisi) ve sağ sütun (İstasyonlar, DJ kartı) |
+| `--radio-w` | 21rem (orta 17rem) | 1280 pikselin altında sağ sütun ve telsiz kartı |
 | `--sheet-w` | 25rem | Yan sayfa genişliği |
 | `--avatar-radius` | `28%` | Avatar köşe yarıçapı, bütün temalarda |
 | `--dot-radius` | `32%` | Durum noktası ve köşe işaretleri |
@@ -175,9 +176,10 @@ Durum noktası ve köşe işaretleri (susturulmuş, sağırlaştırılmış, ekr
 | Tuş kapağı | `.kbd` | Bas konuş tuşu ve atama gösterimi. |
 | Rozet ve etiket | `.badge-owner`, `.badge-admin`, `.tag`, `.unread-badge`, `.mention-badge` | Anma rozeti `--attention` rengindedir. |
 | Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` ile `.avatar-c7`, `.avatar-xs`, `.avatar-sm`, `.avatar-md`, `.avatar-lg`, `.avatar-xl` | Durum `data-status` özniteliğiyle (`online`, `idle`, `dnd`, `offline`), konuşma `.is-speaking` ile. |
-| Üst çubuk | `.top-bar`, `.top-chip`, `.top-me`, `.top-stack` | Ara, Yayındakiler ve avatar çipleri. |
+| Üst çubuk | `.top-bar`, `.top-brand-button`, `.top-personal`, `.top-personal-button`, `.top-chip`, `.top-me`, `.top-stack` | Frekans değiştirici, kişisel düğmeler, Ara, Yayındakiler ve avatar çipleri. |
+| Frekans menüsü | `.frekans-menu`, `.frekans-row`, `.frekans-item`, `.frekans-emblem`, `.frekans-remove`, `.frekans-add` | Açık frekans `.is-active` ve `aria-checked="true"`. |
 | Frekans bandı | `.band-track`, `.band-step`, `.band-all`, `.station`, `.station-voice`, `.station-meta`, `.station-pulse`, `.needle`, `.mini-stack` | İstasyon durumları: `.is-tuned`, `.is-target`, `.is-unread`, ses için `.is-connected`, `.is-joining`, `.is-live`. İbre: `.is-dragging`. |
-| Sol sütun ve Gelenler | `.side-left`, `.facts`, `.hints`, `.dm-section`, `.inbox`, `.inbox-row` | |
+| Sol sütun ve İstasyonlar | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.rooms-list`, `.room-row` | Satır durumları: `.is-current`, `.is-unread`, ses için `.is-connected`, `.is-live`. |
 | Konuşma sütunu | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | Beni anan mesaj `--mention-bg` zemin ve sol çizgiyle. |
 | Telsiz kartı | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-button` | Kadro öğesinde `.is-speaking`, düğmelerde `aria-pressed`. |
 | Avatar menüsü | `.avatar-menu` | Durum seçenekleri `menuitemradio`. |

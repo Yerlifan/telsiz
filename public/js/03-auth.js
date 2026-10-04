@@ -40,7 +40,8 @@ function setFormBusy (form, busy) {
   form.classList.toggle('is-busy', busy)
 }
 
-// Adresteki #davet= ve #anahtar= parçaları
+// Adresteki #davet=, #anahtar= ve #frekanslar= parçaları. Frekans listesi (24-frekans.js) başka bir
+// frekanstan geçişte gelir, yalnızca adres ve ad taşır, doğrulanarak bu tarayıcının listesine eklenir.
 
 function parseFragment (text) {
   const out = Object.create(null)
@@ -80,6 +81,10 @@ function readFragment () {
       }
     }
   }
+  if (typeof params.frekanslar === 'string') {
+    touched = true
+    if (typeof frekansMergeFragment === 'function') frekansMergeFragment(params.frekanslar)
+  }
   if (touched) {
     try {
       window.history.replaceState(null, document.title, window.location.pathname + window.location.search)
@@ -107,6 +112,7 @@ function applyInfo (info) {
     if (typeof value === 'number' && isFinite(value) && value > 0) state.limits[key] = value
   })
   document.title = state.serverName
+  if (typeof frekansNoteName === 'function') frekansNoteName(state.serverName)
 }
 
 async function loadInfo () {

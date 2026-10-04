@@ -21,12 +21,25 @@ const sheetState = {
   switching: false
 }
 
-// 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz. Telsiz DJ sütunu görünürken
-// (23-dj.js, #app-view[data-dj-col="on"]) sol bilgi sütunu kalkar: Oda bilgisi düğmesi yan sayfayı açar
-// ve Arkadaşlar görünümünde Arkadaş ekle sekmesi görünür (14-social.js homeAddInline)
+// 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz. Telsiz DJ sütunu görünürken de
+// sol sütun yerinde kalır (telsiz kartı oradadır), DJ kartı sağ sütundaki İstasyonlar listesinin yerini alır.
 function isInfoInline () {
-  if (window.innerWidth < 1280) return false
-  return !(el.appView && el.appView.getAttribute('data-dj-col') === 'on')
+  return window.innerWidth >= 1280
+}
+
+// Telsiz kartı (#radio) geniş ekranda (1280 px ve üstü) sol sütunda, ayarlı istasyon kartının hemen
+// üstündedir (#radio-slot). Daha dar ekranda sol sütun yan sayfaya dönüştüğü için kart sağ sütuna
+// (telefonda ekranın altına) taşınır. Taşırken kartın içindeki odak korunur.
+function placeRadio () {
+  const radio = el.radio
+  const slot = byId('radio-slot')
+  if (!radio || !slot || !el.sideRight) return
+  const parent = window.innerWidth >= 1280 ? slot : el.sideRight
+  if (radio.parentNode === parent) return
+  const active = document.activeElement
+  const focused = active && radio.contains(active) ? active : null
+  parent.appendChild(radio)
+  if (focused) focusNode(focused)
 }
 
 function sheetLayer (name) {
@@ -183,6 +196,7 @@ function onResize () {
   if (cls === lastLayoutClass) return
   lastLayoutClass = cls
   if (el.appView) el.appView.setAttribute('data-layout', cls)
+  placeRadio()
   if (state.inApp) renderChannelHeader()
   closeSheets()
   const picker = findLayer('emoji')
@@ -362,6 +376,14 @@ function bindEvents () {
 
   on(el.meButton, 'click', () => {
     if (typeof openStatusMenu === 'function') openStatusMenu(el.meButton)
+  })
+  // Üst çubuk: frekans değiştirici (24-frekans.js) ve ortadaki kişisel düğmeler (Özel mesajlar, Arkadaşlar)
+  if (typeof frekansInit === 'function') frekansInit()
+  on(byId('top-dm'), 'click', () => {
+    bandTune('dm')
+  })
+  on(byId('top-friends'), 'click', () => {
+    bandTune('friends')
   })
   on(el.authScheme, 'click', toggleScheme)
   on(el.btnMute, 'click', toggleMute)
