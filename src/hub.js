@@ -9,6 +9,10 @@
 // düşer. Olaylar gibi bir hedef kitlesi vardır, kişiye özel tv sürümüyle izlenir ve değişince yalnızca
 // görünümü değişen kullanıcıların bekleyenleri uyanır. Engel ilişkisi olan iki kullanıcı birbirinin
 // yazıyor bilgisini görmez.
+// Telsiz DJ müzik durumları (src/music.js) müzik sürümüyle (muv) izlenir: muv sorgusu veren poll, sürüm
+// değişince uyanır ve tam müzik haritasını alır. muv vermeyen poll müziği izlemiyor sayılır (harita yalnızca
+// resync yanıtında gelir). Her yanıtta sunucu zamanı (now) ve güncel muv bulunur, istemciler saat farkını
+// now ile kestirir.
 // Tüm veriler bellektedir. Sunucu yeniden başlayınca bootId değişir ve istemciler resync alır.
 
 const crypto = require('node:crypto')
@@ -40,7 +44,8 @@ function inAudience (audience, userId) {
 }
 
 // options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
-//   getBase: () => ({ serverName, activeKid, channels, users: [{ id, name, role, pv, status }] }),
+//   getBase: () => ({ serverName, activeKid, channels, users: [{ id, name, role, pv, status }], music }),
+//   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
 //   send: (res, status, payload) => void }
@@ -55,6 +60,7 @@ function createHub (options) {
   const isHidden = typeof options.isHidden === 'function' ? options.isHidden : () => false
   const canSeeTyping = typeof options.canSeeTyping === 'function' ? options.canSeeTyping : () => true
   const send = options.send
+  const music = options.music && typeof options.music.version === 'function' ? options.music : { version: () => 1, map: () => ({}) }
   const bootId = randomHex(8)
 
   let seq = 0
@@ -218,7 +224,8 @@ function createHub (options) {
       activeKid: base.activeKid,
       channels: base.channels,
       users: base.users.map(presenceView),
-      voice
+      voice,
+      music: base.music
     }
     return metaCache
   }
@@ -399,17 +406,21 @@ function createHub (options) {
       private: getPrivate(rt.userId),
       tv: typingVersion(rt.userId),
       typing: typingOf(rt.userId),
+      muv: music.version(),
+      music: music.map(),
+      now: Date.now(),
       events: [],
       signals: pendingSignals(rt, sigFloor)
     }
   }
 
   function emptyPayload (rt) {
-    return { boot: bootId, seq, metaVersion, pmv: privateVersion(rt.userId), tv: typingVersion(rt.userId), events: [], signals: [] }
+    return { boot: bootId, seq, metaVersion, pmv: privateVersion(rt.userId), tv: typingVersion(rt.userId), muv: music.version(), now: Date.now(), events: [], signals: [] }
   }
 
-  // q: { since, mv, pmv, tv, sigFloor }. Hazır veri yoksa null döner.
-  // tv verilmeyen poll yazıyor bilgisini izlemiyor sayılır (yalnızca resync yanıtında gelir).
+  // q: { since, mv, pmv, tv, muv, sigFloor }. Hazır veri yoksa null döner.
+  // tv verilmeyen poll yazıyor bilgisini, muv verilmeyen poll müzik durumunu izlemiyor sayılır (ikisi de
+  // yalnızca resync yanıtında gelir).
   // Yanıttaki seq: en fazla 500 görünür olay döndüyse sonuncusunun seq'i, aksi halde güncel seq
   // (kullanıcının göremediği olaylar atlanır, istemci kaldığı yerden devam eder).
   function readyPayload (rt, q) {
@@ -431,12 +442,15 @@ function createHub (options) {
     const sendPrivate = q.pmv !== pmv
     const tv = typingVersion(rt.userId)
     const sendTyping = q.tv !== null && q.tv !== tv
+    const muv = music.version()
+    const sendMusic = q.muv !== null && q.muv !== muv
     const signals = pendingSignals(rt, q.sigFloor)
-    if (events.length === 0 && !sendMeta && !sendPrivate && !sendTyping && signals.length === 0) return null
-    const payload = { boot: bootId, seq: lastSeq, metaVersion, pmv, tv, events, signals }
+    if (events.length === 0 && !sendMeta && !sendPrivate && !sendTyping && !sendMusic && signals.length === 0) return null
+    const payload = { boot: bootId, seq: lastSeq, metaVersion, pmv, tv, muv, now: Date.now(), events, signals }
     if (sendMeta) payload.meta = meta()
     if (sendPrivate) payload.private = getPrivate(rt.userId)
     if (sendTyping) payload.typing = typingOf(rt.userId)
+    if (sendMusic) payload.music = music.map()
     return payload
   }
 
@@ -485,7 +499,7 @@ function createHub (options) {
     }
   }
 
-  // params: { since, mv, pmv, tv, sig, boot } (sorgu dizgeleri)
+  // params: { since, mv, pmv, tv, muv, sig, boot } (sorgu dizgeleri)
   function poll (rt, params, res) {
     const now = Date.now()
     rt.lastSeen = now
@@ -494,6 +508,7 @@ function createHub (options) {
     const mv = parseCounter(params.mv)
     const pmv = parseCounter(params.pmv)
     const tv = parseCounter(params.tv)
+    const muv = parseCounter(params.muv)
     const sig = parseCounter(params.sig)
     // Sinyal onayı yalnızca aynı açılışın sıra numaraları için geçerlidir
     let sigFloor = 0
@@ -505,7 +520,7 @@ function createHub (options) {
       send(res, 200, resyncPayload(rt, sigFloor))
       return
     }
-    const q = { since, mv, pmv, tv, sigFloor }
+    const q = { since, mv, pmv, tv, muv, sigFloor }
     const ready = readyPayload(rt, q)
     if (ready || closed) {
       send(res, 200, ready || emptyPayload(rt))
@@ -513,7 +528,7 @@ function createHub (options) {
     }
     if (res.writableEnded || res.destroyed) return
     while (rt.waiters.length >= maxWaitersPerSession) finishWaiter(rt.waiters[0])
-    const w = { rt, since: q.since, mv, pmv, tv, sigFloor, res, timer: null, done: false }
+    const w = { rt, since: q.since, mv, pmv, tv, muv, sigFloor, res, timer: null, done: false }
     w.timer = setTimeout(() => finishWaiter(w), pollTimeoutMs)
     if (typeof w.timer.unref === 'function') w.timer.unref()
     rt.waiters.push(w)
@@ -564,6 +579,29 @@ function createHub (options) {
     rt.muted = muted
     rt.deafened = deafened
     if (changed && rt.voiceChannelId !== null) bumpMeta()
+  }
+
+  // Kullanıcının herhangi bir oturumu bu ses kanalında mı (ses üyeliği kullanıcı başınadır)
+  function userInVoice (userId, channelId) {
+    const set = byUser.get(userId)
+    if (!set) return false
+    for (const rt of set) {
+      if (rt.voiceChannelId === channelId) return true
+    }
+    return false
+  }
+
+  // Ses kanalında en az bir oturum var mı
+  function voiceOccupied (channelId) {
+    for (const rt of sessions.values()) {
+      if (rt.voiceChannelId === channelId) return true
+    }
+    return false
+  }
+
+  // Müzik durumu değişti: muv izleyen bekleyenler uyanır
+  function bumpMusic () {
+    scheduleWake()
   }
 
   // Silinen ses kanalının üyelerini çıkarır.
@@ -635,6 +673,9 @@ function createHub (options) {
     voiceLeave,
     setVoiceState,
     kickVoiceChannel,
+    userInVoice,
+    voiceOccupied,
+    bumpMusic,
     signal,
     isUserOnline,
     close,

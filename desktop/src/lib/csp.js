@@ -23,7 +23,9 @@ const HTML_DIRECTIVES = Object.freeze([
   ['object-src', "'none'"],
   ['base-uri', "'none'"],
   ['form-action', "'self'"],
-  ['frame-ancestors', "'none'"]
+  ['frame-ancestors', "'none'"],
+  // Telsiz DJ: YouTube'un resmi gömülü oynatıcısı çapraz kökenli çerçeve olarak (sunucudaki HTML_CSP ile aynı)
+  ['frame-src', 'https://www.youtube-nocookie.com']
 ])
 
 // Uygulama sayfası (index.html)

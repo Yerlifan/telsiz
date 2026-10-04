@@ -7,7 +7,7 @@ const { describe, it, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./server-yardimci')
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 
 function assertSecurityHeaders (res) {
@@ -38,6 +38,8 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/crypto.js': 'text/javascript; charset=utf-8',
       '/emoji.js': 'text/javascript; charset=utf-8',
       '/voice.js': 'text/javascript; charset=utf-8',
+      '/music.js': 'text/javascript; charset=utf-8',
+      '/dj/youtube.js': 'text/javascript; charset=utf-8',
       '/sw.js': 'text/javascript; charset=utf-8',
       '/style.css': 'text/css; charset=utf-8',
       '/favicon.svg': 'image/svg+xml',
@@ -101,6 +103,11 @@ describe('statik dosyalar ve güvenlik başlıkları', () => {
       '/%2e%2e/server.js',
       '/%2E%2E/server.js',
       '/vendor/../server.js',
+      // Telsiz DJ yardımcı klasöründe yalnızca youtube.js sunulur
+      '/dj/gizli.js',
+      '/dj/',
+      '/dj/../server.js',
+      '/dj/youtube.html',
       '/vendor/../../server.js',
       '/icons/../gizli.txt',
       '/./crypto.js',

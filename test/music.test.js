@@ -135,10 +135,44 @@ function makeTimers (start) {
 }
 
 // Ek L2.10 sözleşmesini taklit eden bellek içi sunucu. Sürüm sayacı sunucu geneldir (odalar arasında
-// yeniden kullanılmaz). skew: sunucu saatinin yerel saatten farkı.
+// yeniden kullanılmaz). skew: sunucu saatinin yerel saatten farkı. Kayıtlardaki yazar bilgisi (by, since,
+// writes, authors) gerçek sunucudaki gibi (src/music.js) tutulur. Testin rooms.set ile doğrudan koyduğu
+// kayıt da sunucuya yapılmış bir yazım sayılır (yazar geçmişine eklenir).
+const HISTORY = 32
 function makeServer (timers, opts) {
   const o = opts || {}
-  const rooms = new Map()
+  const hist = new Map()
+  // Kayıt konduğu anda yazar geçmişi güncellenir (testin doğrudan koyduğu kayıtlar dahil)
+  class RoomMap extends Map {
+    set (room, rec) {
+      super.set(room, rec)
+      provenance(room, rec)
+      return this
+    }
+  }
+  const rooms = new RoomMap()
+  // Odanın yazar geçmişi kaydın sürümüne göre güncellenir
+  function provenance (room, rec) {
+    let h = hist.get(room)
+    if (!h || rec.v < h.lastV) {
+      h = { since: 0, writes: [], authors: new Set(), lastV: 0 }
+      hist.set(room, h)
+    }
+    // Yazanı bildirilmeyen kayıt (sunucu hatası taklidi) geçmişe girmez, istemci bu kaydı reddeder
+    if (rec.v > h.lastV && Number.isSafeInteger(rec.by)) {
+      h.writes.push({ v: rec.v, by: rec.by })
+      h.authors.add(rec.by)
+      if (h.writes.length > HISTORY) {
+        h.since = h.writes[h.writes.length - HISTORY - 1].v
+        h.writes = h.writes.slice(-HISTORY)
+      }
+      h.lastV = rec.v
+    }
+    return { since: h.since, writes: h.writes.map((w) => ({ v: w.v, by: w.by })), authors: Array.from(h.authors) }
+  }
+  function view (room, rec) {
+    return Object.assign({ v: rec.v, at: rec.at, by: rec.by, env: rec.env }, provenance(room, rec))
+  }
   const members = new Map()
   const uploads = new Map()
   const stats = { posts: 0, ok: 0, conflicts: 0 }
@@ -167,7 +201,7 @@ function makeServer (timers, opts) {
     },
     musicMap: () => {
       const out = {}
-      for (const [room, rec] of rooms) out[String(room)] = { v: rec.v, at: rec.at, by: rec.by, env: rec.env }
+      for (const [room, rec] of rooms) out[String(room)] = view(room, rec)
       return out
     },
     payload: () => ({ now: server.now(), muv, music: server.musicMap() }),
@@ -187,8 +221,10 @@ function makeServer (timers, opts) {
         const v = cur ? cur.v : 0
         if (body.expect !== v) {
           stats.conflicts++
-          return { status: 409, data: { v, at: cur ? cur.at : 0, by: cur ? cur.by : null, env: cur ? cur.env : null, now } }
+          return { status: 409, data: cur ? Object.assign(view(room, cur), { now }) : { v: 0, at: 0, by: null, env: null, now } }
         }
+        // Testin doğrudan koyduğu kayıtların sürümleri de sayaçtan geçilmiş sayılır (sürüm yeniden kullanılmaz)
+        for (const r of rooms.values()) counter = Math.max(counter, r.v)
         counter++
         rooms.set(room, { v: counter, at: now, by: userId, env: body.env })
         muv++
@@ -209,6 +245,7 @@ function makeServer (timers, opts) {
     },
     remove: (room) => {
       rooms.delete(room)
+      hist.delete(room)
       muv++
     },
     upload: (bytes) => {
@@ -2596,6 +2633,194 @@ describe('inceleme bulguları: rıza, yazar doğrulaması ve görünürlük', ()
     a.sync()
     assert.equal(a.engine.snapshot().session.playing, true)
     assert.equal(a.last('notice').by, 2)
+  })
+
+  // İkinci inceleme turu bulgusu (MAJOR): ekleyen denetimi yalnızca son işlemin parçasına bakıyordu. Oda üyesi
+  // başka bir işlemle (duraklat) veya ikinci bir parçayla kuyruğa başkasının adına parça koyabiliyordu.
+  test('yeni parçanın ekleyeni sunucunun onayladığı yazarlardan olmalı, başkası adına parça eklenemez', async () => {
+    const { server, clients: [a, b, c] } = await setup({ count: 3 })
+    await a.engine.addYouTube(VID, { title: 'Bir' })
+    b.sync()
+    c.sync()
+    const kid = c.device.kid
+    const plainNow = () => JSON.parse(JSON.stringify(c.device.E2EE.openJson(server.rooms.get(ROOM).env).value))
+    let seq = plainNow().seq + 100
+    // Saldırgan 3 numaralı üye (c), kurban 2 numaralı üye (b)
+    const forge = (base, mutate, by) => {
+      const plain = JSON.parse(JSON.stringify(base))
+      seq++
+      plain.seq = seq
+      mutate(plain)
+      const cur = server.rooms.get(ROOM)
+      server.rooms.set(ROOM, { v: cur.v + 1, at: server.now(), by, env: c.device.E2EE.sealJson(kid, plain) })
+    }
+    const extra = (id, addedBy, title) => ({ id, type: 'youtube', videoId: VID2, title, addedBy, duration: 0 })
+    const base = plainNow()
+
+    // 1. Duraklatma işlemiyle kurbanın adına parça (kurban odada hiç yazmadı)
+    forge(base, (p) => {
+      p.queue.push(extra('9999999999999999', 2, 'Kurban'))
+      p.playing = false
+      p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'invalid')
+    // 2. Ekleme işleminde iki parça: biri kendi adına (last.id), biri kurban adına
+    forge(base, (p) => {
+      p.queue.push(extra('8888888888888888', 3, 'Kendi'))
+      p.queue.push(extra('7777777777777777', 2, 'Kurban'))
+      p.last = { op: 'add', by: 3, id: '8888888888888888', title: 'Kendi' }
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'invalid')
+    // Aynı ekleme yalnızca kendi parçasıyla kabul edilir
+    forge(base, (p) => {
+      p.queue.push(extra('8888888888888888', 3, 'Kendi'))
+      p.last = { op: 'add', by: 3, id: '8888888888888888', title: 'Kendi' }
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'ok')
+    same(a.engine.snapshot().session.queue.map((t) => t.addedBy), [3])
+
+    // 3. Kurban odada daha önce yazdıysa (authors içinde) bile, bu cihazın son gördüğü sürümden sonra
+    // yazmadıysa adına parça konamaz
+    b.sync()
+    const r = await b.engine.pause()
+    assert.equal(r.ok, true)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'ok')
+    const afterPause = plainNow()
+    forge(afterPause, (p) => {
+      p.queue.push(extra('6666666666666666', 2, 'Kurban'))
+      p.playing = true
+      p.anchorAt = server.now()
+      p.last = { op: 'resume', by: 3, id: p.current.id, title: 'Bir' }
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'invalid')
+    const authors = server.musicMap()[String(ROOM)].authors.slice().sort()
+    same(authors, [1, 2, 3])
+
+    for (const x of [a, b, c]) x.engine.destroy()
+  })
+
+  test('bu cihazın görmediği ara sürümlerde başkalarının eklediği parçalar gerçek yazarlarıyla kabul edilir', async () => {
+    const { server, clients: [a, b, c] } = await setup({ count: 3 })
+    await a.engine.addYouTube(VID, { title: 'Bir' })
+    b.sync()
+    c.sync()
+    assert.equal((await b.engine.addYouTube(VID2, { title: 'Burak' })).ok, true)
+    c.sync()
+    assert.equal((await c.engine.addYouTube('aaaaaaaaaaa', { title: 'Cem' })).ok, true)
+    assert.equal((await c.engine.pause()).ok, true)
+    // a araya giren üç yazımı hiç görmedi, geçmiş son gördüğü sürümden sonrasını kapsıyor
+    const rec = server.musicMap()[String(ROOM)]
+    same(rec.writes.map((w) => w.by), [1, 2, 3, 3])
+    a.sync()
+    const s = a.engine.snapshot()
+    assert.equal(s.sessionStatus, 'ok')
+    same(s.session.queue.map((t) => [t.title, t.addedBy]), [['Burak', 2], ['Cem', 3]])
+    assert.equal(s.session.playing, false)
+    for (const x of [a, b, c]) x.engine.destroy()
+  })
+
+  test('yazar bilgisi bozuk veya eksik kayıt reddedilir, kapsanmayan geçmişte yalnızca odanın yazarları kabul edilir', async () => {
+    const { timers, server, clients: [a, b, c] } = await setup({ count: 3 })
+    await a.engine.addYouTube(VID, { title: 'Bir' })
+    b.sync()
+    c.sync()
+    const kid = c.device.kid
+    const good = server.musicMap()[String(ROOM)]
+    // Sunucunun verdiği kayıt bozulursa (test için doğrudan istemciye verilir)
+    const variants = [
+      Object.assign({}, good, { writes: undefined }),
+      Object.assign({}, good, { authors: undefined }),
+      Object.assign({}, good, { since: good.v }),
+      Object.assign({}, good, { since: -1 }),
+      Object.assign({}, good, { writes: [] }),
+      Object.assign({}, good, { writes: [{ v: good.v, by: 2 }] }),
+      Object.assign({}, good, { writes: [{ v: good.v - 1, by: 1 }] }),
+      Object.assign({}, good, { writes: [{ v: good.v, by: 1, x: 1 }] }),
+      Object.assign({}, good, { authors: [] }),
+      Object.assign({}, good, { authors: [1, 1] }),
+      Object.assign({}, good, { authors: [2] }),
+      Object.assign({}, good, { authors: ['1'] })
+    ]
+    const fresh = makeClient(server, timers, 2)
+    fresh.engine.handleMeta(server.meta(), 2)
+    fresh.engine.setVoiceRoom(ROOM)
+    for (const rec of variants) {
+      fresh.engine.ingest({ now: server.now(), muv: 1000, music: {} }, null)
+      fresh.engine.ingest({ now: server.now(), muv: 1001, music: { [String(ROOM)]: rec } }, null)
+      assert.equal(fresh.engine.snapshot().sessionStatus, 'invalid', JSON.stringify(Object.assign({}, rec, { env: '' })))
+    }
+    fresh.engine.ingest({ now: server.now(), muv: 1000, music: {} }, null)
+    fresh.engine.ingest({ now: server.now(), muv: 1002, music: { [String(ROOM)]: good } }, null)
+    assert.equal(fresh.engine.snapshot().sessionStatus, 'ok')
+    fresh.engine.destroy()
+
+    // Geç katılan (son geçerli durumu yok): odada hiç yazmamış biri adına parça reddedilir. Sınır: odada
+    // daha önce yazmış biri adına parça doğrulanamaz ve kabul edilir (sözleşmede belirtildi).
+    const base = JSON.parse(JSON.stringify(c.device.E2EE.openJson(server.rooms.get(ROOM).env).value))
+    let seq = base.seq + 50
+    const forge = (mutate, by) => {
+      const plain = JSON.parse(JSON.stringify(base))
+      plain.seq = ++seq
+      mutate(plain)
+      const cur = server.rooms.get(ROOM)
+      server.rooms.set(ROOM, { v: cur.v + 1, at: server.now(), by, env: c.device.E2EE.sealJson(kid, plain) })
+    }
+    const late = () => {
+      const x = makeClient(server, timers, 2)
+      x.engine.handleMeta(server.meta(), 2)
+      x.engine.ingest(server.payload(), null)
+      const st = x.engine.roomView(ROOM).status
+      x.engine.destroy()
+      return st
+    }
+    forge((p) => {
+      p.queue.push({ id: '5555555555555555', type: 'youtube', videoId: VID2, title: 'x', addedBy: 2, duration: 0 })
+      p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+      p.playing = false
+    }, 3)
+    assert.equal(late(), 'invalid')
+    forge((p) => {
+      p.queue.push({ id: '5555555555555555', type: 'youtube', videoId: VID2, title: 'x', addedBy: 1, duration: 0 })
+      p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+      p.playing = false
+    }, 3)
+    assert.equal(late(), 'ok')
+    // Sürekli izleyen cihaz (a) ise aynı kaydı reddeder: 1 numaralı üye son gördüğü sürümden sonra yazmadı
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'invalid')
+
+    // a'nın son geçerli durumundan sonra 32'den çok yazım girdi (geçmiş kapsamıyor): yalnızca authors kuralı
+    for (const i of Array.from({ length: 40 }, (x, k) => k)) {
+      void i
+      forge((p) => {
+        p.playing = false
+        p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+      }, 3)
+    }
+    const rec = server.musicMap()[String(ROOM)]
+    assert.ok(rec.since > 0)
+    assert.equal(rec.writes.length, 32)
+    assert.ok(rec.writes.every((w) => w.by === 3))
+    forge((p) => {
+      p.queue.push({ id: '4444444444444444', type: 'youtube', videoId: VID2, title: 'y', addedBy: 2, duration: 0 })
+      p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+      p.playing = false
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'invalid')
+    forge((p) => {
+      p.queue.push({ id: '4444444444444444', type: 'youtube', videoId: VID2, title: 'y', addedBy: 1, duration: 0 })
+      p.last = { op: 'pause', by: 3, id: p.current.id, title: 'Bir' }
+      p.playing = false
+    }, 3)
+    a.sync()
+    assert.equal(a.engine.snapshot().sessionStatus, 'ok')
+    for (const x of [a, b, c]) x.engine.destroy()
   })
 })
 

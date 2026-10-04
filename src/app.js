@@ -2,7 +2,7 @@
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, yazıyor bildirimleri, statik beyaz liste ve düzgün kapanış.
+// özel mesajlar, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz liste ve düzgün kapanış.
 // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
 // token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
@@ -18,6 +18,7 @@ const auth = require('./auth')
 const util = require('./http-util')
 const { createHub } = require('./hub')
 const { createSocial } = require('./social')
+const { createMusic } = require('./music')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
@@ -46,7 +47,10 @@ const DEFAULTS = Object.freeze({
   maxChannels: 50,
   maxVoicePerChannel: 8,
   maxBodyChars: 24000,
-  maxSignalChars: 16000,
+  // Şifreli ses sinyal zarfı. Ekran paylaşımı (Ek L1.10) görüntü parçalı SDP taşır: Chromium'da ölçülen
+  // zarf yaklaşık 6400 ile 10000 karakter, çok ağ arayüzlü (çok ICE adaylı) makinelerde daha büyük. 16000
+  // pay bırakmıyordu, 32000 en kötü ölçümün üç katıdır ve genel JSON gövde sınırının (65536) altındadır.
+  maxSignalChars: 32000,
   maxJsonBytes: 65536,
   uploadMaxBytes: 25 * 1024 * 1024 + 16,
   uploadQuotaBytes: 2048 * 1024 * 1024,
@@ -72,6 +76,11 @@ const DEFAULTS = Object.freeze({
   typingLimit: 30,
   typingWindowMs: 10000,
   typingTtlMs: 6000,
+  // Telsiz DJ durum yazımları: kullanıcı başına 30 / 10 sn. Boşalan ses odasının müzik durumu 30 dk sonra
+  // bellekten silinir.
+  musicLimit: 30,
+  musicWindowMs: 10000,
+  musicIdleMs: 30 * 60 * 1000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -96,7 +105,8 @@ const POSITIVE_OPTIONS = [
   'loginFailLimit', 'loginFailWindowMs', 'messageLimit', 'messageWindowMs', 'uploadLimit',
   'uploadWindowMs', 'adminLimit', 'adminWindowMs', 'signalLimit', 'signalWindowMs',
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
-  'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs'
+  'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
+  'musicWindowMs', 'musicIdleMs'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs']
 
@@ -113,6 +123,12 @@ const ROLES = new Set(['owner', 'admin', 'member'])
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
 const IDENTITY_MAX_CHARS = 2000
+// Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
+// (101 parça, en uzun adlar, dolu gone listesi) yaklaşık 105000 karakterdir.
+const MUSIC_ENV_MAX_CHARS = 131072
+// POST /api/music/state gövde sınırı: zarf ve alan adları için pay (genel maxJsonBytes yetmez)
+const MUSIC_JSON_MAX_BYTES = 140000
+const MUSIC_SETTING_KEYS = ['enabled', 'youtube']
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
 const USER_RECORDS_FACTOR = 4
@@ -153,6 +169,8 @@ addStatic('/theme-init.js', 'theme-init.js', JS_TYPE, util.API_CSP)
 addStatic('/crypto.js', 'crypto.js', JS_TYPE, util.API_CSP)
 addStatic('/emoji.js', 'emoji.js', JS_TYPE, util.API_CSP)
 addStatic('/voice.js', 'voice.js', JS_TYPE, util.API_CSP)
+addStatic('/music.js', 'music.js', JS_TYPE, util.API_CSP)
+addStatic('/dj/youtube.js', 'dj/youtube.js', JS_TYPE, util.API_CSP)
 // Service worker kendi yanıtının CSP'sini kullanır, sayfa ile aynı politika verilir
 addStatic('/sw.js', 'sw.js', JS_TYPE, util.HTML_CSP)
 addStatic('/style.css', 'style.css', CSS_TYPE, util.API_CSP)
@@ -534,7 +552,21 @@ function normalizeLoadedState (state, config, log) {
     state.serverSecret = auth.newServerSecret()
     changed = true
   }
+  const music = cleanMusicSettings(state.music)
+  if (!sameJson(music, state.music)) {
+    state.music = music
+    changed = true
+  }
   return changed
+}
+
+// Telsiz DJ sunucu ayarı: { enabled, youtube }, eksik veya geçersiz alan varsayılan olarak açıktır
+function cleanMusicSettings (value) {
+  const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return {
+    enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
+    youtube: typeof src.youtube === 'boolean' ? src.youtube : true
+  }
 }
 
 function prepareState (store, config, log) {
@@ -552,7 +584,9 @@ function prepareState (store, config, log) {
       // Ön giriş yanıtlarındaki sahte tuzlar için, hiçbir yanıtta gönderilmez
       serverSecret: auth.newServerSecret(),
       friendships: [],
-      blocks: []
+      blocks: [],
+      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
+      music: { enabled: true, youtube: true }
     })
     const now = Date.now()
     for (const def of DEFAULT_CHANNELS) {
@@ -664,8 +698,9 @@ async function createChatServer (options) {
   // Profil ve durum değişiklikleri herkese meta yayını tetiklediği için ayrıca sınırlanır
   const profileLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
   const typingLimiter = new auth.RateLimiter(config.typingLimit, config.typingWindowMs)
+  const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
 
   let closing = false
@@ -673,6 +708,9 @@ async function createChatServer (options) {
 
   // Kişiye özel meta önbelleği (kullanıcı kimliğine göre), değişiklikte silinir
   const privateCache = new Map()
+
+  // Telsiz DJ müzik durumları: yalnızca bellekte, ses odası başına (src/music.js)
+  const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
 
   const hub = createHub({
     pollTimeoutMs: config.pollTimeoutMs,
@@ -682,6 +720,7 @@ async function createChatServer (options) {
     typingTtlMs: config.typingTtlMs,
     getBase: metaBase,
     getPrivate: privateOf,
+    music: { version: music.version, map: music.map },
     isHidden: (userId) => {
       const user = usersById.get(userId)
       return Boolean(user) && user.status === 'invisible'
@@ -743,7 +782,7 @@ async function createChatServer (options) {
       .filter((u) => !u.banned && !u.deleted)
       .sort((a, b) => collator.compare(a.name, b.name) || a.id - b.id)
       .map(metaUser)
-    return { serverName: state.serverName, activeKid: state.activeKid, channels, users }
+    return { serverName: state.serverName, activeKid: state.activeKid, channels, users, music: { enabled: state.music.enabled, youtube: state.music.youtube } }
   }
 
   function lastMessageOf (channelId) {
@@ -1213,6 +1252,9 @@ async function createChatServer (options) {
       private: privateOf(ctx.user.id),
       tv: hub.typingVersion(ctx.user.id),
       typing: hub.typingOf(ctx.user.id),
+      muv: music.version(),
+      music: music.map(),
+      now: Date.now(),
       me: Object.assign(publicUser(ctx.user), { status: ctx.user.status }),
       keys: ownKeys(ctx.user),
       peerId: ctx.rt.peerId,
@@ -1235,7 +1277,7 @@ async function createChatServer (options) {
 
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır.
@@ -2029,6 +2071,7 @@ async function createChatServer (options) {
     renumber(channel.type)
     if (channel.type === 'voice') {
       hub.kickVoiceChannel(channel.id)
+      music.remove(channel.id)
     } else {
       hub.clearTypingChannel(channel.id)
       const removed = store.deleteChannelMessages(channel.id)
@@ -2099,13 +2142,23 @@ async function createChatServer (options) {
     ok(ctx, { ok: true, tempPassword: creds.tempPassword })
   }
 
+  // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
+  function musicSettingsPatch (value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const keys = Object.keys(value)
+    if (keys.length === 0 || !keys.every((k) => MUSIC_SETTING_KEYS.includes(k) && typeof value[k] === 'boolean')) return null
+    return value
+  }
+
   function handleSettings (ctx) {
     if (!requireStaff(ctx)) return
     const b = ctx.body
     const hasName = b.serverName !== undefined
     const hasKid = b.activeKid !== undefined
-    if (!hasName && !hasKid) return fail(ctx, 400, 'bad_request')
+    const hasMusic = b.music !== undefined
+    if (!hasName && !hasKid && !hasMusic) return fail(ctx, 400, 'bad_request')
     if (hasName && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.serverNameOwnerOnly')
+    if (hasMusic && ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden', 'detail.musicOwnerOnly')
     if (!takeAdminSlot(ctx)) return
     let serverName = null
     if (hasName) {
@@ -2115,8 +2168,11 @@ async function createChatServer (options) {
     if (hasKid && b.activeKid !== null && (typeof b.activeKid !== 'string' || !KID_RE.test(b.activeKid))) {
       return fail(ctx, 400, 'bad_kid')
     }
+    const musicPatch = hasMusic ? musicSettingsPatch(b.music) : null
+    if (hasMusic && musicPatch === null) return fail(ctx, 400, 'bad_request')
     if (hasName) state.serverName = serverName
     if (hasKid) state.activeKid = b.activeKid
+    if (musicPatch) state.music = cleanMusicSettings(Object.assign({}, state.music, musicPatch))
     store.saveState()
     hub.bumpMeta()
     ok(ctx, { ok: true })
@@ -2172,6 +2228,39 @@ async function createChatServer (options) {
     if (result === 'not_in_voice') return fail(ctx, 403, 'not_in_voice')
     if (result === 'peer_not_found') return fail(ctx, 404, 'peer_not_found')
     ok(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: Telsiz DJ
+
+  // Müzik ucunun her yanıtı sunucu zamanını (now) taşır, istemci saat farkını bununla kestirir
+  function musicFail (ctx, status, code, detailKey, headers) {
+    const body = Object.assign(errorBody(langOf(ctx.req), code, detailKey), { now: Date.now() })
+    util.sendJson(ctx.res, status, body, Object.assign({}, headers || {}, closingHeaders() || {}))
+  }
+
+  // POST /api/music/state { channelId, expect, env } (Ek L2.10). Yalnızca o ses odasında bulunan (herhangi
+  // bir oturumuyla) kullanıcı yazabilir. Sürüm karşılaştırmalı: expect güncel sürüm değilse 409 ve güncel
+  // kayıt (oda boşsa v 0). Sunucu zarfın içeriğini görmez, yalnızca biçimini ve boyutunu denetler.
+  function handleMusicState (ctx) {
+    const b = ctx.body
+    if (!state.music.enabled) return musicFail(ctx, 403, 'dj_disabled')
+    const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
+    if (!channel) return musicFail(ctx, 404, 'channel_not_found')
+    if (!hub.userInVoice(ctx.user.id, channel.id)) return musicFail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
+    if (!Number.isSafeInteger(b.expect) || b.expect < 0) return musicFail(ctx, 400, 'bad_request')
+    if (typeof b.env !== 'string') return musicFail(ctx, 400, 'bad_envelope')
+    if (b.env.length > MUSIC_ENV_MAX_CHARS) return musicFail(ctx, 413, 'too_large')
+    if (!ENVELOPE_RE.test(b.env)) return musicFail(ctx, 400, 'bad_envelope')
+    const wait = musicLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait > 0) return musicFail(ctx, 429, 'rate_limited', 'detail.musicRate', { 'Retry-After': String(Math.max(1, Math.ceil(wait / 1000))) })
+    const now = Date.now()
+    const result = music.write(channel.id, ctx.user.id, b.expect, b.env, now)
+    if (!result.ok) {
+      const rec = result.record
+      const data = rec ? Object.assign({}, rec, { now }) : { v: 0, at: 0, by: null, env: null, now }
+      return util.sendJson(ctx.res, 409, data, closingHeaders())
+    }
+    ok(ctx, { v: result.v, at: result.at, now })
   }
 
   // ---------------------------------------------------------------- yönlendirme
@@ -2230,11 +2319,12 @@ async function createChatServer (options) {
   route('/api/voice/leave', 'POST', handleVoiceLeave)
   route('/api/voice/state', 'POST', handleVoiceState)
   route('/api/voice/signal', 'POST', handleVoiceSignal)
+  route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 
   async function runRoute (ctx, def) {
     if (def.body === 'json') {
-      const result = await util.readBody(ctx.req, config.maxJsonBytes)
+      const result = await util.readBody(ctx.req, def.maxBytes || config.maxJsonBytes)
       if (result.aborted) return
       if (result.tooLarge) return fail(ctx, 413, 'too_large')
       const body = util.parseJsonObject(result.text)
@@ -2327,6 +2417,7 @@ async function createChatServer (options) {
     try {
       const now = Date.now()
       hub.sweep(now)
+      music.sweep(now, (channelId) => hub.voiceOccupied(channelId))
       const expired = state.sessions.filter((s) => {
         const user = usersById.get(s.userId)
         return now - s.lastUsed > config.sessionTtlMs || !user || user.deleted
@@ -2397,7 +2488,7 @@ async function createChatServer (options) {
   }
 
   server.stats = function stats () {
-    return Object.assign(hub.stats(), { activeUploads, uploadsBytes: uploadsUsed, users: state.users.length, storedSessions: state.sessions.length })
+    return Object.assign(hub.stats(), { activeUploads, uploadsBytes: uploadsUsed, users: state.users.length, storedSessions: state.sessions.length, musicRooms: music.size() })
   }
 
   Object.defineProperty(server, 'setupCode', {

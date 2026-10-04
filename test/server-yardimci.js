@@ -43,6 +43,9 @@ const FIXTURE = {
   'crypto.js': "'use strict'\n",
   'emoji.js': "'use strict'\nwindow.EMOJI_DATA = []\n",
   'voice.js': "'use strict'\n",
+  'music.js': "'use strict'\n",
+  'dj/youtube.js': "'use strict'\n",
+  'dj/gizli.js': SECRET_TEXT,
   'sw.js': "'use strict'\n",
   'style.css': 'body { color: #fff }\n',
   'favicon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>\n',
@@ -84,7 +87,8 @@ const TEST_DEFAULTS = {
   uploadLimit: 100000,
   adminLimit: 100000,
   signalLimit: 100000,
-  friendRequestLimit: 100000
+  friendRequestLimit: 100000,
+  musicLimit: 100000
 }
 
 // İstemci türetmesinin testlerdeki bağımsız Node uygulaması

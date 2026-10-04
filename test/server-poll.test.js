@@ -60,7 +60,8 @@ describe('long-poll', () => {
       assert.ok(res.data.metaVersion > st.metaVersion)
       assert.deepEqual(res.data.events, [])
       assert.ok(res.data.meta.channels.some((c) => c.name === 'muhabbet'))
-      assert.deepEqual(Object.keys(res.data.meta).sort(), ['activeKid', 'channels', 'serverName', 'users', 'voice'])
+      assert.deepEqual(Object.keys(res.data.meta).sort(), ['activeKid', 'channels', 'music', 'serverName', 'users', 'voice'])
+      assert.deepEqual(res.data.meta.music, { enabled: true, youtube: true })
       assert.deepEqual(res.data.meta.users, [{ id: 1, name: 'sahip', role: 'owner', online: true, status: 'online', pv: 0 }])
 
       // Güncel sürümle sorulunca meta gönderilmez
@@ -80,7 +81,8 @@ describe('long-poll', () => {
       const started = Date.now()
       const res = await p.poll()
       assert.ok(Date.now() - started >= 120)
-      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, tv: st.tv, events: [], signals: [] })
+      assert.equal(typeof res.data.now, 'number')
+      assert.deepEqual(res.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, tv: st.tv, muv: st.muv, now: res.data.now, events: [], signals: [] })
     } finally {
       await ctx.cleanup()
     }

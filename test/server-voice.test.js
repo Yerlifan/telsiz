@@ -141,7 +141,8 @@ describe('ses sinyalleri', () => {
         { to: ayseState.peerId },
         { to: 'AYSE', data: h.envelope() },
         { to: 12, data: h.envelope() },
-        { to: ayseState.peerId, data: h.envelope(16000) }
+        // maxSignalChars (32000) aşılıyor
+        { to: ayseState.peerId, data: h.envelope(24000) }
       ]) {
         h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, body), 400, 'bad_signal')
       }
@@ -237,6 +238,27 @@ describe('ses sinyalleri', () => {
       }, { timeout: 8000 })
       const meta = (await h.stateOf(ctx, owner.token)).meta
       assert.equal(meta.users.find((u) => u.id === ayse.user.id).online, false)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+})
+
+describe('ses sinyal zarfı sınırı', () => {
+  // Ek L1.10: ekran paylaşımının görüntülü SDP'si için varsayılan sınır 32000 karakterdir
+  it('varsayılan maxSignalChars 32000: tam sınırdaki zarf geçer, bir fazlası reddedilir', async () => {
+    const { ctx, owner, ayse } = await threeUsers()
+    try {
+      const ayseState = await h.stateOf(ctx, ayse.token)
+      h.expectStatus(await join(ctx, owner.token, 3), 200)
+      h.expectStatus(await join(ctx, ayse.token, 3), 200)
+      const make = (n) => {
+        const head = '1.0123456789abcdef.' + 'A'.repeat(32) + '.'
+        return head + 'B'.repeat(n - head.length)
+      }
+      assert.equal(make(32000).length, 32000)
+      h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, { to: ayseState.peerId, data: make(32000) }), 200)
+      h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, { to: ayseState.peerId, data: make(32001) }), 400, 'bad_signal')
     } finally {
       await ctx.cleanup()
     }

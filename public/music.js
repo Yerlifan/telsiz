@@ -70,6 +70,10 @@ var TelsizMusic = (function (root) {
   const KEY_MUTED = STORAGE_PREFIX + 'muted'
   const STATE_PATH = '/api/music/state'
   const UPLOAD_PATH = '/api/uploads/'
+  // Sunucunun kayıtla verdiği yazar bilgisinin (writes, authors) okunacak en büyük uzunlukları. Sunucu son 32
+  // yazımı verir, yazar sayısı kullanıcı sayısıyla sınırlıdır.
+  const MAX_WRITES = 256
+  const MAX_AUTHORS = 10000
 
   const ID_RE = /^[0-9a-f]{16}$/
   const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/
@@ -507,6 +511,41 @@ var TelsizMusic = (function (root) {
     if (!s) return null
     if (s.current && s.current.id === id) return s.current
     return s.queue.find((t) => t.id === id) || null
+  }
+
+  function allTracks (s) {
+    return (s.current ? [s.current] : []).concat(s.queue)
+  }
+
+  // Sunucunun her kayıtla verdiği yazar bilgisi (Ek L2.10): by bu sürümü yazanın kullanıcı kimliği, writes
+  // odanın son yazımları ({ v, by }, artan sürümle, since sürümünden sonraki her yazımı içerir, sonuncusu bu
+  // kayıttır), authors odanın bu oturumunda (oda durumu oluşturulduğundan beri) yazmış herkes. Biçimi bozuk
+  // veya kayıtla tutarsızsa null.
+  function parseProvenance (raw) {
+    if (!isObj(raw) || !isSafeInt(raw.v, 1, Number.MAX_SAFE_INTEGER)) return null
+    const by = raw.by
+    if (!isSafeInt(by, 1, Number.MAX_SAFE_INTEGER)) return null
+    if (!isSafeInt(raw.since, 0, raw.v - 1)) return null
+    const list = raw.writes
+    if (!Array.isArray(list) || list.length < 1 || list.length > MAX_WRITES) return null
+    const writes = []
+    let prevV = raw.since
+    for (const w of list) {
+      if (!isObj(w) || !keysOk(w, ['v', 'by'])) return null
+      if (!isSafeInt(w.v, prevV + 1, raw.v) || !isSafeInt(w.by, 1, Number.MAX_SAFE_INTEGER)) return null
+      writes.push({ v: w.v, by: w.by })
+      prevV = w.v
+    }
+    const lastWrite = writes[writes.length - 1]
+    if (lastWrite.v !== raw.v || lastWrite.by !== by) return null
+    if (!Array.isArray(raw.authors) || raw.authors.length < 1 || raw.authors.length > MAX_AUTHORS) return null
+    const authors = new Set()
+    for (const id of raw.authors) {
+      if (!isSafeInt(id, 1, Number.MAX_SAFE_INTEGER) || authors.has(id)) return null
+      authors.add(id)
+    }
+    if (!writes.every((w) => authors.has(w.by))) return null
+    return { by: by, since: raw.since, writes: writes, authors: authors }
   }
 
   // Oturumdan çıkan parçaların kimlikleri gone listesine eklenir (en eskiler düşer)
@@ -1022,6 +1061,10 @@ var TelsizMusic = (function (root) {
     // Odanın son geçerli durumu: parça alanlarının değişmezliği buna göre denetlenir (araya giren geçersiz bir
     // kayıt karşılaştırmayı atlatamaz)
     const goodStates = new Map()
+    // Son geçerli durumun sürümü: sunucunun yazım geçmişi (writes) bu sürümden sonrasını kapsıyorsa yeni
+    // parçaların ekleyeni o aradaki yazarlarla sınırlanır. Sürümler sunucu açılışı boyunca tekildir, açılış
+    // değişince silinir.
+    const goodVersions = new Map()
     const listeners = Object.create(null)
     const recent = new Map()
     // Çözülmüş dosyaların blob adresleri (anahtar: yükleme kimliği ve dosya anahtarı) ve süren indirmeler
@@ -1323,10 +1366,33 @@ var TelsizMusic = (function (root) {
       })
     }
 
-    // by: sunucunun bu sürümü yazan oturumdan bildirdiği kullanıcı kimliği (Ek L2.10 sözleşmesi). Şifreli
-    // durumdaki last.by bununla aynı olmalıdır, son işlem eklemeyse eklenen parçanın addedBy alanı da. Grup
-    // anahtarını bilen bir oda üyesi işlemi başkasının adına yazamaz.
-    function decode (envelope, room, at, previous, by) {
+    // Yeni parçaların ekleyeni (addedBy) sunucunun onayladığı yazarlarla sınırlanır, böylece grup anahtarını
+    // bilen bir oda üyesi başkasının adına parça ekleyemez:
+    // 1. Her parçanın ekleyeni odanın bu oturumunda gerçekten yazmış biri olmalıdır (authors).
+    // 2. Bu cihazın bildiği son geçerli durumda (goodStates, sürümü goodVersions) olmayan her parçanın ekleyeni,
+    //    sunucunun yazım geçmişi o sürümden sonrasını kapsıyorsa, o sürümden sonra yazmış biri olmalıdır.
+    // Sınır: geçmiş kapsamıyorsa (bu cihaz odanın durumunu hiç görmedi veya araya 32'den çok yazım girdi)
+    // yalnızca 1. kural uygulanır; ekleyen, odada daha önce yazmış başka biri olarak gösterilebilir.
+    function authorsOk (room, st, prov) {
+      const tracks = allTracks(st)
+      if (!tracks.every((t) => prov.authors.has(t.addedBy))) return false
+      const good = goodStates.get(room) || null
+      const goodV = goodVersions.has(room) ? goodVersions.get(room) : null
+      if (!good || goodV === null) return true
+      const covered = goodV === prov.since || prov.writes.some((w) => w.v === goodV)
+      if (!covered) return true
+      const allowed = new Set()
+      prov.writes.forEach((w) => {
+        if (w.v > goodV) allowed.add(w.by)
+      })
+      return tracks.every((t) => findTrack(good, t.id) !== null || allowed.has(t.addedBy))
+    }
+
+    // prov: sunucunun bu sürüm için verdiği yazar bilgisi (parseProvenance, Ek L2.10 sözleşmesi). Şifreli
+    // durumdaki last.by sunucunun bildirdiği yazanla (by) aynı olmalıdır, son işlem eklemeyse eklenen parçanın
+    // addedBy alanı da. Yeni parçaların ekleyeni authorsOk ile denetlenir. Grup anahtarını bilen bir oda üyesi
+    // işlemi veya parçayı başkasının adına yazamaz.
+    function decode (envelope, room, at, previous, prov) {
       const opened = open(envelope)
       if (!opened || opened.ok !== true) {
         return { status: opened && opened.reason === 'no_key' ? 'no_key' : 'invalid', state: null, reason: opened ? opened.reason : 'bad_data' }
@@ -1334,11 +1400,12 @@ var TelsizMusic = (function (root) {
       const res = validateState(opened.value, room)
       if (!res.ok) return { status: 'invalid', state: null, reason: res.reason }
       const st = res.state
-      if (by === null || st.last === null || st.last.by !== by) return { status: 'invalid', state: null, reason: 'author' }
+      if (prov === null || st.last === null || st.last.by !== prov.by) return { status: 'invalid', state: null, reason: 'author' }
       if (st.last.op === 'add') {
         const added = findTrack(st, st.last.id)
-        if (!added || added.addedBy !== by) return { status: 'invalid', state: null, reason: 'author' }
+        if (!added || added.addedBy !== prov.by) return { status: 'invalid', state: null, reason: 'author' }
       }
+      if (!authorsOk(room, st, prov)) return { status: 'invalid', state: null, reason: 'author' }
       const prevState = previous && (previous.status === 'ok' || previous.status === 'replay') ? previous.state : null
       // Yazanın saat kestirimi bozuksa çapa zamanı sunucunun kabul zamanından fazla ileride olamaz
       if (at > 0 && st.anchorAt > at + MAX_LEAD_MS) st.anchorAt = at + MAX_LEAD_MS
@@ -1357,7 +1424,8 @@ var TelsizMusic = (function (root) {
       if (!mark || mark.sid !== st.sid || st.seq > mark.seq) marks.set(room, { sid: st.sid, seq: st.seq })
     }
 
-    // raw: { v, at, by, env } veya null (odada durum yok). timing: { t0 } poll'un gönderilme zamanı.
+    // raw: { v, at, by, env, since, writes, authors } veya null (odada durum yok). timing: { t0 } poll'un
+    // gönderilme zamanı.
     function acceptRecord (room, raw, timing, own) {
       const prev = rooms.get(room) || null
       if (raw === null) {
@@ -1379,7 +1447,7 @@ var TelsizMusic = (function (root) {
       } else if (typeof raw.env !== 'string' || raw.env.length > MAX_ENV_CHARS || !ENVELOPE_RE.test(raw.env)) {
         rec = { v: raw.v, at: at, env: null, status: 'invalid', state: null, receivedAt: now() }
       } else {
-        const d = decode(raw.env, room, at, prev, isSafeInt(raw.by, 1, Number.MAX_SAFE_INTEGER) ? raw.by : null)
+        const d = decode(raw.env, room, at, prev, parseProvenance(raw))
         rec = { v: raw.v, at: at, env: raw.env, status: d.status, state: d.state, receivedAt: now() }
         if (d.status === 'invalid') emitError('invalid_state', null, false)
         if (d.status === 'replay') emitError('replay', null, false)
@@ -1387,6 +1455,7 @@ var TelsizMusic = (function (root) {
       if (rec.status === 'ok') {
         updateMark(room, rec.state)
         goodStates.set(room, rec.state)
+        goodVersions.set(room, rec.v)
       }
       rooms.set(room, rec)
       afterRoomChange(room, prev, rec)
@@ -1445,6 +1514,7 @@ var TelsizMusic = (function (root) {
     // Sunucu yeniden başladı: odaların durumu ve müzik sürümü sıfırlanır (tekrar oynatma işaretleri korunur)
     function reset () {
       rooms.clear()
+      goodVersions.clear()
       muv = 0
       reconcile()
       changed()
@@ -1582,7 +1652,7 @@ var TelsizMusic = (function (root) {
         }
         if (res.status === 409 && data) {
           if (isSafeInt(data.v, 1, Number.MAX_SAFE_INTEGER) && typeof data.env === 'string') {
-            acceptRecord(room, { v: data.v, at: data.at, by: data.by, env: data.env }, null, null)
+            acceptRecord(room, { v: data.v, at: data.at, by: data.by, env: data.env, since: data.since, writes: data.writes, authors: data.authors }, null, null)
           } else if (rec) {
             rooms.delete(room)
             afterRoomChange(room, rec, null)

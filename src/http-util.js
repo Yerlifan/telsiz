@@ -4,7 +4,10 @@
 // adres ayrıştırma ve beyaz listedeki statik dosyaların sunumu.
 // Bu modülde kullanıcıya görünen metin yoktur, metinler çağırandan gelir.
 
-const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+// frame-src: Telsiz DJ YouTube parçaları yalnızca YouTube'un resmi gömülü oynatıcısıyla, çapraz kökenli
+// çerçeve olarak çalınır (Ek L2.4 yol ii, public/dj/youtube.js). Google kodu uygulamanın kökeninde çalışmaz,
+// script-src 'self' kalır. Başka hiçbir çerçeve kaynağına izin yoktur.
+const HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com"
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
 const DOWNLOAD_CSP = "default-src 'none'; sandbox"
 

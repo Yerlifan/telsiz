@@ -344,7 +344,8 @@ describe('yazıyor bildirimi: süre, poll alanları ve kalıcılık', () => {
       await startTyping(ctx, ayse, 1)
       const quiet = await pending
       assert.ok(Date.now() - typedAt >= 200, 'tv olmadan uyanmamalı')
-      assert.deepEqual(quiet.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, tv: 2, events: [], signals: [] })
+      assert.equal(typeof quiet.data.now, 'number')
+      assert.deepEqual(quiet.data, { boot: st.boot, seq: st.seq, metaVersion: st.metaVersion, pmv: st.pmv, tv: 2, muv: st.muv, now: quiet.data.now, events: [], signals: [] })
       // Geçersiz tv de izlemiyor sayılır
       for (const tv of ['abc', '-1', '1.5']) {
         const res = await h.get(ctx, base + '&tv=' + tv, owner.token)
