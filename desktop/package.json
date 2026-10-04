@@ -30,5 +30,8 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
     "playwright": "1.63.0"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
   }
 }

@@ -17,6 +17,9 @@
 //   yeni pencere, webview, izinler, indirmeler ve sertifika hataları sıkı biçimde denetlenir.
 // - Ön yükleme betikleri yalnızca sabit adlı IPC kanallarını kullanır, her girdi burada yeniden
 //   doğrulanır ve her çağrının hangi pencereden ve kökenden geldiği denetlenir.
+// - Güncellemeler (src/lib/updates.js): kurucu ve AppImage electron-updater ile arka planda indirir
+//   ve sha512 ile doğrular, kurulum yalnızca kullanıcı isteyince yapılır. Taşınabilir exe ve .deb
+//   için yalnızca yeni sürüm bildirilir. Ayar kapalıyken GitHub'a hiç istek gitmez.
 
 const path = require('node:path')
 const fs = require('node:fs')
@@ -52,6 +55,7 @@ const settingsStore = require('./lib/settings-store')
 const diagnostics = require('./lib/diagnostics')
 const automation = require('./lib/automation')
 const frequencies = require('./lib/frequencies')
+const updates = require('./lib/updates')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
 
@@ -63,6 +67,8 @@ const RUNTIME_ICON_DIR = path.join(ROOT_DIR, 'build', 'runtime')
 const IS_DEV = !app.isPackaged
 const CONNECT_PARTITION = 'telsiz-baglan'
 const PICKER_PARTITION = 'telsiz-secici'
+// Hafif güncelleme denetiminin (GitHub API) oturumu: çerez ve önbellek yok, sunucu oturumlarından ayrı
+const UPDATE_PARTITION = 'telsiz-guncelleme'
 const BACKGROUND = '#0f1015'
 const EXTERNAL_OPEN_INTERVAL_MS = 500
 const MAX_ADDRESS_INPUT = 1000
@@ -123,7 +129,11 @@ const state = {
   activation: new Map(),
   pickerBusy: false,
   picker: null,
-  pendingDisplay: null
+  pendingDisplay: null,
+  updates: null,
+  updateStatus: null,
+  // Zamanlanmış güncelleme denetimi (gözetimsiz çalıştırmada ve otomasyonda kapalı)
+  scheduleUpdates: false
 }
 
 function t (key, params) {
@@ -696,6 +706,81 @@ function refreshMenus () {
   updateTrayMenu()
 }
 
+// ------------------------------------------------------------------ güncellemeler
+
+function updateSnapshot () {
+  return state.updates ? state.updates.snapshot() : null
+}
+
+// Menüde ve tepside, kullanıcının yapabileceği bir güncelleme eylemi varsa en üstte gösterilir
+function updateActionItems () {
+  const snap = updateSnapshot()
+  if (!snap) return []
+  if (snap.canInstall) return [{ label: t('update.install', { version: snap.version || '' }), click: () => installUpdate() }]
+  if (snap.mode === 'notify' && snap.status === 'available') return [{ label: t('update.available', { version: snap.version || '' }), click: () => openReleasePage() }]
+  return []
+}
+
+function checkForUpdatesItem () {
+  const snap = updateSnapshot()
+  return {
+    label: t('menu.checkUpdates'),
+    enabled: Boolean(snap && snap.enabled && snap.status !== 'checking' && snap.status !== 'downloading'),
+    click: () => {
+      if (state.updates) state.updates.checkNow().catch((err) => logError('updates', err))
+    }
+  }
+}
+
+function installUpdate () {
+  return state.updates ? state.updates.install() : { ok: false, code: 'unavailable' }
+}
+
+function openReleasePage () {
+  const url = state.updates ? state.updates.releaseUrl() : null
+  if (!url || !updates.isReleasePageUrl(url)) return { ok: false, code: 'unavailable' }
+  openExternal(url)
+  return { ok: true }
+}
+
+// Durum değişikliği sayfaya bildirilir. Menüler yalnızca durum değişince yeniden kurulur
+// (indirme yüzdesi her değiştiğinde değil).
+function onUpdateChange (snapshot, statusChanged) {
+  const win = state.mainWindow
+  if (isAlive(win) && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.updatesState, snapshot)
+  if (statusChanged || state.updateStatus !== snapshot.status + ':' + snapshot.enabled) {
+    state.updateStatus = snapshot.status + ':' + snapshot.enabled
+    refreshMenus()
+  }
+}
+
+function createUpdates (schedule) {
+  const mode = updates.detectMode({ platform: process.platform, env: process.env, isPackaged: app.isPackaged })
+  const ses = session.fromPartition(UPDATE_PARTITION, { cache: false })
+  ses.setPermissionRequestHandler((contents, permission, callback) => callback(false))
+  ses.setPermissionCheckHandler(() => false)
+  state.updates = updates.createController({
+    mode,
+    current: app.getVersion(),
+    getEnabled: () => state.settings.autoUpdate === true,
+    saveEnabled: (value) => {
+      state.settings.autoUpdate = value
+      persistSettings()
+    },
+    fetch: (url, init) => ses.fetch(url, init),
+    // electron-updater yalnızca ayar açıkken ve ilk denetimde yüklenir
+    loadUpdater: () => require('electron-updater').autoUpdater,
+    onChange: onUpdateChange,
+    beforeInstall: () => {
+      state.quitting = true
+    },
+    log: logError,
+    schedule
+  })
+  diag.log('updates', { mode: mode.mode, kind: mode.kind, enabled: state.settings.autoUpdate, schedule })
+  state.updates.start()
+}
+
 // ------------------------------------------------------------------ menü, tepsi, kısayollar
 
 function showAbout () {
@@ -730,6 +815,7 @@ function buildMenu () {
         { type: 'separator' },
         { label: t('menu.closeToTray'), type: 'checkbox', checked: state.settings.closeToTray, enabled: Boolean(state.tray), click: (item) => setCloseToTray(item.checked) },
         { type: 'separator' },
+        ...updateActionItems(),
         { label: t('menu.quit'), accelerator: 'CommandOrControl+Q', click: () => quitApp() }
       ]
     },
@@ -751,6 +837,7 @@ function buildMenu () {
       label: t('menu.help'),
       submenu: [
         { label: t('menu.about'), click: () => showAbout() },
+        checkForUpdatesItem(),
         { label: t('menu.project'), click: () => openExternal(HOMEPAGE) }
       ]
     }
@@ -788,13 +875,15 @@ function createTray () {
 
 function updateTrayMenu () {
   if (!state.tray) return
-  state.tray.setContextMenu(Menu.buildFromTemplate([
+  const actions = updateActionItems()
+  if (actions.length > 0) actions.push({ type: 'separator' })
+  state.tray.setContextMenu(Menu.buildFromTemplate(actions.concat([
     { label: t('tray.open'), click: () => showMain() },
     { label: t('tray.toggleMute'), click: () => sendShortcut('toggleMute') },
     { label: t('tray.frequencies'), submenu: frequencyMenuItems() },
     { type: 'separator' },
     { label: t('tray.quit'), click: () => quitApp() }
-  ]))
+  ])))
 }
 
 function showTrayHint () {
@@ -917,6 +1006,26 @@ function registerIpc () {
   ipcMain.handle(CHANNELS.setFrequencyName, (event, name) => {
     requireSender(event, 'app')
     return frequencyControl.setName(name)
+  })
+  ipcMain.handle(CHANNELS.updatesGet, (event) => {
+    requireSender(event, 'app')
+    return updateSnapshot()
+  })
+  ipcMain.handle(CHANNELS.updatesCheck, (event) => {
+    requireSender(event, 'app')
+    return state.updates ? state.updates.checkNow() : { ok: false, code: 'unavailable' }
+  })
+  ipcMain.handle(CHANNELS.updatesInstall, (event) => {
+    requireSender(event, 'app')
+    return installUpdate()
+  })
+  ipcMain.handle(CHANNELS.updatesSetAuto, (event, value) => {
+    requireSender(event, 'app')
+    return state.updates ? state.updates.setEnabled(value) : { ok: false, code: 'unavailable' }
+  })
+  ipcMain.handle(CHANNELS.updatesOpenRelease, (event) => {
+    requireSender(event, 'app')
+    return openReleasePage()
   })
   ipcMain.on(CHANNELS.userActivation, (event) => {
     if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
@@ -1088,6 +1197,7 @@ function start () {
   diag.log('settings', { userData: app.getPath('userData'), hasServer: Boolean(state.settings.server), frequencies: state.settings.frequencies.length })
   installGuards()
   registerIpc()
+  createUpdates(state.scheduleUpdates)
   createTray()
   diag.log('tray', { available: Boolean(state.tray) })
   if (!state.tray) state.settings.closeToTray = false
@@ -1122,6 +1232,8 @@ if (!singleInstance) {
   }).then((gate) => {
     if (gate !== 'off') diag.log('automation', { gate })
     if (gate === 'timeout') logError('automation', new Error('__playwright_run was not called, starting anyway'))
+    // Duman testi ve otomasyon GitHub'a kendiliğinden istek göndermez
+    state.scheduleUpdates = gate === 'off' && !diag.enabled
     start()
   }).catch((err) => {
     logError('start', err)

@@ -281,6 +281,8 @@ Güncellemeden önce veri klasörünü yedekleyin ve sürüm notlarını ([CHANG
 | Docker | `docker pull ghcr.io/yerlifan/telsiz:latest`, eski kapsayıcıyı silip aynı birimle yeniden başlatma |
 | Docker Compose | `git pull` ve `docker compose -f deploy/docker-compose.yml up -d --build` |
 | systemd | `cd /opt/telsiz`, `sudo git pull` ve `sudo systemctl restart telsiz` |
+| Masaüstü uygulaması (kurucu, AppImage) | Uygulama yeni sürümü kendisi indirir, Yeniden başlat ve güncelle ile kurulur |
+| Masaüstü uygulaması (taşınabilir, .deb) | Uygulamanın gösterdiği sürüm sayfasından yeni dosyayı indirip eskisinin yerine koyma veya kurma |
 
 Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasındadır. Linux'ta `sha256sum -c SHA256SUMS.txt --ignore-missing`, Windows PowerShell'de `Get-FileHash telsiz-<sürüm>-server-windows-x64.exe` komutuyla doğrulanabilir. Uygulamadaki Ayarlar > Uygulama bölümü sunucunun sürümünü gösterir.
 

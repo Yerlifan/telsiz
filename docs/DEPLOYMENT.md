@@ -281,6 +281,8 @@ Back up the data folder and read the release notes ([CHANGELOG.en.md](../CHANGEL
 | Docker | `docker pull ghcr.io/yerlifan/telsiz:latest`, remove the old container and start it again with the same volume |
 | Docker Compose | `git pull` and `docker compose -f deploy/docker-compose.yml up -d --build` |
 | systemd | `cd /opt/telsiz`, `sudo git pull` and `sudo systemctl restart telsiz` |
+| Desktop app (installer, AppImage) | The app downloads the new version itself, it is installed with Restart and update |
+| Desktop app (portable, .deb) | Download the new file from the release page the app shows and replace or install it |
 
 The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You can verify it with `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or with `Get-FileHash telsiz-<version>-server-windows-x64.exe` in Windows PowerShell. Settings > App in the app shows the version of the server.
 

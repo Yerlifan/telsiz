@@ -99,7 +99,7 @@ docker logs telsiz
 
 ### Masaüstü uygulaması
 
-Sürümler sayfasında Windows için kurucu (`Telsiz-Kurulum-<sürüm>.exe`) ve taşınabilir sürüm (`Telsiz-<sürüm>-tasinabilir.exe`), Linux için AppImage ve .deb paketi yayımlanır. Masaüstü uygulaması bir sunucu değil, istemcidir. Arayüz uygulamanın içinde gelir ve sunucudan indirilmez. Ayrıntılar [desktop/README.md](desktop/README.md) dosyasındadır.
+Sürümler sayfasında Windows için kurucu (`Telsiz-Kurulum-<sürüm>.exe`) ve taşınabilir sürüm (`Telsiz-<sürüm>-tasinabilir.exe`), Linux için AppImage ve .deb paketi yayımlanır. Masaüstü uygulaması bir sunucu değil, istemcidir. Arayüz uygulamanın içinde gelir ve sunucudan indirilmez. Kurucu ve AppImage yeni sürümü arka planda indirir ve siz Yeniden başlat ve güncelle deyince kurar, taşınabilir sürüm ve .deb yalnızca yeni sürümü bildirir. Denetim GitHub'a bağlanır ve Ayarlar > Uygulama bölümünden kapatılabilir. Ayrıntılar [desktop/README.md](desktop/README.md) dosyasındadır.
 
 ## İlk kurulum ve davet
 

@@ -21,12 +21,23 @@ const CHANNELS = {
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
   removeFrequency: 'telsiz:remove-frequency',
-  setFrequencyName: 'telsiz:set-frequency-name'
+  setFrequencyName: 'telsiz:set-frequency-name',
+  updatesGet: 'telsiz:updates-get',
+  updatesCheck: 'telsiz:updates-check',
+  updatesInstall: 'telsiz:updates-install',
+  updatesSetAuto: 'telsiz:updates-set-auto',
+  updatesOpenRelease: 'telsiz:updates-open-release',
+  updatesState: 'telsiz:updates-state'
 }
 const ACTIONS = ['toggleMute', 'toggleDeafen']
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
+// Güncelleme durumu yalnızca bu değerlerle sayfaya verilir (src/lib/updates.js ile aynı)
+const UPDATE_STATUSES = ['idle', 'checking', 'up-to-date', 'available', 'downloading', 'downloaded', 'error']
+const UPDATE_ERRORS = ['network', 'timeout', 'rate_limited', 'not_found', 'http', 'invalid', 'failed']
+const UPDATE_KINDS = ['nsis', 'appimage', 'portable', 'deb', 'dev', 'other']
+const UPDATE_CODES = ['disabled', 'invalid', 'not_ready', 'unavailable'].concat(UPDATE_ERRORS)
 
 function readVersion () {
   const args = Array.isArray(process.argv) ? process.argv : []
@@ -42,6 +53,44 @@ ipcRenderer.on(CHANNELS.shortcut, (event, action) => {
   for (const callback of Array.from(listeners)) {
     try {
       callback(action)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
+// Ana süreçten gelen güncelleme durumunun yalnızca bilinen alanları, türleri denetlenerek kopyalanır
+function cleanUpdateState (raw) {
+  const s = raw && typeof raw === 'object' ? raw : {}
+  const version = (value) => typeof value === 'string' && VERSION_RE.test(value) ? value : null
+  return {
+    enabled: s.enabled === true,
+    mode: s.mode === 'auto' ? 'auto' : 'notify',
+    kind: UPDATE_KINDS.includes(s.kind) ? s.kind : 'other',
+    current: version(s.current) || '',
+    status: UPDATE_STATUSES.includes(s.status) ? s.status : 'idle',
+    version: version(s.version),
+    percent: Number.isInteger(s.percent) && s.percent >= 0 && s.percent <= 100 ? s.percent : null,
+    lastCheckAt: Number.isFinite(s.lastCheckAt) && s.lastCheckAt > 0 ? s.lastCheckAt : null,
+    error: UPDATE_ERRORS.includes(s.error) ? s.error : null,
+    canInstall: s.canInstall === true
+  }
+}
+
+function cleanUpdateResult (raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const out = { ok: r.ok === true }
+  if (UPDATE_CODES.includes(r.code)) out.code = r.code
+  if (r.state && typeof r.state === 'object') out.state = cleanUpdateState(r.state)
+  return out
+}
+
+const updateListeners = new Set()
+ipcRenderer.on(CHANNELS.updatesState, (event, raw) => {
+  const value = cleanUpdateState(raw)
+  for (const callback of Array.from(updateListeners)) {
+    try {
+      callback(Object.assign({}, value))
     } catch (err) {
       // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
     }
@@ -92,5 +141,22 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   // Frekansı listeden çıkarır. clearData true ise o frekansın bu cihazdaki oturum verisi de silinir.
   removeFrequency: (origin, clearData) => ipcRenderer.invoke(CHANNELS.removeFrequency, typeof origin === 'string' ? origin : '', clearData === true),
   // Etkin frekansın sunucudan öğrenilen adı (listede ve menüde gösterilir)
-  setFrequencyName: (name) => ipcRenderer.invoke(CHANNELS.setFrequencyName, typeof name === 'string' ? name : '')
+  setFrequencyName: (name) => ipcRenderer.invoke(CHANNELS.setFrequencyName, typeof name === 'string' ? name : ''),
+  // Güncellemeler: durum { enabled, mode, kind, current, status, version, percent, lastCheckAt, error, canInstall }.
+  // Sayfa hiçbir adres veya dosya yolu vermez, sürüm sayfası ana süreçteki doğrulanmış adresle açılır.
+  updates: {
+    getState: () => ipcRenderer.invoke(CHANNELS.updatesGet).then(cleanUpdateState),
+    checkNow: () => ipcRenderer.invoke(CHANNELS.updatesCheck).then(cleanUpdateResult),
+    install: () => ipcRenderer.invoke(CHANNELS.updatesInstall).then(cleanUpdateResult),
+    setEnabled: (value) => ipcRenderer.invoke(CHANNELS.updatesSetAuto, typeof value === 'boolean' ? value : null).then(cleanUpdateResult),
+    openRelease: () => ipcRenderer.invoke(CHANNELS.updatesOpenRelease).then(cleanUpdateResult),
+    // callback(state). Dönen işlev aboneliği kaldırır.
+    onState: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      updateListeners.add(callback)
+      return () => {
+        updateListeners.delete(callback)
+      }
+    }
+  }
 })

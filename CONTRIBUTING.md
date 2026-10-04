@@ -168,7 +168,8 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, içerik güvenliği politikası, statik dosya beyaz listesi |
 | `public/sw.js` | Önbelleğe alınan içerik ve `/api/` isteklerinin önbelleğe alınmaması |
-| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları |
+| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, güncelleme denetimi (`desktop/src/lib/updates.js`) |
+| `.github/workflows/release.yml`, `desktop/electron-builder.json` | Yayına giren dosyaların beyaz listesi, otomatik güncelleme bilgi dosyaları, npm yayınının kimlik doğrulaması |
 
 Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın.
 
@@ -185,6 +186,16 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 9. CI denetimlerinin başarılı olduğunu kontrol edin ve inceleme yorumlarını yanıtlayın.
 
 Birbirinden bağımsız değişiklikleri ayrı PR'lar olarak gönderin. Kullanıcının gördüğü davranışı değiştiren bir değişiklikte README dosyalarını, mimariyi değiştiren bir değişiklikte `docs/MIMARI.md` ve `docs/ARCHITECTURE.md` dosyalarını, sürüme girecek önemli değişikliklerde iki CHANGELOG dosyasını da güncelleyin. Büyük bir değişikliğe başlamadan önce bir issue açıp yaklaşımı tartışmanız, emeğinizin boşa gitmemesi için önerilir.
+
+## Sürüm yayını
+
+Sürümü depo sahibi yayımlar: `package.json`, `desktop/package.json` ve iki CHANGELOG dosyası güncellenir, `main` dalındaki commit'e `v` ile başlayan bir etiket (ör. `v2.1.0`) gönderilir. `.github/workflows/release.yml` gerisini yapar:
+
+- Denetim ve testlerden sonra sunucu ikilileri ve masaüstü paketleri derlenir. GitHub Release'e yalnızca beyaz listedeki dosyalar eklenir: sunucu ikilileri, masaüstü paketleri, otomatik güncelleme bilgileri (`latest.yml`, `latest-linux.yml`, `Telsiz-Kurulum-<sürüm>.exe.blockmap`) ve hepsinin `SHA256SUMS.txt` dosyası. `desktop/scripts/guncelleme-dosyalari.js` bilgi dosyalarında adı geçen paketlerin yayında aynı adla bulunduğunu ve sha512 değerlerinin tuttuğunu denetler.
+- Docker imajı `ghcr.io/yerlifan/telsiz` olarak yayımlanır.
+- npm paketi `telsiz` npm trusted publishing (OIDC) ile tokensız ve provenance bilgisiyle yayımlanır. npmjs.com'daki paket ayarlarında güvenilen yayıncı tanımlıdır: GitHub Actions, `Yerlifan/telsiz`, iş akışı dosyası `release.yml`, ortam yok. npm belgelerine göre bu yol npm CLI 11.5.1 veya sonrasını ve Node.js 22.14.0 veya sonrasını gerektirir, iş sabitlenmiş bir npm 11 sürümü kurar ve ikisini de denetler. `NPM_TOKEN` gizli değişkeni tanımlıysa yalnızca yedektir: npm önce OIDC'yi dener. İlk OIDC yayını başarılı olduktan sonra `NPM_TOKEN` silinebilir ve npmjs.com'da paket için token ile yayın kapatılabilir ("Require two-factor authentication and disallow tokens"). İş akışı dosyasının adı değişirse güvenilen yayıncı ayarı da değiştirilmelidir.
+
+Masaüstü güncellemeleri imzasız olduğu için bütünlükleri GitHub hesabının ve deposunun güvenliğine dayanır. Depo sahibinin ve yazma yetkisi olan herkesin hesabında iki adımlı doğrulama (2FA) açık olmalıdır. Güncelleme denetimi depo herkese açıkken çalışır.
 
 ## Lisans
 

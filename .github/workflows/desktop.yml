@@ -7,8 +7,19 @@
 #
 # Artifact adları (release.yml bunlara güvenir):
 # Artifact names (release.yml relies on them):
-#   telsiz-desktop-windows   Telsiz-Kurulum-<sürüm>.exe, Telsiz-<sürüm>-tasinabilir.exe
-#   telsiz-desktop-linux     Telsiz-<sürüm>-linux-x86_64.AppImage, telsiz-masaustu_<sürüm>_amd64.deb
+#   telsiz-desktop-windows   Telsiz-Kurulum-<sürüm>.exe, Telsiz-<sürüm>-tasinabilir.exe,
+#                            latest.yml, Telsiz-Kurulum-<sürüm>.exe.blockmap
+#   telsiz-desktop-linux     Telsiz-<sürüm>-linux-x86_64.AppImage, telsiz-masaustu_<sürüm>_amd64.deb,
+#                            latest-linux.yml
+#
+# latest.yml ve latest-linux.yml otomatik güncellemenin (electron-updater) bilgi dosyalarıdır.
+# electron-builder bunları electron-builder.json içindeki publish ayarından üretir, derleme yine
+# de --publish never ile yapılır (hiçbir şey yüklenmez). AppImage'ın fark indirmesi bilgisi dosyanın
+# içine gömülüdür, ayrı .blockmap dosyası yalnızca Windows kurucusu için vardır.
+# latest.yml and latest-linux.yml are the auto update (electron-updater) info files. electron-builder
+# writes them from the publish setting in electron-builder.json, the build still runs with
+# --publish never (nothing is uploaded). The AppImage block map is embedded in the file, a separate
+# .blockmap file exists only for the Windows installer.
 name: Masaüstü
 
 on:
@@ -77,6 +88,8 @@ jobs:
           test -f "dist/telsiz-masaustu_${version}_amd64.deb"
           test -x dist/linux-unpacked/telsiz-masaustu
           dpkg-deb --info "dist/telsiz-masaustu_${version}_amd64.deb"
+          test -f dist/linux-unpacked/resources/app-update.yml
+          node scripts/guncelleme-dosyalari.js dist --version "${version}" --require latest-linux.yml
 
       # Ubuntu 24.04 yetkisiz kullanıcı ad alanlarını AppArmor ile kısıtlar, Chromium'un korumalı
       # alanı (sandbox) bu yüzden test makinesinde açılamaz. Duman testi korumalı alanla çalışmalıdır.
@@ -110,6 +123,7 @@ jobs:
           path: |
             desktop/dist/*.AppImage
             desktop/dist/*.deb
+            desktop/dist/latest-linux.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -164,6 +178,8 @@ jobs:
           test -f "dist/Telsiz-Kurulum-${version}.exe"
           test -f "dist/Telsiz-${version}-tasinabilir.exe"
           test -f dist/win-unpacked/Telsiz.exe
+          test -f dist/win-unpacked/resources/app-update.yml
+          node scripts/guncelleme-dosyalari.js dist --version "${version}" --require latest.yml
 
       # Hata anında duman-sonuclar/ altına teşhis dosyaları yazılır (Linux adımındaki gibi). Başlatma
       # uzarsa zaman aşımından önce Telsiz süreçlerinin pencere başlıkları, yanıt durumu ve masaüstü
@@ -186,6 +202,8 @@ jobs:
           path: |
             desktop/dist/Telsiz-Kurulum-*.exe
             desktop/dist/Telsiz-*-tasinabilir.exe
+            desktop/dist/latest.yml
+            desktop/dist/Telsiz-Kurulum-*.exe.blockmap
           if-no-files-found: error
           retention-days: 14
 

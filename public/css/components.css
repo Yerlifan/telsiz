@@ -937,6 +937,40 @@
   border-left-color: var(--ok);
 }
 
+/* Masaüstü uygulamasının güncelleme şeridi (js/20-desktop.js): sağ altta, kapatılabilir */
+.desktop-update-banner {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 101;
+  max-width: 26rem;
+  padding: 0.75rem 1rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-left: 4px solid var(--ok);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-float);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+
+.desktop-update-text {
+  margin: 0 0 0.5rem;
+}
+
+.desktop-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.desktop-update-actions .button {
+  margin: 0.25rem 0.5rem 0 0;
+}
+
+.desktop-updates {
+  margin-top: 1rem;
+}
+
 .conn-banner {
   flex: none;
   padding: 0.4rem 1rem;
@@ -3822,6 +3856,11 @@ button.member:hover {
     max-width: none;
     -webkit-transform: none;
     transform: none;
+  }
+
+  .desktop-update-banner {
+    left: 1rem;
+    max-width: none;
   }
 
   .file-card {

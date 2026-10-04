@@ -405,7 +405,8 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setShortcuts', 'switchFrequency', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
   // Paketlenmiş uygulamada geliştirici araçları açılamaz
@@ -648,6 +649,27 @@ test('genel kısayol ayarları doğrulanır, olaylar yalnızca izinli eylemlerle
   assert.deepEqual(await page.evaluate(() => window.__kisayollar), ['toggleDeafen'])
 })
 
+// Gözetimsiz çalıştırmada zamanlanmış denetim yoktur, burada GitHub'a hiçbir istek gönderilmez
+test('güncelleme durumu: varsayılan açık, gözetimsizde denetim yapılmaz, girdiler doğrulanır', async () => {
+  const page = ctx.page
+  const state = await page.evaluate(() => window.telsizDesktop.updates.getState())
+  assert.equal(state.enabled, true)
+  assert.equal(state.status, 'idle')
+  assert.equal(state.lastCheckAt, null)
+  assert.match(state.current, /^\d+\.\d+\.\d+/)
+  const packaged = await ctx.app.evaluate(({ app }) => app.isPackaged)
+  // Paketlenmemiş veya kurulmamış (linux-unpacked) uygulama yalnızca bildirim kipindedir
+  if (!packaged || process.platform === 'linux') assert.equal(state.mode, 'notify')
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.updates.install()), { ok: false, code: 'not_ready' })
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.updates.openRelease()), { ok: false, code: 'unavailable' })
+  const off = await page.evaluate(() => window.telsizDesktop.updates.setEnabled(false))
+  assert.equal(off.ok, true)
+  assert.equal(off.state.enabled, false)
+  assert.deepEqual(await page.evaluate(() => window.telsizDesktop.updates.checkNow()), { ok: false, code: 'disabled' })
+  const on = await page.evaluate(() => window.telsizDesktop.updates.setEnabled(true))
+  assert.equal(on.state.enabled, true)
+})
+
 test('web tarafı (js/20-desktop.js) masaüstünde etkinleşir ve ayar bölümünü çizer', async () => {
   const page = ctx.page
   const loaded = await page.evaluate(() => Boolean(window.TelsizDesktopUI))
@@ -662,14 +684,16 @@ test('web tarafı (js/20-desktop.js) masaüstünde etkinleşir ve ayar bölümü
     document.body.appendChild(app)
     const renderedApp = ui.renderAppSettings(app)
     await new Promise((resolve) => setTimeout(resolve, 300))
-    return { active: ui.active, rendered, renderedApp, buttons: box.querySelectorAll('button').length, keys: Array.from(box.querySelectorAll('kbd')).map((k) => k.textContent), appButtons: app.querySelectorAll('button').length, desktopAttr: document.documentElement.getAttribute('data-desktop') }
+    return { active: ui.active, rendered, renderedApp, buttons: box.querySelectorAll('button').length, keys: Array.from(box.querySelectorAll('kbd')).map((k) => k.textContent), appButtons: app.querySelectorAll('button').length, desktopAttr: document.documentElement.getAttribute('data-desktop'), updateCheck: Boolean(app.querySelector('[data-desktop-update="check"]')), updateAuto: Boolean(app.querySelector('[data-desktop-update="auto"]')) }
   })
   assert.equal(result.active, true)
   assert.equal(result.rendered, true)
   assert.equal(result.renderedApp, true)
   assert.ok(result.buttons >= 4)
   assert.ok(result.keys.includes('Ctrl+Shift+F11'))
-  assert.ok(result.appButtons >= 1)
+  assert.ok(result.appButtons >= 2)
+  assert.equal(result.updateCheck, true)
+  assert.equal(result.updateAuto, true)
   assert.equal(result.desktopAttr, '1')
 })
 

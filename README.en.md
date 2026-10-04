@@ -99,7 +99,7 @@ The second command shows the setup code. The [deploy/docker-compose.yml](deploy/
 
 ### Desktop app
 
-The Releases page has an installer (`Telsiz-Kurulum-<version>.exe`) and a portable build (`Telsiz-<version>-tasinabilir.exe`) for Windows, and an AppImage and a .deb package for Linux. The desktop app is a client, not a server. The interface ships inside the app and is never downloaded from the server. Details are in [desktop/README.en.md](desktop/README.en.md).
+The Releases page has an installer (`Telsiz-Kurulum-<version>.exe`) and a portable build (`Telsiz-<version>-tasinabilir.exe`) for Windows, and an AppImage and a .deb package for Linux. The desktop app is a client, not a server. The interface ships inside the app and is never downloaded from the server. The installer and the AppImage download a new version in the background and install it when you choose Restart and update, the portable build and the .deb only announce a new version. The check connects to GitHub and can be turned off in Settings > App. Details are in [desktop/README.en.md](desktop/README.en.md).
 
 ## First run and invites
 

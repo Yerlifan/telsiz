@@ -52,13 +52,13 @@ Bütün komutlar `desktop/` klasöründe çalıştırılır.
 
 | Komut | Ne yapar |
 | --- | --- |
-| `npm ci` | Geliştirme bağımlılıklarını kurar (electron, electron-builder, playwright) |
+| `npm ci` | Bağımlılıkları kurar: geliştirme araçları (electron, electron-builder, playwright) ve pakete giren tek çalışma zamanı bağımlılığı electron-updater |
 | `npm run hazirla` | `public/` dosyalarını `app/` altına kopyalar, bütünlük bildirimini yazar, simgeleri `build/` altına üretir |
 | `npm start` | Hazırlığı yapar ve uygulamayı geliştirme düzeninde açar |
 | `npm test` | Birim testleri (Electron gerekmez, iletme mantığı gerçek bir yerel sunucuya karşı denenir) |
 | `npm run test:duman` | Playwright `_electron` duman testi (Linux'ta `xvfb-run -a npm run test:duman`) |
-| `npm run derle:win` | Windows NSIS kurucu ve taşınabilir exe (`dist/`) |
-| `npm run derle:linux` | Linux AppImage ve .deb (`dist/`) |
+| `npm run derle:win` | Windows NSIS kurucu ve taşınabilir exe, `latest.yml` ve kurucunun `.blockmap` dosyası (`dist/`) |
+| `npm run derle:linux` | Linux AppImage ve .deb, `latest-linux.yml` (`dist/`) |
 
 Duman testi varsayılan olarak geliştirme düzenindeki uygulamayı açar. `TELSIZ_UYGULAMA` ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör. `dist/linux-unpacked/telsiz-masaustu` veya `dist/win-unpacked/Telsiz.exe`) test onunla yapılır. Test 4300 ile 4349 arasındaki ilk boş portta bir Telsiz sunucusu başlatır ve uygulamayı boş bir kullanıcı verisi klasörüyle açar.
 
@@ -70,6 +70,7 @@ Derleme çıktıları:
 - `Telsiz-<sürüm>-tasinabilir.exe` (Windows taşınabilir)
 - `Telsiz-<sürüm>-linux-x86_64.AppImage`
 - `telsiz-masaustu_<sürüm>_amd64.deb`
+- `latest.yml`, `Telsiz-Kurulum-<sürüm>.exe.blockmap` ve `latest-linux.yml` (otomatik güncelleme bilgileri, aşağıya bakın)
 
 ## Dosya düzeni
 
@@ -79,9 +80,10 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, kısayol doğrulama, beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
+| `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
 | `test/` | Birim testleri |
 | `e2e/duman.test.js` | Duman testi |
 | `electron-builder.json` | Paketleme yapılandırması |
@@ -94,7 +96,8 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 
 - Genel kısayol olaylarında `toggleMute` ve `toggleDeafen` işlevlerini çağırır.
 - PWA yükleme önerisini engeller.
-- `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans ve tepsiye küçültme bölümünü çizer.
+- `window.TelsizDesktopUI.renderShortcutSettings(kapsayici)` genel kısayol bölümünü, `window.TelsizDesktopUI.renderAppSettings(kapsayici)` etkin frekans, tepsiye küçültme ve güncellemeler bölümünü çizer.
+- İndirilmiş bir güncelleme veya yeni sürüm bildirimi için sağ altta kapatılabilir bir şerit gösterir.
 - Frekans menüsü (`public/js/24-frekans.js`) masaüstünde listeyi tarayıcının yerel deposu yerine aşağıdaki frekans çağrılarıyla yönetir.
 
 `window.telsizDesktop` API'si:
@@ -113,17 +116,41 @@ Masaüstü uygulamasının menü, tepsi, sunucu adresi ekranı ve seçici metinl
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
 | `removeFrequency(origin, clearData)` | Frekansı listeden çıkarır, `clearData` yalnızca `true` ise oturum verisini siler |
 | `setFrequencyName(name)` | Açık frekansın sunucudan öğrenilen adı |
+| `updates.getState()` | `{ enabled, mode, kind, current, status, version, percent, lastCheckAt, error, canInstall }` |
+| `updates.checkNow()` | Şimdi denetler (ayar kapalıysa `{ ok: false, code: 'disabled' }`) |
+| `updates.setEnabled(bool)` | Güncellemeleri otomatik denetle ayarı |
+| `updates.install()` | İndirilmiş güncellemeyi kurar ve uygulamayı yeniden başlatır |
+| `updates.openRelease()` | Bulunan sürümün GitHub sayfasını varsayılan tarayıcıda açar (adresi ana süreç belirler) |
+| `updates.onState(cb)` | Durum değişince `cb(durum)`, dönen işlev aboneliği kaldırır |
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
 
+## Güncellemeler
+
+Uygulama yeni sürümleri GitHub'daki sürüm sayfasından denetler (`src/lib/updates.js`). Çalışma biçimi paket türüne göre seçilir:
+
+| Paket | Biçim |
+| --- | --- |
+| Windows kurucu (`Telsiz-Kurulum-<sürüm>.exe`) | electron-updater yeni sürümü arka planda indirir. Kurulum yalnızca kullanıcı Yeniden başlat ve güncelle dediğinde yapılır, uygulamadan çıkınca kendiliğinden kurulmaz. |
+| Linux AppImage (`APPIMAGE` ortam değişkeni) | Kurucuyla aynı, AppImage dosyası yeni sürümle değiştirilir. |
+| Windows taşınabilir (`PORTABLE_EXECUTABLE_DIR` ortam değişkeni), .deb ve geliştirme düzeni | GitHub API'sinden (`/repos/Yerlifan/telsiz/releases/latest`) son kararlı sürüm okunur. Daha yeniyse Yeni sürüm var şeridi ve sürüm sayfasını açan bir düğme gösterilir. Hiçbir dosya indirilmez. |
+
+- Ayarlar sayfasının Uygulama bölümünde Güncellemeleri otomatik denetle anahtarı (varsayılan açık), Şimdi denetle düğmesi, sürüm ve son denetimin sonucu vardır. Menüde Yardım altında Güncellemeleri denetle, indirilmiş bir güncelleme veya yeni sürüm varsa uygulama menüsünde ve tepsi menüsünün başında ilgili eylem görünür.
+- Anahtar açıkken ilk denetim açılıştan 30 saniye sonra, sonrakiler 6 saatte bir yapılır. Anahtar kapalıyken GitHub'a hiçbir istek gönderilmez, electron-updater modülü yüklenmez bile. Gözetimsiz çalıştırmada (duman testi, `TELSIZ_TANI_GUNLUGU`) zamanlanmış denetim yapılmaz.
+- electron-updater indirilen dosyanın sha512 değerini sürümdeki `latest.yml` veya `latest-linux.yml` dosyasıyla doğrular. Ön sürümler ve eski sürümler kurulmaz. Sayfa IPC ile hiçbir adres veya dosya yolu veremez: sürüm sayfası ana süreçte yalnızca `https://github.com/Yerlifan/telsiz/releases/` altındaki doğrulanmış adresle açılır.
+- Gizlilik: denetim GitHub'a bağlanır. GitHub IP adresini ve uygulama sürümünü (istekteki `User-Agent`) görebilir. Başka bir bilgi gönderilmez, istek sunucu oturumlarından ayrı, çerezsiz bir oturumla yapılır.
+- Güvence: paketler kod imzalı değildir. Güncellemenin bütünlüğü GitHub hesabının ve deposunun güvenliğine dayanır: sürüm dosyalarını değiştirebilen biri `latest.yml` dosyasını da değiştirebilir. Bu yüzden depo sahiplerinin ve yazma yetkisi olanların hesaplarında iki adımlı doğrulama (2FA) açık olmalıdır. Bunu kabul etmeyen kullanıcı anahtarı kapatıp sürümleri elle indirip `SHA256SUMS.txt` ile doğrulayabilir.
+
+Yayın: `electron-builder.json` içindeki `publish` ayarı (GitHub, `Yerlifan/telsiz`) electron-builder'a `latest.yml`, `latest-linux.yml` ve uygulamanın içindeki `app-update.yml` dosyalarını ürettirir. Derleme her zaman `--publish never` ile yapılır, electron-builder hiçbir şey yüklemez. Dosyaları sürüm iş akışı (`release.yml`) dar bir beyaz listeyle yayına ekler: `latest.yml`, `latest-linux.yml` ve `Telsiz-Kurulum-<sürüm>.exe.blockmap`. AppImage'ın fark indirmesi bilgisi dosyanın içine gömülüdür, ayrı `.blockmap` dosyası yoktur. `latest-linux.yml` .deb paketini de listeler, AppImage güncelleyicisi yalnızca AppImage dosyasını seçer. Yayından önce `scripts/guncelleme-dosyalari.js` bilgi dosyalarında adı geçen her dosyanın yayında aynı adla bulunduğunu ve sha512 değerinin tuttuğunu denetler, yoksa güncelleme 404 hatasıyla düşerdi.
+
 ## Ayarlar ve veriler
 
-Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
+Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısayollar, güncellemelerin otomatik denetimi) uygulama verisi klasöründeki `ayarlar.json` dosyasındadır (biçim 2, biçim 1 okunurken listeye çevrilir). Bu klasör Windows'ta `%APPDATA%\Telsiz`, Linux'ta `~/.config/Telsiz` olur. Web uygulamasının yerel verisi aynı klasörde, her frekans (sunucu) için ayrı bir oturum bölümündedir.
 
 ## Bilinen sınırlar
 
 - Uygulama imzalı değildir. Windows SmartScreen ilk açılışta "Windows kişisel bilgisayarınızı korudu" uyarısı gösterebilir. "Ek bilgi" ve ardından "Yine de çalıştır" seçilir. İndirilen dosya sürüm sayfasındaki `SHA256SUMS.txt` ile doğrulanabilir.
-- Otomatik güncelleme yoktur, çünkü imzasız güncelleme güvenli değildir. Yeni sürüm elle indirilip kurulur.
+- Güncellemeler imzasızdır, güvence GitHub hesabının ve deposunun güvenliğine dayanır (bkz. Güncellemeler). Taşınabilir exe ve .deb kendiliğinden güncellenmez, yalnızca yeni sürüm bildirilir. Güncelleme denetimi depo herkese açıkken çalışır.
 - Basılı tutmalı bas-konuş genel kısayolu yoktur, çünkü bu yerel bir modül gerektirir. Bas-konuş tuşu yalnızca pencere öndeyken çalışır. Genel kısayollar yalnızca mikrofonu aç/kapat ve sağırlaştır içindir.
 - Linux'ta Wayland oturumlarında genel kısayolların çalışıp çalışmadığı doğrulanmadı.
 - Electron belgelerine göre Windows bildirimleri Başlat menüsünde uygulama kısayolu gerektirir. Kurucu bu kısayolu oluşturur, taşınabilir sürümde bildirimler görünmeyebilir.
@@ -132,4 +159,4 @@ Masaüstü ayarları (etkin frekans, frekans listesi, tepsiye küçültme, kısa
 
 ## Sürekli entegrasyon
 
-`.github/workflows/desktop.yml` çekme isteklerinde ve `main` gönderimlerinde birim testlerini çalıştırır, Linux ve Windows paketlerini derler ve duman testini paketlenmiş derlemeyle yapar (Linux'ta xvfb altında). Artifact adları `telsiz-desktop-windows` ve `telsiz-desktop-linux` olur. İş akışı `workflow_call` ile sürüm iş akışından da çağrılır ve kendisi yayın yapmaz.
+`.github/workflows/desktop.yml` çekme isteklerinde ve `main` gönderimlerinde birim testlerini çalıştırır, Linux ve Windows paketlerini derler ve duman testini paketlenmiş derlemeyle yapar (Linux'ta xvfb altında). Artifact adları `telsiz-desktop-windows` ve `telsiz-desktop-linux` olur. Paketlerin yanında `latest.yml` ve kurucunun `.blockmap` dosyası (Windows) ile `latest-linux.yml` (Linux) da yüklenir ve `scripts/guncelleme-dosyalari.js` ile denetlenir. İş akışı `workflow_call` ile sürüm iş akışından da çağrılır ve kendisi yayın yapmaz.

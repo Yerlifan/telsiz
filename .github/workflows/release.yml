@@ -7,12 +7,16 @@
 #    in CHANGELOG.md and CHANGELOG.en.md. If anything fails, nothing is published.
 # 2. Sunucu ikilileri (exe.yml) ve masaüstü uygulaması (desktop.yml) derlenir ve denenir.
 #    The server binaries (exe.yml) and the desktop app (desktop.yml) are built and tested.
-# 3. GitHub Release: tüm dosyalar, birleşik SHA256SUMS.txt ve CHANGELOG'dan sürüm notları.
-#    GitHub Release: all files, a combined SHA256SUMS.txt and the notes from the CHANGELOG.
+# 3. GitHub Release: tüm dosyalar, otomatik güncelleme bilgileri (latest.yml, latest-linux.yml,
+#    kurucunun .blockmap dosyası), birleşik SHA256SUMS.txt ve CHANGELOG'dan sürüm notları.
+#    GitHub Release: all files, the auto update info (latest.yml, latest-linux.yml, the installer
+#    .blockmap file), a combined SHA256SUMS.txt and the notes from the CHANGELOG.
 # 4. Docker imajı ghcr.io/yerlifan/telsiz (sürüm etiketi ve latest, linux/amd64 ve linux/arm64).
 #    Docker image ghcr.io/yerlifan/telsiz (version tag and latest, linux/amd64 and linux/arm64).
-# 5. npm paketi telsiz, yalnızca NPM_TOKEN gizli değişkeni tanımlıysa (provenance ile).
-#    npm package telsiz, only if the NPM_TOKEN secret is defined (with provenance).
+# 5. npm paketi telsiz, npm trusted publishing (OIDC) ile tokensız ve provenance ile. NPM_TOKEN
+#    gizli değişkeni yalnızca yedektir.
+#    npm package telsiz, without a token through npm trusted publishing (OIDC) and with
+#    provenance. The NPM_TOKEN secret is only a fallback.
 name: Sürüm
 
 on:
@@ -145,9 +149,12 @@ jobs:
               *) echo "::warning::Beklenmeyen sunucu dosyası yayına eklenmedi: ${file}" ;;
             esac
           done < <(find artifacts/server -type f -print0)
+          # Otomatik güncelleme dosyaları: yalnızca bu iki bilgi dosyası ve kurucunun .blockmap dosyası
+          updater_files=("latest.yml" "latest-linux.yml" "Telsiz-Kurulum-${VERSION}.exe.blockmap")
           while IFS= read -r -d '' file; do
-            case "${file}" in
+            case "$(basename "${file}")" in
               *.exe | *.AppImage | *.deb) add "${file}" ;;
+              latest.yml | latest-linux.yml | "Telsiz-Kurulum-${VERSION}.exe.blockmap") add "${file}" ;;
               *) echo "::notice::Masaüstü artifact'indeki bu dosya yayına eklenmedi: ${file}" ;;
             esac
           done < <(find artifacts/desktop -type f -print0)
@@ -164,6 +171,15 @@ jobs:
             echo "::error::Masaüstü paketleri eksik (Windows exe: ${desktop_exe}, AppImage: ${appimage}, deb: ${deb}). Kurucu ve taşınabilir exe, AppImage ve .deb gerekir."
             exit 1
           fi
+          for required in "${updater_files[@]}"; do
+            if [ ! -f "dagitim/${required}" ]; then
+              echo "::error::Eksik otomatik güncelleme dosyası: ${required}"
+              exit 1
+            fi
+          done
+          # latest.yml ve latest-linux.yml içinde adı geçen her dosya yayında aynı adla bulunmalı ve
+          # sha512 değeri tutmalı, yoksa uygulamalardaki güncelleme 404 veya doğrulama hatasıyla düşer
+          node desktop/scripts/guncelleme-dosyalari.js dagitim --version "${VERSION}" --require latest.yml,latest-linux.yml
           cd dagitim
           find . -maxdepth 1 -type f -printf '%P\0' | sort -z | xargs -0 sha256sum -- > "${RUNNER_TEMP}/SHA256SUMS.txt"
           mv "${RUNNER_TEMP}/SHA256SUMS.txt" SHA256SUMS.txt
@@ -294,6 +310,23 @@ jobs:
             echo "Depo herkese açık yapıldıktan sonra paketin görünürlüğü de GitHub'daki paket ayarlarından herkese açık yapılmalıdır."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # npm trusted publishing (OIDC): npmjs.com'da telsiz paketi için güvenilen yayıncı tanımlıdır
+  # (GitHub Actions, Yerlifan/telsiz, iş akışı dosyası release.yml, ortam yok). npm CLI GitHub'ın
+  # kısa ömürlü OIDC kimliğini (id-token: write) npm'in tek kullanımlık yayın tokenıyla değiştirir,
+  # uzun ömürlü token gerekmez. npm belgelerine göre (docs.npmjs.com/trusted-publishers) npm CLI
+  # 11.5.1 veya sonrası ve Node.js 22.14.0 veya sonrası gerekir, aşağıda ikisi de denetlenir.
+  # Güvenilen yayıncı iş akışı dosya adına bağlıdır: bu iş release.yml dışına (ör. çağrılan bir
+  # iş akışına) taşınırsa npmjs.com'daki ayar da değiştirilmelidir.
+  # NPM_TOKEN tanımlıysa yalnızca yedektir: npm önce OIDC'yi dener, değişim başarısız olursa
+  # tokena düşer. OIDC çalıştığı doğrulandıktan sonra NPM_TOKEN silinebilir.
+  # npm trusted publishing (OIDC): a trusted publisher is configured for the telsiz package on
+  # npmjs.com (GitHub Actions, Yerlifan/telsiz, workflow file release.yml, no environment). The npm
+  # CLI exchanges the short lived GitHub OIDC identity (id-token: write) for a one time npm publish
+  # token, no long lived token is needed. According to the npm docs it requires npm CLI 11.5.1 or
+  # later and Node.js 22.14.0 or later, both are checked below. The trusted publisher is bound to
+  # the workflow file name: if this job moves out of release.yml, the setting on npmjs.com must be
+  # changed too. If NPM_TOKEN is defined it is only a fallback: npm tries OIDC first and falls back
+  # to the token if the exchange fails. Once OIDC is confirmed to work, NPM_TOKEN can be deleted.
   npm:
     name: npm yayını
     needs:
@@ -306,44 +339,78 @@ jobs:
       contents: read
       id-token: write
     env:
-      # Gizli değişkenin yalnızca tanımlı olup olmadığı okunur, değeri hiçbir yere yazılmaz
-      # Only whether the secret is defined is read, its value is never printed
-      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+      # Trusted publishing için gereken en düşük sürümden yeni, sabitlenmiş npm CLI sürümü
+      # A pinned npm CLI version newer than the minimum required for trusted publishing
+      NPM_CLI_VERSION: 11.21.0
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # Yayın işinde paket yöneticisi önbelleği kullanılmaz (npm belgelerinin önerisi)
       - name: Node.js kur (npm kayıt defteri)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
-      - name: npm'e yayımla (provenance ile)
-        if: env.HAS_NPM_TOKEN == 'true'
+      # setup-node'un yazdığı .npmrc ${NODE_AUTH_TOKEN} değişkenini okur, burada boş bırakılır ki
+      # kurulum isteğine geçersiz bir token eklenmesin
+      - name: npm CLI kur ve sürümleri denetle (trusted publishing)
+        env:
+          NODE_AUTH_TOKEN: ''
+        run: |
+          set -euo pipefail
+          npm install --global "npm@${NPM_CLI_VERSION}"
+          node -e "
+            const [major, minor] = process.versions.node.split('.').map(Number)
+            if (major < 22 || (major === 22 && minor < 14)) {
+              console.error('::error::Trusted publishing Node.js 22.14.0 veya sonrasını gerektirir, bulunan ' + process.versions.node)
+              process.exit(1)
+            }
+          "
+          found=$(npm --version)
+          if [ "${found}" != "${NPM_CLI_VERSION}" ]; then
+            echo "::error::npm ${NPM_CLI_VERSION} bekleniyordu, bulunan ${found}"
+            exit 1
+          fi
+          echo "Node.js $(node --version), npm ${found}"
+
+      # NODE_AUTH_TOKEN yalnızca NPM_TOKEN tanımlıysa doludur ve yedektir. npm publish önce OIDC
+      # değişimini dener, başarılıysa bu yayın için tokenın yerine kısa ömürlü yayın tokenını kullanır.
+      # Provenance trusted publishing ile kendiliğinden üretilir, --provenance yine de açıkça verilir
+      # (yedek token yolunda da provenance olsun diye).
+      # NODE_AUTH_TOKEN is only set when NPM_TOKEN is defined and is a fallback. npm publish tries
+      # the OIDC exchange first and, if it works, uses the short lived publish token instead of it.
+      # Trusted publishing generates provenance by itself, --provenance is still passed explicitly
+      # (so that the fallback token path also has provenance).
+      - name: npm'e yayımla (trusted publishing, provenance ile)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.check.outputs.version }}
           PRERELEASE: ${{ needs.check.outputs.prerelease }}
         run: |
+          set -euo pipefail
           if npm view "telsiz@${VERSION}" version > /dev/null 2>&1; then
             echo "telsiz@${VERSION} npm'de zaten yayımlanmış, yayın adımı atlandı." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           dist_tag=latest
           if [ "${PRERELEASE}" = "true" ]; then dist_tag=next; fi
-          npm publish --provenance --access public --tag "${dist_tag}"
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN tanımlı, yalnızca OIDC değişimi başarısız olursa kullanılır."
+          else
+            echo "NPM_TOKEN tanımlı değil, yalnızca trusted publishing (OIDC) kullanılır."
+          fi
+          if ! npm publish --provenance --access public --tag "${dist_tag}"; then
+            {
+              echo "### npm yayını başarısız"
+              echo
+              echo "npmjs.com'daki güvenilen yayıncı ayarını (Yerlifan/telsiz, release.yml, ortam yok) denetleyin."
+              echo "Ayrıntı için npm hata çıktısına bakın, ENEEDAUTH genellikle ayarın iş akışıyla eşleşmediğini gösterir."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           echo "telsiz@${VERSION} npm'e yayımlandı (dağıtım etiketi: ${dist_tag})." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: NPM_TOKEN tanımlı değilse yayın atlanır
-        if: env.HAS_NPM_TOKEN != 'true'
-        run: |
-          echo "::notice::NPM_TOKEN gizli değişkeni tanımlı olmadığı için npm yayını atlandı."
-          {
-            echo "### npm yayını atlandı"
-            echo
-            echo "NPM_TOKEN gizli değişkeni tanımlı olmadığı için telsiz paketi npm'e yayımlanmadı."
-            echo "Yayımlamak için depo ayarlarındaki Actions gizli değişkenlerine NPM_TOKEN ekleyip bu iş akışını yeniden çalıştırın."
-          } >> "$GITHUB_STEP_SUMMARY"
