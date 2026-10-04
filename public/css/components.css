@@ -1887,6 +1887,27 @@ button.msg-author:hover {
   color: var(--accent-text);
 }
 
+/* Telsiz DJ duyurusu (06-messages.js buildDjNotice) */
+.msg-dj {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  color: var(--text-2);
+}
+
+.msg-dj .icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  color: var(--accent-text);
+}
+
+.msg-dj-link {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
 .msg-edited {
   color: var(--text-3);
   font-size: 0.7rem;

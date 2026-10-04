@@ -127,13 +127,22 @@ function tanitimRender () {
   const about = typeof info.about === 'string' ? info.about.trim() : ''
   tanitimEl.aboutWrap.hidden = about === ''
   tanitimEl.about.textContent = about
-  const version = typeof info.version === 'string' ? info.version : ''
-  setLive(tanitimEl.version, () => (version ? t('landing.version', { version: version }) : t('app.name')))
+  siteFootRender()
   tanitimDocLinks()
   // Frekans fotoğrafı ekranda adın solunda, yoksa veya yüklenemezse ekran eski görünümünde kalır (24-frekans.js)
   if (typeof frekansRenderIdentity === 'function') frekansRenderIdentity()
   // Masaüstü uygulamasında indirme kartı gösterilmez (sayfa masaüstünde zaten açılmaz, yine de korunur)
   if (tanitimEl.desktop) tanitimEl.desktop.hidden = tanitimDesktop()
+}
+
+// Ortak alt bilgi (#site-foot): sürüm ve masaüstünde gizlenen indirme bağlantısı. Tanıtımda ve her giriş
+// kartında yeniden yazılır, sürüm GET /api/info yanıtından gelir.
+function siteFootRender () {
+  const info = state.info || {}
+  const version = typeof info.version === 'string' ? info.version : ''
+  if (tanitimEl.version) setLive(tanitimEl.version, () => (version ? t('landing.version', { version: version }) : t('app.name')))
+  const download = byId('site-foot-download')
+  if (download) download.hidden = tanitimDesktop()
 }
 
 // focus: kullanıcı giriş kartından geri döndüyse odak birincil düğmeye taşınır
@@ -163,4 +172,5 @@ function tanitimHide (card) {
   const stage = el.authView.querySelector('.auth-stage')
   if (stage) stage.hidden = false
   if (tanitimEl.back) tanitimEl.back.hidden = card !== 'login' || tanitimDesktop()
+  siteFootRender()
 }

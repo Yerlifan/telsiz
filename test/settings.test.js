@@ -697,6 +697,20 @@ test('klavye: ok tuşları kategoriler arasında gezer, Esc kapatır ve odak aç
   assert.strictEqual(run('isSettingsOpen()'), false)
 })
 
+// 02-state-dom.js watchLayers: Ayarlar açılınca ve kapanınca katman yığınını izleyenler (23-dj.js köşedeki
+// oynatıcı) aynı anda haber alır. Kapanışta haber onClose'dan sonra gelir (Ayarlar görünümü artık gizlidir).
+test('katman yığınını izleyenler Ayarlar açılınca ve kapanınca haber alır', () => {
+  const { run } = load()
+  run(`__seen = []
+    watchLayers(function () {
+      __seen.push(layers.map(function (l) { return l.name }).join(',') + ':' + document.getElementById('settings-view').hidden)
+    })
+    watchLayers(function () { throw new Error('izleyen hatası') })`)
+  run("openSettings(null, document.getElementById('btn-settings'))")
+  run('closeSettings(false)')
+  assert.strictEqual(run('__seen.join("|")'), 'settings:false|:true')
+})
+
 test('oturum listesi: bu cihaz rozeti, bilinmeyen cihaz etiketi, kapatma yalnızca diğerlerinde', async () => {
   const { run, root, sandbox } = load()
   sandbox.__sessions = [

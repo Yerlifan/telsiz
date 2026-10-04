@@ -1192,10 +1192,6 @@
     margin-bottom: 0;
   }
 
-  .convo {
-    max-width: none;
-  }
-
   .side-dj {
     width: var(--side-right-w);
     margin-left: 1rem;
@@ -1242,9 +1238,45 @@
     width: 3rem;
   }
 
-  /* Telsiz DJ sütunu açıkken sağ sütunun yerini alır */
+  /* Telsiz DJ kartı açıkken sağ sütunun üstüne yerleşir, İstasyonlar listesi altında görünür kalır (frekans
+     bandı frekansları dizdiği için odalara buradan ulaşılır). Kart en çok içeriği kadar yer alır, liste en
+     az 12rem kalır, kart sığmazsa kendi içinde kayar. Kart taşınmaz (YouTube çerçevesi yeniden yüklenmesin),
+     yalnızca ızgarada yeri değişir. */
+  .app-view[data-dj-col="on"] .stage {
+    display: grid;
+    /* Sağ sütun, YouTube oynatıcısı yazı boyutundan bağımsız en az 200 piksel kalacak kadar geniştir */
+    grid-template-columns: auto minmax(0, 1fr) max(var(--side-right-w), 15rem, calc(204px + 2rem));
+    grid-template-rows: minmax(0, auto) minmax(12rem, 1fr);
+    gap: 1rem;
+  }
+
+  .app-view[data-dj-col="on"] .side-left {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    margin-right: 0;
+  }
+
+  .app-view[data-dj-col="on"] .center {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+
+  .app-view[data-dj-col="on"] .side-dj {
+    grid-column: 3;
+    grid-row: 1;
+    width: auto;
+    margin: 0;
+  }
+
+  .app-view[data-dj-col="on"] .side-dj .dj-card {
+    margin-top: 0;
+  }
+
   .app-view[data-dj-col="on"] .side-right {
-    display: none;
+    grid-column: 3;
+    grid-row: 2;
+    width: auto;
+    margin: 0;
   }
 
   /* Yayın sahnesi geniş kalsın diye sağ sütun gizlenir, telsiz kartı solda kalır */
@@ -1253,7 +1285,6 @@
   }
 
   /* Sağ sütun gizliyken odalar üst çubuktaki İstasyonlar düğmesiyle açılır */
-  .app-view[data-dj-col="on"] .top-rooms,
   body[data-cast="live"] .top-rooms {
     display: inline-flex;
   }
@@ -1274,8 +1305,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Konuşma sütunu yan sütunlar dışında kalan bütün genişliği alır, yazı boyutuna bağlı üst sınırı yoktur */
   width: 100%;
-  max-width: var(--column-max);
   min-width: 0;
   min-height: 0;
   overflow: hidden;

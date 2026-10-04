@@ -332,10 +332,27 @@ function focusNode (node) {
 // kapatır, trap: true olan katmanda Tab odağı katmanın içinde tutar.
 
 const layers = []
+// Yığın değişince çağrılan işlevler (ör. 23-dj.js YouTube oynatıcısını köşeye alır veya yerine döndürür)
+const layerWatchers = []
+
+function watchLayers (fn) {
+  if (typeof fn === 'function') layerWatchers.push(fn)
+}
+
+function notifyLayers () {
+  layerWatchers.forEach((fn) => {
+    try {
+      fn()
+    } catch (err) {
+      window.console.error(err)
+    }
+  })
+}
 
 function openLayer (layer) {
   closeLayersAbove(layer.level || 0)
   layers.push(layer)
+  notifyLayers()
   if (layer.focus !== false) {
     nextFrame(() => {
       if (layers.indexOf(layer) === -1) return
@@ -354,6 +371,7 @@ function closeLayer (layer, restoreFocus) {
   } catch (err) {
     window.console.error(err)
   }
+  notifyLayers()
   if (restoreFocus !== false) {
     const target = liveTrigger(layer.trigger)
     if (target && !target.closest('[hidden]')) focusNode(target)

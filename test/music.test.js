@@ -2965,6 +2965,29 @@ describe('inceleme bulguları: YouTube bağdaştırıcısı', () => {
     p.destroy()
   })
 
+  // 23-dj.js ve dj.css: kart görünmezken veya üstü örtülürken oynatıcı alanı köşeye sabitlenir. Kart
+  // visibility: hidden olur, çerçeve görünür kalır ve kartın kutusunun dışındadır, atalar overflow visible olur.
+  test('köşedeki oynatıcı görünür sayılır, kırpan bir ata kalırsa veya 200x200 altına inerse sayılmaz', () => {
+    const v = visibilityDom()
+    const p = v.YT.create({ container: { appendChild () {} }, videoId: VID, onEvent () {} })
+    const f = v.frames[0]
+    v.setup(f)
+    v.env.card.cs.visibility = 'hidden'
+    v.env.card.rect = { left: 0, top: 0, right: 0, bottom: 0 }
+    v.env.card.clientWidth = 0
+    v.env.card.clientHeight = 0
+    f.rect = { left: 625, top: 535, right: 979, bottom: 735, width: 354, height: 200 }
+    assert.equal(p.visible(), true, 'köşede')
+    v.env.card.cs.overflowX = 'hidden'
+    v.env.card.cs.overflowY = 'hidden'
+    assert.equal(p.visible(), false, 'kırpan ata')
+    v.env.card.cs.overflowX = 'visible'
+    v.env.card.cs.overflowY = 'visible'
+    f.rect = { left: 625, top: 536, right: 979, bottom: 735, width: 354, height: 199 }
+    assert.equal(p.visible(), false, '200 pikselden alçak')
+    p.destroy()
+  })
+
   test('arka plandaki sekmede örtme denetimi yapılmaz', () => {
     const v = visibilityDom({ hidden: true })
     const p = v.YT.create({ container: { appendChild () {} }, videoId: VID, onEvent () {} })
@@ -2973,4 +2996,41 @@ describe('inceleme bulguları: YouTube bağdaştırıcısı', () => {
     assert.equal(p.visible(), true)
     p.destroy()
   })
+})
+
+// dj.css: köşedeki oynatıcı kutusu en az 202 piksel (kenarlık dahil, çerçeve 200x200 kalır) ve her katmanın,
+// Ayarlar'ın ve kısa bildirimlerin üstündedir. Atalarında position: fixed kutuyu hapseden özellik yoktur.
+test('dj.css: köşedeki oynatıcı en az 200x200 ve bütün katmanların üstünde', () => {
+  const cssDir = path.join(ROOT, 'public', 'css')
+  const files = fs.readdirSync(cssDir).filter((n) => n.endsWith('.css')).map((n) => path.join(cssDir, n))
+    .concat(fs.readdirSync(path.join(cssDir, 'skins')).map((n) => path.join(cssDir, 'skins', n)))
+  // Windows'ta çalışma kopyası CRLF satır sonuyla çıkar (.gitattributes text=auto), kurallar LF'ye çevrilerek aranır
+  const read = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+  const rule = (css, selector) => {
+    const i = css.indexOf('\n' + selector + ' {')
+    assert.ok(i !== -1, 'kural yok: ' + selector)
+    return css.slice(i, css.indexOf('}', i))
+  }
+  const dj = read(path.join(cssDir, 'dj.css'))
+  const dock = rule(dj, '.side-dj.is-docked')
+  const dockZ = Number(/z-index: (\d+)/.exec(dock)[1])
+  let maxOther = 0
+  files.forEach((file) => {
+    const css = read(file).replace(dock, '')
+    const re = /z-index: (\d+)/g
+    let m
+    while ((m = re.exec(css))) maxOther = Math.max(maxOther, Number(m[1]))
+  })
+  assert.ok(dockZ > maxOther, 'köşedeki oynatıcı z-index ' + dockZ + ' > ' + maxOther)
+  assert.match(dock, /visibility: hidden/)
+  assert.match(dock, /overflow: visible/)
+  const box = rule(dj, '.side-dj.is-docked .dj-yt')
+  assert.match(box, /height: 202px/)
+  assert.match(rule(dj, '.side-dj.is-docked .dj-yt,\n.side-dj.is-docked .dj-dock'), /min-width: 202px[\s\S]*visibility: visible/)
+  assert.match(rule(dj, '.side-dj.is-docked .dj-scroll'), /overflow: visible/)
+  assert.match(rule(dj, ':root .side-dj.is-docked .dj-card.side-card'), /backdrop-filter: none/)
+  assert.match(rule(dj, 'body.has-dj-dock .app-view'), /z-index: auto/)
+  // Kartın ve sayfanın kurallarında kutuyu hapseden özellik yok (açılış canlandırması köşedeyken kapalı)
+  assert.doesNotMatch(dj, /(^|\s)(transform|filter|contain|will-change|perspective):/m)
+  assert.match(dock, /animation: none/)
 })

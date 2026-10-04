@@ -2938,7 +2938,7 @@ function playMessageSound (opts) {
 
 function themeState () {
   const theme = window.TelsizTheme
-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' }
+  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', compact: false, reduceMotion: 'system' }
   return theme.get()
 }
 

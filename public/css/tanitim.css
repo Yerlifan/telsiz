@@ -621,30 +621,122 @@
   margin-left: 0.375rem;
 }
 
-.tanitim-foot {
+/* Ortak alt bilgi (#site-foot): giriş görünümünün en altında, tanıtımda ve giriş kartında. Küçük ve sakin:
+   üstte bağlantı hapları, altta sürüm. */
+.site-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  padding: 0.5rem 1rem 1.5rem;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.site-foot-links {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  margin-top: 3rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  color: var(--text-3);
-  font-size: var(--text-sm);
-  text-align: center;
+  margin-bottom: 0.375rem;
 }
 
-.tanitim-version {
+/* Eski tarayıcılarda gap yok: haplar kendi kenar boşluklarıyla ayrılır */
+.site-foot-links > * {
+  margin: 0.25rem;
+}
+
+.site-foot-link,
+.site-foot-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-pill, 999px);
+  background-color: var(--surface-1);
+  color: var(--text-2);
+  font-weight: var(--weight-strong);
+  text-decoration: none;
+}
+
+.site-foot-note {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.site-foot-link:hover {
+  border-color: var(--line-strong);
+  background-color: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.site-foot-link .icon,
+.site-foot-note .icon {
+  flex: none;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin-right: 0.4375rem;
+  color: var(--accent-text);
+}
+
+.site-foot-credit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.site-foot-version {
   font-family: var(--font-mono);
 }
 
-.tanitim-foot-sep {
-  flex: none;
-  width: 0.3125rem;
-  height: 0.3125rem;
-  margin: 0 0.875rem;
-  border-radius: var(--dot-radius);
+/* Giriş görünümünün arka planı: telsiz temalı karalama deseni (telsiz, yayın dalgaları, nota, mikrofon,
+   konuşma balonu, kulaklık, sinyal çubukları). Desen maske olarak verilir, rengi tema belirtecinden gelir, böylece
+   her temada ve modda zemine uyar. Görünüm kayarken desen yerinde durur. */
+.auth-view::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: -1;
   background-color: var(--line-strong);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22280%22%20height=%22280%22%20viewBox=%220%200%20280%20280%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%222.2%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%20%3Cg%20transform=%22rotate%28-12%2040%2050%29%22%3E%3Crect%20x=%2226%22%20y=%2234%22%20width=%2228%22%20height=%2244%22%20rx=%227%22/%3E%3Cpath%20d=%22M47%2034V16%22/%3E%3Cpath%20d=%22M33%2047h14M33%2053h14%22/%3E%3Ccircle%20cx=%2240%22%20cy=%2267%22%20r=%224%22/%3E%3C/g%3E%20%3Cpath%20d=%22M158%2034q12%2012%200%2024M167%2027q20%2019%200%2038M176%2020q29%2026%200%2052%22/%3E%20%3Cg%20transform=%22rotate%2810%20112%20128%29%22%3E%3Cpath%20d=%22M108%20146v-32l22-6v30%22/%3E%3Ccircle%20cx=%22103%22%20cy=%22146%22%20r=%225.5%22/%3E%3Ccircle%20cx=%22125%22%20cy=%22138%22%20r=%225.5%22/%3E%3C/g%3E%20%3Cg%20transform=%22rotate%2814%20214%20136%29%22%3E%3Crect%20x=%22207%22%20y=%22114%22%20width=%2215%22%20height=%2226%22%20rx=%227.5%22/%3E%3Cpath%20d=%22M200%20132a14.5%2014.5%200%200%200%2029%200M214.5%20147v9M207%20156h15%22/%3E%3C/g%3E%20%3Cg%20transform=%22rotate%28-8%2050%20186%29%22%3E%3Cpath%20d=%22M28%20166h42a7%207%200%200%201%207%207v20a7%207%200%200%201-7%207H46l-11%2010v-10h-7a7%207%200%200%201-7-7v-20a7%207%200%200%201%207-7z%22/%3E%3Cpath%20d=%22M38%20183h.01M49%20183h.01M60%20183h.01%22/%3E%3C/g%3E%20%3Cpath%20d=%22M118%2028l3%209%209%203-9%203-3%209-3-9-9-3%209-3z%22/%3E%20%3Cpath%20d=%22M240%20222l2%206%206%202-6%202-2%206-2-6-6-2%206-2z%22/%3E%20%3Cg%20transform=%22rotate%286%20168%20218%29%22%3E%3Cpath%20d=%22M150%20230v-9a18%2018%200%200%201%2036%200v9%22/%3E%3Crect%20x=%22145%22%20y=%22226%22%20width=%229%22%20height=%2215%22%20rx=%223.5%22/%3E%3Crect%20x=%22182%22%20y=%22226%22%20width=%229%22%20height=%2215%22%20rx=%223.5%22/%3E%3C/g%3E%20%3Cpath%20d=%22M96%20248v-7M104%20248v-13M112%20248v-19M120%20248v-25%22/%3E%20%3Cpath%20d=%22M60%20112q6-9%2012%200t12%200t12%200%22/%3E%20%3Cpath%20d=%22M236%2060q6%209%2012%200%22/%3E%20%3Ccircle%20cx=%22220%22%20cy=%2234%22%20r=%223%22/%3E%3Ccircle%20cx=%2278%22%20cy=%2288%22%20r=%222.4%22/%3E%3Ccircle%20cx=%22250%22%20cy=%22176%22%20r=%222.4%22/%3E%3Ccircle%20cx=%2220%22%20cy=%22250%22%20r=%223%22/%3E%3Ccircle%20cx=%22140%22%20cy=%22186%22%20r=%222%22/%3E%20%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22280%22%20height=%22280%22%20viewBox=%220%200%20280%20280%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%222.2%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%20%3Cg%20transform=%22rotate%28-12%2040%2050%29%22%3E%3Crect%20x=%2226%22%20y=%2234%22%20width=%2228%22%20height=%2244%22%20rx=%227%22/%3E%3Cpath%20d=%22M47%2034V16%22/%3E%3Cpath%20d=%22M33%2047h14M33%2053h14%22/%3E%3Ccircle%20cx=%2240%22%20cy=%2267%22%20r=%224%22/%3E%3C/g%3E%20%3Cpath%20d=%22M158%2034q12%2012%200%2024M167%2027q20%2019%200%2038M176%2020q29%2026%200%2052%22/%3E%20%3Cg%20transform=%22rotate%2810%20112%20128%29%22%3E%3Cpath%20d=%22M108%20146v-32l22-6v30%22/%3E%3Ccircle%20cx=%22103%22%20cy=%22146%22%20r=%225.5%22/%3E%3Ccircle%20cx=%22125%22%20cy=%22138%22%20r=%225.5%22/%3E%3C/g%3E%20%3Cg%20transform=%22rotate%2814%20214%20136%29%22%3E%3Crect%20x=%22207%22%20y=%22114%22%20width=%2215%22%20height=%2226%22%20rx=%227.5%22/%3E%3Cpath%20d=%22M200%20132a14.5%2014.5%200%200%200%2029%200M214.5%20147v9M207%20156h15%22/%3E%3C/g%3E%20%3Cg%20transform=%22rotate%28-8%2050%20186%29%22%3E%3Cpath%20d=%22M28%20166h42a7%207%200%200%201%207%207v20a7%207%200%200%201-7%207H46l-11%2010v-10h-7a7%207%200%200%201-7-7v-20a7%207%200%200%201%207-7z%22/%3E%3Cpath%20d=%22M38%20183h.01M49%20183h.01M60%20183h.01%22/%3E%3C/g%3E%20%3Cpath%20d=%22M118%2028l3%209%209%203-9%203-3%209-3-9-9-3%209-3z%22/%3E%20%3Cpath%20d=%22M240%20222l2%206%206%202-6%202-2%206-2-6-6-2%206-2z%22/%3E%20%3Cg%20transform=%22rotate%286%20168%20218%29%22%3E%3Cpath%20d=%22M150%20230v-9a18%2018%200%200%201%2036%200v9%22/%3E%3Crect%20x=%22145%22%20y=%22226%22%20width=%229%22%20height=%2215%22%20rx=%223.5%22/%3E%3Crect%20x=%22182%22%20y=%22226%22%20width=%229%22%20height=%2215%22%20rx=%223.5%22/%3E%3C/g%3E%20%3Cpath%20d=%22M96%20248v-7M104%20248v-13M112%20248v-19M120%20248v-25%22/%3E%20%3Cpath%20d=%22M60%20112q6-9%2012%200t12%200t12%200%22/%3E%20%3Cpath%20d=%22M236%2060q6%209%2012%200%22/%3E%20%3Ccircle%20cx=%22220%22%20cy=%2234%22%20r=%223%22/%3E%3Ccircle%20cx=%2278%22%20cy=%2288%22%20r=%222.4%22/%3E%3Ccircle%20cx=%22250%22%20cy=%22176%22%20r=%222.4%22/%3E%3Ccircle%20cx=%2220%22%20cy=%22250%22%20r=%223%22/%3E%3Ccircle%20cx=%22140%22%20cy=%22186%22%20r=%222%22/%3E%20%3C/svg%3E");
+  -webkit-mask-size: 17.5rem 17.5rem;
+  mask-size: 17.5rem 17.5rem;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.auth-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Kartın hemen arkasında hafif, temanın vurgu renginde bir parıltı */
+.auth-stage::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: min(36rem, 110vw);
+  height: min(36rem, 110vw);
+  border-radius: 50%;
+  background-image: radial-gradient(circle at center, var(--bg-glow-a) 0, transparent 65%);
+  opacity: 0.8;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .tanitim-back {
@@ -830,14 +922,6 @@
 
   .tanitim-feature-title {
     margin-top: 0.125rem;
-  }
-
-  .tanitim-foot-sep {
-    display: none;
-  }
-
-  .tanitim-foot > * {
-    margin: 0 0.5rem;
   }
 
   .tanitim-card {

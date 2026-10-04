@@ -18,7 +18,8 @@ function createTelsizTheme () {
     compact: 'telsiz.compact',
     reduceMotion: 'telsiz.reduceMotion'
   }
-  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' }
+  // Yazı boyutu varsayılanı 16 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür
+  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', compact: false, reduceMotion: 'system' }
   const root = document.documentElement
   const listeners = []
 

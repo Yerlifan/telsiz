@@ -292,13 +292,6 @@
           </details>
         </section>
 
-        <footer class="tanitim-foot">
-          <span id="tanitim-version" class="tanitim-version">Telsiz</span>
-          <span class="tanitim-foot-sep" aria-hidden="true"></span>
-          <span data-i18n="landing.license">Açık kaynak, MIT lisansı</span>
-          <span class="tanitim-foot-sep" aria-hidden="true"></span>
-          <a id="tanitim-source" class="tanitim-text-link" href="https://github.com/Yerlifan/telsiz" target="_blank" rel="noopener noreferrer"><span data-i18n="landing.source">Kaynak kod</span><svg class="icon" aria-hidden="true"><use href="#i-external" xlink:href="#i-external"></use></svg><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
-        </footer>
       </div>
     </div>
     <div class="auth-stage">
@@ -397,6 +390,16 @@
         <p class="auth-foot"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="auth.foot">Mesajlar bu cihazda şifrelenir, anahtar sunucuya gönderilmez.</span></p>
       </div>
     </div>
+    <!-- Ortak alt bilgi: tanıtımda ve giriş kartında görünür (26-tanitim.js siteFootRender). İndirme bağlantısı
+         masaüstü uygulamasında gizlenir. -->
+    <footer id="site-foot" class="site-foot">
+      <nav class="site-foot-links" aria-label="Telsiz bağlantıları" data-i18n-aria-label="landing.footNav">
+        <a id="site-foot-download" class="site-foot-link" href="https://github.com/Yerlifan/telsiz/releases/latest" target="_blank" rel="noopener noreferrer"><svg class="icon" aria-hidden="true"><use href="#i-download" xlink:href="#i-download"></use></svg><span data-i18n="landing.footDownload">Masaüstü uygulaması</span><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+        <a id="tanitim-source" class="site-foot-link" href="https://github.com/Yerlifan/telsiz" target="_blank" rel="noopener noreferrer" title="Kaynak kod" data-i18n-title="landing.source"><svg class="icon" aria-hidden="true"><use href="#i-file-code" xlink:href="#i-file-code"></use></svg><span>GitHub</span><span class="sr-only" data-i18n="landing.newTab">(yeni sekmede açılır)</span></a>
+        <span class="site-foot-note"><svg class="icon" aria-hidden="true"><use href="#i-shield" xlink:href="#i-shield"></use></svg><span data-i18n="landing.license">Açık kaynak, MIT lisansı</span></span>
+      </nav>
+      <p class="site-foot-credit"><span id="tanitim-version" class="site-foot-version">Telsiz</span></p>
+    </footer>
   </main>
 
   <!-- Uygulama (Ek K, Frekans): üst çubuk, frekans bandı, altında sol bilgi sütunu, konuşma sütunu
