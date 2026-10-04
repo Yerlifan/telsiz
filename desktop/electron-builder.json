@@ -1,0 +1,102 @@
+{
+  "appId": "io.github.yerlifan.telsiz",
+  "productName": "Telsiz",
+  "copyright": "Copyright (c) 2026 Burak",
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "files": [
+    "package.json",
+    "src/**/*",
+    "app/**/*",
+    "build/runtime/**/*"
+  ],
+  "asar": true,
+  "electronLanguages": [
+    "en-US",
+    "tr"
+  ],
+  "electronFuses": {
+    "runAsNode": false,
+    "enableCookieEncryption": true,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": true,
+    "enableEmbeddedAsarIntegrityValidation": true,
+    "onlyLoadAppFromAsar": true,
+    "grantFileProtocolExtraPrivileges": false
+  },
+  "publish": null,
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "artifactName": "Telsiz-Kurulum-${version}.${ext}",
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Telsiz",
+    "installerLanguages": [
+      "tr_TR",
+      "en_US"
+    ],
+    "uninstallDisplayName": "Telsiz ${version}"
+  },
+  "portable": {
+    "artifactName": "Telsiz-${version}-tasinabilir.${ext}"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "deb",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "build/icons",
+    "category": "Network",
+    "executableName": "telsiz-masaustu",
+    "syncDesktopName": true,
+    "maintainer": "Burak Aslancan Pak",
+    "synopsis": "End-to-end encrypted text and voice communication",
+    "description": "Desktop app for Telsiz, an open source, end-to-end encrypted text and voice communication system you host yourself. The interface ships inside the app and is never downloaded from the server.",
+    "desktop": {
+      "entry": {
+        "Name": "Telsiz",
+        "Comment[tr]": "Uçtan uca şifreli yazılı ve sesli iletişim",
+        "Keywords": "telsiz;chat;voice;e2ee;"
+      }
+    }
+  },
+  "appImage": {
+    "artifactName": "Telsiz-${version}-linux-${arch}.${ext}"
+  },
+  "deb": {
+    "artifactName": "telsiz-masaustu_${version}_${arch}.${ext}",
+    "packageName": "telsiz-masaustu",
+    "priority": "optional"
+  }
+}

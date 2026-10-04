@@ -1,0 +1,944 @@
+'use strict'
+
+// Telsiz masaüstü uygulamasının ana süreci (Ek J2, Ek L1.9).
+//
+// Güvenlik mimarisi:
+// - İstemci kodu uygulamanın içinde taşınır (desktop/app/, derlemede public/ klasöründen
+//   kopyalanır). Açılışta her dosyanın sha256 değeri bütünlük bildirimine göre doğrulanır ve
+//   dosyalar yalnızca bu doğrulanmış bellek kopyasından sunulur. Arayüz sunucudan indirilmez.
+// - Sayfa telsiz://app/ ayrıcalıklı şemasından yüklenir. /api/* istekleri ana süreçte
+//   yapılandırılmış sunucuya iletilir (src/lib/proxy.js), diğer yollar beyaz listeden sunulur
+//   (src/lib/static-files.js). Sayfa sunucuya doğrudan bağlanamaz (CSP connect-src 'self').
+// - Her sunucu kendi oturum bölümünü (partition) kullanır: bir sunucunun oturum bilgisi ve yerel
+//   verisi başka bir sunucuya hiçbir zaman gönderilemez.
+// - Pencereler bağlam yalıtımı ve korumalı alanla açılır, Node.js sayfaya hiç verilmez. Gezinme,
+//   yeni pencere, webview, izinler, indirmeler ve sertifika hataları sıkı biçimde denetlenir.
+// - Ön yükleme betikleri yalnızca sabit adlı IPC kanallarını kullanır, her girdi burada yeniden
+//   doğrulanır ve her çağrının hangi pencereden ve kökenden geldiği denetlenir.
+
+const path = require('node:path')
+const fs = require('node:fs')
+const crypto = require('node:crypto')
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  nativeImage,
+  ipcMain,
+  globalShortcut,
+  protocol,
+  session,
+  shell,
+  dialog,
+  desktopCapturer,
+  webContents
+} = require('electron')
+
+const channels = require('./lib/channels')
+const serverUrl = require('./lib/server-url')
+const shortcuts = require('./lib/shortcuts')
+const staticFiles = require('./lib/static-files')
+const proxy = require('./lib/proxy')
+const csp = require('./lib/csp')
+const navigation = require('./lib/navigation')
+const permissions = require('./lib/permissions')
+const screenShare = require('./lib/screen-share')
+const integrity = require('./lib/integrity')
+const strings = require('./lib/strings')
+const settingsStore = require('./lib/settings-store')
+
+const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, VERSION_ARG } = channels
+
+const APP_ID = 'io.github.yerlifan.telsiz'
+const HOMEPAGE = 'https://github.com/Yerlifan/telsiz'
+const ROOT_DIR = path.join(__dirname, '..')
+const APP_DIR = path.join(ROOT_DIR, 'app')
+const RUNTIME_ICON_DIR = path.join(ROOT_DIR, 'build', 'runtime')
+const IS_DEV = !app.isPackaged
+const CONNECT_PARTITION = 'telsiz-baglan'
+const PICKER_PARTITION = 'telsiz-secici'
+const BACKGROUND = '#0f1015'
+const EXTERNAL_OPEN_INTERVAL_MS = 500
+const MAX_ADDRESS_INPUT = 1000
+const THUMBNAIL_SIZE = { width: 320, height: 180 }
+const ORIGINS = { app: APP_ORIGIN, connect: CONNECT_ORIGIN, picker: PICKER_ORIGIN }
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: SCHEME,
+  // allowServiceWorkers verilmez: service worker bu şemada kaydedilemez
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+}])
+app.enableSandbox()
+// Ses odası pencere arka plandayken (tepsi, önde bir oyun) de çalışmalı: ses etkinliği algılayıcısı
+// 20 ms aralıklı bir zamanlayıcı kullanır ve Chromium arka plandaki sayfanın zamanlayıcılarını
+// saniyede bire indirir. Bu anahtarlar zamanlayıcı kısmayı kapatır, sayfa görünürlüğü
+// (document.hidden) doğru kalır, bildirimler bu yüzden yine yalnızca pencere gizliyken çıkar.
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID)
+
+const state = {
+  lang: 'en',
+  t: strings.translator('en'),
+  files: null,
+  pages: null,
+  settingsFile: null,
+  settings: settingsStore.defaults(),
+  mainWindow: null,
+  mainOrigin: null,
+  connectWindow: null,
+  tray: null,
+  trayHintShown: false,
+  quitting: false,
+  registeredAccelerators: [],
+  shortcutStatus: {},
+  contexts: new Map(),
+  preparedSessions: new WeakSet(),
+  connectBusy: false,
+  lastExternalOpen: 0,
+  activation: new Map(),
+  pickerBusy: false,
+  picker: null,
+  pendingDisplay: null
+}
+
+function t (key, params) {
+  return state.t(key, params)
+}
+
+function noop () {}
+
+function logError (label, err) {
+  console.error('[telsiz] ' + label + ': ' + (err && err.message ? err.message : String(err)))
+}
+
+// ------------------------------------------------------------------ yardımcılar
+
+function partitionFor (origin) {
+  return 'persist:sunucu-' + crypto.createHash('sha256').update(origin).digest('hex').slice(0, 32)
+}
+
+function loadIcon (name) {
+  const file = path.join(RUNTIME_ICON_DIR, name)
+  if (!fs.existsSync(file)) return null
+  const image = nativeImage.createFromPath(file)
+  return image.isEmpty() ? null : image
+}
+
+function windowIcon () {
+  return loadIcon('window-256.png') || undefined
+}
+
+function webPreferences (preload, partition, extra) {
+  return Object.assign({
+    preload,
+    partition,
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    spellcheck: false,
+    webviewTag: false,
+    navigateOnDragDrop: false,
+    experimentalFeatures: false,
+    enableWebSQL: false,
+    safeDialogs: true,
+    devTools: IS_DEV
+  }, extra || {})
+}
+
+function isAlive (win) {
+  return Boolean(win) && !win.isDestroyed()
+}
+
+function contextOf (contents) {
+  return contents ? state.contexts.get(contents.id) : undefined
+}
+
+// IPC çağrısı beklenen pencereden, ana çerçeveden ve beklenen kökenden mi geldi?
+function senderIs (event, context) {
+  const contents = event.sender
+  const frame = event.senderFrame
+  if (!contents || contents.isDestroyed() || !frame || frame.parent !== null) return false
+  if (state.contexts.get(contents.id) !== context) return false
+  if (context === 'app' && (!isAlive(state.mainWindow) || state.mainWindow.webContents !== contents)) return false
+  if (context === 'connect' && (!isAlive(state.connectWindow) || state.connectWindow.webContents !== contents)) return false
+  if (context === 'picker' && (!state.picker || state.picker.windowContentsId !== contents.id)) return false
+  return navigation.originOf(frame.url) === ORIGINS[context]
+}
+
+function requireSender (event, context) {
+  if (!senderIs(event, context)) throw new Error('forbidden')
+}
+
+function openExternal (url) {
+  if (!navigation.isExternalUrl(url)) return
+  const now = Date.now()
+  if (now - state.lastExternalOpen < EXTERNAL_OPEN_INTERVAL_MS) return
+  state.lastExternalOpen = now
+  shell.openExternal(url).catch((err) => logError('openExternal', err))
+}
+
+function persistSettings () {
+  try {
+    state.settings = settingsStore.save(state.settingsFile, state.settings)
+  } catch (err) {
+    logError('settings', err)
+  }
+}
+
+// ------------------------------------------------------------------ kendi sayfalarımız
+
+function readOwnFile (dir, name) {
+  return fs.readFileSync(path.join(__dirname, dir, name))
+}
+
+// Sunucu adresi ekranı ve ekran seçicisi: birkaç sabit yol, kendi CSP'leriyle
+function loadPages () {
+  const logo = state.files.get('favicon.svg')
+  const page = (dir, base, pageCsp) => {
+    const routes = new Map()
+    const html = { data: readOwnFile(dir, base + '.html'), type: staticFiles.HTML_TYPE, csp: pageCsp }
+    routes.set('/', html)
+    routes.set('/' + base + '.html', html)
+    routes.set('/' + base + '.js', { data: readOwnFile(dir, base + '.js'), type: staticFiles.JS_TYPE, csp: csp.STATIC_CSP })
+    routes.set('/' + base + '.css', { data: readOwnFile(dir, base + '.css'), type: staticFiles.CSS_TYPE, csp: csp.STATIC_CSP })
+    if (logo) routes.set('/logo.svg', { data: logo, type: 'image/svg+xml', csp: csp.STATIC_CSP })
+    return routes
+  }
+  return {
+    connect: { host: CONNECT_HOST, routes: page('connect', 'baglan', csp.CONNECT_CSP) },
+    picker: { host: PICKER_HOST, routes: page('picker', 'secici', csp.PICKER_CSP) }
+  }
+}
+
+function servePage (request, page) {
+  let url
+  try {
+    url = new URL(request.url)
+  } catch (err) {
+    return staticFiles.textResponse(404, t('http.notFound'))
+  }
+  if (url.protocol !== SCHEME + ':' || url.host !== page.host) return staticFiles.textResponse(404, t('http.notFound'))
+  return staticFiles.pageResponse(request.method, url.pathname, page.routes, t('http.notFound'))
+}
+
+// ------------------------------------------------------------------ oturum politikaları
+
+function denyDeviceChoosers (ses) {
+  ses.setDevicePermissionHandler(() => false)
+  ses.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault()
+    callback()
+  })
+  ses.on('select-serial-port', (event, portList, contents, callback) => {
+    event.preventDefault()
+    callback('')
+  })
+  ses.on('select-usb-device', (event, details, callback) => {
+    event.preventDefault()
+    callback()
+  })
+}
+
+// Sunucu adresi ekranı ve seçici: hiçbir izin, indirme veya ağ isteği yok
+function prepareOwnSession (ses, page) {
+  if (state.preparedSessions.has(ses)) return
+  state.preparedSessions.add(ses)
+  ses.protocol.handle(SCHEME, (request) => servePage(request, page))
+  ses.setPermissionRequestHandler((contents, permission, callback) => callback(false))
+  ses.setPermissionCheckHandler(() => false)
+  denyDeviceChoosers(ses)
+  ses.on('will-download', (event) => event.preventDefault())
+  ses.setSpellCheckerEnabled(false)
+}
+
+function prepareAppSession (ses, origin) {
+  if (state.preparedSessions.has(ses)) return
+  state.preparedSessions.add(ses)
+  const apiProxy = proxy.createApiProxy({
+    origin,
+    fetch: (url, init) => ses.fetch(url, init),
+    expectedInitiator: APP_ORIGIN
+  })
+  ses.protocol.handle(SCHEME, (request) => handleAppRequest(request, apiProxy))
+  ses.setPermissionRequestHandler(onPermissionRequest)
+  ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    return permissions.decideCheck(permission, requestingOrigin, details, APP_ORIGIN)
+  })
+  ses.setDisplayMediaRequestHandler(onDisplayMediaRequest)
+  denyDeviceChoosers(ses)
+  // Yalnızca sayfanın ürettiği blob: indirmeleri (çözülmüş dosyalar) kaydedilebilir, Electron
+  // kayıt yerini kullanıcıya sorar
+  ses.on('will-download', (event, item) => {
+    const url = typeof item.getURL === 'function' ? item.getURL() : ''
+    if (!url.startsWith('blob:' + APP_ORIGIN + '/')) event.preventDefault()
+  })
+  ses.setSpellCheckerEnabled(false)
+}
+
+function handleAppRequest (request, apiProxy) {
+  let url
+  try {
+    url = new URL(request.url)
+  } catch (err) {
+    return staticFiles.textResponse(404, t('http.notFound'))
+  }
+  if (url.protocol !== SCHEME + ':' || url.host !== APP_HOST) return staticFiles.textResponse(404, t('http.notFound'))
+  if (proxy.isApiPath(url.pathname)) return apiProxy(request, url)
+  return staticFiles.staticResponse(request.method, url.pathname, state.files, t('http.notFound'))
+}
+
+function onPermissionRequest (contents, permission, callback, details) {
+  const decision = permissions.decideRequest(permission, details, APP_ORIGIN)
+  if (decision === 'allow') {
+    callback(true)
+    return
+  }
+  if (decision === 'display' && contents && isAlive(state.mainWindow) && contents === state.mainWindow.webContents) {
+    requestScreenChoice(contents).then((granted) => callback(granted), (err) => {
+      logError('screen share', err)
+      callback(false)
+    })
+    return
+  }
+  callback(false)
+}
+
+// ------------------------------------------------------------------ ekran paylaşımı
+
+// İzin aşaması: son kullanıcı girişi yeniyse seçiciyi gösterir. Kullanıcı bir kaynak seçerse
+// seçim kısa süreli bekleyen kayıt olur ve izin verilir.
+async function requestScreenChoice (contents) {
+  if (!screenShare.hasRecentActivation(state.activation.get(contents.id), Date.now())) return false
+  if (state.pickerBusy || state.pendingDisplay) return false
+  state.pickerBusy = true
+  try {
+    let sources = []
+    try {
+      const raw = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: THUMBNAIL_SIZE, fetchWindowIcons: false })
+      sources = screenShare.toPickerSources(raw.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : ''
+      })))
+    } catch (err) {
+      logError('desktopCapturer', err)
+      return false
+    }
+    if (sources.length === 0 || contents.isDestroyed()) return false
+    const choice = await openPicker(contents, sources)
+    if (!choice || contents.isDestroyed()) return false
+    setPendingDisplay(contents.id, choice)
+    return true
+  } finally {
+    state.pickerBusy = false
+  }
+}
+
+function openPicker (contents, sources) {
+  return new Promise((resolve) => {
+    const parent = BrowserWindow.fromWebContents(contents) || undefined
+    const ses = session.fromPartition(PICKER_PARTITION)
+    prepareOwnSession(ses, state.pages.picker)
+    const win = new BrowserWindow({
+      parent,
+      modal: Boolean(parent),
+      width: 780,
+      height: 640,
+      minWidth: 420,
+      minHeight: 380,
+      show: false,
+      title: t('picker.windowTitle'),
+      backgroundColor: BACKGROUND,
+      autoHideMenuBar: true,
+      icon: windowIcon(),
+      webPreferences: webPreferences(path.join(__dirname, 'picker-preload.js'), PICKER_PARTITION)
+    })
+    win.setMenu(null)
+    const windowContentsId = win.webContents.id
+    state.contexts.set(windowContentsId, 'picker')
+    let done = false
+    const finish = (choice) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      state.picker = null
+      state.contexts.delete(windowContentsId)
+      if (!win.isDestroyed()) win.destroy()
+      resolve(choice)
+    }
+    const timer = setTimeout(() => finish(null), screenShare.PICKER_TIMEOUT_MS)
+    state.picker = { contentsId: contents.id, windowContentsId, sources, finish }
+    win.on('closed', () => finish(null))
+    win.once('ready-to-show', () => {
+      if (!win.isDestroyed()) win.show()
+    })
+    win.loadURL(PICKER_ORIGIN + '/').catch((err) => {
+      logError('picker', err)
+      finish(null)
+    })
+  })
+}
+
+function clearPendingDisplay () {
+  if (state.pendingDisplay) clearTimeout(state.pendingDisplay.timer)
+  state.pendingDisplay = null
+}
+
+function setPendingDisplay (contentsId, choice) {
+  clearPendingDisplay()
+  const pending = { contentsId, video: choice.video, systemAudio: choice.systemAudio, createdAt: Date.now(), timer: null }
+  // İzin verildiği hâlde seçim getDisplayMedia işleyicisince tüketilmezse istek eski
+  // chromeMediaSource yoludur ve seçiciyi atlayarak yakalama yapar. Sayfa yeniden yüklenerek
+  // yakalama durdurulur (meşru istemci kodu bu yolu hiç kullanmaz).
+  pending.timer = setTimeout(() => {
+    if (state.pendingDisplay !== pending) return
+    state.pendingDisplay = null
+    const target = webContents.fromId(contentsId)
+    logError('screen share', new Error('a screen capture permission was not used by getDisplayMedia, reloading the page'))
+    if (target && !target.isDestroyed()) target.reload()
+  }, screenShare.PENDING_TTL_MS)
+  state.pendingDisplay = pending
+}
+
+function onDisplayMediaRequest (request, callback) {
+  const pending = state.pendingDisplay
+  clearPendingDisplay()
+  let frame = null
+  let contentsId = null
+  try {
+    if (request.frame) {
+      frame = { url: request.frame.url, isMainFrame: request.frame.parent === null }
+      const contents = webContents.fromFrame(request.frame)
+      contentsId = contents ? contents.id : null
+    }
+  } catch (err) {
+    frame = null
+  }
+  const accepted = screenShare.isAcceptableDisplayRequest(request, frame, APP_ORIGIN) &&
+    isAlive(state.mainWindow) && contentsId === state.mainWindow.webContents.id &&
+    screenShare.isPendingFresh(pending, contentsId, Date.now())
+  const streams = accepted ? screenShare.buildStreams(pending, request, process.platform) : {}
+  try {
+    callback(streams)
+  } catch (err) {
+    // Çerçeve bu arada kapanmış olabilir
+    logError('display media', err)
+  }
+}
+
+// ------------------------------------------------------------------ pencereler
+
+function attachContextMenu (contents) {
+  contents.on('context-menu', (event, params) => {
+    const items = []
+    if (params.isEditable) {
+      items.push(
+        { label: t('context.cut'), role: 'cut', enabled: params.editFlags.canCut },
+        { label: t('context.copy'), role: 'copy', enabled: params.editFlags.canCopy },
+        { label: t('context.paste'), role: 'paste', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        { label: t('context.selectAll'), role: 'selectAll' }
+      )
+    } else if (params.selectionText) {
+      items.push({ label: t('context.copy'), role: 'copy' })
+    }
+    if (items.length === 0) return
+    const win = BrowserWindow.fromWebContents(contents)
+    Menu.buildFromTemplate(items).popup(win ? { window: win } : {})
+  })
+}
+
+function showWhenReady (win) {
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show()
+  })
+  // ready-to-show bazı Linux masaüstlerinde gecikirse pencere yine de gösterilir
+  const fallback = setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) win.show()
+  }, 5000)
+  win.once('closed', () => clearTimeout(fallback))
+}
+
+function openMainWindow () {
+  const origin = state.settings.server
+  if (!serverUrl.isValidOrigin(origin)) {
+    openConnectWindow()
+    return
+  }
+  const partition = partitionFor(origin)
+  prepareAppSession(session.fromPartition(partition), origin)
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 380,
+    minHeight: 500,
+    show: false,
+    title: 'Telsiz',
+    backgroundColor: BACKGROUND,
+    icon: windowIcon(),
+    webPreferences: webPreferences(path.join(__dirname, 'preload.js'), partition, {
+      additionalArguments: [VERSION_ARG + app.getVersion()]
+    })
+  })
+  const id = win.webContents.id
+  state.contexts.set(id, 'app')
+  state.mainWindow = win
+  state.mainOrigin = origin
+  attachContextMenu(win.webContents)
+  showWhenReady(win)
+  win.on('close', (event) => {
+    if (state.quitting || state.mainWindow !== win) return
+    if (state.settings.closeToTray && state.tray) {
+      event.preventDefault()
+      win.hide()
+      showTrayHint()
+    }
+  })
+  win.on('closed', () => {
+    state.contexts.delete(id)
+    state.activation.delete(id)
+    if (state.picker && state.picker.contentsId === id) state.picker.finish(null)
+    if (state.pendingDisplay && state.pendingDisplay.contentsId === id) clearPendingDisplay()
+    if (state.mainWindow === win) {
+      state.mainWindow = null
+      state.mainOrigin = null
+    }
+  })
+  win.webContents.on('render-process-gone', (event, details) => logError('renderer', new Error(details.reason)))
+  win.loadURL(APP_ORIGIN + '/').catch((err) => logError('load', err))
+}
+
+function showMain () {
+  const win = state.mainWindow
+  if (isAlive(win)) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    return
+  }
+  if (isAlive(state.connectWindow)) {
+    state.connectWindow.show()
+    state.connectWindow.focus()
+    return
+  }
+  if (state.settings.server) openMainWindow()
+  else openConnectWindow()
+}
+
+function openConnectWindow () {
+  if (isAlive(state.connectWindow)) {
+    state.connectWindow.show()
+    state.connectWindow.focus()
+    return
+  }
+  prepareOwnSession(session.fromPartition(CONNECT_PARTITION), state.pages.connect)
+  const parent = isAlive(state.mainWindow) && state.mainWindow.isVisible() ? state.mainWindow : undefined
+  const win = new BrowserWindow({
+    parent,
+    width: 560,
+    height: 640,
+    minWidth: 360,
+    minHeight: 480,
+    show: false,
+    title: t('connect.windowTitle'),
+    backgroundColor: BACKGROUND,
+    autoHideMenuBar: true,
+    icon: windowIcon(),
+    webPreferences: webPreferences(path.join(__dirname, 'connect-preload.js'), CONNECT_PARTITION)
+  })
+  win.setMenu(null)
+  const id = win.webContents.id
+  state.contexts.set(id, 'connect')
+  state.connectWindow = win
+  attachContextMenu(win.webContents)
+  showWhenReady(win)
+  win.on('closed', () => {
+    state.contexts.delete(id)
+    if (state.connectWindow === win) state.connectWindow = null
+  })
+  win.loadURL(CONNECT_ORIGIN + '/').catch((err) => logError('load', err))
+}
+
+function closeConnectWindow () {
+  const win = state.connectWindow
+  if (isAlive(win)) win.close()
+}
+
+// Kaydedilen sunucuya geçer: aynı sunucuysa yalnızca pencereyi gösterir, farklıysa yeni sunucunun
+// oturum bölümüyle yeni bir pencere açar ve eskisini kapatır
+function applyServer (origin) {
+  const old = state.mainWindow
+  if (isAlive(old) && state.mainOrigin === origin) {
+    closeConnectWindow()
+    showMain()
+    return
+  }
+  state.mainWindow = null
+  openMainWindow()
+  if (isAlive(old)) old.destroy()
+  closeConnectWindow()
+}
+
+async function submitServer (address, acceptMismatch) {
+  if (state.connectBusy) return { ok: false, code: 'busy' }
+  state.connectBusy = true
+  try {
+    const parsed = serverUrl.parseServerUrl(address)
+    if (!parsed.ok) return { ok: false, code: parsed.code }
+    const ses = session.fromPartition(CONNECT_PARTITION)
+    const info = await serverUrl.checkServer((url, init) => ses.fetch(url, init), parsed.origin, app.getVersion())
+    if (!info.ok) return { ok: false, code: info.code, origin: parsed.origin }
+    if (!info.compatible && acceptMismatch !== true) {
+      return { ok: false, code: 'version', reason: info.reason, origin: parsed.origin, serverName: info.serverName, serverVersion: info.version, appVersion: app.getVersion() }
+    }
+    state.settings.server = parsed.origin
+    persistSettings()
+    setImmediate(() => applyServer(parsed.origin))
+    return { ok: true, origin: parsed.origin, serverName: info.serverName }
+  } finally {
+    state.connectBusy = false
+  }
+}
+
+// ------------------------------------------------------------------ menü, tepsi, kısayollar
+
+function showAbout () {
+  const parent = BrowserWindow.getFocusedWindow() || undefined
+  const options = {
+    type: 'info',
+    title: t('about.title'),
+    message: 'Telsiz',
+    detail: t('about.detail', { version: app.getVersion(), electron: process.versions.electron, server: state.settings.server || t('about.noServer') }),
+    buttons: ['OK']
+  }
+  const shown = parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)
+  shown.catch(noop)
+}
+
+function buildMenu () {
+  const view = [
+    { label: t('menu.reload'), role: 'reload' },
+    { type: 'separator' },
+    { label: t('menu.zoomIn'), role: 'zoomIn' },
+    { label: t('menu.zoomOut'), role: 'zoomOut' },
+    { label: t('menu.resetZoom'), role: 'resetZoom' },
+    { type: 'separator' },
+    { label: t('menu.fullScreen'), role: 'togglefullscreen' }
+  ]
+  if (IS_DEV) view.push({ type: 'separator' }, { label: t('menu.devTools'), role: 'toggleDevTools' })
+  const template = [
+    {
+      label: t('menu.app'),
+      submenu: [
+        { label: t('menu.changeServer'), click: () => openConnectWindow() },
+        { type: 'separator' },
+        { label: t('menu.closeToTray'), type: 'checkbox', checked: state.settings.closeToTray, enabled: Boolean(state.tray), click: (item) => setCloseToTray(item.checked) },
+        { type: 'separator' },
+        { label: t('menu.quit'), accelerator: 'CommandOrControl+Q', click: () => quitApp() }
+      ]
+    },
+    {
+      label: t('menu.edit'),
+      submenu: [
+        { label: t('menu.undo'), role: 'undo' },
+        { label: t('menu.redo'), role: 'redo' },
+        { type: 'separator' },
+        { label: t('menu.cut'), role: 'cut' },
+        { label: t('menu.copy'), role: 'copy' },
+        { label: t('menu.paste'), role: 'paste' },
+        { type: 'separator' },
+        { label: t('menu.selectAll'), role: 'selectAll' }
+      ]
+    },
+    { label: t('menu.view'), submenu: view },
+    {
+      label: t('menu.help'),
+      submenu: [
+        { label: t('menu.about'), click: () => showAbout() },
+        { label: t('menu.project'), click: () => openExternal(HOMEPAGE) }
+      ]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function trayImage () {
+  const small = process.platform === 'win32' ? 'tray-16.png' : 'tray-24.png'
+  const large = process.platform === 'win32' ? 'tray-32.png' : 'tray-48.png'
+  const image = loadIcon(small)
+  if (!image) return null
+  const big = loadIcon(large)
+  if (big) {
+    const size = big.getSize()
+    image.addRepresentation({ scaleFactor: 2, width: size.width, height: size.height, buffer: big.toPNG() })
+  }
+  return image
+}
+
+function createTray () {
+  const image = trayImage()
+  if (!image) return
+  try {
+    state.tray = new Tray(image)
+  } catch (err) {
+    logError('tray', err)
+    state.tray = null
+    return
+  }
+  state.tray.setToolTip(t('tray.tooltip'))
+  state.tray.setContextMenu(Menu.buildFromTemplate([
+    { label: t('tray.open'), click: () => showMain() },
+    { label: t('tray.toggleMute'), click: () => sendShortcut('toggleMute') },
+    { type: 'separator' },
+    { label: t('tray.quit'), click: () => quitApp() }
+  ]))
+  state.tray.on('click', () => showMain())
+}
+
+function showTrayHint () {
+  if (state.trayHintShown || !state.tray) return
+  state.trayHintShown = true
+  if (process.platform === 'win32') {
+    try {
+      state.tray.displayBalloon({ title: t('tray.hintTitle'), content: t('tray.hintBody'), iconType: 'info' })
+    } catch (err) {
+      logError('tray', err)
+    }
+  }
+}
+
+function sendShortcut (action) {
+  if (!ACTIONS.includes(action)) return
+  const win = state.mainWindow
+  if (!isAlive(win) || win.webContents.isDestroyed()) return
+  win.webContents.send(CHANNELS.shortcut, action)
+}
+
+function applyShortcuts (map) {
+  for (const accelerator of state.registeredAccelerators) {
+    try {
+      globalShortcut.unregister(accelerator)
+    } catch (err) {
+      logError('shortcut', err)
+    }
+  }
+  state.registeredAccelerators = []
+  const status = {}
+  for (const action of ACTIONS) {
+    const accelerator = map[action]
+    if (!accelerator) {
+      status[action] = null
+      continue
+    }
+    let registered = false
+    try {
+      registered = globalShortcut.register(accelerator, () => sendShortcut(action))
+    } catch (err) {
+      registered = false
+    }
+    if (registered) state.registeredAccelerators.push(accelerator)
+    status[action] = registered
+  }
+  state.shortcutStatus = status
+}
+
+function settingsSnapshot () {
+  return {
+    server: state.settings.server,
+    closeToTray: state.settings.closeToTray,
+    trayAvailable: Boolean(state.tray),
+    shortcuts: Object.assign({}, state.settings.shortcuts),
+    registered: Object.assign({}, state.shortcutStatus)
+  }
+}
+
+function setCloseToTray (value) {
+  if (typeof value !== 'boolean') return { ok: false, code: 'invalid' }
+  if (value && !state.tray) return { ok: false, code: 'tray_unavailable' }
+  state.settings.closeToTray = value
+  persistSettings()
+  buildMenu()
+  return Object.assign({ ok: true }, settingsSnapshot())
+}
+
+function quitApp () {
+  state.quitting = true
+  app.quit()
+}
+
+// ------------------------------------------------------------------ IPC
+
+function registerIpc () {
+  ipcMain.handle(CHANNELS.getServer, (event) => {
+    requireSender(event, 'app')
+    return state.settings.server
+  })
+  ipcMain.handle(CHANNELS.changeServer, (event) => {
+    requireSender(event, 'app')
+    openConnectWindow()
+    return true
+  })
+  ipcMain.handle(CHANNELS.getSettings, (event) => {
+    requireSender(event, 'app')
+    return settingsSnapshot()
+  })
+  ipcMain.handle(CHANNELS.setShortcuts, (event, map) => {
+    requireSender(event, 'app')
+    const checked = shortcuts.validateShortcutMap(map)
+    if (!checked.ok) return { ok: false, code: checked.code }
+    state.settings.shortcuts = checked.map
+    persistSettings()
+    applyShortcuts(checked.map)
+    return Object.assign({ ok: true }, settingsSnapshot())
+  })
+  ipcMain.handle(CHANNELS.setCloseToTray, (event, value) => {
+    requireSender(event, 'app')
+    return setCloseToTray(value)
+  })
+  ipcMain.on(CHANNELS.userActivation, (event) => {
+    if (senderIs(event, 'app')) state.activation.set(event.sender.id, Date.now())
+  })
+
+  ipcMain.handle(CHANNELS.connectInit, (event) => {
+    requireSender(event, 'connect')
+    return {
+      lang: state.lang,
+      strings: strings.subset(state.lang, 'connect.'),
+      current: state.settings.server,
+      canCancel: Boolean(state.settings.server),
+      appVersion: app.getVersion()
+    }
+  })
+  ipcMain.handle(CHANNELS.connectSubmit, (event, address, acceptMismatch) => {
+    requireSender(event, 'connect')
+    if (typeof address !== 'string' || address.length > MAX_ADDRESS_INPUT || typeof acceptMismatch !== 'boolean') {
+      return { ok: false, code: 'invalid' }
+    }
+    return submitServer(address, acceptMismatch)
+  })
+  ipcMain.handle(CHANNELS.connectCancel, (event) => {
+    requireSender(event, 'connect')
+    if (state.settings.server) closeConnectWindow()
+    return true
+  })
+
+  ipcMain.handle(CHANNELS.pickerInit, (event) => {
+    requireSender(event, 'picker')
+    return {
+      lang: state.lang,
+      strings: strings.subset(state.lang, 'picker.'),
+      sources: state.picker.sources,
+      systemAudio: screenShare.systemAudioSupported(process.platform)
+    }
+  })
+  ipcMain.handle(CHANNELS.pickerChoose, (event, id, systemAudio) => {
+    requireSender(event, 'picker')
+    const choice = screenShare.resolveChoice(state.picker.sources, { id, systemAudio }, process.platform)
+    if (!choice) return { ok: false }
+    state.picker.finish(choice)
+    return { ok: true }
+  })
+  ipcMain.handle(CHANNELS.pickerCancel, (event) => {
+    requireSender(event, 'picker')
+    state.picker.finish(null)
+    return true
+  })
+}
+
+// ------------------------------------------------------------------ uygulama düzeyi korumalar
+
+function installGuards () {
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('will-attach-webview', (e) => e.preventDefault())
+    contents.setWindowOpenHandler((details) => {
+      if (contextOf(contents) === 'app' && navigation.decideWindowOpen(details.url) === 'external') openExternal(details.url)
+      return { action: 'deny' }
+    })
+    contents.on('will-navigate', (details) => {
+      const context = contextOf(contents)
+      const decision = navigation.decideNavigation(details.url, context)
+      if (decision === 'allow') return
+      details.preventDefault()
+      if (decision === 'external' && context === 'app') openExternal(details.url)
+    })
+    // Alt çerçeve gezinmesi hiç yoktur (uygulama çerçeve kullanmaz), ana çerçeve yukarıda ele alınır
+    contents.on('will-frame-navigate', (details) => {
+      if (!details.isMainFrame) details.preventDefault()
+    })
+    contents.on('will-redirect', (details) => {
+      if (navigation.decideNavigation(details.url, contextOf(contents)) !== 'allow') details.preventDefault()
+    })
+  })
+  // Sertifika hataları hiçbir zaman yok sayılmaz
+  app.on('certificate-error', (event, contents, url, error, certificate, callback) => {
+    event.preventDefault()
+    callback(false)
+  })
+  // İstemci sertifikası hiçbir sunucuya kendiliğinden gönderilmez
+  app.on('select-client-certificate', (event, contents, url, list, callback) => {
+    event.preventDefault()
+    callback()
+  })
+  // HTTP kimlik doğrulama istekleri iptal edilir
+  app.on('login', (event, contents, details, authInfo, callback) => {
+    event.preventDefault()
+    callback()
+  })
+}
+
+// ------------------------------------------------------------------ başlatma
+
+function showFatal (err) {
+  const files = err && Array.isArray(err.files) && err.files.length > 0 ? err.files.slice(0, 10).join(', ') : String(err && err.message ? err.message : err)
+  dialog.showErrorBox(t('integrity.title'), t('integrity.body', { files }))
+  app.exit(1)
+}
+
+function start () {
+  state.lang = strings.pickLang([].concat(app.getPreferredSystemLanguages(), [app.getLocale()]))
+  state.t = strings.translator(state.lang)
+  try {
+    state.files = integrity.loadVerifiedFiles(APP_DIR)
+    state.pages = loadPages()
+  } catch (err) {
+    showFatal(err)
+    return
+  }
+  state.settingsFile = path.join(app.getPath('userData'), settingsStore.FILE_NAME)
+  state.settings = settingsStore.load(state.settingsFile)
+  installGuards()
+  registerIpc()
+  createTray()
+  if (!state.tray) state.settings.closeToTray = false
+  buildMenu()
+  applyShortcuts(state.settings.shortcuts)
+  if (state.settings.server) openMainWindow()
+  else openConnectWindow()
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (app.isReady() && state.files) showMain()
+  })
+  app.on('before-quit', () => {
+    state.quitting = true
+  })
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+  })
+  app.on('window-all-closed', () => {
+    app.quit()
+  })
+  app.whenReady().then(start).catch((err) => {
+    logError('start', err)
+    app.exit(1)
+  })
+}

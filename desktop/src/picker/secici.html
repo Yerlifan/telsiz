@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="no-referrer">
+  <title>Telsiz</title>
+  <link rel="stylesheet" href="/secici.css">
+  <script src="/secici.js" defer></script>
+</head>
+<body>
+  <main class="picker">
+    <header class="brand">
+      <img class="logo" src="/logo.svg" alt="" width="36" height="36">
+      <h1 id="title" class="title"></h1>
+    </header>
+    <p id="lead" class="lead"></p>
+    <div id="sources" class="sources">
+      <section id="screens-section" class="group" hidden>
+        <h2 id="screens-title" class="group-title"></h2>
+        <div id="screens" class="grid"></div>
+      </section>
+      <section id="windows-section" class="group" hidden>
+        <h2 id="windows-title" class="group-title"></h2>
+        <div id="windows" class="grid"></div>
+      </section>
+      <p id="empty" class="empty" hidden></p>
+    </div>
+    <footer class="footer">
+      <div id="audio-wrap" class="audio" hidden>
+        <label class="check">
+          <input id="audio" type="checkbox">
+          <span id="audio-label"></span>
+        </label>
+        <p id="audio-hint" class="hint"></p>
+      </div>
+      <p id="selected" class="sr-only" role="status" aria-live="polite"></p>
+      <div class="actions">
+        <button id="cancel" class="button button-ghost" type="button"></button>
+        <button id="share" class="button button-primary" type="button" disabled></button>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

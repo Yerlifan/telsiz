@@ -1,0 +1,217 @@
+/* Sunucu adresi ekranı. Renkler varsayılan temanın (Arcade) koyu ve açık değerleridir. */
+
+:root {
+  --bg: #0f1015;
+  --surface: #181a24;
+  --surface-2: #20232f;
+  --line: #2e3242;
+  --text: #f2f3f8;
+  --text-2: #b9bdcc;
+  --text-3: #8d92a6;
+  --accent-a: #8f6bff;
+  --accent-b: #33d1e6;
+  --on-accent: #0e0d16;
+  --danger: #ff7a8a;
+  --ok: #5ee0a0;
+  --focus: #33d1e6;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f5fa;
+    --surface: #ffffff;
+    --surface-2: #eef0f6;
+    --line: #d4d8e4;
+    --text: #151724;
+    --text-2: #3c4155;
+    --text-3: #5d6378;
+    --accent-a: #6a45f0;
+    --accent-b: #0f8fa3;
+    --on-accent: #ffffff;
+    --danger: #b3223a;
+    --ok: #137a49;
+    --focus: #6a45f0;
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background-color: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.logo {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 14px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.lead,
+.current,
+.security {
+  margin: 0 0 12px;
+  color: var(--text-2);
+}
+
+.current {
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.security {
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+
+.form {
+  margin-top: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background-color: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.input:focus {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+
+.status {
+  min-height: 1.5em;
+  margin: 12px 0 0;
+  color: var(--text-2);
+}
+
+.status.is-error {
+  color: var(--danger);
+}
+
+.status.is-ok {
+  color: var(--ok);
+}
+
+.warning {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+}
+
+.warning-text {
+  margin: 0 0 10px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button + .button {
+  margin-left: 10px;
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button-primary {
+  background-color: var(--accent-a);
+  background-image: linear-gradient(120deg, var(--accent-a), var(--accent-b));
+  color: var(--on-accent);
+}
+
+.button-secondary {
+  border-color: var(--line);
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.button-ghost {
+  border-color: var(--line);
+  background-color: transparent;
+  color: var(--text);
+}
+
+.is-busy .input {
+  opacity: 0.75;
+}

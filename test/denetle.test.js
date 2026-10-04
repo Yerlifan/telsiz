@@ -873,6 +873,7 @@ test('masaüstü uygulaması: JavaScript ve JSON metin ve noktalı virgülsüz y
     ),
     'desktop/src/preload.mjs': lines('import { contextBridge } from \'electron\'', 'contextBridge.exposeInMainWorld(\'telsizDesktop\', {})', '[1, 2].forEach(String)'),
     'desktop/README.md': lines('# Masaüstü', '', 'Derleme; paketleme.'),
+    'desktop/README.en.md': lines('# Desktop', '', 'Build and packaging.'),
     // Üretilen dosyalar denetlenmez
     'desktop/app/vendor/x.js': 'var a = 1;\n',
     'desktop/app/index.html': '<script>alert(1)</script>\n',

@@ -1,0 +1,14 @@
+# Geliştirme bağımlılıkları (npm ci ile kurulur)
+node_modules/
+
+# Derlemede public/ klasöründen kopyalanan istemci dosyaları ve bütünlük bildirimi (npm run hazirla)
+app/
+
+# Derlemede logodan üretilen simgeler (npm run hazirla)
+build/
+
+# electron-builder çıktıları (kurucu, taşınabilir exe, AppImage, .deb)
+dist/
+
+# Duman testinin hata anında yazdığı ekran görüntüleri ve günlükler
+duman-sonuclar/

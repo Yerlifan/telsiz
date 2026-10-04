@@ -103,7 +103,8 @@ const DOC_PAIRS = [
   ['docs/MIMARI.md', 'docs/ARCHITECTURE.md'],
   ['docs/KURULUM.md', 'docs/DEPLOYMENT.md'],
   ['docs/TASARIM.md', 'docs/DESIGN.md'],
-  ['CHANGELOG.md', 'CHANGELOG.en.md']
+  ['CHANGELOG.md', 'CHANGELOG.en.md'],
+  ['desktop/README.md', 'desktop/README.en.md']
 ]
 
 function hasOwn (object, key) {
