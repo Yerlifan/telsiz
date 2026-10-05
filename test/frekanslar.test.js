@@ -190,6 +190,7 @@ test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve
   const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }, { origin: 'https://kardes.com', name: 'Kardeşler' }, { origin: 'https://oyun.com', name: 'Oyun Gecesi' }]
   const incoming = [
     { origin: 'https://cl.com', name: 'Karcleşler' },
+    { origin: 'https://ri.com', name: 'Karıkalar' },
     { origin: 'https://parantez.com', name: 'Oyun Ge(esi' },
     { origin: 'https://kiril.com', name: 'K\u0430nk\u0430l\u0430r' },
     { origin: 'https://buyuk-i.com', name: 'KankaIar' },
@@ -203,6 +204,7 @@ test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve
     { origin: 'https://etiket.com', name: 'Tel\udb40\udd00siz' },
     { origin: 'https://unlem.com', name: 'Tels\u00a1z' },
     { origin: 'https://kucukbuyuk.com', name: 'Telsi\u1d22' },
+    { origin: 'https://kesme.com', name: 'Burak\u2019ın Odası' },
     { origin: 'https://baska.com', name: 'Dostlar' }
   ]
   assert.deepEqual(plain(F.mergeLists(local, incoming, SELF, ['Telsiz'])), [
@@ -210,6 +212,7 @@ test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve
     { origin: 'https://kardes.com', name: 'Kardeşler' },
     { origin: 'https://oyun.com', name: 'Oyun Gecesi' },
     { origin: 'https://cl.com', name: null },
+    { origin: 'https://ri.com', name: null },
     { origin: 'https://parantez.com', name: null },
     { origin: 'https://kiril.com', name: null },
     { origin: 'https://buyuk-i.com', name: null },
@@ -223,6 +226,7 @@ test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve
     { origin: 'https://etiket.com', name: null },
     { origin: 'https://unlem.com', name: null },
     { origin: 'https://kucukbuyuk.com', name: null },
+    { origin: 'https://kesme.com', name: 'Burak\u2019ın Odası' },
     { origin: 'https://baska.com', name: 'Dostlar' }
   ])
 })

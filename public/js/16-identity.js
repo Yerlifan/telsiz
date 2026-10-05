@@ -259,7 +259,19 @@ async function loginWithPassword (name, password, onPercent) {
     const body = { name: name, authKey: derived.authKey }
     const device = loginDeviceOf(name)
     if (device) body.device = device
-    const res = await request('POST', '/api/login', { token: '', body: body })
+    let res = await request('POST', '/api/login', { token: '', body: body })
+    // Başka bir sekme veya cihaz bu arada türetme gücünü yükseltmiş olabilir: ayar değiştiyse yeni ayarla bir kez
+    // yeniden denenir
+    if (res.status === 401 && res.data && res.data.code === 'bad_credentials') {
+      const fresh = await fetchKdf(name)
+      if (fresh && fresh.salt !== kdf.salt) {
+        derived.wrapKey.fill(0)
+        kdf = fresh
+        derived = await deriveKeys(password, kdf, onPercent)
+        body.authKey = derived.authKey
+        res = await request('POST', '/api/login', { token: '', body: body })
+      }
+    }
     if (res.status !== 200 || !res.data || typeof res.data.token !== 'string' || !res.data.user) {
       return { ok: false, error: () => errorText(res, t('auth.loginFailed'), authOverrides()) }
     }

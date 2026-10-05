@@ -277,9 +277,12 @@ describe('ön giriş', () => {
     assert.notEqual(a.salt, b.salt)
     assert.deepEqual([a.N, b.N], [16384, 65536])
     // Geçersiz bir ad girdisi eski ayarın sahte tuzunu üretemez (varlık kehaneti olmasın)
-    for (const probe of ['hayalet\u0000eski', 'prelogin-legacy:hayalet', 'legacy:hayalet']) {
-      assert.notEqual(auth.preloginKdf(secret, probe, 0).salt, a.salt)
-      assert.notEqual(auth.preloginSalt(secret, probe), a.salt)
+    // Eski N'nin sahte ayarı önceki sürümlerin yanıtıyla aynıdır (yükseltmede sahte yanıtlar değişmez)
+    assert.deepEqual(a, { salt: auth.preloginSalt(secret, 'hayalet'), N: 16384, r: 8, p: 1 })
+    // Geçersiz bir ad girdisi yeni N'nin sahte tuzunu üretemez (varlık kehaneti olmasın)
+    for (const probe of ['hayalet\u0000eski', 'v2:hayalet', '-v2:hayalet', 'prelogin-v2:hayalet']) {
+      assert.notEqual(auth.preloginSalt(secret, probe), b.salt)
+      assert.notEqual(auth.preloginKdf(secret, probe, 1).salt, b.salt)
     }
   })
 
@@ -337,7 +340,7 @@ describe('ön giriş', () => {
       await ctx.server.flush()
       const disk = readState(ctx)
       assert.match(disk.serverSecret, /^[0-9a-f]{64}$/)
-      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin-legacy:hayalet').digest().subarray(0, 16).toString('base64url')
+      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin:hayalet').digest().subarray(0, 16).toString('base64url')
       assert.equal(fake.data.kdf.salt, expected)
       // Geçersiz adlar da biçimce aynı yanıtı alır
       const invalid = await prelogin(ctx, 'Ayşe Yılmaz')

@@ -256,8 +256,10 @@ function preloginSalt (secretHex, name) {
   return labeledSalt(secretHex, 'prelogin:', name)
 }
 
-// Etiketli HMAC tuzu. Eski ayarın sahte tuzu ayrı bir etiket kullanır: hiçbir ad girdisi (geçersiz adlar dahil)
-// 'prelogin:' etiketiyle eski ayarın tuzunu üretemez.
+// Etiketli HMAC tuzu. Eski ayarın sahte tuzu önceki sürümlerin verdiği değerdir ('prelogin:'), yeni N'nin sahte tuzu
+// ayrı bir etiket kullanır ('prelogin-v2:'). Böylece yükseltmeden sonra sahte yanıtlar önceki sürümden devam eder: ya
+// hiç değişmez (yükseltilmemiş hesap gibi) ya da tuz ve N birlikte değişir (yükseltilen hesap gibi). Etiketler 8.
+// karakterde ayrıldığından hiçbir ad girdisi (geçersiz adlar dahil) öteki etiketin tuzunu üretemez.
 function labeledSalt (secretHex, label, name) {
   const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(label + name, 'utf8').digest()
   return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
@@ -265,13 +267,13 @@ function labeledSalt (secretHex, label, name) {
 
 // Var olmayan hesabın sahte türetme ayarı. Önceki sürümlerde oluşturulan ve henüz yükseltilmemiş hesaplar
 // KDF_LEGACY_N kullanır: ad başına sabit bir sayı, sunucudaki eski ayarlı hesapların payının altındaysa sahte ayar
-// da eski N ve ona ait tuzu taşır. Böylece ön giriş yanıtının N değeri hesabın varlığını ele vermez. Pay düştükçe
-// bazı sahte ayarlar yeni N'ye ve yeni tuza geçer, bu da gerçek bir hesabın yükseltilmesiyle aynı görünür.
+// da eski N ve önceki sürümlerin verdiği tuzu taşır. Böylece ön giriş yanıtının N değeri hesabın varlığını ele vermez.
+// Pay düştükçe bazı sahte ayarlar yeni N'ye ve yeni tuza geçer, bu da gerçek bir hesabın yükseltilmesiyle aynı görünür.
 const KDF_LEGACY_N = 16384
 function preloginKdf (secretHex, name, legacyShare) {
   const pick = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin-n:' + name, 'utf8').digest().readUInt32BE(0) / 4294967296
   const legacy = pick < legacyShare
-  const salt = legacy ? labeledSalt(secretHex, 'prelogin-legacy:', name) : preloginSalt(secretHex, name)
+  const salt = legacy ? preloginSalt(secretHex, name) : labeledSalt(secretHex, 'prelogin-v2:', name)
   return { salt, N: legacy ? KDF_LEGACY_N : KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
 }
 

@@ -278,3 +278,31 @@ test('arka plandaki yükseltme sürerken başlayan parola işlemi önce onun bit
   await pending
   assert.equal(sandbox.__requests[sandbox.__requests.length - 1].path, '/api/prelogin')
 })
+
+test('başka sekme türetme gücünü bu arada yükseltmişse giriş yeni ayarla bir kez yeniden denenir', async () => {
+  const { sandbox, run } = load()
+  saltedDerive(run)
+  const fresh = { salt: Buffer.alloc(16, 9).toString('base64url'), N: 65536, r: 8, p: 1 }
+  sandbox.__fresh = fresh
+  sandbox.__newKeys = await run("deriveKeys('Parolam-2026', __fresh)")
+  run('__pair = window.E2EE.identity.generate()')
+  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __newKeys.wrapKey) })')
+  let prelogins = 0
+  sandbox.__prelogin = () => {
+    prelogins += 1
+    return { status: 200, data: { kdf: prelogins === 1 ? KDF : fresh } }
+  }
+  sandbox.__login = (body) => body.authKey === sandbox.__newKeys.authKey
+    ? { status: 200, data: { token: 't1', user: { id: 4, name: 'ece' }, keys } }
+    : { status: 401, data: { error: 'bad_credentials', code: 'bad_credentials' } }
+  run(`request = function (method, path, opts) {
+    __requests.push({ path: path, body: opts && opts.body })
+    if (path === '/api/prelogin') return Promise.resolve(__prelogin())
+    if (path === '/api/login') return Promise.resolve(__login(opts.body))
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  const result = await run("loginWithPassword('ece', 'Parolam-2026')")
+  assert.equal(result.ok, true)
+  assert.equal(sandbox.__requests.filter((r) => r.path === '/api/login').length, 2)
+  assert.equal(prelogins, 2)
+})
