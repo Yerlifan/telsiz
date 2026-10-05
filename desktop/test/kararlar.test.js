@@ -152,3 +152,8 @@ test('ekran paylaşımı: kaynak listesi ve seçim doğrulaması', () => {
   assert.equal(share.systemAudioSupported('win32'), true)
   assert.equal(share.systemAudioSupported('linux'), false)
 })
+
+test('ekran seçicide sistem sesi kutusu başta işaretlidir', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'picker', 'secici.html'), 'utf8')
+  assert.match(html, /<input id="audio" type="checkbox" checked>/)
+})

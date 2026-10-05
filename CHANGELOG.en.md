@@ -10,7 +10,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ### Changes
 
-- The audio option for screen sharing appears in one place. The Also share audio switch in Telsiz's share window was removed: audio is always requested, and whether it is shared is chosen in the window where the source is picked, the audio option in the browser's own picker or the Also share system audio box in the desktop app's picker (Windows only). Before, the desktop app needed both options turned on for audio to be shared.
+- The audio option for screen sharing appears in one place. The Also share audio switch in Telsiz's share window was removed: audio is always requested, and whether it is shared is chosen in the window where the source is picked, the audio option in the browser's own picker or the Also share system audio box in the desktop app's picker (Windows only). This box is now checked by default: a full screen share carries the whole computer's audio, and Telsiz's own sounds (the conversation, notifications, Telsiz DJ) are left out, so the people talking do not hear themselves echo back. Before, the desktop app needed both options turned on for audio to be shared.
 
 ### Fixes
 

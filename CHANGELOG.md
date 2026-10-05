@@ -10,7 +10,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 
 ### Değişiklikler
 
-- Ekran paylaşımında ses seçeneği tek yerde çıkar. Telsiz'in paylaşım penceresindeki Sesi de paylaş anahtarı kaldırıldı, ses her zaman istenir ve paylaşılıp paylaşılmayacağı kaynağın seçildiği pencerede seçilir: tarayıcıda tarayıcının kendi seçicisindeki ses seçeneği, masaüstü uygulamasında uygulamanın seçicisindeki Sistem sesini de paylaş kutusu (yalnızca Windows). Önceden masaüstü uygulamasında sesin gitmesi için iki seçeneğin birlikte açık olması gerekiyordu.
+- Ekran paylaşımında ses seçeneği tek yerde çıkar. Telsiz'in paylaşım penceresindeki Sesi de paylaş anahtarı kaldırıldı, ses her zaman istenir ve paylaşılıp paylaşılmayacağı kaynağın seçildiği pencerede seçilir: tarayıcıda tarayıcının kendi seçicisindeki ses seçeneği, masaüstü uygulamasında uygulamanın seçicisindeki Sistem sesini de paylaş kutusu (yalnızca Windows). Bu kutu artık başta işaretlidir: tam ekran paylaşımında bilgisayarın bütün sesi paylaşılır, Telsiz'in kendi sesleri (konuşmalar, bildirimler, Telsiz DJ) paylaşıma katılmaz, böylece konuşanların sesi yankı yapıp geri dönmez. Önceden masaüstü uygulamasında sesin gitmesi için iki seçeneğin birlikte açık olması gerekiyordu.
 
 ### Düzeltmeler
 
