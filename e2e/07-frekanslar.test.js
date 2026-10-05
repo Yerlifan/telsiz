@@ -96,7 +96,7 @@ before(async () => {
   const context = await W.w.tb.browser.newContext({ locale: 'tr-TR', viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 })
   await context.addInitScript(initScript, { ports })
   W.ctx = context
-  W.page = await context.newPage()
+  W.page = h.domReadyGoto(await context.newPage())
   W.page.setDefaultTimeout(h.SHORT)
   W.page.on('console', (m) => {
     if (m.type() === 'error' || m.type() === 'warning') W.w.logs.push({ label: 'frekans', type: m.type(), text: m.text() })
@@ -258,7 +258,7 @@ test('arka plan kipi: arayüz açılmadan okunmamış ve anma sayıları raporla
   const context = await W.w.tb.browser.newContext({ locale: 'tr-TR', viewport: { width: 800, height: 600 }, deviceScaleFactor: 1 })
   await context.addInitScript(initScript, { ports })
   await context.addInitScript(bgInitScript, { origin: W.w.base })
-  const page = await context.newPage()
+  const page = h.domReadyGoto(await context.newPage())
   page.setDefaultTimeout(h.SHORT)
   page.on('console', (m) => {
     if (m.type() === 'error' || m.type() === 'warning') W.w.logs.push({ label: 'arka-plan', type: m.type(), text: m.text() })

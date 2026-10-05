@@ -267,6 +267,7 @@ async function openBrowser (opts) {
       }
       const page = await context.newPage()
       page.setDefaultTimeout(SHORT)
+      domReadyGoto(page)
       watchPage(page, label, logs)
       pages.push({ label, page })
       return page
@@ -275,6 +276,15 @@ async function openBrowser (opts) {
       await browser.close()
     }
   }
+}
+
+// page.goto varsayılan olarak load yerine domcontentloaded bekler. Firefox CI'da yeni profildeki ilk açılışta load
+// olayı zaman zaman süre sınırını aşıyor (1c3f98a, pageFor). Uygulamada load olayına bağlı iş yoktur, testler sayfanın
+// hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
+function domReadyGoto (page) {
+  const goto = page.goto.bind(page)
+  page.goto = (url, options) => goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
+  return page
 }
 
 function safeName (text) {
@@ -521,6 +531,7 @@ function makeWav (seconds, rate) {
 
 module.exports = {
   BROWSER,
+  domReadyGoto,
   FAKE_MIC,
   MIC_BROWSERS,
   ROOT,
