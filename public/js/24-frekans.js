@@ -188,8 +188,9 @@ function frekansNameKey (name) {
   out = out.replace(FREKANS_NAME_NOISE, '')
   let mapped = ''
   for (const ch of out) mapped += Object.prototype.hasOwnProperty.call(FREKANS_LOOKALIKE, ch) ? FREKANS_LOOKALIKE[ch] : ch
-  // rn ile m, vv ile w, cl (l ve I artık i) ile d, rı (ı artık i) ile n birbirine benzer
-  return mapped.replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/ci/g, 'd').replace(/ri/g, 'n')
+  // rı (ı artık i) ile n, rn ile m, vv ile w, cl (l ve I artık i) ile d birbirine benzer. rı önce indirgenir: ürettiği
+  // n bir önceki r ile birlikte yeniden m'ye indirgenebilsin (rrı, rn ve m aynı sayılır)
+  return mapped.replace(/ri/g, 'n').replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/ci/g, 'd')
 }
 
 // Bağlantıyla gelen bir frekans adı yalnızca Latin harfleri, Türkçe harfler, rakamlar, boşluk ve temel noktalamadan

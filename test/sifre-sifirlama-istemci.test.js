@@ -306,3 +306,13 @@ test('başka sekme türetme gücünü bu arada yükseltmişse giriş yeni ayarla
   assert.equal(sandbox.__requests.filter((r) => r.path === '/api/login').length, 2)
   assert.equal(prelogins, 2)
 })
+
+test('güçlü ayarlı hesapta hatalı girişte ikinci ön giriş isteği gitmez', async () => {
+  const { sandbox, run } = load()
+  saltedDerive(run)
+  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: { ...KDF, N: 65536 } } }
+  sandbox.__responses['/api/login'] = { status: 401, data: { error: 'bad_credentials', code: 'bad_credentials' } }
+  const result = await run("loginWithPassword('ece', 'Yanlis-2026')")
+  assert.equal(result.ok, false)
+  assert.deepEqual(sandbox.__requests.map((r) => r.path), ['/api/prelogin', '/api/login'])
+})

@@ -260,9 +260,10 @@ async function loginWithPassword (name, password, onPercent) {
     const device = loginDeviceOf(name)
     if (device) body.device = device
     let res = await request('POST', '/api/login', { token: '', body: body })
-    // Başka bir sekme veya cihaz bu arada türetme gücünü yükseltmiş olabilir: ayar değiştiyse yeni ayarla bir kez
-    // yeniden denenir
-    if (res.status === 401 && res.data && res.data.code === 'bad_credentials') {
+    // Eski ayarlı hesapta başka bir sekme veya cihaz bu arada türetme gücünü yükseltmiş olabilir: ayar değiştiyse yeni
+    // ayarla bir kez yeniden denenir. Yalnızca eski ayarda yapılır, güçlü ayarlı hesapta her hatalı girişte fazladan ön
+    // giriş isteği gitmez (istek düzeni yalnızca ilk yanıttaki N'ye bağlıdır).
+    if (res.status === 401 && res.data && res.data.code === 'bad_credentials' && window.E2EE.kdf.needsUpgrade(kdf)) {
       const fresh = await fetchKdf(name)
       if (fresh && fresh.salt !== kdf.salt) {
         derived.wrapKey.fill(0)

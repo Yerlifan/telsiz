@@ -187,10 +187,11 @@ test('birleştirme: başka bir frekansın adını taşıyan yeni frekans adsız 
 
 test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve temel noktalamadan oluşabilir, benzer harfler tanıdık adı taklit edemez', () => {
   const { F } = load()
-  const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }, { origin: 'https://kardes.com', name: 'Kardeşler' }, { origin: 'https://oyun.com', name: 'Oyun Gecesi' }]
+  const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }, { origin: 'https://kardes.com', name: 'Kardeşler' }, { origin: 'https://oyun.com', name: 'Oyun Gecesi' }, { origin: 'https://turnuva.com', name: 'Turnuva' }]
   const incoming = [
     { origin: 'https://cl.com', name: 'Karcleşler' },
     { origin: 'https://ri.com', name: 'Karıkalar' },
+    { origin: 'https://rri.com', name: 'Turrıuva' },
     { origin: 'https://parantez.com', name: 'Oyun Ge(esi' },
     { origin: 'https://kiril.com', name: 'K\u0430nk\u0430l\u0430r' },
     { origin: 'https://buyuk-i.com', name: 'KankaIar' },
@@ -211,8 +212,10 @@ test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve
     { origin: 'https://ekip.com', name: 'Kankalar' },
     { origin: 'https://kardes.com', name: 'Kardeşler' },
     { origin: 'https://oyun.com', name: 'Oyun Gecesi' },
+    { origin: 'https://turnuva.com', name: 'Turnuva' },
     { origin: 'https://cl.com', name: null },
     { origin: 'https://ri.com', name: null },
+    { origin: 'https://rri.com', name: null },
     { origin: 'https://parantez.com', name: null },
     { origin: 'https://kiril.com', name: null },
     { origin: 'https://buyuk-i.com', name: null },
