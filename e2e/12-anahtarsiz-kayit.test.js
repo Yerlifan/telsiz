@@ -73,6 +73,6 @@ test('davet koduyla kayıt, anahtar girmeden devam: uygulama açılır ve anahta
 
 test('sayfa yeniden açılınca anahtar yine sorulur ve yine geçilir', async () => {
   const page = W.page
-  await page.reload({ timeout: h.LONG })
+  await page.reload({ timeout: h.LONG, waitUntil: 'domcontentloaded' })
   await skipAndStay(page)
 })

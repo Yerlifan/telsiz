@@ -58,7 +58,7 @@ test('Görünüm sayfası avatar menüsünden açılır, tema ve mod değişir',
 
 test('tema ve mod yeniden yüklemede korunur', async () => {
   const page = W.page
-  await page.reload()
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
   const r = await page.evaluate(() => [document.documentElement.getAttribute('data-skin'), document.documentElement.getAttribute('data-scheme')])
   assert.deepEqual(r, ['turkuaz', 'light'])
