@@ -27,7 +27,6 @@ const crypto = require('node:crypto')
 const { test } = require('node:test')
 const playwright = require('playwright')
 const { createChatServer } = require('../src/app')
-const iz = require('./iz')
 
 const ROOT = path.join(__dirname, '..')
 const PUBLIC_DIR = path.join(ROOT, 'public')
@@ -50,10 +49,6 @@ const MIC_BROWSERS = ['chromium', 'firefox']
 // "Permissions-Policy: camera=(self)" gönderdiği için (src/http-util.js, ses odasında kamera) Chromium'un
 // sahte aygıt yoklamasındaki "Permissions policy violation: camera" iletisi de beklenmez, liste boştur.
 const BENIGN_CONSOLE = []
-// Geçici tanılama: service worker engelliyken Playwright'ın kendi uyarısı
-if (process.env.TELSIZ_E2E_SW === 'block') BENIGN_CONSOLE.push(/^Service Worker registration blocked by Playwright$/)
-// Geçici deney: SVG ısınma belgesi için Firefox'un kendi /favicon.ico isteği belgenin CSP'sine takılır
-if (process.env.TELSIZ_E2E_ISINMA === '/favicon.svg') BENIGN_CONSOLE.push(/^\[JavaScript Error: "Content-Security-Policy: The page’s settings blocked the loading of a resource \(img-src\) at http:\/\/127\.0\.0\.1:\d+\/favicon\.ico because it violates the following directive: “default-src 'none'”" \{file: "resource:\/\/\/modules\/FaviconLoader\.sys\.mjs" line: \d+\}\]$/)
 
 function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -202,7 +197,6 @@ async function startServer (options, slot) {
     musicLimit: 100000,
     log
   }, options || {}))
-  iz.izleSunucu(server)
   const port = await listen(server, portFor(slot))
   return { server, port, base: 'http://127.0.0.1:' + port, dataDir, errors }
 }
@@ -263,11 +257,8 @@ async function openBrowser (opts) {
     // Yeni bağlam ve sayfa. opts: viewport, locale, extra (localStorage), mobile, route (bağlam yönlendirmesi)
     async newPage (label, opts) {
       const o = opts || {}
-      const izi = iz.basla(label)
       const ctxOptions = { locale: o.locale || 'tr-TR', viewport: o.viewport || { width: 1440, height: 900 }, deviceScaleFactor: 1 }
       if (o.mobile) Object.assign(ctxOptions, { isMobile: true, hasTouch: true })
-      // Geçici tanılama: TELSIZ_E2E_SW=block ile service worker kaydı engellenir (A/B karşılaştırması)
-      if (process.env.TELSIZ_E2E_SW === 'block') ctxOptions.serviceWorkers = 'block'
       const context = await browser.newContext(ctxOptions)
       if (o.route) await o.route(context)
       if (o.person || o.extra) {
@@ -275,38 +266,46 @@ async function openBrowser (opts) {
         await context.addInitScript(initScript, { token: p.token || null, id: p.id || null, identity: p.identity || null, extra: o.extra || {} })
       }
       const page = await context.newPage()
-      iz.izleSayfa(izi, page)
       page.setDefaultTimeout(SHORT)
-      domReadyGoto(page, izi)
+      domReadyGoto(page)
       watchPage(page, label, logs)
       pages.push({ label, page })
       return page
     },
     async close () {
-      await iz.kapanis()
       await browser.close()
     }
   }
 }
 
-// page.goto varsayılan olarak load yerine domcontentloaded bekler. Firefox CI'da yeni profildeki ilk açılışta load
-// olayı zaman zaman süre sınırını aşıyor (1c3f98a, pageFor). Uygulamada load olayına bağlı iş yoktur, testler sayfanın
-// hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
-// Geçici deney (TELSIZ_E2E_ISINMA=<yol>): Firefox'ta sayfanın ilk http gezinmesinden önce aynı kökende bu yola
-// gidilir, testin kendi gezinmesi tarama bağlamını değiştirmez
-const ISINMA = BROWSER === 'firefox' ? process.env.TELSIZ_E2E_ISINMA || '' : ''
-function domReadyGoto (page, izi) {
+// page.goto varsayılan olarak load yerine domcontentloaded bekler. Uygulamada load olayına bağlı iş yoktur, testler
+// sayfanın hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
+//
+// Firefox'ta sayfanın ilk http gezinmesinden önce aynı kökendeki FIREFOX_WARMUP_PATH açılır. Sunucu her yanıtta
+// Cross-Origin-Opener-Policy: same-origin gönderir, bu yüzden about:blank belgesinden uygulamaya ilk geçiş tarama
+// bağlamını (BrowsingContext) yenisiyle değiştirir. Playwright 1.63'ün Firefox sürücüsü (Juggler) bu geçişte CI
+// ölçümlerinde yaklaşık 200 sayfada bir Page.navigationCommitted olayını yayımlamaz: yeni bağlamın boş ilk belgesi
+// bekleyen gezinme kimliğini tüketir (FrameTree.js satır 251 ve 273), ilk belge olduğu için de commit olayı bastırılır
+// (PageAgent.js satır 312). Belge yüklenir, ama Playwright gezinmeyi bitmemiş sayar, goto ve sonraki bütün tıklamalar
+// "navigation to finish" bekleyerek zaman aşımına uğrar. Isınmadan sonra testin kendi gezinmesi aynı tarama bağlamında
+// kalır. Isınmanın kendi commit olayı beklenmez, belgenin hazır olduğu sayfanın içinden okunur, yeni gezinme bekleyen
+// eski gezinmenin yerini alır. /sw.js uygulamayı çalıştırmaz ve CSP'si (img-src 'self') Firefox'un kendi /favicon.ico
+// isteğini konsola hata yazdırmadan geçirir.
+const FIREFOX_WARMUP_PATH = '/sw.js'
+
+async function firefoxWarmup (page, target) {
+  await page.evaluate((url) => { window.location.replace(url) }, target)
+  await page.waitForFunction((url) => window.location.href === url && document.readyState === 'complete', target, { timeout: LONG })
+}
+
+function domReadyGoto (page) {
   const goto = page.goto.bind(page)
-  let isindi = !ISINMA
+  let warmedUp = BROWSER !== 'firefox'
   page.goto = async (url, options) => {
-    if (!isindi && /^https?:/.test(String(url))) {
-      isindi = true
-      const hedef = new URL(url).origin + ISINMA
-      iz.isaret(izi, 'ısınma ' + hedef)
-      await page.evaluate((u) => { window.location.replace(u) }, hedef)
-      await page.waitForFunction((u) => window.location.href === u && document.readyState === 'complete', hedef, { timeout: LONG })
+    if (!warmedUp && /^https?:\/\//.test(String(url))) {
+      warmedUp = true
+      await firefoxWarmup(page, new URL(url).origin + FIREFOX_WARMUP_PATH)
     }
-    iz.isaret(izi, 'goto ' + String(url).split('#')[0])
     return goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
   }
   return page
@@ -429,8 +428,8 @@ async function setupWorld (opts) {
     const o2 = opts2 || {}
     const page = await tb.newPage(o2.label || who, Object.assign({}, o2, { person: P[who], extra: Object.assign({ 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' }, o2.extra || {}) }))
     // Sayfanın hazır olduğu uygulama görünümü ve bant ile beklenir, pencerenin load olayı beklenmez (uygulamada
-    // load olayına bağlı iş yok). Firefox'ta CI'da yeni sayfanın load olayı zaman zaman 30 saniyeyi aştı, bu
-    // durumda bekleyen kaynaklar test çıktısına yazılır (slowLoad).
+    // load olayına bağlı iş yok). Uygulama hazır olduktan sonra load gecikirse bekleyen kaynaklar test çıktısına
+    // yazılır (slowLoad). Firefox'ta ilk gezinmenin commit olayının kaybolması domReadyGoto içinde önlenir.
     await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode), { timeout: LONG, waitUntil: 'domcontentloaded' })
     await page.waitForSelector('#app-view:not([hidden])', { timeout: LONG })
     await page.waitForSelector('#band-track .station[data-station]', { timeout: LONG })
