@@ -76,6 +76,49 @@ jobs:
             ad: Firefox
           - tarayici: webkit
             ad: WebKit
+          # Geçici tanılama: Firefox ilk sayfa gezinmesi (iz ve service worker A/B)
+          - tarayici: firefox
+            ad: Firefox iz 1
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 2
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 3
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 4
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 5
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 6
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz sw-block 1
+            iz: '1'
+            sw: block
+          - tarayici: firefox
+            ad: Firefox iz sw-block 2
+            iz: '1'
+            sw: block
+          - tarayici: firefox
+            ad: Firefox iz sw-block 3
+            iz: '1'
+            sw: block
+          - tarayici: firefox
+            ad: Firefox iz sw-block 4
+            iz: '1'
+            sw: block
+          - tarayici: firefox
+            ad: Firefox iz sw-block 5
+            iz: '1'
+            sw: block
+          - tarayici: firefox
+            ad: Firefox iz sw-block 6
+            iz: '1'
+            sw: block
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,6 +141,8 @@ jobs:
         run: npm run test:e2e
         env:
           TELSIZ_E2E_BROWSER: ${{ matrix.tarayici }}
+          TELSIZ_E2E_IZ: ${{ matrix.iz }}
+          TELSIZ_E2E_SW: ${{ matrix.sw }}
 
       - name: Hata anındaki ekran görüntülerini ve izleri yükle
         if: failure()

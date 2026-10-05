@@ -27,6 +27,7 @@ const crypto = require('node:crypto')
 const { test } = require('node:test')
 const playwright = require('playwright')
 const { createChatServer } = require('../src/app')
+const iz = require('./iz')
 
 const ROOT = path.join(__dirname, '..')
 const PUBLIC_DIR = path.join(ROOT, 'public')
@@ -197,6 +198,7 @@ async function startServer (options, slot) {
     musicLimit: 100000,
     log
   }, options || {}))
+  iz.izleSunucu(server)
   const port = await listen(server, portFor(slot))
   return { server, port, base: 'http://127.0.0.1:' + port, dataDir, errors }
 }
@@ -257,8 +259,11 @@ async function openBrowser (opts) {
     // Yeni bağlam ve sayfa. opts: viewport, locale, extra (localStorage), mobile, route (bağlam yönlendirmesi)
     async newPage (label, opts) {
       const o = opts || {}
+      if (pages.length === 0) iz.basla(path.basename(require.main ? require.main.filename : ''), label)
       const ctxOptions = { locale: o.locale || 'tr-TR', viewport: o.viewport || { width: 1440, height: 900 }, deviceScaleFactor: 1 }
       if (o.mobile) Object.assign(ctxOptions, { isMobile: true, hasTouch: true })
+      // Geçici tanılama: TELSIZ_E2E_SW=block ile service worker kaydı engellenir (A/B karşılaştırması)
+      if (process.env.TELSIZ_E2E_SW === 'block') ctxOptions.serviceWorkers = 'block'
       const context = await browser.newContext(ctxOptions)
       if (o.route) await o.route(context)
       if (o.person || o.extra) {
@@ -266,6 +271,7 @@ async function openBrowser (opts) {
         await context.addInitScript(initScript, { token: p.token || null, id: p.id || null, identity: p.identity || null, extra: o.extra || {} })
       }
       const page = await context.newPage()
+      iz.izleSayfa(page)
       page.setDefaultTimeout(SHORT)
       domReadyGoto(page)
       watchPage(page, label, logs)
@@ -273,6 +279,7 @@ async function openBrowser (opts) {
       return page
     },
     async close () {
+      await iz.kapanis()
       await browser.close()
     }
   }
