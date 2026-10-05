@@ -5,7 +5,9 @@
 // kayıtları, kullanıcı dizinini, zil süresini ve aramanın oda üyeliğine göre durumunu yönetir. Bu modül hiçbir şey
 // loglamaz.
 // Kayıt: { dmId, members: [a, b], caller, callee, video, state: 'ringing' | 'active', createdAt, ringUntil,
-//   answeredAt, joined }. joined, arama odasına en az bir kez katılmış üyelerin kümesidir ve görünüme girmez.
+//   answeredAt, joined, declined }. joined, arama odasına en az bir kez katılmış üyelerin kümesidir ve görünüme
+//   girmez. declined, arananın reddettiği çalan aramadır: arananın görünümünden kalkar, arayan için zil süresi
+//   dolana kadar sürer (reddetme cevapsız kalmadan ayırt edilemez).
 
 function addTo (index, key, item) {
   let set = index.get(key)
@@ -63,7 +65,8 @@ function createCalls (options) {
       createdAt: now,
       ringUntil: now + ringMs,
       answeredAt: null,
-      joined: new Set()
+      joined: new Set(),
+      declined: false
     }
     calls.set(String(dm.id), rec)
     for (const id of rec.members) addTo(byUser, id, rec)
@@ -80,6 +83,18 @@ function createCalls (options) {
     return true
   }
 
+  // Aranan çalan aramayı reddetti. Kayıt zil süresi dolana kadar kalır. Durum değiştiyse true.
+  function decline (rec) {
+    if (rec.state !== 'ringing' || rec.declined) return false
+    rec.declined = true
+    return true
+  }
+
+  // Reddedilen çalan arama aranana artık görünmez
+  function hiddenFrom (rec, userId) {
+    return rec.declined && rec.state === 'ringing' && rec.callee === userId
+  }
+
   // Kullanıcının üyesi olduğu kayıtlar
   function ofUser (userId) {
     return Array.from(byUser.get(userId) || [])
@@ -90,7 +105,7 @@ function createCalls (options) {
   function latestOf (userId, now) {
     let best = null
     for (const rec of byUser.get(userId) || []) {
-      if (stale(rec, now)) continue
+      if (stale(rec, now) || hiddenFrom(rec, userId)) continue
       if (best === null) {
         best = rec
         continue
@@ -137,7 +152,7 @@ function createCalls (options) {
     return calls.size
   }
 
-  return { get, live, create, end, ofUser, latestOf, ringingBy, expired, sync, size }
+  return { get, live, create, end, decline, hiddenFrom, ofUser, latestOf, ringingBy, expired, sync, size }
 }
 
 module.exports = { createCalls }

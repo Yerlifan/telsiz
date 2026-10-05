@@ -190,6 +190,142 @@ test('zil, zil süresi pay ile aşılınca kendiliğinden durur, oturum kapanın
   assert.equal(live().length, 0)
 })
 
+// Arama başlatma ve kabul için ağ, ses motoru ve konuşma yardımcıları taklit edilir. Kamera açma istekleri sayılır.
+function loadJoin (answerCall) {
+  const env = load()
+  const { sandbox } = env
+  const cams = []
+  const posts = []
+  Object.assign(sandbox, {
+    isFriend: () => true,
+    dmSendState: () => ({ ok: true }),
+    callSupportCode: () => '',
+    camerasAllowed: () => true,
+    toast: () => {},
+    normalizeCall: (c) => c,
+    dmEntry: () => null,
+    showDm: () => {},
+    nextFrame: () => {},
+    focusNode: () => {},
+    radioCamera: () => ({ canUse: true, state: 'off' }),
+    voice: { startCamera: () => cams.push(true) },
+    api: (method, path, body) => {
+      posts.push({ path, body })
+      return Promise.resolve({ status: 200, data: { call: answerCall, answer: true } })
+    },
+    joinCallRoom: (dmId) => {
+      sandbox.voiceState = { channelId: dmId, private: true, joining: false, peers: {} }
+      return Promise.resolve()
+    }
+  })
+  return Object.assign(env, { cams, posts })
+}
+
+const settle = async () => {
+  let i = 0
+  while (i < 5) {
+    await new Promise((resolve) => setImmediate(resolve))
+    i += 1
+  }
+}
+
+test('görüntülü arama çalarken başlıktaki Sesli Ara aramayı kamerasız kabul eder, kamerayı yalnızca kişinin seçimi açar', async () => {
+  // Sunucu (çakışan arama) arayanın görüntülü aramasını kabul sayar, call.video true döner
+  const voiceOnly = loadJoin(call({ video: true }))
+  voiceOnly.sandbox.callNow = call({ video: true })
+  voiceOnly.run('aramaStart(7, 2, false)')
+  await settle()
+  assert.deepEqual(JSON.parse(JSON.stringify(voiceOnly.posts.map((x) => x.body))), [{ dmId: 7, video: false }])
+  assert.equal(voiceOnly.run('arama.session && arama.session.role'), 'callee')
+  assert.equal(voiceOnly.cams.length, 0, 'Sesli Ara kamerayı açmaz')
+
+  const withVideo = loadJoin(call({ video: true }))
+  withVideo.sandbox.callNow = call({ video: true })
+  withVideo.run('aramaStart(7, 2, true)')
+  await settle()
+  assert.equal(withVideo.cams.length, 1, 'Görüntülü Ara kamerayı açar')
+
+  // Karşı taraf sesli arıyorsa Görüntülü Ara kişinin kendi kamerasını açar, Sesli Ara açmaz
+  const voiceCall = loadJoin(call({ video: false }))
+  voiceCall.sandbox.callNow = call({ video: false })
+  voiceCall.run('aramaStart(7, 2, false)')
+  await settle()
+  assert.equal(voiceCall.cams.length, 0)
+})
+
+test('görüntülü aramada Kabul Et kamerayla, Kamerasız Kabul Et yalnızca sesle katılır', async () => {
+  const plain = loadJoin(null)
+  plain.sandbox.callNow = call({ video: true })
+  plain.run('aramaAccept()')
+  await settle()
+  assert.equal(plain.run('arama.session && arama.session.video'), true)
+  assert.equal(plain.cams.length, 1)
+
+  const voiceOnly = loadJoin(null)
+  voiceOnly.sandbox.callNow = call({ video: true })
+  voiceOnly.run('aramaAcceptVoice()')
+  await settle()
+  assert.equal(voiceOnly.run('arama.session && arama.session.role'), 'callee')
+  assert.equal(voiceOnly.run('arama.session.video'), false)
+  assert.equal(voiceOnly.cams.length, 0, 'kamerasız kabul kamerayı açmaz')
+
+  // Sesli aramada Kabul Et kamerayı açmaz
+  const voiceCall = loadJoin(null)
+  voiceCall.sandbox.callNow = call({ video: false })
+  voiceCall.run('aramaAccept()')
+  await settle()
+  assert.equal(voiceCall.cams.length, 0)
+})
+
+test('gelen arama kartı odağı kabul düğmesine değil kartın kendisine taşır, kamerasız kabul yalnızca görüntülü aramada görünür', () => {
+  const env = loadJoin(null)
+  const { sandbox, run } = env
+  const focused = []
+  const node = (id) => ({
+    id,
+    hidden: true,
+    tabIndex: 0,
+    attrs: {},
+    listeners: {},
+    addEventListener (type, fn) {
+      this.listeners[type] = fn
+    },
+    getAttribute (name) {
+      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null
+    },
+    setAttribute (name, value) {
+      this.attrs[name] = String(value)
+    },
+    removeAttribute (name) {
+      delete this.attrs[name]
+    },
+    contains: () => false
+  })
+  const nodes = {}
+  for (const id of ['call-incoming', 'call-incoming-accept', 'call-incoming-accept-voice', 'call-incoming-decline']) nodes[id] = node(id)
+  Object.assign(sandbox, {
+    byId: (id) => nodes[id] || null,
+    userDisplayName: () => 'Ece',
+    setText: () => {},
+    focusNode: (n) => focused.push(n ? n.id : null)
+  })
+  sandbox.callNow = call({ video: true })
+  run('aramaSyncCard()')
+  assert.equal(nodes['call-incoming'].hidden, false)
+  assert.equal(nodes['call-incoming'].tabIndex, -1, 'kart odaklanabilir')
+  assert.deepEqual(focused, ['call-incoming'], 'yanlışlıkla basılan Enter veya Boşluk aramayı kabul etmez')
+  assert.equal(nodes['call-incoming-accept'].hidden, false)
+  assert.equal(nodes['call-incoming-accept-voice'].hidden, false)
+  assert.equal(typeof nodes['call-incoming-accept-voice'].listeners.click, 'function')
+
+  // Sesli aramada kamerasız kabul düğmesi gizlidir
+  run('aramaHideCard(false)')
+  sandbox.callNow = call({ video: false, createdAt: 2000 })
+  run('aramaSyncCard()')
+  assert.equal(nodes['call-incoming-accept-voice'].hidden, true)
+  assert.deepEqual(focused, ['call-incoming', 'call-incoming'])
+})
+
 test('özel görünümdeki arama doğrulanır: bozuk kayıt yok sayılır, alanlar daraltılır', () => {
   const sandbox = { console, window: null, STATUS_CHOICES: ['online', 'idle', 'dnd', 'invisible'] }
   sandbox.window = sandbox
@@ -240,6 +376,7 @@ test('index.html, sw.js ve arama.css: modül, simge, kart ve bölüm bağlı, ya
   assert.ok(SW.indexOf("'/js/32-arama.js'") !== -1 && SW.indexOf("'/css/arama.css'") !== -1)
   assert.ok(/<symbol id="i-phone" viewBox="0 0 24 24">/.test(HTML))
   assert.ok(/<div id="call-incoming" class="call-incoming" role="alertdialog" aria-labelledby="call-incoming-title" aria-describedby="call-incoming-text" hidden>/.test(HTML))
+  assert.ok(/<button id="call-incoming-accept-voice" [^>]*hidden>/.test(HTML), 'kamerasız kabul düğmesi')
   // Arama bölümü başlık ile mesajlar arasında
   assert.ok(HTML.indexOf('id="dm-header"') < HTML.indexOf('id="dm-call"') && HTML.indexOf('id="dm-call"') < HTML.indexOf('id="messages"'))
   assert.ok(!/(^|[\s{])(row-|column-)?gap\s*:|clamp\(|:is\(|:where\(|aspect-ratio|(^|[\s{])inset\s*:|display:\s*grid/.test(CSS), 'yasak özellik yok')

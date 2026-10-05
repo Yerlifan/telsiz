@@ -55,7 +55,7 @@ function inAudience (audience, userId) {
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
 //   isPrivateRoom: (channelId) => özel arama odası mı, onPrivateVoice: (channelId) => özel odanın ses üyeliği veya
 //     durumu değişti,
-//   send: (res, status, payload) => void }
+//   send: (res, status, json) => void (json: JSON metni) }
 function createHub (options) {
   const pollTimeoutMs = options.pollTimeoutMs
   const graceMs = options.graceMs
@@ -492,6 +492,36 @@ function createHub (options) {
     return payload
   }
 
+  // Meta ve müzik haritası sürüm başına bir kez JSON metnine çevrilir ve her yanıta eklenir. Her bekleyen
+  // için yeniden serileştirmek bir meta veya müzik değişikliğinde olay döngüsünü saniyelerce tutabiliyordu.
+  let metaJsonVersion = -1
+  let metaJson = ''
+  let musicJsonVersion = -1
+  let musicJson = ''
+
+  function encodePayload (payload) {
+    const rest = Object.assign({}, payload)
+    delete rest.meta
+    delete rest.music
+    const parts = [JSON.stringify(rest).slice(0, -1)]
+    if (payload.meta !== undefined) {
+      if (metaJsonVersion !== metaVersion) {
+        metaJson = JSON.stringify(meta())
+        metaJsonVersion = metaVersion
+      }
+      parts.push('"meta":' + metaJson)
+    }
+    if (payload.music !== undefined) {
+      const muv = music.version()
+      if (musicJsonVersion !== muv) {
+        musicJson = JSON.stringify(music.map())
+        musicJsonVersion = muv
+      }
+      parts.push('"music":' + musicJson)
+    }
+    return parts.join(',') + '}'
+  }
+
   function removeWaiter (w) {
     waiters.delete(w)
     const list = w.rt.waiters
@@ -507,7 +537,7 @@ function createHub (options) {
     removeWaiter(w)
     w.rt.lastSeen = Date.now()
     const payload = ready || readyPayload(w.rt, w) || emptyPayload(w.rt)
-    send(w.res, 200, payload)
+    send(w.res, 200, encodePayload(payload))
   }
 
   function finishWaiterWith (w, reply) {
@@ -555,13 +585,13 @@ function createHub (options) {
       if (rt.signals.length > 0 && rt.signals[0].seq <= sig) rt.signals = rt.signals.filter((s) => s.seq > sig)
     }
     if (!bootOk || since === null) {
-      send(res, 200, resyncPayload(rt, sigFloor))
+      send(res, 200, encodePayload(resyncPayload(rt, sigFloor)))
       return
     }
     const q = { since, mv, pmv, tv, muv, sigFloor }
     const ready = readyPayload(rt, q)
     if (ready || closed) {
-      send(res, 200, ready || emptyPayload(rt))
+      send(res, 200, encodePayload(ready || emptyPayload(rt)))
       return
     }
     if (res.writableEnded || res.destroyed) return

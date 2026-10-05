@@ -32,7 +32,9 @@ var E2EE = (function (root) {
   const MAX_FILE_EXT = 20
   const DEFAULT_FILE_NAME = 'file'
   const FILE_NAME_STRIP_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\/\\:*?"<>|]/g
-  const FILE_NAME_EDGE_RE = /^[.\s]+|[.\s]+$/g
+  // Baştaki ve sondaki nokta ile boşluklar karakter karakter kırpılır (trimFileNameEdges). Sonda bağlı bir düzenli ifade
+  // ([.\s]+$) uzun nokta ve boşluk dizilerinde karesel zaman alır.
+  const FILE_NAME_EDGE_CHAR_RE = /^[.\s]$/
   // Ek F: parola türetme, kişisel kimlik anahtarları, özel mesajlar ve sabitleme
   const KDF_LABEL_AUTH = 'telsiz-auth-v1'
   const KDF_LABEL_WRAP = 'telsiz-wrap-v1'
@@ -783,7 +785,7 @@ var E2EE = (function (root) {
     } catch (e) {
       name = str
     }
-    name = name.replace(FILE_NAME_STRIP_RE, '').replace(FILE_NAME_EDGE_RE, '')
+    name = trimFileNameEdges(name.replace(FILE_NAME_STRIP_RE, ''))
     let cps = Array.from(name).map(function (ch) {
       const c = ch.charCodeAt(0)
       return ch.length === 1 && c >= 0xd800 && c <= 0xdfff ? '\ufffd' : ch
@@ -797,7 +799,16 @@ var E2EE = (function (root) {
         cps = cps.slice(0, MAX_FILE_NAME)
       }
     }
-    return cps.join('').replace(FILE_NAME_EDGE_RE, '')
+    return trimFileNameEdges(cps.join(''))
+  }
+
+  // Doğrusal zamanda kırpar. \s'nin bütün karakterleri tek UTF-16 birimidir.
+  function trimFileNameEdges (name) {
+    let start = 0
+    let end = name.length
+    while (start < end && FILE_NAME_EDGE_CHAR_RE.test(name.charAt(start))) start += 1
+    while (end > start && FILE_NAME_EDGE_CHAR_RE.test(name.charAt(end - 1))) end -= 1
+    return name.slice(start, end)
   }
 
   // ===== Ek F: parola türetme, kimlik anahtarları, özel mesajlar ve sabitleme =====

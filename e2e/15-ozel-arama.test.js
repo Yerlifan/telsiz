@@ -116,7 +116,8 @@ test('başlık düğmeleri: arkadaş olmayanla nedeniyle devre dışı, arkadaş
 
 test('sesli arama: zil, kabul, iki tarafta etkin arama, aramada yazışma, telsiz kartı özel arama kipinde', async () => {
   const { deniz, ece } = W
-  // Kart, kişi bir alana yazmıyorsa odağı Kabul Et düğmesine taşır (yazma alanındaki odak alınmaz)
+  // Kart, kişi bir alana yazmıyorsa odağı kartın kendisine taşır (yazma alanındaki odak alınmaz). Kabul Et düğmesine
+  // taşımaz: o an basılan Enter veya Boşluk aramayı kabul etmemeli.
   await deniz.evaluate(() => {
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
   })
@@ -128,9 +129,11 @@ test('sesli arama: zil, kabul, iki tarafta etkin arama, aramada yazışma, telsi
   const card = await deniz.evaluate(() => ({
     role: document.getElementById('call-incoming').getAttribute('role'),
     text: document.getElementById('call-incoming-text').textContent.trim(),
-    focus: document.activeElement && document.activeElement.id
+    focus: document.activeElement && document.activeElement.id,
+    // Kamerasız Kabul Et yalnızca görüntülü aramada görünür
+    voiceOnly: !document.getElementById('call-incoming-accept-voice').hidden
   }))
-  assert.deepEqual(card, { role: 'alertdialog', text: 'Ece sizi arıyor', focus: 'call-incoming-accept' })
+  assert.deepEqual(card, { role: 'alertdialog', text: 'Ece sizi arıyor', focus: 'call-incoming', voiceOnly: false })
   await deniz.waitForFunction(() => window.__sesler.indexOf('ring') !== -1, null, { timeout: h.LONG })
   assert.equal(await ringCount(ece), 0, 'arayanda zil çalmaz')
 
@@ -212,13 +215,15 @@ test('reddetme: arayanda arama cevaplanmadı, aranan tarafta zil durur', async (
   await waitPhase(ece, 'calling')
   await deniz.waitForSelector('#call-incoming:not([hidden])', { timeout: h.LONG })
   assert.equal((await deniz.textContent('#call-incoming-text')).trim(), 'Ece sizi görüntülü arıyor')
+  assert.equal(await deniz.isVisible('#call-incoming-accept-voice'), true, 'görüntülü aramada Kamerasız Kabul Et görünür')
   // Deniz konuşmayı açık tutuyor: gelen arama konuşmanın bölümünde de Kabul Et ve Reddet ile görünür
   await waitPhase(deniz, 'incoming')
   assert.deepEqual(await deniz.evaluate(() => ({
     accept: Boolean(document.getElementById('dm-call-accept')),
+    acceptVoice: Boolean(document.getElementById('dm-call-accept-voice')),
     decline: Boolean(document.getElementById('dm-call-decline')),
     state: document.getElementById('dm-call-state').textContent.trim()
-  })), { accept: true, decline: true, state: 'Gelen görüntülü arama' })
+  })), { accept: true, acceptVoice: true, decline: true, state: 'Gelen görüntülü arama' })
   await deniz.waitForFunction(() => window.__sesler.indexOf('ring') !== -1, null, { timeout: h.LONG })
 
   await deniz.click('#call-incoming-decline')

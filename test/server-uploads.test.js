@@ -37,6 +37,15 @@ async function uploadOk (ctx, token, bytes) {
   return res.data.id
 }
 
+// Belirtilen istemci adresinden (geri döngüden gelen X-Forwarded-For) gönderilen yükleme
+function uploadFrom (ctx, token, bytes, ip) {
+  return h.request(ctx, 'POST', '/api/uploads', {
+    token,
+    raw: bytes,
+    headers: { 'content-type': 'application/octet-stream', 'x-forwarded-for': ip }
+  })
+}
+
 // Gövdesi parça parça gönderilen ve kontrolü teste bırakılan yükleme isteği
 function openUpload (ctx, token, headers) {
   const req = http.request({
@@ -66,6 +75,32 @@ function openUpload (ctx, token, headers) {
     req.on('error', (err) => resolve({ status: 0, error: err }))
   })
   return { req, response }
+}
+
+// Hız testlerinde her yüklemenin boyutu: 4000 baytlık ilk parça ve 50 ms arayla gönderilen parçalar
+const RATE_TEST_BYTES = 4000 + 50 * 1200
+
+// Yüklemelere önce first bayt, ardından her 50 ms'de bir chunk bayt gönderir (chunk 1200 iken dosya başına yaklaşık
+// 24 KB/sn). Gövde tamamlanınca istek bitirilir. Yanıtları döndürür, 4 sn içinde yanıt gelmeyen yükleme 'bitmedi' olur.
+async function dripUploads (ctx, ups, first, chunk) {
+  const sent = ups.map(() => first)
+  for (const u of ups) u.req.write(crypto.randomBytes(first))
+  await h.waitFor(() => ctx.server.stats().activeUploads === ups.length)
+  const drip = setInterval(() => {
+    ups.forEach((u, i) => {
+      if (u.req.destroyed || sent[i] >= RATE_TEST_BYTES) return
+      const part = Math.min(chunk, RATE_TEST_BYTES - sent[i])
+      sent[i] += part
+      if (sent[i] >= RATE_TEST_BYTES) u.req.end(crypto.randomBytes(part))
+      else u.req.write(crypto.randomBytes(part))
+    })
+  }, 50)
+  try {
+    return await Promise.all(ups.map((u) => Promise.race([u.response, h.sleep(4000).then(() => ({ status: 'bitmedi' }))])))
+  } finally {
+    clearInterval(drip)
+    for (const u of ups) u.req.destroy()
+  }
 }
 
 describe('yüklemeler', () => {
@@ -216,6 +251,187 @@ describe('yüklemeler', () => {
       assert.equal(busy.data.error, 'The server is busy with other uploads. Try again shortly.')
       first.req.end(crypto.randomBytes(1000))
       h.expectStatus(await first.response, 200)
+      await uploadOk(ctx, owner.token, crypto.randomBytes(500))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('bir kişi eşzamanlı yükleme yerlerinin hepsini tutamaz', async () => {
+    const ctx = await h.startServer({ maxConcurrentUploads: 4 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const second = await h.login(ctx, 'sahip')
+      h.expectStatus(second, 200)
+      const holds = [openUpload(ctx, owner.token, { 'content-length': '2000' }), openUpload(ctx, second.data.token, { 'content-length': '2000' })]
+      for (const hold of holds) hold.req.write(crypto.randomBytes(1000))
+      await h.waitFor(() => ctx.server.stats().activeUploads === 2)
+      // Aynı hesabın başka oturumundan da olsa üçüncü yükleme reddedilir. Sunucu dolu değildir, ret ayrı kodla
+      // bildirilir: yer, hesabın kendi yüklemesi bitince açılır
+      const reserved = await h.upload(ctx, owner.token, crypto.randomBytes(500))
+      h.expectStatus(reserved, 503, 'busy_reserved')
+      assert.equal(reserved.data.error, 'An upload from you or someone on your network is still in progress. Try again when it finishes.')
+      const member = await h.addUser(ctx, owner.token, 'uye')
+      h.expectStatus(await uploadFrom(ctx, member.token, crypto.randomBytes(500), '203.0.113.20'), 200)
+      for (const hold of holds) hold.req.end(crypto.randomBytes(1000))
+      for (const hold of holds) h.expectStatus(await hold.response, 200)
+      await uploadOk(ctx, owner.token, crypto.randomBytes(500))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('bir istemci adresi farklı hesaplarla da ikiden fazla yükleme yeri tutamaz', async () => {
+    const ctx = await h.startServer({ maxConcurrentUploads: 8 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const member = await h.addUser(ctx, owner.token, 'uye')
+      const ip = { 'content-length': '2000', 'x-forwarded-for': '203.0.113.30' }
+      const holds = [openUpload(ctx, owner.token, ip), openUpload(ctx, owner.token, ip)]
+      for (const hold of holds) hold.req.write(crypto.randomBytes(1000))
+      await h.waitFor(() => ctx.server.stats().activeUploads === 2)
+      h.expectStatus(await uploadFrom(ctx, member.token, crypto.randomBytes(500), '203.0.113.30'), 503, 'busy_reserved')
+      h.expectStatus(await uploadFrom(ctx, member.token, crypto.randomBytes(500), '203.0.113.31'), 200)
+      for (const hold of holds) hold.req.end(crypto.randomBytes(1000))
+      for (const hold of holds) h.expectStatus(await hold.response, 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('son boş yükleme yeri yalnızca hiç yer tutmayan hesap ve adrese verilir', async () => {
+    const ctx = await h.startServer({ maxConcurrentUploads: 4 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const first = await h.addUser(ctx, owner.token, 'birinci')
+      const second = await h.addUser(ctx, owner.token, 'ikinci')
+      const at = (ip) => ({ 'content-length': '2000', 'x-forwarded-for': ip })
+      // İki hesap üç yer tutar: sahip iki, birinci üye bir
+      const holds = [
+        openUpload(ctx, owner.token, at('203.0.113.40')),
+        openUpload(ctx, owner.token, at('203.0.113.40')),
+        openUpload(ctx, first.token, at('203.0.113.41'))
+      ]
+      for (const hold of holds) hold.req.write(crypto.randomBytes(1000))
+      await h.waitFor(() => ctx.server.stats().activeUploads === 3)
+      // Yer tutan hesap başka adresten de, yer tutan adres başka hesapla da son yeri alamaz
+      h.expectStatus(await uploadFrom(ctx, first.token, crypto.randomBytes(500), '203.0.113.42'), 503, 'busy_reserved')
+      h.expectStatus(await uploadFrom(ctx, second.token, crypto.randomBytes(500), '203.0.113.41'), 503, 'busy_reserved')
+      // Hiç yer tutmayan kişi yükleyebilir
+      h.expectStatus(await uploadFrom(ctx, second.token, crypto.randomBytes(500), '203.0.113.43'), 200)
+      for (const hold of holds) hold.req.end(crypto.randomBytes(1000))
+      for (const hold of holds) h.expectStatus(await hold.response, 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('varsayılan sınırla iki kişi ayrı adreslerden ikişer dosyayı birlikte yükleyebilir', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const first = await h.addUser(ctx, owner.token, 'birinci')
+      const second = await h.addUser(ctx, owner.token, 'ikinci')
+      const third = await h.addUser(ctx, owner.token, 'ucuncu')
+      const at = (ip) => ({ 'content-length': '2000', 'x-forwarded-for': ip })
+      const holds = []
+      // İstemci gibi her kişi iki dosyayı aynı anda gönderir, yerler sırayla tutulur
+      const plan = [[owner.token, '203.0.113.50'], [owner.token, '203.0.113.50'], [first.token, '203.0.113.51'], [first.token, '203.0.113.51'], [second.token, '203.0.113.52']]
+      for (const [token, ip] of plan) {
+        const hold = openUpload(ctx, token, at(ip))
+        hold.req.write(crypto.randomBytes(1000))
+        holds.push(hold)
+        await h.waitFor(() => ctx.server.stats().activeUploads === holds.length)
+      }
+      // Son boş yer yer tutan hesap ve adrese verilmez, hiç yer tutmayan kişi alır
+      h.expectStatus(await uploadFrom(ctx, second.token, crypto.randomBytes(500), '203.0.113.53'), 503, 'busy_reserved')
+      h.expectStatus(await uploadFrom(ctx, third.token, crypto.randomBytes(500), '203.0.113.54'), 200)
+      for (const hold of holds) hold.req.end(crypto.randomBytes(1000))
+      for (const hold of holds) h.expectStatus(await hold.response, 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('varsayılan alt hız sınırı saniyede 32 KB: saniyede 16 KB ile süren yükleme kesilir', async () => {
+    const ctx = await h.startServer({ maxConcurrentUploads: 1, uploadRateGraceMs: 300 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const slow = openUpload(ctx, owner.token, { 'content-length': String(1024 * 1024) })
+      slow.req.write(crypto.randomBytes(800))
+      await h.waitFor(() => ctx.server.stats().activeUploads === 1)
+      // 50 ms'de 800 bayt yaklaşık 16 KB/sn eder: eski 4 KB/sn sınırını geçer, yenisini geçemez
+      const drip = setInterval(() => {
+        if (!slow.req.destroyed) slow.req.write(crypto.randomBytes(800))
+      }, 50)
+      let res
+      try {
+        res = await Promise.race([slow.response, h.sleep(4000).then(() => ({ status: 'kesilmedi' }))])
+      } finally {
+        clearInterval(drip)
+        slow.req.destroy()
+      }
+      assert.equal(res.status, 0)
+      await h.waitFor(() => ctx.server.stats().activeUploads === 0)
+      await uploadOk(ctx, owner.token, crypto.randomBytes(500))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('hız alt sınırı bağlantının toplamına uygulanır: iki paralel yükleme dosya başına 24 KB/sn ile tamamlanır', async () => {
+    const ctx = await h.startServer({ uploadRateGraceMs: 500 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const member = await h.addUser(ctx, owner.token, 'uye')
+      const at = (ip) => ({ 'content-length': String(RATE_TEST_BYTES), 'x-forwarded-for': ip })
+      // İstemci gibi aynı hesap iki dosyayı birlikte gönderir, aynı adresteki iki hesap da hızı paylaşır
+      for (const pair of [[owner.token, owner.token], [owner.token, member.token]]) {
+        const ups = pair.map((token) => openUpload(ctx, token, at('203.0.113.60')))
+        const res = await dripUploads(ctx, ups, 4000, 1200)
+        assert.deepEqual(res.map((r) => r.status), [200, 200])
+        for (const r of res) assert.equal(r.data.size, RATE_TEST_BYTES)
+      }
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('iki paralel yüklemenin toplamı alt sınırın altındaysa (dosya başına 12 KB/sn) ikisi de kesilir', async () => {
+    const ctx = await h.startServer({ uploadRateGraceMs: 500 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ups = [0, 1].map(() => openUpload(ctx, owner.token, { 'content-length': String(RATE_TEST_BYTES) }))
+      const res = await dripUploads(ctx, ups, 600, 600)
+      assert.deepEqual(res.map((r) => r.status), [0, 0])
+      await h.waitFor(() => ctx.server.stats().activeUploads === 0)
+      await uploadOk(ctx, owner.token, crypto.randomBytes(500))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('alt hız sınırının altında kalan yükleme kesilir ve yerini bırakır', async () => {
+    const ctx = await h.startServer({ maxConcurrentUploads: 1, uploadRateGraceMs: 150, uploadMinBytesPerSec: 100000 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const slow = openUpload(ctx, owner.token, { 'content-length': '2000' })
+      slow.req.write(crypto.randomBytes(10))
+      await h.waitFor(() => ctx.server.stats().activeUploads === 1)
+      // Bayt damlatılır: boşta kalma süresi hiç dolmaz, yükleme yalnızca hız sınırıyla kesilebilir
+      const drip = setInterval(() => {
+        if (!slow.req.destroyed) slow.req.write(Buffer.from([1]))
+      }, 20)
+      let res
+      try {
+        res = await Promise.race([slow.response, h.sleep(5000).then(() => ({ status: 'kesilmedi' }))])
+      } finally {
+        clearInterval(drip)
+        slow.req.destroy()
+      }
+      assert.equal(res.status, 0)
+      await h.waitFor(() => ctx.server.stats().activeUploads === 0)
+      await h.waitFor(() => tmpFiles(ctx).length === 0)
       await uploadOk(ctx, owner.token, crypto.randomBytes(500))
     } finally {
       await ctx.cleanup()

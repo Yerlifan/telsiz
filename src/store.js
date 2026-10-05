@@ -7,7 +7,9 @@
 // İşletmecinin göreceği hata ve uyarı metinleri lang seçeneğindeki dilde üretilir (varsayılan tr).
 
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const i18n = require('./i18n')
 
 // Testlerin Windows hatalarını taklit edebilmesi için fs.promises üyeleri her çağrıda bu nesneden okunur.
@@ -16,6 +18,14 @@ const fsp = fs.promises
 const STATE_VERSION = 2
 const STATE_FILE = 'state.json'
 const LOCK_FILE = '.kilit'
+// Kilit dosyası '<PID> <makine adı> <süreç işareti>' satırıdır. PID tek başına sahibi tanıtmaz: konteynerlerde her
+// sürecin kendi PID alanı vardır (sunucu da aynı birimi açan ikinci konteynerdeki komut da PID 1 olabilir). Kilit
+// yalnızca bu sürecin işaretini taşıyorsa bu sürecindir. Aynı makinedeki başka PID'in canlılığı sorgulanır,
+// başka makineden (konteynerden) veya aynı PID numarasıyla yazılmış kilit ise sahibi düzenli olarak dosyanın
+// değişme zamanını yenilediği sürece (LOCK_HEARTBEAT_MS) canlı sayılır, LOCK_STALE_MS boyunca yenilenmezse bayattır.
+const LOCK_NONCE = crypto.randomBytes(8).toString('hex')
+const LOCK_HEARTBEAT_MS = 10000
+const LOCK_STALE_MS = 30000
 const MESSAGES_DIR = 'messages'
 const UPLOADS_DIR = 'uploads'
 // Frekans fotoğrafı: herkese açık üst veri, şifrelenmez. Dosya adı içeriğin karmasıdır (<karma>.bin).
@@ -33,6 +43,11 @@ const COMPACT_RATIO = 0.3
 const DEFAULT_MAX_PER_CHANNEL = 20000
 // Tüm kanallardaki toplam mesaj sınırı (bellek koruması), aşılınca en büyük kanalların en eskileri düşer
 const DEFAULT_MAX_TOTAL = 500000
+// Bellekteki toplam mesaj gövdesi bütçesi, varsayılan olarak mesaj sınırı çarpı bu ortalama (sahibin kapasite
+// tahminiyle aynı değer, public/js/27-kapasite.js KAPASITE_MESSAGE_BYTES). Mesaj sayısı sınırı tek başına belleği
+// korumaz: gövde 24000 karaktere kadar çıkabilir. Bütçe aşılınca en çok gövde karakteri saklayan yazarın en
+// eski mesajı düşer, böylece uzun mesajlarla bütçeyi dolduran kişi başkalarının geçmişini değil kendi mesajlarını siler.
+const AVG_BODY_CHARS = 1500
 const DEFAULT_COMPACT_MIN_LINES = 1000
 const DEFAULT_LIST_LIMIT = 50
 const MAX_LINE_BYTES = 16 * 1024 * 1024
@@ -188,19 +203,41 @@ function isPidAlive (pid) {
   }
 }
 
-// Kilit dosyasının durumunu okur (CLI ve openStore kullanır). Hiçbir şey yazmaz.
+function lockHost () {
+  return encodeURIComponent(os.hostname() || 'localhost')
+}
+
+function lockLine () {
+  return process.pid + ' ' + lockHost() + ' ' + LOCK_NONCE + '\n'
+}
+
+// Kilit metninin değerlendirmesi: { pid, alive, mine }. mtimeMs dosyanın son değişme zamanıdır. Eski sürümlerin
+// yalnızca PID içeren kilidi aynı makinede yazılmış sayılır.
+function readLock (text, mtimeMs) {
+  const match = /^\s*(\d{1,10})(?:[ ]+(\S{1,255})[ ]+([0-9a-f]{16}))?\s*$/.exec(text)
+  if (!match) return { pid: null, alive: false, mine: false }
+  const pid = Number(match[1])
+  if (match[3] === LOCK_NONCE) return { pid, alive: true, mine: true }
+  const sameHost = match[2] === undefined || match[2] === lockHost()
+  if (sameHost && pid !== process.pid) return { pid, alive: isPidAlive(pid), mine: false }
+  return { pid, alive: Date.now() - mtimeMs < LOCK_STALE_MS, mine: false }
+}
+
+// Kilit dosyasının durumunu okur (CLI ve openStore kullanır). Hiçbir şey yazmaz. alive: kilidin canlı bir sahibi
+// var (bu süreç dahil), mine: kilit bu sürecindir.
 function lockInfo (dir) {
   const file = path.join(path.resolve(String(dir)), LOCK_FILE)
   let text
+  let mtimeMs
   try {
     text = fs.readFileSync(file, 'utf8')
+    mtimeMs = fs.statSync(file).mtimeMs
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { path: file, exists: false, pid: null, alive: false }
+    if (err && err.code === 'ENOENT') return { path: file, exists: false, pid: null, alive: false, mine: false }
     throw err
   }
-  const match = /^\s*(\d{1,10})\s*$/.exec(text)
-  const pid = match ? Number(match[1]) : null
-  return { path: file, exists: true, pid, alive: pid !== null && isPidAlive(pid) }
+  const info = readLock(text, mtimeMs)
+  return { path: file, exists: true, pid: info.pid, alive: info.alive, mine: info.mine }
 }
 
 // Boş durum iskeleti. Sunucu adı burada kullanılmaz, uygulama ilk durumu kendi değerleriyle oluşturur.
@@ -370,6 +407,7 @@ async function openStore (options) {
   const lang = i18n.LANGS.includes(opts.lang) ? opts.lang : DEFAULT_LANG
   const maxPerChannel = posInt(opts.maxMessagesPerChannel, DEFAULT_MAX_PER_CHANNEL)
   const maxTotal = posInt(opts.maxTotalMessages, DEFAULT_MAX_TOTAL)
+  const maxTotalChars = posInt(opts.maxTotalBodyChars, maxTotal * AVG_BODY_CHARS)
   const compactMinLines = posInt(opts.compactMinLines, DEFAULT_COMPACT_MIN_LINES)
   const log = makeLogger(opts.log)
 
@@ -382,6 +420,12 @@ async function openStore (options) {
 
   const channels = new Map()
   const index = new Map()
+  // Dizindeki mesajların gövde karakterleri toplamı (maxTotalChars ile karşılaştırılır)
+  let bodyChars = 0
+  // Yazar kimliği -> { chars, count, ids, head, sorted }: yazarın dizindeki gövde karakterleri, mesaj sayısı ve
+  // mesaj kimlikleri. Kimlikler listesinden silinen mesajlar hemen çıkarılmaz, en eskiyi ararken atlanır ve liste
+  // canlı mesajların iki katını aşınca sıkıştırılır. ids[head] öncesi daha önce atlanmış kimliklerdir.
+  const authors = new Map()
   const activeUploads = new Map()
   const uploadOps = new Set()
   let maxMessageIdSeen = 0
@@ -396,6 +440,7 @@ async function openStore (options) {
   let stateSeq = 0
   let stateDone = 0
   let stateTimer = null
+  let lockTimer = null
   let stateRunning = false
   let stateFailures = 0
   let stateWaiters = []
@@ -407,7 +452,7 @@ async function openStore (options) {
   } catch (err) {
     throw ioError(err, lang)
   }
-  if (lock.alive && lock.pid !== process.pid) {
+  if (lock.alive && !lock.mine) {
     throw new StoreError(i18n.t(lang, 'store.locked', { pid: lock.pid, file: lockPath }), 'locked')
   }
 
@@ -451,6 +496,7 @@ async function openStore (options) {
     getMessage,
     addMessage,
     editMessage,
+    trimMessages,
     deleteMessage,
     deleteChannelMessages,
     uploadPath,
@@ -496,6 +542,8 @@ async function openStore (options) {
     } catch (err) {
       throw ioError(err, lang)
     }
+    // Gövde bütçesi her dosyadan sonra uygulanır, açılışta bellek bütçenin çok üstüne çıkmaz
+    while (bodyChars > maxTotalChars && index.size > 0) unlinkMessage(budgetVictim())
   }
   // Toplam sınır açılışta yalnızca bellekte uygulanır. Diskteki veri değişmediği sürece her açılışta
   // aynı mesajlar düşer, düşen yüklemeleri uzlaştırma siler, oran aşılırsa dosyalar sıkıştırılır.
@@ -511,6 +559,12 @@ async function openStore (options) {
     if (err instanceof StoreError) throw err
     throw ioError(err, lang)
   }
+  // Kilidin canlı olduğu, dosyanın değişme zamanı yenilenerek başka PID alanlarına (konteynerlere) de gösterilir
+  lockTimer = setInterval(() => {
+    const at = new Date()
+    fsp.utimes(lockPath, at, at).catch(noop)
+  }, LOCK_HEARTBEAT_MS)
+  if (typeof lockTimer.unref === 'function') lockTimer.unref()
 
   try {
     if (recoveredCorrupt) {
@@ -612,7 +666,7 @@ async function openStore (options) {
       kept.push(m)
     }
     if (kept.length > maxPerChannel) kept.splice(0, kept.length - maxPerChannel)
-    for (const m of kept) index.set(m.id, m)
+    for (const m of kept) indexAdd(m)
     ch.list = kept
     ch.lines = lines
     ch.needsNewline = partial
@@ -928,6 +982,10 @@ async function openStore (options) {
   }
 
   function clearTimers () {
+    if (lockTimer) {
+      clearInterval(lockTimer)
+      lockTimer = null
+    }
     if (stateTimer) {
       clearTimeout(stateTimer)
       stateTimer = null
@@ -945,7 +1003,7 @@ async function openStore (options) {
   // okunamayan PID) önce benzersiz bir ada taşınır. Taşınan dosyada arada başka bir sürecin
   // aldığı canlı kilit çıkarsa geri konur ve açılış reddedilir.
   async function acquireLock () {
-    const line = process.pid + '\n'
+    const line = lockLine()
     for (const attempt of [0, 1, 2]) {
       try {
         await createLockFile(line)
@@ -955,7 +1013,7 @@ async function openStore (options) {
       }
       const info = lockInfo(dir)
       if (!info.exists) continue
-      if (info.pid === process.pid) {
+      if (info.mine) {
         await fsp.writeFile(lockPath, line, { mode: FILE_MODE })
         return
       }
@@ -968,12 +1026,12 @@ async function openStore (options) {
         throw err
       }
       const moved = await fsp.readFile(aside, 'utf8').catch(() => '')
-      const match = /^\s*(\d{1,10})\s*$/.exec(moved)
-      const movedPid = match ? Number(match[1]) : null
-      if (movedPid !== null && movedPid !== process.pid && isPidAlive(movedPid)) {
+      const movedTime = await fsp.stat(aside).then((st) => st.mtimeMs, () => 0)
+      const movedLock = readLock(moved, movedTime)
+      if (movedLock.alive && !movedLock.mine) {
         await fsp.link(aside, lockPath).catch(noop)
         await unlinkQuiet(aside).catch(noop)
-        throw lockedError(movedPid)
+        throw lockedError(movedLock.pid)
       }
       await unlinkQuiet(aside).catch(noop)
     }
@@ -1008,7 +1066,7 @@ async function openStore (options) {
   async function releaseLock () {
     try {
       const text = await fsp.readFile(lockPath, 'utf8')
-      if (text.trim() === String(process.pid)) await unlinkQuiet(lockPath)
+      if (readLock(text, 0).mine) await unlinkQuiet(lockPath)
     } catch (err) {
       if (!err || err.code !== 'ENOENT') log.warn(i18n.t(lang, 'store.lockRemoveFailed', { error: errText(err, lang) }))
     }
@@ -1089,14 +1147,14 @@ async function openStore (options) {
     const list = ch.list
     if (list.length === 0 || list[list.length - 1].id < m.id) list.push(m)
     else list.splice(lowerBound(list, m.id), 0, m)
-    index.set(m.id, m)
+    indexAdd(m)
     noteId(m.id)
     enqueue(ch, { op: 'add', m })
     const dropped = []
     if (list.length > maxPerChannel) {
       const removed = list.splice(0, list.length - maxPerChannel)
       for (const old of removed) {
-        index.delete(old.id)
+        indexRemove(old)
         dropped.push(copyMessage(old))
       }
     }
@@ -1112,25 +1170,68 @@ async function openStore (options) {
   // Çalışırken düşen her mesaj için günlüğe silme kaydı da eklenir, böylece yeniden açılışta
   // kanallar arasındaki seçim farklı çıksa bile düşen mesaj geri gelmez. Düşen mesajlar döner.
   function trimTotal (persist) {
-    let excess = index.size - maxTotal
-    if (excess <= 0) return []
+    const dropped = []
+    const touched = new Set()
+    const drop = (ch, count) => {
+      const removed = ch.list.splice(0, count)
+      for (const old of removed) {
+        indexRemove(old)
+        if (!persist) continue
+        dropped.push(copyMessage(old))
+        enqueue(ch, { op: 'del', id: old.id })
+      }
+      touched.add(ch)
+    }
+    const excess = index.size - maxTotal
+    if (excess > 0) {
+      for (const [ch, count] of countCuts(excess)) {
+        if (count > 0) drop(ch, count)
+      }
+    }
+    // Gövde bütçesi aşıldıysa en çok gövde karakteri saklayan yazarın en eski mesajı birer birer düşer
+    while (bodyChars > maxTotalChars && index.size > 0) {
+      const old = budgetVictim()
+      const ch = unlinkMessage(old)
+      touched.add(ch)
+      if (!persist) continue
+      dropped.push(copyMessage(old))
+      enqueue(ch, { op: 'del', id: old.id })
+    }
+    if (persist) {
+      for (const ch of touched) {
+        maybeCompact(ch)
+        kick(ch)
+      }
+    }
+    return dropped
+  }
+
+  function trimOrder (a, b) {
+    return b.list.length - a.list.length || a.list[0].id - b.list[0].id
+  }
+
+  function largestChannel () {
+    let best = null
+    for (const ch of channels.values()) {
+      if (ch.list.length > 0 && (best === null || trimOrder(ch, best) < 0)) best = ch
+    }
+    return best
+  }
+
+  // Toplam sayı sınırı için kanal başına düşecek mesaj sayıları (kanallar aynı seviyeye inene kadar)
+  function countCuts (total) {
+    let excess = total
     const list = []
     for (const ch of channels.values()) {
       if (ch.list.length > 0) list.push(ch)
     }
-    const before = (a, b) => b.list.length - a.list.length || a.list[0].id - b.list[0].id
     const cuts = new Map()
     if (excess === 1) {
       // Sınırdayken her yeni mesajda olan durum: sıralamadan en büyük kanal bulunur
-      let best = list[0]
-      for (const ch of list) {
-        if (before(ch, best) < 0) best = ch
-      }
-      cuts.set(best, 1)
-      excess = 0
-    } else {
-      list.sort(before)
+      cuts.set(largestChannel(), 1)
+      return cuts
     }
+    list.sort(trimOrder)
     let group = 1
     let level = list[0].list.length
     while (excess > 0) {
@@ -1150,22 +1251,89 @@ async function openStore (options) {
         level = next
       }
     }
-    const dropped = []
-    for (const [ch, count] of cuts) {
-      if (count <= 0) continue
-      const removed = ch.list.splice(0, count)
-      for (const old of removed) {
-        index.delete(old.id)
-        if (!persist) continue
-        dropped.push(copyMessage(old))
-        enqueue(ch, { op: 'del', id: old.id })
-      }
-      if (persist) {
-        maybeCompact(ch)
-        kick(ch)
+    return cuts
+  }
+
+  function bodySize (m) {
+    return typeof m.body === 'string' ? m.body.length : 0
+  }
+
+  function indexAdd (m) {
+    index.set(m.id, m)
+    const size = bodySize(m)
+    bodyChars += size
+    let a = authors.get(m.authorId)
+    if (!a) {
+      a = { chars: 0, count: 0, ids: [], head: 0, sorted: true }
+      authors.set(m.authorId, a)
+    }
+    a.chars += size
+    a.count++
+    if (a.ids.length > a.head && a.ids[a.ids.length - 1] > m.id) a.sorted = false
+    a.ids.push(m.id)
+  }
+
+  function indexRemove (m) {
+    if (!index.delete(m.id)) return
+    const size = bodySize(m)
+    bodyChars -= size
+    const a = authors.get(m.authorId)
+    a.chars -= size
+    a.count--
+    if (a.count === 0) authors.delete(m.authorId)
+    else if (a.ids.length > 2 * a.count + 64) compactAuthor(m.authorId, a)
+  }
+
+  function isAuthorMessage (authorId, id) {
+    const m = index.get(id)
+    return m !== undefined && m.authorId === authorId
+  }
+
+  // Yazarın kimlik listesinden silinmiş mesajları ve tekrarları atar, listeyi sıralı bırakır
+  function compactAuthor (authorId, a) {
+    const live = []
+    for (const id of a.ids.slice(a.head)) {
+      if (isAuthorMessage(authorId, id)) live.push(id)
+    }
+    if (!a.sorted) live.sort((x, y) => x - y)
+    let n = 0
+    for (const id of live) {
+      if (n === 0 || live[n - 1] !== id) live[n++] = id
+    }
+    live.length = n
+    a.ids = live
+    a.head = 0
+    a.sorted = true
+  }
+
+  // Gövde bütçesinde düşecek mesaj: en çok gövde karakteri saklayan yazarın (eşitlikte küçük kimlik) en eskisi
+  function budgetVictim () {
+    let bestId = 0
+    let best = null
+    for (const [authorId, a] of authors) {
+      if (best === null || a.chars > best.chars || (a.chars === best.chars && authorId < bestId)) {
+        best = a
+        bestId = authorId
       }
     }
-    return dropped
+    if (!best.sorted) compactAuthor(bestId, best)
+    while (!isAuthorMessage(bestId, best.ids[best.head])) best.head++
+    return index.get(best.ids[best.head])
+  }
+
+  // Mesajı kanal listesinden ve dizinden çıkarır, kanalı döner
+  function unlinkMessage (m) {
+    const ch = getChannel(m.channelId, true)
+    const pos = lowerBound(ch.list, m.id)
+    if (pos < ch.list.length && ch.list[pos].id === m.id) ch.list.splice(pos, 1)
+    indexRemove(m)
+    return ch
+  }
+
+  // Düzenleme gövdeyi büyütebilir: toplam sınırlar yeniden uygulanır, düşen mesajlar döner
+  function trimMessages () {
+    assertOpen()
+    return trimTotal(true)
   }
 
   function editMessage (id, body, editedAt) {
@@ -1177,6 +1345,8 @@ async function openStore (options) {
     if (at === undefined) at = Date.now()
     if (at !== null && (typeof at !== 'number' || !Number.isFinite(at))) throw new TypeError('editMessage: editedAt must be a number.')
     const ch = getChannel(m.channelId, true)
+    bodyChars += body.length - bodySize(m)
+    authors.get(m.authorId).chars += body.length - bodySize(m)
     m.body = body
     m.editedAt = at
     enqueue(ch, { op: 'edit', id: m.id, body, editedAt: at })
@@ -1192,7 +1362,7 @@ async function openStore (options) {
     const ch = getChannel(m.channelId, true)
     const pos = lowerBound(ch.list, m.id)
     if (pos < ch.list.length && ch.list[pos].id === m.id) ch.list.splice(pos, 1)
-    index.delete(m.id)
+    indexRemove(m)
     enqueue(ch, { op: 'del', id: m.id })
     maybeCompact(ch)
     kick(ch)
@@ -1205,7 +1375,7 @@ async function openStore (options) {
     if (!ch) return []
     const removed = ch.list
     ch.list = []
-    for (const m of removed) index.delete(m.id)
+    for (const m of removed) indexRemove(m)
     ch.gen++
     ch.pending = []
     ch.compactWanted = false

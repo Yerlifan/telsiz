@@ -6,7 +6,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ### New features
 
-- Voice and video calls in direct messages: two friends can call each other with the Voice Call or Video Call button in the conversation header. A 2 second ring plays on all of the callee's open devices and an incoming call card opens with Accept and Decline buttons (no ring in Do not disturb). During the call the top of the conversation shows both people's cameras or profile photos, with the conversation below. The call setup messages are encrypted with the two people's personal keys, and call information never enters the public meta. Calls are only possible between friends and while the other person's key is verified. Voice room moderation and the server mute do not reach private calls, and the owner's camera setting applies. Blocking, removing a friend, a ban and deleting the account end the call. New server settings: `callRingMs`, `callLimit`, `callWindowMs`.
+- Voice and video calls in direct messages: two friends can call each other with the Voice Call or Video Call button in the conversation header. A 2 second ring plays on all of the callee's open devices and an incoming call card opens with Accept and Decline buttons, plus Accept Without Camera for video calls (no ring in Do not disturb). During the call the top of the conversation shows both people's cameras or profile photos, with the conversation below. The call setup messages are encrypted with the two people's personal keys, and call information never enters the public meta. Calls are only possible between friends and while the other person's key is verified. Voice room moderation and the server mute do not reach private calls, and the owner's camera setting applies. Blocking, removing a friend, a ban and deleting the account end the call. New server settings: `callRingMs`, `callLimit`, `callWindowMs`.
 
 ### Changes
 
@@ -15,6 +15,22 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 ### Fixes
 
 - While sharing, Change source requested the new source without audio, so a share that started with audio lost it when the source changed. Audio is now requested when the source changes too.
+
+### Security
+
+- After a password reset the new personal key is created only while changing the password, in the same request, and is wrapped with the new password. While the account is on the temporary password the server does not store a key pair, so someone who knows the temporary password cannot choose or open the person's new key. Stale tabs reload in this case.
+- Sign in device token against lockout attacks: a successful sign in gives the device a token tied to the password hash. When the per account name failed sign in limit (20 per 15 minutes across all addresses) is reached, only sign ins without a token stop, and a device that signed in before can keep trying. Changing the password invalidates old tokens.
+- Rate limit tables drop the least recently used entry when full instead of refusing new clients.
+- At most `hashConcurrency` (2) password hashes run at once and at most `hashQueueMax` (32) requests wait, the rest get 503 `server_busy`. Many sign in attempts cannot stall disk work.
+- Upload slots: an account and an address can run at most 2 uploads at once, and the last free slot goes only to an account and address holding none (`busy_reserved`). Uploads must keep an average of at least `uploadMinBytesPerSec` (32 KB/s), shared between the same person's concurrent uploads. The default `maxConcurrentUploads` is 6 instead of 4. The client waits and retries on `busy_reserved`, with a bound on wasted data for large files.
+- Stored message bodies are limited in total to `maxTotalMessages` times 1500 characters. When the limit is exceeded the oldest messages of the person storing the most body text are dropped, so other people's messages are not deleted because of them.
+- The size of Telsiz DJ writes sent to everyone is limited per user, and voice room state changes have a separate, stricter limit (`voiceLimit`, 30 per 10 s).
+- Protection against group key rollback: a key that was replaced on a device is retired and never used to encrypt again. An unknown key id reported by the server cannot retire any key.
+- The `#frekanslar=` part of a link cannot add a fake frequency with a familiar name: a new frequency carrying the name of another listed frequency or of the open frequency is added without a name, new frequencies go to the end of the list, and the person is told their addresses.
+- In direct message calls the camera turns on only by the person's own choice (Accept Without Camera). The callee's decline is hidden from the caller until the ring time ends, so the caller cannot tell a decline from no answer.
+- Attachment file name shortening runs in linear time (removes a regular expression slowdown with long names).
+- The data folder lock also works across containers sharing the volume, and the running server renews the lock regularly.
+- Docker: the example commands and the Compose file put the Docker gateway in `GUVENILIR_VEKIL`, otherwise every client counted as one address. The server writes a warning once when a forwarding header arrives from an untrusted local address. Backup commands create the archive readable only by its owner (`umask 077`).
 
 ## [2.3.0]
 

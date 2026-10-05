@@ -191,6 +191,7 @@ async function startServer (options, slot) {
     uploadLimit: 100000,
     adminLimit: 100000,
     signalLimit: 100000,
+    voiceLimit: 100000,
     friendRequestLimit: 100000,
     typingLimit: 100000,
     musicLimit: 100000,

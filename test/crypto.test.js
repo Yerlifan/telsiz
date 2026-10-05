@@ -1402,6 +1402,20 @@ describe('E2EE: sanitizeFileName', () => {
     }
   })
 
+  it('uzun nokta ve boşluk dizisi içeren ad doğrusal zamanda temizlenir (karesel düzenli ifade yok)', () => {
+    // Saldırganın seçtiği ek adı her görüntüleyende çözülür: eski /[.\s]+$/ bu girdide saniyeler sürüyordu
+    const evil = 'a' + '. '.repeat(40000) + 'a'
+    const started = Date.now()
+    const out = san(evil)
+    const took = Date.now() - started
+    assert.ok(took < 1000, 'süre: ' + took + ' ms')
+    assert.equal(Array.from(out).length, 120)
+    // Son noktadan sonrası ('. a') uzantı sayılır ve korunur
+    assert.equal(out, 'a' + '. '.repeat(58) + '. a')
+    assert.equal(san(' .' + ' .'.repeat(40000) + 'b' + '. '.repeat(40000)), 'b')
+    assert.equal(san('\t' + cp(0x3000) + 'rapor.pdf' + cp(0x2029) + cp(0x205f) + ' .'), 'rapor.pdf')
+  })
+
   it('boş kalan adda ikinci parametredeki yedek ad (arayüz dilindeki karşılık) kullanılır', () => {
     for (const x of ['', '..', ' . ', '<>|', cp(0x202e), null, undefined, 42]) {
       assert.equal(san(x, 'dosya'), 'dosya', JSON.stringify(x))

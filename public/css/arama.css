@@ -303,9 +303,14 @@
 
 .call-incoming-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   flex: 1 0 100%;
-  margin-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.call-incoming-actions .button {
+  margin-top: 0.5rem;
 }
 
 .call-incoming-actions .button + .button {

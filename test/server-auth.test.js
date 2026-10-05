@@ -364,7 +364,7 @@ describe('giriş ve hız sınırları', () => {
       h.expectStatus(ok, 200)
       assert.deepEqual(ok.data.user, { id: 1, name: 'sahip', role: 'owner' })
       assert.deepEqual(ok.data.keys, { publicKey: body.publicKey, wrappedKey: body.wrappedKey })
-      assert.deepEqual(Object.keys(ok.data).sort(), ['keys', 'token', 'user'])
+      assert.deepEqual(Object.keys(ok.data).sort(), ['device', 'keys', 'token', 'user'])
 
       const wrongPass = await h.login(ctx, 'sahip', 'yanlis-parola')
       const noUser = await h.login(ctx, 'hayalet', PASSWORD)
@@ -406,24 +406,161 @@ describe('giriş ve hız sınırları', () => {
     }
   })
 
-  it('hesap başına başarısız giriş sınırı, başarılı girişte sıfırlanır', async () => {
+  it('hesap başına başarısız giriş sınırı adrese bağlıdır, başarılı girişte sıfırlanır', async () => {
     const ctx = await h.startServer({ loginFailLimit: 3 })
     try {
       await h.setupOwner(ctx)
       const fromIp = (n) => ({ 'x-forwarded-for': '192.0.2.' + n })
       const tryLogin = (password, n) => h.login(ctx, 'sahip', password, fromIp(n))
       h.expectStatus(await tryLogin('yanlis-1', 1), 401)
-      h.expectStatus(await tryLogin('yanlis-2', 2), 401)
-      h.expectStatus(await tryLogin(PASSWORD, 3), 200)
+      h.expectStatus(await tryLogin('yanlis-2', 1), 401)
+      h.expectStatus(await tryLogin(PASSWORD, 1), 200)
       // Başarılı giriş sayacı sıfırladı
-      h.expectStatus(await tryLogin('yanlis-3', 4), 401)
-      h.expectStatus(await tryLogin('yanlis-4', 5), 401)
-      h.expectStatus(await tryLogin('yanlis-5', 6), 401)
-      // Doğru parola da farklı IP'den gelse bile reddedilir
-      h.expectStatus(await tryLogin(PASSWORD, 7), 429, 'rate_limited')
+      h.expectStatus(await tryLogin('yanlis-3', 1), 401)
+      h.expectStatus(await tryLogin('yanlis-4', 1), 401)
+      h.expectStatus(await tryLogin('yanlis-5', 1), 401)
+      // Aynı adresten doğru parola da reddedilir
+      h.expectStatus(await tryLogin(PASSWORD, 1), 429, 'rate_limited')
+      // Hatalı denemeler hesabı başka adreslerden girişe kilitlemez
+      h.expectStatus(await tryLogin(PASSWORD, 2), 200)
     } finally {
       await ctx.cleanup()
     }
+  })
+
+  it('hesap adı sınırı dolunca yalnızca giriş cihazı işareti olan istek denenebilir', async () => {
+    // Varsayılan sınır: hesap ve adres başına 10, hesap adı başına bütün adreslerden toplam 20 hatalı deneme
+    const ctx = await h.startServer({ loginFailLimit: 10 })
+    try {
+      await h.setupOwner(ctx)
+      const first = await h.login(ctx, 'sahip', PASSWORD, { 'x-forwarded-for': '192.0.2.1' })
+      h.expectStatus(first, 200)
+      const device = first.data.device
+      assert.match(device, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
+      const authKey = h.authKeyFor(PASSWORD)
+      const withDevice = (key, ip, value) => h.request(ctx, 'POST', '/api/login', { headers: { 'x-forwarded-for': ip }, body: { name: 'sahip', authKey: key, device: value } })
+      // Saldırgan her denemeyi farklı adresten yapar, hesap ve adres sınırına hiç takılmaz
+      for (const i of h.times(20)) h.expectStatus(await loginRaw(ctx, 'sahip', 'f'.repeat(64), { 'x-forwarded-for': '198.51.100.' + (i + 1) }), 401)
+      // Hesap adı sınırı doldu: yeni adreslerden yapılan işaretsiz denemeler parolayı sınamadan reddedilir
+      for (const i of h.times(5)) h.expectStatus(await loginRaw(ctx, 'sahip', 'e'.repeat(64), { 'x-forwarded-for': '198.51.100.' + (i + 100) }), 429, 'rate_limited')
+      // İşaretsiz giriş doğru parolayla ve yeni bir adresten de reddedilir
+      h.expectStatus(await loginRaw(ctx, 'sahip', authKey, { 'x-forwarded-for': '203.0.113.50' }), 429, 'rate_limited')
+      // Sahte veya başka hesaba ait işaret işe yaramaz
+      const forged = device.slice(0, 25) + (device[25] === 'A' ? 'B' : 'A') + device.slice(26)
+      h.expectStatus(await withDevice(authKey, '203.0.113.51', forged), 429, 'rate_limited')
+      // Daha önce giriş yapmış cihaz doğru parolayla girer ve aynı işareti geri alır
+      const again = await withDevice(authKey, '203.0.113.52', device)
+      h.expectStatus(again, 200)
+      assert.equal(again.data.device, device)
+      // Saldırı sürerken de cihaz girebilir
+      h.expectStatus(await loginRaw(ctx, 'sahip', 'f'.repeat(64), { 'x-forwarded-for': '203.0.113.60' }), 429, 'rate_limited')
+      h.expectStatus(await withDevice(authKey, '203.0.113.61', device), 200)
+      // İşaretin kendi sınırı vardır
+      for (const i of h.times(10)) h.expectStatus(await withDevice('f'.repeat(64), '203.0.113.' + (70 + i), device), 401)
+      h.expectStatus(await withDevice(authKey, '203.0.113.53', device), 429, 'rate_limited')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('parola değişince veya sıfırlanınca önceki giriş cihazı işaretleri geçersiz olur', async () => {
+    const ctx = await h.startServer({ loginFailLimit: 10 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const withDevice = (name, key, ip, value) => h.request(ctx, 'POST', '/api/login', { headers: { 'x-forwarded-for': ip }, body: { name, authKey: key, device: value } })
+      // Parolayı bilen biri birden çok işaret biriktirir
+      const collected = [owner.device]
+      for (const i of h.times(2)) {
+        const res = await h.login(ctx, 'sahip', PASSWORD, { 'x-forwarded-for': '192.0.2.' + (i + 1) })
+        h.expectStatus(res, 200)
+        collected.push(res.data.device)
+      }
+      // Normal giriş işareti korur
+      const kept = await withDevice('sahip', h.authKeyFor(PASSWORD), '192.0.2.9', owner.device)
+      h.expectStatus(kept, 200)
+      assert.equal(kept.data.device, owner.device)
+      // Kişi parolasını değiştirir, bu cihaz yeni işaret alır
+      const newKey = h.authKeyFor('yeni-parola-123')
+      const changed = await h.post(ctx, '/api/me/password', owner.token, { oldAuthKey: h.authKeyFor(PASSWORD), newAuthKey: newKey, kdf: KDF, wrappedKey: h.keyPair().wrappedKey })
+      h.expectStatus(changed, 200)
+      const fresh = changed.data.device
+      assert.match(fresh, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
+      assert.ok(!collected.includes(fresh))
+      // Hesap adı sınırı farklı adreslerden doldurulur
+      for (const i of h.times(20)) h.expectStatus(await loginRaw(ctx, 'sahip', 'f'.repeat(64), { 'x-forwarded-for': '198.51.100.' + (i + 1) }), 401)
+      // Biriktirilen eski işaretler işaretsiz istek sayılır: kendi deneme hakları yoktur
+      for (const [i, old] of collected.entries()) {
+        h.expectStatus(await withDevice('sahip', 'e'.repeat(64), '203.0.113.' + (i + 1), old), 429, 'rate_limited')
+        h.expectStatus(await withDevice('sahip', newKey, '203.0.113.' + (i + 20), old), 429, 'rate_limited')
+      }
+      // Yeni işaretle kişi girer ve aynı işareti geri alır
+      const again = await withDevice('sahip', newKey, '203.0.113.50', fresh)
+      h.expectStatus(again, 200)
+      assert.equal(again.data.device, fresh)
+
+      // Sahibin sıfırladığı hesapta da önceki işaret geçersizdir, girişte yenisi verilir
+      const member = await h.addUser(ctx, again.data.token, 'ayse')
+      const reset = await h.post(ctx, '/api/users/reset-password', again.data.token, { userId: member.user.id })
+      h.expectStatus(reset, 200)
+      const tempKey = h.deriveKeys(reset.data.tempPassword, (await prelogin(ctx, 'ayse')).data.kdf.salt).authKey
+      const afterReset = await withDevice('ayse', tempKey, '192.0.2.30', member.device)
+      h.expectStatus(afterReset, 200)
+      assert.match(afterReset.data.device, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
+      assert.notEqual(afterReset.data.device, member.device)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('kayıt yanıtı giriş cihazı işareti içerir', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      assert.match(owner.device, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('parola karması sırası doluysa giriş 503 server_busy alır', async () => {
+    const ctx = await h.startServer({ scryptN: 16384, hashConcurrency: 1, hashQueueMax: 1 })
+    try {
+      const attempts = []
+      for (const i of h.times(16)) attempts.push(loginRaw(ctx, 'yok', 'f'.repeat(64), { 'x-forwarded-for': '198.51.100.' + (i + 1) }))
+      const results = await Promise.all(attempts)
+      const busy = results.filter((r) => r.status === 503)
+      assert.ok(busy.length > 0, 'sıra sınırı uygulanmadı')
+      for (const r of busy) {
+        assert.equal(r.data.code, 'server_busy')
+        assert.equal(r.headers['retry-after'], '1')
+      }
+      for (const r of results) assert.ok(r.status === 503 || r.status === 401, String(r.status))
+      // Sıra boşalınca girişler yine işlenir
+      h.expectStatus(await loginRaw(ctx, 'yok', 'f'.repeat(64)), 401)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+})
+
+describe('hız sınırlayıcı anahtar tablosu', () => {
+  it('tablo doluyken yeni anahtar reddedilmez, en uzun süredir kullanılmayan düşer', () => {
+    const limiter = new auth.RateLimiter(2, 600000, 3)
+    for (const key of ['a', 'b', 'c']) assert.equal(limiter.consume(key, 1000), 0)
+    // a yeniden kullanıldı, en eski b oldu
+    assert.equal(limiter.consume('a', 1001), 0)
+    assert.equal(limiter.consume('yeni', 1002), 0)
+    assert.equal(limiter.hits.has('b'), false)
+    assert.equal(limiter.hits.size, 3)
+    // a sınırına ulaştı ve tabloda kaldı
+    assert.ok(limiter.consume('a', 1003) > 0)
+  })
+
+  it('resetPrefix yalnızca öneki eşleşen anahtarları siler', () => {
+    const limiter = new auth.RateLimiter(1, 600000)
+    for (const key of ['n:ali|1.2.3.4', 'n:ali|5.6.7.8', 'n:alio|1.2.3.4']) limiter.hit(key, 1000)
+    limiter.resetPrefix('n:ali|')
+    assert.deepEqual(Array.from(limiter.hits.keys()), ['n:alio|1.2.3.4'])
   })
 })
 
@@ -580,20 +717,60 @@ describe('engelleme ve parola işlemleri', () => {
       const relog = await loginRaw(ctx, 'ayse', authKey)
       h.expectStatus(relog, 200)
       assert.deepEqual(relog.data.keys, { publicKey: null, wrappedKey: null })
+      assert.equal(relog.data.resetPending, true)
+      assert.equal((await h.stateOf(ctx, relog.data.token)).resetPending, true)
       const profiles = await h.get(ctx, '/api/profiles?ids=' + member.user.id, owner.token)
       assert.equal(profiles.data.profiles[0].publicKey, null)
       assert.equal(profiles.data.profiles[0].identity, null)
       assert.ok(profiles.data.profiles[0].pv > pvBefore)
-      // Kimlik kaydı anahtar olmadan yüklenemez, yeni anahtar çifti bir kez yüklenebilir
+      // Kimlik kaydı anahtar olmadan yüklenemez. Geçici parolayı sıfırlayan da bilir: anahtar çifti geçici parolayla
+      // yüklenemez, yalnızca yeni parolayla birlikte kurulur
       h.expectStatus(await h.post(ctx, '/api/me/identity', relog.data.token, { identity: h.envelope() }), 409, 'no_keys')
       const pair = h.keyPair()
-      h.expectStatus(await h.post(ctx, '/api/me/keys', relog.data.token, { publicKey: pk, wrappedKey: pair.wrappedKey }), 200)
+      h.expectStatus(await h.post(ctx, '/api/me/keys', relog.data.token, { publicKey: pk, wrappedKey: pair.wrappedKey }), 409, 'password_change_required')
+      const change = { oldAuthKey: authKey, newAuthKey: h.authKeyFor('yeni-parola-1'), kdf: KDF }
+      h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, Object.assign({ publicKey: 'x', wrappedKey: pair.wrappedKey }, change)), 400, 'bad_keys')
+      h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, Object.assign({ publicKey: pk, wrappedKey: pair.wrappedKey }, change)), 200)
       h.expectStatus(await h.post(ctx, '/api/me/keys', relog.data.token, pair), 409, 'keys_exist')
-      const again = await loginRaw(ctx, 'ayse', authKey)
+      assert.equal((await h.stateOf(ctx, relog.data.token)).resetPending, undefined)
+      h.expectStatus(await loginRaw(ctx, 'ayse', authKey), 401, 'bad_credentials')
+      const again = await h.login(ctx, 'ayse', 'yeni-parola-1')
       assert.deepEqual(again.data.keys, { publicKey: pk, wrappedKey: pair.wrappedKey })
+      assert.equal(again.data.resetPending, undefined)
+      const after = await h.get(ctx, '/api/profiles?ids=' + member.user.id, owner.token)
+      assert.equal(after.data.profiles[0].publicKey, pk)
 
       h.expectStatus(await h.post(ctx, '/api/users/reset-password', owner.token, { userId: owner.user.id }), 403, 'forbidden')
       h.expectStatus(await h.post(ctx, '/api/users/reset-password', owner.token, { userId: 77 }), 404, 'user_not_found')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('anahtar çifti olan hesap yeni açık anahtar taşıyan parola değişikliğini reddeder (eski durumdaki ikinci sekme)', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const member = await h.addUser(ctx, owner.token, 'ayse')
+      const res = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: member.user.id })
+      h.expectStatus(res, 200)
+      const pre = await prelogin(ctx, 'ayse')
+      const authKey = h.deriveKeys(res.data.tempPassword, pre.data.kdf.salt, 16384).authKey
+      const relog = await loginRaw(ctx, 'ayse', authKey)
+      h.expectStatus(relog, 200)
+      // İlk sekme sıfırlamayı tamamlar: yeni çift yeni parolayla kurulur
+      const first = h.keyPair()
+      const firstAuthKey = h.authKeyFor('yeni-parola-1')
+      h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, { oldAuthKey: authKey, newAuthKey: firstAuthKey, kdf: KDF, publicKey: first.publicKey, wrappedKey: first.wrappedKey }), 200)
+      // Aynı oturumdaki ikinci sekme hâlâ anahtarsız durumu görür ve yeniden yeni çift gönderir
+      const second = h.keyPair()
+      const stale = { oldAuthKey: firstAuthKey, newAuthKey: h.authKeyFor('yeni-parola-2'), kdf: KDF, publicKey: second.publicKey, wrappedKey: second.wrappedKey }
+      h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, stale), 400, 'bad_keys')
+      // Aynı açık anahtar da kabul edilmez: çifti olan hesapta yalnızca yeniden sarma gönderilir
+      h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, Object.assign({}, stale, { publicKey: first.publicKey })), 400, 'bad_keys')
+      const st = await h.stateOf(ctx, relog.data.token)
+      assert.deepEqual(st.keys, { publicKey: first.publicKey, wrappedKey: first.wrappedKey })
+      h.expectStatus(await loginRaw(ctx, 'ayse', firstAuthKey), 200)
     } finally {
       await ctx.cleanup()
     }
@@ -658,6 +835,59 @@ describe('engelleme ve parola işlemleri', () => {
       const after = await h.login(ctx, 'ayse', 'yeni-parola-1')
       h.expectStatus(after, 200)
       assert.deepEqual(after.data.keys, { publicKey: null, wrappedKey: null })
+      // Yeni parolayla girildikten sonra anahtar çifti yüklenebilir (yalnızca yeni parolayı bilen girebilir)
+      h.expectStatus(await h.post(ctx, '/api/me/keys', after.data.token, h.keyPair()), 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('geçici parolayı bilen sahip kişinin yeni kimlik anahtarını sessizce kuramaz', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const member = await h.addUser(ctx, owner.token, 'ayse')
+      const reset = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: member.user.id })
+      const tempKey = h.deriveKeys(reset.data.tempPassword, (await prelogin(ctx, 'ayse')).data.kdf.salt).authKey
+      // Sahip geçici parolayla kişiden önce girer ve kendi anahtar çiftini yüklemeye çalışır
+      const planted = await loginRaw(ctx, 'ayse', tempKey)
+      h.expectStatus(planted, 200)
+      h.expectStatus(await h.post(ctx, '/api/me/keys', planted.data.token, h.keyPair()), 409, 'password_change_required')
+      h.expectStatus(await h.post(ctx, '/api/logout', planted.data.token, {}), 200)
+      // Kişi girer, anahtar yoktur ve yeni parolayla kendi çiftini kurar, sahibin oturumları kapanır
+      const victim = await loginRaw(ctx, 'ayse', tempKey)
+      assert.deepEqual(victim.data.keys, { publicKey: null, wrappedKey: null })
+      const ownerSide = await loginRaw(ctx, 'ayse', tempKey)
+      const pair = h.keyPair()
+      h.expectStatus(await h.post(ctx, '/api/me/password', victim.data.token, Object.assign({ oldAuthKey: tempKey, newAuthKey: h.authKeyFor('kisinin-parolasi'), kdf: KDF }, pair)), 200)
+      h.expectStatus(await h.get(ctx, '/api/state', ownerSide.data.token), 401, 'invalid_token')
+      h.expectStatus(await loginRaw(ctx, 'ayse', tempKey), 401, 'bad_credentials')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('eski kayıtlar: yükseltmeden önce sıfırlanmış, anahtarı olmayan hesap yeni parola bekler', async () => {
+    let ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const member = await h.addUser(ctx, owner.token, 'ayse')
+      await ctx.stop()
+      const statePath = path.join(ctx.dataDir, 'state.json')
+      const data = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      const rec = data.users.find((u) => u.id === member.user.id)
+      // Yükseltmeden önce sıfırlanmış hesap: anahtar yok, resetPending alanı yok
+      rec.publicKey = null
+      rec.wrappedKey = null
+      delete rec.resetPending
+      delete data.users.find((u) => u.id === owner.user.id).resetPending
+      fs.writeFileSync(statePath, JSON.stringify(data))
+      ctx = await h.startServer({}, ctx.root)
+      const relog = await h.login(ctx, 'ayse')
+      assert.equal(relog.data.resetPending, true)
+      h.expectStatus(await h.post(ctx, '/api/me/keys', relog.data.token, h.keyPair()), 409, 'password_change_required')
+      const ownerLogin = await h.login(ctx, 'sahip')
+      assert.equal(ownerLogin.data.resetPending, undefined)
     } finally {
       await ctx.cleanup()
     }

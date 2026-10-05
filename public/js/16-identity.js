@@ -13,6 +13,8 @@ const NAME_CHECK_DELAY_MS = 400
 
 const identityState = {
   keys: null,
+  // Parola sıfırlandı: yeni anahtar çifti yalnızca yeni parolayla birlikte kurulur (sunucu /api/me/keys'i reddeder)
+  resetPending: false,
   pair: null,
   pairUser: null,
   bindingKey: '',
@@ -179,8 +181,9 @@ function forgetIdentity (userId) {
   }
 }
 
-// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }) /api/state yanıtından gelir
-function setServerKeys (keys) {
+// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }) ve parola sıfırlaması bekleniyor mu /api/state yanıtından gelir
+function setServerKeys (keys, resetPending) {
+  identityState.resetPending = resetPending === true
   if (keys && typeof keys === 'object') {
     identityState.keys = {
       publicKey: typeof keys.publicKey === 'string' ? keys.publicKey : null,
@@ -224,6 +227,21 @@ function identityLocked () {
   return Boolean(state.me && !myIdentity())
 }
 
+// Giriş cihazı işaretleri (hesap adına göre, çıkışta silinmez). Sunucu başarılı girişte verir. Hesap başına
+// başarısız giriş sınırı dolduğunda bu işareti gösteren cihaz denemeye devam edebilir.
+function loginDeviceOf (name) {
+  const all = storeGetJson(KEYS.loginDevices, {})
+  const value = all['u:' + name]
+  return typeof value === 'string' ? value : ''
+}
+
+function rememberLoginDevice (name, device) {
+  if (typeof device !== 'string' || device === '' || device.length > 80) return
+  const all = storeGetJson(KEYS.loginDevices, {})
+  all['u:' + name] = device
+  storeSetJson(KEYS.loginDevices, all)
+}
+
 // Giriş: ön giriş, türetme, /api/login, ardından özel anahtarın açılması. Parola sıfırlanmışsa
 // (sarılmış anahtar yok) yeni anahtar çifti üretilir ve yüklenir.
 // Sonuç { ok: true, token, user, keysReset } veya { ok: false, error: metin üretici }.
@@ -232,13 +250,20 @@ async function loginWithPassword (name, password, onPercent) {
   try {
     const kdf = await fetchKdf(name)
     derived = await deriveKeys(password, kdf, onPercent)
-    const res = await request('POST', '/api/login', { token: '', body: { name: name, authKey: derived.authKey } })
+    const body = { name: name, authKey: derived.authKey }
+    const device = loginDeviceOf(name)
+    if (device) body.device = device
+    const res = await request('POST', '/api/login', { token: '', body: body })
     if (res.status !== 200 || !res.data || typeof res.data.token !== 'string' || !res.data.user) {
       return { ok: false, error: () => errorText(res, t('auth.loginFailed'), authOverrides()) }
     }
+    rememberLoginDevice(name, res.data.device)
     const token = res.data.token
     const user = res.data.user
     const keys = res.data.keys && typeof res.data.keys === 'object' ? res.data.keys : {}
+    // Parola sıfırlanmış: geçici parolayı sıfırlayan da bilir, yeni anahtar çifti girişten sonra yeni parolayla
+    // birlikte kurulur (openResetPassword)
+    if (res.data.resetPending === true) return { ok: true, token: token, user: user, keysReset: false }
     if (typeof keys.wrappedKey !== 'string' || !keys.wrappedKey) {
       const made = await uploadNewKeys(token, derived.wrapKey)
       if (!made.ok) {
@@ -294,6 +319,7 @@ async function registerAccount (name, password, codeField, code, onPercent) {
     return { ok: false, res: res }
   }
   rememberIdentity(res.data.user.id, keys.publicKey, keys.secretKey)
+  rememberLoginDevice(name, res.data.device)
   return { ok: true, token: res.data.token, user: res.data.user }
 }
 
@@ -463,6 +489,10 @@ function maybeAskIdentityUnlock () {
 function openIdentityUnlock (trigger) {
   if (!identityNeedsUnlock()) return
   const resetCase = !(identityState.keys && identityState.keys.wrappedKey)
+  if (resetCase && identityState.resetPending) {
+    openResetPassword(trigger)
+    return
+  }
   openAppDialog({
     name: 'identity-unlock',
     titleKey: 'identity.unlockTitle',
@@ -546,6 +576,110 @@ function openIdentityUnlock (trigger) {
   })
 }
 
+function passwordField (form, id, labelKey, autocomplete) {
+  const label = h('label', 'label', t(labelKey))
+  label.setAttribute('for', id)
+  const input = h('input', 'input')
+  input.id = id
+  input.type = 'password'
+  input.autocomplete = autocomplete
+  input.maxLength = 256
+  form.appendChild(label)
+  form.appendChild(input)
+  return input
+}
+
+// Parola sıfırlamasından sonra: geçici parola ve yeni parola. Yeni anahtar çifti yeni parolayla sarılır ve parola
+// değişikliğiyle birlikte kurulur, geçici parolayı bilen (sıfırlayan) onu seçemez veya açamaz.
+function openResetPassword (trigger) {
+  openAppDialog({
+    name: 'identity-reset',
+    titleKey: 'identity.resetPendingTitle',
+    trigger: trigger,
+    closeLabelKey: 'identity.unlockLater',
+    onClose: (reason) => {
+      if (reason !== 'done') identityState.unlockSkipped = true
+    },
+    build: (body, close) => {
+      body.appendChild(h('p', 'lead', t('identity.resetPendingLead')))
+      const form = h('form', 'form identity-unlock-form')
+      form.id = 'identity-reset-form'
+      form.noValidate = true
+      const user = h('input', 'sr-only')
+      user.type = 'text'
+      user.autocomplete = 'username'
+      user.value = state.me ? state.me.name : ''
+      user.tabIndex = -1
+      user.setAttribute('aria-hidden', 'true')
+      user.readOnly = true
+      form.appendChild(user)
+      const oldInput = passwordField(form, 'identity-reset-old', 'settings.account.oldPassword', 'current-password')
+      const newInput = passwordField(form, 'identity-reset-new', 'settings.account.newPassword', 'new-password')
+      const newInput2 = passwordField(form, 'identity-reset-new2', 'settings.account.newPassword2', 'new-password')
+      const msg = h('p', 'form-error')
+      msg.id = 'identity-reset-error'
+      msg.setAttribute('role', 'alert')
+      msg.hidden = true
+      form.appendChild(msg)
+      const progress = h('p', 'derive-progress hint')
+      progress.id = 'identity-reset-progress'
+      progress.setAttribute('role', 'status')
+      progress.hidden = true
+      form.appendChild(progress)
+      const row = h('div', 'row dialog-actions')
+      const submit = button('button', t('settings.account.passwordSubmit'))
+      submit.type = 'submit'
+      submit.id = 'identity-reset-submit'
+      const later = button('button button-secondary', t('identity.unlockLater'))
+      later.id = 'identity-reset-later'
+      later.addEventListener('click', () => {
+        close('later')
+      })
+      row.appendChild(submit)
+      row.appendChild(later)
+      form.appendChild(row)
+      const problemOf = () => {
+        if (!oldInput.value) return { input: oldInput, text: () => t('settings.password.enterOld') }
+        const problem = passwordProblem(newInput.value)
+        if (problem) return { input: newInput, text: problem }
+        if (newInput.value !== newInput2.value) return { input: newInput2, text: () => t('settings.password.mismatch') }
+        // Geçici parolayla sarılan anahtarı sıfırlayan açabilirdi
+        if (newInput.value === oldInput.value) return { input: newInput, text: () => t('settings.password.same') }
+        return null
+      }
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        if (form.classList.contains('is-busy')) return
+        const problem = problemOf()
+        if (problem) {
+          setMsg(msg, problem.text, 'error')
+          focusNode(problem.input)
+          return
+        }
+        setMsg(msg, '')
+        setFormBusy(form, true)
+        const result = await changePasswordRequest(oldInput.value, newInput.value, (pct) => {
+          showProgress(progress, pct)
+        })
+        setFormBusy(form, false)
+        showProgress(progress, null)
+        if (!result.ok) {
+          setMsg(msg, result.error, 'error')
+          focusNode(oldInput)
+          return
+        }
+        oldInput.value = ''
+        newInput.value = ''
+        newInput2.value = ''
+        close('done')
+        toast(() => t('identity.keysReset'), 'ok', 10000)
+      })
+      body.appendChild(form)
+      return oldInput
+    }
+  })
+}
+
 // Parolayla bu cihazdaki kimliği açar (oturum yenilenmez). Sarılmış anahtar yoksa yeni çift üretilir.
 async function unlockIdentity (password, onPercent) {
   if (!state.me) return { ok: false, error: () => t('identity.error.generic') }
@@ -555,7 +689,7 @@ async function unlockIdentity (password, onPercent) {
     derived = await deriveKeys(password, kdf, onPercent)
     const st = await api('GET', '/api/state')
     if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
-    setServerKeys(st.data.keys)
+    setServerKeys(st.data.keys, st.data.resetPending)
     const keys = identityState.keys
     if (!keys.wrappedKey) {
       const made = await uploadNewKeys(state.token, derived.wrapKey)
@@ -583,7 +717,8 @@ function afterIdentityChange () {
 }
 
 // Parola değiştirme: mevcut ayarlarla eski authKey, yeni ayarlarla yeni authKey ve aynı özel
-// anahtarın yeni sarma anahtarıyla sarılması. Diğer oturumlar sunucuda kapanır.
+// anahtarın yeni sarma anahtarıyla sarılması. Diğer oturumlar sunucuda kapanır. Hesabın anahtar çifti yoksa
+// (parola sıfırlaması sonrası) yeni çift üretilir, yeni parolayla sarılır ve aynı istekle kurulur.
 async function changePasswordRequest (oldPassword, newPassword, onPercent) {
   if (!state.me) return { ok: false, error: () => t('settings.password.failed') }
   let oldKeys = null
@@ -597,9 +732,17 @@ async function changePasswordRequest (oldPassword, newPassword, onPercent) {
     newKeys = await deriveKeys(newPassword, newKdf, (pct) => {
       if (onPercent) onPercent(50 + Math.round(pct / 2))
     })
-    const keys = identityState.keys || { publicKey: null, wrappedKey: null }
+    // Başka bir sekme sıfırlamadan sonra anahtar çiftini kurmuş olabilir: seçim sunucudaki güncel anahtarlarla yapılır
+    const st = await api('GET', '/api/state')
+    if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
+    setServerKeys(st.data.keys, st.data.resetPending)
+    const keys = identityState.keys
     let wrappedKey = null
-    if (keys.publicKey) {
+    let fresh = null
+    if (!keys.publicKey) {
+      fresh = window.E2EE.identity.generate()
+      wrappedKey = window.E2EE.identity.wrap(fresh.secretKey, newKeys.wrapKey)
+    } else {
       const pair = myIdentity()
       let secretKey = pair ? pair.secretKey : null
       if (!secretKey && keys.wrappedKey) secretKey = window.E2EE.identity.unwrap(keys.wrappedKey, oldKeys.wrapKey, keys.publicKey)
@@ -607,10 +750,26 @@ async function changePasswordRequest (oldPassword, newPassword, onPercent) {
       wrappedKey = window.E2EE.identity.wrap(secretKey, newKeys.wrapKey)
       if (!pair) rememberIdentity(state.me.id, keys.publicKey, secretKey)
     }
-    const res = await api('POST', '/api/me/password', { oldAuthKey: oldKeys.authKey, newAuthKey: newKeys.authKey, kdf: newKdf, wrappedKey: wrappedKey })
+    const body = { oldAuthKey: oldKeys.authKey, newAuthKey: newKeys.authKey, kdf: newKdf, wrappedKey: wrappedKey }
+    if (fresh) body.publicKey = fresh.publicKey
+    const res = await api('POST', '/api/me/password', body)
     if (res.status === 200) {
-      if (keys.publicKey) identityState.keys = { publicKey: keys.publicKey, wrappedKey: wrappedKey }
+      identityState.resetPending = false
+      // Parola değişince önceki giriş cihazı işareti geçersizdir, sunucu yenisini verir
+      if (res.data) rememberLoginDevice(state.me.name, res.data.device)
+      if (fresh) {
+        identityState.keys = { publicKey: fresh.publicKey, wrappedKey: wrappedKey }
+        rememberIdentity(state.me.id, fresh.publicKey, fresh.secretKey)
+        afterIdentityChange()
+        return { ok: true, keysReset: true }
+      }
+      identityState.keys = { publicKey: keys.publicKey, wrappedKey: wrappedKey }
       return { ok: true }
+    }
+    // Anahtar durumu bu arada değişmiştir, sunucudaki güncel anahtarlar yeniden yüklenir ve yeni deneme ona göre seçer
+    if (res.data && res.data.code === 'bad_keys') {
+      const again = await api('GET', '/api/state')
+      if (again.status === 200 && again.data) setServerKeys(again.data.keys, again.data.resetPending)
     }
     return { ok: false, error: () => errorText(res, t('settings.password.failed'), { bad_credentials: t('settings.password.oldWrong'), rate_limited: t('auth.rateLimited') }) }
   } catch (err) {

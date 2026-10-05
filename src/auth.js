@@ -255,6 +255,33 @@ function preloginSalt (secretHex, name) {
   return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
 }
 
+// Giriş cihazı işareti: başarılı girişte verilir, '<kimlik>.<HMAC>' biçimindedir. Parola veya oturum
+// yerine geçmez, yalnızca hesap başına başarısız giriş sınırı dolduğunda daha önce giriş yapmış cihazın
+// denemeye devam edebilmesini sağlar (ad bilen birinin hesabı kilitlemesi engellenir).
+// epoch hesabın parola karmasıdır: parola değişince veya sıfırlanınca (her seferinde yeni tuz) önceki
+// bütün işaretler geçersiz olur. Böylece parolayı bir zamanlar bilen biri biriktirdiği işaretlerle yeni
+// parolayı hesap başına sınırın ötesinde deneyemez.
+const LOGIN_DEVICE_RE = /^([0-9a-f]{24})\.([A-Za-z0-9_-]{43})$/
+
+function loginDeviceMac (secretHex, userId, epoch, id) {
+  return crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('login-device:' + userId + ':' + id + ':' + String(epoch), 'utf8').digest('base64url')
+}
+
+function newLoginDevice (secretHex, userId, epoch) {
+  const id = crypto.randomBytes(12).toString('hex')
+  return id + '.' + loginDeviceMac(secretHex, userId, epoch, id)
+}
+
+// Geçerli işaretin kimliği, değilse null. Karşılaştırma sabit zamanlıdır.
+function loginDeviceId (secretHex, userId, epoch, value) {
+  if (typeof value !== 'string' || value.length > 80) return null
+  const match = LOGIN_DEVICE_RE.exec(value)
+  if (!match) return null
+  const expected = Buffer.from(loginDeviceMac(secretHex, userId, epoch, match[1]), 'utf8')
+  const given = Buffer.from(match[2], 'utf8')
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected) ? match[1] : null
+}
+
 function newServerSecret () {
   return crypto.randomBytes(32).toString('hex')
 }
@@ -442,6 +469,34 @@ function clientIp (req, trusts) {
   return remote
 }
 
+// Yerel ağ adresleri: loopback, özel IPv4 blokları, bağlantı yerel ve benzersiz yerel IPv6 adresleri
+const LOCAL_NETS = new net.BlockList()
+LOCAL_NETS.addSubnet('127.0.0.0', 8, 'ipv4')
+LOCAL_NETS.addSubnet('10.0.0.0', 8, 'ipv4')
+LOCAL_NETS.addSubnet('172.16.0.0', 12, 'ipv4')
+LOCAL_NETS.addSubnet('192.168.0.0', 16, 'ipv4')
+LOCAL_NETS.addSubnet('169.254.0.0', 16, 'ipv4')
+LOCAL_NETS.addAddress('::1', 'ipv6')
+LOCAL_NETS.addSubnet('fc00::', 7, 'ipv6')
+LOCAL_NETS.addSubnet('fe80::', 10, 'ipv6')
+
+// Yönlendirme başlığı taşıyan bir istek güvenilir listede olmayan yerel bir adresten geliyorsa
+// o adresi, gelmiyorsa null döndürür. Bu durum neredeyse her zaman GUVENILIR_VEKIL ayarının
+// eksik olduğunu gösterir (ör. kapsayıcıda ters vekil bağlantıları Docker ağ geçidinden gelir)
+// ve bütün istemciler tek bir IP adresinden geliyormuş gibi sayılır.
+function untrustedLocalForwarder (req, trusts) {
+  if (!req || !req.headers) return null
+  const headers = req.headers
+  if (typeof headers['x-forwarded-for'] !== 'string' && typeof headers['cf-connecting-ip'] !== 'string') return null
+  const socket = req.socket
+  const remote = normalizeIp(socket && socket.remoteAddress ? socket.remoteAddress : '')
+  const family = net.isIP(remote)
+  if (family === 0) return null
+  const isTrusted = typeof trusts === 'function' ? trusts : isLoopback
+  if (isTrusted(remote)) return null
+  return LOCAL_NETS.check(remote, family === 4 ? 'ipv4' : 'ipv6') ? remote : null
+}
+
 // IPv6 adresleri /64 önekine göre gruplanır (bir bağlantı genellikle bütün bir /64 alır).
 function ipv6Prefix (ip) {
   let text = ip
@@ -493,17 +548,18 @@ class RateLimiter {
     return times.length >= this.limit ? this.wait(times, at) : 0
   }
 
+  // Anahtarlar son kullanım sırasıyla tutulur. Tablo doluysa en uzun süredir kullanılmayan anahtar
+  // düşürülür: çok sayıda farklı adresten gelen istekler tabloyu doldurup yeni istemcileri kilitleyemez.
   hit (key, now) {
     const at = now === undefined ? Date.now() : now
     let times = this.hits.get(key)
-    if (!times) {
-      if (this.hits.size >= this.maxKeys) {
-        this.sweep(at)
-        if (this.hits.size >= this.maxKeys) return false
-      }
+    if (times) {
+      this.hits.delete(key)
+    } else {
+      if (this.hits.size >= this.maxKeys) this.hits.delete(this.hits.keys().next().value)
       times = []
-      this.hits.set(key, times)
     }
+    this.hits.set(key, times)
     this.prune(times, at)
     times.push(at)
     if (times.length > this.limit) times.splice(0, times.length - this.limit)
@@ -514,13 +570,19 @@ class RateLimiter {
     const at = now === undefined ? Date.now() : now
     const wait = this.blocked(key, at)
     if (wait > 0) return wait
-    // Anahtar tablosu doluysa (çok sayıda farklı adresten saldırı) yeni anahtar reddedilir
-    if (!this.hit(key, at)) return this.windowMs
+    this.hit(key, at)
     return 0
   }
 
   reset (key) {
     this.hits.delete(key)
+  }
+
+  // Öneki verilen bütün anahtarları siler (ör. bir hesabın adres başına sayaçları)
+  resetPrefix (prefix) {
+    for (const key of this.hits.keys()) {
+      if (key.startsWith(prefix)) this.hits.delete(key)
+    }
   }
 
   sweep (now) {
@@ -598,6 +660,8 @@ module.exports = {
   deriveAuthKey,
   newCredentials,
   preloginSalt,
+  newLoginDevice,
+  loginDeviceId,
   newServerSecret,
   hashPassword,
   verifyPassword,
@@ -609,6 +673,7 @@ module.exports = {
   parseTrustedProxies,
   trustPolicy,
   clientIp,
+  untrustedLocalForwarder,
   ipKey,
   RateLimiter,
   generateCode,

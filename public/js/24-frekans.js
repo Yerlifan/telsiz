@@ -27,9 +27,12 @@
 //   Başka bir frekans seçilince sekme o adrese gider (location.assign) ve liste bant sırasıyla adresin
 //   # parçasında taşınır: #frekanslar=<base64url JSON>. Karşı köken açılışta parçayı okur (03-auth.js
 //   readFragment), her öğeyi sıkı biçimde doğrular, kendi listesine ekler ve parçayı adresten siler.
-//   Yerel listedeki her frekans gelen listede de varsa sıra gelen listeye uyar, böylece bant her kökende
-//   aynı sırada kalır ve L1 ile R1 frekanslar arasında döngüsel gezer. Parçada yalnızca adresler ve
-//   görünen adlar vardır, hiçbir anahtar veya oturum bilgisi yoktur. Davet bağlantısının #davet= ve
+//   Yerel listedeki her frekans gelen listede de varsa ve parça yeni frekans eklemiyorsa (veya yerel liste boşsa)
+//   sıra gelen listeye uyar, böylece bant her kökende aynı sırada kalır ve L1 ile R1 frekanslar arasında
+//   döngüsel gezer. Parçayla gelen yeni frekanslar kişiye adresleriyle bildirilir, listedeki başka bir frekansın
+//   veya açık frekansın adını taşıyan yeni frekans adsız eklenir (bir bağlantı tanıdık adla sahte bir istasyon
+//   ekleyemez, açık frekansın adı parçadan sonra öğrenilince frekansGuardFragmentNames yeniden denetler). Parçada
+//   yalnızca adresler ve görünen adlar vardır, hiçbir anahtar veya oturum bilgisi yoktur. Davet bağlantısının #davet= ve
 //   #anahtar= parçalarıyla çakışmaz (ayrı ad, base64url & ve = içermez).
 //
 // Frekans fotoğrafı: sahibin yüklediği herkese açık resim (GET /api/server-icon, sürümü meta ve info
@@ -72,7 +75,11 @@ const frekansState = {
   // Tarayıcı: yerel listenin önbelleği (her çizimde depodan okunmaz), null ise okunur
   webList: null,
   // Yüklenemeyen fotoğraf adresleri: bu oturumda yeniden denenmez, baş harf gösterilir
-  failedIcons: Object.create(null)
+  failedIcons: Object.create(null),
+  // Tarayıcı: adres parçasıyla listeye yeni eklenen frekansların adresleri (03-auth.js readFragment bildirir)
+  fragmentAdded: [],
+  // Tarayıcı: bu açılışta adres parçasıyla eklenen frekansların kökenleri (frekansGuardFragmentNames denetler)
+  fragmentOrigins: []
 }
 
 // ------------------------------------------------------------------ doğrulama ve liste
@@ -151,18 +158,42 @@ function frekansSanitizeList (raw, exclude) {
   return out
 }
 
+// Görünen adların karşılaştırma biçimi: büyük küçük harf ve uyumlu Unicode biçimleri aynı sayılır
+function frekansNameKey (name) {
+  if (typeof name !== 'string') return ''
+  let out = name
+  try {
+    out = name.normalize('NFKC')
+  } catch (err) {
+    out = name
+  }
+  return out.toLowerCase()
+}
+
 // Gelen listeyi yerel listeye ekler. Yerelde zaten olan frekansın adı korunur (başka bir kökenden gelen
-// ad yerel adı ezemez), yeni frekanslar gelen adla eklenir. Sonuç yeni bir dizidir.
-function frekansMergeLists (local, incoming, exclude) {
+// ad yerel adı ezemez), yeni frekanslar gelen adla eklenir. Yeni bir frekansın adı listedeki başka bir frekansın
+// veya reserved içindeki bir adın (açık frekansın adı) aynısıysa ad alınmaz ve adresi görünür: gelen liste tanıdık
+// bir adla sahte bir frekansı banda sokamaz. Sonuç yeni bir dizidir.
+function frekansMergeLists (local, incoming, exclude, reserved) {
   const out = frekansSanitizeList(local, exclude)
   const known = {}
+  const names = {}
+  const addName = (name) => {
+    const key = frekansNameKey(name)
+    if (key) names[key] = true
+  }
   out.forEach((item) => {
     known[item.origin] = true
+    addName(item.name)
   })
+  if (Array.isArray(reserved)) reserved.forEach(addName)
   frekansSanitizeList(incoming, exclude).forEach((item) => {
     if (out.length >= FREKANS_MAX_ITEMS || Object.prototype.hasOwnProperty.call(known, item.origin)) return
     known[item.origin] = true
-    out.push(item)
+    const taken = item.name && names[frekansNameKey(item.name)]
+    const clean = taken ? { origin: item.origin, name: null } : item
+    addName(clean.name)
+    out.push(clean)
   })
   return out
 }
@@ -306,24 +337,66 @@ function frekansWritePosition (index) {
 }
 
 // 03-auth.js readFragment çağırır: #frekanslar= parçasındaki listeyi yerel listeye ekler. Yerel listedeki
-// her frekans gelen listede de varsa sıra gelen listeye uyar ve bu frekansın yeri saklanır.
+// her frekans gelen listede de varsa sıra gelen listeye uyar ve bu frekansın yeri saklanır. Parça dolu bir
+// listeye yeni frekans ekliyorsa sıra değişmez, yeniler sona eklenir: bir bağlantı tanımadığınız bir frekansı
+// açık frekansın yanına yerleştiremez. Yeni eklenen frekansların adresleri frekansState.fragmentAdded içinde
+// birikir, kişiye bildirilir (sessizce eklenmez).
 function frekansMergeFragment (value) {
   if (frekansDesktop()) return 0
   const incoming = frekansDecodeList(value)
   if (!incoming.length) return 0
   const self = frekansSelfOrigin()
   const before = frekansReadLocal()
-  const merged = frekansMergeLists(before, incoming, self)
+  const selfName = typeof state !== 'undefined' && state ? frekansCleanName(state.serverName) : null
+  const merged = frekansMergeLists(before, incoming, self, selfName ? [selfName] : [])
+  const had = {}
+  before.forEach((item) => {
+    had[item.origin] = true
+  })
+  let added = 0
+  merged.forEach((item) => {
+    if (Object.prototype.hasOwnProperty.call(had, item.origin)) return
+    added += 1
+    frekansState.fragmentAdded.push(frekansHost(item.origin))
+    frekansState.fragmentOrigins.push(item.origin)
+  })
   const order = incoming.map((item) => item.origin)
   const selfIndex = order.indexOf(self)
   const covered = before.every((item) => order.indexOf(item.origin) !== -1)
-  if (covered && selfIndex !== -1) {
+  if (covered && selfIndex !== -1 && (before.length === 0 || added === 0)) {
     const rest = order.filter((origin) => origin !== self)
     merged.sort((a, b) => rest.indexOf(a.origin) - rest.indexOf(b.origin))
     frekansWritePosition(selfIndex)
   }
   frekansWriteLocal(merged)
   return merged.length - before.length
+}
+
+// 03-auth.js applyInfo çağırır: readFragment loadInfo'dan önce çalıştığı için parça birleştirilirken açık
+// frekansın adı henüz bilinmez (varsayılan ad). Ad öğrenilince bu açılışta parçayla eklenen ve açık frekansın
+// adını taşıyan frekansların adı silinir, adresleri görünür: bir bağlantı sahte bir frekansı açık frekansın adıyla
+// banda sokamaz. Değişen bir şey varsa liste saklanır. Silinen ad sayısını döndürür.
+function frekansGuardFragmentNames (name) {
+  const key = frekansNameKey(frekansCleanName(name))
+  if (!key || !frekansState.fragmentOrigins.length || frekansDesktop()) return 0
+  const origins = frekansState.fragmentOrigins
+  let cleared = 0
+  const list = frekansReadLocal().map((item) => {
+    if (origins.indexOf(item.origin) === -1 || !item.name || frekansNameKey(item.name) !== key) return item
+    cleared += 1
+    return { origin: item.origin, name: null }
+  })
+  if (cleared) frekansWriteLocal(list)
+  return cleared
+}
+
+// Adres parçasıyla eklenen frekansların bildirimi: metin üreticisi veya null. Bildirim bir kez verilir.
+function frekansTakeFragmentNotice () {
+  const hosts = frekansState.fragmentAdded.slice(0, 5)
+  const more = frekansState.fragmentAdded.length - hosts.length
+  frekansState.fragmentAdded = []
+  if (!hosts.length) return null
+  return () => t(more > 0 ? 'frekans.fragmentAddedMore' : 'frekans.fragmentAdded', { hosts: hosts.join(', '), count: more })
 }
 
 // Tarayıcıda bant sırası: yerel liste ve açık frekans saklanan yerinde

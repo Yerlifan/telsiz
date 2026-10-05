@@ -44,6 +44,12 @@ const DEFAULTS = Object.freeze({
   eventBufferSize: 2000,
   maxWaitersPerSession: 2,
   scryptN: 16384,
+  // Parola karmaları (scrypt) dosya işlemleriyle aynı libuv iş parçacığı havuzunda çalışır (varsayılan 4
+  // iş parçacığı). Aynı anda en fazla hashConcurrency karma hesaplanır, en fazla hashQueueMax istek sırada
+  // bekler, sıra doluysa istek 503 server_busy alır. Böylece çok sayıda adresten gelen giriş denemeleri
+  // diske yazmayı ve dosya sunmayı durduramaz.
+  hashConcurrency: 2,
+  hashQueueMax: 32,
   maxUsers: 500,
   maxSessionsPerUser: 10,
   sessionTtlMs: 90 * DAY_MS,
@@ -61,7 +67,20 @@ const DEFAULTS = Object.freeze({
   // toplam boyutu. Verilmezse ve tek dosya sınırından küçükse tek dosya sınırına yükseltilir.
   userUploadQuotaBytes: 512 * 1024 * 1024,
   maxUploadsPerMessage: 10,
-  maxConcurrentUploads: 4,
+  // İki kişi ikişer dosyayı birlikte yükleyebilsin diye altı: dört yer onlara gider, kalan iki yerden sonuncusu
+  // yalnızca hiç yer tutmayan hesap ve adrese verilir (handleUpload)
+  maxConcurrentUploads: 6,
+  // Yükleme en az bu ortalama hızla sürmelidir (ilk uploadRateGraceMs süresinden sonra denetlenir). Bir kişi
+  // damlatılan gövdeyle eşzamanlı yükleme yerlerini uzun süre tutamaz. 32 KB/sn (256 kbit/sn) yavaş bir mobil
+  // bağlantının yükleme hızının da altındadır. Sınır bağlantının toplamına uygulanır: aynı hesabın veya aynı
+  // adresin eşzamanlı yüklemeleri bu hızı aralarında paylaşır (istemci iki dosyayı birlikte gönderir), bir
+  // yüklemeye düşen pay hiçbir zaman hızın yarısından az olmaz (MAX_UPLOADS_PER_USER). Ortalama denetimi süreyi
+  // de sınırlar: her denetimde gönderilen bayt o ana kadar biriken paydan az olamaz, gönderilen bayt da dosya
+  // boyutunu aşamaz. Ayrıca her istek en çok REQUEST_TIMEOUT_MS (15 dakika) sürebilir. Bu yüzden bir yükleme
+  // yerini en çok min(15 dakika, max(uploadRateGraceMs, boyut / pay) ile bir denetim aralığı) kadar tutar: 25 MB
+  // için tek başına yaklaşık 13,5 dakika, iki dosya birlikte yüklenirken 15 dakikalık istek sınırı.
+  uploadMinBytesPerSec: 32768,
+  uploadRateGraceMs: 30000,
   orphanUploadTtlMs: 3600000,
   maxMessagesPerChannel: 20000,
   // Tüm kanallardaki toplam mesaj sınırı (bellek koruması). Aşılınca yeni mesaj reddedilmez, en çok
@@ -79,6 +98,9 @@ const DEFAULTS = Object.freeze({
   adminWindowMs: 60000,
   signalLimit: 120,
   signalWindowMs: 10000,
+  // Ses odasına katılma, ayrılma, mikrofon ve kamera durumu: kullanıcı başına 30 / signalWindowMs. Her biri
+  // herkese tam meta yayını tetikler, sinyal iletilerinden daha sıkı sınırlanır.
+  voiceLimit: 30,
   friendRequestLimit: 20,
   friendRequestWindowMs: 600000,
   // Yazıyor bildirimleri: kullanıcı başına 30 / 10 sn, bildirim 6 sn sonra kendiliğinden düşer
@@ -120,9 +142,9 @@ const POSITIVE_OPTIONS = [
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
-  'callRingMs'
+  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs'
 ]
-const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs']
+const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
 // Yazı kanalı ve profil zarfı (grup anahtarı) ile özel mesaj zarfı (kişisel anahtarlar)
 const ENVELOPE_RE = /^1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{24,}$/
@@ -153,6 +175,13 @@ const IDENTITY_MAX_CHARS = 2000
 const MUSIC_ENV_MAX_CHARS = 131072
 // POST /api/music/state gövde sınırı: zarf ve alan adları için pay (genel maxJsonBytes yetmez)
 const MUSIC_JSON_MAX_BYTES = 140000
+// Her müzik yazımı bütün odaların haritasını (her odanın zarfı) uzun poll'daki herkese gönderir. Her yazım,
+// haritada yazanın kendi yazdığı zarfların toplamı kadar (yeni zarf ve başka odalarda güncel zarfı hâlâ ona ait
+// olanlar) bütçe harcar. Kullanıcı başına musicWindowMs içindeki toplam bu sınırı aşamaz: tek bir üye birkaç
+// odaya en büyük zarfları bırakıp saniyede birkaç yazımla sunucunun çıkış bant genişliğini tüketemez. Başka
+// odaların veya başka kişilerin zarfları yazana yüklenmez, böylece bir odadaki olağan DJ kullanımı diğer odaların
+// durumu yüzünden kısılmaz (olağan kuyruklarda sınıra yaklaşılmaz).
+const MUSIC_FANOUT_CHARS = 1024 * 1024
 // Ses odası sınırları (frekans ayarı, yalnızca sahip değiştirir). Kapasite yeni katılımlara uygulanır,
 // kimse odadan çıkarılmaz. maxVoicePerChannel seçeneği kapasitenin varsayılanıdır (bu aralığa sıkıştırılır).
 const VOICE_CAPACITY_MIN = 2
@@ -177,6 +206,12 @@ const MESSAGES_PAGE_MAX = 100
 const LAST_USED_RESOLUTION_MS = 60000
 // Bu süre boyunca hiç veri gelmeyen yükleme iptal edilir
 const UPLOAD_IDLE_MS = 60000
+// Yükleme hızı denetiminin aralığı (ilk denetim DEFAULTS.uploadRateGraceMs sonunda)
+const UPLOAD_RATE_CHECK_MS = 5000
+// Bir kişinin ve bir istemci adresinin (IPv6'da /64 öneki) aynı anda sürdürebileceği yükleme sayısı (istemci
+// en fazla iki dosyayı birlikte yükler). Genel sınır (maxConcurrentUploads) daha küçükse o geçerlidir. Son boş
+// yer ayrıca yalnızca hiç yer tutmayan hesap ve adrese verilir (handleUpload).
+const MAX_UPLOADS_PER_USER = 2
 // Kapanışta açık bağlantılar için tanınan süre
 const CLOSE_GRACE_MS = 2000
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
@@ -184,6 +219,10 @@ const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
 // istemci için bile geniş pay). Yükleme gövdeleri bu sınıra değil UPLOAD_IDLE_MS'ye tabidir.
 const JSON_BODY_TIMEOUT_MS = 60000
 const UPLOAD_PREFIX = '/api/uploads/'
+// Hesap adı başına başarısız giriş sınırı (bütün adresler toplamı), hesap ve adres başına sınırın bu katıdır.
+// Küçük tutulur: işaretsiz girişlerle bir hesap için yapılabilecek parola denemesi adres sayısıyla artmaz
+// (varsayılan 15 dakikada 20). Giriş cihazı işareti olan istekler bu sınıra takılmaz.
+const LOGIN_NAME_FAIL_FACTOR = 2
 // Frekans fotoğrafı: içeriğin sha256 karmasının ilk 32 onaltılık hanesi (sürüm ve ETag), yalnızca PNG, JPEG
 // ve WebP (gerçek dosya imzasıyla, Content-Type başlığına bakılmaz). SVG kabul edilmez.
 const SERVER_ICON_HASH_RE = /^[0-9a-f]{32}$/
@@ -640,6 +679,9 @@ function normalizeLoadedState (state, config, log) {
       u.voiceMuted = u.voiceMuted === true
       changed = true
     }
+    // Parola sıfırlandı, yeni parola bekleniyor (eski kayıtlarda yoktur): anahtarı olmayan hesap sıfırlanmış sayılır,
+    // böylece yükseltmeden önce sıfırlanmış hesaba da geçici parolayla anahtar yüklenemez
+    if (typeof u.resetPending !== 'boolean') u.resetPending = u.deleted !== true && u.wrappedKey === null
   }
 
   const invite = auth.normalizeCode(state.inviteCode)
@@ -909,13 +951,17 @@ async function createChatServer (options) {
   const authLimiter = new auth.RateLimiter(config.authLimit, config.authWindowMs)
   // Ön giriş ve kullanıcı adı uygunluk sorguları: aynı sınırlar, ayrı sayaç (bir giriş iki deneme sayılmasın)
   const lookupLimiter = new auth.RateLimiter(config.authLimit, config.authWindowMs)
+  // Başarısız giriş: hesap ve istemci adresi (veya giriş cihazı işareti) başına sert sınır. Yalnızca hesap
+  // adına bağlı sayaç bütün adresleri kapsar, LOGIN_NAME_FAIL_FACTOR kat geniştir ve dolduğunda yalnızca
+  // işaretsiz girişleri durdurur.
   const loginFailLimiter = new auth.RateLimiter(config.loginFailLimit, config.loginFailWindowMs)
+  const loginNameLimiter = new auth.RateLimiter(config.loginFailLimit * LOGIN_NAME_FAIL_FACTOR, config.loginFailWindowMs)
   const messageLimiter = new auth.RateLimiter(config.messageLimit, config.messageWindowMs)
   const uploadLimiter = new auth.RateLimiter(config.uploadLimit, config.uploadWindowMs)
   const adminLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
   const signalLimiter = new auth.RateLimiter(config.signalLimit, config.signalWindowMs)
   // Ses katılma, ayrılma ve durum bildirimleri herkese meta yayını tetiklediği için ayrıca sınırlanır
-  const voiceLimiter = new auth.RateLimiter(config.signalLimit, config.signalWindowMs)
+  const voiceLimiter = new auth.RateLimiter(config.voiceLimit, config.signalWindowMs)
   const friendLimiter = new auth.RateLimiter(config.friendRequestLimit, config.friendRequestWindowMs)
   // Arkadaşlık yanıtları, engellemeler, özel mesaj açma, kişisel anahtar, ayar ve oturum işlemleri
   const socialLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
@@ -925,9 +971,11 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
-  const limiters = [authLimiter, lookupLimiter, loginFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
+  const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, messageLimiter, uploadLimiter, adminLimiter,
     signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
+  // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
+  let proxyWarned = false
 
   let closing = false
   const lastUsedResolution = Math.min(LAST_USED_RESOLUTION_MS, Math.floor(config.sessionTtlMs / 10))
@@ -959,7 +1007,7 @@ async function createChatServer (options) {
       return Boolean(channel) && channel.type === 'dm'
     },
     onPrivateVoice: callVoiceChanged,
-    send: (res, status, payload) => util.sendJson(res, status, payload, closingHeaders())
+    send: (res, status, json) => util.sendJsonText(res, status, json, closingHeaders())
   })
 
   // Özel mesaj aramaları: yalnızca bellekte, konuşma başına (src/calls.js). Biten aramanın odasındaki oturumlar
@@ -1361,6 +1409,10 @@ async function createChatServer (options) {
       util.sendJson(res, 503, errorBody(lang, 'shutting_down'), { Connection: 'close' })
       return
     }
+    if (err && err.code === 'hash_busy' && util.canRespond(res)) {
+      util.sendJson(res, 503, errorBody(lang, 'server_busy'), Object.assign({ 'Retry-After': '1' }, closingHeaders() || {}))
+      return
+    }
     log.error(i18n.t(config.lang, 'log.requestError', { label, error: describeError(err, config.lang) }))
     if (util.canRespond(res)) {
       util.sendJson(res, 500, errorBody(lang, 'server_error'), closingHeaders())
@@ -1419,6 +1471,15 @@ async function createChatServer (options) {
   }
 
   function requestIpKey (req) {
+    // Yönlendirme başlığı güvenilir olmayan yerel bir adresten gelirse yönetici bir kez uyarılır,
+    // çünkü bu durumda bütün istemciler aynı hız sınırı kovasını paylaşır
+    if (!proxyWarned) {
+      const forwarder = auth.untrustedLocalForwarder(req, trustsProxy)
+      if (forwarder !== null) {
+        proxyWarned = true
+        log.warn(i18n.t(config.lang, 'log.untrustedForwarder', { address: forwarder }))
+      }
+    }
     return auth.ipKey(auth.clientIp(req, trustsProxy))
   }
 
@@ -1475,13 +1536,33 @@ async function createChatServer (options) {
     return user && !user.deleted ? user : null
   }
 
+  // Parola karması sırası (DEFAULTS.hashConcurrency). Sıra doluysa 'hash_busy' kodlu hata fırlatılır,
+  // istek işleyicisi bunu 503 server_busy yanıtına çevirir (internalError).
+  let hashRunning = 0
+  const hashQueue = []
+  async function gatedHash (fn) {
+    if (hashRunning < config.hashConcurrency) {
+      hashRunning++
+    } else {
+      if (hashQueue.length >= config.hashQueueMax) throw Object.assign(new Error('hash queue full'), { code: 'hash_busy' })
+      await new Promise((resolve) => hashQueue.push(resolve))
+    }
+    try {
+      return await fn()
+    } finally {
+      const next = hashQueue.shift()
+      if (next) next()
+      else hashRunning--
+    }
+  }
+
   // Kayıtlı karma ile authKey doğrulaması. Hesap yoksa veya karması yoksa aynı maliyetle
   // sahte karma doğrulanır. Sonuç yalnızca bekleme süresince karma değişmediyse geçerlidir.
   async function checkAuthKey (user, value) {
     const authKey = auth.isAuthKey(value) ? value : ''
     const usable = Boolean(user) && !user.deleted && typeof user.passHash === 'string' && Boolean(user.kdf)
     const hashUsed = usable ? user.passHash : dummyHash
-    const good = await auth.verifyPassword(authKey === '' ? 'x' : authKey, hashUsed)
+    const good = await gatedHash(() => auth.verifyPassword(authKey === '' ? 'x' : authKey, hashUsed))
     return good && usable && authKey !== '' && user.passHash === hashUsed && !user.deleted
   }
 
@@ -1507,13 +1588,17 @@ async function createChatServer (options) {
     return false
   }
 
-  // Parola sıfırlaması veya yeni parola sonrası anahtar alanları
+  // Parola sıfırlaması sonrası anahtar alanları. Geçici parolayı sıfırlayan sahip (veya CLI ile işletmeci) de bilir:
+  // yeni anahtar çifti yalnızca geçici paroladan farklı yeni bir parolayla birlikte kurulabilir (handleMyPassword),
+  // geçici parolayla /api/me/keys reddedilir. Böylece geçici parolayı bilen biri kişinin yeni kimlik anahtarını
+  // seçemez veya açamaz. Kişiden önce davranırsa kişi geçici parolayla giremez ve durumu fark eder.
   function applyCredentials (user, creds) {
     user.passHash = creds.passHash
     user.kdf = creds.kdf
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    user.resetPending = true
     user.pv++
   }
 
@@ -1571,7 +1656,7 @@ async function createChatServer (options) {
     if (serverFull()) return fail(ctx, 503, 'server_full')
     if (usersByKey.has(name)) return fail(ctx, 409, 'name_taken')
 
-    const passHash = await auth.hashPassword(b.authKey, config.scryptN)
+    const passHash = await gatedHash(() => auth.hashPassword(b.authKey, config.scryptN))
 
     // Karma hesaplanırken durum değişmiş olabilir (ör. aynı anda iki kurulum isteği), denetimler yinelenir
     if (closing) return fail(ctx, 503, 'shutting_down')
@@ -1601,7 +1686,8 @@ async function createChatServer (options) {
       banned: false,
       deleted: false,
       roleId: null,
-      voiceMuted: false
+      voiceMuted: false,
+      resetPending: false
     }
     state.users.push(user)
     usersById.set(user.id, user)
@@ -1614,7 +1700,34 @@ async function createChatServer (options) {
     const token = createSession(user, ctx.req)
     store.saveState()
     hub.bumpMeta()
-    ok(ctx, { token, user: publicUser(user) })
+    ok(ctx, { token, user: publicUser(user), device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
+  }
+
+  // Başarısız giriş sayaçları. Geçerli giriş cihazı işareti olan istek yalnızca işaretin sayacına,
+  // diğerleri hesap ve adres sayacına ile hesap adı sayacına bağlıdır. Böylece adı bilen biri hatalı
+  // denemelerle hesabın daha önce giriş yapılmış cihazlarını kilitleyemez, çok sayıda adresten de hesap
+  // başına hesap adı sınırından fazla parola deneyemez.
+  function loginFailKeys (ctx, name, user, device) {
+    if (name === null) return []
+    const deviceId = user ? auth.loginDeviceId(state.serverSecret, user.id, user.passHash, device) : null
+    if (deviceId !== null) return [{ limiter: loginFailLimiter, key: 'd:' + deviceId }]
+    return [
+      { limiter: loginFailLimiter, key: 'n:' + name + '|' + requestIpKey(ctx.req) },
+      { limiter: loginNameLimiter, key: 'n:' + name }
+    ]
+  }
+
+  // Hesabın bütün başarısız giriş sayaçları (parola değişince veya sıfırlanınca)
+  function resetLoginFails (name) {
+    loginNameLimiter.reset('n:' + name)
+    loginFailLimiter.resetPrefix('n:' + name + '|')
+  }
+
+  // Geçerli giriş cihazı işareti korunur, yoksa yenisi verilir. İşaret parola karmasına bağlıdır
+  // (auth.loginDeviceId): parola değişince veya sıfırlanınca önceki işaretler geçersiz olur.
+  function loginDeviceFor (user, given) {
+    if (auth.loginDeviceId(state.serverSecret, user.id, user.passHash, given) !== null) return given
+    return auth.newLoginDevice(state.serverSecret, user.id, user.passHash)
   }
 
   async function handleLogin (ctx) {
@@ -1622,22 +1735,28 @@ async function createChatServer (options) {
     if (wait > 0) return tooMany(ctx, wait, 'detail.authRate')
     const b = ctx.body
     const name = auth.cleanUsername(b.name)
-    const failKey = name === null ? null : 'n:' + name
-    if (failKey !== null) {
-      const blocked = loginFailLimiter.blocked(failKey, ctx.now)
+    const user = name === null ? null : usersByKey.get(name) || null
+    const failKeys = loginFailKeys(ctx, name, user, b.device)
+    for (const f of failKeys) {
+      const blocked = f.limiter.blocked(f.key, ctx.now)
       if (blocked > 0) return tooMany(ctx, blocked, 'detail.loginRate')
     }
-    const user = name === null ? null : usersByKey.get(name) || null
     const good = await checkAuthKey(user, b.authKey)
     if (!good || usersByKey.get(name) !== user) {
-      if (failKey !== null) loginFailLimiter.hit(failKey)
+      for (const f of failKeys) f.limiter.hit(f.key)
+      // İşaretli denemeler de hesap adı sayacına eklenir (işaretsiz girişlerin sınırı ortaktır)
+      if (failKeys.length === 1) loginNameLimiter.hit('n:' + name)
       return fail(ctx, 401, 'bad_credentials')
     }
     if (user.banned) return fail(ctx, 403, 'banned')
     if (closing) return fail(ctx, 503, 'shutting_down')
-    loginFailLimiter.reset(failKey)
+    // İşaretli başarılı giriş hesap adı sayacını sıfırlamaz: sürmekte olan bir saldırı, kişinin bilinen
+    // cihazından girmesiyle yeni deneme hakkı kazanmaz
+    for (const f of failKeys) f.limiter.reset(f.key)
     const token = createSession(user, ctx.req)
-    ok(ctx, { token, user: publicUser(user), keys: ownKeys(user) })
+    const data = { token, user: publicUser(user), keys: ownKeys(user), device: loginDeviceFor(user, b.device) }
+    if (user.resetPending === true) data.resetPending = true
+    ok(ctx, data)
   }
 
   function handleLogout (ctx) {
@@ -1666,6 +1785,7 @@ async function createChatServer (options) {
       // Sunucudan engellenen hesaplar metada yoktur, eski mesajlarında adları buradan gösterilir
       formerUsers: bannedUsers().map((u) => ({ id: u.id, name: u.name }))
     }
+    if (ctx.user.resetPending === true) data.resetPending = true
     if (isStaff(ctx.user)) data.inviteCode = state.inviteCode
     // Yönetim ekranında engeli kaldırmak için (engelleme izni olanlar)
     if (hasPerm(ctx.user, 'ban')) data.bannedUsers = bannedUsers().map((u) => ({ id: u.id, name: u.name, role: u.role }))
@@ -1681,17 +1801,22 @@ async function createChatServer (options) {
     hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
   }
 
-  // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır.
+  // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır. Anahtar çifti yoksa (parola
+  // sıfırlaması sonrası) yeni çift ({ publicKey, wrappedKey }, yeni parolayla sarılmış) bu istekle kurulabilir.
   async function handleMyPassword (ctx) {
     const b = ctx.body
     const user = ctx.user
     if (!auth.isAuthKey(b.newAuthKey)) return fail(ctx, 400, 'bad_auth_key')
     const kdf = auth.cleanKdf(b.kdf)
     if (kdf === null) return fail(ctx, 400, 'bad_kdf')
-    // Anahtar çifti varsa yeniden sarılmış özel anahtar zorunludur, yoksa (sıfırlama sonrası) boş kalır
+    // Anahtar çifti varsa yeniden sarılmış özel anahtar zorunludur, yoksa yeni çift verilebilir veya boş kalır.
+    // Çifti olan hesaba yeni açık anahtar gönderen istek reddedilir: eski durumdaki bir sekme yeni çift üretip
+    // açık anahtarla eşleşmeyen bir özel anahtarı sessizce yerleştiremez.
     const hadKeys = user.publicKey !== null
     const noWrapped = b.wrappedKey === undefined || b.wrappedKey === null
-    if (hadKeys ? !auth.isWrappedKey(b.wrappedKey) : !noWrapped) return fail(ctx, 400, 'bad_keys')
+    const hasPublic = b.publicKey !== undefined && b.publicKey !== null
+    const newPair = !hadKeys && hasPublic
+    if (hadKeys ? hasPublic || !auth.isWrappedKey(b.wrappedKey) : newPair ? !auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey) : !noWrapped) return fail(ctx, 400, 'bad_keys')
     const failKey = 'p:' + user.id
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, b.oldAuthKey)
@@ -1700,19 +1825,27 @@ async function createChatServer (options) {
       return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     }
     const hashUsed = user.passHash
-    const passHash = await auth.hashPassword(b.newAuthKey, config.scryptN)
+    const passHash = await gatedHash(() => auth.hashPassword(b.newAuthKey, config.scryptN))
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
     if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
     user.passHash = passHash
     user.kdf = kdf
-    user.wrappedKey = hadKeys ? b.wrappedKey : null
+    user.wrappedKey = hadKeys || newPair ? b.wrappedKey : null
+    user.resetPending = false
+    if (newPair) {
+      user.publicKey = b.publicKey
+      user.identity = null
+      user.pv++
+      hub.bumpMeta()
+    }
     loginFailLimiter.reset(failKey)
-    loginFailLimiter.reset('n:' + user.key)
+    resetLoginFails(user.key)
     deleteSessions(sessionsOf(user.id).filter((s) => s !== ctx.session), 'invalid_token')
     store.saveState()
-    return okDurable(ctx, { ok: true })
+    // Önceki giriş cihazı işaretleri yeni parola karmasıyla geçersizdir, bu cihaz yenisini alır
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
   }
 
   // Parola sıfırlamasından sonra (sarılmış anahtar yokken) yeni anahtar çifti yüklenir
@@ -1722,6 +1855,8 @@ async function createChatServer (options) {
     if (!auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey)) return fail(ctx, 400, 'bad_keys')
     const user = ctx.user
     if (user.wrappedKey !== null) return fail(ctx, 409, 'keys_exist')
+    // Sıfırlamadan sonra anahtar çifti yalnızca yeni parolayla birlikte kurulur (applyCredentials, handleMyPassword)
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
     user.publicKey = b.publicKey
     user.wrappedKey = b.wrappedKey
     user.identity = null
@@ -2226,6 +2361,8 @@ async function createChatServer (options) {
     const updated = store.editMessage(message.id, b.body, Date.now())
     if (!updated) return fail(ctx, 404, 'message_not_found')
     emitMessageEvent(channel, { type: 'edit', channelId: updated.channelId, message: updated })
+    // Büyüyen gövde toplam gövde bütçesini aşabilir (src/store.js AVG_BODY_CHARS)
+    emitDropped(store.trimMessages())
     ok(ctx, { ok: true, message: updated })
   }
 
@@ -2272,10 +2409,12 @@ async function createChatServer (options) {
     return new Promise((resolve) => {
       let done = false
       let idleTimer = null
+      let rateTimer = null
       function finish (result) {
         if (done) return
         done = true
         clearTimeout(idleTimer)
+        clearTimeout(rateTimer)
         req.removeListener('data', onData)
         req.removeListener('end', onEnd)
         req.removeListener('error', onAbort)
@@ -2292,6 +2431,20 @@ async function createChatServer (options) {
           req.destroy()
         }, UPLOAD_IDLE_MS)
         if (typeof idleTimer.unref === 'function') idleTimer.unref()
+      }
+      // Gelen bayt, yüklemenin hız alt sınırından biriken payının altındaysa yükleme kesilir (damlatılan gövde
+      // yükleme yerini tutamaz). Pay accrueUploadAllowance ile eşzamanlı yükleme sayısına göre biriktirilir.
+      function armRate (delay) {
+        rateTimer = setTimeout(() => {
+          accrueUploadAllowance(Date.now())
+          if (job.bytes < job.allowance) {
+            finish('aborted')
+            req.destroy()
+            return
+          }
+          armRate(UPLOAD_RATE_CHECK_MS)
+        }, delay)
+        if (typeof rateTimer.unref === 'function') rateTimer.unref()
       }
       function onData (chunk) {
         if (done) return
@@ -2340,14 +2493,52 @@ async function createChatServer (options) {
       ws.on('drain', onDrain)
       ws.on('error', onWriteError)
       armIdle()
+      armRate(config.uploadRateGraceMs)
       if (req.destroyed) finish('aborted')
     })
+  }
+
+  // Bir yüklemenin hız alt sınırından aldığı pay: aynı hesabın veya aynı adresin eşzamanlı yüklemeleri sınırı
+  // paylaşır. Bölen en çok MAX_UPLOADS_PER_USER olur, böylece bir yüklemeye düşen pay sınırın yarısının altına
+  // inmez ve yer tutma süresi sınırlı kalır.
+  function uploadShare (job) {
+    let count = 1
+    for (const other of uploadJobs) {
+      if (other !== job && (other.userId === job.userId || other.ipKey === job.ipKey)) count++
+    }
+    return Math.min(count, MAX_UPLOADS_PER_USER)
+  }
+
+  // Her yüklemenin hız alt sınırından o ana kadar biriken payını (bayt) günceller. Eşzamanlı yükleme sayısı
+  // değişmeden önce (yükleme başlarken ve biterken) ve her hız denetiminde çağrılır, böylece her zaman aralığı
+  // o aralıktaki yükleme sayısına göre hesaplanır: diğer dosya bitince kalan yükleme geçmiş süre için
+  // cezalandırılmaz, yalnızca bundan sonrası için sınırın tamamını karşılamalıdır.
+  function accrueUploadAllowance (now) {
+    for (const job of uploadJobs) {
+      if (now > job.accruedAt) job.allowance += (now - job.accruedAt) * config.uploadMinBytesPerSec / 1000 / uploadShare(job)
+      job.accruedAt = now
+    }
   }
 
   async function handleUpload (ctx) {
     const wait = uploadLimiter.consume('u' + ctx.user.id, ctx.now)
     if (wait > 0) return tooMany(ctx, wait, 'detail.uploadRate')
     if (activeUploads >= config.maxConcurrentUploads) return fail(ctx, 503, 'busy')
+    // Birkaç hesap bütün yerleri tutup herkesin yüklemesini engelleyemesin: hesap ve adres başına en fazla
+    // MAX_UPLOADS_PER_USER yer, son boş yer de yalnızca hiç yer tutmayan hesap ve adrese verilir. Varsayılan altı
+    // yerin hepsini tutmak için en az dört hesap ve dört ayrı adres gerekir, her hesap ve adres yerlerini en az
+    // uploadMinBytesPerSec toplam hızla gerçekten veri göndererek tutar. Bu kurallarla verilen ret sunucu dolu
+    // olduğu için verilen busy yanıtından ayrı olarak busy_reserved kodunu taşır: istemci bekleyip yeniden dener,
+    // yer tutan yükleme (kendisinin veya aynı ağdaki birinin) bitince yer açılır.
+    const ipKey = requestIpKey(ctx.req)
+    let ownJobs = 0
+    let ipJobs = 0
+    for (const job of uploadJobs) {
+      if (job.userId === ctx.user.id) ownJobs++
+      if (job.ipKey === ipKey) ipJobs++
+    }
+    if (ownJobs >= MAX_UPLOADS_PER_USER || ipJobs >= MAX_UPLOADS_PER_USER) return fail(ctx, 503, 'busy_reserved')
+    if (activeUploads === config.maxConcurrentUploads - 1 && (ownJobs > 0 || ipJobs > 0)) return fail(ctx, 503, 'busy_reserved')
     const declared = util.contentLength(ctx.req)
     if (declared !== null && declared > config.uploadMaxBytes) return failTooLarge(ctx)
     if (declared === 0) return fail(ctx, 400, 'empty_upload')
@@ -2357,7 +2548,9 @@ async function createChatServer (options) {
     ctx.drainable = false
 
     const id = crypto.randomBytes(16).toString('hex')
-    const job = { req: ctx.req, session: ctx.session, userId: ctx.user.id, bytes: 0, finish: null }
+    const startedAt = Date.now()
+    const job = { req: ctx.req, session: ctx.session, userId: ctx.user.id, ipKey, bytes: 0, allowance: 0, accruedAt: startedAt, finish: null }
+    accrueUploadAllowance(startedAt)
     activeUploads++
     uploadJobs.add(job)
     try {
@@ -2390,6 +2583,7 @@ async function createChatServer (options) {
       store.saveState()
       ok(ctx, { id, size })
     } finally {
+      accrueUploadAllowance(Date.now())
       activeUploads--
       inflightBytes -= job.bytes
       uploadJobs.delete(job)
@@ -2703,12 +2897,12 @@ async function createChatServer (options) {
     if (!target) return fail(ctx, 404, 'user_not_found')
     if (target.id === ctx.user.id) return fail(ctx, 403, 'forbidden')
     if (!takeAdminSlot(ctx)) return
-    const creds = await auth.newCredentials(config.scryptN)
+    const creds = await gatedHash(() => auth.newCredentials(config.scryptN))
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx) || ctx.user.role !== 'owner') return fail(ctx, 403, 'forbidden')
     if (target.deleted) return fail(ctx, 404, 'user_not_found')
     applyCredentials(target, creds)
-    loginFailLimiter.reset('n:' + target.key)
+    resetLoginFails(target.key)
     loginFailLimiter.reset('p:' + target.id)
     deleteSessions(sessionsOf(target.id), 'invalid_token')
     store.saveState()
@@ -2949,7 +3143,9 @@ async function createChatServer (options) {
     if (!takeVoiceSlot(ctx)) return
     const channel = findChannel(toId(ctx.body.channelId))
     if (channel && channel.type === 'dm') {
-      if (!callableDm(channel, ctx.user) || !calls.live(channel.id, Date.now())) return fail(ctx, 404, 'channel_not_found')
+      const rec = callableDm(channel, ctx.user) ? calls.live(channel.id, Date.now()) : null
+      // Reddettiği aramanın odasına aranan katılamaz (arama ona görünmez)
+      if (!rec || calls.hiddenFrom(rec, ctx.user.id)) return fail(ctx, 404, 'channel_not_found')
       const callMembers = hub.voiceJoin(ctx.rt, channel.id, CALL_CAPACITY)
       if (callMembers === null) return fail(ctx, 409, 'voice_full')
       cancelRingingBy(ctx.user.id, channel.id)
@@ -3084,7 +3280,12 @@ async function createChatServer (options) {
     if (!canWriteDm(dm, ctx.user)) return fail(ctx, 403, 'dm_not_allowed')
     if (!social.areFriends(ctx.user.id, social.otherMember(dm, ctx.user.id))) return fail(ctx, 403, 'call_not_allowed')
     const now = Date.now()
-    const existing = calls.live(dm.id, now)
+    let existing = calls.live(dm.id, now)
+    // Reddettiği aramanın arananı geri arıyorsa reddedilen arama biter, yeni arama başlar
+    if (existing && calls.hiddenFrom(existing, ctx.user.id)) {
+      calls.end(existing)
+      existing = null
+    }
     if (existing) {
       const answer = existing.state === 'ringing' && existing.callee === ctx.user.id
       if (!answer) return ok(ctx, { ok: true, call: callView(existing, ctx.user.id) })
@@ -3099,14 +3300,20 @@ async function createChatServer (options) {
   }
 
   // POST /api/calls/decline { dmId }: çalan aramayı aranan reddeder veya arayan iptal eder, süren aramada aramayı
-  // bitirir. Reddetme ile cevapsız kalma arayan için ayırt edilemez (ikisinde de kayıt silinir, odadaki oturumlar
-  // çıkarılır). Kayıt yoksa da başarılı döner.
+  // bitirir. Reddetme ile cevapsız kalma arayan için ayırt edilemez: aranan reddedince zil yalnızca onun cihazlarında
+  // durur, arayan için arama zil süresi dolana kadar çalar ve cevapsız aramayla aynı anda biter. Böylece arananın açık
+  // bir cihazı olduğu (görünmez olsa bile) zamanlamadan anlaşılamaz. Aranan arama odasına katılmışsa (arayan onu
+  // odada görmüştür) arama hemen biter. Kayıt yoksa da başarılı döner.
   function handleCallDecline (ctx) {
     if (!takeCallSlot(ctx)) return
     const dm = memberDm(ctx.body.dmId, ctx.user)
     if (!dm) return fail(ctx, 404, 'channel_not_found')
     const rec = calls.live(dm.id, Date.now())
-    if (rec) calls.end(rec)
+    if (rec && rec.state === 'ringing' && rec.callee === ctx.user.id && !rec.joined.has(ctx.user.id)) {
+      if (calls.decline(rec)) privateChanged([ctx.user.id])
+    } else if (rec) {
+      calls.end(rec)
+    }
     ok(ctx, { ok: true })
   }
 
@@ -3121,6 +3328,26 @@ async function createChatServer (options) {
   // POST /api/music/state { channelId, expect, env } (Ek L2.10). Yalnızca o ses odasında bulunan (herhangi
   // bir oturumuyla) kullanıcı yazabilir. Sürüm karşılaştırmalı: expect güncel sürüm değilse 409 ve güncel
   // kayıt (oda boşsa v 0). Sunucu zarfın içeriğini görmez, yalnızca biçimini ve boyutunu denetler.
+  // Kullanıcı kimliği -> { start, used }: musicWindowMs penceresinde yazımların harcadığı bütçe (MUSIC_FANOUT_CHARS)
+  const musicFanout = new Map()
+
+  // Bu boyutta bir yazım için beklenecek süre (ms), izin varsa 0. Pencerenin ilk yazımı her boyutta geçer.
+  function musicFanoutWait (userId, cost, now) {
+    const rec = musicFanout.get(userId)
+    if (!rec || now - rec.start >= config.musicWindowMs) return 0
+    if (rec.used + cost <= MUSIC_FANOUT_CHARS) return 0
+    return Math.max(1, rec.start + config.musicWindowMs - now)
+  }
+
+  function chargeMusicFanout (userId, cost, now) {
+    let rec = musicFanout.get(userId)
+    if (!rec || now - rec.start >= config.musicWindowMs) {
+      rec = { start: now, used: 0 }
+      musicFanout.set(userId, rec)
+    }
+    rec.used += cost
+  }
+
   function handleMusicState (ctx) {
     const b = ctx.body
     if (!state.music.enabled) return musicFail(ctx, 403, 'dj_disabled')
@@ -3136,10 +3363,13 @@ async function createChatServer (options) {
     if (typeof b.env !== 'string') return musicFail(ctx, 400, 'bad_envelope')
     if (b.env.length > MUSIC_ENV_MAX_CHARS) return musicFail(ctx, 413, 'too_large')
     if (!ENVELOPE_RE.test(b.env)) return musicFail(ctx, 400, 'bad_envelope')
-    const wait = musicLimiter.consume('u' + ctx.user.id, ctx.now)
+    const cost = music.authoredChars(ctx.user.id, channel.id, b.env)
+    const fanoutWait = musicFanoutWait(ctx.user.id, cost, ctx.now)
+    const wait = fanoutWait > 0 ? fanoutWait : musicLimiter.consume('u' + ctx.user.id, ctx.now)
     if (wait > 0) return musicFail(ctx, 429, 'rate_limited', 'detail.musicRate', { 'Retry-After': String(Math.max(1, Math.ceil(wait / 1000))) })
     const now = Date.now()
     const result = music.write(channel.id, ctx.user.id, b.expect, b.env, now)
+    if (result.ok) chargeMusicFanout(ctx.user.id, cost, ctx.now)
     if (!result.ok) {
       const rec = result.record
       const data = rec ? Object.assign({}, rec, { now }) : { v: 0, at: 0, by: null, env: null, now }
@@ -3366,6 +3596,9 @@ async function createChatServer (options) {
       }
       if (orphans.length > 0) removeUploads(orphans)
       for (const limiter of limiters) limiter.sweep(now)
+      for (const [userId, rec] of musicFanout) {
+        if (now - rec.start >= config.musicWindowMs) musicFanout.delete(userId)
+      }
     } catch (err) {
       log.error(i18n.t(config.lang, 'log.sweepError', { error: describeError(err, config.lang) }))
     }

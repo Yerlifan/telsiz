@@ -164,6 +164,8 @@ function applyMeta (meta, isInitial) {
   } else {
     refreshConversationChrome()
   }
+  // Etkin anahtar bu cihazda emekliye ayrılmış eski bir anahtara döndüyse onunla şifrelenmez (03-auth.js activeKid)
+  if (prevKid !== meta.activeKid && state.me && activeKidRolledBack()) toast(() => t('key.rolledBack'), 'error', 12000)
   if (prevKid !== meta.activeKid || prevRole !== (state.me ? state.me.role : null) || prevPerms !== (state.me ? myPermsKey() : '')) {
     renderComposerState()
     refreshAllMessages()
@@ -1045,7 +1047,7 @@ function renderComposerState () {
   el.btnEmoji.disabled = !enabled
   if (!keyOk) {
     el.composerHint.hidden = false
-    el.composerHintText.textContent = t(activeKid() ? 'composer.keyNeeded' : 'composer.noActiveKey')
+    el.composerHintText.textContent = t(activeKid() ? 'composer.keyNeeded' : activeKidRolledBack() ? 'key.rolledBack' : 'composer.noActiveKey')
     el.composerHintAction.hidden = Boolean(!activeKid() && !isAdmin())
     el.composerHintAction.textContent = t(activeKid() ? 'key.addShortButton' : 'key.generate')
   } else {

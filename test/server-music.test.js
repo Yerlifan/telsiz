@@ -266,6 +266,85 @@ describe('Telsiz DJ: durum alanları ve yazım', () => {
     }
   })
 
+  it('yazımların tetiklediği harita boyutu kullanıcı başına sınırlıdır (1 MiB / pencere)', async () => {
+    const { ctx, ayse, mehmet } = await room({ musicWindowMs: 60000 })
+    try {
+      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
+      h.expectStatus(await join(ctx, mehmet.token, VOICE), 200)
+      let v = 0
+      // Her yazım haritayı en büyük zarfla gönderir: 8 x 131072 = 1 MiB geçer, dokuzuncusu reddedilir
+      for (const i of h.times(8)) {
+        void i
+        const res = await write(ctx, ayse.token, VOICE, v, envOfLength(ENV_MAX))
+        h.expectStatus(res, 200)
+        v = res.data.v
+      }
+      const limited = await write(ctx, ayse.token, VOICE, v, h.envelope())
+      h.expectStatus(limited, 429, 'rate_limited')
+      assert.ok(Number(limited.headers['retry-after']) >= 1)
+      // Başka kullanıcının bütçesi ayrıdır
+      h.expectStatus(await write(ctx, mehmet.token, VOICE, v, h.envelope()), 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('bütçe yalnızca yazanın kendi zarflarını sayar: başka odaların durumu olağan DJ yazımlarını kısmaz', async () => {
+    const { ctx, ayse, mehmet } = await room({ musicWindowMs: 60000 })
+    try {
+      // mehmet başka odaya en büyük zarfı bırakır
+      h.expectStatus(await join(ctx, mehmet.token, VOICE2), 200)
+      const m1 = await write(ctx, mehmet.token, VOICE2, 0, envOfLength(ENV_MAX))
+      h.expectStatus(m1, 200)
+      // ayse kendi odasında 8 en büyük zarfı yazabilir (bütün harita sayılsaydı beşincisi reddedilirdi)
+      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
+      let v = 0
+      for (const i of h.times(8)) {
+        void i
+        const res = await write(ctx, ayse.token, VOICE, v, envOfLength(ENV_MAX))
+        h.expectStatus(res, 200)
+        v = res.data.v
+      }
+      // ayse'nin bütçesi doldu, mehmet'inki ayrıdır ve ayse'nin zarfı ona yüklenmez
+      h.expectStatus(await write(ctx, ayse.token, VOICE, v, h.envelope()), 429, 'rate_limited')
+      let mv = m1.data.v
+      for (const i of h.times(7)) {
+        void i
+        const res = await write(ctx, mehmet.token, VOICE2, mv, envOfLength(ENV_MAX))
+        h.expectStatus(res, 200)
+        mv = res.data.v
+      }
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('başka odalara bırakılan kendi zarfları yazanın bütçesine sayılır, üzerine yazılınca sayılmaz', async () => {
+    const { ctx, ayse, mehmet } = await room({ musicWindowMs: 60000 })
+    try {
+      // ayse VOICE2'ye en büyük zarfı bırakıp VOICE'a geçer: her yazımı 2 x 131072 harcar
+      h.expectStatus(await join(ctx, ayse.token, VOICE2), 200)
+      const a1 = await write(ctx, ayse.token, VOICE2, 0, envOfLength(ENV_MAX))
+      h.expectStatus(a1, 200)
+      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
+      let v = 0
+      for (const i of h.times(3)) {
+        void i
+        const res = await write(ctx, ayse.token, VOICE, v, envOfLength(ENV_MAX))
+        h.expectStatus(res, 200)
+        v = res.data.v
+      }
+      // 1 + 3 x 2 = 7 birim harcandı, 2 birimlik yazım sınırı (8) aşar
+      h.expectStatus(await write(ctx, ayse.token, VOICE, v, envOfLength(ENV_MAX)), 429, 'rate_limited')
+      // mehmet VOICE2'nin zarfını küçük bir zarfla değiştirince o oda artık ayse'ye sayılmaz
+      h.expectStatus(await join(ctx, mehmet.token, VOICE2), 200)
+      h.expectStatus(await write(ctx, mehmet.token, VOICE2, a1.data.v, h.envelope()), 200)
+      h.expectStatus(await write(ctx, ayse.token, VOICE, v, envOfLength(ENV_MAX)), 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
   it('hata metinleri iki dildedir', async () => {
     const { ctx, owner, ayse } = await room()
     try {

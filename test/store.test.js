@@ -432,10 +432,10 @@ test('kilit dosyası: PID yazılır, kapanınca silinir, eski kilit yok sayılı
   const lockPath = path.join(dir, '.kilit')
   let child = null
   try {
-    assert.deepEqual(lockInfo(dir), { path: lockPath, exists: false, pid: null, alive: false })
+    assert.deepEqual(lockInfo(dir), { path: lockPath, exists: false, pid: null, alive: false, mine: false })
     const store = await openStore({ dir, log: makeLog() })
-    assert.equal(fs.readFileSync(lockPath, 'utf8').trim(), String(process.pid))
-    assert.deepEqual(lockInfo(dir), { path: lockPath, exists: true, pid: process.pid, alive: true })
+    assert.match(fs.readFileSync(lockPath, 'utf8'), new RegExp('^' + process.pid + ' \\S+ [0-9a-f]{16}\\n$'))
+    assert.deepEqual(lockInfo(dir), { path: lockPath, exists: true, pid: process.pid, alive: true, mine: true })
     await store.close()
     assert.equal(fs.existsSync(lockPath), false)
 
@@ -444,7 +444,7 @@ test('kilit dosyası: PID yazılır, kapanınca silinir, eski kilit yok sayılı
       fs.writeFileSync(lockPath, content)
       assert.equal(lockInfo(dir).alive, false)
       const reopened = await openStore({ dir, log: makeLog() })
-      assert.equal(fs.readFileSync(lockPath, 'utf8').trim(), String(process.pid))
+      assert.equal(lockInfo(dir).mine, true)
       await reopened.close()
     }
 
@@ -458,6 +458,40 @@ test('kilit dosyası: PID yazılır, kapanınca silinir, eski kilit yok sayılı
     assert.deepEqual(snapshotDir(dir), before)
   } finally {
     if (child) child.kill()
+    removeDir(dir)
+  }
+})
+
+test('kilit dosyası: aynı PID numarası kilidi bu sürecin yapmaz, başka makinenin kilidi yenilendikçe canlıdır', async () => {
+  const dir = tempDir()
+  const lockPath = path.join(dir, '.kilit')
+  const old = new Date(Date.now() - 120000)
+  try {
+    // Başka bir konteynerdeki sunucu da PID'i bu süreçle aynı numarada olabilir (ör. ikisi de PID 1)
+    for (const host of [encodeURIComponent(os.hostname()), 'baska-konteyner']) {
+      fs.writeFileSync(lockPath, process.pid + ' ' + host + ' 0123456789abcdef\n')
+      assert.deepEqual([lockInfo(dir).alive, lockInfo(dir).mine], [true, false])
+      const before = snapshotDir(dir)
+      await assert.rejects(openStore({ dir, log: makeLog() }), (err) => err instanceof StoreError && err.code === 'locked')
+      assert.deepEqual(snapshotDir(dir), before)
+      // Değişme zamanı yenilenmeyen kilit bayattır
+      fs.utimesSync(lockPath, old, old)
+      assert.equal(lockInfo(dir).alive, false)
+      const store = await openStore({ dir, log: makeLog() })
+      assert.equal(lockInfo(dir).mine, true)
+      await store.close()
+      assert.equal(fs.existsSync(lockPath), false)
+    }
+    // Başka makinedeki ölü PID numarası da kilidi bayat yapmaz (o PID burada sorgulanamaz)
+    fs.writeFileSync(lockPath, DEAD_PID + ' baska-konteyner 0123456789abcdef\n')
+    await assert.rejects(openStore({ dir, log: makeLog() }), (err) => err instanceof StoreError && err.code === 'locked')
+    // Başkasının kilidi kapanışta silinmez
+    fs.utimesSync(lockPath, old, old)
+    const store = await openStore({ dir, log: makeLog() })
+    fs.writeFileSync(lockPath, '7 baska-konteyner 0123456789abcdef\n')
+    await store.close()
+    assert.equal(fs.existsSync(lockPath), true)
+  } finally {
     removeDir(dir)
   }
 })
@@ -1434,6 +1468,85 @@ test('toplam mesaj sınırı: en büyük kanalın en eskisi düşer, silme kayd�
     assert.deepEqual(ids(reopened.listMessages(1).messages), [3, 4])
     assert.deepEqual(ids(reopened.listMessages(2).messages), [6, 8, 9])
     await reopened.close()
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('gövde bütçesi: toplam gövde karakteri aşılınca en eskiler düşer, açılışta da uygulanır', async () => {
+  const dir = tempDir()
+  try {
+    const big = (id, channelId) => msg(id, channelId, { body: 'x'.repeat(400) })
+    const store = await populated(dir, { maxTotalBodyChars: 1000 })
+    assert.deepEqual(store.addMessage(big(1, 1)), [])
+    assert.deepEqual(store.addMessage(big(2, 1)), [])
+    // Üçüncü büyük gövde bütçeyi aşar, mesaj sayısı sınırı aşılmasa da en eski düşer
+    assert.deepEqual(store.addMessage(big(3, 2)), [big(1, 1)])
+    assert.deepEqual(ids(store.listMessages(1).messages), [2])
+    assert.deepEqual(ids(store.listMessages(2).messages), [3])
+    // Düzenleme gövdeyi büyütürse trimMessages bütçeyi yeniden uygular
+    store.editMessage(2, 'y'.repeat(700), 5)
+    assert.deepEqual(store.trimMessages(), [msg(2, 1, { body: 'y'.repeat(700), editedAt: 5 })])
+    assert.deepEqual(store.trimMessages(), [])
+    assert.deepEqual(store.addMessage(msg(4, 3)), [])
+    assert.deepEqual(store.addMessage(msg(5, 3)), [])
+    await store.close()
+
+    // Daha küçük bütçeyle açılışta da yazarın en eski mesajından başlayarak düşer
+    const reopened = await openStore({ dir, log: makeLog(), maxTotalBodyChars: 300 })
+    assert.deepEqual(ids(reopened.listMessages(2).messages), [])
+    assert.deepEqual(ids(reopened.listMessages(3).messages), [4, 5])
+    await reopened.close()
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('gövde bütçesi: uzun mesajlarla doldurulan bütçe başkalarının özel mesajlarını değil yazarın kendi mesajlarını siler', async () => {
+  const dir = tempDir()
+  try {
+    const store = await populated(dir, { maxTotalBodyChars: 10000 })
+    // Odada (kanal 1) bir üyenin, özel mesaj konuşmasında (kanal 10) başka bir üyenin geçmişi
+    for (const id of range(1, 10)) store.addMessage(msg(id, 1, { authorId: 3, body: 'r'.repeat(100) }))
+    for (const id of range(11, 30)) store.addMessage(msg(id, 10, { authorId: 2, body: 'd'.repeat(200) }))
+    // Saldırgan aynı odaya ve kendi kanalına uzun mesajlar yağdırır
+    const flood = (id) => msg(id, id % 2 === 0 ? 1 : 5, { authorId: 9, body: 'x'.repeat(2400) })
+    const dropped = []
+    for (const id of range(101, 130)) {
+      for (const old of store.addMessage(flood(id))) dropped.push(old)
+    }
+    // Yalnızca saldırganın en eski mesajları düşer, en yeni ikisi kalır
+    assert.deepEqual(dropped, range(101, 128).map(flood))
+    assert.deepEqual(ids(store.listMessages(10, { limit: 100 }).messages), range(11, 30))
+    assert.deepEqual(ids(store.listMessages(1, { limit: 100 }).messages), range(1, 10).concat([130]))
+    assert.deepEqual(ids(store.listMessages(5, { limit: 100 }).messages), [129])
+    await store.close()
+
+    // Açılışta kanallar sırayla okunur (130 kanal 1'de, 129 kanal 5'te): yine yazarın en eskisi düşer.
+    // Saldırgan en büyük olmaktan çıkınca bütçeyi en çok dolduran yazar (burada kanal 10'un sahibi) azalır.
+    const reopened = await openStore({ dir, log: makeLog(), maxTotalBodyChars: 7000 })
+    assert.deepEqual(ids(reopened.listMessages(5, { limit: 100 }).messages), [])
+    assert.deepEqual(ids(reopened.listMessages(1, { limit: 100 }).messages), range(1, 10).concat([130]))
+    assert.deepEqual(ids(reopened.listMessages(10, { limit: 100 }).messages), range(13, 30))
+    // Düzenleme yazarın toplamını da büyütür: düşen mesajlar düzenleyenindir
+    reopened.editMessage(10, 'y'.repeat(4100), 5)
+    assert.deepEqual(ids(reopened.trimMessages()), range(1, 10))
+    assert.deepEqual(ids(reopened.listMessages(1, { limit: 100 }).messages), [130])
+    assert.deepEqual(ids(reopened.listMessages(10, { limit: 100 }).messages), range(13, 30))
+    await reopened.close()
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('gövde bütçesi verilmezse mesaj sınırı çarpı 1500 karakterdir', async () => {
+  const dir = tempDir()
+  try {
+    const store = await populated(dir, { maxTotalMessages: 3 })
+    assert.deepEqual(store.addMessage(msg(1, 1, { body: 'x'.repeat(3000) })), [])
+    assert.deepEqual(store.addMessage(msg(2, 1, { body: 'x'.repeat(1400) })), [])
+    assert.deepEqual(store.addMessage(msg(3, 2, { body: 'x'.repeat(200) })), [msg(1, 1, { body: 'x'.repeat(3000) })])
+    await store.close()
   } finally {
     removeDir(dir)
   }

@@ -10,7 +10,11 @@
 //   görüntü geliyorsa video, yoksa büyük avatar), durum satırı (Aranıyor, Bağlanıyor, süre) ve denetimler
 //   (Mikrofon, Kamera, Aramayı Bitir). Gelen aramada aynı bölümde Kabul Et ve Reddet durur. Yazışma altta kalır.
 // - Gelen arama kartı (#call-incoming, role="alertdialog"): çalan arama varsa ve bu cihaz aramada değilse görünür.
-//   Esc kartı yalnızca gizler ve zili susturur, aramayı reddetmez ve kabul etmez.
+//   Esc kartı yalnızca gizler ve zili susturur, aramayı reddetmez ve kabul etmez. Kart görününce odak kartın
+//   kendisine geçer, düğmelere değil: yanlışlıkla basılan Enter veya Boşluk (ör. bas konuş tuşu) aramayı açmaz.
+// - Kamera yalnızca kişinin kendi seçimiyle açılır: görüntülü aramada Kabul Et kamerayla, Kamerasız Kabul Et
+//   yalnızca sesle katılır. Gelen arama çalarken başlıktaki Sesli Ara aramayı kamerasız, Görüntülü Ara kamerayla
+//   kabul eder (arayanın seçtiği tür aranan tarafın kamerasını açmaz).
 // - Zil (31-sesler.js 'ring'): gelen arama çalarken yaklaşık 3 saniyede bir yinelenir. Rahatsız etmeyin durumunda
 //   çalmaz (kart yine görünür). Sayfa gizliyse bildirimler açıksa bir kez sistem bildirimi verilir.
 // - Arayan için ret ile cevapsız kalma ayırt edilmez: ikisinde de "Arama cevaplanmadı" yazar. Süren arama karşı
@@ -213,7 +217,9 @@ function aramaStart (dmId, partner, video) {
       return
     }
     const answer = res.data.answer === true
-    aramaJoin(call, answer ? 'callee' : 'caller', answer ? call.video : Boolean(video))
+    // Karşı tarafın çalan araması kabul edildiyse de kamera bu kişinin bastığı düğmeye göre açılır (Sesli Ara
+    // kamerasız katılır, arayanın görüntülü araması kamerayı açtırmaz)
+    aramaJoin(call, answer ? 'callee' : 'caller', Boolean(video))
   })
 }
 
@@ -257,8 +263,17 @@ function aramaStartCamera () {
   Promise.resolve(voice.startCamera()).catch(() => {})
 }
 
-// Gelen aramayı kabul eder (kart veya konuşmanın arama bölümü). Kullanıcı hareketi içinde çağrılır.
+// Gelen aramayı kabul eder (kart veya konuşmanın arama bölümü). Kullanıcı hareketi içinde çağrılır. Görüntülü
+// aramada Kabul Et kamerayı açar, Kamerasız Kabul Et (aramaAcceptVoice) yalnızca sesle katılır.
 function aramaAccept () {
+  aramaAnswer(true)
+}
+
+function aramaAcceptVoice () {
+  aramaAnswer(false)
+}
+
+function aramaAnswer (withCamera) {
   const call = aramaIncoming()
   if (!call || !state.inApp) return
   if (dmEntry(call.dmId)) showDm(call.dmId, {})
@@ -273,7 +288,7 @@ function aramaAccept () {
     if (card && !card.hidden && decline) focusNode(decline)
     return
   }
-  aramaJoin(call, 'callee', call.video)
+  aramaJoin(call, 'callee', Boolean(withCamera && call.video))
   // Odak kabul düğmesindeyse konuşmanın arama bölümüne geçer
   nextFrame(() => {
     const target = byId('dm-call-mute') || byId('dm-call-hangup')
@@ -460,9 +475,13 @@ function aramaBindCard () {
   const card = byId('call-incoming')
   if (!card) return
   arama.bound = true
+  // Kart görününce odak kartın kendisine geçer (aramaSyncCard)
+  card.tabIndex = -1
   const accept = byId('call-incoming-accept')
+  const acceptVoice = byId('call-incoming-accept-voice')
   const decline = byId('call-incoming-decline')
   if (accept) accept.addEventListener('click', aramaAccept)
+  if (acceptVoice) acceptVoice.addEventListener('click', aramaAcceptVoice)
   if (decline) decline.addEventListener('click', aramaDecline)
   // Esc yalnızca kartı gizler ve zili susturur: arama ne reddedilir ne kabul edilir
   card.addEventListener('keydown', (e) => {
@@ -496,8 +515,9 @@ function aramaSyncCard () {
   const blocked = arama.blocked && arama.blocked.key === key ? arama.blocked.text : ''
   const info = typeof userAvatarInfo === 'function' ? userAvatarInfo(call.userId) : null
   // İçerik yalnızca bir şey değişince yeniden yazılır (bu işlev ses durumu her değiştiğinde çağrılır)
-  const content = [key, name, blocked, info ? info.initial + info.colorIndex + (info.blobUrl || '') : '', document.documentElement.lang].join('|')
+  const content = [key, name, blocked, call.video ? 1 : 0, info ? info.initial + info.colorIndex + (info.blobUrl || '') : '', document.documentElement.lang].join('|')
   const accept = byId('call-incoming-accept')
+  const acceptVoice = byId('call-incoming-accept-voice')
   const decline = byId('call-incoming-decline')
   if (card.getAttribute('data-content') !== content) {
     card.setAttribute('data-content', content)
@@ -515,19 +535,26 @@ function aramaSyncCard () {
       if (blocked && document.activeElement === accept && decline) focusNode(decline)
       accept.hidden = Boolean(blocked)
     }
+    if (acceptVoice) {
+      const hide = Boolean(blocked) || !call.video
+      if (hide && document.activeElement === acceptVoice && decline) focusNode(decline)
+      acceptVoice.hidden = hide
+    }
     card.setAttribute('data-video', call.video ? '1' : '0')
   }
   if (arama.cardKey === key && !card.hidden) return
   arama.cardKey = key
   card.hidden = false
-  // Odak kabul düğmesine geçer, kullanıcı bir alana yazıyorsa odağı alınmaz
+  // Odak kartın kendisine geçer (ekran okuyucu kartı okur, Tab düğmelere götürür). Kabul düğmesine geçmez: o an
+  // basılan Enter veya Boşluk aramayı kabul edip mikrofonu ve kamerayı açmamalı. Kullanıcı bir alana yazıyorsa
+  // odağı alınmaz.
   const active = document.activeElement
   if (aramaTyping(active)) {
     arama.returnFocus = null
     return
   }
   arama.returnFocus = active && active !== document.body ? active : null
-  focusNode(accept && !accept.hidden ? accept : decline)
+  focusNode(card)
 }
 
 // Kart gizlenir. Odak karttaysa önceki yerine döner (accepted: kabul edildi, odak arama bölümüne geçer).
@@ -650,6 +677,7 @@ function aramaRender () {
     }
     const row = h('div', 'dm-call-controls')
     if (phase === 'incoming') {
+      if (!hardBlock && call.video) row.appendChild(aramaControl('dm-call-accept-voice', 'is-accept-voice', t('call.acceptVoice'), 'i-camera-off', '', aramaAcceptVoice))
       if (!hardBlock) row.appendChild(aramaControl('dm-call-accept', 'is-accept', t('call.accept'), 'i-phone', '', aramaAccept))
       row.appendChild(aramaControl('dm-call-decline', 'is-danger', t('call.decline'), 'i-hangup', '', aramaDecline))
     } else if (phase === 'elsewhere') {

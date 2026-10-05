@@ -325,22 +325,43 @@ describe('özel mesaj araması: akış ve gizlilik', () => {
     }
   })
 
-  it('reddetme ve iptal: kayıt silinir, arayan odadan çıkarılır, işlem tekrarlanabilir', async () => {
-    const { ctx, ayse, mehmet, ali, dmId } = await pair()
+  it('reddetme ve iptal: reddetme arayan için cevapsız kalmayla aynıdır, iptal kaydı siler, işlem tekrarlanabilir', async () => {
+    const { ctx, ayse, mehmet, ali, dmId } = await pair({ callRingMs: 1500 })
     try {
-      h.expectStatus(await start(ctx, ayse, dmId), 200)
+      const started = await start(ctx, ayse, dmId)
+      h.expectStatus(started, 200)
       h.expectStatus(await join(ctx, ayse, dmId), 200)
+      const ringing = await callOf(ctx, ayse)
       const res = await decline(ctx, mehmet, dmId)
       h.expectStatus(res, 200)
       assert.deepEqual(res.data, { ok: true })
-      assert.equal(await callOf(ctx, ayse), null)
+      // Zil yalnızca arananda durur, arayan için arama zil süresi dolana kadar aynen sürer
       assert.equal(await callOf(ctx, mehmet), null)
-      await expectOutOfVoice(ctx, ayse)
-      // Kayıt yokken de başarılı (bilgi sızdırmaz), üye olmayan için konuşma yoktur
+      assert.deepEqual(await callOf(ctx, ayse), ringing)
+      h.expectStatus(await h.post(ctx, '/api/voice/camera', ayse.token, { on: false }), 200)
+      const again = await start(ctx, ayse, dmId)
+      assert.deepEqual(again.data.call, ringing)
+      assert.equal(await callOf(ctx, mehmet), null)
+      // Tekrar reddetmek de başarılıdır, üye olmayan için konuşma yoktur
       h.expectStatus(await decline(ctx, mehmet, dmId), 200)
       h.expectStatus(await decline(ctx, ali, dmId), 404, 'channel_not_found')
       // Reddedilen aramanın odasına katılınamaz
       h.expectStatus(await join(ctx, mehmet, dmId), 404, 'channel_not_found')
+      // Zil süresi dolunca cevapsız arama gibi biter
+      await h.waitFor(async () => (await callOf(ctx, ayse)) === null, { label: 'zil süresi', timeout: 5000 })
+      assert.ok(Date.now() >= started.data.call.ringUntil)
+      await waitOutOfVoice(ctx, ayse)
+      // Kayıt yokken de başarılı (bilgi sızdırmaz)
+      h.expectStatus(await decline(ctx, mehmet, dmId), 200)
+
+      // Reddeden kişi geri ararsa yeni arama başlar
+      h.expectStatus(await start(ctx, ayse, dmId), 200)
+      h.expectStatus(await decline(ctx, mehmet, dmId), 200)
+      const back = await start(ctx, mehmet, dmId)
+      assert.equal(back.data.answer, undefined)
+      assert.deepEqual([back.data.call.role, back.data.call.state], ['caller', 'ringing'])
+      assert.equal((await callOf(ctx, ayse)).role, 'callee')
+      h.expectStatus(await decline(ctx, mehmet, dmId), 200)
 
       // Arayan iptal eder
       h.expectStatus(await start(ctx, ayse, dmId), 200)
@@ -814,7 +835,7 @@ describe('özel mesaj araması: ses odası kurallarının sınırları', () => {
       assert.equal(glare.data.answer, true)
       assert.equal(await callOf(ctx, ali), null)
       h.expectStatus(await join(ctx, ali, am), 404, 'channel_not_found')
-      h.expectStatus(await decline(ctx, mehmet, dmId), 200)
+      h.expectStatus(await decline(ctx, ayse, dmId), 200)
 
       // Aramanın odasına katılarak kabul edince
       h.expectStatus(await start(ctx, mehmet, am), 200)
