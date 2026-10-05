@@ -771,6 +771,16 @@ test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme v
     return labels.join()
   }, (e) => 'rejected:' + e.name))
 
+  // Seçici düğmeye basılınca kendini kapatır. Pencere tıklamanın tamamlanması beklenirken kapanabilir, bu durumda
+  // Playwright tıklamayı hata sayar. Kapanmayı ayrıca bekleriz, kapanma kaynaklı tıklama hatası beklenen sonuçtur.
+  const clickAndClose = async (win, selector) => {
+    const closed = win.waitForEvent('close', { timeout: TIMEOUT })
+    await win.click(selector, { noWaitAfter: true }).catch((err) => {
+      if (!/closed/i.test(String(err && err.message))) throw err
+    })
+    await closed
+  }
+
   // Vazgeç
   await page.mouse.click(5, 5)
   let pickerOpened = ctx.app.waitForEvent('window', { predicate: (p) => p.url().startsWith('telsiz://secici/'), timeout: TIMEOUT })
@@ -778,7 +788,7 @@ test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme v
   let picker = await pickerOpened
   await picker.waitForSelector('#cancel:not(:empty)')
   assert.deepEqual(await picker.evaluate(() => Object.keys(window.telsizPicker).sort()), ['cancel', 'choose', 'init'])
-  await picker.click('#cancel')
+  await clickAndClose(picker, '#cancel')
   assert.match(await result, /^rejected:/)
 
   // Seç ve paylaş
@@ -790,7 +800,7 @@ test('ekran paylaşımı seçicisi kullanıcı girişiyle açılır, vazgeçme v
   // Sunulmayan bir kimlik ana süreçte reddedilir
   assert.deepEqual(await picker.evaluate(() => window.telsizPicker.choose('screen:999999:0', false)), { ok: false })
   await picker.click('.source')
-  await picker.click('#share')
+  await clickAndClose(picker, '#share')
   const shared = await result
   // Windows test makinesinin masaüstü oturumu yakalama aygıtını açamayabilir: seçim ve izin
   // akışı yine doğrulanmış olur, aygıt hatası kabul edilir. Linux'ta (xvfb) yakalama gerçekten çalışır.
