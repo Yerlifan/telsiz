@@ -32,7 +32,9 @@ var E2EE = (function (root) {
   const MAX_FILE_EXT = 20
   const DEFAULT_FILE_NAME = 'file'
   const FILE_NAME_STRIP_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\/\\:*?"<>|]/g
-  const FILE_NAME_EDGE_RE = /^[.\s]+|[.\s]+$/g
+  // Baştaki ve sondaki nokta ile boşluklar karakter karakter kırpılır (trimFileNameEdges). Sonda bağlı bir düzenli ifade
+  // ([.\s]+$) uzun nokta ve boşluk dizilerinde karesel zaman alır.
+  const FILE_NAME_EDGE_CHAR_RE = /^[.\s]$/
   // Ek F: parola türetme, kişisel kimlik anahtarları, özel mesajlar ve sabitleme
   const KDF_LABEL_AUTH = 'telsiz-auth-v1'
   const KDF_LABEL_WRAP = 'telsiz-wrap-v1'
@@ -41,7 +43,9 @@ var E2EE = (function (root) {
   const IDENTITY_PREFIX = 'telsiz.identity.'
   const PINS_PREFIX = 'telsiz.pins.'
   const KDF_N_VALUES = [16384, 32768, 65536]
-  const KDF_DEFAULT_N = 16384
+  // Yeni hesaplar ve parola değişiklikleri 65536 kullanır (64 MiB, masaüstünde yaklaşık 1 sn). Eski 16384 ve 32768
+  // ayarlı hesaplar girişten sonra arka planda yükseltilir (16-identity.js upgradeKdf, POST /api/me/kdf).
+  const KDF_DEFAULT_N = 65536
   const KDF_R = 8
   const KDF_P = 1
   const KDF_SALT_BYTES = 16
@@ -783,7 +787,7 @@ var E2EE = (function (root) {
     } catch (e) {
       name = str
     }
-    name = name.replace(FILE_NAME_STRIP_RE, '').replace(FILE_NAME_EDGE_RE, '')
+    name = trimFileNameEdges(name.replace(FILE_NAME_STRIP_RE, ''))
     let cps = Array.from(name).map(function (ch) {
       const c = ch.charCodeAt(0)
       return ch.length === 1 && c >= 0xd800 && c <= 0xdfff ? '\ufffd' : ch
@@ -797,7 +801,16 @@ var E2EE = (function (root) {
         cps = cps.slice(0, MAX_FILE_NAME)
       }
     }
-    return cps.join('').replace(FILE_NAME_EDGE_RE, '')
+    return trimFileNameEdges(cps.join(''))
+  }
+
+  // Doğrusal zamanda kırpar. \s'nin bütün karakterleri tek UTF-16 birimidir.
+  function trimFileNameEdges (name) {
+    let start = 0
+    let end = name.length
+    while (start < end && FILE_NAME_EDGE_CHAR_RE.test(name.charAt(start))) start += 1
+    while (end > start && FILE_NAME_EDGE_CHAR_RE.test(name.charAt(end - 1))) end -= 1
+    return name.slice(start, end)
   }
 
   // ===== Ek F: parola türetme, kimlik anahtarları, özel mesajlar ve sabitleme =====
@@ -887,6 +900,12 @@ var E2EE = (function (root) {
     } catch (e) {
       return null
     }
+  }
+
+  // Ayar geçerli ve varsayılandan zayıfsa true (girişten sonra yükseltilir)
+  function kdfNeedsUpgrade (kdf) {
+    const params = kdfParams(kdf)
+    return params !== null && params.N < KDF_DEFAULT_N
   }
 
   function kdfNewParams () {
@@ -1421,7 +1440,7 @@ var E2EE = (function (root) {
     sanitizeFileName: sanitizeFileName,
     b64url: Object.freeze({ encode: b64encode, decode: b64decode }),
     utf8: Object.freeze({ encode: utf8Encode, decode: utf8Decode }),
-    kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive }),
+    kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive, needsUpgrade: kdfNeedsUpgrade }),
     identity: Object.freeze({
       generate: identityGenerate,
       wrap: identityWrap,

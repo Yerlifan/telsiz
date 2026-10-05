@@ -45,7 +45,9 @@ const SCRYPT_MAX_N = 1048576
 
 // İstemci türetmesi: sunucunun kabul ettiği parametreler
 const KDF_N_VALUES = Object.freeze([16384, 32768, 65536])
-const KDF_DEFAULT_N = 16384
+// Yeni hesapların ve parola değişikliklerinin türetme gücü (istemci public/crypto.js ile aynı). Var olmayan hesap
+// için ön girişin sahte ayarı ve geçici parolalar da bunu kullanır. Eski hesaplar girişten sonra yükseltilir.
+const KDF_DEFAULT_N = 65536
 const KDF_R = 8
 const KDF_P = 1
 const KDF_SALT_BYTES = 16
@@ -251,8 +253,65 @@ async function newCredentials (serverN) {
 // Var olmayan kullanıcı için ön giriş tuzu: HMAC-SHA256(sunucuSırrı, 'prelogin:' + ad) ilk 16 bayt.
 // Aynı ad için her zaman aynıdır, böylece var olan ve olmayan hesaplar ayırt edilemez.
 function preloginSalt (secretHex, name) {
-  const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin:' + name, 'utf8').digest()
+  return labeledSalt(secretHex, 'prelogin:', name)
+}
+
+// Etiketli HMAC tuzu. Eski ayarın sahte tuzu önceki sürümlerin verdiği değerdir ('prelogin:'), yeni N'nin sahte tuzu
+// ayrı bir etiket kullanır ('prelogin-v2:'). Böylece yükseltmeden sonra sahte yanıtlar önceki sürümden devam eder: ya
+// hiç değişmez (yükseltilmemiş hesap gibi) ya da tuz ve N birlikte değişir (yükseltilen hesap gibi). Etiketler 8.
+// karakterde ayrıldığından hiçbir ad girdisi (geçersiz adlar dahil) öteki etiketin tuzunu üretemez.
+function labeledSalt (secretHex, label, name) {
+  const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(label + name, 'utf8').digest()
   return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
+}
+
+// Var olmayan hesabın sahte türetme ayarı. Önceki sürümlerde oluşturulan ve henüz yükseltilmemiş hesaplar
+// KDF_LEGACY_N kullanır: ad başına sabit bir sayı, sunucudaki eski ayarlı hesapların payının altındaysa sahte ayar
+// da eski N ve önceki sürümlerin verdiği tuzu taşır. Böylece ön giriş yanıtının N değeri hesabın varlığını ele vermez.
+// Pay düştükçe bazı sahte ayarlar yeni N'ye ve yeni tuza geçer, bu da gerçek bir hesabın yükseltilmesiyle aynı görünür.
+const KDF_LEGACY_N = 16384
+function preloginKdf (secretHex, name, legacyShare) {
+  const pick = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin-n:' + name, 'utf8').digest().readUInt32BE(0) / 4294967296
+  const legacy = pick < legacyShare
+  const salt = legacy ? preloginSalt(secretHex, name) : labeledSalt(secretHex, 'prelogin-v2:', name)
+  return { salt, N: legacy ? KDF_LEGACY_N : KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
+}
+
+// Giriş cihazı işareti: başarılı girişte verilir, '<kimlik>.<HMAC>' biçimindedir. Parola veya oturum
+// yerine geçmez, yalnızca hesap başına başarısız giriş sınırı dolduğunda daha önce giriş yapmış cihazın
+// denemeye devam edebilmesini sağlar (ad bilen birinin hesabı kilitlemesi engellenir).
+// epoch hesabın parola karmasıdır: parola değişince veya sıfırlanınca (her seferinde yeni tuz) önceki
+// bütün işaretler geçersiz olur. Böylece parolayı bir zamanlar bilen biri biriktirdiği işaretlerle yeni
+// parolayı hesap başına sınırın ötesinde deneyemez.
+const LOGIN_DEVICE_RE = /^([0-9a-f]{24})\.([A-Za-z0-9_-]{43})$/
+
+function loginDeviceMac (secretHex, userId, epoch, id) {
+  return crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('login-device:' + userId + ':' + id + ':' + String(epoch), 'utf8').digest('base64url')
+}
+
+function newLoginDevice (secretHex, userId, epoch) {
+  const id = crypto.randomBytes(12).toString('hex')
+  return id + '.' + loginDeviceMac(secretHex, userId, epoch, id)
+}
+
+// Geçerli işaretin kimliği, değilse null. Karşılaştırma sabit zamanlıdır.
+function loginDeviceId (secretHex, userId, epoch, value) {
+  if (typeof value !== 'string' || value.length > 80) return null
+  const match = LOGIN_DEVICE_RE.exec(value)
+  if (!match) return null
+  const expected = Buffer.from(loginDeviceMac(secretHex, userId, epoch, match[1]), 'utf8')
+  const given = Buffer.from(match[2], 'utf8')
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected) ? match[1] : null
+}
+
+// Giriş cihazı işaretlerinin dönemi: parola değişince yeni rastgele değer. Eski kayıtlarda dönem parola karmasının
+// SHA-256 özetidir (karmanın kendisi dönem olarak saklanmaz).
+function newCredEpoch () {
+  return crypto.randomBytes(16).toString('hex')
+}
+
+function hashEpoch (passHash) {
+  return crypto.createHash('sha256').update(String(passHash), 'utf8').digest('hex')
 }
 
 function newServerSecret () {
@@ -442,6 +501,34 @@ function clientIp (req, trusts) {
   return remote
 }
 
+// Yerel ağ adresleri: loopback, özel IPv4 blokları, bağlantı yerel ve benzersiz yerel IPv6 adresleri
+const LOCAL_NETS = new net.BlockList()
+LOCAL_NETS.addSubnet('127.0.0.0', 8, 'ipv4')
+LOCAL_NETS.addSubnet('10.0.0.0', 8, 'ipv4')
+LOCAL_NETS.addSubnet('172.16.0.0', 12, 'ipv4')
+LOCAL_NETS.addSubnet('192.168.0.0', 16, 'ipv4')
+LOCAL_NETS.addSubnet('169.254.0.0', 16, 'ipv4')
+LOCAL_NETS.addAddress('::1', 'ipv6')
+LOCAL_NETS.addSubnet('fc00::', 7, 'ipv6')
+LOCAL_NETS.addSubnet('fe80::', 10, 'ipv6')
+
+// Yönlendirme başlığı taşıyan bir istek güvenilir listede olmayan yerel bir adresten geliyorsa
+// o adresi, gelmiyorsa null döndürür. Bu durum neredeyse her zaman GUVENILIR_VEKIL ayarının
+// eksik olduğunu gösterir (ör. kapsayıcıda ters vekil bağlantıları Docker ağ geçidinden gelir)
+// ve bütün istemciler tek bir IP adresinden geliyormuş gibi sayılır.
+function untrustedLocalForwarder (req, trusts) {
+  if (!req || !req.headers) return null
+  const headers = req.headers
+  if (typeof headers['x-forwarded-for'] !== 'string' && typeof headers['cf-connecting-ip'] !== 'string') return null
+  const socket = req.socket
+  const remote = normalizeIp(socket && socket.remoteAddress ? socket.remoteAddress : '')
+  const family = net.isIP(remote)
+  if (family === 0) return null
+  const isTrusted = typeof trusts === 'function' ? trusts : isLoopback
+  if (isTrusted(remote)) return null
+  return LOCAL_NETS.check(remote, family === 4 ? 'ipv4' : 'ipv6') ? remote : null
+}
+
 // IPv6 adresleri /64 önekine göre gruplanır (bir bağlantı genellikle bütün bir /64 alır).
 function ipv6Prefix (ip) {
   let text = ip
@@ -467,6 +554,9 @@ function ipKey (ip) {
 
 // Anahtar başına zaman dizisi tutan kayan pencere sayacı.
 // consume ve blocked: izin varsa 0, yoksa yeniden denemeden önce beklenecek süre (ms).
+// Tablo doluyken düşürülecek anahtar aranırken bakılan en eski anahtar sayısı (RateLimiter.evict)
+const EVICT_SCAN = 64
+
 class RateLimiter {
   constructor (limit, windowMs, maxKeys) {
     this.limit = limit
@@ -493,17 +583,38 @@ class RateLimiter {
     return times.length >= this.limit ? this.wait(times, at) : 0
   }
 
+  // Anahtarlar son kullanım sırasıyla tutulur. Tablo doluysa en uzun süredir kullanılmayan anahtar
+  // düşürülür: çok sayıda farklı adresten gelen istekler tabloyu doldurup yeni istemcileri kilitleyemez.
+  // O an sınırda olan (engelleyen) anahtarlar öncelikle korunur: en eski EVICT_SCAN anahtar içinden süresi dolmuş
+  // veya sınırda olmayan ilk anahtar seçilir, hepsi sınırdaysa en eskisi düşer. Bu, sınırın hemen altında tutulan bir
+  // sayacı korumaz: var olan hesapların sayaçları bu yüzden hiç düşürmeyen ayrı tablolardadır (src/app.js
+  // accountNameLimiter, accountFailLimiter).
+  evict (now) {
+    let scanned = 0
+    let victim = null
+    for (const [key, times] of this.hits) {
+      if (victim === null) victim = key
+      this.prune(times, now)
+      if (times.length < this.limit) {
+        victim = key
+        break
+      }
+      scanned++
+      if (scanned >= EVICT_SCAN) break
+    }
+    if (victim !== null) this.hits.delete(victim)
+  }
+
   hit (key, now) {
     const at = now === undefined ? Date.now() : now
     let times = this.hits.get(key)
-    if (!times) {
-      if (this.hits.size >= this.maxKeys) {
-        this.sweep(at)
-        if (this.hits.size >= this.maxKeys) return false
-      }
+    if (times) {
+      this.hits.delete(key)
+    } else {
+      if (this.hits.size >= this.maxKeys) this.evict(at)
       times = []
-      this.hits.set(key, times)
     }
+    this.hits.set(key, times)
     this.prune(times, at)
     times.push(at)
     if (times.length > this.limit) times.splice(0, times.length - this.limit)
@@ -514,13 +625,19 @@ class RateLimiter {
     const at = now === undefined ? Date.now() : now
     const wait = this.blocked(key, at)
     if (wait > 0) return wait
-    // Anahtar tablosu doluysa (çok sayıda farklı adresten saldırı) yeni anahtar reddedilir
-    if (!this.hit(key, at)) return this.windowMs
+    this.hit(key, at)
     return 0
   }
 
   reset (key) {
     this.hits.delete(key)
+  }
+
+  // Öneki verilen bütün anahtarları siler (ör. bir hesabın adres başına sayaçları)
+  resetPrefix (prefix) {
+    for (const key of this.hits.keys()) {
+      if (key.startsWith(prefix)) this.hits.delete(key)
+    }
   }
 
   sweep (now) {
@@ -598,7 +715,13 @@ module.exports = {
   deriveAuthKey,
   newCredentials,
   preloginSalt,
+  preloginKdf,
+  KDF_LEGACY_N,
+  newLoginDevice,
+  loginDeviceId,
   newServerSecret,
+  newCredEpoch,
+  hashEpoch,
   hashPassword,
   verifyPassword,
   parseHash,
@@ -609,6 +732,7 @@ module.exports = {
   parseTrustedProxies,
   trustPolicy,
   clientIp,
+  untrustedLocalForwarder,
   ipKey,
   RateLimiter,
   generateCode,

@@ -3,8 +3,12 @@
 #
 # Derleme: docker build -t telsiz .
 # Build:   docker build -t telsiz .
-# Çalıştırma: docker run -d --name telsiz -p 127.0.0.1:3000:3000 -v telsiz-veri:/data telsiz
-# Run:        docker run -d --name telsiz -p 127.0.0.1:3000:3000 -v telsiz-veri:/data telsiz
+# Çalıştırma: docker run -d --name telsiz -p 127.0.0.1:3000:3000 -e GUVENILIR_VEKIL=172.17.0.1 -v telsiz-veri:/data telsiz
+# Run:        docker run -d --name telsiz -p 127.0.0.1:3000:3000 -e GUVENILIR_VEKIL=172.17.0.1 -v telsiz-veri:/data telsiz
+# Ana makinedeki ters vekil kapsayıcıya Docker ağ geçidinden (varsayılan 172.17.0.1) bağlanır. GUVENILIR_VEKIL
+# bu adresi içermezse bütün istemciler aynı IP adresinden geliyormuş gibi hız sınırına tabi olur.
+# A reverse proxy on the host connects to the container from the Docker gateway (172.17.0.1 by default). If
+# GUVENILIR_VEKIL does not contain that address, every client is rate limited as if it came from one IP address.
 # Kurulum kodu: docker logs telsiz
 # Setup code:   docker logs telsiz
 

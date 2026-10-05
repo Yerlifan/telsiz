@@ -383,3 +383,15 @@ describe('genel kaynak sınırları', () => {
     }
   })
 })
+
+describe('yedekleme belgeleri', () => {
+  it('belgelenen yedek komutları arşivi yalnızca sahibinin okuyabileceği biçimde oluşturur', () => {
+    // Arşiv parola özetlerini ve sarılmış kişisel anahtarları içerir, 0700 veri klasörünün korumasını kaybetmemelidir
+    for (const file of ['docs/DEPLOYMENT.md', 'docs/KURULUM.md']) {
+      const text = fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
+      const lines = text.split('\n').filter((line) => /\btar czf\b/.test(line))
+      assert.ok(lines.length >= 2, file)
+      for (const line of lines) assert.match(line, /umask 077 && tar czf /, file)
+    }
+  })
+})

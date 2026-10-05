@@ -128,7 +128,8 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), ses odasına katılma ve ayrılma |
 | `29-mikrofon.js` | Mikrofon düğmesinin bağlam menüsü (sağ tık, Shift+F10 veya Menü tuşu): Bas konuş ve Ses etkinliği seçimi |
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
-| `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği ve odadan düşme için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
+| `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
+| `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 

@@ -31,18 +31,20 @@ services:
     environment:
       SUNUCU_ADI: Telsiz
       # GUVENILIR_VEKIL (İngilizce adı TRUSTED_PROXY): X-Forwarded-For ve CF-Connecting-IP
-      # başlıklarına yalnızca bu adreslerden gelen bağlantılarda güvenilir. Burada Caddy
-      # kapsayıcısının aşağıda sabitlenen adresi yazılıdır. Caddy kullanmıyor, kendi ters
-      # vekilinizi sunucunun kendisinde çalıştırıyorsanız Docker ağ geçidi adresini
-      # (172.30.57.1) yazın. Yanlış adres yazmak herkesin aynı IP'den geliyormuş gibi
+      # başlıklarına yalnızca bu adreslerden gelen bağlantılarda güvenilir. Burada Docker ağ
+      # geçidi (172.30.57.1) ve Caddy kapsayıcısının aşağıda sabitlenen adresi yazılıdır.
+      # Sunucunun kendisinde çalışan bir ters vekil veya tünel ağ geçidinden bağlanır.
+      # Bağlantı noktası yalnızca 127.0.0.1 adresinde açık olduğu için ağ geçidinden yalnızca
+      # bu makinedeki süreçler gelebilir. Yanlış adres yazmak herkesin aynı IP'den geliyormuş gibi
       # görünmesine, fazla geniş bir liste ise sahte başlıkla hız sınırlarının atlatılmasına yol açar.
       # GUVENILIR_VEKIL (English name TRUSTED_PROXY): X-Forwarded-For and CF-Connecting-IP
-      # headers are trusted only on connections from these addresses. The Caddy container's
-      # fixed address below is used here. If you do not use Caddy and run your own reverse
-      # proxy on the host itself, use the Docker gateway address (172.30.57.1). A wrong
-      # address makes everyone appear to come from one IP, while a list that is too broad
-      # lets forged headers bypass rate limits.
-      GUVENILIR_VEKIL: 172.30.57.10
+      # headers are trusted only on connections from these addresses. The Docker gateway
+      # (172.30.57.1) and the Caddy container's fixed address below are used here. A reverse
+      # proxy or tunnel running on the host itself connects from the gateway. Because the port
+      # is published only on 127.0.0.1, only processes on this machine can come from the gateway.
+      # A wrong address makes everyone appear to come from one IP, while a list that is too
+      # broad lets forged headers bypass rate limits.
+      GUVENILIR_VEKIL: 172.30.57.1,172.30.57.10
       # Konsol dili (tr veya en) ve TURN ayarları için başındaki # işaretini kaldırın
       # Remove the leading # for the console language (tr or en) and the TURN settings
       # DIL: tr
@@ -93,8 +95,8 @@ services:
       - caddy-ayar:/config
     networks:
       telsiz-ag:
-        # GUVENILIR_VEKIL ile aynı adres olmalıdır
-        # Must match the address in GUVENILIR_VEKIL
+        # GUVENILIR_VEKIL listesindeki adreslerden biri olmalıdır
+        # Must be one of the addresses in GUVENILIR_VEKIL
         ipv4_address: 172.30.57.10
     security_opt:
       - no-new-privileges:true

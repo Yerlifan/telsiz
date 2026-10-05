@@ -322,7 +322,7 @@ describe('E2EE: yükleme ve arayüz', () => {
     assert.deepEqual(Object.keys(ctx.E2EE.keyring).sort(), ['add', 'has', 'list', 'remove'])
     assert.deepEqual(Object.keys(ctx.E2EE.b64url).sort(), ['decode', 'encode'])
     assert.deepEqual(Object.keys(ctx.E2EE.utf8).sort(), ['decode', 'encode'])
-    assert.deepEqual(Object.keys(ctx.E2EE.kdf).sort(), ['derive', 'newParams'])
+    assert.deepEqual(Object.keys(ctx.E2EE.kdf).sort(), ['derive', 'needsUpgrade', 'newParams'])
     assert.deepEqual(Object.keys(ctx.E2EE.identity).sort(), [
       'clear', 'generate', 'load', 'save', 'sealBinding', 'unwrap', 'verifyBinding', 'wrap'
     ])
@@ -1402,6 +1402,20 @@ describe('E2EE: sanitizeFileName', () => {
     }
   })
 
+  it('uzun nokta ve boşluk dizisi içeren ad doğrusal zamanda temizlenir (karesel düzenli ifade yok)', () => {
+    // Saldırganın seçtiği ek adı her görüntüleyende çözülür: eski /[.\s]+$/ bu girdide saniyeler sürüyordu
+    const evil = 'a' + '. '.repeat(40000) + 'a'
+    const started = Date.now()
+    const out = san(evil)
+    const took = Date.now() - started
+    assert.ok(took < 1000, 'süre: ' + took + ' ms')
+    assert.equal(Array.from(out).length, 120)
+    // Son noktadan sonrası ('. a') uzantı sayılır ve korunur
+    assert.equal(out, 'a' + '. '.repeat(58) + '. a')
+    assert.equal(san(' .' + ' .'.repeat(40000) + 'b' + '. '.repeat(40000)), 'b')
+    assert.equal(san('\t' + cp(0x3000) + 'rapor.pdf' + cp(0x2029) + cp(0x205f) + ' .'), 'rapor.pdf')
+  })
+
   it('boş kalan adda ikinci parametredeki yedek ad (arayüz dilindeki karşılık) kullanılır', () => {
     for (const x of ['', '..', ' . ', '<>|', cp(0x202e), null, undefined, 42]) {
       assert.equal(san(x, 'dosya'), 'dosya', JSON.stringify(x))
@@ -1742,13 +1756,23 @@ describe('E2EE: parola türetme (kdf)', () => {
     }
   })
 
-  it('newParams: 16 rastgele baytlık tuz, N 16384, r 8, p 1, derive tarafından kabul edilir', async () => {
+  it('needsUpgrade: yalnızca geçerli ve varsayılandan zayıf ayar yükseltilir', () => {
+    const ctx = load()
+    assert.equal(ctx.E2EE.kdf.needsUpgrade(KDF_F10), true)
+    assert.equal(ctx.E2EE.kdf.needsUpgrade({ ...KDF_F10, N: 32768 }), true)
+    assert.equal(ctx.E2EE.kdf.needsUpgrade({ ...KDF_F10, N: 65536 }), false)
+    for (const bad of [null, undefined, {}, { ...KDF_F10, N: 8192 }, { ...KDF_F10, r: 16 }, { ...KDF_F10, salt: 'kisa' }]) {
+      assert.equal(ctx.E2EE.kdf.needsUpgrade(bad), false)
+    }
+  })
+
+  it('newParams: 16 rastgele baytlık tuz, N 65536, r 8, p 1, derive tarafından kabul edilir', async () => {
     const ctx = load({ scrypt: spyScrypt(F10.master) })
     const seen = new Set()
     for (const i of times(50)) {
       const k = ctx.E2EE.kdf.newParams()
       assert.deepEqual(Object.keys(k).sort(), ['N', 'p', 'r', 'salt'])
-      assert.deepEqual([k.N, k.r, k.p], [16384, 8, 1])
+      assert.deepEqual([k.N, k.r, k.p], [65536, 8, 1])
       assert.match(k.salt, /^[A-Za-z0-9_-]{22}$/)
       assert.equal(Buffer.from(k.salt, 'base64url').length, 16)
       assert.equal(Buffer.from(k.salt, 'base64url').toString('base64url'), k.salt)

@@ -49,13 +49,13 @@ const clear = (page) => page.evaluate(() => {
 })
 const waitKind = (page, kind) => page.waitForFunction((k) => window.__sesler.some((s) => s.kind === k && !s.test), kind, { timeout: h.LONG })
 
-test('ses modülü yüklü: altı ses, 2 saniye, varsayılan düzey %40', async () => {
+test('ses modülü yüklü: yedi ses, 2 saniye, varsayılan düzey %40', async () => {
   const r = await W.deniz.evaluate(() => ({
     kinds: window.TelsizSesler.KINDS,
     duration: window.TelsizSesler.DURATION,
     volume: window.TelsizSesler.getVolume()
   }))
-  assert.deepEqual(r, { kinds: ['join', 'leave', 'share', 'dm', 'friend', 'drop'], duration: 2, volume: 40 })
+  assert.deepEqual(r, { kinds: ['join', 'leave', 'share', 'dm', 'friend', 'drop', 'ring'], duration: 2, volume: 40 })
 })
 
 test('ses odasına katılma: kişinin kendisinde ve odadakinde katılma sesi', async () => {

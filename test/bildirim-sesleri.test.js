@@ -116,9 +116,9 @@ function load (opts) {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
-test('altı ses, 2 saniye, varsayılan düzey 40', () => {
+test('yedi ses, 2 saniye, varsayılan düzey 40', () => {
   const { api } = load()
-  assert.deepEqual(Array.from(api.KINDS), ['join', 'leave', 'share', 'dm', 'friend', 'drop'])
+  assert.deepEqual(Array.from(api.KINDS), ['join', 'leave', 'share', 'dm', 'friend', 'drop', 'ring'])
   assert.equal(api.DURATION, 2)
   assert.equal(api.DEFAULT_VOLUME, 40)
   assert.equal(api.getVolume(), 40)
@@ -147,7 +147,7 @@ test('genlik düzeyin karesiyle artar, varsayılan düzeyde alçaktır', () => {
 })
 
 test('her ses tam 2 saniye kurulur: osilatörler sonda durur, ana kazanç sonda sıfıra iner', () => {
-  for (const kind of ['join', 'leave', 'share', 'dm', 'friend', 'drop']) {
+  for (const kind of ['join', 'leave', 'share', 'dm', 'friend', 'drop', 'ring']) {
     const env = load()
     const ctx = new env.sandbox.AudioContext()
     const span = env.api.schedule(ctx, kind, { when: 0, amplitude: 0.5 })
@@ -184,6 +184,38 @@ test('ses düğümleri: osilatörler aynı anda durur, kısmi tonlar sönümleni
   assert.equal(env.stats.filters, 1)
   assert.equal(env.stats.delays, 1, 'arkadaşlık sesinde yankı')
   assert.equal(env.api.schedule(ctx, 'yok', {}), null)
+})
+
+// Zilin eşitleme katsayısı ölçülmeden seçildi: kısmi ton zarflarının toplamı (her an sinüslerin toplamının
+// alabileceği en büyük değer) ana kazançla çarpılınca düzey 1'de tepe genliği 1'i aşmamalıdır
+test('zil: iki kısa çan dizisi, tepe genliğinin üst sınırı 1 veya altında', () => {
+  const env = load()
+  const ctx = new env.sandbox.AudioContext()
+  const span = env.api.schedule(ctx, 'ring', { when: 0, amplitude: 1 })
+  const level = env.stats.gains[0].log[0][1]
+  assert.ok(level > 0 && level <= 1)
+  const starts = env.stats.oscillators.map((o) => o.startAt).filter((t, i, all) => all.indexOf(t) === i)
+  assert.equal(starts.length, 6, 'altı nota')
+  assert.ok(starts.filter((t) => t - span.start < 0.5).length === 3 && starts.filter((t) => t - span.start > 0.9).length === 3, 'iki dizi')
+  const envelopes = env.stats.gains.slice(1).map((g) => {
+    const rise = g.log.find((e) => e[0] === 'linear')
+    const fall = g.log.find((e) => e[0] === 'target')
+    return rise && fall ? { peak: rise[1], at: rise[2], tau: fall[3] } : null
+  }).filter(Boolean)
+  assert.ok(envelopes.length >= 6)
+  let max = 0
+  const steps = Math.round((span.end - span.start) / 0.0005)
+  for (const i of Array.from({ length: steps }, (_, n) => n)) {
+    const t = span.start + i * 0.0005
+    let sum = 0
+    envelopes.forEach((e) => {
+      if (t < e.at - 0.006) return
+      sum += t < e.at ? e.peak * (t - (e.at - 0.006)) / 0.006 : e.peak * Math.exp(-(t - e.at) / e.tau)
+    })
+    if (sum > max) max = sum
+  }
+  assert.ok(max * level <= 1, 'üst sınır ' + (max * level).toFixed(3))
+  assert.ok(max * level > 0.8, 'diğer seslerden belirgin biçimde kısık değil')
 })
 
 test('mesaj sesi kısadır ve varsayılan düzeyde eski tepe genliğini korur', () => {

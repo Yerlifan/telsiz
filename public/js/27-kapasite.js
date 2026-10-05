@@ -178,7 +178,8 @@ const kapasiteSampler = { timer: 0, channel: null, max: 0 }
 
 function kapasiteSample () {
   const s = state.voiceSnap
-  if (!voice || typeof voice.uplinkEstimate !== 'function' || !s || !s.channelId || s.joining || typeof isAdmin !== 'function' || !isAdmin()) {
+  // Özel mesaj araması (s.private) frekansın ses odası değildir, ölçüme katılmaz
+  if (!voice || typeof voice.uplinkEstimate !== 'function' || !s || !s.channelId || s.joining || s.private || typeof isAdmin !== 'function' || !isAdmin()) {
     kapasiteSampler.channel = null
     kapasiteSampler.max = 0
     return

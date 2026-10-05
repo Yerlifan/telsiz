@@ -87,6 +87,10 @@ function readFragment () {
   if (typeof params.frekanslar === 'string') {
     touched = true
     if (typeof frekansMergeFragment === 'function') frekansMergeFragment(params.frekanslar)
+    // Listeye yeni eklenen frekanslar sessizce eklenmez, adresleriyle bildirilir (anahtar bildirimiyle birlikte)
+    const added = typeof frekansTakeFragmentNotice === 'function' ? frekansTakeFragmentNotice() : null
+    const prev = state.fragmentNotice
+    if (added) state.fragmentNotice = prev ? { kind: prev.kind, text: () => prev.text() + ' ' + added() } : { kind: 'ok', text: added }
   }
   if (touched) {
     // Bağlantıyla gelen ziyaretçi tanıtım sayfasını görmeden kayda, girişe veya frekansa geçer (26-tanitim.js)
@@ -111,6 +115,8 @@ function showFragmentNotice () {
 function applyInfo (info) {
   state.info = info
   if (typeof info.serverName === 'string' && info.serverName) state.serverName = info.serverName
+  // Parça bu ad bilinmeden okundu: parçayla gelen frekans açık frekansın adını taşıyamaz (24-frekans.js)
+  if (typeof frekansGuardFragmentNames === 'function') frekansGuardFragmentNames(state.serverName)
   if (info.serverIcon === null || (typeof info.serverIcon === 'string' && /^[0-9a-f]{32}$/.test(info.serverIcon))) state.serverIcon = info.serverIcon
   const limits = info.limits && typeof info.limits === 'object' ? info.limits : {}
   Object.keys(state.limits).forEach((key) => {
@@ -325,6 +331,7 @@ async function createGroupKey () {
     return { ok: false, error: () => errorText(res, t('key.activateFailed')), code: code, kid: kid }
   }
   if (state.meta) state.meta.activeKid = kid
+  noteActiveKid(kid)
   return { ok: true, code: code, kid: kid }
 }
 
@@ -527,14 +534,38 @@ function myPermsKey () {
   return ROLE_PERMS.filter((perm) => hasPerm(perm)).join(',')
 }
 
-function activeKid () {
-  const kid = state.meta ? state.meta.activeKid : null
-  return typeof kid === 'string' && KID_RE.test(kid) ? kid : null
+// Etkin grup anahtarı yalnızca ileri gider. Bu cihazda etkin görülen bir anahtarın yerine yenisi geçince eskisi
+// emekliye ayrılır (KEYS.retiredKids) ve bir daha hiçbir içerik onunla şifrelenmez. Sunucu veya bir yönetici etkin
+// anahtarı eski ya da sızmış bir anahtara geri çevirirse activeKid() null döner, gönderme kapanır ve uyarı görünür.
+// Yeni anahtar oluşturmak durumu düzeltir. Eski anahtarlar geçmişi okumak için anahtarlıkta kalır. Yalnızca bu
+// cihazın anahtarlığında bulunan ve doğrulanan bir anahtar öncekinin yerine geçer: sunucunun bildirdiği bilinmeyen
+// bir kid hiçbir anahtarı emekliye ayırmaz, yoksa uydurma bir kid ve ardından gerçek anahtar gönderilerek gerçek
+// anahtar her cihazda emekliye ayrılabilir ve gönderme kapanırdı.
+const RETIRED_KIDS_MAX = 200
+let kidHistory = { raw: '', last: null, retired: [] }
+
+// Kayıt her çağrıda depodan okunur (başka bir sekme değiştirmiş olabilir), yalnızca değişince çözülür
+function kidHistoryLoad () {
+  const raw = storeGet(KEYS.retiredKids) || ''
+  if (raw === kidHistory.raw) return kidHistory
+  let rec = null
+  try {
+    rec = raw ? JSON.parse(raw) : null
+  } catch (err) {
+    rec = null
+  }
+  const ok = (kid) => typeof kid === 'string' && KID_RE.test(kid)
+  kidHistory = {
+    raw: raw,
+    last: rec && ok(rec.last) ? rec.last : null,
+    retired: rec && Array.isArray(rec.retired) ? rec.retired.filter(ok) : []
+  }
+  return kidHistory
 }
 
-function hasActiveKey () {
-  const kid = activeKid()
-  if (!kid || !cryptoReady()) return false
+// Anahtar bu cihazın anahtarlığında var ve kayıtlı kodu gerçekten bu kid'i veriyor mu (crypto.js keyring.has)
+function kidHeld (kid) {
+  if (!cryptoReady()) return false
   try {
     return window.E2EE.keyring.has(kid)
   } catch (err) {
@@ -542,10 +573,48 @@ function hasActiveKey () {
   }
 }
 
+// Sunucunun bildirdiği etkin anahtar kaydedilir: bu cihazda bulunan yeni bir anahtarsa öncekini emekliye ayırır.
+// Cihazda olmayan anahtar kaydedilmez, kullanıcı onu ekleyince kaydedilir. Emekli anahtar yeniden etkin sayılmaz.
+// Sonuç anahtarın emekli olup olmadığıdır.
+function noteActiveKid (kid) {
+  const hist = kidHistoryLoad()
+  if (hist.last === kid) return false
+  if (hist.retired.indexOf(kid) !== -1) return true
+  if (!kidHeld(kid)) return false
+  const retired = hist.last ? hist.retired.concat([hist.last]).slice(-RETIRED_KIDS_MAX) : hist.retired
+  const raw = JSON.stringify({ last: kid, retired: retired })
+  storeSet(KEYS.retiredKids, raw)
+  kidHistory = { raw: raw, last: kid, retired: retired }
+  return false
+}
+
+function metaKid () {
+  const kid = state.meta ? state.meta.activeKid : null
+  return typeof kid === 'string' && KID_RE.test(kid) ? kid : null
+}
+
+function activeKid () {
+  const kid = metaKid()
+  if (!kid) return null
+  return noteActiveKid(kid) ? null : kid
+}
+
+// Sunucunun etkin anahtarı bu cihazda yerine yenisi geçmiş eski bir anahtar mı
+function activeKidRolledBack () {
+  const kid = metaKid()
+  return Boolean(kid) && noteActiveKid(kid)
+}
+
+function hasActiveKey () {
+  const kid = activeKid()
+  return Boolean(kid) && kidHeld(kid)
+}
+
 function showKeyScreen () {
   const noActive = !activeKid()
   const memberWithoutKey = noActive && !isAdmin()
-  setLive(el.keyIntro, () => t(memberWithoutKey ? 'key.introNoActive' : 'key.intro'))
+  const rolledBack = activeKidRolledBack()
+  setLive(el.keyIntro, () => t(rolledBack ? 'key.introRolledBack' : memberWithoutKey ? 'key.introNoActive' : 'key.intro'))
   el.keyGenerateWrap.hidden = !(noActive && isAdmin())
   setMsg(el.keyError, '')
   el.keyInput.value = ''
@@ -606,7 +675,7 @@ function applyStateData (data) {
   state.sigSeq = Number(data.sigSeq) || 0
   state.inviteCode = typeof data.inviteCode === 'string' ? data.inviteCode : null
   state.bannedUsers = Array.isArray(data.bannedUsers) ? data.bannedUsers : state.bannedUsers
-  setServerKeys(data.keys)
+  setServerKeys(data.keys, data.resetPending)
   setFormerUsers(data.formerUsers)
   if (data.meta) applyMeta(data.meta, true)
   socialApplyState(data)
@@ -697,6 +766,8 @@ function resetAppState () {
   closeAllLayers()
   socialReset()
   if (typeof activityReset === 'function') activityReset()
+  // Zil, gelen arama kartı ve arama bölümü kapanır (32-arama.js)
+  if (typeof aramaReset === 'function') aramaReset()
   state.inApp = false
   state.me = null
   state.meta = null

@@ -183,7 +183,7 @@ function bgApplyState (data) {
   state.seq = Number(data.seq) || 0
   state.metaVersion = Number(data.metaVersion) || 0
   state.sigSeq = Number(data.sigSeq) || 0
-  setServerKeys(data.keys)
+  setServerKeys(data.keys, data.resetPending)
   if (typeof setFormerUsers === 'function') setFormerUsers(data.formerUsers)
   if (data.meta) applyMeta(data.meta, true)
   socialApplyState(data)

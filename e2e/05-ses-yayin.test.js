@@ -196,9 +196,20 @@ test('kişi sesi %200\'e kadar: %100 üstünde ses bağlamında kazanç ve sın�
 
 test('ekran paylaşımı başlar: başlatma penceresi, sahne ve kendi önizleme oynar', async () => {
   const { deniz } = W
+  // Ses seçeneği yalnızca kaynak seçicisindedir: Telsiz'in penceresinde anahtar yoktur, ses her zaman istenir
+  await deniz.evaluate(() => {
+    window.__displayAsks = []
+    const md = navigator.mediaDevices
+    const ask = md.getDisplayMedia.bind(md)
+    md.getDisplayMedia = (c) => {
+      window.__displayAsks.push(JSON.parse(JSON.stringify(c || null)))
+      return ask(c)
+    }
+  })
   await deniz.click('#btn-screen')
   await deniz.waitForSelector('#cast-dialog:not([hidden]) .cast-dialog-panel')
   assert.equal(await deniz.textContent('#cast-dialog-title'), 'Ekranı paylaş')
+  assert.equal(await deniz.$('#cast-dialog [role="switch"]'), null, 'pencerede ses anahtarı yok')
   await deniz.click('#cast-dialog .cast-primary')
   await deniz.waitForSelector('#cast[data-mode="own"]:not([hidden])', { timeout: h.LONG })
   await deniz.waitForFunction(() => {
@@ -207,6 +218,10 @@ test('ekran paylaşımı başlar: başlatma penceresi, sahne ve kendi önizleme 
   }, null, { timeout: h.LONG })
   const r = await deniz.evaluate(() => ({ body: document.body.getAttribute('data-cast'), title: document.getElementById('cast-title').textContent, top: document.getElementById('top-cast').hidden }))
   assert.deepEqual(r, { body: 'live', title: 'Ekranınız paylaşılıyor', top: false })
+  const asks = await deniz.evaluate(() => window.__displayAsks)
+  assert.ok(asks.length >= 1, 'getDisplayMedia çağrıldı')
+  assert.equal(asks[0].audio && asks[0].audio.restrictOwnAudio, true, 'ses istendi')
+  assert.equal(asks[0].systemAudio, 'include')
 })
 
 test('izleyici bildirimi görür, İzle ile görüntü gerçekten oynar', async () => {

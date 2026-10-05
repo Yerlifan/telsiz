@@ -1,7 +1,8 @@
 'use strict'
 
 // public/sw.js: activate aşamasında yalnız Telsiz'in eski önbellekleri silinir,
-// aynı kökendeki başka uygulamaların önbelleklerine dokunulmaz.
+// aynı kökendeki başka uygulamaların önbelleklerine dokunulmaz. Ağ yokken önbellekte olmayan bir dosya
+// Service Worker hatası (Response.error) yerine 504 yanıtı alır, sayfa ise tarayıcının hata sayfasını.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -44,4 +45,43 @@ test('activate yalnız telsiz- önekli eski önbellekleri siler', async () => {
   worker.handlers.activate({ waitUntil (p) { pending = p } })
   await pending
   assert.deepEqual(worker.deleted.sort(), ['telsiz-1.9.0', 'telsiz-2.0.0-frekans1'])
+})
+
+test('ağ yokken önbellekte olmayan dosya 504 alır, sayfa Response.error alır', async () => {
+  const errorMark = { error: true }
+  class FakeResponse {
+    constructor (body, init) {
+      this.body = body
+      this.status = init.status
+    }
+
+    static error () { return errorMark }
+  }
+  const handlers = {}
+  const context = {
+    self: {
+      addEventListener (type, fn) { handlers[type] = fn },
+      skipWaiting () { return Promise.resolve() },
+      clients: { claim () { return Promise.resolve() } },
+      location: { origin: 'https://telsiz.ornek' }
+    },
+    caches: {
+      keys () { return Promise.resolve([]) },
+      match () { return Promise.resolve(undefined) },
+      open () { return Promise.reject(new Error('yok')) }
+    },
+    fetch () { return Promise.reject(new TypeError('NetworkError')) },
+    Response: FakeResponse,
+    Request: function Request () {},
+    URL,
+    Promise
+  }
+  vm.runInNewContext(source, context, { filename: 'sw.js' })
+  const respond = (url, mode) => new Promise((resolve) => {
+    handlers.fetch({ request: { method: 'GET', url, mode }, respondWith: (p) => resolve(p) })
+  })
+  const icon = await (await respond('https://telsiz.ornek/favicon.svg', 'no-cors'))
+  assert.equal(icon.status, 504)
+  const page = await (await respond('https://telsiz.ornek/', 'navigate'))
+  assert.equal(page, errorMark)
 })

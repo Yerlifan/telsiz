@@ -405,7 +405,9 @@ async function resetPasswordCli (args) {
     console.error(i18n.t(lang, 'cli.dataDirAccess', { dir }))
     return 1
   }
-  if (lock.alive && lock.pid !== process.pid) {
+  // Kilit bu sürecin değilse ve canlıysa sunucu çalışıyordur (PID'in bu sürecinkiyle aynı olması, örneğin iki
+  // konteynerde de PID 1, kilidi bu sürecin yapmaz, src/store.js readLock)
+  if (lock.alive && !lock.mine) {
     console.error(i18n.t(lang, 'cli.serverRunning', { pid: lock.pid }))
     console.error(i18n.t(lang, 'cli.stopFirst'))
     return 1
@@ -439,10 +441,13 @@ async function resetPasswordCli (args) {
     // Kişisel anahtarlar silinir, kullanıcı sonraki girişte yeni anahtar çifti üretir.
     const creds = await auth.newCredentials(CLI_SCRYPT_N)
     user.passHash = creds.passHash
+    user.credEpoch = auth.newCredEpoch()
     user.kdf = creds.kdf
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    // Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulabilir (src/app.js applyCredentials)
+    user.resetPending = true
     user.pv = Number.isSafeInteger(user.pv) && user.pv >= 0 ? user.pv + 1 : 1
     const before = state.sessions.length
     state.sessions = state.sessions.filter((s) => !s || s.userId !== user.id)

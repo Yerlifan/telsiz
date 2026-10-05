@@ -5,6 +5,7 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./server-yardimci')
+const { DEFAULTS } = require('../src/app')
 
 async function threeUsers (options) {
   const ctx = await h.startServer(options)
@@ -221,6 +222,24 @@ describe('ses sinyalleri', () => {
         h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, { to: ayseState.peerId, data: h.envelope() }), 200)
       }
       h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, { to: ayseState.peerId, data: h.envelope() }), 429, 'rate_limited')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('katılma, ayrılma ve durum bildirimleri sinyallerden ayrı ve daha sıkı sınırlanır', async () => {
+    assert.equal(DEFAULTS.voiceLimit, 30)
+    const { ctx, owner, ayse } = await threeUsers({ voiceLimit: 3, signalWindowMs: 60000 })
+    try {
+      const ayseState = await h.stateOf(ctx, ayse.token)
+      h.expectStatus(await join(ctx, owner.token, 3), 200)
+      h.expectStatus(await join(ctx, ayse.token, 3), 200)
+      h.expectStatus(await h.post(ctx, '/api/voice/state', owner.token, { muted: true, deafened: false }), 200)
+      h.expectStatus(await h.post(ctx, '/api/voice/state', owner.token, { muted: false, deafened: false }), 200)
+      h.expectStatus(await h.post(ctx, '/api/voice/state', owner.token, { muted: true, deafened: false }), 429, 'rate_limited')
+      h.expectStatus(await h.post(ctx, '/api/voice/leave', owner.token, {}), 429, 'rate_limited')
+      // Sinyaller kendi sınırına tabidir
+      h.expectStatus(await h.post(ctx, '/api/voice/signal', owner.token, { to: ayseState.peerId, data: h.envelope() }), 200)
     } finally {
       await ctx.cleanup()
     }

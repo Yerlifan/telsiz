@@ -464,14 +464,39 @@ async function reencode (image, type) {
   return { bytes: bytes, mime: actual, w: w, h: hh }
 }
 
-// Yükleme kuyruğu: en fazla iki eşzamanlı yükleme, 503'te 2 sn arayla 3 kez yeniden deneme.
+// Yükleme kuyruğu: en fazla iki eşzamanlı yükleme. Sunucu dolu olduğu için verilen 503 busy 2 sn arayla 3 kez
+// yeniden denenir. Sunucu hesap ve adres başına yer sınırı ile son boş yerin ayrılması yüzünden yer vermezse
+// 503 busy_reserved döner: yer, tutan yükleme (bizim veya aynı ağdaki birinin) bitince açılır. Bu yüzden:
+// - Kendi diğer yüklememiz sürerken veya yer beklerken alınan busy ya da busy_reserved yanıtında dosya sıraya
+//   döner ve istek göndermez. Eşzamanlı yükleme bire iner (state.uploadHeld) ve sıradaki bütün dosyalar
+//   yüklenene kadar bir kalır. Böylece aynı anda yalnızca bir dosya sunucuya sorar, her dosya bitiminde ikinci
+//   bir dosya yeniden reddedilmez.
+// - Tek başına alınan busy_reserved yanıtında bekleme 2, 4, 8, 16 sn diye iki katına çıkar (en çok
+//   UPLOAD_RETRY_MAX_MS) ve toplam bekleme UPLOAD_WAIT_MAX_MS ile sınırlıdır. Dakikadaki istek sayısı
+//   sunucunun varsayılan yükleme sınırının (dakikada 10) altında kalır, bekleme 429 ile bitmez.
+// - Sunucu reddettiği isteğin gövdesini de okuduğu için reddedilen her istek dosyanın tamamını gönderir. Bir
+//   dosyanın reddedilen istekleri (busy, busy_reserved ve sıraya dönüşler) att.refusedSends içinde birlikte
+//   sayılır ve dosya en çok UPLOAD_RESERVED_SENDS_MAX kez reddedilir. Bu kadar gönderim UPLOAD_WASTE_MAX_BYTES'a
+//   sığmıyorsa (büyük dosya) dosya en çok UPLOAD_LARGE_WAITS_MS uzunluğundan bir fazla kez reddedilir ve
+//   bekleme bu aralarla (8, 30, 60 sn) sürer. Böylece boşa giden veri küçük dosyada UPLOAD_WASTE_MAX_BYTES ile,
+//   büyük dosyada dosya boyutunun dört katıyla sınırlıdır ve bekleyen dosya, yeri tutan aynı ağdaki yüklemeyle
+//   bağlantıyı boşuna paylaşmaz.
+// - Sunucunun yükleme sınırına (429) takılan dosya bir kez UPLOAD_RATE_WAIT_MS bekleyip yeniden dener. Bu istek de
+//   reddedilen istekler arasında sayılır (ör. on dosyalık bir grupta tek bir ret dakikadaki on hakkı aşar).
+// - Bekleme sonunda yer açılmazsa sıradaki dosyalar da aynı hatayla durur, sunucuya tek tek sorulmaz.
+// - Bekleyen dosya kaldırılırsa bekleme hemen biter ve yeri sıradaki dosyaya geçer.
 
 function pumpUploads () {
-  while (state.activeUploads < UPLOAD_PARALLEL) {
+  while (state.activeUploads < (state.uploadHeld ? 1 : UPLOAD_PARALLEL)) {
     const next = state.attachments.filter((a) => a.status === 'queued')[0]
     if (!next) return
     runUpload(next)
   }
+}
+
+// Kendi başka yüklememizin isteği sürüyor veya o yükleme yeniden denemeyi bekliyor mu
+function otherUploadActive (att) {
+  return state.attachments.some((x) => x !== att && (x.status === 'uploading' || x.status === 'retry'))
 }
 
 async function runUpload (att) {
@@ -480,6 +505,13 @@ async function runUpload (att) {
   att.progress = 0
   renderAttachments()
   let tries = 0
+  let delay = UPLOAD_RETRY_MS
+  let waited = 0
+  const boxBytes = att.box && typeof att.box.byteLength === 'number' ? att.box.byteLength : (att.box && typeof att.box.length === 'number' ? att.box.length : 0)
+  // Büyük dosya: reddedilen her istek dosyanın tamamını gönderdiğinden reddedilme sayısı daha sıkı sınırlanır
+  const largeBox = boxBytes * UPLOAD_RESERVED_SENDS_MAX > UPLOAD_WASTE_MAX_BYTES
+  const refusedMax = largeBox ? UPLOAD_LARGE_WAITS_MS.length + 1 : UPLOAD_RESERVED_SENDS_MAX
+  if (typeof att.refusedSends !== 'number') att.refusedSends = 0
   while (!att.removed) {
     const pending = request('POST', '/api/uploads', {
       binary: att.box,
@@ -502,12 +534,44 @@ async function runUpload (att) {
       att.box = null
       break
     }
-    if (res.status === 503 && tries < UPLOAD_RETRY_MAX) {
-      tries += 1
+    const code = res.status === 503 && res.data ? res.data.code : ''
+    const busy = code === 'busy' || code === 'busy_reserved'
+    const limited = res.status === 429 && res.data && res.data.code === 'rate_limited'
+    if (busy || limited) att.refusedSends += 1
+    const budgetLeft = att.refusedSends < refusedMax
+    const others = busy && otherUploadActive(att)
+    if (others && budgetLeft) {
+      att.status = 'queued'
+      att.progress = 0
+      att.error = null
+      state.uploadHeld = true
+      break
+    }
+    const reserved = code === 'busy_reserved' && budgetLeft && (largeBox || waited + delay <= UPLOAD_WAIT_MAX_MS)
+    const plain = res.status === 503 && code !== 'busy_reserved' && tries < UPLOAD_RETRY_MAX && (code !== 'busy' || budgetLeft)
+    const rateRetry = limited && budgetLeft && att.rateWaited !== true
+    if (rateRetry || (!others && (reserved || plain))) {
+      let pause = UPLOAD_RETRY_MS
+      if (rateRetry) {
+        pause = UPLOAD_RATE_WAIT_MS
+        att.rateWaited = true
+      } else if (reserved && largeBox) {
+        pause = UPLOAD_LARGE_WAITS_MS[Math.min(att.refusedSends, UPLOAD_LARGE_WAITS_MS.length) - 1]
+      } else if (reserved) {
+        pause = delay
+        waited += delay
+        delay = Math.min(delay * 2, UPLOAD_RETRY_MAX_MS)
+      } else {
+        tries += 1
+      }
       att.status = 'retry'
       att.error = () => errorText(res, t('attach.busy'))
       renderAttachments()
-      await wait(UPLOAD_RETRY_MS)
+      // Dosya kaldırılırsa bekleme hemen biter (removeAttachment att.cancelWait çağırır)
+      await Promise.race([wait(pause), new Promise((resolve) => {
+        att.cancelWait = resolve
+      })])
+      att.cancelWait = null
       if (att.removed) break
       att.status = 'uploading'
       att.progress = 0
@@ -517,9 +581,18 @@ async function runUpload (att) {
     checkAuthFailure(res)
     att.status = 'error'
     att.error = () => errorText(res, t('attach.uploadFailed'), { rate_limited: t('attach.rateLimited') })
+    if (busy && !others) {
+      state.attachments.forEach((x) => {
+        if (x.status !== 'queued') return
+        x.status = 'error'
+        x.error = att.error
+      })
+    }
     break
   }
   state.activeUploads -= 1
+  // Tek yükleme kuralı sıradaki bütün dosyalar bitene kadar sürer
+  if (!state.attachments.some((x) => x.status === 'queued' || x.status === 'uploading' || x.status === 'retry')) state.uploadHeld = false
   renderAttachments()
   updateSendState()
   pumpUploads()
@@ -528,6 +601,7 @@ async function runUpload (att) {
 function removeAttachment (att, keepFocus) {
   att.removed = true
   if (att.xhr) att.xhr.abort()
+  if (att.cancelWait) att.cancelWait()
   if (att.previewUrl) {
     try {
       URL.revokeObjectURL(att.previewUrl)

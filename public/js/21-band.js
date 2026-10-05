@@ -188,7 +188,8 @@ function bandOpenDm () {
 
 function bandJoinVoice (id) {
   const s = snap()
-  if (sameId(s.channelId, id) || s.joining) return
+  // Özel aramadayken ses odasına katılmak aramayı bitirir (sunucunun tek oda kuralı)
+  if ((!s.private && sameId(s.channelId, id)) || s.joining) return
   joinVoice(id)
 }
 

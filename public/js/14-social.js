@@ -23,12 +23,44 @@ const socialState = {
 }
 
 function emptyPrivate () {
-  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null }
+  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null, call: null }
+}
+
+function validId (id) {
+  return (typeof id === 'number' && id > 0) || (typeof id === 'string' && /^[1-9][0-9]*$/.test(id))
 }
 
 function idList (value) {
   if (!Array.isArray(value)) return []
-  return value.filter((id) => (typeof id === 'number' && id > 0) || (typeof id === 'string' && /^[1-9][0-9]*$/.test(id)))
+  return value.filter(validId)
+}
+
+// Özel görünümdeki arama (32-arama.js): { dmId, userId (karşı taraf), video, state 'ringing' | 'active', role
+// 'caller' | 'callee', createdAt, ringUntil, answeredAt, members: arama odasındaki oturumlar }. Biçimi bozuk kayıt
+// yok sayılır. Üyelerin peerId alanı ses motorunda ayrıca doğrulanır.
+function normalizeCall (c) {
+  if (!c || typeof c !== 'object' || !validId(c.dmId) || !validId(c.userId)) return null
+  if (c.state !== 'ringing' && c.state !== 'active') return null
+  if (c.role !== 'caller' && c.role !== 'callee') return null
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0)
+  const members = Array.isArray(c.members) ? c.members.filter((m) => m && typeof m === 'object' && validId(m.userId) && typeof m.peerId === 'string').slice(0, 2).map((m) => ({
+    userId: m.userId,
+    peerId: m.peerId,
+    muted: m.muted === true,
+    deafened: m.deafened === true,
+    camera: m.camera === true
+  })) : []
+  return {
+    dmId: c.dmId,
+    userId: c.userId,
+    video: c.video === true,
+    state: c.state,
+    role: c.role,
+    createdAt: num(c.createdAt),
+    ringUntil: num(c.ringUntil),
+    answeredAt: num(c.answeredAt),
+    members: members
+  }
 }
 
 function normalizePrivate (p) {
@@ -46,6 +78,7 @@ function normalizePrivate (p) {
   })) : []
   out.allowMemberDms = p.allowMemberDms !== false
   out.status = STATUS_CHOICES.indexOf(p.status) !== -1 ? p.status : null
+  out.call = normalizeCall(p.call)
   return out
 }
 
@@ -103,7 +136,10 @@ function socialApplyPrivate (p, pmv) {
   }
   const blockedChanged = before.blocked.map(String).sort().join(',') !== next.blocked.map(String).sort().join(',')
   notifyNewRequests(next.incoming)
-  profilesEnsure(privateIds(next))
+  profilesEnsure(privateIds(next).concat(next.call ? [String(next.call.userId)] : []))
+  // Arama değişince ses motoruna arama odasının kadrosu verilir (10-voice.js) ve arama arayüzü güncellenir
+  if (typeof voiceRefreshCall === 'function') voiceRefreshCall()
+  if (typeof aramaOnPrivate === 'function') aramaOnPrivate()
   if (!state.inApp) return
   if (blockedChanged) {
     autoMuteBlocked()
@@ -150,6 +186,8 @@ function socialAfterOpen () {
     if (!findLayer('app-dialog')) openProfileStep()
   }
   scanDmUnread()
+  // Oturum açılırken çalan bir arama varsa gelen arama kartı gösterilir (32-arama.js)
+  if (typeof aramaOnPrivate === 'function') aramaOnPrivate()
 }
 
 // Meta uygulandıktan sonra: profiller, kimlik bağlaması ve görünüm
@@ -231,6 +269,7 @@ function setConversationMode (mode) {
   if (warning && mode !== 'dm') warning.hidden = true
   const notice = byId('dm-notice')
   if (notice && mode !== 'dm') notice.hidden = true
+  if (mode !== 'dm' && typeof aramaRender === 'function') aramaRender()
   const title = channelTitleNode()
   if (title) title.hidden = mode !== 'channel'
   const startText = el.channelStart ? el.channelStart.querySelector('.channel-start-text') : null

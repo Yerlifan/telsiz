@@ -191,6 +191,7 @@ async function startServer (options, slot) {
     uploadLimit: 100000,
     adminLimit: 100000,
     signalLimit: 100000,
+    voiceLimit: 100000,
     friendRequestLimit: 100000,
     typingLimit: 100000,
     musicLimit: 100000,
@@ -202,8 +203,8 @@ async function startServer (options, slot) {
 
 // Node tarafında hesap: istemciyle aynı türetme (scrypt, SHA-512 alan ayrımı) ve gerçek anahtar çifti
 async function createAccount (srv, crypt, name, password, codeField, code) {
-  const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: 16384, r: 8, p: 1 }
-  const master = crypto.scryptSync(Buffer.from(password.normalize('NFC'), 'utf8'), Buffer.from(kdf.salt, 'base64url'), 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 64 * 1024 * 1024 })
+  const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: 65536, r: 8, p: 1 }
+  const master = crypto.scryptSync(Buffer.from(password.normalize('NFC'), 'utf8'), Buffer.from(kdf.salt, 'base64url'), 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 128 * 1024 * 1024 })
   const pair = crypt.E.identity.generate()
   const wrappedKey = crypt.E.identity.wrap(pair.secretKey, new Uint8Array(subKey('telsiz-wrap-v1', master)))
   const body = { name, authKey: subKey('telsiz-auth-v1', master).toString('hex'), kdf, publicKey: pair.publicKey, wrappedKey }

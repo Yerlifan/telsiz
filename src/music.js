@@ -61,6 +61,17 @@ function createMusic (options) {
     return out
   }
 
+  // userId kullanıcısının yazdığı ve haritada hâlâ duran zarfların karakter toplamı, channelId odasının zarfı
+  // env olsaydı (o odaya env yazılınca güncel zarfı userId yazmış olur). Başkasının sonradan üzerine yazdığı
+  // oda sayılmaz: her yazım odanın zarfını bütünüyle değiştirir.
+  function authoredChars (userId, channelId, env) {
+    let total = 0
+    for (const [id, rec] of rooms) {
+      if (id !== channelId && rec.by === userId) total += rec.env.length
+    }
+    return total + env.length
+  }
+
   // Sonuç: { ok: true, v, at } veya { ok: false, record: güncel kayıt | null }
   function write (channelId, userId, expect, env, now) {
     const cur = rooms.get(channelId) || null
@@ -113,6 +124,7 @@ function createMusic (options) {
     version: () => version,
     get,
     map,
+    authoredChars,
     write,
     remove,
     sweep,

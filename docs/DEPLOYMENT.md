@@ -80,11 +80,11 @@ The `node server.js` or `npm start` command can also be used directly.
 The published image is built as `ghcr.io/yerlifan/telsiz` for linux/amd64 and linux/arm64, with a version tag (for example `2.0.0`) and the `latest` tag.
 
 ```sh
-docker run -d --name telsiz --restart unless-stopped -p 127.0.0.1:3000:3000 -v telsiz-veri:/data ghcr.io/yerlifan/telsiz:latest
+docker run -d --name telsiz --restart unless-stopped -p 127.0.0.1:3000:3000 -e GUVENILIR_VEKIL=172.17.0.1 -v telsiz-veri:/data ghcr.io/yerlifan/telsiz:latest
 docker logs telsiz
 ```
 
-The image runs as the non root `node` user, keeps data in the `/data` volume and includes a health check that probes `/api/info`. The command above publishes the port only to this machine, and a reverse proxy or a tunnel faces the internet. You can also build the image yourself from the repository:
+The image runs as the non root `node` user, keeps data in the `/data` volume and includes a health check that probes `/api/info`. The command above publishes the port only to this machine, and a reverse proxy or a tunnel faces the internet. Inside the container, connections from that proxy or tunnel do not come from the loopback address but from the Docker bridge gateway, so the command trusts the default gateway `172.17.0.1` in `GUVENILIR_VEKIL`. Without this setting every client is counted as the same address and a single person can block sign in and registration for everyone through the rate limit. If you changed the bridge address or attach the container to another network, use the gateway shown by `docker network inspect`. Keep the `127.0.0.1:` prefix of the port: if the port is reachable from outside, outside connections can also arrive from the gateway and forge these headers. When a request with a forwarding header arrives from an untrusted local address, the server writes a one time warning to its log naming that address. You can also build the image yourself from the repository:
 
 ```sh
 docker build -t telsiz .
@@ -105,7 +105,7 @@ If the DNS record of your domain points to this server and ports 80 and 443 are 
 TELSIZ_ALAN_ADI=telsiz.example.com docker compose -f deploy/docker-compose.yml --profile caddy up -d
 ```
 
-The Compose file gives the Caddy container a fixed address and writes that address into the `GUVENILIR_VEKIL` setting. If you do not use Caddy and run your own reverse proxy on the host itself, set the Docker gateway address as described in the comments of the file.
+The Compose file gives the Caddy container a fixed address and writes that address, together with the Docker gateway address `172.30.57.1`, into the `GUVENILIR_VEKIL` setting. Connections from Caddy come from its fixed address, and connections from a reverse proxy or tunnel running on the host itself come from the gateway. Because the Telsiz port is published only on `127.0.0.1`, only processes on this machine can connect from the gateway.
 
 ### systemd
 
@@ -169,7 +169,7 @@ The server is configured with environment variables. Each setting has a Turkish 
 | `MAKS_YUKLEME_MB` (`MAX_UPLOAD_MB`) | `25` | The size limit of a single file (MB), at most 1024. |
 | `YUKLEME_KOTASI_MB` (`UPLOAD_QUOTA_MB`) | `2048` | The total limit for all uploads (MB). It cannot be smaller than the single file limit. |
 | `KULLANICI_YUKLEME_KOTASI_MB` (`USER_UPLOAD_QUOTA_MB`) | `512` | The total limit for one user's uploads that are still stored (message attachments, the profile picture, files not sent yet), in MB. When it is full, uploads are refused with a 507 error, and the person frees space by deleting older messages with files. It cannot be smaller than the single file limit, and when not set it is raised to the single file limit. |
-| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | The total number of messages stored across all rooms and direct message conversations (1 to 100000000), which protects the server's memory. When it is exceeded, new messages are not refused: the oldest messages of the conversations with the most messages are removed together with their attachments. The limit of 20000 messages per room still applies. |
+| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | The total number of messages stored across all rooms and direct message conversations (1 to 100000000), which protects the server's memory. When it is exceeded, new messages are not refused: the oldest messages of the conversations with the most messages are removed together with their attachments. The stored message bodies are also limited to this number times 1500 characters in total (about 750 MB at the default), the same estimate as the capacity hint, so long messages cannot use more memory. When this limit is exceeded, the oldest messages of the person who stores the most body characters are removed, so someone who fills the memory with long messages removes their own messages and not other people's history. The limit of 20000 messages per room still applies. |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Comma separated `stun:` or `stuns:` addresses. If the variable is set to an empty string, no STUN server is used. |
 | `TURN_URL` | empty | Comma separated `turn:` or `turns:` addresses. |
 | `TURN_KULLANICI` (`TURN_USERNAME`) | empty | TURN username. |
@@ -266,7 +266,7 @@ Whichever proxy you use, keep the following in mind:
 
 1. **Long requests.** When there are no new events, the server holds a request for about 25 seconds (long polling). The read timeout of the proxy must be longer than that. The nginx example uses 75 seconds, and Caddy does not time out these requests.
 2. **Upload size.** The request body limit of the proxy must be slightly above `MAKS_YUKLEME_MB`. Both examples use 30 MB for the default of 25 MB.
-3. **Client address.** Rate limits are applied per client IP. The server trusts the `X-Forwarded-For` and `CF-Connecting-IP` headers only on connections from addresses in the `GUVENILIR_VEKIL` list. The default `loopback` value is correct for a proxy on the same machine. The proxy must remove or overwrite these headers when a client sends them, and both examples do so.
+3. **Client address.** Rate limits are applied per client IP. The server trusts the `X-Forwarded-For` and `CF-Connecting-IP` headers only on connections from addresses in the `GUVENILIR_VEKIL` list. The default `loopback` value is correct for a proxy on the same machine when Telsiz runs directly on that machine. Inside a container, a proxy on the host connects from the Docker gateway address, so that address must be in the list (see the Docker and Docker Compose sections above). The proxy must remove or overwrite these headers when a client sends them, and both examples do so.
 4. **HSTS.** Both examples add a `Strict-Transport-Security` header. If you plan to use the domain without https later, remove that line.
 5. **Content Security Policy.** The server sends the Content Security Policy (CSP) and the other security headers itself, and the two examples do not touch them. The page policy contains `script-src 'self' 'wasm-unsafe-eval'`: `'wasm-unsafe-eval'` allows only WebAssembly compilation and is there for the RNNoise module of advanced noise suppression. If the proxy replaces this header with its own policy, that policy needs this keyword too. If it adds a second CSP header, the browser applies both policies together, so the added policy needs this keyword as well. Otherwise advanced noise suppression does not work and the audio goes with the browser's own processing.
 
@@ -313,17 +313,17 @@ All persistent data is in the data folder. The "data folder" line that the conso
 
 Message and file contents are encrypted, but account information and metadata are plain text. Store backups as carefully as the data folder itself. The encryption keys are not on the server but on the users' devices. A backup does not reveal messages to someone who does not know the key, but a group that loses its key cannot recover its messages from a backup either.
 
-For a consistent backup, stop the server, copy the whole folder and start the server again. On Linux, for example:
+For a consistent backup, stop the server, copy the whole folder and start the server again. The archive contains password hashes and wrapped personal keys, so the commands below create it readable only by its owner (`umask 077`). Someone who can read the archive can try to guess passwords offline. Encrypt it before moving it off the server, for example with `gpg -c telsiz-backup.tgz`. On Linux, for example:
 
 ```sh
-tar czf telsiz-backup.tgz -C /var/lib/telsiz .
+sudo sh -c "umask 077 && tar czf telsiz-backup.tgz -C /var/lib/telsiz ."
 ```
 
 For a Docker volume:
 
 ```sh
 docker stop telsiz
-docker run --rm -v telsiz-veri:/data:ro -v "$(pwd)":/backup alpine tar czf /backup/telsiz-backup.tgz -C /data .
+docker run --rm -v telsiz-veri:/data:ro -v "$(pwd)":/backup alpine sh -c "umask 077 && tar czf /backup/telsiz-backup.tgz -C /data ."
 docker start telsiz
 ```
 
@@ -364,11 +364,11 @@ node server.js sifre-sifirla <username>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js reset-password <username>
 ```
 
-A password reset also resets the person's personal security key. The person creates a new key at the next sign in, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
+A password reset also resets the person's personal security key. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
 
 **Port already in use.** The server may already be running in another window. Close that window or choose another port with `PORT`.
 
-**Data folder in use.** Two processes cannot use the same data folder. If this error appears while the server is not running, delete the `.kilit` file named in the error message and try again.
+**Data folder in use.** Two processes cannot use the same data folder. If this error appears while the server is not running, delete the `.kilit` file named in the error message and try again. The lock also works across containers that share the data volume: a lock written in another container counts as live while its server keeps refreshing it, and as stale 30 seconds after that server stops. After a container crashes, the server can therefore refuse to start for up to 30 seconds, and a restart policy starts it again.
 
 **Voice does not connect.** Check that the address is https or localhost, that the browser has microphone permission and, if needed, that a TURN server is configured.
 

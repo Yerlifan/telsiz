@@ -2,6 +2,40 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Yeni özellikler
+
+- Özel mesajda sesli ve görüntülü arama: iki arkadaş konuşmanın başlığındaki Sesli Ara veya Görüntülü Ara düğmesiyle birbirini arayabilir. Aranan kişinin açık cihazlarında 2 saniyelik zil sesi çalar ve Kabul Et ile Reddet düğmeli gelen arama kartı açılır, görüntülü aramada Kamerasız Kabul Et de vardır (Rahatsız etmeyin durumunda zil çalmaz). Arama sırasında konuşmanın üst bölümünde iki kişinin kamerası veya profil fotoğrafı, altta yazışma görünür. Aramanın kurulum iletileri iki kişinin kişisel anahtarlarıyla şifrelenir, arama bilgisi herkese açık metaya girmez. Arama yalnızca arkadaşlar arasında ve karşı tarafın anahtarı doğrulanmışken yapılabilir. Ses odası denetimi ve sunucu susturması özel aramaya uzanmaz, sahibin kamera ayarı geçerlidir. Engelleme, arkadaşlıktan çıkarma, yasaklama ve hesap silme aramayı bitirir. Yeni sunucu ayarları: `callRingMs`, `callLimit`, `callWindowMs`.
+
+### Değişiklikler
+
+- Ekran paylaşımında ses seçeneği tek yerde çıkar. Telsiz'in paylaşım penceresindeki Sesi de paylaş anahtarı kaldırıldı, ses her zaman istenir ve paylaşılıp paylaşılmayacağı kaynağın seçildiği pencerede seçilir: tarayıcıda tarayıcının kendi seçicisindeki ses seçeneği, masaüstü uygulamasında uygulamanın seçicisindeki Sistem sesini de paylaş kutusu (yalnızca Windows). Bu kutu artık başta işaretlidir: tam ekran paylaşımında bilgisayarın bütün sesi paylaşılır, Telsiz'in kendi sesleri (konuşmalar, bildirimler, Telsiz DJ) paylaşıma katılmaz, böylece konuşanların sesi yankı yapıp geri dönmez. Önceden masaüstü uygulamasında sesin gitmesi için iki seçeneğin birlikte açık olması gerekiyordu.
+
+### Düzeltmeler
+
+- Ağ yokken önbellekte olmayan bir dosya istendiğinde (ör. sayfa yenilenirken kesilen favicon isteği) Service Worker tarayıcı konsoluna hata yazıyordu. Sayfa dışındaki dosyalar artık sıradan bir 504 yanıtı alır.
+- Paylaşım sürerken Kaynağı değiştir yeni kaynağı sessiz istiyordu, sesli başlayan bir paylaşımın sesi kaynak değişince kayboluyordu. Kaynak değişiminde de ses istenir.
+
+### Güvenlik
+
+- Parola sıfırlandıktan sonra yeni kişisel anahtar ancak parola değiştirilirken, aynı istekte oluşturulur ve yeni parolayla sarılır. Hesap geçici paroladayken sunucu anahtar çifti kaydetmez, böylece geçici parolayı bilen biri kişinin yeni anahtarını seçemez veya açamaz. Geçici parolayı kişiden önce o kullanırsa kişi geçici parolayla artık giremez ve durumu fark eder. Eski bir sekmenin isteği reddedilir, sekme sunucudaki güncel anahtarları yeniden okur.
+- Giriş kilitleme saldırısına karşı giriş cihazı işareti: başarılı girişte cihaza parolanın karmasına bağlı bir işaret verilir. Hesap adı başına başarısız giriş sınırı (bütün adresler toplamı 20 / 15 dakika) dolduğunda yalnızca işaretsiz girişler durur, daha önce giriş yapmış cihaz denemeye devam eder. Parola değişince eski işaretler geçersiz olur.
+- Hız sınırı tabloları dolduğunda yeni istemcileri reddetmek yerine en uzun süredir kullanılmayan kaydı düşürür. Çok sayıda farklı istemciyle dolan bir tabloda eski sayaçlar bu yüzden sıfırlanabilir.
+- Parola karmaları aynı anda en fazla `hashConcurrency` (2) tane hesaplanır, en fazla `hashQueueMax` (32) istek bekler, fazlası 503 `server_busy` alır. Çok sayıda giriş denemesi disk işlemlerini durduramaz.
+- Yükleme yerleri: bir hesap ve bir adres aynı anda en fazla 2 yükleme sürdürür, son boş yer yalnızca hiç yer tutmayan hesap ve adrese verilir (ikisinde de yanıt `busy_reserved`). Yükleme en az `uploadMinBytesPerSec` (32 KB/sn) ortalama hızla sürmelidir, hız aynı hesabın veya aynı adresin eşzamanlı yüklemeleri arasında paylaşılır. Varsayılan `maxConcurrentUploads` 4 yerine 6. İstemci `busy_reserved` yanıtında bekleyip yeniden dener, yükleme sınırına (429) takılınca bir kez bir dakika bekler. Bir dosyanın reddedilen istekleri ortak bir bütçeden sayılır, boşa giden veri küçük dosyada 8 MiB ile, büyük dosyada dosya boyutunun dört katıyla sınırlıdır.
+- Saklanan mesaj gövdelerinin toplamı `maxTotalMessages` çarpı 1500 karakterle sınırlıdır. Sınır aşılınca en çok gövde saklayan kişinin en eski mesajları düşer, başkalarının mesajları onun yüzünden silinmez.
+- Telsiz DJ yazımlarının herkese gönderilen boyutu kullanıcı başına sınırlıdır, ses odası durum değişiklikleri ayrı ve daha sıkı bir sınıra (`voiceLimit`, 30 / 10 sn) tabidir.
+- Grup anahtarının geri çevrilmesine karşı koruma: bir cihazda yerine yenisi geçmiş anahtar emekliye ayrılır ve onunla bir daha şifrelenmez. Sunucunun bildirdiği bilinmeyen bir anahtar kimliği hiçbir anahtarı emekliye ayıramaz.
+- Bağlantıdaki `#frekanslar=` parçası frekans listesine tanıdık bir adla sahte frekans ekleyemez: listedeki başka bir frekansın veya açık frekansın adını taşıyan yeni frekans adsız eklenir, yeni frekanslar listenin sonuna eklenir ve kişiye adresleriyle bildirilir.
+- Özel mesaj aramasında kamera yalnızca kişinin kendi seçimiyle açılır (Kamerasız Kabul Et). Aranan kişinin reddi zil süresi dolana kadar arayana görünmez, arayan reddi cevapsız kalmaktan ayıramaz.
+- Ek dosya adının baştaki ve sondaki nokta ile boşluklarının kırpılması doğrusal sürede çalışır (uzun adlarla düzenli ifade yavaşlaması giderildi).
+- Veri klasörü kilidi aynı birimi paylaşan konteynerler arasında da geçerlidir, çalışan sunucu kilidi düzenli olarak yeniler.
+- Docker: örnek komutlar ve Compose dosyası Docker ağ geçidini `GUVENILIR_VEKIL` listesine yazar. Önceden `docker run` ile ve Compose'da ana makinedeki bir vekil veya tünel üzerinden gelen bütün istemciler tek adres sayılıyordu. Güvenilmeyen yerel bir adresten yönlendirme başlığı gelirse sunucu bir kez uyarı yazar. Yedek komutları arşivi yalnızca sahibinin okuyabileceği biçimde oluşturur (`umask 077`).
+- Paroladan anahtar türetme dört kat güçlendi: yeni hesaplar ve parola değişiklikleri scrypt N=65536 kullanır (önce 16384). Önceki sürümlerde oluşturulan hesaplar girişten sonra arka planda, aynı parola ve aynı özel anahtarla bir kez yükseltilir (`POST /api/me/kdf`), diğer oturumlar kapanmaz ve diğer cihazların giriş işaretleri geçerli kalır. Var olmayan adlar için ön giriş yanıtı eski ve yeni N'yi sunucudaki hesapların dağılımına göre verir. Sunucunun ele geçirilmesi hâlinde parolaları çevrim dışı tahmin etmek dört kat pahalıdır. Giriş masaüstünde yaklaşık bir saniye sürer.
+- Bağlantıyla eklenen frekansın adı yalnızca Latin ve Türkçe harfler, rakamlar, boşluk ve temel noktalamadan oluşabilir, aksi halde ad alınmaz ve adres görünür. Ad karşılaştırılırken rakamlar (1 ve 0), büyük I ile küçük l, aksan işaretleri, boşluk ve noktalama farkı yok sayılır: tanıdık bir ad başka alfabeden harflerle, görünmez karakterlerle veya benzer görünen simgelerle taklit edilemez.
+- Var olan hesapların başarısız giriş sayaçları (hesap adı başına giriş sayacı ve hesap işlemlerinin sayacı) hiç düşürülmeyen ayrı tablolarda tutulur: hız sınırı tablosunu çok sayıda farklı adla veya adresle doldurmak bir hesabın sayacını sıfırlamaz. Diğer tablolar dolduğunda o an sınırda olan sayaçlar öncelikle korunur.
+
 ## [2.3.0]
 
 ### Yeni özellikler

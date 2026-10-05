@@ -34,7 +34,7 @@ const CAST_NOTICE_MS = 20000
 const CAST_REWATCH_MS = 20000
 const CAST_PRESETS = ['720p15', '720p30', '1080p15', '1080p30']
 const CAST_HINTS = ['motion', 'detail']
-const CAST_DEFAULT = { preset: '720p15', hint: 'detail', audio: false }
+const CAST_DEFAULT = { preset: '720p15', hint: 'detail' }
 // Bu kodlar startScreenShare'in reddiyle gelir ve pencerede gösterilir (aynı kodun 'error' olayı yok sayılır)
 const CAST_START_ERRORS = ['screen_unsupported', 'insecure', 'unsupported', 'not_in_voice', 'screen_busy', 'screen_denied', 'screen_gesture', 'screen_not_found', 'screen_failed']
 
@@ -120,7 +120,7 @@ function castQualityLine (preset, hint) {
 }
 
 // Paylaşım varsayılanları: Ayarlar'daki telsiz.screenQuality (11-settings.js screenQuality), yoksa motorun
-// cihaz varsayılanı. Ses her zaman motorun varsayılanından gelir (kapalı).
+// cihaz varsayılanı. Ses burada seçilmez (castStart her zaman ister, seçim kaynak seçicisindedir).
 function castDefaults () {
   let base = null
   if (voice && typeof voice.screenSettings === 'function') {
@@ -143,7 +143,7 @@ function castDefaults () {
     if (base && list.indexOf(base[key]) !== -1) return base[key]
     return CAST_DEFAULT[key]
   }
-  return { preset: pick('preset', CAST_PRESETS), hint: pick('hint', CAST_HINTS), audio: Boolean(base && base.audio === true) }
+  return { preset: pick('preset', CAST_PRESETS), hint: pick('hint', CAST_HINTS) }
 }
 
 // Başarılı bir başlatma veya kalite değişikliğinden sonra seçim yeni varsayılan olur
@@ -170,6 +170,9 @@ function castOnScreenEvent (evt) {
   if (!evt || typeof evt.type !== 'string') return
   const uid = evt.userId === null || evt.userId === undefined ? null : String(evt.userId)
   if (evt.type === 'share-start') {
+    // Özel mesaj aramasında ekran paylaşımı yoktur: karşı taraftan gelen duyuru sesle veya bildirimle gösterilmez
+    const s = castSnapshot()
+    if (s && s.private) return
     castPlayShareSound(evt)
     // Bildirimler listesine (28-bildirim.js) yazılır, liste ekrandaysa sağ üstteki bildirim açılmaz
     const listed = typeof activityShare === 'function'
@@ -1051,13 +1054,18 @@ function castOnFullChange () {
   if (castState.full && !castState.pseudoFull && !castFullElement()) castExitFull(true)
 }
 
-// Paylaşım başlatma penceresi (#cast-dialog). Kaynak seçimi tarayıcıya aittir, pencere öncelik, çözünürlük
-// ve kare hızı ile "Sesi de paylaş" seçeneklerini sunar. Paylaşım sürerken aynı pencere kalite kipinde açılır
-// (ses seçeneği yok, Kaynağı değiştir ve Uygula).
+// Paylaşım başlatma penceresi (#cast-dialog). Pencere öncelik, çözünürlük ve kare hızı seçeneklerini sunar.
+// Paylaşım sürerken aynı pencere kalite kipinde açılır (Kaynağı değiştir ve Uygula). Kaynak ve ses seçimi
+// kaynak seçicisine aittir: ses her zaman istenir, paylaşılıp paylaşılmayacağını kişi tarayıcının seçicisindeki
+// (masaüstü uygulamasında uygulamanın kendi seçicisindeki) ses seçeneğiyle belirler. Böylece ses seçeneği tek
+// yerde çıkar.
 
 function openCastDialog (trigger, kind) {
   const root = el.castDialog
   if (!root || !state.inApp) return
+  // Özel mesaj aramasında ekran paylaşımı başlatılmaz (telsiz kartında Ekran düğmesi de gizlidir)
+  const now = castSnapshot()
+  if (now && now.private) return
   if (castState.dialog) castCloseDialog(false)
   const sc = castScreen()
   const mode = kind === 'quality' && sc && sc.state === 'live' ? 'quality' : 'start'
@@ -1066,7 +1074,6 @@ function openCastDialog (trigger, kind) {
     mode: mode,
     preset: mode === 'quality' && CAST_PRESETS.indexOf(sc.preset) !== -1 ? sc.preset : defaults.preset,
     hint: mode === 'quality' && CAST_HINTS.indexOf(sc.hint) !== -1 ? sc.hint : defaults.hint,
-    audio: defaults.audio,
     busy: false,
     error: null,
     trigger: trigger || null,
@@ -1157,25 +1164,6 @@ function castBuildDialog (d) {
   }, 'cast-preset')
   body.appendChild(n.presets)
   body.appendChild(h('p', 'cast-dialog-hint', t('cast.presetHint', { label: castPresetShort(CAST_DEFAULT.preset) })))
-  if (d.mode === 'start') {
-    n.audio = h('button', 'cast-switch-row')
-    n.audio.type = 'button'
-    n.audio.setAttribute('role', 'switch')
-    n.audio.setAttribute('aria-checked', d.audio ? 'true' : 'false')
-    const txt = h('span', 'cast-switch-text')
-    txt.appendChild(h('b', 'cast-switch-label', t('screen.audio')))
-    txt.appendChild(h('span', 'cast-switch-hint', t('cast.audioHint')))
-    n.audio.appendChild(txt)
-    const knob = h('span', 'cast-switch')
-    knob.setAttribute('aria-hidden', 'true')
-    knob.appendChild(h('i', 'cast-switch-knob'))
-    n.audio.appendChild(knob)
-    n.audio.addEventListener('click', () => {
-      d.audio = !d.audio
-      n.audio.setAttribute('aria-checked', d.audio ? 'true' : 'false')
-    })
-    body.appendChild(n.audio)
-  }
   const note = h('p', 'cast-dialog-note')
   note.appendChild(icon('i-lock'))
   note.appendChild(h('span', '', t('cast.privacy')))
@@ -1265,7 +1253,7 @@ function castRenderDialogState () {
   const sc = castScreen(s)
   let blocker = null
   if (!sc || !sc.canShare) blocker = sc && sc.reason ? sc.reason : 'screen_unsupported'
-  else if (!s.channelId) blocker = 'not_in_voice'
+  else if (!s.channelId || s.private) blocker = 'not_in_voice'
   if (d.mode === 'quality' && !(sc && sc.state === 'live') && !d.busy) {
     castCloseDialog(false)
     return
@@ -1287,19 +1275,18 @@ function castRenderDialogState () {
   n.status.setAttribute('role', kind === 'error' ? 'alert' : 'status')
   n.primary.disabled = Boolean(d.busy || blocker)
   if (n.source) n.source.disabled = Boolean(d.busy || blocker)
-  if (n.audio) n.audio.disabled = Boolean(d.busy)
   Array.from(el.castDialog.querySelectorAll('[role="radio"]')).forEach((b) => {
     b.setAttribute('aria-disabled', d.busy ? 'true' : 'false')
   })
 }
 
 // Başlatma (ve kalite kipinde kaynak değişimi). startScreenShare kullanıcı hareketi içinde, ilk await'ten
-// önce eşzamanlı çağrılır.
+// önce eşzamanlı çağrılır. Ses iki durumda da istenir (kaynak değişince ses kaybolmasın), kişi sesi seçicide
+// kapatırsa veya tarayıcı ses vermezse paylaşım yalnızca görüntüyle sürer (sahnede "ses kapalı" yazar).
 function castStart () {
   const d = castState.dialog
   if (!d || d.busy) return
-  const opts = { preset: d.preset, hint: d.hint }
-  if (d.mode === 'start') opts.audio = d.audio
+  const opts = { preset: d.preset, hint: d.hint, audio: true }
   let job = null
   if (!voice || typeof voice.startScreenShare !== 'function') {
     job = Promise.reject(Object.assign(new Error('screen'), { code: 'screen_unsupported' }))
@@ -1318,7 +1305,6 @@ function castStart () {
     d.busy = false
     castRememberQuality(opts.preset, opts.hint)
     if (castState.dialog === d) castCloseDialog(false)
-    if (opts.audio && res && res.audio === false) toast(() => t('screen.audioMissing'), '', 8000)
     castSync()
     const n = castState.nodes
     if (n && !el.cast.hidden && !n.stop.hidden) focusNode(n.stop)

@@ -59,7 +59,13 @@ function applyHeaders (res, headers) {
 // (yalnızca boyutu bilinen ve sınırlı gövdeler için, istemci yanıtı güvenle alsın diye).
 function sendJson (res, status, data, headers, opts) {
   if (!canRespond(res)) return false
-  const body = Buffer.from(JSON.stringify(data), 'utf8')
+  return sendJsonText(res, status, JSON.stringify(data), headers, opts)
+}
+
+// Önceden serileştirilmiş JSON metni (ör. uzun poll yanıtları, src/hub.js)
+function sendJsonText (res, status, text, headers, opts) {
+  if (!canRespond(res)) return false
+  const body = Buffer.from(text, 'utf8')
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Cache-Control', 'no-store')
@@ -223,6 +229,7 @@ module.exports = {
   setSecurityHeaders,
   canRespond,
   sendJson,
+  sendJsonText,
   sendText,
   contentLength,
   readBody,

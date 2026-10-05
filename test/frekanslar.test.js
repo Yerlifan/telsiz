@@ -163,6 +163,132 @@ test('birleştirme: kendi köken alınmaz, yerel ad korunur, yeniler eklenir, en
   assert.equal(F.mergeLists(local, big, SELF).length, 30)
 })
 
+test('birleştirme: başka bir frekansın adını taşıyan yeni frekans adsız eklenir (sahte istasyon tanıdık adla görünmez)', () => {
+  const { F } = load()
+  const local = [{ origin: 'https://ekip.com', name: 'Ekip' }]
+  const incoming = [
+    { origin: 'https://ekip-telsiz.com', name: 'ekip' },
+    { origin: 'https://ekip2.com', name: 'ＥＫＩＰ' },
+    { origin: 'https://x.com', name: 'X' },
+    { origin: 'https://y.com', name: 'x' },
+    { origin: 'https://ben-sahte.com', name: 'Kankalar' },
+    { origin: 'https://z.com', name: 'Z' }
+  ]
+  assert.deepEqual(plain(F.mergeLists(local, incoming, SELF, ['Kankalar'])), [
+    { origin: 'https://ekip.com', name: 'Ekip' },
+    { origin: 'https://ekip-telsiz.com', name: null },
+    { origin: 'https://ekip2.com', name: null },
+    { origin: 'https://x.com', name: 'X' },
+    { origin: 'https://y.com', name: null },
+    { origin: 'https://ben-sahte.com', name: null },
+    { origin: 'https://z.com', name: 'Z' }
+  ])
+})
+
+test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve temel noktalamadan oluşabilir, benzer harfler tanıdık adı taklit edemez', () => {
+  const { F } = load()
+  const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }, { origin: 'https://kardes.com', name: 'Kardeşler' }, { origin: 'https://oyun.com', name: 'Oyun Gecesi' }, { origin: 'https://turnuva.com', name: 'Turnuva' }]
+  const incoming = [
+    { origin: 'https://cl.com', name: 'Karcleşler' },
+    { origin: 'https://ri.com', name: 'Karıkalar' },
+    { origin: 'https://rri.com', name: 'Turrıuva' },
+    { origin: 'https://parantez.com', name: 'Oyun Ge(esi' },
+    { origin: 'https://kiril.com', name: 'K\u0430nk\u0430l\u0430r' },
+    { origin: 'https://buyuk-i.com', name: 'KankaIar' },
+    { origin: 'https://gorunmez.com', name: 'Kan\u200bkalar' },
+    { origin: 'https://aksan.com', name: 'Ka\u0301nkalar' },
+    { origin: 'https://bosluk.com', name: 'Kanka lar.' },
+    { origin: 'https://yunan.com', name: '\u03a4elsiz' },
+    { origin: 'https://rakam.com', name: 'Te1siz' },
+    { origin: 'https://cherokee.com', name: 'Tels\u13a5z' },
+    { origin: 'https://lisu.com', name: '\ua4d4elsiz' },
+    { origin: 'https://etiket.com', name: 'Tel\udb40\udd00siz' },
+    { origin: 'https://unlem.com', name: 'Tels\u00a1z' },
+    { origin: 'https://kucukbuyuk.com', name: 'Telsi\u1d22' },
+    { origin: 'https://kesme.com', name: 'Burak\u2019ın Odası' },
+    { origin: 'https://baska.com', name: 'Dostlar' }
+  ]
+  assert.deepEqual(plain(F.mergeLists(local, incoming, SELF, ['Telsiz'])), [
+    { origin: 'https://ekip.com', name: 'Kankalar' },
+    { origin: 'https://kardes.com', name: 'Kardeşler' },
+    { origin: 'https://oyun.com', name: 'Oyun Gecesi' },
+    { origin: 'https://turnuva.com', name: 'Turnuva' },
+    { origin: 'https://cl.com', name: null },
+    { origin: 'https://ri.com', name: null },
+    { origin: 'https://rri.com', name: null },
+    { origin: 'https://parantez.com', name: null },
+    { origin: 'https://kiril.com', name: null },
+    { origin: 'https://buyuk-i.com', name: null },
+    { origin: 'https://gorunmez.com', name: null },
+    { origin: 'https://aksan.com', name: null },
+    { origin: 'https://bosluk.com', name: null },
+    { origin: 'https://yunan.com', name: null },
+    { origin: 'https://rakam.com', name: null },
+    { origin: 'https://cherokee.com', name: null },
+    { origin: 'https://lisu.com', name: null },
+    { origin: 'https://etiket.com', name: null },
+    { origin: 'https://unlem.com', name: null },
+    { origin: 'https://kucukbuyuk.com', name: null },
+    { origin: 'https://kesme.com', name: 'Burak\u2019ın Odası' },
+    { origin: 'https://baska.com', name: 'Dostlar' }
+  ])
+})
+
+test('readFragment: parçayla listeye eklenen frekanslar sessizce eklenmez, adresleriyle bildirilir', () => {
+  const enc = (list) => Buffer.from(JSON.stringify({ v: 1, f: list })).toString('base64url')
+  const page = load({ hash: '#frekanslar=' + enc([['https://ekip-telsiz.com', 'Ekip'], [SELF, 'Ben'], ['https://ekip.com', 'Ekip']]) })
+  page.sandbox.localStorage.setItem('telsiz.frekanslar', JSON.stringify([{ origin: 'https://ekip.com', name: 'Ekip' }]))
+  page.sandbox.localStorage.setItem('telsiz.frekanslar.konum', '1')
+  page.run('readFragment()')
+  // Sahte frekans adsız ve sona eklenir: parça sırayı değiştirip onu açık frekansın yanına koyamaz
+  assert.deepEqual(JSON.parse(page.sandbox.localStorage.getItem('telsiz.frekanslar')), [{ origin: 'https://ekip.com', name: 'Ekip' }, { origin: 'https://ekip-telsiz.com', name: null }])
+  assert.equal(page.sandbox.localStorage.getItem('telsiz.frekanslar.konum'), '1')
+  assert.equal(page.run('state.fragmentNotice.kind'), 'ok')
+  assert.match(page.run('state.fragmentNotice.text()'), /ekip-telsiz\.com/)
+  // Yeni frekans yoksa bildirim de yok
+  const known = load({ hash: '#frekanslar=' + enc([['https://ekip.com', 'Ekip'], [SELF, 'Ben']]) })
+  known.sandbox.localStorage.setItem('telsiz.frekanslar', JSON.stringify([{ origin: 'https://ekip.com', name: 'Ekip' }]))
+  known.run('readFragment()')
+  assert.equal(known.run('state.fragmentNotice'), null)
+  // Anahtar parçasının bildirimi korunur, frekans bildirimi ona eklenir
+  const both = load({ hash: '#anahtar=bozuk&frekanslar=' + enc([['https://a.com', 'A']]) })
+  both.run('readFragment()')
+  assert.equal(both.run('state.fragmentNotice.kind'), 'error')
+  const text = both.run('state.fragmentNotice.text()')
+  assert.match(text, /a\.com/)
+  assert.ok(text.indexOf(both.run("t('fragment.keyInvalid', { reason: '' })").slice(0, 10)) === 0, text)
+  // Çok sayıda frekans: ilk beşi adıyla, gerisi sayıyla
+  const many = load({ hash: '#frekanslar=' + enc(Array.from({ length: 7 }, (_, i) => ['https://g' + i + '.com', null])) })
+  many.run('readFragment()')
+  const manyText = many.run('state.fragmentNotice.text()')
+  assert.match(manyText, /g4\.com/)
+  assert.ok(manyText.indexOf('g5.com') === -1 && manyText.indexOf('2') !== -1, manyText)
+})
+
+test('readFragment: sunucunun adı parça okunduktan sonra öğrenilir, açık frekansın adını taşıyan yeni frekans adsız kalır', () => {
+  const enc = (list) => Buffer.from(JSON.stringify({ v: 1, f: list })).toString('base64url')
+  const page = load({ hash: '#frekanslar=' + enc([['https://evil.example', 'ｋａｎｋａ'], ['https://a.com', 'A']]) })
+  page.sandbox.localStorage.setItem('telsiz.frekanslar', JSON.stringify([{ origin: 'https://eski.com', name: 'Eski' }]))
+  // start: readFragment loadInfo'dan önce çalışır, state.serverName henüz varsayılan addır
+  page.run('document.getElementById = () => null')
+  page.run('readFragment()')
+  assert.equal(page.run('state.serverName'), 'Telsiz')
+  page.run("applyInfo({ serverName: 'Kanka' })")
+  // Parçayla gelen sahte frekans açık frekansın adını alamaz, adresiyle görünür. Diğer adlar korunur.
+  assert.deepEqual(JSON.parse(page.sandbox.localStorage.getItem('telsiz.frekanslar')), [
+    { origin: 'https://eski.com', name: 'Eski' },
+    { origin: 'https://evil.example', name: null },
+    { origin: 'https://a.com', name: 'A' }
+  ])
+  assert.deepEqual(plain(page.F.readLocal()), JSON.parse(page.sandbox.localStorage.getItem('telsiz.frekanslar')))
+  // Yerel listede kişinin kendi verdiği ad parça yoksa değişmez
+  const plainPage = load()
+  plainPage.run('document.getElementById = () => null')
+  plainPage.sandbox.localStorage.setItem('telsiz.frekanslar', JSON.stringify([{ origin: 'https://eski.com', name: 'Kanka' }]))
+  plainPage.run("applyInfo({ serverName: 'Kanka' })")
+  assert.deepEqual(JSON.parse(plainPage.sandbox.localStorage.getItem('telsiz.frekanslar')), [{ origin: 'https://eski.com', name: 'Kanka' }])
+})
+
 test('readFragment: frekans listesi yerel depoya eklenir, davet ve anahtar parçaları çalışmaya devam eder', () => {
   const list = Buffer.from(JSON.stringify({ v: 1, f: [['https://a.com', 'A'], [SELF, 'Ben'], ['http://kotu.com', 'K']] })).toString('base64url')
   const page = load({ hash: '#davet=KOD-123&frekanslar=' + list })

@@ -97,6 +97,61 @@ describe('istemci IP adresi', () => {
   })
 })
 
+describe('güvenilmeyen yerel vekil algılama', () => {
+  const loopback = auth.trustPolicy(['loopback'])
+  const xff = { 'x-forwarded-for': '203.0.113.5' }
+
+  it('kapsayıcıda Docker ağ geçidinden gelen yönlendirme başlığı algılanır', () => {
+    // Belgelenen docker run kurulumunda ana makinedeki vekil 172.17.0.1 adresinden bağlanır
+    assert.equal(auth.clientIp(fakeReq('::ffff:172.17.0.1', xff), loopback), '172.17.0.1')
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('::ffff:172.17.0.1', xff), loopback), '172.17.0.1')
+    // Caddy profili olmadan Compose: ağ geçidi 172.30.57.1, güvenilen yalnızca Caddy adresi
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('172.30.57.1', xff), auth.trustPolicy(['172.30.57.10'])), '172.30.57.1')
+    for (const ip of ['10.1.2.3', '192.168.1.1', '169.254.1.1', 'fd00::5', 'fe80::1', '127.0.0.1']) {
+      assert.equal(auth.untrustedLocalForwarder(fakeReq(ip, { 'cf-connecting-ip': '198.51.100.1' }), auth.trustPolicy(['192.0.2.10'])), ip, ip)
+    }
+  })
+
+  it('güvenilen vekil, genel adres veya başlıksız istek uyarı üretmez', () => {
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('127.0.0.1', xff), loopback), null)
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('172.30.57.1', xff), auth.trustPolicy(['172.30.57.1', '172.30.57.10'])), null)
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('198.51.100.20', xff), loopback), null)
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('172.32.0.1', xff), loopback), null)
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('172.17.0.1', {}), loopback), null)
+    assert.equal(auth.untrustedLocalForwarder(fakeReq('', xff), loopback), null)
+    assert.equal(auth.untrustedLocalForwarder(null, loopback), null)
+  })
+})
+
+describe('kapsayıcı kurulumlarında vekil ayarı', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const root = path.join(__dirname, '..')
+  const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
+
+  it('Compose dosyası hem ağ geçidine hem Caddy adresine güvenir, diğer kapsayıcılara güvenmez', () => {
+    const text = read('deploy/docker-compose.yml')
+    const value = text.match(/^\s*GUVENILIR_VEKIL:\s*(\S+)\s*$/m)[1]
+    const gateway = text.match(/^\s*gateway:\s*(\S+)\s*$/m)[1]
+    const caddy = text.match(/^\s*ipv4_address:\s*(\S+)\s*$/m)[1]
+    const range = text.match(/^\s*ip_range:\s*(\d+\.\d+\.\d+)\.(\d+)\/\d+\s*$/m)
+    const trusts = auth.trustPolicy(value)
+    // Caddy profili olmadan ana makinedeki vekil ağ geçidinden bağlanır
+    assert.equal(trusts(gateway), true)
+    assert.equal(trusts(caddy), true)
+    assert.equal(trusts(range[1] + '.' + (Number(range[2]) + 2)), false)
+    assert.equal(trusts('127.0.0.1'), false)
+  })
+
+  it('belgelenen docker run komutları Docker ağ geçidine güvenir', () => {
+    for (const file of ['README.md', 'README.en.md', 'docs/DEPLOYMENT.md', 'docs/KURULUM.md', 'Dockerfile']) {
+      const lines = read(file).split('\n').filter((line) => /docker run -d .*-p 127\.0\.0\.1:3000:3000/.test(line))
+      assert.ok(lines.length > 0, file)
+      for (const line of lines) assert.match(line, /-e GUVENILIR_VEKIL=172\.17\.0\.1 /, file)
+    }
+  })
+})
+
 describe('sunucuda vekil güveni ve hız sınırları', () => {
   it('varsayılan (loopback): sahte sol girdiyle sınır aşılamaz, gerçek istemci adresi sayılır', async () => {
     const ctx = await h.startServer({ authLimit: 2 })
@@ -107,6 +162,8 @@ describe('sunucuda vekil güveni ve hız sınırları', () => {
       // İstemcinin her istekte değiştirdiği sol girdi işe yaramaz
       h.expectStatus(await attempt('198.51.100.3, 203.0.113.5'), 429, 'rate_limited')
       h.expectStatus(await attempt('203.0.113.6'), 401)
+      // Güvenilen vekilden gelen başlıklar için uyarı yazılmaz
+      assert.deepEqual(ctx.log.lines.warn.filter((line) => line.includes('GUVENILIR_VEKIL')), [])
     } finally {
       await ctx.cleanup()
     }
@@ -120,6 +177,10 @@ describe('sunucuda vekil güveni ve hız sınırları', () => {
       h.expectStatus(await attempt('203.0.113.2'), 401)
       // Tüm istekler 127.0.0.1 olarak sayılır
       h.expectStatus(await attempt('203.0.113.3'), 429, 'rate_limited')
+      // Yanlış yapılandırma yöneticiye yalnızca bir kez bildirilir
+      const warnings = ctx.log.lines.warn.filter((line) => line.includes('GUVENILIR_VEKIL'))
+      assert.equal(warnings.length, 1)
+      assert.match(warnings[0], /127\.0\.0\.1/)
     } finally {
       await ctx.cleanup()
     }

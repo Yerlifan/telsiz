@@ -80,11 +80,11 @@ Doğrudan `node server.js` veya `npm start` komutu da kullanılabilir.
 Yayımlanan imaj `ghcr.io/yerlifan/telsiz` adıyla linux/amd64 ve linux/arm64 için hazırlanır, sürüm etiketi (ör. `2.0.0`) ve `latest` etiketi taşır.
 
 ```sh
-docker run -d --name telsiz --restart unless-stopped -p 127.0.0.1:3000:3000 -v telsiz-veri:/data ghcr.io/yerlifan/telsiz:latest
+docker run -d --name telsiz --restart unless-stopped -p 127.0.0.1:3000:3000 -e GUVENILIR_VEKIL=172.17.0.1 -v telsiz-veri:/data ghcr.io/yerlifan/telsiz:latest
 docker logs telsiz
 ```
 
-İmaj root olmayan `node` kullanıcısıyla çalışır, veriyi `/data` biriminde tutar ve `/api/info` adresini yoklayan bir sağlık denetimi içerir. Yukarıdaki komut bağlantı noktasını yalnızca bu makineye açar, internete bir ters vekil veya tünel açar. İmajı depodan kendiniz de derleyebilirsiniz:
+İmaj root olmayan `node` kullanıcısıyla çalışır, veriyi `/data` biriminde tutar ve `/api/info` adresini yoklayan bir sağlık denetimi içerir. Yukarıdaki komut bağlantı noktasını yalnızca bu makineye açar, internete bir ters vekil veya tünel açar. Kapsayıcının içinde bu vekilden veya tünelden gelen bağlantılar loopback adresinden değil Docker köprü ağ geçidinden gelir, bu yüzden komut varsayılan ağ geçidi olan `172.17.0.1` adresini `GUVENILIR_VEKIL` ayarına yazar. Bu ayar olmadan bütün istemciler aynı adres sayılır ve tek bir kişi hız sınırı üzerinden herkesin giriş yapmasını ve kayıt olmasını engelleyebilir. Köprü adresini değiştirdiyseniz veya kapsayıcıyı başka bir ağa bağlıyorsanız `docker network inspect` komutunun gösterdiği ağ geçidi adresini yazın. Bağlantı noktasındaki `127.0.0.1:` önekini kaldırmayın: bağlantı noktası dışarıdan erişilebilir olursa dış bağlantılar da ağ geçidinden gelebilir ve bu başlıkları taklit edebilir. Yönlendirme başlığı taşıyan bir istek güvenilmeyen yerel bir adresten gelirse sunucu günlüğe o adresi belirten bir uyarıyı bir kez yazar. İmajı depodan kendiniz de derleyebilirsiniz:
 
 ```sh
 docker build -t telsiz .
@@ -105,7 +105,7 @@ Alan adınızın DNS kaydı bu sunucuyu gösteriyorsa ve 80 ile 443 bağlantı n
 TELSIZ_ALAN_ADI=telsiz.ornek.com docker compose -f deploy/docker-compose.yml --profile caddy up -d
 ```
 
-Compose dosyası Caddy kapsayıcısına sabit bir adres verir ve `GUVENILIR_VEKIL` ayarına bu adresi yazar. Caddy kullanmıyor, kendi ters vekilinizi sunucunun kendisinde çalıştırıyorsanız dosyadaki açıklamaya göre Docker ağ geçidi adresini yazın.
+Compose dosyası Caddy kapsayıcısına sabit bir adres verir ve `GUVENILIR_VEKIL` ayarına bu adresi Docker ağ geçidi adresi `172.30.57.1` ile birlikte yazar. Caddy'den gelen bağlantılar onun sabit adresinden, sunucunun kendisinde çalışan bir ters vekilden veya tünelden gelen bağlantılar ise ağ geçidinden gelir. Telsiz bağlantı noktası yalnızca `127.0.0.1` adresinde açıldığı için ağ geçidinden yalnızca bu makinedeki süreçler bağlanabilir.
 
 ### systemd
 
@@ -169,7 +169,7 @@ Sunucu ortam değişkenleriyle ayarlanır. Her ayarın Türkçe adı ve İngiliz
 | `MAKS_YUKLEME_MB` (`MAX_UPLOAD_MB`) | `25` | Tek dosya boyut sınırı (MB), en fazla 1024. |
 | `YUKLEME_KOTASI_MB` (`UPLOAD_QUOTA_MB`) | `2048` | Tüm yüklemelerin toplam sınırı (MB). Tek dosya sınırından küçük olamaz. |
 | `KULLANICI_YUKLEME_KOTASI_MB` (`USER_UPLOAD_QUOTA_MB`) | `512` | Bir kullanıcının hâlâ kayıtlı yüklemelerinin (mesaj ekleri, profil resmi, henüz gönderilmemiş dosyalar) toplam sınırı (MB). Dolunca yükleme 507 hatasıyla reddedilir, kişi dosyalı eski mesajlarını silerek yer açar. Tek dosya sınırından küçük olamaz, verilmezse tek dosya sınırına yükseltilir. |
-| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | Bütün odalar ve özel mesaj konuşmalarında saklanan toplam mesaj sınırı (1 ile 100000000), sunucunun belleğini korur. Aşılınca yeni mesaj reddedilmez, en çok mesajı olan konuşmaların en eski mesajları ve ekleri silinir. Oda başına 20000 mesaj sınırı ayrıca geçerlidir. |
+| `MAKS_TOPLAM_MESAJ` (`MAX_TOTAL_MESSAGES`) | `500000` | Bütün odalar ve özel mesaj konuşmalarında saklanan toplam mesaj sınırı (1 ile 100000000), sunucunun belleğini korur. Aşılınca yeni mesaj reddedilmez, en çok mesajı olan konuşmaların en eski mesajları ve ekleri silinir. Saklanan mesaj gövdeleri de toplamda bu sayı çarpı 1500 karakterle sınırlıdır (varsayılanda yaklaşık 750 MB, kapasite ipucundaki tahminle aynı), uzun mesajlar daha fazla bellek kullanamaz. Bu sınır aşılınca en çok gövde karakteri saklayan kişinin en eski mesajları silinir, böylece uzun mesajlarla belleği dolduran biri başkalarının geçmişini değil kendi mesajlarını siler. Oda başına 20000 mesaj sınırı ayrıca geçerlidir. |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Virgülle ayrılmış `stun:` veya `stuns:` adresleri. Değişken boş dizeyle tanımlanırsa STUN kullanılmaz. |
 | `TURN_URL` | boş | Virgülle ayrılmış `turn:` veya `turns:` adresleri. |
 | `TURN_KULLANICI` (`TURN_USERNAME`) | boş | TURN kullanıcı adı. |
@@ -266,7 +266,7 @@ Hangi vekili kullanırsanız kullanın şu noktalara dikkat edin:
 
 1. **Uzun süreli istekler.** Sunucu yeni olay yoksa bir isteği yaklaşık 25 saniye bekletir (long-polling). Vekilin okuma zaman aşımı bunun üstünde olmalıdır. nginx örneği 75 saniye kullanır, Caddy bu istekleri zaman aşımına uğratmaz.
 2. **Yükleme boyutu.** Vekilin istek gövdesi sınırı `MAKS_YUKLEME_MB` değerinin biraz üstünde olmalıdır. İki örnek de varsayılan 25 MB için 30 MB kullanır.
-3. **İstemci adresi.** Hız sınırları istemci IP'sine göre uygulanır. Sunucu `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarına yalnızca `GUVENILIR_VEKIL` listesindeki adreslerden gelen bağlantılarda güvenir. Varsayılan `loopback` değeri aynı makinedeki bir vekil için doğrudur. Vekil istemcinin gönderdiği bu başlıkları silmeli veya ezmelidir, iki örnek de bunu yapar.
+3. **İstemci adresi.** Hız sınırları istemci IP'sine göre uygulanır. Sunucu `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarına yalnızca `GUVENILIR_VEKIL` listesindeki adreslerden gelen bağlantılarda güvenir. Varsayılan `loopback` değeri, Telsiz doğrudan o makinede çalışıyorsa aynı makinedeki bir vekil için doğrudur. Kapsayıcıda ana makinedeki vekil Docker ağ geçidi adresinden bağlanır, bu adres listede olmalıdır (yukarıdaki Docker ve Docker Compose bölümlerine bakın). Vekil istemcinin gönderdiği bu başlıkları silmeli veya ezmelidir, iki örnek de bunu yapar.
 4. **HSTS.** İki örnek de `Strict-Transport-Security` başlığı ekler. Alan adını daha sonra https olmadan kullanmayı düşünüyorsanız bu satırı kaldırın.
 5. **İçerik güvenliği politikası.** Sunucu içerik güvenliği politikasını (CSP) ve diğer güvenlik başlıklarını kendisi gönderir, iki örnek de bunlara dokunmaz. Sayfanın politikasında `script-src 'self' 'wasm-unsafe-eval'` bulunur: `'wasm-unsafe-eval'` yalnızca WebAssembly derlemesine izin verir ve gelişmiş gürültü engellemenin RNNoise modülü içindir. Vekil bu başlığı kendi politikasıyla değiştirirse o politikada da bu anahtar olmalıdır. İkinci bir CSP başlığı eklerse tarayıcı iki politikayı birlikte uygular, eklenen politikada da bu anahtar bulunmalıdır. Aksi halde gelişmiş gürültü engelleme çalışmaz ve ses tarayıcının kendi işlemesiyle gider.
 
@@ -313,17 +313,17 @@ Bütün kalıcı veriler veri klasöründedir. Konsolun açılışta yazdığı 
 
 Mesaj ve dosya içerikleri şifrelidir, ancak hesap bilgileri ve üst veri düz metindir. Yedeği veri klasörü kadar dikkatli saklayın. Şifreleme anahtarları sunucuda değil kullanıcıların cihazlarındadır. Yedek, anahtarı bilmeyen birine mesajları açmaz, ancak anahtarı kaybeden bir grup da yedekten mesajlarını kurtaramaz.
 
-Tutarlı bir yedek için sunucuyu durdurun, klasörün tamamını kopyalayın ve sunucuyu yeniden başlatın. Linux'ta örneğin:
+Tutarlı bir yedek için sunucuyu durdurun, klasörün tamamını kopyalayın ve sunucuyu yeniden başlatın. Arşiv parola özetlerini ve sarılmış kişisel anahtarları içerir, bu yüzden aşağıdaki komutlar onu yalnızca sahibinin okuyabileceği biçimde (`umask 077`) oluşturur. Arşivi okuyabilen biri parolaları çevrim dışı tahmin etmeyi deneyebilir. Sunucunun dışına taşımadan önce arşivi şifreleyin, örneğin `gpg -c telsiz-yedek.tgz` ile. Linux'ta örneğin:
 
 ```sh
-tar czf telsiz-yedek.tgz -C /var/lib/telsiz .
+sudo sh -c "umask 077 && tar czf telsiz-yedek.tgz -C /var/lib/telsiz ."
 ```
 
 Docker biriminde:
 
 ```sh
 docker stop telsiz
-docker run --rm -v telsiz-veri:/data:ro -v "$(pwd)":/yedek alpine tar czf /yedek/telsiz-yedek.tgz -C /data .
+docker run --rm -v telsiz-veri:/data:ro -v "$(pwd)":/yedek alpine sh -c "umask 077 && tar czf /yedek/telsiz-yedek.tgz -C /data ."
 docker start telsiz
 ```
 
@@ -364,11 +364,11 @@ node server.js reset-password <kullanıcı adı>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js sifre-sifirla <kullanıcı adı>
 ```
 
-Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi sonraki girişte yeni bir anahtar oluşturur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
+Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi geçici parolayla girdikten sonra yeni bir parola seçer ve yeni anahtar onunla oluşturulur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
 
 **Bağlantı noktası kullanımda.** Sunucu başka bir pencerede zaten çalışıyor olabilir. O pencereyi kapatın veya `PORT` ile başka bir bağlantı noktası seçin.
 
-**Veri klasörü kullanımda.** Aynı veri klasörünü iki süreç kullanamaz. Sunucu çalışmıyorken bu hata görünüyorsa, hata metninde adı geçen `.kilit` dosyasını silip yeniden deneyin.
+**Veri klasörü kullanımda.** Aynı veri klasörünü iki süreç kullanamaz. Sunucu çalışmıyorken bu hata görünüyorsa, hata metninde adı geçen `.kilit` dosyasını silip yeniden deneyin. Kilit veri birimini paylaşan konteynerler arasında da geçerlidir: başka bir konteynerde yazılan kilit, oradaki sunucu onu yeniledikçe canlı, sunucu durduktan 30 saniye sonra bayat sayılır. Bu yüzden konteyner çöktükten sonra sunucu 30 saniyeye kadar açılmayı reddedebilir, yeniden başlatma kuralı onu yeniden başlatır.
 
 **Ses bağlanmıyor.** Adresin https veya localhost olduğunu, tarayıcının mikrofon izninin verildiğini ve gerekiyorsa bir TURN sunucusunun tanımlı olduğunu denetleyin.
 

@@ -51,6 +51,8 @@ const state = {
   attachments: [],
   attachSeq: 0,
   activeUploads: 0,
+  // Sunucu yer vermediği için sıraya dönen dosya varken eşzamanlı yükleme bire iner, 08-composer.js
+  uploadHeld: false,
   sending: false,
   // Gönderilemeyen son mesajın anahtarı ve istemci kimliği ({ key, id }), 08-composer.js
   unsentMessage: null,

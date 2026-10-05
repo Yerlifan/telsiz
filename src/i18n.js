@@ -30,6 +30,7 @@ const messages = {
       bad_kdf: 'Anahtar türetme ayarları geçersiz.',
       bad_keys: 'Güvenlik anahtarı geçersiz.',
       keys_exist: 'Bu hesabın güvenlik anahtarı zaten var.',
+      password_change_required: 'Parolanız sıfırlandı. Yeni güvenlik anahtarınız yeni bir parolayla birlikte oluşturulur, önce parolanızı değiştirin.',
       no_keys: 'Bu hesabın henüz güvenlik anahtarı yok.',
       bad_identity: 'Kimlik kaydı geçersiz.',
       bad_code: 'Kod hatalı.',
@@ -48,6 +49,8 @@ const messages = {
       quota_full: 'Sunucudaki dosya alanı doldu. Frekans sahibine başvurun.',
       user_quota_full: 'Dosya alanı kotanız doldu. Yer açmak için dosya eklediğiniz eski mesajlardan bazılarını silin.',
       busy: 'Sunucu şu anda başka yüklemeleri işliyor, birazdan tekrar deneyin.',
+      busy_reserved: 'Sizin veya aynı ağdaki birinin yüklemesi sürüyor, o bitince tekrar deneyin.',
+      server_busy: 'Sunucu şu anda çok sayıda giriş isteği işliyor, birazdan tekrar deneyin.',
       invalid_channel_name: 'Oda adı 1 ile 30 karakter arasında olmalı ve yalnızca harf, rakam, boşluk, nokta, alt çizgi veya kısa çizgi içermelidir.',
       invalid_channel_type: 'Oda türü yazı veya ses olmalıdır.',
       channel_exists: 'Bu adda bir oda zaten var.',
@@ -84,6 +87,7 @@ const messages = {
       too_many_pending: 'Bekleyen arkadaşlık isteği sayısı üst sınıra ulaştı.',
       too_many_friends: 'Arkadaş sayısı üst sınıra ulaştı.',
       dm_not_allowed: 'Bu kişiye özel mesaj gönderilemiyor.',
+      call_not_allowed: 'Yalnızca arkadaşlarınızı arayabilirsiniz.',
       too_many_dms: 'Özel mesaj konuşması sayısı üst sınıra ulaştı.',
       bad_profile: 'Profil bilgileri geçersiz.',
       bad_avatar: 'Profil resmi geçersiz.',
@@ -144,7 +148,8 @@ const messages = {
       downloadFailed: 'Uyarı: dosya gönderilemedi: {error}',
       ownerCreated: 'Sahip hesabı oluşturuldu. Kurulum kodu artık geçersiz.',
       requestError: 'İstek işlenirken beklenmeyen hata ({label}): {error}',
-      sweepError: 'Tarama sırasında beklenmeyen hata: {error}'
+      sweepError: 'Tarama sırasında beklenmeyen hata: {error}',
+      untrustedForwarder: 'Uyarı: X-Forwarded-For veya CF-Connecting-IP başlığı taşıyan bir istek, GUVENILIR_VEKIL listesinde olmayan yerel {address} adresinden geldi. Başlık yok sayıldı ve bütün istemciler bu adresten geliyormuş gibi hız sınırına tabi. Ters vekiliniz bu adresten bağlanıyorsa (ör. Docker ağ geçidi) adresi GUVENILIR_VEKIL ayarına ekleyin.'
     },
     store: {
       ioError: 'Veri klasörüne erişilemedi: {error}',
@@ -270,6 +275,7 @@ const messages = {
       bad_kdf: 'The key derivation settings are invalid.',
       bad_keys: 'The security key is invalid.',
       keys_exist: 'This account already has a security key.',
+      password_change_required: 'Your password was reset. Your new security key is created together with a new password, so change your password first.',
       no_keys: 'This account does not have a security key yet.',
       bad_identity: 'The identity record is invalid.',
       bad_code: 'The code is incorrect.',
@@ -288,6 +294,8 @@ const messages = {
       quota_full: 'The server is out of file storage. Contact the frequency owner.',
       user_quota_full: 'Your file storage quota is full. Delete some of your older messages with files to free up space.',
       busy: 'The server is busy with other uploads. Try again shortly.',
+      busy_reserved: 'An upload from you or someone on your network is still in progress. Try again when it finishes.',
+      server_busy: 'The server is handling many sign in requests right now. Try again shortly.',
       invalid_channel_name: 'Room names must be 1 to 30 characters long and may contain only letters, digits, spaces, dots, underscores or hyphens.',
       invalid_channel_type: 'The room type must be text or voice.',
       channel_exists: 'A room with this name already exists.',
@@ -324,6 +332,7 @@ const messages = {
       too_many_pending: 'You have reached the limit for pending friend requests.',
       too_many_friends: 'The friend limit has been reached.',
       dm_not_allowed: 'You cannot send direct messages to this person.',
+      call_not_allowed: 'You can only call your friends.',
       too_many_dms: 'The direct message conversation limit has been reached.',
       bad_profile: 'The profile data is invalid.',
       bad_avatar: 'The profile picture is invalid.',
@@ -384,7 +393,8 @@ const messages = {
       downloadFailed: 'Warning: a file could not be sent: {error}',
       ownerCreated: 'The owner account was created. The setup code is no longer valid.',
       requestError: 'Unexpected error while handling a request ({label}): {error}',
-      sweepError: 'Unexpected error during cleanup: {error}'
+      sweepError: 'Unexpected error during cleanup: {error}',
+      untrustedForwarder: 'Warning: a request carrying an X-Forwarded-For or CF-Connecting-IP header came from the local address {address}, which is not in the GUVENILIR_VEKIL list. The header was ignored, so every client is rate limited as if it came from this address. If your reverse proxy connects from this address (for example a Docker gateway), add it to the GUVENILIR_VEKIL setting.'
     },
     store: {
       ioError: 'The data folder could not be accessed: {error}',

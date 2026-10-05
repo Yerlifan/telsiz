@@ -58,6 +58,8 @@ function activityOnMeta (meta) {
 // Ekran paylaşımı başladı (on true) veya bitti (on false). Aynı kişinin eski paylaşım kaydı kaldırılır.
 function activityShare (userId, on) {
   if (userId === null || userId === undefined) return
+  // Özel mesaj aramasında ekran paylaşımı yoktur, oradan gelen olay bildirim listesine yazılmaz
+  if (on && typeof snap === 'function' && snap().private) return
   const id = String(userId)
   const before = activityState.items.length
   activityState.items = activityState.items.filter((item) => !(item.kind === 'share' && item.userId === id))

@@ -13,6 +13,9 @@
 // değişince uyanır ve tam müzik haritasını alır. muv vermeyen poll müziği izlemiyor sayılır (harita yalnızca
 // resync yanıtında gelir). Her yanıtta sunucu zamanı (now) ve güncel muv bulunur, istemciler saat farkını
 // now ile kestirir.
+// Özel mesaj aramalarının ses odaları (isPrivateRoom true dönen kanallar) herkese açık metaya girmez: bu odalardaki
+// ses değişiklikleri meta sürümünü artırmaz, yalnızca onPrivateVoice ile bildirilir (kişiye özel görünüm src/app.js'te
+// yenilenir). Ses odası denetimi (çıkarma, kamerayı kapatma, sunucu susturması) özel odalara uzanmaz.
 // Tüm veriler bellektedir. Sunucu yeniden başlayınca bootId değişir ve istemciler resync alır.
 
 const crypto = require('node:crypto')
@@ -50,7 +53,9 @@ function inAudience (audience, userId) {
 //   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
-//   send: (res, status, payload) => void }
+//   isPrivateRoom: (channelId) => özel arama odası mı, onPrivateVoice: (channelId) => özel odanın ses üyeliği veya
+//     durumu değişti,
+//   send: (res, status, json) => void (json: JSON metni) }
 function createHub (options) {
   const pollTimeoutMs = options.pollTimeoutMs
   const graceMs = options.graceMs
@@ -61,6 +66,8 @@ function createHub (options) {
   const getPrivate = options.getPrivate
   const isHidden = typeof options.isHidden === 'function' ? options.isHidden : () => false
   const canSeeTyping = typeof options.canSeeTyping === 'function' ? options.canSeeTyping : () => true
+  const isPrivateRoom = typeof options.isPrivateRoom === 'function' ? options.isPrivateRoom : () => false
+  const onPrivateVoice = typeof options.onPrivateVoice === 'function' ? options.onPrivateVoice : () => {}
   const send = options.send
   const music = options.music && typeof options.music.version === 'function' ? options.music : { version: () => 1, map: () => ({}) }
   const bootId = randomHex(8)
@@ -150,14 +157,30 @@ function createHub (options) {
     return sessions.get(hash) || null
   }
 
+  // Oturumu sesten çıkarır. Çıktığı odanın kimliğini, seste değilse null döner.
   function clearVoice (rt) {
-    if (rt.voiceChannelId === null) return false
+    const channelId = rt.voiceChannelId
+    if (channelId === null) return null
     rt.voiceChannelId = null
     rt.muted = false
     rt.deafened = false
     rt.camera = false
     rt.signals = []
-    return true
+    return channelId
+  }
+
+  // Ses üyeliği veya durumu değişen odalar bildirilir: genel bir oda (veya bump true) meta sürümünü bir kez artırır,
+  // özel arama odaları yalnızca onPrivateVoice ile bildirilir. Çağrı işlemin sonunda, durum kesinleşince yapılır.
+  function voiceChanged (channelIds, bump) {
+    let publicChanged = bump === true
+    const privates = []
+    for (const id of channelIds) {
+      if (id === null) continue
+      if (!isPrivateRoom(id)) publicChanged = true
+      else if (!privates.includes(id)) privates.push(id)
+    }
+    if (publicChanged) bumpMeta()
+    for (const id of privates) onPrivateVoice(id)
   }
 
   // Çevrimdışına düşen oturum sesten sessizce çıkarılır, sinyal kuyruğu boşaltılır.
@@ -166,9 +189,8 @@ function createHub (options) {
     rt.active = false
     if (rt.peerId !== null && byPeer.get(rt.peerId) === rt) byPeer.delete(rt.peerId)
     rt.signals = []
-    let changed = clearVoice(rt)
-    if (wasOnline && !isUserOnline(rt.userId) && !isHidden(rt.userId)) changed = true
-    if (changed) bumpMeta()
+    const left = clearVoice(rt)
+    voiceChanged([left], wasOnline && !isUserOnline(rt.userId) && !isHidden(rt.userId))
   }
 
   // reply(res): oturumun bekleyen poll'larına gönderilecek hata yanıtı
@@ -177,7 +199,7 @@ function createHub (options) {
     if (!rt) return
     for (const w of rt.waiters.slice()) finishWaiterWith(w, reply)
     const wasOnline = isUserOnline(rt.userId)
-    const wasInVoice = clearVoice(rt)
+    const left = clearVoice(rt)
     sessions.delete(hash)
     if (rt.peerId !== null && byPeer.get(rt.peerId) === rt) byPeer.delete(rt.peerId)
     rt.active = false
@@ -190,7 +212,7 @@ function createHub (options) {
         clearTypingUser(rt.userId)
       }
     }
-    if (wasInVoice || (wasOnline !== isUserOnline(rt.userId) && !isHidden(rt.userId))) bumpMeta()
+    voiceChanged([left], wasOnline !== isUserOnline(rt.userId) && !isHidden(rt.userId))
   }
 
   function sweep (now) {
@@ -470,6 +492,36 @@ function createHub (options) {
     return payload
   }
 
+  // Meta ve müzik haritası sürüm başına bir kez JSON metnine çevrilir ve her yanıta eklenir. Her bekleyen
+  // için yeniden serileştirmek bir meta veya müzik değişikliğinde olay döngüsünü saniyelerce tutabiliyordu.
+  let metaJsonVersion = -1
+  let metaJson = ''
+  let musicJsonVersion = -1
+  let musicJson = ''
+
+  function encodePayload (payload) {
+    const rest = Object.assign({}, payload)
+    delete rest.meta
+    delete rest.music
+    const parts = [JSON.stringify(rest).slice(0, -1)]
+    if (payload.meta !== undefined) {
+      if (metaJsonVersion !== metaVersion) {
+        metaJson = JSON.stringify(meta())
+        metaJsonVersion = metaVersion
+      }
+      parts.push('"meta":' + metaJson)
+    }
+    if (payload.music !== undefined) {
+      const muv = music.version()
+      if (musicJsonVersion !== muv) {
+        musicJson = JSON.stringify(music.map())
+        musicJsonVersion = muv
+      }
+      parts.push('"music":' + musicJson)
+    }
+    return parts.join(',') + '}'
+  }
+
   function removeWaiter (w) {
     waiters.delete(w)
     const list = w.rt.waiters
@@ -485,7 +537,7 @@ function createHub (options) {
     removeWaiter(w)
     w.rt.lastSeen = Date.now()
     const payload = ready || readyPayload(w.rt, w) || emptyPayload(w.rt)
-    send(w.res, 200, payload)
+    send(w.res, 200, encodePayload(payload))
   }
 
   function finishWaiterWith (w, reply) {
@@ -533,13 +585,13 @@ function createHub (options) {
       if (rt.signals.length > 0 && rt.signals[0].seq <= sig) rt.signals = rt.signals.filter((s) => s.seq > sig)
     }
     if (!bootOk || since === null) {
-      send(res, 200, resyncPayload(rt, sigFloor))
+      send(res, 200, encodePayload(resyncPayload(rt, sigFloor)))
       return
     }
     const q = { since, mv, pmv, tv, muv, sigFloor }
     const ready = readyPayload(rt, q)
     if (ready || closed) {
-      send(res, 200, ready || emptyPayload(rt))
+      send(res, 200, encodePayload(ready || emptyPayload(rt)))
       return
     }
     if (res.writableEnded || res.destroyed) return
@@ -568,25 +620,27 @@ function createHub (options) {
       if (o.voiceChannelId === channelId && o.userId !== rt.userId) others.push(o)
     }
     if (others.length >= maxMembers) return null
+    const touched = [channelId]
     const own = byUser.get(rt.userId)
     if (own) {
       for (const o of own) {
-        if (o !== rt) clearVoice(o)
+        if (o !== rt) touched.push(clearVoice(o))
       }
     }
     if (rt.voiceChannelId !== channelId) {
-      clearVoice(rt)
+      touched.push(clearVoice(rt))
       rt.voiceChannelId = channelId
       rt.voiceSince = ++voiceCounter
     }
-    bumpMeta()
+    voiceChanged(touched)
     others.sort((a, b) => a.voiceSince - b.voiceSince)
     return others.map(memberView)
   }
 
   function voiceLeave (rt) {
-    if (!clearVoice(rt)) return false
-    bumpMeta()
+    const left = clearVoice(rt)
+    if (left === null) return false
+    voiceChanged([left])
     return true
   }
 
@@ -594,7 +648,7 @@ function createHub (options) {
     const changed = rt.muted !== muted || rt.deafened !== deafened
     rt.muted = muted
     rt.deafened = deafened
-    if (changed && rt.voiceChannelId !== null) bumpMeta()
+    if (changed && rt.voiceChannelId !== null) voiceChanged([rt.voiceChannelId])
   }
 
   // Kamera açık bilgisi. Açarken odadaki diğer açık kameralar maxCameras'a ulaştıysa reddedilir.
@@ -610,21 +664,21 @@ function createHub (options) {
     }
     if (rt.camera !== on) {
       rt.camera = on
-      bumpMeta()
+      voiceChanged([rt.voiceChannelId])
     }
     return 'ok'
   }
 
-  // Sahip kameraları kapattı: açık kameraların hepsi kapalı sayılır
+  // Sahip kameraları kapattı: açık kameraların hepsi (özel aramalar dahil) kapalı sayılır
   function clearCameras () {
-    let changed = false
+    const touched = []
     for (const rt of sessions.values()) {
       if (rt.camera) {
         rt.camera = false
-        changed = true
+        touched.push(rt.voiceChannelId)
       }
     }
-    if (changed) bumpMeta()
+    voiceChanged(touched)
   }
 
   // Kullanıcının herhangi bir oturumu bu ses kanalında mı (ses üyeliği kullanıcı başınadır)
@@ -650,13 +704,18 @@ function createHub (options) {
     scheduleWake()
   }
 
-  // Silinen ses kanalının üyelerini çıkarır.
-  function kickVoiceChannel (channelId) {
+  // Odadaki tüm oturumları çıkarır (silinen ses kanalı veya biten özel arama). Özel odada meta sürümü artmaz.
+  function kickVoiceRoom (channelId) {
     let changed = false
     for (const rt of sessions.values()) {
-      if (rt.voiceChannelId === channelId && clearVoice(rt)) changed = true
+      if (rt.voiceChannelId === channelId && clearVoice(rt) !== null) changed = true
     }
-    if (changed) bumpMeta()
+    if (changed) voiceChanged([channelId])
+  }
+
+  // Oturum genel bir ses odasında mı (özel arama odaları ses odası denetiminin dışındadır)
+  function inPublicVoice (rt) {
+    return rt.voiceChannelId !== null && !isPrivateRoom(rt.voiceChannelId)
   }
 
   // Kullanıcının ses odasındaki oturumlarını çıkarır (ses odası denetimi). Biri çıkarıldıysa true.
@@ -665,7 +724,7 @@ function createHub (options) {
     if (!set) return false
     let changed = false
     for (const rt of set) {
-      if (clearVoice(rt)) changed = true
+      if (inPublicVoice(rt) && clearVoice(rt) !== null) changed = true
     }
     if (changed) bumpMeta()
     return changed
@@ -679,7 +738,7 @@ function createHub (options) {
     let inVoice = false
     let changed = false
     for (const rt of set || []) {
-      if (rt.voiceChannelId === null) continue
+      if (!inPublicVoice(rt)) continue
       inVoice = true
       if (rt.camera) {
         rt.camera = false
@@ -698,12 +757,22 @@ function createHub (options) {
     if (!set) return
     let changed = false
     for (const rt of set) {
-      if (rt.voiceChannelId !== null && !rt.muted) {
+      if (inPublicVoice(rt) && !rt.muted) {
         rt.muted = true
         changed = true
       }
     }
     if (changed) bumpMeta()
+  }
+
+  // Odadaki oturumlar (voiceSince sırasıyla). Çevrimdışına düşen oturum sesten çıkarıldığı için hepsi etkindir.
+  function voiceMembersOf (channelId) {
+    const list = []
+    for (const rt of sessions.values()) {
+      if (rt.voiceChannelId === channelId) list.push(rt)
+    }
+    list.sort((a, b) => a.voiceSince - b.voiceSince)
+    return list.map(memberView)
   }
 
   // Ses kanalındaki kullanıcıların kimlikleri (tekrarsız)
@@ -776,11 +845,12 @@ function createHub (options) {
     setVoiceState,
     setCamera,
     clearCameras,
-    kickVoiceChannel,
+    kickVoiceRoom,
     kickVoiceUser,
     forceCameraOff,
     forceMute,
     voiceUserIds,
+    voiceMembersOf,
     userInVoice,
     voiceOccupied,
     bumpMusic,

@@ -2,6 +2,40 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### New features
+
+- Voice and video calls in direct messages: two friends can call each other with the Voice Call or Video Call button in the conversation header. A 2 second ring plays on all of the callee's open devices and an incoming call card opens with Accept and Decline buttons, plus Accept Without Camera for video calls (no ring in Do not disturb). During the call the top of the conversation shows both people's cameras or profile photos, with the conversation below. The call setup messages are encrypted with the two people's personal keys, and call information never enters the public meta. Calls are only possible between friends and while the other person's key is verified. Voice room moderation and the server mute do not reach private calls, and the owner's camera setting applies. Blocking, removing a friend, a ban and deleting the account end the call. New server settings: `callRingMs`, `callLimit`, `callWindowMs`.
+
+### Changes
+
+- The audio option for screen sharing appears in one place. The Also share audio switch in Telsiz's share window was removed: audio is always requested, and whether it is shared is chosen in the window where the source is picked, the audio option in the browser's own picker or the Also share system audio box in the desktop app's picker (Windows only). This box is now checked by default: a full screen share carries the whole computer's audio, and Telsiz's own sounds (the conversation, notifications, Telsiz DJ) are left out, so the people talking do not hear themselves echo back. Before, the desktop app needed both options turned on for audio to be shared.
+
+### Fixes
+
+- When a file that is not cached was requested while offline (for example a favicon request cut off by a page reload), the Service Worker wrote an error to the browser console. Files other than the page now get a plain 504 response.
+- While sharing, Change source requested the new source without audio, so a share that started with audio lost it when the source changed. Audio is now requested when the source changes too.
+
+### Security
+
+- After a password reset the new personal key is created only while changing the password, in the same request, and is wrapped with the new password. While the account is on the temporary password the server does not store a key pair, so someone who knows the temporary password cannot choose or open the person's new key. If they use the temporary password before the person does, the person can no longer sign in with it and notices. A stale tab's request is refused and the tab reloads the current keys from the server.
+- Sign in device token against lockout attacks: a successful sign in gives the device a token tied to the password hash. When the per account name failed sign in limit (20 per 15 minutes across all addresses) is reached, only sign ins without a token stop, and a device that signed in before can keep trying. Changing the password invalidates old tokens.
+- Rate limit tables drop the least recently used entry when full instead of refusing new clients. As a result, a table flooded by many distinct clients can reset older counters.
+- At most `hashConcurrency` (2) password hashes run at once and at most `hashQueueMax` (32) requests wait, the rest get 503 `server_busy`. Many sign in attempts cannot stall disk work.
+- Upload slots: an account and an address can run at most 2 uploads at once, and the last free slot goes only to an account and address holding none (both refused with `busy_reserved`). Uploads must keep an average of at least `uploadMinBytesPerSec` (32 KB/s), shared between concurrent uploads of the same account or address. The default `maxConcurrentUploads` is 6 instead of 4. The client waits and retries on `busy_reserved` and waits one minute once when it hits the upload limit (429). A file's refused requests count against one budget, so wasted data is limited to 8 MiB for small files and to four times the file size for large ones.
+- Stored message bodies are limited in total to `maxTotalMessages` times 1500 characters. When the limit is exceeded the oldest messages of the person storing the most body text are dropped, so other people's messages are not deleted because of them.
+- The size of Telsiz DJ writes sent to everyone is limited per user, and voice room state changes have a separate, stricter limit (`voiceLimit`, 30 per 10 s).
+- Protection against group key rollback: a key that was replaced on a device is retired and never used to encrypt again. An unknown key id reported by the server cannot retire any key.
+- The `#frekanslar=` part of a link cannot add a fake frequency with a familiar name: a new frequency carrying the name of another listed frequency or of the open frequency is added without a name, new frequencies go to the end of the list, and the person is told their addresses.
+- In direct message calls the camera turns on only by the person's own choice (Accept Without Camera). The callee's decline is hidden from the caller until the ring time ends, so the caller cannot tell a decline from no answer.
+- Trimming leading and trailing dots and spaces from attachment file names runs in linear time (removes a regular expression slowdown with long names).
+- The data folder lock also works across containers sharing the volume, and the running server renews the lock regularly.
+- Docker: the example commands and the Compose file put the Docker gateway in `GUVENILIR_VEKIL`. Before, with `docker run`, and in Compose through a proxy or tunnel on the host, every client counted as one address. The server writes a warning once when a forwarding header arrives from an untrusted local address. Backup commands create the archive readable only by its owner (`umask 077`).
+- Password key derivation is four times stronger: new accounts and password changes use scrypt N=65536 (was 16384). Accounts created by earlier versions are upgraded once in the background after sign in, with the same password and the same private key (`POST /api/me/kdf`), other sessions stay signed in and other devices keep valid login device tokens. For names that do not exist, the pre-login answer gives the old or new N following the mix of accounts on the server. If the server is compromised, guessing passwords offline costs four times as much. Sign in takes about one second on a desktop.
+- The name of a frequency added by a link may only contain Latin and Turkish letters, digits, spaces and basic punctuation, otherwise the name is not taken and the address shows. When names are compared, digits (1 and 0), capital I and lowercase l, accents, spaces and punctuation are ignored, so a familiar name cannot be imitated with letters from other alphabets, invisible characters or look-alike symbols.
+- Failed sign in counters of existing accounts (the per account name sign in counter and the account action counter) are kept in separate tables that never drop entries, so filling the rate limit table with many distinct names or addresses no longer resets an account's counter. In the other tables, counters that are currently at their limit are kept first when the table is full.
+
 ## [2.3.0]
 
 ### New features

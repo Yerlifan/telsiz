@@ -1,9 +1,9 @@
 'use strict'
 
 // Özel mesajlar: konuşma listesi (#dm-list), konuşma açma, özel mesaj görünümü (#dm-header,
-// #key-warning, kanallarla aynı mesaj listesi ve yazma alanı), kişisel anahtarlarla şifreleme ve
-// çözme, gönderme koşulları (karşı tarafın doğrulanmış ve kabul edilmiş anahtarı), anahtar değişti
-// şeridi, güvenlik numarası penceresi ve okunmamış sayaçlar.
+// #key-warning, arama bölümü #dm-call (32-arama.js), kanallarla aynı mesaj listesi ve yazma alanı),
+// kişisel anahtarlarla şifreleme ve çözme, gönderme koşulları (karşı tarafın doğrulanmış ve kabul edilmiş
+// anahtarı), anahtar değişti şeridi, güvenlik numarası penceresi ve okunmamış sayaçlar.
 
 const dmState = {
   activeId: null,
@@ -320,11 +320,13 @@ function dmRefreshChrome () {
     }
   }
   updateSendState()
+  // Konuşmanın arama bölümü (#dm-call, 32-arama.js)
+  if (typeof aramaRender === 'function') aramaRender()
 }
 
 // Özel mesaj başlığı (KONSEPT 6.4): kişinin avatarı ve durum noktası (profil kartını açar), ad, "@ad · durum ·
 // özel mesaj", güvenlik numarası rozeti (doğrulandıysa "Doğrulandı", değilse uyarı renginde "Doğrulanmadı",
-// basınca güvenlik numarası penceresi) ve Profil düğmesi.
+// basınca güvenlik numarası penceresi), Sesli Ara ve Görüntülü Ara düğmeleri (32-arama.js) ve Profil düğmesi.
 function renderDmHeader (partner, name) {
   const header = byId('dm-header')
   if (!header) return
@@ -351,6 +353,8 @@ function renderDmHeader (partner, name) {
   sub.appendChild(h('span', 'dm-header-kind', t('people.dmKind')))
   text.appendChild(sub)
   header.appendChild(text)
+  // Sesli Ara ve Görüntülü Ara (32-arama.js)
+  if (typeof aramaHeaderButtons === 'function') aramaHeaderButtons(header, partner, name)
   let pin = null
   try {
     pin = window.E2EE.pins.get(state.me.id, partner)

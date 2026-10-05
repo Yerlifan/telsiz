@@ -99,10 +99,12 @@ describe('sifre-sifirla komutu', () => {
       assert.ok(!text.includes(match[1]))
       const user = disk.users.find((u) => u.id === ayse.user.id)
       assert.deepEqual([user.publicKey, user.wrappedKey, user.identity], [null, null, null])
+      // Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulabilir (geçici parolayı işletmeci de bilir)
+      assert.equal(user.resetPending, true)
       assert.notEqual(user.kdf.salt, h.KDF.salt)
-      assert.deepEqual([user.kdf.N, user.kdf.r, user.kdf.p], [16384, 8, 1])
+      assert.deepEqual([user.kdf.N, user.kdf.r, user.kdf.p], [65536, 8, 1])
       // Sunucu tarafı karma, istemci türetmesinin (ortak test vektörüyle doğrulanmış) authKey değerine aittir
-      const authKey = h.deriveKeys(match[1], user.kdf.salt, 16384).authKey
+      const authKey = h.deriveKeys(match[1], user.kdf.salt, user.kdf.N).authKey
       assert.match(user.passHash, /^scrypt\$16384\$8\$1\$/)
       assert.ok(!text.includes(authKey))
 
@@ -124,7 +126,7 @@ describe('sifre-sifirla komutu', () => {
   })
 
   it('İngilizce takma ad: reset-password', async () => {
-    const { ctx } = await preparedData()
+    const { ctx, owner } = await preparedData()
     try {
       const result = await runServerJs(['reset-password', 'sahip'], { VERI_KLASORU: ctx.dataDir })
       assert.equal(result.code, 0, result.stderr)
@@ -133,6 +135,13 @@ describe('sifre-sifirla komutu', () => {
       const next = await h.startServer({}, ctx.root)
       try {
         h.expectStatus(await h.login(next, 'sahip', match[1]), 200)
+        // Sıfırlamadan önceki giriş cihazı işareti geçersizdir, girişte yenisi verilir
+        const pre = await h.request(next, 'POST', '/api/prelogin', { body: { name: 'sahip' } })
+        const authKey = h.deriveKeys(match[1], pre.data.kdf.salt, pre.data.kdf.N).authKey
+        const relog = await h.request(next, 'POST', '/api/login', { body: { name: 'sahip', authKey, device: owner.device } })
+        h.expectStatus(relog, 200)
+        assert.match(relog.data.device, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
+        assert.notEqual(relog.data.device, owner.device)
       } finally {
         await next.stop()
       }
@@ -183,6 +192,13 @@ describe('sifre-sifirla komutu', () => {
       assert.match(refused.stderr, /ezer/)
       assert.equal(fs.readFileSync(statePath, 'utf8'), before)
       assert.equal(fs.readFileSync(lockPath, 'utf8'), process.pid + '\n')
+
+      // Başka bir konteynerdeki sunucunun kilidi: PID orada sorgulanamaz, kilit yenilendikçe canlıdır
+      fs.writeFileSync(lockPath, DEAD_PID + ' baska-konteyner 0123456789abcdef\n')
+      const container = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: ctx.dataDir })
+      assert.equal(container.code, 1)
+      assert.match(container.stderr, /Sunucu şu anda çalışıyor/)
+      assert.equal(fs.readFileSync(statePath, 'utf8'), before)
 
       fs.writeFileSync(lockPath, DEAD_PID + '\n')
       const ok = await runServerJs(['sifre-sifirla', 'sahip'], { VERI_KLASORU: ctx.dataDir })
