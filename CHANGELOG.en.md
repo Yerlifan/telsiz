@@ -31,6 +31,9 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 - Trimming leading and trailing dots and spaces from attachment file names runs in linear time (removes a regular expression slowdown with long names).
 - The data folder lock also works across containers sharing the volume, and the running server renews the lock regularly.
 - Docker: the example commands and the Compose file put the Docker gateway in `GUVENILIR_VEKIL`. Before, with `docker run`, and in Compose through a proxy or tunnel on the host, every client counted as one address. The server writes a warning once when a forwarding header arrives from an untrusted local address. Backup commands create the archive readable only by its owner (`umask 077`).
+- Password key derivation is four times stronger: new accounts and password changes use scrypt N=65536 (was 16384). Accounts created by earlier versions are upgraded in the background after sign in, with the same password and the same private key (`POST /api/me/kdf`), and other sessions stay signed in. If the server is compromised, guessing passwords offline costs four times as much. Sign in takes about one second on a desktop.
+- When the name of a frequency added by a link is compared, look-alike letters from other alphabets (for example Cyrillic а), digits (1 and 0), capital I and lowercase l, accents, invisible characters, spaces and punctuation are ignored, so a familiar name cannot be imitated this way.
+- When a rate limit table is full, counters that are currently at their limit (blocking) are not dropped. Filling the table with many distinct clients no longer resets an account's failed sign in counter.
 
 ## [2.3.0]
 

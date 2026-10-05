@@ -102,9 +102,9 @@ describe('sifre-sifirla komutu', () => {
       // Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulabilir (geçici parolayı işletmeci de bilir)
       assert.equal(user.resetPending, true)
       assert.notEqual(user.kdf.salt, h.KDF.salt)
-      assert.deepEqual([user.kdf.N, user.kdf.r, user.kdf.p], [16384, 8, 1])
+      assert.deepEqual([user.kdf.N, user.kdf.r, user.kdf.p], [65536, 8, 1])
       // Sunucu tarafı karma, istemci türetmesinin (ortak test vektörüyle doğrulanmış) authKey değerine aittir
-      const authKey = h.deriveKeys(match[1], user.kdf.salt, 16384).authKey
+      const authKey = h.deriveKeys(match[1], user.kdf.salt, user.kdf.N).authKey
       assert.match(user.passHash, /^scrypt\$16384\$8\$1\$/)
       assert.ok(!text.includes(authKey))
 

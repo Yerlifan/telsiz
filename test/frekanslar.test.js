@@ -185,6 +185,32 @@ test('birleştirme: başka bir frekansın adını taşıyan yeni frekans adsız 
   ])
 })
 
+test('birleştirme: başka alfabeden benzer harfler, görünmez karakterler, aksan ve I ile l farkı tanıdık adı taklit edemez', () => {
+  const { F } = load()
+  const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }]
+  const incoming = [
+    { origin: 'https://kiril.com', name: 'K\u0430nk\u0430l\u0430r' },
+    { origin: 'https://buyuk-i.com', name: 'KankaIar' },
+    { origin: 'https://gorunmez.com', name: 'Kan\u200bkalar' },
+    { origin: 'https://aksan.com', name: 'Ka\u0301nkalar' },
+    { origin: 'https://bosluk.com', name: 'Kanka lar.' },
+    { origin: 'https://yunan.com', name: '\u03a4elsiz' },
+    { origin: 'https://rakam.com', name: 'Te1siz' },
+    { origin: 'https://baska.com', name: 'Kardeşler' }
+  ]
+  assert.deepEqual(plain(F.mergeLists(local, incoming, SELF, ['Telsiz'])), [
+    { origin: 'https://ekip.com', name: 'Kankalar' },
+    { origin: 'https://kiril.com', name: null },
+    { origin: 'https://buyuk-i.com', name: null },
+    { origin: 'https://gorunmez.com', name: null },
+    { origin: 'https://aksan.com', name: null },
+    { origin: 'https://bosluk.com', name: null },
+    { origin: 'https://yunan.com', name: null },
+    { origin: 'https://rakam.com', name: null },
+    { origin: 'https://baska.com', name: 'Kardeşler' }
+  ])
+})
+
 test('readFragment: parçayla listeye eklenen frekanslar sessizce eklenmez, adresleriyle bildirilir', () => {
   const enc = (list) => Buffer.from(JSON.stringify({ v: 1, f: list })).toString('base64url')
   const page = load({ hash: '#frekanslar=' + enc([['https://ekip-telsiz.com', 'Ekip'], [SELF, 'Ben'], ['https://ekip.com', 'Ekip']]) })

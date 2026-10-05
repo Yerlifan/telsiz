@@ -45,7 +45,9 @@ const SCRYPT_MAX_N = 1048576
 
 // İstemci türetmesi: sunucunun kabul ettiği parametreler
 const KDF_N_VALUES = Object.freeze([16384, 32768, 65536])
-const KDF_DEFAULT_N = 16384
+// Yeni hesapların ve parola değişikliklerinin türetme gücü (istemci public/crypto.js ile aynı). Var olmayan hesap
+// için ön girişin sahte ayarı ve geçici parolalar da bunu kullanır. Eski hesaplar girişten sonra yükseltilir.
+const KDF_DEFAULT_N = 65536
 const KDF_R = 8
 const KDF_P = 1
 const KDF_SALT_BYTES = 16
@@ -522,6 +524,9 @@ function ipKey (ip) {
 
 // Anahtar başına zaman dizisi tutan kayan pencere sayacı.
 // consume ve blocked: izin varsa 0, yoksa yeniden denemeden önce beklenecek süre (ms).
+// Tablo doluyken düşürülecek anahtar aranırken bakılan en eski anahtar sayısı (RateLimiter.evict)
+const EVICT_SCAN = 64
+
 class RateLimiter {
   constructor (limit, windowMs, maxKeys) {
     this.limit = limit
@@ -550,13 +555,33 @@ class RateLimiter {
 
   // Anahtarlar son kullanım sırasıyla tutulur. Tablo doluysa en uzun süredir kullanılmayan anahtar
   // düşürülür: çok sayıda farklı adresten gelen istekler tabloyu doldurup yeni istemcileri kilitleyemez.
+  // O an sınırda olan (engelleyen) anahtarlar düşürülmez: en eski EVICT_SCAN anahtar içinden süresi dolmuş veya
+  // sınırda olmayan ilk anahtar seçilir, hepsi sınırdaysa en eskisi düşer. Böylece tabloyu farklı anahtarlarla
+  // doldurmak bir hesabın başarısız giriş sayacını sıfırlamaz (bunun için en eski EVICT_SCAN anahtarın da
+  // sınırda olması gerekir).
+  evict (now) {
+    let scanned = 0
+    let victim = null
+    for (const [key, times] of this.hits) {
+      if (victim === null) victim = key
+      this.prune(times, now)
+      if (times.length < this.limit) {
+        victim = key
+        break
+      }
+      scanned++
+      if (scanned >= EVICT_SCAN) break
+    }
+    if (victim !== null) this.hits.delete(victim)
+  }
+
   hit (key, now) {
     const at = now === undefined ? Date.now() : now
     let times = this.hits.get(key)
     if (times) {
       this.hits.delete(key)
     } else {
-      if (this.hits.size >= this.maxKeys) this.hits.delete(this.hits.keys().next().value)
+      if (this.hits.size >= this.maxKeys) this.evict(at)
       times = []
     }
     this.hits.set(key, times)

@@ -158,16 +158,37 @@ function frekansSanitizeList (raw, exclude) {
   return out
 }
 
-// Görünen adların karşılaştırma biçimi: büyük küçük harf ve uyumlu Unicode biçimleri aynı sayılır
+// Görünüşü birbirine benzeyen harfler (Kiril, Yunan ve Ermeni harfleri, rakamlar ve bazı Latin harfleri) Latin
+// karşılığına indirgenir: bağlantı tanıdık bir adı başka alfabeden harflerle taklit edemez. Büyük I ile küçük l birçok
+// yazı tipinde aynı göründüğünden l, i sayılır.
+const FREKANS_LOOKALIKE = {
+  а: 'a', в: 'b', г: 'r', д: 'd', е: 'e', ё: 'e', з: '3', і: 'i', ї: 'i', ј: 'j', к: 'k', л: 'n', м: 'm', н: 'h', о: 'o',
+  п: 'n', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ч: 'y', ш: 'w', щ: 'w', ъ: 'b', ы: 'bi', ь: 'b', ѕ: 's', ԁ: 'd',
+  ԛ: 'q', ԝ: 'w', ӏ: 'i', α: 'a', β: 'b', γ: 'y', ε: 'e', η: 'n', ι: 'i', κ: 'k', μ: 'u', ν: 'v', ο: 'o', ρ: 'p',
+  σ: 'o', τ: 't', υ: 'u', χ: 'x', ω: 'w', ζ: 'z', օ: 'o', ս: 'u', հ: 'h', ո: 'n', ց: 'g', ı: 'i', ł: 'i', ɩ: 'i',
+  ɡ: 'g', ǀ: 'i', ℓ: 'i', l: 'i', '0': 'o', '1': 'i', '|': 'i', '5': 's', '8': 'b'
+}
+
+// Ad karşılaştırmasında yok sayılanlar: birleşen aksan işaretleri, görünmez biçim karakterleri, boşluklar ve
+// noktalama (| hariç, o i sayılır)
+const FREKANS_NAME_NOISE = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\s!-\/:-@[-`{}~\u00a1-\u00bf\u2010-\u2027\u2030-\u205e\u3000-\u303f]/g
+
+// Görünen adların karşılaştırma biçimi (görünüş iskeleti): büyük küçük harf, uyumlu Unicode biçimleri, aksan
+// işaretleri, görünmez karakterler, boşluk ve noktalama farkı ile benzer görünen harfler aynı sayılır. Yalnızca
+// çakışma denetiminde kullanılır, ad değiştirilmez. Fazla eşleşme yalnızca bağlantının verdiği adın alınmamasına
+// (adresin görünmesine) yol açar.
 function frekansNameKey (name) {
   if (typeof name !== 'string') return ''
   let out = name
   try {
-    out = name.normalize('NFKC')
+    out = name.normalize('NFKC').toLowerCase().normalize('NFD')
   } catch (err) {
-    out = name
+    out = name.toLowerCase()
   }
-  return out.toLowerCase()
+  out = out.replace(FREKANS_NAME_NOISE, '')
+  let mapped = ''
+  for (const ch of out) mapped += Object.prototype.hasOwnProperty.call(FREKANS_LOOKALIKE, ch) ? FREKANS_LOOKALIKE[ch] : ch
+  return mapped.replace(/rn/g, 'm').replace(/vv/g, 'w')
 }
 
 // Gelen listeyi yerel listeye ekler. Yerelde zaten olan frekansın adı korunur (başka bir kökenden gelen

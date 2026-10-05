@@ -23,6 +23,12 @@ function prelogin (ctx, name, headers) {
   return h.request(ctx, 'POST', '/api/prelogin', { headers, body: { name } })
 }
 
+// Geçici parolanın authKey değeri: ön girişin bildirdiği tuz ve N ile türetilir
+async function tempAuthKey (ctx, name, password) {
+  const kdf = (await prelogin(ctx, name)).data.kdf
+  return h.deriveKeys(password, kdf.salt, kdf.N).authKey
+}
+
 function loginRaw (ctx, name, authKey, headers) {
   return h.request(ctx, 'POST', '/api/login', { headers, body: { name, authKey } })
 }
@@ -49,11 +55,12 @@ describe('ortak türetme test vektörü', () => {
   it('sıfırlama kimlik bilgileri: geçici paroladan aynı türetmeyle authKey, karması saklanır', async () => {
     const creds = await auth.newCredentials(1024)
     assert.match(creds.tempPassword, /^[A-Za-z0-9]{12}$/)
-    assert.equal(creds.kdf.N, 16384)
+    assert.equal(creds.kdf.N, auth.KDF_DEFAULT_N)
+    assert.equal(auth.KDF_DEFAULT_N, 65536)
     assert.equal(creds.kdf.r, 8)
     assert.equal(creds.kdf.p, 1)
     assert.ok(auth.cleanKdf(creds.kdf))
-    const authKey = h.deriveKeys(creds.tempPassword, creds.kdf.salt, 16384).authKey
+    const authKey = h.deriveKeys(creds.tempPassword, creds.kdf.salt, creds.kdf.N).authKey
     assert.equal(await auth.verifyPassword(authKey, creds.passHash), true)
     assert.equal(await auth.verifyPassword(creds.tempPassword, creds.passHash), false)
   })
@@ -272,7 +279,7 @@ describe('ön giriş', () => {
       assert.deepEqual(Object.keys(fake.data.kdf), Object.keys(real.data.kdf))
       assert.match(fake.data.kdf.salt, /^[A-Za-z0-9_-]{22}$/)
       assert.equal(Buffer.from(fake.data.kdf.salt, 'base64url').length, 16)
-      assert.deepEqual([fake.data.kdf.N, fake.data.kdf.r, fake.data.kdf.p], [16384, 8, 1])
+      assert.deepEqual([fake.data.kdf.N, fake.data.kdf.r, fake.data.kdf.p], [65536, 8, 1])
       assert.equal(fake.text.length, real.text.length)
       assert.deepEqual(Object.keys(fake.headers).sort(), Object.keys(real.headers).sort())
 
@@ -502,7 +509,7 @@ describe('giriş ve hız sınırları', () => {
       const member = await h.addUser(ctx, again.data.token, 'ayse')
       const reset = await h.post(ctx, '/api/users/reset-password', again.data.token, { userId: member.user.id })
       h.expectStatus(reset, 200)
-      const tempKey = h.deriveKeys(reset.data.tempPassword, (await prelogin(ctx, 'ayse')).data.kdf.salt).authKey
+      const tempKey = (await tempAuthKey(ctx, 'ayse', reset.data.tempPassword))
       const afterReset = await withDevice('ayse', tempKey, '192.0.2.30', member.device)
       h.expectStatus(afterReset, 200)
       assert.match(afterReset.data.device, /^[0-9a-f]{24}\.[A-Za-z0-9_-]{43}$/)
@@ -554,6 +561,19 @@ describe('hız sınırlayıcı anahtar tablosu', () => {
     assert.equal(limiter.hits.size, 3)
     // a sınırına ulaştı ve tabloda kaldı
     assert.ok(limiter.consume('a', 1003) > 0)
+  })
+
+  it('tablo farklı anahtarlarla doldurulunca sınırdaki (engelleyen) sayaç düşmez', () => {
+    const limiter = new auth.RateLimiter(2, 600000, 4)
+    // Kurbanın sayacı sınırda ve tablodaki en eski anahtar
+    limiter.hit('n:kurban', 1000)
+    limiter.hit('n:kurban', 1001)
+    for (const i of h.times(50)) assert.equal(limiter.consume('sahte' + i, 2000 + i), 0)
+    assert.ok(limiter.blocked('n:kurban', 3000) > 0)
+    assert.equal(limiter.hits.size, 4)
+    // Süresi dolan sayaç ise düşebilir
+    assert.equal(limiter.consume('yeni', 1000 + 600000), 0)
+    assert.equal(limiter.hits.has('n:kurban'), false)
   })
 
   it('resetPrefix yalnızca öneki eşleşen anahtarları siler', () => {
@@ -705,9 +725,9 @@ describe('engelleme ve parola işlemleri', () => {
       // Yeni rastgele tuz, varsayılan parametreler
       const pre = await prelogin(ctx, 'ayse')
       assert.notEqual(pre.data.kdf.salt, KDF.salt)
-      assert.deepEqual([pre.data.kdf.N, pre.data.kdf.r, pre.data.kdf.p], [16384, 8, 1])
+      assert.deepEqual([pre.data.kdf.N, pre.data.kdf.r, pre.data.kdf.p], [65536, 8, 1])
       // Sunucunun Node türetmesi, istemci türetmesiyle (vektörle doğrulanmış) aynı authKey'i üretir
-      const authKey = h.deriveKeys(res.data.tempPassword, pre.data.kdf.salt, 16384).authKey
+      const authKey = h.deriveKeys(res.data.tempPassword, pre.data.kdf.salt, pre.data.kdf.N).authKey
       await ctx.server.flush()
       const diskUser = readState(ctx).users.find((u) => u.id === member.user.id)
       assert.equal(await auth.verifyPassword(authKey, diskUser.passHash), true)
@@ -755,7 +775,7 @@ describe('engelleme ve parola işlemleri', () => {
       const res = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: member.user.id })
       h.expectStatus(res, 200)
       const pre = await prelogin(ctx, 'ayse')
-      const authKey = h.deriveKeys(res.data.tempPassword, pre.data.kdf.salt, 16384).authKey
+      const authKey = h.deriveKeys(res.data.tempPassword, pre.data.kdf.salt, pre.data.kdf.N).authKey
       const relog = await loginRaw(ctx, 'ayse', authKey)
       h.expectStatus(relog, 200)
       // İlk sekme sıfırlamayı tamamlar: yeni çift yeni parolayla kurulur
@@ -828,7 +848,7 @@ describe('engelleme ve parola işlemleri', () => {
       const reset = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: member.user.id })
       const relog = await h.login(ctx, 'ayse', reset.data.tempPassword)
       h.expectStatus(relog, 200)
-      const oldAuthKey = h.deriveKeys(reset.data.tempPassword, (await prelogin(ctx, 'ayse')).data.kdf.salt).authKey
+      const oldAuthKey = (await tempAuthKey(ctx, 'ayse', reset.data.tempPassword))
       const base = { oldAuthKey, newAuthKey: h.authKeyFor('yeni-parola-1'), kdf: KDF }
       h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, Object.assign({ wrappedKey: h.keyPair().wrappedKey }, base)), 400, 'bad_keys')
       h.expectStatus(await h.post(ctx, '/api/me/password', relog.data.token, base), 200)
@@ -848,7 +868,7 @@ describe('engelleme ve parola işlemleri', () => {
       const owner = await h.setupOwner(ctx)
       const member = await h.addUser(ctx, owner.token, 'ayse')
       const reset = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: member.user.id })
-      const tempKey = h.deriveKeys(reset.data.tempPassword, (await prelogin(ctx, 'ayse')).data.kdf.salt).authKey
+      const tempKey = (await tempAuthKey(ctx, 'ayse', reset.data.tempPassword))
       // Sahip geçici parolayla kişiden önce girer ve kendi anahtar çiftini yüklemeye çalışır
       const planted = await loginRaw(ctx, 'ayse', tempKey)
       h.expectStatus(planted, 200)
@@ -1062,6 +1082,70 @@ describe('kullanıcı adı değiştirme ve hesap silme', () => {
       h.expectStatus(await h.login(ctx, 'ayse'), 200)
       const meta2 = (await h.stateOf(ctx, owner.token)).meta
       assert.deepEqual(meta2.users.map((u) => u.name).sort(), ['ayse', 'sahip'])
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+})
+
+describe('türetme gücü yükseltmesi', () => {
+  // Aynı parolayla yeni tuz ve N, aynı özel anahtarın yeniden sarılmış hâli (istemci upgradeKdf)
+  function upgradeBody (password, n, extra) {
+    const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: n || 65536, r: 8, p: 1 }
+    return Object.assign({
+      oldAuthKey: h.authKeyFor(password || h.PASSWORD),
+      newAuthKey: h.deriveKeys(password || h.PASSWORD, kdf.salt, kdf.N).authKey,
+      kdf,
+      wrappedKey: h.keyPair().wrappedKey
+    }, extra || {})
+  }
+
+  it('eski ayarlı hesap aynı parolayla güçlenir, diğer oturumlar açık kalır, eski authKey geçmez', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const other = await h.login(ctx, 'sahip')
+      h.expectStatus(other, 200)
+      const body = upgradeBody()
+      const res = await h.post(ctx, '/api/me/kdf', owner.token, body)
+      h.expectStatus(res, 200)
+      assert.match(res.data.device, /^[0-9a-f]+\.[A-Za-z0-9_-]+$/)
+      // Diğer oturum kapanmadı
+      h.expectStatus(await h.get(ctx, '/api/state', other.data.token), 200)
+      const pre = await prelogin(ctx, 'sahip')
+      assert.deepEqual(pre.data.kdf, body.kdf)
+      const st = readState(ctx)
+      assert.equal(st.users[0].wrappedKey, body.wrappedKey)
+      h.expectStatus(await loginRaw(ctx, 'sahip', body.newAuthKey), 200)
+      h.expectStatus(await loginRaw(ctx, 'sahip', h.authKeyFor(h.PASSWORD)), 401, 'bad_credentials')
+      // Ayar yalnızca güçlenir: aynı N ile ikinci yükseltme reddedilir
+      const again = upgradeBody(h.PASSWORD, 65536, { oldAuthKey: body.newAuthKey })
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, again), 400, 'bad_kdf')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('zayıflatma, hatalı parola, eksik veya fazla anahtar alanı ve geçici parola reddedilir', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      // Aynı N (16384) yükseltme sayılmaz
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', ayse.token, upgradeBody(h.PASSWORD, 16384)), 400, 'bad_kdf')
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', ayse.token, upgradeBody(h.PASSWORD, 65536, { oldAuthKey: h.authKeyFor('yanlis-parola') })), 401, 'bad_credentials')
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', ayse.token, upgradeBody(h.PASSWORD, 65536, { wrappedKey: undefined })), 400, 'bad_keys')
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', ayse.token, upgradeBody(h.PASSWORD, 65536, { publicKey: h.keyPair().publicKey })), 400, 'bad_keys')
+      // Hiçbiri hesabı değiştirmedi
+      assert.equal((await prelogin(ctx, 'ayse')).data.kdf.N, 16384)
+      // Geçici paroladaki hesap önce parolasını değiştirmelidir
+      const reset = await h.post(ctx, '/api/users/reset-password', owner.token, { userId: ayse.user.id })
+      h.expectStatus(reset, 200)
+      const tempKey = await tempAuthKey(ctx, 'ayse', reset.data.tempPassword)
+      const login = await loginRaw(ctx, 'ayse', tempKey)
+      h.expectStatus(login, 200)
+      const body = upgradeBody(h.PASSWORD, 65536, { oldAuthKey: tempKey, wrappedKey: undefined })
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', login.data.token, body), 409, 'password_change_required')
     } finally {
       await ctx.cleanup()
     }

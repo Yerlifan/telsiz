@@ -43,7 +43,9 @@ var E2EE = (function (root) {
   const IDENTITY_PREFIX = 'telsiz.identity.'
   const PINS_PREFIX = 'telsiz.pins.'
   const KDF_N_VALUES = [16384, 32768, 65536]
-  const KDF_DEFAULT_N = 16384
+  // Yeni hesaplar ve parola değişiklikleri 65536 kullanır (64 MiB, masaüstünde yaklaşık 1 sn). Eski 16384 ve 32768
+  // ayarlı hesaplar girişten sonra arka planda yükseltilir (16-identity.js upgradeKdf, POST /api/me/kdf).
+  const KDF_DEFAULT_N = 65536
   const KDF_R = 8
   const KDF_P = 1
   const KDF_SALT_BYTES = 16
@@ -900,6 +902,12 @@ var E2EE = (function (root) {
     }
   }
 
+  // Ayar geçerli ve varsayılandan zayıfsa true (girişten sonra yükseltilir)
+  function kdfNeedsUpgrade (kdf) {
+    const params = kdfParams(kdf)
+    return params !== null && params.N < KDF_DEFAULT_N
+  }
+
   function kdfNewParams () {
     lib()
     if (!available()) throw fail('no_random', 'No working secure random number generator is available.')
@@ -1432,7 +1440,7 @@ var E2EE = (function (root) {
     sanitizeFileName: sanitizeFileName,
     b64url: Object.freeze({ encode: b64encode, decode: b64decode }),
     utf8: Object.freeze({ encode: utf8Encode, decode: utf8Decode }),
-    kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive }),
+    kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive, needsUpgrade: kdfNeedsUpgrade }),
     identity: Object.freeze({
       generate: identityGenerate,
       wrap: identityWrap,

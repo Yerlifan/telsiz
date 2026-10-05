@@ -247,8 +247,9 @@ function rememberLoginDevice (name, device) {
 // Sonuç { ok: true, token, user, keysReset } veya { ok: false, error: metin üretici }.
 async function loginWithPassword (name, password, onPercent) {
   let derived = null
+  let kdf = null
   try {
-    const kdf = await fetchKdf(name)
+    kdf = await fetchKdf(name)
     derived = await deriveKeys(password, kdf, onPercent)
     const body = { name: name, authKey: derived.authKey }
     const device = loginDeviceOf(name)
@@ -271,6 +272,7 @@ async function loginWithPassword (name, password, onPercent) {
         return { ok: false, error: made.error }
       }
       rememberIdentity(user.id, made.publicKey, made.secretKey)
+      upgradeKdf(name, token, password, derived.authKey, kdf, made.secretKey)
       return { ok: true, token: token, user: user, keysReset: true }
     }
     const secretKey = window.E2EE.identity.unwrap(keys.wrappedKey, derived.wrapKey, keys.publicKey)
@@ -279,11 +281,34 @@ async function loginWithPassword (name, password, onPercent) {
       return { ok: false, error: () => t('identity.error.unwrap_failed') }
     }
     rememberIdentity(user.id, keys.publicKey, secretKey)
+    upgradeKdf(name, token, password, derived.authKey, kdf, secretKey)
     return { ok: true, token: token, user: user, keysReset: false }
   } catch (err) {
     return { ok: false, error: identityErrorProducer(err) }
   } finally {
     if (derived) derived.wrapKey.fill(0)
+  }
+}
+
+// Eski (zayıf) türetme ayarlı hesapta türetme gücünü girişten sonra arka planda yükseltir: aynı parola, yeni tuz ve
+// varsayılan N, aynı özel anahtar yeni ayarla türetilen anahtarla yeniden sarılır (POST /api/me/kdf). Giriş bunu
+// beklemez, başarısızlık girişi etkilemez ve sonraki girişte yeniden denenir. Diğer oturumlar kapanmaz.
+async function upgradeKdf (name, token, password, oldAuthKey, kdf, secretKey) {
+  if (!window.E2EE.kdf.needsUpgrade(kdf)) return
+  let derived = null
+  const secret = secretKey ? secretKey.slice() : null
+  try {
+    const newKdf = window.E2EE.kdf.newParams()
+    derived = await deriveKeys(password, newKdf)
+    const body = { oldAuthKey: oldAuthKey, newAuthKey: derived.authKey, kdf: newKdf }
+    if (secret) body.wrappedKey = window.E2EE.identity.wrap(secret, derived.wrapKey)
+    const res = await request('POST', '/api/me/kdf', { token: token, body: body })
+    if (res.status === 200 && res.data) rememberLoginDevice(name, res.data.device)
+  } catch (err) {
+    // Sonraki girişte yeniden denenir
+  } finally {
+    if (derived) derived.wrapKey.fill(0)
+    if (secret) secret.fill(0)
   }
 }
 

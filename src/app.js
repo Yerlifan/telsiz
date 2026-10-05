@@ -1848,6 +1848,42 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
   }
 
+  // Türetme gücünü yükseltir: aynı parola, daha güçlü yeni ayar (yeni tuz, daha büyük N). İstemci girişten sonra eski
+  // ayarlı hesapta aynı özel anahtarı yeni ayarla türetilen anahtarla yeniden sarar. Parola aynı kaldığı için diğer
+  // oturumlar kapanmaz. Ayar yalnızca güçlenebilir, geçici paroladaki hesap önce parolasını değiştirmelidir. Önceki
+  // giriş cihazı işaretleri yeni karmayla geçersizdir, bu cihaz yenisini alır.
+  async function handleMyKdf (ctx) {
+    const b = ctx.body
+    const user = ctx.user
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
+    if (!auth.isAuthKey(b.newAuthKey)) return fail(ctx, 400, 'bad_auth_key')
+    const kdf = auth.cleanKdf(b.kdf)
+    if (kdf === null || !user.kdf || kdf.N <= user.kdf.N || kdf.salt === user.kdf.salt) return fail(ctx, 400, 'bad_kdf')
+    const hadKeys = user.publicKey !== null
+    const noWrapped = b.wrappedKey === undefined || b.wrappedKey === null
+    if (b.publicKey !== undefined || (hadKeys ? !auth.isWrappedKey(b.wrappedKey) : !noWrapped)) return fail(ctx, 400, 'bad_keys')
+    const failKey = 'p:' + user.id
+    if (accountBlocked(ctx, failKey)) return
+    const good = await checkAuthKey(user, b.oldAuthKey)
+    if (!good) {
+      loginFailLimiter.hit(failKey)
+      return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    }
+    const hashUsed = user.passHash
+    const kdfUsed = user.kdf
+    const passHash = await gatedHash(() => auth.hashPassword(b.newAuthKey, config.scryptN))
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
+    if (user.passHash !== hashUsed || user.kdf !== kdfUsed || user.resetPending === true) return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
+    user.passHash = passHash
+    user.kdf = kdf
+    if (hadKeys) user.wrappedKey = b.wrappedKey
+    loginFailLimiter.reset(failKey)
+    store.saveState()
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
+  }
+
   // Parola sıfırlamasından sonra (sarılmış anahtar yokken) yeni anahtar çifti yüklenir
   function handleMyKeys (ctx) {
     if (!takeSocialSlot(ctx)) return
@@ -3417,6 +3453,7 @@ async function createChatServer (options) {
   route('/api/users/reset-password', 'POST', handleResetPassword)
   route('/api/me/password', 'POST', handleMyPassword)
   route('/api/me/keys', 'POST', handleMyKeys)
+  route('/api/me/kdf', 'POST', handleMyKdf)
   route('/api/me/identity', 'POST', handleMyIdentity)
   route('/api/me/username', 'POST', handleMyUsername)
   route('/api/me/delete', 'POST', handleMyDelete)

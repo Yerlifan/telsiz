@@ -174,3 +174,71 @@ test('parola değişikliğinden sonra sunucunun verdiği yeni giriş cihazı iş
   assert.equal(sent.length, 1)
   assert.equal(sent[0].body.device, newDevice)
 })
+
+// Türetme taklidi tuz ve N'ye de bağlı: yükseltmede yeni ayarla türetilen anahtarların farklı olduğu görülsün
+function saltedDerive (run) {
+  run(`deriveKeys = function (password, kdf) {
+    const text = 'test|' + password + '|' + kdf.salt + '|' + kdf.N
+    const bytes = new Uint8Array(text.length)
+    let i = 0
+    while (i < text.length) {
+      bytes[i] = text.charCodeAt(i) & 255
+      i += 1
+    }
+    const h = window.nacl.hash(bytes)
+    return Promise.resolve({ authKey: Array.from(h.subarray(0, 32)).join('.'), wrapKey: h.slice(32, 64) })
+  }`)
+}
+
+async function settle (rounds = 30) {
+  if (rounds === 0) return
+  await new Promise((resolve) => setImmediate(resolve))
+  return settle(rounds - 1)
+}
+
+test('eski ayarlı hesapta girişten sonra türetme gücü arka planda aynı parola ve aynı özel anahtarla yükseltilir', async () => {
+  const { sandbox, run } = load()
+  saltedDerive(run)
+  sandbox.__kdf = KDF
+  sandbox.__oldKeys = await run("deriveKeys('Parolam-2026', __kdf)")
+  run('__pair = window.E2EE.identity.generate()')
+  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __oldKeys.wrapKey) })')
+  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: KDF } }
+  sandbox.__responses['/api/login'] = { status: 200, data: { token: 't1', user: { id: 4, name: 'ece' }, keys } }
+  sandbox.__responses['/api/me/kdf'] = { status: 200, data: { ok: true, device: 'd4.yeni' } }
+  const result = await run("loginWithPassword('ece', 'Parolam-2026')")
+  assert.equal(result.ok, true)
+  await settle()
+  const sent = sandbox.__requests.filter((r) => r.path === '/api/me/kdf')
+  assert.equal(sent.length, 1)
+  const body = sent[0].body
+  assert.deepEqual([body.kdf.N, body.kdf.r, body.kdf.p], [65536, 8, 1])
+  assert.notEqual(body.kdf.salt, KDF.salt)
+  assert.equal(body.oldAuthKey, sandbox.__oldKeys.authKey)
+  sandbox.__newKdf = body.kdf
+  const fresh = await run("deriveKeys('Parolam-2026', __newKdf)")
+  assert.equal(body.newAuthKey, fresh.authKey)
+  sandbox.__wrapped = body.wrappedKey
+  sandbox.__freshKey = fresh.wrapKey
+  const opened = run('window.E2EE.identity.unwrap(__wrapped, __freshKey, __pair.publicKey)')
+  assert.ok(opened, 'yeni ayarın sarma anahtarı aynı özel anahtarı açar')
+  assert.equal(Buffer.from(opened).toString('hex'), Buffer.from(run('__pair.secretKey')).toString('hex'))
+  assert.equal(JSON.parse(sandbox.localStorage.getItem('telsiz.loginDevices'))['u:ece'], 'd4.yeni')
+})
+
+test('güçlü ayarlı hesapta ve geçici parolada yükseltme isteği gönderilmez', async () => {
+  for (const [kdf, extra] of [[{ ...KDF, N: 65536 }, {}], [KDF, { resetPending: true }]]) {
+    const { sandbox, run } = load()
+    saltedDerive(run)
+    sandbox.__kdf = kdf
+    sandbox.__oldKeys = await run("deriveKeys('Parolam-2026', __kdf)")
+    run('__pair = window.E2EE.identity.generate()')
+    const keys = extra.resetPending ? { publicKey: null, wrappedKey: null } : run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __oldKeys.wrapKey) })')
+    sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf } }
+    sandbox.__responses['/api/login'] = { status: 200, data: Object.assign({ token: 't1', user: { id: 4, name: 'ece' }, keys }, extra) }
+    const result = await run("loginWithPassword('ece', 'Parolam-2026')")
+    assert.equal(result.ok, true)
+    await settle()
+    assert.equal(sandbox.__requests.some((r) => r.path === '/api/me/kdf'), false)
+  }
+})
