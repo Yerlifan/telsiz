@@ -50,6 +50,8 @@ const MIC_BROWSERS = ['chromium', 'firefox']
 // "Permissions-Policy: camera=(self)" gönderdiği için (src/http-util.js, ses odasında kamera) Chromium'un
 // sahte aygıt yoklamasındaki "Permissions policy violation: camera" iletisi de beklenmez, liste boştur.
 const BENIGN_CONSOLE = []
+// Geçici tanılama: service worker engelliyken Playwright'ın kendi uyarısı
+if (process.env.TELSIZ_E2E_SW === 'block') BENIGN_CONSOLE.push(/^Service Worker registration blocked by Playwright$/)
 
 function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -259,7 +261,7 @@ async function openBrowser (opts) {
     // Yeni bağlam ve sayfa. opts: viewport, locale, extra (localStorage), mobile, route (bağlam yönlendirmesi)
     async newPage (label, opts) {
       const o = opts || {}
-      if (pages.length === 0) iz.basla(path.basename(require.main ? require.main.filename : ''), label)
+      const izi = iz.basla(label)
       const ctxOptions = { locale: o.locale || 'tr-TR', viewport: o.viewport || { width: 1440, height: 900 }, deviceScaleFactor: 1 }
       if (o.mobile) Object.assign(ctxOptions, { isMobile: true, hasTouch: true })
       // Geçici tanılama: TELSIZ_E2E_SW=block ile service worker kaydı engellenir (A/B karşılaştırması)
@@ -271,9 +273,9 @@ async function openBrowser (opts) {
         await context.addInitScript(initScript, { token: p.token || null, id: p.id || null, identity: p.identity || null, extra: o.extra || {} })
       }
       const page = await context.newPage()
-      iz.izleSayfa(page)
+      iz.izleSayfa(izi, page)
       page.setDefaultTimeout(SHORT)
-      domReadyGoto(page)
+      domReadyGoto(page, izi)
       watchPage(page, label, logs)
       pages.push({ label, page })
       return page
@@ -288,9 +290,12 @@ async function openBrowser (opts) {
 // page.goto varsayılan olarak load yerine domcontentloaded bekler. Firefox CI'da yeni profildeki ilk açılışta load
 // olayı zaman zaman süre sınırını aşıyor (1c3f98a, pageFor). Uygulamada load olayına bağlı iş yoktur, testler sayfanın
 // hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
-function domReadyGoto (page) {
+function domReadyGoto (page, izi) {
   const goto = page.goto.bind(page)
-  page.goto = (url, options) => goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
+  page.goto = (url, options) => {
+    iz.isaret(izi, 'goto ' + String(url).split('#')[0])
+    return goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
+  }
   return page
 }
 

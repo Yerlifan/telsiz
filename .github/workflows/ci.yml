@@ -96,6 +96,18 @@ jobs:
             ad: Firefox iz 6
             iz: '1'
           - tarayici: firefox
+            ad: Firefox iz 7
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 8
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 9
+            iz: '1'
+          - tarayici: firefox
+            ad: Firefox iz 10
+            iz: '1'
+          - tarayici: firefox
             ad: Firefox iz sw-block 1
             iz: '1'
             sw: block
