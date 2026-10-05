@@ -4,6 +4,10 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 
 ## [Yayımlanmamış]
 
+### Yeni özellikler
+
+- Özel mesajda sesli ve görüntülü arama: iki arkadaş konuşmanın başlığındaki Sesli Ara veya Görüntülü Ara düğmesiyle birbirini arayabilir. Aranan kişinin açık cihazlarında 2 saniyelik zil sesi çalar ve Kabul Et ile Reddet düğmeli gelen arama kartı açılır (Rahatsız etmeyin durumunda zil çalmaz). Arama sırasında konuşmanın üst bölümünde iki kişinin kamerası veya profil fotoğrafı, altta yazışma görünür. Aramanın kurulum iletileri iki kişinin kişisel anahtarlarıyla şifrelenir, arama bilgisi herkese açık metaya girmez. Arama yalnızca arkadaşlar arasında ve karşı tarafın anahtarı doğrulanmışken yapılabilir. Ses odası denetimi ve sunucu susturması özel aramaya uzanmaz, sahibin kamera ayarı geçerlidir. Engelleme, arkadaşlıktan çıkarma, yasaklama ve hesap silme aramayı bitirir. Yeni sunucu ayarları: `callRingMs`, `callLimit`, `callWindowMs`.
+
 ### Değişiklikler
 
 - Ekran paylaşımında ses seçeneği tek yerde çıkar. Telsiz'in paylaşım penceresindeki Sesi de paylaş anahtarı kaldırıldı, ses her zaman istenir ve paylaşılıp paylaşılmayacağı kaynağın seçildiği pencerede seçilir: tarayıcıda tarayıcının kendi seçicisindeki ses seçeneği, masaüstü uygulamasında uygulamanın seçicisindeki Sistem sesini de paylaş kutusu (yalnızca Windows). Önceden masaüstü uygulamasında sesin gitmesi için iki seçeneğin birlikte açık olması gerekiyordu.

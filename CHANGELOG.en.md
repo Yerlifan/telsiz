@@ -4,6 +4,10 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ## [Unreleased]
 
+### New features
+
+- Voice and video calls in direct messages: two friends can call each other with the Voice Call or Video Call button in the conversation header. A 2 second ring plays on all of the callee's open devices and an incoming call card opens with Accept and Decline buttons (no ring in Do not disturb). During the call the top of the conversation shows both people's cameras or profile photos, with the conversation below. The call setup messages are encrypted with the two people's personal keys, and call information never enters the public meta. Calls are only possible between friends and while the other person's key is verified. Voice room moderation and the server mute do not reach private calls, and the owner's camera setting applies. Blocking, removing a friend, a ban and deleting the account end the call. New server settings: `callRingMs`, `callLimit`, `callWindowMs`.
+
 ### Changes
 
 - The audio option for screen sharing appears in one place. The Also share audio switch in Telsiz's share window was removed: audio is always requested, and whether it is shared is chosen in the window where the source is picked, the audio option in the browser's own picker or the Also share system audio box in the desktop app's picker (Windows only). Before, the desktop app needed both options turned on for audio to be shared.
