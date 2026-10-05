@@ -253,7 +253,13 @@ async function newCredentials (serverN) {
 // Var olmayan kullanıcı için ön giriş tuzu: HMAC-SHA256(sunucuSırrı, 'prelogin:' + ad) ilk 16 bayt.
 // Aynı ad için her zaman aynıdır, böylece var olan ve olmayan hesaplar ayırt edilemez.
 function preloginSalt (secretHex, name) {
-  const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin:' + name, 'utf8').digest()
+  return labeledSalt(secretHex, 'prelogin:', name)
+}
+
+// Etiketli HMAC tuzu. Eski ayarın sahte tuzu ayrı bir etiket kullanır: hiçbir ad girdisi (geçersiz adlar dahil)
+// 'prelogin:' etiketiyle eski ayarın tuzunu üretemez.
+function labeledSalt (secretHex, label, name) {
+  const mac = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update(label + name, 'utf8').digest()
   return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
 }
 
@@ -265,7 +271,8 @@ const KDF_LEGACY_N = 16384
 function preloginKdf (secretHex, name, legacyShare) {
   const pick = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin-n:' + name, 'utf8').digest().readUInt32BE(0) / 4294967296
   const legacy = pick < legacyShare
-  return { salt: preloginSalt(secretHex, legacy ? name + '\u0000eski' : name), N: legacy ? KDF_LEGACY_N : KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
+  const salt = legacy ? labeledSalt(secretHex, 'prelogin-legacy:', name) : preloginSalt(secretHex, name)
+  return { salt, N: legacy ? KDF_LEGACY_N : KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
 }
 
 // Giriş cihazı işareti: başarılı girişte verilir, '<kimlik>.<HMAC>' biçimindedir. Parola veya oturum
@@ -293,6 +300,16 @@ function loginDeviceId (secretHex, userId, epoch, value) {
   const expected = Buffer.from(loginDeviceMac(secretHex, userId, epoch, match[1]), 'utf8')
   const given = Buffer.from(match[2], 'utf8')
   return given.length === expected.length && crypto.timingSafeEqual(given, expected) ? match[1] : null
+}
+
+// Giriş cihazı işaretlerinin dönemi: parola değişince yeni rastgele değer. Eski kayıtlarda dönem parola karmasının
+// SHA-256 özetidir (karmanın kendisi dönem olarak saklanmaz).
+function newCredEpoch () {
+  return crypto.randomBytes(16).toString('hex')
+}
+
+function hashEpoch (passHash) {
+  return crypto.createHash('sha256').update(String(passHash), 'utf8').digest('hex')
 }
 
 function newServerSecret () {
@@ -697,9 +714,12 @@ module.exports = {
   newCredentials,
   preloginSalt,
   preloginKdf,
+  KDF_LEGACY_N,
   newLoginDevice,
   loginDeviceId,
   newServerSecret,
+  newCredEpoch,
+  hashEpoch,
   hashPassword,
   verifyPassword,
   parseHash,

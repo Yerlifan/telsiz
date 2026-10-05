@@ -276,6 +276,37 @@ describe('ön giriş', () => {
     // Eski ve yeni N için tuz da farklıdır (gerçek bir yükseltme gibi)
     assert.notEqual(a.salt, b.salt)
     assert.deepEqual([a.N, b.N], [16384, 65536])
+    // Geçersiz bir ad girdisi eski ayarın sahte tuzunu üretemez (varlık kehaneti olmasın)
+    for (const probe of ['hayalet\u0000eski', 'prelogin-legacy:hayalet', 'legacy:hayalet']) {
+      assert.notEqual(auth.preloginKdf(secret, probe, 0).salt, a.salt)
+      assert.notEqual(auth.preloginSalt(secret, probe), a.salt)
+    }
+  })
+
+  it('sahte ayarın eski N payı yalnızca azalır: hesap ayarını zayıflatsa da sahte yanıtlar eski N\'ye dönmez', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const names = h.times(40).map((i) => 'yok' + i)
+      const fakeNs = async () => Promise.all(names.map(async (n) => (await prelogin(ctx, n)).data.kdf.N))
+      assert.ok((await fakeNs()).every((n) => n === 16384))
+      // Sahip yükseltir: pay 0, bütün sahte yanıtlar yeni N
+      const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: 65536, r: 8, p: 1 }
+      const newKey = h.deriveKeys(h.PASSWORD, kdf.salt, kdf.N).authKey
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, { oldAuthKey: h.authKeyFor(h.PASSWORD), oldSalt: h.KDF.salt, newAuthKey: newKey, kdf, wrappedKey: h.keyPair().wrappedKey }), 200)
+      assert.ok((await fakeNs()).every((n) => n === 65536))
+      // Sahip parolasını eski N ile değiştirir (pay yeniden 1 olur): sahte yanıtlar değişmez
+      h.expectStatus(await h.post(ctx, '/api/me/password', owner.token, { oldAuthKey: newKey, newAuthKey: h.authKeyFor(h.PASSWORD), kdf: h.KDF, wrappedKey: h.keyPair().wrappedKey }), 200)
+      assert.ok((await fakeNs()).every((n) => n === 65536))
+      // Yeniden başlatmadan sonra da
+      const again = await ctx.restart()
+      const after = await Promise.all(names.map(async (n) => (await prelogin(again, n)).data.kdf.N))
+      assert.ok(after.every((n) => n === 65536))
+      await again.cleanup()
+    } catch (err) {
+      await ctx.cleanup()
+      throw err
+    }
   })
 
   it('var olan ve olmayan hesap yanıtları aynı biçimde, sahte tuz ad başına sabit', async () => {
@@ -306,7 +337,7 @@ describe('ön giriş', () => {
       await ctx.server.flush()
       const disk = readState(ctx)
       assert.match(disk.serverSecret, /^[0-9a-f]{64}$/)
-      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin:hayalet\u0000eski').digest().subarray(0, 16).toString('base64url')
+      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin-legacy:hayalet').digest().subarray(0, 16).toString('base64url')
       assert.equal(fake.data.kdf.salt, expected)
       // Geçersiz adlar da biçimce aynı yanıtı alır
       const invalid = await prelogin(ctx, 'Ayşe Yılmaz')
@@ -1133,6 +1164,8 @@ describe('türetme gücü yükseltmesi', () => {
       assert.deepEqual(pre.data.kdf, body.kdf)
       const st = readState(ctx)
       assert.equal(st.users[0].wrappedKey, body.wrappedKey)
+      // Giriş cihazı dönemi karmanın kendisi değil, özetidir: eski zayıf karma diskte kalmaz
+      assert.match(st.users[0].credEpoch, /^[0-9a-f]{64}$/)
       h.expectStatus(await loginRaw(ctx, 'sahip', body.newAuthKey), 200)
       h.expectStatus(await loginRaw(ctx, 'sahip', h.authKeyFor(h.PASSWORD)), 401, 'bad_credentials')
       // Ayar yalnızca güçlenir: aynı N ile ikinci yükseltme reddedilir
@@ -1172,6 +1205,26 @@ describe('türetme gücü yükseltmesi', () => {
       // Başka bir cihaz yükseltmiş gibi: eski tuz tutmuyor, sayaç artmaz (sınır 2 olduğu hâlde üç kez denenir)
       for (const i of h.times(3)) h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, upgradeBody(h.PASSWORD, 65536, { oldSalt: 'A'.repeat(22) + i })), 409, 'bad_kdf')
       h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, upgradeBody()), 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('parola değişince cihaz dönemi rastgele bir değer olur, hesap silinince dönem de silinir', async () => {
+    const ctx = await h.startServer()
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: 65536, r: 8, p: 1 }
+      const newKey = h.deriveKeys('yeni-parola-1', kdf.salt, kdf.N).authKey
+      h.expectStatus(await h.post(ctx, '/api/me/password', ayse.token, { oldAuthKey: h.authKeyFor(h.PASSWORD), newAuthKey: newKey, kdf, wrappedKey: h.keyPair().wrappedKey }), 200)
+      await ctx.server.flush()
+      assert.match(readState(ctx).users.find((u) => u.id === ayse.user.id).credEpoch, /^[0-9a-f]{32}$/)
+      h.expectStatus(await h.post(ctx, '/api/me/delete', ayse.token, { authKey: newKey }), 200)
+      await ctx.server.flush()
+      const gone = readState(ctx).users.find((u) => u.id === ayse.user.id)
+      assert.equal(gone.deleted, true)
+      assert.equal('credEpoch' in gone, false)
     } finally {
       await ctx.cleanup()
     }

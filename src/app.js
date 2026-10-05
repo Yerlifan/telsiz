@@ -716,6 +716,11 @@ function normalizeLoadedState (state, config, log) {
     state.serverSecret = auth.newServerSecret()
     changed = true
   }
+  // Eski ayarlı hesapların en düşük görülen payı (legacyKdfShare), 0 ile 1 arasında bir sayı veya yok
+  if (state.kdfLegacyFloor !== undefined && !(typeof state.kdfLegacyFloor === 'number' && state.kdfLegacyFloor >= 0 && state.kdfLegacyFloor <= 1)) {
+    delete state.kdfLegacyFloor
+    changed = true
+  }
   const music = cleanMusicSettings(state.music)
   if (!sameJson(music, state.music)) {
     state.music = music
@@ -809,12 +814,12 @@ function publicUser (user) {
   return { id: user.id, name: user.name, role: user.role }
 }
 
-// Giriş cihazı işaretlerinin dönemi: parolanın son gerçekten değiştiği andaki karma. Türetme gücü yükseltmesi
-// (handleMyKdf) karmayı değiştirir ama parolayı değiştirmez, dönemi korur: diğer cihazların işaretleri geçerli kalır.
-// Parola değişince veya sıfırlanınca dönem yeni karmaya geçer ve önceki bütün işaretler geçersiz olur. Eski
-// kayıtlarda alan yoktur, dönem karmanın kendisidir.
+// Giriş cihazı işaretlerinin dönemi. Parola değişince veya sıfırlanınca yeni rastgele bir değer alır ve önceki bütün
+// işaretler geçersiz olur. Türetme gücü yükseltmesi (handleMyKdf) karmayı değiştirir ama parolayı değiştirmez, dönemi
+// korur: diğer cihazların işaretleri geçerli kalır. Alanı olmayan kayıtlarda dönem karmanın SHA-256 özetidir, karmanın
+// kendisi dönem olarak saklanmaz (eski zayıf karma yükseltmeden sonra diskte kalmasın).
 function deviceEpoch (user) {
-  return typeof user.credEpoch === 'string' ? user.credEpoch : user.passHash
+  return typeof user.credEpoch === 'string' ? user.credEpoch : auth.hashEpoch(user.passHash)
 }
 
 // Hub bu kayıttan başkalarına gösterilen biçimi üretir (görünmez durum hiçbir zaman gönderilmez)
@@ -1608,7 +1613,7 @@ async function createChatServer (options) {
   // seçemez veya açamaz. Kişiden önce davranırsa kişi geçici parolayla giremez ve durumu fark eder.
   function applyCredentials (user, creds) {
     user.passHash = creds.passHash
-    user.credEpoch = creds.passHash
+    user.credEpoch = auth.newCredEpoch()
     user.kdf = creds.kdf
     user.publicKey = null
     user.wrappedKey = null
@@ -1642,16 +1647,23 @@ async function createChatServer (options) {
     ok(ctx, { available: !usersByKey.has(name), valid: true })
   }
 
-  // Henüz yükseltilmemiş (varsayılandan zayıf ayarlı) hesapların payı (auth.preloginKdf)
+  // Henüz yükseltilmemiş (eski N'li) hesapların payı (auth.preloginKdf). Yalnızca azalabilir: sahte ayarlar gerçek
+  // hesapların yapmadığı yönde (yeni N'den eski N'ye) dönmesin. Hesap silinmesi veya bir üyenin kendi ayarını
+  // zayıflatması payı artırsa da kullanılan değer en düşük görülen paydır, diske yazılır.
   function legacyKdfShare () {
     let all = 0
     let legacy = 0
     for (const u of state.users) {
       if (u.deleted || !u.kdf) continue
       all++
-      if (u.kdf.N < auth.KDF_DEFAULT_N) legacy++
+      if (u.kdf.N === auth.KDF_LEGACY_N) legacy++
     }
-    return all === 0 ? 0 : legacy / all
+    const current = all === 0 ? 0 : legacy / all
+    if (typeof state.kdfLegacyFloor !== 'number' || current < state.kdfLegacyFloor) {
+      state.kdfLegacyFloor = current
+      store.saveState()
+    }
+    return state.kdfLegacyFloor
   }
 
   // İstemcinin parolasından anahtar türetmesi için tuz ve parametreler.
@@ -1859,7 +1871,7 @@ async function createChatServer (options) {
     if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
     user.passHash = passHash
-    user.credEpoch = passHash
+    user.credEpoch = auth.newCredEpoch()
     user.kdf = kdf
     user.wrappedKey = hadKeys || newPair ? b.wrappedKey : null
     user.resetPending = false
@@ -1994,6 +2006,7 @@ async function createChatServer (options) {
     user.key = ''
     user.role = 'member'
     user.passHash = null
+    delete user.credEpoch
     user.kdf = null
     user.publicKey = null
     user.wrappedKey = null

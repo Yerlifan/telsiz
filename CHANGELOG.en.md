@@ -14,6 +14,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ### Fixes
 
+- When a file that is not cached was requested while offline (for example a favicon request cut off by a page reload), the Service Worker wrote an error to the browser console. Files other than the page now get a plain 504 response.
 - While sharing, Change source requested the new source without audio, so a share that started with audio lost it when the source changed. Audio is now requested when the source changes too.
 
 ### Security

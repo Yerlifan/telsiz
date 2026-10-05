@@ -188,14 +188,15 @@ function frekansNameKey (name) {
   out = out.replace(FREKANS_NAME_NOISE, '')
   let mapped = ''
   for (const ch of out) mapped += Object.prototype.hasOwnProperty.call(FREKANS_LOOKALIKE, ch) ? FREKANS_LOOKALIKE[ch] : ch
-  return mapped.replace(/rn/g, 'm').replace(/vv/g, 'w')
+  // rn ile m, vv ile w, cl (l ve I artık i) ile d birbirine benzer
+  return mapped.replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/ci/g, 'd')
 }
 
 // Bağlantıyla gelen bir frekans adı yalnızca Latin harfleri, Türkçe harfler, rakamlar, boşluk ve temel noktalamadan
 // oluşabilir. Başka alfabelerden harfler, görünmez ve yön karakterleri, benzer görünen simgeler içeren ad alınmaz,
 // frekansın adresi görünür (kişi isterse adı kendisi verir). Benzer harf listesi hiçbir zaman eksiksiz olamayacağı
 // için bağlantıdaki adlarda izin listesi kullanılır.
-const FREKANS_LINK_NAME_RE = /^[A-Za-z0-9ÇĞİÖŞÜÂÎÛçğıöşüâîû .,'&():_-]*$/
+const FREKANS_LINK_NAME_RE = /^[A-Za-z0-9ÇĞİÖŞÜÂÎÛçğıöşüâîû .,'&:_-]*$/
 
 function frekansLinkNameOk (name) {
   return typeof name === 'string' && FREKANS_LINK_NAME_RE.test(name)

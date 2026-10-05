@@ -130,6 +130,14 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(key, copy)).catch(() => null)
       }
       return response
-    }).catch(() => caches.match(key).then((cached) => cached || Response.error()))
+    }).catch(() => caches.match(key).then((cached) => cached || offlineResponse(isPage)))
   )
 })
+
+// Ağ yokken ve önbellekte de yoksa: sayfa için tarayıcının kendi hata sayfası (Response.error), diğer dosyalar için
+// sıradan bir 504 yanıtı. Response.error() bir dosya isteğinde (ör. sayfa yenilenirken kesilen favicon isteği)
+// tarayıcı konsolunda Service Worker hatası olarak görünür, 504 ise yalnızca yüklenemeyen bir dosyadır.
+function offlineResponse (isPage) {
+  if (isPage) return Response.error()
+  return new Response('', { status: 504, statusText: 'Gateway Timeout', headers: { 'Content-Type': 'text/plain' } })
+}

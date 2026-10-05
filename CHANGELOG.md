@@ -14,6 +14,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 
 ### Düzeltmeler
 
+- Ağ yokken önbellekte olmayan bir dosya istendiğinde (ör. sayfa yenilenirken kesilen favicon isteği) Service Worker tarayıcı konsoluna hata yazıyordu. Sayfa dışındaki dosyalar artık sıradan bir 504 yanıtı alır.
 - Paylaşım sürerken Kaynağı değiştir yeni kaynağı sessiz istiyordu, sesli başlayan bir paylaşımın sesi kaynak değişince kayboluyordu. Kaynak değişiminde de ses istenir.
 
 ### Güvenlik
