@@ -76,6 +76,39 @@ jobs:
             ad: Firefox
           - tarayici: webkit
             ad: WebKit
+          # Geçici doğrulama: düzeltmeyle Firefox işi on altı kez koşar, birleştirmeden önce geri alınır
+          - tarayici: firefox
+            ad: Firefox doğrulama 1
+          - tarayici: firefox
+            ad: Firefox doğrulama 2
+          - tarayici: firefox
+            ad: Firefox doğrulama 3
+          - tarayici: firefox
+            ad: Firefox doğrulama 4
+          - tarayici: firefox
+            ad: Firefox doğrulama 5
+          - tarayici: firefox
+            ad: Firefox doğrulama 6
+          - tarayici: firefox
+            ad: Firefox doğrulama 7
+          - tarayici: firefox
+            ad: Firefox doğrulama 8
+          - tarayici: firefox
+            ad: Firefox doğrulama 9
+          - tarayici: firefox
+            ad: Firefox doğrulama 10
+          - tarayici: firefox
+            ad: Firefox doğrulama 11
+          - tarayici: firefox
+            ad: Firefox doğrulama 12
+          - tarayici: firefox
+            ad: Firefox doğrulama 13
+          - tarayici: firefox
+            ad: Firefox doğrulama 14
+          - tarayici: firefox
+            ad: Firefox doğrulama 15
+          - tarayici: firefox
+            ad: Firefox doğrulama 16
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
