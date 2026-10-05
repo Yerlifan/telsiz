@@ -31,6 +31,36 @@ function kisalt (text) {
   return s.length > SATIR ? s.slice(0, SATIR) + ' ...(' + s.length + ')' : s
 }
 
+// Juggler oturumlarındaki gezinmeler: başlayan, commit olan veya iptal edilen gezinme kimlikleri ve
+// aynı çerçevenin yeniden bağlanması (tarama bağlamı değişimi). Dosya sonunda kayıp commit'ler yazılır.
+const gezinmeler = new Map()
+const baglanan = new Set()
+let baglamDegisimi = 0
+function protokolIzle (text) {
+  const m = /"method":"(Page\.navigationStarted|Page\.navigationCommitted|Page\.navigationAborted|Page\.frameAttached)".*"sessionId":"([^"]+)"/.exec(text)
+  if (!m) return
+  const oturum = m[2]
+  if (m[1] === 'Page.frameAttached') {
+    const f = /"frameId":"([^"]+)"/.exec(text)
+    const k = oturum + ' ' + (f ? f[1] : '')
+    if (baglanan.has(k)) baglamDegisimi += 1
+    baglanan.add(k)
+    return
+  }
+  const n = /"navigationId":"([^"]+)"/.exec(text)
+  if (!n) return
+  const k = oturum + ' ' + n[1]
+  if (m[1] === 'Page.navigationStarted') {
+    if (!gezinmeler.has(k)) gezinmeler.set(k, { t: simdi(), bitti: false, url: '' })
+  } else {
+    const g = gezinmeler.get(k) || { t: simdi(), url: '' }
+    g.bitti = true
+    const u = /"url":"([^"]+)"/.exec(text)
+    if (u) g.url = u[1]
+    gezinmeler.set(k, g)
+  }
+}
+
 function ekle (kaynak, text) {
   const t = simdi()
   kayit.push({ t, kaynak, text: kisalt(text) })
@@ -54,6 +84,7 @@ function protokolAc () {
     const text = args.join(' ')
     if (text.indexOf('pw:protocol') !== -1 || text.indexOf('pw:browser') !== -1) {
       const satir = text.replace(/^\S+Z /, '').replace('pw:protocol ', '').replace('pw:browser ', 'tarayıcı: ')
+      if (satir.indexOf('◀ RECV') !== -1) protokolIzle(satir)
       ekle('protokol', satir)
       // Juggler hataları her zaman, o anda açılmakta olan sayfa etiketiyle yazılır (takılmayla ilişkiyi görmek için)
       if (satir.indexOf('tarayıcı: ') === 0 && /juggler/i.test(satir)) {
@@ -139,7 +170,11 @@ function protokolOzet (st) {
   const oturum = pencere.filter((x) => x.text.indexOf(m[1]) !== -1)
   const say = (re) => oturum.filter((x) => re.test(x.text)).length
   const juggler = pencere.filter((x) => x.text.indexOf('tarayıcı: ') === 0 && /juggler/i.test(x.text)).length
+  const g = st.olaylar.find((x) => / goto /.test(x))
+  const gotoT = g ? st.t0 + Number(g.split(' ')[0]) : Infinity
+  const sonra = oturum.filter((x) => x.t >= gotoT && /"method":"Page\.frameAttached"/.test(x.text)).length
   return 'frameAttached ' + say(/"method":"Page\.frameAttached"/) +
+    ', testin gezinmesinde frameAttached ' + sonra +
     ', http commit ' + say(/"method":"Page\.navigationCommitted".*"url":"http/) +
     ', sameDocumentNavigation ' + say(/"method":"Page\.sameDocumentNavigation"/) +
     ', juggler hatası ' + juggler
@@ -160,7 +195,7 @@ function ozet (st, neden) {
     'load ' + (st.yuklendi ? (st.yuklendi - st.t0) + ' ms' : 'yok'),
     'açık sayfa ' + sayfalar.filter((x) => x.sayfa && !x.sayfa.isClosed()).length,
     protokolOzet(st),
-    'fission ' + (process.env.TELSIZ_E2E_FISSION === '0' ? 'kapalı' : 'varsayılan'),
+    'ısınma ' + (process.env.TELSIZ_E2E_ISINMA || 'yok'),
     dongu
   ].join(', ')
 }
@@ -244,6 +279,9 @@ function isaret (st, text) {
 // Tarayıcı kapanmadan önce: hiç yüklenmemiş sayfaların son durumu yazılır
 async function kapanis () {
   if (!ACIK) return
+  const simdiT = simdi()
+  const kayip = Array.from(gezinmeler.entries()).filter((e) => !e[1].bitti && simdiT - e[1].t > 10000).map((e) => e[0] + ' (' + (simdiT - e[1].t) + ' ms önce başladı)')
+  console.log('iz dosya özeti (' + dosya + ', ısınma ' + (process.env.TELSIZ_E2E_ISINMA || 'yok') + '): gezinme ' + gezinmeler.size + ', tarama bağlamı değişimi ' + baglamDegisimi + ', commit veya iptal olmayan gezinme ' + kayip.length + (kayip.length ? ': ' + kayip.join(', ') : ''))
   for (const st of sayfalar) {
     if (st.bitti) continue
     if (!st.yuklendi) await yaz(st, 'tarayıcı kapanıyor, load yok').catch(() => {})

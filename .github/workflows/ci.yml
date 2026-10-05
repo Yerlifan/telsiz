@@ -76,7 +76,7 @@ jobs:
             ad: Firefox
           - tarayici: webkit
             ad: WebKit
-          # Geçici tanılama: Firefox gezinme izi, Fission varsayılan ve kapalı (A/B)
+          # Geçici tanılama: Firefox gezinme izi, ısınma gezinmesi deneyi (A/B)
           - tarayici: firefox
             ad: Firefox iz 1
             iz: '1'
@@ -90,49 +90,53 @@ jobs:
             ad: Firefox iz 4
             iz: '1'
           - tarayici: firefox
-            ad: Firefox iz 5
+            ad: Firefox iz ısınma 1
             iz: '1'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz 6
+            ad: Firefox iz ısınma 2
             iz: '1'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz 7
+            ad: Firefox iz ısınma 3
             iz: '1'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz 8
+            ad: Firefox iz ısınma 4
             iz: '1'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 1
+            ad: Firefox iz ısınma 5
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 2
+            ad: Firefox iz ısınma 6
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 3
+            ad: Firefox iz ısınma 7
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 4
+            ad: Firefox iz ısınma 8
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 5
+            ad: Firefox iz ısınma 9
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 6
+            ad: Firefox iz ısınma 10
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 7
+            ad: Firefox iz ısınma 11
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz fission-off 8
+            ad: Firefox iz ısınma 12
             iz: '1'
-            fission: '0'
+            isinma: /favicon.svg
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -156,12 +160,13 @@ jobs:
         if: matrix.ad == 'Firefox iz 1'
         run: |
           d=$(ls -d ~/.cache/ms-playwright/firefox-*/firefox | head -n 1)
-          for ja in "$d/omni.ja" "$d/browser/omni.ja"; do
-            f=$(unzip -Z1 "$ja" 2>/dev/null | grep 'juggler/.*content/FrameTree.js$' | head -n 1)
-            if [ -n "$f" ]; then
-              echo "$ja $f"
-              unzip -p "$ja" "$f" | cat -n | sed -n '500,600p'
-            fi
+          ja="$d/omni.ja"
+          f=$(unzip -Z1 "$ja" | grep 'juggler/.*content/FrameTree.js$' | head -n 1)
+          echo "$ja $f"
+          unzip -p "$ja" "$f" | cat -n
+          echo "---- juggler dosyalarında commit, global ve belge öğesi olayları"
+          for g in $(unzip -Z1 "$ja" | grep '^chrome/juggler/.*\.js$'); do
+            unzip -p "$ja" "$g" | grep -n 'NavigationCommitted\|navigationCommitted\|_onGlobalObjectCleared\|document-element-inserted\|window-global-created\|inner-window\|frameAttached\|FrameAttached' | sed "s|^|$g:|"
           done
 
       - name: Uçtan uca testler
@@ -169,7 +174,7 @@ jobs:
         env:
           TELSIZ_E2E_BROWSER: ${{ matrix.tarayici }}
           TELSIZ_E2E_IZ: ${{ matrix.iz }}
-          TELSIZ_E2E_FISSION: ${{ matrix.fission }}
+          TELSIZ_E2E_ISINMA: ${{ matrix.isinma }}
 
       - name: Hata anındaki ekran görüntülerini ve izleri yükle
         if: failure()

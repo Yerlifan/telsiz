@@ -92,8 +92,6 @@ function chromiumLaunchOptions (extraArgs) {
 function launchOptions (chromiumArgs) {
   if (BROWSER === 'chromium') return chromiumLaunchOptions(chromiumArgs)
   const options = { headless: process.env.TELSIZ_E2E_HEADED !== '1' }
-  // Geçici tanılama: TELSIZ_E2E_FISSION=0 ile Firefox site yalıtımı (Fission) kapalı başlar
-  if (BROWSER === 'firefox' && process.env.TELSIZ_E2E_FISSION === '0') options.env = Object.assign({}, process.env, { MOZ_FORCE_DISABLE_FISSION: '1' })
   if (BROWSER === 'firefox') {
     options.firefoxUserPrefs = {
       'media.navigator.streams.fake': true,
@@ -292,9 +290,20 @@ async function openBrowser (opts) {
 // page.goto varsayılan olarak load yerine domcontentloaded bekler. Firefox CI'da yeni profildeki ilk açılışta load
 // olayı zaman zaman süre sınırını aşıyor (1c3f98a, pageFor). Uygulamada load olayına bağlı iş yoktur, testler sayfanın
 // hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
+// Geçici deney (TELSIZ_E2E_ISINMA=<yol>): Firefox'ta sayfanın ilk http gezinmesinden önce aynı kökende bu yola
+// gidilir, testin kendi gezinmesi tarama bağlamını değiştirmez
+const ISINMA = BROWSER === 'firefox' ? process.env.TELSIZ_E2E_ISINMA || '' : ''
 function domReadyGoto (page, izi) {
   const goto = page.goto.bind(page)
-  page.goto = (url, options) => {
+  let isindi = !ISINMA
+  page.goto = async (url, options) => {
+    if (!isindi && /^https?:/.test(String(url))) {
+      isindi = true
+      const hedef = new URL(url).origin + ISINMA
+      iz.isaret(izi, 'ısınma ' + hedef)
+      await page.evaluate((u) => { window.location.replace(u) }, hedef)
+      await page.waitForFunction((u) => window.location.href === u && document.readyState === 'complete', hedef, { timeout: LONG })
+    }
     iz.isaret(izi, 'goto ' + String(url).split('#')[0])
     return goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
   }
