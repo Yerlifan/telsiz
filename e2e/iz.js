@@ -53,7 +53,13 @@ function protokolAc () {
   debug.log = (...args) => {
     const text = args.join(' ')
     if (text.indexOf('pw:protocol') !== -1 || text.indexOf('pw:browser') !== -1) {
-      ekle('protokol', text.replace(/^\S+Z /, '').replace('pw:protocol ', '').replace('pw:browser ', 'tarayıcı: '))
+      const satir = text.replace(/^\S+Z /, '').replace('pw:protocol ', '').replace('pw:browser ', 'tarayıcı: ')
+      ekle('protokol', satir)
+      // Juggler hataları her zaman, o anda açılmakta olan sayfa etiketiyle yazılır (takılmayla ilişkiyi görmek için)
+      if (satir.indexOf('tarayıcı: ') === 0 && /juggler/i.test(satir)) {
+        const son = sayfalar.length ? sayfalar[sayfalar.length - 1] : null
+        console.log('iz juggler hatası (' + dosya + ', son açılan sayfa ' + (son ? son.etiket + ', açılıştan ' + (simdi() - son.t0) + ' ms sonra' : 'yok') + '): ' + kisalt(satir))
+      }
     } else {
       process.stderr.write(text + '\n')
     }
@@ -123,6 +129,22 @@ async function yokla (page) {
   return sonuc
 }
 
+// Sayfanın Juggler oturumu (açılıştan sonraki ilk Browser.attachedToTarget) ve bu oturumun protokol olayları
+function protokolOzet (st) {
+  const bitis = st.yuklendi || simdi()
+  const pencere = kayit.filter((x) => x.kaynak === 'protokol' && x.t >= st.t0 && x.t <= bitis)
+  const bag = pencere.find((x) => x.text.indexOf('"Browser.attachedToTarget"') !== -1)
+  const m = bag ? /"sessionId":"([^"]+)"/.exec(bag.text) : null
+  if (!m) return 'oturum yok'
+  const oturum = pencere.filter((x) => x.text.indexOf(m[1]) !== -1)
+  const say = (re) => oturum.filter((x) => re.test(x.text)).length
+  const juggler = pencere.filter((x) => x.text.indexOf('tarayıcı: ') === 0 && /juggler/i.test(x.text)).length
+  return 'frameAttached ' + say(/"method":"Page\.frameAttached"/) +
+    ', http commit ' + say(/"method":"Page\.navigationCommitted".*"url":"http/) +
+    ', sameDocumentNavigation ' + say(/"method":"Page\.sameDocumentNavigation"/) +
+    ', juggler hatası ' + juggler
+}
+
 function ozet (st, neden) {
   const dongu = gecikme ? 'olay döngüsü gecikmesi (dosya başından) en çok ' + Math.round(gecikme.max / 1e6) + ' ms' : ''
   const ilk = (re) => {
@@ -137,6 +159,8 @@ function ozet (st, neden) {
     'domcontentloaded ' + ilk(/ domcontentloaded/),
     'load ' + (st.yuklendi ? (st.yuklendi - st.t0) + ' ms' : 'yok'),
     'açık sayfa ' + sayfalar.filter((x) => x.sayfa && !x.sayfa.isClosed()).length,
+    protokolOzet(st),
+    'fission ' + (process.env.TELSIZ_E2E_FISSION === '0' ? 'kapalı' : 'varsayılan'),
     dongu
   ].join(', ')
 }

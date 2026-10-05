@@ -92,6 +92,8 @@ function chromiumLaunchOptions (extraArgs) {
 function launchOptions (chromiumArgs) {
   if (BROWSER === 'chromium') return chromiumLaunchOptions(chromiumArgs)
   const options = { headless: process.env.TELSIZ_E2E_HEADED !== '1' }
+  // Geçici tanılama: TELSIZ_E2E_FISSION=0 ile Firefox site yalıtımı (Fission) kapalı başlar
+  if (BROWSER === 'firefox' && process.env.TELSIZ_E2E_FISSION === '0') options.env = Object.assign({}, process.env, { MOZ_FORCE_DISABLE_FISSION: '1' })
   if (BROWSER === 'firefox') {
     options.firefoxUserPrefs = {
       'media.navigator.streams.fake': true,

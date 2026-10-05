@@ -76,7 +76,7 @@ jobs:
             ad: Firefox
           - tarayici: webkit
             ad: WebKit
-          # Geçici tanılama: Firefox ilk sayfa gezinmesi (iz ve service worker A/B)
+          # Geçici tanılama: Firefox gezinme izi, Fission varsayılan ve kapalı (A/B)
           - tarayici: firefox
             ad: Firefox iz 1
             iz: '1'
@@ -102,35 +102,37 @@ jobs:
             ad: Firefox iz 8
             iz: '1'
           - tarayici: firefox
-            ad: Firefox iz 9
+            ad: Firefox iz fission-off 1
             iz: '1'
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz 10
+            ad: Firefox iz fission-off 2
             iz: '1'
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 1
+            ad: Firefox iz fission-off 3
             iz: '1'
-            sw: block
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 2
+            ad: Firefox iz fission-off 4
             iz: '1'
-            sw: block
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 3
+            ad: Firefox iz fission-off 5
             iz: '1'
-            sw: block
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 4
+            ad: Firefox iz fission-off 6
             iz: '1'
-            sw: block
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 5
+            ad: Firefox iz fission-off 7
             iz: '1'
-            sw: block
+            fission: '0'
           - tarayici: firefox
-            ad: Firefox iz sw-block 6
+            ad: Firefox iz fission-off 8
             iz: '1'
-            sw: block
+            fission: '0'
     steps:
       - name: Depoyu al
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -149,12 +151,25 @@ jobs:
       - name: Tarayıcıyı ve sistem bağımlılıklarını kur
         run: npx playwright install --with-deps ${{ matrix.tarayici }}
 
+      # Geçici tanılama: Juggler'ın FrameTree.js dosyasındaki hata satırı (548) çevresi
+      - name: Juggler FrameTree.js (geçici)
+        if: matrix.ad == 'Firefox iz 1'
+        run: |
+          d=$(ls -d ~/.cache/ms-playwright/firefox-*/firefox | head -n 1)
+          for ja in "$d/omni.ja" "$d/browser/omni.ja"; do
+            f=$(unzip -Z1 "$ja" 2>/dev/null | grep 'juggler/.*content/FrameTree.js$' | head -n 1)
+            if [ -n "$f" ]; then
+              echo "$ja $f"
+              unzip -p "$ja" "$f" | cat -n | sed -n '500,600p'
+            fi
+          done
+
       - name: Uçtan uca testler
         run: npm run test:e2e
         env:
           TELSIZ_E2E_BROWSER: ${{ matrix.tarayici }}
           TELSIZ_E2E_IZ: ${{ matrix.iz }}
-          TELSIZ_E2E_SW: ${{ matrix.sw }}
+          TELSIZ_E2E_FISSION: ${{ matrix.fission }}
 
       - name: Hata anındaki ekran görüntülerini ve izleri yükle
         if: failure()
