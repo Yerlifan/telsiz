@@ -135,8 +135,13 @@ function deriveKeys (password, kdf, onPercent) {
   })
 }
 
+// Arka planda süren türetme gücü yükseltmesi (upgradeKdf). Parolayla yapılan diğer işlemler önce onu bekler: aksi
+// halde eski ayarla türetip sunucudan haksız bir hatalı parola yanıtı alabilirler.
+let kdfUpgradePending = null
+
 // Ön giriş: hesabın türetme ayarları (hesap yoksa sunucu ayırt edilemeyen sahte ayar verir)
 async function fetchKdf (name) {
+  if (kdfUpgradePending) await kdfUpgradePending
   const res = await request('POST', '/api/prelogin', { token: '', body: { name: name } })
   if (res.status !== 200 || !res.data || !res.data.kdf || typeof res.data.kdf !== 'object') {
     throw textError(() => errorText(res, t('auth.loginFailed'), authOverrides()))
@@ -293,14 +298,22 @@ async function loginWithPassword (name, password, onPercent) {
 // Eski (zayıf) türetme ayarlı hesapta türetme gücünü girişten sonra arka planda yükseltir: aynı parola, yeni tuz ve
 // varsayılan N, aynı özel anahtar yeni ayarla türetilen anahtarla yeniden sarılır (POST /api/me/kdf). Giriş bunu
 // beklemez, başarısızlık girişi etkilemez ve sonraki girişte yeniden denenir. Diğer oturumlar kapanmaz.
-async function upgradeKdf (name, token, password, oldAuthKey, kdf, secretKey) {
+function upgradeKdf (name, token, password, oldAuthKey, kdf, secretKey) {
   if (!window.E2EE.kdf.needsUpgrade(kdf)) return
+  const run = runKdfUpgrade(name, token, password, oldAuthKey, kdf, secretKey)
+  kdfUpgradePending = run
+  run.then(() => {
+    if (kdfUpgradePending === run) kdfUpgradePending = null
+  })
+}
+
+async function runKdfUpgrade (name, token, password, oldAuthKey, kdf, secretKey) {
   let derived = null
   const secret = secretKey ? secretKey.slice() : null
   try {
     const newKdf = window.E2EE.kdf.newParams()
     derived = await deriveKeys(password, newKdf)
-    const body = { oldAuthKey: oldAuthKey, newAuthKey: derived.authKey, kdf: newKdf }
+    const body = { oldAuthKey: oldAuthKey, oldSalt: kdf.salt, newAuthKey: derived.authKey, kdf: newKdf }
     if (secret) body.wrappedKey = window.E2EE.identity.wrap(secret, derived.wrapKey)
     const res = await request('POST', '/api/me/kdf', { token: token, body: body })
     if (res.status === 200 && res.data) rememberLoginDevice(name, res.data.device)

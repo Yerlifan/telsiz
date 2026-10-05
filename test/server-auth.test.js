@@ -263,6 +263,21 @@ describe('kurulum ve kayıt', () => {
 })
 
 describe('ön giriş', () => {
+  it('sahte ayarın N değeri eski ayarlı hesapların payını izler, ad başına sabittir', () => {
+    const secret = auth.newServerSecret()
+    const names = h.times(2000).map((i) => 'ad' + i)
+    const share = (p) => names.filter((n) => auth.preloginKdf(secret, n, p).N === 16384).length / names.length
+    assert.equal(share(0), 0)
+    assert.equal(share(1), 1)
+    assert.ok(Math.abs(share(0.3) - 0.3) < 0.05, String(share(0.3)))
+    const a = auth.preloginKdf(secret, 'hayalet', 1)
+    const b = auth.preloginKdf(secret, 'hayalet', 0)
+    assert.deepEqual(auth.preloginKdf(secret, 'hayalet', 1), a)
+    // Eski ve yeni N için tuz da farklıdır (gerçek bir yükseltme gibi)
+    assert.notEqual(a.salt, b.salt)
+    assert.deepEqual([a.N, b.N], [16384, 65536])
+  })
+
   it('var olan ve olmayan hesap yanıtları aynı biçimde, sahte tuz ad başına sabit', async () => {
     let ctx = await h.startServer()
     try {
@@ -279,7 +294,8 @@ describe('ön giriş', () => {
       assert.deepEqual(Object.keys(fake.data.kdf), Object.keys(real.data.kdf))
       assert.match(fake.data.kdf.salt, /^[A-Za-z0-9_-]{22}$/)
       assert.equal(Buffer.from(fake.data.kdf.salt, 'base64url').length, 16)
-      assert.deepEqual([fake.data.kdf.N, fake.data.kdf.r, fake.data.kdf.p], [65536, 8, 1])
+      // Tek hesap eski ayarlı (pay 1): sahte ayar da eski N'yi taşır, N hesabın varlığını ele vermez
+      assert.deepEqual([fake.data.kdf.N, fake.data.kdf.r, fake.data.kdf.p], [16384, 8, 1])
       assert.equal(fake.text.length, real.text.length)
       assert.deepEqual(Object.keys(fake.headers).sort(), Object.keys(real.headers).sort())
 
@@ -290,7 +306,7 @@ describe('ön giriş', () => {
       await ctx.server.flush()
       const disk = readState(ctx)
       assert.match(disk.serverSecret, /^[0-9a-f]{64}$/)
-      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin:hayalet').digest().subarray(0, 16).toString('base64url')
+      const expected = crypto.createHmac('sha256', Buffer.from(disk.serverSecret, 'hex')).update('prelogin:hayalet\u0000eski').digest().subarray(0, 16).toString('base64url')
       assert.equal(fake.data.kdf.salt, expected)
       // Geçersiz adlar da biçimce aynı yanıtı alır
       const invalid = await prelogin(ctx, 'Ayşe Yılmaz')
@@ -1094,6 +1110,7 @@ describe('türetme gücü yükseltmesi', () => {
     const kdf = { salt: crypto.randomBytes(16).toString('base64url'), N: n || 65536, r: 8, p: 1 }
     return Object.assign({
       oldAuthKey: h.authKeyFor(password || h.PASSWORD),
+      oldSalt: h.KDF.salt,
       newAuthKey: h.deriveKeys(password || h.PASSWORD, kdf.salt, kdf.N).authKey,
       kdf,
       wrappedKey: h.keyPair().wrappedKey
@@ -1121,6 +1138,40 @@ describe('türetme gücü yükseltmesi', () => {
       // Ayar yalnızca güçlenir: aynı N ile ikinci yükseltme reddedilir
       const again = upgradeBody(h.PASSWORD, 65536, { oldAuthKey: body.newAuthKey })
       h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, again), 400, 'bad_kdf')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('yükseltme diğer cihazların giriş işaretini geçersiz kılmaz, saldırı sürerken o cihaz yine girebilir', async () => {
+    const ctx = await h.startServer({ loginFailLimit: 10 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const other = await h.login(ctx, 'sahip', h.PASSWORD, { 'x-forwarded-for': '192.0.2.1' })
+      h.expectStatus(other, 200)
+      const otherDevice = other.data.device
+      const body = upgradeBody()
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, body), 200)
+      // Saldırgan hesap adı sınırını doldurur, işaretsiz girişler durur
+      for (const i of h.times(20)) await loginRaw(ctx, 'sahip', 'f'.repeat(64), { 'x-forwarded-for': '198.51.100.' + (i + 1) })
+      h.expectStatus(await loginRaw(ctx, 'sahip', body.newAuthKey, { 'x-forwarded-for': '203.0.113.50' }), 429, 'rate_limited')
+      // Diğer cihazın yükseltmeden önce aldığı işaret geçerlidir ve korunur
+      const again = await h.request(ctx, 'POST', '/api/login', { headers: { 'x-forwarded-for': '203.0.113.51' }, body: { name: 'sahip', authKey: body.newAuthKey, device: otherDevice } })
+      h.expectStatus(again, 200)
+      assert.equal(again.data.device, otherDevice)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('yükseltme yalnızca varsayılan N\'ye ve bir kez yapılır, değişmiş tuzla gelen istek hatalı deneme sayılmaz', async () => {
+    const ctx = await h.startServer({ loginFailLimit: 2 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, upgradeBody(h.PASSWORD, 32768)), 400, 'bad_kdf')
+      // Başka bir cihaz yükseltmiş gibi: eski tuz tutmuyor, sayaç artmaz (sınır 2 olduğu hâlde üç kez denenir)
+      for (const i of h.times(3)) h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, upgradeBody(h.PASSWORD, 65536, { oldSalt: 'A'.repeat(22) + i })), 409, 'bad_kdf')
+      h.expectStatus(await h.post(ctx, '/api/me/kdf', owner.token, upgradeBody()), 200)
     } finally {
       await ctx.cleanup()
     }

@@ -185,7 +185,7 @@ test('birleştirme: başka bir frekansın adını taşıyan yeni frekans adsız 
   ])
 })
 
-test('birleştirme: başka alfabeden benzer harfler, görünmez karakterler, aksan ve I ile l farkı tanıdık adı taklit edemez', () => {
+test('birleştirme: bağlantıdaki ad yalnızca Latin ve Türkçe harf, rakam ve temel noktalamadan oluşabilir, benzer harfler tanıdık adı taklit edemez', () => {
   const { F } = load()
   const local = [{ origin: 'https://ekip.com', name: 'Kankalar' }]
   const incoming = [
@@ -196,6 +196,11 @@ test('birleştirme: başka alfabeden benzer harfler, görünmez karakterler, aks
     { origin: 'https://bosluk.com', name: 'Kanka lar.' },
     { origin: 'https://yunan.com', name: '\u03a4elsiz' },
     { origin: 'https://rakam.com', name: 'Te1siz' },
+    { origin: 'https://cherokee.com', name: 'Tels\u13a5z' },
+    { origin: 'https://lisu.com', name: '\ua4d4elsiz' },
+    { origin: 'https://etiket.com', name: 'Tel\udb40\udd00siz' },
+    { origin: 'https://unlem.com', name: 'Tels\u00a1z' },
+    { origin: 'https://kucukbuyuk.com', name: 'Telsi\u1d22' },
     { origin: 'https://baska.com', name: 'Kardeşler' }
   ]
   assert.deepEqual(plain(F.mergeLists(local, incoming, SELF, ['Telsiz'])), [
@@ -207,6 +212,11 @@ test('birleştirme: başka alfabeden benzer harfler, görünmez karakterler, aks
     { origin: 'https://bosluk.com', name: null },
     { origin: 'https://yunan.com', name: null },
     { origin: 'https://rakam.com', name: null },
+    { origin: 'https://cherokee.com', name: null },
+    { origin: 'https://lisu.com', name: null },
+    { origin: 'https://etiket.com', name: null },
+    { origin: 'https://unlem.com', name: null },
+    { origin: 'https://kucukbuyuk.com', name: null },
     { origin: 'https://baska.com', name: 'Kardeşler' }
   ])
 })

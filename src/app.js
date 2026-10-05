@@ -809,6 +809,14 @@ function publicUser (user) {
   return { id: user.id, name: user.name, role: user.role }
 }
 
+// Giriş cihazı işaretlerinin dönemi: parolanın son gerçekten değiştiği andaki karma. Türetme gücü yükseltmesi
+// (handleMyKdf) karmayı değiştirir ama parolayı değiştirmez, dönemi korur: diğer cihazların işaretleri geçerli kalır.
+// Parola değişince veya sıfırlanınca dönem yeni karmaya geçer ve önceki bütün işaretler geçersiz olur. Eski
+// kayıtlarda alan yoktur, dönem karmanın kendisidir.
+function deviceEpoch (user) {
+  return typeof user.credEpoch === 'string' ? user.credEpoch : user.passHash
+}
+
 // Hub bu kayıttan başkalarına gösterilen biçimi üretir (görünmez durum hiçbir zaman gönderilmez)
 function metaUser (user) {
   return {
@@ -956,6 +964,12 @@ async function createChatServer (options) {
   // işaretsiz girişleri durdurur.
   const loginFailLimiter = new auth.RateLimiter(config.loginFailLimit, config.loginFailWindowMs)
   const loginNameLimiter = new auth.RateLimiter(config.loginFailLimit * LOGIN_NAME_FAIL_FACTOR, config.loginFailWindowMs)
+  // Var olan hesapların sayaçları (hesap adı başına giriş sayacı ve hesap işlemlerinin 'p:' sayacı) ayrı tablolarda
+  // tutulur ve tablo dolduğunda hiç düşürülmez: anahtar sayısı hesap sayısıyla sınırlıdır. Böylece tabloyu çok sayıda
+  // farklı adla veya adresle doldurmak bir hesabın sayacını sıfırlayıp parola denemesini sürdürmeye yaramaz. Var
+  // olmayan adların sayaçları düşürülebilir tablodadır (loginNameLimiter).
+  const accountNameLimiter = new auth.RateLimiter(config.loginFailLimit * LOGIN_NAME_FAIL_FACTOR, config.loginFailWindowMs, Number.MAX_SAFE_INTEGER)
+  const accountFailLimiter = new auth.RateLimiter(config.loginFailLimit, config.loginFailWindowMs, Number.MAX_SAFE_INTEGER)
   const messageLimiter = new auth.RateLimiter(config.messageLimit, config.messageWindowMs)
   const uploadLimiter = new auth.RateLimiter(config.uploadLimit, config.uploadWindowMs)
   const adminLimiter = new auth.RateLimiter(config.adminLimit, config.adminWindowMs)
@@ -971,7 +985,7 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
-  const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, messageLimiter, uploadLimiter, adminLimiter,
+  const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
     signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
@@ -1568,7 +1582,7 @@ async function createChatServer (options) {
 
   // Hesabın kendi işlemlerinde (parola, kullanıcı adı, silme) hatalı authKey denemesi sınırı
   function accountBlocked (ctx, failKey) {
-    const blocked = loginFailLimiter.blocked(failKey, ctx.now)
+    const blocked = accountFailLimiter.blocked(failKey, ctx.now)
     if (blocked === 0) return false
     tooMany(ctx, blocked, 'detail.loginRate')
     return true
@@ -1594,6 +1608,7 @@ async function createChatServer (options) {
   // seçemez veya açamaz. Kişiden önce davranırsa kişi geçici parolayla giremez ve durumu fark eder.
   function applyCredentials (user, creds) {
     user.passHash = creds.passHash
+    user.credEpoch = creds.passHash
     user.kdf = creds.kdf
     user.publicKey = null
     user.wrappedKey = null
@@ -1627,6 +1642,18 @@ async function createChatServer (options) {
     ok(ctx, { available: !usersByKey.has(name), valid: true })
   }
 
+  // Henüz yükseltilmemiş (varsayılandan zayıf ayarlı) hesapların payı (auth.preloginKdf)
+  function legacyKdfShare () {
+    let all = 0
+    let legacy = 0
+    for (const u of state.users) {
+      if (u.deleted || !u.kdf) continue
+      all++
+      if (u.kdf.N < auth.KDF_DEFAULT_N) legacy++
+    }
+    return all === 0 ? 0 : legacy / all
+  }
+
   // İstemcinin parolasından anahtar türetmesi için tuz ve parametreler.
   // Hesap yoksa aynı biçimde, ad başına sabit sahte tuz döner. HMAC her durumda hesaplanır.
   function handlePrelogin (ctx) {
@@ -1634,9 +1661,9 @@ async function createChatServer (options) {
     const raw = ctx.body.name
     if (typeof raw !== 'string' || raw.length > 64) return fail(ctx, 400, 'bad_request')
     const name = auth.cleanUsername(raw)
-    const fakeSalt = auth.preloginSalt(state.serverSecret, name === null ? raw : name)
+    const fake = auth.preloginKdf(state.serverSecret, name === null ? raw : name, legacyKdfShare())
     const user = name === null ? null : usersByKey.get(name) || null
-    const kdf = user && user.kdf ? user.kdf : { salt: fakeSalt, N: auth.KDF_DEFAULT_N, r: 8, p: 1 }
+    const kdf = user && user.kdf ? user.kdf : fake
     ok(ctx, { kdf: { salt: kdf.salt, N: kdf.N, r: kdf.r, p: kdf.p } })
   }
 
@@ -1700,7 +1727,7 @@ async function createChatServer (options) {
     const token = createSession(user, ctx.req)
     store.saveState()
     hub.bumpMeta()
-    ok(ctx, { token, user: publicUser(user), device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
+    ok(ctx, { token, user: publicUser(user), device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)) })
   }
 
   // Başarısız giriş sayaçları. Geçerli giriş cihazı işareti olan istek yalnızca işaretin sayacına,
@@ -1709,25 +1736,26 @@ async function createChatServer (options) {
   // başına hesap adı sınırından fazla parola deneyemez.
   function loginFailKeys (ctx, name, user, device) {
     if (name === null) return []
-    const deviceId = user ? auth.loginDeviceId(state.serverSecret, user.id, user.passHash, device) : null
+    const deviceId = user ? auth.loginDeviceId(state.serverSecret, user.id, deviceEpoch(user), device) : null
     if (deviceId !== null) return [{ limiter: loginFailLimiter, key: 'd:' + deviceId }]
     return [
       { limiter: loginFailLimiter, key: 'n:' + name + '|' + requestIpKey(ctx.req) },
-      { limiter: loginNameLimiter, key: 'n:' + name }
+      { limiter: user ? accountNameLimiter : loginNameLimiter, key: 'n:' + name }
     ]
   }
 
   // Hesabın bütün başarısız giriş sayaçları (parola değişince veya sıfırlanınca)
   function resetLoginFails (name) {
     loginNameLimiter.reset('n:' + name)
+    accountNameLimiter.reset('n:' + name)
     loginFailLimiter.resetPrefix('n:' + name + '|')
   }
 
   // Geçerli giriş cihazı işareti korunur, yoksa yenisi verilir. İşaret parola karmasına bağlıdır
   // (auth.loginDeviceId): parola değişince veya sıfırlanınca önceki işaretler geçersiz olur.
   function loginDeviceFor (user, given) {
-    if (auth.loginDeviceId(state.serverSecret, user.id, user.passHash, given) !== null) return given
-    return auth.newLoginDevice(state.serverSecret, user.id, user.passHash)
+    if (auth.loginDeviceId(state.serverSecret, user.id, deviceEpoch(user), given) !== null) return given
+    return auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user))
   }
 
   async function handleLogin (ctx) {
@@ -1745,7 +1773,7 @@ async function createChatServer (options) {
     if (!good || usersByKey.get(name) !== user) {
       for (const f of failKeys) f.limiter.hit(f.key)
       // İşaretli denemeler de hesap adı sayacına eklenir (işaretsiz girişlerin sınırı ortaktır)
-      if (failKeys.length === 1) loginNameLimiter.hit('n:' + name)
+      if (failKeys.length === 1) accountNameLimiter.hit('n:' + name)
       return fail(ctx, 401, 'bad_credentials')
     }
     if (user.banned) return fail(ctx, 403, 'banned')
@@ -1821,7 +1849,7 @@ async function createChatServer (options) {
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, b.oldAuthKey)
     if (!good) {
-      loginFailLimiter.hit(failKey)
+      accountFailLimiter.hit(failKey)
       return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     }
     const hashUsed = user.passHash
@@ -1831,6 +1859,7 @@ async function createChatServer (options) {
     if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
     user.passHash = passHash
+    user.credEpoch = passHash
     user.kdf = kdf
     user.wrappedKey = hadKeys || newPair ? b.wrappedKey : null
     user.resetPending = false
@@ -1840,25 +1869,30 @@ async function createChatServer (options) {
       user.pv++
       hub.bumpMeta()
     }
-    loginFailLimiter.reset(failKey)
+    accountFailLimiter.reset(failKey)
     resetLoginFails(user.key)
     deleteSessions(sessionsOf(user.id).filter((s) => s !== ctx.session), 'invalid_token')
     store.saveState()
     // Önceki giriş cihazı işaretleri yeni parola karmasıyla geçersizdir, bu cihaz yenisini alır
-    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)) })
   }
 
-  // Türetme gücünü yükseltir: aynı parola, daha güçlü yeni ayar (yeni tuz, daha büyük N). İstemci girişten sonra eski
-  // ayarlı hesapta aynı özel anahtarı yeni ayarla türetilen anahtarla yeniden sarar. Parola aynı kaldığı için diğer
-  // oturumlar kapanmaz. Ayar yalnızca güçlenebilir, geçici paroladaki hesap önce parolasını değiştirmelidir. Önceki
-  // giriş cihazı işaretleri yeni karmayla geçersizdir, bu cihaz yenisini alır.
+  // Türetme gücünü yükseltir: aynı parola, varsayılan güçte yeni ayar (yeni tuz, N=KDF_DEFAULT_N). İstemci girişten
+  // sonra eski ayarlı hesapta aynı özel anahtarı yeni ayarla türetilen anahtarla yeniden sarar. Parola aynı kaldığı
+  // için diğer oturumlar kapanmaz ve giriş cihazı işaretleri geçerli kalır (deviceEpoch). Yükseltme hesap başına bir
+  // kez yapılabilir (yalnızca varsayılan N'ye), geçici paroladaki hesap önce parolasını değiştirmelidir. Sunucu yeni
+  // authKey'in aynı paroladan türetildiğini denetleyemez: parolayı bilen biri bu tek seferlik isteği parola
+  // değişikliği gibi kullanabilir, ama parolayı bilen biri zaten girip parolayı değiştirebilir.
   async function handleMyKdf (ctx) {
     const b = ctx.body
     const user = ctx.user
     if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
     if (!auth.isAuthKey(b.newAuthKey)) return fail(ctx, 400, 'bad_auth_key')
     const kdf = auth.cleanKdf(b.kdf)
-    if (kdf === null || !user.kdf || kdf.N <= user.kdf.N || kdf.salt === user.kdf.salt) return fail(ctx, 400, 'bad_kdf')
+    if (kdf === null || !user.kdf || kdf.N !== auth.KDF_DEFAULT_N || kdf.N <= user.kdf.N || kdf.salt === user.kdf.salt) return fail(ctx, 400, 'bad_kdf')
+    // oldAuthKey'in türetildiği tuz: ayar bu arada değiştiyse (başka bir cihaz yükseltti) istek başarısız giriş
+    // sayılmadan reddedilir
+    if (b.oldSalt !== user.kdf.salt) return fail(ctx, 409, 'bad_kdf')
     const hadKeys = user.publicKey !== null
     const noWrapped = b.wrappedKey === undefined || b.wrappedKey === null
     if (b.publicKey !== undefined || (hadKeys ? !auth.isWrappedKey(b.wrappedKey) : !noWrapped)) return fail(ctx, 400, 'bad_keys')
@@ -1866,7 +1900,7 @@ async function createChatServer (options) {
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, b.oldAuthKey)
     if (!good) {
-      loginFailLimiter.hit(failKey)
+      accountFailLimiter.hit(failKey)
       return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
     }
     const hashUsed = user.passHash
@@ -1874,14 +1908,15 @@ async function createChatServer (options) {
     const passHash = await gatedHash(() => auth.hashPassword(b.newAuthKey, config.scryptN))
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
-    if (user.passHash !== hashUsed || user.kdf !== kdfUsed || user.resetPending === true) return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    if (user.passHash !== hashUsed || user.kdf !== kdfUsed || user.resetPending === true) return fail(ctx, 409, 'bad_kdf')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
+    user.credEpoch = deviceEpoch(user)
     user.passHash = passHash
     user.kdf = kdf
     if (hadKeys) user.wrappedKey = b.wrappedKey
-    loginFailLimiter.reset(failKey)
+    accountFailLimiter.reset(failKey)
     store.saveState()
-    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, user.passHash) })
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)) })
   }
 
   // Parola sıfırlamasından sonra (sarılmış anahtar yokken) yeni anahtar çifti yüklenir
@@ -1929,12 +1964,12 @@ async function createChatServer (options) {
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, ctx.body.authKey)
     if (!good) {
-      loginFailLimiter.hit(failKey)
+      accountFailLimiter.hit(failKey)
       return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
     }
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
-    loginFailLimiter.reset(failKey)
+    accountFailLimiter.reset(failKey)
     if (name !== user.name) {
       if (usersByKey.has(name)) return fail(ctx, 409, 'name_taken')
       usersByKey.delete(user.key)
@@ -1990,13 +2025,13 @@ async function createChatServer (options) {
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, ctx.body.authKey)
     if (!good) {
-      loginFailLimiter.hit(failKey)
+      accountFailLimiter.hit(failKey)
       return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
     }
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
     if (user.role === 'owner') return fail(ctx, 403, 'owner_cannot_delete')
-    loginFailLimiter.reset(failKey)
+    accountFailLimiter.reset(failKey)
     deleteAccount(user)
     return okDurable(ctx, { ok: true })
   }
@@ -2939,7 +2974,7 @@ async function createChatServer (options) {
     if (target.deleted) return fail(ctx, 404, 'user_not_found')
     applyCredentials(target, creds)
     resetLoginFails(target.key)
-    loginFailLimiter.reset('p:' + target.id)
+    accountFailLimiter.reset('p:' + target.id)
     deleteSessions(sessionsOf(target.id), 'invalid_token')
     store.saveState()
     hub.bumpMeta()

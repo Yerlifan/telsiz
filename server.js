@@ -441,6 +441,7 @@ async function resetPasswordCli (args) {
     // Kişisel anahtarlar silinir, kullanıcı sonraki girişte yeni anahtar çifti üretir.
     const creds = await auth.newCredentials(CLI_SCRYPT_N)
     user.passHash = creds.passHash
+    user.credEpoch = creds.passHash
     user.kdf = creds.kdf
     user.publicKey = null
     user.wrappedKey = null

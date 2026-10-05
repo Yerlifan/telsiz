@@ -191,6 +191,16 @@ function frekansNameKey (name) {
   return mapped.replace(/rn/g, 'm').replace(/vv/g, 'w')
 }
 
+// Bağlantıyla gelen bir frekans adı yalnızca Latin harfleri, Türkçe harfler, rakamlar, boşluk ve temel noktalamadan
+// oluşabilir. Başka alfabelerden harfler, görünmez ve yön karakterleri, benzer görünen simgeler içeren ad alınmaz,
+// frekansın adresi görünür (kişi isterse adı kendisi verir). Benzer harf listesi hiçbir zaman eksiksiz olamayacağı
+// için bağlantıdaki adlarda izin listesi kullanılır.
+const FREKANS_LINK_NAME_RE = /^[A-Za-z0-9ÇĞİÖŞÜÂÎÛçğıöşüâîû .,'&():_-]*$/
+
+function frekansLinkNameOk (name) {
+  return typeof name === 'string' && FREKANS_LINK_NAME_RE.test(name)
+}
+
 // Gelen listeyi yerel listeye ekler. Yerelde zaten olan frekansın adı korunur (başka bir kökenden gelen
 // ad yerel adı ezemez), yeni frekanslar gelen adla eklenir. Yeni bir frekansın adı listedeki başka bir frekansın
 // veya reserved içindeki bir adın (açık frekansın adı) aynısıysa ad alınmaz ve adresi görünür: gelen liste tanıdık
@@ -211,7 +221,7 @@ function frekansMergeLists (local, incoming, exclude, reserved) {
   frekansSanitizeList(incoming, exclude).forEach((item) => {
     if (out.length >= FREKANS_MAX_ITEMS || Object.prototype.hasOwnProperty.call(known, item.origin)) return
     known[item.origin] = true
-    const taken = item.name && names[frekansNameKey(item.name)]
+    const taken = item.name && (!frekansLinkNameOk(item.name) || names[frekansNameKey(item.name)])
     const clean = taken ? { origin: item.origin, name: null } : item
     addName(clean.name)
     out.push(clean)

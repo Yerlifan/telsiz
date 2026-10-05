@@ -215,6 +215,7 @@ test('eski ayarlı hesapta girişten sonra türetme gücü arka planda aynı par
   assert.deepEqual([body.kdf.N, body.kdf.r, body.kdf.p], [65536, 8, 1])
   assert.notEqual(body.kdf.salt, KDF.salt)
   assert.equal(body.oldAuthKey, sandbox.__oldKeys.authKey)
+  assert.equal(body.oldSalt, KDF.salt)
   sandbox.__newKdf = body.kdf
   const fresh = await run("deriveKeys('Parolam-2026', __newKdf)")
   assert.equal(body.newAuthKey, fresh.authKey)
@@ -241,4 +242,39 @@ test('güçlü ayarlı hesapta ve geçici parolada yükseltme isteği gönderilm
     await settle()
     assert.equal(sandbox.__requests.some((r) => r.path === '/api/me/kdf'), false)
   }
+})
+
+test('arka plandaki yükseltme sürerken başlayan parola işlemi önce onun bitmesini bekler', async () => {
+  const { sandbox, run } = load()
+  saltedDerive(run)
+  sandbox.__kdf = KDF
+  sandbox.__oldKeys = await run("deriveKeys('Parolam-2026', __kdf)")
+  run('__pair = window.E2EE.identity.generate()')
+  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __oldKeys.wrapKey) })')
+  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: KDF } }
+  sandbox.__responses['/api/login'] = { status: 200, data: { token: 't1', user: { id: 4, name: 'ece' }, keys } }
+  // Yükseltme yanıtı elle bırakılır
+  let release = null
+  sandbox.__kdfReply = new Promise((resolve) => {
+    release = resolve
+  })
+  run(`const __plainRequest = request
+  request = function (method, path, opts) {
+    if (path === '/api/me/kdf') {
+      __requests.push({ path: path, body: opts && opts.body })
+      return __kdfReply
+    }
+    return __plainRequest(method, path, opts)
+  }`)
+  await run("loginWithPassword('ece', 'Parolam-2026')")
+  await settle()
+  assert.equal(sandbox.__requests.filter((r) => r.path === '/api/me/kdf').length, 1)
+  const before = sandbox.__requests.length
+  const pending = run("fetchKdf('ece')")
+  await settle()
+  // Yükseltme bitmeden ön giriş istenmez
+  assert.equal(sandbox.__requests.length, before)
+  release({ status: 200, data: { ok: true } })
+  await pending
+  assert.equal(sandbox.__requests[sandbox.__requests.length - 1].path, '/api/prelogin')
 })

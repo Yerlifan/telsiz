@@ -257,6 +257,17 @@ function preloginSalt (secretHex, name) {
   return mac.subarray(0, KDF_SALT_BYTES).toString('base64url')
 }
 
+// Var olmayan hesabın sahte türetme ayarı. Önceki sürümlerde oluşturulan ve henüz yükseltilmemiş hesaplar
+// KDF_LEGACY_N kullanır: ad başına sabit bir sayı, sunucudaki eski ayarlı hesapların payının altındaysa sahte ayar
+// da eski N ve ona ait tuzu taşır. Böylece ön giriş yanıtının N değeri hesabın varlığını ele vermez. Pay düştükçe
+// bazı sahte ayarlar yeni N'ye ve yeni tuza geçer, bu da gerçek bir hesabın yükseltilmesiyle aynı görünür.
+const KDF_LEGACY_N = 16384
+function preloginKdf (secretHex, name, legacyShare) {
+  const pick = crypto.createHmac('sha256', Buffer.from(secretHex, 'hex')).update('prelogin-n:' + name, 'utf8').digest().readUInt32BE(0) / 4294967296
+  const legacy = pick < legacyShare
+  return { salt: preloginSalt(secretHex, legacy ? name + '\u0000eski' : name), N: legacy ? KDF_LEGACY_N : KDF_DEFAULT_N, r: KDF_R, p: KDF_P }
+}
+
 // Giriş cihazı işareti: başarılı girişte verilir, '<kimlik>.<HMAC>' biçimindedir. Parola veya oturum
 // yerine geçmez, yalnızca hesap başına başarısız giriş sınırı dolduğunda daha önce giriş yapmış cihazın
 // denemeye devam edebilmesini sağlar (ad bilen birinin hesabı kilitlemesi engellenir).
@@ -555,10 +566,10 @@ class RateLimiter {
 
   // Anahtarlar son kullanım sırasıyla tutulur. Tablo doluysa en uzun süredir kullanılmayan anahtar
   // düşürülür: çok sayıda farklı adresten gelen istekler tabloyu doldurup yeni istemcileri kilitleyemez.
-  // O an sınırda olan (engelleyen) anahtarlar düşürülmez: en eski EVICT_SCAN anahtar içinden süresi dolmuş veya
-  // sınırda olmayan ilk anahtar seçilir, hepsi sınırdaysa en eskisi düşer. Böylece tabloyu farklı anahtarlarla
-  // doldurmak bir hesabın başarısız giriş sayacını sıfırlamaz (bunun için en eski EVICT_SCAN anahtarın da
-  // sınırda olması gerekir).
+  // O an sınırda olan (engelleyen) anahtarlar öncelikle korunur: en eski EVICT_SCAN anahtar içinden süresi dolmuş
+  // veya sınırda olmayan ilk anahtar seçilir, hepsi sınırdaysa en eskisi düşer. Bu, sınırın hemen altında tutulan bir
+  // sayacı korumaz: var olan hesapların sayaçları bu yüzden hiç düşürmeyen ayrı tablolardadır (src/app.js
+  // accountNameLimiter, accountFailLimiter).
   evict (now) {
     let scanned = 0
     let victim = null
@@ -685,6 +696,7 @@ module.exports = {
   deriveAuthKey,
   newCredentials,
   preloginSalt,
+  preloginKdf,
   newLoginDevice,
   loginDeviceId,
   newServerSecret,
