@@ -52,6 +52,8 @@ const MIC_BROWSERS = ['chromium', 'firefox']
 const BENIGN_CONSOLE = []
 // Geçici tanılama: service worker engelliyken Playwright'ın kendi uyarısı
 if (process.env.TELSIZ_E2E_SW === 'block') BENIGN_CONSOLE.push(/^Service Worker registration blocked by Playwright$/)
+// Geçici deney: SVG ısınma belgesi için Firefox'un kendi /favicon.ico isteği belgenin CSP'sine takılır
+if (process.env.TELSIZ_E2E_ISINMA === '/favicon.svg') BENIGN_CONSOLE.push(/^\[JavaScript Error: "Content-Security-Policy: The page’s settings blocked the loading of a resource \(img-src\) at http:\/\/127\.0\.0\.1:\d+\/favicon\.ico because it violates the following directive: “default-src 'none'”" \{file: "resource:\/\/\/modules\/FaviconLoader\.sys\.mjs" line: \d+\}\]$/)
 
 function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))

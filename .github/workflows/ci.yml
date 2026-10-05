@@ -76,7 +76,7 @@ jobs:
             ad: Firefox
           - tarayici: webkit
             ad: WebKit
-          # Geçici tanılama: Firefox gezinme izi, ısınma gezinmesi deneyi (A/B)
+          # Geçici tanılama: Firefox gezinme izi, ısınma gezinmesi hedefleri (A/B)
           - tarayici: firefox
             ad: Firefox iz 1
             iz: '1'
@@ -84,57 +84,59 @@ jobs:
             ad: Firefox iz 2
             iz: '1'
           - tarayici: firefox
-            ad: Firefox iz 3
+            ad: Firefox iz ısınma sw 1
             iz: '1'
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz 4
+            ad: Firefox iz ısınma sw 2
             iz: '1'
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 1
+            ad: Firefox iz ısınma sw 3
             iz: '1'
-            isinma: /favicon.svg
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 2
+            ad: Firefox iz ısınma sw 4
             iz: '1'
-            isinma: /favicon.svg
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 3
+            ad: Firefox iz ısınma sw 5
             iz: '1'
-            isinma: /favicon.svg
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 4
+            ad: Firefox iz ısınma sw 6
             iz: '1'
-            isinma: /favicon.svg
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 5
+            ad: Firefox iz ısınma sw 7
             iz: '1'
-            isinma: /favicon.svg
+            isinma: /sw.js
           - tarayici: firefox
-            ad: Firefox iz ısınma 6
-            iz: '1'
-            isinma: /favicon.svg
-          - tarayici: firefox
-            ad: Firefox iz ısınma 7
+            ad: Firefox iz ısınma svg 1
             iz: '1'
             isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz ısınma 8
+            ad: Firefox iz ısınma svg 2
             iz: '1'
             isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz ısınma 9
+            ad: Firefox iz ısınma svg 3
             iz: '1'
             isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz ısınma 10
+            ad: Firefox iz ısınma svg 4
             iz: '1'
             isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz ısınma 11
+            ad: Firefox iz ısınma svg 5
             iz: '1'
             isinma: /favicon.svg
           - tarayici: firefox
-            ad: Firefox iz ısınma 12
+            ad: Firefox iz ısınma svg 6
+            iz: '1'
+            isinma: /favicon.svg
+          - tarayici: firefox
+            ad: Firefox iz ısınma svg 7
             iz: '1'
             isinma: /favicon.svg
     steps:
@@ -163,7 +165,7 @@ jobs:
           ja="$d/omni.ja"
           f=$(unzip -Z1 "$ja" | grep 'juggler/.*content/FrameTree.js$' | head -n 1)
           echo "$ja $f"
-          unzip -p "$ja" "$f" | cat -n
+          unzip -p "$ja" chrome/juggler/content/content/PageAgent.js | cat -n | sed -n '50,120p;290,340p'
           echo "---- juggler dosyalarında commit, global ve belge öğesi olayları"
           for g in $(unzip -Z1 "$ja" | grep '^chrome/juggler/.*\.js$'); do
             unzip -p "$ja" "$g" | grep -n 'NavigationCommitted\|navigationCommitted\|_onGlobalObjectCleared\|document-element-inserted\|window-global-created\|inner-window\|frameAttached\|FrameAttached' | sed "s|^|$g:|"
