@@ -20,13 +20,17 @@ const UPLOAD_RETRY_MAX = 3
 const UPLOAD_RETRY_MS = 2000
 const UPLOAD_RETRY_MAX_MS = 16000
 const UPLOAD_WAIT_MAX_MS = 120000
-// busy_reserved beklerken reddedilen denemelerde boşa gönderilebilecek toplam bayt. Sunucu reddettiği isteğin
-// gövdesini de okuyup attığından her deneme dosyanın tamamını yeniden gönderir. Küçük dosya iki dakikalık beklemede
-// en çok UPLOAD_RESERVED_SENDS_MAX kez gönderilir. Bu kadar gönderim sınıra sığmıyorsa (büyük dosya) dosya en çok
-// UPLOAD_LARGE_WAITS_MS uzunluğu kadar, bu aralarla yeniden denenir.
+// Bir dosyanın reddedilen isteklerinde (busy, busy_reserved ve sıraya dönüşler) boşa gönderilebilecek toplam
+// bayt. Sunucu reddettiği isteğin gövdesini de okuyup attığından reddedilen her istek dosyanın tamamını gönderir.
+// Küçük dosya en çok UPLOAD_RESERVED_SENDS_MAX kez reddedilir. Bu kadar gönderim sınıra sığmıyorsa (büyük dosya)
+// dosya en çok UPLOAD_LARGE_WAITS_MS uzunluğundan bir fazla kez reddedilir, boşa giden veri dosya boyutunun dört
+// katını aşmaz.
 const UPLOAD_WASTE_MAX_BYTES = 8 * 1024 * 1024
 const UPLOAD_RESERVED_SENDS_MAX = 10
 const UPLOAD_LARGE_WAITS_MS = [8000, 30000, 60000]
+// Yükleme isteği sunucunun yükleme sınırına (429) takılınca bir kez bu kadar beklenip yeniden denenir. Sunucunun
+// sınırı kayan penceredir (varsayılan dakikada 10), pencere kadar beklemek en az bir hakkı boşaltır.
+const UPLOAD_RATE_WAIT_MS = 60000
 const UPLOAD_PARALLEL = 2
 const IMAGE_PARALLEL = 3
 const TOAST_MS = 5000

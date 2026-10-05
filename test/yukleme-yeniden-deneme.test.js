@@ -106,9 +106,20 @@ function virtualServer (env, reply) {
   })
   env.sandbox.__request = (method, url, options) => {
     const wait = limiter.consume('u1', clock.now)
-    const res = wait > 0 ? { status: 429, data: { error: 'rate_limited', code: 'rate_limited' } } : reply(options.binary, clock.now)
+    const out = wait > 0 ? { status: 429, data: { error: 'rate_limited', code: 'rate_limited' } } : reply(options.binary, clock.now)
+    // Süren yükleme: { after, res, done } yanıtı after ms sonra gelir, done yükleme bitince çağrılır
+    const res = out.after ? out.res : out
     log.push({ box: options.binary, at: clock.now, status: res.status })
-    return Promise.resolve(res)
+    if (!out.after) return Promise.resolve(res)
+    return new Promise((resolve) => {
+      timers.push({
+        at: clock.now + out.after,
+        resolve: () => {
+          if (out.done) out.done()
+          resolve(res)
+        }
+      })
+    })
   }
   // Bekleyen ilk zamanlayıcıya kadar saati ilerletir, yüklemeler bitince durur
   async function runAll () {
@@ -248,7 +259,7 @@ test('büyük dosya busy_reserved beklerken en çok üç kez uzun aralarla yenid
   assert.deepEqual(env.waits, [8000, 30000, 60000])
   const sent = env.calls.filter((c) => c.box === big).length * big.byteLength
   assert.equal(env.calls.length, 4)
-  assert.ok(sent <= 4 * big.byteLength)
+  assert.equal(sent, (env.run('UPLOAD_LARGE_WAITS_MS.length') + 1) * big.byteLength)
   assert.equal(env.run('state.activeUploads'), 0)
 })
 
@@ -263,4 +274,79 @@ test('küçük dosyanın iki dakikalık beklemesinde boşa giden bayt sınırı 
   assert.equal(a.status, 'error')
   assert.equal(env.calls.length, 10)
   assert.ok(env.calls.length * small.byteLength <= env.run('UPLOAD_WASTE_MAX_BYTES'))
+})
+
+test('küçük ve büyük dosyanın sınırı UPLOAD_WASTE_MAX_BYTES / UPLOAD_RESERVED_SENDS_MAX baytında ayrılır', async () => {
+  const limit = Math.floor(8 * 1024 * 1024 / 10)
+  for (const [size, sends] of [[limit, 10], [limit + 1, 4]]) {
+    const env = load()
+    const box = new Uint8Array(size)
+    const a = { status: 'queued', box }
+    env.sandbox.__atts = [a]
+    env.run('state.attachments = __atts')
+    env.run('pumpUploads()')
+    for (const res of Array(sends).fill(RESERVED)) await answer(env, box, res)
+    await settle()
+    assert.equal(a.status, 'error', String(size))
+    assert.equal(env.calls.length, sends, String(size))
+  }
+})
+
+test('busy ve busy_reserved retleri ortak bütçeden sayılır: küçük dosya en çok on kez reddedilir', async () => {
+  const env = load()
+  const small = new Uint8Array(512 * 1024)
+  const a = { status: 'queued', box: small }
+  env.sandbox.__atts = [a]
+  env.run('state.attachments = __atts')
+  env.run('pumpUploads()')
+  for (const res of [BUSY, BUSY, BUSY].concat(Array(7).fill(RESERVED))) await answer(env, small, res)
+  await settle()
+  assert.equal(a.status, 'error')
+  assert.equal(env.calls.length, 10)
+  assert.ok(env.calls.length * small.byteLength <= env.run('UPLOAD_WASTE_MAX_BYTES'))
+})
+
+test('başka bir yükleme bir yer tutarken on dosya tek tek yüklenir, tek ret dışında boşa gönderim olmaz ve 429 hatayla bitmez', async () => {
+  const env = load()
+  // Aynı hesabın başka bir oturumu bir yer tutuyor: hesap başına iki yer olduğundan bize aynı anda bir yer kalır
+  let inFlight = 0
+  let n = 0
+  const server = virtualServer(env, () => {
+    if (inFlight >= 1) return RESERVED
+    inFlight += 1
+    n += 1
+    return { after: 3000, res: okId(n % 10), done: () => { inFlight -= 1 } }
+  })
+  const atts = Array.from({ length: 10 }, (_, i) => ({ status: 'queued', box: 'dosya' + i }))
+  env.sandbox.__atts = atts
+  env.run('state.attachments = __atts')
+  env.run('pumpUploads()')
+  await server.runAll()
+  assert.deepEqual(atts.map((a) => a.status), Array(10).fill('done'), JSON.stringify(server.log))
+  assert.equal(server.log.filter((x) => x.status === 503).length, 1)
+  assert.ok(server.log.filter((x) => x.status === 429).length <= 1)
+  assert.equal(env.run('state.uploadHeld'), false)
+  assert.equal(env.run('state.activeUploads'), 0)
+})
+
+test('bekleyen dosya kaldırılınca bekleme hemen biter ve yeri sıradaki dosyaya geçer', async () => {
+  const env = load()
+  let n = 0
+  const server = virtualServer(env, (box) => (box === 'birinci' ? RESERVED : okId(++n)))
+  const a = { status: 'queued', box: 'birinci' }
+  const b = { status: 'queued', box: 'ikinci' }
+  env.sandbox.__atts = [a, b]
+  env.run('state.attachments = __atts')
+  env.run('state.uploadHeld = true')
+  env.run('pumpUploads()')
+  await settle()
+  assert.equal(a.status, 'retry')
+  assert.equal(env.run('state.activeUploads'), 1)
+  env.run('el.composerInput = { disabled: false }; focusNode = function () {}')
+  env.run('removeAttachment(__atts[0], true)')
+  await settle()
+  // Saat ilerlemeden ikinci dosya gönderildi
+  assert.equal(server.clock.now, 0)
+  assert.equal(b.status, 'done')
+  assert.equal(env.run('state.activeUploads'), 0)
 })
