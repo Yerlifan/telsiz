@@ -278,12 +278,36 @@ async function openBrowser (opts) {
   }
 }
 
-// page.goto varsayılan olarak load yerine domcontentloaded bekler. Firefox CI'da yeni profildeki ilk açılışta load
-// olayı zaman zaman süre sınırını aşıyor (1c3f98a, pageFor). Uygulamada load olayına bağlı iş yoktur, testler sayfanın
-// hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
+// page.goto varsayılan olarak load yerine domcontentloaded bekler. Uygulamada load olayına bağlı iş yoktur, testler
+// sayfanın hazır olduğunu zaten beklenen öğelerle doğrular. Açıkça waitUntil verilen çağrılar değişmez.
+//
+// Firefox'ta sayfanın ilk http gezinmesinden önce aynı kökendeki FIREFOX_WARMUP_PATH açılır. Sunucu her yanıtta
+// Cross-Origin-Opener-Policy: same-origin gönderir, bu yüzden about:blank belgesinden uygulamaya ilk geçiş tarama
+// bağlamını (BrowsingContext) yenisiyle değiştirir. Playwright 1.63'ün Firefox sürücüsü (Juggler) bu geçişte CI
+// ölçümlerinde yaklaşık 200 sayfada bir Page.navigationCommitted olayını yayımlamaz: yeni bağlamın boş ilk belgesi
+// bekleyen gezinme kimliğini tüketir (FrameTree.js satır 251 ve 273), ilk belge olduğu için de commit olayı bastırılır
+// (PageAgent.js satır 312). Belge yüklenir, ama Playwright gezinmeyi bitmemiş sayar, goto ve sonraki bütün tıklamalar
+// "navigation to finish" bekleyerek zaman aşımına uğrar. Isınmadan sonra testin kendi gezinmesi aynı tarama bağlamında
+// kalır. Isınmanın kendi commit olayı beklenmez, belgenin hazır olduğu sayfanın içinden okunur, yeni gezinme bekleyen
+// eski gezinmenin yerini alır. /sw.js uygulamayı çalıştırmaz ve CSP'si (img-src 'self') Firefox'un kendi /favicon.ico
+// isteğini konsola hata yazdırmadan geçirir.
+const FIREFOX_WARMUP_PATH = '/sw.js'
+
+async function firefoxWarmup (page, target) {
+  await page.evaluate((url) => { window.location.replace(url) }, target)
+  await page.waitForFunction((url) => window.location.href === url && document.readyState === 'complete', target, { timeout: LONG })
+}
+
 function domReadyGoto (page) {
   const goto = page.goto.bind(page)
-  page.goto = (url, options) => goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
+  let warmedUp = BROWSER !== 'firefox'
+  page.goto = async (url, options) => {
+    if (!warmedUp && /^https?:\/\//.test(String(url))) {
+      warmedUp = true
+      await firefoxWarmup(page, new URL(url).origin + FIREFOX_WARMUP_PATH)
+    }
+    return goto(url, Object.assign({ waitUntil: 'domcontentloaded' }, options || {}))
+  }
   return page
 }
 
@@ -404,8 +428,8 @@ async function setupWorld (opts) {
     const o2 = opts2 || {}
     const page = await tb.newPage(o2.label || who, Object.assign({}, o2, { person: P[who], extra: Object.assign({ 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' }, o2.extra || {}) }))
     // Sayfanın hazır olduğu uygulama görünümü ve bant ile beklenir, pencerenin load olayı beklenmez (uygulamada
-    // load olayına bağlı iş yok). Firefox'ta CI'da yeni sayfanın load olayı zaman zaman 30 saniyeyi aştı, bu
-    // durumda bekleyen kaynaklar test çıktısına yazılır (slowLoad).
+    // load olayına bağlı iş yok). Uygulama hazır olduktan sonra load gecikirse bekleyen kaynaklar test çıktısına
+    // yazılır (slowLoad). Firefox'ta ilk gezinmenin commit olayının kaybolması domReadyGoto içinde önlenir.
     await page.goto(srv.base + '/#anahtar=' + encodeURIComponent(keyCode), { timeout: LONG, waitUntil: 'domcontentloaded' })
     await page.waitForSelector('#app-view:not([hidden])', { timeout: LONG })
     await page.waitForSelector('#band-track .station[data-station]', { timeout: LONG })

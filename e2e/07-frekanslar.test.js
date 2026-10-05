@@ -211,7 +211,7 @@ test('telefon 390: menü ekrana sığar, bant ve Frekanslar sayfası yatay taşm
 test('bantta başka frekansı seçmek o sunucuya geçer, liste parçayla taşınır, dönüşte sıra korunur', async () => {
   const page = W.page
   await Promise.all([
-    page.waitForURL((url) => url.origin === W.other.base, { timeout: h.LONG }),
+    page.waitForURL((url) => url.origin === W.other.base, { timeout: h.LONG, waitUntil: 'domcontentloaded' }),
     h.clickStation(page, W.other.base)
   ])
   // İkinci sunucuda grup anahtarı yok: anahtar ekranı atlanır, uygulama ve bant açılır
@@ -235,7 +235,7 @@ test('bantta başka frekansı seçmek o sunucuya geçer, liste parçayla taşın
   // Önceki frekans düğmesi geri döner
   assert.equal(await page.getAttribute('#band-prev', 'aria-label'), 'Önceki frekans: Kankalar')
   await Promise.all([
-    page.waitForURL((url) => url.origin === W.w.base, { timeout: h.LONG }),
+    page.waitForURL((url) => url.origin === W.w.base, { timeout: h.LONG, waitUntil: 'domcontentloaded' }),
     page.click('#band-prev')
   ])
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
@@ -306,7 +306,7 @@ test('arka plan kipi: arayüz açılmadan okunmamış ve anma sayıları raporla
 test('arka plan kipi: geçersiz oturumda giriş gerekli bildirilir, oturum bilgisine dokunulmaz', async () => {
   const page = W.bg
   await page.evaluate(() => localStorage.setItem('telsiz.token', 'gecersiz-oturum'))
-  await page.reload()
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => window.__raporlar && window.__raporlar.some((r) => r.state === 'login'), null, { timeout: h.LONG })
   const r = await page.evaluate(() => ({ last: window.__raporlar[window.__raporlar.length - 1], token: localStorage.getItem('telsiz.token'), app: document.getElementById('app-view').hidden, auth: document.getElementById('auth-view').hidden }))
   assert.deepEqual(r.last, { origin: W.w.base, state: 'login', unread: 0, mention: 0, online: true, lastError: 'session', name: 'Kankalar', onlineUsers: null })
