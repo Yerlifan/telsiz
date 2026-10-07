@@ -107,7 +107,7 @@ const ELEMENT_IDS = [
   'radio-vad', 'radio-vad-state', 'radio-vad-bar',
   'radio-row', 'btn-mute', 'btn-mute-state', 'btn-deafen', 'btn-deafen-state', 'btn-screen', 'btn-screen-state',
   'voice-leave', 'voice-leave-state', 'radio-screen-note',
-  'btn-camera', 'btn-camera-state', 'radio-camera-note', 'radio-cam-live', 'radio-cam-live-text',
+  'btn-camera', 'btn-camera-state', 'radio-camera-note', 'radio-cam-bar', 'radio-cam-live', 'radio-cam-live-text', 'btn-camera-flip',
   'tvbar', 'drawer-backdrop', 'stations-sheet', 'stations-list',
   'people-sheet', 'members', 'members-count', 'members-online-title', 'members-online', 'members-offline-title', 'members-offline',
   'msg-menu', 'msg-menu-edit', 'msg-menu-delete',

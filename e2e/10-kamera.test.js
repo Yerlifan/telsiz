@@ -112,6 +112,12 @@ test('kamera açılır, öteki kişi kadroda canlı görüntü kutusunu görür,
   }, crewSel(mertId))
   assert.equal(own.mirrored, true)
   assert.match(own.transform, /^matrix\(-1/)
+  // Kamerayı Çevir yalnızca birden çok kamera varken görünür (sahte kamera sayısı tarayıcıya göre değişir)
+  const cameras = await mert.evaluate(async () => {
+    const list = await navigator.mediaDevices.enumerateDevices()
+    return list.filter((d) => d.kind === 'videoinput').length
+  })
+  await mert.waitForFunction((n) => document.getElementById('btn-camera-flip').hidden === (n < 2), cameras, { timeout: h.LONG })
   assert.notEqual(own.radius, '0px', 'görüntü kutusu yumuşak kare kalır')
   assert.equal(own.liveShown, true)
   assert.equal(own.liveText, 'Kameranız açık, odadaki herkes görüyor')
