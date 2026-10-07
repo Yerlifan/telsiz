@@ -11,6 +11,11 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 ### Değişiklikler
 
 - Kamera ilk açılışta ön kamerayı ister. Önceden telefonda tarayıcının seçtiği kamera, çoğunlukla arka kamera açılıyordu.
+- Kamera ızgarasındaki ve izlenen ekran paylaşımındaki Sığdır ve Doldur seçenekleri dar ekranda ve telefonda da görünür (yalnızca simge). Doldur artık Tam Ekran'dan ayrı bir simge kullanır.
+
+### Düzeltmeler
+
+- Kamerayı Çevir bazı telefonlarda ilk basıştan sonra devre dışı kalıyordu: telefon ikinci kamera isteğini ilk kamera açıkken yanıtsız bekletiyordu. İstek 2,5 saniyede yanıtlanmazsa eski kamera bırakılıp yeniden denenir, böyle bir telefonda sonraki geçişler eski kamerayı baştan bırakır. Kamera bırakıldıktan sonraki istek de en fazla 10 saniye bekler, değiştirme hiçbir durumda yarıda takılı kalmaz.
 
 ## [2.4.0]
 

@@ -1098,11 +1098,27 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
    8. Kesme noktaları
    ========================================================= */
 
-/* Orta (999 px ve altı): yerleşim düğmeleri ve yazıyor bilgisi gizli, başlık etiketleri kısalır */
+/* Orta (999 px ve altı): yazıyor bilgisi gizli, Sığdır ve Doldur yalnızca simgedir (erişilebilir adları korunur) */
 @media (max-width: 999px) {
-  .cast-head .cast-fit,
   .cast-dock-typing {
     display: none;
+  }
+
+  .cast-fit .cast-button {
+    padding: 0 0.5rem;
+  }
+
+  .cast-fit .cast-button .icon {
+    margin-right: 0;
+  }
+
+  .cast-fit .cast-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .cast-volume-note {
@@ -1152,6 +1168,11 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 
   .cast-pick {
     margin: 0 0.5rem 0.25rem 0;
+  }
+
+  /* Başlık kısalır (üç nokta), düğmeler 360 px genişlikte de başlıkla aynı satırda kalır */
+  .cast-titles {
+    flex-basis: 6rem;
   }
 
   .cast-head > .cast-button {

@@ -11,6 +11,11 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 ### Changes
 
 - The camera asks for the front camera when it first turns on. Before, phones opened the camera the browser picked, usually the rear camera.
+- The Fit and Fill options of the camera grid and of a watched screen share also show on narrow screens and phones (icon only). Fill now uses an icon separate from Fullscreen.
+
+### Fixes
+
+- Flip Camera stayed disabled after the first press on some phones: the phone left the second camera request unanswered while the first camera was open. If the request is not answered within 2.5 seconds, the old camera is released and the request is tried again, and on such a phone later switches release the old camera from the start. The request after the camera is released also waits at most 10 seconds, so a switch never stays stuck.
 
 ## [2.4.0]
 

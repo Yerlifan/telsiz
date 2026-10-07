@@ -426,7 +426,8 @@ function castBuildStage () {
   n.fitGroup.setAttribute('role', 'group')
   setLiveAttr(n.fitGroup, 'aria-label', () => t('cast.layoutLabel'))
   n.fitContain = castHeadButton('cast-fit-button', 'i-fit', () => t('screen.fit'))
-  n.fitCover = castHeadButton('cast-fit-button', 'i-expand', () => t('screen.fill'))
+  // Doldur, tam ekran simgesinden (i-expand) ayrı bir simgedir, dar ekranda düğmeler yalnızca simgedir
+  n.fitCover = castHeadButton('cast-fit-button', 'i-fill', () => t('screen.fill'))
   n.fitContain.addEventListener('click', () => {
     castSetFit('contain')
   })
