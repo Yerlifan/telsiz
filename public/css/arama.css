@@ -216,6 +216,12 @@
   background-color: var(--surface-3);
 }
 
+/* Kamerayı Çevir kamera değiştirilirken */
+.call-control.is-flip[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.55;
+}
+
 .call-control.is-danger {
   border-color: transparent;
   background-color: var(--danger-fill);

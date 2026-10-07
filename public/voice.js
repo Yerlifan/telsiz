@@ -687,12 +687,46 @@ window.VoiceClient = (function () {
   }
 
   // getUserMedia isteği (yalnızca görüntü, ses ayrı mikrofon hattındadır) ve izin alındıktan sonra izine
-  // applyConstraints ile uygulanan sınırlar
-  function cameraConstraints () {
-    return {
-      audio: false,
-      video: { width: { ideal: CAMERA_SIZE.width }, height: { ideal: CAMERA_SIZE.height }, frameRate: { ideal: CAMERA_SIZE.frameRate, max: CAMERA_SIZE.frameRate } }
+  // applyConstraints ile uygulanan sınırlar. opt: { facing: 'user' | 'environment', deviceId, exact }. Varsayılan
+  // ön kameradır (telefonda arka kamera açılmasın), kamerası yönsüz bilgisayarda tercih yalnızca ipucudur.
+  // exact: kamera değiştirirken istenen kamera yoksa istek reddedilir (aynı kamera yeniden açılmasın).
+  function cameraConstraints (opt) {
+    var o = opt || {}
+    var video = { width: { ideal: CAMERA_SIZE.width }, height: { ideal: CAMERA_SIZE.height }, frameRate: { ideal: CAMERA_SIZE.frameRate, max: CAMERA_SIZE.frameRate } }
+    if (typeof o.deviceId === 'string' && o.deviceId) {
+      video.deviceId = o.exact ? { exact: o.deviceId } : { ideal: o.deviceId }
+    } else {
+      var facing = o.facing === 'environment' ? 'environment' : 'user'
+      video.facingMode = o.exact ? { exact: facing } : { ideal: facing }
     }
+    return { audio: false, video: video }
+  }
+
+  // İzin yönü: önce izin ayarı, sonra tek değerli yetenek, en son cihaz adı (Android "facing back" gibi).
+  // Yalnızca 'user' ve 'environment' döner, bilinmiyorsa null (bilgisayar kamerası çoğunlukla yön bildirmez).
+  function cameraFacingOf (settings, caps, label) {
+    var f = settings && settings.facingMode
+    if (f === 'user' || f === 'environment') return f
+    var c = caps && caps.facingMode
+    if (Array.isArray(c) && c.length === 1 && (c[0] === 'user' || c[0] === 'environment')) return c[0]
+    var name = typeof label === 'string' ? label.toLowerCase() : ''
+    if (/\b(back|rear|environment)\b/.test(name)) return 'environment'
+    if (/\b(front|user)\b/.test(name)) return 'user'
+    return null
+  }
+
+  // Kamera değiştirme denemeleri sırayla: yönü bilinen kamerada karşı yön, birden çok kamerada listedeki sıradaki
+  // kamera. Yön isteği reddedilirse (cihaz yön bildirmiyor) sıradaki kamera denenir. Seçenek yoksa boş dizi.
+  function cameraSwitchTargets (facing, deviceId, ids) {
+    var list = Array.isArray(ids) ? ids.filter(function (id) { return typeof id === 'string' && id }) : []
+    var out = []
+    if (facing === 'user' || facing === 'environment') out.push({ facing: facing === 'user' ? 'environment' : 'user', exact: true })
+    if (list.length >= 2) {
+      var i = list.indexOf(deviceId)
+      var next = list[(i + 1) % list.length]
+      if (next !== deviceId) out.push({ deviceId: next, exact: true })
+    }
+    return out
   }
 
   function cameraTrackConstraints () {
@@ -881,9 +915,14 @@ window.VoiceClient = (function () {
       linkProbe: null,
       // Kamera: yerel kamera (yalnızca canlıyken), açılırken bekleyen iş, sunucuya giden açık bilgisi kuyruğu,
       // metada kendi kameramızın açık görüldüğü (sunucu kapatırsa durdurmak için), zarf sınırı veya red yüzünden
-      // kamera gönderilmeyen eşler
+      // kamera gönderilmeyen eşler. Kamera değiştirme: süren iş, birden çok kamera olup olmadığı, sayfa açıkken
+      // hatırlanan son seçim (kamera kapatılıp açılınca aynı kamera istenir, ilk açılış ön kameradır)
       camera: null,
       cameraStarting: null,
+      cameraSwitching: null,
+      cameraCanSwitch: false,
+      cameraPick: null,
+      cameraDevicesWatch: null,
       cameraGen: 0,
       cameraError: null,
       cameraPost: Promise.resolve(),
@@ -1265,7 +1304,10 @@ window.VoiceClient = (function () {
         reason: sup.reason,
         state: cam ? 'on' : st.cameraStarting ? 'starting' : 'off',
         preview: cam ? cam.preview : null,
-        errorCode: st.cameraError
+        errorCode: st.cameraError,
+        facing: cam ? cam.facing : null,
+        canSwitch: !!cam && st.cameraCanSwitch,
+        switching: !!cam && !!st.cameraSwitching
       }
     }
 
@@ -4450,7 +4492,7 @@ window.VoiceClient = (function () {
     async function getCamera () {
       var md = navigator.mediaDevices
       try {
-        return await md.getUserMedia(cameraConstraints())
+        return await md.getUserMedia(cameraConstraints(st.cameraPick))
       } catch (e) {
         if (!e || (e.name !== 'TypeError' && e.name !== 'OverconstrainedError')) throw e
       }
@@ -4507,13 +4549,27 @@ window.VoiceClient = (function () {
     }
 
     function beginCamera (stream) {
+      var cam = cameraFrom(stream, null)
+      if (!cam) {
+        postCamera(false)
+        throw makeError('camera_failed')
+      }
+      st.camera = cam
+      syncAllSenders()
+      watchCameraDevices()
+      emit()
+    }
+
+    // Akıştaki görüntü izinden kamera kaydı. İz yoksa veya bitmişse null (akış bırakılır). asked: değiştirirken
+    // istenen yön, iz yönünü bildirmezse o kabul edilir.
+    function cameraFrom (stream, asked) {
       var track = stream.getVideoTracks()[0] || null
       stream.getTracks().forEach(function (t) {
         if (t !== track) stopTrack(t)
       })
       if (!track || track.readyState === 'ended') {
-        postCamera(false)
-        throw makeError('camera_failed')
+        if (track) stopTrack(track)
+        return null
       }
       try {
         if ('contentHint' in track) track.contentHint = 'motion'
@@ -4521,7 +4577,17 @@ window.VoiceClient = (function () {
       try {
         if (typeof track.applyConstraints === 'function') Promise.resolve(track.applyConstraints(cameraTrackConstraints())).catch(noop)
       } catch (e) {}
-      var cam = { track: track, stream: new MediaStream([track]), preview: new MediaStream([track]), onEnded: null }
+      var settings = null
+      var caps = null
+      try {
+        settings = typeof track.getSettings === 'function' ? track.getSettings() : null
+      } catch (e) {}
+      try {
+        caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null
+      } catch (e) {}
+      var facing = cameraFacingOf(settings, caps, track.label) || asked || null
+      var deviceId = settings && typeof settings.deviceId === 'string' && settings.deviceId ? settings.deviceId : null
+      var cam = { track: track, stream: new MediaStream([track]), preview: new MediaStream([track]), onEnded: null, facing: facing, deviceId: deviceId }
       // Kamera çıkarıldı veya başka uygulama aldı
       cam.onEnded = function () {
         if (st.camera !== cam) return
@@ -4529,9 +4595,179 @@ window.VoiceClient = (function () {
         stopCamera('ended', false)
       }
       track.addEventListener('ended', cam.onEnded)
-      st.camera = cam
-      syncAllSenders()
+      return cam
+    }
+
+    // Bu cihazdaki kameraların kimlikleri (izin alındıktan sonra dolu gelir). Okunamazsa boş dizi.
+    function cameraDeviceIds () {
+      var md = navigator.mediaDevices
+      if (!md || typeof md.enumerateDevices !== 'function') return Promise.resolve([])
+      return Promise.resolve().then(function () {
+        return md.enumerateDevices()
+      }).then(function (list) {
+        var ids = []
+        if (list && typeof list.forEach === 'function') {
+          list.forEach(function (d) {
+            if (d && d.kind === 'videoinput' && typeof d.deviceId === 'string' && d.deviceId && ids.indexOf(d.deviceId) < 0) ids.push(d.deviceId)
+          })
+        }
+        return ids
+      }, function () {
+        return []
+      })
+    }
+
+    // Kamera değiştirme düğmesi yalnızca birden çok kamera varken görünür. Kamera açıkken cihaz takılıp
+    // çıkarılınca yeniden sayılır.
+    function refreshCameraDevices () {
+      var cam = st.camera
+      if (!cam) return Promise.resolve()
+      return cameraDeviceIds().then(function (ids) {
+        if (st.camera !== cam) return
+        var can = ids.length >= 2
+        if (can === st.cameraCanSwitch) return
+        st.cameraCanSwitch = can
+        emit()
+      })
+    }
+
+    function watchCameraDevices () {
+      refreshCameraDevices()
+      var md = navigator.mediaDevices
+      if (st.cameraDevicesWatch || !md || typeof md.addEventListener !== 'function') return
+      st.cameraDevicesWatch = function () { refreshCameraDevices() }
+      try {
+        md.addEventListener('devicechange', st.cameraDevicesWatch)
+      } catch (e) {
+        st.cameraDevicesWatch = null
+      }
+    }
+
+    function unwatchCameraDevices () {
+      var fn = st.cameraDevicesWatch
+      st.cameraDevicesWatch = null
+      st.cameraCanSwitch = false
+      if (!fn) return
+      try {
+        navigator.mediaDevices.removeEventListener('devicechange', fn)
+      } catch (e) {}
+    }
+
+    // Değiştirirken yeni kamera eski kamera açıkken istenir (görüntü kesilmesin). Aynı anda iki kamerayı açamayan
+    // cihazda (çoğu telefon) eski kamera bırakılıp yeniden denenir, cam.released bunu kaydeder.
+    async function openSwitchCamera (cam, opt) {
+      var md = navigator.mediaDevices
+      if (!cam.released) {
+        try {
+          return await md.getUserMedia(cameraConstraints(opt))
+        } catch (e) {
+          var name = e && e.name
+          if (name !== 'NotReadableError' && name !== 'TrackStartError' && name !== 'AbortError') throw e
+        }
+        cam.released = true
+        stopTrack(cam.track)
+      }
+      return md.getUserMedia(cameraConstraints(opt))
+    }
+
+    // Ön ve arka kamera (bilgisayarda sıradaki kamera) arasında geçer. Eşlere giden iz yeni izle değiştirilir,
+    // anlaşma gerekmez. Yeni kamera açılamazsa eski kamera sürer, eski kamera bırakılmışsa yeniden açılır, o da
+    // açılamazsa kamera kapanır (camera_lost). Dönüş: Promise<null>, ret Error.code ile.
+    function switchCamera () {
+      var cam = st.camera
+      if (!cam) return Promise.reject(makeError(st.cameraStarting ? 'cancelled' : 'camera_failed'))
+      if (st.cameraSwitching) return st.cameraSwitching
+      var gen = st.gen
+      var cgen = st.cameraGen
+      var stale = function () {
+        return gen !== st.gen || cgen !== st.cameraGen || st.camera !== cam || !st.inVoice
+      }
+      var job = (async function () {
+        var ids = await cameraDeviceIds()
+        if (stale()) throw makeError('cancelled')
+        var targets = cameraSwitchTargets(cam.facing, cam.deviceId, ids)
+        if (!targets.length) throw makeError('camera_not_found')
+        // Bırakılan eski iz 'ended' olayıyla kamerayı kapatmasın
+        try {
+          cam.track.removeEventListener('ended', cam.onEnded)
+        } catch (e) {}
+        var stream = null
+        var used = null
+        var err = null
+        var i = 0
+        while (i < targets.length && !stream) {
+          try {
+            stream = await openSwitchCamera(cam, targets[i])
+            used = targets[i]
+          } catch (e) {
+            err = e
+            var name = e && e.name
+            if (stale() || (name !== 'OverconstrainedError' && name !== 'NotFoundError')) break
+          }
+          i++
+        }
+        if (stale()) {
+          stopStream(stream)
+          throw makeError('cancelled')
+        }
+        var next = stream ? cameraFrom(stream, used.facing || null) : null
+        if (!next) {
+          await restoreCamera(cam, stale)
+          // Kamera bu arada kapandıysa (yeniden açılamadı veya kullanıcı kapattı) hata ayrıca bildirilmez
+          if (gen !== st.gen || cgen !== st.cameraGen) throw makeError('cancelled')
+          throw makeError(err ? cameraErrorCode(err) : 'camera_failed')
+        }
+        try {
+          cam.track.removeEventListener('ended', cam.onEnded)
+        } catch (e) {}
+        stopTrack(cam.track)
+        st.camera = next
+        st.cameraPick = next.facing ? { facing: next.facing } : next.deviceId ? { deviceId: next.deviceId } : null
+        syncAllSenders()
+        refreshCameraDevices()
+        return null
+      })()
+      var run = job.then(function (v) {
+        done()
+        return v
+      }, function (e) {
+        done()
+        throw e
+      })
+      var done = function () {
+        if (st.cameraSwitching !== run) return
+        st.cameraSwitching = null
+        emit()
+      }
+      st.cameraSwitching = run
       emit()
+      return run
+    }
+
+    // Değiştirme başarısız: eski iz canlıysa olduğu gibi sürer, bırakılmışsa aynı kamera yeniden istenir
+    async function restoreCamera (cam, stale) {
+      if (!cam.released && cam.track.readyState !== 'ended') {
+        cam.track.addEventListener('ended', cam.onEnded)
+        return
+      }
+      var stream = null
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(cam.deviceId ? { deviceId: cam.deviceId } : { facing: cam.facing }))
+      } catch (e) {
+        stream = null
+      }
+      if (stale()) {
+        stopStream(stream)
+        return
+      }
+      var again = stream ? cameraFrom(stream, cam.facing) : null
+      if (!again) {
+        st.cameraError = 'camera_lost'
+        stopCamera('ended', false)
+        return
+      }
+      st.camera = again
+      syncAllSenders()
     }
 
     // Kamerayı kapatır. silent: oturum kapanıyor (sunucu ve eşler zaten bırakılıyor), istek ve sinyal gitmez.
@@ -4543,6 +4779,8 @@ window.VoiceClient = (function () {
       var cam = st.camera
       st.camera = null
       st.cameraSeen = false
+      st.cameraSwitching = null
+      unwatchCameraDevices()
       if (cam) {
         try {
           cam.track.removeEventListener('ended', cam.onEnded)
@@ -5162,6 +5400,7 @@ window.VoiceClient = (function () {
       // Kamera
       cameraSupport: cameraSupport,
       startCamera: startCamera,
+      switchCamera: switchCamera,
       stopCamera: function () { stopCamera('user', false) },
       uplinkEstimate: uplinkEstimate
     }
@@ -5180,6 +5419,8 @@ window.VoiceClient = (function () {
       errorCodes: CAMERA_ERRORS.slice(),
       size: { width: CAMERA_SIZE.width, height: CAMERA_SIZE.height, frameRate: CAMERA_SIZE.frameRate },
       constraints: cameraConstraints,
+      facingOf: cameraFacingOf,
+      switchTargets: cameraSwitchTargets,
       trackConstraints: cameraTrackConstraints,
       encoding: cameraEncoding,
       errorCode: cameraErrorCode,

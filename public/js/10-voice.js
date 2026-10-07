@@ -77,7 +77,7 @@ function snap () {
     serverError: null,
     autoplayBlocked: false,
     peers: {},
-    camera: { canUse: false, reason: null, state: 'off', preview: null, errorCode: null }
+    camera: { canUse: false, reason: null, state: 'off', preview: null, errorCode: null, facing: null, canSwitch: false, switching: false }
   }
 }
 
@@ -159,7 +159,7 @@ function voiceStructureKey () {
   const screenKey = [sc.canShare ? 1 : 0, sc.reason || '', sc.state, sc.starting ? 1 : 0].join(':')
   const cam = radioCamera(s)
   const streams = cameraStreams(s)
-  const camKey = [cam.canUse ? 1 : 0, cam.state, camerasAllowed() ? 1 : 0].concat(Object.keys(streams).sort().map((id) => id + '=' + streams[id].stream.id)).join(':')
+  const camKey = [cam.canUse ? 1 : 0, cam.state, camerasAllowed() ? 1 : 0, cam.facing || '', cam.canSwitch ? 1 : 0, cam.switching ? 1 : 0].concat(Object.keys(streams).sort().map((id) => id + '=' + streams[id].stream.id)).join(':')
   return [s.channelId, s.private ? 1 : 0, s.joining, s.muted, s.deafened, s.errorCode, s.autoplayBlocked, s.inputMode, s.ptt && s.ptt.enabled, peerKey, roster, channels, screenKey, camKey].join('|')
 }
 
@@ -368,7 +368,7 @@ function radioCamera (s) {
       support = null
     }
   }
-  return { canUse: Boolean(support && support.ok), reason: support ? support.reason : 'camera_unsupported', state: 'off', preview: null, errorCode: null }
+  return { canUse: Boolean(support && support.ok), reason: support ? support.reason : 'camera_unsupported', state: 'off', preview: null, errorCode: null, facing: null, canSwitch: false, switching: false }
 }
 
 // Sahibin ses odası ayarı (meta.voiceSettings: { capacity, cameras, maxCameras })
@@ -427,7 +427,8 @@ function cameraVideoFor (key, stream, self) {
     v.addEventListener('playing', ready)
     cameraVideos.set(key, v)
   }
-  v.classList.toggle('is-mirrored', Boolean(self))
+  // Kendi görüntünüz ayna gibi gösterilir, arka kamera (yazı, belge) olduğu gibi
+  v.classList.toggle('is-mirrored', Boolean(self) && radioCamera(snap()).facing !== 'environment')
   if (v.srcObject !== stream) {
     v.classList.remove('is-ready')
     try {
@@ -860,6 +861,34 @@ function renderCameraButton (s) {
     el.radioCamLive.hidden = !(on && connected)
     setText(el.radioCamLiveText, t('camera.liveSelf'))
   }
+  if (el.radioCamBar) el.radioCamBar.hidden = !(on && connected)
+  renderCameraFlip(el.btnCameraFlip, cam, on && connected)
+}
+
+// Kamerayı Çevir: yalnızca kamera açıkken ve cihazda birden çok kamera varken görünür. Telefonda ön ve
+// arka kamera, bilgisayarda sıradaki kamera. Değiştirilirken devre dışıdır.
+function renderCameraFlip (b, cam, show) {
+  if (!b) return
+  b.hidden = !(show && cam.canSwitch)
+  // Odak düğmede kalsın diye disabled yerine aria-disabled (onCameraFlip değiştirilirken yok sayar)
+  if (cam.switching) {
+    b.setAttribute('aria-disabled', 'true')
+  } else {
+    b.removeAttribute('aria-disabled')
+  }
+  b.setAttribute('aria-label', t(cam.switching ? 'camera.flipping' : 'camera.flip'))
+  b.title = t('camera.flipHint')
+}
+
+function onCameraFlip () {
+  if (!voice || typeof voice.switchCamera !== 'function') return
+  const cam = radioCamera(snap())
+  if (cam.state !== 'on' || !cam.canSwitch || cam.switching) return
+  Promise.resolve(voice.switchCamera()).catch((err) => {
+    const code = err && typeof err.code === 'string' ? err.code : 'camera_failed'
+    if (code === 'cancelled') return
+    toast(() => (code === 'camera_denied' ? cameraErrorText(code, '') : t('camera.flipFailed')), 'error', 8000)
+  })
 }
 
 function onCameraButton () {
@@ -1078,6 +1107,7 @@ function bindPttButton () {
   bindPttTarget(el.pttButton)
   if (el.btnScreen) el.btnScreen.addEventListener('click', onScreenButton)
   if (el.btnCamera) el.btnCamera.addEventListener('click', onCameraButton)
+  if (el.btnCameraFlip) el.btnCameraFlip.addEventListener('click', onCameraFlip)
   if (el.voiceRetry) el.voiceRetry.addEventListener('click', retryVoice)
 }
 

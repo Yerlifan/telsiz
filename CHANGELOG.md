@@ -2,6 +2,16 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Yeni özellikler
+
+- Kamerayı Çevir: kamera açıkken cihazda birden çok kamera varsa telsiz kartındaki kamera göstergesinin yanında ve özel mesaj aramasının denetimlerinde Kamerayı Çevir düğmesi çıkar. Telefonda ön ve arka kamera arasında, bilgisayarda sıradaki kameraya geçer. Görüntü yeniden anlaşma olmadan yeni kameraya geçer. Aynı anda iki kamerayı açamayan cihazda eski kamera bırakılıp yeni kamera açılır, yeni kamera açılamazsa eski kamera yeniden açılır. Kamera kapatılıp açılınca sayfa açık kaldıkça son seçilen kamera istenir. Arka kameranın görüntüsü aynalanmaz.
+
+### Değişiklikler
+
+- Kamera ilk açılışta ön kamerayı ister. Önceden telefonda tarayıcının seçtiği kamera, çoğunlukla arka kamera açılıyordu.
+
 ## [2.4.0]
 
 ### Yeni özellikler

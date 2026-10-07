@@ -74,12 +74,13 @@ test('kamera özellik algılaması: güvensiz bağlam, WebRTC yokluğu ve aktar�
   assert.deepStrictEqual(plain(loadVoice({ noTransceivers: true }).VC.cameraSupport()), { ok: false, reason: 'camera_unsupported' })
 })
 
-test('kamera kısıtları 640x360 15 kare, kodlama sınırı yaklaşık 400 kbps', () => {
+test('kamera kısıtları 640x360 15 kare ve ön kamera, kodlama sınırı yaklaşık 400 kbps', () => {
   const u = loadVoice().VC.cameraUtils
   assert.deepStrictEqual(plain(u.size), { width: 640, height: 360, frameRate: 15 })
   const c = plain(u.constraints())
   assert.strictEqual(c.audio, false)
-  assert.deepStrictEqual(c.video, { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } })
+  // Telefonda ilk açılış ön kameradır (ideal: kamerası yönsüz bilgisayarda istek reddedilmez)
+  assert.deepStrictEqual(c.video, { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 }, facingMode: { ideal: 'user' } })
   assert.deepStrictEqual(plain(u.trackConstraints()), { width: { ideal: 640, max: 640 }, height: { ideal: 360, max: 360 }, frameRate: { max: 15 } })
   assert.deepStrictEqual(plain(u.encoding()), { maxBitrate: 400000, maxFramerate: 15 })
   // Öneri hesabı aynı bit hızını varsayar
@@ -138,7 +139,8 @@ test('kamera ses odası dışında açılmaz ve kamera istenmez', async () => {
   assert.deepStrictEqual(calls, [])
   assert.deepStrictEqual(posts, [])
   const snap = plain(c.snapshot().camera)
-  assert.deepStrictEqual(snap, { canUse: true, reason: null, state: 'off', preview: null, errorCode: null })
+  assert.deepStrictEqual(snap, { canUse: true, reason: null, state: 'off', preview: null, errorCode: null, facing: null, canSwitch: false, switching: false })
+  await assert.rejects(c.switchCamera(), (e) => e.code === 'camera_failed')
   // Kapalıyken durdurmak sessizce geçer
   c.stopCamera()
   assert.deepStrictEqual(posts, [])
@@ -234,7 +236,8 @@ test('kamera, ses odası ayarları ve sunucu bilgileri metinleri iki dilde', () 
   vm.runInContext(I18N, sandbox, { filename: 'i18n.js' })
   const msgs = sandbox.window.I18N.messages
   const codes = loadVoice().VC.cameraUtils.errorCodes
-  const required = codes.map((c) => 'camera.errors.' + c).concat(['camera.start', 'camera.stop', 'camera.liveSelf', 'radio.camera',
+  const required = codes.map((c) => 'camera.errors.' + c).concat(['camera.start', 'camera.stop', 'camera.liveSelf', 'camera.flip', 'camera.flipShort',
+    'camera.flipHint', 'camera.flipping', 'camera.flipFailed', 'radio.camera',
     'radio.cameraOn', 'radio.cameraOff', 'radio.stateCamera', 'radio.stateSelfCamera', 'settings.voiceLimits.title', 'settings.voiceLimits.mesh',
     'serverInfo.title', 'serverInfo.recIntro', 'serverInfo.apply'])
   const hintKeys = ['allGood', 'diskQuota', 'diskLow', 'memoryMessages', 'loadHigh', 'turnLocal', 'turnNone']
@@ -255,7 +258,7 @@ test('index.html, sw.js ve güvenlik başlığı kamerayı bağlar', () => {
   const sw = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8')
   assert.ok(html.indexOf('<script src="/js/27-kapasite.js" defer></script>') > html.indexOf('<script src="/js/26-tanitim.js" defer></script>'))
   assert.ok(sw.indexOf("'/js/27-kapasite.js'") !== -1)
-  for (const id of ['btn-camera', 'btn-camera-state', 'radio-cam-live', 'radio-camera-note', 'i-camera', 'i-camera-off', 'i-grid']) {
+  for (const id of ['btn-camera', 'btn-camera-state', 'radio-cam-bar', 'radio-cam-live', 'btn-camera-flip', 'radio-camera-note', 'i-camera', 'i-camera-off', 'i-camera-flip', 'i-grid']) {
     assert.ok(html.indexOf('id="' + id + '"') !== -1, id)
   }
   // Düğme sırası: üst satırda Kamera, Mikrofon, Sağırlaştır, alt satırda Ekran ve Ayrıl

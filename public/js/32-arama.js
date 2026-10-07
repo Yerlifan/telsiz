@@ -647,7 +647,7 @@ function aramaRender () {
     return info ? info.initial + info.colorIndex + (info.blobUrl || '') : ''
   }
   const key = [phase, String(partner), call.video ? 1 : 0, selfStream ? selfStream.id : '', partnerStream ? partnerStream.id : '', selfMuted ? 1 : 0, partnerMuted ? 1 : 0,
-    cam.state, cam.canUse ? 1 : 0, camerasAllowed() ? 1 : 0, st.ok ? '' : st.reason, blocked, userDisplayName(partner), userDisplayName(state.me.id),
+    cam.state, cam.canUse ? 1 : 0, cam.canSwitch ? 1 : 0, cam.switching ? 1 : 0, cam.facing || '', camerasAllowed() ? 1 : 0, st.ok ? '' : st.reason, blocked, userDisplayName(partner), userDisplayName(state.me.id),
     avatarKey(partner), avatarKey(state.me.id), document.documentElement.lang].join('|')
   if (key !== arama.boxKey || box.hidden) {
     arama.boxKey = key
@@ -700,6 +700,13 @@ function aramaRender () {
         camBtn.setAttribute('aria-label', t('call.unavailableLabel', { action: t('camera.start'), reason: why }))
       }
       row.appendChild(camBtn)
+      // Kamerayı Çevir (10-voice.js renderCameraFlip ile aynı kural): kamera açık ve birden çok kamera varken
+      if (camOn && cam.canSwitch) {
+        const flip = aramaControl('dm-call-camera-flip', 'is-flip', t('camera.flipShort'), 'i-camera-flip', t('camera.flip'), onCameraFlip)
+        if (cam.switching) flip.setAttribute('aria-disabled', 'true')
+        flip.title = t('camera.flipHint')
+        row.appendChild(flip)
+      }
       row.appendChild(aramaControl('dm-call-hangup', 'is-danger', t('call.hangup'), 'i-hangup', '', aramaHangup))
     }
     box.appendChild(row)

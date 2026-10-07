@@ -2,6 +2,16 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### New features
+
+- Flip Camera: while the camera is on and the device has more than one camera, a Flip Camera button appears next to the camera indicator on the radio card and among the controls of a direct message call. On a phone it switches between the front and rear camera, on a computer it moves to the next camera. The video moves to the new camera without renegotiation. On a device that cannot open two cameras at once the old camera is released before the new one opens, and if the new camera cannot be opened the old one is opened again. When the camera is turned off and on again, the last selected camera is requested for as long as the page stays open. Video from the rear camera is not mirrored.
+
+### Changes
+
+- The camera asks for the front camera when it first turns on. Before, phones opened the camera the browser picked, usually the rear camera.
+
 ## [2.4.0]
 
 ### New features
