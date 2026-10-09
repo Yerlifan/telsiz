@@ -120,8 +120,10 @@
   padding-top: env(safe-area-inset-top);
 }
 
-/* İki yan bölüm aynı oranda esner, böylece aradaki Ara düğmesi tam ortada durur. En küçük genişlik içerik
-   kadardır (min-width: auto): yer daralınca bölümler üst üste binmez, Ara biraz kayar. */
+/* İki yan bölüm aynı oranda esner, böylece aradaki Ara düğmesi tam ortada durur. Sağ bölümün en küçük
+   genişliği içerik kadardır (min-width: auto): yer daralınca bölümler üst üste binmez, Ara biraz kayar. Sol
+   bölüm içeriğinin altına inebilir (min-width: 0): uzun frekans adı üç noktayla kısalır, sağdaki düğmeler
+   (profil dahil) ekran dışına itilmez. */
 .top-side {
   display: flex;
   align-items: center;
@@ -130,6 +132,10 @@
 
 .top-side-end {
   justify-content: flex-end;
+}
+
+.top-side-start {
+  min-width: 0;
 }
 
 .top-bar > .top-find {

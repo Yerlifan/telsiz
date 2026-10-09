@@ -1188,15 +1188,18 @@ button.crew-button:hover {
     font-size: var(--text-sm);
   }
 
+  /* Kadro en geniş haldeyken (en fazla %60) araç satırı (Büyüt ve Telsiz DJ) sığmazsa alt satıra iner,
+     sayfa yana taşmaz. Oda adının tabanı 0: sığdığı sürece düzen kamerasız haliyle aynıdır. */
   .radio-tuned {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
   }
 
   .radio-screen-top {
     flex-direction: column;
     align-items: flex-start;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
     margin: 0 0.5rem 0 0;
   }
