@@ -338,22 +338,26 @@ test('telefon 360: beş kişilik ses odasında kamera açıkken telsiz kartı ya
   }
   const ali = await W.w.pageFor('ali', { viewport: { width: 360, height: 780 }, mobile: true })
   extra.push(ali)
-  await ali.click('#btn-rooms')
-  await ali.waitForSelector('#stations-sheet:not([hidden])')
-  await ali.click('#stations-list .room-row[data-station="voice-' + W.lobi.id + '"]')
-  await ali.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
-  await ali.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 5, null, { timeout: h.LONG })
-  await ali.waitForSelector('#radio-tools #radio-cams', { timeout: h.LONG })
-  await ali.waitForSelector('#radio-tools .dj-crew-button', { timeout: h.LONG })
-  // Bildirim kutusu kartın üstüne binebilir, kaybolması beklenir
-  await ali.waitForSelector('#toast', { state: 'hidden', timeout: h.LONG })
-  const over = await h.overflowX(ali)
-  assert.ok(over <= 0, 'telefonda yatay taşma: ' + over)
-  assert.equal(await h.reachable(ali, '#radio-tools .dj-crew-button'), true, 'Telsiz DJ görünür alanda')
-  assert.equal(await h.reachable(ali, '#radio-cams'), true, 'Büyüt görünür alanda')
-  for (const page of extra) {
-    await page.click('#voice-leave')
-    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  try {
+    await ali.click('#btn-rooms')
+    await ali.waitForSelector('#stations-sheet:not([hidden])')
+    await ali.click('#stations-list .room-row[data-station="voice-' + W.lobi.id + '"]')
+    await ali.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
+    await ali.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 5, null, { timeout: h.LONG })
+    await ali.waitForSelector('#radio-tools #radio-cams', { timeout: h.LONG })
+    await ali.waitForSelector('#radio-tools .dj-crew-button', { timeout: h.LONG })
+    // Bildirim kutusu kartın üstüne binebilir, kaybolması beklenir
+    await ali.waitForSelector('#toast', { state: 'hidden', timeout: h.LONG })
+    const over = await h.overflowX(ali)
+    assert.ok(over <= 0, 'telefonda yatay taşma: ' + over)
+    assert.equal(await h.reachable(ali, '#radio-tools .dj-crew-button'), true, 'Telsiz DJ görünür alanda')
+    assert.equal(await h.reachable(ali, '#radio-cams'), true, 'Büyüt görünür alanda')
+  } finally {
+    // Sınama düşse de sonraki sınamalar için oda iki kişiye döner
+    for (const page of extra) {
+      await page.evaluate(() => { if (document.getElementById('radio').getAttribute('data-state') !== 'off') leaveVoice() })
+      await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+    }
   }
   await deniz.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 2, null, { timeout: h.LONG })
 })
