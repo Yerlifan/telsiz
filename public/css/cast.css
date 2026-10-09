@@ -1098,11 +1098,35 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
    8. Kesme noktaları
    ========================================================= */
 
-/* Orta (999 px ve altı): yerleşim düğmeleri ve yazıyor bilgisi gizli, başlık etiketleri kısalır */
+/* Orta (999 px ve altı): yazıyor bilgisi gizli, Sığdır, Doldur ve Tam Ekran yalnızca simgedir (erişilebilir adları
+   korunur), başlık erken kısalır. Böylece 760 px'te de başlık ve düğmeler tek satırda kalır. */
 @media (max-width: 999px) {
-  .cast-head .cast-fit,
   .cast-dock-typing {
     display: none;
+  }
+
+  .cast-titles {
+    flex-basis: 6rem;
+  }
+
+  .cast-fit .cast-button,
+  .cast-head > .cast-full {
+    padding: 0 0.5rem;
+  }
+
+  .cast-fit .cast-button .icon,
+  .cast-head > .cast-full .icon {
+    margin-right: 0;
+  }
+
+  .cast-fit .cast-button-label,
+  .cast-head > .cast-full .cast-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .cast-volume-note {

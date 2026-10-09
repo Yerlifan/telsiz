@@ -6,11 +6,12 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ### New features
 
-- Flip Camera: while the camera is on and the device has more than one camera, a Flip Camera button appears next to the camera indicator on the radio card and among the controls of a direct message call. On a phone it switches between the front and rear camera, on a computer it moves to the next camera. The video moves to the new camera without renegotiation. On a device that cannot open two cameras at once the old camera is released before the new one opens, and if the new camera cannot be opened the old one is opened again. When the camera is turned off and on again, the last selected camera is requested for as long as the page stays open. Video from the rear camera is not mirrored.
+- Flip Camera: while the camera is on and the device has more than one camera, a Flip Camera button appears next to the camera indicator on the radio card and among the controls of a direct message call. On a phone it switches between the front and rear camera, on a computer it moves to the next camera. The video moves to the new camera without renegotiation. On a device that cannot open two cameras at once the old camera is released before the new one opens. On a phone that leaves the new camera request unanswered while the old camera is open, the old camera is released if the request is not answered within 2.5 seconds, and the request is repeated if there is still no answer. If the browser is asking for permission, the old camera is not cut off and the person's answer is awaited. A switch never stays stuck, and if the new camera cannot be opened the old one is opened again. When the camera is turned off and on again, the last selected camera is requested for as long as the page stays open. Video from the rear camera is not mirrored.
 
 ### Changes
 
 - The camera asks for the front camera when it first turns on. Before, phones opened the camera the browser picked, usually the rear camera.
+- The Fit and Fill options of the camera grid and of a watched screen share also show on narrow screens and phones (icon only). Fill now uses an icon separate from Fullscreen.
 
 ## [2.4.0]
 
