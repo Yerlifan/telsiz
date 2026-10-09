@@ -8,7 +8,7 @@
 // Gelişmiş gürültü engellemenin dosyaları (/rnnoise-worklet.js, /vendor/rnnoise/rnnoise.wasm) kabukta yoktur:
 // yalnızca sesli sohbette, yani ağ varken gerekir ve her kurulumda indirilmeleri gereksizdir. Service worker
 // bu istekleri yanıtlamaz, doğrudan ağdan gelirler. Yüklenemezlerse ses tarayıcının kendi işlemesiyle sürer.
-const CACHE_NAME = 'telsiz-2.4.0'
+const CACHE_NAME = 'telsiz-2.5.0'
 const SHELL = [
   '/',
   '/index.html',

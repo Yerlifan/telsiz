@@ -199,7 +199,7 @@ Send unrelated changes as separate pull requests. For a change in user visible b
 
 ## Releases
 
-The repository owner publishes releases: `package.json`, `desktop/package.json` and both CHANGELOG files are updated, and a tag starting with `v` (for example `v2.1.0`) is pushed for the commit on `main`. `.github/workflows/release.yml` does the rest:
+The repository owner publishes releases. The release commit changes the following: the app's own version fields in `package.json` with `package-lock.json` and in `desktop/package.json` with `desktop/package-lock.json` (in the lock files the top level `version` and the `version` under `packages[""]`, the versions of dependencies are not touched), the expected version in `test/paket.test.js`, `CACHE_NAME` in `public/sw.js` (`telsiz-<version>`, `test/sw.test.js` checks that it matches the package version) and the `[Yayımlanmamış]` and `[Unreleased]` headings of the two CHANGELOG files, which become `[x.y.z]`. Then a tag starting with `v` (for example `v2.1.0`) is pushed for the commit on `main`. `.github/workflows/release.yml` does the rest:
 
 - After the checks and tests, the server binaries and the desktop packages are built. Only whitelisted files are added to the GitHub Release: the server binaries, the desktop packages, the auto update info (`latest.yml`, `latest-linux.yml`, `Telsiz-Kurulum-<version>.exe.blockmap`) and a `SHA256SUMS.txt` for all of them. `desktop/scripts/guncelleme-dosyalari.js` checks that the packages named in the info files are in the release with the same names and matching sha512 values.
 - The Docker image is published as `ghcr.io/yerlifan/telsiz`.

@@ -199,7 +199,7 @@ Birbirinden bağımsız değişiklikleri ayrı PR'lar olarak gönderin. Kullanı
 
 ## Sürüm yayını
 
-Sürümü depo sahibi yayımlar: `package.json`, `desktop/package.json` ve iki CHANGELOG dosyası güncellenir, `main` dalındaki commit'e `v` ile başlayan bir etiket (ör. `v2.1.0`) gönderilir. `.github/workflows/release.yml` gerisini yapar:
+Sürümü depo sahibi yayımlar. Sürüm commit'i şunları değiştirir: `package.json` ile `package-lock.json` ve `desktop/package.json` ile `desktop/package-lock.json` içindeki uygulamanın kendi sürüm alanları (kilit dosyalarında üstteki `version` ve `packages[""]` altındaki `version`, bağımlılıkların sürümlerine dokunulmaz), `test/paket.test.js` içindeki beklenen sürüm, `public/sw.js` içindeki `CACHE_NAME` (`telsiz-<sürüm>`, `test/sw.test.js` paket sürümüyle eşleştiğini denetler) ve iki CHANGELOG dosyasında `[Yayımlanmamış]` ile `[Unreleased]` başlıklarının `[x.y.z]` olması. Ardından `main` dalındaki commit'e `v` ile başlayan bir etiket (ör. `v2.1.0`) gönderilir. `.github/workflows/release.yml` gerisini yapar:
 
 - Denetim ve testlerden sonra sunucu ikilileri ve masaüstü paketleri derlenir. GitHub Release'e yalnızca beyaz listedeki dosyalar eklenir: sunucu ikilileri, masaüstü paketleri, otomatik güncelleme bilgileri (`latest.yml`, `latest-linux.yml`, `Telsiz-Kurulum-<sürüm>.exe.blockmap`) ve hepsinin `SHA256SUMS.txt` dosyası. `desktop/scripts/guncelleme-dosyalari.js` bilgi dosyalarında adı geçen paketlerin yayında aynı adla bulunduğunu ve sha512 değerlerinin tuttuğunu denetler.
 - Docker imajı `ghcr.io/yerlifan/telsiz` olarak yayımlanır.
