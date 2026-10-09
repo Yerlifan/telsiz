@@ -501,9 +501,11 @@ async function until (fn, timeout, label) {
   }
 }
 
-// Sayfada yatay taşma (piksel). 0 veya daha küçükse taşma yoktur.
+// Sayfada yatay taşma (piksel). 0 veya daha küçükse taşma yoktur. Ölçü ilk kapsayıcı bloğa (clientWidth) göredir:
+// telefon öykünmesinde (mobile: true) içerik taşınca window.innerWidth (yerleşim görünümü) içerikle birlikte
+// genişler, scrollWidth - innerWidth bu yüzden taşmayı hiç göremez. Masaüstünde de aynı ölçü geçerlidir.
 function overflowX (page) {
-  return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 }
 
 // İstasyonu görünür alana getirip tıklar (taşan bantta)
