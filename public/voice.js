@@ -1,6 +1,7 @@
 // Sesli sohbet istemcisi (window.VoiceClient)
-// WebRTC tam örgü: ses, ekran paylaşımı ve kamera. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır,
-// böylece sunucu bağlantı kurulumuna müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
+// WebRTC tam örgü: ses, ekran paylaşımı ve kamera. Oyun iletileri aynı sinyal yolundan anlamı bilinmeyen yük (p) olarak
+// taşınır. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır, böylece sunucu bağlantı
+// kurulumuna müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
 // Mikrofon sesi WebAudio hattından geçer: algılama kolu (gecikmesiz analizör) ve ses kolu (ileri bakış gecikmesi,
 // kapı kazancı, eşlere giden hedef iz). Bu dosya kullanıcıya görünen metin üretmez, hata ve durumlar kod olarak bildirilir.
 window.VoiceClient = (function () {
@@ -119,6 +120,11 @@ window.VoiceClient = (function () {
   var CAMERA_ERRORS = ['camera_unsupported', 'insecure', 'not_in_voice', 'camera_denied', 'camera_not_found', 'camera_in_use',
     'camera_failed', 'camera_disabled', 'camera_limit', 'camera_lost', 'camera_negotiation_failed', 'camera_moderated']
   var MID_RE = /^[A-Za-z0-9_.{}~+-]{1,64}$/
+  // Oyun sinyali (genel taşıma): p oyun modülünün yüküdür (düz JSON veya iç zarf), burada yalnızca biçim ve
+  // boyut denetlenir. Yazdırılabilir ASCII: JSON kaçışıyla en çok iki kat büyür, zarf sınırı kesin hesaplanır.
+  var GAME_KEYS = ['type', 'sid', 'n', 'p']
+  var GAME_TEXT_RE = /^[ -~]+$/
+  var MAX_GAME_CHARS = 11000
   var UPLINK_MAX_KBPS = 10000000
   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
   var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
@@ -800,6 +806,14 @@ window.VoiceClient = (function () {
     return { type: 'camera', on: true, mid: d.mid }
   }
 
+  // Oyun sinyali. Dönüş: { type: 'game', p } veya null. sid ve n ortak doğrulamadadır.
+  function validGameSignal (d) {
+    if (!d || typeof d !== 'object' || Array.isArray(d) || d.type !== 'game') return null
+    if (!onlyKeys(d, GAME_KEYS)) return null
+    if (typeof d.p !== 'string' || !d.p.length || d.p.length > MAX_GAME_CHARS || !GAME_TEXT_RE.test(d.p)) return null
+    return { type: 'game', p: d.p }
+  }
+
   // Yerel paylaşım durum makinesi: idle -> starting -> live -> idle.
   // live iken start kaynak değişimidir (live kalır), kaynak değişimi başarısız olursa paylaşım sürer.
   function shareStep (state, ev) {
@@ -836,6 +850,7 @@ window.VoiceClient = (function () {
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : null
     var onScreenEvent = typeof opts.onScreenEvent === 'function' ? opts.onScreenEvent : null
     var onCameraEvent = typeof opts.onCameraEvent === 'function' ? opts.onCameraEvent : null
+    var onGameEvent = typeof opts.onGameEvent === 'function' ? opts.onGameEvent : null
     var storage = opts.storage && typeof opts.storage === 'object' ? opts.storage : null
     var ctx = null
     var rnModule = null
@@ -3151,6 +3166,9 @@ window.VoiceClient = (function () {
       if (!peer.ready) {
         if (!peer.pc.remoteDescription || !peer.pc.localDescription) return
         peer.ready = true
+        // Oyun katmanı için: bu bağlantıda (peerId, sid) oyun iletisi gönderilebilir ve alınabilir
+        var rr = st.roster[peer.peerId]
+        if (rr) gameEvent({ type: 'peer-ready', peerId: peer.peerId, userId: rr.userId })
         if (st.share) sendSignal(peer, announcement(st.share))
       }
       await syncSendersNow(peer)
@@ -3265,6 +3283,11 @@ window.VoiceClient = (function () {
         if (!peer || peer.sid !== sid || !peer.ready) return
         var cm = validCameraSignal(d)
         if (cm) onCameraSignal(peer, cm)
+      } else if (d.type === 'game') {
+        // Yalnızca ilk anlaşması tamamlanmış ve aynı bağlantıdan (sid) gelen oyun iletisi oyun modülüne gider
+        if (!peer || peer.sid !== sid || !peer.ready) return
+        var gm = validGameSignal(d)
+        if (gm) gameEvent({ type: 'message', peerId: from, userId: st.roster[from].userId, p: gm.p })
       } else if (d.type === 'candidate') {
         if (!peer || peer.sid !== sid) return
         var c = parseCandidate(d.candidate)
@@ -3283,8 +3306,10 @@ window.VoiceClient = (function () {
     // Her sinyal bağlantı kimliğini (sid) ve bağlantı başına artan sırayı (n) taşır, yeniden oynatma reddedilir.
     // onFail(status) (isteğe bağlı): yeniden denemelerden sonra da iletilemezse çağrılır. 400 sunucunun zarfı
     // reddettiği anlamına gelir (biçim her zaman geçerli olduğundan boyut sınırı, maxSignalChars).
-    function sendSignal (peer, d, onFail) {
-      if (!st.inVoice || !st.myPeerId || peer.closed) return
+    // onDone(sonuç) (isteğe bağlı): true iletildi veya yeniden denemelerden sonra da iletilemedi (sayı), oturum
+    // değişirse çağrılmaz. Dönüş: kuyruğa alındıysa true, gönderilemediyse (seste değil, eş kapalı, mühür yok) false.
+    function sendSignal (peer, d, onFail, onDone) {
+      if (!st.inVoice || !st.myPeerId || peer.closed) return false
       var pid = peer.peerId
       peer.outN++
       d.sid = peer.sid
@@ -3304,15 +3329,18 @@ window.VoiceClient = (function () {
         st.errorCode = 'no_key'
         st.serverError = null
         emit()
-        return
+        return false
       }
       var gen = st.gen
       var prev = st.sendQueues[pid] || Promise.resolve()
       st.sendQueues[pid] = prev.then(function () {
         return postSignal(gen, pid, data, 0)
       }).then(function (res) {
-        if (res !== true && res !== undefined && onFail && gen === st.gen) onFail(res)
+        if (gen !== st.gen || res === undefined) return
+        if (res !== true && onFail) onFail(res)
+        if (onDone) onDone(res)
       }).catch(noop)
+      return true
     }
 
     // Dönüş: true iletildi, sayı iletilemedi (HTTP durumu, ağ hatasında 0), undefined oturum değişti
@@ -3358,12 +3386,14 @@ window.VoiceClient = (function () {
       if (!d || typeof d !== 'object') return null
       var screenType = d.type === 'screen' || d.type === 'watch'
       var cameraType = d.type === 'camera'
-      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate' && !screenType && !cameraType) return null
+      var gameType = d.type === 'game'
+      if (d.type !== 'offer' && d.type !== 'answer' && d.type !== 'candidate' && !screenType && !cameraType && !gameType) return null
       if (typeof d.sid !== 'string' || !SID_RE.test(d.sid)) return null
       if (typeof d.n !== 'number' || d.n < 1 || d.n > 1e9 || Math.floor(d.n) !== d.n) return null
-      // Ekran sinyalleri katı doğrulanır, geçersizi sıra numarası tüketmeden atılır
+      // Ekran, kamera ve oyun sinyalleri katı doğrulanır, geçersizi sıra numarası tüketmeden atılır
       if (screenType && !validScreenSignal(d)) return null
       if (cameraType && !validCameraSignal(d)) return null
+      if (gameType && !validGameSignal(d)) return null
       if (!fresh(from, d.sid, d.n)) return null
       return v
     }
@@ -3444,6 +3474,45 @@ window.VoiceClient = (function () {
           setTimeout(function () { throw e }, 0)
         }
       })
+    }
+
+    // Oyun taşıması: voice.js p yükünün anlamını bilmez, yalnızca biçimini denetler ve tek eşe iletir.
+    // Olaylar: message { peerId, userId, p }, peer-ready { peerId, userId } (her bağlantı için bir kez),
+    // peer-leave { peerId, userId } (kişi bu peerId ile kadrodan çıktı), reset (ses oturumu bitti veya değişti).
+    // Oyun olayları mikro görevde ve sırayla bildirilir, dinleyici hatası motoru bozmaz
+    function gameEvent (evt) {
+      if (!onGameEvent) return
+      Promise.resolve().then(function () {
+        try {
+          onGameEvent(evt)
+        } catch (e) {
+          setTimeout(function () { throw e }, 0)
+        }
+      })
+    }
+
+    // Oyun iletisi tek eşe. done(true) iletildi, done(sayı) yeniden denemelerden sonra da iletilemedi (HTTP
+    // durumu, ağ hatasında 0). Oturum değişirse done çağrılmaz, ardından 'reset' olayı gelir.
+    // Dönüş: 'ok', 'not_in_voice', 'no_peer', 'not_ready' (ilk anlaşma bitmedi), 'bad_message', 'no_key'
+    function sendGame (peerId, p, done) {
+      if (!st.inVoice || !st.myPeerId) return 'not_in_voice'
+      var d = { type: 'game', p: p }
+      if (!validGameSignal(d)) return 'bad_message'
+      if (!isPeerId(peerId) || !st.roster[peerId]) return 'no_peer'
+      var peer = st.peers[peerId]
+      if (!peer || peer.closed) return 'no_peer'
+      if (!peer.ready) return 'not_ready'
+      var onDone = null
+      if (typeof done === 'function') {
+        onDone = function (res) {
+          try {
+            done(res)
+          } catch (e) {
+            setTimeout(function () { throw e }, 0)
+          }
+        }
+      }
+      return sendSignal(peer, d, null, onDone) ? 'ok' : 'no_key'
     }
 
     function transceiversOf (pc) {
@@ -5205,6 +5274,7 @@ window.VoiceClient = (function () {
         delete st.rewatch[pid]
         delete st.screenLimit[pid]
         delete st.camBlocked[pid]
+        gameEvent({ type: 'peer-leave', peerId: pid, userId: st.roster[pid].userId })
       })
       st.roster = next
       applyAllAudio()
@@ -5318,6 +5388,7 @@ window.VoiceClient = (function () {
         clearTimeout(st.graceTimer)
         st.graceTimer = null
       }
+      gameEvent({ type: 'reset' })
     }
 
     // Tam yerel kapatma: bağlantılar, ses öğeleri ve kap kaldırılır. Mikrofon testi sürmüyorsa
@@ -5699,7 +5770,9 @@ window.VoiceClient = (function () {
       startCamera: startCamera,
       switchCamera: switchCamera,
       stopCamera: function () { stopCamera('user', false) },
-      uplinkEstimate: uplinkEstimate
+      uplinkEstimate: uplinkEstimate,
+      // Oyun taşıması (yükün anlamı oyun modülündedir)
+      sendGame: sendGame
     }
   }
 
@@ -5737,6 +5810,11 @@ window.VoiceClient = (function () {
       validateSignal: validScreenSignal,
       shareStep: shareStep,
       watchStep: watchStep
+    },
+    // Oyun sinyalinin saf doğrulaması ve p yükünün en büyük uzunluğu
+    gameUtils: {
+      validateSignal: validGameSignal,
+      maxChars: MAX_GAME_CHARS
     }
   }
 })()

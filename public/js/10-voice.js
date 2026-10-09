@@ -36,6 +36,10 @@ function createVoice () {
         const name = evt.userId !== null && evt.userId !== undefined ? shownName(evt.userId) : ''
         toast(() => (name ? t('camera.errors.negotiationUser', { name: name }) : cameraErrorText(evt.code, '')), '', 8000)
       },
+      // Oyun olayları (ileti, eş hazır, eş ayrıldı, oturum sıfırlandı) 36-oyun.js masa yöneticisine gider
+      onGameEvent: (evt) => {
+        if (typeof gameOnVoiceEvent === 'function') gameOnVoiceEvent(evt)
+      },
       storage: {
         get: (key) => storeGet(key),
         set: (key, value) => {
@@ -179,6 +183,8 @@ function renderVoiceAll () {
   if (typeof castSync === 'function') castSync()
   // Özel mesaj görünümünün arama bölümü (32-arama.js)
   if (typeof aramaRender === 'function') aramaRender()
+  // Oyun düğmesi ve masa (36-oyun.js)
+  if (typeof gameRender === 'function') gameRender()
 }
 
 function voiceRoster (channelId) {
