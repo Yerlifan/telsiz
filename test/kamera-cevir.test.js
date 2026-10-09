@@ -461,6 +461,78 @@ test('tarayıcı izin soruyorsa eski kamera kesilmez, kişinin yanıtı beklenir
   assert.deepEqual(f.live, [keep])
 })
 
+test('yön bildirmeyen bilgisayar kamerasında yanıtsız istek izin penceresi sayılır: eski kamera kesilmez, ikinci istek gitmez', async () => {
+  // Firefox izni kamera başına sorar ama izin sorgusu 'granted' döner
+  const e = loadEngine({ cameras: DESKTOP, permission: 'granted', manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const oldTrack = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  assert.equal(oldTrack.readyState, 'live')
+  assert.equal(e.requests.length, 2)
+  e.answer(2)
+  await job
+  assert.equal(oldTrack.readyState, 'ended')
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
+
+  // Kişi geç reddederse eski kamera sürer, izin reddi bildirilir
+  const f = loadEngine({ cameras: DESKTOP, permission: 'granted', manual: (v, n) => n === 2 })
+  await cameraOn(f)
+  const keep = f.live[0]
+  const job2 = f.voice.switchCamera()
+  const caught = job2.catch((err) => err)
+  await flush()
+  f.fire(waits.first)
+  await flush()
+  f.refuse(2, 'NotAllowedError')
+  assert.equal((await caught).code, 'camera_denied')
+  assert.equal(keep.readyState, 'live')
+  assert.equal(f.cam().state, 'on')
+})
+
+test('eski kamera bırakıldıktan sonra izin reddedilir ve eski kamera da açılamazsa kişi izin reddini görür', async () => {
+  const e = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2, fail: (v, n) => (n >= 3 ? 'NotAllowedError' : null) })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const job = e.voice.switchCamera()
+  const caught = job.catch((err) => err)
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  e.refuse(2, 'NotAllowedError')
+  assert.equal((await caught).code, 'cancelled')
+  assert.equal(e.cam().state, 'off')
+  assert.equal(e.cam().errorCode, 'camera_denied')
+})
+
+test('hedef kamerayı başka uygulama kullandığı için gelen NotReadableError cihazı "iki kamera açamaz" yapmaz', async () => {
+  let busy = true
+  const e = loadEngine({
+    cameras: DESKTOP,
+    fail: (v) => (busy && v.deviceId && v.deviceId.exact === 'dahili' ? 'NotReadableError' : null),
+    manual: (v, n) => n === 5
+  })
+  await cameraOn(e)
+  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'camera_in_use')
+  await flush()
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['usb'])
+  assert.equal(e.requests.length, 4, 'eski kamera açıkken, bırakıldıktan sonra ve geri açılırken')
+  busy = false
+  const usb = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  assert.equal(e.requests.length, 5)
+  assert.equal(usb.readyState, 'live', 'yeni kamera eski kamera açıkken istenir')
+  e.answer(5)
+  await job
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
+})
+
 test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme süre dolunca biter, kamera kapanır', async () => {
   const e = loadEngine({ cameras: PHONE, stall: (v, n) => n >= 2 })
   await cameraOn(e)
