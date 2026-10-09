@@ -340,10 +340,23 @@ test('kamera bırakıldıktan sonra da yanıtlanmayan isteğin yanına ikinci is
   assert.equal(oldTrack.readyState, 'ended', 'eski kamera bırakıldı')
   assert.equal(e.requests.length, 2, 'bırakılınca önce aynı istek beklenir')
   e.fire(waits.first)
+  await flush()
+  assert.equal(e.requests.length, 2, 'bırakıldıktan 2,5 saniye sonra ikinci istek gitmez (izin penceresine zaman kalır)')
+  e.fire(waits.open)
   await job
   assert.equal(e.requests.length, 3)
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
   assert.equal(e.cam().switching, false)
+  // İkinci istek kazandı: cihaz bırakılan isteği yanıtlamıyor, sonraki geçişte ikinci istek 2,5 saniye sonra gider
+  const job2 = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  assert.equal(e.requests.length, 4)
+  e.fire(waits.first)
+  await job2
+  assert.equal(e.requests.length, 5)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
 })
 
 test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kazanınca ikinci durdurulur', async () => {
@@ -354,7 +367,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   e.fire(waits.first)
   await flush()
-  e.fire(waits.first)
+  e.fire(waits.open)
   await job
   assert.equal(e.requests.length, 3)
   const winner = e.live[0]
@@ -369,7 +382,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   f.fire(waits.first)
   await flush()
-  f.fire(waits.first)
+  f.fire(waits.open)
   await flush()
   f.answer(2)
   await job2
@@ -385,7 +398,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   g.fire(waits.first)
   await flush()
-  g.fire(waits.first)
+  g.fire(waits.open)
   await flush()
   g.answer(2)
   g.answer(3)
@@ -515,22 +528,57 @@ test('hedef kamerayı başka uygulama kullandığı için gelen NotReadableError
   const e = loadEngine({
     cameras: DESKTOP,
     fail: (v) => (busy && v.deviceId && v.deviceId.exact === 'dahili' ? 'NotReadableError' : null),
-    manual: (v, n) => n === 5
+    manual: (v, n) => n === 6
   })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'camera_in_use')
+  const waits = e.utils.switchWaits
+  const first = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.settle)
+  await assert.rejects(first, (err) => err.code === 'camera_in_use')
   await flush()
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['usb'])
-  assert.equal(e.requests.length, 4, 'eski kamera açıkken, bırakıldıktan sonra ve geri açılırken')
+  assert.equal(e.requests.length, 5, 'eski kamera açıkken, bırakıldıktan sonra iki kez ve geri açılırken')
   busy = false
   const usb = e.live[0]
   const job = e.voice.switchCamera()
   await flush()
-  assert.equal(e.requests.length, 5)
+  assert.equal(e.requests.length, 6)
   assert.equal(usb.readyState, 'live', 'yeni kamera eski kamera açıkken istenir')
-  e.answer(5)
+  e.answer(6)
   await job
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
+})
+
+test('eski kamera bırakıldıktan hemen sonra cihaz hâlâ meşgulse yarım saniye sonra yeniden denenir', async () => {
+  const e = loadEngine({ cameras: PHONE, fail: (v, n) => (n === 2 || n === 3 ? 'NotReadableError' : null) })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const oldTrack = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  assert.equal(oldTrack.readyState, 'ended')
+  assert.equal(e.requests.length, 3, 'yeniden deneme beklemeden gitmez')
+  e.fire(waits.settle)
+  await job
+  assert.equal(e.requests.length, 4)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
+  assert.equal(e.cam().switching, false)
+})
+
+test('bırakıldıktan sonra bekleyen istek cihaz hazır olmadığı için reddedilirse yalnızca yeniden istenir', async () => {
+  const e = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  e.refuse(2, 'NotReadableError')
+  await job
+  assert.equal(e.requests.length, 3)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
+  assert.equal(e.cam().switching, false)
 })
 
 test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme süre dolunca biter, kamera kapanır', async () => {
@@ -543,7 +591,7 @@ test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme
   e.fire(waits.first)
   await flush()
   assert.deepEqual(e.live, [], 'eski kamera bırakıldı')
-  e.fire(waits.first)
+  e.fire(waits.open)
   await flush()
   assert.equal(e.requests.length, 3, 'ikinci istek gönderildi')
   assert.equal(e.cam().switching, true)
@@ -593,7 +641,10 @@ test('tek kameralı cihazda Çevir görünmez, denenirse eski kamera sürer ve �
 test('eski kamera bırakıldıktan sonra yeni kamera açılamazsa eski kamera yeniden açılır', async () => {
   const e = loadEngine({ cameras: PHONE, busy: true, fail: (v) => (v.facingMode && v.facingMode.exact === 'environment' && !v.deviceId ? 'NotReadableError' : null) })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'camera_in_use')
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(e.utils.switchWaits.settle)
+  await assert.rejects(job, (err) => err.code === 'camera_in_use')
   const last = e.requests[e.requests.length - 1]
   assert.deepEqual(last.deviceId, { ideal: 'front' })
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
@@ -605,7 +656,10 @@ test('eski kamera bırakıldıktan sonra yeni kamera açılamazsa eski kamera ye
 test('eski kamera da yeniden açılamazsa kamera kapanır, hata camera_lost olarak bildirilir', async () => {
   const e = loadEngine({ cameras: PHONE, busy: true, fail: (v, n) => (n >= 2 ? 'NotReadableError' : null) })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'cancelled')
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(e.utils.switchWaits.settle)
+  await assert.rejects(job, (err) => err.code === 'cancelled')
   assert.equal(e.cam().state, 'off')
   assert.equal(e.cam().errorCode, 'camera_lost')
   assert.deepEqual(e.live, [])

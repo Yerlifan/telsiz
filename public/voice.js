@@ -110,6 +110,8 @@ window.VoiceClient = (function () {
   var CAMERA_SWITCH_WAIT_MS = 2500
   var CAMERA_OPEN_WAIT_MS = 10000
   var CAMERA_PROMPT_WAIT_MS = 60000
+  // Eski kamera bırakıldıktan hemen sonra cihaz hâlâ meşgulse (NotReadableError) yeniden denemeden önceki bekleme
+  var CAMERA_SETTLE_MS = 500
   var CAMERA_KEYS = ['type', 'sid', 'n', 'on', 'mid']
   var CAMERA_STOP_REASONS = ['user', 'ended', 'left', 'server', 'disabled']
   // Kamera hata kodları (arayüz t('camera.errors.' + kod) ile çevirir). 'cancelled' gösterilmez.
@@ -931,6 +933,7 @@ window.VoiceClient = (function () {
       cameraCanSwitch: false,
       cameraPick: null,
       cameraExclusive: false,
+      cameraRetryAfter: CAMERA_OPEN_WAIT_MS,
       cameraDevicesWatch: null,
       cameraGen: 0,
       cameraError: null,
@@ -4744,8 +4747,9 @@ window.VoiceClient = (function () {
       })
     }
 
-    // İsteklerden ilk gelen akış alınır, diğerleri bırakılır (sonradan gelen akışları durdurulur). Hepsi reddedilirse
-    // son hata, süre dolarsa TimeoutError döner ve bütün istekler bırakılır.
+    // İsteklerden ilk gelen akış alınır, diğerleri bırakılır (sonradan gelen akışları durdurulur). Dönüş
+    // { stream, index } (kazanan isteğin sırası). Hepsi reddedilirse son hata, süre dolarsa TimeoutError döner ve
+    // bütün istekler bırakılır.
     function raceRequests (reqs, ms) {
       return new Promise(function (resolve, reject) {
         var over = false
@@ -4761,7 +4765,7 @@ window.VoiceClient = (function () {
             reqs.forEach(function (o) {
               if (o !== r) requestAbandon(o)
             })
-            resolve(stream)
+            resolve({ stream: stream, index: reqs.indexOf(r) })
           }, function (e) {
             if (over) return
             if (e && e.name !== 'TimeoutError') lastError = e
@@ -4804,16 +4808,39 @@ window.VoiceClient = (function () {
       return name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError'
     }
 
+    function delay (ms) {
+      return new Promise(function (resolve) {
+        setTimeout(resolve, ms)
+      })
+    }
+
+    // Eski kamera bırakıldıktan sonraki istek. Cihaz kamerayı henüz bırakmadıysa (düşük donanımlı telefonlarda
+    // NotReadableError) yarım saniye sonra bir kez daha denenir.
+    async function openReleased (constraints, stale) {
+      try {
+        return await cameraWithin(constraints, CAMERA_OPEN_WAIT_MS)
+      } catch (e) {
+        if (!busyError(e)) throw e
+      }
+      await delay(CAMERA_SETTLE_MS)
+      if (stale()) throw makeError('cancelled')
+      return cameraWithin(constraints, CAMERA_OPEN_WAIT_MS)
+    }
+
     // Değiştirirken yeni kamera eski kamera açıkken istenir (görüntü kesilmesin).
     // 1. Aynı anda iki kamerayı açamayan cihaz isteği reddeder (NotReadableError): eski kamera bırakılıp yeniden
     //    denenir. Bırakıldıktan sonra açılırsa cihaz bu sayfada "iki kamera açamaz" sayılır ve sonraki değiştirmeler
     //    eski kamerayı baştan bırakır (st.cameraExclusive). Yine açılmazsa (hedef kamerayı başka bir uygulama
     //    kullanıyor) bir şey öğrenilmez.
-    // 2. Bazı telefonlar isteği reddetmez, eski kamera bırakılana kadar yanıtsız bekletir: istek 2,5 saniyede
-    //    yanıtlanmazsa eski kamera bırakılır ve aynı istek 2,5 saniye daha beklenir (bırakılınca yanıtlanır). Yine
-    //    yanıt yoksa ikinci bir istek gönderilir ve hangisi önce gelirse o kullanılır, diğeri bırakılır. Yavaş açılan
-    //    bir kamera da bu yola düşebildiği için süre dolması cihazı st.cameraExclusive olarak işaretlemez. Bu yol
-    //    yalnızca yön bildiren kamerada (telefon ve tablet, cam.facing) uygulanır.
+    // 2. Telefonlar isteği çoğunlukla reddetmez, eski kamera bırakılana kadar yanıtsız bekletir (Firefox Android
+    //    öteki kameranın izin penceresini de ancak eski kamera bırakılınca açar). İstek 2,5 saniyede yanıtlanmazsa
+    //    eski kamera bırakılır ve aynı istek beklenmeye devam eder: kişiye izin penceresini yanıtlaması için zaman
+    //    kalır, ikinci bir istek ikinci bir pencere açmaz. Aynı istek st.cameraRetryAfter (önce 10 saniye) içinde de
+    //    yanıtlanmazsa ikinci bir istek gönderilir, hangisi önce gelirse o kullanılır, diğeri bırakılır. İkinci istek
+    //    kazanırsa cihaz bırakılan isteği hiç yanıtlamıyor demektir, bu sayfada sonraki değiştirmelerde ikinci istek
+    //    2,5 saniye sonra gönderilir. Yavaş açılan bir kamera da bu yola düşebildiği için süre dolması cihazı
+    //    st.cameraExclusive olarak işaretlemez. Bu yol yalnızca yön bildiren kamerada (telefon ve tablet, cam.facing)
+    //    uygulanır.
     // 3. Yön bildirmeyen kamerada (bilgisayar) ve tarayıcı izin soruyorken (izin durumu 'prompt') eski kamera
     //    bırakılmaz, ikinci istek gönderilmez, istek 60 saniye beklenir. Bilgisayarda yanıtsız istek çoğunlukla bir
     //    izin penceresidir: Firefox izni kamera başına sorar, ama permissions.query yine 'granted' döner.
@@ -4823,7 +4850,7 @@ window.VoiceClient = (function () {
       var constraints = cameraConstraints(opt)
       if (cam.released || st.cameraExclusive) {
         releaseCamera(cam)
-        return cameraWithin(constraints, CAMERA_OPEN_WAIT_MS)
+        return openReleased(constraints, stale)
       }
       var first = cameraRequest(constraints)
       var prompt = !cam.facing || (await cameraPermission()) === 'prompt'
@@ -4844,25 +4871,26 @@ window.VoiceClient = (function () {
       }
       releaseCamera(cam)
       if (!first) {
-        var stream = await cameraWithin(constraints, CAMERA_OPEN_WAIT_MS)
+        var stream = await openReleased(constraints, stale)
         st.cameraExclusive = true
         return stream
       }
-      var late = first
       try {
-        return await requestWait(first, CAMERA_SWITCH_WAIT_MS)
+        return await requestWait(first, st.cameraRetryAfter)
       } catch (e) {
         if (!e || e.name !== 'TimeoutError') {
           if (!busyError(e)) throw e
-          late = null
+          // Bırakılan istek cihaz henüz hazır olmadığı için reddedildi: yalnızca yeniden istenir
+          return openReleased(constraints, stale)
         }
       }
       if (stale()) {
-        if (late) requestAbandon(late)
+        requestAbandon(first)
         throw makeError('cancelled')
       }
-      var retry = cameraRequest(constraints)
-      return raceRequests(late ? [late, retry] : [retry], CAMERA_OPEN_WAIT_MS)
+      var won = await raceRequests([first, cameraRequest(constraints)], CAMERA_OPEN_WAIT_MS)
+      if (won.index === 1) st.cameraRetryAfter = CAMERA_SWITCH_WAIT_MS
+      return won.stream
     }
 
     // Ön ve arka kamera (bilgisayarda sıradaki kamera) arasında geçer. Eşlere giden iz yeni izle değiştirilir,
@@ -5618,7 +5646,7 @@ window.VoiceClient = (function () {
       constraints: cameraConstraints,
       facingOf: cameraFacingOf,
       switchTargets: cameraSwitchTargets,
-      switchWaits: { first: CAMERA_SWITCH_WAIT_MS, open: CAMERA_OPEN_WAIT_MS, prompt: CAMERA_PROMPT_WAIT_MS },
+      switchWaits: { first: CAMERA_SWITCH_WAIT_MS, open: CAMERA_OPEN_WAIT_MS, prompt: CAMERA_PROMPT_WAIT_MS, settle: CAMERA_SETTLE_MS },
       trackConstraints: cameraTrackConstraints,
       encoding: cameraEncoding,
       errorCode: cameraErrorCode,
