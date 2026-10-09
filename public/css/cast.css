@@ -1098,8 +1098,21 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
    8. Kesme noktaları
    ========================================================= */
 
+/* 1439 px ve altı: üst çubuktaki kendi paylaşım çipinde yazı gizli, kırmızı lamba ve Durdur kalır (Durdur'un
+   erişilebilir adı "Paylaşımı Durdur"). Böylece paylaşım sürerken üst çubuk taşmaz, profil düğmesi görünür kalır. */
+@media (max-width: 1439px) {
+  .top-cast-text {
+    display: none;
+  }
+
+  .top-cast-chip.is-own .cast-led {
+    margin-right: 0.375rem;
+  }
+}
+
 /* Orta (999 px ve altı): yazıyor bilgisi gizli, Sığdır, Doldur ve Tam Ekran yalnızca simgedir (erişilebilir adları
-   korunur), başlık erken kısalır. Böylece 760 px'te de başlık ve düğmeler tek satırda kalır. */
+   ve görünür etiketle aynı ipucu korunur), başlık erken kısalır. Böylece 760 px'te de başlık ve düğmeler tek
+   satırda kalır. */
 @media (max-width: 999px) {
   .cast-dock-typing {
     display: none;
@@ -1135,19 +1148,11 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
 }
 
 /* Dar (759 px ve altı, telefon): sahne üstte tam genişlik 16:9, sohbet altında açık, telsiz kartı altta,
-   başlıktaki düğmeler simgeye iner (erişilebilir adları korunur), pencere alttan açılır */
+   başlıktaki düğmeler simgeye iner (erişilebilir adları korunur), pencere alttan açılır. Üst çubukta paylaşım
+   çipi yoktur, paylaşım telsiz kartının Ekran düğmesinden (Yayında) ve sahne başlığındaki Durdur'dan durdurulur. */
 @media (max-width: 759px) {
-  .top-cast-chip {
-    margin-left: 0.375rem;
-    padding-left: 0.5rem;
-  }
-
-  .top-cast-text {
+  .top-cast {
     display: none;
-  }
-
-  .top-cast-chip.is-own .cast-led {
-    margin-right: 0.375rem;
   }
 
   .cast-notice {

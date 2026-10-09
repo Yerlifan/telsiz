@@ -382,4 +382,7 @@ test('index.html, sw.js ve arama.css: modül, simge, kart ve bölüm bağlı, ya
   assert.ok(!/(^|[\s{])(row-|column-)?gap\s*:|clamp\(|:is\(|:where\(|aspect-ratio|(^|[\s{])inset\s*:|display:\s*grid/.test(CSS), 'yasak özellik yok')
   assert.deepEqual(CSS.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) || [], [], 'renkler yalnızca var(--...) ile')
   assert.ok(/@media \(prefers-reduced-motion: reduce\)/.test(CSS))
+  // Kamerayı Çevir ile dört düğmeli satır has-flip alır, yazılar daha geniş aralıkta gizlenir (satır tek kalır)
+  assert.ok(ARAMA.indexOf("row.classList.add('has-flip')") !== -1)
+  assert.ok(/@media \(max-width: 540px\), \(min-width: 760px\) and \(max-width: 899px\) \{\s*\.dm-call-controls\.has-flip \.button-text \{\s*display: none/.test(CSS))
 })

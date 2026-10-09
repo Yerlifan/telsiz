@@ -181,9 +181,10 @@ test('390 genişlikte yatay taşma yok, düğmeler klavyeyle erişilir, dil değ
   await page.click('#tanitim-guide summary')
   await page.click('#tanitim-join')
   assert.ok(await h.overflowX(page) <= 0, 'açık rehberle taşma yok')
+  // Telefon öykünmesinde window.innerWidth taşan içerikle genişler, sınır ilk kapsayıcı bloğun genişliğidir
   const wide = await page.evaluate(() => Array.from(document.querySelectorAll('#tanitim *')).filter((n) => {
     const r = n.getBoundingClientRect()
-    return r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1)
+    return r.width > 0 && (r.right > document.documentElement.clientWidth + 1 || r.left < -1)
   }).map((n) => n.className))
   assert.deepEqual(wide, [])
   // Klavye: sekme sırası birincil düğmeye ulaşır

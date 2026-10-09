@@ -5,8 +5,8 @@
 // ortasında kişisel düğmeler), bantta frekanslar arasında gezinme (yön tuşları, Home, End, uç düğmeleri,
 // tekerlek, tıklama ve ibre sürükleme ile başka frekansa geçiş, ses odasındayken onay), rehber açılır
 // penceresi, Frekanslar sayfası (Tümü), sağ sütun görünmediğinde İstasyonlar düğmesi ve sayfası (900 ve
-// 390 genişlikte), arama, anma rozeti ve anma listesi, yazıyor göstergesi, telefon genişliğinde yatay taşma
-// olmaması. Tarayıcıda diğer frekanslar ayrı köken olduğu için durumları ve sayıları gösterilmez.
+// 390 genişlikte), arama, anma rozeti ve anma listesi, yazıyor göstergesi, telefon genişliğinde ve uzun frekans
+// adıyla yatay taşma olmaması. Tarayıcıda diğer frekanslar ayrı köken olduğu için durumları ve sayıları gösterilmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -438,6 +438,33 @@ test('telefon 390: yatay taşma yok, İstasyonlar ve Frekanslar alt sayfa, ses o
   assert.ok(await h.overflowX(page) <= 0, 'arama açıkken yatay taşma')
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('uzun frekans adı (40 karakter) 760 ve 1000 genişlikte üç noktayla kısalır, üst çubuk taşmaz', async () => {
+  const page = W.deniz
+  const long = 'Cuma Akşamı Oyun Ekibi ve Yakın Dostları'
+  assert.equal(long.length, 40)
+  const setName = async (name) => {
+    const res = await W.w.call('POST', '/api/settings', { serverName: name }, W.w.P.deniz.token)
+    assert.equal(res.status, 200)
+    await page.waitForFunction((n) => document.getElementById('server-name').textContent === n, name, { timeout: h.LONG })
+  }
+  await setName(long)
+  for (const width of [760, 1000]) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.waitForFunction((x) => document.documentElement.clientWidth === x && el.appView.getAttribute('data-layout') === layoutClass(), width)
+    const over = await h.overflowX(page)
+    assert.ok(over <= 0, width + ' genişlikte yatay taşma: ' + over)
+    assert.equal(await h.reachable(page, '#me-button'), true, width + ' genişlikte profil düğmesi görünür')
+    const name = await page.evaluate(() => {
+      const n = document.getElementById('server-name')
+      return { shown: n.getBoundingClientRect().width > 0, cut: n.scrollWidth > n.clientWidth }
+    })
+    assert.deepEqual(name, { shown: true, cut: true }, String(width))
+  }
+  await setName('Kankalar')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForFunction(() => document.getElementById('radio-slot').contains(document.getElementById('radio')))
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

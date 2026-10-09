@@ -501,9 +501,23 @@ async function until (fn, timeout, label) {
   }
 }
 
-// Sayfada yatay taşma (piksel). 0 veya daha küçükse taşma yoktur.
+// Sayfada yatay taşma (piksel). 0 veya daha küçükse taşma yoktur. Ölçü ilk kapsayıcı bloğa (clientWidth) göredir:
+// telefon öykünmesinde (mobile: true) içerik taşınca window.innerWidth (yerleşim görünümü) içerikle birlikte
+// genişler, scrollWidth - innerWidth bu yüzden taşmayı hiç göremez. Masaüstünde de aynı ölçü geçerlidir.
 function overflowX (page) {
-  return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+}
+
+// Öğe bütünüyle görünür alanda ve ortasında üstünde başka öğe yok (fareyle ve dokunarak ulaşılabilir)
+function reachable (page, sel) {
+  return page.evaluate((s) => {
+    const n = document.querySelector(s)
+    if (!n || !n.getClientRects().length) return false
+    const b = n.getBoundingClientRect()
+    if (b.left < 0 || b.right > document.documentElement.clientWidth || b.top < 0 || b.bottom > window.innerHeight) return false
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)
+    return Boolean(hit && hit.closest(s))
+  }, sel)
 }
 
 // İstasyonu görünür alana getirip tıklar (taşan bantta)
@@ -576,6 +590,7 @@ module.exports = {
   readDataDir,
   until,
   overflowX,
+  reachable,
   clickStation,
   joinVoice,
   makeWav

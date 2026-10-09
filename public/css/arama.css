@@ -159,7 +159,7 @@
   text-align: center;
 }
 
-/* Denetimler: Mikrofon, Kamera, Aramayı Bitir veya Kabul Et ve Reddet */
+/* Denetimler: Mikrofon, Kamera, (birden çok kamerada) Kamerayı Çevir, Aramayı Bitir veya Kabul Et ve Reddet */
 .dm-call-controls {
   display: flex;
   flex-wrap: wrap;
@@ -450,6 +450,7 @@
   }
 }
 
+/* Dar: üç düğmede yazılar gizlenir, erişilebilir ad ve ipucu (title) kalır */
 @media (max-width: 420px) {
   .call-control .button-text {
     display: none;
@@ -460,6 +461,22 @@
   }
 
   .call-control {
+    padding: 0.5rem;
+  }
+}
+
+/* Kamerayı Çevir ile dört düğme (.has-flip): yazılı satırın sığmadığı aralıklarda da (540 px'e kadar ve
+   760-899 px'teki dar konuşma sütunu) yazılar gizlenir, satır tek kalır */
+@media (max-width: 540px), (min-width: 760px) and (max-width: 899px) {
+  .dm-call-controls.has-flip .button-text {
+    display: none;
+  }
+
+  .dm-call-controls.has-flip .call-control .icon {
+    margin-right: 0;
+  }
+
+  .dm-call-controls.has-flip .call-control {
     padding: 0.5rem;
   }
 }

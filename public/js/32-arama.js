@@ -700,11 +700,13 @@ function aramaRender () {
         camBtn.setAttribute('aria-label', t('call.unavailableLabel', { action: t('camera.start'), reason: why }))
       }
       row.appendChild(camBtn)
-      // Kamerayı Çevir (10-voice.js renderCameraFlip ile aynı kural): kamera açık ve birden çok kamera varken
+      // Kamerayı Çevir (10-voice.js renderCameraFlip ile aynı kural): kamera açık ve birden çok kamera varken.
+      // Dört düğmeli satır has-flip alır, yazılar arama.css'te daha geniş aralıkta gizlenir (satır tek kalır).
       if (camOn && cam.canSwitch) {
         const flip = aramaControl('dm-call-camera-flip', 'is-flip', t('camera.flipShort'), 'i-camera-flip', t('camera.flip'), onCameraFlip)
         if (cam.switching) flip.setAttribute('aria-disabled', 'true')
         flip.title = t('camera.flipHint')
+        row.classList.add('has-flip')
         row.appendChild(flip)
       }
       row.appendChild(aramaControl('dm-call-hangup', 'is-danger', t('call.hangup'), 'i-hangup', '', aramaHangup))

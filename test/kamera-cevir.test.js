@@ -2,10 +2,11 @@
 
 // Kamerayı Çevir: public/voice.js içinde varsayılan ön kamera isteği, kamera yönünün ve değiştirme
 // seçeneklerinin saf yardımcıları (cameraUtils.facingOf, cameraUtils.switchTargets) ve switchCamera akışı.
-// Telefonda karşı yöne (facingMode exact), yön bildirmeyen bilgisayarda sıradaki kameraya (deviceId exact)
-// geçilir. Aynı anda iki kamerayı açamayan cihazda eski kamera bırakılıp yeniden denenir, değiştirme
-// başarısızsa eski kamera sürer veya yeniden açılır, o da olmazsa kamera kapanır (camera_lost). Motor Node vm
-// bağlamında sahte kamera ve sahte sunucuyla yüklenir.
+// Kameralar ön, arka, yön bildirmeyen (takılı) kameralar döngüsünde dolaşılır, ön ve arka facingMode exact,
+// ötekiler deviceId exact ile istenir. Son seçilen kamera kesin istenir, takılı kamera seçimi sayfa yenilense de
+// saklanır. Aynı anda iki kamerayı açamayan cihazda eski kamera bırakılıp yeniden denenir, değiştirme başarısızsa
+// eski kamera sürer veya yeniden açılır, o da olmazsa kamera kapanır (camera_lost). Motor Node vm bağlamında sahte
+// kamera ve sahte sunucuyla yüklenir.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -40,7 +41,8 @@ function domError (name) {
 }
 
 // Sahte kamera: cameras dizisindeki her kamera { deviceId, facing, label }. getUserMedia isteğindeki
-// facingMode veya deviceId'ye göre kamera seçer. Seçenekler:
+// facingMode veya deviceId'ye göre kamera seçer. Chromium gibi yalnızca exact deviceId'ye uyar, ideal veya
+// yalın deviceId yok sayılır ve varsayılan (ilk) kamera açılır. Seçenekler:
 // busy: aynı anda yalnızca bir kamera açılabilir (NotReadableError).
 // hold: başka kamera açıkken istek bekletilir, açık kamera kalmayınca yanıtlanır (hedeflenen telefon).
 // hang: başka kamera açıkken istek hiç yanıtlanmaz, kamera bırakılsa da.
@@ -48,6 +50,7 @@ function domError (name) {
 // manual(c, n): true dönerse n. istek test answer(n) veya refuse(n, ad) çağırana kadar bekler.
 // fail(c, n): hata adı döndürürse n. istek o hatayla reddedilir.
 // permission: navigator.permissions.query sonucu ('granted', 'prompt'), verilmezse permissions yoktur.
+// store: motorun storage'ı için Map (sayfa yenileme benzetimi için iki motor aynı Map'i kullanır).
 // Zamanlayıcılar çalışmaz, kaydedilir, fire(ms) o süredekileri çalıştırır.
 function loadEngine (opts) {
   const o = opts || {}
@@ -99,11 +102,8 @@ function loadEngine (opts) {
   }
   function pick (video) {
     if (video === true) return cameras[0]
-    if (video.deviceId) {
-      const want = video.deviceId.exact || video.deviceId.ideal
-      const found = cameras.filter((c) => c.deviceId === want)[0]
-      if (found) return found
-      return video.deviceId.exact ? null : cameras[0]
+    if (video.deviceId && video.deviceId.exact) {
+      return cameras.filter((c) => c.deviceId === video.deviceId.exact)[0] || null
     }
     if (video.facingMode) {
       const want = video.facingMode.exact || video.facingMode.ideal
@@ -203,7 +203,7 @@ function loadEngine (opts) {
     },
     seal: (obj) => '1.' + KID + '.nonce.' + b64(obj),
     open: () => ({ ok: false }),
-    storage: null
+    storage: o.store ? { get: (k) => (o.store.has(k) ? o.store.get(k) : null), set: (k, v) => o.store.set(k, v) } : null
   })
   voice.handleMeta({ voice: {} }, { id: '1' })
   const cam = () => voice.snapshot().camera
@@ -225,6 +225,12 @@ const PHONE = [
 const DESKTOP = [
   { deviceId: 'usb', label: 'USB Kamera' },
   { deviceId: 'dahili', label: 'Dahili Kamera' }
+]
+// Ön ve arka kamerası yön bildiren tablet, takılı USB kamera tarayıcının varsayılanı (listede ilk)
+const TABLET = [
+  { deviceId: 'usb', label: 'USB Kamera' },
+  { deviceId: 'on', facing: 'user', label: 'Microsoft Camera Front' },
+  { deviceId: 'arka', facing: 'environment', label: 'Microsoft Camera Rear' }
 ]
 
 async function cameraOn (e) {
@@ -278,7 +284,7 @@ test('telefonda Çevir arka kameraya geçer, eski kamera bırakılır, kapatıp 
   await e.voice.switchCamera()
   e.voice.stopCamera()
   await e.voice.startCamera()
-  assert.deepEqual(e.requests[e.requests.length - 1].facingMode, { ideal: 'environment' })
+  assert.deepEqual(e.requests[e.requests.length - 1].facingMode, { exact: 'environment' })
   assert.equal(e.cam().facing, 'environment')
 })
 
@@ -340,10 +346,23 @@ test('kamera bırakıldıktan sonra da yanıtlanmayan isteğin yanına ikinci is
   assert.equal(oldTrack.readyState, 'ended', 'eski kamera bırakıldı')
   assert.equal(e.requests.length, 2, 'bırakılınca önce aynı istek beklenir')
   e.fire(waits.first)
+  await flush()
+  assert.equal(e.requests.length, 2, 'bırakıldıktan 2,5 saniye sonra ikinci istek gitmez (izin penceresine zaman kalır)')
+  e.fire(waits.open)
   await job
   assert.equal(e.requests.length, 3)
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
   assert.equal(e.cam().switching, false)
+  // İkinci istek kazandı: cihaz bırakılan isteği yanıtlamıyor, sonraki geçişte ikinci istek 2,5 saniye sonra gider
+  const job2 = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  assert.equal(e.requests.length, 4)
+  e.fire(waits.first)
+  await job2
+  assert.equal(e.requests.length, 5)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
 })
 
 test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kazanınca ikinci durdurulur', async () => {
@@ -354,7 +373,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   e.fire(waits.first)
   await flush()
-  e.fire(waits.first)
+  e.fire(waits.open)
   await job
   assert.equal(e.requests.length, 3)
   const winner = e.live[0]
@@ -369,7 +388,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   f.fire(waits.first)
   await flush()
-  f.fire(waits.first)
+  f.fire(waits.open)
   await flush()
   f.answer(2)
   await job2
@@ -385,7 +404,7 @@ test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kaz
   await flush()
   g.fire(waits.first)
   await flush()
-  g.fire(waits.first)
+  g.fire(waits.open)
   await flush()
   g.answer(2)
   g.answer(3)
@@ -515,22 +534,57 @@ test('hedef kamerayı başka uygulama kullandığı için gelen NotReadableError
   const e = loadEngine({
     cameras: DESKTOP,
     fail: (v) => (busy && v.deviceId && v.deviceId.exact === 'dahili' ? 'NotReadableError' : null),
-    manual: (v, n) => n === 5
+    manual: (v, n) => n === 6
   })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'camera_in_use')
+  const waits = e.utils.switchWaits
+  const first = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.settle)
+  await assert.rejects(first, (err) => err.code === 'camera_in_use')
   await flush()
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['usb'])
-  assert.equal(e.requests.length, 4, 'eski kamera açıkken, bırakıldıktan sonra ve geri açılırken')
+  assert.equal(e.requests.length, 5, 'eski kamera açıkken, bırakıldıktan sonra iki kez ve geri açılırken')
   busy = false
   const usb = e.live[0]
   const job = e.voice.switchCamera()
   await flush()
-  assert.equal(e.requests.length, 5)
+  assert.equal(e.requests.length, 6)
   assert.equal(usb.readyState, 'live', 'yeni kamera eski kamera açıkken istenir')
-  e.answer(5)
+  e.answer(6)
   await job
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
+})
+
+test('eski kamera bırakıldıktan hemen sonra cihaz hâlâ meşgulse yarım saniye sonra yeniden denenir', async () => {
+  const e = loadEngine({ cameras: PHONE, fail: (v, n) => (n === 2 || n === 3 ? 'NotReadableError' : null) })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const oldTrack = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  assert.equal(oldTrack.readyState, 'ended')
+  assert.equal(e.requests.length, 3, 'yeniden deneme beklemeden gitmez')
+  e.fire(waits.settle)
+  await job
+  assert.equal(e.requests.length, 4)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
+  assert.equal(e.cam().switching, false)
+})
+
+test('bırakıldıktan sonra bekleyen istek cihaz hazır olmadığı için reddedilirse yalnızca yeniden istenir', async () => {
+  const e = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  e.refuse(2, 'NotReadableError')
+  await job
+  assert.equal(e.requests.length, 3)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
+  assert.equal(e.cam().switching, false)
 })
 
 test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme süre dolunca biter, kamera kapanır', async () => {
@@ -543,7 +597,7 @@ test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme
   e.fire(waits.first)
   await flush()
   assert.deepEqual(e.live, [], 'eski kamera bırakıldı')
-  e.fire(waits.first)
+  e.fire(waits.open)
   await flush()
   assert.equal(e.requests.length, 3, 'ikinci istek gönderildi')
   assert.equal(e.cam().switching, true)
@@ -568,9 +622,82 @@ test('yön bildirmeyen bilgisayarda Çevir sıradaki kameraya geçer, yön bilin
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
   await e.voice.switchCamera()
   assert.deepEqual(e.requests[2].deviceId, { exact: 'usb' })
+  // Kapatıp açınca son seçilen kamera kesin kimliğiyle istenir (ideal kimliği yok sayan tarayıcıda da açılır)
+  await e.voice.switchCamera()
   e.voice.stopCamera()
   await e.voice.startCamera()
-  assert.deepEqual(e.requests[3].deviceId, { ideal: 'usb' })
+  assert.deepEqual(e.requests[4].deviceId, { exact: 'dahili' })
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['dahili'])
+})
+
+test('ön ve arka kamerası yön bildiren tablette takılı kamera da döngüye girer: ön, arka, takılı, ön', async () => {
+  const e = loadEngine({ cameras: TABLET })
+  await cameraOn(e)
+  assert.deepEqual(e.requests[0].facingMode, { ideal: 'user' })
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['on'])
+  const seen = []
+  let i = 0
+  while (i < 4) {
+    await e.voice.switchCamera()
+    seen.push(e.live.map((t) => t.cam.deviceId).join())
+    i++
+  }
+  assert.deepEqual(seen, ['arka', 'usb', 'on', 'arka'])
+  assert.deepEqual(e.requests[2].deviceId, { exact: 'usb' })
+  assert.equal(e.cam().facing, 'environment')
+  assert.equal(e.cam().canSwitch, true)
+})
+
+test('takılı kamera seçilince sayfa yenilense de kesin kimliğiyle istenir, ön veya arka kamera seçilince unutulur', async () => {
+  const store = new Map()
+  const e = loadEngine({ cameras: TABLET, store })
+  await cameraOn(e)
+  await e.voice.switchCamera()
+  await e.voice.switchCamera()
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['usb'])
+  // Sayfa yenilendi: yeni motor aynı depoyu okur
+  const e2 = loadEngine({ cameras: TABLET, store })
+  await cameraOn(e2)
+  assert.equal(e2.requests.length, 1)
+  assert.deepEqual(e2.requests[0].deviceId, { exact: 'usb' })
+  assert.equal(e2.requests[0].facingMode, undefined)
+  assert.deepEqual(e2.live.map((t) => t.cam.deviceId), ['usb'])
+  await e2.voice.switchCamera()
+  assert.deepEqual(e2.live.map((t) => t.cam.deviceId), ['on'])
+  const e3 = loadEngine({ cameras: TABLET, store })
+  await cameraOn(e3)
+  assert.deepEqual(e3.requests[0].facingMode, { ideal: 'user' })
+  assert.deepEqual(e3.live.map((t) => t.cam.deviceId), ['on'])
+})
+
+test('saklı kamera çıkarılmışsa veya başka uygulamadaysa varsayılan istekle ön kamera açılır', async () => {
+  const store = new Map([['telsiz.voice.camera', JSON.stringify({ deviceId: 'yok' })]])
+  const e = loadEngine({ cameras: TABLET, store })
+  await cameraOn(e)
+  assert.deepEqual(e.requests.map((r) => r.deviceId || r.facingMode), [{ exact: 'yok' }, { ideal: 'user' }])
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['on'])
+  assert.equal(e.cam().state, 'on')
+  store.set('telsiz.voice.camera', JSON.stringify({ deviceId: 'usb' }))
+  const e2 = loadEngine({ cameras: TABLET, store, fail: (v) => (v.deviceId ? 'NotReadableError' : null) })
+  await cameraOn(e2)
+  assert.deepEqual(e2.live.map((t) => t.cam.deviceId), ['on'])
+  // İzin reddi yedek istekle aşılmaz
+  const e3 = loadEngine({ cameras: TABLET, store, fail: () => 'NotAllowedError' })
+  await e3.voice.join(ROOM)
+  await assert.rejects(e3.voice.startCamera(), (err) => err.code === 'camera_denied')
+  assert.equal(e3.requests.length, 1)
+})
+
+test('telefonda arka kamera saklanmaz: sayfa yenilenince ön kamerayla başlar', async () => {
+  const store = new Map()
+  const e = loadEngine({ cameras: PHONE, store })
+  await cameraOn(e)
+  await e.voice.switchCamera()
+  assert.equal(e.cam().facing, 'environment')
+  const e2 = loadEngine({ cameras: PHONE, store })
+  await cameraOn(e2)
+  assert.deepEqual(e2.requests[0].facingMode, { ideal: 'user' })
+  assert.deepEqual(e2.live.map((t) => t.cam.deviceId), ['front'])
 })
 
 test('tek kameralı cihazda Çevir görünmez, denenirse eski kamera sürer ve çıkarılınca kamera kapanır', async () => {
@@ -593,9 +720,12 @@ test('tek kameralı cihazda Çevir görünmez, denenirse eski kamera sürer ve �
 test('eski kamera bırakıldıktan sonra yeni kamera açılamazsa eski kamera yeniden açılır', async () => {
   const e = loadEngine({ cameras: PHONE, busy: true, fail: (v) => (v.facingMode && v.facingMode.exact === 'environment' && !v.deviceId ? 'NotReadableError' : null) })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'camera_in_use')
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(e.utils.switchWaits.settle)
+  await assert.rejects(job, (err) => err.code === 'camera_in_use')
   const last = e.requests[e.requests.length - 1]
-  assert.deepEqual(last.deviceId, { ideal: 'front' })
+  assert.deepEqual(last.deviceId, { exact: 'front' })
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
   assert.equal(e.cam().state, 'on')
   assert.equal(e.cam().facing, 'user')
@@ -605,7 +735,10 @@ test('eski kamera bırakıldıktan sonra yeni kamera açılamazsa eski kamera ye
 test('eski kamera da yeniden açılamazsa kamera kapanır, hata camera_lost olarak bildirilir', async () => {
   const e = loadEngine({ cameras: PHONE, busy: true, fail: (v, n) => (n >= 2 ? 'NotReadableError' : null) })
   await cameraOn(e)
-  await assert.rejects(e.voice.switchCamera(), (err) => err.code === 'cancelled')
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(e.utils.switchWaits.settle)
+  await assert.rejects(job, (err) => err.code === 'cancelled')
   assert.equal(e.cam().state, 'off')
   assert.equal(e.cam().errorCode, 'camera_lost')
   assert.deepEqual(e.live, [])
@@ -631,11 +764,31 @@ test('kamera yönü ve değiştirme seçenekleri saf yardımcılarla belirlenir'
   assert.equal(u.facingOf(null, null, 'Front Camera'), 'user')
   assert.equal(u.facingOf(null, null, 'Integrated Webcam'), null)
   assert.equal(u.facingOf(null, null, 'Feedback Cam'), null, 'sözcük sınırı: "back" geçen başka ad sayılmaz')
+  // Kameraların yönü bilinmiyorsa (yalın kimlik) yönü bilinen kamerada karşı yön yine önce denenir
   assert.deepEqual(plain(u.switchTargets('user', 'a', ['a', 'b'])), [{ facing: 'environment', exact: true }, { deviceId: 'b', exact: true }])
   assert.deepEqual(plain(u.switchTargets('environment', 'b', ['b'])), [{ facing: 'user', exact: true }])
-  assert.deepEqual(plain(u.switchTargets(null, 'c', ['a', 'b', 'c'])), [{ deviceId: 'a', exact: true }])
-  assert.deepEqual(plain(u.switchTargets(null, null, ['a', 'b'])), [{ deviceId: 'a', exact: true }])
+  assert.deepEqual(plain(u.switchTargets('user', 'a', [])), [{ facing: 'environment', exact: true }])
+  // Yönsüz kameralar listedeki sırayla dolaşılır, ilki sıradaki, geri kalanı yedek
+  assert.deepEqual(plain(u.switchTargets(null, 'c', ['a', 'b', 'c'])), [{ deviceId: 'a', exact: true }, { deviceId: 'b', exact: true }])
+  assert.deepEqual(plain(u.switchTargets(null, null, ['a', 'b'])), [{ deviceId: 'a', exact: true }, { deviceId: 'b', exact: true }])
   assert.deepEqual(plain(u.switchTargets(null, 'a', ['a', '', 7])), [])
+  // Ön, arka ve takılı kamera: ön -> arka -> takılı -> ön. Yön isteğinin ardından aynı yöndeki kameranın kimliği
+  const tablet = [{ id: 'usb', facing: null }, { id: 'on', facing: 'user' }, { id: 'arka', facing: 'environment' }]
+  assert.deepEqual(plain(u.switchTargets('user', 'on', tablet)), [
+    { facing: 'environment', exact: true }, { deviceId: 'arka', exact: true }, { deviceId: 'usb', exact: true }
+  ])
+  assert.deepEqual(plain(u.switchTargets('environment', 'arka', tablet)), [
+    { deviceId: 'usb', exact: true }, { facing: 'user', exact: true }, { deviceId: 'on', exact: true }
+  ])
+  assert.deepEqual(plain(u.switchTargets(null, 'usb', tablet)), [
+    { facing: 'user', exact: true }, { deviceId: 'on', exact: true }, { facing: 'environment', exact: true }, { deviceId: 'arka', exact: true }
+  ])
+  // Yönü bilinen telefonda arka kameralar tek durak sayılır, yönü bilinmeyen öteki kamera kimliğiyle denenir
+  const phone = [{ id: 'on', facing: 'user' }, { id: 'genis', facing: 'environment' }, { id: 'tele', facing: 'environment' }]
+  assert.deepEqual(plain(u.switchTargets('environment', 'tele', phone)), [{ facing: 'user', exact: true }, { deviceId: 'on', exact: true }])
+  assert.deepEqual(plain(u.switchTargets('user', 'on', [{ id: 'on', facing: null }, { id: 'arka', facing: 'environment' }])), [
+    { facing: 'environment', exact: true }, { deviceId: 'arka', exact: true }
+  ])
   assert.deepEqual(plain(u.constraints({ facing: 'environment', exact: true }).video.facingMode), { exact: 'environment' })
   assert.deepEqual(plain(u.constraints({ deviceId: 'x' }).video.deviceId), { ideal: 'x' })
   assert.equal(u.constraints({ deviceId: 'x' }).video.facingMode, undefined)

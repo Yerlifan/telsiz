@@ -3,11 +3,13 @@
 // Ses odasında kamera (sahte kamera) ve sahibin ses odası ayarları. Kamera düğmesi kapalı başlar ve
 // basılmadan kamera istenmez. Mert kamerasını açar: kendi kutusu aynalı canlı görüntü, düğme sırasının
 // üstünde "Kameranız açık" göstergesi, Deniz'in kadrosunda Mert'in avatarı canlı görüntü kutusuna döner ve
-// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar. Sahip kişi ses kartındaki Kamerasını kapat
+// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar (başlık düğmelerinin ipucu görünür etiketle
+// aynıdır, tam ekrandan çıkış simgesi X değildir). Sahip kişi ses kartındaki Kamerasını kapat
 // düğmesiyle Mert'in kamerasını kapatır: Mert'in kamerası durur, bildirim görür ve kamerasını yeniden açar.
 // Sahip kamera sınırını 1'e indirince ikinci kamera sunucuda reddedilir ve kamera hiç istenmez. Sahip
 // Ayarlar > Genel'den kapasite ve kamera sınırını değiştirir, kameraları kapatınca açık kamera kapanır.
 // Sunucu bilgileri bölümü bilgileri, öneriyi ve ipuçlarını gösterir, Öneriyi uygula alanları doldurur.
+// Telefonda beş kişilik ses odasında biri kamera açınca telsiz kartı yana taşmaz, Telsiz DJ görünür kalır.
 // Ayrılınca kamera kapanır.
 
 const { before, after } = require('node:test')
@@ -55,7 +57,8 @@ async function metaCamera (userId) {
 
 before(async () => {
   if (test.skipped) return
-  W.w = await h.setupWorld({ slot: 14 })
+  // Can, Bora ve Ali telefonda beş kişilik ses odası sınaması içindir
+  W.w = await h.setupWorld({ slot: 14, extraPeople: { can: 'Can', bora: 'Bora', ali: 'Ali' } })
   W.lobi = W.w.room('Lobi')
   W.deniz = await W.w.pageFor('deniz')
   W.mert = await W.w.pageFor('mert')
@@ -169,6 +172,16 @@ test('Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar', asy
   assert.deepEqual(await deniz.evaluate(() => [localStorage.getItem('telsiz.camFit'), localStorage.getItem('telsiz.castFit')]), ['contain', null])
   await deniz.click('#cast .cast-fit .cast-fit-button:last-child')
   assert.equal(await fitOf(), 'cover')
+  // Başlık düğmelerinin ipucu görünür etiketle aynıdır (dar ekranda yalnızca simgedirler), tam ekrandan çıkış
+  // simgesi Küçült'ün X'inden (i-close) ayrıdır
+  const head = () => deniz.evaluate(() => Array.from(document.querySelectorAll('#cast .cast-head .cast-fit-button, #cast .cast-head .cast-full')).map((b) => [b.title, b.querySelector('.cast-button-label').textContent, b.querySelector('use').getAttribute('href')].join('|')))
+  assert.deepEqual(await head(), ['Sığdır|Sığdır|#i-fit', 'Doldur|Doldur|#i-fill', 'Tam Ekran|Tam Ekran|#i-expand'])
+  await deniz.click('#cast .cast-head .cast-full')
+  await deniz.waitForFunction(() => castState.full)
+  assert.equal((await head())[2], 'Tam Ekrandan Çık|Tam Ekrandan Çık|#i-compress')
+  await deniz.click('#cast .cast-head .cast-full')
+  await deniz.waitForFunction(() => !castState.full && !document.fullscreenElement)
+  assert.equal((await head())[2], 'Tam Ekran|Tam Ekran|#i-expand')
   await deniz.click('#cast .cast-cams-close')
   await deniz.waitForSelector('#cast', { state: 'hidden' })
 })
@@ -321,6 +334,43 @@ test('kamera açıkken ekran paylaşımı ayrı izlenir, sonradan katılan kişi
   await tileLive(deniz, mertId)
   await ece.click('#voice-leave')
   await ece.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+})
+
+test('telefon 360: beş kişilik ses odasında kamera açıkken telsiz kartı yana taşmaz, Telsiz DJ görünür', async () => {
+  const { deniz, mert } = W
+  // Mert'in kamerası önceki sınamadan açıktır. Can ve Bora masaüstünden, Ali telefondan katılır: kadro en geniş
+  // halindedir, araç satırına Büyüt eklenince satır sığmazsa alt satıra iner
+  assert.equal(await mert.getAttribute('#btn-camera', 'aria-pressed'), 'true')
+  const extra = []
+  for (const who of ['can', 'bora']) {
+    const page = await W.w.pageFor(who)
+    await h.joinVoice(page, W.lobi.id)
+    extra.push(page)
+  }
+  const ali = await W.w.pageFor('ali', { viewport: { width: 360, height: 780 }, mobile: true })
+  extra.push(ali)
+  try {
+    await ali.click('#btn-rooms')
+    await ali.waitForSelector('#stations-sheet:not([hidden])')
+    await ali.click('#stations-list .room-row[data-station="voice-' + W.lobi.id + '"]')
+    await ali.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
+    await ali.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 5, null, { timeout: h.LONG })
+    await ali.waitForSelector('#radio-tools #radio-cams', { timeout: h.LONG })
+    await ali.waitForSelector('#radio-tools .dj-crew-button', { timeout: h.LONG })
+    // Bildirim kutusu kartın üstüne binebilir, kaybolması beklenir
+    await ali.waitForSelector('#toast', { state: 'hidden', timeout: h.LONG })
+    const over = await h.overflowX(ali)
+    assert.ok(over <= 0, 'telefonda yatay taşma: ' + over)
+    assert.equal(await h.reachable(ali, '#radio-tools .dj-crew-button'), true, 'Telsiz DJ görünür alanda')
+    assert.equal(await h.reachable(ali, '#radio-cams'), true, 'Büyüt görünür alanda')
+  } finally {
+    // Sınama düşse de sonraki sınamalar için oda iki kişiye döner
+    for (const page of extra) {
+      await page.evaluate(() => { if (document.getElementById('radio').getAttribute('data-state') !== 'off') leaveVoice() })
+      await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+    }
+  }
+  await deniz.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 2, null, { timeout: h.LONG })
 })
 
 test('ses odasından ayrılınca kamera kapanır', async () => {
