@@ -508,6 +508,18 @@ function overflowX (page) {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 }
 
+// Öğe bütünüyle görünür alanda ve ortasında üstünde başka öğe yok (fareyle ve dokunarak ulaşılabilir)
+function reachable (page, sel) {
+  return page.evaluate((s) => {
+    const n = document.querySelector(s)
+    if (!n || !n.getClientRects().length) return false
+    const b = n.getBoundingClientRect()
+    if (b.left < 0 || b.right > document.documentElement.clientWidth || b.top < 0 || b.bottom > window.innerHeight) return false
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)
+    return Boolean(hit && hit.closest(s))
+  }, sel)
+}
+
 // İstasyonu görünür alana getirip tıklar (taşan bantta)
 async function clickStation (page, key) {
   await page.evaluate((k) => {
@@ -578,6 +590,7 @@ module.exports = {
   readDataDir,
   until,
   overflowX,
+  reachable,
   clickStation,
   joinVoice,
   makeWav

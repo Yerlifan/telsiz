@@ -2,7 +2,8 @@
 
 // Ses odası (sahte mikrofon) ve ekran paylaşımı (sahte ekran yakalama). İki kullanıcı Lobi'ye katılır,
 // kadroda ikisi ve Telsiz DJ öğesi görünür, konuşma halesi avatar şeklini izler. Biri ekranını paylaşır,
-// öteki bildirimi görüp izler (görüntü gerçekten oynar), paylaşım durdurulunca sahne kapanır.
+// öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşım sürerken paylaşanın üst çubuğu dar
+// pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -248,6 +249,30 @@ test('izleyici bildirimi görür, İzle ile görüntü gerçekten oynar', async 
   assert.equal(r.tag, 'CANLI · Deniz')
   assert.ok(r.w > 0)
   await deniz.waitForFunction(() => document.querySelector('#cast .cast-viewers-text').textContent === '1 kişi izliyor', null, { timeout: h.LONG })
+})
+
+test('kendi paylaşımı sürerken üst çubuk taşmaz, profil düğmesi görünür, 759 ve altında Ekran ve Durdur kalır', async () => {
+  const { deniz } = W
+  // Paylaşım başlayınca üst çubuğa yayın çipi ve İstasyonlar gelir: frekans adı kısalır, çipin yazısı gizlenir
+  for (const width of [760, 1000, 1280, 1366]) {
+    await deniz.setViewportSize({ width, height: 800 })
+    await deniz.waitForFunction((x) => document.documentElement.clientWidth === x && el.appView.getAttribute('data-layout') === layoutClass(), width)
+    const over = await h.overflowX(deniz)
+    assert.ok(over <= 0, width + ' genişlikte yatay taşma: ' + over)
+    assert.equal(await h.reachable(deniz, '#me-button'), true, width + ' genişlikte profil düğmesi görünür')
+    assert.equal(await h.reachable(deniz, '#top-cast .top-cast-stop'), true, width + ' genişlikte çipin Durdur düğmesi görünür')
+  }
+  // 759 ve altında üst çubukta çip yoktur, paylaşım telsiz kartının Ekran düğmesinden ve sahnedeki Durdur'dan durur
+  await deniz.setViewportSize({ width: 600, height: 800 })
+  await deniz.waitForFunction(() => document.documentElement.clientWidth === 600 && el.appView.getAttribute('data-layout') === layoutClass())
+  assert.ok(await h.overflowX(deniz) <= 0, '600 genişlikte yatay taşma')
+  const narrow = await deniz.evaluate(() => ({ chip: document.getElementById('top-cast').getClientRects().length > 0, label: document.getElementById('btn-screen').getAttribute('aria-label') }))
+  assert.deepEqual(narrow, { chip: false, label: 'Paylaşımı Durdur' })
+  assert.equal(await h.reachable(deniz, '#btn-screen'), true, 'telsiz kartının Ekran düğmesi görünür')
+  assert.equal(await h.reachable(deniz, '#cast .cast-stop'), true, 'sahnedeki Durdur görünür')
+  assert.equal(await h.reachable(deniz, '#me-button'), true, '600 genişlikte profil düğmesi görünür')
+  await deniz.setViewportSize({ width: 1440, height: 900 })
+  await deniz.waitForFunction(() => document.getElementById('radio-slot').contains(document.getElementById('radio')))
 })
 
 test('telefon 390: izleme sahnesinde yatay taşma yok', async () => {
