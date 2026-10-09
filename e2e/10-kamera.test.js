@@ -3,7 +3,8 @@
 // Ses odasında kamera (sahte kamera) ve sahibin ses odası ayarları. Kamera düğmesi kapalı başlar ve
 // basılmadan kamera istenmez. Mert kamerasını açar: kendi kutusu aynalı canlı görüntü, düğme sırasının
 // üstünde "Kameranız açık" göstergesi, Deniz'in kadrosunda Mert'in avatarı canlı görüntü kutusuna döner ve
-// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar. Sahip kişi ses kartındaki Kamerasını kapat
+// Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar (başlık düğmelerinin ipucu görünür etiketle
+// aynıdır, tam ekrandan çıkış simgesi X değildir). Sahip kişi ses kartındaki Kamerasını kapat
 // düğmesiyle Mert'in kamerasını kapatır: Mert'in kamerası durur, bildirim görür ve kamerasını yeniden açar.
 // Sahip kamera sınırını 1'e indirince ikinci kamera sunucuda reddedilir ve kamera hiç istenmez. Sahip
 // Ayarlar > Genel'den kapasite ve kamera sınırını değiştirir, kameraları kapatınca açık kamera kapanır.
@@ -171,6 +172,16 @@ test('Büyüt düğmesi kameraları yayın sahnesinde ızgara olarak açar', asy
   assert.deepEqual(await deniz.evaluate(() => [localStorage.getItem('telsiz.camFit'), localStorage.getItem('telsiz.castFit')]), ['contain', null])
   await deniz.click('#cast .cast-fit .cast-fit-button:last-child')
   assert.equal(await fitOf(), 'cover')
+  // Başlık düğmelerinin ipucu görünür etiketle aynıdır (dar ekranda yalnızca simgedirler), tam ekrandan çıkış
+  // simgesi Küçült'ün X'inden (i-close) ayrıdır
+  const head = () => deniz.evaluate(() => Array.from(document.querySelectorAll('#cast .cast-head .cast-fit-button, #cast .cast-head .cast-full')).map((b) => [b.title, b.querySelector('.cast-button-label').textContent, b.querySelector('use').getAttribute('href')].join('|')))
+  assert.deepEqual(await head(), ['Sığdır|Sığdır|#i-fit', 'Doldur|Doldur|#i-fill', 'Tam Ekran|Tam Ekran|#i-expand'])
+  await deniz.click('#cast .cast-head .cast-full')
+  await deniz.waitForFunction(() => castState.full)
+  assert.equal((await head())[2], 'Tam Ekrandan Çık|Tam Ekrandan Çık|#i-compress')
+  await deniz.click('#cast .cast-head .cast-full')
+  await deniz.waitForFunction(() => !castState.full && !document.fullscreenElement)
+  assert.equal((await head())[2], 'Tam Ekran|Tam Ekran|#i-expand')
   await deniz.click('#cast .cast-cams-close')
   await deniz.waitForSelector('#cast', { state: 'hidden' })
 })
