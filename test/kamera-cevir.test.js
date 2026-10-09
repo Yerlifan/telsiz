@@ -40,10 +40,15 @@ function domError (name) {
 }
 
 // Sahte kamera: cameras dizisindeki her kamera { deviceId, facing, label }. getUserMedia isteğindeki
-// facingMode veya deviceId'ye göre kamera seçer. busy: aynı anda yalnızca bir kamera açılabilir
-// (NotReadableError). hang: başka kamera açıkken istek hiç yanıtlanmaz. stall(c, n): true dönerse n. istek hiç
-// yanıtlanmaz. fail(c, n): hata adı döndürürse n. istek o hatayla reddedilir. Zamanlayıcılar çalışmaz,
-// kaydedilir, fire(ms) o süredekileri çalıştırır.
+// facingMode veya deviceId'ye göre kamera seçer. Seçenekler:
+// busy: aynı anda yalnızca bir kamera açılabilir (NotReadableError).
+// hold: başka kamera açıkken istek bekletilir, açık kamera kalmayınca yanıtlanır (hedeflenen telefon).
+// hang: başka kamera açıkken istek hiç yanıtlanmaz, kamera bırakılsa da.
+// stall(c, n): true dönerse n. istek hiç yanıtlanmaz.
+// manual(c, n): true dönerse n. istek test answer(n) veya refuse(n, ad) çağırana kadar bekler.
+// fail(c, n): hata adı döndürürse n. istek o hatayla reddedilir.
+// permission: navigator.permissions.query sonucu ('granted', 'prompt'), verilmezse permissions yoktur.
+// Zamanlayıcılar çalışmaz, kaydedilir, fire(ms) o süredekileri çalıştırır.
 function loadEngine (opts) {
   const o = opts || {}
   const cameras = o.cameras
@@ -52,6 +57,8 @@ function loadEngine (opts) {
   const live = []
   const deviceListeners = []
   const timers = []
+  const held = []
+  const pending = {}
   let serial = 0
   function audioTrack () {
     return { kind: 'audio', enabled: true, readyState: 'live', onended: null, stop: noop, clone: () => audioTrack() }
@@ -74,9 +81,11 @@ function loadEngine (opts) {
         listeners[type] = (listeners[type] || []).filter((f) => f !== fn)
       },
       stop () {
+        if (track.readyState === 'ended') return
         track.readyState = 'ended'
         const i = live.indexOf(track)
         if (i >= 0) live.splice(i, 1)
+        if (!live.length && held.length) held.shift()()
       },
       // Kamera çıkarıldı: tarayıcı izi bitirir ve olay gönderir
       unplug () {
@@ -115,11 +124,21 @@ function loadEngine (opts) {
       if (failName) return Promise.reject(domError(failName))
       const cam = pick(c.video)
       if (!cam) return Promise.reject(domError('OverconstrainedError'))
-      if ((o.hang && live.length) || (o.stall && o.stall(plain(c.video), requests.length))) return new Promise(noop)
+      const n = requests.length
+      const open = () => {
+        const t = videoTrack(cam)
+        live.push(t)
+        return { getAudioTracks: () => [], getVideoTracks: () => [t], getTracks: () => [t] }
+      }
+      if (o.manual && o.manual(plain(c.video), n)) {
+        return new Promise((resolve, reject) => {
+          pending[n] = { answer: () => resolve(open()), refuse: (name) => reject(domError(name)) }
+        })
+      }
+      if ((o.hang && live.length) || (o.stall && o.stall(plain(c.video), n))) return new Promise(noop)
+      if (o.hold && live.length) return new Promise((resolve) => held.push(() => resolve(open())))
       if (o.busy && live.length) return Promise.reject(domError('NotReadableError'))
-      const t = videoTrack(cam)
-      live.push(t)
-      return Promise.resolve({ getAudioTracks: () => [], getVideoTracks: () => [t], getTracks: () => [t] })
+      return Promise.resolve(open())
     },
     enumerateDevices: () => Promise.resolve(cameras.map((c) => ({ kind: 'videoinput', deviceId: c.deviceId, label: c.label || '' })).concat([{ kind: 'audioinput', deviceId: 'mic', label: '' }])),
     addEventListener: (type, fn) => {
@@ -166,6 +185,7 @@ function loadEngine (opts) {
   }
   win.window = win
   win.navigator = { mediaDevices: md }
+  if (o.permission) win.navigator.permissions = { query: () => Promise.resolve({ state: o.permission }) }
   win.document = { visibilityState: 'visible', documentElement: { lang: 'tr' }, addEventListener: noop, removeEventListener: noop }
   win.RTCPeerConnection = FakePC
   win.RTCRtpSender = FakeSender
@@ -193,7 +213,9 @@ function loadEngine (opts) {
     due.forEach((t) => timers.splice(timers.indexOf(t), 1))
     due.forEach((t) => t.fn())
   }
-  return { voice, requests, live, cam, cameraPosts, deviceListeners, fire, utils: win.VoiceClient.cameraUtils }
+  const answer = (n) => pending[n].answer()
+  const refuse = (n, name) => pending[n].refuse(name)
+  return { voice, requests, live, cam, cameraPosts, deviceListeners, fire, answer, refuse, utils: win.VoiceClient.cameraUtils }
 }
 
 const PHONE = [
@@ -271,13 +293,18 @@ test('aynı anda iki kamerayı açamayan cihazda eski kamera bırakılıp yenide
   assert.equal(oldTrack.readyState, 'ended')
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
   assert.equal(e.cam().facing, 'environment')
+  // Cihaz iki kamerayı açamadığını bildirdi: sonraki geçişte eski kamera baştan bırakılır, tek istek gider
+  const before = e.requests.length
+  await e.voice.switchCamera()
+  assert.equal(e.requests.length, before + 1)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
 })
 
-test('ikinci kamera isteğini yanıtsız bekleten telefonda süre dolunca eski kamera bırakılır, sonraki geçiş beklemez', async () => {
-  const e = loadEngine({ cameras: PHONE, hang: true })
+test('ikinci isteği eski kamera bırakılana kadar bekleten telefonda 2,5 saniye sonra eski kamera bırakılır, bekleyen istek kullanılır', async () => {
+  const e = loadEngine({ cameras: PHONE, hold: true })
   await cameraOn(e)
   const waits = e.utils.switchWaits
-  assert.ok(waits.first > 0 && waits.first < waits.open)
+  assert.ok(waits.first > 0 && waits.first < waits.open && waits.open < waits.prompt)
   const oldTrack = e.live[0]
   const job = e.voice.switchCamera()
   await flush()
@@ -285,19 +312,156 @@ test('ikinci kamera isteğini yanıtsız bekleten telefonda süre dolunca eski k
   assert.equal(oldTrack.readyState, 'live', 'süre dolmadan eski kamera bırakılmaz')
   e.fire(waits.first)
   await job
+  assert.equal(e.requests.length, 2, 'ikinci istek gönderilmez, bekleyen istek kullanılır')
   assert.equal(oldTrack.readyState, 'ended')
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
   assert.equal(e.cam().switching, false)
   assert.equal(e.cam().facing, 'environment')
-  // Geri dönüşte eski kamera baştan bırakılır, istek beklemeden yanıtlanır
-  const before = e.requests.length
-  await e.voice.switchCamera()
-  assert.equal(e.requests.length, before + 1)
+  // Süre dolması cihazı "iki kamera açamaz" diye işaretlemez: geri dönüşte yine önce eski kamera açıkken istenir
+  const back = e.live[0]
+  const job2 = e.voice.switchCamera()
+  await flush()
+  assert.equal(back.readyState, 'live')
+  e.fire(waits.first)
+  await job2
   assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['front'])
+  assert.equal(e.requests.length, 3)
+})
+
+test('kamera bırakıldıktan sonra da yanıtlanmayan isteğin yanına ikinci istek gönderilir, önce gelen kullanılır', async () => {
+  const e = loadEngine({ cameras: PHONE, hang: true })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const oldTrack = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  assert.equal(oldTrack.readyState, 'ended', 'eski kamera bırakıldı')
+  assert.equal(e.requests.length, 2, 'bırakılınca önce aynı istek beklenir')
+  e.fire(waits.first)
+  await job
+  assert.equal(e.requests.length, 3)
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
   assert.equal(e.cam().switching, false)
 })
 
-test('kamera bırakıldıktan sonra da yanıt gelmezse değiştirme süre dolunca biter, kamera kapanır', async () => {
+test('ikinci istek kazanınca sonradan gelen ilk istek durdurulur, ilk istek kazanınca ikinci durdurulur', async () => {
+  const e = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  e.fire(waits.first)
+  await job
+  assert.equal(e.requests.length, 3)
+  const winner = e.live[0]
+  e.answer(2)
+  await flush()
+  assert.deepEqual(e.live, [winner], 'geç gelen ilk akış durduruldu')
+  assert.equal(e.cam().facing, 'environment')
+
+  const f = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 || n === 3 })
+  await cameraOn(f)
+  const job2 = f.voice.switchCamera()
+  await flush()
+  f.fire(waits.first)
+  await flush()
+  f.fire(waits.first)
+  await flush()
+  f.answer(2)
+  await job2
+  const first = f.live[0]
+  f.answer(3)
+  await flush()
+  assert.deepEqual(f.live, [first], 'geç gelen ikinci akış durduruldu')
+
+  // İki istek aynı anda yanıtlanırsa biri kullanılır, öteki durdurulur
+  const g = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 || n === 3 })
+  await cameraOn(g)
+  const job3 = g.voice.switchCamera()
+  await flush()
+  g.fire(waits.first)
+  await flush()
+  g.fire(waits.first)
+  await flush()
+  g.answer(2)
+  g.answer(3)
+  await job3
+  await flush()
+  assert.equal(g.live.length, 1, 'aynı anda gelen ikinci akış durduruldu')
+  assert.equal(g.cam().facing, 'environment')
+})
+
+test('2,5 saniyelik bekleme sırasında kamera kapatılırsa yeni istek gönderilmez, geç gelen akış durdurulur', async () => {
+  const e = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const job = e.voice.switchCamera()
+  const caught = job.catch((err) => err)
+  await flush()
+  e.voice.stopCamera()
+  e.fire(waits.first)
+  const err = await caught
+  assert.equal(err.code, 'cancelled')
+  assert.equal(e.requests.length, 2, 'kapatıldıktan sonra kamera yeniden istenmez')
+  e.answer(2)
+  await flush()
+  assert.deepEqual(e.live, [])
+  assert.equal(e.cam().state, 'off')
+
+  // Akış süre dolduğu anda gelir ve kamera aynı anda kapatılırsa da durdurulur
+  const f = loadEngine({ cameras: PHONE, manual: (v, n) => n === 2 })
+  await cameraOn(f)
+  const job2 = f.voice.switchCamera()
+  const caught2 = job2.catch((err) => err)
+  await flush()
+  f.fire(waits.first)
+  f.answer(2)
+  f.voice.stopCamera()
+  assert.equal((await caught2).code, 'cancelled')
+  await flush()
+  assert.deepEqual(f.live, [])
+  assert.equal(f.requests.length, 2)
+})
+
+test('tarayıcı izin soruyorsa eski kamera kesilmez, kişinin yanıtı beklenir ve tek istek gider', async () => {
+  const e = loadEngine({ cameras: PHONE, permission: 'prompt', manual: (v, n) => n === 2 })
+  await cameraOn(e)
+  const waits = e.utils.switchWaits
+  const oldTrack = e.live[0]
+  const job = e.voice.switchCamera()
+  await flush()
+  e.fire(waits.first)
+  await flush()
+  assert.equal(oldTrack.readyState, 'live', '2,5 saniyede eski kamera bırakılmaz')
+  e.answer(2)
+  await job
+  assert.equal(e.requests.length, 2, 'ikinci izin penceresi açılmaz')
+  assert.equal(oldTrack.readyState, 'ended')
+  assert.deepEqual(e.live.map((t) => t.cam.deviceId), ['back'])
+
+  // Kişi hiç yanıt vermezse süre dolunca eski kamera sürer, geç gelen akış durdurulur
+  const f = loadEngine({ cameras: PHONE, permission: 'prompt', manual: (v, n) => n === 2 })
+  await cameraOn(f)
+  const keep = f.live[0]
+  const job2 = f.voice.switchCamera()
+  const caught = job2.catch((err) => err)
+  await flush()
+  f.fire(waits.prompt)
+  const err = await caught
+  assert.equal(err.code, 'camera_failed')
+  assert.equal(keep.readyState, 'live')
+  assert.equal(f.cam().state, 'on')
+  assert.equal(f.cam().switching, false)
+  f.answer(2)
+  await flush()
+  assert.deepEqual(f.live, [keep])
+})
+
+test('kamera bırakıldıktan sonra da hiçbir istek yanıtlanmazsa değiştirme süre dolunca biter, kamera kapanır', async () => {
   const e = loadEngine({ cameras: PHONE, stall: (v, n) => n >= 2 })
   await cameraOn(e)
   const waits = e.utils.switchWaits
@@ -307,8 +471,11 @@ test('kamera bırakıldıktan sonra da yanıt gelmezse değiştirme süre dolunc
   e.fire(waits.first)
   await flush()
   assert.deepEqual(e.live, [], 'eski kamera bırakıldı')
+  e.fire(waits.first)
+  await flush()
+  assert.equal(e.requests.length, 3, 'ikinci istek gönderildi')
   assert.equal(e.cam().switching, true)
-  // Yeni kamera isteğinin süresi dolar, eski kamera yeniden istenir, onun da süresi dolar
+  // İki isteğin de süresi dolar, eski kamera yeniden istenir, onun da süresi dolar
   e.fire(waits.open)
   await flush()
   e.fire(waits.open)
