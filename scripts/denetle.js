@@ -68,7 +68,8 @@ const RULE_LABELS = {
   'i18n-parity': 'i18n sözlük eşliği',
   'i18n-hardcoded': 'i18n dışı sabit metin',
   'i18n-keys': 'i18n anahtarı',
-  'doc-parity': 'belge eşliği'
+  'doc-parity': 'belge eşliği',
+  duplicate: 'yinelenen işlev'
 }
 
 const DASH_NAMES = {
@@ -505,12 +506,34 @@ function checkClientUsage (ctx, ast) {
   })
 }
 
+// Aynı kapsamda (dosyanın en üstü veya bir işlevin gövdesi) aynı adla iki işlev bildirimi. JavaScript bunu hata
+// saymaz, sonraki bildirim öncekini sessizce ezer ve önceki işlevi çağıran her yer sonrakini çalıştırır.
+function checkDuplicateFunctions (ctx, ast) {
+  walk(ast, (node) => {
+    let body = null
+    if (node.type === 'Program') body = node.body
+    else if (node.body && node.body.type === 'BlockStatement' && /Function/.test(node.type)) body = node.body.body
+    if (!body) return
+    const seen = new Map()
+    for (const item of body) {
+      if (item.type !== 'FunctionDeclaration' || !item.id) continue
+      const name = item.id.name
+      if (seen.has(name)) {
+        ctx.report(item.loc.start.line, 'duplicate', '"' + name + '" işlevi aynı kapsamda ' + seen.get(name) + '. satırda da bildirilmiş. Sonraki bildirim öncekini ezer, birini yeniden adlandırın.')
+      } else {
+        seen.set(name, item.loc.start.line)
+      }
+    }
+  })
+}
+
 function checkJs (acorn, ctx) {
   const client = isClientScript(ctx.rel)
   const parsed = parseJs(acorn, ctx, client)
   if (!parsed) return null
   checkSemicolons(acorn, ctx, parsed.tokens)
   checkLineStarts(acorn, ctx, parsed.ast, parsed.tokens)
+  checkDuplicateFunctions(ctx, parsed.ast)
   if (client) checkClientUsage(ctx, parsed.ast)
   return parsed
 }

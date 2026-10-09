@@ -413,6 +413,41 @@ test('noktalı virgülsüz yazımda satır birleşmesi tehlikeleri yakalanır', 
   assert.equal(violations.length, 5)
 })
 
+test('aynı kapsamda aynı adla iki işlev bildirimi yakalanır, farklı kapsamdaki aynı ad serbesttir', (t) => {
+  const violations = check(t, {
+    'public/a.js': lines(
+      'function wait (ms) {',
+      '  return ms',
+      '}',
+      'function create () {',
+      '  function delay (ms) {',
+      '    return ms',
+      '  }',
+      '  var run = function () {',
+      '    function delay () {',
+      '      return 0',
+      '    }',
+      '    return delay',
+      '  }',
+      '  function delay (ms) {',
+      '    return ms * 2',
+      '  }',
+      '  return [delay, run]',
+      '}',
+      'function wait () {',
+      '  return 0',
+      '}'
+    ),
+    'src/b.js': lines('function a () {}', 'const b = () => {', '  function a () {}', '  return a', '}', 'module.exports = { a, b }')
+  })
+  assert.deepEqual(of(violations, 'public/a.js'), [
+    { line: 14, rule: 'duplicate' },
+    { line: 19, rule: 'duplicate' }
+  ])
+  assert.match(messageAt(violations, 'public/a.js', 14), /"delay" işlevi aynı kapsamda 5\. satırda/)
+  assert.deepEqual(of(violations, 'src/b.js'), [])
+})
+
 test('üçüncü taraf şifreleme dosyasının sha256 değeri denetlenir', (t) => {
   const changed = check(t, { [NACL_PATH]: Buffer.concat([VENDOR, Buffer.from('\n')]) })
   assert.deepEqual(of(changed, NACL_PATH), [{ line: 1, rule: 'vendor' }])

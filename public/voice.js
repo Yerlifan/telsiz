@@ -70,6 +70,7 @@ window.VoiceClient = (function () {
   var STORAGE_KEY = 'telsiz.voice'
   var PEERS_KEY = 'telsiz.voice.peers'
   var SCREEN_KEY = 'telsiz.voice.screen'
+  var CAMERA_KEY = 'telsiz.voice.camera'
   // Ekran paylaşımı (Ek L1)
   var NEGO_TIMEOUT_MS = 20000
   var MAX_NEGO_RETRIES = 2
@@ -697,7 +698,7 @@ window.VoiceClient = (function () {
   // getUserMedia isteği (yalnızca görüntü, ses ayrı mikrofon hattındadır) ve izin alındıktan sonra izine
   // applyConstraints ile uygulanan sınırlar. opt: { facing: 'user' | 'environment', deviceId, exact }. Varsayılan
   // ön kameradır (telefonda arka kamera açılmasın), kamerası yönsüz bilgisayarda tercih yalnızca ipucudur.
-  // exact: kamera değiştirirken istenen kamera yoksa istek reddedilir (aynı kamera yeniden açılmasın).
+  // exact: istenen kamera yoksa istek reddedilir (değiştirirken aynı kamera, seçilen kamera yerine varsayılan açılmasın).
   function cameraConstraints (opt) {
     var o = opt || {}
     var video = { width: { ideal: CAMERA_SIZE.width }, height: { ideal: CAMERA_SIZE.height }, frameRate: { ideal: CAMERA_SIZE.frameRate, max: CAMERA_SIZE.frameRate } }
@@ -723,16 +724,48 @@ window.VoiceClient = (function () {
     return null
   }
 
-  // Kamera değiştirme denemeleri sırayla: yönü bilinen kamerada karşı yön, birden çok kamerada listedeki sıradaki
-  // kamera. Yön isteği reddedilirse (cihaz yön bildirmiyor) sıradaki kamera denenir. Seçenek yoksa boş dizi.
-  function cameraSwitchTargets (facing, deviceId, ids) {
-    var list = Array.isArray(ids) ? ids.filter(function (id) { return typeof id === 'string' && id }) : []
+  // Kamera değiştirme denemeleri sırayla. Kameralar bir döngüde dolaşılır: ön, arka, sonra yön bildirmeyen
+  // kameralar (bilgisayara takılı kamera) listedeki sırayla. İlk deneme döngüdeki sıradaki kameradır, istek
+  // reddedilirse (kamera çıkarılmış, tarayıcı yön isteğini tanımıyor) döngünün geri kalanı denenir. Ön ve arka
+  // kamera yönle (facingMode exact) istenir, ardından aynı yöndeki kameranın kimliği denenir. devices: [{ id,
+  // facing }], yalın kimlik yönsüz sayılır. Hiçbir kameranın yönü bilinmiyorsa (adlar okunamadı) yönü bilinen
+  // kamerada karşı yön yine denenir. Seçenek yoksa boş dizi.
+  function cameraSwitchTargets (facing, deviceId, devices) {
+    var list = []
+    var src = Array.isArray(devices) ? devices : []
+    src.forEach(function (d) {
+      var dev = typeof d === 'string' ? { id: d, facing: null } : d
+      var id = dev && dev.id
+      if (typeof id !== 'string' || !id || list.some(function (x) { return x.id === id })) return
+      list.push({ id: id, facing: dev.facing === 'user' || dev.facing === 'environment' ? dev.facing : null })
+    })
+    var known = facing === 'user' || facing === 'environment'
+    var informed = list.some(function (x) { return x.facing })
+    var cycle = []
+    var sides = ['user', 'environment']
+    sides.forEach(function (side) {
+      var ids = list.filter(function (x) { return x.facing === side && x.id !== deviceId }).map(function (x) { return x.id })
+      if (side === facing || ids.length || (known && !informed)) cycle.push({ facing: side, ids: ids })
+    })
+    list.forEach(function (x) {
+      if (!x.facing) cycle.push({ deviceId: x.id })
+    })
+    var at = -1
+    cycle.forEach(function (c, i) {
+      if (known ? c.facing === facing : (c.deviceId && c.deviceId === deviceId)) at = i
+    })
     var out = []
-    if (facing === 'user' || facing === 'environment') out.push({ facing: facing === 'user' ? 'environment' : 'user', exact: true })
-    if (list.length >= 2) {
-      var i = list.indexOf(deviceId)
-      var next = list[(i + 1) % list.length]
-      if (next !== deviceId) out.push({ deviceId: next, exact: true })
+    var k = 1
+    while (k <= cycle.length) {
+      var c = cycle[(at + k) % cycle.length]
+      k++
+      if (c === cycle[at]) continue
+      if (c.facing) {
+        out.push({ facing: c.facing, exact: true })
+        if (c.ids.length) out.push({ deviceId: c.ids[0], exact: true })
+      } else if (c.deviceId !== deviceId) {
+        out.push({ deviceId: c.deviceId, exact: true })
+      }
     }
     return out
   }
@@ -4500,11 +4533,35 @@ window.VoiceClient = (function () {
       return job
     }
 
-    // İdeal kısıtları tanımayan tarayıcıda yalın istekle denenir
+    // Saklı kamera seçimi: yalnızca yön bildirmeyen kameranın kimliği
+    function storedCameraPick () {
+      var obj = readStored(CAMERA_KEY)
+      var id = obj && obj.deviceId
+      return typeof id === 'string' && id && id.length <= 512 ? { deviceId: id } : null
+    }
+
+    // Seçilen kamera kesin kimliği veya yönüyle istenir (Chromium ideal deviceId'yi yok sayıp varsayılan kamerayı
+    // açar). Kamera yoksa, meşgulse veya kısıt tanınmıyorsa varsayılan istekle (ön kamera tercihi) denenir.
+    // request: kısıtlarla getUserMedia isteği yapan işlev.
+    async function openPicked (pick, request) {
+      if (pick) {
+        try {
+          return await request(cameraConstraints(pick.deviceId ? { deviceId: pick.deviceId, exact: true } : { facing: pick.facing, exact: true }))
+        } catch (e) {
+          var name = e && e.name
+          if (name !== 'OverconstrainedError' && name !== 'NotFoundError' && name !== 'TypeError' && !busyError(e)) throw e
+        }
+      }
+      return request(cameraConstraints(null))
+    }
+
+    // Sayfa açık kaldıkça son seçilen, yoksa saklı kamera istenir. İdeal kısıtları tanımayan tarayıcıda yalın istekle.
     async function getCamera () {
       var md = navigator.mediaDevices
       try {
-        return await md.getUserMedia(cameraConstraints(st.cameraPick))
+        return await openPicked(st.cameraPick || storedCameraPick(), function (c) {
+          return md.getUserMedia(c)
+        })
       } catch (e) {
         if (!e || (e.name !== 'TypeError' && e.name !== 'OverconstrainedError')) throw e
       }
@@ -4610,20 +4667,27 @@ window.VoiceClient = (function () {
       return cam
     }
 
-    // Bu cihazdaki kameraların kimlikleri (izin alındıktan sonra dolu gelir). Okunamazsa boş dizi.
-    function cameraDeviceIds () {
+    // Bu cihazdaki kameralar: [{ id, facing }] (izin alındıktan sonra dolu gelir). Yön cihaz yeteneğinden veya
+    // adından okunur, bilinmiyorsa null. Okunamazsa boş dizi.
+    function cameraDevices () {
       var md = navigator.mediaDevices
       if (!md || typeof md.enumerateDevices !== 'function') return Promise.resolve([])
       return Promise.resolve().then(function () {
         return md.enumerateDevices()
       }).then(function (list) {
-        var ids = []
+        var out = []
         if (list && typeof list.forEach === 'function') {
           list.forEach(function (d) {
-            if (d && d.kind === 'videoinput' && typeof d.deviceId === 'string' && d.deviceId && ids.indexOf(d.deviceId) < 0) ids.push(d.deviceId)
+            if (!d || d.kind !== 'videoinput' || typeof d.deviceId !== 'string' || !d.deviceId) return
+            if (out.some(function (x) { return x.id === d.deviceId })) return
+            var caps = null
+            try {
+              caps = typeof d.getCapabilities === 'function' ? d.getCapabilities() : null
+            } catch (e) {}
+            out.push({ id: d.deviceId, facing: cameraFacingOf(null, caps, d.label) })
           })
         }
-        return ids
+        return out
       }, function () {
         return []
       })
@@ -4634,9 +4698,9 @@ window.VoiceClient = (function () {
     function refreshCameraDevices () {
       var cam = st.camera
       if (!cam) return Promise.resolve()
-      return cameraDeviceIds().then(function (ids) {
+      return cameraDevices().then(function (devices) {
         if (st.camera !== cam) return
-        var can = ids.length >= 2
+        var can = devices.length >= 2
         if (can === st.cameraCanSwitch) return
         st.cameraCanSwitch = can
         emit()
@@ -4808,7 +4872,9 @@ window.VoiceClient = (function () {
       return name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError'
     }
 
-    function delay (ms) {
+    // Zamanlayıcı st.timers'a yazılmaz: oturum kapanınca silinseydi bekleyen söz hiç çözülmezdi. Bekleme bitince
+    // değiştirme stale() ile çıkar.
+    function cameraPause (ms) {
       return new Promise(function (resolve) {
         setTimeout(resolve, ms)
       })
@@ -4822,7 +4888,7 @@ window.VoiceClient = (function () {
       } catch (e) {
         if (!busyError(e)) throw e
       }
-      await delay(CAMERA_SETTLE_MS)
+      await cameraPause(CAMERA_SETTLE_MS)
       if (stale()) throw makeError('cancelled')
       return cameraWithin(constraints, CAMERA_OPEN_WAIT_MS)
     }
@@ -4906,9 +4972,9 @@ window.VoiceClient = (function () {
         return gen !== st.gen || cgen !== st.cameraGen || st.camera !== cam || !st.inVoice
       }
       var job = (async function () {
-        var ids = await cameraDeviceIds()
+        var devices = await cameraDevices()
         if (stale()) throw makeError('cancelled')
-        var targets = cameraSwitchTargets(cam.facing, cam.deviceId, ids)
+        var targets = cameraSwitchTargets(cam.facing, cam.deviceId, devices)
         if (!targets.length) throw makeError('camera_not_found')
         // Bırakılan eski iz 'ended' olayıyla kamerayı kapatmasın
         try {
@@ -4946,6 +5012,9 @@ window.VoiceClient = (function () {
         stopTrack(cam.track)
         st.camera = next
         st.cameraPick = next.facing ? { facing: next.facing } : next.deviceId ? { deviceId: next.deviceId } : null
+        // Yön bildirmeyen kamera (bilgisayara takılı kamera) sayfa yenilense de istenir. Ön veya arka kamera
+        // seçilince unutulur, telefonda her açılış ön kamerayla başlar.
+        writeStored(CAMERA_KEY, !next.facing && next.deviceId ? { deviceId: next.deviceId } : null)
         syncAllSenders()
         refreshCameraDevices()
         return null
@@ -4977,7 +5046,10 @@ window.VoiceClient = (function () {
       }
       var stream = null
       try {
-        stream = await cameraWithin(cameraConstraints(cam.deviceId ? { deviceId: cam.deviceId } : { facing: cam.facing }), CAMERA_OPEN_WAIT_MS)
+        stream = await openPicked(cam.deviceId ? { deviceId: cam.deviceId } : cam.facing ? { facing: cam.facing } : null, function (c) {
+          if (stale()) return Promise.reject(makeError('cancelled'))
+          return cameraWithin(c, CAMERA_OPEN_WAIT_MS)
+        })
       } catch (e) {
         stream = null
       }
