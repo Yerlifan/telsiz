@@ -37,6 +37,11 @@ function loadWorker (cacheNames) {
   return { handlers, deleted, current }
 }
 
+test('önbellek adı paket sürümüyle eşleşir, sürüm değişikliğinde CACHE_NAME unutulmaz', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
+  assert.equal(loadWorker([]).current, 'telsiz-' + pkg.version)
+})
+
 test('activate yalnız telsiz- önekli eski önbellekleri siler', async () => {
   const probe = loadWorker([])
   const names = [probe.current, 'telsiz-1.9.0', 'telsiz-2.0.0-frekans1', 'other-app-cache', 'workbox-precache-v2']

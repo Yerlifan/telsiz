@@ -2,7 +2,7 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
-## [Unreleased]
+## [2.5.0]
 
 ### New features
 
