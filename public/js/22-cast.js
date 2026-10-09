@@ -582,6 +582,8 @@ function castRefreshAttrs (root) {
   })
 }
 
+// Başlık düğmesi: simge ve görünür etiket. Dar ekranda yalnızca simge kalan düğmede (Sığdır, Doldur, Tam Ekran)
+// fareyle bakan kişi için ipucu (title) görünür etiketle aynı metindir, dil değişince castRefreshAttrs yeniler.
 function castHeadButton (className, iconName, producer) {
   const b = h('button', 'cast-button ' + className)
   b.type = 'button'
@@ -590,6 +592,7 @@ function castHeadButton (className, iconName, producer) {
   setLive(label, producer)
   b.appendChild(label)
   b.castLabel = producer
+  setLiveAttr(b, 'title', producer)
   return b
 }
 
@@ -615,7 +618,8 @@ function castRenderStage (mode, sc, remote) {
   n.fitContain.setAttribute('aria-pressed', fit === 'contain' ? 'true' : 'false')
   n.fitCover.setAttribute('aria-pressed', fit === 'cover' ? 'true' : 'false')
   setLive(n.full.querySelector('.cast-button-label'), n.full.castLabel)
-  setIcon(n.full, castState.full ? 'i-close' : 'i-expand')
+  // Tam ekrandan çıkış X değildir, yanındaki Küçült (i-close) ile karışmaz
+  setIcon(n.full, castState.full ? 'i-compress' : 'i-expand')
   n.panel.classList.toggle('is-own', own)
   n.panel.classList.toggle('is-cams', cams)
   n.rec.hidden = !own
