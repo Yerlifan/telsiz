@@ -574,8 +574,9 @@ function openMainWindow () {
     win.on('enter-full-screen', () => sendFullscreen(true))
     win.on('leave-full-screen', () => sendFullscreen(false))
   }
-  // Simge durumuna küçültme, geri yükleme, tepsiye gizleme ve gösterme bu pencerenin sayfasına yalnızca
-  // beyaz listedeki değerlerle bildirilir (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
+  // Simge durumuna küçültme, geri yükleme (Windows'ta restore olayı gelmeyen tam ekrana dönüş dahil), tepsiye
+  // gizleme ve gösterme bu pencerenin sayfasına yalnızca beyaz listedeki değerlerle bildirilir
+  // (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
   state.windowStates.set(win, windowState.watch(win, (value) => {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.windowState, value)
   }))

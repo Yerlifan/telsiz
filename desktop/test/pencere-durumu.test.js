@@ -88,7 +88,8 @@ test('bildirici: pencere olaylarını değere çevirir, olay nesnesi gitmez, art
   win.emit('minimize')
   win.emit('restore')
   win.emit('hide')
-  // Dinlenmeyen olaylar hiçbir şey göndermez
+  // Eşlenmeyen olaylar hiçbir şey göndermez. Dönüş olayları (focus, enter-full-screen) yalnızca son değer
+  // 'minimized' iken bir şey gönderebilir, burada son değer 'restored'.
   for (const name of ['focus', 'blur', 'close', 'closed', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) win.emit(name)
   win.emit('show')
   assert.deepEqual(sent, [['shown'], ['minimized'], ['restored'], ['hidden'], ['shown']])
@@ -105,6 +106,62 @@ test('bildirici: pencere olaylarını değere çevirir, olay nesnesi gitmez, art
   }
   assert.equal(sent.length, 7)
   assert.equal(reporter.current(), 'shown')
+})
+
+// Windows'ta tam ekrandaki pencere simge durumundan dönünce Electron restore yerine yalnızca enter-full-screen
+// gönderir (Electron 44.5.1, shell/browser/native_window_views_win.cc HandleSizeEvent). Sayfa yine 'restored'
+// almalı, yoksa son değer 'minimized' kalır ve sonraki küçültme de yinelenen değer olarak süzülür.
+test('bildirici: restore gelmeden simge durumundan dönüş (tam ekrana dönüş, focus) restored olarak bildirilir', () => {
+  assert.deepEqual(Array.from(windowState.RETURN_EVENTS), ['enter-full-screen', 'focus'])
+  assert.ok(Object.isFrozen(windowState.RETURN_EVENTS))
+  const win = new EventEmitter()
+  let minimized = false
+  win.isMinimized = () => minimized
+  const sent = []
+  const reporter = windowState.watch(win, (value) => sent.push(value))
+  win.emit('show')
+  // Son değer 'minimized' değilken tam ekrana giriş ve odak hiçbir şey göndermez
+  win.emit('enter-full-screen')
+  win.emit('focus')
+  assert.deepEqual(sent, ['shown'])
+  // Tam ekrandaki pencere küçültülür. Simge durumundaki pencereye odak veya tam ekran olayı gelse de pencere hâlâ
+  // simge durumunda olduğu için bir şey gönderilmez
+  minimized = true
+  win.emit('minimize')
+  win.emit('focus')
+  win.emit('enter-full-screen')
+  assert.deepEqual(sent, ['shown', 'minimized'])
+  // Görev çubuğundan veya Alt+Tab ile dönüş: restore olayı gelmez, yalnızca enter-full-screen gelir
+  minimized = false
+  win.emit('enter-full-screen')
+  assert.deepEqual(sent, ['shown', 'minimized', 'restored'])
+  assert.equal(reporter.current(), 'restored')
+  // Ardından restore veya odak gelse de değer ikinci kez gönderilmez
+  win.emit('restore')
+  win.emit('focus')
+  assert.deepEqual(sent, ['shown', 'minimized', 'restored'])
+  // Sonraki küçültme yeniden bildirilir, restore gelmeyen dönüşü odak yakalar
+  minimized = true
+  win.emit('minimize')
+  minimized = false
+  win.emit('focus')
+  win.emit('enter-full-screen')
+  assert.deepEqual(sent, ['shown', 'minimized', 'restored', 'minimized', 'restored'])
+  // Tepsiye gizlenen pencerede odak 'restored' göndermez, dönüşü show bildirir
+  minimized = true
+  win.emit('minimize')
+  win.emit('hide')
+  minimized = false
+  win.emit('focus')
+  win.emit('show')
+  assert.deepEqual(sent.slice(5), ['minimized', 'hidden', 'shown'])
+  // isMinimized yöntemi olmayan pencerede dönüş olayı simge durumundan çıkış sayılır
+  const plain = new EventEmitter()
+  const plainSent = []
+  windowState.watch(plain, (value) => plainSent.push(value))
+  plain.emit('minimize')
+  plain.emit('enter-full-screen')
+  assert.deepEqual(plainSent, ['minimized', 'restored'])
 })
 
 test('ön yükleme: yalnızca beyaz listedeki değer sayfaya ulaşır, birden çok dinleyici olur, abonelikten çıkılır', () => {

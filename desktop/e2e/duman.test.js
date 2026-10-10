@@ -17,7 +17,8 @@
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
 //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
-// - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
+// - pencere durumu: küçültme, geri yükleme (tam ekrana dönüş dahil), tepsiye gizleme ve tepsiden dönüş sayfaya
+//   yalnızca izinli değerlerle gelir
 // - sistemin boşta süresi sayfadan tam saniye olarak okunur
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
@@ -1059,6 +1060,37 @@ test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden d�
     else win.emit('restore')
   }, realMinimize)
   next = await seen('restored', next, 'restored')
+  // Tam ekrandaki pencere küçültülüp geri gelir. Windows'ta Electron bu dönüşte restore yerine yalnızca
+  // enter-full-screen gönderir (shell/browser/native_window_views_win.cc HandleSizeEvent), sayfa yine
+  // 'restored' almalıdır. Pencere yöneticisi yoksa veya tam ekrandaki pencere küçültülemezse bu sıra
+  // (minimize, ardından restore olmadan enter-full-screen) ana süreçte elle üretilir.
+  const fullscreen = (value) => ctx.app.evaluate(async ({ BrowserWindow }, on) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.setFullScreen(on)
+    const end = Date.now() + 5000
+    while (Date.now() < end && win.isFullScreen() !== on) await new Promise((resolve) => setTimeout(resolve, 100))
+    return win.isFullScreen()
+  }, value)
+  assert.equal(await fullscreen(true), true)
+  const realFullMinimize = await ctx.app.evaluate(async ({ BrowserWindow }, real) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (real) {
+      win.minimize()
+      const end = Date.now() + 3000
+      while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+      if (win.isMinimized()) {
+        win.restore()
+        return true
+      }
+    }
+    win.emit('minimize')
+    win.emit('enter-full-screen')
+    return false
+  }, realMinimize)
+  if (!realFullMinimize) t.diagnostic('tam ekrandan küçültme: minimize ve enter-full-screen olayları ana süreçte elle üretildi')
+  next = await seen('minimized', next, 'minimized in full screen')
+  next = await seen('restored', next, 'restored to full screen')
+  assert.equal(await fullscreen(false), false)
   const visible = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
   // Tepsiye kapatma pencereyi hide() ile gizler
   await ctx.app.evaluate(({ BrowserWindow }) => {
