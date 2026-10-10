@@ -458,10 +458,15 @@ function queueProfileRender () {
   })
 }
 
+// renderVoiceAll kadroyu, İstasyonlar'daki kişileri, yayın sahnesini (castSync, kameralar ızgarası) ve açık kişi ses
+// kartının başlığını (aşağıdaki ses kancası) yeniden çizer. Telsiz DJ kuyruğundaki ekleyen adı ve Bildirimler listesi
+// ad ve avatarı çizim anında okur, burada yeniden çizilir.
 function profilesChanged (changed) {
   renderMembers()
   renderUserPanel()
   renderVoiceAll()
+  if (typeof djRenderSoon === 'function') djRenderSoon()
+  if (typeof renderActivity === 'function') renderActivity()
   if (state.messages.some((m) => changed.has(String(m.authorId)))) refreshAllMessages()
   socialRender()
   if (profileState.cardUserId !== null && changed.has(String(profileState.cardUserId))) refreshProfileCard()
@@ -473,6 +478,16 @@ function profilesChanged (changed) {
     }
   }
 }
+
+// Ses odasındaki kişinin açık ses kartının başlığı (#peer-name) yalnızca açılırken yazılır (10-voice.js
+// openPeerPopover). Telsiz kartı her yeniden çizildiğinde, profil değişikliğinden sonra da, güncel ad yazılır.
+function profilePeerNameHook () {
+  if (typeof popoverUserId === 'undefined' || popoverUserId === null || !el.peerName) return
+  const name = shownName(popoverUserId)
+  if (el.peerName.textContent !== name) el.peerName.textContent = name
+}
+
+if (typeof voiceHook === 'function') voiceHook('render', profilePeerNameHook)
 
 // Görsel yardımcılar (tema tarafındaki çizim fonksiyonları da kullanır)
 
