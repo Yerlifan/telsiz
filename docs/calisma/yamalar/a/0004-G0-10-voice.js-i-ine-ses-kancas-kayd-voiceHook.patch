@@ -1,0 +1,120 @@
+From 17b62c59065cb159ef42b97f097a29d4c3fb9c7e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:02:36 +0000
+Subject: [PATCH 4/4] =?UTF-8?q?G0:=2010-voice.js=20i=C3=A7ine=20ses=20kanc?=
+ =?UTF-8?q?as=C4=B1=20kayd=C4=B1=20(voiceHook)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Başka modüllerin 10-voice.js dosyasını düzenlemeden ses durumuna
+bağlanabilmesi için kanca kaydı eklendi. voiceHook('change', fn) her ses
+anlık görüntüsünde onVoiceChange içinde aramaOnVoice'tan sonra
+state.voiceSnap ile, voiceHook('render', fn) renderVoiceAll sonunda
+telsiz kartı ve bant yeniden çizildikten sonra çağrılır. Bilinmeyen tür
+ve işlev olmayan değer yok sayılır, bir kancanın hatası konsola yazılır
+ve ötekileri durdurmaz. G6, G11 ve G15 ses değişikliklerine bu kayıtla
+bağlanacak.
+
+test/settings.test.js vm düzeneğinde işlevlerin varlığını, çağrı
+sırasını, yapı değişmeyince render kancasının çalışmadığını ve hatalı
+kancanın ötekileri durdurmadığını sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/10-voice.js | 21 +++++++++++++++++++++
+ test/settings.test.js | 30 ++++++++++++++++++++++++++++--
+ 2 files changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/public/js/10-voice.js b/public/js/10-voice.js
+index af9602e..fa0a2da 100644
+--- a/public/js/10-voice.js
++++ b/public/js/10-voice.js
+@@ -114,6 +114,25 @@ let lastCameraError = null
+ // Son katılma denemesinin odası: hata satırındaki "Tekrar dene" bu odaya yeniden katılır
+ let radioLastChannel = null
+ 
++// Ses kancaları: başka modüller bu dosyayı düzenlemeden ses durumuna bağlanır. 'change' her ses anlık
++// görüntüsünde state.voiceSnap ile, 'render' telsiz kartı ve bant yeniden çizildikten sonra çağrılır.
++// Bir kancanın hatası ötekileri ve ses arayüzünü durdurmaz.
++const voiceHooks = { change: [], render: [] }
++
++function voiceHook (kind, fn) {
++  if (voiceHooks[kind] && typeof fn === 'function') voiceHooks[kind].push(fn)
++}
++
++function runVoiceHooks (kind, arg) {
++  voiceHooks[kind].forEach((fn) => {
++    try {
++      fn(arg)
++    } catch (err) {
++      window.console.error(err)
++    }
++  })
++}
++
+ function onVoiceChange (snapshot) {
+   state.voiceSnap = snapshot || null
+   // Masaüstü uygulaması (20-desktop.js) basılı tut kancası için ses odası durumunu ana sürece bildirir
+@@ -130,6 +149,7 @@ function onVoiceChange (snapshot) {
+   if (code && code !== lastVoiceError && !callOwnsError(code)) toast(() => voiceErrorText(code, server), 'error', 8000)
+   lastVoiceError = code
+   if (typeof aramaOnVoice === 'function') aramaOnVoice(state.voiceSnap)
++  runVoiceHooks('change', state.voiceSnap)
+   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
+   if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
+   lastCameraError = camCode
+@@ -179,6 +199,7 @@ function renderVoiceAll () {
+   if (typeof castSync === 'function') castSync()
+   // Özel mesaj görünümünün arama bölümü (32-arama.js)
+   if (typeof aramaRender === 'function') aramaRender()
++  runVoiceHooks('render')
+ }
+ 
+ function voiceRoster (channelId) {
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 023264c..8433e03 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -5,8 +5,8 @@
+ // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
+ // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
+ // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
+-// CSS kuralları ve index.html ile sw.js bağlantıları sınanır. Gerçek sunucu ve tarayıcıyla yapılan
+-// doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
++// CSS kuralları, index.html ile sw.js bağlantıları ve ses kancaları (10-voice.js voiceHook) sınanır. Gerçek
++// sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -1235,3 +1235,29 @@ test('Frekans fotoğrafı: sahip seçer ve kaldırır (POST /api/server-icon/del
+   admin.root.querySelector('#set-photo-pick').click()
+   assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path.indexOf('/api/server-icon') === 0).length, 0)
+ })
++
++test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, hatalı kanca ötekileri durdurmaz', () => {
++  const { run, sandbox } = load()
++  const errors = []
++  sandbox.console = { warn () {}, log () {}, error (err) { errors.push(err && err.message) } }
++  assert.strictEqual(run('typeof voiceHook'), 'function')
++  assert.strictEqual(run('typeof runVoiceHooks'), 'function')
++  // Telsiz kartının ve bandın DOM çizimi taklit ortamda boşa çıkarılır, çağrı sırası ve kancalar değişmez
++  run('renderBand = renderVoiceChannels = renderVoicePanel = renderUserPanel = updateVoiceLive = aramaRender = function () {}')
++  run(`__hooks = []
++    voiceHook('change', function (snap) { __hooks.push('change:' + (snap ? snap.channelId : 'yok')) })
++    voiceHook('change', function () { throw new Error('bozuk kanca') })
++    voiceHook('change', function () { __hooks.push('change2') })
++    voiceHook('render', function (arg) { __hooks.push('render:' + typeof arg) })
++    voiceHook('bilinmeyen', function () { __hooks.push('bilinmeyen') })
++    voiceHook('change', 'işlev değil')`)
++  const hooks = () => JSON.parse(run('JSON.stringify(__hooks)'))
++  run('onVoiceChange({ channelId: 3, peers: {} })')
++  assert.deepStrictEqual(hooks(), ['change:3', 'change2', 'render:undefined'])
++  assert.deepStrictEqual(errors, ['bozuk kanca'])
++  // Yapı değişmeyince kart yeniden çizilmez: change kancaları çalışır, render kancası çalışmaz
++  run('onVoiceChange({ channelId: 3, peers: {} })')
++  assert.deepStrictEqual(hooks().slice(3), ['change:3', 'change2'])
++  run('onVoiceChange(null)')
++  assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
++})

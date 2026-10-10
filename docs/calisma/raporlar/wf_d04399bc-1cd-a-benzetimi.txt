@@ -1,0 +1,77 @@
+## Rapor: 5. adım, ağ benzetimi
+
+Dört cihazlı ağ benzetimi yazıldı. Benzetim masa yöneticisinde beş hata buldu, beşi de kök nedeninden düzeltildi ve birim testleriyle sabitlendi. Commit `f0c9037 Oyun: dört cihazlı ağ benzetimi`, push yapılmadı, çalışma ağacı temiz.
+
+`npm test` düşensiz ama `npm run denetle` ihlalsiz değil. 3 ihlalin hepsi bana ait olmayan `docs/calisma/akislar/rapor-dok.py.txt` dosyasında. Bu dosyayı başka bir süreç `b17e135` ile ekledi, 13. satırda uzun ve kısa tire, 14. satırda görünmez karakterler var. Görevim dışında olduğu için dokunmadım. Python içinde `\u` kaçışıyla yazılırsa ya da depodan çıkarılırsa ihlal kalkar.
+
+### Değişen ve eklenen dosyalar
+- **`/home/user/ps5-pc-communication/test/oyun-ag.test.js`** (yeni, 994 satır): 5 grupta 12 test, yaklaşık 15,5 sn sürüyor.
+  - Her sayfa kendi vm bağlamında gerçek nacl, crypto.js, 33, 34 ve 35'i yüklüyor.
+  - Bellekteki sunucu voice.js'in oyun taşımasını benzetiyor: ses üyeliği ve hayalet kişi, sid ve `peer-ready`, alıcı başına sıralı POST ve `done`, eş başına sıralı teslim, dış katmanın sid ve n koruması.
+  - Ağ koşulları tohumlu: %10 kayıp, %5 çift teslim, %3 sıra bozulması, 0-500 ms gecikme, %2 429 ve %5 saldırgan kopyası.
+  - Kurpiyerin tam durumu bir uygulama sarmalayıcısıyla izleniyor ve her adımda `validateState` ile denetleniyor.
+  - Belge 8.5'in 8 senaryosu ve görev metnindeki bütün maddeler var.
+- **`/home/user/ps5-pc-communication/public/js/34-oyun-masa.js`**: beş düzeltme (aşağıda).
+- **`/home/user/ps5-pc-communication/test/oyun-masa.test.js`**: "kayıp onarımı" grubunda 7 yeni test, sabitler testine `INVITE_RESEND_MS` eklendi. Toplam 61 test.
+- 33, 35 ve voice.js'te hata bulunmadı, dokunulmadı.
+- **Benim yapmadığım commit'ler:** başka bir süreç ara sürümleri `dde5aa9` ve `82d8f56` ile ("ara kayıt, sınanmadı") kaydetti. `f0c9037` kalan farkı taşıyor, mesajı adımın tamamını anlatıyor.
+
+### Bulunan ve düzeltilen hatalar
+1. **Kaybolan davet hiç yinelenmiyordu.** İlk fuzz'da 40 tohumun 17'si lobide takıldı, davet kaybolan kişi `none` aşamasında kalıyordu.
+   - Kurpiyer yanıt vermemiş davetliye lobide, yeniden bağlanıp henüz dönmemiş koltuğa her aşamada aynı `ni` ile 15 sn'de bir yeniden gönderiyor.
+   - Koltuktaki sayfadan yeni sayaçlı `act` ya da `sync` gelince yineleme duruyor (`inv.resend = false`).
+2. **Reddedilen davet yeniden açılıyordu, kaybolan ret onarılmıyordu.** Bu, 1. düzeltmenin yinelemesiyle ortaya çıktı.
+   - Reddedilen `ni` her aşama için hatırlanıyor (lobi, Oyuna Dön, Oyun Sürüyor). Kopya gösterilmiyor.
+   - Lobide `decline` yeniden gidiyor, böylece kaybolan ret de onarılıyor.
+3. **`sync` yanıtı tazelemeyi erteliyordu.** 45 sn içinde belgenin varsaydığı 4 yerine yalnız 3 onarım şansı kalıyordu. Artık tazeleme süresi yalnız tam durum gönderimiyle sıfırlanıyor.
+4. **Kaybolan `leave` onarılmıyordu** (önceki raporun 3. açık maddesi).
+   - Ayrılan sayfa bir kayıt tutuyor. Kurpiyer onu oturtmaya devam ederse `leave` en sık 5 sn'de bir yineleniyor.
+   - Yinelenen `seq` değeri `max(eski, ack.seq + 1)`. Böylece sayacı 1'den başlayan yenilenmiş sayfanın `leave` iletisi de işleniyor.
+5. **`dealer_lost` ile biten oyuncunun koltuğu kurpiyerde kalıyordu** ve sırası gelince oyunu kilitliyordu. Fuzz'da serbest oyunlar bu yüzden bitmedi. Oyuncu artık `leave` gönderiyor, kaybolursa 4. düzeltme yineliyor.
+
+9 bozma denemesinin hepsi yeni testlerce yakalandı. Dosya her seferinde geri yüklendi ve `cmp` ile aynı olduğu doğrulandı.
+
+### Belgeden sapmalar ve gerekçeleri
+- **Yeni sabit `INVITE_RESEND_MS: 15000`** ve davet yinelemesi. Belge 4.10.5 ve 4.8'de yok. Gerekçe 1. hata.
+- **4.10.2'de tazeleme `lastSendAt` ile tanımlı.** Ben yalnız tam durum gönderimini saydım. Sözcüğüne uyulursa 4.10.5'teki `SILENT_END_MS` gerekçesi tutmuyor.
+- **4.7'ye eklenenler:**
+  - Ayrılan sayfa kurpiyerden gelen duruma yanıt veriyor (belgede "yanıt beklenmez" yazıyor).
+  - `dealer_lost` ile biten oyuncu `leave` gönderiyor.
+  - Reddedilen davetin kopyası gösterilmiyor ve lobide ret yineleniyor.
+- **8.5/6 (kurpiyer yenilemesi):** `close gone` ulaşan oyuncu `dealer_left`, ulaşmayan `dealer_lost` ile bitiyor. Testte en az birinin `dealer_left` olduğu da denetleniyor. Belge yalnız `dealer_left` diyor, ama ardışık kayıpta 45 sn sınırı doğru yedek davranış.
+- **Benzetimde modellemeler:**
+  - Sıra bozulması, dış katmanın atacağı geç teslim olarak modellendi. voice.js eş başına sırayı korur ve `fresh` geride kalanı atar.
+  - Saldırgan kopyası yeni n ile `fresh` katmanını atlıyor.
+  - 429 (%2) belgede yok, ben ekledim.
+- Tüm testler sabit tohumlu ve belirlenimci.
+
+### Sonraki adımın bilmesi gereken API
+- `TelsizGameDesk.TIMES` içine `INVITE_RESEND_MS: 15000` eklendi. Bunun dışında model alanı, yöntem, bildirim ya da hata kodu değişmedi.
+- `tick()` rol `none` değilken 250 ms'de bir çağrılmalı. Davet yinelemesi kurpiyer tick'inde, `dealer_lost` sonrası `leave` oyuncu tick'inde çalışıyor.
+- `leave` onarımı gelen iletiyle çalışıyor. Bu yüzden `onVoiceEvent` rol `none` iken de iletilmeli (zaten öyle).
+- Reddet sonrası `model().invite` saklı daveti göstermeye devam ediyor, Masaya Bak (`openInvite`) bu daveti açıyor. Yinelenen davetler kendiliğinden açılmıyor.
+- Yanıt vermeyen davetli kurpiyerin lobi çipinde `waiting` olarak kalıyor, yinelemeler arayüze yansımıyor.
+
+### Koşturulan komutlar
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-ag.test.js` | 12 test, 12 geçti, yaklaşık 15,5 sn |
+| `node --test test/oyun-masa.test.js` | 61 test, 61 geçti |
+| `node --test` (oyun-ag, oyun-protokol, renk-kural, oyun-tasima, oyun-masa) | 217 test, 217 geçti, 20,4 sn |
+| Ana el testinin ağ sayıları | 213 adım, 1084 gönderim, 952 teslim, 103 kayıp, 45 çift, 39 kopya, 29 sıra bozulması, 26 kez 429, 48 dış katmanda atılan |
+| Bozma denemesi (34 geçici olarak bozuldu, geri yüklendi, `cmp` ile doğrulandı) | 9 bozmanın 9'u yakalandı |
+| Son fuzz (12 test × 20 tohum kaydırması, 240 koşu) | 2 başarısız, ikisi de aşağıdaki 1. açık madde |
+| `npm run denetle` | 290 dosya, 3 ihlal, hepsi `docs/calisma/akislar/rapor-dok.py.txt` içinde |
+| `npm test` | 1089 test, 1088 geçti, 0 kaldı, 1 atlandı (`TELSIZ_SEA_TEST`) |
+| Marka adı, uzun ve kısa tire, BOM, CR, noktalı virgül (dosyalar ve commit mesajı) | Hiçbiri yok |
+
+### Açık kalan sorunlar
+1. **Ardışık kayıplara dayanıklılık sınırı.** %10 bağımsız kayıp ve %2 429 altında, bir oyuncuya giden 4-5 iletinin art arda kaybolduğu durumlar oluyor. Fuzz'da 240 koşunun 2'si, daha önce yaklaşık 80 elde 1.
+   - Oyuncu tasarıma uygun biçimde `dealer_lost` ile çıkıyor ve artık koltuğu boşalıyor.
+   - Daha dayanıklı olsun istenirse `SYNC_MIN_MS` 5 sn'ye indirilebilir. Bu belgenin sabitler kararını değiştirir, kullanıcı onayı gerekir.
+2. **Oyuna Dön teklifini reddeden sayfanın koltuğu kurpiyerde kalıyor.** Kurpiyer Koltuktan Çıkar'ı kullanmalı. İstenirse ret ile birlikte `leave` gönderilebilir.
+3. **Belge güncellenmeli.** `renk-tasarim.md` 4.7, 4.10.2 ve 4.10.5 bu davranışları yazmıyor. 9. adımda MIMARI ve ARCHITECTURE belgelerine de girmeli.
+4. **Önceki adımlardan devreden işler.**
+   - voice.js için gereken issue onayı hâlâ yok (CONTRIBUTING.md:184).
+   - `LAST_CARD.stack` kararı kullanıcıya doğrulatılmalı.
+   - Başka bir süreç "ara kayıt, sınanmadı" başlıklı commit'ler atmaya devam ediyor.

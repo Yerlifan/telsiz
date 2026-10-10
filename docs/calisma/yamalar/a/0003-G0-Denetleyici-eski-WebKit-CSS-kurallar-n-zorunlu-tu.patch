@@ -1,0 +1,324 @@
+From cc71fbb85f00164acbdba8e5be0cc458c4e51151 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:00:38 +0000
+Subject: [PATCH 3/4] =?UTF-8?q?G0:=20Denetleyici=20eski=20WebKit=20CSS=20k?=
+ =?UTF-8?q?urallar=C4=B1n=C4=B1=20zorunlu=20tutar?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CONTRIBUTING kural 14'teki CSS yasakları (grid, flex gap, clamp, :is,
+:where, aspect-ratio, inset) denetlenmiyordu ve iki yerde çiğnenmişti
+(tasarım bulgusu D). scripts/denetle.js artık public/css altındaki stil
+dosyalarını yorumlar çıkarıldıktan sonra tarar ve ihlali dosya, satır ve
+kural bloğunun seçicisiyle bildirir.
+
+CSS_EXCEPTIONS tek kayıt içerir: frekans.css içindeki Telsiz DJ sütunu
+bloğu (.app-view[data-dj-col="on"] .stage), G3 kaldıracak. Kayıt artık
+bir ihlali kapsamıyorsa denetleyici bunu da bildirir.
+
+components.css .msg-dj içindeki flex gap çocukların sağ ve alt boşluğuyla
+yeniden yazıldı. Chromium'da üç genişlikte (tek satır, iki satır, üç satır)
+öğelerin konumu eski düzenle birebir aynı ölçüldü.
+
+test/denetle.test.js yakalanan ve serbest kalan örnekleri, istisnanın
+yalnızca kendi bloğunu kapsamasını ve gereksiz kalan kaydı sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css |  15 +++++-
+ scripts/denetle.js        | 107 ++++++++++++++++++++++++++++++++++++--
+ test/denetle.test.js      |  74 +++++++++++++++++++++++++-
+ 3 files changed, 188 insertions(+), 8 deletions(-)
+
+diff --git a/public/css/components.css b/public/css/components.css
+index 97c6da9..467b333 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -1999,15 +1999,26 @@ button.msg-author:hover {
+   color: var(--accent-text);
+ }
+ 
+-/* Telsiz DJ duyurusu (06-messages.js buildDjNotice) */
++/* Telsiz DJ duyurusu (06-messages.js buildDjNotice). Eski WebKit flex gap desteklemez: öğeler arasındaki 0.5rem
++   çocukların sağ boşluğudur (son çocukta yok). Satırlar arasındaki 0.25rem çocukların alt boşluğudur, kapsayıcının
++   eksi alt boşluğu son satırınkini geri alır. */
+ .msg-dj {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+-  gap: 0.25rem 0.5rem;
++  margin-bottom: -0.25rem;
+   color: var(--text-2);
+ }
+ 
++.msg-dj > * {
++  margin-right: 0.5rem;
++  margin-bottom: 0.25rem;
++}
++
++.msg-dj > :last-child {
++  margin-right: 0;
++}
++
+ .msg-dj .icon {
+   width: 1em;
+   height: 1em;
+diff --git a/scripts/denetle.js b/scripts/denetle.js
+index eaa16ab..dd949e0 100644
+--- a/scripts/denetle.js
++++ b/scripts/denetle.js
+@@ -69,7 +69,8 @@ const RULE_LABELS = {
+   'i18n-hardcoded': 'i18n dışı sabit metin',
+   'i18n-keys': 'i18n anahtarı',
+   'doc-parity': 'belge eşliği',
+-  duplicate: 'yinelenen işlev'
++  duplicate: 'yinelenen işlev',
++  css: 'eski WebKit stil kuralı'
+ }
+ 
+ const DASH_NAMES = {
+@@ -103,6 +104,29 @@ const TURKISH_LETTERS = /[çğıİöşüÇĞÖŞÜ]/
+ const PARAM_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+ const MAX_DICTIONARY_DEPTH = 8
+ 
++// Stil dosyaları (CONTRIBUTING kural 14): istemcinin stilleri eski WebKit tabanlı tarayıcılarda (konsol
++// tarayıcıları) da çalışır. Düzen flexbox ve margin ile kurulur, aşağıdakiler kullanılmaz. Desenler yorumlar
++// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz).
++const CSS_DIR = 'public/css/'
++const CSS_BANNED = [
++  { pattern: /display\s*:\s*(?:inline-)?grid/g, name: 'grid düzeni (display: grid)' },
++  { pattern: /(^|[\x3b{\s])((?:row-|column-)?gap\s*:)/g, name: 'gap', group: 2 },
++  { pattern: /clamp\(/g, name: 'clamp()' },
++  { pattern: /:is\(/g, name: ':is()' },
++  { pattern: /:where\(/g, name: ':where()' },
++  { pattern: /aspect-ratio/g, name: 'aspect-ratio' },
++  { pattern: /(^|[\x3b{\s])(inset\s*:)/g, name: 'inset', group: 2 }
++]
++// Kaldırılması planlanmış bilinen ihlaller. Her kayıt bir dosyadaki tek bir kural bloğunu seçicisiyle kapsar.
++// Kayıt artık hiçbir ihlali kapsamıyorsa denetleyici bunu da bildirir, böylece istisna listede unutulmaz.
++const CSS_EXCEPTIONS = [
++  {
++    file: 'public/css/frekans.css',
++    selector: '.app-view[data-dj-col="on"] .stage',
++    note: 'G3 kaldırır: Telsiz DJ sütunu açıkken sahnenin ızgara düzeni flexbox ile yeniden yazılacak'
++  }
++]
++
+ // Türkçe ve İngilizce eş belgeler. Biri varsa diğeri de bulunur ve "## " başlık sayıları eşittir.
+ const DOC_PAIRS = [
+   ['README.md', 'README.en.md'],
+@@ -696,6 +720,65 @@ function checkMarkdown (ctx) {
+   flush()
+ }
+ 
++// Kural 14 (CONTRIBUTING): eski WebKit tabanlı tarayıcılarla uyumlu stil dosyaları
++
++// Yorumları aynı uzunlukta boşlukla değiştirir, satır sonları korunur (satır numaraları değişmez)
++function blankCssComments (text) {
++  return text.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, (comment) => comment.replace(/[^\r\n]/g, ' '))
++}
++
++// Blokları { start, end, selector } olarak döndürür. selector bloğun önündeki seçici veya @ kuralıdır,
++// boşlukları teke indirilmiştir. Kapanmamış blok dosya sonuna kadar sürer.
++function cssBlocks (text) {
++  const blocks = []
++  const open = []
++  let preludeStart = 0
++  for (const match of text.matchAll(/[{}\x3b]/g)) {
++    const i = match.index
++    if (match[0] === '{') {
++      open.push({ start: i, selector: text.slice(preludeStart, i).replace(/\s+/g, ' ').trim() })
++    } else if (match[0] === '}') {
++      const block = open.pop()
++      if (block) blocks.push({ start: block.start, end: i, selector: block.selector })
++    }
++    preludeStart = i + 1
++  }
++  while (open.length > 0) {
++    const block = open.pop()
++    blocks.push({ start: block.start, end: text.length, selector: block.selector })
++  }
++  return blocks
++}
++
++// Konumu içeren en içteki bloğun seçicisi, blok dışındaysa boş dize
++function enclosingSelector (blocks, offset) {
++  let best = null
++  for (const block of blocks) {
++    if (block.start < offset && offset < block.end && (!best || block.start > best.start)) best = block
++  }
++  return best ? best.selector : ''
++}
++
++// exceptions: CSS_EXCEPTIONS biçimindeki liste, ihlal kapsayan kayıtlar usedExceptions kümesine eklenir
++function checkCss (ctx, exceptions, usedExceptions) {
++  const text = blankCssComments(ctx.text)
++  const starts = lineStarts(text)
++  const blocks = cssBlocks(text)
++  for (const rule of CSS_BANNED) {
++    for (const match of text.matchAll(rule.pattern)) {
++      const offset = match.index + (rule.group ? match[0].length - match[rule.group].length : 0)
++      const selector = enclosingSelector(blocks, offset)
++      const exception = exceptions.find((item) => item.file === ctx.rel && item.selector === selector)
++      if (exception) {
++        usedExceptions.add(exception)
++        continue
++      }
++      const where = selector ? ' (' + snippet(selector) + ')' : ''
++      ctx.report(lineAt(starts, offset), 'css', rule.name + ' kullanılmış' + where + '. Eski WebKit tabanlı tarayıcılar desteklemez, düzen flexbox ve margin ile kurulur (CONTRIBUTING kural 14).')
++    }
++  }
++}
++
+ // Kural 7: HTML içinde satır içi betik, stil ve olay öznitelikleri
+ 
+ function parseAttributes (text, start) {
+@@ -1124,7 +1207,8 @@ function checkDocParity (markdown, report) {
+   }
+ }
+ 
+-// Ana denetim. options.files verilirse dosya listesi yerine o liste kullanılır (testler için).
++// Ana denetim. options.files verilirse dosya listesi yerine o liste, options.cssExceptions verilirse
++// CSS_EXCEPTIONS yerine o liste kullanılır (testler için).
+ 
+ function runChecks (rootDir, options) {
+   const acorn = loadAcorn()
+@@ -1140,6 +1224,9 @@ function runChecks (rootDir, options) {
+     violations.push({ file, line, rule, message })
+   }
+   const project = { scripts: new Map(), markdown: new Map(), htmlKeys: [] }
++  const cssExceptions = Array.isArray(opts.cssExceptions) ? opts.cssExceptions : CSS_EXCEPTIONS
++  const cssFiles = new Set()
++  const usedExceptions = new Set()
+   const listing = Array.isArray(opts.files) ? { files: opts.files.filter(isScannable).sort(), modes: null } : listFiles(root)
+   let scanned = 0
+   for (const rel of listing.files) {
+@@ -1177,6 +1264,14 @@ function runChecks (rootDir, options) {
+       if (rel.startsWith('public/')) {
+         for (const attr of attrs) project.htmlKeys.push(Object.assign({ file: rel }, attr))
+       }
++    } else if (ext === '.css' && rel.startsWith(CSS_DIR)) {
++      checkCss(ctx, cssExceptions, usedExceptions)
++      cssFiles.add(rel)
++    }
++  }
++  for (const item of cssExceptions) {
++    if (cssFiles.has(item.file) && !usedExceptions.has(item)) {
++      report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydı (' + item.selector + ') artık hiçbir ihlali kapsamıyor. Kaydı scripts/denetle.js içinden silin.')
+     }
+   }
+   checkVendor(root, report)
+@@ -1205,8 +1300,9 @@ const USAGE = [
+   'virgül (sunucu, betikler, testler ve masaüstü uygulaması dahil), istemci kodunda ES2017',
+   've yasak kullanımlar, üçüncü taraf dosyaların sha256 değeri, Windows betikleri, kabuk',
+   'betikleri (BOM, LF satır sonu, çalıştırılabilir kip), JSON sözdizimi, Markdown düzyazısı,',
+-  'HTML içinde satır içi betik ve stil, i18n sözlük eşliği, sabit metin ve anahtarlar,',
+-  'Türkçe ve İngilizce belge eşliği.',
++  'HTML içinde satır içi betik ve stil, public/css altındaki stil dosyalarında eski WebKit',
++  'kuralları (grid, gap, clamp, :is, :where, aspect-ratio ve inset yok), i18n sözlük eşliği,',
++  'sabit metin ve anahtarlar, Türkçe ve İngilizce belge eşliği.',
+   'İhlal varsa çıkış kodu 1, kullanım veya ortam hatasında 2 olur.'
+ ].join('\n')
+ 
+@@ -1260,5 +1356,6 @@ module.exports = {
+   SCRYPT_SHA256,
+   VENDOR_FILES,
+   DOC_PAIRS,
+-  RULE_LABELS
++  RULE_LABELS,
++  CSS_EXCEPTIONS
+ }
+diff --git a/test/denetle.test.js b/test/denetle.test.js
+index 5769e6a..b60056b 100644
+--- a/test/denetle.test.js
++++ b/test/denetle.test.js
+@@ -11,7 +11,7 @@ const os = require('node:os')
+ const path = require('node:path')
+ const { spawnSync } = require('node:child_process')
+ 
+-const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256, VENDOR_FILES } = require('../scripts/denetle.js')
++const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256, VENDOR_FILES, CSS_EXCEPTIONS } = require('../scripts/denetle.js')
+ 
+ const ROOT = path.join(__dirname, '..')
+ const SCRIPT = path.join(ROOT, 'scripts', 'denetle.js')
+@@ -565,6 +565,78 @@ test('HTML içinde satır içi betik, stil öğesi ve stil ile olay öznitelikle
+   assert.equal(violations.length, 5)
+ })
+ 
++test('public/css altındaki stil dosyalarında grid, gap, clamp, :is, :where, aspect-ratio ve inset yakalanır', (t) => {
++  const violations = check(t, {
++    'public/css/a.css': lines(
++      '/* Yorumdakiler serbest: display: grid, gap: 1rem, clamp(1rem, 2vw, 3rem), :is(a), inset: 0 */',
++      '.a { display: grid; }',
++      '.b { display:inline-grid }',
++      '.c { gap: 1rem; }',
++      '.d { row-gap: 1rem; color: red }',
++      '.e { width: clamp(1rem, 2vw, 3rem) }',
++      '.f:is(.x, .y) { color: red }',
++      ':where(.g) { color: red }',
++      '.h { aspect-ratio: 16 / 9 }',
++      '.i { inset: 0 }',
++      '.j { box-shadow: inset 0 1px 0 #fff; --column-gap: 1rem; --gap: 0; margin: var(--column-gap) }',
++      '/* birden çok satırlık yorum',
++      '   .k { display: grid; column-gap: 1px } */',
++      '.l {',
++      '  display: flex;',
++      '  column-gap: 2px;',
++      '}',
++      '@media (min-width: 60rem) { .m { inset: auto } }'
++    ),
++    'public/css/skins/b.css': lines(':root[data-skin="b"] .x { gap: 1px }'),
++    // Masaüstü uygulamasının kendi pencereleri güncel Chromium'da çalışır, kural yalnızca public/css içindir
++    'desktop/src/c.css': lines('.x { display: grid; gap: 1px }'),
++    'public/d.css': lines('.x { display: grid }')
++  })
++  assert.deepEqual(of(violations, 'public/css/a.css'), at('css', 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 18))
++  assert.match(messageAt(violations, 'public/css/a.css', 2), /^grid düzeni \(display: grid\) kullanılmış \(\.a\)\. Eski WebKit/)
++  assert.match(messageAt(violations, 'public/css/a.css', 16), /^gap kullanılmış \(\.l\)/)
++  assert.match(messageAt(violations, 'public/css/a.css', 18), /^inset kullanılmış \(\.m\)/)
++  assert.deepEqual(of(violations, 'public/css/skins/b.css'), at('css', 1))
++  assert.equal(violations.length, 12)
++})
++
++test('CSS istisnası yalnızca kayıtlı dosyadaki kendi bloğunu kapsar, gereksiz kalan kayıt bildirilir', (t) => {
++  const exceptions = [{ file: 'public/css/frekans.css', selector: '.app-view[data-dj-col="on"] .stage', note: 'deneme' }]
++  const frekans = lines(
++    '@media (min-width: 1280px) {',
++    '  /* Açıklama */',
++    '  .app-view[data-dj-col="on"]',
++    '    .stage {',
++    '    display: grid;',
++    '    gap: 1rem;',
++    '  }',
++    '  .app-view[data-dj-col="on"] .side-left { gap: 1rem }',
++    '}',
++    '.stage { gap: 1rem }'
++  )
++  const dir = makeProject(t, {
++    'public/css/frekans.css': frekans,
++    'public/css/diger.css': lines('.app-view[data-dj-col="on"] .stage { display: grid }')
++  })
++  const violations = runChecks(dir, { cssExceptions: exceptions }).violations
++  assert.deepEqual(of(violations, 'public/css/frekans.css'), at('css', 8, 10))
++  assert.deepEqual(of(violations, 'public/css/diger.css'), at('css', 1))
++  assert.equal(violations.length, 3)
++
++  // Blok düzeltilince kayıt bildirilir, dosya taranmıyorsa bildirilmez
++  const fixed = runChecks(makeProject(t, { 'public/css/frekans.css': lines('.app-view[data-dj-col="on"] .stage { display: flex }') }), { cssExceptions: exceptions }).violations
++  assert.deepEqual(of(fixed, 'public/css/frekans.css'), at('css', 1))
++  assert.match(fixed[0].message, /CSS_EXCEPTIONS kaydı \(\.app-view\[data-dj-col="on"\] \.stage\) artık hiçbir ihlali kapsamıyor/)
++  assert.equal(fixed.length, 1)
++  assert.deepEqual(runChecks(makeProject(t), { cssExceptions: exceptions }).violations, [])
++
++  // Depodaki liste: her kayıt dosya, seçici ve not taşır
++  for (const item of CSS_EXCEPTIONS) {
++    assert.match(item.file, /^public\/css\/[\w/-]+\.css$/)
++    assert.ok(item.selector && item.note, JSON.stringify(item))
++  }
++})
++
+ test('i18n-parity: eksik anahtar, boş değer, parametre farkı, çoğul eşi ve yinelenen anahtar', (t) => {
+   const violations = check(t, {
+     'public/i18n.js': lines(
