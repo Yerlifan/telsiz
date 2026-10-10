@@ -1,0 +1,130 @@
+# Adım 7 raporu: Renk masa arayüzü
+
+Renk masası yazıldı ve gerçek tarayıcıda üç kişiyle uçtan uca oynandı. `npm test` düşensiz. **`npm run denetle` ise ihlalsiz değil:** 3 ihlalin hepsi bana ait olmayan `docs/calisma/akislar/rapor-dok.py.txt` dosyasında, benim dosyalarımda ihlal yok. Son commit `b4b5c4d Renk: masa arayüzü`. Push yapılmadı, çalışma ağacı temiz.
+
+Değişikliklerin bir kısmı benim commit'imde değil. Ben çalışırken iş akışı `1af2af3 Renk: masa arayüzü (ara kayıt, sınanmadı)` commit'ini kendiliğinden attı. Bu kayıtta `i18n.js`, `index.html`, `sw.js`, `36-oyun.js` ve `37-renk.js`'in ilk hâli var. `b4b5c4d` yalnız şunları içeriyor: `public/css/renk.css`, `37-renk.js`'in son hâli ve `test/oyun-arayuz.test.js`.
+
+## Değişen ve eklenen dosyalar
+
+**Yeni:**
+- `public/js/37-renk.js`: rakip şeridi, deste, atılan kart, aktif renk (şekil, harf ve ad), eylem satırı, sıralı el, Joker renk seçici, ok tuşlarıyla gezinme. Yüklenirken `gameUiRegister('renk', renkUi)` ile kaydolur, böylece Oyun düğmesi artık seste görünür.
+- `public/css/renk.css`: kart yüzleri ve kart arkası, deste, el, renk seçici, telefon kuralları ve azaltılmış hareket bloğu.
+
+**Değişen:**
+- `public/index.html`:
+  - 5 sprite sembolü `i-gamepad`'den sonra. `i-gamepad` artık 156. satırda, belgede 151 yazıyor.
+  - `renk.css` satırı `oyun.css`'ten sonra, `37-renk.js` satırı `36-oyun.js`'ten sonra.
+- `public/sw.js`: iki satır eklendi. `CACHE_NAME` değişmedi.
+- `public/i18n.js`: 106 `game.renk.*` anahtarı, tr ve en'de aynı sırayla `game.sr.started` satırından sonra.
+- `public/js/36-oyun.js` (iki küçük kanca):
+  - `errorText` hata kodu için `false` dönerse kod sessiz kalır (`gameErrorText` boş döner).
+  - `gameStageClosed` her kayıtlı arayüzün `stageClosed()` kancasını çağırır. Sahne kapanınca renk seçici katmanının kapanması için gerekiyordu.
+- `test/oyun-arayuz.test.js`:
+  - `GAME_SCRIPTS` ve `GAME_STYLES` listelerine yeni dosyalar eklendi.
+  - `makePage` yeni bir `renk: true` seçeneği alıyor, bu seçenekle gerçek `37-renk.js` yükleniyor.
+  - 11 yeni test eklendi, toplam 31 test.
+- `tokens.css` ve `oyun.css` değişmedi.
+
+## Belgeden sapmalar ve gerekçeleri
+
+1. **7.2'ye ek dört anahtar.** Görünen metinler için gerekti: `game.renk.colorNone` (Seçilmedi), `newTag` (Yeni), `turnChip` (Sırada), `pileLabel` (Atılan kart: {card}). Belgede "Sırada" ve "Yeni" yazıları için anahtar yoktu.
+2. **`game.renk.firstSeat` eklendi ama kullanılmıyor.** Masada uygun bir yeri yok, 36'nın "Sıradaki: …" satırı aynı bilgiyi veriyor.
+3. **Seçici katmanına iki ek ayar.** Belgedeki `openLayer` ayarlarına `outside: true` ve `closeOnFocusOut: true` eklendi. Böylece sahne izleme ya da kamera kipine geçerse veya küçültülürse, açık kalmış bir tuzak katmanı Tab tuşunu ve kolun L1 ile R1 düğmelerini kilitleyemez.
+4. **Kart yüzü ve örtü.**
+   - İlk kart Joker iken kartlara çizgili örtü konmuyor, neden yalnız erişilebilir adda okunuyor.
+   - Joker +4'te "+4" iki köşede, ortada dört renk karesi var. Ortadaki "+4" köşedekiyle çakıştığı için kaldırıldı.
+5. **Oynanamayan karta basınca** panelde kısa bir not görünür ve kibar bölgede duyurulur. 5.17'deki panel içi kısa metin davranışı dokunmaya da uygulandı.
+6. **Duyurular.**
+   - `penalty` olayında neden `last` ise ceza duyurulmuyor, çünkü "yakalandı ve 2 kart çekti" cümlesi bunu söylüyor.
+   - Kazananı olmayan `end` olayı sessiz, sonuçlar bölümü gösteriyor.
+7. **Tek! ve Yakala hep görünür, gerekmediğinde pasif.** Gönderildikten sonra masa değişene kadar ikisi de pasif kalıyor. Kurpiyerin kendi hamlesi 300 ms gecikmeli işlendiği için ikinci basış "Geç kaldınız" hatası üretirdi.
+8. **Aşağı ok** Deste'den ve eylem satırından ele iner. Belgede yalnız Yukarı ok vardı.
+9. **Rakip satırının erişilebilir adı.** `li` üzerinde `aria-label` yerine, içinde `seatLabel` cümlesini taşıyan bir `sr-only` öğe var. "Uzakta" çipi ayrıca okunuyor.
+10. **"Yeni" işareti.** Önceki çizimden bu yana ele gelen kartlar (çekilen ya da ceza) bir sonraki tur hamlesine kadar işaretli kalıyor. `mine.drawn` de işaretleniyor.
+11. **Başlatma hataları.** `bad_options`, `bad_random` ve `no_random` 36'nın hata satırında kendi metniyle görünüyor. 7.1'de "Oyun Başlatılamadı" başlığı için anahtar yoktu.
+12. **Alt satır sırası (36'ya ait, değiştirmedim).** Belge "kurallar · oyuncu sayısı · kurpiyer" diyor, kod "kurallar · kurpiyer · oyuncu sayısı" yazıyor.
+
+## 8. adımın (e2e) bilmesi gerekenler
+
+**Masa:**
+- `.renk-table[data-turn="me"|"other"][data-phase]`, gönderim sürerken `.is-pending`.
+- Rakipler `.renk-opp[data-user-id]` (`.is-turn`, `.is-catchable`), cümle `.renk-opp .sr-only` içinde.
+- Deste `.renk-deck[data-focus-key="game-draw"]`.
+- Atılan kart `.renk-pile[role="img"]`, etiketi `aria-label="Atılan kart: …"`, içinde `.renk-card.is-pile`.
+- Aktif renk `.renk-color[data-color]`, ilk kart Joker iken `data-color="none"`.
+- Biriken ceza çipi `.renk-stacked`.
+
+**Kartlar:**
+- `.renk-hand[role="group"] .renk-card[data-color][data-value][data-focus-key="game-card-<kod>-<k>"]`, sınıflar `.is-playable`, `.is-blocked`, `.is-new`.
+- Sayfadaki `.renk-card` sayısı = el + 1 (atılan kart). Kurpiyerde başkalarının eli çizilmiyor.
+
+**Eylemler:**
+- Odak anahtarları: `game-choose-color`, `game-pass`, `game-last` (`aria-pressed` taşır), `game-catch`.
+- Joker'e basınca seçici yalnız elde 1'den fazla kart varsa açılır.
+- Kart çekildikten sonra kart oynanabilirse `game-pass` düğmesi görünür.
+
+**Seçici:**
+- `.renk-picker[role="dialog"] .renk-pick[data-color][data-focus-key="game-color-<C>"]` ve `game-color-cancel`.
+- Esc kart oynamaz, odak karta döner.
+- Telefonda iki sütun.
+
+**Genel işlevler ve kancalar:**
+- `renkCardLabel(kod)`, `renkPlayedLabel(kod, renk)`, `renkEventText(olay)`, `renkTurnText(model)`.
+- 36 sözleşmesine eklenenler: `errorText -> metin | false` ve `stageClosed()`.
+
+## Koşturulan komutlar
+
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-arayuz.test.js` | 31 test, 31 geçti |
+| `npm test` | 1120 test, 1119 geçti, 0 kaldı, 1 atlandı |
+| `npm run denetle` | 326 dosya, 3 ihlal, hepsi `docs/calisma/akislar/rapor-dok.py.txt` 13. ve 14. satırda, benim dosyalarımda 0 |
+| e2e 05, 06, 10 | 32 test, 32 geçti |
+| e2e 15, 04, 01, 14 | 29 test, 29 geçti |
+| Bozma denemesi (`scratchpad/adim7/bozma.py`) | 16 bozmanın 15'i yakalandı (aşağıya bakın) |
+| Tarayıcı duman denemesi (`scratchpad/adim7/duman.js`, 3 kişi, Chromium) | Bütün akış geçti, konsol temiz, 30 görüntüde taşma 0, 33 sn |
+| Klavye denemesi (`scratchpad/adim7/klavye.js`) | Geçti, konsol temiz |
+| Karıştırma dağılımı, 20000 dağıtım | İlk kart Joker %3.84, beklenen 4/104 ≈ %3.85 |
+| Marka adı, uzun ve kısa tire, BOM, CR | Hiçbiri yok |
+
+**Bozma denemesinde kaçan tek bozma:** `renkPickerClosed` içindeki `focusNext` ataması. `closeLayer` odağı zaten tetikleyiciye geri verdiği için bu satırı bozmak testte fark yaratmıyor.
+
+**Duman denemesinin kapsadığı akış:**
+- Masa Kur, kural seçimi, davet, Masaya Bak, katılım, başlatma.
+- 76 tur sonunda doğal bitiş ve sonuç ekranı.
+- Joker seçici ve Esc.
+- Tek! demeden oynayıp yakalanma, ardından Tek! deyip çipin görünmesi.
+- İlk kart Joker ve Renk Seç.
+- Tam ekran.
+- Kurpiyerin ayrılması: oyuncuda "Kurpiyer ses odasından ayrıldı, oyun bitti." görünüyor, Kapat'tan sonra odak `#radio-game` düğmesine gidiyor.
+- Genişlikler 360, 412, 760, 1000 ve 1440 px, açık ve koyu tema, TR ve EN.
+
+**Klavye denemesinde doğrulananlar:**
+- Tab sırası belgedeki gibi: Tam Ekran, Küçült, Deste, Tek!, Yakala, kartlar, Ayrıntı, Oyunu Bitir, Masayı Kapat.
+- Sol ve Sağ ok, Home, End, Yukarı (Deste), Aşağı (el).
+- Seçicide odak tuzağı ve Esc.
+- Seçicinin telefonda tamamı görünür alanda.
+
+**Ekran görüntüleri** (`scratchpad/renk-ekran/`, notlar `notlar.txt` içinde):
+- Kuruluş: `01-masa-kur-1440-koyu`, `02-davet-1000-koyu`, `03-davet-360-koyu`, `04-lobi-1440-koyu`.
+- Masa: `05-masa-1440-koyu-kurpiyer`, `06-masa-1000-koyu`, `07-masa-360-koyu`.
+- Oyun anları: `08-joker-secici-…`, `09-cekilen-kart-…`, `10-yakala-etkin-…`, `11-tek-gec-…`, `12-tek-dedi-cipi-…`.
+- Oyun ortası: `13-oyun-ortasi-360`, `14-…-412`, `15-…-760`.
+- Açık tema: `16-acik-tema-1440`, `17-…-360`, `18-…-1000`.
+- İngilizce: `19-en-acik-1440`, `20-en-acik-360`, `21-en-koyu-1000`, `22-en-koyu-360`.
+- Sonuç: `23-sonuc-1440`, `24-sonuc-360`.
+- İlk kart Joker: `25-ilk-kart-joker-…`, `26-ilk-kart-joker-bekleyen`, `27-ilk-kart-joker-secici-…`, `28-ilk-kart-sari-secildi`.
+- Diğer: `29-tam-ekran`, `30-kurpiyer-ayrildi-360`, `31-joker-secici-360`.
+- Joker seçici ve Tek!/Yakala görüntülerinin dosya adındaki genişlik her çalıştırmada değişiyor.
+
+## Açık kalan sorunlar
+
+1. **`npm run denetle` ihlalsiz değil.** Neden `docs/calisma/akislar/rapor-dok.py.txt` (13. ve 14. satır). Dosya iş akışına ait olduğu için dokunmadım. Düzeltmesi davranışı değiştirmeden: Python dizgilerindeki karakterler `\u2014` ve benzeri kaçışlarla yazılmalı.
+2. **Telefon yerleşimi cihazda denenmeli.** 360x740'ta el, sahnenin kaydırma alanında aşağıda kalıyor. Sıra gelince odak ilk oynanabilir karta taşınıp görünür alana kaydırılıyor. Cihazda denenmeli, gerekirse Tam Ekran önerilir.
+3. **Kolun yön tuşları** PS5 tarayıcısında denenmedi.
+4. **Firefox yüklü değil.** `/opt/pw-browsers` altında yalnız Chromium var. 8. adım e2e'yi Firefox ile de çalıştıracak.
+5. **Tam ekranda masa küçük kalıyor.** Geniş ekranda kartlar ölçeklenmiyor, boş alan çok. İleride iyileştirilebilir.
+6. **Önceki adımlardan devreden işler:**
+   - voice.js için gereken issue onayı (CONTRIBUTING.md:184) hâlâ yok.
+   - `LAST_CARD.stack` kararı kullanıcıya doğrulatılmalı.
+   - Belgeler 9. adımda güncellenecek.
