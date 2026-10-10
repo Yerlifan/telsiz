@@ -287,19 +287,22 @@ window.TelsizGameDesk = (function (G) {
       return { v: G.VERSION, ctx: G.CTX, k: 'state', g: T.g, ch: T.ch, from: T.dealer, to: uid, r: T.r, ni: ni, b: b }
     }
 
-    // Kurpiyerin gördüğü anahtar sorunu davette yalnızca INVITE_KEYS içindeyse gider
-    function sendInvite (uid, peerId) {
+    // Kurpiyerin gördüğü anahtar sorunu davette yalnızca INVITE_KEYS içindeyse gider. reuse: aynı kişiye aynı
+    // bağlantıdan giden önceki davetin ni değeri korunur (Başlat'la yarışan join reject started alsın).
+    function sendInvite (uid, peerId, reuse) {
       if (blocked(uid)) return
       const reason = keyProblem(uid)
       if (reason === 'blocked') return
-      let ni = null
-      try {
-        ni = G.randomHex16(env.rng)
-      } catch (e) {
-        fault(errCode(e))
-        return
-      }
       const prev = T.invites[uid]
+      let ni = reuse && prev && prev.peerId === peerId ? prev.ni : null
+      if (ni === null) {
+        try {
+          ni = G.randomHex16(env.rng)
+        } catch (e) {
+          fault(errCode(e))
+          return
+        }
+      }
       const keep = Boolean(prev) && (prev.status === 'declined' || prev.status === 'cannot')
       const inv = {
         ni: ni,
@@ -328,9 +331,9 @@ window.TelsizGameDesk = (function (G) {
       inv.sent = code === 'ok'
     }
 
-    function inviteUnseated () {
+    function inviteUnseated (reuse) {
       roomPeers().forEach((x) => {
-        if (!seatOf(x.userId)) sendInvite(x.userId, x.peerId)
+        if (!seatOf(x.userId)) sendInvite(x.userId, x.peerId, reuse)
       })
     }
 
@@ -797,8 +800,15 @@ window.TelsizGameDesk = (function (G) {
       return Object.assign({ v: G.VERSION, ctx: G.CTX, k: k, g: T.g, ch: T.ch, from: myId(), to: T.dealer }, extra)
     }
 
+    // Durum kabul edilen aşamalar: katılırken, masadayken ve zaman aşımına uğramış katılımın geç gelen yanıtında
+    // (kurpiyer oturttu ama yanıt kayboldu, tazeleme yeniden getirir)
+    function stateWanted () {
+      if (T.stage === 'joining' || T.stage === 'seated') return true
+      return T.ni !== null && (T.stage === 'invited' || T.stage === 'rejoin' || T.stage === 'busy')
+    }
+
     function onState (peerId, uid, x) {
-      if (!playing() || (T.stage !== 'joining' && T.stage !== 'seated')) return
+      if (!playing() || !stateWanted()) return
       if (uid !== T.dealer || peerId !== T.dealerPeer || x.g !== T.g || x.ni !== T.ni) return
       const me = myId()
       const ctx = { dealer: T.dealer, me: me, r: x.r, app: T.app, rules: T.A.RULES }
@@ -823,7 +833,7 @@ window.TelsizGameDesk = (function (G) {
         }
         return
       }
-      const first = T.stage === 'joining'
+      const first = T.stage !== 'seated'
       T.stage = 'seated'
       T.lastR = x.r
       T.lastAckSeq = b.ack.seq
@@ -1000,7 +1010,7 @@ window.TelsizGameDesk = (function (G) {
       if (dealing()) {
         if (blocked(uid)) return
         // Koltuktaki kişiye önce davet (yenilenmiş sayfa için yeni ni), sonra durum gider
-        sendInvite(uid, peerId)
+        sendInvite(uid, peerId, false)
         const seat = seatOf(uid)
         if (seat) {
           markAll(seat)
@@ -1012,7 +1022,7 @@ window.TelsizGameDesk = (function (G) {
       if (!playing() || peerId !== T.dealerPeer) return
       T.retryAt = 0
       if (T.stage === 'joining') want('join')
-      else if (T.stage === 'seated') want(T.pending ? 'act' : 'sync')
+      else if (T.stage === 'seated') want('sync')
     }
 
     function onPeerLeave (peerId, uid) {
@@ -1071,8 +1081,8 @@ window.TelsizGameDesk = (function (G) {
           return
         }
         Object.keys(T.held).forEach((uid) => {
-          const h = T.held[uid]
-          const reason = keyProblem(uid)
+          const h = dealing() ? T.held[uid] : null
+          const reason = h ? keyProblem(uid) : 'loading'
           if (reason === 'loading') return
           delete T.held[uid]
           if (reason === null) onMessage(h.peerId, uid, h.p)
@@ -1155,7 +1165,7 @@ window.TelsizGameDesk = (function (G) {
       setup = null
       error = null
       T.seats.push(newSeat(me, null, null))
-      inviteUnseated()
+      inviteUnseated(false)
       return true
     }
 
@@ -1192,7 +1202,7 @@ window.TelsizGameDesk = (function (G) {
       T.turnId = null
       error = null
       applyChange(res, null)
-      inviteUnseated()
+      inviteUnseated(true)
       return true
     }
 
@@ -1218,7 +1228,7 @@ window.TelsizGameDesk = (function (G) {
       T.away = []
       T.turnId = null
       bump()
-      inviteUnseated()
+      inviteUnseated(false)
       return true
     }
 
@@ -1240,6 +1250,8 @@ window.TelsizGameDesk = (function (G) {
       if (!seat) return false
       T.removed[id] = { ni: seat.ni, peerId: seat.peerId }
       if (!dropSeat(id, 'removed')) return false
+      // Son durum hemen gider, kişiden gelen sonraki iletilere yanıt düz yanıt kısmasına tabidir
+      plainAt[id] = now()
       sendFarewell(id)
       return true
     }

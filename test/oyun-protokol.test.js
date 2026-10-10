@@ -713,9 +713,9 @@ describe('modül', () => {
   })
 })
 
-// Oyun modülleri index.html ve sw.js içinde 32-arama.js satırından sonra, numara sırasıyla bulunur (34 masa
-// yöneticisi için yer bırakılır). Bu denetim arayüz adımında test/oyun-arayuz.test.js dosyasına taşınır.
-const GAME_MODULES = ['33-oyun-protokol.js', '35-renk-kural.js']
+// Oyun modülleri index.html ve sw.js içinde 32-arama.js satırından sonra, numara sırasıyla bulunur. Bu denetim
+// arayüz adımında test/oyun-arayuz.test.js dosyasına taşınır.
+const GAME_MODULES = ['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js']
 
 // voice.js'i saf doğrulayıcısı için yükler (ses motoru kurulmaz)
 function loadVoiceUtils () {
