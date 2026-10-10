@@ -1,0 +1,492 @@
+From 07308c33f4af3932ef776531f718172e8b22b6ec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:42:28 +0000
+Subject: [PATCH 9/9] =?UTF-8?q?G1:=20Pencere=20durumu=20kanal=C4=B1=20(tel?=
+ =?UTF-8?q?siz:window-state,=20onWindowState)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ana süreç uygulama penceresinin minimize, restore, hide ve show olaylarını
+sayfaya yalnızca 'minimized', 'restored', 'hidden' ve 'shown' değerleriyle
+bildirir. Tepsiden dönüşte (showMain) 'shown' her zaman gider, art arda
+aynı değer bir kez gönderilir. Ön yükleme betiği telsizDesktop.onWindowState
+ile birden çok dinleyiciye izin verir ve beyaz liste dışı değeri düşürür.
+Eşleme saf modülde (src/lib/window-state.js), testi pencere-durumu.test.js,
+gerçek Electron ile duman testinde.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/e2e/duman.test.js           |  67 +++++++++++-
+ desktop/src/lib/channels.js         |   3 +
+ desktop/src/lib/window-state.js     |  59 ++++++++++
+ desktop/src/main.js                 |  14 ++-
+ desktop/src/preload.js              |  27 +++++
+ desktop/test/pencere-durumu.test.js | 161 ++++++++++++++++++++++++++++
+ desktop/test/preload.test.js        |   3 +-
+ 7 files changed, 331 insertions(+), 3 deletions(-)
+ create mode 100644 desktop/src/lib/window-state.js
+ create mode 100644 desktop/test/pencere-durumu.test.js
+
+diff --git a/desktop/e2e/duman.test.js b/desktop/e2e/duman.test.js
+index fa1b944..e17c8bc 100644
+--- a/desktop/e2e/duman.test.js
++++ b/desktop/e2e/duman.test.js
+@@ -17,6 +17,7 @@
+ // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
+ // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
+ //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
++// - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
+ //
+ // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
+ // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
+@@ -410,7 +411,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
+ test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
+   const page = ctx.page
+   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
+-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
+   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
+@@ -1019,3 +1020,67 @@ test('frekans listesi: ilk sunucu listede ve etkin, Frekans ekle penceresi boş
+   await closed
+   assert.equal(ctx.page.url(), 'telsiz://app/')
+ })
++
++// Pencere durumu (telsiz:window-state): simge durumu, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya
++// yalnızca beyaz listedeki değerlerle ulaşır. xvfb altında pencere yöneticisi olmadığı için minimize() pencereyi
++// simge durumuna almaz (Electron 44.5.1 ile denendi), bu durumda olay ana süreçte elle üretilir: eşleme ve
++// sayfaya iletim yine gerçek kanaldan denetlenir. Tepsiden dönüş tepsi tıklamasıyla aynı işlevden (showMain)
++// geçer, burada ikinci örnek açılışı (second-instance) ile tetiklenir.
++test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya bildirilir', { timeout: 60000 }, async (t) => {
++  const page = ctx.page
++  await page.evaluate(() => {
++    window.__pencere = []
++    window.__pencereKapat = window.telsizDesktop.onWindowState((value) => window.__pencere.push(value))
++  })
++  const states = () => page.evaluate(() => window.__pencere.slice())
++  // Değerin from sırasından sonra gelmesi beklenir, sonraki aramanın başlangıç sırası döner
++  const seen = async (value, from, label) => {
++    const list = await waitFor(async () => {
++      const got = await states()
++      return got.indexOf(value, from) !== -1 ? got : null
++    }, label)
++    return list.indexOf(value, from) + 1
++  }
++  const realMinimize = await ctx.app.evaluate(async ({ BrowserWindow }) => {
++    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
++    win.minimize()
++    const end = Date.now() + 3000
++    while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
++    if (win.isMinimized()) return true
++    win.emit('minimize')
++    return false
++  })
++  if (!realMinimize) t.diagnostic('pencere yöneticisi yok: minimize olayı ana süreçte elle üretildi')
++  let next = await seen('minimized', 0, 'minimized')
++  await ctx.app.evaluate(({ BrowserWindow }, real) => {
++    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
++    if (real) win.restore()
++    else win.emit('restore')
++  }, realMinimize)
++  next = await seen('restored', next, 'restored')
++  const visible = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
++  // Tepsiye kapatma pencereyi hide() ile gizler
++  await ctx.app.evaluate(({ BrowserWindow }) => {
++    BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).hide()
++  })
++  next = await seen('hidden', next, 'hidden')
++  assert.equal(await visible(), false)
++  await ctx.app.evaluate(({ app }) => {
++    app.emit('second-instance')
++  })
++  next = await seen('shown', next, 'shown')
++  assert.equal(await visible(), true)
++  // Beyaz listede olmayan değerler sayfaya ulaşmaz
++  await ctx.app.evaluate(({ BrowserWindow }) => {
++    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
++    win.webContents.send('telsiz:window-state', 'maximized')
++    win.webContents.send('telsiz:window-state', { state: 'hidden' })
++    win.webContents.send('telsiz:window-state', ['hidden'])
++    win.webContents.send('telsiz:window-state', 'restored')
++  })
++  await seen('restored', next, 'restored after invalid values')
++  const got = await states()
++  assert.ok(got.every((value) => ['minimized', 'restored', 'hidden', 'shown'].includes(value)), got.join())
++  assert.equal(got[got.length - 1], 'restored')
++  await page.evaluate(() => window.__pencereKapat())
++})
+diff --git a/desktop/src/lib/channels.js b/desktop/src/lib/channels.js
+index 97e4b2a..29217fb 100644
+--- a/desktop/src/lib/channels.js
++++ b/desktop/src/lib/channels.js
+@@ -33,6 +33,9 @@ const CHANNELS = Object.freeze({
+   titleBarColors: 'telsiz:title-bar-colors',
+   titleBarMenu: 'telsiz:title-bar-menu',
+   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
++  // Pencere durumu (src/lib/window-state.js): küçültme, geri yükleme, tepsiye gizleme ve gösterme (ana
++  // süreçten sayfaya)
++  windowState: 'telsiz:window-state',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+diff --git a/desktop/src/lib/window-state.js b/desktop/src/lib/window-state.js
+new file mode 100644
+index 0000000..a52a0b6
+--- /dev/null
++++ b/desktop/src/lib/window-state.js
+@@ -0,0 +1,59 @@
++'use strict'
++
++// Uygulama penceresinin durumu. Electron'a bağımlı değildir.
++//
++// Pencere durumu: ana süreç uygulama penceresinin minimize, restore, hide ve show olaylarını dinler ve
++// sayfaya telsiz:window-state kanalıyla yalnızca şu dört değerden birini gönderir: 'minimized'
++// (simge durumuna küçültüldü), 'restored' (simge durumundan geri geldi), 'hidden' (tepsiye gizlendi),
++// 'shown' (gösterildi, tepsiden geri dönüş dahil). Olay nesnesi ve pencere bilgisi sayfaya hiç gitmez.
++// Art arda gelen aynı değer bir kez gönderilir: tepsiden dönüşte show olayı ile ana sürecin kendi
++// bildirimi (showMain) aynı anda gelebilir. Sayfada window.telsizDesktop.onWindowState(cb) ile alınır.
++
++const STATES = Object.freeze(['minimized', 'restored', 'hidden', 'shown'])
++
++// BrowserWindow olayının adı ve sayfaya giden değer
++const EVENTS = Object.freeze({
++  minimize: 'minimized',
++  restore: 'restored',
++  hide: 'hidden',
++  show: 'shown'
++})
++
++function isState (value) {
++  return typeof value === 'string' && STATES.includes(value)
++}
++
++// Olay adının sayfaya giden değeri, eşlenmeyen olayda null
++function stateForEvent (name) {
++  return typeof name === 'string' && Object.prototype.hasOwnProperty.call(EVENTS, name) ? EVENTS[name] : null
++}
++
++// win: on(olay, işlev) yöntemi olan pencere (BrowserWindow). send(değer): değeri sayfaya iletir.
++// Dönen nesne: report(değer) beyaz listedeki bir değeri elle bildirir (önceki değerle aynıysa
++// gönderilmez, gönderildiyse true döner), current() son gönderilen değeri verir (henüz yoksa null).
++function watch (win, send) {
++  let last = null
++  function report (value) {
++    if (!isState(value) || value === last) return false
++    last = value
++    send(value)
++    return true
++  }
++  for (const name of Object.keys(EVENTS)) {
++    win.on(name, () => {
++      report(EVENTS[name])
++    })
++  }
++  return {
++    report,
++    current: () => last
++  }
++}
++
++module.exports = {
++  STATES,
++  EVENTS,
++  isState,
++  stateForEvent,
++  watch
++}
+diff --git a/desktop/src/main.js b/desktop/src/main.js
+index 7e739e4..57494a8 100644
+--- a/desktop/src/main.js
++++ b/desktop/src/main.js
+@@ -68,6 +68,7 @@ const background = require('./lib/background')
+ const serverIcon = require('./lib/server-icon')
+ const pttHook = require('./lib/ptt-hook')
+ const titleBar = require('./lib/title-bar')
++const windowState = require('./lib/window-state')
+ 
+ const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
+ 
+@@ -154,7 +155,9 @@ const state = {
+   lastBackgroundOpen: 0,
+   // Başlık çubuğu (src/lib/title-bar.js): uygulama penceresi kaplamayla mı açıldı, sayfanın son bildirdiği renkler
+   titleBarOverlay: false,
+-  titleBarColors: null
++  titleBarColors: null,
++  // Uygulama penceresinin durum bildiricisi (src/lib/window-state.js), pencere başına bir tane
++  windowStates: new WeakMap()
+ }
+ 
+ function t (key, params) {
+@@ -567,6 +570,11 @@ function openMainWindow () {
+     win.on('enter-full-screen', () => sendFullscreen(true))
+     win.on('leave-full-screen', () => sendFullscreen(false))
+   }
++  // Simge durumuna küçültme, geri yükleme, tepsiye gizleme ve gösterme bu pencerenin sayfasına yalnızca
++  // beyaz listedeki değerlerle bildirilir (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
++  state.windowStates.set(win, windowState.watch(win, (value) => {
++    if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.windowState, value)
++  }))
+   const id = win.webContents.id
+   state.contexts.set(id, 'app')
+   diag.log('window', { context: 'app', contents: id })
+@@ -615,6 +623,10 @@ function showMain () {
+     if (win.isMinimized()) win.restore()
+     win.show()
+     win.focus()
++    // Tepsiden (veya simge durumundan) dönüşte sayfa her zaman 'shown' alır. show olayı da geldiyse
++    // aynı değer ikinci kez gönderilmez.
++    const reporter = state.windowStates.get(win)
++    if (reporter) reporter.report('shown')
+     return
+   }
+   if (isAlive(state.connectWindow)) {
+diff --git a/desktop/src/preload.js b/desktop/src/preload.js
+index ea31598..e39f683 100644
+--- a/desktop/src/preload.js
++++ b/desktop/src/preload.js
+@@ -24,6 +24,7 @@ const CHANNELS = {
+   titleBarColors: 'telsiz:title-bar-colors',
+   titleBarMenu: 'telsiz:title-bar-menu',
+   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
++  windowState: 'telsiz:window-state',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+@@ -43,6 +44,8 @@ const CHANNELS = {
+ const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
+ const HOLD_PHASES = ['start', 'end']
+ const PTT_MODES = ['toggle', 'hold']
++// Pencere durumu yalnızca bu değerlerle sayfaya verilir (src/lib/window-state.js ile aynı)
++const WINDOW_STATES = ['minimized', 'restored', 'hidden', 'shown']
+ const VERSION_ARG = '--telsiz-version='
+ const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
+ const ACTIVATION_INTERVAL_MS = 1000
+@@ -148,6 +151,20 @@ ipcRenderer.on(CHANNELS.titleBarFullscreen, (event, value) => {
+   }
+ })
+ 
++// Uygulama penceresinin durumu: 'minimized', 'restored', 'hidden' veya 'shown'. Olay nesnesi verilmez,
++// beyaz listede olmayan değer sayfaya hiç ulaşmaz.
++const windowStateListeners = new Set()
++ipcRenderer.on(CHANNELS.windowState, (event, value) => {
++  if (!WINDOW_STATES.includes(value)) return
++  for (const callback of Array.from(windowStateListeners)) {
++    try {
++      callback(value)
++    } catch (err) {
++      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
++    }
++  }
++})
++
+ function shortText (value, max) {
+   return typeof value === 'string' ? value.slice(0, max) : ''
+ }
+@@ -231,6 +248,16 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
+       }
+     }
+   },
++  // callback(state): pencere simge durumuna küçültülünce 'minimized', simge durumundan dönünce 'restored',
++  // tepsiye gizlenince 'hidden', gösterilince (tepsiden dönüş dahil) 'shown'. Birden çok dinleyici olabilir,
++  // dönen işlev aboneliği kaldırır.
++  onWindowState: (callback) => {
++    if (typeof callback !== 'function') return () => {}
++    windowStateListeners.add(callback)
++    return () => {
++      windowStateListeners.delete(callback)
++    }
++  },
+   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
+   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
+   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
+diff --git a/desktop/test/pencere-durumu.test.js b/desktop/test/pencere-durumu.test.js
+new file mode 100644
+index 0000000..238c10a
+--- /dev/null
++++ b/desktop/test/pencere-durumu.test.js
+@@ -0,0 +1,161 @@
++'use strict'
++
++// Pencere durumu kanalı (telsiz:window-state): ana süreçteki olay eşlemesi (src/lib/window-state.js), ön
++// yükleme betiğinin beyaz listesi ve ana süreçteki gönderen denetimi. Gerçek Electron ile davranış
++// e2e/duman.test.js içinde denetlenir.
++
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++const { EventEmitter } = require('node:events')
++const channels = require('../src/lib/channels')
++const windowState = require('../src/lib/window-state')
++
++const SRC = path.join(__dirname, '..', 'src')
++
++// Ön yükleme betiğini sahte electron modülüyle çalıştırır (preload.test.js içindeki düzeneğin kısa hâli)
++function loadPreload (argv) {
++  const exposed = {}
++  const invoked = []
++  const listeners = {}
++  const electron = {
++    contextBridge: {
++      exposeInMainWorld (name, api) {
++        exposed[name] = api
++      }
++    },
++    ipcRenderer: {
++      invoke (channel, ...args) {
++        invoked.push([channel].concat(args))
++        return Promise.resolve('ok')
++      },
++      send () {},
++      on (channel, fn) {
++        listeners[channel] = fn
++      }
++    }
++  }
++  const sandbox = {
++    require: (name) => {
++      if (name !== 'electron') throw new Error('unexpected require: ' + name)
++      return electron
++    },
++    process: { argv: argv || [], platform: 'linux' },
++    window: { addEventListener () {} },
++    Date
++  }
++  vm.runInNewContext(fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8'), sandbox, { filename: 'preload.js' })
++  return { exposed, invoked, listeners }
++}
++
++function readMain () {
++  return fs.readFileSync(path.join(SRC, 'main.js'), 'utf8').replace(/\r\n/g, '\n')
++}
++
++function functionBody (source, signature) {
++  const start = source.indexOf(signature)
++  assert.ok(start !== -1, signature)
++  return source.slice(start, source.indexOf('\n}\n', start))
++}
++
++test('olay eşlemesi: dört pencere olayı dört değere, diğer olaylar hiçbir değere', () => {
++  assert.deepEqual(Array.from(windowState.STATES), ['minimized', 'restored', 'hidden', 'shown'])
++  assert.deepEqual(Object.assign({}, windowState.EVENTS), { minimize: 'minimized', restore: 'restored', hide: 'hidden', show: 'shown' })
++  assert.ok(Object.isFrozen(windowState.STATES))
++  assert.ok(Object.isFrozen(windowState.EVENTS))
++  for (const [name, value] of Object.entries(windowState.EVENTS)) assert.equal(windowState.stateForEvent(name), value)
++  for (const name of ['close', 'closed', 'focus', 'blur', 'maximize', 'unmaximize', 'enter-full-screen', 'ready-to-show', 'minimized', 'toString', 'constructor', '__proto__', 'hasOwnProperty', '', null, undefined, 5, {}]) {
++    assert.equal(windowState.stateForEvent(name), null, String(name))
++  }
++  for (const value of windowState.STATES) assert.equal(windowState.isState(value), true)
++  for (const value of ['minimize', 'Hidden', 'shown ', 'maximized', '', null, undefined, 1, ['shown'], { toString: () => 'shown' }]) {
++    assert.equal(windowState.isState(value), false, String(value))
++  }
++})
++
++test('bildirici: pencere olaylarını değere çevirir, olay nesnesi gitmez, art arda aynı değer bir kez gider', () => {
++  const win = new EventEmitter()
++  const sent = []
++  const reporter = windowState.watch(win, function () {
++    sent.push(Array.from(arguments))
++  })
++  assert.equal(reporter.current(), null)
++  win.emit('show', { gizli: 'olay' })
++  win.emit('minimize', { preventDefault () {} })
++  win.emit('minimize')
++  win.emit('restore')
++  win.emit('hide')
++  // Dinlenmeyen olaylar hiçbir şey göndermez
++  for (const name of ['focus', 'blur', 'close', 'closed', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) win.emit(name)
++  win.emit('show')
++  assert.deepEqual(sent, [['shown'], ['minimized'], ['restored'], ['hidden'], ['shown']])
++  assert.equal(reporter.current(), 'shown')
++  // Tepsiden dönüş (showMain): show olayı geldiyse ikinci kez gönderilmez, gelmediyse gönderilir
++  assert.equal(reporter.report('shown'), false)
++  win.emit('hide')
++  assert.equal(reporter.report('shown'), true)
++  win.emit('show')
++  assert.deepEqual(sent.slice(5), [['hidden'], ['shown']])
++  // Elle bildirimde de yalnızca beyaz listedeki değerler kabul edilir
++  for (const value of ['maximized', 'minimize', '', null, { toString: () => 'hidden' }, ['hidden']]) {
++    assert.equal(reporter.report(value), false, String(value))
++  }
++  assert.equal(sent.length, 7)
++  assert.equal(reporter.current(), 'shown')
++})
++
++test('ön yükleme: yalnızca beyaz listedeki değer sayfaya ulaşır, birden çok dinleyici olur, abonelikten çıkılır', () => {
++  const p = loadPreload(['--telsiz-version=2.0.0'])
++  const api = p.exposed.telsizDesktop
++  assert.equal(typeof api.onWindowState, 'function')
++  assert.equal(typeof api.onWindowState('x'), 'function')
++  assert.equal(typeof api.onWindowState(null), 'function')
++  const a = []
++  const b = []
++  const offA = api.onWindowState((value) => a.push(value))
++  const offB = api.onWindowState(function () {
++    b.push(Array.from(arguments))
++  })
++  // Bir dinleyicinin hatası diğerlerini durdurmaz
++  const offBad = api.onWindowState(() => {
++    throw new Error('sayfa hatası')
++  })
++  const fire = p.listeners[channels.CHANNELS.windowState]
++  assert.equal(typeof fire, 'function')
++  fire({ sender: 'gizli' }, 'minimized')
++  for (const value of ['maximized', 'Hidden', 'hidden ', 'minimize', '', null, undefined, 1, true, ['hidden'], { toString: () => 'hidden' }]) fire({}, value)
++  fire({}, 'hidden', { gizli: 'fazla' })
++  offA()
++  fire({}, 'shown')
++  offBad()
++  offB()
++  fire({}, 'restored')
++  assert.deepEqual(a, ['minimized', 'hidden'])
++  assert.deepEqual(b, [['minimized'], ['hidden'], ['shown']])
++  // Kanal yalnızca dinlenir, sayfa ana sürece bu kanaldan bir şey gönderemez
++  assert.deepEqual(p.invoked, [])
++})
++
++test('ön yüklemedeki pencere durumları src/lib/window-state.js ile aynıdır', () => {
++  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
++  assert.ok(preload.includes("const WINDOW_STATES = ['" + windowState.STATES.join("', '") + "']"))
++  assert.ok(preload.includes("windowState: '" + channels.CHANNELS.windowState + "'"))
++  assert.equal(channels.CHANNELS.windowState, 'telsiz:window-state')
++})
++
++test('ana süreç: durum yalnızca uygulama penceresinin sayfasına gider, tepsiden dönüşte shown bildirilir', () => {
++  const main = readMain()
++  const open = functionBody(main, 'function openMainWindow () {')
++  assert.match(open, /state\.windowStates\.set\(win, windowState\.watch\(win, \(value\) => \{\n\s+if \(!win\.isDestroyed\(\) && !win\.webContents\.isDestroyed\(\)\) win\.webContents\.send\(CHANNELS\.windowState, value\)\n\s+\}\)\)/)
++  // Kanal başka hiçbir yerde kullanılmaz: arka plan, sunucu adresi ve seçici pencerelerine gitmez
++  assert.equal((main.match(/CHANNELS\.windowState\b/g) || []).length, 1)
++  assert.equal((main.match(/windowState\.watch\(/g) || []).length, 1)
++  // Sayfa bu kanala yazamaz: ana süreçte dinleyicisi yoktur
++  assert.doesNotMatch(main, /ipcMain\.(handle|on)\(CHANNELS\.windowState/)
++  const show = functionBody(main, 'function showMain () {')
++  assert.match(show, /win\.show\(\)\n\s+win\.focus\(\)\n[\s\S]*const reporter = state\.windowStates\.get\(win\)\n\s+if \(reporter\) reporter\.report\('shown'\)/)
++  // Tepsiye kapatma pencereyi gizler (hide olayı 'hidden' olur)
++  assert.match(open, /if \(state\.settings\.closeToTray && state\.tray\) \{\n\s+event\.preventDefault\(\)\n\s+win\.hide\(\)/)
++})
+diff --git a/desktop/test/preload.test.js b/desktop/test/preload.test.js
+index 4108453..8f4affe 100644
+--- a/desktop/test/preload.test.js
++++ b/desktop/test/preload.test.js
+@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
+   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
+   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
+   const api = p.exposed.telsizDesktop
+-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(api.version, '2.0.0')
+   assert.equal(api.platform, 'linux')
+@@ -343,6 +343,7 @@ test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
+   assert.ok(preload.includes("const PTT_MODES = ['" + require('../src/lib/shortcuts').PTT_MODES.join("', '") + "']"))
+   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
+   assert.ok(preload.includes("const BACKGROUND_ARG = '" + channels.BACKGROUND_ARG + "'"))
++  assert.ok(preload.includes("const WINDOW_STATES = ['" + require('../src/lib/window-state').STATES.join("', '") + "']"))
+ })
+ 
+ test('ana süreç sertleştirmeleri kaynakta bulunur', () => {

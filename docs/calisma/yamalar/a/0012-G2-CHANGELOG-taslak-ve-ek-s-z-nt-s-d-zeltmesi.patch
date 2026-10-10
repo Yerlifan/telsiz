@@ -1,0 +1,40 @@
+From 5a3c8db2eb4c183c7b7a2546da55645f9acdbea5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:42:56 +0000
+Subject: [PATCH 12/12] =?UTF-8?q?G2:=20CHANGELOG:=20taslak=20ve=20ek=20s?=
+ =?UTF-8?q?=C4=B1z=C4=B1nt=C4=B1s=C4=B1=20d=C3=BCzeltmesi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md | 1 +
+ CHANGELOG.md    | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 6e83e8e..71cb8b8 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -11,6 +11,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ ### Fixes
+ 
+ - In the Arcade and Turquoise and Copper themes the border of the camera indicator on the radio card ("Your camera is on, everyone in the room can see it") and of the notice shown when someone starts sharing their screen was not drawn at all. The muted Microphone and active Camera buttons of a direct message call, the chip and panel of your own share, the Stop Watching button, the Telsiz DJ error box and the verified safety number button were also drawn in the text color instead of their own border color. Both themes now have live and danger border colors, and the borders show with at least 3:1 contrast on every surface.
++- Text and attachments in the message field stayed there when you moved to another conversation: text typed in a direct message and a photo attached to it remained in the message field after switching to a text room and could be sent to that room with the Send button. The same happened between text rooms. Every text room and direct message now has its own draft: when you leave a conversation its text and attachments stay with it and are back when you return, they never show up in another conversation's message field and cannot be sent there. An attachment that is still uploading finishes in its own conversation. Drafts are kept only in memory and never written to disk. They are deleted when you sign out and when you switch frequencies, the draft of a direct message is deleted when you block that person and the draft of a text room is deleted when the room is deleted.
+ 
+ ## [2.5.0]
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ca91e3d..c9e1efa 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -11,6 +11,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ ### Düzeltmeler
+ 
+ - Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
++- Başka bir konuşmaya geçince yazma alanındaki metin ve ekler yeni konuşmada da duruyordu: özel mesajda yazılan metin ve eklenen fotoğraf bir yazı odasına geçince yazma alanında duruyor ve Gönder düğmesiyle o odaya gönderilebiliyordu. Aynı durum yazı odaları arasında da vardı. Artık her yazı odasının ve özel konuşmanın kendi taslağı vardır: konuşmadan çıkınca metin ve ekler o konuşmada kalır, geri dönünce yerinde durur, başka bir konuşmanın yazma alanında görünmez ve gönderilemez. Yüklemesi süren ek kendi konuşmasında tamamlanır. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değiştirilince silinir, kişi engellenince o kişiyle özel konuşmanın, yazı odası silinince o odanın taslağı silinir.
+ 
+ ## [2.5.0]
+ 

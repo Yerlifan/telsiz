@@ -1,7 +1,7 @@
 From 46ffde97cab522d09c04591f48154c67a750a142 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 10 Oct 2026 20:26:06 +0000
-Subject: [PATCH 8/9] =?UTF-8?q?G0:=20inceleme=20d=C3=BCzeltmeleri=20(CSS?=
+Subject: [PATCH 08/12] =?UTF-8?q?G0:=20inceleme=20d=C3=BCzeltmeleri=20(CSS?=
  =?UTF-8?q?=20denetiminde=20aspect-ratio=20ve=20istisna=20dosyas=C4=B1)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

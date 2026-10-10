@@ -1,0 +1,87 @@
+From 78bff2270fe32019ba400b17c38fa1be6a07b970 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:38:26 +0000
+Subject: [PATCH 10/12] =?UTF-8?q?G2:=20Taslaklar=20=C3=A7=C4=B1k=C4=B1?=
+ =?UTF-8?q?=C5=9Fta,=20engellemede,=20konu=C5=9Fma=20silinince=20ve=20frek?=
+ =?UTF-8?q?ans=20de=C4=9Fi=C5=9Fince=20silinir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Oturum kapanınca ve frekans değişince bütün taslaklar ve ekleri silinir.
+Kişi engellenince o kişiyle özel konuşmanın, yazı odası silinince o odanın
+taslağı ve ekleri bırakılır. Taslaklar yalnızca bellekte tutulur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/03-auth.js    | 2 ++
+ public/js/14-social.js  | 6 ++++++
+ public/js/24-frekans.js | 3 +++
+ 3 files changed, 11 insertions(+)
+
+diff --git a/public/js/03-auth.js b/public/js/03-auth.js
+index 1bd93f2..d91c067 100644
+--- a/public/js/03-auth.js
++++ b/public/js/03-auth.js
+@@ -784,6 +784,8 @@ function resetAppState () {
+   state.editingId = null
+   state.voiceKey = ''
+   identityState.keys = null
++  // Konuşma taslakları ve ekleri yalnızca bellekteydi, oturumla birlikte silinir (08-composer.js)
++  composerDraftsClear()
+   clearAttachments()
+   decryptCache.clear()
+   clear(el.messageList)
+diff --git a/public/js/14-social.js b/public/js/14-social.js
+index 7694057..325de53 100644
+--- a/public/js/14-social.js
++++ b/public/js/14-social.js
+@@ -141,6 +141,8 @@ function socialApplyPrivate (p, pmv) {
+   if (typeof voiceRefreshCall === 'function') voiceRefreshCall()
+   if (typeof aramaOnPrivate === 'function') aramaOnPrivate()
+   if (!state.inApp) return
++  // Engellenen kişiyle ve listeden kalkan özel konuşmanın taslağı bırakılır (08-composer.js)
++  composerPruneDrafts()
+   if (blockedChanged) {
+     autoMuteBlocked()
+     if (!isDmChannel(state.channelId)) refreshAllMessages()
+@@ -200,6 +202,8 @@ function socialAfterMeta (prevKid) {
+   }
+   autoMuteBlocked()
+   if (!state.inApp) return
++  // Silinen yazı odasının taslağı bırakılır (08-composer.js)
++  composerPruneDrafts()
+   renderDmList()
+   if (socialState.view === 'home') renderHomeView()
+   if (socialState.view === 'dm') dmRefreshChrome()
+@@ -857,6 +861,8 @@ function updatePrivateLocal (mutate) {
+   const p = priv()
+   mutate(p)
+   socialState.priv = p
++  // Engellenen kişiyle özel konuşmanın taslağı bırakılır (08-composer.js)
++  if (state.inApp) composerPruneDrafts()
+   socialRender()
+   refreshProfileCard()
+ }
+diff --git a/public/js/24-frekans.js b/public/js/24-frekans.js
+index 8f1589a..21aff96 100644
+--- a/public/js/24-frekans.js
++++ b/public/js/24-frekans.js
+@@ -830,6 +830,8 @@ function frekansSwitch (origin) {
+   if (d) {
+     Promise.resolve(d.switchFrequency(origin)).then((res) => {
+       if (!res || !res.ok) toast(() => t('frekans.failed'), 'error')
++      // Frekans değişince bu frekansın konuşma taslakları silinir (08-composer.js)
++      else if (typeof composerDraftsClear === 'function') composerDraftsClear()
+     }, () => toast(() => t('frekans.failed'), 'error'))
+     return
+   }
+@@ -837,6 +839,7 @@ function frekansSwitch (origin) {
+   // Karşı köken listeyi bant sırasıyla parçadan alır: bu frekans (adıyla) ve diğer kayıtlı frekanslar
+   const list = frekansWebItems().map((item) => ({ origin: item.origin, name: item.name }))
+   const target = origin + '/#' + FREKANS_FRAGMENT_KEY + '=' + frekansEncodeList(list)
++  if (typeof composerDraftsClear === 'function') composerDraftsClear()
+   try {
+     window.location.assign(target)
+   } catch (err) {
