@@ -22,6 +22,20 @@ window.I18N = (function () {
   const HOUR = { tr: '2-digit', en: 'numeric' }
 
   const tr = {
+    // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
+    // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+    // G3 Telsiz DJ çekirdeği
+    // G4 Telsiz DJ araması
+    // G7 Kapak fotoğrafı
+    // G8 Otomatik boşta
+    // G9 ve G10 Gezinme
+    // G11 Yüzen pencereler
+    // G12 Temalar
+    // G13 Özgün tasarım
+    // G14 Kurtarma kodu
+    // G15 Android
+    // G16 Şikâyet
+    // G17 Hexball
     'music.botName': 'Telsiz DJ',
     'music.playerFrameTitle': 'Telsiz DJ YouTube oynatıcısı',
     'music.consent.title': 'YouTube oynatıcısı yüklensin mi?',
@@ -1959,6 +1973,20 @@ window.I18N = (function () {
   }
 
   const en = {
+    // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
+    // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+    // G3 Telsiz DJ çekirdeği
+    // G4 Telsiz DJ araması
+    // G7 Kapak fotoğrafı
+    // G8 Otomatik boşta
+    // G9 ve G10 Gezinme
+    // G11 Yüzen pencereler
+    // G12 Temalar
+    // G13 Özgün tasarım
+    // G14 Kurtarma kodu
+    // G15 Android
+    // G16 Şikâyet
+    // G17 Hexball
     'music.botName': 'Telsiz DJ',
     'music.playerFrameTitle': 'Telsiz DJ YouTube player',
     'music.consent.title': 'Load the YouTube player?',
