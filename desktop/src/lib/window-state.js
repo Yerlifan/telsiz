@@ -1,6 +1,6 @@
 'use strict'
 
-// Uygulama penceresinin durumu. Electron'a bağımlı değildir.
+// Uygulama penceresinin durumu ve sistemin boşta süresi. Electron'a bağımlı değildir.
 //
 // Pencere durumu: ana süreç uygulama penceresinin minimize, restore, hide ve show olaylarını dinler ve
 // sayfaya telsiz:window-state kanalıyla yalnızca şu dört değerden birini gönderir: 'minimized'
@@ -8,6 +8,12 @@
 // 'shown' (gösterildi, tepsiden geri dönüş dahil). Olay nesnesi ve pencere bilgisi sayfaya hiç gitmez.
 // Art arda gelen aynı değer bir kez gönderilir: tepsiden dönüşte show olayı ile ana sürecin kendi
 // bildirimi (showMain) aynı anda gelebilir. Sayfada window.telsizDesktop.onWindowState(cb) ile alınır.
+//
+// Boşta süresi: telsiz:idle-seconds çağrısı sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen
+// süreyi tam saniye olarak döndürür (Electron powerMonitor.getSystemIdleTime). Çağrı yalnızca uygulama
+// penceresinden ve arka plan pencerelerinden kabul edilir. Değer sayı değilse, sonlu değilse veya negatifse
+// 0 döner: bilinmeyen süre hiçbir zaman "boşta" sayılmaz. Sayfada window.telsizDesktop.idleSeconds() ve
+// window.telsizArkaPlan.idleSeconds() ile alınır.
 
 const STATES = Object.freeze(['minimized', 'restored', 'hidden', 'shown'])
 
@@ -50,10 +56,18 @@ function watch (win, send) {
   }
 }
 
+// powerMonitor.getSystemIdleTime() sonucunu negatif olmayan tam saniyeye çevirir
+function cleanIdleSeconds (raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return 0
+  const value = Math.floor(raw)
+  return Number.isSafeInteger(value) ? value : 0
+}
+
 module.exports = {
   STATES,
   EVENTS,
   isState,
   stateForEvent,
-  watch
+  watch,
+  cleanIdleSeconds
 }

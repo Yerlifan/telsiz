@@ -1,8 +1,8 @@
 'use strict'
 
-// Pencere durumu kanalı (telsiz:window-state): ana süreçteki olay eşlemesi (src/lib/window-state.js), ön
-// yükleme betiğinin beyaz listesi ve ana süreçteki gönderen denetimi. Gerçek Electron ile davranış
-// e2e/duman.test.js içinde denetlenir.
+// Pencere durumu (telsiz:window-state) ve boşta süresi (telsiz:idle-seconds) kanalları: ana süreçteki olay
+// eşlemesi ve değer süzme (src/lib/window-state.js), ön yükleme betiğinin beyaz listesi ve ana süreçteki
+// gönderen denetimi. Gerçek Electron ile davranış e2e/duman.test.js içinde denetlenir.
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -19,6 +19,7 @@ const SRC = path.join(__dirname, '..', 'src')
 function loadPreload (argv) {
   const exposed = {}
   const invoked = []
+  const replies = []
   const listeners = {}
   const electron = {
     contextBridge: {
@@ -29,7 +30,7 @@ function loadPreload (argv) {
     ipcRenderer: {
       invoke (channel, ...args) {
         invoked.push([channel].concat(args))
-        return Promise.resolve('ok')
+        return Promise.resolve(replies.length > 0 ? replies.shift() : 'ok')
       },
       send () {},
       on (channel, fn) {
@@ -47,7 +48,7 @@ function loadPreload (argv) {
     Date
   }
   vm.runInNewContext(fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8'), sandbox, { filename: 'preload.js' })
-  return { exposed, invoked, listeners }
+  return { exposed, invoked, replies, listeners }
 }
 
 function readMain () {
@@ -158,4 +159,79 @@ test('ana süreç: durum yalnızca uygulama penceresinin sayfasına gider, tepsi
   assert.match(show, /win\.show\(\)\n\s+win\.focus\(\)\n[\s\S]*const reporter = state\.windowStates\.get\(win\)\n\s+if \(reporter\) reporter\.report\('shown'\)/)
   // Tepsiye kapatma pencereyi gizler (hide olayı 'hidden' olur)
   assert.match(open, /if \(state\.settings\.closeToTray && state\.tray\) \{\n\s+event\.preventDefault\(\)\n\s+win\.hide\(\)/)
+})
+
+// Ana sürece giden değerler ve beklenen tam saniye (süzme kuralı ön yüklemede ve ana süreçte aynı)
+const IDLE_CASES = [
+  [0, 0],
+  [12, 12],
+  [12.9, 12],
+  [59.999, 59],
+  [86400 * 30, 86400 * 30],
+  [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+  [-1, 0],
+  [-0.5, 0],
+  [NaN, 0],
+  [Infinity, 0],
+  [-Infinity, 0],
+  [1e300, 0],
+  ['30', 0],
+  [null, 0],
+  [undefined, 0],
+  [true, 0],
+  [{ valueOf: () => 30 }, 0],
+  [[30], 0]
+]
+
+test('boşta süresi: değer negatif olmayan tam saniyeye getirilir, bilinmeyen süre 0', () => {
+  for (const [raw, expected] of IDLE_CASES) assert.equal(windowState.cleanIdleSeconds(raw), expected, String(raw))
+})
+
+test('ön yükleme: idleSeconds uygulama ve arka plan nesnelerinde, sayfa argüman geçiremez, sonuç süzülür', async () => {
+  const p = loadPreload(['--telsiz-version=2.0.0'])
+  const api = p.exposed.telsizDesktop
+  for (const [raw, expected] of IDLE_CASES) {
+    p.replies.push(raw)
+    assert.equal(await api.idleSeconds('fazla', { kotu: 1 }), expected, String(raw))
+  }
+  assert.deepEqual(p.invoked, IDLE_CASES.map(() => [channels.CHANNELS.idleSeconds]))
+  // Uygulama penceresindeki arka plan nesnesi
+  p.invoked.length = 0
+  p.replies.push(42.7)
+  assert.equal(await p.exposed.telsizArkaPlan.idleSeconds(), 42)
+  assert.deepEqual(p.invoked, [[channels.CHANNELS.idleSeconds]])
+  // Arka plan penceresi (ana sürecin argümanıyla)
+  const bg = loadPreload(['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com'])
+  assert.equal(bg.exposed.telsizArkaPlan.background, true)
+  bg.replies.push(7)
+  bg.replies.push('7')
+  assert.equal(await bg.exposed.telsizArkaPlan.idleSeconds(), 7)
+  assert.equal(await bg.exposed.telsizArkaPlan.idleSeconds(1), 0)
+  assert.deepEqual(bg.invoked, [[channels.CHANNELS.idleSeconds], [channels.CHANNELS.idleSeconds]])
+})
+
+test('ana süreç: boşta süresi yalnızca uygulama ve arka plan pencerelerine açık, powerMonitor değeri süzülür', () => {
+  const main = readMain()
+  assert.match(main, /ipcMain\.handle\(CHANNELS\.idleSeconds, \(event\) => \{\n\s+requireSender\(event, 'app', 'background'\)\n\s+return systemIdleSeconds\(\)\n\s+\}\)/)
+  assert.equal((main.match(/CHANNELS\.idleSeconds\b/g) || []).length, 1)
+  const idle = functionBody(main, 'function systemIdleSeconds () {')
+  assert.match(idle, /return windowState\.cleanIdleSeconds\(powerMonitor\.getSystemIdleTime\(\)\)/)
+  assert.match(idle, /return 0\n\s+\}/)
+  assert.equal((main.match(/powerMonitor\.\w+/g) || []).join(), 'powerMonitor.getSystemIdleTime')
+})
+
+test('gönderen denetimi: requireSender verilen bağlamlardan birini ister, başka pencereyi reddeder', () => {
+  const main = readMain()
+  const source = functionBody(main, 'function requireSender (event, ...contexts) {') + '\n}\n'
+  // senderIs yerine bağlamı olaydan okuyan sahte işlev (asıl senderIs pencereyi, ana çerçeveyi ve kökeni denetler)
+  const sandbox = { senderIs: (event, context) => event.context === context }
+  vm.runInNewContext(source + 'this.requireSender = requireSender\n', sandbox)
+  const { requireSender } = sandbox
+  assert.doesNotThrow(() => requireSender({ context: 'app' }, 'app', 'background'))
+  assert.doesNotThrow(() => requireSender({ context: 'background' }, 'app', 'background'))
+  for (const context of ['connect', 'picker', 'float', undefined, null, '']) {
+    assert.throws(() => requireSender({ context }, 'app', 'background'), /forbidden/, String(context))
+  }
+  assert.throws(() => requireSender({ context: 'background' }, 'app'), /forbidden/)
+  assert.throws(() => requireSender({ context: 'app' }), /forbidden/, 'bağlam verilmezse her çağrı reddedilir')
 })

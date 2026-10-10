@@ -36,6 +36,8 @@ const CHANNELS = Object.freeze({
   // Pencere durumu (src/lib/window-state.js): küçültme, geri yükleme, tepsiye gizleme ve gösterme (ana
   // süreçten sayfaya)
   windowState: 'telsiz:window-state',
+  // Sistemin boşta süresi (saniye, src/lib/window-state.js): uygulama ve arka plan pencereleri okuyabilir
+  idleSeconds: 'telsiz:idle-seconds',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',

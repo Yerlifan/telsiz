@@ -45,6 +45,7 @@ const {
   shell,
   dialog,
   desktopCapturer,
+  powerMonitor,
   webContents
 } = require('electron')
 
@@ -157,7 +158,9 @@ const state = {
   titleBarOverlay: false,
   titleBarColors: null,
   // Uygulama penceresinin durum bildiricisi (src/lib/window-state.js), pencere başına bir tane
-  windowStates: new WeakMap()
+  windowStates: new WeakMap(),
+  // Sistemin boşta süresi okunamadı mı (hata günlüğe bir kez yazılır)
+  idleErrorLogged: false
 }
 
 function t (key, params) {
@@ -231,8 +234,9 @@ function senderIs (event, context) {
   return navigation.originOf(frame.url) === ORIGINS[context]
 }
 
-function requireSender (event, context) {
-  if (!senderIs(event, context)) throw new Error('forbidden')
+// Çağrı verilen bağlamlardan birinden gelmediyse reddedilir, ör. requireSender(event, 'app', 'background')
+function requireSender (event, ...contexts) {
+  if (!contexts.some((context) => senderIs(event, context))) throw new Error('forbidden')
 }
 
 function openExternal (url) {
@@ -1261,6 +1265,19 @@ function quitApp () {
   app.quit()
 }
 
+// Sistemin son kullanıcı girişinden bu yana geçen süre, tam saniye (src/lib/window-state.js). powerMonitor
+// yalnızca uygulama hazır olduktan sonra kullanılabilir, IPC işleyicileri de ancak o zaman çağrılır.
+// Okunamazsa 0 döner ve hata yalnızca ilk seferde günlüğe yazılır.
+function systemIdleSeconds () {
+  try {
+    return windowState.cleanIdleSeconds(powerMonitor.getSystemIdleTime())
+  } catch (err) {
+    if (!state.idleErrorLogged) logError('idle', err)
+    state.idleErrorLogged = true
+    return 0
+  }
+}
+
 // ------------------------------------------------------------------ IPC
 
 function registerIpc () {
@@ -1367,6 +1384,12 @@ function registerIpc () {
     state.lastBackgroundOpen = now
     showMain()
     return frequencyControl.switchTo(origin)
+  })
+  // Otomatik boşta: sistemin son kullanıcı girişinden bu yana geçen süre (tam saniye). Arka plan pencereleri de
+  // okur (açık olmayan frekansların long-poll isteği aynı bilgiyi taşır).
+  ipcMain.handle(CHANNELS.idleSeconds, (event) => {
+    requireSender(event, 'app', 'background')
+    return systemIdleSeconds()
   })
   ipcMain.handle(CHANNELS.bgGet, (event) => {
     requireSender(event, 'app')

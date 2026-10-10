@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
@@ -264,7 +264,7 @@ test('sürüm argümanı doğrulanır', () => {
 test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik, durum süzülür', async () => {
   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0'])
   const bg = p.exposed.telsizArkaPlan
-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'onState'])
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'idleSeconds', 'onState'])
   assert.equal(bg.background, false)
   await bg.getState()
   assert.deepEqual(p.invoked, [[channels.CHANNELS.bgGet]])
@@ -297,7 +297,7 @@ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik
 test('arka plan penceresi: yalnızca ana sürecin argümanıyla, rapor bilinen alanlarla kopyalanır', async () => {
   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com:8443'])
   const bg = p.exposed.telsizArkaPlan
-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'open', 'origin', 'report'])
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'idleSeconds', 'open', 'origin', 'report'])
   assert.equal(bg.background, true)
   assert.equal(bg.origin, 'https://b.ornek.com:8443')
   bg.report({ origin: 'https://b.ornek.com:8443', state: 'ok', unread: 2, mention: 1, online: true, lastError: null, name: 'Bee', onlineUsers: 3, fazla: { kotu: 1 } })

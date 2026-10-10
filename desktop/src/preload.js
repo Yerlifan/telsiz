@@ -25,6 +25,7 @@ const CHANNELS = {
   titleBarMenu: 'telsiz:title-bar-menu',
   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
   windowState: 'telsiz:window-state',
+  idleSeconds: 'telsiz:idle-seconds',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -165,6 +166,18 @@ ipcRenderer.on(CHANNELS.windowState, (event, value) => {
   }
 })
 
+// Sistemin boşta süresi: ana süreçten gelen değer negatif olmayan tam saniyeye getirilir, geçersizse 0
+// (src/lib/window-state.js cleanIdleSeconds ile aynı kural)
+function cleanIdleSeconds (raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return 0
+  const value = Math.floor(raw)
+  return Number.isSafeInteger(value) ? value : 0
+}
+
+function idleSeconds () {
+  return ipcRenderer.invoke(CHANNELS.idleSeconds).then(cleanIdleSeconds)
+}
+
 function shortText (value, max) {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
@@ -258,6 +271,8 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
       windowStateListeners.delete(callback)
     }
   },
+  // Sistemin son kullanıcı girişinden bu yana geçen süre: Promise, negatif olmayan tam saniye
+  idleSeconds,
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
@@ -289,10 +304,11 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
 
 // Arka plan sayımı (src/lib/background.js, public/js/25-arka-plan.js). Ayrı bir nesnedir:
 // - Ana sürecin --telsiz-background=<köken> argümanıyla açtığı gizli pencerede { background: true, origin,
-//   report(rapor), open() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç göndereni ve her
-//   alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
-// - Uygulama penceresinde { background: false, getState(), onState(callback) }: açık olmayan frekansların
-//   durumu. Olay nesnesi verilmez, durum burada da süzülür.
+//   report(rapor), open(), idleSeconds() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç
+//   göndereni ve her alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
+// - Uygulama penceresinde { background: false, getState(), onState(callback), idleSeconds() }: açık olmayan
+//   frekansların durumu. Olay nesnesi verilmez, durum burada da süzülür.
+// - idleSeconds() iki kipte de sistemin boşta süresini verir (tam saniye), otomatik boşta için.
 const BACKGROUND_ARG = '--telsiz-background='
 const BG_ORIGIN_RE = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
 const BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
@@ -352,7 +368,8 @@ if (backgroundOrigin !== null) {
     background: true,
     origin: backgroundOrigin,
     report: (report) => ipcRenderer.send(CHANNELS.bgReport, bgCopyReport(report)),
-    open: () => ipcRenderer.invoke(CHANNELS.bgOpen)
+    open: () => ipcRenderer.invoke(CHANNELS.bgOpen),
+    idleSeconds
   })
 } else {
   const stateListeners = new Set()
@@ -375,6 +392,7 @@ if (backgroundOrigin !== null) {
       return () => {
         stateListeners.delete(callback)
       }
-    }
+    },
+    idleSeconds
   })
 }

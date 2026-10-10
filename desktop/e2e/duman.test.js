@@ -18,6 +18,7 @@
 // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
 //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
 // - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
+// - sistemin boşta süresi sayfadan tam saniye olarak okunur
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -411,7 +412,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -1083,4 +1084,18 @@ test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden d�
   assert.ok(got.every((value) => ['minimized', 'restored', 'hidden', 'shown'].includes(value)), got.join())
   assert.equal(got[got.length - 1], 'restored')
   await page.evaluate(() => window.__pencereKapat())
+})
+
+// Boşta süresi (telsiz:idle-seconds): sistemin son kullanıcı girişinden bu yana geçen süre tam saniye olarak
+// hem telsizDesktop hem telsizArkaPlan üzerinden okunur, ana süreçteki powerMonitor değeriyle aynıdır
+test('boşta süresi: uygulama penceresinde tam saniye olarak okunur', async () => {
+  const page = ctx.page
+  const before = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  const values = await page.evaluate(() => Promise.all([window.telsizDesktop.idleSeconds(), window.telsizArkaPlan.idleSeconds()]))
+  const after = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  for (const value of values) {
+    assert.ok(Number.isInteger(value) && value >= 0, String(value))
+    // Girdi olmadıkça süre artar, girdi gelirse sıfırlanır: değer iki ölçümün arasında veya en çok birkaç saniye farklıdır
+    assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
+  }
 })
