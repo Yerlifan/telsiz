@@ -6,7 +6,8 @@
 // konuşmadan çıkınca metnin ve eklerin kendi taslağında kalması, yüklemesi süren ekin kendi taslağında
 // tamamlanması, gönderim süzgeci (yalnızca açık konuşmanın ekleri ve doğru şifreleme), yanıt gelmeden konuşma
 // değişince taslağın düşmesi, gönderilemeyen mesajın istemci kimliğinin korunması, silinen konuşmada ve
-// engellenen kişide taslağın bırakılması, oturum kapanınca taslakların silinmesi ve diske yazılmaması. Ayrıca taslakta bekleyen ekin sunucudaki kopyası silinmeden
+// engellenen kişide taslağın bırakılması, oturum kapanınca, yazı odası kalmayınca ve frekans değişince
+// taslakların silinmesi ve diske yazılmaması. Ayrıca taslakta bekleyen ekin sunucudaki kopyası silinmeden
 // yeniden yüklenmesi (ve sunucu ekleri tanımazsa gönderimde yeniden yüklenmesi), yükleme hatasının başka
 // konuşmaların eklerine geçmemesi ve yükleme kuyruğunda açık konuşmanın eklerinin öne alınması.
 
@@ -18,7 +19,7 @@ const vm = require('node:vm')
 const nodeCrypto = require('node:crypto')
 
 const PUB = path.join(__dirname, '..', 'public')
-const FILES = ['i18n.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/04-meta.js', 'js/08-composer.js']
+const FILES = ['i18n.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/04-meta.js', 'js/08-composer.js', 'js/24-frekans.js']
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 
 function makeStorage () {
@@ -43,6 +44,13 @@ function load () {
   sandbox.setTimeout = setTimeout
   sandbox.clearTimeout = clearTimeout
   sandbox.crypto = nodeCrypto.webcrypto
+  sandbox.URL = URL
+  sandbox.TextEncoder = TextEncoder
+  sandbox.TextDecoder = TextDecoder
+  sandbox.btoa = btoa
+  sandbox.atob = atob
+  sandbox.location = { origin: SELF, hash: '', pathname: '/', search: '', assign: (url) => sandbox.testAssigned.push(url) }
+  sandbox.testAssigned = []
   sandbox.localStorage = makeStorage()
   sandbox.sessionStorage = makeStorage()
   sandbox.localStorage.setItem('telsiz.lang', 'tr')
@@ -153,6 +161,7 @@ function load () {
 }
 
 const U = (c) => c.repeat(32)
+const SELF = 'https://kankalar.ornek.com'
 
 test('taslak anahtarı: yazı odası c:, özel konuşma d:, Arkadaşlar görünümünde boş', () => {
   const { run } = load()
@@ -498,4 +507,75 @@ test('yükleme sırasında açık konuşmanın ekleri öne alınır, süren yük
   assert.strictEqual(run('canSend()'), true)
   // Sıra kalan özel konuşma eklerine geçer
   assert.deepStrictEqual(statuses(), ['b1.png=uploading', 'b2.png=uploading', 'b3.png=queued', 'oda.png=done'])
+})
+
+test('yazı odası kalmayınca (applyMeta) açık odanın taslağı ve ekleri bırakılır, yazma alanı boşalır', () => {
+  const { run, json } = load()
+  run(`
+    state.inApp = true
+    function voiceHandleMeta () {}
+    function myPermsKey () { return '' }
+    function renderServerName () {}
+    function renderBand () {}
+    function renderMembers () {}
+    function renderUserPanel () {}
+    function renderVoiceAll () {}
+    function renderChannelHeader () {}
+    function refreshConversationChrome () {}
+    function refreshSettings () {}
+    function renderComposerState () {}
+    function refreshAllMessages () {}
+    function refreshMentionMessages () {}
+  `)
+  run("testOpen('dm', 50)")
+  run("el.composerInput.value = 'özel taslak'")
+  run("testAdd('ozel.png')")
+  run("testOpen('channel', 10)")
+  run("el.composerInput.value = 'silinecek oda'")
+  run("testAdd('genel.png')")
+  run("applyMeta({ channels: [{ id: 20, name: 'Lobi', type: 'voice', position: 0 }], users: [] }, false)")
+  assert.strictEqual(run('state.channelId'), null)
+  assert.strictEqual(run('composerKey()'), '')
+  assert.strictEqual(run('el.composerInput.value'), '')
+  assert.deepStrictEqual(json('testShown'), [])
+  assert.strictEqual(run("composerDrafts.has('c:10')"), false)
+  // Özel konuşmanın taslağı ve eki yerinde durur
+  assert.deepStrictEqual(json("state.attachments.map((a) => a.name + '@' + a.convKey)"), ['ozel.png@d:50'])
+  assert.strictEqual(run("composerDrafts.get('d:50').text"), 'özel taslak')
+})
+
+test('frekans değişince taslaklar silinir: tarayıcıda sayfadan çıkmadan önce, masaüstünde geçiş başarılı olunca', async () => {
+  const { run, json, sandbox } = load()
+  const fill = () => {
+    run("testOpen('dm', 50)")
+    run("el.composerInput.value = 'özel taslak'")
+    run("testAdd('ozel.png')")
+    run("testOpen('channel', 10)")
+    run("el.composerInput.value = 'açık oda'")
+  }
+  fill()
+  // Açık frekansa geçiş bir şey yapmaz
+  run("frekansSwitch('" + SELF + "')")
+  assert.strictEqual(run('composerDrafts.size'), 1)
+  run("frekansSwitch('https://diger.ornek.com')")
+  assert.strictEqual(sandbox.testAssigned.length, 1)
+  assert.match(sandbox.testAssigned[0], /^https:\/\/diger\.ornek\.com\/#frekanslar=/)
+  assert.strictEqual(run('composerDrafts.size'), 0)
+  assert.deepStrictEqual(json('state.attachments'), [])
+  assert.strictEqual(run('el.composerInput.value'), 'açık oda')
+
+  // Masaüstü: başarısız geçişte taslaklar kalır
+  run('var testSwitch = { ok: false }')
+  run('window.telsizDesktop = { listFrequencies () { return [] }, switchFrequency () { return Promise.resolve(testSwitch) } }')
+  fill()
+  run("frekansSwitch('https://diger.ornek.com')")
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(run('composerDrafts.size'), 1)
+  assert.deepStrictEqual(json('testToasts'), [run("t('frekans.failed')")])
+  run('testSwitch = { ok: true }')
+  run("frekansSwitch('https://diger.ornek.com')")
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(run('composerDrafts.size'), 0)
+  assert.deepStrictEqual(json('state.attachments'), [])
+  assert.strictEqual(sandbox.testAssigned.length, 1, 'masaüstünde sayfa adresi değişmez')
 })

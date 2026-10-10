@@ -8,6 +8,7 @@
 //   düşmez
 // - İki yazı odası arasında aynı kural
 // - Beş genişlikte (360, 412, 768, 1024, 1440) özel mesaj ile oda arasında taslak sızmaz, yatay taşma 0
+// - Arkadaşlar görünümünde yazma alanı gizli ve boş, özel konuşmaya dönünce taslak ve ek yerinde (showHome)
 // - Taslakta süresi dolmak üzere olan ek konuşmaya dönülünce yeniden yüklenir, sunucunun tanımadığı ek
 //   (bad_uploads) gönderimde yeniden yüklenir ve mesaj yeni ekle gider
 // - Kişi engellenince o kişiyle özel konuşmanın bekleyen taslağı ve eki silinir
@@ -184,6 +185,26 @@ test('beş genişlikte özel mesaj ile oda arasında taslak sızmaz, yatay taşm
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.waitForFunction(() => document.documentElement.clientWidth === 1440 && el.appView.getAttribute('data-layout') === layoutClass())
   assert.equal((await messagesIn(genel)).length, 0, 'genel odasına mesaj gitmedi')
+})
+
+test('Arkadaşlar görünümünde yazma alanı gizli ve boş, özel konuşmaya dönünce taslak ve ek yerinde', async () => {
+  const page = W.deniz
+  const text = 'OZEL: Arkadaşlar görünümüne taşınmamalı'
+  const key = 'd:' + W.dmEce
+  await page.click('#top-dm')
+  await waitConversation(page, 'dm', W.dmEce)
+  await page.fill('#composer-input', text)
+  await attachPhoto(page, 'arkadaslar.png')
+  await page.click('#top-friends')
+  await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden, null, { timeout: h.LONG })
+  assert.equal(await page.evaluate(() => document.getElementById('composer').hidden), true, 'yazma alanı gizli')
+  assert.deepEqual(await composerView(page), { text: '', chips: [], send: false })
+  assert.deepEqual(await page.evaluate((k) => [composerKey(), composerDrafts.get(k).text, state.attachments.map((a) => a.convKey)], key),
+    ['', text, [key]], 'taslak ve ek özel konuşmanın anahtarında')
+  await page.click('#top-dm')
+  await waitConversation(page, 'dm', W.dmEce)
+  assert.deepEqual(await composerView(page), { text, chips: ['arkadaslar.png'], send: true })
+  await clearComposer(page)
 })
 
 test('taslakta süresi dolan ek yeniden yüklenir, sunucunun tanımadığı ek gönderimde yeniden yüklenir', async () => {
