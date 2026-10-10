@@ -18,12 +18,13 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 | Renk 1: ses odası sinyalinde genel oyun taşıması | Bitti | commit "Oyun: ses odası sinyalinde genel oyun taşıması" |
 | Renk 2: protokol çekirdeği | Bitti | commit "Oyun: protokol çekirdeği" |
 | Renk 3: kural motoru | Bitti | commit "Renk: kural motoru" |
-| Renk 4: masa yöneticisi | Sürüyor | commit "Oyun: masa yöneticisi" |
-| Renk 5: dört cihazlı ağ benzetimi | Bekliyor | commit "Oyun: dört cihazlı ağ benzetimi" |
-| Renk 6: genel arayüz ve sahne kipi | Bekliyor | commit "Oyun: genel arayüz ve sahne kipi" |
-| Renk 7: masa arayüzü | Bekliyor | commit "Renk: masa arayüzü" |
-| Renk 8: uçtan uca test | Bekliyor | commit "Renk: uçtan uca test" |
-| Renk 9: belgeler | Bekliyor | commit "Renk: belgeler" |
+| Renk 4: masa yöneticisi | Bitti | commit "Oyun: masa yöneticisi" |
+| Renk 5: dört cihazlı ağ benzetimi | Bitti | commit "Oyun: dört cihazlı ağ benzetimi" |
+| Renk 6: genel arayüz ve sahne kipi | Bitti | commit "Oyun: genel arayüz ve sahne kipi" |
+| Renk 7: masa arayüzü | Bitti | commit "Renk: masa arayüzü" |
+| Renk 8: uçtan uca test | Bitti | commit "Renk: uçtan uca test" |
+| Renk 9: belgeler | Bitti | commit "Renk: belgeler" |
+| Renk 10: bağımsız inceleme, düzeltme, PR | Sürüyor | issue Yerlifan/telsiz#42, commit "Renk: inceleme düzeltmeleri" |
 | 18 isteğin araştırması ve planı | Bitti | `istek-plani.md` |
 | İstek grupları G0 ile G16 (Hexball hariç) | Sürüyor | yerel `istek/a` ve `istek/b` dalları, yamaları `yamalar/a` ve `yamalar/b` altında |
 | Hexball (G17), Renk'ten sonra | Bekliyor | |
