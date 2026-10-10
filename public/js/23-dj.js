@@ -22,6 +22,9 @@
 // duraklat ve "DJ'yi aç" düğmeleri olan küçük bir çubuk durur (djApplyLayout). Çerçeve ve ataları DOM'da hiç
 // taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir. Böylece müzik ses odasından
 // ayrılana kadar çalmaya devam eder.
+// Çizim: motorun parça ve durum olaylarında kart hemen çizilir, diğer değişiklikler bir sonraki karede
+// toplanır. Sayfa gizliyken (arka plandaki sekme, simge durumundaki pencere) tarayıcı kareleri bekletir,
+// çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
 
 const DJ_TICK_MS = 500
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
@@ -52,6 +55,7 @@ const dj = {
   crewLi: null,
   crewFocus: false,
   renderQueued: false,
+  renderTimer: 0,
   marksKey: '',
   docked: false,
   dockSticky: null,
@@ -110,10 +114,12 @@ function djEngine () {
   const engine = dj.engine
   engine.on('change', (snapshot) => {
     dj.snap = snapshot
-    djRenderSoon()
+    djRenderNow()
   })
+  // Parça değişti: olay oynatıcı kurulmadan önce gelir, oynatıcı alanı önceden görünür olur
   engine.on('track', () => {
-    djRenderSoon()
+    dj.snap = engine.snapshot()
+    djRenderNow()
   })
   engine.on('notice', djOnNotice)
   engine.on('consentneeded', () => {
@@ -490,13 +496,45 @@ function djBuild () {
   if (engine) engine.attachPlayer(ui.yt)
 }
 
+// Sayfa gizli mi (arka plandaki sekme, simge durumundaki veya tepsideki masaüstü penceresi)
+function djPageHidden () {
+  try {
+    return document.visibilityState === 'hidden'
+  } catch (err) {
+    return false
+  }
+}
+
+// Çizim bir sonraki karede yapılır. Gizli sayfada tarayıcı requestAnimationFrame'i bekletir (Chrome arka
+// plandaki sekmede, Electron simge durumundaki pencerede): çizim zamanlayıcıyla yapılır, yoksa oynatıcı alanı
+// hiç çizilmez ve motor görünmeyen YouTube parçasını duraklatır. Kare beklenirken sayfa gizlenirse de
+// zamanlayıcı kurulur.
 function djRenderSoon () {
-  if (dj.renderQueued || !dj.ready) return
+  if (!dj.ready) return
+  if (dj.renderQueued) {
+    if (djPageHidden() && !dj.renderTimer) dj.renderTimer = setTimeout(djRenderQueued, 0)
+    return
+  }
   dj.renderQueued = true
-  nextFrame(() => {
-    dj.renderQueued = false
-    djRender()
-  })
+  if (djPageHidden()) dj.renderTimer = setTimeout(djRenderQueued, 0)
+  else nextFrame(djRenderQueued)
+}
+
+function djRenderQueued () {
+  if (dj.renderTimer) {
+    clearTimeout(dj.renderTimer)
+    dj.renderTimer = 0
+  }
+  if (!dj.renderQueued) return
+  dj.renderQueued = false
+  djRender()
+}
+
+// Motorun parça ve durum olaylarında yerleşim ve oynatıcı alanı kare beklenmeden uygulanır: parça gelince
+// YouTube çerçevesi görünür bir alana kurulur (sayfa gizliyken de)
+function djRenderNow () {
+  if (!dj.ready || dj.layoutBusy) return
+  djRender()
 }
 
 // ------------------------------------------------------------------ bant ve telsiz kartı işaretleri
@@ -1221,12 +1259,13 @@ function djInit () {
   }
   window.addEventListener('resize', djOnResize)
   if (typeof watchLayers === 'function') watchLayers(djOnLayers)
-  // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor")
+  // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor"). Kart
+  // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).
   setInterval(() => {
     djSyncVoice()
-    if (djCardShown() || dj.docked) {
+    if (djShouldShow()) {
       dj.snap = engine.snapshot()
-      djRender()
+      if (!dj.layoutBusy) djRender()
     } else {
       djSyncMarks()
     }
