@@ -1,0 +1,620 @@
+{
+  "_aciklama": "Elle hazırlanmış örnek. Gerçek YouTube yanıtı değildir, kimlikler ve metinler uydurmadır. Düğüm adları ve alan yolları youtubei.js 18.1.0, youtubei 1.8.17, @distube/ytsr 2.0.4, ytsr 3.8.4 ve youtube-sr 4.3.12 kaynak kodundan çıkarıldı. Reklam öğesinin iç yapısı ve responseContext içindeki servis adı doğrulanamadı. Ayrıntı: docs/calisma/youtube-arama-notlari.md",
+  "responseContext": {
+    "visitorData": "ORNEK_ZIYARETCI_VERISI",
+    "serviceTrackingParams": [
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB"
+          },
+          {
+            "key": "cver",
+            "value": "2.20261001.00.00"
+          }
+        ]
+      }
+    ]
+  },
+  "estimatedResults": "48211",
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "adSlotRenderer": {
+                      "adSlotMetadata": {
+                        "slotId": "ornek-reklam-yuvasi-1"
+                      },
+                      "fulfillmentContent": {
+                        "fulfilledLayout": {
+                          "inFeedAdLayoutRenderer": {
+                            "renderingContent": {
+                              "searchPyvRenderer": {
+                                "ads": [
+                                  {
+                                    "promotedVideoRenderer": {
+                                      "videoId": "TLSZreklam4",
+                                      "title": {
+                                        "simpleText": "Reklam: Örnek Kulaklık Tanıtımı"
+                                      },
+                                      "longBylineText": {
+                                        "runs": [
+                                          {
+                                            "text": "Örnek Reklam Veren",
+                                            "navigationEndpoint": {
+                                              "browseEndpoint": {
+                                                "browseId": "UCtelsizReklamVeren00004"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      "lengthText": {
+                                        "simpleText": "0:30"
+                                      },
+                                      "navigationEndpoint": {
+                                        "watchEndpoint": {
+                                          "videoId": "TLSZreklam4"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "channelRenderer": {
+                      "channelId": "UCtelsizOrnekKanali00001",
+                      "title": {
+                        "simpleText": "Örnek Sanatçı"
+                      },
+                      "navigationEndpoint": {
+                        "commandMetadata": {
+                          "webCommandMetadata": {
+                            "url": "/@orneksanatci",
+                            "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                            "apiUrl": "/youtubei/v1/browse"
+                          }
+                        },
+                        "browseEndpoint": {
+                          "browseId": "UCtelsizOrnekKanali00001",
+                          "canonicalBaseUrl": "/@orneksanatci"
+                        }
+                      },
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "//yt3.ggpht.com/ornek-avatar-1=s88-c-k-c0x00ffffff-no-rj-mo",
+                            "width": 88,
+                            "height": 88
+                          },
+                          {
+                            "url": "//yt3.ggpht.com/ornek-avatar-1=s176-c-k-c0x00ffffff-no-rj-mo",
+                            "width": 176,
+                            "height": 176
+                          }
+                        ]
+                      },
+                      "descriptionSnippet": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçının resmi kanalı."
+                          }
+                        ]
+                      },
+                      "subscriberCountText": {
+                        "simpleText": "@orneksanatci"
+                      },
+                      "videoCountText": {
+                        "simpleText": "1.2M subscribers"
+                      },
+                      "ownerBadges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST",
+                            "tooltip": "Official Artist Channel"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "TLSZcanli03",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçı Canlı Konser 7/24"
+                          }
+                        ],
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "Örnek Sanatçı Canlı Konser 7/24"
+                          }
+                        }
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Canlı Yayın",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizCanliYayin000003",
+                                "canonicalBaseUrl": "/@ornekcanli"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "1,234"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "navigationEndpoint": {
+                        "commandMetadata": {
+                          "webCommandMetadata": {
+                            "url": "/watch?v=TLSZcanli03",
+                            "webPageType": "WEB_PAGE_TYPE_WATCH"
+                          }
+                        },
+                        "watchEndpoint": {
+                          "videoId": "TLSZcanli03"
+                        }
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW",
+                            "label": "LIVE"
+                          }
+                        }
+                      ],
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Canlı Yayın",
+                            "navigationEndpoint": {
+                              "commandMetadata": {
+                                "webCommandMetadata": {
+                                  "url": "/@ornekcanli",
+                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                  "apiUrl": "/youtubei/v1/browse"
+                                }
+                              },
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizCanliYayin000003",
+                                "canonicalBaseUrl": "/@ornekcanli"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "shortBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Canlı Yayın",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizCanliYayin000003",
+                                "canonicalBaseUrl": "/@ornekcanli"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "thumbnailOverlays": [
+                        {
+                          "thumbnailOverlayTimeStatusRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "LIVE"
+                                }
+                              ]
+                            },
+                            "style": "LIVE"
+                          }
+                        }
+                      ],
+                      "channelThumbnailSupportedRenderers": {
+                        "channelThumbnailWithLinkRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.ggpht.com/ornek-avatar-3=s68-c-k-c0x00ffffff-no-rj",
+                                "width": 68,
+                                "height": 68
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-3"
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "TLSZornek01",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçı "
+                          },
+                          {
+                            "text": "Gece Şarkısı (Resmi Video)"
+                          }
+                        ],
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "Örnek Sanatçı Gece Şarkısı (Resmi Video) 3 minutes, 33 seconds"
+                          }
+                        }
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçı",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00001",
+                                "canonicalBaseUrl": "/@orneksanatci"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "publishedTimeText": {
+                        "simpleText": "2 years ago"
+                      },
+                      "lengthText": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "3 minutes, 33 seconds"
+                          }
+                        },
+                        "simpleText": "3:33"
+                      },
+                      "viewCountText": {
+                        "simpleText": "12,345,678 views"
+                      },
+                      "navigationEndpoint": {
+                        "commandMetadata": {
+                          "webCommandMetadata": {
+                            "url": "/watch?v=TLSZornek01",
+                            "webPageType": "WEB_PAGE_TYPE_WATCH"
+                          }
+                        },
+                        "watchEndpoint": {
+                          "videoId": "TLSZornek01"
+                        }
+                      },
+                      "ownerBadges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST",
+                            "tooltip": "Official Artist Channel"
+                          }
+                        }
+                      ],
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçı",
+                            "navigationEndpoint": {
+                              "commandMetadata": {
+                                "webCommandMetadata": {
+                                  "url": "/@orneksanatci",
+                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                  "apiUrl": "/youtubei/v1/browse"
+                                }
+                              },
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00001",
+                                "canonicalBaseUrl": "/@orneksanatci"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "shortBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Sanatçı",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00001",
+                                "canonicalBaseUrl": "/@orneksanatci"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "shortViewCountText": {
+                        "simpleText": "12M views"
+                      },
+                      "thumbnailOverlays": [
+                        {
+                          "thumbnailOverlayTimeStatusRenderer": {
+                            "text": {
+                              "simpleText": "3:33"
+                            },
+                            "style": "DEFAULT"
+                          }
+                        }
+                      ],
+                      "detailedMetadataSnippets": [
+                        {
+                          "snippetText": {
+                            "runs": [
+                              {
+                                "text": "Gece Şarkısı resmi müzik videosu."
+                              }
+                            ]
+                          },
+                          "snippetHoverText": {
+                            "runs": [
+                              {
+                                "text": "From the video description"
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "channelThumbnailSupportedRenderers": {
+                        "channelThumbnailWithLinkRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://yt3.ggpht.com/ornek-avatar-1=s68-c-k-c0x00ffffff-no-rj",
+                                "width": 68,
+                                "height": 68
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-1"
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "TLSZornek02",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/TLSZornek02/hqdefault.jpg",
+                            "width": 480,
+                            "height": 360
+                          }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Gece Şarkısı & Diğer Şarkılar (Uzun Kayıt)"
+                          }
+                        ]
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Müzik Arşivi",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00002",
+                                "canonicalBaseUrl": "/@ornekarsiv"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "publishedTimeText": {
+                        "simpleText": "5 months ago"
+                      },
+                      "lengthText": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "1 hour, 2 minutes, 3 seconds"
+                          }
+                        },
+                        "simpleText": "1:02:03"
+                      },
+                      "viewCountText": {
+                        "simpleText": "98,765 views"
+                      },
+                      "navigationEndpoint": {
+                        "commandMetadata": {
+                          "webCommandMetadata": {
+                            "url": "/watch?v=TLSZornek02",
+                            "webPageType": "WEB_PAGE_TYPE_WATCH"
+                          }
+                        },
+                        "watchEndpoint": {
+                          "videoId": "TLSZornek02"
+                        }
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Müzik Arşivi",
+                            "navigationEndpoint": {
+                              "commandMetadata": {
+                                "webCommandMetadata": {
+                                  "url": "/@ornekarsiv",
+                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                  "apiUrl": "/youtubei/v1/browse"
+                                }
+                              },
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00002",
+                                "canonicalBaseUrl": "/@ornekarsiv"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "shortBylineText": {
+                        "runs": [
+                          {
+                            "text": "Örnek Müzik Arşivi",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCtelsizOrnekKanali00002",
+                                "canonicalBaseUrl": "/@ornekarsiv"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "thumbnailOverlays": [
+                        {
+                          "thumbnailOverlayTimeStatusRenderer": {
+                            "text": {
+                              "simpleText": "1:02:03"
+                            },
+                            "style": "DEFAULT"
+                          }
+                        }
+                      ],
+                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-2"
+                    }
+                  },
+                  {
+                    "shelfRenderer": {
+                      "title": {
+                        "simpleText": "People also watched"
+                      },
+                      "content": {
+                        "verticalListRenderer": {
+                          "items": [
+                            {
+                              "videoRenderer": {
+                                "videoId": "TLSZraf0005",
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/TLSZraf0005/hqdefault.jpg",
+                                      "width": 480,
+                                      "height": 360
+                                    }
+                                  ]
+                                },
+                                "title": {
+                                  "runs": [
+                                    {
+                                      "text": "Raf İçindeki Başka Bir Şarkı"
+                                    }
+                                  ]
+                                },
+                                "lengthText": {
+                                  "simpleText": "4:05"
+                                },
+                                "ownerText": {
+                                  "runs": [
+                                    {
+                                      "text": "Örnek Raf Kanalı",
+                                      "navigationEndpoint": {
+                                        "browseEndpoint": {
+                                          "browseId": "UCtelsizRafKanali0000005",
+                                          "canonicalBaseUrl": "/@ornekraf"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "TLSZraf0005"
+                                  }
+                                },
+                                "thumbnailOverlays": [
+                                  {
+                                    "thumbnailOverlayTimeStatusRenderer": {
+                                      "text": {
+                                        "simpleText": "4:05"
+                                      },
+                                      "style": "DEFAULT"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "continuationItemRenderer": {
+                "continuationEndpoint": {
+                  "commandMetadata": {
+                    "webCommandMetadata": {
+                      "sendPost": true,
+                      "apiUrl": "/youtubei/v1/search"
+                    }
+                  },
+                  "continuationCommand": {
+                    "token": "ORNEK_DEVAM_JETONU"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "refinements": [
+    "gece şarkısı canlı",
+    "gece şarkısı sözleri"
+  ]
+}

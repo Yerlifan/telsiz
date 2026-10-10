@@ -1,0 +1,111 @@
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
+const SURE = /^\d{1,3}(:\d{1,2}){1,2}$/
+const SINIR = { dugum: 200000, derinlik: 64 }
+const REKLAM_SINIFLARI = new Set(['AdSlot', 'DisplayAd', 'SearchPyv', 'MealbarPromo', 'PrimetimePromo',
+  'PromotedSparklesWeb', 'CompactPromotedVideo', 'BrandVideoShelf', 'BrandVideoSingleton', 'StatementBanner',
+  'GuideSigninPromo', 'AdsEngagementPanelContent', 'MiniGameCardView', 'GenAiFeedbackFormView',
+  'PlayerInterstitial', 'InterstitialView', 'CarouselAd', 'PromotedVideo', 'PromotedSparklesTextSearch',
+  'CompactPromotedItem'])
+const KAPSAYICI_ATLA = new Set(['shelfRenderer', 'richShelfRenderer', 'reelShelfRenderer',
+  'horizontalCardListRenderer', 'playlistRenderer', 'radioRenderer', 'channelRenderer',
+  'universalWatchCardRenderer', 'secondaryContents'])
+const VIDEO_DUGUMU = new Set(['videoRenderer', 'compactVideoRenderer', 'gridVideoRenderer'])
+
+function sinifAdi(k) {
+  return (k.charAt(0).toUpperCase() + k.slice(1)).replace(/Renderer|Model/g, '')
+}
+
+function metin(t) {
+  if (!t || typeof t !== 'object') return ''
+  if (typeof t.simpleText === 'string') return t.simpleText
+  if (Array.isArray(t.runs)) return t.runs.map(r => (r && typeof r.text === 'string') ? r.text : '').join('')
+  if (typeof t.content === 'string') return t.content
+  return ''
+}
+
+function saniye(s) {
+  if (typeof s !== 'string' || !SURE.test(s.trim())) return null
+  return s.trim().split(':').reduce((t, p) => t * 60 + Number(p), 0)
+}
+
+function videoRendererOku(v) {
+  if (!v || typeof v !== 'object' || !VIDEO_ID.test(String(v.videoId))) return null
+  const ortuler = (Array.isArray(v.thumbnailOverlays) ? v.thumbnailOverlays : [])
+    .map(o => o && o.thumbnailOverlayTimeStatusRenderer).filter(Boolean)
+  const rozetler = Array.isArray(v.badges) ? v.badges : []
+  const canli = rozetler.some(b => b && b.metadataBadgeRenderer && b.metadataBadgeRenderer.style === 'BADGE_STYLE_TYPE_LIVE_NOW') ||
+    ortuler.some(o => o.style === 'LIVE' || o.style === 'UPCOMING') ||
+    Boolean(v.upcomingEventData)
+  const sure = saniye(metin(v.lengthText) || (ortuler[0] ? metin(ortuler[0].text) : ''))
+  return {
+    videoId: v.videoId,
+    baslik: metin(v.title),
+    kanal: metin(v.ownerText) || metin(v.longBylineText) || metin(v.shortBylineText),
+    sure: canli ? null : sure,
+    canli
+  }
+}
+
+function lockupOku(l) {
+  if (!l || typeof l !== 'object') return null
+  if (l.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO' || !VIDEO_ID.test(String(l.contentId))) return null
+  const meta = l.metadata && l.metadata.lockupMetadataViewModel
+  const cmv = meta && meta.metadata && meta.metadata.contentMetadataViewModel
+  const satirlar = cmv && Array.isArray(cmv.metadataRows) ? cmv.metadataRows : []
+  const tvm = l.contentImage && l.contentImage.thumbnailViewModel
+  const rozetler = []
+  for (const o of (tvm && Array.isArray(tvm.overlays) ? tvm.overlays : [])) {
+    const a = o && o.thumbnailBottomOverlayViewModel && o.thumbnailBottomOverlayViewModel.badges
+    const b = o && o.thumbnailOverlayBadgeViewModel && o.thumbnailOverlayBadgeViewModel.thumbnailBadges
+    for (const r of [].concat(Array.isArray(a) ? a : [], Array.isArray(b) ? b : [])) {
+      if (r && r.thumbnailBadgeViewModel) rozetler.push(r.thumbnailBadgeViewModel)
+    }
+  }
+  const canli = rozetler.some(r => {
+    const kaynak = r.icon && Array.isArray(r.icon.sources) ? r.icon.sources[0] : null
+    return Boolean(kaynak && kaynak.clientResource && kaynak.clientResource.imageName === 'LIVE')
+  })
+  const sure = rozetler.map(r => saniye(r.text)).find(x => x !== null)
+  const ilk = satirlar[0] && Array.isArray(satirlar[0].metadataParts) ? satirlar[0].metadataParts[0] : null
+  return {
+    videoId: l.contentId,
+    baslik: meta ? metin(meta.title) : '',
+    kanal: ilk ? metin(ilk.text) : '',
+    sure: canli || sure === undefined ? null : sure,
+    canli
+  }
+}
+
+function videolariTopla(kok) {
+  const sonuc = []
+  const gorulen = new Set()
+  const yigin = [[kok, 0]]
+  let dugum = 0
+  while (yigin.length > 0) {
+    const [d, derinlik] = yigin.pop()
+    dugum += 1
+    if (dugum > SINIR.dugum) throw new Error('dugum_siniri')
+    if (!d || typeof d !== 'object' || derinlik > SINIR.derinlik) continue
+    const ciftler = Array.isArray(d) ? d.map(v => ['', v]) : Object.entries(d)
+    for (const [k, v] of ciftler.reverse()) {
+      if (k && (REKLAM_SINIFLARI.has(sinifAdi(k)) || KAPSAYICI_ATLA.has(k))) continue
+      const videoMu = VIDEO_DUGUMU.has(k) || k === 'lockupViewModel'
+      if (!videoMu) {
+        yigin.push([v, derinlik + 1])
+        continue
+      }
+      const oge = k === 'lockupViewModel' ? lockupOku(v) : videoRendererOku(v)
+      if (oge && !gorulen.has(oge.videoId)) {
+        gorulen.add(oge.videoId)
+        sonuc.push(oge)
+      }
+    }
+  }
+  return sonuc
+}
+
+function ilkCalinabilir(yanit) {
+  const tc = yanit && yanit.contents && yanit.contents.twoColumnSearchResultsRenderer
+  const kok = tc && tc.primaryContents ? tc.primaryContents : yanit
+  return videolariTopla(kok).find(s => !s.canli && s.sure !== null && s.sure > 0) || null
+}
