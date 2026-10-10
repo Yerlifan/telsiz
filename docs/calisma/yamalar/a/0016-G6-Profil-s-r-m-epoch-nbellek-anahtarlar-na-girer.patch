@@ -1,0 +1,199 @@
+From 4354b91e74954358529a3d16a71050b7f251c579 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:44:07 +0000
+Subject: [PATCH 16/16] =?UTF-8?q?G6:=20Profil=20s=C3=BCr=C3=BCm=C3=BC=20(e?=
+ =?UTF-8?q?poch)=20=C3=B6nbellek=20anahtarlar=C4=B1na=20girer?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+profileState.epoch her profil değişikliğinde, profil resmi gelince, metadaki
+kullanıcı adı değişince ve engellenenler listesi gelince artar, profileEpoch()
+ile okunur. Kameralar ızgarası (camsKey), izleyiciler (viewersKey), paylaşan
+seçicisi (pickKey) ve Telsiz DJ kuyruğunun anahtarı bu değeri içerir, böylece
+ad ve avatar değişince yeniden çizilirler. Kullanıcı adı değişikliği
+applyMeta'dan hemen sonra çalışan profilesOnMeta içinde bulunur (istek 3).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/13-profile.js | 38 +++++++++++++++++++++++++++++++++++---
+ public/js/22-cast.js    |  6 +++---
+ public/js/23-dj.js      |  2 +-
+ test/social.test.js     | 31 ++++++++++++++++++++++++++++++-
+ 4 files changed, 69 insertions(+), 8 deletions(-)
+
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index 3716097..ad58ac1 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -40,7 +40,18 @@ const profileState = {
+   cardUserId: null,
+   cardTrigger: null,
+   cardModKey: '',
+-  metaIds: null
++  metaIds: null,
++  // Metadaki kullanıcı adları (kimlik -> ad), ad değişikliğini bulmak için
++  metaNames: null,
++  // Profil sürümü: görünen ad, profil resmi veya kullanıcı adı değişince artar (profileEpoch)
++  epoch: 0
++}
++
++// Ad ve avatar çizen, kendi önbellek anahtarıyla yeniden çizimi atlayan yüzeyler (kameralar ızgarası, paylaşan
++// seçicisi, izleyiciler, Telsiz DJ kuyruğu) bu değeri anahtarlarına katar. Değer her profil değişikliğinde, profil
++// resmi gelince ve metadaki kullanıcı adı değişince artar.
++function profileEpoch () {
++  return profileState.epoch
+ }
+ 
+ // Önbellek
+@@ -53,6 +64,8 @@ function profilesReset () {
+   profileState.entries = new Map()
+   profileState.formerUsers = new Map()
+   profileState.metaIds = null
++  profileState.metaNames = null
++  profileState.epoch += 1
+   profileState.fetching = false
+   profileState.failures = 0
+   profileState.retryAt = 0
+@@ -87,6 +100,7 @@ async function refreshFormerUsers () {
+ // Sunucudan engellenen hesapların adları (eski mesajlarında gösterilir)
+ function setFormerUsers (list) {
+   profileState.formerUsers = new Map()
++  profileState.epoch += 1
+   if (!Array.isArray(list)) return
+   list.forEach((u) => {
+     if (u && u.id !== undefined && typeof u.name === 'string') profileState.formerUsers.set(String(u.id), u.name)
+@@ -104,13 +118,29 @@ function metaUser (userId) {
+ }
+ 
+ // Meta'daki pv değişen kullanıcıların profilleri kuyruğa alınır. Listeden düşen kullanıcı varsa
+-// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır.
++// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır. Kullanıcı adı değişen kişi
++// profil değişikliği gibi yeniden çizilir (profil sürümü artar).
+ function profilesOnMeta () {
+   const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+   const ids = new Set(users.map((u) => String(u && u.id)))
+   const before = profileState.metaIds
+   profileState.metaIds = ids
+   if (before && Array.from(before).some((id) => !ids.has(id))) refreshFormerUsers()
++  const names = new Map()
++  users.forEach((u) => {
++    if (u && u.id !== undefined) names.set(String(u.id), String(u.name || ''))
++  })
++  const oldNames = profileState.metaNames
++  profileState.metaNames = names
++  if (oldNames) {
++    let renamed = false
++    names.forEach((name, id) => {
++      if (!oldNames.has(id) || oldNames.get(id) === name) return
++      profileState.changed.add(id)
++      renamed = true
++    })
++    if (renamed) queueProfileRender()
++  }
+   // Açık profil kartının ses odası denetimi düğmeleri (herkes için susturma, kamerasını kapat) metaya uyar
+   if (profileState.cardUserId !== null && cardModKey(profileState.cardUserId) !== profileState.cardModKey) refreshProfileCard()
+   users.forEach((u) => {
+@@ -413,8 +443,10 @@ function avatarUrlOf (userId) {
+   return entry && entry.state === 'ok' ? entry.url : null
+ }
+ 
+-// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir
++// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir. Profil sürümü hemen artar, böylece arada
++// çizilen önbellekli yüzeyler de değişikliği görür.
+ function queueProfileRender () {
++  profileState.epoch += 1
+   if (profileState.renderQueued) return
+   profileState.renderQueued = true
+   nextFrame(() => {
+diff --git a/public/js/22-cast.js b/public/js/22-cast.js
+index fd666be..b63f24a 100644
+--- a/public/js/22-cast.js
++++ b/public/js/22-cast.js
+@@ -667,7 +667,7 @@ function castRenderCams (n) {
+   const rows = Math.max(1, Math.ceil(ids.length / cols))
+   n.cams.setAttribute('data-cols', String(cols))
+   n.cams.setAttribute('data-rows', String(rows))
+-  const key = [ids.map((id) => id + '=' + streams[id].stream.id).join(','), window.I18N ? window.I18N.lang : ''].join('|')
++  const key = [ids.map((id) => id + '=' + streams[id].stream.id).join(','), window.I18N ? window.I18N.lang : '', typeof profileEpoch === 'function' ? profileEpoch() : 0].join('|')
+   if (key === castState.camsKey) return
+   castState.camsKey = key
+   clear(n.cams)
+@@ -700,7 +700,7 @@ function castRenderOwn (n, sc) {
+   const count = typeof sc.viewerCount === 'number' ? sc.viewerCount : viewers.length
+   setLive(n.viewersText, () => (count ? t('screen.viewers', { count: count }) : t('screen.noViewers')))
+   n.viewers.classList.toggle('is-empty', !count)
+-  const vkey = viewers.join(',')
++  const vkey = viewers.join(',') + '|' + (typeof profileEpoch === 'function' ? profileEpoch() : 0)
+   if (vkey !== castState.viewersKey) {
+     castState.viewersKey = vkey
+     clear(n.viewersStack)
+@@ -781,7 +781,7 @@ function castRenderPick (sc, remote, mode) {
+   const items = ids.slice()
+   if (sharing) items.push('self')
+   const selected = mode === 'own' ? 'self' : castState.watching
+-  const key = [items.join(','), selected, window.I18N ? window.I18N.lang : ''].join('|')
++  const key = [items.join(','), selected, window.I18N ? window.I18N.lang : '', typeof profileEpoch === 'function' ? profileEpoch() : 0].join('|')
+   n.pick.hidden = items.length < 2
+   if (key === castState.pickKey) return
+   castState.pickKey = key
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index f6d42aa..994c565 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -769,7 +769,7 @@ function djRenderQueue (list) {
+   const ui = dj.ui
+   const items = Array.isArray(list) ? list : []
+   const listenOnly = djListenOnly()
+-  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
++  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + (typeof profileEpoch === 'function' ? profileEpoch() : 0) + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
+   djSetText(ui.queueTitle, t('dj.queueTitle', { count: items.length }))
+   ui.queueEmpty.hidden = items.length > 0
+   djSetText(ui.queueEmpty, t('music.queue.empty'))
+diff --git a/test/social.test.js b/test/social.test.js
+index 5e2b9d3..bfc763f 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -6,7 +6,8 @@
+ // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
+ // kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır. Profil eşitlemesi (istek 3): düşen profil isteğinin
+ // artan beklemeyle yeniden denenmesi ve başarılı poll'dan sonra yeniden istenmesi, profil resmi indirmesinin
+-// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers) sınanır.
++// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
++// yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması da ayrıca sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -405,3 +406,31 @@ test('profiller sıfırlanınca bekleyen profil resmi denemesi iptal olur', asyn
+   await flush()
+   assert.strictEqual(downloads.length, 1)
+ })
++
++test('profil sürümü profil değişince, kullanıcı adı değişince ve engellenenler listesi gelince artar', () => {
++  const ctx = load()
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  run('profilesOnMeta()')
++  let epoch = run('profileEpoch()')
++  sandbox.__entry = { id: 2, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe Yeni', statusText: '', bio: '', color: 2, avatar: null }), avatarUploadId: null, publicKey: keys.theirs.publicKey, identity: E2EE.identity.sealBinding(keys.kid, 2, keys.theirs.publicKey) }
++  run('storeProfileEntry(__entry)')
++  run('queueProfileRender()')
++  assert.ok(run('profileEpoch()') > epoch, 'profil değişikliği')
++  // Aynı metanın yeniden gelmesi sürümü değiştirmez, kullanıcı adı değişikliği değiştirir ve kişiyi yeniden çizer
++  epoch = run('profileEpoch()')
++  run('profileState.changed.clear()')
++  run('profilesOnMeta()')
++  assert.strictEqual(run('profileEpoch()'), epoch, 'değişmeyen meta')
++  run("state.meta = { activeKid: state.meta.activeKid, channels: [], users: [state.meta.users[0], { id: 2, name: 'ayse.y', role: 'member', online: true, status: 'online', pv: 2 }] }")
++  run('profilesOnMeta()')
++  assert.ok(run('profileEpoch()') > epoch, 'kullanıcı adı değişikliği')
++  assert.strictEqual(run("profileState.changed.has('2')"), true)
++  assert.strictEqual(run('userHandle(2)'), '@ayse.y')
++  epoch = run('profileEpoch()')
++  run("setFormerUsers([{ id: 98, name: 'eski_uye' }])")
++  assert.ok(run('profileEpoch()') > epoch, 'engellenenler listesi')
++  epoch = run('profileEpoch()')
++  run('profilesReset()')
++  assert.ok(run('profileEpoch()') > epoch, 'sıfırlama')
++})
