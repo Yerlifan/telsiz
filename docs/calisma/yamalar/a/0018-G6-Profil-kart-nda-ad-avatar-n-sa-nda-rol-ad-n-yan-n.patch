@@ -1,0 +1,352 @@
+From e7f60657c8096e8cdf88b329dc4d627730671c10 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:54:24 +0000
+Subject: [PATCH 18/19] =?UTF-8?q?G6:=20Profil=20kart=C4=B1nda=20ad=20avata?=
+ =?UTF-8?q?r=C4=B1n=20sa=C4=9F=C4=B1nda,=20rol=20ad=C4=B1n=20yan=C4=B1nda?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Yeni buildProfileIdentity yardımcısı avatarı sola, sağına iki satırlı bir
+sütun koyar: üstte görünen ad ve hemen yanında rol rozetleri, altta
+@kullanıcı adı. Profil kartı, Ayarlar'daki iki önizleme kartı ve avatar
+menüsünün başı bu düzeni kullanır. Düz üyede soluk "Üye" rozeti çıkar,
+önizleme kartı ve avatar menüsü özel rolü de gösterir. Ad uzunsa rozetler
+alt satıra kayar, kart 18rem'den darsa ad avatarın altına iner. Kullanılmayan
+top.menuHandle metni kaldırıldı (istek 9).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css | 78 +++++++++++++++++++++++++++++----------
+ public/css/radio.css      |  7 ++--
+ public/i18n.js            |  2 -
+ public/js/11-settings.js  | 10 ++---
+ public/js/13-profile.js   | 66 ++++++++++++++++++++++-----------
+ test/settings.test.js     | 25 ++++++++++++-
+ 6 files changed, 134 insertions(+), 54 deletions(-)
+
+diff --git a/public/css/components.css b/public/css/components.css
+index 663b330..8e53bfa 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -465,6 +465,13 @@
+   background-color: transparent;
+ }
+ 
++/* Düz üyenin soluk rol rozeti: yalnızca profil kartında, Ayarlar önizlemesinde ve avatar menüsünde */
++.badge-member {
++  border: var(--border-width) solid var(--line-strong);
++  background-color: transparent;
++  color: var(--text-2);
++}
++
+ /* Özel rol rengi: rozet ve renk örneği metin rengini kullanır */
+ .role-color-red { color: var(--role-red); }
+ .role-color-orange { color: var(--role-orange); }
+@@ -3145,8 +3152,44 @@ button.member:hover {
+   text-overflow: ellipsis;
+ }
+ 
+-/* Profil kartı (#profile-card): renk bandı, avatar, ad, @kullanıcı adı, durum, hakkında,
+-   ses ayarı ve eylemler */
++/* Profil kimliği (13-profile.js buildProfileIdentity): avatar solda, sağında iki satırlı sütun. Üst satırda görünen
++   ad ve hemen yanında rol rozetleri, ad uzunsa rozetler alt satıra kayar. Alt satırda @kullanıcı adı. Profil kartı,
++   Ayarlar önizlemesi ve avatar menüsü kullanır. */
++.profile-identity {
++  display: flex;
++  align-items: flex-start;
++}
++
++.profile-identity-text {
++  display: flex;
++  flex-direction: column;
++  flex: 1 1 auto;
++  min-width: 0;
++}
++
++.profile-identity-line {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++}
++
++.profile-identity-name {
++  flex: 0 1 auto;
++  min-width: 0;
++  margin-right: 0.5rem;
++}
++
++.profile-identity-badges {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++}
++
++.profile-identity-badges .badge {
++  margin: 0.125rem 0.375rem 0.125rem 0;
++}
++
++/* Profil kartı (#profile-card): renk bandı, avatar ve kimlik, durum, hakkında, ses ayarı ve eylemler */
+ .profile-card {
+   width: 21rem;
+   max-width: 94%;
+@@ -3171,11 +3214,21 @@ button.member:hover {
+ .profile-card-band[data-color="6"] { background-color: var(--av-6); }
+ .profile-card-band[data-color="7"] { background-color: var(--av-7); }
+ 
++/* Avatar banda biner, ad ve rol bandın altında avatarın sağında durur. Kart 18rem'den darsa (metin sütunu 9.75rem'e
++   sığmazsa) ad, rol ve @kullanıcı adı avatarın altına kayar. */
+ .profile-card-head {
+-  display: flex;
+-  align-items: flex-end;
++  flex-wrap: wrap;
+   padding: 0 1rem;
++}
++
++.profile-card-avatar {
+   margin-top: -2.75rem;
++  margin-right: 0.75rem;
++}
++
++.profile-card-head .profile-identity-text {
++  flex: 1 1 9.75rem;
++  padding-top: 0.5rem;
+ }
+ 
+ .profile-card-avatar .avatar {
+@@ -3205,23 +3258,10 @@ button.member:hover {
+ 
+ .profile-card-handle,
+ .profile-handle {
+-  margin-bottom: 0.4rem;
+   color: var(--text-2);
+   font-size: 0.9rem;
+-}
+-
+-.profile-card-body .badge {
+-  margin: 0 0 0.4rem;
+-}
+-
+-.profile-card-badges {
+-  display: flex;
+-  flex-wrap: wrap;
+-  align-items: center;
+-}
+-
+-.profile-card-badges .badge {
+-  margin-right: 0.4rem;
++  overflow-wrap: break-word;
++  word-break: break-word;
+ }
+ 
+ .profile-card-status {
+diff --git a/public/css/radio.css b/public/css/radio.css
+index 44cbe56..2e16e73 100644
+--- a/public/css/radio.css
++++ b/public/css/radio.css
+@@ -1024,10 +1024,9 @@ button.crew-button:hover {
+   --status-ring: var(--surface-float);
+ }
+ 
+-.avatar-menu .menu-head-text {
+-  display: flex;
+-  flex-direction: column;
+-  min-width: 0;
++/* Ad ve rol rozetleri üst satırda (13-profile.js buildProfileIdentity), ad uzunsa üç noktayla kısalır ve rozetler alt
++   satıra kayar */
++.avatar-menu .menu-head .profile-identity-text {
+   line-height: 1.3;
+ }
+ 
+diff --git a/public/i18n.js b/public/i18n.js
+index 18bcabf..fa829ea 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -599,7 +599,6 @@ window.I18N = (function () {
+     'top.serverSub_one': 'Frekans · {count} Üye',
+     'top.serverSub_other': 'Frekans · {count} Üye',
+     'top.encrypted': 'Şifreli',
+-    'top.menuHandle': '{handle} · {role}',
+     'top.menuSettingsSub': 'Ses, Tuşlar, Tema',
+     'top.menuAppearance': 'Görünüm',
+     'top.menuAppearanceSub': '{skin} · {scheme}',
+@@ -2550,7 +2549,6 @@ window.I18N = (function () {
+     'top.serverSub_one': 'Frequency · {count} Member',
+     'top.serverSub_other': 'Frequency · {count} Members',
+     'top.encrypted': 'Encrypted',
+-    'top.menuHandle': '{handle} · {role}',
+     'top.menuSettingsSub': 'Voice, Keys, Theme',
+     'top.menuAppearance': 'Appearance',
+     'top.menuAppearanceSub': '{skin} · {scheme}',
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 09cf45b..e5d6eee 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -828,16 +828,14 @@ function buildPreviewCard (view, id) {
+   const band = h('div', 'profile-card-band')
+   band.setAttribute('data-color', String(view.color))
+   card.appendChild(band)
+-  const head = h('div', 'profile-card-head')
+   const av = h('span', 'avatar-wrap profile-card-avatar')
+   av.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || me.name), view.color, status))
+-  head.appendChild(av)
++  // Kartla aynı düzen ve rozetler (13-profile.js): ad avatarın sağında, rol ve özel rol adın yanında
++  const name = h('p', 'profile-card-name settings-preview-name', view.displayName || me.name)
++  const head = buildProfileIdentity(av, name, h('p', 'profile-card-handle', '@' + me.name), profileBadges(me.id, me.role))
++  head.classList.add('profile-card-head')
+   card.appendChild(head)
+   const body = h('div', 'profile-card-body')
+-  body.appendChild(h('p', 'profile-card-name settings-preview-name', view.displayName || me.name))
+-  body.appendChild(h('p', 'profile-card-handle', '@' + me.name))
+-  const badge = roleBadge(me.role)
+-  if (badge) body.appendChild(badge)
+   const statusRow = h('p', 'profile-card-status')
+   statusRow.setAttribute('data-status', status)
+   statusRow.appendChild(statusDotNode(status))
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index 91f3e8b..5f46abd 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -732,6 +732,42 @@ function refreshProfileCard () {
+   restoreFocusKey(card, focusKey)
+ }
+ 
++// Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol
++// rozetleri (ad uzunsa rozetler alt satıra kayar), alt satırda @kullanıcı adı. Profil kartı, Ayarlar'daki iki önizleme
++// kartı ve avatar menüsünün başı bu yardımcıyı kullanır, düzen components.css .profile-identity kurallarındadır.
++// avatarNode: avatar öğesi. name ve handle: çağıranın etiket, kimlik ve sınıfla kurduğu ad ve @kullanıcı adı öğeleri
++// (handle null olabilir). badges: rozet öğeleri, null olanlar atlanır.
++function buildProfileIdentity (avatarNode, name, handle, badges) {
++  const row = h('div', 'profile-identity')
++  row.appendChild(avatarNode)
++  const text = h('div', 'profile-identity-text')
++  const line = h('div', 'profile-identity-line')
++  name.classList.add('profile-identity-name')
++  line.appendChild(name)
++  const list = (badges || []).filter(Boolean)
++  if (list.length) {
++    const box = h('span', 'profile-identity-badges')
++    list.forEach((badge) => {
++      box.appendChild(badge)
++    })
++    line.appendChild(box)
++  }
++  text.appendChild(line)
++  if (handle) {
++    handle.classList.add('profile-identity-handle')
++    text.appendChild(handle)
++  }
++  row.appendChild(text)
++  return row
++}
++
++// Kartlardaki rol rozetleri: temel rol (sahip ve yönetici rozeti, düz üyede soluk "Üye" rozeti) ve varsa özel rol.
++// roleBadge üyede boş döner, mesaj akışı ve Çevrimiçi listesi bu yüzden değişmez.
++function profileBadges (userId, role) {
++  const base = role === 'member' ? h('span', 'badge badge-member', roleLabel(role)) : roleBadge(role)
++  return [base, customRoleBadge(userId)]
++}
++
+ function buildProfileCard (card, userId) {
+   clear(card)
+   profileState.cardModKey = cardModKey(userId)
+@@ -743,27 +779,17 @@ function buildProfileCard (card, userId) {
+   const band = h('div', 'profile-card-band')
+   band.setAttribute('data-color', String(userColorIndex(userId)))
+   card.appendChild(band)
+-  const head = h('div', 'profile-card-head')
+   const av = h('span', 'avatar-wrap profile-card-avatar')
+   av.setAttribute('data-status', status)
+   av.appendChild(personAvatar(userId, 'xl'))
+-  head.appendChild(av)
+-  card.appendChild(head)
+-  const body = h('div', 'profile-card-body')
+   const name = h('h2', 'profile-card-name', userDisplayName(userId))
+   name.id = 'profile-card-name'
+-  body.appendChild(name)
+   const handle = userHandle(userId)
+-  if (handle) body.appendChild(h('p', 'profile-card-handle', handle))
+   const user = metaUser(userId)
+-  const badge = user ? roleBadge(user.role) : null
+-  const custom = user ? customRoleBadge(userId) : null
+-  if (badge || custom) {
+-    const badges = h('p', 'profile-card-badges')
+-    if (badge) badges.appendChild(badge)
+-    if (custom) badges.appendChild(custom)
+-    body.appendChild(badges)
+-  }
++  const head = buildProfileIdentity(av, name, handle ? h('p', 'profile-card-handle', handle) : null, user ? profileBadges(userId, user.role) : [])
++  head.classList.add('profile-card-head')
++  card.appendChild(head)
++  const body = h('div', 'profile-card-body')
+   const statusRow = h('p', 'profile-card-status')
+   statusRow.setAttribute('data-status', status)
+   statusRow.appendChild(statusDot(status))
+@@ -926,8 +952,8 @@ function openProfileEditor () {
+   if (typeof openSettings === 'function') openSettings('profile', el.meButton)
+ }
+ 
+-// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad,
+-// @kullanıcı adı ve rol), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
++// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad ve
++// yanında rol rozetleri, altında @kullanıcı adı), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
+ // Ayarlara giriş tektir ve her ekranda aynı yerdedir.
+ 
+ function openStatusMenu (anchorEl) {
+@@ -971,13 +997,9 @@ function closeStatusMenu () {
+ 
+ function buildStatusMenu (menu) {
+   clear(menu)
+-  const head = h('div', 'menu-head')
+-  head.appendChild(personAvatar(state.me.id, 'lg'))
+-  const headText = h('span', 'menu-head-text')
+-  headText.appendChild(h('span', 'menu-head-name', userDisplayName(state.me.id)))
+   const handle = userHandle(state.me.id)
+-  headText.appendChild(h('span', 'menu-head-sub', handle ? t('top.menuHandle', { handle: handle, role: roleLabel(state.me.role) }) : roleLabel(state.me.role)))
+-  head.appendChild(headText)
++  const head = buildProfileIdentity(personAvatar(state.me.id, 'lg'), h('span', 'menu-head-name', userDisplayName(state.me.id)), handle ? h('span', 'menu-head-sub', handle) : null, profileBadges(state.me.id, state.me.role))
++  head.classList.add('menu-head')
+   menu.appendChild(head)
+   // Durum seçenekleri tek seçimli bir grup: seçili olanda onay işareti
+   const current = myChosenStatus()
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 8433e03..40fec27 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -5,7 +5,8 @@
+ // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
+ // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
+ // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
+-// CSS kuralları, index.html ile sw.js bağlantıları ve ses kancaları (10-voice.js voiceHook) sınanır. Gerçek
++// CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
++// kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
+ // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+ 
+ const test = require('node:test')
+@@ -1261,3 +1262,25 @@ test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, h
+   run('onVoiceChange(null)')
+   assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
+ })
++
++test('önizleme kartında ad avatarın yanında, rol rozetleri adın yanında: üyede soluk Üye rozeti ve özel rol', () => {
++  const badgesOf = (root, id) => root.querySelectorAll('#' + id + ' .profile-identity-line .profile-identity-badges .badge')
++    .map((b) => [b.getAttribute('class'), b.textContent])
++  let ctx = load({ role: 'member' })
++  ctx.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'green', perms: [] }]")
++  ctx.run('state.meta.users[0].roleId = 7')
++  ctx.run("openSettings('account', null)")
++  const head = ctx.root.querySelector('#set-account-preview .profile-card-head')
++  assert.ok(head.classList.contains('profile-identity'))
++  assert.ok(head.firstChild.classList.contains('profile-card-avatar'), 'avatar solda')
++  assert.strictEqual(head.querySelector('.profile-identity-line .profile-card-name').textContent, 'burak')
++  assert.strictEqual(head.querySelector('.profile-identity-text .profile-card-handle').textContent, '@burak')
++  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-member', 'Üye'], ['badge badge-custom role-color-green', 'Moderatör']])
++  // Profil sayfasındaki önizleme de aynı rozetleri gösterir
++  ctx.run("showSettingsCat('profile', 'title')")
++  assert.deepStrictEqual(badgesOf(ctx.root, 'set-profile-card').map((b) => b[1]), ['Üye', 'Moderatör'])
++
++  ctx = load({ role: 'owner' })
++  ctx.run("openSettings('account', null)")
++  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-owner', 'Sahip']])
++})
