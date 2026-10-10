@@ -1,0 +1,161 @@
+/* Telsiz yönü prototipi (yalnızca deneme, depoya yazılmaz). :root[data-proto="telsiz"] altında, bütün temalarda.
+   Kurallar: grid, flex gap, clamp, :is, :where, aspect-ratio ve inset yok. */
+
+/* 1. Mesaj akışı: kayıt defteri. Saat her mesajda solda tek aralıklı sütunda, avatar adın yanında küçük çağrı
+   işareti, mesajlar ince bir yayın çizgisiyle gruplanır, kendi mesajında TX, gelende RX etiketi. */
+:root[data-proto="telsiz"] .convo .msg {
+  padding-left: 0;
+}
+
+:root[data-proto="telsiz"] .convo .msg-gutter {
+  justify-content: flex-end;
+  width: 4.5rem;
+  padding: 0.2rem 0.75rem 0 0;
+}
+
+:root[data-proto="telsiz"] .convo .msg .msg-hover-time,
+:root[data-proto="telsiz"] .convo .msg-first .msg-hover-time {
+  display: block;
+  font-family: "Martian Mono Telsiz", var(--font-mono-system);
+  font-size: 0.6875rem;
+}
+
+:root[data-proto="telsiz"] .convo .msg-first .msg-avatar {
+  position: absolute;
+  top: 0.5rem;
+  left: 5.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.75rem;
+}
+
+:root[data-proto="telsiz"] .convo .msg-first .msg-hover-time {
+  margin-top: 0.15rem;
+}
+
+:root[data-proto="telsiz"] .convo .msg-content {
+  padding-left: 0.75rem;
+  box-shadow: inset 2px 0 0 var(--line-strong);
+}
+
+:root[data-proto="telsiz"] .convo .msg-own .msg-content {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:root[data-proto="telsiz"] .convo .msg-first .msg-head {
+  padding-left: 1.875rem;
+}
+
+:root[data-proto="telsiz"] .convo .msg-first .msg-time {
+  display: none;
+}
+
+:root[data-proto="telsiz"] .convo .msg-first .msg-head::after {
+  content: "RX";
+  margin-left: auto;
+  padding: 0 0.375rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-family: "Martian Mono Telsiz", var(--font-mono-system);
+  font-size: 0.625rem;
+}
+
+:root[data-proto="telsiz"] .convo .msg-own.msg-first .msg-head::after {
+  content: "TX";
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+:root[data-proto="telsiz"] .convo .msg-first {
+  margin-top: 0.875rem;
+}
+
+/* 2. İstasyonlar: kanal ön ayarları. Her odada frekans okuması, grup başlığı kadran çizgisi, ses odasındakiler
+   alt alta liste yerine yan yana çipler. */
+:root[data-proto="telsiz"] .room-row > .channel-freq {
+  display: inline-block;
+  flex: none;
+  min-width: 3.25rem;
+  margin-right: 0.5rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background-color: var(--surface-sunken);
+  color: var(--text-2);
+  font-family: "Martian Mono Telsiz", var(--font-mono-system);
+  font-size: 0.6875rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-proto="telsiz"] .room-row.is-current > .channel-freq {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+:root[data-proto="telsiz"] .rooms-group-title {
+  padding-bottom: 0.5rem;
+  background-image: repeating-linear-gradient(90deg, var(--tick) 0, var(--tick) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 8px);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 4px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+:root[data-proto="telsiz"] .room-people {
+  display: flex;
+  flex-wrap: wrap;
+  padding-left: 4.25rem;
+}
+
+:root[data-proto="telsiz"] .room-person {
+  min-height: 1.75rem;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.125rem 0.5rem 0.125rem 0.125rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background-color: var(--surface-sunken);
+}
+
+:root[data-proto="telsiz"] .room-person-name {
+  flex: none;
+}
+
+/* 3. Sol sütun: telsiz kartı bütün yüksekliği kaplayan el telsizi, ses odası dışındayken kanal tarayıcısı
+   (ses odaları ve kaç kişi olduğu) görünür. */
+:root[data-proto="telsiz"] .side-left .info-bottom {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  margin-top: 0;
+}
+
+:root[data-proto="telsiz"] .side-left .radio-slot {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+:root[data-proto="telsiz"] .side-left .radio-slot > .radio {
+  flex: 1 1 auto;
+  margin-top: 0.75rem;
+  background-image: radial-gradient(circle, var(--line-strong) 1.2px, rgba(0, 0, 0, 0) 1.6px);
+  background-size: 9px 9px;
+  background-position: 0 100%;
+}
+
+:root[data-proto="telsiz"] .side-left .radio[data-state="off"] .radio-rooms {
+  display: block;
+}
+
+/* 4. Durum: köşe noktası yerine avatarın altında LED çubuğu, biçim kodu korunur */
+:root[data-proto="telsiz"] .avatar[data-status]::after {
+  right: 18%;
+  bottom: -0.3rem;
+  width: 64%;
+  height: 0.3rem;
+  border-width: 1px;
+  border-radius: 2px;
+}
