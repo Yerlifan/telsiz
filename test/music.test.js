@@ -713,7 +713,7 @@ describe('applyOp', () => {
     const s = M.applyOp(null, { type: 'add', track: track() }, ctx())
     assert.equal(s.current.id, track().id)
     assert.equal(s.playing, true)
-    assert.equal(s.anchorAt, 50000 + M.LIMITS.startLeadMs)
+    assert.equal(s.anchorAt, 50000 + M.LIMITS.startLeadYouTubeMs)
     assert.equal(s.seq, 1)
     assert.equal(s.sid, 'aaaaaaaaaaaaaaaa')
     same({ op: s.last.op, by: s.last.by }, { op: 'add', by: 7 })
@@ -738,7 +738,8 @@ describe('applyOp', () => {
     assert.equal(a.current.id, fileTrack().id)
     assert.equal(a.queue.length, 0)
     assert.equal(a.anchorPos, 0)
-    assert.equal(a.anchorAt, 2000000 + M.LIMITS.startLeadMs)
+    // Sıradaki parça dosya: dosyanın başlangıç payı
+    assert.equal(a.anchorAt, 2000000 + M.LIMITS.startLeadFileMs)
     assert.equal(a.seq, s.seq + 1)
     // Aynı parça kimliğiyle ikinci geçiş (başka bir istemciden) reddedilir
     assert.equal(M.applyOp(a, { type: 'end', id: s.current.id }, ctx()), null)
@@ -781,10 +782,15 @@ describe('applyOp', () => {
     assert.equal(p.anchorPos, 7000)
     assert.equal(p.anchorAt, 15000)
     assert.equal(M.applyOp(p, { type: 'pause' }, ctx()), null)
+    // Devam ettirme başlangıç payıyla çapalanır, pay bitene kadar konum ilerlemez
     const r = M.applyOp(p, { type: 'resume' }, ctx(20000))
     assert.equal(r.playing, true)
     assert.equal(r.anchorPos, 7000)
-    assert.equal(r.anchorAt, 20000)
+    assert.equal(r.anchorAt, 20000 + M.LIMITS.startLeadYouTubeMs)
+    assert.equal(M.positionAt(r, 21000), 7000)
+    assert.equal(M.positionAt(r, 20000 + M.LIMITS.startLeadYouTubeMs + 500), 7500)
+    const rf = M.applyOp(Object.assign({}, p, { current: fileTrack({ id: '5555555555555555' }), queue: [] }), { type: 'resume' }, ctx(20000))
+    assert.equal(rf.anchorAt, 20000 + M.LIMITS.startLeadFileMs)
     assert.equal(M.applyOp(r, { type: 'resume' }, ctx()), null)
     const st = M.applyOp(r, { type: 'stop' }, ctx(30000))
     assert.equal(st.current, null)
@@ -936,7 +942,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     assert.equal(sb.session.current.title, 'Deneme')
     assert.equal(sb.session.v, sa.session.v)
     assert.equal(sb.session.playing, true)
-    assert.ok(sb.session.startsInMs > 0 && sb.session.startsInMs <= M.LIMITS.startLeadMs)
+    assert.ok(sb.session.startsInMs > 0 && sb.session.startsInMs <= M.LIMITS.startLeadYouTubeMs)
     assert.equal(b.count('track'), 1)
     assert.equal(b.last('notice').op, 'add')
     assert.equal(a.count('notice'), 0)
@@ -973,8 +979,8 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     const before = server.rooms.get(ROOM).v
     const firstId = a.engine.snapshot().session.current.id
     server.hold(3)
-    // Süre 4 sn, başlangıç payı 1,5 sn, son payı 2,5 sn: 8,5 sn sonra her istemci yedek geçişi ister
-    await timers.advance(9000)
+    // Süre 4 sn, YouTube başlangıç payı 3 sn, son payı 2,5 sn: 9,5 sn sonra her istemci yedek geçişi ister
+    await timers.advance(4000 + M.LIMITS.startLeadYouTubeMs + 2500 + 500)
     syncAll()
     const s = a.engine.snapshot().session
     assert.notEqual(s.current.id, firstId)
@@ -995,7 +1001,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     late.engine.setVoiceRoom(ROOM)
     late.sync()
     const pos = late.engine.snapshot().session.positionMs
-    assert.ok(Math.abs(pos - (20000 - M.LIMITS.startLeadMs)) <= 5, String(pos))
+    assert.ok(Math.abs(pos - (20000 - M.LIMITS.startLeadYouTubeMs)) <= 5, String(pos))
     assert.ok(Math.abs(late.engine.serverNow() - server.now()) <= 1)
   })
 
@@ -1010,7 +1016,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     a.sync()
     const paused = a.engine.snapshot().session
     assert.equal(paused.playing, false)
-    assert.ok(Math.abs(paused.positionMs - 3500) <= 5)
+    assert.ok(Math.abs(paused.positionMs - (5000 - M.LIMITS.startLeadYouTubeMs)) <= 5)
     await timers.advance(3000)
     a.sync()
     assert.equal(a.engine.snapshot().session.positionMs, paused.positionMs)
@@ -1406,7 +1412,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     assert.ok(p.state.commands.includes('volume:50'))
     assert.ok(p.state.commands.includes('muted:false'))
     assert.equal(p.state.playing, false)
-    await timers.advance(M.LIMITS.startLeadMs + 20)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 20)
     assert.equal(p.state.playing, true)
     assert.equal(b.engine.snapshot().player.status, 'playing')
     // Yerel oynatıcı 2 sn geride kalır. Oynatma başladıktan sonra oynatıcı oturunca (1 sn) düzeltilir.
@@ -1430,7 +1436,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     b.sync()
     const p = b.ytPlayers[0]
     p.becomeReady()
-    await timers.advance(2000)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
     assert.equal(p.state.playing, true)
     await a.engine.pause()
     b.sync()
@@ -1439,7 +1445,10 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     assert.equal(b.engine.snapshot().player.status, 'paused')
     await a.engine.resume()
     b.sync()
+    // Devam ettirme başlangıç payıyla çapalanır: pay bitene kadar oynatıcı duraklatılmış kalır
     await timers.advance(600)
+    assert.equal(p.state.playing, false)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs)
     assert.equal(p.state.playing, true)
     // Kişi YouTube denetimleriyle durdurur
     await timers.advance(3000)
@@ -1532,7 +1541,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     await a.engine.addYouTube(VID2)
     const p = a.ytPlayers[0]
     p.becomeReady()
-    await timers.advance(M.LIMITS.startLeadMs + 3000)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 3000)
     p.state.playing = false
     p.emit({ type: 'ended' })
     await timers.advance(1000)
@@ -1563,7 +1572,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     audio.duration = 2
     audio.fire('loadedmetadata')
     audio.fire('canplay')
-    await timers.advance(M.LIMITS.startLeadMs + 200)
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
     assert.equal(audio.paused, false)
     assert.equal(b.engine.snapshot().player.status, 'playing')
     a.sync()
@@ -1637,7 +1646,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     await flush()
     const audio = b.audios[0]
     audio.fire('canplay')
-    await timers.advance(M.LIMITS.startLeadMs + 100)
+    await timers.advance(M.LIMITS.startLeadFileMs + 100)
     assert.equal(b.count('tapneeded'), 1)
     assert.equal(b.engine.snapshot().player.needsTap, true)
     await timers.advance(5000)
@@ -2177,7 +2186,7 @@ describe('inceleme bulguları: dosya indirme, kurtarma ve hata durumları', () =
     assert.equal(b.engine.snapshot().player.error, 'yt_unresponsive')
     p0.becomeReady()
     assert.equal(b.engine.snapshot().player.error, null)
-    await timers.advance(2000)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
     assert.equal(p0.state.playing, true)
     assert.equal(b.engine.snapshot().player.status, 'playing')
     assert.equal(b.engine.snapshot().player.error, null)
@@ -2238,7 +2247,7 @@ describe('inceleme bulguları: dosya indirme, kurtarma ve hata durumları', () =
       f.fire('load')
       deliver(f, { event: 'initialDelivery', id: wid, info: { playerState: -1, currentTime: 0, duration: 300 } })
       deliver(f, { event: 'onReady', id: wid })
-      await timers.advance(1600)
+      await timers.advance(M.LIMITS.startLeadYouTubeMs + 100)
       const plays = () => f.sent.filter((m) => m.data.func === 'playVideo').length
       assert.equal(plays(), 1)
       // 5: HTML5 hatası (geçilmez), failWrite: 150 (geçilir ama yazım başarısız)
@@ -2396,7 +2405,7 @@ describe('inceleme bulguları: eşitleme ve oynatma', () => {
     assert.equal(b.engine.snapshot().player.status, 'paused')
     await a.engine.resume()
     b.sync()
-    await timers.advance(600)
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 600)
     assert.equal(p.state.playing, true)
     assert.ok(p.state.commands.includes('seek:' + pausedAt) || p.state.commands.some((c) => c.startsWith('seek:')))
     assert.ok(Math.abs(p.impl.position() - b.engine.snapshot().session.positionMs) <= 700)

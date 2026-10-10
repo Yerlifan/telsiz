@@ -40,7 +40,10 @@ var TelsizMusic = (function (root) {
   const BUFFER_STALL_MS = 10000
   // Ses komutundan sonra oynatıcının bildirdiği ses düzeyinin yok sayıldığı süre (kendi komutumuzun yankısı)
   const SOUND_ECHO_MS = 1500
-  const START_LEAD_MS = 1500
+  // Başlangıç payı: yeni parça, geçiş ve devam ettirme bu kadar ileri çapalanır, herkes yükleyip aynı anda
+  // başlar. YouTube çerçevesinin yüklenmesi ve tamponlaması dosyanın çözülmesinden uzun sürer.
+  const START_LEAD_YT_MS = 3000
+  const START_LEAD_FILE_MS = 1500
   const MAX_LEAD_MS = 5000
   const END_GRACE_MS = 2500
   const EARLY_END_MS = 5000
@@ -550,6 +553,11 @@ var TelsizMusic = (function (root) {
     return { by: by, since: raw.since, writes: writes, authors: authors }
   }
 
+  // Parçanın başlangıç payı (türüne göre)
+  function startLeadFor (track) {
+    return track && track.type === 'youtube' ? START_LEAD_YT_MS : START_LEAD_FILE_MS
+  }
+
   // Oturumdan çıkan parçaların kimlikleri gone listesine eklenir (en eskiler düşer)
   function bury (s, tracks) {
     tracks.forEach((t) => {
@@ -558,14 +566,14 @@ var TelsizMusic = (function (root) {
     if (s.gone.length > MAX_GONE) s.gone = s.gone.slice(s.gone.length - MAX_GONE)
   }
 
-  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça kısa bir başlangıç
+  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça türüne göre bir başlangıç
   // payıyla (herkesin yüklemesi için) çapalanır.
   function advance (s, now) {
     if (s.current) bury(s, [s.current])
     const next = s.queue.length > 0 ? s.queue.shift() : null
     s.current = next
     s.anchorPos = 0
-    s.anchorAt = next && s.playing ? now + START_LEAD_MS : now
+    s.anchorAt = next && s.playing ? now + startLeadFor(next) : now
     if (!next) s.playing = false
   }
 
@@ -609,7 +617,7 @@ var TelsizMusic = (function (root) {
       if (!base.current) {
         base.current = cloneTrack(op.track)
         base.playing = true
-        base.anchorAt = now + START_LEAD_MS
+        base.anchorAt = now + startLeadFor(op.track)
         base.anchorPos = 0
       } else {
         if (base.queue.length >= MAX_QUEUE) throw fail('queue_full')
@@ -649,8 +657,10 @@ var TelsizMusic = (function (root) {
       s.playing = false
       last = lastOf('pause', me, s.current)
     } else if (op.type === 'resume') {
+      // Devam ettirme de başlangıç payıyla çapalanır: uzaktaki cihazlar atlayıp tamponlayana kadar konum
+      // ilerlemez, herkes aynı yerden sürdürür
       if (!s.current || s.playing) return null
-      s.anchorAt = now
+      s.anchorAt = now + startLeadFor(s.current)
       s.playing = true
       last = lastOf('resume', me, s.current)
     } else if (op.type === 'stop') {
@@ -2871,7 +2881,8 @@ var TelsizMusic = (function (root) {
       maxTitle: MAX_TITLE,
       maxEnvChars: MAX_ENV_CHARS,
       driftLimitMs: DRIFT_LIMIT_MS,
-      startLeadMs: START_LEAD_MS,
+      startLeadYouTubeMs: START_LEAD_YT_MS,
+      startLeadFileMs: START_LEAD_FILE_MS,
       endGraceMs: END_GRACE_MS,
       maxDurationMs: MAX_DURATION_MS
     }),

@@ -12,9 +12,9 @@ const fs = require('node:fs')
 const path = require('node:path')
 const h = require('./yardimci')
 
-// Sahte oynatıcıya sesin ilk başladığı anı kaydeden ek (aynı makinedeki iki sayfa aynı saati okur)
+// Sahte oynatıcıya sesin başladığı anları kaydeden ek (aynı makinedeki iki sayfa aynı saati okur)
 const FAKE_JS = fs.readFileSync(path.join(__dirname, 'sahte-youtube.js'), 'utf8') +
-  '\n;(function () { var F = window.FAKE; F.audio.addEventListener("playing", function () { if (!F.firstPlayAt) F.firstPlayAt = Date.now() }) })()\n'
+  '\n;(function () { var F = window.FAKE; F.playTimes = []; F.audio.addEventListener("playing", function () { if (!F.firstPlayAt) F.firstPlayAt = Date.now(); F.playTimes.push(Date.now()) }) })()\n'
 const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleapis\.com)(:\d+)?\//i
 const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
 const CONSENT = { 'telsiz.djYoutubeConsent': '1' }
@@ -57,6 +57,19 @@ async function firstPlay (page, videoId, label) {
   }, h.LONG, label)
 }
 
+// Sahte oynatıcının sesi n. kez başladığında sayfanın saatiyle o an (ms)
+async function nthPlay (page, videoId, n, label) {
+  return h.until(async () => {
+    const frame = fakeFrame(page, videoId)
+    if (!frame) return null
+    try {
+      return await frame.evaluate((i) => window.FAKE.playTimes[i] || null, n - 1)
+    } catch (err) {
+      return null
+    }
+  }, h.LONG, label)
+}
+
 async function addTrack (page, videoId) {
   await page.fill('#composer-input', '/çal https://youtu.be/' + videoId)
   await page.keyboard.press('Enter')
@@ -88,6 +101,21 @@ test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır', async 
   const a = await firstPlay(A, 'D120aaaaaaa', 'A başladı')
   const b = await firstPlay(B, 'D120aaaaaaa', 'B başladı')
   assert.ok(Math.abs(a - b) <= SYNC_MS, 'başlangıç farkı ' + (b - a) + ' ms')
+})
+
+test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte sürdürür', async () => {
+  const { A, B } = W
+  await B.click('#dj .dj-toggle')
+  for (const page of [A, B]) {
+    await h.until(async () => {
+      const frame = fakeFrame(page, 'D120aaaaaaa')
+      return frame && (await frame.evaluate(() => window.FAKE.audio.paused))
+    }, h.LONG, 'duraklatıldı')
+  }
+  await A.click('#dj .dj-toggle')
+  const a = await nthPlay(A, 'D120aaaaaaa', 2, 'A sürdürdü')
+  const b = await nthPlay(B, 'D120aaaaaaa', 2, 'B sürdürdü')
+  assert.ok(Math.abs(a - b) <= SYNC_MS, 'sürdürme farkı ' + (b - a) + ' ms')
 })
 
 test('arka plandaki sekme: oynatıcı alanı köşeye çizilir, parça A ile birlikte başlar', async () => {
