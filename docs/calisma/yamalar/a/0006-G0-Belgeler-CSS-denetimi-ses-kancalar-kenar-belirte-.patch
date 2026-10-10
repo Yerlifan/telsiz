@@ -1,0 +1,220 @@
+From d514b91a139d3f7ca9574e17abc44c77f925e86c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:06:26 +0000
+Subject: [PATCH 6/6] =?UTF-8?q?G0:=20Belgeler:=20CSS=20denetimi,=20ses=20k?=
+ =?UTF-8?q?ancalar=C4=B1,=20kenar=20belirte=C3=A7leri,=20CHANGELOG?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CONTRIBUTING (TR ve EN) kural 14 artık denetleyicinin CSS yasaklarını
+public/css altında zorunlu tuttuğunu ve CSS_EXCEPTIONS listesini anlatır.
+Modül tablosundaki 10-voice.js satırı voiceHook kancalarını, komut
+tablosu stil dosyası denetimini içerir.
+
+TASARIM ve DESIGN belirteç tablosuna --live-edge ve --danger-edge,
+kontrast tablosuna canlı ve tehlike kenarı satırları (her yüzeyde ve
+kendi saydam zemininde ölçülen en düşük oranlar) eklendi.
+
+CHANGELOG (TR ve EN) Yayımlanmamış bölümü: Arkadaş Ekle yer tutucusu ve
+Arcade ile Turkuaz ve Bakır temalarındaki kenar düzeltmesi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md    | 10 ++++++++++
+ CHANGELOG.md       | 10 ++++++++++
+ CONTRIBUTING.en.md |  6 +++---
+ CONTRIBUTING.md    |  6 +++---
+ docs/DESIGN.md     | 10 ++++++----
+ docs/TASARIM.md    | 10 ++++++----
+ 6 files changed, 38 insertions(+), 14 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index d9b4f13..6e83e8e 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -2,6 +2,16 @@
+ 
+ Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
+ 
++## [Unreleased]
++
++### Changes
++
++- The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
++
++### Fixes
++
++- In the Arcade and Turquoise and Copper themes the border of the camera indicator on the radio card ("Your camera is on, everyone in the room can see it") and of the notice shown when someone starts sharing their screen was not drawn at all. The muted Microphone and active Camera buttons of a direct message call, the chip and panel of your own share, the Stop Watching button, the Telsiz DJ error box and the verified safety number button were also drawn in the text color instead of their own border color. Both themes now have live and danger border colors, and the borders show with at least 3:1 contrast on every surface.
++
+ ## [2.5.0]
+ 
+ ### New features
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index cdf5d53..ca91e3d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,16 @@
+ 
+ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
+ 
++## [Yayımlanmamış]
++
++### Değişiklikler
++
++- Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
++
++### Düzeltmeler
++
++- Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
++
+ ## [2.5.0]
+ 
+ ### Yeni özellikler
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 5a17524..3d7e5cd 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -49,7 +49,7 @@ To try several users on the same computer, open `http://localhost:3000` in diffe
+ | Command | Purpose |
+ | --- | --- |
+ | `npm start` | Starts the server (`node server.js`) |
+-| `npm run denetle` | Checks writing, syntax, security, i18n and document parity rules (`scripts/denetle.js`) |
++| `npm run denetle` | Checks writing, syntax, security, stylesheet, i18n and document parity rules (`scripts/denetle.js`) |
+ | `npm run lint` | Same as `npm run denetle` |
+ | `npm test` | Runs the unit and server tests in the `test/` folder |
+ | `npm run test:e2e` | Runs the end-to-end tests in the `e2e/` folder with Chromium, one after another |
+@@ -107,7 +107,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `07-attachments.js` | Inline images, file cards, the image viewer |
+ | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
+ | `09-emoji.js` | Emoji picker |
+-| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button) |
++| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
+ | `11-settings.js` | Full screen settings view |
+ | `12-init.js` | Sheets, window size, PWA, event binding and startup |
+ | `13-profile.js` | Profiles, the profile card, the status menu |
+@@ -150,7 +150,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
+ 11. Real time communication uses only long polling. WebSocket or Server-Sent Events are not added.
+ 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
+ 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
+-14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
++14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. The checker enforces these bans in the stylesheets under `public/css/`, outside comments. Known exceptions that are planned to be removed are in the `CSS_EXCEPTIONS` list in `scripts/denetle.js`, and an entry that is no longer needed is also reported as a violation. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
+ 15. Tests must also pass on Windows. Paths are joined with `path.join`, temporary folders are created under `os.tmpdir()`, nothing is assumed about line endings and tests do not rely on process signals such as SIGINT.
+ 
+ ## Bilingual rules
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index c1058b9..f73a823 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -49,7 +49,7 @@ Birden çok kullanıcıyı aynı bilgisayarda denemek için `http://localhost:30
+ | Komut | Görevi |
+ | --- | --- |
+ | `npm start` | Sunucuyu başlatır (`node server.js`) |
+-| `npm run denetle` | Yazım, sözdizimi, güvenlik, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
++| `npm run denetle` | Yazım, sözdizimi, güvenlik, stil dosyası, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
+ | `npm run lint` | `npm run denetle` ile aynı işi yapar |
+ | `npm test` | `test/` klasöründeki birim ve sunucu testlerini çalıştırır |
+ | `npm run test:e2e` | `e2e/` klasöründeki uçtan uca testleri Chromium ile, sırayla çalıştırır |
+@@ -107,7 +107,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
+ | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
+ | `09-emoji.js` | Emoji seçici |
+-| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil) |
++| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
+ | `11-settings.js` | Tam ekran ayarlar görünümü |
+ | `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
+ | `13-profile.js` | Profiller, profil kartı, durum menüsü |
+@@ -150,7 +150,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
+ 11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
+ 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
+ 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
+-14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
++14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Denetleyici bu yasakları `public/css/` altındaki stil dosyalarında yorumlar dışında zorunlu tutar. Kaldırılması planlanan bilinen istisnalar `scripts/denetle.js` içindeki `CSS_EXCEPTIONS` listesindedir, gereksiz kalan kayıt da ihlal sayılır. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+ 15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
+ 
+ ## İki dil kuralları
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index 9198201..947483c 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -133,8 +133,8 @@ Text, accent and status:
+ | `--mention-bg`, `--mention-text`, `--mention-line` | Mention badge and the highlight of messages that mention you |
+ | `--focus`, `--focus-halo` | Focus ring and its halo |
+ | `--ok`, `--idle`, `--dnd`, `--offline` | Status markers (component, 3:1) |
+-| `--live`, `--live-bg`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, speaking person and the speaking halo |
+-| `--danger`, `--danger-bg`, `--danger-fill`, `--on-danger` | Danger text, background and fill |
++| `--live`, `--live-bg`, `--live-edge`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, the border of a live component (3:1), speaking person and the speaking halo |
++| `--danger`, `--danger-bg`, `--danger-edge`, `--danger-fill`, `--on-danger` | Danger text, background, border (3:1) and fill |
+ | `--warn`, `--warn-bg`, `--warn-line` | Warning text, background and border |
+ | `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
+ | `--theme-color` | Browser bar color |
+@@ -168,7 +168,7 @@ Status dots and corner markers (muted, deafened, sharing the screen) are soft sq
+ 
+ ## Camera
+ 
+-The camera starts on the radio card and uses the same Frekans design language. The Camera button in the button row (`#btn-camera`) is the first button of the top row and is off by default. While on it takes the on air look of the Screen button (`.is-live`, `--live`). If the device does not support it or the owner turned cameras off, it is dashed and disabled and the reason is written below it (`#radio-camera-note`). While your camera is on, an indicator with a recording lamp (`#radio-cam-live`, `--danger` and `--danger-bg`, "Your camera is on, everyone in the room can see it") stays above the Push to talk or voice activity row in every layout, phones included.
++The camera starts on the radio card and uses the same Frekans design language. The Camera button in the button row (`#btn-camera`) is the first button of the top row and is off by default. While on it takes the on air look of the Screen button (`.is-live`, `--live`). If the device does not support it or the owner turned cameras off, it is dashed and disabled and the reason is written below it (`#radio-camera-note`). While your camera is on, an indicator with a recording lamp (`#radio-cam-live`, `--danger`, `--danger-bg` and `--danger-edge`, "Your camera is on, everyone in the room can see it") stays above the Push to talk or voice activity row in every layout, phones included.
+ 
+ The indicator sits in the camera bar (`#radio-cam-bar`). On a device with more than one camera (front and rear camera on a phone, a second camera plugged into a computer) a labelled Flip Camera button (`#btn-camera-flip`, `.radio-cam-flip`) sits next to it while the camera is on, and its tooltip says it switches to the next camera. While the camera is being switched the button gets `aria-disabled="true"` instead of `disabled` so it keeps focus, fades and shows the `progress` cursor. The bar can wrap: the indicator has a base width of 11rem, and when the two do not fit side by side (the narrow card at 760 pixels and up) Flip Camera moves to the next line, while on phones both stay on one line. The spacing comes from the margins of the items and a negative margin on the container. In a private call the Flip button sits in the control row between Camera and End Call (`.call-control.is-flip`, accessible name Flip Camera, `aria-disabled` while switching). A row of four buttons gets `.has-flip` and the text is also hidden at 540 pixels and below and between 760 and 899 pixels, so the row stays on one line. The accessible name and the tooltip (`title`) remain.
+ 
+@@ -214,7 +214,7 @@ All modules use the same state names: `.is-speaking`, `.is-unread`, `.is-mention
+ 
+ The focus ring is part of the design: a 3 pixel `--focus` line with a semi transparent halo around it, thicker at TV width. In older browsers without `:focus-visible`, the same ring comes with `:focus`. All buttons and fields are at least 2.75rem tall (44 pixels at a 16 pixel root). States are distinguished not only by color but also by shape and text, and the accessible names of stations and crew items include the unread count and the connection and speaking state. The reduced motion option stops transitions and loops and can follow the system `prefers-reduced-motion` setting.
+ 
+-The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). All values in the table meet the threshold.
++The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). The live and danger borders were measured on every surface (hover and selected backgrounds included) and on their own semi transparent background, and `test/tema.test.js` checks that both tokens are defined in every theme and meet 3:1. All values in the table meet the threshold.
+ 
+ | Role | Threshold | Arcade dark | Arcade light | Night Frequency dark | Night Frequency light | Turquoise and Copper dark | Turquoise and Copper light |
+ | --- | --- | --- | --- | --- | --- | --- | --- |
+@@ -234,6 +234,8 @@ The table below shows the lowest contrast ratio for each role in each theme and
+ | Attention badge text | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
+ | Text on danger fill | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
+ | Input and card border | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
++| Live border | 3:1 | 3.24 | 3.23 | 3.07 | 3.48 | 3.22 | 3.23 |
++| Danger border | 3:1 | 3.22 | 3.21 | 3.39 | 3.53 | 3.20 | 3.21 |
+ | Focus ring | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
+ | Status: online | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
+ | Status: idle | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index c7b50e9..60af4e3 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -133,8 +133,8 @@ Metin, vurgu ve durum:
+ | `--mention-bg`, `--mention-text`, `--mention-line` | Anma rozeti ve beni anan mesaj vurgusu |
+ | `--focus`, `--focus-halo` | Odak çerçevesi ve haresi |
+ | `--ok`, `--idle`, `--dnd`, `--offline` | Durum işaretleri (bileşen, 3:1) |
+-| `--live`, `--live-bg`, `--speaking-bg`, `--halo-1`, `--halo-2` | Bağlı ses, konuşan kişi ve konuşma halesi |
+-| `--danger`, `--danger-bg`, `--danger-fill`, `--on-danger` | Tehlike metni, zemini ve dolgusu |
++| `--live`, `--live-bg`, `--live-edge`, `--speaking-bg`, `--halo-1`, `--halo-2` | Bağlı ses, canlı bileşenin kenarı (3:1), konuşan kişi ve konuşma halesi |
++| `--danger`, `--danger-bg`, `--danger-edge`, `--danger-fill`, `--on-danger` | Tehlike metni, zemini, kenarı (3:1) ve dolgusu |
+ | `--warn`, `--warn-bg`, `--warn-line` | Uyarı metni, zemini ve kenarı |
+ | `--av-0` ile `--av-7`, `--av-fg`, `--av-offline` | Sekiz avatar ve profil rengi, baş harf rengi, çevrimdışı avatar dolgusu. Gece temasında her renk kendi baş harf rengine sahiptir (`--av-fg-0` ile `--av-fg-7`). |
+ | `--theme-color` | Tarayıcı çubuğu rengi |
+@@ -168,7 +168,7 @@ Durum noktası ve köşe işaretleri (susturulmuş, sağırlaştırılmış, ekr
+ 
+ ## Kamera
+ 
+-Kamera telsiz kartında başlar ve aynı Frekans biçim dilini kullanır. Düğme sırasındaki Kamera düğmesi (`#btn-camera`) üst satırın başındadır, varsayılan olarak kapalıdır, açıkken Ekran düğmesinin yayında görünümünü (`.is-live`, `--live`) alır, cihaz desteklemiyorsa veya sahip kameraları kapattıysa kesik kenarlı ve devre dışıdır ve nedeni altında yazar (`#radio-camera-note`). Kameranız açıkken Bas konuş veya ses etkinliği satırının üstünde kayıt lambalı bir gösterge (`#radio-cam-live`, `--danger` ve `--danger-bg`, "Kameranız açık, odadaki herkes görüyor") her düzende, telefonda da görünür.
++Kamera telsiz kartında başlar ve aynı Frekans biçim dilini kullanır. Düğme sırasındaki Kamera düğmesi (`#btn-camera`) üst satırın başındadır, varsayılan olarak kapalıdır, açıkken Ekran düğmesinin yayında görünümünü (`.is-live`, `--live`) alır, cihaz desteklemiyorsa veya sahip kameraları kapattıysa kesik kenarlı ve devre dışıdır ve nedeni altında yazar (`#radio-camera-note`). Kameranız açıkken Bas konuş veya ses etkinliği satırının üstünde kayıt lambalı bir gösterge (`#radio-cam-live`, `--danger`, `--danger-bg` ve `--danger-edge`, "Kameranız açık, odadaki herkes görüyor") her düzende, telefonda da görünür.
+ 
+ Gösterge kamera çubuğunun (`#radio-cam-bar`) içindedir. Birden çok kamerası olan cihazda (telefonda ön ve arka kamera, bilgisayarda takılı ikinci kamera) kamera açıkken yanında etiketli Kamerayı Çevir düğmesi (`#btn-camera-flip`, `.radio-cam-flip`) durur, ipucu sıradaki kameraya geçtiğini söyler. Kamera değiştirilirken düğme odağı korumak için `disabled` yerine `aria-disabled="true"` alır, soluklaşır ve imleç `progress` olur. Çubuk satır kırabilir: göstergenin taban genişliği 11rem'dir, ikisi yan yana sığmazsa (760 piksel ve üstündeki dar kart) Kamerayı Çevir alt satıra iner, telefonda ikisi tek satırdadır. Aralığı öğelerin kenar boşluğu ve kabın eksi kenar boşluğu verir. Özel aramada denetim satırında Kamera ile Aramayı Bitir arasında Çevir düğmesi durur (`.call-control.is-flip`, erişilebilir adı Kamerayı Çevir, değiştirilirken `aria-disabled`). Dört düğmeli satır `.has-flip` alır ve yazılar 540 piksel ve altında ve 760 ile 899 piksel arasında da gizlenir, böylece satır tek kalır. Erişilebilir ad ve ipucu (`title`) kalır.
+ 
+@@ -214,7 +214,7 @@ Bütün modüller aynı durum adlarını kullanır: `.is-speaking`, `.is-unread`
+ 
+ Odak çerçevesi tasarımın parçasıdır: 3 piksel `--focus` çizgisi ve çevresinde yarı saydam bir hare, televizyon genişliğinde daha kalın. `:focus-visible` desteklemeyen eski tarayıcılarda aynı çerçeve `:focus` ile gelir. Bütün düğmeler ve alanlar en az 2.75rem (16 piksel kökte 44 piksel) yüksekliktedir. Durumlar yalnızca renkle değil biçimle ve metinle de ayrılır, istasyonların ve kadro öğelerinin erişilebilir adları okunmamış sayısını, bağlantı ve konuşma durumunu içerir. Hareketi azalt seçeneği geçişleri ve döngüleri durdurur ve sistemin `prefers-reduced-motion` ayarını izleyebilir.
+ 
+-Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranını gösterir. Oranlar `public/css/tokens.css` içindeki belirteçlerden WCAG 2.x göreli parlaklık formülüyle hesaplandı (metin 4.5:1, arayüz bileşeni 3:1). Yarı saydam yüzeyler altlarındaki zeminle birleştirilerek ölçüldü, Arcade'in cam paneli hem düz zemin hem de en parlak ışık noktası üzerinde ölçüldü. Dolgu düğme yazısı (`--on-accent-fill`) degradenin iki ucu (`--accent-fill-a` ve `--accent-fill-b`) üzerinde ölçüldü. Tablodaki bütün değerler eşiği geçer.
++Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranını gösterir. Oranlar `public/css/tokens.css` içindeki belirteçlerden WCAG 2.x göreli parlaklık formülüyle hesaplandı (metin 4.5:1, arayüz bileşeni 3:1). Yarı saydam yüzeyler altlarındaki zeminle birleştirilerek ölçüldü, Arcade'in cam paneli hem düz zemin hem de en parlak ışık noktası üzerinde ölçüldü. Dolgu düğme yazısı (`--on-accent-fill`) degradenin iki ucu (`--accent-fill-a` ve `--accent-fill-b`) üzerinde ölçüldü. Canlı ve tehlike kenarı bütün yüzeylerde (üzerine gelme ve seçili zeminler dahil) ve kendi saydam zemininde ölçüldü, `test/tema.test.js` bu iki belirtecin her temada tanımlı olduğunu ve 3:1 eşiğini denetler. Tablodaki bütün değerler eşiği geçer.
+ 
+ | Rol | Eşik | Arcade koyu | Arcade açık | Gece Frekansı koyu | Gece Frekansı açık | Turkuaz ve Bakır koyu | Turkuaz ve Bakır açık |
+ | --- | --- | --- | --- | --- | --- | --- | --- |
+@@ -234,6 +234,8 @@ Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranın
+ | Dikkat rozeti metni | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
+ | Tehlike dolgusu üstü metin | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
+ | Girdi ve kart kenarı | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
++| Canlı kenarı | 3:1 | 3.24 | 3.23 | 3.07 | 3.48 | 3.22 | 3.23 |
++| Tehlike kenarı | 3:1 | 3.22 | 3.21 | 3.39 | 3.53 | 3.20 | 3.21 |
+ | Odak çerçevesi | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
+ | Durum: çevrimiçi | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
+ | Durum: boşta | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |
