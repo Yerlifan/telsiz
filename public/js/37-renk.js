@@ -34,7 +34,8 @@ const renkState = {
   hand: null,
   fresh: null,
   afterPlay: null,
-  drawFocus: null
+  drawFocus: null,
+  outSent: null
 }
 
 // ----- Metinler -----
@@ -242,12 +243,29 @@ function renkPass () {
   renkAct({ t: 'pass', step: m.view.step })
 }
 
+// Sıra dışı hamle (geç Tek!, Yakala) gönderildi: masa değişene kadar iki düğme pasif kalır. Kurpiyerin kendi sıra
+// dışı hamlesi 300 ms gecikmeyle işlendiği için ikinci basış geç kalmış bir hamle olurdu.
+function renkOutKey (m) {
+  const last = m.view && m.view.last ? m.view.last.p + ':' + m.view.last.safe : ''
+  return m.rd + ':' + (m.view ? m.view.step : -1) + ':' + last
+}
+
+function renkOutSent (m) {
+  return renkState.outSent !== null && renkState.outSent === renkOutKey(m)
+}
+
+function renkSendOut (m, move) {
+  renkState.outSent = renkOutKey(m)
+  renkAct(move)
+  gameRefreshStage()
+}
+
 // Tek!: geç bildirim hemen gider, sıra bendeyken ve iki kartım varken bir sonraki kartla birlikte gitmek üzere işaretlenir
 function renkLastClick () {
   const m = gameModel()
   if (!renkCanAct(m)) return
   if (m.legal.last) {
-    renkAct({ t: 'last' })
+    if (!renkOutSent(m)) renkSendOut(m, { t: 'last' })
     return
   }
   if (!m.legal.armLast) return
@@ -258,8 +276,8 @@ function renkLastClick () {
 
 function renkCatch () {
   const m = gameModel()
-  if (!renkCanAct(m) || !m.legal.catch) return
-  renkAct({ t: 'catch', p: m.legal.catch })
+  if (!renkCanAct(m) || !m.legal.catch || renkOutSent(m)) return
+  renkSendOut(m, { t: 'catch', p: m.legal.catch })
 }
 
 // ----- Renk seçici -----
@@ -298,6 +316,9 @@ function renkOpenPicker (value, triggerKey) {
   }
   renkState.layer = layer
   openLayer(layer)
+  // Telefonda masa sahneden uzundur: seçicinin başlığı ve düğmeleri birlikte görünsün
+  const box = node.querySelector('.renk-picker-box')
+  if (box && typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' })
 }
 
 // Katman Esc, kolun daire düğmesi, İptal, dışarı tıklama veya odağın dışarı çıkmasıyla kapandı
@@ -429,7 +450,6 @@ function renkFace (tag, code, extra) {
       quads.appendChild(q)
     })
     center.appendChild(quads)
-    if (value === 'F') center.appendChild(h('b', 'renk-card-plus', '+4'))
   } else if (value === 'S') {
     center.appendChild(icon('i-block', 'renk-glyph'))
   } else if (value === 'V') {
@@ -438,7 +458,8 @@ function renkFace (tag, code, extra) {
     center.appendChild(h('b', 'renk-card-big', value === 'D' ? '+2' : value))
   }
   card.appendChild(center)
-  card.appendChild(renkHidden(h('span', 'renk-card-tag', renkLetter(color))))
+  // Alt köşe: renkli kartta harf, Joker +4'te değer
+  card.appendChild(renkHidden(h('span', 'renk-card-tag', color === 'W' ? (value === 'F' ? '+4' : '') : renkLetter(color))))
   return card
 }
 
@@ -567,7 +588,8 @@ function renkActions (m, legal, busy) {
   if (legal.pass) row.appendChild(renkActionButton('renk-pass', t('game.renk.pass'), 'game-pass', busy, renkPass))
   const done = Boolean(m.view.last && m.view.last.p === m.me && m.view.last.safe)
   const armed = renkArmed(m)
-  const can = legal.last || legal.armLast
+  const out = renkOutSent(m)
+  const can = (legal.last && !out) || legal.armLast
   const text = done ? t('game.renk.lastDone') : armed ? t('game.renk.lastArmed') : t('game.renk.last')
   const last = renkActionButton('renk-last', text, 'game-last', busy || !can, renkLastClick)
   last.setAttribute('aria-pressed', armed || done ? 'true' : 'false')
@@ -575,7 +597,7 @@ function renkActions (m, legal, busy) {
   last.classList.toggle('is-armed', armed)
   last.classList.toggle('is-urgent', Boolean(legal.last))
   row.appendChild(last)
-  const target = legal.catch
+  const target = out ? null : legal.catch
   const grab = renkActionButton('renk-catch', t('game.renk.catch'), 'game-catch', busy || !target, renkCatch)
   if (target) grab.setAttribute('aria-label', t('game.renk.catchLabel', { name: shownName(target) }))
   grab.classList.toggle('is-urgent', Boolean(target))
@@ -641,7 +663,8 @@ function renkHandBlock (m, mine, legal, busy, play) {
       card.classList.add('is-playable')
       parts.push(t('game.renk.card.playable'))
     } else if (why && hasText('game.renk.err.' + why)) {
-      card.classList.add('is-blocked')
+      // İlk kart Joker iken bütün kartlar renk seçimini bekler: örtü yerine yalnızca neden okunur
+      if (why !== 'choose_color') card.classList.add('is-blocked')
       parts.push(t('game.renk.err.' + why))
     }
     if (isNew) {
@@ -691,9 +714,9 @@ function renkRowKey (e, nodes) {
 }
 
 function renkOnKey (e) {
-  const table = e.currentTarget
   const target = e.target
-  if (!target || !target.closest || RENK_NAV_KEYS.indexOf(e.key) < 0) return
+  const table = target && target.closest ? target.closest('.renk-table') : null
+  if (!table || RENK_NAV_KEYS.indexOf(e.key) < 0) return
   const up = e.key === 'ArrowUp' || e.key === 'Up'
   const down = e.key === 'ArrowDown' || e.key === 'Down'
   const cards = table.querySelectorAll('.renk-hand .renk-card')

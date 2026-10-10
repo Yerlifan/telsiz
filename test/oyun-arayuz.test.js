@@ -1,11 +1,12 @@
 'use strict'
 
-// Oyun arayüzü testleri: public/js/36-oyun.js (yapıştırıcı ve genel arayüz), 22-cast.js game kipi, 28-bildirim.js
-// oyun daveti, oyun.css ve tokens.css kart belirteçleri, index.html ve sw.js bağlantıları, i18n kapsamı ve marka
-// denetimi. Arayüz mantığı tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir: gerçek i18n.js,
-// 01-core.js, 02-state-dom.js, oyun modülleri (33, 34, 35), 36-oyun.js ve 28-bildirim.js ile küçük bir DOM taklidi.
-// Yayın sahnesi (22-cast.js) ve ses motoru taklit edilir, iki "cihaz" sahte bir ağla birbirine bağlanır. Oyunun
-// kendi arayüzü (37-renk.js) bu adımda yoktur, yerine yalnızca burada tanımlı küçük bir arayüz kaydolur.
+// Oyun arayüzü testleri: public/js/36-oyun.js (yapıştırıcı ve genel arayüz), 37-renk.js (Renk masası), 22-cast.js
+// game kipi, 28-bildirim.js oyun daveti, oyun.css, renk.css ve tokens.css kart belirteçleri, index.html ve sw.js
+// bağlantıları, i18n kapsamı ve marka denetimi. Arayüz mantığı tarayıcıdaki gibi ortak bir genel ortamda Node vm
+// bağlamında yüklenir: gerçek i18n.js, 01-core.js, 02-state-dom.js, oyun modülleri (33, 34, 35), 36-oyun.js ve
+// 28-bildirim.js ile küçük bir DOM taklidi. Yayın sahnesi (22-cast.js) ve ses motoru taklit edilir, iki "cihaz" sahte
+// bir ağla birbirine bağlanır. Genel arayüz testlerinde Renk arayüzünün yerine burada tanımlı küçük bir arayüz
+// kaydolur (FAKE_UI), Renk testlerinde gerçek 37-renk.js yüklenir (makePage renk: true).
 
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -24,9 +25,10 @@ const GAME_UI_SRC = read(PUB, 'js', '36-oyun.js')
 const SOURCES = ['01-core.js', '02-state-dom.js', '33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js', '36-oyun.js', '28-bildirim.js']
   .map((name) => ({ name, code: read(PUB, 'js', name) }))
 
-// Oyun modülleri ve stilleri: 37-renk.js ve renk.css Renk arayüzü adımında eklenir
-const GAME_SCRIPTS = ['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js', '36-oyun.js']
-const GAME_STYLES = ['oyun.css']
+// Oyun modülleri ve stilleri, yükleme sırasıyla
+const GAME_SCRIPTS = ['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js', '36-oyun.js', '37-renk.js']
+const GAME_STYLES = ['oyun.css', 'renk.css']
+const RENK_SRC = read(PUB, 'js', '37-renk.js')
 
 // vm bağlamındaki nesnelerin ön örnekleri farklıdır, karşılaştırma JSON kopyasıyla yapılır
 function same (actual, expected, message) {
@@ -574,7 +576,8 @@ function makePage (me, net, opts) {
     document.body.appendChild(toastNode)
     el.toast = toastNode
   `)
-  if (o.ui !== false) run("gameUiRegister('renk', fakeUi)")
+  if (o.renk) vm.runInContext(RENK_SRC, sandbox, { filename: '37-renk.js' })
+  else if (o.ui !== false) run("gameUiRegister('renk', fakeUi)")
   const page = {
     me: String(me),
     peerId: 'p' + me,
@@ -1216,5 +1219,433 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
     net.flush()
     same(deniz.model().room.map((r) => r.status), ['cannot'])
     assert.equal(deniz.text('.game-room .game-chip'), 'Katılamaz')
+  })
+})
+
+// ------------------------------------------------------------------ Renk masası (37-renk.js)
+
+// Elle kurulmuş Renk eli: oyuncular ['12', '5'], dağıtan 12, soldaki (ilk sıra) 5. Kartlar dealFrom ile kanonik
+// desteden verilen sırayla dağıtılır (üst = son öğe): sırayla 5, 12, 5, 12 ... ve ilk açılan kart.
+function renkDeal (page, mine, other, top, rules) {
+  const R = page.sandbox.TelsizRenk
+  const pops = []
+  mine.forEach((c, i) => pops.push(c, other[i]))
+  pops.push(top)
+  const deck = R.buildDeck()
+  for (const c of pops) deck.splice(deck.indexOf(c), 1)
+  const rng = (n) => new Array(n).fill(7)
+  return R.dealFrom({ rules: rules || 'official', players: ['12', '5'], dealSeat: 0 }, deck.concat(pops.reverse()), rng).state
+}
+
+// Durumdan Deniz'in (5) görünüm modeli: sahne açık, masa oyun aşamasında, hamleler kaydedilir (gameCall taklidi)
+function renkShow (page, state, extra) {
+  const R = page.sandbox.TelsizRenk
+  const view = R.publicView(state)
+  const mine = R.privateView(state, '5')
+  page.sandbox.tM = Object.assign(page.run('gameEmptyModel()'), {
+    rev: (page.sandbox.tRev = (page.sandbox.tRev || 0) + 1),
+    role: 'player',
+    stage: view.phase === 'over' ? 'over' : 'play',
+    app: 'renk',
+    g: 'g1',
+    dealer: '12',
+    me: '5',
+    rules: state.rules,
+    rd: 1,
+    min: 2,
+    max: 8,
+    seats: state.seats.map((s) => ({ id: s.id, away: false, offline: false, keyIssue: null })),
+    view,
+    mine,
+    legal: R.legalMoves(view, mine, '5')
+  }, extra || {})
+  page.run(`
+    if (typeof actCalls === 'undefined') {
+      globalThis.actCalls = []
+      gameCall = function (name, arg) {
+        actCalls.push([name, arg])
+        return true
+      }
+    }
+    gameState.model = tM
+    el.cast.hidden = false
+    el.cast.setAttribute('data-mode', 'game')
+    gameRenderStage(castState.nodes.game)
+  `)
+  return page.sandbox.tM
+}
+
+const calls = (page) => JSON.parse(JSON.stringify(page.sandbox.actCalls || []))
+
+function renkPage (lang) {
+  const net = makeNet()
+  const page = makePage('5', net, { renk: true, lang: lang || 'tr-TR' })
+  return { net, page }
+}
+
+describe('Renk: bağlantılar, i18n ve kart adları', () => {
+  test('index.html sprite yeni beş sembolü içerir, 37-renk.js kendini kaydeder', () => {
+    for (const id of ['i-reverse', 'i-suit-circle', 'i-suit-triangle', 'i-suit-square', 'i-suit-diamond']) {
+      assert.equal(HTML.split('<symbol id="' + id + '" viewBox="0 0 24 24">').length - 1, 1, id)
+    }
+    assert.ok(HTML.indexOf('<symbol id="i-gamepad"') < HTML.indexOf('<symbol id="i-reverse"'))
+    const { page } = renkPage()
+    same(page.run('gameAppIds()'), ['renk'])
+    assert.equal(page.run("gameAppName('renk')"), 'Renk')
+  })
+
+  test('game.renk.* anahtarları iki dilde aynı sırada, motorun bütün kodları ve renkleri çevrilir', () => {
+    const I = loadI18n().I18N
+    const R = makePage('5', makeNet(), { ui: false }).sandbox.TelsizRenk
+    const order = (lang) => Object.keys(I.messages[lang]).filter((k) => k.indexOf('game.renk.') === 0)
+    same(order('tr'), order('en'))
+    const has = (key) => Object.prototype.hasOwnProperty.call(I.messages[I.lang], key)
+    for (const lang of ['tr', 'en']) {
+      I.setLang(lang)
+      for (const code of R.ERRORS) assert.ok(has('game.renk.err.' + code), lang + ': err ' + code)
+      for (const e of R.EVENTS) assert.ok(has('game.renk.ev.' + e) || (has('game.renk.ev.' + e + '_one') && has('game.renk.ev.' + e + '_other')), lang + ': ev ' + e)
+      for (const rules of R.RULES) {
+        for (const key of ['game.renk.rules.' + rules, 'game.renk.rules.' + rules + 'Hint', 'game.renk.rulesLine.' + rules]) assert.ok(has(key), lang + ': ' + key)
+      }
+      const letters = R.COLORS.map((c) => {
+        assert.ok(has('game.renk.color.' + c), lang + ': color ' + c)
+        return I.t('game.renk.letter.' + c)
+      })
+      assert.equal(new Set(letters).size, 4, lang + ': harfler tekil ' + letters.join(''))
+      for (const l of letters) assert.match(l, /^[A-ZÇĞİÖŞÜ]$/, lang + ': ' + l)
+    }
+  })
+
+  test('renkCardLabel iki dilde gerçek sözlükle, hata kodları sessiz ya da kısa metinli', () => {
+    const { page } = renkPage()
+    const label = (c) => page.run(`renkCardLabel('${c}')`)
+    assert.equal(label('R7'), 'Kırmızı 7')
+    assert.equal(label('BS'), 'Mavi Engel')
+    assert.equal(label('GV'), 'Yeşil Yön')
+    assert.equal(label('YD'), 'Sarı +2')
+    assert.equal(label('WW'), 'Joker')
+    assert.equal(label('WF'), 'Joker +4')
+    assert.equal(label('X9'), '', 'geçersiz kod')
+    assert.equal(page.run("renkPlayedLabel('WW', 'B')"), 'Joker, Mavi seçildi')
+    // 5.17: sessiz kodlar boş, panelde gösterilenler metinli
+    for (const code of ['stale', 'not_your_turn', 'bad_move', 'game_over', 'already_drawn', 'no_last', 'self_catch']) {
+      assert.equal(page.run(`gameErrorText('${code}', 'renk')`), '', code)
+    }
+    assert.equal(page.run("gameErrorText('wild4_has_color', 'renk')"), 'Elinizde aktif renkte kart varken Joker +4 oynanamaz.')
+    assert.equal(page.run("gameErrorText('send', 'renk')"), 'Masaya ileti gönderilemedi.', 'masa yöneticisinin kodu')
+    page.run("I18N.setLang('en')")
+    assert.equal(label('R7'), 'Red 7')
+    assert.equal(label('WF'), 'Wild +4')
+    assert.equal(label('BV'), 'Blue Reverse')
+  })
+
+  test('olay ve sıra metinleri: çekilen kart okunmaz, yakalanmanın cezası tekrarlanmaz', () => {
+    const { page } = renkPage()
+    page.sandbox.tEv = [
+      { e: 'play', p: '12', c: 'WF', col: 'G' },
+      { e: 'penalty', p: '5', n: 4, want: 4, why: 'F' },
+      { e: 'skip', p: '5' },
+      { e: 'draw', p: '12', n: 1 },
+      { e: 'reverse', dir: -1 },
+      { e: 'caught', p: '7', by: '12' },
+      { e: 'penalty', p: '7', n: 2, want: 2, why: 'last' },
+      { e: 'end', winner: null, total: 0, reason: 'ended' },
+      { e: 'end', winner: '12', total: 30, reason: 'out' }
+    ]
+    same(page.run('tEv.map((ev) => renkEventText(ev))'), [
+      'Ece Joker +4, Yeşil seçildi oynadı.',
+      'Deniz ceza olarak 4 kart çekti.',
+      'Deniz sırasını kaybetti.',
+      'Ece 1 kart çekti.',
+      'Yön değişti: Ters Yön.',
+      'Mert yakalandı ve 2 kart çekti.',
+      '',
+      '',
+      'Ece kazandı.'
+    ])
+    const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    const m = renkShow(page, state)
+    assert.equal(page.run('renkTurnText(tM)'), 'Sıra sizde. Atılan kart Kırmızı 9. 4 kartınız oynanabilir.')
+    same(Array.from(m.legal.play).sort(), ['G9', 'R2', 'R5', 'WW'])
+  })
+})
+
+describe('Renk: masa çizimi ve hamleler', () => {
+  test('masa: rakip şeridi, deste, atılan kart, aktif renk, el sıralı ve oynanabilirlik etiketli', () => {
+    const { page } = renkPage()
+    const state = renkDeal(page, ['WW', 'G9', 'R5', 'B1', 'R2', 'G5', 'Y3'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    renkShow(page, state)
+    assert.equal(page.q('.renk-table').getAttribute('data-turn'), 'me')
+    same(page.qa('.renk-opp .sr-only').map((n) => n.textContent), ['Ece, 7 Kart'])
+    assert.ok(page.q('.renk-opp [data-user-id], .renk-opp').getAttribute('data-user-id') === '12')
+    assert.equal(page.q('.renk-opp .renk-crown') !== null, true, 'kurpiyerde taç')
+    const keys = page.qa('.renk-hand .renk-card').map((c) => c.getAttribute('data-focus-key'))
+    same(keys, ['game-card-R2-0', 'game-card-R5-0', 'game-card-Y3-0', 'game-card-G5-0', 'game-card-G9-0', 'game-card-B1-0', 'game-card-WW-0'], 'renk ve değer sırası, Joker sonda')
+    assert.equal(page.qa('.renk-card').length, 8, 'el ve atılan kart, başkasının eli çizilmez')
+    assert.equal(page.key('game-card-R5-0').getAttribute('aria-label'), 'Kırmızı 5, oynanabilir')
+    assert.equal(page.key('game-card-R5-0').getAttribute('aria-disabled'), null)
+    assert.ok(page.key('game-card-R5-0').classList.contains('is-playable'))
+    assert.equal(page.key('game-card-B1-0').getAttribute('aria-label'), 'Mavi 1, Atılan kartla rengi ya da işareti eşleşmiyor.')
+    assert.equal(page.key('game-card-B1-0').getAttribute('aria-disabled'), 'true')
+    assert.ok(page.key('game-card-B1-0').classList.contains('is-blocked'))
+    assert.equal(page.q('.renk-pile').getAttribute('aria-label'), 'Atılan kart: Kırmızı 9')
+    assert.equal(page.q('.renk-pile .renk-card').getAttribute('data-color'), 'R')
+    assert.equal(page.text('.renk-color-name'), 'Kırmızı')
+    assert.equal(page.key('game-draw').getAttribute('aria-label'), 'Desteden kart çekin, 93 kart kaldı')
+    assert.equal(page.key('game-draw').getAttribute('aria-disabled'), null)
+    assert.equal(page.text('.renk-hand-title'), 'Eliniz · 7 Kart')
+    assert.equal(page.q('.renk-hand').getAttribute('aria-label'), 'Eliniz, 7 kart')
+    assert.equal(page.key('game-last').getAttribute('aria-disabled'), 'true')
+    assert.equal(page.key('game-catch').getAttribute('aria-disabled'), 'true')
+    assert.equal(page.key('game-pass'), null)
+    assert.equal(page.key('game-choose-color'), null)
+    same(page.qa('.game-status .game-status-chip').map((n) => n.textContent), ['Saat Yönü'])
+    // Renk körlüğü: kart yüzünde şekil ve dile göre harf
+    const card = page.key('game-card-Y3-0')
+    assert.equal(card.querySelector('use').getAttribute('href'), '#i-suit-triangle')
+    assert.equal(card.querySelector('.renk-card-tag').textContent, 'S')
+    // Firstfocus: ilk oynanabilir kart
+    assert.equal(page.run('gameFirstFocus()').getAttribute('data-focus-key'), 'game-card-R2-0')
+  })
+
+  test('kart, Deste ve Pas Geç hamle gönderir, oynanamayan kart nedeni gösterir, gönderim sürerken hepsi pasif', () => {
+    const { net, page } = renkPage()
+    const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    renkShow(page, state)
+    page.press('game-card-B1-0')
+    same(calls(page), [], 'oynanamayan kart gönderilmez')
+    assert.equal(page.text('.renk-note'), 'Atılan kartla rengi ya da işareti eşleşmiyor.')
+    assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'game-card-B1-0')
+    net.clock.advance(400)
+    assert.equal(page.text('#cast .game-live-polite'), 'Atılan kartla rengi ya da işareti eşleşmiyor.')
+    page.press('game-card-R5-0')
+    same(calls(page), [['act', { t: 'play', c: 'R5', step: 0 }]])
+    page.press('game-draw')
+    same(calls(page)[1], ['act', { t: 'draw', step: 0 }])
+    // Çekilen kart (R7, destenin üstüne konur) oynanabilir: Pas Geç görünür, kart Yeni işareti taşır, diğerleri örtülü
+    const R = page.sandbox.TelsizRenk
+    const top = JSON.parse(JSON.stringify(state))
+    top.deck.splice(top.deck.indexOf('R7'), 1)
+    top.deck.push('R7')
+    const drawn = R.applyMove(top, '5', { t: 'draw', step: 0 }, (n) => new Array(n).fill(3)).state
+    assert.equal(drawn.phase, 'drawn')
+    renkShow(page, drawn)
+    assert.equal(page.text('.renk-card.is-new .renk-card-new'), 'Yeni')
+    assert.equal(page.q('.renk-card.is-new').getAttribute('data-focus-key'), 'game-card-R7-0')
+    assert.equal(page.q('.renk-card.is-new').getAttribute('aria-label'), 'Kırmızı 7, oynanabilir, yeni çekildi')
+    assert.equal(page.key('game-card-R5-0').getAttribute('aria-label'), 'Kırmızı 5, Yalnız çektiğiniz kartı oynayabilirsiniz.')
+    assert.equal(page.key('game-draw').getAttribute('aria-disabled'), 'true')
+    page.press('game-pass')
+    same(calls(page)[2], ['act', { t: 'pass', step: 1 }])
+    // Gönderim sürerken
+    const before = calls(page).length
+    renkShow(page, state, { pending: { seq: 1, at: 0 } })
+    assert.ok(page.q('.renk-table').classList.contains('is-pending'))
+    assert.ok(page.qa('.renk-hand .renk-card').every((c) => c.getAttribute('aria-disabled') === 'true'))
+    assert.equal(page.key('game-draw').getAttribute('aria-disabled'), 'true')
+    page.press('game-card-R5-0')
+    page.press('game-draw')
+    assert.equal(calls(page).length, before)
+  })
+
+  test('Joker: renk seçici katmanı açılır, renk seçilince hamle gider, Esc ve İptal kart oynamaz', () => {
+    const { net, page } = renkPage()
+    const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    renkShow(page, state)
+    page.press('game-card-WW-0')
+    assert.ok(page.q('.cast-game .renk-picker[role="dialog"]'), 'seçici panelin içinde')
+    assert.equal(page.run('topLayer().name'), 'game-color')
+    assert.equal(page.run('topLayer().trap'), true)
+    assert.equal(page.run('topLayer().el') === page.q('.renk-picker'), true)
+    assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'game-color-R')
+    same(page.qa('.renk-pick').map((b) => b.textContent), ['KKırmızı', 'SSarı', 'YYeşil', 'MMavi'])
+    // Model değişince seçici yeniden çizilir, katman yeni öğeyi izler
+    renkShow(page, state)
+    assert.equal(page.run('topLayer().el') === page.q('.renk-picker'), true)
+    page.click('.renk-pick[data-color="B"]')
+    same(calls(page), [['act', { t: 'play', c: 'WW', col: 'B', step: 0 }]])
+    assert.equal(page.q('.renk-picker'), null)
+    assert.equal(page.run('topLayer()'), null)
+    // Esc (katman kapanır): kart oynanmaz, odak karta döner
+    page.press('game-card-WW-0')
+    page.run('closeLayer(topLayer(), true)')
+    assert.equal(page.q('.renk-picker'), null)
+    assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'game-card-WW-0')
+    // İptal
+    page.press('game-card-WW-0')
+    page.press('game-color-cancel')
+    assert.equal(page.q('.renk-picker'), null)
+    assert.equal(page.run('topLayer()'), null)
+    assert.equal(calls(page).length, 1)
+    // Sıra geçerse açık seçici kapanır
+    page.press('game-card-WW-0')
+    renkShow(page, state, { legal: Object.assign({}, page.sandbox.tM.legal, { turn: false, play: [] }) })
+    assert.equal(page.q('.renk-picker'), null)
+    assert.equal(page.run('topLayer()'), null)
+    assert.equal(page.run('gameState.picker'), null)
+    // Sahne kapanınca katman da kapanır
+    renkShow(page, state)
+    page.press('game-card-WW-0')
+    page.run('clear(castState.nodes.game); gameStageClosed()')
+    assert.equal(page.run('topLayer()'), null)
+    net.clock.advance(100)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('ilk kart Joker: kartlar renk seçimini bekler, Renk Seç renk hamlesi gönderir', () => {
+    const { page } = renkPage()
+    const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WF', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'WW')
+    const m = renkShow(page, state)
+    assert.equal(m.view.phase, 'color')
+    assert.equal(page.text('.renk-color-name'), 'Seçilmedi')
+    assert.equal(page.q('.renk-color').getAttribute('data-color'), 'none')
+    assert.equal(page.run('renkTurnText(tM)'), 'Sıra sizde. İlk kart Joker, önce renk seçin.')
+    assert.equal(page.key('game-draw').getAttribute('aria-disabled'), 'true')
+    assert.ok(page.qa('.renk-hand .renk-card').every((c) => c.getAttribute('aria-disabled') === 'true' && !c.classList.contains('is-blocked')))
+    assert.equal(page.key('game-card-R5-0').getAttribute('aria-label'), 'Kırmızı 5, Önce renk seçin.')
+    assert.equal(page.run('gameFirstFocus()').getAttribute('data-focus-key'), 'game-choose-color')
+    page.press('game-choose-color')
+    assert.ok(page.q('.renk-picker'))
+    page.click('.renk-pick[data-color="Y"]')
+    same(calls(page), [['act', { t: 'color', col: 'Y', step: 0 }]])
+    assert.equal(page.q('.renk-picker'), null)
+  })
+
+  test('Tek!: iki kartla işaretlenir ve kartla gider, geç Tek! ve Yakala hemen gider', () => {
+    const { page } = renkPage()
+    const base = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    // Elde iki kart: R5 ve G9 (fazlası desteye)
+    const two = JSON.parse(JSON.stringify(base))
+    two.deck = two.deck.concat(two.seats[1].hand.filter((c) => c !== 'R5' && c !== 'G9'))
+    two.seats[1].hand = ['R5', 'G9']
+    renkShow(page, two)
+    const last = page.key('game-last')
+    assert.equal(last.getAttribute('aria-disabled'), null)
+    assert.equal(last.getAttribute('aria-pressed'), 'false')
+    assert.equal(last.getAttribute('aria-label'), 'Tek! deyin: son kartınıza düşüyorsunuz')
+    page.press('game-last')
+    assert.equal(page.key('game-last').getAttribute('aria-pressed'), 'true')
+    assert.equal(page.text('[data-focus-key="game-last"]'), 'Tek! Denecek')
+    assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'game-last')
+    page.press('game-last')
+    assert.equal(page.key('game-last').getAttribute('aria-pressed'), 'false', 'ikinci basış kaldırır')
+    page.press('game-last')
+    page.press('game-card-R5-0')
+    same(calls(page), [['act', { t: 'play', c: 'R5', step: 0, last: true }]])
+    // Geç Tek!: pencere açık ve korunmasız
+    const late = JSON.parse(JSON.stringify(two))
+    late.seats[1].hand = ['G9']
+    late.deck.push('R5')
+    late.last = { p: '5', safe: false }
+    late.turn = 0
+    renkShow(page, late)
+    page.press('game-last')
+    same(calls(page)[1], ['act', { t: 'last' }])
+    assert.equal(page.key('game-last').getAttribute('aria-disabled'), 'true', 'gönderildi')
+    // Yakala: rakip korunmasız tek kartta
+    const other = JSON.parse(JSON.stringify(base))
+    other.deck = other.deck.concat(other.seats[0].hand.slice(1))
+    other.seats[0].hand = other.seats[0].hand.slice(0, 1)
+    other.last = { p: '12', safe: false }
+    renkShow(page, other)
+    assert.ok(page.q('.renk-opp').classList.contains('is-catchable'))
+    const grab = page.key('game-catch')
+    assert.equal(grab.getAttribute('aria-disabled'), null)
+    assert.equal(grab.getAttribute('aria-label'), 'Ece Tek! demedi, yakalayın')
+    page.press('game-catch')
+    same(calls(page)[2], ['act', { t: 'catch', p: '12' }])
+    // Masa değişene kadar ikinci basış gitmez (kurpiyerin sıra dışı hamlesi gecikmeli işlenir)
+    assert.equal(page.key('game-catch').getAttribute('aria-disabled'), 'true')
+    page.press('game-catch')
+    assert.equal(calls(page).length, 3)
+    // Tek! diyen rakipte çip ve cümle
+    other.last = { p: '12', safe: true }
+    renkShow(page, other)
+    assert.equal(page.text('.renk-opp .renk-chip.is-last'), 'Tek!')
+    assert.equal(page.text('.renk-opp .sr-only'), 'Ece, 1 Kart, Tek! dedi')
+    assert.equal(page.key('game-catch').getAttribute('aria-disabled'), 'true')
+  })
+
+  test('ok tuşları elde, eylem satırında ve Deste\'de gezdirir, yalnızca işlenen tuş engellenir', () => {
+    const { page } = renkPage()
+    const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
+    renkShow(page, state)
+    const press = (k, keyName) => page.key(k).dispatch('keydown', { key: keyName })
+    const at = () => page.doc.activeElement.getAttribute('data-focus-key')
+    page.key('game-card-R2-0').focus()
+    assert.equal(press('game-card-R2-0', 'ArrowRight').defaultPrevented, true)
+    assert.equal(at(), 'game-card-R5-0')
+    press('game-card-R5-0', 'End')
+    assert.equal(at(), 'game-card-WW-0')
+    press('game-card-WW-0', 'Home')
+    assert.equal(at(), 'game-card-R2-0')
+    press('game-card-R2-0', 'ArrowLeft')
+    assert.equal(at(), 'game-card-R2-0', 'baştaki kartta kalır')
+    press('game-card-R2-0', 'ArrowUp')
+    assert.equal(at(), 'game-draw')
+    press('game-draw', 'ArrowDown')
+    assert.equal(at(), 'game-card-R2-0', 'ilk oynanabilir kart')
+    page.key('game-catch').focus()
+    press('game-catch', 'ArrowLeft')
+    assert.equal(at(), 'game-last')
+    assert.equal(press('game-last', 'a').defaultPrevented, false, 'işlenmeyen tuş')
+    assert.equal(press('game-last', 'Enter').defaultPrevented, false)
+  })
+})
+
+describe('Renk: iki cihazda gerçek masa', () => {
+  test('başlatınca iki sayfada Renk masası, sıradaki hamle iki sayfada aynı atılan kartı gösterir', () => {
+    const { net, pages } = makeWorld(['5', '12'], { renk: true, seed: 3 })
+    const [deniz, ece] = pages
+    deniz.press('tool-game')
+    assert.equal(deniz.text('.game-intro-name'), 'Renk')
+    assert.equal(deniz.text('.game-intro-text'), 'Renk ve sayı eşleştirmeli kart oyunu')
+    same(deniz.qa('.game-rules .cast-choice-label').map((n) => n.textContent), ['Resmî', 'Üst Üste Ekleme'])
+    deniz.press('game-open')
+    net.flush()
+    ece.press('tool-game')
+    assert.equal(ece.text('.game-rules-name'), 'Resmî')
+    assert.match(ece.text('.game-rules-hint'), /^\+2 ve \+4 üst üste konmaz\./)
+    ece.press('game-join')
+    net.flush()
+    deniz.press('game-start')
+    net.flush()
+    for (const page of pages) {
+      const m = page.model()
+      assert.equal(m.stage, 'play')
+      assert.ok(page.q('.renk-table'), 'Renk masası')
+      assert.equal(page.qa('.renk-hand .renk-card').length, m.mine.cards.length)
+      assert.equal(page.qa('.renk-card').length, m.mine.cards.length + 1, 'el ve atılan kart')
+      assert.equal(page.text('#cast .cast-sub'), 'Resmî Kurallar · Kurpiyer ' + (page === deniz ? 'Sizsiniz' : 'Deniz') + ' · 2 Oyuncu')
+      assert.equal(page.q('.renk-table').getAttribute('data-turn'), m.legal.turn ? 'me' : 'other')
+    }
+    assert.equal(deniz.q('.renk-pile').getAttribute('aria-label'), ece.q('.renk-pile').getAttribute('aria-label'))
+    // Birkaç tur: sırası gelen ilk oynanabilir kartı (Joker'de seçiciyle) oynar, yoksa çeker ve gerekirse pas geçer
+    let turns = 8
+    while (turns-- > 0) {
+      const mover = pages.filter((p) => p.model().legal && p.model().legal.turn)[0]
+      if (!mover) break
+      const m = mover.model()
+      if (m.legal.color) {
+        mover.press('game-choose-color')
+        mover.click('.renk-pick[data-color="G"]')
+      } else if (mover.q('.renk-card.is-playable')) {
+        const card = mover.q('.renk-card.is-playable')
+        card.click()
+        if (mover.q('.renk-picker')) mover.click('.renk-pick[data-color="R"]')
+      } else {
+        mover.press('game-draw')
+        net.flush()
+        if (mover.key('game-pass')) mover.press('game-pass')
+      }
+      net.flush()
+      net.clock.advance(400)
+      assert.equal(deniz.model().view.step, ece.model().view.step)
+      assert.equal(deniz.q('.renk-pile').getAttribute('aria-label'), ece.q('.renk-pile').getAttribute('aria-label'))
+      if (deniz.model().stage !== 'play') break
+    }
+    assert.ok(deniz.model().view.step > 0, 'hamleler uygulandı')
+    assert.match(ece.text('#cast .game-live-polite') + deniz.text('#cast .game-live-polite'), /(oynadı|çekti|seçti|pas geçti)\./)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
   })
 })
