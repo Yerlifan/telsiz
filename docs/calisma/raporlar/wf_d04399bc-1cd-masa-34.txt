@@ -1,0 +1,76 @@
+## Rapor: 3. adım, masa yöneticisi
+
+Masa yöneticisi yazıldı ve `f049c41 Oyun: masa yöneticisi` commit'iyle kaydedildi. `npm run denetle` ihlal vermiyor, `npm test` içinde düşen test yok. Push yapılmadı. Çalışma ağacı temiz.
+
+### Değişen ve eklenen dosyalar
+- **`/home/user/ps5-pc-communication/public/js/34-oyun-masa.js`** (yeni): `window.TelsizGameDesk`, 1567 satır.
+- **`/home/user/ps5-pc-communication/test/oyun-masa.test.js`** (yeni): 11 grupta 54 test. 8.3'teki 22 maddenin hepsi var. Ek olarak gerçek Renk motoruyla iki tam el oynanıyor.
+- **`/home/user/ps5-pc-communication/public/index.html`** ve **`public/sw.js`**: 34 satırı 33 ile 35 arasına girdi. index.html'de 75. satır, sw.js'te 71. satır. `CACHE_NAME` değişmedi.
+- **`/home/user/ps5-pc-communication/test/oyun-protokol.test.js`**: `GAME_MODULES` artık `['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js']`, yorumu da buna göre güncellendi. Bu dosyaya görev metni izin verdiği için dokundum.
+
+**Benim yapmadığım commit'ler:** Ben çalışırken başka bir süreç dosyanın ara sürümlerini iki commit'le kaydetti: `e1d4de1` ve `416d18f`, ikisinin de başlığı "Oyun: masa yöneticisi (ara kayıt, sınanmadı)". Benim commit'im kalan farkı ve öteki dört dosyayı taşıyor.
+
+### Belgeden sapmalar ve gerekçeleri
+1. **Bitmiş elde de `removePlayer` çağrılıyor.** Belge 4.10.4 bunu yalnız `play` için söylüyor, ama oyun durumu olan her aşamada (`play` ve `over`) çağrılmalı. Çağrılmazsa `validateView` koltuk sırasını tutmaz ve oyuncu bütün durumları atar.
+2. **Uzakta değişince `r` artıyor ve bütün koltuklar kirleniyor.** Belge 4.10.2 bunun `r` değişikliği sayılmayacağını söylüyor. Ama oyuncu aynı `r` taşıyan durumu atar, o zaman "Uzakta" oyunculara hiç ulaşmazdı.
+3. **Aynı `r` ve aynı `ack` taşıyan durum yalnız canlılık sayılıyor.** Oyuncuda `lastStateAt` güncelleniyor ama model değişmiyor. Kurpiyerin 15 sn'lik tazelemesi her aşamada gidiyor, lobi ve `over` dahil. Böyle olmazsa lobide bekleyen oyuncu 45 sn sonra `dealer_lost` ile düşerdi.
+4. **Başlat, davetli kişinin `ni` değerini koruyor.** Kişi aynı bağlantıdaysa önceki davetin `ni` değeri kullanılıyor. Böylece Başlat'la yarışan bir `join` sessizce düşmüyor, `reject {why:'started'}` alıyor. Yeni El ve `peer-ready` belgede yazdığı gibi yeni `ni` üretiyor.
+5. **Çıkarılan oyuncuya son durum (önceki raporun 5. açık maddesi).**
+   - `removeSeat` çıkarılan kişiye son bir durum gönderiyor: koltuklarda o yok ve `mine: null`.
+   - Oyuncu bunu `isRemovalBody` ile tanıyor ve masa `removed` nedeniyle bitiyor.
+   - Çıkarılan sayfa `act` ya da `sync` göndermeye devam ederse bu son durum yeniden gidiyor, kişi başına 5 sn'de en çok bir kez.
+6. **Zaman aşımından sonra geç gelen durum kabul ediliyor.** Senaryo şu: kurpiyer oyuncuyu oturttu ama yanıt kayboldu. 8.3/2'ye göre aynı `join` ikinci kez atıldığı için oyuncu takılı kalırdı.
+   - Oyuncunun `ni` değeri eşleşiyorsa `invited`, `rejoin` ya da `busy` aşamasında da durum kabul ediliyor.
+   - Kurpiyerin 15 sn'lik tazelemesi oyuncuyu bu yolla masaya oturtuyor.
+7. **Davetteki `seats` içinde ben varsam aşama her zaman `rejoin`.** Lobide de böyle. Belge bunu yalnız `play` ve `over` için söylüyor, ama lobide sayfasını yenileyen oyuncunun da geri dönebilmesi gerekiyor.
+8. **`reset` her zaman işleniyor.** Özel aramada ya da seste değilken öteki olaylar atılıyor ama `reset` atılmıyor, yoksa eski masa yerinde kalırdı.
+9. **Masa Kur ekranı davetle kapanıyor.** Kurpiyer Masa Kur ekranındayken davet gelirse ekran kapanıp davet gösteriliyor.
+10. **`sync` yanıtı ertelenip gönderiliyor.** 5 sn dolmadan gelen `sync` atılmıyor, yanıtı 5 sn dolunca gidiyor. O arada gidecek tam bir durum varsa `sync` yanıtının yerine geçiyor.
+11. **Gönderim hataları:**
+    - `done(404)` gelirse 30 sn sonra yeniden deneniyor.
+    - `send` `'ok'` dışında bir kod dönerse 2 sn sonra yeniden deneniyor.
+    - `peer-ready` iki beklemeyi de sıfırlıyor.
+12. **Yalnız iki ret nedeni gönderiliyor.** `reject` yalnız `full` ve `started` ile gidiyor. `closed` ve `keys` nedenlerini üreten bir yol yok.
+13. **Lobide kural değişince davetler yeniden gönderilmiyor.** Davet, gönderildiği andaki kuralı gösteriyor. Oturanlar değişikliği durum iletisiyle görüyor.
+14. **Kurpiyer `loading` anahtarı yüzünden masayı bitirmiyor.** Oyuncu tarafında kurpiyerin anahtarı `loading` ise masa bitmiyor. `join()` bekleme işareti koyuyor, `recheck()` katılımı tamamlıyor.
+
+### Sonraki adımın bilmesi gereken API
+- **Modül:** `TelsizGameDesk = { TIMES, DELAYED_MOVES: ['last','catch'], ERRORS: ['send','locked','join_timeout'], create(env) }`. Bütün nesneler dondurulmuş.
+- **`env`:** belge 4.5'teki alanlara ek olarak isteğe bağlı bir `locked: () => bool` var. 36-oyun.js bunu `() => !myIdentity()` olarak verebilir. Yoksa `keys(me).reason === 'locked'` kullanılıyor.
+  - `roomPeers()` `[{userId, peerId}]` döner, `userId` dizeye çevriliyor.
+  - Kurpiyerin kendi peerId değerine gerek yok. Kurpiyerin kendi koltuğunda `peerId: null` duruyor.
+- **Yöntemler** belge 4.5'teki gibi ve `bool` dönüyor. Yeni yöntem `openInvite()`: saklı daveti açar ("Masaya Bak"). `setRules` Masa Kur ekranında da çalışıyor.
+  - `tick()` rol `'none'` değilken 250 ms'de bir çağrılmalı.
+  - `recheck()` profil ve kimlik değişince çağrılmalı.
+- **Bildirimler ve `onChange`:** bildirimler (`onNotice`) ve `onChange` en dıştaki çağrının sonunda gidiyor, dinleyici masa yöneticisini yeniden çağırabilir. `onChange` yalnız modelin JSON'u değiştiğinde gidiyor ve `rev` o zaman artıyor. `onNotice(kind, data)` biçimleri:
+  - `invite {dealer, app, ph, rules, rejoin}` (`busy` için gitmez, kurpiyer başına 30 sn'de bir)
+  - `turn null`
+  - `ended {reason}`
+  - `events [{r, e, ...}]`
+  - `joined {id}`
+  - `left {id, why: 'leave'|'gone'}`
+  - `declined {id, why, key}`
+  - `error kod`
+- **Hata kodları:** uygulamanın kodlarına ek olarak `send`, `locked` ve `join_timeout` var. 6. adımda bunlar için i18n anahtarı gerekiyor.
+- **Model:** belge 6.1'deki alanlara `min`, `max`, `events` ve `locked` eklendi, `invite` nesnesine de `app` girdi. Ayrıntılar:
+  - `room` öğesi `{id, status, key}` biçiminde. Masa Kur ekranında çip yoksa `status` null.
+  - `seats` öğesi `{id, away, offline, keyIssue}`.
+  - `model()` her çağrıda yeni bir JSON kopyası döner.
+- **Olaylar:** masa yöneticisi olayları `r` ile damgalıyor. İlk oturuşta ya da geri dönüşte durumdaki eski olaylar duyurulmuyor.
+
+### Koşturulan komutlar
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-masa.test.js` | 54 test, 54 geçti, 0 kaldı |
+| Bozma denemesi (dosya geçici olarak bozuldu, sonra geri yüklendi, `cmp` ile doğrulandı) | 31 bozmanın 31'i yakalandı. İlk turda 3'ü sağ kalmıştı, testler sıkılaştırılınca hepsi yakalandı |
+| `node --test` (oyun-protokol, oyun-masa, renk-kural, oyun-tasima) | 198 test, 198 geçti |
+| `npm run denetle` | 272 dosya, 0 ihlal |
+| `npm test` | 1070 test, 1069 geçti, 0 kaldı, 1 atlandı (`TELSIZ_SEA_TEST`) |
+| Marka adı, uzun ve kısa tire, BOM, CR, commit mesajında noktalı virgül | Hiçbiri yok |
+
+### Açık kalan sorunlar
+1. **0. adımın issue onayı hâlâ yok.** voice.js'e yeni düz metin türü için gereken issue onayı (CONTRIBUTING.md:184) gelmedi. Önceki commit'ler gibi bu commit de onaysız atıldı.
+2. **Hayalet kurpiyerin lobi daveti kalıcı.** Saklı davet `peer-leave`, `close` ya da `reset` gelene kadar duruyor. O sürece kişi kendi masasını kuramıyor. Gerekirse bir süre sınırı eklenebilir.
+3. **Kaybolan davet ve `leave` yeniden gönderilmiyor.** Kaybolan davet `peer-ready` ile yeniden gidiyor. Kaybolan `leave` için kurpiyer "Uzakta" çipini görüp kişiyi Koltuktan Çıkar ile kaldırabilir. Yenilenmiş sayfa `joining` aşamasındayken ayrılırsa `seq 1` gönderir ve bu kurpiyerde eski sayılabilir.
+4. **Kurpiyer modeli sık anahtar okuyor.** Kurpiyerin modeli her güncellemede odadaki her kişi için `env.keys` çağırıyor. Bu da `pins.get` üzerinden localStorage okuması demek. Ölçülmedi, kişi sayısı ve sıklık küçük olduğu için kabul edilebilir görünüyor.
+5. **Önceki adımlardan devreden işler.** `LAST_CARD.stack` kararı hâlâ kullanıcıya doğrulatılmalı. Belgelerdeki modül aralığı ve CONTRIBUTING modül tablosu 9. adımda güncellenecek.
