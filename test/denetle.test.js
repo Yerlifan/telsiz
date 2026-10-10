@@ -11,7 +11,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
-const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256, VENDOR_FILES } = require('../scripts/denetle.js')
+const { runChecks, NACL_PATH, SCRYPT_PATH, SCRYPT_SHA256, VENDOR_FILES, CSS_EXCEPTIONS } = require('../scripts/denetle.js')
 
 const ROOT = path.join(__dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts', 'denetle.js')
@@ -563,6 +563,78 @@ test('HTML içinde satır içi betik, stil öğesi ve stil ile olay öznitelikle
     { line: 10, rule: 'html' }
   ])
   assert.equal(violations.length, 5)
+})
+
+test('public/css altındaki stil dosyalarında grid, gap, clamp, :is, :where, aspect-ratio ve inset yakalanır', (t) => {
+  const violations = check(t, {
+    'public/css/a.css': lines(
+      '/* Yorumdakiler serbest: display: grid, gap: 1rem, clamp(1rem, 2vw, 3rem), :is(a), inset: 0 */',
+      '.a { display: grid; }',
+      '.b { display:inline-grid }',
+      '.c { gap: 1rem; }',
+      '.d { row-gap: 1rem; color: red }',
+      '.e { width: clamp(1rem, 2vw, 3rem) }',
+      '.f:is(.x, .y) { color: red }',
+      ':where(.g) { color: red }',
+      '.h { aspect-ratio: 16 / 9 }',
+      '.i { inset: 0 }',
+      '.j { box-shadow: inset 0 1px 0 #fff; --column-gap: 1rem; --gap: 0; margin: var(--column-gap) }',
+      '/* birden çok satırlık yorum',
+      '   .k { display: grid; column-gap: 1px } */',
+      '.l {',
+      '  display: flex;',
+      '  column-gap: 2px;',
+      '}',
+      '@media (min-width: 60rem) { .m { inset: auto } }'
+    ),
+    'public/css/skins/b.css': lines(':root[data-skin="b"] .x { gap: 1px }'),
+    // Masaüstü uygulamasının kendi pencereleri güncel Chromium'da çalışır, kural yalnızca public/css içindir
+    'desktop/src/c.css': lines('.x { display: grid; gap: 1px }'),
+    'public/d.css': lines('.x { display: grid }')
+  })
+  assert.deepEqual(of(violations, 'public/css/a.css'), at('css', 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 18))
+  assert.match(messageAt(violations, 'public/css/a.css', 2), /^grid düzeni \(display: grid\) kullanılmış \(\.a\)\. Eski WebKit/)
+  assert.match(messageAt(violations, 'public/css/a.css', 16), /^gap kullanılmış \(\.l\)/)
+  assert.match(messageAt(violations, 'public/css/a.css', 18), /^inset kullanılmış \(\.m\)/)
+  assert.deepEqual(of(violations, 'public/css/skins/b.css'), at('css', 1))
+  assert.equal(violations.length, 12)
+})
+
+test('CSS istisnası yalnızca kayıtlı dosyadaki kendi bloğunu kapsar, gereksiz kalan kayıt bildirilir', (t) => {
+  const exceptions = [{ file: 'public/css/frekans.css', selector: '.app-view[data-dj-col="on"] .stage', note: 'deneme' }]
+  const frekans = lines(
+    '@media (min-width: 1280px) {',
+    '  /* Açıklama */',
+    '  .app-view[data-dj-col="on"]',
+    '    .stage {',
+    '    display: grid;',
+    '    gap: 1rem;',
+    '  }',
+    '  .app-view[data-dj-col="on"] .side-left { gap: 1rem }',
+    '}',
+    '.stage { gap: 1rem }'
+  )
+  const dir = makeProject(t, {
+    'public/css/frekans.css': frekans,
+    'public/css/diger.css': lines('.app-view[data-dj-col="on"] .stage { display: grid }')
+  })
+  const violations = runChecks(dir, { cssExceptions: exceptions }).violations
+  assert.deepEqual(of(violations, 'public/css/frekans.css'), at('css', 8, 10))
+  assert.deepEqual(of(violations, 'public/css/diger.css'), at('css', 1))
+  assert.equal(violations.length, 3)
+
+  // Blok düzeltilince kayıt bildirilir, dosya taranmıyorsa bildirilmez
+  const fixed = runChecks(makeProject(t, { 'public/css/frekans.css': lines('.app-view[data-dj-col="on"] .stage { display: flex }') }), { cssExceptions: exceptions }).violations
+  assert.deepEqual(of(fixed, 'public/css/frekans.css'), at('css', 1))
+  assert.match(fixed[0].message, /CSS_EXCEPTIONS kaydı \(\.app-view\[data-dj-col="on"\] \.stage\) artık hiçbir ihlali kapsamıyor/)
+  assert.equal(fixed.length, 1)
+  assert.deepEqual(runChecks(makeProject(t), { cssExceptions: exceptions }).violations, [])
+
+  // Depodaki liste: her kayıt dosya, seçici ve not taşır
+  for (const item of CSS_EXCEPTIONS) {
+    assert.match(item.file, /^public\/css\/[\w/-]+\.css$/)
+    assert.ok(item.selector && item.note, JSON.stringify(item))
+  }
 })
 
 test('i18n-parity: eksik anahtar, boş değer, parametre farkı, çoğul eşi ve yinelenen anahtar', (t) => {

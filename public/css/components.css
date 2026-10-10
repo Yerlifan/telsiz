@@ -1999,13 +1999,24 @@ button.msg-author:hover {
   color: var(--accent-text);
 }
 
-/* Telsiz DJ duyurusu (06-messages.js buildDjNotice) */
+/* Telsiz DJ duyurusu (06-messages.js buildDjNotice). Eski WebKit flex gap desteklemez: öğeler arasındaki 0.5rem
+   çocukların sağ boşluğudur (son çocukta yok). Satırlar arasındaki 0.25rem çocukların alt boşluğudur, kapsayıcının
+   eksi alt boşluğu son satırınkini geri alır. */
 .msg-dj {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.5rem;
+  margin-bottom: -0.25rem;
   color: var(--text-2);
+}
+
+.msg-dj > * {
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.msg-dj > :last-child {
+  margin-right: 0;
 }
 
 .msg-dj .icon {
