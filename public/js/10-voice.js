@@ -114,6 +114,25 @@ let lastCameraError = null
 // Son katılma denemesinin odası: hata satırındaki "Tekrar dene" bu odaya yeniden katılır
 let radioLastChannel = null
 
+// Ses kancaları: başka modüller bu dosyayı düzenlemeden ses durumuna bağlanır. 'change' her ses anlık
+// görüntüsünde state.voiceSnap ile, 'render' telsiz kartı ve bant yeniden çizildikten sonra çağrılır.
+// Bir kancanın hatası ötekileri ve ses arayüzünü durdurmaz.
+const voiceHooks = { change: [], render: [] }
+
+function voiceHook (kind, fn) {
+  if (voiceHooks[kind] && typeof fn === 'function') voiceHooks[kind].push(fn)
+}
+
+function runVoiceHooks (kind, arg) {
+  voiceHooks[kind].forEach((fn) => {
+    try {
+      fn(arg)
+    } catch (err) {
+      window.console.error(err)
+    }
+  })
+}
+
 function onVoiceChange (snapshot) {
   state.voiceSnap = snapshot || null
   // Masaüstü uygulaması (20-desktop.js) basılı tut kancası için ses odası durumunu ana sürece bildirir
@@ -130,6 +149,7 @@ function onVoiceChange (snapshot) {
   if (code && code !== lastVoiceError && !callOwnsError(code)) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
   if (typeof aramaOnVoice === 'function') aramaOnVoice(state.voiceSnap)
+  runVoiceHooks('change', state.voiceSnap)
   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
   if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
   lastCameraError = camCode
@@ -179,6 +199,7 @@ function renderVoiceAll () {
   if (typeof castSync === 'function') castSync()
   // Özel mesaj görünümünün arama bölümü (32-arama.js)
   if (typeof aramaRender === 'function') aramaRender()
+  runVoiceHooks('render')
 }
 
 function voiceRoster (channelId) {

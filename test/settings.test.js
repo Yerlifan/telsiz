@@ -5,8 +5,8 @@
 // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
 // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
 // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
-// CSS kuralları ve index.html ile sw.js bağlantıları sınanır. Gerçek sunucu ve tarayıcıyla yapılan
-// doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+// CSS kuralları, index.html ile sw.js bağlantıları ve ses kancaları (10-voice.js voiceHook) sınanır. Gerçek
+// sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -1234,4 +1234,30 @@ test('Frekans fotoğrafı: sahip seçer ve kaldırır (POST /api/server-icon/del
   assert.strictEqual(admin.root.querySelector('#set-photo-owner-only').hidden, false)
   admin.root.querySelector('#set-photo-pick').click()
   assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path.indexOf('/api/server-icon') === 0).length, 0)
+})
+
+test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, hatalı kanca ötekileri durdurmaz', () => {
+  const { run, sandbox } = load()
+  const errors = []
+  sandbox.console = { warn () {}, log () {}, error (err) { errors.push(err && err.message) } }
+  assert.strictEqual(run('typeof voiceHook'), 'function')
+  assert.strictEqual(run('typeof runVoiceHooks'), 'function')
+  // Telsiz kartının ve bandın DOM çizimi taklit ortamda boşa çıkarılır, çağrı sırası ve kancalar değişmez
+  run('renderBand = renderVoiceChannels = renderVoicePanel = renderUserPanel = updateVoiceLive = aramaRender = function () {}')
+  run(`__hooks = []
+    voiceHook('change', function (snap) { __hooks.push('change:' + (snap ? snap.channelId : 'yok')) })
+    voiceHook('change', function () { throw new Error('bozuk kanca') })
+    voiceHook('change', function () { __hooks.push('change2') })
+    voiceHook('render', function (arg) { __hooks.push('render:' + typeof arg) })
+    voiceHook('bilinmeyen', function () { __hooks.push('bilinmeyen') })
+    voiceHook('change', 'işlev değil')`)
+  const hooks = () => JSON.parse(run('JSON.stringify(__hooks)'))
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks(), ['change:3', 'change2', 'render:undefined'])
+  assert.deepStrictEqual(errors, ['bozuk kanca'])
+  // Yapı değişmeyince kart yeniden çizilmez: change kancaları çalışır, render kancası çalışmaz
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks().slice(3), ['change:3', 'change2'])
+  run('onVoiceChange(null)')
+  assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
 })
