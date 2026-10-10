@@ -27,6 +27,7 @@ window.TelsizGameDesk = (function (G) {
     AWAY_MS: 60000,
     BACKOFF_MS: Object.freeze([2000, 4000, 8000, 16000, 30000]),
     INVITE_NOTIFY_MIN_MS: 30000,
+    INVITE_RESEND_MS: 15000,
     SELF_DELAY_MS: 300
   })
   const BACKOFF = TIMES.BACKOFF_MS
@@ -59,6 +60,10 @@ window.TelsizGameDesk = (function (G) {
     // Odadaki her kurpiyerin son geçerli daveti ve masa kimliğinin ilk davetteki kurpiyeri
     let seen = {}
     let owners = {}
+    // Kurpiyer başına reddedilen davetin ni değeri: aynı davetin kopyası yeniden gösterilmez
+    let declined = {}
+    // Masadan ayrılan sayfanın son leave iletisi: kurpiyer beni oturtmaya devam ederse yeniden gider
+    let left = null
     // Kişi başına son düz yanıt (reject, close gone, çıkarılma bildirimi) ve son davet bildirimi
     let plainAt = {}
     let notifyAt = {}
@@ -310,7 +315,8 @@ window.TelsizGameDesk = (function (G) {
         status: keep ? prev.status : 'waiting',
         key: keep ? prev.key : null,
         at: now(),
-        sent: false
+        sent: false,
+        resend: true
       }
       T.invites[uid] = inv
       const table = T
@@ -447,8 +453,10 @@ window.TelsizGameDesk = (function (G) {
           seat.onlySelf = false
           seat.offline = false
           seat.syncWant = false
-          seat.lastSendAt = t
+          // Koltuğa özel yanıt (sync yanıtı, reddedilen hamle) tazeleme sayılmaz: sessiz koltuğa KEEPALIVE_MS
+          // aralığı yanıtlardan bağımsız sürer (SILENT_END_MS iki tazeleme ve iki sync kaybını karşılar)
           if (reply) seat.lastReplyAt = t
+          else seat.lastSendAt = t
         } else {
           // Kirli kalır: bağlantı bekleniyorsa peer-ready, değilse kısa bir bekleme sonrası yeniden denenir
           seat.offline = code === 'not_ready' || code === 'no_peer'
@@ -509,6 +517,8 @@ window.TelsizGameDesk = (function (G) {
         return
       }
       T.lastSeq[uid] = x.seq
+      // Bu bağlantıdaki sayfa masayı tutuyor: yeniden bağlanma davetinin yinelenmesine gerek yok
+      if (T.invites[uid]) T.invites[uid].resend = false
       if (x.k === 'leave') {
         dropSeat(uid, 'leave')
         return
@@ -622,6 +632,14 @@ window.TelsizGameDesk = (function (G) {
         const item = T.selfQueue.shift()
         if (T.ph === 'play') selfAct(item.move)
       }
+      if (!dealing()) return
+      // Kaybolan davet aynı ni ile yeniden gider: lobide oturmamış ve yanıt vermemiş kişiye, her aşamada da yeniden
+      // bağlanıp henüz dönmemiş koltuğa (yenilenmiş sayfa)
+      roomPeers().forEach((x) => {
+        const inv = T.invites[x.userId]
+        if (!inv || !inv.resend || inv.status !== 'waiting' || inv.peerId !== x.peerId || t - inv.at < TIMES.INVITE_RESEND_MS) return
+        if (T.ph === 'lobby' || seatOf(x.userId)) sendInvite(x.userId, x.peerId, true)
+      })
       if (!dealing()) return
       // Canlılık: KEEPALIVE_MS boyunca hiçbir şey gitmemiş koltuğa son durum yeniden gider
       T.seats.forEach((s) => {
@@ -740,6 +758,11 @@ window.TelsizGameDesk = (function (G) {
         at: now()
       }
       seen[uid] = offer
+      if (T === null && x.ph === 'lobby' && declined[uid] === x.ni) {
+        // Reddedilen davetin kopyası: yeniden gösterilmez, ret kurpiyere yeniden bildirilir (kaybolmuş olabilir)
+        sendPlain(peerId, plainMsg('decline', x.g, x.ch, { ni: x.ni, why: 'user', key: null }))
+        return
+      }
       // Tek masa kuralı: davet gelince Masa Kur ekranı kapanır
       setup = null
       if (T === null) {
@@ -794,6 +817,38 @@ window.TelsizGameDesk = (function (G) {
         return
       }
       if (stored || peerId === T.dealerPeer) dropOffer()
+    }
+
+    function sendLeave (rec, keys) {
+      const msg = { v: G.VERSION, ctx: G.CTX, k: 'leave', g: rec.g, ch: rec.ch, from: myId(), to: rec.dealer, seq: rec.seq }
+      const p = G.sealInner(env.dm, msg, keys.pk, keys.sk)
+      if (p) send(rec.peerId, p)
+    }
+
+    // Masadan ayrılma: iç leave gider ve saklanır (kaybolursa kurpiyerin durumu geldikçe yinelenir)
+    function leaveTable () {
+      const keys = keysFor(T.dealer)
+      if (keys.ok !== true) return
+      T.mySeq++
+      left = { g: T.g, ch: T.ch, dealer: T.dealer, peerId: T.dealerPeer, ni: T.ni, seq: T.mySeq, at: now() }
+      sendLeave(left, keys)
+    }
+
+    // Ayrıldığım masanın kurpiyeri beni hâlâ oturtuyor: leave kaybolmuş, yeniden gider (en sık PLAIN_REPLY_MIN_MS
+    // aralıkla). Kurpiyerin sayacı benimkine yetiştiyse (sayacı sıfırdan başlayan yenilenmiş sayfa) leave onu geçer.
+    // Dönüş: ileti bu kayıtla ilgiliydi.
+    function onLeftState (peerId, uid, x) {
+      const rec = left
+      if (!rec || x.g !== rec.g || uid !== rec.dealer || peerId !== rec.peerId || x.ni !== rec.ni) return false
+      if (playing() && T.g === x.g) return false
+      const b = x.b
+      if (!Array.isArray(b.seats) || b.seats.indexOf(myId()) < 0 || !G.isPlain(b.ack) || !G.isCount(b.ack.seq)) return true
+      const keys = keysFor(rec.dealer)
+      if (now() - rec.at < TIMES.PLAIN_REPLY_MIN_MS || keys.ok !== true) return true
+      rec.seq = Math.max(rec.seq, b.ack.seq + 1)
+      rec.at = now()
+      sendLeave(rec, keys)
+      return true
     }
 
     function innerMsg (k, extra) {
@@ -960,6 +1015,8 @@ window.TelsizGameDesk = (function (G) {
       const quiet = t - T.lastStateAt
       if (quiet > TIMES.SILENT_END_MS) {
         endPlayer('dealer_lost')
+        // Kurpiyer yaşıyor ama durumları ulaşmıyorsa koltuğum oyunu bekletmesin
+        leaveTable()
         return
       }
       if (T.pending) {
@@ -1003,7 +1060,7 @@ window.TelsizGameDesk = (function (G) {
       const x = opened && G.checkInner(opened, { ch: chan(), from: uid, to: myId() })
       if (!x) return
       if (DEALER_KINDS.indexOf(x.k) >= 0) onDealerInner(peerId, uid, x)
-      else if (x.k === 'state') onState(peerId, uid, x)
+      else if (x.k === 'state' && !onLeftState(peerId, uid, x)) onState(peerId, uid, x)
     }
 
     function onPeerReady (peerId, uid) {
@@ -1048,6 +1105,8 @@ window.TelsizGameDesk = (function (G) {
       setup = null
       seen = {}
       owners = {}
+      declined = {}
+      left = null
       plainAt = {}
       error = null
       newEvents = []
@@ -1271,6 +1330,8 @@ window.TelsizGameDesk = (function (G) {
       }
       if (T.inv.key !== null && T.inv.key !== 'loading') return false
       T.joinWanted = false
+      left = null
+      delete declined[T.dealer]
       T.stage = 'joining'
       T.ni = T.inv.ni
       T.joinAt = now()
@@ -1281,7 +1342,10 @@ window.TelsizGameDesk = (function (G) {
 
     function doDecline () {
       if (!playing() || (T.stage !== 'invited' && T.stage !== 'rejoin' && T.stage !== 'busy')) return false
-      if (T.stage === 'invited' && T.inv.ph === 'lobby') sendDecline('user', null)
+      if (T.stage === 'invited' && T.inv.ph === 'lobby') {
+        sendDecline('user', null)
+        declined[T.dealer] = T.inv.ni
+      }
       // Saklı davet kalır, Masaya Bak ile yeniden açılabilir
       T = null
       return true
@@ -1297,12 +1361,7 @@ window.TelsizGameDesk = (function (G) {
 
     function doLeave () {
       if (!playing() || (T.stage !== 'joining' && T.stage !== 'seated')) return false
-      const keys = keysFor(T.dealer)
-      if (keys.ok === true) {
-        T.mySeq++
-        const p = G.sealInner(env.dm, innerMsg('leave', { seq: T.mySeq }), keys.pk, keys.sk)
-        if (p) send(T.dealerPeer, p)
-      }
+      leaveTable()
       const o = seen[T.dealer]
       if (o && o.g === T.g) delete seen[T.dealer]
       T = null

@@ -1573,6 +1573,171 @@ describe('Renk ile', () => {
   })
 })
 
+describe('kayıp onarımı', () => {
+  test('kaybolan davet aynı ni ile 15 sn sonra yeniden gider, oturana ve reddedene gitmez, açık davetin kopyası bildirim yinelemez', () => {
+    const w = makeWorld()
+    const K = w.add('5')
+    const B = w.add('12')
+    const C = w.add('7')
+    const D = w.add('30')
+    assert.equal(K.desk.openSetup('sayac'), true)
+    assert.equal(K.desk.openTable('bir'), true)
+    const ni = K.lastTo(B, 'invite').msg.ni
+    w.drop((it) => it.to === B.peerId)
+    w.deliver()
+    assert.equal(C.desk.decline(), true)
+    assert.equal(D.desk.join(), true)
+    w.deliver()
+    assert.equal(B.m().stage, 'none')
+    w.advance(TM.INVITE_RESEND_MS - 250, [K])
+    assert.equal(K.sentTo(B, 'invite').length, 1)
+    w.advance(500, [K])
+    assert.equal(K.sentTo(B, 'invite').length, 2)
+    assert.equal(K.lastTo(B, 'invite').msg.ni, ni, 'aynı ni')
+    assert.equal(K.sentTo(C, 'invite').length, 1, 'reddedene yeniden gitmez')
+    assert.equal(K.sentTo(D, 'invite').length, 1, 'oturana yeniden gitmez')
+    w.deliver()
+    assert.equal(B.m().stage, 'invited')
+    w.advance(TM.INVITE_RESEND_MS, [K])
+    assert.equal(K.sentTo(B, 'invite').length, 3)
+    w.deliver()
+    assert.equal(B.m().stage, 'invited')
+    assert.equal(B.noticesOf('invite').length, 1)
+    assert.equal(B.desk.join(), true)
+    w.deliver()
+    same(K.m().seats.map((s) => s.id), ['5', '30', '12'])
+    // Başlat sonrası oturmamışlara giden bilgi daveti yinelenmez
+    assert.equal(K.desk.start(), true)
+    w.deliver()
+    const n = K.sentTo(C, 'invite').length
+    w.advance(TM.INVITE_RESEND_MS * 2, [K])
+    assert.equal(K.sentTo(C, 'invite').length, n)
+  })
+
+  test('reddedilen davetin kopyası yeniden gösterilmez, ret kurpiyere yeniden bildirilir, Masaya Bak ile yine katılınır', () => {
+    const { w, K, P } = table({ players: 1, seat: 0 })
+    const B = P[0]
+    assert.equal(B.desk.decline(), true)
+    w.drop((it) => it.from === B)
+    same(K.m().room.map((x) => x.status), ['waiting'])
+    w.advance(TM.INVITE_RESEND_MS + 250, [K])
+    assert.equal(K.sentTo(B, 'invite').length, 2)
+    w.deliver()
+    assert.equal(B.m().stage, 'none', 'reddedilen davet yeniden açılmaz')
+    assert.equal(B.noticesOf('invite').length, 1)
+    assert.equal(B.sentTo(K, 'decline').length, 2)
+    same(K.m().room.map((x) => x.status), ['declined'])
+    w.advance(TM.INVITE_RESEND_MS * 2, [K])
+    assert.equal(K.sentTo(B, 'invite').length, 2, 'reddedildiğini bilen kurpiyer yinelemez')
+    assert.equal(B.desk.openInvite(), true)
+    assert.equal(B.desk.join(), true)
+    w.deliver()
+    assert.equal(B.m().stage, 'lobby')
+  })
+
+  test('yeniden bağlanma daveti yenilenmiş sayfa katılana kadar yinelenir, masası olan sayfanın sync iletisi yinelemeyi durdurur', () => {
+    const { w, K, P } = started({ players: 2 })
+    const [B, C] = P
+    B.reload()
+    w.ready(K, B)
+    const ni = K.lastTo(B, 'invite').msg.ni
+    w.drop((it) => it.to === B.peerId)
+    w.advance(TM.INVITE_RESEND_MS + 250, [K])
+    assert.equal(K.lastTo(B, 'invite').msg.ni, ni)
+    w.deliver()
+    assert.equal(B.m().stage, 'rejoin')
+    assert.equal(B.desk.join(), true)
+    w.deliver()
+    assert.equal(B.m().stage, 'play')
+    const n = K.sentTo(B, 'invite').length
+    w.advance(TM.INVITE_RESEND_MS * 2, [K])
+    assert.equal(K.sentTo(B, 'invite').length, n, 'katılan sayfaya yinelenmez')
+    // C'nin bağlantısı yeniden kurulur, sayfası masayı tutuyor: davet sync gelince yinelenmez
+    w.ready(K, C)
+    w.ready(C, K)
+    w.deliver()
+    const m = K.sentTo(C, 'invite').length
+    w.advance(TM.INVITE_RESEND_MS * 2, [K])
+    assert.equal(K.sentTo(C, 'invite').length, m)
+    assert.equal(C.m().stage, 'play')
+  })
+
+  test('sync yanıtı tazelemeyi ertelemez: sessiz koltuğa 15 sn aralık yanıtlardan bağımsız sürer', () => {
+    const { w, K, P } = table({ players: 1 })
+    const B = P[0]
+    const times = () => K.sentTo(B, 'state').map((it) => it.at)
+    const last = times().pop()
+    w.advance(5000, [K])
+    w.ready(B, K)
+    w.deliver()
+    assert.equal(B.sentTo(K, 'sync').length, 1)
+    const n = times().length
+    assert.ok(times()[n - 1] > last, 'sync yanıtı gitti')
+    w.advance(TM.KEEPALIVE_MS - 5000 + 250, [K])
+    assert.equal(times().length, n + 1)
+    assert.ok(times()[n] - last <= TM.KEEPALIVE_MS + 250, 'tazeleme son tam durumdan 15 sn sonra')
+  })
+
+  test('kaybolan leave: kurpiyer ayrılanı oturtmaya devam ederse leave yeniden gider, yenilenmiş sayfanın sayacı kurpiyerinkini geçer', () => {
+    const { w, K, P } = started({ players: 2 })
+    const [B, C] = P
+    K.desk.act({ t: 'add', step: 0 })
+    w.deliver()
+    B.desk.act({ t: 'add', step: 1 })
+    w.deliver()
+    C.desk.act({ t: 'add', step: 2 })
+    w.deliver()
+    assert.equal(B.desk.leave(), true)
+    assert.equal(w.drop((it) => it.from === B)[0].msg.k, 'leave')
+    K.desk.act({ t: 'add', step: 3 })
+    w.deliver()
+    assert.equal(B.sentTo(K, 'leave').length, 1, 'kısma: 5 sn dolmadan yinelenmez')
+    same(K.m().seats.map((s) => s.id), ['5', '12', '7'])
+    w.advance(TM.KEEPALIVE_MS + 250, [K, B])
+    w.deliver()
+    const leaves = B.sentTo(K, 'leave')
+    assert.equal(leaves.length, 2)
+    assert.equal(leaves[1].msg.seq, leaves[0].msg.seq)
+    same(K.m().seats.map((s) => s.id), ['5', '7'])
+    same(K.noticesOf('left').map((x) => x.data), [{ id: '12', why: 'leave' }])
+    // Yenilenmiş sayfa katılırken ayrılır: sayacı 1, kurpiyerde C'nin sayacı da 1 (tekrar sayılır, işlenmez)
+    C.reload()
+    w.ready(K, C)
+    w.deliver()
+    assert.equal(C.m().stage, 'rejoin')
+    assert.equal(C.desk.join(), true)
+    assert.equal(C.desk.leave(), true)
+    assert.equal(C.lastTo(K, 'leave').msg.seq, 1)
+    w.deliver()
+    same(K.m().seats.map((s) => s.id), ['5', '7'])
+    w.advance(TM.KEEPALIVE_MS + 250, [K, C])
+    w.deliver()
+    assert.equal(C.lastTo(K, 'leave').msg.seq, 2, 'kurpiyerin ack.seq değerinin bir fazlası')
+    same(K.m().seats.map((s) => s.id), ['5'])
+    assert.equal(K.m().stage, 'over')
+  })
+
+  test('45 sn sessizlikle biten oyuncu ayrılmayı bildirir, kurpiyer yaşıyorsa koltuk boşalır ve oyun sürer', () => {
+    const { w, K, P } = started({ players: 2 })
+    const [B, C] = P
+    const toB = (it) => it.from === K && it.to === B.peerId
+    let left = TM.SILENT_END_MS + 1000
+    while (B.m().stage !== 'ended' && left > 0) {
+      w.advance(500, [K, B])
+      w.deliver((it) => !toB(it))
+      w.drop(toB)
+      left -= 500
+    }
+    same(B.m().ended, { reason: 'dealer_lost' })
+    assert.equal(B.sentTo(K, 'leave').length, 1)
+    w.deliver()
+    same(K.m().seats.map((s) => s.id), ['5', '7'])
+    same(K.noticesOf('left').map((x) => x.data), [{ id: '12', why: 'leave' }])
+    assert.equal(C.m().stage, 'play')
+    same(C.m().seats.map((s) => s.id), ['5', '7'])
+  })
+})
+
 describe('modül', () => {
   test('saf yüklenir, saat, DOM, ağ ve sözlük kullanmaz', () => {
     const code = DESK_SRC.replace(/^\s*\/\/.*$/gm, '')
@@ -1602,6 +1767,7 @@ describe('modül', () => {
       AWAY_MS: 60000,
       BACKOFF_MS: [2000, 4000, 8000, 16000, 30000],
       INVITE_NOTIFY_MIN_MS: 30000,
+      INVITE_RESEND_MS: 15000,
       SELF_DELAY_MS: 300
     })
     same(DESK.DELAYED_MOVES, ['last', 'catch'])
