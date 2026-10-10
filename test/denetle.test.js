@@ -115,6 +115,9 @@ function cleanFiles () {
   }
   files[NACL_PATH] = VENDOR
   for (const item of RNNOISE_FILES) files[item.path] = fs.readFileSync(path.join(ROOT, ...item.path.split('/')))
+  // Depodaki CSS_EXCEPTIONS kayıtlarının dosyaları ve kapsadıkları ihlal: kayıtlar temiz örnekte ne dosyası
+  // bulunamayan ne de gereksiz kalan kayıt olarak bildirilir
+  for (const item of CSS_EXCEPTIONS) files[item.file] = (files[item.file] || '') + item.selector + ' { display: grid }\n'
   return files
 }
 
@@ -623,18 +626,54 @@ test('CSS istisnası yalnızca kayıtlı dosyadaki kendi bloğunu kapsar, gereks
   assert.deepEqual(of(violations, 'public/css/diger.css'), at('css', 1))
   assert.equal(violations.length, 3)
 
-  // Blok düzeltilince kayıt bildirilir, dosya taranmıyorsa bildirilmez
+  // Blok düzeltilince kayıt bildirilir
   const fixed = runChecks(makeProject(t, { 'public/css/frekans.css': lines('.app-view[data-dj-col="on"] .stage { display: flex }') }), { cssExceptions: exceptions }).violations
   assert.deepEqual(of(fixed, 'public/css/frekans.css'), at('css', 1))
   assert.match(fixed[0].message, /CSS_EXCEPTIONS kaydı \(\.app-view\[data-dj-col="on"\] \.stage\) artık hiçbir ihlali kapsamıyor/)
   assert.equal(fixed.length, 1)
-  assert.deepEqual(runChecks(makeProject(t), { cssExceptions: exceptions }).violations, [])
+
+  // Dosya silinir veya yeniden adlandırılırsa kayıt da bildirilir, taşınan blok yeni dosyasında ihlaldir
+  const moved = runChecks(makeProject(t, {
+    'public/css/frekans.css': null,
+    'public/css/sahne.css': lines('.app-view[data-dj-col="on"] .stage { display: grid }')
+  }), { cssExceptions: exceptions }).violations
+  assert.deepEqual(of(moved, 'public/css/frekans.css'), at('css', 1))
+  assert.match(messageAt(moved, 'public/css/frekans.css', 1), /^CSS_EXCEPTIONS kaydının \(\.app-view\[data-dj-col="on"\] \.stage\) dosyası bulunamadı\./)
+  assert.deepEqual(of(moved, 'public/css/sahne.css'), at('css', 1))
+  assert.equal(moved.length, 2)
+
+  // Dosya listesi verilen kısmi taramada listede olmayan dosya bulunamadı sayılmaz
+  const gone = makeProject(t, { 'public/css/frekans.css': null })
+  assert.deepEqual(runChecks(gone, { cssExceptions: exceptions, files: ['server.js'] }).violations, [])
+  assert.deepEqual(runChecks(gone, { cssExceptions: [] }).violations, [])
 
   // Depodaki liste: her kayıt dosya, seçici ve not taşır
   for (const item of CSS_EXCEPTIONS) {
     assert.match(item.file, /^public\/css\/[\w/-]+\.css$/)
     assert.ok(item.selector && item.note, JSON.stringify(item))
   }
+})
+
+test('aspect-ratio yalnızca özellik olarak yakalanır, medya özelliği ve adında aspect-ratio geçen ad serbesttir', (t) => {
+  const violations = check(t, {
+    'public/css/a.css': lines(
+      '@media (min-aspect-ratio: 16/9) { .a { width: 1rem } }',
+      '@media (max-aspect-ratio: 1/1), (aspect-ratio: 4/3), ( aspect-ratio : 3/2 ) { .b { width: 1rem } }',
+      '@media screen and (device-aspect-ratio: 16/9) { .c { width: 1rem } }',
+      '.aspect-ratio-box { --aspect-ratio: 1; padding-top: var(--aspect-ratio) }',
+      '.d{aspect-ratio:1}',
+      '.e { color: red; aspect-ratio: 16 / 9 }',
+      '.f {',
+      '  color: red;',
+      '  /* yorum */ aspect-ratio: 1',
+      '}',
+      '@media (min-aspect-ratio: 16/9) { .g { aspect-ratio: 2 } }'
+    )
+  })
+  assert.deepEqual(of(violations, 'public/css/a.css'), at('css', 5, 6, 9, 11))
+  assert.match(messageAt(violations, 'public/css/a.css', 9), /^aspect-ratio kullanılmış \(\.f\)/)
+  assert.match(messageAt(violations, 'public/css/a.css', 11), /^aspect-ratio kullanılmış \(\.g\)/)
+  assert.equal(violations.length, 4)
 })
 
 test('i18n-parity: eksik anahtar, boş değer, parametre farkı, çoğul eşi ve yinelenen anahtar', (t) => {

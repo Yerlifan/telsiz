@@ -106,7 +106,10 @@ const MAX_DICTIONARY_DEPTH = 8
 
 // Stil dosyaları (CONTRIBUTING kural 14): istemcinin stilleri eski WebKit tabanlı tarayıcılarda (konsol
 // tarayıcıları) da çalışır. Düzen flexbox ve margin ile kurulur, aşağıdakiler kullanılmaz. Desenler yorumlar
-// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz).
+// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz,
+// grup eşleşmenin sonudur). aspect-ratio yalnızca bildirimin başında (`{`, `;` veya `}` ve boşluklardan sonra)
+// aranır: aynı ad parantez içinde medya özelliği olarak da yazılır, (aspect-ratio: 16/9), (min-aspect-ratio: 16/9)
+// ve (max-aspect-ratio: 1/1) eski WebKit'te de çalışır, yasak olan yalnızca özelliktir.
 const CSS_DIR = 'public/css/'
 const CSS_BANNED = [
   { pattern: /display\s*:\s*(?:inline-)?grid/g, name: 'grid düzeni (display: grid)' },
@@ -114,11 +117,12 @@ const CSS_BANNED = [
   { pattern: /clamp\(/g, name: 'clamp()' },
   { pattern: /:is\(/g, name: ':is()' },
   { pattern: /:where\(/g, name: ':where()' },
-  { pattern: /aspect-ratio/g, name: 'aspect-ratio' },
+  { pattern: /(^|[\x3b{}])(\s*)(aspect-ratio\s*:)/g, name: 'aspect-ratio', group: 3 },
   { pattern: /(^|[\x3b{\s])(inset\s*:)/g, name: 'inset', group: 2 }
 ]
 // Kaldırılması planlanmış bilinen ihlaller. Her kayıt bir dosyadaki tek bir kural bloğunu seçicisiyle kapsar.
-// Kayıt artık hiçbir ihlali kapsamıyorsa denetleyici bunu da bildirir, böylece istisna listede unutulmaz.
+// Kayıt artık hiçbir ihlali kapsamıyorsa veya dosyası bulunamıyorsa (silinmiş, yeniden adlandırılmış) denetleyici
+// bunu da bildirir, böylece istisna listede unutulmaz.
 const CSS_EXCEPTIONS = [
   {
     file: 'public/css/frekans.css',
@@ -1208,7 +1212,8 @@ function checkDocParity (markdown, report) {
 }
 
 // Ana denetim. options.files verilirse dosya listesi yerine o liste, options.cssExceptions verilirse
-// CSS_EXCEPTIONS yerine o liste kullanılır (testler için).
+// CSS_EXCEPTIONS yerine o liste kullanılır (testler için). Dosya listesi verilen kısmi taramada istisna
+// kaydının dosyası listede yoksa bulunamadı sayılmaz.
 
 function runChecks (rootDir, options) {
   const acorn = loadAcorn()
@@ -1270,7 +1275,9 @@ function runChecks (rootDir, options) {
     }
   }
   for (const item of cssExceptions) {
-    if (cssFiles.has(item.file) && !usedExceptions.has(item)) {
+    if (!cssFiles.has(item.file)) {
+      if (!Array.isArray(opts.files)) report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydının (' + item.selector + ') dosyası bulunamadı. Dosya silindiyse veya yeniden adlandırıldıysa kaydı scripts/denetle.js içinde güncelleyin ya da silin.')
+    } else if (!usedExceptions.has(item)) {
       report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydı (' + item.selector + ') artık hiçbir ihlali kapsamıyor. Kaydı scripts/denetle.js içinden silin.')
     }
   }
