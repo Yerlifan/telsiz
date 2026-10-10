@@ -1,0 +1,282 @@
+Rapor: ŞİFREMİ UNUTTUM (istek 14)
+
+Not: Depoda hiçbir dosyayı değiştirmedim. Tek geçici dosya `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/kurtarma-deneme.js` (deneme betiği).
+
+## 1. Kullanıcının isteği
+
+"Şifremi unuttum bölümü de olmalı"
+
+## 2. Mevcut durum
+
+**Giriş ekranı**
+- `public/index.html:380-387` giriş formunda yalnızca ad, parola, hata satırı ve Giriş Yap düğmesi var. "Parolamı unuttum" bağlantısı yok.
+- `public/js/03-auth.js:22` `AUTH_CARDS = ['setup','invite','login','key']`. Unutulan parola için bir kart yok.
+- `public/i18n.js` içinde forgot veya kurtarma anahtarı yok.
+
+**Parolanın türetilmesi**
+- Parola sunucuya gitmez. `public/crypto.js:917-968` (`kdfDerive`) önce `master = scrypt(NFC(parola), tuz, N, 8, 1)` hesaplar. Bundan `authKey = SHA512('telsiz-auth-v1'‖master)[0..32]` (sunucuya gider) ve `wrapKey = SHA512('telsiz-wrap-v1'‖master)[0..32]` (cihazda kalır) üretir. Yeni hesaplarda N=65536 (`crypto.js:48`).
+- Sunucu tarafında `src/auth.js:190` (`hashPassword`) authKey'in scrypt karmasını `config.scryptN=16384` ile saklar (`src/app.js:46`).
+
+**Kimlik anahtarının sarılması**
+- X25519 gizli anahtar `identityWrap` ile `'1w.'+nonce+'.'+secretbox(sk, wrapKey)` biçiminde sarılır (`crypto.js:986-996`).
+- `identityUnwrap` açılan anahtarın açık anahtarla eşleştiğini de denetler (`crypto.js:999-1020`).
+- Sunucu biçim denetimi: `src/auth.js:58` `WRAPPED_KEY_RE` ve `:167` `isWrappedKey`.
+- Kayıt sırasında kayıt isteği `kdf, publicKey, wrappedKey` taşır (`src/app.js:1682-1745`, istemcide `16-identity.js:153-164, 359-375`).
+
+**Sahibin sıfırlaması**
+- `handleResetPassword` (`src/app.js:2978-2995`) yalnızca sahip içindir (`requireOwner`, `app.js:1449`). Sahip kendini sıfırlayamaz (`app.js:2982`).
+- `auth.newCredentials` (`src/auth.js:241`) 12 karakterlik geçici bir parola üretir. Alfabe 55 karakter, yaklaşık 69 bit.
+- `applyCredentials` (`app.js:1614-1623`) şunları yapar: `publicKey`, `wrappedKey` ve `identity` alanlarını null yapar, `resetPending=true` olur, bütün oturumlar kapanır.
+- Arayüz: `public/js/11-settings.js:4181-4189` ve `:4292-4306` (Ayarlar > Üyeler > Parola Sıfırla).
+- Komut satırı: `server.js:393-460` (`sifre-sifirla`). Anahtarları aynı biçimde siler (`server.js:447`). Sahip parolasını unutursa tek yol budur.
+
+**Sıfırlamadan sonra**
+- Geçici parolayla giriş yapan kişinin hesabında `resetPending` vardır (`16-identity.js:285`).
+- Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulur: `openResetPassword` (`16-identity.js:645`) çağrılır, ardından `changePasswordRequest` (`:773`) ve `handleMyPassword` (`app.js:1846`).
+- Geçici parolayla `/api/me/keys` reddedilir (`app.js:1935-1949`, 409 `password_change_required`).
+
+**Özel mesajlara ne oluyor?**
+- `decryptDmMessage` (`public/js/15-dm.js:242-262`) yalnızca kişinin şu anki gizli anahtarını dener.
+- Sıfırlanan kişi gönderdiği ve aldığı bütün eski özel mesajları kaybeder.
+- Karşı taraf ise eski mesajları okumaya devam eder, çünkü sabitlemeler (pins) kişinin eski açık anahtarlarını tutar (`crypto.js:1420`).
+- Arayüz metni de bunu söyler: `i18n.js:336, 344`. Belgeler: `docs/KURULUM.md:367`, `docs/MIMARI.md:102`.
+
+**E-posta altyapısı**
+- Yok. Kullanıcı kaydında e-posta alanı yok.
+- `src`, `server.js` ve `package.json` içinde smtp, nodemailer veya mail geçmiyor.
+- `CONTRIBUTING.md:151` (kural 12) çalışma zamanı bağımlılığını yasaklıyor.
+
+**Hız sınırları**
+- `authLimiter`: adres başına 20 istek / 10 dk (`app.js:89, 964`).
+- `loginFailLimiter`, `accountNameLimiter`, `accountFailLimiter`: 10 deneme / 15 dk, hesap adı için iki katı (`app.js:964-977`).
+- scrypt kuyruğu: `gatedHash` (`app.js:1562`).
+
+**Küçük bir belge tutarsızlığı**
+- `docs/MIMARI.md:102` "sahip, yönetici veya komut satırı" sıfırlayabilir diyor. Kod ise yalnızca sahibe izin veriyor (`app.js:2979`).
+
+## 3. Kök neden, yapılabilirlik ve kısıtlar
+
+Bu bir hata değil, eksik bir özellik. Özel mesaj kaybını yeniden ürettim. `kurtarma-deneme.js`, `public/crypto.js` dosyasını vm içinde yükleyerek şunları gösterdi:
+- Sıfırlamadan sonra yeni anahtarla açma denemesi: `{"ok":false,"reason":"no_key"}`.
+- Eski anahtarla açma: `true`. Karşı tarafın eski açık anahtarla açması: `true`.
+
+Mevcut test de yeşil: `node --test --test-name-pattern="sahip parola sıfırlar" test/server-auth.test.js` geçti.
+
+Aynı betikte önerilen tasarımın prototipini de denedim:
+- 16 baytlık sırdan etiketli SHA-512 ile `recAuth` ve `recWrap` türettim. Mevcut `identity.wrap` ve `identity.unwrap` ile sardım.
+- Çıkan `1w.` biçimi sunucu desenine uyuyor.
+- Kurtarma koduyla açılan anahtar eski özel mesajı açtı.
+- Yanlış açık anahtarla açma reddedildi.
+
+Süre ölçümü (Node, bu makinede): scrypt N=65536 için 167 ms, N=16384 için 40 ms. Sunucuda her kurtarma denemesi bir giriş denemesi kadar maliyetli olur.
+
+**Seçeneklerin karşılaştırması**
+
+**(a) Kurtarma kodu (önerilen)**
+- Kod kayıtta ve ayarlarda üretilir. Kimlik anahtarı bir kez de kurtarma koduyla sarılır.
+- Kişi parolasını kendisi sıfırlar, açık anahtar değişmez, özel mesajlar korunur, kişilere anahtar değişti uyarısı çıkmaz.
+- Sunucuyu işleten kişi:
+  - Elinde `state.json` olsa bile 128 bitlik rastgele bir sırrı çevrimdışı deneyemez.
+  - Bugünkü en zayıf halka parolanın çevrimdışı kırılmasıdır (her deneme bir N=65536 scrypt). Kod bunu zayıflatmaz.
+  - Sunucu sahte bir sarılmış anahtar veremez, çünkü `recWrapKey` değerini bilmez ve secretbox doğrulaması başarısız olur. Unwrap da açık anahtarla eşleşmeyi denetler.
+  - Kalan risk, sunucunun değiştirilmiş JS sunması. Bu zaten `MIMARI.md`'de kabul edilmiş bir sınır.
+- Kaba kuvvet: 2^128 olasılık. Hız sınırının amacı yalnızca işlemciyi korumak.
+- NIST SP 800-63B-4 için arama özetleri şunu söylüyor: kurtarma kodu en az 64 bit olmalı, tek yönlü bir işlevle saklanmalı, denemeler kısıtlanmalı, kullanıldıktan sonra yenisi verilmeli (doğrulanamadı, bkz. kaynaklar).
+
+**(b) Giriş ekranından sahibe sıfırlama isteği**
+- Kimlik doğrulamasız bir uç gerekir. Bu uç spam ve taciz için kullanılabilir, yanıtlar farklıysa ad taraması yapılabilir, sosyal mühendislik riski artar.
+- Sahip geçici parolayı yine başka bir yoldan iletmek zorunda. Uygulama içi istek pek bir şey katmıyor.
+- Özel mesajlar yine kaybolur. Bugünkü sahip sıfırlamasıyla aynı sonuç.
+
+**(c) E-posta**
+- Gerekenler: e-posta alanı (yeni kişisel veri), bağımlılık eklenemediği için elle yazılmış bir SMTP, STARTTLS ve AUTH istemcisi, işletmecinin kuracağı bir aktarıcı.
+- Ev bağlantılarında 25 numaralı bağlantı noktası çoğu zaman kapalı. Spamhaus PBL dinamik ev adreslerini listeler. Gmail ise bütün göndericilerden SPF veya DKIM, PTR kaydı ve TLS istiyor.
+- Bu yolla da yalnızca parola sıfırlanır, şifreli veri geri gelmez. Proton'da da e-posta ve SMS yalnızca parolayı sıfırlıyor, eski verinin açılması için kurtarma ifadesi gerekiyor (doğrulanamadı).
+- Sonuç: önerilmiyor, büyüklüğü XL.
+
+**Kısıtlar**
+- ES2017, istekler yalnızca XHR ile, `innerHTML` yasak.
+- Kopyalama için hazır yardımcı var: `copyText` (`02-state-dom.js:508`). İndirme için `a.download` kalıbı var (`07-attachments.js:187-190`). PS5 tarayıcısında dosya indirmenin çalışıp çalışmadığını doğrulayamadım. Bu yüzden kod ekranda büyük gösterilir ve "yazın" uyarısı konur.
+
+**CONTRIBUTING notu**
+- `CONTRIBUTING.md:184` şifreleme protokolünü (anahtar kodu, anahtar türetme) değiştiren önerilerin kod yazılmadan önce bir issue'da tartışılmasını istiyor.
+- Bu tasarım yeni bir kod biçimi ve yeni türetme etiketleri ekliyor. Önce issue açılmalı (taslak 8. bölümde).
+
+## 4. Önerilen çözüm
+
+Varsayılan: (a) ve kurtarma kodu olmayanlar için açık yönlendirme (sahip sıfırlar).
+
+**Kod ve türetme** (`public/crypto.js`, yeni `E2EE.recovery`)
+- `recovery.generate()`: 16 rastgele bayt. Mevcut 28 karakterlik Crockford biçimi (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`), ancak sağlama etiketi farklı: `telsiz-recovery-v1/check`.
+- `recovery.parse(code)`: hata kodları `empty`, `bad_length`, `bad_char`, `bad_padding`, `bad_checksum`, `group_key_code`. Sonuncusu, girilen kod grup etiketiyle tutuyorsa "bu bir grup anahtarı" uyarısı içindir.
+- `recovery.derive(secret)`:
+  - `authKey = hex(SHA512('telsiz-recovery-v1/auth'‖s)[0..32])`
+  - `wrapKey = SHA512('telsiz-recovery-v1/wrap'‖s)[0..32]`
+  - İstemcide scrypt kullanılmaz. Sır 128 bit olduğu için gerekmez ve PS5'te anında çalışır. Grup anahtarı kodu da aynı yaklaşımı kullanıyor (`crypto.js:386-409`).
+- Sarma için mevcut `identity.wrap` ve `identity.unwrap` kullanılır.
+
+**Sunucuda saklanan veri** (`state.json`, kullanıcı kaydına bir alan)
+- `recovery: { v: 1, hash: 'scrypt$16384$8$1$<tuz>$<karma>', wrappedKey: '1w.…', createdAt: ms, label: 'Chrome, Windows' } | null`
+- `hash` alanı `auth.hashPassword(recoveryAuthKey, config.scryptN)` ile üretilir. `label` alanı `auth.sessionLabel` ile oluşturan cihazdan gelir.
+
+**`src/auth.js`**
+- `cleanRecoverySetup({authKey, wrappedKey})` ve `isRecoveryRecord()`.
+
+**`src/app.js`**
+- `normalizeUserFields` (`:471`): kaydı doğrular. Eski kayıtlarda alan yoksa diske yazmadan null yapar. `publicKey === null` ise null olur.
+- `handleRegister` (`:1682`): isteğe bağlı `recovery` alanı. Kayıtla aynı anda (atomik) saklanır.
+- `handleState` (`:1807`): yalnızca kişinin kendisine `recovery: {createdAt, label} | null` döner. Karma ve sarılmış anahtar hiçbir zaman dönmez.
+- Yeni uç `POST /api/me/recovery`:
+  - Gövde: `{ authKey, recovery: {authKey, wrappedKey} | null }`. `null` kodu kaldırır.
+  - Kodun yerini değiştirmek veya kaldırmak için şu anki parola gerekir. `accountFailLimiter 'p:'` kullanılır.
+  - Hata kodları: 409 `no_keys` veya `password_change_required`, 401 `bad_credentials`.
+  - Beklemeden (`await`) sonra `passHash` ve `publicKey` yeniden denetlenir.
+- Yeni uç `POST /api/recover/keys` (oturumsuz):
+  - Gövde: `{ name, recoveryAuthKey }`. Yanıt: `{ publicKey, wrappedKey: recovery.wrappedKey }`.
+  - Hesap yoksa, kodu yoksa veya kod yanlışsa yanıt hep aynıdır: 401 `bad_recovery`, aynı maliyette sahte (`dummyHash`) bir karma doğrulamasıyla.
+- Yeni uç `POST /api/recover` (oturumsuz):
+  - Gövde: `{ name, recoveryAuthKey, publicKey, newAuthKey, kdf, wrappedKey, recovery: {authKey, wrappedKey}, device? }`.
+  - Kodu yeniden doğrular. `publicKey` sunucudakinden farklıysa 409 döner. Doğru koddan sonra hesap engelliyse 403 `banned` döner.
+  - Şunları yeniler: `passHash`, `credEpoch`, `kdf`, `wrappedKey`. Kurtarma kodu zorunlu olarak yenisiyle değişir (tek kullanımlık).
+  - `resetPending=false` olur. Bütün oturumlar kapanır. Giriş sayaçları sıfırlanır.
+  - Yanıt: `{ token, user, keys, device, recovery }`. `publicKey`, `identity` ve `pv` değişmez, dolayısıyla meta yayını gerekmez.
+  - İki istek aynı anda gelirse ikincisi, karmanın değiştiğini görüp 401 alır.
+- Bu iki uç için hız sınırı:
+  - `authLimiter` adres başına.
+  - `loginFailLimiter 'r:'+ad+'|'+adres` ve `accountNameLimiter` veya `loginNameLimiter 'r:'+ad`.
+  - Bu sayaçlar giriş sayaçlarından ayrı tutulur, böylece kurtarma spamı girişi kilitlemez.
+- `applyCredentials` (`:1614`), `deleteAccount` (`:2000`) ve `server.js:440-450` (komut satırı) `recovery=null` yapar.
+
+**`src/i18n.js`**
+- Hata metinleri: `bad_recovery`, `keys_changed`, Türkçe ve İngilizce.
+
+**İstemci**
+- `public/js/16-identity.js`:
+  - `buildAccountKeys` kurtarma kodu da üretir.
+  - Yeni işlevler: `createRecoveryRequest(password)` (gizli anahtar yoksa parolayla açılır, `changePasswordRequest` kalıbıyla aynı) ve `recoverAccount(name, code, newPassword, onPercent)`.
+  - `recoverAccount` adımları: kodu ayrıştır, `/api/recover/keys` iste, anahtarı aç, yeni parolayla türet, yeni kurtarma koduyla sar, `/api/recover` gönder, kimliği ve giriş cihazı işaretini sakla.
+- Yeni `public/js/38-kurtarma.js` (33-37 oyun akışına ayrılmış):
+  - "Parolamı Unuttum" kartı.
+  - Hem kartta hem pencerede kullanılan kurtarma kodu görünümü: kod, Kopyala, İndir (`.txt`), "kaydettim" onay kutusu, Devam.
+  - Ayarlar > Hesap içindeki "Kurtarma Kodu" bölümünün kurucusu.
+- `03-auth.js`:
+  - `AUTH_CARDS`'a `'forgot'` ve `'recovery'` eklenir. Giriş formuna "Parolamı Unuttum" bağlantısı gelir.
+  - Kurulumdan sonra sıra: kurtarma kodu kartı, sonra davet kartı. Kayıttan sonra: kurtarma kodu kartı, sonra profil adımı.
+- Sahip sıfırlamasından sonraki `openResetPassword` başarılı olunca kurtarma kodu otomatik oluşturulup gösterilir. Sunucuda değişiklik gerekmez (`/api/me/recovery`).
+- `11-settings.js`:
+  - `buildAccountPage` (`:866`) içinde yeni bir bölüm.
+  - `resetConfirm` ve `tempHint` metinlerine "kurtarma kodu da silinir" eklenir.
+- Mevcut hesaplar: girişten sonra her kişiye bir kez, `localStorage` bayrağıyla hatırlatma. Ayarlar'da "yok" durumu vurgulu gösterilir.
+
+**Arayüz akışı**
+- Giriş ekranında Parolamı Unuttum'a basılır. Kart açılır: Kullanıcı adı, Kurtarma kodu, Yeni parola (iki kez) ve ilerleme yüzdesi.
+- Başarılı olursa yeni kurtarma kodu gösterilir ("eskisi artık geçersiz"), sonra uygulamaya girilir.
+- Kartın altında "Kurtarma kodum yok" bölümü: sahibe başka bir yoldan ulaşma, sahibin Ayarlar > Üyeler > Parola Sıfırla yapması, eski özel mesajların okunamayacağı. Sahip kendisi ise `telsiz sifre-sifirla <ad>` komutu.
+
+**i18n anahtarları** (`public/i18n.js`, Türkçe ve İngilizce)
+- `auth.forgot`, `auth.forgotTitle`, `auth.forgotLead`, `auth.forgotSubmit`, `auth.forgotBack`, `auth.recoveryCode`, `auth.recoveryCodeHint`, `auth.recoveryGroupKey`, `auth.forgotNoCodeTitle`, `auth.forgotNoCodeText`, `auth.forgotOwnerText` (`{command}` parametreli)
+- `recovery.title`, `recovery.lead`, `recovery.warning`, `recovery.copy`, `recovery.download`, `recovery.fileName`, `recovery.fileText` (`{server}`, `{name}`, `{code}`, `{date}` parametreli), `recovery.saved`, `recovery.continue`, `recovery.rotated`, `recovery.remind`
+- `settings.account.recoveryTitle`, `settings.account.recoveryNone`, `settings.account.recoveryCreated` (`{date}` ve `{device}` parametreli), `settings.account.recoveryCreate`, `settings.account.recoveryRenew`, `settings.account.recoveryRemove`, `settings.account.recoveryRemoveConfirm`, `settings.account.recoveryFailed`, `settings.account.recoveryRemoved`, `settings.account.recoveryRenewWithPassword`
+- `identity.error.group_key_code` ve öteki `parse` hata kodları için metinler.
+
+**Belgeler**
+- `docs/MIMARI.md` ve `docs/ARCHITECTURE.md` (Parola ve hesap, Kişisel anahtarlar, Sınırlar). "Yönetici" ifadesi de düzeltilir.
+- `docs/KURULUM.md:354` ve `docs/DEPLOYMENT.md`.
+- `README.md:166` ve İngilizce eşi.
+- İki CHANGELOG.
+- `CONTRIBUTING` modül tabloları (iki dil).
+- `SECURITY.md` için kapsam notu (isteğe bağlı).
+
+## 5. Testler
+
+**Birim testleri, sunucu** (yeni `test/server-kurtarma.test.js`)
+- Kayıtta kurtarma verisi saklanıyor mu, `/api/state` karmayı sızdırmıyor mu.
+- `/api/me/recovery`: parola yanlışsa 401 ve sayaç işliyor, `resetPending` veya anahtarsız durumda 409, kod yenilenince eski kod geçmiyor, `null` ile kaldırılıyor.
+- `/api/recover/keys`: hesap yokken, kod yokken ve kod yanlışken aynı 401 gövdesi, sahte karma doğrulaması çalışıyor, 429 sınırı, giriş etkilenmiyor.
+- `/api/recover`:
+  - Değişmesi gerekenler: `passHash`, `kdf`, `wrappedKey`, `credEpoch` (eski cihaz işaretleri geçersiz), kurtarma kodu yenilendi (eski kod geçmiyor), oturumlar kapandı.
+  - Değişmemesi gerekenler: `publicKey`, `identity`, `pv`.
+  - Engelli hesapta 403, `publicKey` farklıysa 409, aynı anda iki istekten biri reddediliyor.
+- `applyCredentials`, komut satırı (`test/server-cli.test.js`) ve hesap silme kurtarma verisini siliyor mu.
+- Normalleştirme ve yeniden başlatmada kalıcılık (`server-kalicilik`).
+
+**Birim testleri, istemci**
+- `test/crypto.test.js`:
+  - Kod biçimi.
+  - Grup anahtarı kodunun reddedilmesi.
+  - Türetme vektörleri, bağımsız olarak Python `hashlib` ile hesaplanmış (mevcut VECTORS kalıbı).
+  - Sarma ve açma turu.
+  - Etiket ayrımı.
+- vm testi (`test/sifre-sifirlama-istemci.test.js` kalıbında):
+  - `recoverAccount` aynı gizli anahtarı yeniden sarıyor ve gönderilen istek gövdeleri doğru.
+  - 409 alınca anahtarlar yeniden yükleniyor.
+  - Yeni kod gösteriliyor.
+
+**E2E** (`e2e/16-kurtarma.test.js`, `setupWorld` kalıbı, rastgele port)
+- Üye özel mesaj alıp gönderir. Çıkış yapar. Parolamı Unuttum'dan kodla yeni parola belirler. Eski mesaj okunur, karşı tarafta anahtar uyarısı çıkmaz.
+- Kodu olmayan kişi yönlendirme metnini görür.
+- Ayarlardan kod oluşturma, yenileme ve kaldırma.
+- Telefon genişliğinde yatay taşma olmaması (`overflowX`).
+
+**Elle deneme**
+- PS5 tarayıcısı (kopyalama ve indirme), Electron, Firefox, ekran okuyucu etiketleri.
+- `npm run denetle`, `npm test`, `npm run test:e2e`.
+
+## 6. Riskler ve güvenlik etkisi
+
+- **Kod parolaya eşdeğer.** Kodu ele geçiren kişi parolayı değiştirebilir ve özel mesajları okuyabilir. Önlemler: uyarı metni, kullanımdan sonra yenileme, ayarlarda oluşturma tarihi ve cihaz etiketi, kaldırma seçeneği. İndirilen dosya ve pano geçmişi (bulut panosu) için uyarı konur.
+- **Kalıcılık saldırısı.** Parolayı öğrenen biri kurtarma kodu üretir. Kurban parolasını değiştirse bile saldırgan kodla hesabı geri alabilir. Önlem: kod oluşturmak için parola şart. Parola değiştirme formunda "kurtarma kodunu da yenile" seçeneği ve oluşturan cihaz bilgisi.
+- **Şifreleme.** Sunucu çevrimdışı saldırı yapamaz (128 bit). Sahte bir sarılmış anahtar veremez (secretbox ve açık anahtar denetimi). Kod verisini silebilir veya değiştirebilir, bu yalnızca hizmeti engeller.
+- **Ad taraması.** Yanıtlar ve süreler aynı tutulur. Engelli hesap yalnızca doğru koddan sonra açığa çıkar (girişle aynı kural).
+- **Kilitleme ve işlemci yükü.** Ayrı `r:` sayaçları, `authLimiter` ve `gatedHash` kuyruğu.
+- **Ağ kesintisi.** `/api/recover` yanıtı kaybolursa yeni kod da kaybolur. Kişi yeni parolayla girip ayarlardan yeni kod üretir. Bu belgelenir.
+- **Gizlilik.** Yeni kişisel veri yok. Yalnızca cihaz etiketi saklanır (oturumlarda zaten var).
+- **Protokol değişikliği.** Hassas alanlar söz konusu (`CONTRIBUTING.md` tablosu). Biçim `v:1` ve `-v1` etiketleriyle sürümlenir.
+
+## 7. Büyüklük
+
+L. Yaklaşık 17 adım: issue, crypto ve vektörler, auth.js, app.js (normalleştirme, durum, kayıt, me/recovery), kurtarma uçları ve hız sınırları, sıfırlama ve silme temizliği ve komut satırı, sunucu i18n, sunucu testleri, 16-identity yardımcıları, 38-kurtarma arayüzü, 03-auth, index ve 02 ve sw entegrasyonu, ayarlar bölümü, CSS, istemci i18n, istemci ve e2e testleri, belgeler, denetim ve test koşusu.
+
+## 8. Karar noktaları ve önerdiğim varsayılanlar
+
+1. **Önce issue açılsın** (CONTRIBUTING:184). Taslak: "Kurtarma kodu: 128 bitlik kodla parolayı kendin sıfırla, kimlik anahtarı korunur." İçeriği 3. ve 4. bölümlerdeki biçim, uçlar ve tehdit modeli.
+2. **Kayıtta kod üretilip gösterilsin**, devam etmek için "kaydettim" onay kutusu gereksin. Gerekçe: çoğu kişi ayarlara girmez, saklanmayan bir kod da zararsızdır.
+3. **Biçim:** 16 bayt, mevcut 28 karakterlik biçim, ayrı sağlama etiketi. Kelime listesini önermiyorum, çünkü iki dilde ayrı sözlük gerekir.
+4. **Kod tek kullanımlık olsun**, kurtarmadan sonra zorunlu olarak yenisi verilsin (NIST yaklaşımı).
+5. **Parola değişince kod geçerli kalsın.** Formda "kurtarma kodunu da yenile" kutusu olsun, varsayılan kapalı.
+6. **Sahip veya komut satırı sıfırlaması kodu da silsin** (anahtarlar zaten siliniyor).
+7. **(b) şimdilik yapılmasın.** Bunun yerine giriş ekranında açık yönlendirme metni olsun. **(c) yapılmasın.**
+8. **İndirilen dosyaya grup anahtarı eklenmesin.** Dosya sızarsa grup geçmişi de açılır.
+9. **Mevcut hesaplara** girişten sonra bir kez hatırlatma yapılsın, ayarlarda durum vurgulu gösterilsin.
+10. **Yeni modül numarası 38** olsun. Paralel akışlarla çakışmamalı.
+11. **Arayüz düzenine ek seçenek:** Çakışma riskini azaltmak için "Parolamı Unuttum" bağlantısı mevcut giriş formuna, kurtarma kartları ise yeni modülde dinamik olarak oluşturulsun.
+
+## 9. Dokunulacak paylaşılan dosyalar (çakışma haritası)
+
+**Paylaşılan**
+- `public/i18n.js`, `src/i18n.js`
+- `public/index.html`: giriş formu bağlantısı, kart yuvası, betik etiketi
+- `public/sw.js`: kabuk listesi
+- `public/js/02-state-dom.js`: `ELEMENT_IDS`
+- `public/js/03-auth.js`, `public/js/11-settings.js`
+- `src/app.js`, `src/auth.js`, `server.js`
+- CSS: `public/css/people.css` veya `components.css` (auth kartı)
+- Belge çiftleri, CHANGELOG ve CONTRIBUTING çiftleri
+
+**Bu işe özel**
+- `public/crypto.js`, `public/js/16-identity.js`, yeni `public/js/38-kurtarma.js`
+- Yeni test dosyaları
+
+**Dokunulmayacaklar**
+- `voice.js` ve `public/js/33-37`. `tokens.css` de gerekmiyor.
+
+## Dış kaynaklar ve doğrulama durumu
+
+Bu ortamda WebFetch DNS hatası verdi, curl ise vekilden 403 aldı. Bu yüzden birincil sayfaları açamadım. Aşağıdaki iddiaların hepsi yalnızca WebSearch özetlerine dayanıyor.
+
+- **NIST SP 800-63B-4** (kurtarma kodu en az 64 bit, karmayla saklama, deneme kısıtı, kullanımdan sonra yenileme, en fazla 100 başarısız deneme): doğrulanamadı. https://pages.nist.gov/800-63-4/sp800-63b/events/ , https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63B-4.pdf
+- **Proton** (kurtarma ifadesi veriyi kurtarır, e-posta ve SMS yalnızca parolayı sıfırlar): doğrulanamadı. https://proton.me/support/recover-encrypted-messages-files , https://proton.me/support/set-account-recovery-methods
+- **OWASP scrypt N=2^17, r=8, p=1:** ikincil kaynaklar birbiriyle çelişiyor, doğrulanamadı. https://mojoauth.com/security-guides/bcrypt-vs-scrypt , https://www.authgear.com/de/tools/password-hash-generator/ . Bu yalnızca bağlam bilgisi: istemcinin N=65536 değeri bunun altında, kurtarma kodu ise bu değere bağlı değil.
+- **OWASP Forgot Password** (hesap var olsun olmasın aynı yanıt, hız sınırı): ikincil kaynaklar, doğrulanamadı. https://github.com/liufee/cms/issues/79 , https://meta.discourse.org/t/email-enumeration-vulnerability-on-password-reset-dialogue/273449?tl=en
+- **Gmail gönderici kuralları** (2024'ten beri SPF veya DKIM, PTR kaydı, TLS): https://support.google.com/a/answer/81126
+- **Ev bağlantılarında 25 numaralı bağlantı noktası ve Spamhaus PBL:** https://www.spamhaus.org/faq/section/Spamhaus%20PBL
