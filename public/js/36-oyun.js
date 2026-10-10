@@ -17,8 +17,8 @@
 // Uygulama arayüzünün sözleşmesi (gameUiRegister(id, ui)), name ve render zorunlu, diğerleri isteğe bağlıdır:
 //   name(), tagline(), rulesLabel(rules), rulesHint(rules), rulesLine(rules), render(box, model),
 //   statusParts(model) -> [metin], turnOf(model) -> id, turnText(model), onTurn(box, model), eventText(olay, model),
-//   errorText(kod), results(model) -> { reason, winner, total, ranks: [{ id, rank, n, points }] }, notes(model) -> [metin],
-//   firstFocus(box) -> öğe
+//   errorText(kod) -> metin veya false (sessiz kod), results(model) -> { reason, winner, total, ranks: [{ id, rank, n, points }] },
+//   notes(model) -> [metin], firstFocus(box) -> öğe, stageClosed() (sahne kapandı, uygulama kendi katmanlarını kapatır)
 
 const GAME_TICK_MS = 250
 const GAME_ANNOUNCE_MS = 400
@@ -357,6 +357,7 @@ function gameErrorText (code, app) {
   if (code === 'locked') return t('game.setupLocked')
   const ui = gameUi(app)
   const own = gameUiCall(ui, 'errorText', [code], '')
+  if (own === false) return ''
   if (own) return String(own)
   return app && hasText('game.' + app + '.err.' + code) ? t('game.' + app + '.err.' + code) : ''
 }
@@ -609,6 +610,9 @@ function gameStageClosed () {
   gameState.focusNext = null
   gameState.trustOpen = false
   gameState.picker = null
+  Object.keys(gameState.uis).forEach((id) => {
+    gameUiCall(gameState.uis[id], 'stageClosed', [], null)
+  })
 }
 
 function gameStageTitle () {
