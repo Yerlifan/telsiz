@@ -68,6 +68,7 @@ const background = require('./lib/background')
 const serverIcon = require('./lib/server-icon')
 const pttHook = require('./lib/ptt-hook')
 const titleBar = require('./lib/title-bar')
+const windowState = require('./lib/window-state')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
 
@@ -154,7 +155,9 @@ const state = {
   lastBackgroundOpen: 0,
   // Başlık çubuğu (src/lib/title-bar.js): uygulama penceresi kaplamayla mı açıldı, sayfanın son bildirdiği renkler
   titleBarOverlay: false,
-  titleBarColors: null
+  titleBarColors: null,
+  // Uygulama penceresinin durum bildiricisi (src/lib/window-state.js), pencere başına bir tane
+  windowStates: new WeakMap()
 }
 
 function t (key, params) {
@@ -567,6 +570,11 @@ function openMainWindow () {
     win.on('enter-full-screen', () => sendFullscreen(true))
     win.on('leave-full-screen', () => sendFullscreen(false))
   }
+  // Simge durumuna küçültme, geri yükleme, tepsiye gizleme ve gösterme bu pencerenin sayfasına yalnızca
+  // beyaz listedeki değerlerle bildirilir (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
+  state.windowStates.set(win, windowState.watch(win, (value) => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.windowState, value)
+  }))
   const id = win.webContents.id
   state.contexts.set(id, 'app')
   diag.log('window', { context: 'app', contents: id })
@@ -615,6 +623,10 @@ function showMain () {
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
+    // Tepsiden (veya simge durumundan) dönüşte sayfa her zaman 'shown' alır. show olayı da geldiyse
+    // aynı değer ikinci kez gönderilmez.
+    const reporter = state.windowStates.get(win)
+    if (reporter) reporter.report('shown')
     return
   }
   if (isAlive(state.connectWindow)) {

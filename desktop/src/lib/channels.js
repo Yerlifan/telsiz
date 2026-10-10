@@ -33,6 +33,9 @@ const CHANNELS = Object.freeze({
   titleBarColors: 'telsiz:title-bar-colors',
   titleBarMenu: 'telsiz:title-bar-menu',
   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
+  // Pencere durumu (src/lib/window-state.js): küçültme, geri yükleme, tepsiye gizleme ve gösterme (ana
+  // süreçten sayfaya)
+  windowState: 'telsiz:window-state',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',

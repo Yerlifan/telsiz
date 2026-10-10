@@ -24,6 +24,7 @@ const CHANNELS = {
   titleBarColors: 'telsiz:title-bar-colors',
   titleBarMenu: 'telsiz:title-bar-menu',
   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
+  windowState: 'telsiz:window-state',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -43,6 +44,8 @@ const CHANNELS = {
 const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
 const HOLD_PHASES = ['start', 'end']
 const PTT_MODES = ['toggle', 'hold']
+// Pencere durumu yalnızca bu değerlerle sayfaya verilir (src/lib/window-state.js ile aynı)
+const WINDOW_STATES = ['minimized', 'restored', 'hidden', 'shown']
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
@@ -148,6 +151,20 @@ ipcRenderer.on(CHANNELS.titleBarFullscreen, (event, value) => {
   }
 })
 
+// Uygulama penceresinin durumu: 'minimized', 'restored', 'hidden' veya 'shown'. Olay nesnesi verilmez,
+// beyaz listede olmayan değer sayfaya hiç ulaşmaz.
+const windowStateListeners = new Set()
+ipcRenderer.on(CHANNELS.windowState, (event, value) => {
+  if (!WINDOW_STATES.includes(value)) return
+  for (const callback of Array.from(windowStateListeners)) {
+    try {
+      callback(value)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
 function shortText (value, max) {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
@@ -229,6 +246,16 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
       return () => {
         fullscreenListeners.delete(callback)
       }
+    }
+  },
+  // callback(state): pencere simge durumuna küçültülünce 'minimized', simge durumundan dönünce 'restored',
+  // tepsiye gizlenince 'hidden', gösterilince (tepsiden dönüş dahil) 'shown'. Birden çok dinleyici olabilir,
+  // dönen işlev aboneliği kaldırır.
+  onWindowState: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    windowStateListeners.add(callback)
+    return () => {
+      windowStateListeners.delete(callback)
     }
   },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta

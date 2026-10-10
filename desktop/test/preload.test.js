@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
@@ -343,6 +343,7 @@ test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
   assert.ok(preload.includes("const PTT_MODES = ['" + require('../src/lib/shortcuts').PTT_MODES.join("', '") + "']"))
   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
   assert.ok(preload.includes("const BACKGROUND_ARG = '" + channels.BACKGROUND_ARG + "'"))
+  assert.ok(preload.includes("const WINDOW_STATES = ['" + require('../src/lib/window-state').STATES.join("', '") + "']"))
 })
 
 test('ana süreç sertleştirmeleri kaynakta bulunur', () => {

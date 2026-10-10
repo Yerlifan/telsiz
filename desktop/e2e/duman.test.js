@@ -17,6 +17,7 @@
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
 //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
+// - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -410,7 +411,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -1018,4 +1019,68 @@ test('frekans listesi: ilk sunucu listede ve etkin, Frekans ekle penceresi boş 
   await connect.evaluate(() => document.getElementById('cancel').click()).catch(() => {})
   await closed
   assert.equal(ctx.page.url(), 'telsiz://app/')
+})
+
+// Pencere durumu (telsiz:window-state): simge durumu, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya
+// yalnızca beyaz listedeki değerlerle ulaşır. xvfb altında pencere yöneticisi olmadığı için minimize() pencereyi
+// simge durumuna almaz (Electron 44.5.1 ile denendi), bu durumda olay ana süreçte elle üretilir: eşleme ve
+// sayfaya iletim yine gerçek kanaldan denetlenir. Tepsiden dönüş tepsi tıklamasıyla aynı işlevden (showMain)
+// geçer, burada ikinci örnek açılışı (second-instance) ile tetiklenir.
+test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya bildirilir', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  await page.evaluate(() => {
+    window.__pencere = []
+    window.__pencereKapat = window.telsizDesktop.onWindowState((value) => window.__pencere.push(value))
+  })
+  const states = () => page.evaluate(() => window.__pencere.slice())
+  // Değerin from sırasından sonra gelmesi beklenir, sonraki aramanın başlangıç sırası döner
+  const seen = async (value, from, label) => {
+    const list = await waitFor(async () => {
+      const got = await states()
+      return got.indexOf(value, from) !== -1 ? got : null
+    }, label)
+    return list.indexOf(value, from) + 1
+  }
+  const realMinimize = await ctx.app.evaluate(async ({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.minimize()
+    const end = Date.now() + 3000
+    while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (win.isMinimized()) return true
+    win.emit('minimize')
+    return false
+  })
+  if (!realMinimize) t.diagnostic('pencere yöneticisi yok: minimize olayı ana süreçte elle üretildi')
+  let next = await seen('minimized', 0, 'minimized')
+  await ctx.app.evaluate(({ BrowserWindow }, real) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (real) win.restore()
+    else win.emit('restore')
+  }, realMinimize)
+  next = await seen('restored', next, 'restored')
+  const visible = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
+  // Tepsiye kapatma pencereyi hide() ile gizler
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).hide()
+  })
+  next = await seen('hidden', next, 'hidden')
+  assert.equal(await visible(), false)
+  await ctx.app.evaluate(({ app }) => {
+    app.emit('second-instance')
+  })
+  next = await seen('shown', next, 'shown')
+  assert.equal(await visible(), true)
+  // Beyaz listede olmayan değerler sayfaya ulaşmaz
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.webContents.send('telsiz:window-state', 'maximized')
+    win.webContents.send('telsiz:window-state', { state: 'hidden' })
+    win.webContents.send('telsiz:window-state', ['hidden'])
+    win.webContents.send('telsiz:window-state', 'restored')
+  })
+  await seen('restored', next, 'restored after invalid values')
+  const got = await states()
+  assert.ok(got.every((value) => ['minimized', 'restored', 'hidden', 'shown'].includes(value)), got.join())
+  assert.equal(got[got.length - 1], 'restored')
+  await page.evaluate(() => window.__pencereKapat())
 })
