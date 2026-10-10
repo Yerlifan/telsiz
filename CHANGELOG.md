@@ -11,6 +11,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 ### Düzeltmeler
 
 - Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
+- Başka bir konuşmaya geçince yazma alanındaki metin ve ekler yeni konuşmada da duruyordu: özel mesajda yazılan metin ve eklenen fotoğraf bir yazı odasına geçince yazma alanında duruyor ve Gönder düğmesiyle o odaya gönderilebiliyordu. Aynı durum yazı odaları arasında da vardı. Artık her yazı odasının ve özel konuşmanın kendi taslağı vardır: konuşmadan çıkınca metin ve ekler o konuşmada kalır, geri dönünce yerinde durur, başka bir konuşmanın yazma alanında görünmez ve gönderilemez. Yüklemesi süren ek kendi konuşmasında tamamlanır. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değiştirilince silinir, kişi engellenince o kişiyle özel konuşmanın, yazı odası silinince o odanın taslağı silinir.
 
 ## [2.5.0]
 
