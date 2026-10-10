@@ -132,6 +132,47 @@ test('telefon 390: özel mesaj ve arkadaşlar görünümünde yatay taşma yok',
   await page.setViewportSize({ width: 1440, height: 900 })
 })
 
+// Kenar belirteçleri (--live-edge, --danger-edge) her temada tanımlıdır. Tanımsız belirteç border kısaltmasını
+// geçersiz kılıyor ve kenar hiç çizilmiyordu (Arcade ve Turkuaz): kamera göstergesi (tehlike kenarı) ve paylaşım
+// bildirimi (canlı kenarı) her tema ve modda ölçülür.
+test('kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda çizilir', async () => {
+  const result = await W.deniz.evaluate(() => {
+    const root = document.documentElement
+    const before = { skin: root.getAttribute('data-skin'), scheme: root.getAttribute('data-scheme') }
+    const cam = document.getElementById('radio-cam-live')
+    const notice = document.createElement('div')
+    notice.className = 'cast-notice'
+    notice.hidden = true
+    document.body.appendChild(notice)
+    const schemes = ['dark', 'light']
+    const out = []
+    window.TelsizTheme.skins.forEach((skin) => {
+      schemes.forEach((scheme) => {
+        root.setAttribute('data-skin', skin)
+        root.setAttribute('data-scheme', scheme)
+        const a = getComputedStyle(cam)
+        const b = getComputedStyle(notice)
+        out.push({ skin, scheme, cam: a.borderTopStyle, camWidth: parseFloat(a.borderTopWidth), camColor: a.borderTopColor, notice: b.borderTopStyle, noticeWidth: parseFloat(b.borderTopWidth) })
+      })
+    })
+    notice.remove()
+    root.setAttribute('data-skin', before.skin)
+    root.setAttribute('data-scheme', before.scheme)
+    return out
+  })
+  assert.ok(result.length >= 6, 'en az üç tema ve iki mod')
+  for (const r of result) {
+    assert.equal(r.cam, 'solid', r.skin + ' ' + r.scheme + ' kamera göstergesi kenarı')
+    assert.ok(r.camWidth > 0, r.skin + ' ' + r.scheme + ' kamera göstergesi kenar kalınlığı')
+    assert.equal(r.notice, 'solid', r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenarı')
+    assert.ok(r.noticeWidth > 0, r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenar kalınlığı')
+  }
+  // Her tema kendi kenar tonunu verir
+  const color = (skin, scheme) => result.find((r) => r.skin === skin && r.scheme === scheme).camColor
+  assert.notEqual(color('arcade', 'dark'), color('turkuaz', 'dark'))
+  assert.notEqual(color('arcade', 'dark'), color('arcade', 'light'))
+})
+
 test('konsol ve sunucu günlüğü temiz', async () => {
   h.assertCleanConsole(W.w.logs, W.w.srv.errors)
 })
