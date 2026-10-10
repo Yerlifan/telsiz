@@ -414,8 +414,8 @@ function envelopes (net, from, to, k) {
   }).filter((it) => it.x && (!k || it.x.k === k))
 }
 
-// Gizli el sızıntısı: alınan her iletinin açılmış metninde gezinilir. Kart kodu yalnızca alıcının kendi elinde
-// (b.mine), üstteki kartta (b.view.top) ve play olaylarında (b.ev[i].c) bulunabilir.
+// Gizli el sızıntısı: alınan her iletinin açılmış metninde gezinilir. Kart kodu yalnızca bu sayfaya gönderilmiş
+// durumda alıcının kendi elinde (b.mine), üstteki kartta (b.view.top) ve play olaylarında (b.ev[i].c) bulunabilir.
 function leaks (page) {
   const out = []
   const walk = (x, trail, root) => {
@@ -428,17 +428,17 @@ function leaks (page) {
   }
   page.inbox.forEach((item) => {
     const x = readAt(page, item.from, item.p)
-    if (x) walk(x, [], x)
+    if (x) walk(x, [], { x, own: x.k === 'state' && x.to === page.who.uid })
   })
   return out
 }
 
 function cardAllowed (root, trail) {
   const pathText = trail.join('.')
-  if (root.k !== 'state') return false
+  if (!root.own) return false
   if (pathText === 'b.view.top' || pathText === 'b.mine.drawn' || /^b\.mine\.cards\.\d+$/.test(pathText)) return true
   const m = /^b\.ev\.(\d+)\.c$/.exec(pathText)
-  return Boolean(m) && root.b.ev[Number(m[1])].e === 'play'
+  return Boolean(m) && root.x.b.ev[Number(m[1])].e === 'play'
 }
 
 // ----- Botlar -----
@@ -573,9 +573,10 @@ function playFree (t, rand, maxMs) {
   assert.ok(settle(t), 'ağ sakinleşince görünümler kurpiyerle aynı')
 }
 
+// Kurpiyer dışındaki herkesin (masadan düşenler dahil) şu anki sayfası
 function noLeaks (t) {
-  t.P.forEach((P) => {
-    same(leaks(P.page), [], 'sızıntı yok: ' + P.uid)
+  Object.keys(t.net.people).filter((uid) => uid !== t.K.uid).forEach((uid) => {
+    same(leaks(t.net.people[uid].page), [], 'sızıntı yok: ' + uid)
   })
 }
 
@@ -606,6 +607,7 @@ describe('tam eller', () => {
     noBadState(t)
     const s = t.net.stats
     assert.ok(s.lost > 0 && s.dup > 0 && s.copy > 0 && s.reordered > 0 && s.refused > 0, 'ağ koşulları uygulandı ' + text(s))
+    assert.ok(s.notFresh > 0, 'çift ve geride kalan zarflar dış katmanda atıldı')
   })
 })
 
@@ -683,15 +685,22 @@ describe('yeniden bağlanma ve yenileme', () => {
     const B = t.P[0]
     const C = t.P[1]
     start(t)
+    // from kişisinin to kişisine since anından sonra gönderdiği bir zarf sunucuya ulaştı (henüz teslim edilmedi)
+    const routed = (from, to, since) => () => t.net.log.some((m) => m.from === from && m.to === to.peerId && m.at >= since)
     playLocked(t, rand, { until: (n) => n >= 4 && K.page.R.turnOf(K.page.game) === B.uid })
-    // B hamlesini yapar ve hamle yoldayken K ile B arasındaki bağlantı yeniden kurulur (bu an kayıpsız)
+    // B hamlesini yapar ve hamle yoldayken K ile B arasındaki bağlantı yeniden kurulur (bu an kayıpsız ve
+    // saldırgan kopyası olmadan)
     t.net.o.loss = 0
+    t.net.o.copy = 0
     let stale = t.net.stats.staleSid
+    let since = t.net.clock
     assert.equal(B.page.desk.act(chooseMove(rand, B.page.model(), { catch: 0, late: 0, drawInstead: 0, announce: 0 })), true)
+    assert.ok(t.net.runUntil(routed(B, K, since), 30000))
     t.net.connect(K.page, B.page)
     t.net.run(2000)
     assert.ok(t.net.stats.staleSid > stale, 'eski sid ile gelen hamle atıldı')
     t.net.o.loss = 0.1
+    t.net.o.copy = 0.05
     assert.ok(settle(t))
     const acts = envelopes(t.net, B, K, 'act')
     const lastTwo = acts.slice(-2)
@@ -700,13 +709,17 @@ describe('yeniden bağlanma ve yenileme', () => {
     // Kurpiyerin hamlesinin durumu C'ye giderken bağlantı yeniden kurulur
     playLocked(t, rand, { until: () => K.page.R.turnOf(K.page.game) === K.uid })
     t.net.o.loss = 0
+    t.net.o.copy = 0
     stale = t.net.stats.staleSid
     const r = envelopes(t.net, K, C, 'state').pop().x.r
+    since = t.net.clock
     assert.equal(K.page.desk.act(chooseMove(rand, K.page.model(), { catch: 0, late: 0, drawInstead: 0, announce: 0 })), true)
+    assert.ok(t.net.runUntil(routed(K, C, since), 30000))
     t.net.connect(K.page, C.page)
     t.net.run(2000)
     assert.ok(t.net.stats.staleSid > stale, 'eski sid ile gelen durum atıldı')
     t.net.o.loss = 0.1
+    t.net.o.copy = 0.05
     assert.ok(settle(t))
     assert.ok(C.page.model().view.step >= 1)
     assert.ok(envelopes(t.net, K, C, 'state').pop().x.r > r)

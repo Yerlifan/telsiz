@@ -1330,7 +1330,6 @@ window.TelsizGameDesk = (function (G) {
       }
       if (T.inv.key !== null && T.inv.key !== 'loading') return false
       T.joinWanted = false
-      left = null
       delete declined[T.dealer]
       T.stage = 'joining'
       T.ni = T.inv.ni
