@@ -10,8 +10,8 @@ RUNS = sys.argv[1:]
 
 
 def clean(text):
-    text = text.replace('—', ',').replace('–', ',')
-    return re.sub('[​-‏‪-‮⁠-⁤﻿ ]', ' ', text)
+    text = text.replace('\u2014', ',').replace('\u2013', ',')
+    return re.sub('[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00a0]', ' ', text)
 
 
 changed = False
