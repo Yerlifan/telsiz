@@ -1,0 +1,29 @@
+{
+ "bulgular": [
+  {
+   "onem": "dusuk",
+   "dosya": "public/css/components.css",
+   "satir": 2013,
+   "ozet": ".msg-dj için gap yerine konan margin düzeni eski gap düzeniyle aynı sonucu vermiyor. Satır sonuna düşen öğe 0.5rem sağ boşluğunu koruduğu için DJ duyurusunun metni daha erken kırılıyor.",
+   "senaryo": "Gerçek TR metinle ('Telsiz DJ kuyruğuna bir YouTube parçası ekledi.' ve 'YouTube'da aç') Chromium'da 150-700 px arası her genişlikte eski gap kuralı ile yeni kural ölçüldü. Duyurunun altındaki öğenin konumu 24 genişlikte farklı çıktı: 160-167, 319-326 ve 342-349 px. Bunlar 8 px'lik (0.5rem) bantlar. Örneğin 300 px'lik kapta metin span'i 298 px yerine 292 px genişlik alıyor. Metin iki satıra kırılıyor, duyuru bir satır uzuyor ve sonraki öğe 23 px aşağı iniyor. Kod yorumundaki 'öğeler arasındaki 0.5rem çocukların sağ boşluğudur (son çocukta yok)' açıklaması eşdeğerlik ima ediyor, ama yalnızca son çocuğun boşluğu sıfırlanıyor, satır sonundaki öğelerinki sıfırlanmıyor.",
+   "oneri": "Kapsayıcıya margin-right: -0.5rem verip .msg-dj > :last-child kuralını kaldırın. #radio-cam-bar'daki 'öğelerin kenar boşluğu ve kabın eksi kenar boşluğu' kalıbı budur. Aynı ölçümde bu düzen 551 genişliğin hepsinde gap ile birebir aynı sonucu verdi. Telefon genişliğinde yatay taşma olmadığı 03 ve 06 e2e dosyalarındaki taşma denetimiyle doğrulanmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "scripts/denetle.js",
+   "satir": 117,
+   "ozet": "aspect-ratio deseni öneksiz ve sınırsız olduğu için eski WebKit'in desteklediği min-aspect-ratio ve max-aspect-ratio medya özelliklerini de ihlal sayıyor. Adında aspect-ratio geçen sınıf ve özel değişken adları da yakalanıyor.",
+   "senaryo": "public/css/x.css içine '@media (min-aspect-ratio: 16/9) { .a { width: 1rem } }' yazılınca denetleyici 'x.css:1 aspect-ratio kullanılmış. Eski WebKit tabanlı tarayıcılar desteklemez' raporluyor ve çıkış kodu 1 oluyor (geçici projede runChecks ile doğrulandı). Oysa aspect-ratio medya özelliği eski WebKit'te de çalışıyor. Yasak olan yalnızca aspect-ratio özelliği. '.aspect-ratio-box' sınıfı ya da '--aspect-ratio' değişkeni de aynı biçimde yakalanır. Şu anda depoda böyle bir kullanım yok, denetleyici temiz geçiyor.",
+   "oneri": "gap ve inset desenlerindeki gibi bildirim biçimiyle sınırlayın, örneğin /(^|[\\x3b{\\s])(aspect-ratio\\s*:)/g ve group: 2. Medya özelliği için ayrı bir test satırı ekleyin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "scripts/denetle.js",
+   "satir": 1273,
+   "ozet": "Gereksiz kalan CSS_EXCEPTIONS kaydı yalnızca kaydın dosyası taranıyorsa bildiriliyor. Dosya silinir ya da yeniden adlandırılırsa kayıt listede sessizce kalıyor. Bu, CONTRIBUTING kural 14'teki 'gereksiz kalan kayıt da ihlal sayılır' ifadesiyle çelişiyor.",
+   "senaryo": "Yalnızca public/css/diger.css içeren bir projede runChecks(dir, { cssExceptions: CSS_EXCEPTIONS }) çalıştırıldı ve css ihlali boş döndü (doğrulandı). Gerçek senaryoda G3 ya da sonraki bir düzenleme DJ sütun düzenini yeni bir dosyaya taşıyıp frekans.css'i yeniden adlandırabilir veya silebilir. O zaman 'G3 kaldırır' kaydı denetleyici uyarmadan listede kalır. Testteki 'dosya taranmıyorsa bildirilmez' durumu bu davranışı bilerek sabitliyor.",
+   "oneri": "Kaydın dosyası diskte yoksa da ihlal üretin, örneğin fs.existsSync(path.join(root, item.file)) false ise. Kısmi dosya listesiyle çalışan testler için muafiyeti yalnızca options.files verildiğinde uygulayın. Alternatif olarak CONTRIBUTING metnini 'dosya taranıyorsa' diye daraltın."
+  }
+ ],
+ "testler": "Komutların hepsi /home/user/wt/a üzerinde, HEAD d514b91'de çalıştırıldı.\n- npm run denetle: temiz. 251 dosya tarandı, ihlal bulunmadı.\n- npm test: 880 test, 879 geçti, 0 düştü, 1 atlandı. Atlanan test SEA derleme testi, TELSIZ_SEA_TEST verilmediği için atlanıyor ve bu değişiklikle ilgisi yok. Çıkış kodu 0.\n- node --test e2e/03-sosyal.test.js (grubun e2e dosyası): 8/8 geçti. Yer tutucu denetimi, yeni 'kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda çizilir' testi ve 'konsol ve sunucu günlüğü temiz' testi de geçti. Kabul ölçütü sağlanıyor: .radio-cam-live için border-top-style her tema ve modda solid.\n- Ek gerileme denetimi olarak e2e/06-dj.test.js çalıştırıldı, çünkü .msg-dj CSS'i değişti: 11/11 geçti.\n\nEk doğrulamalar:\n- G0'ın denetleyicisi Renk çalışmasını taşıyan ana çalışma kopyasında (/home/user/ps5-pc-communication) çalıştırıldı. Tek CSS ihlali G0'ın düzelttiği components.css:2007 .msg-dj gap kuralı. frekans.css'teki ızgara bloğu istisnayla kapsanıyor, Renk tarafında yeni CSS yasağı yok.\n- Kenar kontrastları bağımsız olarak hesaplandı. Değerler belgedeki tabloyla iki ondalığa kesilmiş olarak uyuşuyor: Arcade koyu canlı kenarı 3.2400 ve tehlike kenarı 3.2222, Turkuaz koyu tehlike kenarı 3.2050. Arcade cam paneli üzerinde de en az 3.56.\n- i18n işaretlerinin altına iki grubun ayrı ayrı eklemesi git'te çakışmasız birleşiyor (geçici depoda denendi).\n\nNot: Renk dalı renderVoiceAll içinde aramaRender satırından sonra gameRender satırını ekliyor. G0'ın runVoiceHooks('render') satırı da aynı yere eklendiği için birleştirmede küçük bir metin çakışması çıkacak. Bu bir hata değil, uygulayıcı bunu sapma olarak bildirdi. Çözerken kanca satırı plandaki gibi gameRender'dan sonraya alınmalı.\n\nBunların dışında kontrol edip sorun bulmadıklarım:\n- Planın 7 adımı karşılanmış. Sunucuya dokunulmamış. TR ve EN sözlük eşliği tam. Başka bir sohbet uygulamasının adı geçmiyor.\n- voiceHook, 'change' kancasını aramaOnVoice'tan sonra ve voiceRenderQueued korumasından önce çalıştırıyor. Kanca hataları yakalanıyor.\n- CHANGELOG'da sayılan bileşenlerin hepsi gerçekten bu iki belirteci kullanıyor."
+}
