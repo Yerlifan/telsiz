@@ -1,0 +1,53 @@
+# RAPOR: Adım 1, Taşıma
+
+Taşıma yazıldı ve testler geçiyor. Benim dosyalarımda denetim ihlali yok. Commit yapılmadı.
+
+## Değişen ve eklenen dosyalar
+- `/home/user/ps5-pc-communication/public/voice.js` (değişti, 3. bölümün tamamı)
+- `/home/user/ps5-pc-communication/public/js/10-voice.js` (değişti, `onGameEvent` ve `gameRender` çağrısı)
+- `/home/user/ps5-pc-communication/test/oyun-tasima.test.js` (yeni, 13 test)
+
+Başka dosyaya dokunulmadı. `public/js/33-oyun-protokol.js` ve `test/oyun-protokol.test.js` öteki ajana ait.
+
+## Belgeden sapmalar
+Belgedeki satır numaraları kodla uyuşuyor. 116, 795-801, 838, 3153, 3264-3267, 3286-3316, 3359-3367, 3438-3447, 5207, 5321 ve 5702 doğrulandı.
+1. **Sabitlerin yeri:** `GAME_KEYS`, `GAME_TEXT_RE` ve `MAX_GAME_CHARS` 116'nın hemen arkasına değil, kamera bloğunun sonuna (`MID_RE` satırından sonra) kondu. Kamera sabitleri ikiye bölünmesin diye.
+2. **`sendGame` içinde `done` sarmalandı:** `done` hata fırlatırsa hata `setTimeout` ile yeniden fırlatılır. Kuyruktaki `.catch(noop)` onu sessizce yutmasın diye. `done` aynı değerle ve aynı koşulda çağrılır, davranış değişmedi.
+3. **10-voice.js başlık yorumu (14-15) değişmedi:** "Büyüt, Oyun, Telsiz DJ" sırası 6. adımda yazılmalı, çünkü Oyun düğmesi henüz yok.
+4. **voice.js başlık yorumuna bir cümle eklendi:** "Oyun iletileri aynı sinyal yolundan anlamı bilinmeyen yük (p) olarak taşınır."
+5. **Test düzeneği:** `screenshare.test.js` `makeRoom` kalıbı izlendi ama 800 satırlık kopya yerine kısa bir sürümü yazıldı. Sahte bağlantı anlaşmayı ve geri almayı izliyor, anlaşma bitince 10 ms sonra `connected` oluyor. Saat belirlenimci, sunucu kural alıyor (`{status}` ya da `{after}`).
+6. **8.1'deki 6. madde:** `rebuildPeer` gerçek yolla tetikleniyor. ICE düşüyor, B'nin yeniden başlatma teklifi sunucudan bir kez 400 alıyor, `tooLargeRebuild` üzerinden `rebuildPeer` çalışıyor.
+
+## Sonraki adımın bilmesi gereken API
+- **`voice.sendGame(peerId, p, done)`**
+  - Dönüş: `'ok' | 'not_in_voice' | 'bad_message' | 'no_peer' | 'not_ready' | 'no_key'`.
+  - Denetim sırası: seste mi, `p` biçimi, kadroda mı, eş var mı ve kapalı değil mi, eş hazır mı, mühür.
+  - `done(true)`: iletildi. `done(sayı)`: iletilemedi. 429, 0 ve 5xx için 1, 2 ve 4 sn sonra yeniden denenir, `done` 7 sn sonra gelir. 404 ve 400 hemen gelir.
+  - Oturum değişirse `done` çağrılmaz.
+  - `no_key` dönerken `snapshot().errorCode = 'no_key'` da yazılır (mevcut `sendSignal` davranışı).
+- **Olaylar:** `opts.onGameEvent(evt)`. Mikro görevde ve sırayla gelir, dinleyici hatası motoru bozmaz.
+  - `{type:'message', peerId, userId, p}`
+  - `{type:'peer-ready', peerId, userId}`: her (peerId, sid) için bir kez. ICE yeniden başlatmada (aynı sid) gelmez.
+  - `{type:'peer-leave', peerId, userId}`: yalnız `applyRoster` silmesinde gelir.
+  - `{type:'reset'}`: her `resetSession` çağrısında gelir: `doJoin` başı, `leave`, `teardown` ve düşme (`dropped`). Her katılımda da ilk olay budur.
+- **`userId`** kadrodaki `normId` dizesidir, örneğin `'2'`.
+- **Statik:** `VoiceClient.gameUtils = { validateSignal(d) -> {type:'game', p} | null, maxChars: 11000 }`. `p` boş olmayan yazdırılabilir ASCII'dir (`/^[ -~]+$/`), en çok 11000 karakter. Dış alanlar yalnız `type`, `sid`, `n`, `p`.
+- **10-voice.js** `gameOnVoiceEvent(evt)` ve `gameRender()` işlevlerini `typeof` korumasıyla çağırıyor. Bu adlar 36-oyun.js'te bu biçimde tanımlanmalı.
+- **Marka adı denetimi (8.6):** voice.js'te `runOp` içinde "uno" alt dizesi zaten var (eski kod). 8.6 testi voice.js'i de tararsa sözcük sınırı kullanmalı.
+
+## Koşturulan komutlar
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-tasima.test.js` | 13 test, 13 geçti, 0 kaldı |
+| voice.js'i yükleyen mevcut testler (`kamera-cevir`, `kamera`, `masaustu-bas-konus`, `ozel-arama-ses`, `rnnoise`, `screenshare`, `server-http`, `settings`) | 140 test, 140 geçti, 0 kaldı |
+| `npm test` (tam) | 885 test, 884 geçti, 0 kaldı, 1 atlandı (`TELSIZ_SEA_TEST`, ortam değişkeni verilmeden atlanıyor) |
+| `npm run denetle` | Benim dosyalarımda 0 ihlal. Kalan 3 noktalı virgül ihlali öteki ajanın `public/js/33-oyun-protokol.js` dosyasında (satır 314, 344, 355) |
+
+Testlerin gerçekten bir şeyi yakaladığını görmek için voice.js'e geçici bozmalar uygulandı, sonra dosya geri yüklendi:
+- 9 bozmanın 8'i en az bir testi düşürdü: doğrulama satırı, sid denetimi, `peer-ready`, `peer-leave`, `reset`, `not_ready`, `bad_message`, `done` çift çağrısı, `done` korumasının tamamen kaldırılması.
+- Hayatta kalan tek bozma yalnız `|| res === undefined` koşulunu siliyordu. Bu koşul `gen` denetimiyle aynı anlamda olduğu için sonuç değişmiyor.
+
+## Açık kalan sorunlar
+1. CONTRIBUTING.md:184'e göre voice.js'e yeni düz metin türü eklemek için önce issue açılmalı (10. bölümdeki 0. adım). Bu adım yapılmadı, issue ve onay hâlâ gerekiyor. PR açıklamasında 3.1'deki boyut hesabı ve 4.15'teki tehdit tablosu bulunmalı.
+2. 10-voice.js başlık yorumundaki araç satırı sırası 6. adımda güncellenecek.
+3. Görünür davranış değişikliği yok. `gameOnVoiceEvent` ve `gameRender` henüz tanımlı olmadığı için çağrılar etkisiz.

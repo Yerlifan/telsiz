@@ -1,0 +1,72 @@
+Renk kural motoru (adım 4) yazıldı. `node --test test/renk-kural.test.js` 95/95 geçiyor, `npm run denetle` ihlal vermiyor. Commit yapılmadı.
+
+**Dosyalar (ikisi de yeni, başka dosyaya dokunulmadı)**
+- `/home/user/ps5-pc-communication/public/js/35-renk-kural.js`: `window.TelsizRenk`, 860 satır.
+- `/home/user/ps5-pc-communication/test/renk-kural.test.js`: 18 grup, 95 test, 8.4'teki 17 maddenin hepsi var.
+
+**Koşturulan komutlar**
+- `node --test test/renk-kural.test.js`: 95 test, 95 geçti, 0 kaldı (yaklaşık 2 sn). Gerçek 33 dosyası yüklendi.
+- Aynı test, 33 yolu yokmuş gibi yapılmış geçici bir kopyayla, yani sahte çekirdekle: 95/95 geçti. Kopya sonra silindi.
+- `npm run denetle`: ilk koşuda testimdeki `for (;;)` döngülerinde 15 noktalı virgül ihlali çıktı. Düzeltildi, son koşuda 255 dosyada 0 ihlal.
+- `npm test`: 1011 test, 1010 geçti, 0 kaldı, 1 atlandı (yaklaşık 44 sn). Diğer ajanların kaydedilmemiş işleri de bu koşuya dahil.
+- Kâhin testi (8.4) 108x108 çiftin hepsinde çalışıyor. Joker üst kartlarda 4 renk, 3 el (tek kart, elde etkin renk var, yok) ve 3 ceza durumu (yok, D, F) deneniyor, `canPlay` hata koduyla birlikte kâhinle aynı sonucu veriyor.
+- Kart kodu kararı (1.2): `WW`/`WF` kodları ve `cardValue = c[1]` uygulandı. Değerlerin benzersiz olduğu test ediliyor.
+
+**Sahte çekirdek hakkında**
+`33-oyun-protokol.js` mevcut ve kullandığım bütün yardımcıları içeriyor. Test önce gerçek dosyayı yüklüyor. Dosya yoksa ya da `fail`, `onlyKeys`, `isId`, `shuffle`, `ring` işlevlerinden biri eksikse, belgedeki tanıma uyan küçük bir `fakeGame()` devreye giriyor.
+
+**Belgeden sapmalar ve yorumlar**
+1. **Biten elde renk boş olabilir:** `validateState` ve `validateView`, `color === null` değerini `phase === 'over'` iken de kabul ediyor. İlk kart Joker'ken renk seçilmeden `too_few` ya da `endGame` ile biten elde başka geçerli renk yok. Belgedeki "yalnız color aşamasında null" kuralı burada oyuncu tarafında bitmiş durumu reddederdi.
+2. **Bitmiş elde ayrılan oyuncu:** Belge "kartlara dokunulmaz" diyor. Ben kartları karıştırmadan desteye ekliyorum, `rng` çağrılmıyor ve sonuç değişmiyor. Böylece "toplam her zaman 108" değişmezi korunuyor. Koltuklar 0'a kadar inebiliyor.
+3. **Son kartın cezası (`finish`):** Önceden biriken ceza varsa `why: 'stack'`, yoksa `'D'` ya da `'F'` gidiyor. Belge bu durumu açıkça tanımlamıyordu.
+4. **`canPlay` dönüşü:** Oynanabilirse `null`, değilse hata kodu dönüyor. Kodlar sırasıyla `game_over`, `not_your_turn`, `choose_color`, `bad_move` (kart değilse), sonra 5.6'nın `play` sırası.
+5. **`legalMoves.blocked`:** Yalnız sıra bendeyken dolduruluyor, elde olup oynanamayan her benzersiz kod için nedenini veriyor (`choose_color` ve `only_drawn` dahil). Sıra bende değilse boş.
+6. **`validateState`** boolean değil, durumu ya da `null` döndürüyor. Toplamın 108 olmasına ek olarak kanonik destenin çoklu kümesini de denetliyor.
+7. **Ek katı denetimler:**
+   - Oyun sürerken koltuk sayısı 2 ile 8 arasında ve her elde en az 1 kart.
+   - Atılanlar en az 1.
+   - `pending` yalnız `phase 'play'` iken dolu olabilir.
+   - Tek! penceresi açıksa sahibinde 1 kart vardır.
+   - `phase 'color'` iken renk mutlaka `null`.
+   - `result` yalnız bitmiş elde dolu.
+   - `drawn` yalnız sıradaki kişide ve `phase 'play'` görünümünde olabilir.
+   - `validateOptions` tam olarak `{rules, players, dealSeat}` alanlarını istiyor.
+8. **Olaylar:** Zamanında Tek! de `{e:'last', late:false}` olayı üretiyor. 2 kişide ilk kart Yön çıkarsa `skip` olayı üretiliyor.
+9. **Ek dışa açılanlar:** `COLORS`, `LAST_CARD` (dondurulmuş), `HAND_SIZE`, `DECK_SIZE`, `validateOptions`.
+10. **Çekirdeğe erişim:** Motor `TelsizGame` nesnesine yüklenirken değil, işlev içinde erişiyor. Bu yüzden çekirdek olmadan da yükleniyor ve saf kart işlevleri çalışıyor.
+11. **Saflık testindeki `t(`:** Yasak `t(` deseni `/(^|[^\w$.])t\(/m` olarak uygulandı. Düz alt dize araması `sort(`, `concat(` gibi çağrılarda da eşleşirdi.
+
+**Sonraki adımların bilmesi gerekenler**
+- **Sabitler:**
+  - `id: 'renk'`, `VERSION: 1`, `MIN_PLAYERS: 2`, `MAX_PLAYERS: 8`
+  - `RULES: ['official','stack']`, `DEFAULT_RULES: 'official'`, `HIDDEN: true`
+  - `ERRORS`: 5.17'deki 20 kod. `EVENTS`: 15 olay.
+  - `LAST_CARD = { official: true, stack: true }`. Kaynakta tam olarak bu satır olarak duruyor, test onu değiştirerek yükleyip deniyor.
+- **Hata verenler** (hepsi `err.code` ile, girdi hiç değişmez):
+  - `newGame({rules, players, dealSeat}, rng) -> {state, events}`: `bad_options`, `bad_random` ya da `no_random` fırlatır.
+  - `applyMove(state, id, move, rng) -> {state, events}`: 5.6'daki önceliğe göre fırlatır.
+  - `removePlayer(state, id, rng)`: koltukta olmayan kişi için `bad_player` fırlatır. Bitmiş elde `rng` kullanılmaz.
+  - `endGame(state)`: el zaten bittiyse `game_over` fırlatır.
+- **Fırlatmayanlar:**
+  - `isOver(state)`, `turnOf(state)` (bitmişse `null`).
+  - `publicView(s)`: `drawn` aşaması burada `'play'` görünür.
+  - `privateView(s, id) -> {cards, drawn} | null`.
+  - `validateView(view, seatIds) -> view | null` ve `validatePrivate(mine, view, id) -> mine | null`.
+  - `legalMoves(view, mine, id) -> {turn, phase, drawn, play, blocked, draw, take, pass, color, armLast, last, catch}`.
+  - `canPlay(view, mine, id, code)`, `validateState(s)`, `dealFrom(opts, deck, rng)`.
+  - Kart yardımcıları: `buildDeck`, `isCard`, `parseCards`, `cardColor`, `cardValue`, `isWild`, `points`.
+- **Hamle biçimleri.** `validateMove` aynı alanlarla bir kopya döndürür, kopya yeniden doğrulanabilir:
+  - `{t:'play', c, col?, last?:true, step}` (`col` yalnız `WW` ve `WF` ile)
+  - `{t:'draw', step}`, `{t:'pass', step}`, `{t:'color', col, step}`
+  - `{t:'last'}`, `{t:'catch', p}`
+- **Olay biçimleri:**
+  - `play {p,c,col}`, `draw {p,n:1}`, `nodraw {p}`, `pass {p}`, `color {p,col}`
+  - `skip {p}`, `reverse {dir}`, `penalty {p,n,want,why}`, `last {p,late}`, `caught {p,by}`
+  - `reshuffle {n}`, `reflip {}`, `leave {p,n}`, `pending_dropped {n}`, `end {winner,total,reason}`
+  - Hiçbir olayda `r` alanı yok. Kart kodu yalnız `play.c` içinde geçiyor.
+- **Sonuç biçimi:** `result {reason: 'out'|'too_few'|'ended', winner, total, ranks: [{id, n, points, rank}]}`.
+
+**Açık kalanlar**
+- `index.html` ve `sw.js` içindeki 33 ve 35 satırları eklenmedi. Belgenin 4. adımı "liste satırları" diyor ama görevde bu dosyalara dokunmam yasaktı. 8.6'daki bağlantı testi bunları arayacak.
+- `game.renk.err.*` ve `game.renk.ev.*` i18n anahtarları 7. adıma kaldı. `ERRORS` ve `EVENTS` listeleri bunlara kaynak olacak.
+- Tek! kuralının ekleme setinde de geçerli olması (`LAST_CARD.stack: true`) kullanıcıya doğrulatılmalı (belge 11. bölüm, risk 10).
