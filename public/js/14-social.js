@@ -304,7 +304,10 @@ function showHome (tab, opts) {
   closeMessageMenu()
   const wantAdd = tab === 'add'
   if (tab && HOME_TABS.indexOf(tab) !== -1) socialState.homeTab = tab
-  if (socialState.view !== 'home') {
+  const leaving = socialState.view !== 'home'
+  if (leaving) {
+    // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+    composerLeave()
     state.loadGen += 1
     state.loading = false
     state.channelId = null
@@ -316,6 +319,7 @@ function showHome (tab, opts) {
     dmState.partnerId = null
   }
   setConversationMode('home')
+  if (leaving) composerEnter()
   renderChannels()
   renderDmList()
   renderHomeView()

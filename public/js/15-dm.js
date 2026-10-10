@@ -163,6 +163,8 @@ function showDm (dmId, opts) {
     if (options.focus && !isNarrow() && !el.composerInput.disabled) focusNode(el.composerInput)
     return
   }
+  // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+  composerLeave()
   cancelEdit()
   closeMessageMenu()
   dmState.activeId = entry.id
@@ -175,6 +177,7 @@ function showDm (dmId, opts) {
   renderHomeEntry()
   profilesEnsure([entry.userId])
   dmRefreshChrome()
+  composerEnter()
   loadChannel()
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
 }

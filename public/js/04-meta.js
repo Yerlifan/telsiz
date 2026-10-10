@@ -155,7 +155,9 @@ function applyMeta (meta, isInitial) {
       if (first) {
         selectChannel(first.id, { force: true })
       } else {
+        composerLeave()
         state.channelId = null
+        composerEnter()
         renderChannelHeader()
       }
     } else {
@@ -1117,6 +1119,9 @@ function selectChannel (id, opts) {
   if (!ch || ch.type !== 'text') return
   closeDrawers()
   const fromOtherView = currentViewMode() !== 'channel'
+  const same = sameId(state.channelId, ch.id) && !options.force && !fromOtherView
+  // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+  if (!same) composerLeave()
   if (fromOtherView && typeof socialOnChannelLoad === 'function') {
     try {
       socialOnChannelLoad(ch.id)
@@ -1124,7 +1129,7 @@ function selectChannel (id, opts) {
       window.console.error(err)
     }
   }
-  if (sameId(state.channelId, ch.id) && !options.force && !fromOtherView) {
+  if (same) {
     if (options.focus && !isNarrow()) focusNode(el.composerInput)
     return
   }
@@ -1138,6 +1143,7 @@ function selectChannel (id, opts) {
   renderBand()
   if (hadMentions && typeof renderHomeEntry === 'function') renderHomeEntry()
   renderChannelHeader()
+  composerEnter()
   renderComposerState()
   loadChannel()
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)

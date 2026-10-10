@@ -84,6 +84,124 @@ function composerRunCommand (raw, text, ready) {
   return true
 }
 
+// Konuşma başına taslak (istek 17 S1). Yazma alanı tektir: konuşmadan çıkılırken (composerLeave) metin ve
+// gönderilemeyen mesajın istemci kimliği o konuşmanın taslağına kaydedilir, alan boşaltılır, düzenleme kipi ve
+// yazıyor bildirimi biter. Yeni konuşmaya girilirken (composerEnter) onun taslağı yüklenir. Anahtar yazı
+// odasında 'c:' + kimlik, özel konuşmada 'd:' + kimliktir (composerKey), Arkadaşlar görünümünde boştur.
+// Ekler state.attachments içinde kalır ve eklendikleri konuşmanın anahtarını (convKey) taşır: yüklemesi süren
+// ek konuşmadan çıkılınca kendi taslağında tamamlanır, yazma alanı ve gönderim yalnızca açık konuşmanın
+// eklerini görür. Böylece bir konuşmanın metni veya eki başka bir konuşmanın yazma alanına geçmez ve orada
+// gönderilemez. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değişince
+// silinir (composerDraftsClear), konuşma silinince ve kişi engellenince o konuşmanınki bırakılır
+// (composerPruneDrafts).
+
+const composerDrafts = new Map()
+
+function composerKey () {
+  const id = state.channelId
+  if (id === null || id === undefined || id === '') return ''
+  const mode = currentViewMode()
+  if (mode === 'home') return ''
+  return (mode === 'dm' || isDmChannel(id) ? 'd:' : 'c:') + String(id)
+}
+
+// Açık konuşmanın (veya verilen anahtarın) ekleri
+function composerAttachments (key) {
+  const k = key === undefined ? composerKey() : key
+  return state.attachments.filter((a) => a.convKey === k)
+}
+
+// Taslağın konuşması hâlâ var mı: yazı odası metada duruyor, özel konuşma listede (veya açık) ve kişi engelli değil
+function composerKeyAlive (key) {
+  const id = String(key || '').slice(2)
+  if (!id) return false
+  if (key.indexOf('c:') === 0) {
+    const ch = findChannel(id)
+    return Boolean(ch && ch.type === 'text')
+  }
+  if (key.indexOf('d:') !== 0) return false
+  const entry = dmEntry(id)
+  let partner = entry ? entry.userId : null
+  if (!entry && sameId(id, dmState.activeId)) partner = dmState.partnerId
+  return partner !== null && partner !== undefined && !isBlocked(partner)
+}
+
+function composerDropDraft (key) {
+  composerDrafts.delete(key)
+  state.attachments.filter((a) => a.convKey === key).forEach((a) => {
+    removeAttachment(a, true)
+  })
+}
+
+// Yazma alanını verilen anahtarın durumuyla çizer (yükseklik, sayaç, ek çipleri, Gönder düğmesi)
+function composerShow (key) {
+  autoGrow(el.composerInput, 6)
+  updateCounter()
+  renderAttachments(key)
+  updateSendState()
+}
+
+function composerLeave () {
+  const key = composerKey()
+  if (typeof cancelEdit === 'function') cancelEdit()
+  if (typeof mentionClose === 'function') mentionClose()
+  if (typeof typingStop === 'function') typingStop()
+  const text = el.composerInput.value
+  if (key && composerKeyAlive(key)) {
+    if (text || state.unsentMessage) composerDrafts.set(key, { text: text, unsent: state.unsentMessage })
+    else composerDrafts.delete(key)
+  } else {
+    // Silinen konuşmanın veya engellenen kişinin taslağı ve ekleri bırakılır
+    composerDropDraft(key)
+  }
+  state.unsentMessage = null
+  el.composerInput.value = ''
+  composerShow('')
+}
+
+function composerEnter () {
+  const key = composerKey()
+  const draft = key ? composerDrafts.get(key) : null
+  if (draft) composerDrafts.delete(key)
+  el.composerInput.value = draft ? draft.text : ''
+  state.unsentMessage = draft ? draft.unsent : null
+  composerShow(key)
+}
+
+// Gönderim yanıtı gelmeden konuşmadan çıkıldıysa gönderilen metin o konuşmanın taslağından düşer
+function composerDraftSent (key, raw) {
+  const draft = composerDrafts.get(key)
+  if (!draft) return
+  if (draft.text === raw) draft.text = ''
+  draft.unsent = null
+  if (!draft.text) composerDrafts.delete(key)
+}
+
+// Silinen konuşmaların ve engellenen kişilerle özel konuşmaların taslakları ve ekleri bırakılır. Açık
+// konuşmaya dokunulmaz, ondan çıkılırken composerLeave aynı kuralı uygular.
+function composerPruneDrafts () {
+  const current = composerKey()
+  const keys = []
+  composerDrafts.forEach((value, key) => {
+    keys.push(key)
+  })
+  state.attachments.forEach((a) => {
+    if (keys.indexOf(a.convKey) === -1) keys.push(a.convKey)
+  })
+  keys.forEach((key) => {
+    if (key !== current && !composerKeyAlive(key)) composerDropDraft(key)
+  })
+}
+
+// Oturum kapanınca ve frekans değişince: açık konuşma dışındaki bütün taslaklar ve ekleri silinir
+function composerDraftsClear () {
+  const current = composerKey()
+  composerDrafts.clear()
+  state.attachments.filter((a) => a.convKey !== current).forEach((a) => {
+    removeAttachment(a, true)
+  })
+}
+
 function updateCounter () {
   const len = cpLength(el.composerInput.value)
   const max = state.limits.messageMaxChars
@@ -96,8 +214,9 @@ function updateCounter () {
   }
 }
 
+// Açık konuşmanın hazırlanan veya yüklenen ekleri
 function pendingUploads () {
-  return state.attachments.filter((a) => a.status !== 'done' && a.status !== 'error').length
+  return composerAttachments().filter((a) => a.status !== 'done' && a.status !== 'error').length
 }
 
 function canSend () {
@@ -105,8 +224,9 @@ function canSend () {
   const len = cpLength(el.composerInput.value.trim())
   if (len > state.limits.messageMaxChars) return false
   if (pendingUploads() > 0) return false
-  if (state.attachments.some((a) => a.status === 'error')) return false
-  return len > 0 || state.attachments.some((a) => a.status === 'done')
+  const mine = composerAttachments()
+  if (mine.some((a) => a.status === 'error')) return false
+  return len > 0 || mine.some((a) => a.status === 'done')
 }
 
 function updateSendState () {
@@ -124,7 +244,7 @@ function onComposerKeydown (e) {
     sendMessage()
     return
   }
-  if (e.key === 'ArrowUp' && el.composerInput.value === '' && !state.attachments.length) {
+  if (e.key === 'ArrowUp' && el.composerInput.value === '' && !composerAttachments().length) {
     if (editLastOwnMessage()) e.preventDefault()
   }
 }
@@ -150,18 +270,21 @@ async function sendMessage (opts) {
   if (state.sending) return
   const dj = opts && opts.dj ? opts.dj : null
   const channelId = state.channelId
+  // Yalnızca açık konuşmanın ekleri gönderilir, başka konuşmada eklenenler kendi taslağında kalır
+  const key = composerKey()
+  const mine = composerAttachments(key)
   const raw = el.composerInput.value
   const text = raw.trim()
-  if (composerRunCommand(raw, text, state.attachments.filter((a) => a.status === 'done'))) return
+  if (composerRunCommand(raw, text, mine.filter((a) => a.status === 'done'))) return
   if (pendingUploads() > 0) {
     toast(() => t('composer.waitUploads'))
     return
   }
-  if (state.attachments.some((a) => a.status === 'error')) {
+  if (mine.some((a) => a.status === 'error')) {
     toast(() => t('composer.removeFailed'), 'error')
     return
   }
-  const ready = state.attachments.filter((a) => a.status === 'done')
+  const ready = mine.filter((a) => a.status === 'done')
   if (!text && !ready.length) return
   if (cpLength(text) > state.limits.messageMaxChars) {
     toast(() => t('composer.tooLong', { max: state.limits.messageMaxChars }), 'error')
@@ -199,12 +322,19 @@ async function sendMessage (opts) {
   const res = await api('POST', '/api/messages', payload)
   state.sending = false
   if (res.status === 200 && res.data && res.data.message) {
-    state.unsentMessage = null
-    if (el.composerInput.value === raw) el.composerInput.value = ''
+    // Yanıt gelmeden başka konuşmaya geçildiyse açık yazma alanına dokunulmaz, gönderilen metin kendi taslağından düşer
+    const here = composerKey() === key
+    if (here) {
+      state.unsentMessage = null
+      if (el.composerInput.value === raw) el.composerInput.value = ''
+    } else {
+      composerDraftSent(key, raw)
+    }
     ready.forEach((a) => {
       removeAttachment(a, true)
     })
-    onComposerInput()
+    if (here) onComposerInput()
+    else updateSendState()
     if (typeof typingAfterSend === 'function') typingAfterSend(channelId)
     if (sameId(channelId, state.channelId)) {
       // Aramadan gelinen eski bir bölümdeyken gönderilen mesajla en yeni mesajlara dönülür
@@ -251,16 +381,21 @@ function addFiles (fileList, mode) {
     return
   }
   const max = state.limits.maxUploadsPerMessage
+  // Ek eklendiği konuşmaya bağlanır (composerKey), sınır o konuşmanın eklerine uygulanır
+  const convKey = composerKey()
+  let count = composerAttachments(convKey).length
   let skipped = 0
   files.forEach((file) => {
-    if (state.attachments.length >= max) {
+    if (count >= max) {
       skipped += 1
       return
     }
+    count += 1
     const photo = mode === 'photo' || (mode === 'auto' && /^image\//i.test(file.type || ''))
     state.attachSeq += 1
     const att = {
       id: state.attachSeq,
+      convKey: convKey,
       file: file,
       photo: photo,
       name: cleanFileName(file.name || t(photo ? 'files.photoName' : 'files.defaultName')),
@@ -638,11 +773,13 @@ function chipStatusText (att) {
   }
 }
 
-function renderAttachments () {
+// Yazma alanında yalnızca açık konuşmanın (veya verilen anahtarın) ekleri gösterilir
+function renderAttachments (key) {
+  const shown = composerAttachments(key)
   const list = el.attachList
   const focusKey = activeFocusKey(list)
   clear(list)
-  state.attachments.forEach((att) => {
+  shown.forEach((att) => {
     const li = h('li', 'chip chip-' + att.status)
     li.setAttribute('data-attach-id', String(att.id))
     if (att.previewUrl) {
@@ -672,8 +809,8 @@ function renderAttachments () {
     li.appendChild(remove)
     list.appendChild(li)
   })
-  list.hidden = state.attachments.length === 0
-  el.photoNote.hidden = !state.attachments.some((a) => a.photo)
+  list.hidden = shown.length === 0
+  el.photoNote.hidden = !shown.some((a) => a.photo)
   restoreFocusKey(list, focusKey)
   keepBottom()
 }
