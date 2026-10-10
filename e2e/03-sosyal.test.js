@@ -173,6 +173,78 @@ test('kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda
   assert.notEqual(color('arcade', 'dark'), color('arcade', 'light'))
 })
 
+// Telsiz DJ duyurusu eski WebKit için flex gap yerine çocukların kenar boşluğu ve kabın eksi kenar boşluğuyla
+// aralanır. Satır kırılması her genişlikte gap ile birebir aynı olmalı (karşılaştırma için kopyaya tarayıcının
+// gap'i verilir), eksi kenar boşluğu mesaj satırından ve mesaj akışından taşmamalı.
+test('Telsiz DJ duyurusu gap düzeniyle aynı kırılır, mesaj akışında yatay taşma yok', async () => {
+  const page = W.deniz
+  const diffs = await page.evaluate(() => {
+    const host = document.querySelector('#message-list .msg .msg-body')
+    const box = document.createElement('div')
+    host.appendChild(box)
+    const out = []
+    // Duyurunun çocuklarının ve altındaki satırın çerçeveye göre konumu ve boyutu
+    const shape = (frame) => {
+      const f = frame.getBoundingClientRect()
+      const parts = Array.from(frame.firstChild.children).concat(frame.lastChild)
+      return parts.map((n) => {
+        const r = n.getBoundingClientRect()
+        return [r.left - f.left, r.top - f.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')
+      }).join(' ')
+    }
+    const kinds = [{ src: 'yt', vid: 'D120aaaaaaa' }, { src: 'file' }]
+    kinds.forEach((d) => {
+      const real = buildDjNotice(d)
+      const ref = real.cloneNode(true)
+      ref.style.margin = '0'
+      ref.style.gap = '0.25rem 0.5rem'
+      Array.from(ref.children).forEach((n) => { n.style.margin = '0' })
+      const frames = [real, ref].map((n) => {
+        const frame = document.createElement('div')
+        const below = document.createElement('div')
+        below.textContent = 'x'
+        frame.appendChild(n)
+        frame.appendChild(below)
+        box.appendChild(frame)
+        return frame
+      })
+      // 150 ile 700 piksel arasındaki her genişlik
+      let w = 150
+      while (w <= 700) {
+        frames.forEach((frame) => { frame.style.width = w + 'px' })
+        const a = shape(frames[0])
+        const b = shape(frames[1])
+        if (a !== b) out.push(d.src + ' ' + w + ': ' + a + ' / ' + b)
+        w++
+      }
+    })
+    box.remove()
+    return out
+  })
+  assert.deepEqual(diffs, [])
+
+  // Gerçek mesaj satırında geniş ekranda ve telefonda
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await page.waitForFunction((w) => window.innerWidth === w, width)
+    const fit = await page.evaluate(() => {
+      const msg = document.querySelector('#message-list .msg')
+      const notice = buildDjNotice({ src: 'yt', vid: 'D120aaaaaaa' })
+      msg.querySelector('.msg-body').appendChild(notice)
+      const list = document.getElementById('messages')
+      const r = {
+        inside: notice.getBoundingClientRect().right <= msg.getBoundingClientRect().right,
+        list: list.scrollWidth - list.clientWidth,
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      }
+      notice.remove()
+      return r
+    })
+    assert.deepEqual(fit, { inside: true, list: 0, page: 0 }, width + ' genişlikte')
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+})
+
 test('konsol ve sunucu günlüğü temiz', async () => {
   h.assertCleanConsole(W.w.logs, W.w.srv.errors)
 })
