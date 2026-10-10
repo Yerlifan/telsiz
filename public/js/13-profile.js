@@ -8,6 +8,12 @@
 
 const PROFILE_BATCH = 100
 const PROFILE_FETCH_DELAY_MS = 30
+// Başarısız profil isteğinin yeniden deneme beklemeleri. Dört denemenin sonuncusu da düşerse grup kuyrukta kalır,
+// bir sonraki başarılı poll (profilesAfterPoll) veya meta değişikliği en erken son bekleme dolunca yeniden dener.
+const PROFILE_RETRY_MS = [2000, 5000, 15000, 60000]
+// Profil resmi indirmesi en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır
+const AVATAR_TRIES = 4
+const AVATAR_RETRY_MS = [10000, 30000, 120000]
 const PROFILE_NAME_MAX = 32
 const PROFILE_STATUS_MAX = 128
 const PROFILE_BIO_MAX = 190
@@ -25,6 +31,9 @@ const profileState = {
   queue: new Set(),
   timer: 0,
   fetching: false,
+  // Art arda başarısız profil isteği sayısı ve bir sonraki isteğin en erken zamanı (Date.now)
+  failures: 0,
+  retryAt: 0,
   gen: 0,
   renderQueued: false,
   changed: new Set(),
@@ -45,7 +54,10 @@ function profilesReset () {
   profileState.formerUsers = new Map()
   profileState.metaIds = null
   profileState.fetching = false
+  profileState.failures = 0
+  profileState.retryAt = 0
   profileState.avatars.forEach((entry) => {
+    clearTimeout(entry.timer)
     revokeLater(entry.url)
   })
   profileState.avatars = new Map()
@@ -127,16 +139,18 @@ function profilesRefetch (ids) {
   scheduleProfileFetch()
 }
 
+// Başarısız bir istekten sonra bekleme süresi dolmadan yeni istek gönderilmez
 function scheduleProfileFetch () {
   if (!profileState.queue.size || profileState.fetching || !state.token) return
   clearTimeout(profileState.timer)
-  profileState.timer = setTimeout(fetchProfiles, PROFILE_FETCH_DELAY_MS)
+  profileState.timer = setTimeout(fetchProfiles, Math.max(PROFILE_FETCH_DELAY_MS, profileState.retryAt - Date.now()))
 }
 
 async function fetchProfiles () {
   if (profileState.fetching || !profileState.queue.size || !state.token) return
   profileState.fetching = true
   const gen = profileState.gen
+  let failed = false
   try {
     while (profileState.queue.size && gen === profileState.gen) {
       const batch = Array.from(profileState.queue).slice(0, PROFILE_BATCH)
@@ -147,7 +161,16 @@ async function fetchProfiles () {
       if (!ids.length) continue
       const res = await api('GET', '/api/profiles?ids=' + ids.join(','))
       if (gen !== profileState.gen) return
-      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) break
+      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) {
+        // Grup kuyruğa geri konur, artan beklemeyle yeniden istenir (profileRetryLater)
+        ids.forEach((id) => {
+          profileState.queue.add(id)
+        })
+        failed = true
+        break
+      }
+      profileState.failures = 0
+      profileState.retryAt = 0
       const seen = new Set()
       res.data.profiles.forEach((entry) => {
         if (!entry || entry.id === undefined) return
@@ -167,7 +190,37 @@ async function fetchProfiles () {
   } finally {
     if (gen === profileState.gen) profileState.fetching = false
   }
-  if (gen === profileState.gen && profileState.queue.size) scheduleProfileFetch()
+  if (gen !== profileState.gen) return
+  if (failed) profileRetryLater()
+  else if (profileState.queue.size) scheduleProfileFetch()
+}
+
+// Başarısız istekten sonra 2, 5, 15 ve 60 saniye beklenerek yeniden denenir. Sonra zamanlayıcı kurulmaz, kuyruktaki
+// grubu bir sonraki başarılı poll veya meta değişikliği en az 60 saniye arayla yeniden ister (sunucuya yük binmez).
+function profileRetryLater () {
+  profileState.failures += 1
+  const n = profileState.failures
+  const delay = PROFILE_RETRY_MS[Math.min(n, PROFILE_RETRY_MS.length) - 1]
+  profileState.retryAt = Date.now() + delay
+  clearTimeout(profileState.timer)
+  profileState.timer = 0
+  if (n <= PROFILE_RETRY_MS.length) profileState.timer = setTimeout(fetchProfiles, delay)
+}
+
+// Her başarılı poll'dan sonra (05-poll.js): bir profil isteği düştüyse metadaki pv değerleri önbellekle karşılaştırılır
+// ve eskiyen kişiler yeniden istenir. Ağ düzelince sonraki meta değişikliği beklenmez. Hata yoksa hiçbir şey yapılmaz.
+function profilesAfterPoll () {
+  if (!profileState.failures || profileState.fetching || !state.token) return
+  if (profileState.retryAt > Date.now()) return
+  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+  users.forEach((u) => {
+    if (!u || u.id === undefined) return
+    const rec = profileRecord(u.id)
+    if (rec && rec.missing) return
+    const pv = typeof u.pv === 'number' ? u.pv : 0
+    if (!rec || rec.pv !== pv) profileState.queue.add(String(u.id))
+  })
+  scheduleProfileFetch()
 }
 
 function storeProfileEntry (entry) {
@@ -298,36 +351,57 @@ function verifyProfileKey (rec) {
 
 // Profil resimleri: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
 
+// Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer }. Düşen indirme 10 saniye,
+// 30 saniye ve 2 dakika sonra yeniden denenir (en çok AVATAR_TRIES deneme). Sunucu dosyayı bulamazsa (404), dosya
+// çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez.
 function loadAvatar (rec) {
   const ref = rec.profile && rec.profile.avatar
   if (!ref) return
   const existing = profileState.avatars.get(ref.u)
   if (existing) return
-  const entry = { url: '', state: 'loading' }
+  const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0 }
   profileState.avatars.set(ref.u, entry)
+  fetchAvatar(rec.id, ref, entry)
+}
+
+function fetchAvatar (userId, ref, entry) {
   const gen = profileState.gen
+  entry.state = 'loading'
+  entry.tries += 1
   downloadPlain({ u: ref.u, k: ref.k, n: ref.n }, null).then((res) => {
     if (gen !== profileState.gen || profileState.avatars.get(ref.u) !== entry) return
+    entry.at = Date.now()
     if (!res.ok) {
-      entry.state = 'failed'
+      // 200 ile gelip çözülemeyen dosya da kalıcı hatadır
+      avatarFailed(userId, ref, entry, res.status === 404 || res.status === 200)
       return
     }
     const sniffed = window.E2EE.sniffImage(res.bytes)
     if (!sniffed || AVATAR_TYPES.indexOf(sniffed) === -1 || sniffed !== ref.m) {
-      entry.state = 'failed'
+      avatarFailed(userId, ref, entry, true)
       return
     }
     entry.url = URL.createObjectURL(new Blob([res.bytes], { type: sniffed }))
     entry.state = 'ok'
-    profileState.changed.add(rec.id)
+    profileState.changed.add(String(userId))
     queueProfileRender()
   })
+}
+
+function avatarFailed (userId, ref, entry, permanent) {
+  entry.state = 'failed'
+  if (permanent || entry.tries >= AVATAR_TRIES) return
+  entry.timer = setTimeout(() => {
+    entry.timer = 0
+    if (profileState.avatars.get(ref.u) === entry) fetchAvatar(userId, ref, entry)
+  }, AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
 }
 
 function dropAvatar (uploadId) {
   const entry = profileState.avatars.get(uploadId)
   if (!entry) return
   profileState.avatars.delete(uploadId)
+  clearTimeout(entry.timer)
   revokeLater(entry.url)
 }
 

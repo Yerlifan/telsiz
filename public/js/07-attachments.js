@@ -161,7 +161,8 @@ function showImage (f, box, entry) {
   box.disabled = false
 }
 
-// Şifreli dosyayı indirip çözer. Yanıt { ok, bytes } veya { ok: false, error }.
+// Şifreli dosyayı indirip çözer. Yanıt { ok, bytes } veya { ok: false, status, error }. status sunucunun HTTP durumudur
+// (bağlantı hatasında 0, indirilip çözülemeyen dosyada 200), çağıran kalıcı hatayı geçiciden ayırmak için okur.
 async function downloadPlain (f, onProgress) {
   const res = await api('GET', '/api/uploads/' + f.u, null, {
     responseType: 'arraybuffer',
@@ -169,7 +170,7 @@ async function downloadPlain (f, onProgress) {
     onProgress: onProgress
   })
   if (res.status !== 200 || !(res.data instanceof ArrayBuffer)) {
-    return { ok: false, error: () => (res.status === 404 ? t('file.notFound') : errorText(res, t('file.downloadFailed'))) }
+    return { ok: false, status: res.status, error: () => (res.status === 404 ? t('file.notFound') : errorText(res, t('file.downloadFailed'))) }
   }
   let plain = null
   try {
@@ -177,7 +178,7 @@ async function downloadPlain (f, onProgress) {
   } catch (err) {
     plain = null
   }
-  if (!plain) return { ok: false, error: () => t('file.decryptFailed') }
+  if (!plain) return { ok: false, status: res.status, error: () => t('file.decryptFailed') }
   return { ok: true, bytes: plain }
 }
 
