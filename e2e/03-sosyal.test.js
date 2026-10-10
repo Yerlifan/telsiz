@@ -41,6 +41,8 @@ test('arkadaşlık isteği: kullanıcı adıyla gönderilir, karşı tarafta roz
     await deniz.click('#home-tab-add')
   }
   await deniz.waitForSelector('#friend-add-name')
+  // Arkadaş Ekle kutusunun tek görünen ipucu yer tutucudur (etiket yalnızca ekran okuyucuya görünür)
+  assert.equal(await deniz.getAttribute('#friend-add-name', 'placeholder'), 'Kullanıcı adı giriniz')
   await deniz.fill('#friend-add-name', 'ece')
   await deniz.click('#friend-add-submit')
   await deniz.waitForFunction(() => /^Ece kişisine arkadaşlık isteği gönderildi/.test(document.getElementById('friend-add-msg').textContent))
