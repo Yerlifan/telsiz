@@ -5,7 +5,8 @@
 // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
 // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
 // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
-// CSS kuralları, index.html ile sw.js bağlantıları ve ses kancaları (10-voice.js voiceHook) sınanır. Gerçek
+// CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
+// kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
 
 const test = require('node:test')
@@ -1260,4 +1261,26 @@ test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, h
   assert.deepStrictEqual(hooks().slice(3), ['change:3', 'change2'])
   run('onVoiceChange(null)')
   assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
+})
+
+test('önizleme kartında ad avatarın yanında, rol rozetleri adın yanında: üyede soluk Üye rozeti ve özel rol', () => {
+  const badgesOf = (root, id) => root.querySelectorAll('#' + id + ' .profile-identity-line .profile-identity-badges .badge')
+    .map((b) => [b.getAttribute('class'), b.textContent])
+  let ctx = load({ role: 'member' })
+  ctx.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'green', perms: [] }]")
+  ctx.run('state.meta.users[0].roleId = 7')
+  ctx.run("openSettings('account', null)")
+  const head = ctx.root.querySelector('#set-account-preview .profile-card-head')
+  assert.ok(head.classList.contains('profile-identity'))
+  assert.ok(head.firstChild.classList.contains('profile-card-avatar'), 'avatar solda')
+  assert.strictEqual(head.querySelector('.profile-identity-line .profile-card-name').textContent, 'burak')
+  assert.strictEqual(head.querySelector('.profile-identity-text .profile-card-handle').textContent, '@burak')
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-member', 'Üye'], ['badge badge-custom role-color-green', 'Moderatör']])
+  // Profil sayfasındaki önizleme de aynı rozetleri gösterir
+  ctx.run("showSettingsCat('profile', 'title')")
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-profile-card').map((b) => b[1]), ['Üye', 'Moderatör'])
+
+  ctx = load({ role: 'owner' })
+  ctx.run("openSettings('account', null)")
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-owner', 'Sahip']])
 })

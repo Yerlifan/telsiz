@@ -1024,10 +1024,9 @@ button.crew-button:hover {
   --status-ring: var(--surface-float);
 }
 
-.avatar-menu .menu-head-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+/* Ad ve rol rozetleri üst satırda (13-profile.js buildProfileIdentity), ad uzunsa üç noktayla kısalır ve rozetler alt
+   satıra kayar */
+.avatar-menu .menu-head .profile-identity-text {
   line-height: 1.3;
 }
 

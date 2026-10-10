@@ -465,6 +465,13 @@
   background-color: transparent;
 }
 
+/* Düz üyenin soluk rol rozeti: yalnızca profil kartında, Ayarlar önizlemesinde ve avatar menüsünde */
+.badge-member {
+  border: var(--border-width) solid var(--line-strong);
+  background-color: transparent;
+  color: var(--text-2);
+}
+
 /* Özel rol rengi: rozet ve renk örneği metin rengini kullanır */
 .role-color-red { color: var(--role-red); }
 .role-color-orange { color: var(--role-orange); }
@@ -3145,8 +3152,44 @@ button.member:hover {
   text-overflow: ellipsis;
 }
 
-/* Profil kartı (#profile-card): renk bandı, avatar, ad, @kullanıcı adı, durum, hakkında,
-   ses ayarı ve eylemler */
+/* Profil kimliği (13-profile.js buildProfileIdentity): avatar solda, sağında iki satırlı sütun. Üst satırda görünen
+   ad ve hemen yanında rol rozetleri, ad uzunsa rozetler alt satıra kayar. Alt satırda @kullanıcı adı. Profil kartı,
+   Ayarlar önizlemesi ve avatar menüsü kullanır. */
+.profile-identity {
+  display: flex;
+  align-items: flex-start;
+}
+
+.profile-identity-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profile-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-identity-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: 0.5rem;
+}
+
+.profile-identity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-identity-badges .badge {
+  margin: 0.125rem 0.375rem 0.125rem 0;
+}
+
+/* Profil kartı (#profile-card): renk bandı, avatar ve kimlik, durum, hakkında, ses ayarı ve eylemler */
 .profile-card {
   width: 21rem;
   max-width: 94%;
@@ -3171,11 +3214,21 @@ button.member:hover {
 .profile-card-band[data-color="6"] { background-color: var(--av-6); }
 .profile-card-band[data-color="7"] { background-color: var(--av-7); }
 
+/* Avatar banda biner, ad ve rol bandın altında avatarın sağında durur. Kart 18rem'den darsa (metin sütunu 9.75rem'e
+   sığmazsa) ad, rol ve @kullanıcı adı avatarın altına kayar. */
 .profile-card-head {
-  display: flex;
-  align-items: flex-end;
+  flex-wrap: wrap;
   padding: 0 1rem;
+}
+
+.profile-card-avatar {
   margin-top: -2.75rem;
+  margin-right: 0.75rem;
+}
+
+.profile-card-head .profile-identity-text {
+  flex: 1 1 9.75rem;
+  padding-top: 0.5rem;
 }
 
 .profile-card-avatar .avatar {
@@ -3205,23 +3258,10 @@ button.member:hover {
 
 .profile-card-handle,
 .profile-handle {
-  margin-bottom: 0.4rem;
   color: var(--text-2);
   font-size: 0.9rem;
-}
-
-.profile-card-body .badge {
-  margin: 0 0 0.4rem;
-}
-
-.profile-card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.profile-card-badges .badge {
-  margin-right: 0.4rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .profile-card-status {

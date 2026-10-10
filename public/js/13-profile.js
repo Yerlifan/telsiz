@@ -732,6 +732,42 @@ function refreshProfileCard () {
   restoreFocusKey(card, focusKey)
 }
 
+// Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol
+// rozetleri (ad uzunsa rozetler alt satıra kayar), alt satırda @kullanıcı adı. Profil kartı, Ayarlar'daki iki önizleme
+// kartı ve avatar menüsünün başı bu yardımcıyı kullanır, düzen components.css .profile-identity kurallarındadır.
+// avatarNode: avatar öğesi. name ve handle: çağıranın etiket, kimlik ve sınıfla kurduğu ad ve @kullanıcı adı öğeleri
+// (handle null olabilir). badges: rozet öğeleri, null olanlar atlanır.
+function buildProfileIdentity (avatarNode, name, handle, badges) {
+  const row = h('div', 'profile-identity')
+  row.appendChild(avatarNode)
+  const text = h('div', 'profile-identity-text')
+  const line = h('div', 'profile-identity-line')
+  name.classList.add('profile-identity-name')
+  line.appendChild(name)
+  const list = (badges || []).filter(Boolean)
+  if (list.length) {
+    const box = h('span', 'profile-identity-badges')
+    list.forEach((badge) => {
+      box.appendChild(badge)
+    })
+    line.appendChild(box)
+  }
+  text.appendChild(line)
+  if (handle) {
+    handle.classList.add('profile-identity-handle')
+    text.appendChild(handle)
+  }
+  row.appendChild(text)
+  return row
+}
+
+// Kartlardaki rol rozetleri: temel rol (sahip ve yönetici rozeti, düz üyede soluk "Üye" rozeti) ve varsa özel rol.
+// roleBadge üyede boş döner, mesaj akışı ve Çevrimiçi listesi bu yüzden değişmez.
+function profileBadges (userId, role) {
+  const base = role === 'member' ? h('span', 'badge badge-member', roleLabel(role)) : roleBadge(role)
+  return [base, customRoleBadge(userId)]
+}
+
 function buildProfileCard (card, userId) {
   clear(card)
   profileState.cardModKey = cardModKey(userId)
@@ -743,27 +779,17 @@ function buildProfileCard (card, userId) {
   const band = h('div', 'profile-card-band')
   band.setAttribute('data-color', String(userColorIndex(userId)))
   card.appendChild(band)
-  const head = h('div', 'profile-card-head')
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.setAttribute('data-status', status)
   av.appendChild(personAvatar(userId, 'xl'))
-  head.appendChild(av)
-  card.appendChild(head)
-  const body = h('div', 'profile-card-body')
   const name = h('h2', 'profile-card-name', userDisplayName(userId))
   name.id = 'profile-card-name'
-  body.appendChild(name)
   const handle = userHandle(userId)
-  if (handle) body.appendChild(h('p', 'profile-card-handle', handle))
   const user = metaUser(userId)
-  const badge = user ? roleBadge(user.role) : null
-  const custom = user ? customRoleBadge(userId) : null
-  if (badge || custom) {
-    const badges = h('p', 'profile-card-badges')
-    if (badge) badges.appendChild(badge)
-    if (custom) badges.appendChild(custom)
-    body.appendChild(badges)
-  }
+  const head = buildProfileIdentity(av, name, handle ? h('p', 'profile-card-handle', handle) : null, user ? profileBadges(userId, user.role) : [])
+  head.classList.add('profile-card-head')
+  card.appendChild(head)
+  const body = h('div', 'profile-card-body')
   const statusRow = h('p', 'profile-card-status')
   statusRow.setAttribute('data-status', status)
   statusRow.appendChild(statusDot(status))
@@ -926,8 +952,8 @@ function openProfileEditor () {
   if (typeof openSettings === 'function') openSettings('profile', el.meButton)
 }
 
-// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad,
-// @kullanıcı adı ve rol), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
+// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad ve
+// yanında rol rozetleri, altında @kullanıcı adı), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
 // Ayarlara giriş tektir ve her ekranda aynı yerdedir.
 
 function openStatusMenu (anchorEl) {
@@ -971,13 +997,9 @@ function closeStatusMenu () {
 
 function buildStatusMenu (menu) {
   clear(menu)
-  const head = h('div', 'menu-head')
-  head.appendChild(personAvatar(state.me.id, 'lg'))
-  const headText = h('span', 'menu-head-text')
-  headText.appendChild(h('span', 'menu-head-name', userDisplayName(state.me.id)))
   const handle = userHandle(state.me.id)
-  headText.appendChild(h('span', 'menu-head-sub', handle ? t('top.menuHandle', { handle: handle, role: roleLabel(state.me.role) }) : roleLabel(state.me.role)))
-  head.appendChild(headText)
+  const head = buildProfileIdentity(personAvatar(state.me.id, 'lg'), h('span', 'menu-head-name', userDisplayName(state.me.id)), handle ? h('span', 'menu-head-sub', handle) : null, profileBadges(state.me.id, state.me.role))
+  head.classList.add('menu-head')
   menu.appendChild(head)
   // Durum seçenekleri tek seçimli bir grup: seçili olanda onay işareti
   const current = myChosenStatus()
