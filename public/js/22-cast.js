@@ -15,11 +15,13 @@
 //   Sahne kapanınca öznitelik kaldırılır.
 // - body[data-cast-chat="open" | "closed"]: sahne açıkken sohbetin açık mı daraltılmış mı olduğu. Kamera
 //   ızgarasında sohbet varsayılan olarak açıktır (son mesajlar sahnenin altında görünür).
-// - body[data-cast-mode="watch" | "own" | "cams"]: #cast[data-mode] ile aynı. Kamera ızgarasında sağ sütun
-//   (İstasyonlar) gizlenmez, sahne yalnızca konuşma sütununu kaplar (frekans.css).
-// - #cast[data-mode="watch" | "own" | "cams"]: sahnenin kipi. cams: odadaki kameraların ızgarası (telsiz
-//   kartındaki Büyüt düğmesi açar, kamera kalmayınca kendiliğinden kapanır). İzlenen bir ekran paylaşımı
-//   ızgaranın, ızgara kendi paylaşımının önizlemesinin önüne geçer.
+// - body[data-cast-mode="watch" | "own" | "cams" | "game"]: #cast[data-mode] ile aynı. Kamera ızgarasında sağ
+//   sütun (İstasyonlar) gizlenmez, sahne yalnızca konuşma sütununu kaplar (frekans.css).
+// - #cast[data-mode="watch" | "own" | "cams" | "game"]: sahnenin kipi. cams: odadaki kameraların ızgarası (telsiz
+//   kartındaki Büyüt düğmesi açar, kamera kalmayınca kendiliğinden kapanır). game: oyun masası (36-oyun.js,
+//   telsiz kartındaki Oyun düğmesi açar, Küçült kapatır, oyun sürer). Öncelik castModeFor içindedir: izlenen
+//   paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesi. Oyunu açmak izlemeyi bırakır ve
+//   ızgarayı kapatır. Oyun kendiliğinden kapanmaz, üstteki kip kapanınca masa geri gelir.
 // - .cast-screen[data-fit="contain" | "cover"]: Sığdır ve Doldur seçimi. İzlenen paylaşım ve kamera ızgarası
 //   ayrı seçim tutar (paylaşımda varsayılan Sığdır, kameralarda Doldur).
 //
@@ -235,10 +237,18 @@ function castSync () {
   const sharing = inVoice && sc.state === 'live'
   const camCount = inVoice && typeof cameraStreams === 'function' ? Object.keys(cameraStreams(s)).length : 0
   if (castState.cams && camCount === 0) castState.cams = false
-  const mode = castState.watching ? 'watch' : castState.cams ? 'cams' : sharing ? 'own' : null
+  const game = inVoice && !s.private && typeof gameStageWanted === 'function' && gameStageWanted()
+  const mode = castModeFor({ watching: castState.watching, cams: castState.cams, game: game, sharing: sharing })
   castRenderTop(sc, remote, sharing)
   castRenderStage(mode, sc, remote)
   if (castState.dialog) castRenderDialogState()
+  // Oyun düğmesinin etiketi sahnenin görünürlüğüne bağlıdır (Küçült veya Masaya Dön)
+  if (typeof gameRenderTool === 'function') gameRenderTool()
+}
+
+// Sahne kipi önceliği: izlenen paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesi
+function castModeFor (o) {
+  return o.watching ? 'watch' : o.cams ? 'cams' : o.game ? 'game' : o.sharing ? 'own' : null
 }
 
 // Üst çubuk çipi (#top-cast): yalnızca kendi paylaşımın sürerken "Ekranınız yayında · Durdur" (başka
@@ -384,9 +394,35 @@ function castVisible () {
   return Boolean(el.cast && !el.cast.hidden)
 }
 
-function castFocusAfterClose () {
-  if (el.btnScreen && !el.btnScreen.closest('[hidden]')) focusNode(el.btnScreen)
+// mode: kapanan kip. Oyun masası kapanınca odak telsiz kartındaki Oyun düğmesine gider.
+function castFocusAfterClose (mode) {
+  const tool = mode === 'game' ? byId('radio-game') : null
+  if (tool && !tool.closest('[hidden]') && tool.getClientRects().length) focusNode(tool)
+  else if (el.btnScreen && !el.btnScreen.closest('[hidden]')) focusNode(el.btnScreen)
   else if (el.composerInput && !el.composerInput.disabled) focusNode(el.composerInput)
+}
+
+// Oyun masası (36-oyun.js gameOpenStage): izleme bırakılır, kamera ızgarası kapanır, sahne game kipinde açılır
+function castOpenGame (moveFocus) {
+  if (castState.watching) {
+    castCall('unwatchScreen', [castState.watching])
+    castState.watching = null
+  }
+  castState.cams = false
+  castSync()
+  if (typeof renderVoiceAll === 'function') renderVoiceAll()
+  if (!moveFocus || !castState.nodes || el.cast.hidden || el.cast.getAttribute('data-mode') !== 'game') return
+  const target = typeof gameFirstFocus === 'function' ? gameFirstFocus() : null
+  focusNode(target || castState.nodes.gameMin)
+}
+
+// Küçült: masa sahneden kalkar, oyun sürer, odak Oyun düğmesine gider
+function castMinimizeGame () {
+  if (typeof gameSetMinimized === 'function') gameSetMinimized(true)
+  castSync()
+  const tool = byId('radio-game')
+  if (tool && !tool.closest('[hidden]') && tool.getClientRects().length) focusNode(tool)
+  else castFocusAfterClose()
 }
 
 // Yayın sahnesi (#cast)
@@ -459,6 +495,11 @@ function castBuildStage () {
   n.camsClose.setAttribute('data-focus-key', 'cast-cams-close')
   n.camsClose.addEventListener('click', castCloseCams)
   head.appendChild(n.camsClose)
+  n.gameMin = castHeadButton('cast-game-min', 'i-close', () => t('game.minimize'))
+  n.gameMin.setAttribute('data-focus-key', 'cast-game-min')
+  n.gameMin.setAttribute('aria-controls', 'cast')
+  n.gameMin.addEventListener('click', castMinimizeGame)
+  head.appendChild(n.gameMin)
   n.panel.appendChild(head)
 
   n.screen = h('div', 'cast-screen')
@@ -504,6 +545,10 @@ function castBuildStage () {
   n.cams = h('div', 'cast-cams')
   n.cams.hidden = true
   n.screen.appendChild(n.cams)
+  // Oyun masası (game kipi): içini 36-oyun.js gameRenderStage çizer
+  n.game = h('div', 'cast-game')
+  n.game.hidden = true
+  n.screen.appendChild(n.game)
   n.panel.appendChild(n.screen)
 
   n.foot = h('div', 'cast-foot')
@@ -608,6 +653,11 @@ function castRenderStage (mode, sc, remote) {
   root.setAttribute('data-mode', mode)
   document.body.setAttribute('data-cast', 'live')
   document.body.setAttribute('data-cast-mode', mode)
+  const game = mode === 'game'
+  // Oyunda kökün adı "Oyun masası" olur, dil değişince I18N.apply aynı anahtarı kullanır
+  const rootLabel = game ? 'game.stage' : 'cast.stage'
+  if (root.getAttribute('data-i18n-aria-label') !== rootLabel) root.setAttribute('data-i18n-aria-label', rootLabel)
+  root.setAttribute('aria-label', game ? t('game.stage') : t('cast.stage'))
   castApplyChat()
   castRefreshAttrs(root)
   castRenderPick(sc, remote, mode)
@@ -622,17 +672,20 @@ function castRenderStage (mode, sc, remote) {
   setIcon(n.full, castState.full ? 'i-compress' : 'i-expand')
   n.panel.classList.toggle('is-own', own)
   n.panel.classList.toggle('is-cams', cams)
+  n.panel.classList.toggle('is-game', game)
   n.rec.hidden = !own
   n.viewers.hidden = !own
   n.quality.hidden = !own
   n.stop.hidden = !own
-  n.fitGroup.hidden = own
-  n.unwatch.hidden = own || cams
+  n.fitGroup.hidden = own || game
+  n.unwatch.hidden = own || cams || game
   n.full.hidden = own
-  n.foot.hidden = own || cams
+  n.foot.hidden = own || cams || game
   n.camsClose.hidden = !cams
+  n.gameMin.hidden = !game
   n.cams.hidden = !cams
-  n.video.hidden = cams
+  n.game.hidden = !game
+  n.video.hidden = cams || game
   if (!cams && castState.camsKey) {
     castState.camsKey = ''
     clear(n.cams)
@@ -640,6 +693,8 @@ function castRenderStage (mode, sc, remote) {
   }
   if (cams) {
     castRenderCams(n)
+  } else if (game) {
+    castRenderGame(n)
   } else if (own) {
     castRenderOwn(n, sc)
   } else {
@@ -689,6 +744,19 @@ function castRenderCams (n) {
     keep['grid-' + id] = true
   })
   pruneCameraVideos('grid-', keep)
+}
+
+// Oyun masası: başlık ve alt satır 36-oyun.js'ten, masanın içi gameRenderStage ile (kendi anahtarı değişmediyse
+// dokunulmaz)
+function castRenderGame (n) {
+  castBindVideo(n, null)
+  n.waiting.hidden = true
+  n.failed.hidden = true
+  n.tag.hidden = true
+  n.panel.setAttribute('aria-labelledby', 'cast-title')
+  setLive(n.title, () => (typeof gameStageTitle === 'function' ? gameStageTitle() : t('game.stage')))
+  setLive(n.sub, () => (typeof gameStageSub === 'function' ? gameStageSub() : ''))
+  if (typeof gameRenderStage === 'function') gameRenderStage(n.game)
 }
 
 function castRenderOwn (n, sc) {
@@ -782,7 +850,8 @@ function castRenderPick (sc, remote, mode) {
   if (sharing) items.push('self')
   const selected = mode === 'own' ? 'self' : castState.watching
   const key = [items.join(','), selected, window.I18N ? window.I18N.lang : ''].join('|')
-  n.pick.hidden = items.length < 2
+  // Oyun masasında paylaşan seçicisi gizlidir (izlemeye geçmek oyunu üstten örter)
+  n.pick.hidden = items.length < 2 || mode === 'game'
   if (key === castState.pickKey) return
   castState.pickKey = key
   const focused = n.pick.contains(document.activeElement) ? document.activeElement.getAttribute('data-cast-user') : null
@@ -816,9 +885,14 @@ function castRenderPick (sc, remote, mode) {
 function castCloseStage () {
   const root = el.cast
   const hadFocus = root.contains(document.activeElement)
+  const mode = root.getAttribute('data-mode')
   if (castState.full) castExitFull(false)
   root.hidden = true
   root.removeAttribute('data-mode')
+  if (mode === 'game') {
+    root.setAttribute('data-i18n-aria-label', 'cast.stage')
+    root.setAttribute('aria-label', t('cast.stage'))
+  }
   document.body.removeAttribute('data-cast')
   document.body.removeAttribute('data-cast-mode')
   document.body.removeAttribute('data-cast-chat')
@@ -830,10 +904,12 @@ function castCloseStage () {
     castBindVideo(castState.nodes, null)
     clear(castState.nodes.viewersStack)
     clear(castState.nodes.cams)
+    clear(castState.nodes.game)
   }
   castState.camsKey = ''
   if (typeof pruneCameraVideos === 'function') pruneCameraVideos('grid-', {})
-  if (hadFocus) castFocusAfterClose()
+  if (typeof gameStageClosed === 'function') gameStageClosed()
+  if (hadFocus) castFocusAfterClose(mode)
 }
 
 // Seçim sahnenin o anki kipine yazılır: kamera ızgarasında kameralara, izlenen paylaşımda paylaşıma
@@ -868,9 +944,12 @@ function castToggleMute () {
 
 // Sohbet şeridi: geniş ekranda sahne açılınca sohbet daraltılır, telefonda açık kalır
 
+// Oyun masasında sohbet varsayılan olarak daraltılmıştır (geniş ve dar ekranda), kişinin seçimi saklanır
 function castChatOpen () {
   if (castState.chatOpen !== null) return castState.chatOpen
-  return isNarrow() || (el.cast && el.cast.getAttribute('data-mode') === 'cams')
+  const mode = el.cast ? el.cast.getAttribute('data-mode') : null
+  if (mode === 'game') return false
+  return isNarrow() || mode === 'cams'
 }
 
 function castApplyChat () {

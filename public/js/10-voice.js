@@ -11,8 +11,9 @@
 // (#radio-vad) ve beş düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Kamera, Ayrıl) durur.
 // Kamerası açık kişinin kadro öğesi aynı yumuşak kare biçimde canlı görüntüye döner (kendi görüntünüz
 // aynalı), kamera açıkken düğme sırasının üstünde her zaman görünen bir "Kameranız açık" satırı durur.
-// Odada kamera varsa kadronun altındaki araç satırında (#radio-tools, Telsiz DJ düğmesinden önce) Büyüt
-// düğmesi (#radio-cams) durur, kameraları yayın sahnesinde ızgara olarak açar (22-cast.js).
+// Kadronun altındaki araç satırının (#radio-tools) sırası Büyüt, Oyun, Telsiz DJ'dir. Büyüt (#radio-cams)
+// odada kamera varsa görünür ve kameraları yayın sahnesinde ızgara olarak açar (22-cast.js). Oyun (#radio-game)
+// masa kurar, daveti ve masayı açar (36-oyun.js), Telsiz DJ kartı açar (23-dj.js).
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.

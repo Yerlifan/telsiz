@@ -1,12 +1,14 @@
 'use strict'
 
-// Bildirimler (#activity): sol sütunda telsiz kartının üstündeki kısa olay listesi. İki tür olay yazılır:
+// Bildirimler (#activity): sol sütunda telsiz kartının üstündeki kısa olay listesi. Üç tür olay yazılır:
 // - Ekran paylaşımı başladı: yanında İzle düğmesi durur, paylaşım bitince veya ses odasından ayrılınca kayıt
 //   kalkar (22-cast.js castOnScreenEvent ve castSync, activityShare ve activityClearShares). Paylaşım ses
 //   bağlantıları üzerinden duyurulduğu için yalnızca aynı ses odasındaki paylaşımlar görünür.
 // - Ses odasına katılma ve ayrılma: her metada ses kadroları (meta.voice) bir öncekiyle karşılaştırılır
 //   (04-meta.js applyMeta, activityOnMeta). İlk meta yalnızca karşılaştırma tabanıdır, kendi hareketlerin
 //   yazılmaz.
+// - Oyun daveti: yanında Masaya Bak düğmesi durur. Masa kapanınca, davet geçersiz olunca, Katıl'a basınca ve
+//   ses odasından çıkınca kayıt kalkar (36-oyun.js, activityGame ve activityClearGames).
 // Liste en yeni ACTIVITY_MAX kaydı tutar, en yeni üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda
 // görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice, activityShown).
 
@@ -67,6 +69,28 @@ function activityShare (userId, on) {
   if (on || activityState.items.length !== before) renderActivity()
 }
 
+// Oyun daveti (on true) veya davetin kalkması (on false). Aynı kurpiyerin eski davet kaydı kaldırılır. app: oyunun
+// kimliği, metinde oyunun adı için
+function activityGame (dealerId, on, app) {
+  if (dealerId === null || dealerId === undefined) return
+  if (on && typeof snap === 'function' && snap().private) return
+  const id = String(dealerId)
+  const before = activityState.items.length
+  activityState.items = activityState.items.filter((item) => !(item.kind === 'game' && item.userId === id))
+  if (on) activityAdd({ kind: 'game', userId: id, channelId: null, app: typeof app === 'string' ? app : null })
+  if (on || activityState.items.length !== before) renderActivity()
+}
+
+function activityClearGames () {
+  const before = activityState.items.length
+  activityState.items = activityState.items.filter((item) => item.kind !== 'game')
+  if (activityState.items.length !== before) renderActivity()
+}
+
+function activityGameName (item) {
+  return typeof gameAppName === 'function' ? gameAppName(item.app) : ''
+}
+
 function activityClearShares () {
   const before = activityState.items.length
   activityState.items = activityState.items.filter((item) => item.kind !== 'share')
@@ -88,6 +112,7 @@ function activityShown () {
 function activityText (item) {
   const name = shownName(item.userId)
   if (item.kind === 'share') return t('activity.share', { name: name })
+  if (item.kind === 'game') return t('game.activityInvite', { name: name, game: activityGameName(item) })
   const room = findChannel(item.channelId)
   const roomName = room && room.name ? String(room.name) : t('activity.voiceRoom')
   return t(item.kind === 'join' ? 'activity.join' : 'activity.leave', { name: name, room: roomName })
@@ -114,6 +139,13 @@ function renderActivity () {
         if (typeof castWatch === 'function') castWatch(item.userId, true)
       })
       li.appendChild(watch)
+    } else if (item.kind === 'game') {
+      const label = t('game.toolInviteLabel', { name: shownName(item.userId), game: activityGameName(item) })
+      const view = button('button button-small activity-watch', t('game.view'), 'i-gamepad', label)
+      view.addEventListener('click', () => {
+        if (typeof gameOpenInvite === 'function') gameOpenInvite(item.userId)
+      })
+      li.appendChild(view)
     }
     list.appendChild(li)
   })
