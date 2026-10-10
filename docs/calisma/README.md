@@ -7,6 +7,7 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 - Kart oyununun adı Renk. Kurpiyer oyunu başlatan kişidir ve bütün elleri teknik olarak bilir (basit model). Kural setini kurpiyer seçer: Resmî veya Üst Üste Ekleme.
 - Tek! kuralı iki kural setinde de geçerli (varsayılan, kullanıcı itiraz etmedi). Kapatmak tek bir sabittir.
 - Kullanıcı 18 yeni isteğin hepsinin yapılmasını istedi ("Hepsini yap").
+- Şarkı adıyla arama (istek 5) anahtarsız yoldan yapılacak. Kullanıcı Data API anahtarı yerine anahtarsız yolu seçti (10 Ekim 2026). Sunucu YouTube arama sonuçlarını kendisi alır, istemcinin IP adresi YouTube'a gitmez. Yanıt yapısı ağaçta özyinelemeli aranır, biçim değişirse arama kapanır ve bağlantıyla ekleme çalışmaya devam eder. Bu kapsayıcı youtube.com adresine erişemediği için canlı doğrulama sunucuda yapılacak.
 - Kullanıcı kota bitince işin baştan başlamamasını istedi. Her adım ayrı commit olur ve birkaç dakikada bir uzak dala gönderilir.
 
 ## İşler ve durum
