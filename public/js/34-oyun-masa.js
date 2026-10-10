@@ -849,20 +849,16 @@ window.TelsizGameDesk = (function (G) {
     }
 
     // Oyuncunun gönderimi: tek alıcı (kurpiyer), tek uçuş. want: join | act | sync.
+    // Bekleyen hamle varken sync gönderilmez, yalnızca aynı act aynı seq ile yeniden gider (4.9)
     function want (kind) {
-      if (kind === 'sync') {
-        if (T.pending) {
-          kind = 'act'
-        } else if (T.want === 'sync' || (T.inflight && T.sentKind === 'sync')) {
-          return
-        } else {
-          T.mySeq++
-          T.syncSeq = T.mySeq
-          T.syncing = true
-        }
+      const k = kind === 'sync' && T.pending ? 'act' : kind
+      if (k === 'sync') {
+        if (T.want === 'sync' || (T.inflight && T.sentKind === 'sync')) return
+        T.mySeq++
+        T.syncSeq = T.mySeq
+        T.syncing = true
       }
-      if (T.want === 'act' && kind === 'sync') return
-      T.want = kind
+      T.want = k
     }
 
     function playerFlush () {
@@ -1409,7 +1405,8 @@ window.TelsizGameDesk = (function (G) {
         newEvents: newEvents,
         ended: null,
         rejected: null,
-        error: error
+        error: error,
+        locked: locked()
       }
       if (setup) {
         const A = appOf(setup.app)
