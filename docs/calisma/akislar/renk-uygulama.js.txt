@@ -1,0 +1,216 @@
+export const meta = {
+  name: 'renk-uygulama',
+  description: 'Renk kart oyununu tasarım belgesine göre adım adım uygula: taşıma, protokol, kurallar, masa, ağ benzetimi, arayüz, e2e, belgeler',
+  phases: [
+    { title: 'Çekirdek', detail: 'voice.js taşıması, protokol ve kural motoru paralel' },
+    { title: 'Bütünleştirme', detail: 'liste satırları, test, üç commit' },
+    { title: 'Masa', detail: 'masa yöneticisi ve testi' },
+    { title: 'Ağ', detail: 'dört cihazlı ağ benzetimi ve düzeltmeler' },
+    { title: 'Arayüz', detail: 'yapıştırıcı, sahne kipi, genel arayüz' },
+    { title: 'Renk arayüzü', detail: 'masa çizimi, kartlar, tarayıcıda deneme' },
+    { title: 'e2e', detail: 'uçtan uca test' },
+    { title: 'Belgeler', detail: 'TR ve EN belgeler, CHANGELOG' },
+  ],
+}
+
+const REPO = '/home/user/ps5-pc-communication'
+const SP = '/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad'
+const SPEC = SP + '/renk-tasarim.md'
+const ATTR = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT'
+
+const COMMON = `
+Depo: ${REPO} (Telsiz). Dal: claude/eager-johnson-c7u6us (main'den yeni başlatıldı).
+Görevin, ses odasında oynanan "Renk" kart oyununu uygulama belgesine göre yapmak. Belge: ${SPEC}.
+Belgenin 1. ve 2. bölümünü TAMAMEN oku, sonra kendi adımına ait bölümleri ayrıntılı oku. Belgedeki satır numaraları
+ff8784e üzerinde okundu. Kodda yeniden doğrula. Belge ile kod çelişirse kodun gerçeğini izle, sapmayı raporuna yaz.
+Kullanıcının kesin kararları belgenin 1.1 bölümündedir. Onları değiştirme. Oyunun adı Renk. "UNO" ya da "Uno" adı
+kodda, testte, i18n değerlerinde, belgelerde hiçbir yerde geçmez.
+
+KESİN KURALLAR
+- git stash, git checkout, git switch, git reset, git rebase, git push, git commit --amend KULLANMA.
+- Yalnız kendi adımının dosyalarını düzenle (aşağıda listelenir). Başka dosyaya dokunman gerekirse raporuna gerekçesiyle yaz.
+- Proje kuralları (CONTRIBUTING.md 138-160 ve scripts/denetle.js): istemci JS ES2017, noktalı virgül yok, satır başı
+  ( [ \` ile başlamaz, iki boşluk girinti, tek tırnak. Kodda, yorumda, belgede uzun ve kısa tire (U+2014, U+2013) yok.
+  Markdown düzyazısında noktalı virgül yok. innerHTML, outerHTML, insertAdjacentHTML, eval, Function, structuredClone,
+  .replaceAll, Object.hasOwn, .at(), fetch (sw.js dışında) yasak. CSS'te grid, flex gap, clamp, :is, :where,
+  aspect-ratio, inset yasak, ölçüler rem, renkler var(--...). Görünen her metin public/i18n.js içinde tr ve en olarak,
+  istemci kodunda Türkçe harfli sabit metin yok. Aynı kapsamda aynı adla iki işlev bildirimi yok. Yorumlar Türkçe ve
+  seyrek, tanımlayıcılar İngilizce. Düğme etiketleri ve başlıklar her kelimesi büyük harfle (mevcut i18n'e bak).
+  voice.js tarayıcı adı tahmin etmez (navigator.userAgent vb. yok).
+- Testler Windows'ta da geçmeli (path.join, os.tmpdir, satır sonu varsayımı yok).
+- Commit mesajları Türkçe. Biçim: kısa başlık, boş satır, ne ve neden, boş satır, ardından tam olarak şu iki satır:
+${ATTR}
+- Commit'i yalnız istendiğinde ve yalnız "git add <dosya yolları>" ile kendi dosyalarını ekleyerek yap.
+
+RAPOR (son mesajın): değişen ve eklenen dosyalar, belgeden sapmalar ve gerekçeleri, sonraki adımın bilmesi gereken
+API ayrıntıları (işlev adları, imzalar, olay biçimleri), koşturduğun komutlar ve sonuçları (sayılarla), açık kalan sorunlar.`
+
+phase('Çekirdek')
+const core = await parallel([
+  () => agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 1. adım, TAŞIMA. Belge bölümleri: 3 (tamamı), 4.1, 4.15, 8.1.
+Dosyaların: public/voice.js, public/js/10-voice.js, test/oyun-tasima.test.js (yeni).
+Başka iki ajan aynı anda public/js/33-oyun-protokol.js ve public/js/35-renk-kural.js üzerinde çalışıyor, onlara dokunma.
+index.html, sw.js ve i18n.js'e DOKUNMA.
+Mevcut test/kamera-cevir.test.js ve test/screenshare.test.js içindeki voice.js yükleme kalıplarını izle.
+Doğrulama: node --test test/oyun-tasima.test.js ve voice.js'i yükleyen mevcut testler (test/kamera*.test.js,
+test/screenshare.test.js, test/ses*.test.js gibi, grep ile bul) geçmeli. npm run denetle'de YALNIZ kendi dosyalarındaki
+ihlaller önemli (öteki ajanların yarım dosyaları ihlal gösterebilir).
+COMMIT YAPMA.`, { label: 'taşıma (voice.js)', phase: 'Çekirdek' }),
+
+  () => agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 2. adım, PROTOKOL ÇEKİRDEĞİ. Belge bölümleri: 4 (tamamı, özellikle 4.1-4.4, 4.9,
+4.10 sabitleri, 4.13, 4.15), 8.2.
+Dosyaların: public/js/33-oyun-protokol.js (yeni, window.TelsizGame), test/oyun-protokol.test.js (yeni).
+Başka iki ajan aynı anda public/voice.js, public/js/10-voice.js ve public/js/35-renk-kural.js üzerinde çalışıyor.
+index.html, sw.js ve i18n.js'e DOKUNMA (bağlantı satırlarını sonraki adım ekleyecek). Bu yüzden bağlantı denetimini
+şimdilik yazma, raporuna "bağlantı denetimi eklenecek" diye not düş.
+Gerçek nacl (public/vendor/nacl-fast.min.js) ve public/crypto.js ile iç zarf testi yap. test/music.test.js içindeki
+loadDevice kalıbına ve test/crypto.test.js'e bak. E2EE.dm.seal/open imzalarını crypto.js'te doğrula.
+Doğrulama: node --test test/oyun-protokol.test.js geçmeli. npm run denetle'de YALNIZ kendi dosyalarındaki ihlaller önemli.
+COMMIT YAPMA.`, { label: 'protokol (33)', phase: 'Çekirdek' }),
+
+  () => agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 4. adım, KURAL MOTORU. Belge bölümleri: 5 (tamamı), 8.4.
+Dosyaların: public/js/35-renk-kural.js (yeni, window.TelsizRenk), test/renk-kural.test.js (yeni).
+Motor 5.1'deki genel uygulama sözleşmesine uyar ve TelsizGame'in bazı yardımcılarını (ör. randomBelow, shuffle,
+onlyKeys, isId) kullanabilir. TelsizGame'i (public/js/33-oyun-protokol.js) başka bir ajan aynı anda yazıyor. Belgedeki
+TelsizGame API'sine göre yaz. Testte 33 dosyası henüz yoksa ya da eksikse, belgede tanımlanan yardımcıların küçük bir
+sahte sürümünü test içinde ver ve raporunda belirt. Kâhin testi (8.4) ve kart kodu kararını (1.2) mutlaka uygula.
+Başka iki ajan aynı anda public/voice.js, public/js/10-voice.js ve public/js/33-oyun-protokol.js üzerinde çalışıyor.
+index.html, sw.js ve i18n.js'e DOKUNMA.
+Doğrulama: node --test test/renk-kural.test.js geçmeli. npm run denetle'de YALNIZ kendi dosyalarındaki ihlaller önemli.
+COMMIT YAPMA.`, { label: 'kurallar (35)', phase: 'Çekirdek' }),
+])
+const [rT, rP, rK] = core
+log('Çekirdek bitti: taşıma ' + (rT ? 'tamam' : 'YOK') + ', protokol ' + (rP ? 'tamam' : 'YOK') + ', kurallar ' + (rK ? 'tamam' : 'YOK'))
+
+phase('Bütünleştirme')
+const integ = await agent(`${COMMON}
+
+ADIMIN: Üç paralel ajanın işini bütünleştir ve üç ayrı commit yap.
+Ajan raporları:
+=== TAŞIMA ===
+${rT || '(rapor yok)'}
+=== PROTOKOL ===
+${rP || '(rapor yok)'}
+=== KURALLAR ===
+${rK || '(rapor yok)'}
+
+Yapılacaklar:
+1. public/index.html ve public/sw.js'e 33-oyun-protokol.js ve 35-renk-kural.js satırlarını belgenin 2.2 bölümündeki
+   yerlere ekle (sıra: 33, sonra 34 için yer bırakma, 35). sw.js CACHE_NAME değişmez.
+2. Bağlantı denetimini (index.html ve sw.js'te iki dosya, doğru sırada) test/oyun-protokol.test.js'e ekle (8.2 ve 10. bölüm 2. adım notu).
+3. 35, TelsizGame yardımcılarını kullanıyorsa test/renk-kural.test.js'teki sahte sürümü gerçek 33 dosyasını yükleyecek biçimde değiştir.
+4. Üç parçanın birbirine uyduğunu denetle (ör. 35'in çağırdığı TelsizGame işlevleri 33'te var mı, imzalar aynı mı). Uymayanı düzelt.
+5. npm run denetle (ihlal yok) ve npm test (düşen yok) geçmeli. Düşen testlerin kök nedenini düzelt.
+6. Üç commit, bu sırayla:
+   a. "Oyun: ses odası sinyalinde genel oyun taşıması" (voice.js, 10-voice.js, test/oyun-tasima.test.js)
+   b. "Oyun: protokol çekirdeği" (33, index.html, sw.js içindeki 33 satırı, test/oyun-protokol.test.js). index.html ve sw.js'te
+      hem 33 hem 35 satırı varsa ikisini bu commit'e koyabilirsin, raporunda belirt.
+   c. "Renk: kural motoru" (35, test/renk-kural.test.js ve kalan satırlar)
+   Her commit'ten sonra git status ile yalnız beklenen dosyaların girdiğini doğrula.
+Dosyaların: yukarıdaki dosyaların hepsi.`, { label: 'bütünleştirme', phase: 'Bütünleştirme' })
+
+phase('Masa')
+const rM = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 3. adım, MASA YÖNETİCİSİ. Belge bölümleri: 4 (tamamı, özellikle 4.5-4.14), 5.1, 8.3.
+Dosyaların: public/js/34-oyun-masa.js (yeni, window.TelsizGameDesk), test/oyun-masa.test.js (yeni), public/index.html ve
+public/sw.js (34 satırı, 33 ile 35 arasına).
+Önceki adımların raporu (API ayrıntıları için):
+${integ || '(rapor yok)'}
+Masa yöneticisi DOM'suz ve saatsizdir: zaman env.now(), ağ env.send, zamanlayıcılar env üzerinden gelir. Testte sahte
+ortamla tek cihazda kurpiyer ve oyuncu durum makinelerini, kısmayı, canlılığı, yeniden bağlanmayı, engellemeyi,
+anahtar sorunlarını, tek masa kuralını sına. Bağlantı denetimini 34 için de güncelle (test/oyun-protokol.test.js).
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz.
+Bitince commit: "Oyun: masa yöneticisi" (yalnız bu adımın dosyaları).`, { label: 'masa (34)', phase: 'Masa' })
+
+phase('Ağ')
+const rA = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 5. adım, AĞ BENZETİMİ. Belge bölümleri: 4, 5, 8.5.
+Dosyaların: test/oyun-ag.test.js (yeni). Bu adımda bulunan hatalar public/js/33-oyun-protokol.js, 34-oyun-masa.js,
+35-renk-kural.js ve public/voice.js içinde (gerekirse ilgili testlerle birlikte) düzeltilir.
+Önceki adımın raporu:
+${rM || '(rapor yok)'}
+Dört cihaz, gerçek nacl ve crypto.js, kayıp, yineleme, sıra bozulması, gecikme, sayfa yenileme (aynı peerId), kurpiyerin
+yenilemesi, oyuncunun ayrılması, kurpiyerin ayrılması, engelleme, sahte from ile gelen ileti (sunucuyu işleten saldırgan,
+grup anahtarını bilir ama kimlik anahtarını bilmez), eski el iletisinin yeniden oynatılması. Gizli el sızıntısını nesne
+yürüyüşüyle denetle: bir oyuncunun aldığı hiçbir iletide başkasının kart kodu olmamalı. En az birkaç tam eli iki kural
+setinde de sonuna kadar oynat (rastgele ama tohumlu hamle seçimiyle).
+Bulduğun her hatayı kök nedeninden düzelt ve raporuna listele.
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz.
+Bitince commit: "Oyun: dört cihazlı ağ benzetimi" (ve düzeltmeler varsa mesajda say).`, { label: 'ağ benzetimi', phase: 'Ağ' })
+
+phase('Arayüz')
+const rU = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 6. adım, YAPIŞTIRICI VE GENEL ARAYÜZ. Belge bölümleri: 6 (6.1-6.4, 6.8-6.10), 7.1, 8.6.
+Dosyaların: public/js/36-oyun.js (yeni), public/css/oyun.css (yeni), public/css/tokens.css, public/js/22-cast.js
+(game kipi), public/js/28-bildirim.js, public/css/cast.css (yorum), public/js/10-voice.js (gerekirse), public/index.html
+ve public/sw.js (36 ve oyun.css satırları), public/i18n.js (game.* anahtarları, tr ve en aynı sırada),
+test/oyun-arayuz.test.js (yeni, henüz Renk arayüzü olmadan).
+Önceki adımların raporları:
+${integ || ''}
+${rM || ''}
+${rA || ''}
+Kayıtlı uygulama arayüzü (37) olmadığı için bu adımda Oyun düğmesi görünmez, bu beklenen durumdur.
+22-cast.js'teki mevcut kipleri (own, watch, cams) bozma. Kip önceliği belgede: watch > cams > game > own.
+Mevcut e2e'leri (Chromium) koştur: node --test --test-concurrency=1 e2e/05-ses-yayin.test.js e2e/10-kamera.test.js
+e2e/04-*.test.js (ses), en az bunlar geçmeli. Playwright Chromium /opt/pw-browsers'ta, indirme yapma.
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz.
+Bitince commit: "Oyun: genel arayüz ve sahne kipi".`, { label: 'genel arayüz (36)', phase: 'Arayüz' })
+
+phase('Renk arayüzü')
+const rR = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 7. adım, RENK ARAYÜZÜ. Belge bölümleri: 6 (özellikle 6.5-6.9), 7.2, 8.6 (Renk kısmı).
+Dosyaların: public/js/37-renk.js (yeni), public/css/renk.css (yeni), public/index.html (sprite sembolleri, 37 ve renk.css
+satırları), public/sw.js, public/i18n.js (game.renk.*), public/css/tokens.css (gerekirse), test/oyun-arayuz.test.js (Renk kısmı),
+gerekirse 36-oyun.js ve oyun.css.
+Önceki adımların raporları:
+${rU || ''}
+Özellik bu adımda görünür olur. Gerçek tarayıcıda dene: npm start ile sunucuyu (ya da e2e/yardimci.js'teki setupWorld
+kalıbıyla geçici bir dünya) başlat, Playwright Chromium (/opt/pw-browsers) ile en az iki, tercihen üç kullanıcı aynı ses
+odasına girsin (sahte mikrofon bayrakları e2e yardımcısında var), biri masa kursun, kural setini seçsin, diğerleri katılsın,
+birkaç el oynansın. Telefon genişliği (360 ve 412 px), 760, 1000, 1440 px, açık ve koyu tema, TR ve EN. Joker renk seçici,
+ilk kart Joker durumu, Tek! ve Yakala, oyun sonu ekranı, kurpiyerin ayrılması. Yatay taşma olmamalı (scrollWidth -
+clientWidth), konsolda hata olmamalı. Ekran görüntülerini ${SP}/renk-ekran/ altına kaydet ve raporunda listele.
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz.
+Bitince commit: "Renk: masa arayüzü".`, { label: 'Renk arayüzü (37)', phase: 'Renk arayüzü' })
+
+phase('e2e')
+const rE = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 8. adım, UÇTAN UCA TEST. Belge bölümü: 8.7.
+Dosyaların: e2e/16-oyun.test.js (yeni). Bulunan hatalar ilgili kaynak dosyalarda düzeltilir.
+Önceki adımın raporu:
+${rR || ''}
+e2e/yardimci.js kalıplarını (setupWorld, joinVoice, extraPeople, assertCleanConsole, MIC_BROWSERS, port yuvaları) izle.
+Boş port yuvasını grep ile doğrula. Testi ve tüm Chromium e2e paketini koştur (npm run test:e2e komutunun nasıl çalıştığına
+package.json'dan bak, Firefox ve WebKit bu ortamda yok, yalnız Chromium koşabilirsin).
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz, Chromium e2e tamamı geçer.
+Bitince commit: "Renk: uçtan uca test" (düzeltmeler varsa mesajda say).`, { label: 'e2e', phase: 'e2e' })
+
+phase('Belgeler')
+const rD = await agent(`${COMMON}
+
+ADIMIN: Belgenin 10. bölümündeki 9. adım, BELGELER. Belge bölümü: 9.
+Dosyaların: README.md, README.en.md, docs/MIMARI.md, docs/ARCHITECTURE.md, docs/TASARIM.md, docs/DESIGN.md,
+CONTRIBUTING.md, CONTRIBUTING.en.md, CHANGELOG.md ve CHANGELOG.en.md (yeni bir "## [Yayımlanmamış]" / "## [Unreleased]"
+bölümü, en üstteki "## [2.5.0]" başlığının ÜSTÜNE, "### Yeni özellikler" / "### New features" altında Renk maddesi).
+Önceki adımların raporları:
+${rU || ''}
+${rR || ''}
+${rE || ''}
+Belgeler koddaki son durumu anlatmalı (kodu oku, belgeye değil koda güven). İki dildeki "## " başlık sayıları eşit, içerik
+birebir karşılık gelir. Kurpiyerin bütün elleri teknik olarak bildiği, iç zarfın güveni, hız bütçesi ve bilinçli olarak
+dışarıda bırakılanlar MIMARI/ARCHITECTURE'da açıkça yazsın. CONTRIBUTING güvenliğe hassas alanlar tablosuna yeni modüller.
+Doğrulama: npm run denetle ihlalsiz, npm test düşensiz.
+Bitince commit: "Renk: belgeler".`, { label: 'belgeler', phase: 'Belgeler' })
+
+return { tasima: rT, protokol: rP, kurallar: rK, butunlestirme: integ, masa: rM, ag: rA, arayuz: rU, renk: rR, e2e: rE, belgeler: rD }
