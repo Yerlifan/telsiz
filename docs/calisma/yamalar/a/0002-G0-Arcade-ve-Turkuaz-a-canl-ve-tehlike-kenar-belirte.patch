@@ -1,0 +1,391 @@
+From f4d1c07b3a3753a78b9da54c0c37d363e6232267 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 19:56:58 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?G0:=20Arcade=20ve=20Turkuaz'a=20canl=C4=B1?=
+ =?UTF-8?q?=20ve=20tehlike=20kenar=C4=B1=20belirte=C3=A7leri?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+--live-edge ve --danger-edge yalnızca Gece temasında tanımlıydı, ortak CSS
+ise onları sekiz yerde geri dönüş değeri olmadan kullanıyordu. Arcade ve
+Turkuaz'da border kısaltması geçersiz sayılıyor, kamera göstergesinin,
+paylaşım bildiriminin, arama denetimlerinin ve güvenlik numarası rozetinin
+kenarı hiç çizilmiyordu (tasarım bulgusu A).
+
+İki belirteç Arcade ve Turkuaz'ın koyu ve açık bloklarına eklendi. Değerler
+--live ve --danger renklerinin zemine doğru karıştırılmış hâlidir, her
+yüzeyde ve kendi saydam zemininde en az 3:1 kontrast verir (ölçülen en
+düşük değer 3.21).
+
+Yeni test/tema.test.js tokens.css kademesini her tema ve modda hesaplar:
+iki belirtecin temanın kendi bloğunda yazılı olduğunu, 3:1 kontrastı ve
+ortak CSS ile tema dosyalarında geri dönüşsüz kullanılan her belirtecin
+ilgili temalarda çözüldüğünü denetler. e2e/03-sosyal kenarın gerçek
+tarayıcıda her tema ve modda solid çizildiğini ölçer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/03-sosyal.test.js |  41 +++++++
+ public/css/tokens.css |   9 ++
+ test/tema.test.js     | 245 ++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 295 insertions(+)
+ create mode 100644 test/tema.test.js
+
+diff --git a/e2e/03-sosyal.test.js b/e2e/03-sosyal.test.js
+index 13abcf7..374b96e 100644
+--- a/e2e/03-sosyal.test.js
++++ b/e2e/03-sosyal.test.js
+@@ -132,6 +132,47 @@ test('telefon 390: özel mesaj ve arkadaşlar görünümünde yatay taşma yok',
+   await page.setViewportSize({ width: 1440, height: 900 })
+ })
+ 
++// Kenar belirteçleri (--live-edge, --danger-edge) her temada tanımlıdır. Tanımsız belirteç border kısaltmasını
++// geçersiz kılıyor ve kenar hiç çizilmiyordu (Arcade ve Turkuaz): kamera göstergesi (tehlike kenarı) ve paylaşım
++// bildirimi (canlı kenarı) her tema ve modda ölçülür.
++test('kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda çizilir', async () => {
++  const result = await W.deniz.evaluate(() => {
++    const root = document.documentElement
++    const before = { skin: root.getAttribute('data-skin'), scheme: root.getAttribute('data-scheme') }
++    const cam = document.getElementById('radio-cam-live')
++    const notice = document.createElement('div')
++    notice.className = 'cast-notice'
++    notice.hidden = true
++    document.body.appendChild(notice)
++    const schemes = ['dark', 'light']
++    const out = []
++    window.TelsizTheme.skins.forEach((skin) => {
++      schemes.forEach((scheme) => {
++        root.setAttribute('data-skin', skin)
++        root.setAttribute('data-scheme', scheme)
++        const a = getComputedStyle(cam)
++        const b = getComputedStyle(notice)
++        out.push({ skin, scheme, cam: a.borderTopStyle, camWidth: parseFloat(a.borderTopWidth), camColor: a.borderTopColor, notice: b.borderTopStyle, noticeWidth: parseFloat(b.borderTopWidth) })
++      })
++    })
++    notice.remove()
++    root.setAttribute('data-skin', before.skin)
++    root.setAttribute('data-scheme', before.scheme)
++    return out
++  })
++  assert.ok(result.length >= 6, 'en az üç tema ve iki mod')
++  for (const r of result) {
++    assert.equal(r.cam, 'solid', r.skin + ' ' + r.scheme + ' kamera göstergesi kenarı')
++    assert.ok(r.camWidth > 0, r.skin + ' ' + r.scheme + ' kamera göstergesi kenar kalınlığı')
++    assert.equal(r.notice, 'solid', r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenarı')
++    assert.ok(r.noticeWidth > 0, r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenar kalınlığı')
++  }
++  // Her tema kendi kenar tonunu verir
++  const color = (skin, scheme) => result.find((r) => r.skin === skin && r.scheme === scheme).camColor
++  assert.notEqual(color('arcade', 'dark'), color('turkuaz', 'dark'))
++  assert.notEqual(color('arcade', 'dark'), color('arcade', 'light'))
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   h.assertCleanConsole(W.w.logs, W.w.srv.errors)
+ })
+diff --git a/public/css/tokens.css b/public/css/tokens.css
+index 4cb3514..dbac6d6 100644
+--- a/public/css/tokens.css
++++ b/public/css/tokens.css
+@@ -162,9 +162,12 @@
+   --offline: #8e8da3;
+   --live: #45db9c;
+   --live-bg: rgba(69, 219, 156, 0.12);
++  /* Canlı ve tehlike bileşenlerinin kenarı: her yüzeyde ve kendi zemininde en az 3:1 (test/tema.test.js) */
++  --live-edge: #349a71;
+   --speaking-bg: rgba(51, 209, 230, 0.1);
+   --danger: #ff8796;
+   --danger-bg: rgba(255, 102, 128, 0.14);
++  --danger-edge: #c46a76;
+   --danger-fill: #ff8796;
+   --on-danger: #1a0a0e;
+   --warn: #f7c463;
+@@ -241,9 +244,11 @@
+   --offline: #77758c;
+   --live: #0b6f48;
+   --live-bg: rgba(11, 111, 72, 0.1);
++  --live-edge: #358668;
+   --speaking-bg: rgba(20, 170, 200, 0.12);
+   --danger: #b0233a;
+   --danger-bg: rgba(212, 47, 78, 0.1);
++  --danger-edge: #bf5769;
+   --danger-fill: #b0233a;
+   --on-danger: #ffffff;
+   --warn: #7f4f00;
+@@ -551,9 +556,11 @@
+   --offline: #7f9994;
+   --live: #6fd392;
+   --live-bg: rgba(111, 211, 146, 0.1);
++  --live-edge: #58a877;
+   --speaking-bg: rgba(111, 211, 146, 0.08);
+   --danger: #f2826b;
+   --danger-bg: #36211f;
++  --danger-edge: #c86f5d;
+   --danger-fill: #f2826b;
+   --on-danger: #2a0d07;
+   --warn: #f2c063;
+@@ -632,9 +639,11 @@
+   --offline: #7d776b;
+   --live: #1d6633;
+   --live-bg: rgba(29, 102, 51, 0.1);
++  --live-edge: #3f7a4d;
+   --speaking-bg: rgba(29, 102, 51, 0.08);
+   --danger: #a9351f;
+   --danger-bg: #f8e1da;
++  --danger-edge: #b95d48;
+   --danger-fill: #a9351f;
+   --on-danger: #ffffff;
+   --warn: #85570a;
+diff --git a/test/tema.test.js b/test/tema.test.js
+new file mode 100644
+index 0000000..65d2249
+--- /dev/null
++++ b/test/tema.test.js
+@@ -0,0 +1,245 @@
++'use strict'
++
++// Tema belirteçleri (public/css/tokens.css) testleri. Her tema (theme-init.js içindeki tema listesi) ve
++// mod (koyu, açık) bileşiminde kök öğede geçerli olan belirteçler CSS kademesiyle hesaplanır: :root ile
++// başlayan kurallar özgüllük ve kaynak sırasıyla uygulanır, var() başvuruları çözülür. @media içindeki
++// kurallar renk tanımlamadığı için dışarıda kalır. Kenar belirteçleri (--live-edge, --danger-edge) ortak
++// CSS'te geri dönüş değeri olmadan kullanılır. Tanımsız kalırsa border kısaltması geçersiz sayılır ve kenar
++// hiç çizilmez, bu yüzden her bileşimde tanımlı olmaları ve bileşen kenarı için 3:1 kontrast vermeleri
++// denetlenir. Gerçek tarayıcıdaki sonuç e2e/03-sosyal.test.js içinde ölçülür.
++
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const PUB = path.join(__dirname, '..', 'public')
++const TOKENS = fs.readFileSync(path.join(PUB, 'css', 'tokens.css'), 'utf8')
++const SCHEMES = ['dark', 'light']
++const EDGES = [['--live-edge', '--live-bg'], ['--danger-edge', '--danger-bg']]
++// Bileşenlerin üzerinde durduğu yüzeyler, docs/TASARIM.md kontrast tablosuyla aynı küme
++const SURFACES = ['--bg', '--surface-1', '--surface-2', '--surface-3', '--surface-alt', '--surface-sunken', '--surface-hover', '--surface-active', '--surface-float']
++
++// theme-init.js küçük bir tarayıcı taklidinde çalıştırılır, tema listesi window.TelsizTheme.skins olur
++function loadSkins () {
++  const root = { setAttribute () {}, style: { setProperty () {} }, classList: { add () {} } }
++  const storage = { getItem: () => null, setItem () {} }
++  const sandbox = { document: { documentElement: root }, localStorage: storage }
++  sandbox.window = sandbox
++  vm.createContext(sandbox)
++  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), sandbox, { filename: 'theme-init.js' })
++  return sandbox.window.TelsizTheme.skins.slice()
++}
++
++// Yorumları çıkarır, kuralları { selectors, decls, body, order, inAt } olarak döndürür. @media ve @supports
++// gibi @ kurallarının içindeki kurallar inAt ile işaretlenir, kademe hesabı yalnızca en üst düzeyi kullanır.
++function parseRules (css) {
++  const rules = []
++  const walkText = (text, inAt) => {
++    let i = 0
++    while (i < text.length) {
++      const open = text.indexOf('{', i)
++      if (open === -1) break
++      const prelude = text.slice(i, open).trim()
++      let depth = 1
++      let j = open + 1
++      while (j < text.length && depth > 0) {
++        if (text[j] === '{') depth++
++        else if (text[j] === '}') depth--
++        j++
++      }
++      const body = text.slice(open + 1, j - 1)
++      if (prelude.charAt(0) === '@') {
++        walkText(body, true)
++      } else {
++        const decls = {}
++        for (const m of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+)/g)) decls[m[1]] = m[2].trim()
++        rules.push({ selectors: prelude.split(',').map((s) => s.trim()), decls, body, order: rules.length, inAt })
++      }
++      i = j
++    }
++  }
++  walkText(css.replace(/\/\*[\s\S]*?\*\//g, ''), false)
++  return rules
++}
++
++// Seçici kök öğeye uyuyorsa özgüllüğünü (öznitelik sayısı ve :root), uymuyorsa -1 döndürür
++function rootSpecificity (selector, attrs) {
++  const m = /^:root((?:\[[\w-]+="[^"]*"\])*)$/.exec(selector)
++  if (!m) return -1
++  let count = 1
++  for (const a of m[1].matchAll(/\[([\w-]+)="([^"]*)"\]/g)) {
++    if (attrs[a[1]] !== a[2]) return -1
++    count++
++  }
++  return count
++}
++
++function cascade (rules, attrs) {
++  const applied = []
++  for (const rule of rules) {
++    if (rule.inAt) continue
++    const spec = Math.max.apply(null, rule.selectors.map((s) => rootSpecificity(s, attrs)))
++    if (spec >= 0) applied.push({ spec, rule })
++  }
++  applied.sort((a, b) => a.spec - b.spec || a.rule.order - b.rule.order)
++  const vars = {}
++  for (const item of applied) Object.assign(vars, item.rule.decls)
++  return vars
++}
++
++// var() başvurularını çözer, çözülemezse null
++function resolve (vars, name, depth) {
++  if ((depth || 0) > 20 || vars[name] === undefined) return null
++  const value = vars[name]
++  const ref = /^var\((--[\w-]+)\s*(?:,\s*(.+))?\)$/.exec(value)
++  if (!ref) return value
++  const inner = resolve(vars, ref[1], (depth || 0) + 1)
++  if (inner !== null) return inner
++  return ref[2] === undefined ? null : ref[2].trim()
++}
++
++// Belirtecin bir temanın kendi bloklarında (yalnızca :root olmayan, data-skin içeren) açıkça yazıldığını denetler
++function ownDecl (rules, skin, scheme, name) {
++  return rules.some((rule) => rule.decls[name] !== undefined && rule.selectors.some((s) => {
++    return s.indexOf('[data-skin="' + skin + '"]') !== -1 && rootSpecificity(s, { 'data-skin': skin, 'data-scheme': scheme }) >= 0
++  }))
++}
++
++function parseColor (value) {
++  const v = String(value).trim()
++  let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v)
++  if (m) {
++    const hex = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1]
++    return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16), a: 1 }
++  }
++  m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(v)
++  if (m) return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: m[4] === undefined ? 1 : Number(m[4]) }
++  return null
++}
++
++// Yarı saydam rengi zeminin üstüne bindirir
++function over (fg, bg) {
++  if (fg.a >= 1) return fg
++  return { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 }
++}
++
++// WCAG 2.x göreli parlaklık ve kontrast oranı
++function luminance (c) {
++  const ch = (x) => {
++    const s = x / 255
++    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
++  }
++  return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
++}
++
++function contrast (a, b) {
++  const la = luminance(a)
++  const lb = luminance(b)
++  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
++}
++
++const RULES = parseRules(TOKENS)
++const SKINS = loadSkins()
++
++function combos () {
++  const out = []
++  for (const skin of SKINS) {
++    for (const scheme of SCHEMES) out.push({ skin, scheme, vars: cascade(RULES, { 'data-skin': skin, 'data-scheme': scheme }) })
++  }
++  return out
++}
++
++test('tema listesi okunur ve her tema için tokens.css içinde koyu ve açık blok var', () => {
++  assert.ok(SKINS.length >= 3, 'en az üç tema')
++  assert.ok(SKINS.indexOf('arcade') !== -1)
++  for (const skin of SKINS) {
++    for (const scheme of SCHEMES) {
++      const has = RULES.some((rule) => rule.selectors.indexOf(':root[data-skin="' + skin + '"][data-scheme="' + scheme + '"]') !== -1)
++      assert.ok(has, skin + ' ' + scheme + ' bloğu')
++    }
++  }
++})
++
++test('kenar belirteçleri (--live-edge, --danger-edge) her tema ve modda çözülür ve temanın kendi bloğunda yazılıdır', () => {
++  for (const c of combos()) {
++    for (const pair of EDGES) {
++      const value = resolve(c.vars, pair[0])
++      assert.ok(value !== null, c.skin + ' ' + c.scheme + ': ' + pair[0] + ' tanımsız')
++      assert.ok(parseColor(value), c.skin + ' ' + c.scheme + ': ' + pair[0] + ' renk değil: ' + value)
++      // Eksik belirteç Arcade koyunun :root değerine düşer, açık modda yanlış ton verir
++      assert.ok(ownDecl(RULES, c.skin, c.scheme, pair[0]), c.skin + ' ' + c.scheme + ': ' + pair[0] + ' temanın kendi bloğunda yok')
++    }
++  }
++})
++
++test('kenar belirteçleri her yüzeyde ve kendi saydam zemininde en az 3:1 kontrast verir', () => {
++  for (const c of combos()) {
++    const color = (name) => {
++      const parsed = parseColor(resolve(c.vars, name))
++      assert.ok(parsed, c.skin + ' ' + c.scheme + ': ' + name + ' renk değil')
++      return parsed
++    }
++    const bg = color('--bg')
++    const surfaces = SURFACES.map((name) => over(color(name), bg))
++    for (const pair of EDGES) {
++      const edge = color(pair[0])
++      const backs = surfaces.concat(surfaces.map((s) => over(color(pair[1]), s)))
++      const lowest = Math.min.apply(null, backs.map((b) => contrast(edge, b)))
++      assert.ok(lowest >= 3, c.skin + ' ' + c.scheme + ': ' + pair[0] + ' en düşük kontrast ' + lowest.toFixed(2))
++    }
++  }
++})
++
++test('ortak CSS ve tema dosyalarında geri dönüşsüz kullanılan her belirteç ilgili tema ve modlarda çözülür', () => {
++  // Bulgu A'nın sınıfı: yalnızca bir temada tanımlı belirteç ortak CSS'te var(--x) olarak, geri dönüş değeri
++  // olmadan kullanılırsa öteki temalarda bildirim geçersiz olur. Bir temaya bağlı kurallar (seçicilerin hepsi
++  // data-skin içerir) yalnızca o temada aranır. tokens.css dışında tanımlanan bileşen değişkenleri atlanır.
++  const defined = new Set()
++  RULES.forEach((rule) => Object.keys(rule.decls).forEach((name) => defined.add(name)))
++  const all = combos()
++  const dir = path.join(PUB, 'css')
++  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.css')).map((f) => path.join(dir, f))
++    .concat(fs.readdirSync(path.join(dir, 'skins')).filter((f) => f.endsWith('.css')).map((f) => path.join(dir, 'skins', f)))
++  let checked = 0
++  for (const file of files) {
++    for (const rule of parseRules(fs.readFileSync(file, 'utf8'))) {
++      const skins = rule.selectors.map((s) => {
++        const m = /\[data-skin="([\w-]+)"\]/.exec(s)
++        return m ? m[1] : null
++      })
++      const scoped = skins.every((skin) => skin !== null)
++      const targets = scoped ? all.filter((c) => skins.indexOf(c.skin) !== -1) : all
++      for (const m of rule.body.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
++        if (!defined.has(m[1])) continue
++        checked++
++        for (const c of targets) {
++          assert.ok(resolve(c.vars, m[1]) !== null, path.basename(file) + ' ' + rule.selectors.join(', ') + ': ' + m[1] + ' ' + c.skin + ' ' + c.scheme + ' içinde tanımsız')
++        }
++      }
++    }
++  }
++  assert.ok(checked > 100, 'en az 100 belirteç kullanımı denetlenmeli: ' + checked)
++})
++
++test('kademe yardımcısı: özgül blok genel bloğu ezer, uymayan öznitelik uygulanmaz, var() geri dönüşü çalışır', () => {
++  const rules = parseRules([
++    ':root { --a: #000; --c: var(--b, #111); }',
++    '@media (min-width: 10px) { :root { --a: #222; } }',
++    ':root[data-skin="x"][data-scheme="light"] { --a: #fff; }',
++    ':root[data-skin="x"] { --a: #333; }',
++    ':root[data-skin="y"] { --b: var(--a); }'
++  ].join('\n'))
++  assert.equal(rules.length, 5)
++  assert.ok(rules[1].inAt)
++  const light = cascade(rules, { 'data-skin': 'x', 'data-scheme': 'light' })
++  assert.equal(light['--a'], '#fff')
++  assert.equal(resolve(light, '--c'), '#111')
++  const dark = cascade(rules, { 'data-skin': 'x', 'data-scheme': 'dark' })
++  assert.equal(dark['--a'], '#333')
++  const y = cascade(rules, { 'data-skin': 'y', 'data-scheme': 'dark' })
++  assert.equal(resolve(y, '--c'), '#000')
++  assert.ok(contrast(parseColor('#000'), parseColor('#fff')) > 20.9)
++  assert.equal(Math.round(contrast(parseColor('#777'), parseColor('#fff')) * 100) / 100, 4.48)
++})
