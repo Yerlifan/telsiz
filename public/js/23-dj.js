@@ -769,7 +769,7 @@ function djRenderQueue (list) {
   const ui = dj.ui
   const items = Array.isArray(list) ? list : []
   const listenOnly = djListenOnly()
-  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
+  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + (typeof profileEpoch === 'function' ? profileEpoch() : 0) + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
   djSetText(ui.queueTitle, t('dj.queueTitle', { count: items.length }))
   ui.queueEmpty.hidden = items.length > 0
   djSetText(ui.queueEmpty, t('music.queue.empty'))

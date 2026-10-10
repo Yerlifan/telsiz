@@ -40,7 +40,18 @@ const profileState = {
   cardUserId: null,
   cardTrigger: null,
   cardModKey: '',
-  metaIds: null
+  metaIds: null,
+  // Metadaki kullanıcı adları (kimlik -> ad), ad değişikliğini bulmak için
+  metaNames: null,
+  // Profil sürümü: görünen ad, profil resmi veya kullanıcı adı değişince artar (profileEpoch)
+  epoch: 0
+}
+
+// Ad ve avatar çizen, kendi önbellek anahtarıyla yeniden çizimi atlayan yüzeyler (kameralar ızgarası, paylaşan
+// seçicisi, izleyiciler, Telsiz DJ kuyruğu) bu değeri anahtarlarına katar. Değer her profil değişikliğinde, profil
+// resmi gelince ve metadaki kullanıcı adı değişince artar.
+function profileEpoch () {
+  return profileState.epoch
 }
 
 // Önbellek
@@ -53,6 +64,8 @@ function profilesReset () {
   profileState.entries = new Map()
   profileState.formerUsers = new Map()
   profileState.metaIds = null
+  profileState.metaNames = null
+  profileState.epoch += 1
   profileState.fetching = false
   profileState.failures = 0
   profileState.retryAt = 0
@@ -87,6 +100,7 @@ async function refreshFormerUsers () {
 // Sunucudan engellenen hesapların adları (eski mesajlarında gösterilir)
 function setFormerUsers (list) {
   profileState.formerUsers = new Map()
+  profileState.epoch += 1
   if (!Array.isArray(list)) return
   list.forEach((u) => {
     if (u && u.id !== undefined && typeof u.name === 'string') profileState.formerUsers.set(String(u.id), u.name)
@@ -104,13 +118,29 @@ function metaUser (userId) {
 }
 
 // Meta'daki pv değişen kullanıcıların profilleri kuyruğa alınır. Listeden düşen kullanıcı varsa
-// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır.
+// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır. Kullanıcı adı değişen kişi
+// profil değişikliği gibi yeniden çizilir (profil sürümü artar).
 function profilesOnMeta () {
   const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
   const ids = new Set(users.map((u) => String(u && u.id)))
   const before = profileState.metaIds
   profileState.metaIds = ids
   if (before && Array.from(before).some((id) => !ids.has(id))) refreshFormerUsers()
+  const names = new Map()
+  users.forEach((u) => {
+    if (u && u.id !== undefined) names.set(String(u.id), String(u.name || ''))
+  })
+  const oldNames = profileState.metaNames
+  profileState.metaNames = names
+  if (oldNames) {
+    let renamed = false
+    names.forEach((name, id) => {
+      if (!oldNames.has(id) || oldNames.get(id) === name) return
+      profileState.changed.add(id)
+      renamed = true
+    })
+    if (renamed) queueProfileRender()
+  }
   // Açık profil kartının ses odası denetimi düğmeleri (herkes için susturma, kamerasını kapat) metaya uyar
   if (profileState.cardUserId !== null && cardModKey(profileState.cardUserId) !== profileState.cardModKey) refreshProfileCard()
   users.forEach((u) => {
@@ -413,8 +443,10 @@ function avatarUrlOf (userId) {
   return entry && entry.state === 'ok' ? entry.url : null
 }
 
-// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir
+// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir. Profil sürümü hemen artar, böylece arada
+// çizilen önbellekli yüzeyler de değişikliği görür.
 function queueProfileRender () {
+  profileState.epoch += 1
   if (profileState.renderQueued) return
   profileState.renderQueued = true
   nextFrame(() => {

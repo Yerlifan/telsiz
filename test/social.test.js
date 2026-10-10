@@ -6,7 +6,8 @@
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
 // kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır. Profil eşitlemesi (istek 3): düşen profil isteğinin
 // artan beklemeyle yeniden denenmesi ve başarılı poll'dan sonra yeniden istenmesi, profil resmi indirmesinin
-// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers) sınanır.
+// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
+// yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması da ayrıca sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -404,4 +405,32 @@ test('profiller sıfırlanınca bekleyen profil resmi denemesi iptal olur', asyn
   t.mock.timers.tick(3600000)
   await flush()
   assert.strictEqual(downloads.length, 1)
+})
+
+test('profil sürümü profil değişince, kullanıcı adı değişince ve engellenenler listesi gelince artar', () => {
+  const ctx = load()
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  run('profilesOnMeta()')
+  let epoch = run('profileEpoch()')
+  sandbox.__entry = { id: 2, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe Yeni', statusText: '', bio: '', color: 2, avatar: null }), avatarUploadId: null, publicKey: keys.theirs.publicKey, identity: E2EE.identity.sealBinding(keys.kid, 2, keys.theirs.publicKey) }
+  run('storeProfileEntry(__entry)')
+  run('queueProfileRender()')
+  assert.ok(run('profileEpoch()') > epoch, 'profil değişikliği')
+  // Aynı metanın yeniden gelmesi sürümü değiştirmez, kullanıcı adı değişikliği değiştirir ve kişiyi yeniden çizer
+  epoch = run('profileEpoch()')
+  run('profileState.changed.clear()')
+  run('profilesOnMeta()')
+  assert.strictEqual(run('profileEpoch()'), epoch, 'değişmeyen meta')
+  run("state.meta = { activeKid: state.meta.activeKid, channels: [], users: [state.meta.users[0], { id: 2, name: 'ayse.y', role: 'member', online: true, status: 'online', pv: 2 }] }")
+  run('profilesOnMeta()')
+  assert.ok(run('profileEpoch()') > epoch, 'kullanıcı adı değişikliği')
+  assert.strictEqual(run("profileState.changed.has('2')"), true)
+  assert.strictEqual(run('userHandle(2)'), '@ayse.y')
+  epoch = run('profileEpoch()')
+  run("setFormerUsers([{ id: 98, name: 'eski_uye' }])")
+  assert.ok(run('profileEpoch()') > epoch, 'engellenenler listesi')
+  epoch = run('profileEpoch()')
+  run('profilesReset()')
+  assert.ok(run('profileEpoch()') > epoch, 'sıfırlama')
 })
