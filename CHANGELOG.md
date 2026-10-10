@@ -2,6 +2,16 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Değişiklikler
+
+- Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
+
+### Düzeltmeler
+
+- Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
+
 ## [2.5.0]
 
 ### Yeni özellikler

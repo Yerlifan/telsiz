@@ -2,6 +2,16 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Changes
+
+- The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
+
+### Fixes
+
+- In the Arcade and Turquoise and Copper themes the border of the camera indicator on the radio card ("Your camera is on, everyone in the room can see it") and of the notice shown when someone starts sharing their screen was not drawn at all. The muted Microphone and active Camera buttons of a direct message call, the chip and panel of your own share, the Stop Watching button, the Telsiz DJ error box and the verified safety number button were also drawn in the text color instead of their own border color. Both themes now have live and danger border colors, and the borders show with at least 3:1 contrast on every surface.
+
 ## [2.5.0]
 
 ### New features

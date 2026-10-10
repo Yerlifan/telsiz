@@ -49,7 +49,7 @@ Birden çok kullanıcıyı aynı bilgisayarda denemek için `http://localhost:30
 | Komut | Görevi |
 | --- | --- |
 | `npm start` | Sunucuyu başlatır (`node server.js`) |
-| `npm run denetle` | Yazım, sözdizimi, güvenlik, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
+| `npm run denetle` | Yazım, sözdizimi, güvenlik, stil dosyası, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
 | `npm run lint` | `npm run denetle` ile aynı işi yapar |
 | `npm test` | `test/` klasöründeki birim ve sunucu testlerini çalıştırır |
 | `npm run test:e2e` | `e2e/` klasöründeki uçtan uca testleri Chromium ile, sırayla çalıştırır |
@@ -107,7 +107,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
-| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil) |
+| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
 | `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
 | `13-profile.js` | Profiller, profil kartı, durum menüsü |
@@ -150,7 +150,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
 11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
-14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Denetleyici bu yasakları `public/css/` altındaki stil dosyalarında yorumlar dışında zorunlu tutar. Kaldırılması planlanan bilinen istisnalar `scripts/denetle.js` içindeki `CSS_EXCEPTIONS` listesindedir, gereksiz kalan kayıt da ihlal sayılır. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
 15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
 
 ## İki dil kuralları

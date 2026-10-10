@@ -49,7 +49,7 @@ To try several users on the same computer, open `http://localhost:3000` in diffe
 | Command | Purpose |
 | --- | --- |
 | `npm start` | Starts the server (`node server.js`) |
-| `npm run denetle` | Checks writing, syntax, security, i18n and document parity rules (`scripts/denetle.js`) |
+| `npm run denetle` | Checks writing, syntax, security, stylesheet, i18n and document parity rules (`scripts/denetle.js`) |
 | `npm run lint` | Same as `npm run denetle` |
 | `npm test` | Runs the unit and server tests in the `test/` folder |
 | `npm run test:e2e` | Runs the end-to-end tests in the `e2e/` folder with Chromium, one after another |
@@ -107,7 +107,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
-| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button) |
+| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
 | `11-settings.js` | Full screen settings view |
 | `12-init.js` | Sheets, window size, PWA, event binding and startup |
 | `13-profile.js` | Profiles, the profile card, the status menu |
@@ -150,7 +150,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
 11. Real time communication uses only long polling. WebSocket or Server-Sent Events are not added.
 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
-14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
+14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. The checker enforces these bans in the stylesheets under `public/css/`, outside comments. Known exceptions that are planned to be removed are in the `CSS_EXCEPTIONS` list in `scripts/denetle.js`, and an entry that is no longer needed is also reported as a violation. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
 15. Tests must also pass on Windows. Paths are joined with `path.join`, temporary folders are created under `os.tmpdir()`, nothing is assumed about line endings and tests do not rely on process signals such as SIGINT.
 
 ## Bilingual rules

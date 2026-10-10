@@ -133,8 +133,8 @@ Text, accent and status:
 | `--mention-bg`, `--mention-text`, `--mention-line` | Mention badge and the highlight of messages that mention you |
 | `--focus`, `--focus-halo` | Focus ring and its halo |
 | `--ok`, `--idle`, `--dnd`, `--offline` | Status markers (component, 3:1) |
-| `--live`, `--live-bg`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, speaking person and the speaking halo |
-| `--danger`, `--danger-bg`, `--danger-fill`, `--on-danger` | Danger text, background and fill |
+| `--live`, `--live-bg`, `--live-edge`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, the border of a live component (3:1), speaking person and the speaking halo |
+| `--danger`, `--danger-bg`, `--danger-edge`, `--danger-fill`, `--on-danger` | Danger text, background, border (3:1) and fill |
 | `--warn`, `--warn-bg`, `--warn-line` | Warning text, background and border |
 | `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
 | `--theme-color` | Browser bar color |
@@ -168,7 +168,7 @@ Status dots and corner markers (muted, deafened, sharing the screen) are soft sq
 
 ## Camera
 
-The camera starts on the radio card and uses the same Frekans design language. The Camera button in the button row (`#btn-camera`) is the first button of the top row and is off by default. While on it takes the on air look of the Screen button (`.is-live`, `--live`). If the device does not support it or the owner turned cameras off, it is dashed and disabled and the reason is written below it (`#radio-camera-note`). While your camera is on, an indicator with a recording lamp (`#radio-cam-live`, `--danger` and `--danger-bg`, "Your camera is on, everyone in the room can see it") stays above the Push to talk or voice activity row in every layout, phones included.
+The camera starts on the radio card and uses the same Frekans design language. The Camera button in the button row (`#btn-camera`) is the first button of the top row and is off by default. While on it takes the on air look of the Screen button (`.is-live`, `--live`). If the device does not support it or the owner turned cameras off, it is dashed and disabled and the reason is written below it (`#radio-camera-note`). While your camera is on, an indicator with a recording lamp (`#radio-cam-live`, `--danger`, `--danger-bg` and `--danger-edge`, "Your camera is on, everyone in the room can see it") stays above the Push to talk or voice activity row in every layout, phones included.
 
 The indicator sits in the camera bar (`#radio-cam-bar`). On a device with more than one camera (front and rear camera on a phone, a second camera plugged into a computer) a labelled Flip Camera button (`#btn-camera-flip`, `.radio-cam-flip`) sits next to it while the camera is on, and its tooltip says it switches to the next camera. While the camera is being switched the button gets `aria-disabled="true"` instead of `disabled` so it keeps focus, fades and shows the `progress` cursor. The bar can wrap: the indicator has a base width of 11rem, and when the two do not fit side by side (the narrow card at 760 pixels and up) Flip Camera moves to the next line, while on phones both stay on one line. The spacing comes from the margins of the items and a negative margin on the container. In a private call the Flip button sits in the control row between Camera and End Call (`.call-control.is-flip`, accessible name Flip Camera, `aria-disabled` while switching). A row of four buttons gets `.has-flip` and the text is also hidden at 540 pixels and below and between 760 and 899 pixels, so the row stays on one line. The accessible name and the tooltip (`title`) remain.
 
@@ -214,7 +214,7 @@ All modules use the same state names: `.is-speaking`, `.is-unread`, `.is-mention
 
 The focus ring is part of the design: a 3 pixel `--focus` line with a semi transparent halo around it, thicker at TV width. In older browsers without `:focus-visible`, the same ring comes with `:focus`. All buttons and fields are at least 2.75rem tall (44 pixels at a 16 pixel root). States are distinguished not only by color but also by shape and text, and the accessible names of stations and crew items include the unread count and the connection and speaking state. The reduced motion option stops transitions and loops and can follow the system `prefers-reduced-motion` setting.
 
-The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). All values in the table meet the threshold.
+The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). The live and danger borders were measured on every surface (hover and selected backgrounds included) and on their own semi transparent background, and `test/tema.test.js` checks that both tokens are defined in every theme and meet 3:1. All values in the table meet the threshold.
 
 | Role | Threshold | Arcade dark | Arcade light | Night Frequency dark | Night Frequency light | Turquoise and Copper dark | Turquoise and Copper light |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -234,6 +234,8 @@ The table below shows the lowest contrast ratio for each role in each theme and 
 | Attention badge text | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
 | Text on danger fill | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
 | Input and card border | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
+| Live border | 3:1 | 3.24 | 3.23 | 3.07 | 3.48 | 3.22 | 3.23 |
+| Danger border | 3:1 | 3.22 | 3.21 | 3.39 | 3.53 | 3.20 | 3.21 |
 | Focus ring | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
 | Status: online | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
 | Status: idle | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |

@@ -133,8 +133,8 @@ Metin, vurgu ve durum:
 | `--mention-bg`, `--mention-text`, `--mention-line` | Anma rozeti ve beni anan mesaj vurgusu |
 | `--focus`, `--focus-halo` | Odak çerçevesi ve haresi |
 | `--ok`, `--idle`, `--dnd`, `--offline` | Durum işaretleri (bileşen, 3:1) |
-| `--live`, `--live-bg`, `--speaking-bg`, `--halo-1`, `--halo-2` | Bağlı ses, konuşan kişi ve konuşma halesi |
-| `--danger`, `--danger-bg`, `--danger-fill`, `--on-danger` | Tehlike metni, zemini ve dolgusu |
+| `--live`, `--live-bg`, `--live-edge`, `--speaking-bg`, `--halo-1`, `--halo-2` | Bağlı ses, canlı bileşenin kenarı (3:1), konuşan kişi ve konuşma halesi |
+| `--danger`, `--danger-bg`, `--danger-edge`, `--danger-fill`, `--on-danger` | Tehlike metni, zemini, kenarı (3:1) ve dolgusu |
 | `--warn`, `--warn-bg`, `--warn-line` | Uyarı metni, zemini ve kenarı |
 | `--av-0` ile `--av-7`, `--av-fg`, `--av-offline` | Sekiz avatar ve profil rengi, baş harf rengi, çevrimdışı avatar dolgusu. Gece temasında her renk kendi baş harf rengine sahiptir (`--av-fg-0` ile `--av-fg-7`). |
 | `--theme-color` | Tarayıcı çubuğu rengi |
@@ -168,7 +168,7 @@ Durum noktası ve köşe işaretleri (susturulmuş, sağırlaştırılmış, ekr
 
 ## Kamera
 
-Kamera telsiz kartında başlar ve aynı Frekans biçim dilini kullanır. Düğme sırasındaki Kamera düğmesi (`#btn-camera`) üst satırın başındadır, varsayılan olarak kapalıdır, açıkken Ekran düğmesinin yayında görünümünü (`.is-live`, `--live`) alır, cihaz desteklemiyorsa veya sahip kameraları kapattıysa kesik kenarlı ve devre dışıdır ve nedeni altında yazar (`#radio-camera-note`). Kameranız açıkken Bas konuş veya ses etkinliği satırının üstünde kayıt lambalı bir gösterge (`#radio-cam-live`, `--danger` ve `--danger-bg`, "Kameranız açık, odadaki herkes görüyor") her düzende, telefonda da görünür.
+Kamera telsiz kartında başlar ve aynı Frekans biçim dilini kullanır. Düğme sırasındaki Kamera düğmesi (`#btn-camera`) üst satırın başındadır, varsayılan olarak kapalıdır, açıkken Ekran düğmesinin yayında görünümünü (`.is-live`, `--live`) alır, cihaz desteklemiyorsa veya sahip kameraları kapattıysa kesik kenarlı ve devre dışıdır ve nedeni altında yazar (`#radio-camera-note`). Kameranız açıkken Bas konuş veya ses etkinliği satırının üstünde kayıt lambalı bir gösterge (`#radio-cam-live`, `--danger`, `--danger-bg` ve `--danger-edge`, "Kameranız açık, odadaki herkes görüyor") her düzende, telefonda da görünür.
 
 Gösterge kamera çubuğunun (`#radio-cam-bar`) içindedir. Birden çok kamerası olan cihazda (telefonda ön ve arka kamera, bilgisayarda takılı ikinci kamera) kamera açıkken yanında etiketli Kamerayı Çevir düğmesi (`#btn-camera-flip`, `.radio-cam-flip`) durur, ipucu sıradaki kameraya geçtiğini söyler. Kamera değiştirilirken düğme odağı korumak için `disabled` yerine `aria-disabled="true"` alır, soluklaşır ve imleç `progress` olur. Çubuk satır kırabilir: göstergenin taban genişliği 11rem'dir, ikisi yan yana sığmazsa (760 piksel ve üstündeki dar kart) Kamerayı Çevir alt satıra iner, telefonda ikisi tek satırdadır. Aralığı öğelerin kenar boşluğu ve kabın eksi kenar boşluğu verir. Özel aramada denetim satırında Kamera ile Aramayı Bitir arasında Çevir düğmesi durur (`.call-control.is-flip`, erişilebilir adı Kamerayı Çevir, değiştirilirken `aria-disabled`). Dört düğmeli satır `.has-flip` alır ve yazılar 540 piksel ve altında ve 760 ile 899 piksel arasında da gizlenir, böylece satır tek kalır. Erişilebilir ad ve ipucu (`title`) kalır.
 
@@ -214,7 +214,7 @@ Bütün modüller aynı durum adlarını kullanır: `.is-speaking`, `.is-unread`
 
 Odak çerçevesi tasarımın parçasıdır: 3 piksel `--focus` çizgisi ve çevresinde yarı saydam bir hare, televizyon genişliğinde daha kalın. `:focus-visible` desteklemeyen eski tarayıcılarda aynı çerçeve `:focus` ile gelir. Bütün düğmeler ve alanlar en az 2.75rem (16 piksel kökte 44 piksel) yüksekliktedir. Durumlar yalnızca renkle değil biçimle ve metinle de ayrılır, istasyonların ve kadro öğelerinin erişilebilir adları okunmamış sayısını, bağlantı ve konuşma durumunu içerir. Hareketi azalt seçeneği geçişleri ve döngüleri durdurur ve sistemin `prefers-reduced-motion` ayarını izleyebilir.
 
-Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranını gösterir. Oranlar `public/css/tokens.css` içindeki belirteçlerden WCAG 2.x göreli parlaklık formülüyle hesaplandı (metin 4.5:1, arayüz bileşeni 3:1). Yarı saydam yüzeyler altlarındaki zeminle birleştirilerek ölçüldü, Arcade'in cam paneli hem düz zemin hem de en parlak ışık noktası üzerinde ölçüldü. Dolgu düğme yazısı (`--on-accent-fill`) degradenin iki ucu (`--accent-fill-a` ve `--accent-fill-b`) üzerinde ölçüldü. Tablodaki bütün değerler eşiği geçer.
+Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranını gösterir. Oranlar `public/css/tokens.css` içindeki belirteçlerden WCAG 2.x göreli parlaklık formülüyle hesaplandı (metin 4.5:1, arayüz bileşeni 3:1). Yarı saydam yüzeyler altlarındaki zeminle birleştirilerek ölçüldü, Arcade'in cam paneli hem düz zemin hem de en parlak ışık noktası üzerinde ölçüldü. Dolgu düğme yazısı (`--on-accent-fill`) degradenin iki ucu (`--accent-fill-a` ve `--accent-fill-b`) üzerinde ölçüldü. Canlı ve tehlike kenarı bütün yüzeylerde (üzerine gelme ve seçili zeminler dahil) ve kendi saydam zemininde ölçüldü, `test/tema.test.js` bu iki belirtecin her temada tanımlı olduğunu ve 3:1 eşiğini denetler. Tablodaki bütün değerler eşiği geçer.
 
 | Rol | Eşik | Arcade koyu | Arcade açık | Gece Frekansı koyu | Gece Frekansı açık | Turkuaz ve Bakır koyu | Turkuaz ve Bakır açık |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -234,6 +234,8 @@ Aşağıdaki tablo her rol için o tema ve moddaki en düşük kontrast oranın�
 | Dikkat rozeti metni | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
 | Tehlike dolgusu üstü metin | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
 | Girdi ve kart kenarı | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
+| Canlı kenarı | 3:1 | 3.24 | 3.23 | 3.07 | 3.48 | 3.22 | 3.23 |
+| Tehlike kenarı | 3:1 | 3.22 | 3.21 | 3.39 | 3.53 | 3.20 | 3.21 |
 | Odak çerçevesi | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
 | Durum: çevrimiçi | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
 | Durum: boşta | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |
