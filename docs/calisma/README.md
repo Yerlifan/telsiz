@@ -23,15 +23,11 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 | Renk 7: masa arayüzü | Bekliyor | commit "Renk: masa arayüzü" |
 | Renk 8: uçtan uca test | Bekliyor | commit "Renk: uçtan uca test" |
 | Renk 9: belgeler | Bekliyor | commit "Renk: belgeler" |
-| 18 isteğin araştırması ve planı | Sürüyor | `istek-plani.md` (bitince eklenecek) |
-| Telsiz DJ (istek 5, 6, 13, 15, 18) | Bekliyor | |
-| Profil ve durum (istek 2, 3, 8, 9, 12) | Bekliyor | |
-| Yüzen pencereler (istek 7, 16) | Bekliyor | |
-| Gezinme (istek 17) | Bekliyor | |
-| Özgün tasarım ve temalar (istek 10, 11) | Bekliyor | |
-| Şifremi unuttum (istek 14) | Bekliyor | |
-| Hexball (istek 4), Renk'ten sonra | Bekliyor | |
-| Android uygulaması (istek 1) | Bekliyor | |
+| 18 isteğin araştırması ve planı | Bitti | `istek-plani.md` |
+| İstek grupları G0 ile G16 (Hexball hariç) | Sürüyor | yerel `istek/a` ve `istek/b` dalları, yamaları `yamalar/a` ve `yamalar/b` altında |
+| Hexball (G17), Renk'ten sonra | Bekliyor | |
+
+Grupların sırası: önce G0 (`istek/a` üzerinde), sonra iki zincir paralel. Zincir A (`/home/user/wt/a`, dal `istek/a`): G2, G6, G7, G12, G14, G9, G10, G13. Zincir B (`/home/user/wt/b`, dal `istek/b`, G0'dan ayrılır): G1, G3, G4, G5, G8, G11, G16, G15. En sonda `istek/b` dalı `istek/a` dalına birleştirilir. Her grup uygulama, bağımsız inceleme ve düzeltme adımlarından geçer. Commit başlıkları "G<n>: ..." biçimindedir.
 
 ## Kaldığı yerden devam
 
@@ -39,4 +35,6 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 2. Renk için `akislar/renk-uygulama.js.txt` betiği iş akışı olarak yeniden çalıştırılır. Aynı makinede iş akışı günlüğü duruyorsa `resumeFromRunId` ile biten adımlar önbellekten gelir. Günlük yoksa betikteki biten adımlar çıkarılıp kalan adımlar başlatılır.
 3. Renk'in ayrıntılı tasarımı `renk-tasarim.md`, oyun altyapısının kod haritası `oyun-altyapi-haritasi.md` dosyasındadır.
 4. 18 istek için araştırma betiği `akislar/istek-arastirma.js.txt`, sonucu bitince `istek-plani.md` dosyasına yazılır.
-5. Commit'lenmemiş yarım iş varsa `git status` ile görülür. Yarım adım baştan yapılır, testlerden geçmeden commit'lenmez.
+5. İstek grupları için: yerel dallar kaybolduysa `git worktree add /home/user/wt/a -b istek/a f5e202d` ve `git -C /home/user/wt/a am <depo>/docs/calisma/yamalar/a/*.patch` ile geri kurulur (`b` için aynısı, taban yine `f5e202d`, yamalar G0'ı da içerir). `yamalar/<x>/UC` dalın son commit'idir. Sonra `akislar/istek-uygulama.js.txt` iş akışı olarak yeniden çalıştırılır. Ajanlar biten grup commit'lerini görüp atlar.
+6. Koruma döngüsü `akislar/dongu2.sh.txt` (raporları ve yamaları 5 dakikada bir commit'leyip gönderir) ve `akislar/rapor-dok.py.txt` betikleridir.
+7. Commit'lenmemiş yarım iş varsa `git status` ile görülür. Yarım adım baştan yapılır, testlerden geçmeden commit'lenmez.

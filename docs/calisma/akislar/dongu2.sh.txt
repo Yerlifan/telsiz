@@ -1,0 +1,45 @@
+#!/bin/sh
+# Kontrol noktası döngüsü (2. sürüm): 5 dakikada bir
+#  1. biten ajan raporlarını docs/calisma/raporlar altına yazar,
+#  2. yerel istek/a ve istek/b dallarındaki commit'leri yama olarak docs/calisma/yamalar altına döker,
+#  3. değişen kontrol noktası dosyalarını commit'ler ve çalışma dalını gönderir.
+# Yalnızca claude/eager-johnson-c7u6us dalına gönderir, 72 saat sonra kendiliğinden durur.
+# DURDUR dosyası varsa (koruma/DURDUR) o turu atlar, PR hazırlığı sırasında kullanılır.
+REPO=/home/user/ps5-pc-communication
+DIR=/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/koruma
+BRANCH=claude/eager-johnson-c7u6us
+BASE=f5e202d
+LOG="$DIR/dongu.log"
+i=0
+while [ "$i" -lt 864 ]; do
+  sleep 300
+  i=$((i + 1))
+  [ -e "$DIR/DURDUR" ] && { echo "$(date -u +%FT%TZ) DURDUR var, atlandı" >> "$LOG"; continue; }
+  cd "$REPO" || exit 1
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "$BRANCH" ] || { echo "$(date -u +%FT%TZ) dal farklı, atlandı" >> "$LOG"; continue; }
+  [ -d docs/calisma ] || { echo "$(date -u +%FT%TZ) docs/calisma yok, atlandı" >> "$LOG"; continue; }
+  python3 -I "$DIR/rapor-dok.py" wf_0a579f99-523 wf_d04399bc-1cd $WF_EK >/dev/null 2>>"$LOG"
+  for b in a b c; do
+    if git rev-parse -q --verify "refs/heads/istek/$b" >/dev/null; then
+      tmp=$(mktemp -d)
+      git format-patch -q --no-signature -o "$tmp" "$BASE..istek/$b" 2>>"$LOG"
+      mkdir -p "docs/calisma/yamalar/$b"
+      rm -f "docs/calisma/yamalar/$b/"*.patch
+      cp "$tmp/"*.patch "docs/calisma/yamalar/$b/" 2>/dev/null
+      git rev-parse "istek/$b" > "docs/calisma/yamalar/$b/UC"
+      rm -rf "$tmp"
+    fi
+  done
+  YOL=""
+  for y in docs/calisma/raporlar docs/calisma/yamalar; do [ -d "$y" ] && YOL="$YOL $y"; done
+  if [ -n "$YOL" ] && [ -n "$(git status --porcelain -- $YOL)" ] && [ ! -e .git/index.lock ] && git diff --cached --quiet; then
+    git add $YOL
+    git commit -q -m "Çalışma: ajan raporları ve yama kontrol noktası
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT" -- $YOL >> "$LOG" 2>&1
+  fi
+  if [ -n "$(git log --oneline "origin/$BRANCH..$BRANCH" 2>/dev/null)" ]; then
+    git push -q origin "$BRANCH" >> "$LOG" 2>&1 && echo "$(date -u +%FT%TZ) gönderildi $(git rev-parse --short HEAD)" >> "$LOG"
+  fi
+done

@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# İş akışı günlüklerindeki biten ajan raporlarını docs/calisma/raporlar altına .txt olarak yazar.
+# Uzun ve kısa tire virgülle değiştirilir (depo denetimi tireyi yasaklar). Değişen dosya varsa 1 yazdırır.
+import json, os, re, sys
+
+ROOT = '/home/user/ps5-pc-communication'
+WF = '/root/.claude/projects/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/subagents/workflows'
+OUT = os.path.join(ROOT, 'docs', 'calisma', 'raporlar')
+RUNS = sys.argv[1:]
+
+
+def clean(text):
+    text = text.replace('—', ',').replace('–', ',')
+    return re.sub('[​-‏‪-‮⁠-⁤﻿ ]', ' ', text)
+
+
+changed = False
+os.makedirs(OUT, exist_ok=True)
+for run in RUNS:
+    path = os.path.join(WF, run, 'journal.jsonl')
+    if not os.path.exists(path):
+        continue
+    labels = {}
+    for line in open(path, encoding='utf-8'):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if d.get('type') == 'started':
+            labels[d.get('key')] = d.get('label') or d.get('key')
+        elif d.get('type') == 'result':
+            res = d.get('result')
+            if not isinstance(res, str):
+                res = json.dumps(res, ensure_ascii=False, indent=1)
+            label = labels.get(d.get('key'), d.get('key', 'ajan'))
+            name = re.sub('[^0-9a-zA-Z]+', '-', label.lower()).strip('-') or 'ajan'
+            target = os.path.join(OUT, run + '-' + name + '.txt')
+            body = clean(res) + '\n'
+            old = open(target, encoding='utf-8').read() if os.path.exists(target) else None
+            if old != body:
+                open(target, 'w', encoding='utf-8').write(body)
+                changed = True
+print(1 if changed else 0)
