@@ -6,7 +6,9 @@
 // konuşmadan çıkınca metnin ve eklerin kendi taslağında kalması, yüklemesi süren ekin kendi taslağında
 // tamamlanması, gönderim süzgeci (yalnızca açık konuşmanın ekleri ve doğru şifreleme), yanıt gelmeden konuşma
 // değişince taslağın düşmesi, gönderilemeyen mesajın istemci kimliğinin korunması, silinen konuşmada ve
-// engellenen kişide taslağın bırakılması, oturum kapanınca taslakların silinmesi ve diske yazılmaması.
+// engellenen kişide taslağın bırakılması, oturum kapanınca taslakların silinmesi ve diske yazılmaması. Ayrıca taslakta bekleyen ekin sunucudaki kopyası silinmeden
+// yeniden yüklenmesi (ve sunucu ekleri tanımazsa gönderimde yeniden yüklenmesi), yükleme hatasının başka
+// konuşmaların eklerine geçmemesi ve yükleme kuyruğunda açık konuşmanın eklerinin öne alınması.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -80,6 +82,8 @@ function load () {
     var testApiNext = null
     var testUploads = []
     var testShown = []
+    var testProcessed = []
+    var testToasts = []
     var testLeaveHooks = { edit: 0, typing: 0, mention: 0 }
     var dmState = { activeId: null, partnerId: null }
     function conversationMode () { return testView }
@@ -106,12 +110,12 @@ function load () {
       pending.abort = function () {}
       return pending
     }
-    function toast () {}
+    function toast (msg) { testToasts.push(typeof msg === 'function' ? msg() : String(msg)) }
     function keepBottom () {}
     function insertMessage () {}
     function markRead () {}
     function jumpToLatest () {}
-    function processAttachment (att) {}
+    function processAttachment (att) { testProcessed.push(att.name) }
     function renderAttachments (key) { testShown = composerAttachments(key).map((a) => a.name) }
     function cancelEdit () { testLeaveHooks.edit += 1 }
     function typingStop () { testLeaveHooks.typing += 1 }
@@ -130,8 +134,15 @@ function load () {
     function testDone (att, uploadId) {
       att.status = 'done'
       att.uploadId = uploadId
+      att.uploadedAt = Date.now()
       att.key = 'k'
       att.nonce = 'n'
+    }
+    // Şifrelenip yükleme sırasına giren ek (processAttachment sonrası)
+    function testQueued (att) {
+      att.status = 'queued'
+      att.box = new Uint8Array(4)
+      return att
     }
   `)
   return {
@@ -373,4 +384,118 @@ test('taslaklar silinince yalnızca açık konuşma kalır, taslaklar diske yaz�
   run("testOpen('dm', 50)")
   assert.strictEqual(run('el.composerInput.value'), '')
   assert.deepStrictEqual(json('testShown'), [])
+})
+
+// Sunucu mesaja bağlanmayan yüklemeyi bir saat sonra siler (orphanUploadTtlMs). İstemci 45 dakikayı aşan eki
+// yeniden yükler.
+const STALE = '(Date.now() - 46 * 60 * 1000)'
+
+test('taslakta uzun süre bekleyen yüklenmiş ek konuşmaya dönülünce yeniden yüklenir, yeni ek dokunulmadan kalır', () => {
+  const { run, json } = load()
+  run("testOpen('dm', 50)")
+  run("el.composerInput.value = 'özel taslak'")
+  run("testDone(testAdd('eski.png'), '" + U('a') + "')")
+  run('state.attachments[0].uploadedAt = ' + STALE)
+  run("testDone(testAdd('yeni.png'), '" + U('b') + "')")
+  // addFiles her eki bir kez hazırlar, sayım bundan sonra başlar
+  run('testProcessed = []')
+  run("testOpen('channel', 10)")
+  // Başka konuşmaya girmek özel konuşmanın eklerine dokunmaz
+  assert.deepStrictEqual(json('testProcessed'), [])
+  run("testOpen('dm', 50)")
+  assert.deepStrictEqual(json('testProcessed'), ['eski.png'])
+  assert.deepStrictEqual(json("state.attachments.map((a) => a.name + '=' + a.status + ':' + a.uploadId)"),
+    ['eski.png=processing:', 'yeni.png=done:' + U('b')])
+  assert.strictEqual(run('state.attachments[0].uploadedAt'), 0)
+  assert.strictEqual(run('el.composerInput.value'), 'özel taslak')
+  assert.strictEqual(run('canSend()'), false)
+  // Yeniden yükleme bitince gönderilir, yeni kimlikle
+  run("testDone(state.attachments[0], '" + U('c') + "')")
+  assert.strictEqual(run('canSend()'), true)
+})
+
+test('gönderirken süresi dolmak üzere olan ek gönderilmez, yeniden yüklenir, metin yerinde kalır', async () => {
+  const { run, json } = load()
+  run("testOpen('channel', 10)")
+  run("el.composerInput.value = 'oda metni'")
+  run("testDone(testAdd('oda.png'), '" + U('a') + "')")
+  run('state.attachments[0].uploadedAt = ' + STALE)
+  run('testProcessed = []')
+  assert.strictEqual(run('canSend()'), true)
+  await run('sendMessage()')
+  assert.strictEqual(run('testApi.length'), 0, 'mesaj gönderilmedi')
+  assert.deepStrictEqual(json('testProcessed'), ['oda.png'])
+  assert.strictEqual(run('state.attachments[0].status'), 'processing')
+  assert.strictEqual(run('el.composerInput.value'), 'oda metni')
+  assert.deepStrictEqual(json('testToasts'), [run("t('composer.waitUploads')")])
+  run("testDone(state.attachments[0], '" + U('b') + "')")
+  await run('sendMessage()')
+  assert.deepStrictEqual(json('testApi[0].body.uploads'), [U('b')])
+  assert.strictEqual(run('state.attachments.length'), 0)
+})
+
+test('sunucu ekleri tanımazsa (bad_uploads) ekler yeniden yüklenir, metin kalır, yeniden gönderim yeni kimlikle gider', async () => {
+  const { run, json } = load()
+  run("testOpen('dm', 50)")
+  run("el.composerInput.value = 'özel metin'")
+  run("testDone(testAdd('ozel.png'), '" + U('a') + "')")
+  run('testProcessed = []')
+  run("testApiNext = Promise.resolve({ status: 400, data: { code: 'bad_uploads' } })")
+  await run('sendMessage()')
+  assert.deepStrictEqual(json('testApi[0].body.uploads'), [U('a')])
+  assert.deepStrictEqual(json('testProcessed'), ['ozel.png'])
+  assert.deepStrictEqual(json("state.attachments.map((a) => a.status + ':' + a.uploadId)"), ['processing:'])
+  assert.strictEqual(run('el.composerInput.value'), 'özel metin')
+  assert.strictEqual(run('state.sending'), false)
+  assert.strictEqual(run('canSend()'), false)
+  assert.deepStrictEqual(json('testToasts'), [run("t('composer.waitUploads')")])
+  run("testDone(state.attachments[0], '" + U('b') + "')")
+  await run('sendMessage()')
+  const again = json('testApi[1].body')
+  assert.deepStrictEqual([again.channelId, again.uploads], [50, [U('b')]])
+  assert.strictEqual(run('state.attachments.length'), 0)
+  assert.strictEqual(run('el.composerInput.value'), '')
+})
+
+test('yükleme hatası aynı konuşmanın sıradaki eklerine geçer, başka konuşmanın eki kendi sırasında denenir', async () => {
+  const { run, json } = load()
+  run('state.uploadHeld = true')
+  run("testOpen('dm', 50)")
+  run("testQueued(testAdd('ozel-1.png')).refusedSends = UPLOAD_RESERVED_SENDS_MAX - 1")
+  run('pumpUploads()')
+  run("testQueued(testAdd('ozel-2.png'))")
+  run("testOpen('channel', 10)")
+  run("testQueued(testAdd('oda.png'))")
+  run('pumpUploads()')
+  assert.strictEqual(run('testUploads.length'), 1, 'tek yükleme kuralında ikinci istek gitmez')
+  // Yer açılmadı ve özel konuşmanın ekinin hakkı bitti
+  run("testUploads[0].resolve({ status: 503, data: { code: 'busy_reserved' } })")
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepStrictEqual(json("state.attachments.map((a) => a.name + '@' + a.convKey + '=' + a.status)"),
+    ['ozel-1.png@d:50=error', 'ozel-2.png@d:50=error', 'oda.png@c:10=uploading'])
+  assert.strictEqual(run('testUploads.length'), 2, 'odanın eki kendisi denendi')
+  run("testUploads[1].resolve({ status: 200, data: { id: '" + U('e') + "' } })")
+  await new Promise((resolve) => setImmediate(resolve))
+  run("el.composerInput.value = 'oda metni'")
+  assert.strictEqual(run('canSend()'), true)
+})
+
+test('yükleme sırasında açık konuşmanın ekleri öne alınır, süren yükleme kesilmez', async () => {
+  const { run, json } = load()
+  run("testOpen('dm', 50)")
+  run("testQueued(testAdd('b1.png')); testQueued(testAdd('b2.png')); testQueued(testAdd('b3.png'))")
+  run("testOpen('channel', 10)")
+  run("el.composerInput.value = 'oda metni'")
+  run("testQueued(testAdd('oda.png'))")
+  run('pumpUploads()')
+  const statuses = () => json("state.attachments.map((a) => a.name + '=' + a.status)")
+  assert.deepStrictEqual(statuses(), ['b1.png=uploading', 'b2.png=queued', 'b3.png=queued', 'oda.png=uploading'])
+  assert.deepStrictEqual(json('testUploads.map((u) => u.url)').length, 2)
+  run("testUploads[0].resolve({ status: 200, data: { id: '" + U('a') + "' } })")
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(run('state.attachments[3].status'), 'done', 'ilk istek odanın ekiydi')
+  assert.strictEqual(run('pendingUploads()'), 0)
+  assert.strictEqual(run('canSend()'), true)
+  // Sıra kalan özel konuşma eklerine geçer
+  assert.deepStrictEqual(statuses(), ['b1.png=uploading', 'b2.png=uploading', 'b3.png=queued', 'oda.png=done'])
 })

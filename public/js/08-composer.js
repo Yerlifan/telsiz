@@ -94,8 +94,14 @@ function composerRunCommand (raw, text, ready) {
 // gönderilemez. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değişince
 // silinir (composerDraftsClear), konuşma silinince ve kişi engellenince o konuşmanınki bırakılır
 // (composerPruneDrafts).
+// Sunucu mesaja bağlanmayan yüklemeyi varsayılan olarak bir saat sonra siler (src/app.js orphanUploadTtlMs,
+// istemciye bildirilmez). Taslakta bekleyen yüklenmiş ek UPLOAD_FRESH_MS dolunca dosyasından yeniden hazırlanıp
+// yüklenir: konuşmaya dönülünce (composerEnter) ve gönderirken (sendMessage). Süre yükleme isteğinin başladığı
+// andan (att.uploadedAt) sayılır ve gönderime pay bırakır. Sunucu gönderilen ekleri yine de tanımazsa (400
+// bad_uploads, ör. süre sunucuda daha kısa ayarlanmış) bu ekler de yeniden yüklenir, metin yazma alanında kalır.
 
 const composerDrafts = new Map()
+const UPLOAD_FRESH_MS = 45 * 60 * 1000
 
 function composerKey () {
   const id = state.channelId
@@ -124,6 +130,30 @@ function composerKeyAlive (key) {
   let partner = entry ? entry.userId : null
   if (!entry && sameId(id, dmState.activeId)) partner = dmState.partnerId
   return partner !== null && partner !== undefined && !isBlocked(partner)
+}
+
+// Sunucudaki kopyası silinmek üzere olan yüklenmiş ekler (UPLOAD_FRESH_MS)
+function composerStaleAttachments (key) {
+  const now = Date.now()
+  return composerAttachments(key).filter((a) => a.status === 'done' && now - a.uploadedAt > UPLOAD_FRESH_MS)
+}
+
+// Ekler dosyalarından yeniden hazırlanır, şifrelenir ve yüklenir (processAttachment)
+function attachmentsReupload (list) {
+  const again = list.filter((a) => !a.removed && a.status === 'done')
+  again.forEach((att) => {
+    att.status = 'processing'
+    att.progress = 0
+    att.uploadId = ''
+    att.uploadedAt = 0
+    att.error = ''
+    att.refusedSends = 0
+    att.rateWaited = false
+    processAttachment(att)
+  })
+  if (!again.length) return
+  renderAttachments()
+  updateSendState()
 }
 
 function composerDropDraft (key) {
@@ -165,6 +195,8 @@ function composerEnter () {
   if (draft) composerDrafts.delete(key)
   el.composerInput.value = draft ? draft.text : ''
   state.unsentMessage = draft ? draft.unsent : null
+  // Taslakta uzun süre bekleyen ekler yeniden yüklenir
+  attachmentsReupload(composerStaleAttachments(key))
   composerShow(key)
 }
 
@@ -272,6 +304,8 @@ async function sendMessage (opts) {
   const channelId = state.channelId
   // Yalnızca açık konuşmanın ekleri gönderilir, başka konuşmada eklenenler kendi taslağında kalır
   const key = composerKey()
+  // Sunucudaki kopyası silinmek üzere olan ekler gönderilmez, yeniden yüklenir
+  attachmentsReupload(composerStaleAttachments(key))
   const mine = composerAttachments(key)
   const raw = el.composerInput.value
   const text = raw.trim()
@@ -348,6 +382,12 @@ async function sendMessage (opts) {
     return
   }
   updateSendState()
+  if (res.status === 400 && res.data && res.data.code === 'bad_uploads' && ready.length) {
+    // Sunucu ekleri tanımıyor (yükleme mesaja bağlanmadan silindi): ekler yeniden yüklenir, metin yerinde kalır
+    attachmentsReupload(ready)
+    toast(() => t('composer.waitUploads'))
+    return
+  }
   toast(() => errorText(res, t('composer.sendFailed'), { rate_limited: t('composer.rateLimited') }), 'error')
 }
 
@@ -411,6 +451,7 @@ function addFiles (fileList, mode) {
       key: '',
       nonce: '',
       uploadId: '',
+      uploadedAt: 0,
       xhr: null,
       error: '',
       removed: false
@@ -439,7 +480,8 @@ async function processAttachment (att) {
     att.w = out.w
     att.h = out.h
     att.name = out.name
-    if (out.kind === 'image' && IMAGE_TYPES.indexOf(out.mime) !== -1) {
+    // Yeniden yüklenen ekin (attachmentsReupload) önizlemesi korunur
+    if (!att.previewUrl && out.kind === 'image' && IMAGE_TYPES.indexOf(out.mime) !== -1) {
       att.previewUrl = URL.createObjectURL(new Blob([out.bytes], { type: out.mime }))
     }
     att.status = 'encrypting'
@@ -618,14 +660,19 @@ async function reencode (image, type) {
 //   bağlantıyı boşuna paylaşmaz.
 // - Sunucunun yükleme sınırına (429) takılan dosya bir kez UPLOAD_RATE_WAIT_MS bekleyip yeniden dener. Bu istek de
 //   reddedilen istekler arasında sayılır (ör. on dosyalık bir grupta tek bir ret dakikadaki on hakkı aşar).
-// - Bekleme sonunda yer açılmazsa sıradaki dosyalar da aynı hatayla durur, sunucuya tek tek sorulmaz.
+// - Bekleme sonunda yer açılmazsa aynı konuşmanın sıradaki dosyaları da aynı hatayla durur, sunucuya tek tek
+//   sorulmaz. Başka konuşmaların taslağındaki dosyalar sırada kalır ve sıraları gelince kendileri dener, böylece
+//   bir konuşmadaki hata görülmeyen bir taslağın eklerini bozmaz.
 // - Bekleyen dosya kaldırılırsa bekleme hemen biter ve yeri sıradaki dosyaya geçer.
+// - Sıradaki dosya seçilirken açık konuşmanın dosyaları öne alınır (composerKey), başka konuşmada eklenen
+//   dosyalar açık konuşmanın gönderimini bekletmez. Süren yükleme yarıda kesilmez.
 
 function pumpUploads () {
   while (state.activeUploads < (state.uploadHeld ? 1 : UPLOAD_PARALLEL)) {
-    const next = state.attachments.filter((a) => a.status === 'queued')[0]
-    if (!next) return
-    runUpload(next)
+    const queued = state.attachments.filter((a) => a.status === 'queued')
+    if (!queued.length) return
+    const key = composerKey()
+    runUpload(queued.filter((a) => a.convKey === key)[0] || queued[0])
   }
 }
 
@@ -648,6 +695,7 @@ async function runUpload (att) {
   const refusedMax = largeBox ? UPLOAD_LARGE_WAITS_MS.length + 1 : UPLOAD_RESERVED_SENDS_MAX
   if (typeof att.refusedSends !== 'number') att.refusedSends = 0
   while (!att.removed) {
+    const sentAt = Date.now()
     const pending = request('POST', '/api/uploads', {
       binary: att.box,
       timeout: TRANSFER_TIMEOUT_MS,
@@ -664,6 +712,8 @@ async function runUpload (att) {
     if (att.removed) break
     if (res.status === 200 && res.data && typeof res.data.id === 'string' && UPLOAD_ID_RE.test(res.data.id)) {
       att.uploadId = res.data.id
+      // Süre isteğin başından sayılır: sunucunun yükleme kaydı istek bitince açıldığı için süre sunucudakinden önce dolar
+      att.uploadedAt = sentAt
       att.status = 'done'
       att.progress = 1
       att.box = null
@@ -718,7 +768,7 @@ async function runUpload (att) {
     att.error = () => errorText(res, t('attach.uploadFailed'), { rate_limited: t('attach.rateLimited') })
     if (busy && !others) {
       state.attachments.forEach((x) => {
-        if (x.status !== 'queued') return
+        if (x.status !== 'queued' || x.convKey !== att.convKey) return
         x.status = 'error'
         x.error = att.error
       })

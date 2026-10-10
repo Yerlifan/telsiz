@@ -8,8 +8,10 @@
 //   düşmez
 // - İki yazı odası arasında aynı kural
 // - Beş genişlikte (360, 412, 768, 1024, 1440) özel mesaj ile oda arasında taslak sızmaz, yatay taşma 0
+// - Taslakta süresi dolmak üzere olan ek konuşmaya dönülünce yeniden yüklenir, sunucunun tanımadığı ek
+//   (bad_uploads) gönderimde yeniden yüklenir ve mesaj yeni ekle gider
 // - Kişi engellenince o kişiyle özel konuşmanın bekleyen taslağı ve eki silinir
-// - Konsol ve sunucu günlüğü temiz
+// - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -184,6 +186,55 @@ test('beş genişlikte özel mesaj ile oda arasında taslak sızmaz, yatay taşm
   assert.equal((await messagesIn(genel)).length, 0, 'genel odasına mesaj gitmedi')
 })
 
+test('taslakta süresi dolan ek yeniden yüklenir, sunucunun tanımadığı ek gönderimde yeniden yüklenir', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  const fotograflar = W.w.room('fotograflar').id
+  const ZERO = '0'.repeat(32)
+  // Yükleme 46 dakika önce yapılmış gibi: sunucu mesaja bağlanmayan yüklemeyi bir saatte siler
+  await openDm(page, W.dmEce)
+  await page.fill('#composer-input', 'OZEL: bekleyen ek')
+  await attachPhoto(page, 'bekleyen.png')
+  const first = await page.evaluate(() => {
+    const att = composerAttachments()[0]
+    att.uploadedAt = Date.now() - 46 * 60 * 1000
+    return att.uploadId
+  })
+  await openRoomRow(page, genel)
+  await page.click('#top-dm')
+  await waitConversation(page, 'dm', W.dmEce)
+  const second = await (await page.waitForFunction((id) => {
+    const a = composerAttachments()[0]
+    return a && a.status === 'done' && a.uploadId !== id ? a.uploadId : null
+  }, first, { timeout: h.LONG })).jsonValue()
+  assert.match(second, /^[0-9a-f]{32}$/)
+  assert.deepEqual(await composerView(page), { text: 'OZEL: bekleyen ek', chips: ['bekleyen.png'], send: true })
+  const before = (await messagesIn(W.dmEce)).length
+  await page.click('#btn-send')
+  await page.waitForFunction(() => document.getElementById('composer-input').value === '' && document.getElementById('attach-list').hidden, null, { timeout: h.LONG })
+  let list = await messagesIn(W.dmEce)
+  assert.deepEqual([list.length, list[list.length - 1].uploads], [before + 1, [second]], 'özel mesaj yeniden yüklenen ekle gitti')
+
+  // Sunucunun sildiği yükleme: kimlik sunucuda yok, gönderim 400 bad_uploads alır
+  await openRoomRow(page, fotograflar)
+  await page.fill('#composer-input', 'sunucu eki tanımıyor')
+  await attachPhoto(page, 'silinen.png')
+  await page.evaluate((z) => {
+    composerAttachments()[0].uploadId = z
+  }, ZERO)
+  await page.click('#btn-send')
+  const third = await (await page.waitForFunction((z) => {
+    const a = composerAttachments()[0]
+    return a && a.status === 'done' && a.uploadId !== z ? a.uploadId : null
+  }, ZERO, { timeout: h.LONG })).jsonValue()
+  assert.deepEqual(await composerView(page), { text: 'sunucu eki tanımıyor', chips: ['silinen.png'], send: true }, 'metin ve ek yerinde')
+  assert.equal((await messagesIn(fotograflar)).length, 0, 'ilk gönderim reddedildi')
+  await page.click('#btn-send')
+  await page.waitForFunction(() => document.getElementById('composer-input').value === '' && document.getElementById('attach-list').hidden, null, { timeout: h.LONG })
+  list = await messagesIn(fotograflar)
+  assert.deepEqual([list.length, list[0].uploads], [1, [third]], 'mesaj yeniden yüklenen ekle gitti')
+})
+
 test('kişi engellenince o kişiyle özel konuşmanın taslağı ve eki silinir', async () => {
   const page = W.deniz
   const genel = W.w.room('genel').id
@@ -208,5 +259,7 @@ test('kişi engellenince o kişiyle özel konuşmanın taslağı ve eki silinir'
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {
-  h.assertCleanConsole(W.w.logs, W.w.srv.errors)
+  // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+  const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [badUploads])
 })
