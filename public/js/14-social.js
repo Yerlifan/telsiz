@@ -141,6 +141,8 @@ function socialApplyPrivate (p, pmv) {
   if (typeof voiceRefreshCall === 'function') voiceRefreshCall()
   if (typeof aramaOnPrivate === 'function') aramaOnPrivate()
   if (!state.inApp) return
+  // Engellenen kişiyle ve listeden kalkan özel konuşmanın taslağı bırakılır (08-composer.js)
+  composerPruneDrafts()
   if (blockedChanged) {
     autoMuteBlocked()
     if (!isDmChannel(state.channelId)) refreshAllMessages()
@@ -200,6 +202,8 @@ function socialAfterMeta (prevKid) {
   }
   autoMuteBlocked()
   if (!state.inApp) return
+  // Silinen yazı odasının taslağı bırakılır (08-composer.js)
+  composerPruneDrafts()
   renderDmList()
   if (socialState.view === 'home') renderHomeView()
   if (socialState.view === 'dm') dmRefreshChrome()
@@ -857,6 +861,8 @@ function updatePrivateLocal (mutate) {
   const p = priv()
   mutate(p)
   socialState.priv = p
+  // Engellenen kişiyle özel konuşmanın taslağı bırakılır (08-composer.js)
+  if (state.inApp) composerPruneDrafts()
   socialRender()
   refreshProfileCard()
 }

@@ -784,6 +784,8 @@ function resetAppState () {
   state.editingId = null
   state.voiceKey = ''
   identityState.keys = null
+  // Konuşma taslakları ve ekleri yalnızca bellekteydi, oturumla birlikte silinir (08-composer.js)
+  composerDraftsClear()
   clearAttachments()
   decryptCache.clear()
   clear(el.messageList)
