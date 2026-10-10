@@ -1,0 +1,143 @@
+From 5477ed85c294ba73e38ef78cf6f1b7bbda6153ac Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:26:06 +0000
+Subject: [PATCH 7/8] =?UTF-8?q?G0:=20inceleme=20d=C3=BCzeltmeleri=20(DJ=20?=
+ =?UTF-8?q?duyurusu=20gap=20ile=20ayn=C4=B1=20k=C4=B1r=C4=B1l=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+.msg-dj aralığı eski WebKit için gap yerine çocukların sağ ve alt
+boşluğuyla veriliyordu, ama yalnızca son çocuğun sağ boşluğu
+sıfırlanıyordu. Satır sonuna düşen öğe 0.5rem boşluğunu koruduğu için
+duyuru metni bazı genişliklerde gap düzeninden daha erken kırılıyordu.
+Kapsayıcı artık eksi sağ boşlukla bunu geri alır (#radio-cam-bar
+kalıbı), böylece kırılma her genişlikte gap ile birebir aynıdır.
+
+e2e/03-sosyal: duyurunun 150 ile 700 piksel arasındaki her genişlikte
+tarayıcının gap düzeniyle aynı yerleştiği ve eksi boşluğun mesaj
+satırından ve mesaj akışından taşmadığı (1440 ve 390) denetlenir.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/03-sosyal.test.js     | 72 +++++++++++++++++++++++++++++++++++++++
+ public/css/components.css | 11 +++---
+ 2 files changed, 76 insertions(+), 7 deletions(-)
+
+diff --git a/e2e/03-sosyal.test.js b/e2e/03-sosyal.test.js
+index 374b96e..b99b5f4 100644
+--- a/e2e/03-sosyal.test.js
++++ b/e2e/03-sosyal.test.js
+@@ -173,6 +173,78 @@ test('kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda
+   assert.notEqual(color('arcade', 'dark'), color('arcade', 'light'))
+ })
+ 
++// Telsiz DJ duyurusu eski WebKit için flex gap yerine çocukların kenar boşluğu ve kabın eksi kenar boşluğuyla
++// aralanır. Satır kırılması her genişlikte gap ile birebir aynı olmalı (karşılaştırma için kopyaya tarayıcının
++// gap'i verilir), eksi kenar boşluğu mesaj satırından ve mesaj akışından taşmamalı.
++test('Telsiz DJ duyurusu gap düzeniyle aynı kırılır, mesaj akışında yatay taşma yok', async () => {
++  const page = W.deniz
++  const diffs = await page.evaluate(() => {
++    const host = document.querySelector('#message-list .msg .msg-body')
++    const box = document.createElement('div')
++    host.appendChild(box)
++    const out = []
++    // Duyurunun çocuklarının ve altındaki satırın çerçeveye göre konumu ve boyutu
++    const shape = (frame) => {
++      const f = frame.getBoundingClientRect()
++      const parts = Array.from(frame.firstChild.children).concat(frame.lastChild)
++      return parts.map((n) => {
++        const r = n.getBoundingClientRect()
++        return [r.left - f.left, r.top - f.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')
++      }).join(' ')
++    }
++    const kinds = [{ src: 'yt', vid: 'D120aaaaaaa' }, { src: 'file' }]
++    kinds.forEach((d) => {
++      const real = buildDjNotice(d)
++      const ref = real.cloneNode(true)
++      ref.style.margin = '0'
++      ref.style.gap = '0.25rem 0.5rem'
++      Array.from(ref.children).forEach((n) => { n.style.margin = '0' })
++      const frames = [real, ref].map((n) => {
++        const frame = document.createElement('div')
++        const below = document.createElement('div')
++        below.textContent = 'x'
++        frame.appendChild(n)
++        frame.appendChild(below)
++        box.appendChild(frame)
++        return frame
++      })
++      // 150 ile 700 piksel arasındaki her genişlik
++      let w = 150
++      while (w <= 700) {
++        frames.forEach((frame) => { frame.style.width = w + 'px' })
++        const a = shape(frames[0])
++        const b = shape(frames[1])
++        if (a !== b) out.push(d.src + ' ' + w + ': ' + a + ' / ' + b)
++        w++
++      }
++    })
++    box.remove()
++    return out
++  })
++  assert.deepEqual(diffs, [])
++
++  // Gerçek mesaj satırında geniş ekranda ve telefonda
++  for (const width of [1440, 390]) {
++    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
++    await page.waitForFunction((w) => window.innerWidth === w, width)
++    const fit = await page.evaluate(() => {
++      const msg = document.querySelector('#message-list .msg')
++      const notice = buildDjNotice({ src: 'yt', vid: 'D120aaaaaaa' })
++      msg.querySelector('.msg-body').appendChild(notice)
++      const list = document.getElementById('messages')
++      const r = {
++        inside: notice.getBoundingClientRect().right <= msg.getBoundingClientRect().right,
++        list: list.scrollWidth - list.clientWidth,
++        page: document.documentElement.scrollWidth - document.documentElement.clientWidth
++      }
++      notice.remove()
++      return r
++    })
++    assert.deepEqual(fit, { inside: true, list: 0, page: 0 }, width + ' genişlikte')
++  }
++  await page.setViewportSize({ width: 1440, height: 900 })
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   h.assertCleanConsole(W.w.logs, W.w.srv.errors)
+ })
+diff --git a/public/css/components.css b/public/css/components.css
+index 467b333..663b330 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -2000,13 +2000,14 @@ button.msg-author:hover {
+ }
+ 
+ /* Telsiz DJ duyurusu (06-messages.js buildDjNotice). Eski WebKit flex gap desteklemez: öğeler arasındaki 0.5rem
+-   çocukların sağ boşluğudur (son çocukta yok). Satırlar arasındaki 0.25rem çocukların alt boşluğudur, kapsayıcının
+-   eksi alt boşluğu son satırınkini geri alır. */
++   ve satırlar arasındaki 0.25rem çocukların sağ ve alt boşluğudur. Kapsayıcının eksi sağ ve alt boşluğu her satırın
++   sonundaki ve son satırın altındaki boşluğu geri alır, böylece satır kırılması gap ile aynı olur (#radio-cam-bar
++   kalıbı). Eksi sağ boşluk .convo .msg satırının 0.75rem sağ iç boşluğunda kalır, yatay taşma yaratmaz. */
+ .msg-dj {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+-  margin-bottom: -0.25rem;
++  margin: 0 -0.5rem -0.25rem 0;
+   color: var(--text-2);
+ }
+ 
+@@ -2015,10 +2016,6 @@ button.msg-author:hover {
+   margin-bottom: 0.25rem;
+ }
+ 
+-.msg-dj > :last-child {
+-  margin-right: 0;
+-}
+-
+ .msg-dj .icon {
+   width: 1em;
+   height: 1em;

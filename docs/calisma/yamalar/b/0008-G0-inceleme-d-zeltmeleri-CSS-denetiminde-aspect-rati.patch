@@ -1,0 +1,180 @@
+From 46ffde97cab522d09c04591f48154c67a750a142 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:26:06 +0000
+Subject: [PATCH 8/8] =?UTF-8?q?G0:=20inceleme=20d=C3=BCzeltmeleri=20(CSS?=
+ =?UTF-8?q?=20denetiminde=20aspect-ratio=20ve=20istisna=20dosyas=C4=B1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+aspect-ratio deseni öneksiz ve sınırsızdı: eski WebKit'in de
+desteklediği (min-aspect-ratio), (max-aspect-ratio) ve (aspect-ratio)
+medya özelliklerini, .aspect-ratio-box gibi sınıfları ve
+--aspect-ratio gibi değişkenleri de ihlal sayıyordu. Artık yalnızca
+bildirimin başındaki özellik yakalanır.
+
+Dosyası silinen veya yeniden adlandırılan CSS_EXCEPTIONS kaydı
+listede sessizce kalıyordu. Tam taramada kaydın dosyası bulunamazsa
+kayıt da ihlal olarak bildirilir. Dosya listesi verilen kısmi taramada
+bu denetim yapılmaz. Testlerin temiz örnek projesi depodaki kayıtların
+dosyalarını da içerir. CONTRIBUTING kural 14 iki durumu da sayar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CONTRIBUTING.en.md   |  2 +-
+ CONTRIBUTING.md      |  2 +-
+ scripts/denetle.js   | 17 ++++++++++++-----
+ test/denetle.test.js | 43 +++++++++++++++++++++++++++++++++++++++++--
+ 4 files changed, 55 insertions(+), 9 deletions(-)
+
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 3d7e5cd..782ca9f 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -150,7 +150,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
+ 11. Real time communication uses only long polling. WebSocket or Server-Sent Events are not added.
+ 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
+ 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
+-14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. The checker enforces these bans in the stylesheets under `public/css/`, outside comments. Known exceptions that are planned to be removed are in the `CSS_EXCEPTIONS` list in `scripts/denetle.js`, and an entry that is no longer needed is also reported as a violation. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
++14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. The checker enforces these bans in the stylesheets under `public/css/`, outside comments. Known exceptions that are planned to be removed are in the `CSS_EXCEPTIONS` list in `scripts/denetle.js`, and an entry whose file is missing or that no longer covers any violation is also reported as a violation. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
+ 15. Tests must also pass on Windows. Paths are joined with `path.join`, temporary folders are created under `os.tmpdir()`, nothing is assumed about line endings and tests do not rely on process signals such as SIGINT.
+ 
+ ## Bilingual rules
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index f73a823..8684b59 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -150,7 +150,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
+ 11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
+ 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
+ 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
+-14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Denetleyici bu yasakları `public/css/` altındaki stil dosyalarında yorumlar dışında zorunlu tutar. Kaldırılması planlanan bilinen istisnalar `scripts/denetle.js` içindeki `CSS_EXCEPTIONS` listesindedir, gereksiz kalan kayıt da ihlal sayılır. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
++14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Denetleyici bu yasakları `public/css/` altındaki stil dosyalarında yorumlar dışında zorunlu tutar. Kaldırılması planlanan bilinen istisnalar `scripts/denetle.js` içindeki `CSS_EXCEPTIONS` listesindedir, dosyası bulunamayan veya artık hiçbir ihlali kapsamayan kayıt da ihlal sayılır. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+ 15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
+ 
+ ## İki dil kuralları
+diff --git a/scripts/denetle.js b/scripts/denetle.js
+index dd949e0..3e394fa 100644
+--- a/scripts/denetle.js
++++ b/scripts/denetle.js
+@@ -106,7 +106,10 @@ const MAX_DICTIONARY_DEPTH = 8
+ 
+ // Stil dosyaları (CONTRIBUTING kural 14): istemcinin stilleri eski WebKit tabanlı tarayıcılarda (konsol
+ // tarayıcıları) da çalışır. Düzen flexbox ve margin ile kurulur, aşağıdakiler kullanılmaz. Desenler yorumlar
+-// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz).
++// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz,
++// grup eşleşmenin sonudur). aspect-ratio yalnızca bildirimin başında (`{`, `;` veya `}` ve boşluklardan sonra)
++// aranır: aynı ad parantez içinde medya özelliği olarak da yazılır, (aspect-ratio: 16/9), (min-aspect-ratio: 16/9)
++// ve (max-aspect-ratio: 1/1) eski WebKit'te de çalışır, yasak olan yalnızca özelliktir.
+ const CSS_DIR = 'public/css/'
+ const CSS_BANNED = [
+   { pattern: /display\s*:\s*(?:inline-)?grid/g, name: 'grid düzeni (display: grid)' },
+@@ -114,11 +117,12 @@ const CSS_BANNED = [
+   { pattern: /clamp\(/g, name: 'clamp()' },
+   { pattern: /:is\(/g, name: ':is()' },
+   { pattern: /:where\(/g, name: ':where()' },
+-  { pattern: /aspect-ratio/g, name: 'aspect-ratio' },
++  { pattern: /(^|[\x3b{}])(\s*)(aspect-ratio\s*:)/g, name: 'aspect-ratio', group: 3 },
+   { pattern: /(^|[\x3b{\s])(inset\s*:)/g, name: 'inset', group: 2 }
+ ]
+ // Kaldırılması planlanmış bilinen ihlaller. Her kayıt bir dosyadaki tek bir kural bloğunu seçicisiyle kapsar.
+-// Kayıt artık hiçbir ihlali kapsamıyorsa denetleyici bunu da bildirir, böylece istisna listede unutulmaz.
++// Kayıt artık hiçbir ihlali kapsamıyorsa veya dosyası bulunamıyorsa (silinmiş, yeniden adlandırılmış) denetleyici
++// bunu da bildirir, böylece istisna listede unutulmaz.
+ const CSS_EXCEPTIONS = [
+   {
+     file: 'public/css/frekans.css',
+@@ -1208,7 +1212,8 @@ function checkDocParity (markdown, report) {
+ }
+ 
+ // Ana denetim. options.files verilirse dosya listesi yerine o liste, options.cssExceptions verilirse
+-// CSS_EXCEPTIONS yerine o liste kullanılır (testler için).
++// CSS_EXCEPTIONS yerine o liste kullanılır (testler için). Dosya listesi verilen kısmi taramada istisna
++// kaydının dosyası listede yoksa bulunamadı sayılmaz.
+ 
+ function runChecks (rootDir, options) {
+   const acorn = loadAcorn()
+@@ -1270,7 +1275,9 @@ function runChecks (rootDir, options) {
+     }
+   }
+   for (const item of cssExceptions) {
+-    if (cssFiles.has(item.file) && !usedExceptions.has(item)) {
++    if (!cssFiles.has(item.file)) {
++      if (!Array.isArray(opts.files)) report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydının (' + item.selector + ') dosyası bulunamadı. Dosya silindiyse veya yeniden adlandırıldıysa kaydı scripts/denetle.js içinde güncelleyin ya da silin.')
++    } else if (!usedExceptions.has(item)) {
+       report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydı (' + item.selector + ') artık hiçbir ihlali kapsamıyor. Kaydı scripts/denetle.js içinden silin.')
+     }
+   }
+diff --git a/test/denetle.test.js b/test/denetle.test.js
+index b60056b..58bd600 100644
+--- a/test/denetle.test.js
++++ b/test/denetle.test.js
+@@ -115,6 +115,9 @@ function cleanFiles () {
+   }
+   files[NACL_PATH] = VENDOR
+   for (const item of RNNOISE_FILES) files[item.path] = fs.readFileSync(path.join(ROOT, ...item.path.split('/')))
++  // Depodaki CSS_EXCEPTIONS kayıtlarının dosyaları ve kapsadıkları ihlal: kayıtlar temiz örnekte ne dosyası
++  // bulunamayan ne de gereksiz kalan kayıt olarak bildirilir
++  for (const item of CSS_EXCEPTIONS) files[item.file] = (files[item.file] || '') + item.selector + ' { display: grid }\n'
+   return files
+ }
+ 
+@@ -623,12 +626,26 @@ test('CSS istisnası yalnızca kayıtlı dosyadaki kendi bloğunu kapsar, gereks
+   assert.deepEqual(of(violations, 'public/css/diger.css'), at('css', 1))
+   assert.equal(violations.length, 3)
+ 
+-  // Blok düzeltilince kayıt bildirilir, dosya taranmıyorsa bildirilmez
++  // Blok düzeltilince kayıt bildirilir
+   const fixed = runChecks(makeProject(t, { 'public/css/frekans.css': lines('.app-view[data-dj-col="on"] .stage { display: flex }') }), { cssExceptions: exceptions }).violations
+   assert.deepEqual(of(fixed, 'public/css/frekans.css'), at('css', 1))
+   assert.match(fixed[0].message, /CSS_EXCEPTIONS kaydı \(\.app-view\[data-dj-col="on"\] \.stage\) artık hiçbir ihlali kapsamıyor/)
+   assert.equal(fixed.length, 1)
+-  assert.deepEqual(runChecks(makeProject(t), { cssExceptions: exceptions }).violations, [])
++
++  // Dosya silinir veya yeniden adlandırılırsa kayıt da bildirilir, taşınan blok yeni dosyasında ihlaldir
++  const moved = runChecks(makeProject(t, {
++    'public/css/frekans.css': null,
++    'public/css/sahne.css': lines('.app-view[data-dj-col="on"] .stage { display: grid }')
++  }), { cssExceptions: exceptions }).violations
++  assert.deepEqual(of(moved, 'public/css/frekans.css'), at('css', 1))
++  assert.match(messageAt(moved, 'public/css/frekans.css', 1), /^CSS_EXCEPTIONS kaydının \(\.app-view\[data-dj-col="on"\] \.stage\) dosyası bulunamadı\./)
++  assert.deepEqual(of(moved, 'public/css/sahne.css'), at('css', 1))
++  assert.equal(moved.length, 2)
++
++  // Dosya listesi verilen kısmi taramada listede olmayan dosya bulunamadı sayılmaz
++  const gone = makeProject(t, { 'public/css/frekans.css': null })
++  assert.deepEqual(runChecks(gone, { cssExceptions: exceptions, files: ['server.js'] }).violations, [])
++  assert.deepEqual(runChecks(gone, { cssExceptions: [] }).violations, [])
+ 
+   // Depodaki liste: her kayıt dosya, seçici ve not taşır
+   for (const item of CSS_EXCEPTIONS) {
+@@ -637,6 +654,28 @@ test('CSS istisnası yalnızca kayıtlı dosyadaki kendi bloğunu kapsar, gereks
+   }
+ })
+ 
++test('aspect-ratio yalnızca özellik olarak yakalanır, medya özelliği ve adında aspect-ratio geçen ad serbesttir', (t) => {
++  const violations = check(t, {
++    'public/css/a.css': lines(
++      '@media (min-aspect-ratio: 16/9) { .a { width: 1rem } }',
++      '@media (max-aspect-ratio: 1/1), (aspect-ratio: 4/3), ( aspect-ratio : 3/2 ) { .b { width: 1rem } }',
++      '@media screen and (device-aspect-ratio: 16/9) { .c { width: 1rem } }',
++      '.aspect-ratio-box { --aspect-ratio: 1; padding-top: var(--aspect-ratio) }',
++      '.d{aspect-ratio:1}',
++      '.e { color: red; aspect-ratio: 16 / 9 }',
++      '.f {',
++      '  color: red;',
++      '  /* yorum */ aspect-ratio: 1',
++      '}',
++      '@media (min-aspect-ratio: 16/9) { .g { aspect-ratio: 2 } }'
++    )
++  })
++  assert.deepEqual(of(violations, 'public/css/a.css'), at('css', 5, 6, 9, 11))
++  assert.match(messageAt(violations, 'public/css/a.css', 9), /^aspect-ratio kullanılmış \(\.f\)/)
++  assert.match(messageAt(violations, 'public/css/a.css', 11), /^aspect-ratio kullanılmış \(\.g\)/)
++  assert.equal(violations.length, 4)
++})
++
+ test('i18n-parity: eksik anahtar, boş değer, parametre farkı, çoğul eşi ve yinelenen anahtar', (t) => {
+   const violations = check(t, {
+     'public/i18n.js': lines(
