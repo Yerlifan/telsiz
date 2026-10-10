@@ -1635,6 +1635,26 @@ describe('kayıp onarımı', () => {
     assert.equal(B.m().stage, 'lobby')
   })
 
+  test('reddedilen Oyuna Dön teklifinin yinelenen kopyası kendiliğinden açılmaz, Masaya Bak ile açılır', () => {
+    const { w, K, P } = started({ players: 2 })
+    const B = P[0]
+    B.reload()
+    w.ready(K, B)
+    w.deliver()
+    assert.equal(B.m().stage, 'rejoin')
+    assert.equal(B.desk.decline(), true)
+    assert.equal(B.m().stage, 'none')
+    const n = K.sentTo(B, 'invite').length
+    w.advance(TM.INVITE_RESEND_MS + 250, [K])
+    assert.equal(K.sentTo(B, 'invite').length, n + 1)
+    w.deliver()
+    assert.equal(B.m().stage, 'none')
+    assert.equal(B.noticesOf('invite').length, 1)
+    assert.equal(B.sentTo(K, 'decline').length, 0, 'oyun sürerken ret iletisi gitmez')
+    assert.equal(B.desk.openInvite(), true)
+    assert.equal(B.m().stage, 'rejoin')
+  })
+
   test('yeniden bağlanma daveti yenilenmiş sayfa katılana kadar yinelenir, masası olan sayfanın sync iletisi yinelemeyi durdurur', () => {
     const { w, K, P } = started({ players: 2 })
     const [B, C] = P

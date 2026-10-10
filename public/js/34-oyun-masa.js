@@ -60,7 +60,8 @@ window.TelsizGameDesk = (function (G) {
     // Odadaki her kurpiyerin son geçerli daveti ve masa kimliğinin ilk davetteki kurpiyeri
     let seen = {}
     let owners = {}
-    // Kurpiyer başına reddedilen davetin ni değeri: aynı davetin kopyası yeniden gösterilmez
+    // Kurpiyer başına reddedilen davetin (lobi, Oyuna Dön, Oyun Sürüyor) ni değeri: aynı davetin kopyası yeniden
+    // gösterilmez
     let declined = {}
     // Masadan ayrılan sayfanın son leave iletisi: kurpiyer beni oturtmaya devam ederse yeniden gider
     let left = null
@@ -758,9 +759,9 @@ window.TelsizGameDesk = (function (G) {
         at: now()
       }
       seen[uid] = offer
-      if (T === null && x.ph === 'lobby' && declined[uid] === x.ni) {
-        // Reddedilen davetin kopyası: yeniden gösterilmez, ret kurpiyere yeniden bildirilir (kaybolmuş olabilir)
-        sendPlain(peerId, plainMsg('decline', x.g, x.ch, { ni: x.ni, why: 'user', key: null }))
+      if (T === null && declined[uid] === x.ni) {
+        // Reddedilen davetin kopyası yeniden gösterilmez. Lobide ret kurpiyere yeniden bildirilir (kaybolmuş olabilir).
+        if (x.ph === 'lobby') sendPlain(peerId, plainMsg('decline', x.g, x.ch, { ni: x.ni, why: 'user', key: null }))
         return
       }
       // Tek masa kuralı: davet gelince Masa Kur ekranı kapanır
@@ -1341,10 +1342,8 @@ window.TelsizGameDesk = (function (G) {
 
     function doDecline () {
       if (!playing() || (T.stage !== 'invited' && T.stage !== 'rejoin' && T.stage !== 'busy')) return false
-      if (T.stage === 'invited' && T.inv.ph === 'lobby') {
-        sendDecline('user', null)
-        declined[T.dealer] = T.inv.ni
-      }
+      if (T.stage === 'invited' && T.inv.ph === 'lobby') sendDecline('user', null)
+      declined[T.dealer] = T.inv.ni
       // Saklı davet kalır, Masaya Bak ile yeniden açılabilir
       T = null
       return true
