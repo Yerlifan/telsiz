@@ -82,7 +82,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `src/system-info.js` | Server information: processor, memory and cgroup limit, disk space (`GET /api/server-info`) |
 | `public/index.html` | Single page markup and the SVG icon sprite |
 | `public/crypto.js` | `window.E2EE`: key code, envelopes, file encryption, personal keys, pinning |
-| `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine |
+| `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine, and the transport for game messages in voice rooms |
 | `public/rnnoise-worklet.js` | Advanced noise suppression: the AudioWorklet processor that runs the RNNoise wasm module |
 | `public/music.js`, `public/dj/youtube.js` | The Telsiz DJ engine and the YouTube player adapter |
 | `public/i18n.js` | The Turkish and English dictionaries of the client |
@@ -119,17 +119,22 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
-| `22-cast.js` | Screen sharing interface and the camera grid |
+| `22-cast.js` | Screen sharing interface, the camera grid and the game table mode of the broadcast stage |
 | `23-dj.js` | Telsiz DJ interface |
 | `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
 | `26-tanitim.js` | The frequency introduction page that visitors who are not signed in see |
 | `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
-| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), joining and leaving voice rooms |
+| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), a game invite (with a View Table button), joining and leaving voice rooms |
 | `29-mikrofon.js` | The context menu of the Microphone button (right click, Shift+F10 or the Menu key): choosing between Push to talk and Voice activity |
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
 | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
+| `33-oyun-protokol.js` | The game protocol core (`window.TelsizGame`): message formats and their validators, the inner envelope (sealing, opening, binding checks), counter rules, validation of the state body, unbiased random choice and shuffling. Pure, uses no DOM, clock or network |
+| `34-oyun-masa.js` | The game table manager (`window.TelsizGameDesk`): the dealer and player state machines, invites, seats, single flight sending, throttling, liveness and reconnection. Pure, time and network are passed in from outside |
+| `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
+| `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
+| `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
@@ -172,7 +177,9 @@ Changes that touch the following areas need extra review. In these pull requests
 | Area | Why it is sensitive |
 | --- | --- |
 | `public/crypto.js`, `public/js/16-identity.js` | Key code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
-| `public/voice.js` | Encryption of voice and screen sharing signals, verification of sender and recipient, replay protection |
+| `public/voice.js` | Encryption and strict format checks of voice, screen sharing, camera and game signals, verification of sender and recipient, replay protection |
+| `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | The inner envelope of game messages and its binding fields (`ctx`, `k`, `g`, `ch`, `from`, `to`), counters and replay protection (`ni`, `seq`, `rd`, `r`), strict checks of message formats and the role table, the choice of inner layer keys (`gameKeys` in `36-oyun.js`) |
+| `public/js/35-renk-kural.js` | Unbiased shuffling, validation of the view and hand that come from the dealer, making sure no view or event contains someone else's hand |
 | `public/music.js`, `public/dj/youtube.js` | Validation of the encrypted DJ state, isolation of the YouTube frame and the consent rule |
 | `src/auth.js`, `src/app.js` | Password hashing, sessions, permissions, rate limits, trusted proxies |
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
@@ -181,7 +188,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, update checks (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | The whitelist of files that go into a release, the auto update info files, the authentication of the npm publish |
 
-Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code.
+Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code. Adding a new voice signal type and changing the types or field sets of game messages are plaintext format changes too.
 
 ## Branches and pull requests
 

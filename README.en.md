@@ -32,6 +32,8 @@ Messages, files, profiles and the setup messages of voice connections are encryp
 
 **Telsiz DJ.** Voice rooms have a built-in music bot. Typing `/play` and a YouTube link in the message box, or pressing "Play in DJ" on an audio file in a message, adds the track to the queue. Everyone hears the track at the same time on their own device. YouTube tracks load in the official YouTube embedded player, and only after the person gives consent on that device. Shared audio files play without consent. The owner of the frequency can turn off Telsiz DJ or only the YouTube source.
 
+**Games.** People in a voice room can play Renk together with the Game button on the radio card: a color and number matching card game for 2 to 8 players. The person who sets up the table is the dealer, plays as well and chooses the rule set: Official, or Stacking, where a +2 can go on a +2 and a +4 on a +4. In both sets a player who drops to one card without calling Last Card and gets caught draws 2 cards. Everyone in the room except the people the dealer blocked gets an invite. The invite does not open the screen by itself, it shows on the Game button and in the Notifications list with a View Table button. The dealer's device shuffles the deck and technically knows every hand, and this is stated plainly before anyone joins the table. Each player's hand goes only to them, encrypted with the two people's personal keys, so neither the server nor the other players can see it. When a round ends the remaining hands are not revealed, and only card counts and points are shown. If the dealer leaves the voice room the game ends, and if a player leaves their cards go back to the deck and the game goes on. A player who reloads the page takes their seat again with Return to Game after coming back to the voice room. The table works with a mouse, keyboard, touch screen and gamepad, and colors are also told apart by shape and letter. There are no games in private calls, and no separate setting or setup is needed on the server.
+
 **Search on the device.** Message search runs entirely on the device. The server never sees the search text or the message content.
 
 **Frequency introduction.** Someone who is not signed in first sees an introduction page when they open the frequency address: the frequency name, the public introduction text the owner writes in Settings > General, a short description of Telsiz, a link to download the desktop app and a step by step guide to setting up a frequency. People who arrive through an invite link go straight to the sign-up form.
@@ -140,7 +142,7 @@ There are three ways to reach friends on the internet. The `tunel.bat` (Windows)
 
 The password is never sent to the server. The browser derives an authentication key and a separate wrapping key from the password with scrypt. Group content is encrypted with TweetNaCl-js using XSalsa20-Poly1305, and direct messages with a shared key established over X25519. The server checks authorization on every request, validates input, and applies rate limits and a strict Content Security Policy.
 
-End-to-end encryption does not hide everything. The server sees who is online, who is in which room and voice room, the timing and size of messages, room names, usernames and the typing status. In the web version the app code comes from the server, so an active attacker who takes over the server could serve modified code. The group key has no forward secrecy. In voice and video chat people can see each other's IP address. The project has not had an independent security audit. The full list of limits is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#limits), and the way to report a vulnerability is in [SECURITY.md](SECURITY.md).
+End-to-end encryption does not hide everything. The server sees who is online, who is in which room and voice room, the timing and size of messages, room names, usernames and the typing status. In the web version the app code comes from the server, so an active attacker who takes over the server could serve modified code. The group key has no forward secrecy. In voice and video chat people can see each other's IP address. In games the dealer's device knows every hand. The project has not had an independent security audit. The full list of limits is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#limits), and the way to report a vulnerability is in [SECURITY.md](SECURITY.md).
 
 ## Settings
 
@@ -170,8 +172,8 @@ If the owner forgets the password, the `sifre-sifirla <username>` command (in En
 | Document | Contents |
 | --- | --- |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Self-hosting: npm, single file, Docker, reverse proxy, tunnel, TURN, backups and updates |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Server, client, encryption, voice, screen sharing, Telsiz DJ, desktop app and limits |
-| [docs/DESIGN.md](docs/DESIGN.md) | Frequency layout, design tokens, themes and accessibility |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Server, client, encryption, voice, screen sharing, Telsiz DJ, games, desktop app and limits |
+| [docs/DESIGN.md](docs/DESIGN.md) | Frequency layout, design tokens, themes, the game table and accessibility |
 | [desktop/README.en.md](desktop/README.en.md) | Security architecture and development commands of the desktop app |
 | [CONTRIBUTING.en.md](CONTRIBUTING.en.md) | Contribution guide and code rules |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |

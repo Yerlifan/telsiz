@@ -2,7 +2,7 @@
 
 [Türkçe](TASARIM.md) | [English](DESIGN.md)
 
-The Telsiz interface is built on a single HTML structure, a layout called Frequency and three visual themes. The layout arranges the app like a radio dial: the frequencies you have joined (each a Telsiz server) sit as stations on a horizontal frequency band, the text and voice rooms of the open frequency are in the Stations list on the right, a single conversation column stands in the middle, and when you join a voice room a radio card that looks like a handheld radio opens. Themes change only CSS tokens and theme specific ornaments, and the markup never changes between themes. The default theme is Arcade, and on first start the mode follows the system preference (dark if unknown). This document describes the files, the layout, the breakpoints, the tokens, the themes, the components, the contrast measurements and the steps to add a new theme.
+The Telsiz interface is built on a single HTML structure, a layout called Frequency and three visual themes. The layout arranges the app like a radio dial: the frequencies you have joined (each a Telsiz server) sit as stations on a horizontal frequency band, the text and voice rooms of the open frequency are in the Stations list on the right, a single conversation column stands in the middle, and when you join a voice room a radio card that looks like a handheld radio opens. Themes change only CSS tokens and theme specific ornaments, and the markup never changes between themes. The default theme is Arcade, and on first start the mode follows the system preference (dark if unknown). This document describes the files, the layout, the breakpoints, the tokens, the themes, the camera and the game table, the components, the contrast measurements and the steps to add a new theme.
 
 ## Files and load order
 
@@ -20,10 +20,14 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
 | `public/css/people.css` | The sign in card, the Online sheet and strip, the direct message list and personal cards, the direct message header, the Friends station. |
 | `public/css/cast.css` | Screen sharing: the live chip, share notice, broadcast stage, camera grid, collapsed chat strip, share start dialog. |
 | `public/css/dj.css` | The Telsiz DJ card, the docked player, the Telsiz DJ button in the tools row of the radio card, the "Play in DJ" button in messages. |
+| `public/css/arama.css` | Direct message calls: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status line, controls), the incoming call card. |
+| `public/css/tanitim.css` | The frequency introduction page that visitors who are not signed in see. |
+| `public/css/oyun.css` | The game table: the Game button on the radio card and its states, and in the `game` mode of the broadcast stage the Set Up a Table, lobby and invite screens, people lists and status chips, the trust note, the confirmation row, results, the status line and the stage height on phones. |
+| `public/css/renk.css` | The Renk table: the opponent strip, the draw pile and card back, the discard, the active color, the action row, the hand, card faces and the Wild color picker. |
 | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Theme specific styles. |
 | `public/fonts/` | Local woff2 fonts and OFL license texts. |
 
-`index.html` links the stylesheets in this order: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, then the three theme files. Every rule in a theme file starts with `:root[data-skin="..."]`, so only the rules of the active theme apply. Loading all three files together makes theme switching instant without a page reload.
+`index.html` links the stylesheets in this order: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, arama, tanitim, oyun, renk, then the three theme files. Every rule in a theme file starts with `:root[data-skin="..."]`, so only the rules of the active theme apply. Loading all three files together makes theme switching instant without a page reload.
 
 ## Theme interface
 
@@ -176,6 +180,46 @@ The crew item of someone with their camera on turns into a larger live video til
 
 Settings > General has two sections. The Voice rooms and cameras section (`#set-voice-limits-section`) shows the voice room capacity and camera limit in number fields (`.settings-number`) and cameras with a switch. Admins see the fields disabled. The Server information section (`#set-server-info-section`) shows label and value rows (`.settings-facts`, `.settings-fact`) and below them the recommendation (`.settings-rec`: the upload speed field, result rows `.settings-rec-item`, the formula explanation, hints `.settings-rec-hint` and the Apply recommendation button). Warnings use the `--warn`, `--warn-bg` and `--warn-line` tokens, and the positive hint a `--live` border. On phones the label moves above the value.
 
+## Game table
+
+The Game button (`#radio-game`, `.game-tool`, with its state in the `data-state` attribute) sits in the tools row of the radio card, between Enlarge and Telsiz DJ. It is hidden while you are not in voice, while connecting and in a private call. Depending on the state its label is Game, Invite (`.is-invited`, a "1" badge), Game in Progress (`.is-busy`), Back to Table and Your Turn (`.is-turn`, a "!" badge), and while the stage is open it becomes Minimize and gets `aria-expanded="true"`. Game in Progress carries `aria-disabled="true"` instead of `disabled`, stays focusable and opens an information screen when pressed. At 759 pixels and below the label is hidden visually, and the icon and badge remain. An incoming invite does not open the stage, and an entry with a View Table button (`.activity-item.is-game`) appears in the Notifications list.
+
+The table opens in the `game` mode of the broadcast stage (`#cast[data-mode="game"]`, `.cast-game`). The mode priority is the watched share, the camera grid, the game table and the preview of your own share (`22-cast.js castModeFor`). Opening the game stops watching and closes the grid. The game never closes by itself, and the table comes back when the mode above it closes. The header has Full Screen and Minimize, and Minimize closes the stage while the game goes on. In the game the sharer picker is hidden, the chat strip is collapsed by default and the right column is hidden on wide screens. On phones (759 pixels and below) the stage grows with the table content instead of the 16:9 height and is at least 20rem tall. The Set Up a Table, lobby, invite, end and result screens, the status line, the trust note and the confirmation row are in `oyun.css`, and the middle of the table is in `renk.css`. The table always has the "Dealer Knows All Hands" trust chip (`.game-trust`) and a Details button that opens the full text, and in the lobby the trust note sits right above the Join button. Leaving the table, ending the game, closing the table and removing someone from a seat open a confirmation row inside the panel (`.game-confirm`) instead of `window.confirm`, focus moves to Go Back and Esc closes the row.
+
+A card is a button (`button.renk-card[data-color][data-value]`): the color's shape and the value in the corner, the large value in the middle (a number, `i-block` for Skip, `i-reverse` for Reverse, +2, +4) and the color's letter for the current language at the bottom. A Wild face shows four small color squares, each with its own shape. Faces are flat colors, with no tilted oval or logo in the middle. The card back (`.renk-back`) has a striped pattern and shows on the draw pile and the opponents' card counts. On your turn a playable card gets `.is-playable` (it rises by 0.375rem and an `--accent` line appears on its bottom edge), and a card that cannot be played gets a striped cover with `.is-blocked`. Every card that cannot be played at that moment carries `aria-disabled="true"` instead of `disabled` and stays focusable. A newly drawn card (`.is-new`) carries a "New" mark. The hand (`.renk-hand`) is sorted by color (Red, Yellow, Green, Blue, Wild) and value, and scrolls sideways inside itself when it does not fit. Other hands are never drawn on the dealer's screen.
+
+Color never carries meaning on its own. Each color has a shape, a letter and a name:
+
+| Color | Shape | Turkish letter | English letter |
+| --- | --- | --- | --- |
+| Red | circle (`i-suit-circle`) | K | R |
+| Yellow | triangle (`i-suit-triangle`) | S | Y |
+| Green | square (`i-suit-square`) | Y | G |
+| Blue | diamond (`i-suit-diamond`) | M | B |
+
+The active color indicator (`.renk-color`) and the four buttons of the Wild color picker (`.renk-picker`) show the shape, the letter and the name together. The opponent whose turn it is gets a ring and the text "Their Turn", and a player who called Last Card gets a chip. The accessible name of a card is its full name (for example "Red 7", "Wild +4"), followed by whether it can be played and, if it was just drawn, that information. The content of a card someone else drew is never read out. Announcements go to the polite region inside the panel and "Your turn" to the assertive region, and events that arrive within 400 ms are joined into one sentence.
+
+The card tokens are at the end of `tokens.css`. The edge, shadow, card back and cover (`--card-edge`, `--card-shadow`, `--card-back-a`, `--card-back-b`, `--card-hatch`) change with the mode. The face colors (`--renk-red`, `--renk-yellow`, `--renk-green`, `--renk-blue`, `--renk-wild`) and the text colors (`--renk-ink`, `--renk-ink-yellow`) are the same in both modes. The edge is required because the Wild face does not stand out from the background in dark themes and the yellow face does not in light themes. The contrast of the card text against the face:
+
+| Face | Text | Ratio |
+| --- | --- | --- |
+| Red `#c8322f` | white | 5.31:1 |
+| Yellow `#f2c12e` | dark `#221800` | 10.38:1 |
+| Green `#16804a` | white | 4.98:1 |
+| Blue `#2563d8` | white | 5.45:1 |
+| Wild `#24252c` | white | 15.26:1 |
+
+`test/oyun-arayuz.test.js` recomputes the ratios and checks that each stays above 4.5:1. In `oyun.css` and `renk.css` colors are given only through `var(--...)`, and the z-index is at most 3 (the color picker).
+
+DOM order is focus order: Full Screen, Minimize, the draw pile, the action row (Choose Color, Pass, Last Card!, Catch), the hand, Details, and the leave and end buttons. In the hand and the action row, Left and Right arrows move to the neighbor, Home and End to the ends, Up arrow from the hand to the draw pile, and Down arrow from the draw pile and the action row to the hand. There is no roving `tabindex` and no shortcut key, so nothing clashes with push to talk bindings. When your turn comes, focus moves to the first playable card unless you are typing. The table is redrawn only when its own key changes, and focus is kept with `data-focus-key`. The Wild color picker is a layer inside the panel, so it is visible in full screen too: focus stays inside it, and Esc and the gamepad circle button only close the picker without playing the card. Sizes:
+
+| Layout | Hand card | Discard and draw pile |
+| --- | --- | --- |
+| Phone (759 pixels and below) | 3.25 x 4.75rem | 3.75 x 5.5rem |
+| 760 pixels and up | 3.5 x 5rem | 4.5 x 6.5rem |
+
+Touch targets are at least `--target`, the color picker buttons are at least 3.5rem tall, and the picker has two columns on phones. With reduced motion on, card transitions and the sync dot stop (`gameReducedMotion` looks at both the system setting and the Settings > Appearance choice).
+
 ## Components
 
 | Component | Classes | Note |
@@ -198,6 +242,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
 | People | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | The Online sheet, the Friends station, the direct message header. |
 | Sign in card | `.auth-card`, `.auth-dial`, `.auth-needle` | A card shaped like a radio body. |
 | Screen sharing and camera grid | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open, `#cast[data-mode="cams"]` for the grid. |
+| Game table | `.game-tool`, `.cast-game`, `.game-body`, `.game-app`, `.game-status`, `.game-trust`, `.game-confirm`, `.renk-table`, `.renk-opp`, `.renk-deck`, `.renk-pile`, `.renk-color`, `.renk-actions`, `.renk-hand`, `.renk-card`, `.renk-back`, `.renk-picker` | `#cast[data-mode="game"]` on the stage, `.is-invited`, `.is-busy` and `.is-turn` on the Game button, `data-turn` on the table, `.is-playable`, `.is-blocked` and `.is-new` on cards. |
 | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | The YouTube player area (`.dj-yt`) is always at least 200x200 CSS pixels regardless of font size, and nothing is drawn on top of it. While the card is hidden or covered, the player is docked in a corner with the `.dj-dock` bar below it. |
 | Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | The selected category is marked with a left line in the needle color. |
 | Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. |

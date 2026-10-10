@@ -2,6 +2,12 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### New features
+
+- Renk: people in a voice room can play a color and number matching card game for 2 to 8 players with the Game button on the radio card. The person who sets up the table is the dealer, plays as well and chooses the rule set: Official, or Stacking, where a +2 can go on a +2 and a +4 on a +4. The Last Card rule applies in both sets, and the game checks the Wild +4 restriction itself. Everyone in the room gets an invite, which does not open the screen and shows on the Game button and in the Notifications list with a View Table button. The table opens on the broadcast stage, and the game goes on when it is minimized. The dealer's device shuffles the deck and technically knows every hand, and this is written right above the Join button and at the table. Each player's hand goes only to them, encrypted with the two people's personal keys. Game messages travel on the signal path of the voice room, and nothing changes on the server. If the dealer leaves the voice room the game ends, and if a player leaves their cards go back to the deck. A player who reloads the page returns to their seat with Return to Game, a player whose turn lasts long shows as Away and the dealer can remove them from the seat. Colors are also told apart by shape and letter, the table works with the keyboard, a gamepad and a touch screen, and on phones the hand scrolls inside itself. There are no games in private calls.
+
 ## [2.5.0]
 
 ### New features
