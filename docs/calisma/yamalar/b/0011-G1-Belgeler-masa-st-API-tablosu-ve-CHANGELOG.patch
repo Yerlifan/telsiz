@@ -1,0 +1,109 @@
+From 9559a72732f36bcb2b65200c46972777f2a9ab7a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:47:39 +0000
+Subject: [PATCH 11/11] =?UTF-8?q?G1:=20Belgeler:=20masa=C3=BCst=C3=BC=20AP?=
+ =?UTF-8?q?I=20tablosu=20ve=20CHANGELOG?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+desktop/README ve README.en API tablosuna onWindowState ve idleSeconds,
+telsizArkaPlan satırına idleSeconds ve gönderen kuralı, dosya düzenine
+window-state.js eklendi. CHANGELOG ve CHANGELOG.en Yayımlanmamış altına
+masaüstü kanallarının paragrafı yazıldı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md      | 1 +
+ CHANGELOG.md         | 1 +
+ desktop/README.en.md | 6 ++++--
+ desktop/README.md    | 6 ++++--
+ 4 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 6e83e8e..b4b0d85 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -7,6 +7,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ ### Changes
+ 
+ - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
++- The desktop app tells the page the window state and the system idle time. The page learns through `telsizDesktop.onWindowState` when the window is minimized, comes back from being minimized, is hidden to the tray and is shown again (including coming back from the tray). It reads the time since the last user input in whole seconds through `telsizDesktop.idleSeconds()`, and the background windows of frequencies that are not open read it through `telsizArkaPlan.idleSeconds()`. Only one of four state values reaches the page, and only the app window and background windows may read the idle time. These channels are the desktop groundwork for Telsiz DJ, the floating window and automatic idle, and make no visible change on their own.
+ 
+ ### Fixes
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ca91e3d..66eff3a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ ### Değişiklikler
+ 
+ - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
++- Masaüstü uygulaması sayfaya pencerenin durumunu ve sistemin boşta süresini bildirir. Sayfa pencerenin simge durumuna küçültüldüğünü, simge durumundan döndüğünü, tepsiye gizlendiğini ve yeniden gösterildiğini (tepsiden dönüş dahil) `telsizDesktop.onWindowState` ile öğrenir. Son kullanıcı girişinden bu yana geçen süreyi tam saniye olarak `telsizDesktop.idleSeconds()` ile, açık olmayan frekansların arka plan pencereleri `telsizArkaPlan.idleSeconds()` ile okur. Sayfaya yalnızca dört durum değerinden biri gider, boşta süresini yalnızca uygulama penceresi ve arka plan pencereleri okuyabilir. Bu kanallar Telsiz DJ, yüzen pencere ve otomatik boşta için masaüstü altyapısıdır, kendi başlarına görünür bir değişiklik yapmaz.
+ 
+ ### Düzeltmeler
+ 
+diff --git a/desktop/README.en.md b/desktop/README.en.md
+index efbcd14..85c50dc 100644
+--- a/desktop/README.en.md
++++ b/desktop/README.en.md
+@@ -110,7 +110,7 @@ Build outputs:
+ | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
+ | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
+ | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
+-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`) |
++| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`), window state and idle time (`window-state.js`) |
+ | `scripts/hazirla.js` | Build preparation |
+ | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
+ | `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
+@@ -151,6 +151,8 @@ The `window.telsizDesktop` API:
+ | `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
+ | `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
+ | `titleBar.onFullscreen(cb)` | `cb(true)` when the window enters full screen, `cb(false)` when it leaves, the returned function removes the subscription |
++| `onWindowState(cb)` | `cb('minimized')` when the window is minimized, `cb('restored')` when it comes back from being minimized, `cb('hidden')` when it is hidden to the tray, `cb('shown')` when it is shown (including coming back from the tray). No other value reaches the page, and the same value in a row arrives once. There can be several listeners, the returned function removes the subscription |
++| `idleSeconds()` | Time since the last user input on the system (mouse, keyboard) in whole seconds (Electron `powerMonitor.getSystemIdleTime`). `0` when it cannot be read |
+ | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
+ | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
+ | `addFrequency()` | Opens the frequency address window in add mode |
+@@ -163,7 +165,7 @@ The `window.telsizDesktop` API:
+ | `updates.openRelease()` | Opens the GitHub page of the found release in the default browser (the main process decides the address) |
+ | `updates.onState(cb)` | `cb(state)` when the state changes, the returned function removes the subscription |
+ 
+-`window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb) }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open() }`.
++`window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb), idleSeconds() }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open(), idleSeconds() }`. In both modes `idleSeconds()` returns the same value as `telsizDesktop.idleSeconds()`. The main process accepts the `telsiz:idle-seconds` call only from the app window and from registered background windows, and the window state (`telsiz:window-state`) is sent only to the app window.
+ 
+ Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
+ 
+diff --git a/desktop/README.md b/desktop/README.md
+index daa9148..b74dbbb 100644
+--- a/desktop/README.md
++++ b/desktop/README.md
+@@ -110,7 +110,7 @@ Derleme çıktıları:
+ | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
+ | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
+ | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
+-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`) |
++| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`), pencere durumu ve boşta süresi (`window-state.js`) |
+ | `scripts/hazirla.js` | Derleme hazırlığı |
+ | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
+ | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
+@@ -151,6 +151,8 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
+ | `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
+ | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
+ | `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
++| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır |
++| `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0` |
+ | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
+ | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
+ | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
+@@ -163,7 +165,7 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
+ | `updates.openRelease()` | Bulunan sürümün GitHub sayfasını varsayılan tarayıcıda açar (adresi ana süreç belirler) |
+ | `updates.onState(cb)` | Durum değişince `cb(durum)`, dönen işlev aboneliği kaldırır |
+ 
+-`window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb) }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open() }`.
++`window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb), idleSeconds() }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open(), idleSeconds() }`. `idleSeconds()` iki kipte de `telsizDesktop.idleSeconds()` ile aynı değeri verir. Ana süreç `telsiz:idle-seconds` çağrısını yalnızca uygulama penceresinden ve kayıtlı arka plan pencerelerinden kabul eder, pencere durumu (`telsiz:window-state`) yalnızca uygulama penceresine gönderilir.
+ 
+ Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
+ 

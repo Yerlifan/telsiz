@@ -1,0 +1,422 @@
+From 88f4919d5ba848b88db9a614aa1d80ea1adf6b28 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 20:45:43 +0000
+Subject: [PATCH 10/11] =?UTF-8?q?G1:=20Bo=C5=9Fta=20s=C3=BCresi=20kanal?=
+ =?UTF-8?q?=C4=B1=20(telsiz:idle-seconds,=20idleSeconds)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Yeni invoke kanalı sistemin son kullanıcı girişinden bu yana geçen süreyi
+Math.floor(powerMonitor.getSystemIdleTime()) ile tam saniye olarak verir.
+Çağrı requireSender ile yalnızca uygulama penceresinden ve arka plan
+pencerelerinden kabul edilir (requireSender artık birden çok bağlam alır).
+Değer ana süreçte ve ön yüklemede negatif olmayan tam sayıya süzülür,
+bilinmeyen süre 0 döner. telsizDesktop ve iki telsizArkaPlan nesnesi
+idleSeconds() alır. Testler: pencere-durumu.test.js, preload.test.js ve
+duman testi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/e2e/duman.test.js           | 17 +++++-
+ desktop/src/lib/channels.js         |  2 +
+ desktop/src/lib/window-state.js     | 18 +++++-
+ desktop/src/main.js                 | 29 +++++++++-
+ desktop/src/preload.js              | 30 ++++++++--
+ desktop/test/pencere-durumu.test.js | 86 +++++++++++++++++++++++++++--
+ desktop/test/preload.test.js        |  6 +-
+ 7 files changed, 168 insertions(+), 20 deletions(-)
+
+diff --git a/desktop/e2e/duman.test.js b/desktop/e2e/duman.test.js
+index e17c8bc..27228a1 100644
+--- a/desktop/e2e/duman.test.js
++++ b/desktop/e2e/duman.test.js
+@@ -18,6 +18,7 @@
+ // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
+ //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
+ // - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
++// - sistemin boşta süresi sayfadan tam saniye olarak okunur
+ //
+ // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
+ // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
+@@ -411,7 +412,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
+ test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
+   const page = ctx.page
+   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
+-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
+   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
+@@ -1084,3 +1085,17 @@ test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden d
+   assert.equal(got[got.length - 1], 'restored')
+   await page.evaluate(() => window.__pencereKapat())
+ })
++
++// Boşta süresi (telsiz:idle-seconds): sistemin son kullanıcı girişinden bu yana geçen süre tam saniye olarak
++// hem telsizDesktop hem telsizArkaPlan üzerinden okunur, ana süreçteki powerMonitor değeriyle aynıdır
++test('boşta süresi: uygulama penceresinde tam saniye olarak okunur', async () => {
++  const page = ctx.page
++  const before = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
++  const values = await page.evaluate(() => Promise.all([window.telsizDesktop.idleSeconds(), window.telsizArkaPlan.idleSeconds()]))
++  const after = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
++  for (const value of values) {
++    assert.ok(Number.isInteger(value) && value >= 0, String(value))
++    // Girdi olmadıkça süre artar, girdi gelirse sıfırlanır: değer iki ölçümün arasında veya en çok birkaç saniye farklıdır
++    assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
++  }
++})
+diff --git a/desktop/src/lib/channels.js b/desktop/src/lib/channels.js
+index 29217fb..b0f68cc 100644
+--- a/desktop/src/lib/channels.js
++++ b/desktop/src/lib/channels.js
+@@ -36,6 +36,8 @@ const CHANNELS = Object.freeze({
+   // Pencere durumu (src/lib/window-state.js): küçültme, geri yükleme, tepsiye gizleme ve gösterme (ana
+   // süreçten sayfaya)
+   windowState: 'telsiz:window-state',
++  // Sistemin boşta süresi (saniye, src/lib/window-state.js): uygulama ve arka plan pencereleri okuyabilir
++  idleSeconds: 'telsiz:idle-seconds',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+diff --git a/desktop/src/lib/window-state.js b/desktop/src/lib/window-state.js
+index a52a0b6..f063bf8 100644
+--- a/desktop/src/lib/window-state.js
++++ b/desktop/src/lib/window-state.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-// Uygulama penceresinin durumu. Electron'a bağımlı değildir.
++// Uygulama penceresinin durumu ve sistemin boşta süresi. Electron'a bağımlı değildir.
+ //
+ // Pencere durumu: ana süreç uygulama penceresinin minimize, restore, hide ve show olaylarını dinler ve
+ // sayfaya telsiz:window-state kanalıyla yalnızca şu dört değerden birini gönderir: 'minimized'
+@@ -8,6 +8,12 @@
+ // 'shown' (gösterildi, tepsiden geri dönüş dahil). Olay nesnesi ve pencere bilgisi sayfaya hiç gitmez.
+ // Art arda gelen aynı değer bir kez gönderilir: tepsiden dönüşte show olayı ile ana sürecin kendi
+ // bildirimi (showMain) aynı anda gelebilir. Sayfada window.telsizDesktop.onWindowState(cb) ile alınır.
++//
++// Boşta süresi: telsiz:idle-seconds çağrısı sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen
++// süreyi tam saniye olarak döndürür (Electron powerMonitor.getSystemIdleTime). Çağrı yalnızca uygulama
++// penceresinden ve arka plan pencerelerinden kabul edilir. Değer sayı değilse, sonlu değilse veya negatifse
++// 0 döner: bilinmeyen süre hiçbir zaman "boşta" sayılmaz. Sayfada window.telsizDesktop.idleSeconds() ve
++// window.telsizArkaPlan.idleSeconds() ile alınır.
+ 
+ const STATES = Object.freeze(['minimized', 'restored', 'hidden', 'shown'])
+ 
+@@ -50,10 +56,18 @@ function watch (win, send) {
+   }
+ }
+ 
++// powerMonitor.getSystemIdleTime() sonucunu negatif olmayan tam saniyeye çevirir
++function cleanIdleSeconds (raw) {
++  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return 0
++  const value = Math.floor(raw)
++  return Number.isSafeInteger(value) ? value : 0
++}
++
+ module.exports = {
+   STATES,
+   EVENTS,
+   isState,
+   stateForEvent,
+-  watch
++  watch,
++  cleanIdleSeconds
+ }
+diff --git a/desktop/src/main.js b/desktop/src/main.js
+index 57494a8..ef56649 100644
+--- a/desktop/src/main.js
++++ b/desktop/src/main.js
+@@ -45,6 +45,7 @@ const {
+   shell,
+   dialog,
+   desktopCapturer,
++  powerMonitor,
+   webContents
+ } = require('electron')
+ 
+@@ -157,7 +158,9 @@ const state = {
+   titleBarOverlay: false,
+   titleBarColors: null,
+   // Uygulama penceresinin durum bildiricisi (src/lib/window-state.js), pencere başına bir tane
+-  windowStates: new WeakMap()
++  windowStates: new WeakMap(),
++  // Sistemin boşta süresi okunamadı mı (hata günlüğe bir kez yazılır)
++  idleErrorLogged: false
+ }
+ 
+ function t (key, params) {
+@@ -231,8 +234,9 @@ function senderIs (event, context) {
+   return navigation.originOf(frame.url) === ORIGINS[context]
+ }
+ 
+-function requireSender (event, context) {
+-  if (!senderIs(event, context)) throw new Error('forbidden')
++// Çağrı verilen bağlamlardan birinden gelmediyse reddedilir, ör. requireSender(event, 'app', 'background')
++function requireSender (event, ...contexts) {
++  if (!contexts.some((context) => senderIs(event, context))) throw new Error('forbidden')
+ }
+ 
+ function openExternal (url) {
+@@ -1261,6 +1265,19 @@ function quitApp () {
+   app.quit()
+ }
+ 
++// Sistemin son kullanıcı girişinden bu yana geçen süre, tam saniye (src/lib/window-state.js). powerMonitor
++// yalnızca uygulama hazır olduktan sonra kullanılabilir, IPC işleyicileri de ancak o zaman çağrılır.
++// Okunamazsa 0 döner ve hata yalnızca ilk seferde günlüğe yazılır.
++function systemIdleSeconds () {
++  try {
++    return windowState.cleanIdleSeconds(powerMonitor.getSystemIdleTime())
++  } catch (err) {
++    if (!state.idleErrorLogged) logError('idle', err)
++    state.idleErrorLogged = true
++    return 0
++  }
++}
++
+ // ------------------------------------------------------------------ IPC
+ 
+ function registerIpc () {
+@@ -1368,6 +1385,12 @@ function registerIpc () {
+     showMain()
+     return frequencyControl.switchTo(origin)
+   })
++  // Otomatik boşta: sistemin son kullanıcı girişinden bu yana geçen süre (tam saniye). Arka plan pencereleri de
++  // okur (açık olmayan frekansların long-poll isteği aynı bilgiyi taşır).
++  ipcMain.handle(CHANNELS.idleSeconds, (event) => {
++    requireSender(event, 'app', 'background')
++    return systemIdleSeconds()
++  })
+   ipcMain.handle(CHANNELS.bgGet, (event) => {
+     requireSender(event, 'app')
+     return backgroundWindows.snapshot()
+diff --git a/desktop/src/preload.js b/desktop/src/preload.js
+index e39f683..51d1eb1 100644
+--- a/desktop/src/preload.js
++++ b/desktop/src/preload.js
+@@ -25,6 +25,7 @@ const CHANNELS = {
+   titleBarMenu: 'telsiz:title-bar-menu',
+   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
+   windowState: 'telsiz:window-state',
++  idleSeconds: 'telsiz:idle-seconds',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+@@ -165,6 +166,18 @@ ipcRenderer.on(CHANNELS.windowState, (event, value) => {
+   }
+ })
+ 
++// Sistemin boşta süresi: ana süreçten gelen değer negatif olmayan tam saniyeye getirilir, geçersizse 0
++// (src/lib/window-state.js cleanIdleSeconds ile aynı kural)
++function cleanIdleSeconds (raw) {
++  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return 0
++  const value = Math.floor(raw)
++  return Number.isSafeInteger(value) ? value : 0
++}
++
++function idleSeconds () {
++  return ipcRenderer.invoke(CHANNELS.idleSeconds).then(cleanIdleSeconds)
++}
++
+ function shortText (value, max) {
+   return typeof value === 'string' ? value.slice(0, max) : ''
+ }
+@@ -258,6 +271,8 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
+       windowStateListeners.delete(callback)
+     }
+   },
++  // Sistemin son kullanıcı girişinden bu yana geçen süre: Promise, negatif olmayan tam saniye
++  idleSeconds,
+   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
+   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
+   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
+@@ -289,10 +304,11 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
+ 
+ // Arka plan sayımı (src/lib/background.js, public/js/25-arka-plan.js). Ayrı bir nesnedir:
+ // - Ana sürecin --telsiz-background=<köken> argümanıyla açtığı gizli pencerede { background: true, origin,
+-//   report(rapor), open() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç göndereni ve her
+-//   alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
+-// - Uygulama penceresinde { background: false, getState(), onState(callback) }: açık olmayan frekansların
+-//   durumu. Olay nesnesi verilmez, durum burada da süzülür.
++//   report(rapor), open(), idleSeconds() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç
++//   göndereni ve her alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
++// - Uygulama penceresinde { background: false, getState(), onState(callback), idleSeconds() }: açık olmayan
++//   frekansların durumu. Olay nesnesi verilmez, durum burada da süzülür.
++// - idleSeconds() iki kipte de sistemin boşta süresini verir (tam saniye), otomatik boşta için.
+ const BACKGROUND_ARG = '--telsiz-background='
+ const BG_ORIGIN_RE = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
+ const BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
+@@ -352,7 +368,8 @@ if (backgroundOrigin !== null) {
+     background: true,
+     origin: backgroundOrigin,
+     report: (report) => ipcRenderer.send(CHANNELS.bgReport, bgCopyReport(report)),
+-    open: () => ipcRenderer.invoke(CHANNELS.bgOpen)
++    open: () => ipcRenderer.invoke(CHANNELS.bgOpen),
++    idleSeconds
+   })
+ } else {
+   const stateListeners = new Set()
+@@ -375,6 +392,7 @@ if (backgroundOrigin !== null) {
+       return () => {
+         stateListeners.delete(callback)
+       }
+-    }
++    },
++    idleSeconds
+   })
+ }
+diff --git a/desktop/test/pencere-durumu.test.js b/desktop/test/pencere-durumu.test.js
+index 238c10a..6bc92da 100644
+--- a/desktop/test/pencere-durumu.test.js
++++ b/desktop/test/pencere-durumu.test.js
+@@ -1,8 +1,8 @@
+ 'use strict'
+ 
+-// Pencere durumu kanalı (telsiz:window-state): ana süreçteki olay eşlemesi (src/lib/window-state.js), ön
+-// yükleme betiğinin beyaz listesi ve ana süreçteki gönderen denetimi. Gerçek Electron ile davranış
+-// e2e/duman.test.js içinde denetlenir.
++// Pencere durumu (telsiz:window-state) ve boşta süresi (telsiz:idle-seconds) kanalları: ana süreçteki olay
++// eşlemesi ve değer süzme (src/lib/window-state.js), ön yükleme betiğinin beyaz listesi ve ana süreçteki
++// gönderen denetimi. Gerçek Electron ile davranış e2e/duman.test.js içinde denetlenir.
+ 
+ const { test } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -19,6 +19,7 @@ const SRC = path.join(__dirname, '..', 'src')
+ function loadPreload (argv) {
+   const exposed = {}
+   const invoked = []
++  const replies = []
+   const listeners = {}
+   const electron = {
+     contextBridge: {
+@@ -29,7 +30,7 @@ function loadPreload (argv) {
+     ipcRenderer: {
+       invoke (channel, ...args) {
+         invoked.push([channel].concat(args))
+-        return Promise.resolve('ok')
++        return Promise.resolve(replies.length > 0 ? replies.shift() : 'ok')
+       },
+       send () {},
+       on (channel, fn) {
+@@ -47,7 +48,7 @@ function loadPreload (argv) {
+     Date
+   }
+   vm.runInNewContext(fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8'), sandbox, { filename: 'preload.js' })
+-  return { exposed, invoked, listeners }
++  return { exposed, invoked, replies, listeners }
+ }
+ 
+ function readMain () {
+@@ -159,3 +160,78 @@ test('ana süreç: durum yalnızca uygulama penceresinin sayfasına gider, tepsi
+   // Tepsiye kapatma pencereyi gizler (hide olayı 'hidden' olur)
+   assert.match(open, /if \(state\.settings\.closeToTray && state\.tray\) \{\n\s+event\.preventDefault\(\)\n\s+win\.hide\(\)/)
+ })
++
++// Ana sürece giden değerler ve beklenen tam saniye (süzme kuralı ön yüklemede ve ana süreçte aynı)
++const IDLE_CASES = [
++  [0, 0],
++  [12, 12],
++  [12.9, 12],
++  [59.999, 59],
++  [86400 * 30, 86400 * 30],
++  [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
++  [-1, 0],
++  [-0.5, 0],
++  [NaN, 0],
++  [Infinity, 0],
++  [-Infinity, 0],
++  [1e300, 0],
++  ['30', 0],
++  [null, 0],
++  [undefined, 0],
++  [true, 0],
++  [{ valueOf: () => 30 }, 0],
++  [[30], 0]
++]
++
++test('boşta süresi: değer negatif olmayan tam saniyeye getirilir, bilinmeyen süre 0', () => {
++  for (const [raw, expected] of IDLE_CASES) assert.equal(windowState.cleanIdleSeconds(raw), expected, String(raw))
++})
++
++test('ön yükleme: idleSeconds uygulama ve arka plan nesnelerinde, sayfa argüman geçiremez, sonuç süzülür', async () => {
++  const p = loadPreload(['--telsiz-version=2.0.0'])
++  const api = p.exposed.telsizDesktop
++  for (const [raw, expected] of IDLE_CASES) {
++    p.replies.push(raw)
++    assert.equal(await api.idleSeconds('fazla', { kotu: 1 }), expected, String(raw))
++  }
++  assert.deepEqual(p.invoked, IDLE_CASES.map(() => [channels.CHANNELS.idleSeconds]))
++  // Uygulama penceresindeki arka plan nesnesi
++  p.invoked.length = 0
++  p.replies.push(42.7)
++  assert.equal(await p.exposed.telsizArkaPlan.idleSeconds(), 42)
++  assert.deepEqual(p.invoked, [[channels.CHANNELS.idleSeconds]])
++  // Arka plan penceresi (ana sürecin argümanıyla)
++  const bg = loadPreload(['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com'])
++  assert.equal(bg.exposed.telsizArkaPlan.background, true)
++  bg.replies.push(7)
++  bg.replies.push('7')
++  assert.equal(await bg.exposed.telsizArkaPlan.idleSeconds(), 7)
++  assert.equal(await bg.exposed.telsizArkaPlan.idleSeconds(1), 0)
++  assert.deepEqual(bg.invoked, [[channels.CHANNELS.idleSeconds], [channels.CHANNELS.idleSeconds]])
++})
++
++test('ana süreç: boşta süresi yalnızca uygulama ve arka plan pencerelerine açık, powerMonitor değeri süzülür', () => {
++  const main = readMain()
++  assert.match(main, /ipcMain\.handle\(CHANNELS\.idleSeconds, \(event\) => \{\n\s+requireSender\(event, 'app', 'background'\)\n\s+return systemIdleSeconds\(\)\n\s+\}\)/)
++  assert.equal((main.match(/CHANNELS\.idleSeconds\b/g) || []).length, 1)
++  const idle = functionBody(main, 'function systemIdleSeconds () {')
++  assert.match(idle, /return windowState\.cleanIdleSeconds\(powerMonitor\.getSystemIdleTime\(\)\)/)
++  assert.match(idle, /return 0\n\s+\}/)
++  assert.equal((main.match(/powerMonitor\.\w+/g) || []).join(), 'powerMonitor.getSystemIdleTime')
++})
++
++test('gönderen denetimi: requireSender verilen bağlamlardan birini ister, başka pencereyi reddeder', () => {
++  const main = readMain()
++  const source = functionBody(main, 'function requireSender (event, ...contexts) {') + '\n}\n'
++  // senderIs yerine bağlamı olaydan okuyan sahte işlev (asıl senderIs pencereyi, ana çerçeveyi ve kökeni denetler)
++  const sandbox = { senderIs: (event, context) => event.context === context }
++  vm.runInNewContext(source + 'this.requireSender = requireSender\n', sandbox)
++  const { requireSender } = sandbox
++  assert.doesNotThrow(() => requireSender({ context: 'app' }, 'app', 'background'))
++  assert.doesNotThrow(() => requireSender({ context: 'background' }, 'app', 'background'))
++  for (const context of ['connect', 'picker', 'float', undefined, null, '']) {
++    assert.throws(() => requireSender({ context }, 'app', 'background'), /forbidden/, String(context))
++  }
++  assert.throws(() => requireSender({ context: 'background' }, 'app'), /forbidden/)
++  assert.throws(() => requireSender({ context: 'app' }), /forbidden/, 'bağlam verilmezse her çağrı reddedilir')
++})
+diff --git a/desktop/test/preload.test.js b/desktop/test/preload.test.js
+index 8f4affe..ac3a78e 100644
+--- a/desktop/test/preload.test.js
++++ b/desktop/test/preload.test.js
+@@ -59,7 +59,7 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
+   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
+   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
+   const api = p.exposed.telsizDesktop
+-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(api.version, '2.0.0')
+   assert.equal(api.platform, 'linux')
+@@ -264,7 +264,7 @@ test('sürüm argümanı doğrulanır', () => {
+ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik, durum süzülür', async () => {
+   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0'])
+   const bg = p.exposed.telsizArkaPlan
+-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'onState'])
++  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'idleSeconds', 'onState'])
+   assert.equal(bg.background, false)
+   await bg.getState()
+   assert.deepEqual(p.invoked, [[channels.CHANNELS.bgGet]])
+@@ -297,7 +297,7 @@ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik
+ test('arka plan penceresi: yalnızca ana sürecin argümanıyla, rapor bilinen alanlarla kopyalanır', async () => {
+   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com:8443'])
+   const bg = p.exposed.telsizArkaPlan
+-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'open', 'origin', 'report'])
++  assert.deepEqual(Object.keys(bg).sort(), ['background', 'idleSeconds', 'open', 'origin', 'report'])
+   assert.equal(bg.background, true)
+   assert.equal(bg.origin, 'https://b.ornek.com:8443')
+   bg.report({ origin: 'https://b.ornek.com:8443', state: 'ok', unread: 2, mention: 1, online: true, lastError: null, name: 'Bee', onlineUsers: 3, fazla: { kotu: 1 } })
