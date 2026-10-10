@@ -110,7 +110,7 @@ Build outputs:
 | `src/preload.js` | Preload script of the app window (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frequency address screen (first frequency and Add a frequency) |
 | `src/picker/`, `src/picker-preload.js` | Screen sharing picker |
-| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`) |
+| `src/lib/` | Pure modules independent of Electron: address validation, frequency list, background counting, shortcut and push to talk setting validation, the hold to talk key hook lifecycle (`ptt-hook.js`) and key mapping (`hook-keys.js`), whitelist, forwarding, CSP, navigation, permissions, screen sharing decisions, integrity, settings, strings, diagnostics log, automation gate, updates, title bar (`title-bar.js`), window state and idle time (`window-state.js`) |
 | `scripts/hazirla.js` | Build preparation |
 | `scripts/simge.js` | Icon generation from the Arcade logo (`public/favicon.svg`), without dependencies |
 | `scripts/guncelleme-dosyalari.js` | Checks that the packages named in `latest.yml` and `latest-linux.yml` exist and that their size and sha512 match (CI and release workflow) |
@@ -151,6 +151,8 @@ The `window.telsizDesktop` API:
 | `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
 | `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
 | `titleBar.onFullscreen(cb)` | `cb(true)` when the window enters full screen, `cb(false)` when it leaves, the returned function removes the subscription |
+| `onWindowState(cb)` | `cb('minimized')` when the window is minimized, `cb('restored')` when it comes back from being minimized, `cb('hidden')` when it is hidden to the tray, `cb('shown')` when it is shown (including coming back from the tray). No other value reaches the page, and the same value in a row arrives once. There can be several listeners, the returned function removes the subscription |
+| `idleSeconds()` | Time since the last user input on the system (mouse, keyboard) in whole seconds (Electron `powerMonitor.getSystemIdleTime`). `0` when it cannot be read |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
 | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
 | `addFrequency()` | Opens the frequency address window in add mode |
@@ -163,7 +165,7 @@ The `window.telsizDesktop` API:
 | `updates.openRelease()` | Opens the GitHub page of the found release in the default browser (the main process decides the address) |
 | `updates.onState(cb)` | `cb(state)` when the state changes, the returned function removes the subscription |
 
-`window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb) }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open() }`.
+`window.telsizArkaPlan` (a separate object): in the app window `{ background: false, getState(), onState(cb), idleSeconds() }`, where the state is `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }`. In a background window `{ background: true, origin, report(report), open(), idleSeconds() }`. In both modes `idleSeconds()` returns the same value as `telsizDesktop.idleSeconds()`. The main process accepts the `telsiz:idle-seconds` call only from the app window and from registered background windows, and the window state (`telsiz:window-state`) is sent only to the app window.
 
 Shortcuts made of a letter, number or punctuation key without a modifier, or with Shift only, are not accepted, because a global shortcut takes that key away from every application. F1 to F24 and the volume and media keys can be used on their own.
 

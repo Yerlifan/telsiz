@@ -110,7 +110,7 @@ Derleme çıktıları:
 | `src/preload.js` | Uygulama penceresinin ön yükleme betiği (`window.telsizDesktop`) |
 | `src/connect/`, `src/connect-preload.js` | Frekans adresi ekranı (ilk frekans ve Frekans ekle) |
 | `src/picker/`, `src/picker-preload.js` | Ekran paylaşımı seçicisi |
-| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`) |
+| `src/lib/` | Electron'dan bağımsız saf modüller: adres doğrulama, frekans listesi, arka plan sayımı, kısayol ve bas konuş ayarı doğrulama, basılı tut tuş kancasının yaşam döngüsü (`ptt-hook.js`) ve tuş eşlemesi (`hook-keys.js`), beyaz liste, iletme, CSP, gezinme, izinler, ekran paylaşımı kararları, bütünlük, ayarlar, metinler, tanı günlüğü, otomasyon kapısı, güncellemeler, başlık çubuğu (`title-bar.js`), pencere durumu ve boşta süresi (`window-state.js`) |
 | `scripts/hazirla.js` | Derleme hazırlığı |
 | `scripts/simge.js` | Arcade logosundan (`public/favicon.svg`) simge üretimi, bağımlılıksız |
 | `scripts/guncelleme-dosyalari.js` | `latest.yml` ve `latest-linux.yml` dosyalarında adı geçen paketlerin varlığını, boyutunu ve sha512 değerini denetler (CI ve sürüm iş akışı) |
@@ -151,6 +151,8 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
 | `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
 | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
 | `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
+| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır |
+| `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0` |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
@@ -163,7 +165,7 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
 | `updates.openRelease()` | Bulunan sürümün GitHub sayfasını varsayılan tarayıcıda açar (adresi ana süreç belirler) |
 | `updates.onState(cb)` | Durum değişince `cb(durum)`, dönen işlev aboneliği kaldırır |
 
-`window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb) }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open() }`.
+`window.telsizArkaPlan` (ayrı nesne): uygulama penceresinde `{ background: false, getState(), onState(cb), idleSeconds() }`, durum `{ items: [{ origin, active, state, unread, mention, online, onlineUsers }] }` biçimindedir. Arka plan penceresinde `{ background: true, origin, report(rapor), open(), idleSeconds() }`. `idleSeconds()` iki kipte de `telsizDesktop.idleSeconds()` ile aynı değeri verir. Ana süreç `telsiz:idle-seconds` çağrısını yalnızca uygulama penceresinden ve kayıtlı arka plan pencerelerinden kabul eder, pencere durumu (`telsiz:window-state`) yalnızca uygulama penceresine gönderilir.
 
 Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li harf, rakam veya noktalama kabul edilmez, çünkü genel kısayol o tuşu bütün uygulamalardan alır. F1 ile F24 arası tuşlar ile ses ve medya tuşları tek başına kullanılabilir.
 

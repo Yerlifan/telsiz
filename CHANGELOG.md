@@ -7,6 +7,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 ### Değişiklikler
 
 - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
+- Masaüstü uygulaması sayfaya pencerenin durumunu ve sistemin boşta süresini bildirir. Sayfa pencerenin simge durumuna küçültüldüğünü, simge durumundan döndüğünü, tepsiye gizlendiğini ve yeniden gösterildiğini (tepsiden dönüş dahil) `telsizDesktop.onWindowState` ile öğrenir. Son kullanıcı girişinden bu yana geçen süreyi tam saniye olarak `telsizDesktop.idleSeconds()` ile, açık olmayan frekansların arka plan pencereleri `telsizArkaPlan.idleSeconds()` ile okur. Sayfaya yalnızca dört durum değerinden biri gider, boşta süresini yalnızca uygulama penceresi ve arka plan pencereleri okuyabilir. Bu kanallar Telsiz DJ, yüzen pencere ve otomatik boşta için masaüstü altyapısıdır, kendi başlarına görünür bir değişiklik yapmaz.
 
 ### Düzeltmeler
 
