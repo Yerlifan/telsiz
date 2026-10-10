@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "acorn": "8.18.0",
-    "playwright": "1.63.0",
+    "playwright": "1.64.0",
     "postject": "1.0.0-alpha.6"
   }
 }
