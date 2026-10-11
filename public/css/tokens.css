@@ -741,6 +741,45 @@ html[data-font-size="custom"] {
 }
 
 /*
+  Hexball sahası ve takımları (46-hexball.js tuvali ve hexball.css): bütün temalarda aynı, koyu ve açık mod için
+  ayrı tonlar. Tuval renkleri kök öğede çözülüp okunur. Saha düz renktir, üstünde ince altıgen deseni vardır.
+  Takımlar yalnızca renkle ayrılmaz: diskte ve rozette takım harfi ile numara yazar.
+  Kontrastlar (test/hexball-arayuz.test.js her tema ve modda yeniden hesaplar):
+  - yazı ve takım rengi en az 4.5:1: beyaz ve kırmızı 5.28, beyaz ve mavi 5.69
+  - sahada görünen her çizim (çizgi, direk, disk kenarı, top, kendi diskinizin halkası, vuruş halkası) sahayla en az
+    3:1. Koyu modda disk kenarı ve top açık, açık modda disk kenarı ve topun kenarı koyudur.
+*/
+:root {
+  --hex-field: #1d5446;
+  --hex-pattern: rgba(255, 255, 255, 0.06);
+  --hex-out: #123a30;
+  --hex-line: #e6f2ec;
+  --hex-net: #2a6656;
+  --hex-post: #f4f6f5;
+  --hex-red: #c9303f;
+  --hex-blue: #2d5fd3;
+  --hex-ink: #ffffff;
+  --hex-disc-edge: #f4f6f5;
+  --hex-ball: #ffffff;
+  --hex-ball-edge: #0f1a16;
+  --hex-me: #ffd447;
+  --hex-kick: #7fe6ff;
+}
+
+:root[data-scheme="light"] {
+  --hex-field: #d6efe2;
+  --hex-pattern: rgba(28, 74, 59, 0.09);
+  --hex-out: #bfe0cf;
+  --hex-line: #1c4a3b;
+  --hex-net: #c3e2d2;
+  --hex-post: #1c4a3b;
+  --hex-disc-edge: #10241d;
+  --hex-ball-edge: #10241d;
+  --hex-me: #6a2fd0;
+  --hex-kick: #a1440a;
+}
+
+/*
   Kart oyunları (Renk, ileride Pişti): yüzler iki modda aynı, kenar, gölge ve kart arkası moda göre.
   Joker yüzü koyu temalarda, sarı yüz açık temalarda zeminden ayrışmadığı için kenar zorunludur.
   Yazı ve yüz kontrastı (en az 4.5:1): beyaz ve kırmızı 5.31, beyaz ve yeşil 4.98, beyaz ve mavi 5.45,
