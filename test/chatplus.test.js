@@ -306,9 +306,14 @@ test('Odalar ve Kişiler: oda ve özel konuşma adları aramayla aynı katlamayl
   assert.deepStrictEqual(names('genel'), [])
 })
 
-test('rozet sayısı: alt sınır "50+" ile, 99 üstü "99+" (G10)', () => {
+test('rozet sayısı: alt sınır "50+" ile, 99 üstü "99+", erişilebilir etikette alt sınır "en az 50" (G10)', () => {
+  const labels = {
+    tr: ['genel, yazı odası, en az 50 okunmamış', 'genel, yazı odası, 3 okunmamış', 'Ece ile özel mesajlar, en az 50 okunmamış', 'Ece ile özel mesajlar, 1 okunmamış'],
+    en: ['genel, text room, at least 50 unread', 'genel, text room, 3 unread', 'Direct messages with Ece, at least 50 unread', 'Direct messages with Ece, 1 unread']
+  }
   for (const lang of ['tr', 'en']) {
     const { json } = load(lang)
     assert.deepStrictEqual(json('[countText(50), countText(50, true), countText(1, true), countText(120, true), countText(120)]'), ['50', '50+', '1+', '99+', '99+'], lang)
+    assert.deepStrictEqual(json("[t('band.textUnreadLabel', { name: 'genel', count: ariaCount(50, true) }), t('band.textUnreadLabel', { name: 'genel', count: ariaCount(3, false) }), t('dm.itemUnreadLabel', { name: 'Ece', count: ariaCount(50, true) }), t('dm.itemUnreadLabel', { name: 'Ece', count: ariaCount(1, false) })]"), labels[lang], lang)
   }
 })

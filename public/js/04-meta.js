@@ -312,6 +312,11 @@ function countText (n, more) {
   return more ? t('count.more', { count: n }) : String(n)
 }
 
+// Erişilebilir etiketteki sayı: alt sınırsa "en az 50" (rozetteki "50+" ile aynı bilgi), değilse sayının kendisi
+function ariaCount (n, more) {
+  return more ? t('count.atLeast', { count: n }) : n
+}
+
 // Odaların veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (İstasyonlar listesi ve sayfası, üst
 // çubuktaki kişisel düğmeler ve İstasyonlar düğmesinin rozeti kullanır).
 function bandModel () {
@@ -352,7 +357,7 @@ function bandModel () {
     const more = unread > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(c.id)
     let label = t('band.textLabel', { name: c.name })
     if (mention) label = t('band.textMentionLabel', { name: c.name, count: mention })
-    else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: unread })
+    else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: ariaCount(unread, more) })
     return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, more: more, mention: mention, tuned: isTuned, label: label }
   })
   const voices = voiceChannels().map((c) => {

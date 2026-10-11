@@ -644,7 +644,8 @@
   cursor: pointer;
 }
 
-/* Ad en az 6rem görünür (istek 17): başlık sığmazsa düğmeler simgeye döner (.is-tight, 38-gezinme.js) */
+/* Ad en az 6rem görünür (istek 17, telefon dışında): başlık sığmazsa düğmeler simgeye döner (.is-tight,
+   38-gezinme.js) */
 .dm-header-text {
   display: flex;
   flex-direction: column;
@@ -973,6 +974,11 @@
 
   .dm-header > * + * {
     margin-left: 0.5rem;
+  }
+
+  /* Telefonda adın en az genişliği yoktur: 320 piksellik ekranda simgeye dönen düğmeler sığar, ad kısalır */
+  .dm-header-text {
+    min-width: 0;
   }
 
   .home-view .home-view-head {

@@ -62,6 +62,7 @@ window.I18N = (function () {
     'hints.altShiftArrows': 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış',
     'hints.esc': 'Esc: okundu işaretle ve en alta in',
     'count.more': '{count}+',
+    'count.atLeast': 'en az {count}',
     'radio.pickButton': 'Ses Odaları',
     // G11 Yüzen pencereler
     // G12 Temalar
@@ -2104,6 +2105,7 @@ window.I18N = (function () {
     'hints.altShiftArrows': 'Alt + Shift + Up/Down: next unread',
     'hints.esc': 'Esc: mark as read and jump to bottom',
     'count.more': '{count}+',
+    'count.atLeast': 'at least {count}',
     'radio.pickButton': 'Voice Rooms',
     // G11 Yüzen pencereler
     // G12 Temalar

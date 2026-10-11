@@ -55,11 +55,12 @@
 //   açık katmanı (emoji seçici) kapatırken kaydırmaz, katman yokken okundu sayıp en alta iner. Ctrl+K panelinde Odalar
 //   ve Kişiler bölümü oda adını (Türkçe harfler ve büyük harf duyarsız) ve özel konuşmanın görünen adını bulur, aşağı
 //   ok ve Enter konuşmayı açar, eşleşme yoksa bölüm gizlidir. Rehber kartında üç kısayol satırı var.
-// G10, küçük düzeltmeler (S11, S13, S14, S15): uygulama kapalıyken 60 mesaj gelen odanın rozeti açılışta "50+", oda
-//   açılınca şerit 60 der ve alta inmeden çıkınca rozet 60 olur. Telefonda (dokunmatik, 360) kapalı telsiz kartı 44
+// G10, küçük düzeltmeler (S11, S13, S14, S15): uygulama kapalıyken 60 mesaj gelen odanın rozeti açılışta "50+" ve
+//   erişilebilir adı "en az 50 okunmamış", oda açılınca şerit 60 der ve alta inmeden çıkınca rozet ve ad 60 olur. Telefonda (dokunmatik, 360) kapalı telsiz kartı 44
 //   piksellik Ses Odaları düğmesidir ve İstasyonlar sayfasını ses odalarında açar, üst çubuğun düğmeleri ve satırlar en
 //   az 44 piksel yüksekliktedir (412 genişlikte genişlik de), sayfa tutamaçtan 40 piksel sürüklenince yerine döner,
-//   120 piksel sürüklenince kapanır ve odak açan düğmeye döner, ses odasına bağlıyken düğme gizlidir.
+//   120 piksel sürüklenince kapanır ve odak açan düğmeye döner, tutamaç tutulurken ikinci parmağın hareketi ve kalkışı
+//   sayfayı kaydırmaz ve kapatmaz (inceleme düzeltmesi), ses odasına bağlıyken düğme gizlidir.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı ve eski sayfa isteğine bilerek verilen
 //   500 yanıtı dışında)
 
@@ -1318,12 +1319,16 @@ test('okunmamış alt sınırı: açılışta sayılan sayfa doluysa rozet "50+"
     return Boolean(b && b.textContent === '50+')
   }, arsiv.id, { timeout: h.LONG })
   assert.equal(await page.evaluate((x) => state.unread[x], arsiv.id), 50)
+  // Erişilebilir ad da alt sınırı söyler (inceleme düzeltmesi)
+  const rowLabel = (id) => page.getAttribute('#inbox-list .room-row[data-station="text-' + id + '"]', 'aria-label')
+  assert.equal(await rowLabel(arsiv.id), 'arsiv, yazı odası, en az 50 okunmamış')
   // Oda açılınca okunmamışlar iki sayfadan sayılır, alta inmeden çıkınca rozet kesin sayıdır
   await openRoomRow(page, arsiv.id)
   await page.waitForSelector('#message-list .unread-divider')
   assert.equal(await page.evaluate(() => document.querySelector('#unread-bar .unread-bar-count').textContent), '60 yeni mesaj')
   await openRoomRow(page, genel)
   assert.equal(await mark(arsiv.id), '60')
+  assert.equal(await rowLabel(arsiv.id), 'arsiv, yazı odası, 60 okunmamış')
   assert.ok(await h.overflowX(page) <= 0, 'yatay taşma')
 })
 
@@ -1372,6 +1377,30 @@ test('telefon: kapalı telsiz kartı Ses Odaları düğmesi, dokunma hedefleri e
   assert.equal(await drag(40), 'translateY(40px)', 'sayfa parmağı izler')
   await h.sleep(200)
   assert.deepEqual(await page.evaluate(() => [document.getElementById('stations-sheet').hidden, document.getElementById('stations-sheet').style.transform]), [false, ''])
+  // Tutamaç tutulurken ikinci parmak listeye dokunup kayar ve kalkar: sayfa kaymaz ve kapanmaz, yalnızca tutamaçtaki
+  // parmak izlenir (inceleme düzeltmesi)
+  const twoFingers = await page.evaluate(() => {
+    const sheet = document.getElementById('stations-sheet')
+    const handle = sheet.querySelector('.sheet-handle').getBoundingClientRect()
+    const row = sheet.querySelector('#stations-list .room-row').getBoundingClientRect()
+    const x = handle.left + handle.width / 2
+    const y = handle.top + handle.height / 2
+    const send = (type, id, target, cy) => {
+      target.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 21, button: type === 'pointermove' ? -1 : 0, clientX: x, clientY: cy, bubbles: true, cancelable: true }))
+    }
+    const list = sheet.querySelector('#stations-list .room-row')
+    send('pointerdown', 21, sheet.querySelector('.sheet-handle'), y)
+    send('pointerdown', 22, list, row.top + 10)
+    send('pointermove', 22, list, row.top + 20)
+    const other = sheet.style.transform
+    send('pointerup', 22, list, row.top + 20)
+    const afterOther = [sheet.hidden, sheet.style.transform]
+    send('pointermove', 21, sheet.querySelector('.sheet-handle'), y + 30)
+    const own = sheet.style.transform
+    send('pointerup', 21, sheet.querySelector('.sheet-handle'), y + 30)
+    return { other, afterOther, own, end: [sheet.hidden, sheet.style.transform, sheet.classList.contains('is-dragging')] }
+  })
+  assert.deepEqual(twoFingers, { other: '', afterOther: [false, ''], own: 'translateY(30px)', end: [false, '', false] })
   await drag(120)
   await page.waitForSelector('#stations-sheet', { state: 'hidden' })
   await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-rooms')
@@ -1385,6 +1414,24 @@ test('telefon: kapalı telsiz kartı Ses Odaları düğmesi, dokunma hedefleri e
     await page.click('#voice-leave')
     await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
   }
+  // 320 piksellik telefonda özel mesaj başlığı taşmaz, Profil düğmesi ekranın içindedir (inceleme düzeltmesi)
+  await page.setViewportSize({ width: 320, height: 640 })
+  await page.waitForFunction(() => window.innerWidth === 320)
+  await openDm(page, W.dmEce)
+  await h.sleep(150)
+  const dmHead = await page.evaluate(() => {
+    const header = document.getElementById('dm-header')
+    const buttons = Array.from(header.querySelectorAll('button')).concat([document.getElementById('btn-room-info')]).filter((b) => b.getClientRects().length)
+    return {
+      over: header.scrollWidth - header.clientWidth,
+      right: Math.max.apply(null, buttons.map((b) => b.getBoundingClientRect().right)),
+      width: document.documentElement.clientWidth,
+      name: Math.round(header.querySelector('.dm-header-name').getBoundingClientRect().width)
+    }
+  })
+  assert.ok(dmHead.over <= 0, '320 genişlikte özel mesaj başlığı ' + dmHead.over + ' piksel taşıyor')
+  assert.ok(dmHead.right <= dmHead.width, '320 genişlikte başlığın düğmeleri ekranın içinde: ' + dmHead.right)
+  assert.ok(await h.overflowX(page) <= 0, '320 genişlikte yatay taşma')
   // Daha geniş telefonda üst çubuğun düğmeleri en az 44 piksel genişlikte de
   await page.setViewportSize({ width: 412, height: 860 })
   await page.waitForFunction(() => window.innerWidth === 412)

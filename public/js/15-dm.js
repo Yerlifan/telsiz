@@ -97,10 +97,12 @@ function renderDmList () {
       b.classList.add('is-active')
     }
     if (isBlocked(d.userId)) b.classList.add('is-blocked')
-    const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name })
+    // Sayı alt sınırsa rozet "50+", etiket "en az 50" der (38-gezinme.js navUnreadIsMore)
+    const more = count > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(d.id)
+    const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: ariaCount(count, more) }) : t('dm.itemLabel', { name: name })
     if (count > 0 && !current) {
       b.classList.add('is-unread')
-      const badge = h('span', 'unread-badge station-mark mark-mention', countText(count, typeof navUnreadIsMore === 'function' && navUnreadIsMore(d.id)))
+      const badge = h('span', 'unread-badge station-mark mark-mention', countText(count, more))
       badge.setAttribute('aria-hidden', 'true')
       b.appendChild(badge)
     }

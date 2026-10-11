@@ -812,6 +812,8 @@ function navDmGroup () {
   const stations = shown.map((d) => {
     const n = unreadOf(d.id)
     const name = shownName(d.userId)
+    // Sayı alt sınırsa rozet "50+", etiket "en az 50" der (04-meta.js countText, ariaCount)
+    const more = n > 0 && navUnreadIsMore(d.id)
     return {
       key: 'dm-' + d.id,
       kind: 'conv',
@@ -823,12 +825,12 @@ function navDmGroup () {
       unread: 0,
       // Özel mesajın okunmamışı Özel düğmesindeki gibi anma rengindedir
       mention: n,
-      more: n > 0 && navUnreadIsMore(d.id),
+      more: more,
       tuned: open !== null && sameId(d.id, open),
       blocked: typeof isBlocked === 'function' && isBlocked(d.userId),
       status: shownStatus(d.userId),
       people: [d.userId],
-      label: n ? t('dm.itemUnreadLabel', { name: name, count: n }) : t('dm.itemLabel', { name: name })
+      label: n ? t('dm.itemUnreadLabel', { name: name, count: typeof ariaCount === 'function' ? ariaCount(n, more) : n }) : t('dm.itemLabel', { name: name })
     }
   })
   if (ordered.length > NAV_DM_ROWS) {
@@ -1029,14 +1031,26 @@ function navVoiceSheetFocus (panel) {
 }
 
 // Alttan açılan sayfa (telefon) tutamacından veya başlığından NAV_DRAG_CLOSE_PX aşağı sürüklenince kapanır. Sayfa
-// parmağı izler, daha az sürüklenince yerine döner. Başlıktaki düğmelerden başlayan sürükleme sayılmaz.
+// parmağı izler, daha az sürüklenince yerine döner. Başlıktaki düğmelerden başlayan sürükleme sayılmaz. Yalnızca
+// sürüklemeyi başlatan gösterge (pointerId, dokunma yedeğinde identifier) izlenir: tutamaç tutulurken başka bir
+// parmağın hareketi ve kalkışı sayfayı kaydırmaz ve kapatmaz.
 const NAV_DRAG_CLOSE_PX = 80
-const navDrag = { layer: null, panel: null, y0: 0, dy: 0 }
+const navDrag = { layer: null, panel: null, pointer: null, y0: 0, dy: 0 }
 
+function navDragTouch (list, id) {
+  let i = 0
+  while (list && i < list.length) {
+    if (list[i].identifier === id) return list[i]
+    i += 1
+  }
+  return null
+}
+
+// Olayın sürüklemeyi başlatan göstergeye ait noktası, başka bir göstergeninse null. Dokunma olayında hareket eden
+// veya kalkan parmaklar changedTouches içindedir.
 function navDragPoint (e) {
-  if (e.touches && e.touches.length) return e.touches[0]
-  if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0]
-  return e
+  if (e.changedTouches) return navDragTouch(e.changedTouches, navDrag.pointer)
+  return e.pointerId === navDrag.pointer ? e : null
 }
 
 function navDragStart (e) {
@@ -1048,28 +1062,34 @@ function navDragStart (e) {
   if (!grip || target.closest('button, a, input, select, textarea')) return
   const layer = topLayer()
   if (!layer || !layer.el || !layer.el.contains(grip)) return
+  const point = e.changedTouches ? e.changedTouches[0] : e
+  if (!point) return
   navDrag.layer = layer
   navDrag.panel = layer.el
-  navDrag.y0 = navDragPoint(e).clientY
+  navDrag.pointer = e.changedTouches ? point.identifier : e.pointerId
+  navDrag.y0 = point.clientY
   navDrag.dy = 0
   layer.el.classList.add('is-dragging')
 }
 
 function navDragMove (e) {
   if (!navDrag.layer) return
-  const dy = Math.max(0, navDragPoint(e).clientY - navDrag.y0)
+  const point = navDragPoint(e)
+  if (!point) return
+  const dy = Math.max(0, point.clientY - navDrag.y0)
   navDrag.dy = dy
   navDrag.panel.style.transform = dy ? 'translateY(' + Math.round(dy) + 'px)' : ''
   if (dy && e.cancelable) e.preventDefault()
 }
 
-function navDragEnd () {
+function navDragEnd (e) {
   const layer = navDrag.layer
-  if (!layer) return
+  if (!layer || (e && !navDragPoint(e))) return
   const panel = navDrag.panel
   const dy = navDrag.dy
   navDrag.layer = null
   navDrag.panel = null
+  navDrag.pointer = null
   panel.style.transform = ''
   panel.classList.remove('is-dragging')
   if (dy >= NAV_DRAG_CLOSE_PX && layers.indexOf(layer) !== -1) closeLayer(layer, true)
@@ -1093,9 +1113,9 @@ function navBindSheetDrag () {
 // ------------------------------------------------------------------ dar özel mesaj başlığı (S9)
 
 // Özel mesaj başlığı (#dm-header) sığmazsa Sesli Ara, Görüntülü Ara, güvenlik rozeti ve Profil yalnızca simge olarak
-// kalır (.is-tight, people.css ve arama.css), karşı tarafın adı en az 6rem görünür. Başlığın genişliği
-// (ResizeObserver) ve içeriği (MutationObserver, başlık yeniden çizilince) izlenir. Gözlemcisi olmayan tarayıcıda
-// yalnızca 999 px altındaki medya sorgusu çalışır.
+// kalır (.is-tight, people.css ve arama.css), karşı tarafın adı en az 6rem görünür (telefonda bu sınır yoktur,
+// people.css). Başlığın genişliği (ResizeObserver) ve içeriği (MutationObserver, başlık yeniden çizilince) izlenir.
+// Gözlemcisi olmayan tarayıcıda yalnızca 999 px altındaki medya sorgusu çalışır.
 const NAV_DM_NAME_REM = 6
 
 function navFitDmHeader () {
