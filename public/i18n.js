@@ -27,6 +27,11 @@ window.I18N = (function () {
     // G3 Telsiz DJ çekirdeği
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
+    'profile.coverInvalid': 'Kapak resmi okunamadı.',
+    'profile.coverUploadFailed': 'Kapak yüklenemedi.',
+    'settings.profile.coverTooBig': 'Kapak {size} sınırına sığdırılamadı. Başka bir resim seçin.',
+    'errors.bad_cover': 'Kapak fotoğrafı geçersiz.',
+    'errors.cover_too_large': 'Kapak fotoğrafı çok büyük.',
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
@@ -1977,6 +1982,11 @@ window.I18N = (function () {
     // G3 Telsiz DJ çekirdeği
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
+    'profile.coverInvalid': 'The cover image could not be read.',
+    'profile.coverUploadFailed': 'The cover could not be uploaded.',
+    'settings.profile.coverTooBig': 'The cover could not be made to fit the {size} limit. Choose another image.',
+    'errors.bad_cover': 'The cover photo is invalid.',
+    'errors.cover_too_large': 'The cover photo is too large.',
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler

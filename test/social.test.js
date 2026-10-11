@@ -9,7 +9,9 @@
 // 60 saniye), ilk kez istenen kişinin ve kendi kaydedilen profilin beklemeye takılmaması, profil resmi indirmesinin
 // yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
 // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
-// bir kişi değişince yeniden çizilmesi de ayrıca sınanır.
+// bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
+// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, kaydetmede korunması ve
+// kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7, 0.55).
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -545,3 +547,225 @@ test('profil sürümü profil değişince, kullanıcı adı değişince ve engel
   run('profilesReset()')
   assert.ok(run('profileEpoch()') > epoch, 'sıfırlama')
 })
+
+// Kapak fotoğrafı (istek 8)
+
+const COVER_ID = 'c'.repeat(32)
+
+function coverWorld (t, replies) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
+  const ctx = load({ clock: true })
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  const downloads = []
+  sandbox.downloadPlain = (f) => {
+    downloads.push(f.u)
+    const reply = replies.shift()
+    return Promise.resolve(reply || { ok: false, status: 0 })
+  }
+  sandbox.URL = { createObjectURL: () => 'blob:kapak', revokeObjectURL () {} }
+  sandbox.Blob = Blob
+  const coverRef = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
+  sandbox.__entry = { id: 2, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: coverRef }), avatarUploadId: null, coverUploadId: COVER_ID, publicKey: keys.theirs.publicKey, identity: E2EE.identity.sealBinding(keys.kid, 2, keys.theirs.publicKey) }
+  run('storeProfileEntry(__entry)')
+  return { ctx, keys, downloads, coverRef }
+}
+
+const JPEG_HEAD = [0xff, 0xd8, 0xff, 0xe0]
+
+test('kapak başvurusu yalnızca sunucudaki coverUploadId ile eşleşirse kabul edilir, kapağı olmayan eski zarf boş kapak verir', () => {
+  const ctx = load()
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  const ref = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
+  const entry = (pv, cover, coverUploadId) => ({ id: 2, pv: pv, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: cover }), avatarUploadId: null, coverUploadId: coverUploadId, publicKey: keys.theirs.publicKey, identity: null })
+  sandbox.__entry = entry(2, ref, COVER_ID)
+  run('storeProfileEntry(__entry)')
+  assert.deepStrictEqual(JSON.parse(run('JSON.stringify(profileRecord(2).profile.cover)')), { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg' })
+  assert.strictEqual(run('profileRecord(2).coverUploadId'), COVER_ID)
+  // Sunucu kapağı kaldırmışsa (eski istemcinin kaydı) zarftaki başvuru yok sayılır
+  sandbox.__entry = entry(3, ref, null)
+  run('storeProfileEntry(__entry)')
+  assert.strictEqual(run('profileRecord(2).profile.cover'), null)
+  // Başka bir yüklemeye işaret eden, türü desteklenmeyen veya alanı eksik başvuru
+  for (const bad of [Object.assign({}, ref, { u: 'd'.repeat(32) }), Object.assign({}, ref, { m: 'image/gif' }), { u: COVER_ID, k: 'anahtar', m: 'image/jpeg' }, 'kapak']) {
+    sandbox.__entry = entry(4, bad, COVER_ID)
+    run('storeProfileEntry(__entry)')
+    assert.strictEqual(run('profileRecord(2).profile.cover'), null, JSON.stringify(bad))
+  }
+  // Kapak alanı olmayan eski zarf
+  sandbox.__entry = { id: 2, pv: 5, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null }), avatarUploadId: null, publicKey: keys.theirs.publicKey, identity: null }
+  run('storeProfileEntry(__entry)')
+  assert.strictEqual(run('profileRecord(2).profile.cover'), null)
+  assert.strictEqual(run('profileRecord(2).coverUploadId'), null)
+  assert.strictEqual(run('coverUrlOf(2, true)'), null)
+})
+
+test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenilenir, düşen indirme yeniden denenir', async (t) => {
+  const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
+  const { run, sandbox } = ctx
+  await flush()
+  assert.strictEqual(downloads.length, 0, 'profil gelince kapak indirilmez')
+  assert.strictEqual(run('coverUrlOf(2)'), null)
+  await flush()
+  assert.strictEqual(downloads.length, 0, 'yalnızca sorgu indirmez')
+  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve kart yeniden çizilir
+  let refreshed = 0
+  sandbox.__refresh = () => {
+    refreshed++
+  }
+  run('refreshProfileCard = function () { __refresh() }')
+  run('profileState.cardUserId = 2')
+  assert.strictEqual(run('coverUrlOf(2, true)'), null)
+  await flush()
+  assert.deepStrictEqual(downloads, [COVER_ID])
+  assert.strictEqual(run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+  const epoch = run('profileEpoch()')
+  t.mock.timers.tick(10000)
+  await flush()
+  assert.strictEqual(downloads.length, 2)
+  assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
+  assert.strictEqual(refreshed, 1, 'açık kart yenilenir')
+  assert.strictEqual(run('profileEpoch()'), epoch, 'kapak profil sürümünü değiştirmez')
+  assert.strictEqual(run('avatarUrlOf(2)'), null)
+  // Yeniden sorgu indirmeyi yinelemez
+  run('coverUrlOf(2, true)')
+  await flush()
+  assert.strictEqual(downloads.length, 2)
+})
+
+test('kapağı kaldırılan kişinin eski kapağı bırakılır, türü tutmayan kapak yeniden denenmez', async (t) => {
+  let world = coverWorld(t, [{ ok: true, bytes: new Uint8Array(JPEG_HEAD) }])
+  world.ctx.run('coverUrlOf(2, true)')
+  await flush()
+  assert.strictEqual(world.ctx.run('coverUrlOf(2)'), 'blob:kapak')
+  world.ctx.sandbox.__entry = { id: 2, pv: 3, profile: world.ctx.E2EE.sealJson(world.keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: null }), avatarUploadId: null, coverUploadId: null, publicKey: world.keys.theirs.publicKey, identity: null }
+  world.ctx.run('storeProfileEntry(__entry)')
+  assert.strictEqual(world.ctx.run("profileState.covers.has('" + COVER_ID + "')"), false)
+  assert.strictEqual(world.ctx.run('coverUrlOf(2, true)'), null)
+  t.mock.timers.reset()
+
+  // PNG baytları JPEG başvurusuyla gelirse kalıcı hatadır
+  world = coverWorld(t, [{ ok: true, bytes: new Uint8Array(PNG_BYTES) }])
+  world.ctx.run('coverUrlOf(2, true)')
+  await flush()
+  t.mock.timers.tick(3600000)
+  await flush()
+  assert.strictEqual(world.downloads.length, 1)
+  assert.strictEqual(world.ctx.run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+})
+
+test('kendi profili kaydedilirken kapak korunur, null ile kaldırılır, yeni kapak zarfa ve isteğe girer', async () => {
+  const ctx = load()
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  const ref = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
+  sandbox.__entry = { id: 1, pv: 1, profile: E2EE.sealJson(keys.kid, { v: 1, u: 1, displayName: 'Burak', statusText: '', bio: '', color: 3, avatar: null, cover: ref }), avatarUploadId: null, coverUploadId: COVER_ID, publicKey: keys.mine.publicKey, identity: null }
+  run('storeProfileEntry(__entry)')
+  const posts = []
+  sandbox.__api = (method, url, body) => {
+    if (method === 'POST') posts.push({ url: url, body: body })
+    return Promise.resolve(method === 'POST' ? { status: 200, data: { ok: true, pv: 2 } } : { status: 0, data: null })
+  }
+  run('api = function (method, url, body) { return __api(method, url, body) }')
+  run('activeKid = function () { return state.meta.activeKid }')
+  run('hasActiveKey = function () { return true }')
+  // Bağlamdaki nesneler başka bir realm'den gelir, karşılaştırma için düz JSON'a çevrilir
+  const opened = (post) => JSON.parse(JSON.stringify(E2EE.openJson(post.body.profile).value))
+  // Durum metni gibi başka bir alan kaydedilince kapak aynen kalır
+  let result = await run("saveProfile({ displayName: 'Burak', statusText: 'Yeni durum', bio: '', color: 3 })")
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(posts[0].url, '/api/me/profile')
+  assert.strictEqual(posts[0].body.coverUploadId, COVER_ID)
+  assert.deepStrictEqual(opened(posts[0]).cover, ref)
+  // Yeni kapak: yüklenen başvuru zarfa ve coverUploadId alanına girer
+  const fresh = { u: 'e'.repeat(32), k: 'yeni', n: 'tek2', m: 'image/jpeg' }
+  sandbox.__fresh = fresh
+  run('uploadCover = function () { return Promise.resolve({ ok: true, ref: __fresh }) }')
+  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: {} })")
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(posts[1].body.coverUploadId, fresh.u)
+  assert.deepStrictEqual(opened(posts[1]).cover, Object.assign({}, fresh, { w: 1200, h: 400 }))
+  // Yükleme düşerse profil kaydedilmez
+  run("uploadCover = function () { return Promise.resolve({ ok: false, error: function () { return 'olmadı' } }) }")
+  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: {} })")
+  assert.strictEqual(result.ok, false)
+  assert.strictEqual(posts.length, 2)
+  // null kapağı kaldırır
+  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: null })")
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(posts[2].body.coverUploadId, null)
+  assert.strictEqual(opened(posts[2]).cover, null)
+})
+
+test('kapak kırpması kaynağın ortasından en büyük 3:1 dikdörtgeni alır', () => {
+  const { run } = load()
+  const crop = (w, h) => JSON.parse(run('JSON.stringify(coverCrop(' + w + ', ' + h + '))'))
+  assert.deepStrictEqual(crop(3000, 2000), { sx: 0, sy: 500, sw: 3000, sh: 1000 }, 'yatay fotoğraf')
+  assert.deepStrictEqual(crop(1080, 1920), { sx: 0, sy: 780, sw: 1080, sh: 360 }, 'dikey fotoğraf')
+  assert.deepStrictEqual(crop(1000, 100), { sx: 350, sy: 0, sw: 300, sh: 100 }, 'çok geniş şerit')
+  assert.deepStrictEqual(crop(1200, 400), { sx: 0, sy: 0, sw: 1200, sh: 400 }, 'tam oran')
+  assert.deepStrictEqual(crop(1, 1), { sx: 0, sy: 0, sw: 1, sh: 1 }, 'tek piksel')
+  assert.strictEqual(run('coverCrop(0, 10)'), null)
+  assert.strictEqual(run('coverCrop(10, NaN)'), null)
+})
+
+test('kapak 1200x400 JPEG olarak kodlanır, sınır aşılırsa kalite 0.85, 0.7 ve 0.55 sırasıyla düşürülür', async () => {
+  const { run, sandbox } = load()
+  const draws = []
+  const sizes = []
+  const canvases = []
+  sandbox.document.createElement = (tag) => {
+    assert.strictEqual(tag, 'canvas')
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        fillRect () {},
+        drawImage (...args) {
+          draws.push(args.slice(1))
+        }
+      })
+    }
+    canvases.push(canvas)
+    return canvas
+  }
+  // Kaliteye göre boyutu değişen sahte JPEG
+  const bySize = { 0.85: 3000, 0.7: 1800, 0.55: 900 }
+  sandbox.canvasToBytes = (canvas, type, quality) => {
+    sizes.push([canvas.width, canvas.height, type, quality])
+    const out = new Uint8Array(bySize[quality])
+    out.set(JPEG_HEAD)
+    return Promise.resolve(out)
+  }
+  sandbox.__image = { naturalWidth: 3000, naturalHeight: 2000 }
+  const encode = async (max) => {
+    sizes.length = 0
+    const res = await run('encodeCover(__image, ' + max + ')')
+    return res
+  }
+  let res = await encode(5000)
+  assert.strictEqual(res.quality, 0.85)
+  assert.strictEqual(res.mime, 'image/jpeg')
+  assert.strictEqual(res.bytes.length, 3000)
+  assert.deepStrictEqual(sizes, [[1200, 400, 'image/jpeg', 0.85]])
+  assert.deepStrictEqual(draws[0], [0, 500, 3000, 1000, 0, 0, 1200, 400], 'ortadan 3:1 kırpılıp 1200x400 çizilir')
+  res = await encode(1000)
+  assert.strictEqual(res.quality, 0.55)
+  assert.deepStrictEqual(sizes.map((x) => x[3]), [0.85, 0.7, 0.55])
+  res = await encode(2000)
+  assert.strictEqual(res.quality, 0.7)
+  res = await encode(500)
+  assert.strictEqual(res.tooBig, true, 'en düşük kalite de sığmazsa')
+  assert.deepStrictEqual(sizes.map((x) => x[3]), [0.85, 0.7, 0.55])
+  // Tuval bellekte büyük yer tutmasın diye küçültülür
+  for (const c of canvases) assert.deepStrictEqual([c.width, c.height], [1, 1])
+  // JPEG çıkmayan tarayıcıda kapak kodlanamaz
+  sandbox.canvasToBytes = () => Promise.resolve(new Uint8Array([1, 2, 3, 4]))
+  assert.strictEqual(await run('encodeCover(__image, 5000)'), null)
+  // Sınır sunucunun profil resmi sınırından (şifreleme payı düşülerek) gelir
+  assert.strictEqual(run('coverByteLimit()'), 1024 * 1024)
+  run('state.info = { limits: { avatarMaxBytes: 2016 } }')
+  assert.strictEqual(run('coverByteLimit()'), 2000)
+})
+
