@@ -22,6 +22,13 @@
 //
 // Çerçevenin src adresi yalnızca kesin [A-Za-z0-9_-]{11} desenindeki video kimliğinden ve sabit
 // parametrelerden kurulur. Bu dosyada kullanıcıya görünen metin yoktur, çerçeve başlığı çağırandan gelir.
+//
+// Kalıcı çerçeve: ses odasındaki oturum boyunca tek çerçeve kullanılır. Parça değişince çerçeve yeniden
+// kurulmaz, load() aynı çerçevede yeni videoyu cueVideoById komutuyla hazırlar (video yüklenir ama oynamaz,
+// motor onu ortak çapada seekTo ve playVideo ile başlatır). Böylece çerçevenin yükleme süresi her parçada
+// yeniden ödenmez ve kişinin çerçevede verdiği oynatma izni çerçevenin belgesiyle birlikte korunur. Bu işlev
+// resmi IFrame Player API başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference),
+// başvuru bu geliştirme ortamından açılamadığı için davranışı yalnızca sahte oynatıcıyla sınandı.
 
 var TelsizYouTube = (function (root) {
   const VERSION = 1
@@ -37,6 +44,8 @@ var TelsizYouTube = (function (root) {
   const MAX_MESSAGE_CHARS = 65536
   const MAX_TITLE_CHARS = 1000
   const MAX_SECONDS = 86400
+  // load() sonrasında yolda kalmış eski video iletilerinin yok sayıldığı en uzun süre (ms)
+  const SWITCH_SETTLE_MS = 1500
   // allow-same-origin burada YouTube çerçevesinin kendi kökenini korur (çerçeve zaten çapraz kökenlidir,
   // ana sayfaya erişemez). Üst pencereyi yönlendirme, form ve indirme izinleri verilmez. Açılır pencere
   // izni yalnızca oynatıcıdaki "YouTube'da izle" bağlantısı içindir.
@@ -122,6 +131,10 @@ var TelsizYouTube = (function (root) {
     const onEvent = typeof opts.onEvent === 'function' ? opts.onEvent : () => {}
     const widgetId = nextWidgetId++
     const frame = doc.createElement('iframe')
+    // Çerçevede şu an hazırlanmış videonun kimliği (load() ile değişir, çerçevenin src adresi değişmez)
+    let currentId = opts.videoId
+    // Parça değişimi sürüyor: { from, to, at } (switchSettled)
+    let switching = null
     let destroyed = false
     let connected = false
     let ready = false
@@ -206,8 +219,26 @@ var TelsizYouTube = (function (root) {
       }
     }
 
+    // load() sonrasında gelen ileti yeni videoya mı ait? Çerçeve komutları sırayla işler, load() anında yolda
+    // olan iletiler eski videonundur (konum, süre, ad, çalıyor veya bitti durumu). Yeni komutun etkisi
+    // sayılanlar: video hazırlandı (5) veya başlamadı (-1) durumu ve yeni kimliği taşıyan videoData.video_id
+    // (bu alan belgelenmemiştir, yalnızca varsa ve kimlik önceki videodan farklıysa kullanılır). Pencere en çok
+    // SWITCH_SETTLE_MS sürer, sonra gelen her ileti yeni videonun sayılır.
+    function switchSettled (playerState, videoData) {
+      if (switching === null) return true
+      const fresh = playerState === STATE.CUED || playerState === STATE.UNSTARTED ||
+        (switching.from !== switching.to && isObj(videoData) && videoData.video_id === switching.to)
+      if (fresh || now() - switching.at >= SWITCH_SETTLE_MS) switching = null
+      return switching === null
+    }
+
     function applyInfo (info) {
       if (!isObj(info)) return
+      if (switchSettled(info.playerState, info.videoData)) applyVideoInfo(info)
+      applySoundInfo(info)
+    }
+
+    function applyVideoInfo (info) {
       if (isNum(info.currentTime) && info.currentTime >= 0 && info.currentTime <= MAX_SECONDS) {
         lastTimeMs = Math.round(info.currentTime * 1000)
         lastTimeAt = now()
@@ -227,6 +258,9 @@ var TelsizYouTube = (function (root) {
         }
       }
       if (typeof info.playerState === 'number') setState(info.playerState)
+    }
+
+    function applySoundInfo (info) {
       // Ses düzeyi oynatıcının kendi denetimleriyle de değişebilir, değişiklik motora bildirilir
       let soundChanged = false
       if (isNum(info.volume) && info.volume >= 0 && info.volume <= 100 && Math.round(info.volume) !== reportedVolume) {
@@ -265,8 +299,8 @@ var TelsizYouTube = (function (root) {
       } else if (msg.event === 'initialDelivery' || msg.event === 'infoDelivery') {
         applyInfo(msg.info)
       } else if (msg.event === 'onStateChange') {
-        if (typeof msg.info === 'number') setState(msg.info)
-        else if (isObj(msg.info) && typeof msg.info.playerState === 'number') setState(msg.info.playerState)
+        const next = typeof msg.info === 'number' ? msg.info : (isObj(msg.info) && typeof msg.info.playerState === 'number' ? msg.info.playerState : null)
+        if (next !== null && switchSettled(next, null)) setState(next)
       } else if (msg.event === 'onAutoplayBlocked') {
         // Bekleyen oynatma sözü hemen 'blocked' ile çözülür, motor "Dinlemek için dokunun" gösterir
         settleWaiters('blocked')
@@ -459,6 +493,24 @@ var TelsizYouTube = (function (root) {
       return fractions.every((fy) => fractions.every((fx) => doc.elementFromPoint(left + (right - left) * fx, top + (bottom - top) * fy) === frame))
     }
 
+    // Aynı çerçevede başka bir video hazırlar (cueVideoById). Videoya ait bilgiler (konum, süre, ad, durum)
+    // sıfırlanır, bekleyen oynatma sözü 'aborted' ile çözülür. Sonuç true: komut gönderildi. Kimlik geçersizse,
+    // oynatıcı henüz hazır değilse veya kapatıldıysa false (çağıran yeni çerçeve kurar).
+    function load (videoId) {
+      if (destroyed || !ready || typeof videoId !== 'string' || !VIDEO_ID_RE.test(videoId)) return false
+      if (!command('cueVideoById', [videoId])) return false
+      settleWaiters('aborted')
+      switching = { from: currentId, to: videoId, at: now() }
+      currentId = videoId
+      state = STATE.UNSTARTED
+      lastTimeMs = null
+      lastTimeAt = 0
+      durationMs = 0
+      durationSent = false
+      titleSent = false
+      return true
+    }
+
     function destroy () {
       if (destroyed) return
       settleWaiters('aborted')
@@ -500,6 +552,8 @@ var TelsizYouTube = (function (root) {
       },
       visible: visible,
       element: () => frame,
+      videoId: () => currentId,
+      load: load,
       destroy: destroy
     })
   }

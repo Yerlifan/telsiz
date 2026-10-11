@@ -1970,6 +1970,76 @@ describe('YouTube bağdaştırıcısı (yol ii)', () => {
     assert.equal(await p.play(), 'aborted')
   })
 
+  test('load: aynı çerçevede yeni video hazırlanır, eski videonun yolda kalmış iletileri yeni videoya yazılmaz', async () => {
+    const { YT, frames, deliver, listeners } = loadYouTube()
+    const timers = makeTimers()
+    const events = []
+    const p = YT.create({ container: { appendChild () {} }, videoId: VID, now: timers.now, timers, onEvent: (e) => events.push(e) })
+    const f = frames[0]
+    const src = f.src
+    const cmds = () => f.sent.filter((m) => m.data.event === 'command').map((m) => m.data.func + ':' + JSON.stringify(m.data.args))
+    f.fire('load')
+    // Oynatıcı hazır değilken video değiştirilemez, çağıran yeni çerçeve kurar
+    assert.equal(p.load(VID2), false)
+    assert.ok(!cmds().some((c) => c.startsWith('cueVideoById')))
+    deliver(f, { event: 'onReady', id: p.widgetId })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 212.5, videoData: { title: 'Bir Video', video_id: VID }, currentTime: 0, playerState: 5 } })
+    const pr = p.play()
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 3 } })
+    for (const bad of ['x', VID2 + '/', null]) assert.equal(p.load(bad), false)
+    assert.equal(p.videoId(), VID)
+    assert.equal(p.load(VID2), true)
+    assert.equal(cmds()[cmds().length - 1], 'cueVideoById:["' + VID2 + '"]')
+    // Çerçeve ve adresi aynı kalır, bekleyen oynatma sözü çözülür, videoya ait bilgiler sıfırlanır
+    assert.equal(frames.length, 1)
+    assert.equal(f.src, src)
+    assert.equal(listeners.length, 1)
+    assert.equal(await pr, 'aborted')
+    assert.equal(p.videoId(), VID2)
+    assert.equal(p.ready(), true)
+    assert.equal(p.state(), -1)
+    assert.equal(p.playing(), false)
+    assert.equal(p.position(), null)
+    assert.equal(p.durationMs(), 0)
+    // Yolda kalmış eski video iletileri: konum, süre, ad ve durum yeni videoya yazılmaz, ses düzeyi yine gelir
+    const before = events.length
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { currentTime: 200, playerState: 1, duration: 212.5, videoData: { title: 'Bir Video', video_id: VID } } })
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 0 })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 55, muted: false } })
+    same(events.slice(before), [{ type: 'volume', volume: 55, muted: false }])
+    assert.equal(p.position(), null)
+    assert.equal(p.state(), -1)
+    // Video hazırlandı durumu (5) yeni komutun etkisidir: sonraki iletiler yeni videoya aittir
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 5 })
+    assert.equal(p.state(), 5)
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 90, videoData: { title: 'İkinci Video', video_id: VID2 }, currentTime: 0 } })
+    same(events.filter((e) => e.type === 'duration'), [{ type: 'duration', ms: 212500 }, { type: 'duration', ms: 90000 }])
+    same(events.filter((e) => e.type === 'title'), [{ type: 'title', text: 'Bir Video' }, { type: 'title', text: 'İkinci Video' }])
+    assert.equal(p.position(), 0)
+    const pr2 = p.play()
+    assert.equal(cmds()[cmds().length - 1], 'playVideo:[]')
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 1 })
+    assert.equal(await pr2, 'ok')
+    assert.equal(p.playing(), true)
+    // Durum bildirilmese de yeni kimliği taşıyan videoData (önceki videodan farklıysa) pencereyi kapatır
+    assert.equal(p.load(VID), true)
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 212.5, videoData: { title: 'Bir Video', video_id: VID }, currentTime: 0 } })
+    assert.equal(events.filter((e) => e.type === 'title').length, 3)
+    assert.equal(p.durationMs(), 212500)
+    // Aynı video yeniden hazırlanınca kimlik bir şey kanıtlamaz: eski "bitti" iletisi parçayı bitirmez, pencere
+    // süre dolunca kapanır
+    assert.equal(p.load(VID), true)
+    const ended = events.filter((e) => e.type === 'ended').length
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 0, currentTime: 212.5, videoData: { title: 'Bir Video', video_id: VID } } })
+    assert.equal(events.filter((e) => e.type === 'ended').length, ended)
+    assert.equal(p.position(), null)
+    await timers.advance(1600)
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { currentTime: 3 } })
+    assert.equal(p.position(), 3000)
+    p.destroy()
+    assert.equal(p.load(VID2), false)
+  })
+
   test('yanıt vermeyen oynatıcı bildirilir', async () => {
     const { YT, frames } = loadYouTube()
     const timers = makeTimers()
