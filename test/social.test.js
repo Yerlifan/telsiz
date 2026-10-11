@@ -397,3 +397,16 @@ test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayı
   run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 'x', title: '' })")
   assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
 })
+
+test('Bildirimler listesi: geçerli oyun davetinin kaydı (Masaya Bak) sık gelen Telsiz DJ kayıtlarıyla düşmez', () => {
+  const { run } = load()
+  const kinds = () => JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.kind + ":" + x.userId))'))
+  run("activityAdd({ kind: 'game', userId: '5', channelId: null, app: 'renk' })")
+  run("activityAdd({ kind: 'share', userId: '2', channelId: null })")
+  const djAdds = [0, 1, 2, 3, 4, 5]
+  djAdds.forEach((i) => run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 't" + i + "', title: '' })"))
+  assert.deepStrictEqual(kinds(), ['dj:4', 'dj:4', 'dj:4', 'share:2', 'game:5'])
+  // Davet kalkınca (masa kapandı, Katıl'a basıldı) kayıt da kalkar, yeri sıradan kayıtlara açılır
+  run('activityClearGames()')
+  assert.deepStrictEqual(kinds(), ['dj:4', 'dj:4', 'dj:4', 'share:2'])
+})

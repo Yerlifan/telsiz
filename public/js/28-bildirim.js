@@ -11,9 +11,9 @@
 //   ses odasından çıkınca kayıt kalkar (36-oyun.js, activityGame ve activityClearGames).
 // - Telsiz DJ'ye başkasının parça eklemesi: aynı ses odasında motorun notice olayından (23-dj.js djOnNotice,
 //   activityDj). Hangi yazı odasında olunursa olunsun görünür, parçanın adı kuyruktan canlı okunur.
-// Liste en çok ACTIVITY_MAX kayıt tutar (süren paylaşımların kaydı korunur), en yeni üsttedir. Kayıt yoksa kart
-// gizlidir. Liste geniş ekranda görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice,
-// activityShown).
+// Liste en çok ACTIVITY_MAX kayıt tutar (süren paylaşımların ve geçerli oyun davetlerinin kaydı korunur), en yeni
+// üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz
+// (castShowNotice, activityShown).
 
 const ACTIVITY_MAX = 5
 const activityState = { items: [], seq: 0, rosters: null }
@@ -29,18 +29,23 @@ function activityRosters (meta) {
   return out
 }
 
-// Liste dolunca en eski kayıt düşer. Süren ekran paylaşımının kaydı (İzle düğmesi) diğer kayıtlar varken
-// düşmez: sık gelen Telsiz DJ, katılma ve ayrılma kayıtları onu listeden atmaz (liste görünürken paylaşım
-// bildirimi ayrıca açılmaz). Liste paylaşım kayıtlarıyla doluysa yeni paylaşım en eskisini düşürür, başka türden
-// yeni kayıt yazılmaz.
+// Süren kayıtlar: ekran paylaşımı (İzle düğmesi) ve geçerli oyun daveti (Masaya Bak düğmesi). İkisi de kaynağı
+// bitince kendiliğinden kalkar (activityShare, activityClearShares, activityGame, activityClearGames).
+function activityLive (item) {
+  return item.kind === 'share' || item.kind === 'game'
+}
+
+// Liste dolunca en eski kayıt düşer. Süren kayıtlar (activityLive) diğer kayıtlar varken düşmez: sık gelen
+// Telsiz DJ, katılma ve ayrılma kayıtları onları listeden atmaz (liste görünürken paylaşım bildirimi ayrıca
+// açılmaz). Liste süren kayıtlarla doluysa yeni süren kayıt en eskisini düşürür, başka türden yeni kayıt yazılmaz.
 function activityAdd (item) {
   activityState.seq++
   const items = activityState.items
   items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
   while (items.length > ACTIVITY_MAX) {
     let drop = items.length - 1
-    while (drop > 0 && items[drop].kind === 'share') drop--
-    if (items[drop].kind === 'share') drop = items.length - 1
+    while (drop > 0 && activityLive(items[drop])) drop--
+    if (activityLive(items[drop])) drop = items.length - 1
     items.splice(drop, 1)
   }
 }
