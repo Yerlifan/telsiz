@@ -313,3 +313,14 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
   await settle()
   assert.deepStrictEqual(hist.list(), ['0:channel-12'])
 })
+
+test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa ayraç yok, sayfanın hepsi yeniyse çevresi yüklenir', () => {
+  const { json } = load()
+  // Kullanıcı 1: 6 numaralı mesaj kendi mesajı
+  const list = '[{ id: 5, authorId: 2 }, { id: 6, authorId: 1 }, { id: 7, authorId: 2 }, { id: 8, authorId: 3 }]'
+  assert.deepStrictEqual(json('[navFirstUnread(' + list + ', 5), navFirstUnread(' + list + ', 4), navFirstUnread(' + list + ', 0), navFirstUnread(' + list + ', 8)]'), [2, 0, -1, -1])
+  assert.deepStrictEqual(json('[navCountUnread(' + list + ', 5), navCountUnread(' + list + ', 4), navCountUnread(' + list + ', 0)]'), [2, 3, 0])
+  // En yeni sayfanın ilk mesajı son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir
+  assert.deepStrictEqual(json('[navNeedsAround(' + list + ', true, 4), navNeedsAround(' + list + ', true, 5), navNeedsAround(' + list + ', false, 4), navNeedsAround(' + list + ', true, 0), navNeedsAround([], true, 4)]'),
+    [true, false, false, false, false])
+})

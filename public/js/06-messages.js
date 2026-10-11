@@ -560,8 +560,11 @@ async function loadChannel () {
   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
   state.pendingJump = null
+  // En Yeni Mesajlara Dön (jumpToLatest) okunmamış ayracını ve son okunanın çevresini atlar, en yeni sayfa açılır
+  const latest = state.pendingLatest === true
+  state.pendingLatest = false
   const nav = typeof navUnreadReset === 'function'
-  const readMark = nav && !jump ? navReadMark(channelId) : 0
+  const readMark = nav && !jump && !latest ? navReadMark(channelId) : 0
   const knownUnread = Number(state.unread[channelId]) || 0
   if (nav) navUnreadReset(channelId)
   state.loadGen += 1
@@ -715,10 +718,12 @@ async function loadNewer () {
   if (!state.hasNewer) markRead()
 }
 
-// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir
+// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir. Okunmamış mesajlar son okunanın
+// çevresiyle açıldıysa (38-gezinme.js) yeniden oraya dönülmez, kişi en altta olduğu için konuşma okundu sayılır.
 function jumpToLatest () {
   if (!state.channelId) return
   state.pendingJump = null
+  state.pendingLatest = true
   loadChannel()
   focusNode(el.composerInput.disabled ? el.messages : el.composerInput)
 }

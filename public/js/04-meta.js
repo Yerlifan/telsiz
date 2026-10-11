@@ -41,6 +41,7 @@ function chatPlusReset () {
   state.hasNewer = false
   state.newWhileOlder = false
   state.pendingJump = null
+  state.pendingLatest = false
   if (typeof searchReset === 'function') searchReset()
   if (typeof typingReset === 'function') typingReset()
   if (typeof mentionReset === 'function') mentionReset()

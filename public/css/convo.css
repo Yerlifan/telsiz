@@ -321,10 +321,43 @@
   font-weight: var(--weight-strong);
 }
 
-.unread-bar .button {
+/* İki düğme birlikte kayar: sütun darsa metnin altına sağa yaslı iner */
+.unread-bar-actions {
+  display: flex;
+  flex: none;
+  margin-left: auto;
+}
+
+.unread-bar-actions .button {
   flex: none;
   min-height: var(--target);
   margin: 0.125rem 0 0.125rem 0.375rem;
+}
+
+/* Telefonda metin üstte, iki düğme altında eşit genişlikte tek satır */
+@media (max-width: 759px) {
+  .unread-bar {
+    margin: 0.375rem 0.5rem 0;
+    padding: 0.25rem 0.25rem 0.25rem 0.375rem;
+  }
+
+  .unread-bar-text {
+    flex-basis: 100%;
+    margin: 0.25rem 0.375rem 0.125rem;
+  }
+
+  .unread-bar-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  .unread-bar-actions .button {
+    flex: 1 1 0%;
+    min-width: 0;
+    margin: 0.125rem;
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+  }
 }
 
 /* Kapsül: kişi yukarıdayken mesaj akışının altında yapışık durur, basınca en alta inilir */

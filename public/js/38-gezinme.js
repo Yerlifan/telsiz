@@ -16,6 +16,12 @@
 // popstate olayı gelene kadar sonraki işlemler bekler. Katman ve konuşma değişiklikleri aynı görev içinde
 // toplanır, bir sonraki mikro görevde (navReconcile) beklenen geçmişle karşılaştırılır. Böylece sayfadaki bir
 // satıra basmak (sayfa kapanır, oda açılır) sayfanın kaydını yeni odanın kaydıyla değiştirir.
+//
+// Okunmamış (S3, S4). Konuşma açılırken yüklemeden önceki son okunan mesaj saklanır. İlk okunmamış mesaj yüklüyse
+// önüne Yeni mesajlar ayracı konur, ayraç görünür alanın üst kısmına kaydırılır ve üstte şerit (sayı, Okunmamışa
+// Git, Okundu İşaretle) görünür. İlk okunmamış en yeni sayfada değilse konuşma son okunanın çevresiyle (around)
+// yüklenir. Konuşma yalnızca kişi en alttayken okundu sayılır (04-meta.js markRead). Kişi yukarıdayken gelen mesaj
+// kaydırma yapmaz, alttaki kapsül sayar.
 
 const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
 const NAV_POP_WAIT_MS = 2000
@@ -418,16 +424,19 @@ function navBarEl () {
     text.appendChild(h('span', 'unread-bar-count'))
     text.appendChild(h('span', 'unread-bar-since'))
     bar.appendChild(text)
+    // İki düğme birlikte kayar: dar sütunda metnin altında tek satır olurlar
+    const actions = h('div', 'unread-bar-actions')
     const jump = button('button button-small button-secondary unread-bar-jump', '', 'i-up')
     jump.id = 'unread-bar-jump'
     jump.appendChild(h('span', 'button-text'))
     jump.addEventListener('click', navJumpToUnread)
-    bar.appendChild(jump)
+    actions.appendChild(jump)
     const read = button('button button-small unread-bar-read', '', 'i-check')
     read.id = 'unread-bar-read'
     read.appendChild(h('span', 'button-text'))
     read.addEventListener('click', navMarkAllRead)
-    bar.appendChild(read)
+    actions.appendChild(read)
+    bar.appendChild(actions)
     el.main.insertBefore(bar, el.messages)
   }
   return bar
@@ -543,9 +552,14 @@ function navRenderBelow () {
   b.title = count > 0 ? t('nav.newBelowLabel') : text
 }
 
-// Kişi yukarıdayken açık konuşmaya mesaj geldi (06-messages.js insertMessage)
+// Kişi yukarıdayken açık konuşmaya mesaj geldi (06-messages.js insertMessage). Şerit açıksa sayısı da artar.
 function navNewBelow () {
   navState.newBelow += 1
+  const u = navState.unread
+  if (u.bar && sameId(u.channelId, state.channelId)) {
+    u.count += 1
+    navRenderBar()
+  }
   navRenderBelow()
 }
 

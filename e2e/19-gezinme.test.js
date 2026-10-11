@@ -16,6 +16,13 @@
 // - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
 // - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
 // - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
+// G9, okunmamış ayracı, şerit ve kapsül (S3, S4):
+// - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
+//   inilince düşer, Okunmamışa Git ayracı geri getirir
+// - Yukarıdayken gelen mesajda kaydırma olmaz, kapsül "Aşağıda 1 yeni mesaj" der, son okunan değişmez, kapsüle
+//   basınca en alta inilir ve okundu sayılır
+// - Telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle (around) yüklenir, Okundu İşaretle hepsini okur, En
+//   Yeni Mesajlara Dön son okunanın çevresine geri dönmez
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -507,7 +514,7 @@ test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve ok
   assert.equal(await page.evaluate(() => document.getElementById('new-below').hidden), true, 'kapsül kalktı')
 })
 
-test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur', async () => {
+test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur, En Yeni Mesajlara Dön en yeni sayfayı açar', async () => {
   const page = W.deniz
   const kalabalik = W.w.room('kalabalik').id
   const genel = W.w.room('genel').id
@@ -534,6 +541,23 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
   await page.click('#unread-bar-read')
   await page.waitForFunction((id) => !state.unread[id] && document.getElementById('unread-bar').hidden, kalabalik)
   assert.equal(await page.evaluate((id) => Number(state.lastRead[id]), kalabalik), sent[119].id, 'en yeni mesaj okundu')
+
+  // En Yeni Mesajlara Dön son okunanın çevresine geri dönmez: en yeni sayfa açılır, en altta olunduğu için okundu sayılır
+  await openRoom(page, genel)
+  const more = await eceSays('kalabalik', 60, 'yeni tur')
+  await page.waitForFunction((id) => state.unread[id] === 60, kalabalik, { timeout: h.LONG })
+  await openRoom(page, kalabalik)
+  await page.waitForSelector('#message-list .unread-divider')
+  assert.equal(await page.evaluate(() => state.hasNewer), true, 'son okunanın çevresi yüklendi')
+  requests.length = 0
+  page.on('request', onRequest)
+  await page.click('#search-jump-latest')
+  await page.waitForFunction((a) => !state.loading && !state.hasNewer && String(state.messages[state.messages.length - 1].id) === String(a.last) && !state.unread[a.id],
+    { id: kalabalik, last: more[59].id }, { timeout: h.LONG })
+  page.off('request', onRequest)
+  assert.deepEqual(requests, ['channel=' + kalabalik + '&limit=50'])
+  assert.deepEqual(await page.evaluate((id) => [Boolean(document.querySelector('#message-list .unread-divider')), document.getElementById('unread-bar').hidden, Number(state.lastRead[id])], kalabalik),
+    [false, true, more[59].id])
   await setWidth(page, 1440)
 })
 
