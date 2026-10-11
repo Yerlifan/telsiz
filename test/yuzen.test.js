@@ -189,6 +189,59 @@ test('masaüstü: simge durumunda ve tepsiye gizlenince yalnızca ses odasınday
   assert.equal(env.run('floatIsOpen()'), false)
 })
 
+// Ana süreçten ad beklenirken (arm) uygulama penceresi geri gelirse kendiliğinden açılış iptal olur: aksi halde her
+// zaman üstte kalan pencere uygulama görünürken açılır ve bir sonraki küçültme ile geri yükleme döngüsüne kadar kalırdı
+test('masaüstü: ad beklenirken pencere geri gelirse yüzen pencere açılmaz, elle açılış pencere durumuna bakmaz', async () => {
+  const arms = []
+  let onState = null
+  const desktop = {
+    float: { arm: () => new Promise((resolve) => arms.push(resolve)), showMain: () => Promise.resolve(true) },
+    onWindowState: (fn) => {
+      onState = fn
+      return () => {}
+    }
+  }
+  const env = load({ desktop })
+  const opened = []
+  env.sandbox.open = (url, name) => {
+    opened.push(name)
+    return { closed: false, close () { this.closed = true } }
+  }
+  // Belgenin hazırlanması bu testin konusu değil: açılan pencere yalnızca kaydedilir
+  env.run('floatAttach = function (win, mode, reason) { floatState.mode = mode; floatState.reason = reason; floatState.win = win }')
+  env.sandbox.voiceSnap = { channelId: 5 }
+  const flush = () => new Promise((resolve) => setImmediate(resolve))
+  const token = (n) => 'telsiz-yuzen-' + String(n).repeat(32)
+  // Simge durumu ve hemen geri yükleme, sonra tepsiye gizleme ve hemen gösterme
+  for (const [away, back] of [['minimized', 'restored'], ['hidden', 'shown']]) {
+    onState(away)
+    onState(back)
+    assert.equal(arms.length, 1, away)
+    arms.shift()(token(1))
+    await flush()
+    assert.deepEqual(opened, [], away + ' sonra ' + back)
+    assert.equal(env.run('floatIsOpen()'), false)
+    assert.equal(env.run('floatState.opening'), false)
+  }
+  assert.deepEqual(env.toasts, [])
+  // Pencere küçük kalırsa açılır, geri gelince kapanır
+  onState('minimized')
+  arms.shift()(token(2))
+  await flush()
+  assert.deepEqual(opened, [token(2)])
+  assert.equal(env.run('floatState.reason'), 'auto')
+  const win = env.run('floatState.win')
+  onState('restored')
+  assert.equal(win.closed, true)
+  assert.equal(env.run('floatIsOpen()'), false)
+  // Düğmeyle açılış uygulama penceresi görünürken de açılır
+  env.sandbox.floatOpen('button')
+  arms.shift()(token(3))
+  await flush()
+  assert.deepEqual(opened, [token(2), token(3)])
+  assert.equal(env.run('floatState.reason'), 'button')
+})
+
 // İzlenen yayının akışı pencere açıldıktan sonra gelebilir (İzle'ye yeni basıldı, bağlantı yenilendi) ve yenisiyle
 // değişebilir. Pencerenin yapısı değişmediği için yeniden kurulmaz, akış her çizimde (floatLive) yeniden bağlanır.
 test('izlenen yayın: akış pencere açıldıktan sonra gelirse veya değişirse aynı görüntü öğesine bağlanıp oynar', () => {

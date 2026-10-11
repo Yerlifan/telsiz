@@ -195,7 +195,7 @@ function floatOpen (reason) {
   floatState.opening = true
   let pending
   try {
-    if (mode === 'desktop') pending = floatOpenDesktop()
+    if (mode === 'desktop') pending = floatOpenDesktop(why)
     else if (mode === 'document') pending = window.documentPictureInPicture.requestWindow({ width: FLOAT_DOC_SIZE.width, height: FLOAT_DOC_SIZE.height })
     else pending = floatOpenVideo(why)
   } catch (err) {
@@ -215,11 +215,19 @@ function floatOpen (reason) {
   })
 }
 
-function floatOpenDesktop () {
+// Kendiliğinden açılışta ad beklenirken uygulama penceresi geri gelmiş olabilir (küçültülüp hemen geri yüklendi):
+// pencere hiç açılmaz, kullanılmayan ad ana süreçte kendiliğinden geçersiz olur
+function floatOpenDesktop (reason) {
   return window.telsizDesktop.float.arm().then((name) => {
     if (!name) return null
+    if (reason === 'auto' && !floatAppAway()) return null
     return window.open('about:blank', name)
   })
+}
+
+// Masaüstünde uygulama penceresi simge durumunda veya tepsiye gizli mi (telsizDesktop.onWindowState son değeri)
+function floatAppAway () {
+  return floatState.windowState === 'minimized' || floatState.windowState === 'hidden'
 }
 
 function floatClose (reason) {
@@ -957,7 +965,7 @@ function floatRender () {
 // açılmış pencere kapanır (elle açılan pencere açık kalır)
 function floatOnWindowState (value) {
   floatState.windowState = value
-  if (value === 'minimized' || value === 'hidden') {
+  if (floatAppAway()) {
     if (floatAutoOn() && floatInRoom(snap()) && !floatIsOpen()) floatOpen('auto')
   } else if (value === 'restored' || value === 'shown') {
     if (floatIsOpen() && floatState.reason === 'auto') floatClose('restore')
