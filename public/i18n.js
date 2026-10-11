@@ -43,6 +43,8 @@ window.I18N = (function () {
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar
+    'theme.skin.saha': 'Saha Telsizi',
+    'theme.skinHint.saha': 'Zeytin yeşili sahra telsizi, turuncu sinyal ve şablon etiketler.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2005,6 +2007,8 @@ window.I18N = (function () {
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar
+    'theme.skin.saha': 'Field Radio',
+    'theme.skinHint.saha': 'An olive field radio with orange signals and stencil labels.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android

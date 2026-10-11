@@ -8,7 +8,7 @@
 // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
 
 function createTelsizTheme () {
-  const SKINS = ['arcade', 'gece', 'turkuaz']
+  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha']
   const SCHEMES = ['dark', 'light', 'system']
   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
