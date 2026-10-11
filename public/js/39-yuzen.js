@@ -43,6 +43,8 @@ const FLOAT_VIDEO_FPS = 15
 const FLOAT_FALLBACK_MS = 250
 // Masaüstü penceresinin kapanması pagehide ile gelmezse açık olup olmadığı bu aralıkla denetlenir
 const FLOAT_WATCH_MS = 1000
+// Yüzen belgenin stil dosyaları en çok bu süre beklenir, sonra içerik yine de gösterilir
+const FLOAT_STYLE_WAIT_MS = 3000
 // Kök öğeden yüzen belgeye kopyalanan öznitelikler (theme-init.js)
 const FLOAT_ROOT_ATTRS = ['lang', 'dir', 'data-skin', 'data-scheme', 'data-font-size', 'data-compact', 'data-reduce-motion']
 
@@ -310,20 +312,44 @@ function floatAttach (win, mode, reason) {
   floatRenderTool()
 }
 
-// Belgeye açan sayfanın stil dosyaları, kök öznitelikleri ve simge kümesi kopyalanır
+// Belgeye açan sayfanın stil dosyaları, kök öznitelikleri ve simge kümesi kopyalanır. Stil dosyaları yüklenene kadar
+// (en çok FLOAT_STYLE_WAIT_MS) gövde görünmez, böylece biçemsiz içerik bir an bile görünmez. Gizleme satır içi stil
+// özniteliği değil CSSOM ile yapılır (CSP).
 function floatPrepareDoc (doc, mode) {
   const root = doc.documentElement
   floatCopyRoot(root)
   const head = doc.head || root.appendChild(doc.createElement('head'))
+  const body = doc.body || root.appendChild(doc.createElement('body'))
+  body.className = 'float-body'
+  body.setAttribute('data-mode', mode)
+  body.style.setProperty('visibility', 'hidden')
+  let waiting = 0
+  let timer = 0
+  const reveal = () => {
+    if (waiting > 0) return
+    clearTimeout(timer)
+    body.style.removeProperty('visibility')
+  }
   Array.from(document.querySelectorAll('link[rel="stylesheet"]')).forEach((link) => {
     const copy = doc.createElement('link')
     copy.rel = 'stylesheet'
     copy.href = link.href
+    waiting++
+    const done = () => {
+      copy.removeEventListener('load', done)
+      copy.removeEventListener('error', done)
+      waiting--
+      reveal()
+    }
+    copy.addEventListener('load', done)
+    copy.addEventListener('error', done)
     head.appendChild(copy)
   })
-  const body = doc.body || root.appendChild(doc.createElement('body'))
-  body.className = 'float-body'
-  body.setAttribute('data-mode', mode)
+  timer = setTimeout(() => {
+    waiting = 0
+    reveal()
+  }, FLOAT_STYLE_WAIT_MS)
+  reveal()
   const sprite = floatSprite()
   if (sprite) body.appendChild(doc.importNode(sprite, true))
 }

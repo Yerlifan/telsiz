@@ -399,7 +399,7 @@ function castShowOwn () {
 
 // Yüzen Pencere (sahne başlığı, 39-yuzen.js): kendi paylaşımında oda yüzen pencerede açılır ve önizleme küçülür,
 // izlerken izlenen yayın yüzen pencerede açılır. Linux masaüstünde ve tarayıcıda yüzen pencere tam ekran paylaşımına
-// girebildiği için paylaşan kişiye bir kez not gösterilir.
+// girebildiği için paylaşan kişiye her açılışta not gösterilir.
 function castFloat () {
   if (typeof floatOpen !== 'function') return
   const mode = el.cast.getAttribute('data-mode')
@@ -1455,8 +1455,9 @@ function castInit () {
   castState.bound = true
   document.addEventListener('fullscreenchange', castOnFullChange)
   document.addEventListener('webkitfullscreenchange', castOnFullChange)
-  // Telefon ve geniş düzen arasında geçince sohbet yeniden düzenin varsayılanına döner
+  // Önizlemeyi küçültme seçimi bu cihazda hatırlanır
   castState.ownMin = storeGet(CAST_OWN_MIN_KEY) === '1'
+  // Telefon ve geniş düzen arasında geçince sohbet yeniden düzenin varsayılanına döner
   let narrow = isNarrow()
   window.addEventListener('resize', () => {
     const now = isNarrow()

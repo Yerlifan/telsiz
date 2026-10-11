@@ -79,6 +79,8 @@ test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', asyn
   }, mertId, 'Mert\'in görüntüsü yüzen pencerede oynar')
   assert.ok(playing.w > 0)
   assert.equal(playing.opacity, '1')
+  // Stil dosyaları yüklenene kadar yüzen belgenin gövdesi görünmez, yüklenince gösterilir
+  await waitFloat(deniz, (doc) => doc.body.style.visibility !== 'hidden' && getComputedStyle(doc.body).visibility === 'visible', null, 'stil dosyaları yüklenince içerik görünür')
   const view = await inFloat(deniz, (doc) => {
     const frame = doc.querySelector('.float-tile.is-cam .float-frame')
     return {
