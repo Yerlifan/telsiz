@@ -505,7 +505,9 @@ function observeOlder () {
   if (olderObserver || typeof window.IntersectionObserver !== 'function' || !el.messages || !el.loadOlderWrap) return
   try {
     olderObserver = new window.IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) autoLoadOlder()
+      // Kayıt gecikmeli gelebilir (önceki sayfa yüklenip kaydırma telafi edildikten sonra): düğmenin şu anki yeri de
+      // denetlenir, yoksa kişi yaklaşmadan bir sayfa daha yüklenir
+      if (entries.some((entry) => entry.isIntersecting) && olderNear()) autoLoadOlder()
     }, { root: el.messages, rootMargin: OLDER_MARGIN_PX + 'px 0px 0px 0px' })
     olderObserver.observe(el.loadOlderWrap)
   } catch (err) {
