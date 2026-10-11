@@ -9,8 +9,9 @@
 //   yazılmaz.
 // - Telsiz DJ'ye başkasının parça eklemesi: aynı ses odasında motorun notice olayından (23-dj.js djOnNotice,
 //   activityDj). Hangi yazı odasında olunursa olunsun görünür, parçanın adı kuyruktan canlı okunur.
-// Liste en yeni ACTIVITY_MAX kaydı tutar, en yeni üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda
-// görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice, activityShown).
+// Liste en çok ACTIVITY_MAX kayıt tutar (süren paylaşımların kaydı korunur), en yeni üsttedir. Kayıt yoksa kart
+// gizlidir. Liste geniş ekranda görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice,
+// activityShown).
 
 const ACTIVITY_MAX = 5
 const activityState = { items: [], seq: 0, rosters: null }
@@ -26,10 +27,20 @@ function activityRosters (meta) {
   return out
 }
 
+// Liste dolunca en eski kayıt düşer. Süren ekran paylaşımının kaydı (İzle düğmesi) diğer kayıtlar varken
+// düşmez: sık gelen Telsiz DJ, katılma ve ayrılma kayıtları onu listeden atmaz (liste görünürken paylaşım
+// bildirimi ayrıca açılmaz). Liste paylaşım kayıtlarıyla doluysa yeni paylaşım en eskisini düşürür, başka türden
+// yeni kayıt yazılmaz.
 function activityAdd (item) {
   activityState.seq++
-  activityState.items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
-  if (activityState.items.length > ACTIVITY_MAX) activityState.items.length = ACTIVITY_MAX
+  const items = activityState.items
+  items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
+  while (items.length > ACTIVITY_MAX) {
+    let drop = items.length - 1
+    while (drop > 0 && items[drop].kind === 'share') drop--
+    if (items[drop].kind === 'share') drop = items.length - 1
+    items.splice(drop, 1)
+  }
 }
 
 // Kadro farkından katılma ve ayrılma kayıtları

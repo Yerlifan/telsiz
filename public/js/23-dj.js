@@ -32,10 +32,9 @@
 // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
 
 const DJ_TICK_MS = 500
-// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu bu süre içinde
-// düzenlenir.
+// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu DJ_NOTICE_EDIT_MS
+// (06-messages.js, "düzenlendi" etiketinin gizlendiği süre) içinde düzenlenir.
 const DJ_TITLE_WAIT_MS = 8000
-const DJ_TITLE_EDIT_MS = 10 * 60 * 1000
 // Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
 const DJ_NOTICE_FRESH_MS = 15000
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
@@ -1723,7 +1722,8 @@ function djAnnounce (roomId, text, d) {
 // YouTube parçasının adı ekleme anında bilinmeyebilir, oynatıcısı yüklenen ilk cihaz adı duruma yazar
 // (music.js annotate). Ad biliniyorsa duyuru hemen gider. Bilinmiyorsa parça en çok DJ_TITLE_WAIT_MS izlenir,
 // ad gelince duyuru adla gider. Süre dolarsa duyuru adsız gider, ad sonradan gelirse ekleyenin kendi mesajı
-// düzenlenir (DJ_TITLE_EDIT_MS içinde, parça kuyruktayken).
+// düzenlenir (DJ_NOTICE_EDIT_MS içinde, parça kuyruktayken). Sayfa gizlenir veya kapanırsa bekleyen duyuru hemen
+// adsız gider (djFlushTitles).
 function djAnnounceTrack (roomId, text, d, trackId) {
   if (!roomId || isDmChannel(roomId)) return
   const track = djLiveTrack(trackId)
@@ -1733,7 +1733,7 @@ function djAnnounceTrack (roomId, text, d, trackId) {
     return
   }
   const at = Date.now()
-  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_TITLE_EDIT_MS, sent: null })
+  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_NOTICE_EDIT_MS, sent: null })
   djCheckTitles()
 }
 
@@ -1760,6 +1760,15 @@ function djCheckTitles () {
     }
     if (!w.sent && (now >= w.deadline || !track)) w.sent = djAnnounce(w.roomId, w.text, w.d)
     return Boolean(track) && now < w.until
+  })
+}
+
+// Sayfa gizlenirken (visibilitychange) veya kapanırken (pagehide) adı beklenen duyurular hemen adsız gider:
+// bekleyen kayıt yalnızca bellektedir, sekme kapanır veya yenilenirse duyuru hiç gitmezdi. Sayfa açık kalırsa ad
+// gelince duyuru yine düzenlenir. Kapanış anında başlayan istek yarıda kalabilir, bu en iyi çabadır.
+function djFlushTitles () {
+  dj.titleWatch.forEach((w) => {
+    if (!w.sent) w.sent = djAnnounce(w.roomId, w.text, w.d)
   })
 }
 
@@ -1887,6 +1896,10 @@ function djInit () {
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
   }
   window.addEventListener('resize', djOnResize)
+  window.addEventListener('pagehide', djFlushTitles)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') djFlushTitles()
+  })
   if (typeof watchLayers === 'function') watchLayers(djOnLayers)
   // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor"). Kart
   // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).

@@ -160,11 +160,16 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
   await A.fill('#composer-input', '/çal https://youtu.be/D120aaaaaaa')
   await A.keyboard.press('Enter')
   await A.waitForFunction(() => window.e2eToasts.indexOf('Parça kuyruğa eklendi.') !== -1)
+  // Kimse oynatıcıyı yüklemediği için parçanın adı bilinmez: duyuru en çok 8 saniye bekler. Sayfa bu sırada
+  // kapanırsa (pagehide) bekleyen duyuru hemen adsız gider, bellekte kalıp kaybolmaz.
+  const waiting = await A.evaluate(() => dj.titleWatch.filter((w) => !w.sent).length)
+  assert.equal(waiting, 1, 'duyuru parçanın adını bekliyor')
+  const hiddenAt = Date.now()
+  await A.evaluate(() => window.dispatchEvent(new Event('pagehide')))
   assert.equal(await A.inputValue('#composer-input'), '')
   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
   assert.equal(sent, false, 'komut metni mesaj olarak gösterilmedi')
-  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür. Kimse oynatıcıyı yüklemediği için parçanın
-  // adı bilinmez: duyuru en çok 8 saniye bekler, sonra adsız gider.
+  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür
   const roomA = await A.evaluate(() => String(state.channelId))
   const me = await A.evaluate(() => userDisplayName(state.me.id))
   assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
@@ -177,6 +182,7 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
     })
     assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false })
   }
+  assert.ok(Date.now() - hiddenAt < 5000, 'duyuru sayfa kapanırken hemen gitti: ' + (Date.now() - hiddenAt) + ' ms')
   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
   // Parça gelince kart sağ sütunda İstasyonlar listesinin altına yerleşir, liste görünür kalır, sol sütun
   // (telsiz kartı) yerinde kalır

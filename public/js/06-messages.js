@@ -66,6 +66,24 @@ function cleanDjTitle (value) {
   return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
 }
 
+// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bu süre
+// içindeki düzenleme "düzenlendi" etiketi almaz, daha sonraki her düzenleme etiketle görünür. Bir dakikalık pay
+// istek gecikmesini karşılar.
+const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
+const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
+
+// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Etiket yalnızca DJ duyurusunun
+// ekleme anından sonraki ad süresi içinde yapılan düzenlemesinde gizlenir, değiştirilmiş bir istemcinin eski bir
+// duyuruyu sonradan iz bırakmadan yeniden yazması etiketle görünür.
+function showEditedMark (m, dj) {
+  if (!m || !m.editedAt) return false
+  if (!dj) return true
+  const created = Number(m.createdAt)
+  const edited = Number(m.editedAt)
+  if (!isFinite(created) || !isFinite(edited) || created <= 0) return true
+  return edited - created > DJ_NOTICE_EDIT_MS + DJ_NOTICE_EDIT_GRACE_MS
+}
+
 function cleanDjNotice (d) {
   if (!d || typeof d !== 'object' || d.op !== 'add') return null
   let out = null
@@ -286,8 +304,7 @@ function buildMessageNode (m) {
     text.appendChild(h('span', '', notice))
     body.appendChild(text)
   }
-  // DJ duyurusunun düzenlenmesi (parçanın adı sonradan eklenir) gösterilmez
-  if (m.editedAt && !(result.state === 'ok' && result.dj)) {
+  if (showEditedMark(m, result.state === 'ok' && Boolean(result.dj))) {
     const edited = h('span', 'msg-edited', t('msg.edited'))
     edited.title = t('msg.editedAt', { date: formatLong(m.editedAt) })
     const target = body.querySelector('.msg-text') || body

@@ -4,8 +4,8 @@
 // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
 // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
-// kimliği, sabitlenmiş anahtarlar, eski anahtar) ve Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
-// doğrulanması sınanır.
+// kimliği, sabitlenmiş anahtarlar, eski anahtar), Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
+// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -18,7 +18,7 @@ const PUB = path.join(__dirname, '..', 'public')
 const FILES = [
   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
   'js/01-core.js', 'js/02-state-dom.js', 'js/06-messages.js',
-  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js'
+  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/28-bildirim.js'
 ]
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 
@@ -252,4 +252,47 @@ test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temi
   assert.strictEqual(clean({ op: 'add', src: 'yt', vid: 'kisa', title: 'a' }), null)
   assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
   assert.strictEqual(clean(null), null)
+})
+
+test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düzenleme gizlenir', () => {
+  const { run } = load()
+  const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')
+  const at = 1700000000000
+  const min = 60 * 1000
+  // Düzenlenmemiş mesaj etiket almaz
+  assert.strictEqual(mark({ createdAt: at, editedAt: null }, true), false)
+  assert.strictEqual(mark({ createdAt: at }, false), false)
+  // Sıradan mesajın her düzenlemesi görünür
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 5000 }, false), true)
+  // DJ duyurusuna ad eklemesi (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 9000 }, true), false)
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min }, true), false)
+  // Sonraki düzenleme (değiştirilmiş istemcinin eski duyuruyu yeniden yazması) etiketle görünür
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min + 1 }, true), true)
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 3 * 24 * 60 * min }, true), true)
+  // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
+  assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
+})
+
+test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayıtlarla listeden düşmez', () => {
+  const { run } = load()
+  const kinds = () => JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.kind + ":" + x.userId))'))
+  run("activityAdd({ kind: 'share', userId: '2', channelId: null })")
+  run("activityAdd({ kind: 'join', userId: '3', channelId: '9' })")
+  const djAdds = [0, 1, 2, 3, 4, 5]
+  djAdds.forEach((i) => run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 't" + i + "', title: '' })"))
+  const list = kinds()
+  assert.strictEqual(list.length, 5)
+  assert.deepStrictEqual(list, ['dj:4', 'dj:4', 'dj:4', 'dj:4', 'share:2'])
+  // En yeni kayıt üsttedir, kimlikler artar
+  const ids = JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.id))'))
+  assert.deepStrictEqual(ids, [8, 7, 6, 5, 1])
+  // Liste yalnızca paylaşımlarla doluysa en eski paylaşım düşer
+  run('activityState.items = []')
+  const sharers = [10, 11, 12, 13, 14, 15]
+  sharers.forEach((i) => run("activityAdd({ kind: 'share', userId: '" + i + "', channelId: null })"))
+  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
+  // Paylaşımlarla dolu listede yeni bir DJ kaydı paylaşımları düşürmez
+  run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 'x', title: '' })")
+  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
 })
