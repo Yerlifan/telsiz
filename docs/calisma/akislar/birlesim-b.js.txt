@@ -16,7 +16,7 @@ const RAPOR = ANA + '/docs/calisma/raporlar/'
 const KURALLAR = `Kurallar:
 - Yalnızca ${WT} çalışma kopyasında (dal istek/birlesim) çalış. ${ANA}, /home/user/wt/a, /home/user/wt/b ve /home/user/wt/c başka işlerindir, onlarda hiçbir dosyayı değiştirme (okuyabilirsin). docs/calisma klasörüne dokunma.
 - Asla push etme. git stash, git checkout, git switch, git restore, git reset --hard, git rebase, git commit --amend ve git clean kullanma. Dalları silme ya da taşıma.
-- CONTRIBUTING kuralları geçerli: istemci kodu ES2017, innerHTML yok, kodda noktalı virgül yok, kod, yorum ve belgede uzun ve kısa tire (— –) yok, düğme etiketlerinde her kelime büyük harfle başlar, TR ve EN anahtarlar eksiksiz ve eşleşik, belge çiftleri (MIMARI/ARCHITECTURE, README/README.en, CONTRIBUTING/CONTRIBUTING.en, CHANGELOG çifti, TASARIM/DESIGN) birlikte güncellenir, başka bir uygulamanın ya da oyunun marka adı geçmez. CSS'te grid, gap, clamp, :is, :where, aspect-ratio ve inset yasak.
+- CONTRIBUTING kuralları geçerli: istemci kodu ES2017, innerHTML yok, kodda noktalı virgül yok, kod, yorum ve belgede uzun ve kısa tire (\u2014 \u2013) yok, düğme etiketlerinde her kelime büyük harfle başlar, TR ve EN anahtarlar eksiksiz ve eşleşik, belge çiftleri (MIMARI/ARCHITECTURE, README/README.en, CONTRIBUTING/CONTRIBUTING.en, CHANGELOG çifti, TASARIM/DESIGN) birlikte güncellenir, başka bir uygulamanın ya da oyunun marka adı geçmez. CSS'te grid, gap, clamp, :is, :where, aspect-ratio ve inset yasak.
 - Commit mesajı Türkçe olsun ve sonuna bir boş satır ve şu iki satırı ekle:
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
