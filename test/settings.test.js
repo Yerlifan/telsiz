@@ -30,6 +30,18 @@ const FILES = [
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 const SETTINGS_SOURCE = fs.readFileSync(path.join(PUB, 'js', '11-settings.js'), 'utf8')
 
+// Tema listesinin tek kaynağı theme-init.js: ön yükleyici küçük bir tarayıcı taklidinde çalıştırılır, ayarlar
+// görünümüne verilen TelsizTheme taklidi bu listeyi taşır
+function themeInitSkins () {
+  const root = { setAttribute () {}, style: { setProperty () {} }, classList: { add () {} } }
+  const box = { document: { documentElement: root }, localStorage: { getItem: () => null, setItem () {} } }
+  box.window = box
+  vm.createContext(box)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
+  return Array.from(box.window.TelsizTheme.skins)
+}
+const SKINS = themeInitSkins()
+
 // Küçük DOM taklidi
 
 const REFLECTED = { id: 'id', className: 'class', type: 'type', name: 'name', href: 'href', target: 'target', rel: 'rel', title: 'title', htmlFor: 'for' }
@@ -459,6 +471,7 @@ function load (options) {
   sandbox.matchMedia = () => ({ matches: false })
   sandbox.console = { warn () {}, log () {}, error () {} }
   sandbox.TelsizTheme = {
+    skins: SKINS.slice(),
     prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' },
     get () {
       return Object.assign({}, this.prefs)
@@ -598,7 +611,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
-    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
+    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang']),
     app: ['set-install', 'set-version', 'set-repo-link'],
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
@@ -943,6 +956,30 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   run('refreshThemeSettings()')
   assert.strictEqual(root.querySelector('#set-skin-gece').checked, true)
   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
+})
+
+test('tema kartları theme-init.js listesinden çizilir, ayarlar kendi kopyasını tutmaz', () => {
+  // Liste yalnızca theme-init.js içinde: ayarlar modülünde tema kimliklerini sıralayan bir dizi yok
+  assert.ok(!/['"]arcade['"]\s*,\s*['"]gece['"]/.test(SETTINGS_SOURCE), '11-settings.js tema listesinin kopyasını tutmamalı')
+  assert.ok(SKINS.length >= 3 && SKINS[0] === 'arcade', 'theme-init.js listesi okunur')
+  const { run, root, sandbox } = load()
+  run("openSettings('appearance', null)")
+  const cards = root.querySelectorAll('label[data-skin-choice]').map((n) => n.getAttribute('data-skin-choice'))
+  assert.deepStrictEqual(cards, SKINS, 'her tema için bir kart, theme-init.js sırasıyla')
+  for (const skin of SKINS) {
+    const input = root.querySelector('#set-skin-' + skin)
+    assert.ok(input, skin + ' radyo düğmesi')
+    assert.strictEqual(input.getAttribute('aria-describedby'), 'set-skin-' + skin + '-hint')
+    assert.ok(root.querySelector('#set-skin-' + skin + '-hint').textContent.length > 0, skin + ' açıklaması')
+  }
+  // Listeye eklenen tema ayarlarda da görünür (ayrı bir kopyayı güncellemek gerekmez)
+  sandbox.TelsizTheme.skins = SKINS.concat(['deneme'])
+  run("showSettingsCat('account', null)")
+  run("showSettingsCat('appearance', null)")
+  assert.ok(root.querySelector('#set-skin-deneme'), 'yeni tema kartı')
+  // Ön yükleyici yoksa yalnızca varsayılan tema
+  sandbox.TelsizTheme.skins = undefined
+  assert.deepStrictEqual(Array.from(run('skinChoices()')), ['arcade'])
 })
 
 test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {

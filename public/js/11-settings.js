@@ -55,7 +55,6 @@ const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
 // false olursa anahtarlar devre dışı kalır.
 const MUSIC_SETTINGS_READY = true
 const BIND_ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
-const SKIN_CHOICES = ['arcade', 'gece', 'turkuaz']
 const SCHEME_CHOICES = ['dark', 'light', 'system']
 const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
 // Elle ayarlanan yazı boyutunun sınırları (theme-init.js ile aynı) ve varsayılanı, piksel
@@ -3137,6 +3136,13 @@ function setTheme (patch) {
   theme.set(patch)
 }
 
+// Tema listesinin tek kaynağı theme-init.js (window.TelsizTheme.skins), burada kopyası tutulmaz. Ön yükleyici
+// yoksa yalnızca varsayılan tema listelenir.
+function skinChoices () {
+  const theme = window.TelsizTheme
+  return theme && Array.isArray(theme.skins) && theme.skins.length ? theme.skins.slice() : ['arcade']
+}
+
 function buildAppearancePage (page) {
   const current = themeState()
 
@@ -3146,7 +3152,8 @@ function buildAppearancePage (page) {
   cards.setAttribute('role', 'radiogroup')
   cards.setAttribute('aria-labelledby', 'set-skin-section-title')
   const skinInputs = {}
-  SKIN_CHOICES.forEach((skin) => {
+  const skins = skinChoices()
+  skins.forEach((skin) => {
     const card = h('label', 'theme-card settings-theme-card')
     card.setAttribute('for', 'set-skin-' + skin)
     card.setAttribute('data-skin-choice', skin)
@@ -3243,7 +3250,7 @@ function buildAppearancePage (page) {
 
   const update = () => {
     const now = themeState()
-    SKIN_CHOICES.forEach((skin) => {
+    skins.forEach((skin) => {
       const input = skinInputs[skin]
       input.checked = skin === now.skin
       input.parentNode.parentNode.classList.toggle('is-selected', skin === now.skin)
