@@ -1,0 +1,53 @@
+{
+ "bulgular": [
+  {
+   "onem": "orta",
+   "dosya": "src/youtube-search.js",
+   "satir": 412,
+   "ozet": "Sunucu kapanırken abortAll süren aramayı durdurmuyor, tersine HTML yedeği için YouTube'a yeni bir istek başlatıyor. 'closed' nedeni hiçbir zaman oluşmadığı için search() içindeki `failure.reason !== 'closed'` denetimi hiç çalışmıyor.",
+   "senaryo": "abortAll, req.destroy(searchError(..., 'closed')) çağırıyor. Ama req.on('error') işleyicisi gelen hatayı yok sayıp her zaman reason 'network' üretiyor (satır 412, 404-405). Bu yüzden search() satır 513'te 'closed' görmüyor ve süre dolmadığı için viaPage ile ikinci bir istek atıyor. Doğrulama 1 (scratchpad/g4inceleme/abort.js): yanıt vermeyen yerel bir sunucuya karşı engine.search('gizli sorgu') başlatıldı, 200 ms sonra engine.close() çağrıldı. Sahte sunucu önce 'POST /youtubei/v1/search', ardından 'GET /results?search_query=...' isteğini aldı. Arama close'tan sonra da 8002 ms sürdü ve reason 'network' ile bitti. Doğrulama 2 (scratchpad/g4inceleme/shutdown.js): createChatServer({ youtubeSearch: { request: makeRequester(yerel) } }) ile bir arama sürerken server.close() çağrıldı. Kapanış CLOSE_GRACE_MS kadar, yani 2004 ms sürdü. İstemci tasarlanan 503 shutting_down yerine ECONNRESET aldı. Kapanış başladıktan sonra youtube.com'a bir GET daha gitti. İkinci isteğin zamanlayıcısı unref edilmediği için kitaplık olarak kullanıldığında olay döngüsü 8 saniyeye kadar açık kalıyor. Test bu açığı yakalamıyor: abortAll testi (test/youtube-search.test.js:429) yalnızca counts === false bakıyor, reason 'closed' ve ikinci istek gitmemesi sınanmıyor.",
+   "oneri": "req.on('error', (e) => finish(e && e.reason === 'closed' ? e : searchError('search_failed', 'network', false))) yazılabilir ya da abortAll'da bir closed bayrağı tutulup request() ve search() bu bayrağa bakabilir. Teste reason === 'closed' ve close'tan sonra ikinci istek gitmediği denetimi eklenmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "src/app.js",
+   "satir": 3547,
+   "ozet": "Sunucu geneli tavan YouTube isteklerini değil aramaları sayıyor. Belgeler ve DEFAULTS yorumu 'son 24 saatte en çok 300 YouTube isteği' diyor. Gerçekte bir arama 2 istek yapabiliyor, devre kesici kapalıyken yapılan aramalar ise hiç istek atmadığı halde tavandan düşüyor.",
+   "senaryo": "(a) YouTube InnerTube yanıtının biçimini değiştirsin ama sonuç sayfası çalışmaya devam etsin. Her arama önce POST /youtubei/v1/search, sonra GET /results yapar (viaApi başarısız, viaPage başarılı, fails sıfırlanır). 300 aramalık tavan böylece 600 YouTube isteğine izin verir. Oysa KURULUM, DEPLOYMENT, MIMARI, ARCHITECTURE, iki CHANGELOG ve DEFAULTS yorumu (satır 116-121) en çok 300 YouTube isteği diyor ve tavanın amacı IP engelini önlemek. (b) Devre kesici açılsın. Sonraki 1 saatte her yeni ya da tekrarlanan sorgu musicSearchDaily.consume('all') ile tavandan düşer (satır 3547), engine.search ise istek atmadan 'paused' döner. Kullanıcılar bu sürede yeniden denedikçe tavan dolar ve kesici kapandıktan sonra da arama 24 saate kadar 429 search_daily_limit verir.",
+   "oneri": "Ya sayaç istek düzeyine taşınmalı (örneğin request işlevine sarmalayıcı) ve paused durumunda tavan tüketilmemeli, ya da belgeler '300 arama, arama başına en çok 2 istek' diye düzeltilmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/music.js",
+   "satir": 324,
+   "ozet": "looksLikeUrl yalnızca ilk sözcüğün başına bakıyor. Köşeli parantez ya da tırnak içindeki ve önüne sözcük yazılmış YouTube bağlantıları artık bad_url yerine şarkı adı sayılıyor ve sunucuya düz metin olarak gidiyor.",
+   "senaryo": "public/music.js bir vm bağlamında yüklendi (scratchpad/g4inceleme/parse.js) ve şu girdiler denendi. parseCommand('/çal <https://youtu.be/dQw4w9WgXcQ>'), '/çal \"https://youtu.be/dQw4w9WgXcQ\"' ve '/çal şarkı https://youtu.be/dQw4w9WgXcQ' üçü de { query: ... } döndü, bu değişiklikten önce bad_url idi. Arama açıksa bağlantı ve video kimliği POST /api/music/search ile sunucuya düz metin gider ve sunucunun adresiyle YouTube'a iletilir. DJ durumu ise normalde sunucudan gizlidir. Arama kapalıysa kullanıcı desteklenen biçimleri anlatan bad_url metni yerine 'arama kapalı' hatası görür. Ters yönde de hatalı sonuç var: '/çal R.E.M/Losing My Religion' bad_url dönüyor, oysa yorum benzer adların bağlantı sayılmadığını söylüyor.",
+   "oneri": "Argümanın herhangi bir yerinde şema (://) ya da bilinen bir YouTube alan adı geçiyorsa bağlantı sayılmalı. Baştaki ve sondaki <, >, \" karakterleri ayrıştırmadan önce atılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/i18n.js",
+   "satir": 53,
+   "ozet": "Sunucu, temizlenince boş kalan sorgu için de 400 bad_query dönüyor. İstemci bunu her zaman 'Şarkı adı en fazla 200 karakter olabilir.' diye gösteriyor.",
+   "senaryo": "Kullanıcı '/çal ' ardından yalnızca sıfır genişlikli boşluk (U+200B) ya da bir denetim karakteri yazsın. parseCommand bunu { query: ' ' } olarak döndürür (vm ile doğrulandı), çünkü \\s U+200B'yi kapsamaz. Sunucudaki cleanSearchQuery karakteri boşluğa çevirip kırpar, sonuç boş kalır ve 400 bad_query döner. DJ_SEARCH_ERRORS bunu search_bad_query'ye eşler ve kullanıcı 'en fazla 200 karakter' metnini görür. Sorgu bir karakterlik ve sorun uzunluk değil.",
+   "oneri": "Metin 'Şarkı adı 1 ile 200 karakter arasında olmalı' gibi yapılabilir (sunucudaki detail.musicSearchQuery ile aynı anlamda). Ya da istemci boş ve aşırı uzun sorguyu göndermeden önce ayırt edebilir."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/23-dj.js",
+   "satir": 1857,
+   "ozet": "Aynı anda süren aramalar tek bir dj.searching alanını paylaşıyor. İlk yanıt gelince ikinci arama sürerken de 'aranıyor' satırı kalkıyor.",
+   "senaryo": "Kullanıcı '/çal a' yazıp hemen '/çal b' yazsın. Önce dj.searching 'a', sonra 'b' olur. a'nın yanıtı gelince satır 1857 dj.searching'i null yapar ve kart 'YouTube'da aranıyor: b' satırını gizler, oysa b'nin isteği hâlâ sürüyor. a başarısız olduysa kartta a için hata satırı çıkar, b birkaç saniye sonra başarıyla eklenir ve a'nın hata satırı kartta kalır.",
+   "oneri": "Arama başına bir belirteç tutulmalı ve dj.searching yalnızca son başlatılan aramanın yanıtında temizlenmeli. Ya da arama sürerken yeni bir /çal araması reddedilmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "e2e/06-dj.test.js",
+   "satir": 334,
+   "ozet": "Test eksiği: istemcinin arama hata yolları hiç sınanmıyor. 502 search_failed sonrası kartta bağlantı çıkması, 429 rate_limited, 429 search_daily_limit, ağ hatası ve sonuç yokken search_no_results metni test edilmiyor.",
+   "senaryo": "e2e testi yalnızca 'arama kapalı' (istemci içinde, sunucuya gitmeden) ve başarılı ekleme yollarını deniyor. djPlaySearch'teki DJ_SEARCH_ERRORS eşlemesi, DJ_SEARCH_MISS listesi ve sunucudan dönen hata yanıtının işlenmesi için hiçbir birim ya da e2e testi yok. Örneğin DJ_SEARCH_ERRORS'tan search_failed satırı silinse ya da DJ_SEARCH_MISS'ten 'search_failed' çıkarılsa, kullanıcı YouTube aksarken kartta bağlantıyı göremez ve bütün testler yine geçer. Planın 'Arama ... yapılamazsa ... bağlantı' davranışı ve README'deki 'Arama kapalıysa veya yapılamazsa ... bağlantısı çıkar' cümlesi sınanmamış oluyor.",
+   "oneri": "e2e'deki fakeYouTubeSearch'e başarısız sorgu (Promise.reject({ code: 'search_failed' })) ve boş sonuç durumları eklenmeli. Toast metinleri ve .dj-search-link görünürlüğü denetlenmeli."
+  }
+ ],
+ "testler": "Çalışma kopyası: /home/user/wt/b. Hiçbir dosya değiştirilmedi.\n\n- npm run denetle: \"Denetim tamamlandı: 259 dosya tarandı, ihlal bulunmadı.\" Çıkış kodu 0.\n- npm test: 924 test, 923 geçti, 0 başarısız, 1 atlandı. Atlanan, SEA ikili derleme testi (TELSIZ_SEA_TEST=1 verilmedi). Yeni test/youtube-search.test.js ve test/server-music-search.test.js dahil hepsi geçti. Süre yaklaşık 44 saniye. Çıkış kodu 0.\n- node --test --test-concurrency=1 e2e/06-dj.test.js: 21 testin 21'i geçti. Yeni '/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı, açıkken ilk sonuç başlığıyla eklenir ve duyurulur' testi ve 'konsol ve sunucu günlüğü temiz' testi dahil. Süre yaklaşık 55 saniye. Çıkış kodu 0.\n\nEk doğrulama betikleri (scratchpad/g4inceleme/):\n- abort.js: close() sonrasında ikinci GET /results isteği gidiyor ve arama 8 saniye sürüyor.\n- shutdown.js: arama sürerken server.close() 2004 ms sürüyor, istemci ECONNRESET alıyor.\n- parse.js: parseCommand uç durumları.\n\nPlan kabul ölçütleri:\n- Ayar açıkken sahte arayıcıyla '/çal ad' ilk sonucu başlığıyla ekliyor: karşılandı (e2e).\n- Ayar kapalıyken açık bir hata metni ve YouTube bağlantısı çıkıyor: karşılandı (e2e).\n- İstemciden YouTube isteği gitmiyor ve CSP değişmiyor: karşılandı. Dokunulmadı: src/http-util.js ve masaüstü CSP. e2e yalnızca nocookie gömme adreslerini görüyor.\n- Sorgu günlüklere düşmüyor: karşılandı (sunucu testi gerçek ayrıştırıcıyla).\n\nBelgeler ve kurallar:\n- TR ve EN anahtarlar eksiksiz, eklenen her anahtar iki dilde var.\n- Onay düğmesi her kelimesi büyük harfle yazılmış.\n- Belgelerde başka sohbet uygulaması adı, uzun veya kısa tire ve noktalı virgül yok.\n- Belge bağlantı çapaları doğru.\n\nUygulayıcının bildirdiği eksik: plan 10. adım (canlı YouTube doğrulaması ve sınırların daraltılması) yapılmadı. Bu ortamda da doğrulanamaz."
+}
