@@ -653,8 +653,10 @@
    transform, filter, backdrop-filter, contain ve will-change bulunmaz (position: fixed kutuyu onların içine
    hapsederdi), overflow visible olur (görünürlük ölçümü kırpan ataları sayar). Kutu her katmanın, Ayarlar'ın ve
    kısa bildirimlerin üstündedir, alt köşedeyken kısa bildirim ve güncelleme şeridi kutunun üstüne çıkar.
-   23-dj.js gövdeye has-dj-dock koyar, üst köşelerde bandın altını --dj-dock-top, alt köşelerde yazma alanının
-   ve telsiz kartının üstünü --dj-dock-lift olarak yazar. */
+   23-dj.js gövdeye has-dj-dock koyar, üst köşelerde bandın ve sohbet başlığının altını --dj-dock-top, alt
+   köşelerde yazma alanının ve telsiz kartının üstünü --dj-dock-lift olarak yazar. Kutu yer oldukça kartın
+   düğmelerine inmez ve görünüm alanında kalır. Ana görünümü örten bir katman (Ayarlar, sayfalar, pencereler)
+   açıkken kutu seçilen yandaki alt köşededir. */
 
 body {
   --dj-dock-gap: 1rem;
@@ -842,9 +844,11 @@ body.has-dj-dock-bottom .desktop-update-banner {
   bottom: var(--dj-dock-clear);
 }
 
-/* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir */
-body.has-dj-dock-bottom .settings-main-inner,
-body.has-dj-dock-bottom .settings-side {
+/* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir. Ayarlar açıkken
+   kutu her zaman alt köşededir (23-dj.js djDockPlace). Seçici dar ekranın (.settings-view.is-narrow) dolgusunu
+   da geçer. */
+body.has-dj-dock-bottom .settings-view .settings-main-inner,
+body.has-dj-dock-bottom .settings-view .settings-side {
   padding-bottom: calc(2rem + 202px + 3.25rem + 1rem);
 }
 

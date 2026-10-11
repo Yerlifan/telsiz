@@ -7,7 +7,9 @@
 // (sahte-youtube.js) yönlendirilir, gerçek YouTube'a erişilmez. Duraklat ve devam iki istemcide eşitlenir,
 // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
-// (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder.
+// (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
+// oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
+// alanında kalır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -418,6 +420,100 @@ test('fareyle sürüklenen oynatıcı en yakın köşeye oturur, köşe yeniden 
   await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
   const title = await B.evaluate(() => {
     const r = document.querySelector('#dj .dj-dock-title').getBoundingClientRect()
+// Ayarlar'ın bir sayfasındaki her denetim ortasına kaydırılınca üstünde başka öğe yok (köşedeki oynatıcı
+// örtmüyor). Ulaşılamayan denetimlerin kimlikleri döner.
+function unreachableSettings (page) {
+  return page.evaluate(() => {
+    const main = document.querySelector('#settings-view .settings-main')
+    const bad = []
+    Array.from(main.querySelectorAll('button, input, select, textarea, a[href]')).filter((n) => n.getClientRects().length && !n.disabled).forEach((n) => {
+      n.scrollIntoView({ block: 'center' })
+      const b = n.getBoundingClientRect()
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)
+      const ok = hit && (n.contains(hit) || (n.labels && Array.from(n.labels).some((l) => l.contains(hit))))
+      if (!ok) bad.push(n.id || n.className)
+    })
+    return bad
+  })
+}
+
+test('1100x800: Ayarlar açıkken oynatıcı alt köşede durur, her satıra ulaşılır, Taşı alt köşeler arasında geçer', async () => {
+  const { A } = W
+  await A.evaluate(() => {
+    storeRemove('telsiz.djDock')
+    djRender()
+  })
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+  // Seçilen (varsayılan) köşe sağ üst: Ayarlar açıkken kutu aynı yandaki alt köşeye iner
+  await A.evaluate(() => openSettings('keybinds'))
+  await A.waitForFunction(() => isSettingsOpen() && document.getElementById('dj').getAttribute('data-dock') === 'br')
+  for (const cat of ['keybinds', 'privacy', 'notifications', 'appearance', 'voice']) {
+    await A.evaluate((c) => openSettings(c), cat)
+    await A.waitForFunction((c) => settingsUi.cat === c, cat)
+    await h.sleep(300)
+    assert.deepEqual(await unreachableSettings(A), [], cat + ' sayfasında her denetime ulaşılır')
+  }
+  assertDocked(await dockInfo(A))
+  await fakePlaying(A, 'Ayarlar açıkken alt köşede çalıyor')
+  // Taşı yalnızca alt köşeler arasında geçer, seçilen köşe saklanır
+  await A.click('#dj .dj-dock-move')
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'bl')
+  assert.equal(await A.evaluate(() => localStorage.getItem('telsiz.djDock')), 'bl')
+  assert.deepEqual(await unreachableSettings(A), [], 'sol altta da her denetime ulaşılır')
+  await A.click('#dj .dj-dock-move')
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'br')
+  assert.equal(await A.evaluate(() => localStorage.getItem('telsiz.djDock')), 'br')
+  // Seçilen üst köşe Ayarlar kapanınca geri gelir
+  await A.evaluate(() => {
+    storeSet('telsiz.djDock', 'tl')
+    djRender()
+  })
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'bl')
+  await A.keyboard.press('Escape')
+  await A.waitForFunction(() => !isSettingsOpen() && document.getElementById('dj').getAttribute('data-dock') === 'tl')
+  await A.evaluate(() => {
+    storeRemove('telsiz.djDock')
+    djRender()
+  })
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+  assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
+})
+
+test('orta genişlikte oynatıcı Oda bilgisi düğmesini ve ses düğmelerini örtmez, kısa pencerede görünüm alanında kalır', async () => {
+  const { A } = W
+  // Varsayılan köşe: sağ üstte yer varsa orası (sohbet başlığının altında), yoksa düğmeleri örtmeyen köşe
+  for (const vp of [[800, 1000], [900, 700], [1000, 700], [760, 600]]) {
+    await A.setViewportSize({ width: vp[0], height: vp[1] })
+    await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
+    await h.sleep(600)
+    const corner = await A.evaluate(() => document.getElementById('dj').getAttribute('data-dock'))
+    const where = vp.join('x') + ' ' + corner
+    if (vp[0] === 800) assert.equal(corner, 'tr', where)
+    assertDocked(await dockInfo(A))
+    for (const sel of VOICE_BUTTONS.concat(['#btn-room-info', '#composer-input'])) assert.equal(await h.reachable(A, sel), true, where + ' köşesinde ulaşılabilir: ' + sel)
+  }
+  // Kısa pencerede kutu bandın üstüne çıkar, çerçeve kırpılmaz ve motor oynatıcıyı görünür sayar
+  for (const vp of [[1100, 360], [1100, 320], [1100, 300]]) {
+    await A.setViewportSize({ width: vp[0], height: vp[1] })
+    for (const corner of [null, 'tl']) {
+      await A.evaluate((c) => {
+        if (c) storeSet('telsiz.djDock', c)
+        else storeRemove('telsiz.djDock')
+        djRender()
+      }, corner)
+      await h.sleep(600)
+      const info = await dockInfo(A)
+      assertDocked(info)
+      assert.equal(info.status, 'playing', vp.join('x') + ' ' + corner + ' çalıyor')
+    }
+  }
+  // Sonraki testler 1100x800 testinin bıraktığı seçimle (sağ üst) sürer
+  await A.evaluate(() => storeSet('telsiz.djDock', 'tr'))
+  await A.setViewportSize({ width: 1100, height: 800 })
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+  await fakePlaying(A, 'kısa pencereden sonra çalıyor')
+})
+
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
   })
   await B.mouse.move(title.x, title.y)

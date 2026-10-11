@@ -22,9 +22,11 @@
 // parçasının dalga biçimi ve altında başlık, duraklat, Taşı, Küçült ve "DJ'yi aç" düğmeleri olan çubuk)
 // yalnızca CSS sınıflarıyla dört köşeden birine sabitlenir (djApplyLayout, djPlaceDock). Kutu çubuğundan
 // sürüklenir ve en yakın köşeye oturur (dockDrag), köşe cihazda saklanır (telsiz.djDock), alt köşede yazma
-// alanının ve telsiz kartının üstüne çıkar. Küçültülen kutuda yalnızca çubuk kalır, YouTube parçası bu cihazda
-// bekletilir. Çerçeve ve ataları DOM'da hiç taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile
-// gizlenir. Böylece müzik ses odasından ayrılana kadar çalmaya devam eder.
+// alanının ve telsiz kartının üstüne çıkar, üst köşede bandın ve sohbet başlığının altında durur, yer oldukça
+// kartın düğmelerine inmez ve görünüm alanında kalır. Ayarlar gibi ana görünümü örten bir katman açıkken kutu
+// seçilen yandaki alt köşededir. Küçültülen kutuda yalnızca çubuk kalır, YouTube parçası bu cihazda bekletilir.
+// Çerçeve ve ataları DOM'da hiç taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir.
+// Böylece müzik ses odasından ayrılana kadar çalmaya devam eder.
 // Çizim: motorun parça ve durum olaylarında kart hemen çizilir, diğer değişiklikler bir sonraki karede
 // toplanır. Sayfa gizliyken (arka plandaki sekme, simge durumundaki pencere) tarayıcı kareleri bekletir,
 // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
@@ -1201,22 +1203,50 @@ function djSetFloat (on) {
   djStoreSet(DJ_FLOAT_KEY, on ? '1' : '0')
 }
 
-// Köşe: kişinin seçtiği köşe (cihazda saklanır), yoksa akıllı varsayılan. 760 ile 1279 piksel arasında telsiz
-// kartı sağ alttadır, oynatıcı sağ üstte bandın altında durur. Diğer genişliklerde sağ alt.
+// Köşe: kişinin seçtiği köşe (cihazda saklanır), yoksa akıllı varsayılan (djDockDefault)
 function djDockCorner () {
   const saved = djStoreGet(DJ_DOCK_KEY)
   if (DJ_CORNERS.indexOf(saved) !== -1) return saved
-  return window.innerWidth >= 760 && window.innerWidth < 1280 ? 'tr' : 'br'
+  return djDockDefault()
+}
+
+// Akıllı varsayılan: telsiz kartının düğmelerini, yazma alanını ve sohbet başlığındaki Oda bilgisi düğmesini
+// örtmeyen ilk köşe. 760 ile 1279 piksel arasında telsiz kartı sağ alttadır, önce sağ üst (bandın altı)
+// denenir. Diğer genişliklerde önce sağ alt. Hiçbiri uymazsa sıradaki ilk köşe.
+function djDockDefault () {
+  const mid = window.innerWidth >= 760 && window.innerWidth < 1280
+  const order = mid ? ['tr', 'br', 'tl', 'bl'] : ['br', 'tr', 'bl', 'tl']
+  const box = dj.ui ? dj.ui.float.getBoundingClientRect() : null
+  if (!box || !box.width || !box.height) return order[0]
+  // Ölçü YouTube oynatıcısının tam boyudur (çerçeve ve çubuk): köşe küçültünce veya dosya parçasında değişmez
+  const bar = dj.ui.dock.getBoundingClientRect().height
+  const size = { width: box.width, height: Math.max(box.height, bar > 0 ? 202 + bar : 0) }
+  const guards = djDockControls().concat(djDockCovered() ? [] : djDockBoxes([byId('btn-room-info')]))
+  for (const corner of order) {
+    const r = djDockSpot(corner, size).rect
+    if (!guards.some((g) => g.left < r.right && g.right > r.left && g.top < r.bottom && g.bottom > r.top)) return corner
+  }
+  return order[0]
+}
+
+// Kutunun bulunduğu köşe: Ayarlar, sayfalar veya bir pencere ana görünümü örterken üst köşe aynı yandaki alt
+// köşeye iner. Bu katmanların başlığı ve Kapat düğmesi üsttedir, Ayarlar içeriğe alttan kutu kadar pay bırakır
+// (dj.css), her satıra kaydırarak ulaşılır. Seçilen köşe değişmez, katman kapanınca kutu oraya döner.
+function djDockPlace () {
+  const corner = djDockCorner()
+  return djDockCovered() && corner.charAt(0) === 't' ? 'b' + corner.charAt(1) : corner
 }
 
 function djSetDockCorner (corner) {
   if (DJ_CORNERS.indexOf(corner) !== -1) djStoreSet(DJ_DOCK_KEY, corner)
 }
 
-// "Taşı": köşeler saat yönünde dolaşılır (klavyeyle de taşınabilsin)
+// "Taşı": köşeler saat yönünde dolaşılır (klavyeyle de taşınabilsin). Ana görünümü örten bir katman açıkken
+// kutu yalnızca alt köşelerde durduğu için iki alt köşe arasında geçer.
 function djMoveDock () {
-  const i = DJ_CORNERS.indexOf(djDockCorner())
-  djSetDockCorner(DJ_CORNERS[(i + 1) % DJ_CORNERS.length])
+  const order = djDockCovered() ? ['br', 'bl'] : DJ_CORNERS
+  const i = order.indexOf(djDockPlace())
+  djSetDockCorner(order[(i + 1) % order.length])
   djRenderNow()
 }
 
@@ -1301,14 +1331,16 @@ function djRemPx () {
   return isFinite(v) && v > 0 ? v : 15
 }
 
-// Köşedeki oynatıcının uzak durduğu öğeler: yazma alanı ve telsiz kartı (ses düğmeleri). Kartı bir katman
-// örtüyorsa (Ayarlar, sayfalar) bunlar görünmez, oynatıcı ekranın köşesindedir.
-function djDockObstacles () {
-  if (layers.some((layer) => layer.name !== 'sheet-dj')) return []
+// Ana görünümü örten bir katman açık mı (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici). Perdesiz
+// küçük katmanlar (DJ_POPOVER_LAYERS) ve DJ sayfası sayılmaz, onlar açıkken telsiz kartı ve yazma alanı görünür.
+function djDockCovered () {
+  return layers.some((layer) => layer.name !== 'sheet-dj' && DJ_POPOVER_LAYERS.indexOf(layer.name) === -1)
+}
+
+// Görünür öğelerin kutuları
+function djDockBoxes (nodes) {
   const out = []
-  const ids = ['composer', 'radio']
-  ids.forEach((id) => {
-    const n = byId(id)
+  nodes.forEach((n) => {
     if (!n || !n.getClientRects().length) return
     const r = n.getBoundingClientRect()
     if (r.width > 0 && r.height > 0) out.push(r)
@@ -1317,6 +1349,21 @@ function djDockObstacles () {
 }
 
 // Üst köşelerin sınırı: üst çubuk ve frekans bandının altı
+// Alt köşedeki kutunun üstüne çıktığı öğeler: yazma alanı ve telsiz kartı. Ana görünümü bir katman örtüyorsa
+// bunlar görünmez, oynatıcı ekranın köşesindedir.
+function djDockObstacles () {
+  return djDockCovered() ? [] : djDockBoxes([byId('composer'), byId('radio')])
+}
+
+// Kutunun hiçbir köşede inmediği düğmeler: telsiz kartındaki kadro (kişi başı ses ayarları), araç satırı
+// (Telsiz DJ, Büyüt) ve ses düğmeleri, yazma alanı. Kartın üstünde yer kalmazsa kutu kartın başlığını ve oda
+// adını örtebilir, düğmelerini örtmez.
+function djDockControls () {
+  if (djDockCovered()) return []
+  const buttons = Array.from(document.querySelectorAll('#radio-crew button, #radio-tools button, #radio-row button'))
+  return djDockBoxes([byId('composer')].concat(buttons))
+}
+
 function djDockTopLimit () {
   let limit = 0
   const nodes = [byId('top'), el.band || byId('band')]
@@ -1328,13 +1375,64 @@ function djDockTopLimit () {
   return limit
 }
 
-// Köşe ve uzaklıklar gövdeye yazılır (dj.css): üst köşelerde --dj-dock-top, alt köşelerde --dj-dock-lift. Alt
-// köşede kutu aynı yandaki yazma alanının ve telsiz kartının üstüne çıkar, sığmıyorsa üst sınıra kadar çıkar.
-// Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (--dj-dock-clear).
+// Sohbet başlığı (oda adı, şifreleme ve Oda bilgisi düğmesi)
+function djDockHead () {
+  if (djDockCovered() || !el.main) return null
+  const n = el.main.querySelector('.convo-head')
+  if (!n || !n.getClientRects().length) return null
+  const r = n.getBoundingClientRect()
+  return r.width > 0 && r.height > 0 ? r : null
+}
+
+// Kutunun köşedeki yeri (görünüm alanı koordinatları). Üst köşede kutu bandın altında, aynı hizadaysa sohbet
+// başlığının da altında durur. Alt köşede aynı yandaki yazma alanının ve telsiz kartının üstüne çıkar, sığmazsa
+// bu üst sınıra kadar çıkar. İki durumda da kartın düğmelerine ve yazma alanına inmez: yer yetmezse başlık
+// değil düğmeler korunur (kutu bandın altına kadar çıkar). Kutu görünüm alanında kalır (pencere kutudan alçak
+// değilse): kısa pencerede bandın üstüne çıkar, 200x200 çerçeve kırpılmaz. free: alt köşede önünde hiçbir şey yok.
+function djDockSpot (corner, box) {
+  const vw = document.documentElement.clientWidth || window.innerWidth
+  const vh = window.innerHeight
+  const gap = djRemPx()
+  const left = corner.charAt(1) === 'l' ? gap : vw - gap - box.width
+  const right = left + box.width
+  const across = (r) => r.left < right && r.right > left
+  const band = Math.round(djDockTopLimit() + gap)
+  let upper = band
+  const head = djDockHead()
+  if (head && across(head)) upper = Math.max(upper, Math.round(head.bottom + gap / 2))
+  let top = upper
+  let natural = null
+  let lifted = false
+  if (corner.charAt(0) === 'b') {
+    let bottom = vh - gap
+    djDockObstacles().forEach((r) => {
+      if (!across(r)) return
+      bottom = Math.min(bottom, r.top - gap / 2)
+      lifted = true
+    })
+    natural = Math.round(bottom - box.height)
+    top = Math.max(natural, upper)
+  }
+  let floor = Infinity
+  djDockControls().forEach((r) => {
+    if (across(r)) floor = Math.min(floor, r.top - gap / 2)
+  })
+  if (top + box.height > floor) top = Math.max(band, Math.round(floor - box.height))
+  top = Math.max(0, Math.min(top, Math.round(vh - box.height - gap)))
+  return {
+    top: top,
+    lift: Math.round(vh - top - box.height),
+    free: !lifted && top === natural,
+    rect: { left: left, right: right, top: top, bottom: top + box.height }
+  }
+}
+
+// Köşe ve uzaklıklar gövdeye yazılır (dj.css): üst köşelerde --dj-dock-top, alt köşelerde --dj-dock-lift
+// (djDockSpot). Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (--dj-dock-clear).
 function djPlaceDock (docked) {
   const body = document.body
   const node = el.dj
-  const corner = docked ? djDockCorner() : null
+  const corner = docked ? djDockPlace() : null
   body.classList.toggle('has-dj-dock', docked)
   body.classList.toggle('has-dj-dock-bottom', Boolean(corner) && corner.charAt(0) === 'b')
   djAttr(node, 'data-dock', corner)
@@ -1347,31 +1445,21 @@ function djPlaceDock (docked) {
     return
   }
   const box = dj.ui.float.getBoundingClientRect()
-  const vw = document.documentElement.clientWidth || window.innerWidth
-  const vh = window.innerHeight
-  const gap = djRemPx()
-  const top = Math.round(djDockTopLimit() + gap)
+  const spot = djDockSpot(corner, box)
   if (corner.charAt(0) === 't') {
-    body.style.setProperty('--dj-dock-top', top + 'px')
+    body.style.setProperty('--dj-dock-top', spot.top + 'px')
     body.style.removeProperty('--dj-dock-lift')
     body.style.removeProperty('--dj-dock-clear')
     body.classList.remove('has-dj-dock-lift')
     dj.dockBottom = null
     return
   }
-  const left = corner.charAt(1) === 'l' ? gap : vw - gap - box.width
-  const right = left + box.width
-  let lift = 0
-  djDockObstacles().forEach((r) => {
-    if (r.left < right && r.right > left) lift = Math.max(lift, Math.round(vh - r.top + gap / 2))
-  })
-  const maxLift = Math.round(vh - box.height - top)
-  if (lift > maxLift) lift = Math.max(Math.round(gap), maxLift)
-  const value = lift > 0 ? lift + 'px' : null
+  // Önünde bir şey yoksa kutu CSS'teki yerindedir (alt boşluk ve güvenli alan)
+  const value = spot.free ? null : spot.lift + 'px'
   if (value === null) body.style.removeProperty('--dj-dock-lift')
   else body.style.setProperty('--dj-dock-lift', value)
   body.classList.toggle('has-dj-dock-lift', value !== null)
-  body.style.setProperty('--dj-dock-clear', Math.round((lift > 0 ? lift : gap) + box.height + gap) + 'px')
+  body.style.setProperty('--dj-dock-clear', Math.round(spot.lift + box.height + djRemPx()) + 'px')
   dj.dockBottom = value
 }
 
