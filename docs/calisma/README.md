@@ -31,6 +31,8 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 
 Grupların sırası: önce G0 (`istek/a` üzerinde), sonra iki zincir paralel. Zincir A (`/home/user/wt/a`, dal `istek/a`): G2, G6, G7, G12, G14, G9, G10, G13. Zincir B (`/home/user/wt/b`, dal `istek/b`, G0'dan ayrılır): G1, G3, G4, G5, G8, G11, G16, G15. En sonda `istek/b` dalı `istek/a` dalına birleştirilir. Her grup uygulama, bağımsız inceleme ve düzeltme adımlarından geçer. Commit başlıkları "G<n>: ..." biçimindedir.
 
+İstek grupları 11 Ekim 13:00 UTC itibarıyla iki ayrı sıralı iş akışıyla sürüyor (`akislar/istek-zincir.js.txt`, args `{"zincir":"A"}` run wf_fba57d7a-84b ve `{"zincir":"B"}` run wf_8aeb66c2-fda). Bitenler: G0, G1, G2, G3, G4 (son düzeltme tamamlanıyor), G5 (inceleme bekliyor), G6, G7, G12. Kalanlar: A zincirinde G14 (belgeler), G9, G10, G13. B zincirinde G8, G11, G16, G15. İki zincir bitince istek/b dalı istek/a dalına elle birleştirilir.
+
 ## Kaldığı yerden devam
 
 1. `git log --oneline` ile hangi adımların commit'lendiğine bakılır. Tablodaki commit başlığı varsa adım bitmiştir.
