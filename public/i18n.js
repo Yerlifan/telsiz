@@ -51,6 +51,8 @@ window.I18N = (function () {
     'theme.skinHint.fosfor': 'Yeşil fosforlu tarayıcı ekranı, açık modda LCD.',
     'theme.skin.kutup': 'Kutup İstasyonu',
     'theme.skinHint.kutup': 'Buzul mavisi ve parka turuncusu araştırma istasyonu.',
+    'theme.skin.plak': 'Plak',
+    'theme.skinHint.plak': 'Patlıcan moru, gül pembesi ve altın yaldızlı gece plak yayını.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2021,6 +2023,8 @@ window.I18N = (function () {
     'theme.skinHint.fosfor': 'A green phosphor scanner screen, LCD in light mode.',
     'theme.skin.kutup': 'Polar Station',
     'theme.skinHint.kutup': 'A research station in glacier blue and parka orange.',
+    'theme.skin.plak': 'Vinyl',
+    'theme.skinHint.plak': 'A late-night vinyl show in aubergine, rose and gold.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
