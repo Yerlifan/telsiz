@@ -2,9 +2,11 @@
 
 // İçerik şikâyeti (POST /api/reports, GET /api/reports, POST /api/reports/resolve): üye okuyabildiği bir mesajı
 // (yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
-// Yetki (listeyi ve çözmeyi yalnızca sahip ve yöneticiler görür), alan denetimleri, aynı şikâyetin yinelenmemesi,
-// kullanıcı başına saatlik hız sınırı, notun yalnızca grup anahtarıyla mühürlü zarf olarak kabul edilmesi ve
-// diskte düz metin bulunmaması, özel görünümdeki açık şikâyet sayısı, kalıcılık ve 500 kayıt sınırı sınanır.
+// Yetki (listeyi ve çözmeyi yalnızca sahip ve yöneticiler görür, şikâyet edilen sahip veya yönetici kendisi
+// hakkındaki şikâyeti görmez ve çözemez), alan denetimleri, aynı şikâyetin yinelenmemesi, kullanıcı başına saatlik
+// hız sınırı ve açık şikâyet sınırı, notun yalnızca grup anahtarıyla mühürlü zarf olarak kabul edilmesi ve diskte
+// düz metin bulunmaması, özel görünümdeki açık şikâyet sayısı, kalıcılık ve 500 kayıt sınırı (dolu listede yer
+// açma, açılamazsa 503 ve saatlik hakkın harcanmaması) sınanır.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -283,8 +285,10 @@ describe('içerik şikâyeti', () => {
     try {
       const priv = async (who) => (await h.stateOf(ctx, who.token)).private
       assert.equal((await priv(owner)).reports, 0)
+      assert.equal((await priv(owner)).reportsLast, 0)
       assert.equal((await priv(admin)).reports, 0)
       assert.equal('reports' in (await priv(ayse)), false)
+      assert.equal('reportsLast' in (await priv(ayse)), false)
       const st = await h.stateOf(ctx, owner.token)
       const p = h.poller(ctx, owner.token, st)
       const waiting = h.nextRequest(ctx.server, '/api/poll')
@@ -295,10 +299,12 @@ describe('içerik şikâyeti', () => {
       const woke = await pending
       h.expectStatus(woke, 200)
       assert.equal(woke.data.private.reports, 1)
+      assert.equal(woke.data.private.reportsLast, res.data.id)
       assert.equal((await priv(admin)).reports, 1)
       assert.equal('reports' in (await priv(ayse)), false)
       h.expectStatus(await resolve(ctx, admin, res.data.id), 200)
       assert.equal((await priv(owner)).reports, 0)
+      assert.equal((await priv(owner)).reportsLast, res.data.id)
       // Yönetici olan üye sayıyı görür, üyeliğe dönen yönetici görmez
       h.expectStatus(await report(ctx, ayse, userReport(owner)), 200)
       await h.makeAdmin(ctx, owner.token, mehmet.user.id)
@@ -360,15 +366,134 @@ describe('içerik şikâyeti', () => {
       assert.equal(reports.length, 500)
       assert.equal(reports.some((r) => r.id === 105), false)
       assert.equal(reports[0].id, 599)
-      // Hepsi açıkken yeni şikâyet reddedilir
-      const full = await report(ctx, ali, userReport(ayse))
-      h.expectStatus(full, 503, 'reports_full')
+      // Hepsi açıkken en çok açık şikâyeti olan kişinin (ayse) en eski açık şikâyeti düşer
+      const crowded = await report(ctx, ali, userReport(ayse))
+      h.expectStatus(crowded, 200)
+      assert.equal(crowded.data.id, 600)
       reports = await list(ctx, owner)
       assert.equal(reports.length, 500)
+      assert.equal(reports.some((r) => r.id === first.data.id), false)
+      assert.equal(reports.filter((r) => r.reporterId === ayse.user.id).length, 498)
+      // Eski durum dosyasından gelen çok sayıdaki açık şikâyetine rağmen ayse yeni şikâyet açamaz
+      h.expectStatus(await report(ctx, ayse, userReport(ali)), 409, 'too_many_open_reports')
       // Çözülen yer açar
       h.expectStatus(await resolve(ctx, owner, 120), 200)
-      h.expectStatus(await report(ctx, ali, userReport(ayse)), 200)
+      h.expectStatus(await report(ctx, ali, userReport(owner)), 200)
       assert.equal((await list(ctx, owner)).some((r) => r.id === 120), false)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('liste açık şikâyetlerle doluyken yer açılamazsa 503 döner ve saatlik hak harcanmaz', async () => {
+    let ctx = await h.startServer({ reportLimit: 1 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
+      const ali = await h.addUser(ctx, owner.token, 'ali')
+      const first = await report(ctx, ayse, userReport(mehmet))
+      h.expectStatus(first, 200)
+      // 500 farklı kişinin birer açık şikâyeti: kimse ötekinden fazla şikâyet açmamış
+      await ctx.stop()
+      const disk = diskState(ctx)
+      const base = disk.reports[0]
+      disk.reports = h.times(500).map((i) => Object.assign({}, base, { id: 10 + i, reporterId: 1000 + i, createdAt: base.createdAt + i }))
+      fs.writeFileSync(statePath(ctx), JSON.stringify(disk))
+      ctx = await h.startServer({ reportLimit: 1 }, ctx.root)
+      assert.equal((await list(ctx, owner)).length, 500)
+      h.expectStatus(await report(ctx, ali, userReport(mehmet)), 503, 'reports_full')
+      // 503 saatlik hakkı harcamadı: yer açılınca aynı saat içinde gönderilir
+      h.expectStatus(await resolve(ctx, owner, 10), 200)
+      const next = await report(ctx, ali, userReport(mehmet))
+      h.expectStatus(next, 200)
+      const reports = await list(ctx, owner)
+      assert.equal(reports.length, 500)
+      assert.equal(reports.some((r) => r.id === 10), false)
+      assert.equal(reports[0].id, next.data.id)
+      // Hak şimdi harcandı
+      h.expectStatus(await resolve(ctx, owner, 11), 200)
+      h.expectStatus(await report(ctx, ali, userReport(ayse)), 429, 'rate_limited')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('kişi başına en çok 20 açık şikâyet, yineleme ve çözme sınırı etkilemez', async () => {
+    const { ctx, admin, ayse, mehmet, ali } = await group({ reportLimit: 100, messageLimit: 100 })
+    try {
+      const msgs = []
+      for (const i of h.times(21)) msgs[i] = await h.sendMessage(ctx, mehmet.token, TEXT)
+      const ids = []
+      for (const i of h.times(20)) {
+        const res = await report(ctx, ayse, messageReport(msgs[i]))
+        h.expectStatus(res, 200)
+        ids.push(res.data.id)
+      }
+      const over = await report(ctx, ayse, messageReport(msgs[20]))
+      h.expectStatus(over, 409, 'too_many_open_reports')
+      assert.equal(over.data.error, i18n.t('en', 'errors.too_many_open_reports', { max: 20 }))
+      // Sınırdayken yinelenen şikâyet eski kimliği döner
+      assert.deepEqual((await report(ctx, ayse, messageReport(msgs[0]))).data, { ok: true, id: ids[0], duplicate: true })
+      // Başkasının sınırı ayrıdır
+      h.expectStatus(await report(ctx, ali, messageReport(msgs[20])), 200)
+      // Çözülen şikâyet sınırdan düşer
+      h.expectStatus(await resolve(ctx, admin, ids[0]), 200)
+      h.expectStatus(await report(ctx, ayse, messageReport(msgs[20])), 200)
+      h.expectStatus(await report(ctx, ayse, userReport(mehmet)), 409, 'too_many_open_reports')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('şikâyet edilen sahip veya yönetici kendisi hakkındaki şikâyeti görmez, çözemez ve poll\'u uyanmaz', async () => {
+    const { ctx, owner, admin, ayse, mehmet } = await group()
+    try {
+      const pm = await h.sendMessage(ctx, admin.token, TEXT)
+      const adminPmv = (await h.stateOf(ctx, admin.token)).pmv
+      const aboutAdmin = await report(ctx, ayse, userReport(admin))
+      h.expectStatus(aboutAdmin, 200)
+      const aboutAdminMsg = await report(ctx, ayse, messageReport(pm, { reason: 'harassment' }))
+      h.expectStatus(aboutAdminMsg, 200)
+      // Sahip ikisini görür, yönetici hiçbirini görmez ve özel görünümü değişmez
+      assert.deepEqual((await list(ctx, owner)).map((r) => r.id), [aboutAdminMsg.data.id, aboutAdmin.data.id])
+      assert.deepEqual(await list(ctx, admin), [])
+      let adminState = await h.stateOf(ctx, admin.token)
+      assert.equal(adminState.pmv, adminPmv)
+      assert.equal(adminState.private.reports, 0)
+      assert.equal(adminState.private.reportsLast, 0)
+      // Kendisi hakkındaki şikâyeti çözemez, şikâyet yokmuş gibi yanıt alır
+      h.expectStatus(await resolve(ctx, admin, aboutAdmin.data.id), 404, 'report_not_found')
+      assert.equal((await list(ctx, owner))[1].resolvedAt, null)
+
+      // Sahip hakkındaki şikâyeti yalnızca yönetici görür ve çözer, sahibin görünümü değişmez
+      const ownerPmv = (await h.stateOf(ctx, owner.token)).pmv
+      const aboutOwner = await report(ctx, mehmet, userReport(owner))
+      h.expectStatus(aboutOwner, 200)
+      assert.deepEqual((await list(ctx, admin)).map((r) => r.id), [aboutOwner.data.id])
+      assert.equal((await list(ctx, owner)).some((r) => r.id === aboutOwner.data.id), false)
+      let ownerState = await h.stateOf(ctx, owner.token)
+      assert.equal(ownerState.pmv, ownerPmv)
+      assert.equal(ownerState.private.reports, 2)
+      assert.equal(ownerState.private.reportsLast, aboutAdminMsg.data.id)
+      adminState = await h.stateOf(ctx, admin.token)
+      assert.equal(adminState.private.reports, 1)
+      assert.equal(adminState.private.reportsLast, aboutOwner.data.id)
+      h.expectStatus(await resolve(ctx, owner, aboutOwner.data.id), 404, 'report_not_found')
+      h.expectStatus(await resolve(ctx, admin, aboutOwner.data.id), 200)
+      ownerState = await h.stateOf(ctx, owner.token)
+      assert.equal(ownerState.pmv, ownerPmv)
+      assert.equal((await h.stateOf(ctx, admin.token)).private.reports, 0)
+
+      // Yönetici yapılan üye kendisi hakkındaki eski şikâyetleri görmez
+      const aboutMehmet = await report(ctx, ayse, userReport(mehmet))
+      h.expectStatus(aboutMehmet, 200)
+      await h.makeAdmin(ctx, owner.token, mehmet.user.id)
+      const seen = await list(ctx, mehmet)
+      assert.equal(seen.some((r) => r.targetUserId === mehmet.user.id), false)
+      assert.deepEqual(seen.map((r) => r.id).sort((a, b) => a - b), [aboutAdmin.data.id, aboutAdminMsg.data.id, aboutOwner.data.id])
+      assert.equal((await h.stateOf(ctx, mehmet.token)).private.reports, 2)
+      h.expectStatus(await resolve(ctx, mehmet, aboutMehmet.data.id), 404, 'report_not_found')
     } finally {
       await ctx.cleanup()
     }

@@ -100,6 +100,7 @@ const messages = {
       bad_report_note: 'Şikâyet notu geçersiz veya çok uzun.',
       report_not_found: 'Şikâyet bulunamadı.',
       reports_full: 'Şikâyet listesi dolu. Frekans sahibi ve yöneticiler açık şikâyetleri çözünce yeniden deneyin.',
+      too_many_open_reports: 'Aynı anda en fazla {max} açık şikâyetiniz olabilir. Frekans sahibi ve yöneticiler şikâyetlerinizi çözünce yeniden deneyin.',
       shutting_down: 'Sunucu kapanıyor.',
       server_error: 'Sunucuda beklenmeyen bir hata oluştu.'
     },
@@ -360,6 +361,7 @@ const messages = {
       bad_report_note: 'The report note is invalid or too long.',
       report_not_found: 'Report not found.',
       reports_full: 'The report list is full. Try again after the frequency owner and admins resolve open reports.',
+      too_many_open_reports: 'You can have at most {max} open reports at a time. Try again after the frequency owner and admins resolve your reports.',
       shutting_down: 'The server is shutting down.',
       server_error: 'An unexpected error occurred on the server.'
     },

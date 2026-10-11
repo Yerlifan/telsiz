@@ -109,11 +109,11 @@ const settingsUi = {
   metaUserKey: '',
   adminRefreshAt: 0,
   // Şikâyetler (yalnızca sahip ve yöneticiler): GET /api/reports listesi, yüklenirken true, hata metni üreticisi,
-  // son yüklemede görülen açık şikâyet sayısı (özel görünüm) ve yükleme kuşağı
+  // son yüklemede görülen özel görünüm işareti (açık şikâyet sayısı ve en yeni şikâyetin kimliği) ve yükleme kuşağı
   reports: null,
   reportsLoading: false,
   reportsError: null,
-  reportsSeen: -1,
+  reportsSeen: '',
   reportsGen: 0
 }
 
@@ -4256,13 +4256,21 @@ function resetReports () {
   settingsUi.reports = null
   settingsUi.reportsLoading = false
   settingsUi.reportsError = null
-  settingsUi.reportsSeen = -1
+  settingsUi.reportsSeen = ''
 }
 
 function reportsOpenCount () {
   if (typeof priv !== 'function') return 0
   const p = priv()
   return p && typeof p.reports === 'number' ? p.reports : 0
+}
+
+// Özel görünümdeki açık şikâyet sayısı ve görülebilen en yeni şikâyetin kimliği. Biri değişince liste yeniden
+// alınır (liste doluyken yeni şikâyet eski bir açık şikâyetin yerini aldığında sayı aynı kalır, kimlik değişir).
+function reportsMark () {
+  const p = typeof priv === 'function' ? priv() : null
+  const last = p && typeof p.reportsLast === 'number' ? p.reportsLast : 0
+  return reportsOpenCount() + ':' + last
 }
 
 function validReport (r) {
@@ -4274,7 +4282,7 @@ async function loadReports () {
   settingsUi.reportsGen += 1
   const gen = settingsUi.reportsGen
   settingsUi.reportsLoading = true
-  settingsUi.reportsSeen = reportsOpenCount()
+  settingsUi.reportsSeen = reportsMark()
   const res = await api('GET', '/api/reports')
   if (gen !== settingsUi.reportsGen) return
   settingsUi.reportsLoading = false
@@ -4409,7 +4417,7 @@ function buildReportsSection (page) {
     const staff = isAdmin()
     sec.hidden = !staff
     if (!staff) return
-    if (!settingsUi.reportsLoading && (settingsUi.reports === null || reportsOpenCount() !== settingsUi.reportsSeen)) loadReports()
+    if (!settingsUi.reportsLoading && (settingsUi.reports === null || reportsMark() !== settingsUi.reportsSeen)) loadReports()
     const all = settingsUi.reports || []
     const open = all.filter((r) => r.resolvedAt === null)
     const done = all.filter((r) => r.resolvedAt !== null)
@@ -4442,7 +4450,7 @@ function buildReportsSection (page) {
     signature: () => {
       if (!isAdmin()) return 'x'
       const rows = (settingsUi.reports || []).map((r) => [r.id, r.resolvedAt, r.resolvedBy, r.reporterName, r.targetName].join(':')).join(',')
-      return [reportsOpenCount(), settingsUi.reports === null ? 'n' : rows, settingsUi.reportsLoading ? 'l' : '', settingsUi.reportsError ? 'e' : '', activeKid() || ''].join('|')
+      return [reportsMark(), settingsUi.reports === null ? 'n' : rows, settingsUi.reportsLoading ? 'l' : '', settingsUi.reportsError ? 'e' : '', activeKid() || ''].join('|')
     }
   }
 }

@@ -193,6 +193,8 @@ const MANAGED_TYPES = new Set(['text', 'voice'])
 const REPORT_KINDS = new Set(['message', 'user'])
 const REPORT_REASONS = new Set(['spam', 'harassment', 'illegal', 'other'])
 const REPORTS_MAX = 500
+// Bir kişinin aynı anda açık tutabileceği en çok şikâyet (tek kişi listeyi dolduramasın)
+const REPORTS_OPEN_PER_USER = 20
 const REPORT_NOTE_MAX_CHARS = 12000
 const IDENTITY_MAX_CHARS = 2000
 // Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
@@ -1273,8 +1275,13 @@ async function createChatServer (options) {
       view = user
         ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
         : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
-      // Sahip ve yöneticiler açık şikâyet sayısını görür (liste GET /api/reports ile alınır)
-      if (user && !user.deleted && isStaff(user)) view.reports = openReportCount()
+      // Sahip ve yöneticiler kendileri hakkında olmayan açık şikâyetlerin sayısını ve gördükleri en yeni şikâyetin
+      // kimliğini alır (liste GET /api/reports ile alınır)
+      if (user && !user.deleted && isStaff(user)) {
+        const seen = reportSummaryFor(user.id)
+        view.reports = seen.open
+        view.reportsLast = seen.last
+      }
       privateCache.set(userId, view)
     }
     return view
@@ -3027,12 +3034,66 @@ async function createChatServer (options) {
     return state.users.filter((u) => !u.deleted && isStaff(u)).map((u) => u.id)
   }
 
-  function openReportCount () {
+  // Şikâyet edilen kişi kendisi hakkındaki şikâyeti görmez ve çözemez (sahip veya yönetici olsa da)
+  function reportVisibleTo (r, userId) {
+    return r.targetUserId !== userId
+  }
+
+  // Görevlinin görebildiği açık şikâyet sayısı ve görebildiği en yeni şikâyetin kimliği (yoksa 0). Liste
+  // oluşturulma sırasıyla tutulduğu için en yeni kayıt en sondadır.
+  function reportSummaryFor (userId) {
+    let open = 0
+    let last = 0
+    for (const r of state.reports) {
+      if (!reportVisibleTo(r, userId)) continue
+      if (r.resolvedAt === null) open++
+      last = r.id
+    }
+    return { open, last }
+  }
+
+  // Şikâyet listesi değişmeden önce görevlilerin özetleri alınır, değişiklikten sonra yalnızca özeti değişenlerin
+  // özel görünümü yenilenir (şikâyet edilen görevlinin poll'u kendisi hakkındaki şikâyetle uyanmaz)
+  function reportSummaries () {
+    return new Map(staffIds().map((id) => [id, reportSummaryFor(id)]))
+  }
+
+  function reportsChanged (before) {
+    const changed = []
+    for (const [id, was] of before) {
+      const now = reportSummaryFor(id)
+      if (now.open !== was.open || now.last !== was.last) changed.push(id)
+    }
+    privateChanged(changed)
+  }
+
+  function openReportsBy (userId) {
     let n = 0
     for (const r of state.reports) {
-      if (r.resolvedAt === null) n++
+      if (r.resolvedAt === null && r.reporterId === userId) n++
     }
     return n
+  }
+
+  // Liste doluysa yer açılacak kaydın sırası, yer açılamıyorsa -1. Önce en eski çözülmüş şikâyet düşer. Hepsi
+  // açıksa en çok açık şikâyeti olan kişinin en eski açık şikâyeti düşer, ama yalnızca yeni şikâyetle birlikte
+  // bildirenin açık şikâyeti o kişininkinden az kalacaksa. Böylece birkaç hesap listeyi doldurup herkesin
+  // şikâyetini engelleyemez, eşit sayıda şikâyeti olan iki kişi de birbirinin kaydını düşüremez.
+  function reportSlotToFree (reporterId) {
+    const resolved = state.reports.findIndex((r) => r.resolvedAt !== null)
+    if (resolved !== -1) return resolved
+    const counts = new Map()
+    for (const r of state.reports) counts.set(r.reporterId, (counts.get(r.reporterId) || 0) + 1)
+    let top = null
+    let topCount = 0
+    for (const [id, n] of counts) {
+      if (n > topCount) {
+        top = id
+        topCount = n
+      }
+    }
+    if (top === null || top === reporterId || (counts.get(reporterId) || 0) + 1 >= topCount) return -1
+    return state.reports.findIndex((r) => r.reporterId === top)
   }
 
   function takeReportSlot (ctx) {
@@ -3072,8 +3133,10 @@ async function createChatServer (options) {
   // yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
   // Sunucu kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini görür. note grup anahtarıyla mühürlü bir zarftır
   // (düz metin kabul edilmez), özel mesaj şikâyetinde kişi mesajın çözülmüş metnini isterse bu nota koyar. Aynı
-  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz. Liste doluysa en eski çözülmüş şikâyet
-  // düşer, hepsi açıksa 503 reports_full döner.
+  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz, yanıt eski kaydın kimliğini döner. Bir
+  // kişinin en çok REPORTS_OPEN_PER_USER açık şikâyeti olabilir (409). Liste doluysa reportSlotToFree bir kayıt
+  // düşürür, düşüremezse 503 reports_full döner. Bu iki ret saatlik hakkı harcamaz. Şikâyet edilen sahip veya
+  // yöneticinin poll'u bu şikâyetle uyanmaz (kendisi hakkındaki şikâyeti görmez).
   function handleReportCreate (ctx) {
     const b = ctx.body
     if (!REPORT_KINDS.has(b.kind) || !REPORT_REASONS.has(b.reason)) return fail(ctx, 400, 'bad_request')
@@ -3097,12 +3160,12 @@ async function createChatServer (options) {
     const same = state.reports.find((r) => r.resolvedAt === null && r.reporterId === ctx.user.id && r.kind === b.kind &&
       (found ? r.messageId === messageId : r.targetUserId === target.id))
     if (same) return ok(ctx, { ok: true, id: same.id, duplicate: true })
+    if (openReportsBy(ctx.user.id) >= REPORTS_OPEN_PER_USER) return fail(ctx, 409, 'too_many_open_reports', null, null, { max: REPORTS_OPEN_PER_USER })
+    const free = state.reports.length >= REPORTS_MAX ? reportSlotToFree(ctx.user.id) : null
+    if (free === -1) return fail(ctx, 503, 'reports_full')
     if (!takeReportSlot(ctx)) return
-    if (state.reports.length >= REPORTS_MAX) {
-      const oldest = state.reports.findIndex((r) => r.resolvedAt !== null)
-      if (oldest === -1) return fail(ctx, 503, 'reports_full')
-      state.reports.splice(oldest, 1)
-    }
+    const before = reportSummaries()
+    if (free !== null) state.reports.splice(free, 1)
     state.counters.report++
     const report = {
       id: state.counters.report,
@@ -3120,27 +3183,30 @@ async function createChatServer (options) {
     }
     state.reports.push(report)
     store.saveState()
-    privateChanged(staffIds())
+    reportsChanged(before)
     return okDurable(ctx, { ok: true, id: report.id })
   }
 
-  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce
+  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce. Kişi kendisi hakkındaki şikâyetleri görmez.
   function handleReportsList (ctx) {
     if (!requireStaff(ctx)) return
-    ok(ctx, { reports: state.reports.slice().reverse().map(reportView) })
+    const reports = state.reports.filter((r) => reportVisibleTo(r, ctx.user.id))
+    ok(ctx, { reports: reports.reverse().map(reportView) })
   }
 
-  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz.
+  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz. Kişinin
+  // kendisi hakkındaki şikâyet ona yokmuş gibi 404 döner (liste de onu göstermez).
   function handleReportResolve (ctx) {
     if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
     const id = toId(ctx.body.id)
     const report = id === null ? null : state.reports.find((r) => r.id === id) || null
-    if (!report) return fail(ctx, 404, 'report_not_found')
+    if (!report || !reportVisibleTo(report, ctx.user.id)) return fail(ctx, 404, 'report_not_found')
     if (report.resolvedAt === null) {
+      const before = reportSummaries()
       report.resolvedAt = ctx.now
       report.resolvedBy = ctx.user.id
       store.saveState()
-      privateChanged(staffIds())
+      reportsChanged(before)
     }
     return okDurable(ctx, { ok: true, report: reportView(report) })
   }
