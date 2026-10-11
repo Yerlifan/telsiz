@@ -434,8 +434,8 @@
   --mention-line: #a35f00;
   --focus: #161b26;
   --focus-halo: rgba(242, 169, 59, 0.45);
-  --ok: #17904f;
-  --idle: #b86e00;
+  --ok: #178e4e;
+  --idle: #b36b00;
   --dnd: #cf2f2a;
   --offline: #7a7466;
   --live: #0e6a3d;
@@ -526,7 +526,7 @@
   --viewer-bg: rgba(3, 10, 12, 0.94);
   --line: #213e46;
   --line-strong: #2b4c55;
-  --edge: #5f858d;
+  --edge: #658a92;
   --text: #ecf2ef;
   --text-2: #b6c9c5;
   --text-3: #95aea9;
@@ -558,7 +558,7 @@
   --live-bg: rgba(111, 211, 146, 0.1);
   --live-edge: #58a877;
   --speaking-bg: rgba(111, 211, 146, 0.08);
-  --danger: #f2826b;
+  --danger: #f2856f;
   --danger-bg: #36211f;
   --danger-edge: #c86f5d;
   --danger-fill: #f2826b;
@@ -637,7 +637,7 @@
   --idle: #85570a;
   --dnd: #a9351f;
   --offline: #7d776b;
-  --live: #1d6633;
+  --live: #1c6332;
   --live-bg: rgba(29, 102, 51, 0.1);
   --live-edge: #3f7a4d;
   --speaking-bg: rgba(29, 102, 51, 0.08);
@@ -725,7 +725,9 @@ html[data-font-size="custom"] {
 
 /*
   Özel rol renkleri (Ayarlar > Roller): bütün temalarda aynı sekiz renk, koyu ve açık mod için ayrı tonlar.
-  Rozet yazısı bu renkte, zemin saydam olduğundan değerler her yüzeyde okunacak açıklıkta seçildi.
+  Rozet yazısı bu renkte, zemin saydam olduğundan değerler her yüzeyde (üzerine gelme ve seçili zeminler dahil)
+  en az 4.5:1 verecek açıklıkta seçildi (scripts/kontrast.js). Zemini bu değerlere uymayan bir tema (ör. Fosfor açık,
+  Yüksek Kontrast) sekiz rengi kendi bloğunda ezer.
 */
 :root {
   --role-red: #ff8f8f;
@@ -739,12 +741,24 @@ html[data-font-size="custom"] {
 }
 
 :root[data-scheme="light"] {
-  --role-red: #b42318;
-  --role-orange: #a14a00;
-  --role-yellow: #765a00;
-  --role-green: #16723d;
-  --role-teal: #0b6c64;
+  --role-red: #b22318;
+  --role-orange: #964500;
+  --role-yellow: #755900;
+  --role-green: #146a39;
+  --role-teal: #0b6860;
   --role-blue: #1f56c0;
-  --role-purple: #6a3fd2;
-  --role-pink: #ad236d;
+  --role-purple: #683ece;
+  --role-pink: #aa226b;
+}
+
+/*
+  Telsiz kartı düğmelerinin tonları (radio.css tone-*): Kamera, Mikrofon, Sağırlaştır ve Ekran düğmesinin simge ve
+  kenar rengi. Varsayılanları özel rol renkleridir, bu yüzden moda göre değişir. Bir tema rol renklerini veya
+  yalnızca tonları kendi bloğunda ezebilir.
+*/
+:root {
+  --tone-camera: var(--role-blue);
+  --tone-mic: var(--role-green);
+  --tone-deafen: var(--role-purple);
+  --tone-screen: var(--role-orange);
 }
