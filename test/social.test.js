@@ -5,7 +5,8 @@
 // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
 // kimliği, sabitlenmiş anahtarlar, eski anahtar), Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
-// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı sınanır.
+// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı ve Telsiz DJ
+// kaydının parça adı belleği (23-dj.js djLiveTitle, motor taklit edilir) sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -18,7 +19,7 @@ const PUB = path.join(__dirname, '..', 'public')
 const FILES = [
   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
   'js/01-core.js', 'js/02-state-dom.js', 'js/06-messages.js',
-  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/28-bildirim.js'
+  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/23-dj.js', 'js/28-bildirim.js'
 ]
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 
@@ -272,6 +273,41 @@ test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düze
   assert.strictEqual(mark({ createdAt: at, editedAt: at + 3 * 24 * 60 * min }, true), true)
   // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
   assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
+})
+
+test('Telsiz DJ kaydı ve son işlem satırı: parçanın adı kuyruktan çıkınca korunur, adsız parça türüyle yazılır', () => {
+  const { run } = load()
+  // Motor taklidi: djEngine kurulu motoru döndürür, kuyruk window.djq'dan okunur
+  run("window.djq = { current: { id: 'y1', type: 'youtube', title: '' }, queue: [] }")
+  run('dj.engine = { queue: () => window.djq, serverNow: () => Date.now() }')
+  const title = (expr) => {
+    const text = run(expr)
+    return text.slice(text.lastIndexOf(': ') + 2)
+  }
+  // YouTube parçasının adı ekleme anında bilinmez, oynatıcı bildirince gelir, parça bitince kayıtta kalır
+  run("activityDj(2, '9', 'y1', '', null)")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'YouTube videosu')
+  run("window.djq.current.title = 'Lobi teması'")
+  run('activityDjRefresh()')
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Lobi teması')
+  // Adı boş dosya parçası kuyruktan çıkınca da "Ses dosyası" olarak kalır (tür bildirim anında kayda yazılır)
+  run("window.djq = { current: null, queue: [{ id: 'f1', type: 'file', title: '' }] }")
+  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'f1', title: '', at: 0 })")
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Ses dosyası')
+  assert.strictEqual(title('dj.notice()'), 'Ses dosyası')
+  // Karttaki son işlem satırı: kendiliğinden biten parçanın bildirimi yoktur, satır ekleme bildiriminde kalır
+  run("window.djq = { current: { id: 'y2', type: 'youtube', title: '' }, queue: [] }")
+  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'y2', title: '', at: 0 })")
+  assert.strictEqual(title('dj.notice()'), 'YouTube videosu')
+  // Ad gelince motor değişiklik olayı verir: kart çizilir, Bildirimler kayıtları yenilenir
+  run("window.djq.current.title = 'Gece yayını'")
+  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
+  run('activityDjRefresh()')
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Gece yayını')
 })
 
 test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayıtlarla listeden düşmez', () => {

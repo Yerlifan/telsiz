@@ -80,24 +80,34 @@ function activityShare (userId, on) {
   if (on || activityState.items.length !== before) renderActivity()
 }
 
-// Telsiz DJ: aynı ses odasında başkası kuyruğa parça ekledi
-function activityDj (userId, channelId, trackId, title) {
+// Telsiz DJ: aynı ses odasında başkası kuyruğa parça ekledi. title ve type kaydın parça belleğidir (23-dj.js
+// djLiveTitle doldurur): ad sonradan gelince kayda yazılır, parça kuyruktan çıkınca kayıt bu adı gösterir.
+function activityDj (userId, channelId, trackId, title, type) {
   if (userId === null || userId === undefined) return
-  activityAdd({ kind: 'dj', userId: String(userId), channelId: channelId === null || channelId === undefined ? null : String(channelId), trackId: trackId || null, title: title || '' })
+  activityAdd({
+    kind: 'dj',
+    userId: String(userId),
+    channelId: channelId === null || channelId === undefined ? null : String(channelId),
+    trackId: trackId || null,
+    title: typeof title === 'string' ? title : '',
+    type: type === 'youtube' || type === 'file' ? type : null
+  })
   renderActivity()
 }
 
-// Telsiz DJ kayıtlarının metni yenilenir (parçanın adı ekleme anında bilinmeyebilir, sonradan gelir)
+// Motorun her durum değişikliğinde Telsiz DJ kayıtları yenilenir: parçanın adı ekleme anında bilinmeyebilir,
+// sonradan gelir. Kaydın belleği liste çizilmemiş olsa da güncellenir, parça kuyruktan çıkınca ad korunur.
 function activityDjRefresh () {
+  const texts = new Map()
+  activityState.items.forEach((item) => {
+    if (item.kind === 'dj') texts.set(item.id, activityText(item))
+  })
   const list = el.activityList
-  if (!list || !activityState.items.some((item) => item.kind === 'dj')) return
+  if (!list || !texts.size) return
   Array.from(list.children).forEach((li) => {
-    const id = Number(li.getAttribute('data-activity-id'))
-    const item = activityState.items.filter((x) => x.id === id && x.kind === 'dj')[0]
-    const text = item ? li.querySelector('.activity-text') : null
-    if (!text) return
-    const value = activityText(item)
-    if (text.textContent !== value) text.textContent = value
+    const value = texts.get(Number(li.getAttribute('data-activity-id')))
+    const text = value === undefined ? null : li.querySelector('.activity-text')
+    if (text && text.textContent !== value) text.textContent = value
   })
 }
 
@@ -122,7 +132,8 @@ function activityShown () {
 function activityText (item) {
   const name = shownName(item.userId)
   if (item.kind === 'share') return t('activity.share', { name: name })
-  if (item.kind === 'dj') return t('activity.djAdd', { name: name, title: typeof djLiveTitle === 'function' ? djLiveTitle(item.trackId, item.title) : item.title })
+  // Kayıt djLiveTitle'a parça belleği olarak verilir (ad ve tür kayda yazılır)
+  if (item.kind === 'dj') return t('activity.djAdd', { name: name, title: typeof djLiveTitle === 'function' ? djLiveTitle(item.trackId, item) : item.title })
   const room = findChannel(item.channelId)
   const roomName = room && room.name ? String(room.name) : t('activity.voiceRoom')
   return t(item.kind === 'join' ? 'activity.join' : 'activity.leave', { name: name, room: roomName })

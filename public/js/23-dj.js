@@ -1110,11 +1110,19 @@ function djLiveTrack (trackId) {
   return all.filter((tr) => tr && tr.id === trackId)[0] || null
 }
 
-// Parçanın gösterilecek adı: kuyruktaysa güncel adı, değilse bildirimin taşıdığı ad
-function djLiveTitle (trackId, fallback) {
+// Parçanın gösterilecek adı. seen, adı gösteren kaydın kendi belleğidir ({ title, type }: Bildirimler kaydı
+// veya karttaki son işlem satırı). Parça kuyruktayken güncel adı ve türü bu belleğe yazılır, böylece parça
+// kuyruktan çıkınca (bitti, geçildi, durduruldu) kayıt en son bilinen adı gösterir. Ad hiç bilinmediyse metin
+// parçanın türüne göre seçilir ("YouTube videosu" veya "Ses dosyası").
+function djLiveTitle (trackId, seen) {
+  const memo = seen && typeof seen === 'object' ? seen : {}
   const track = djLiveTrack(trackId)
-  if (track) return djTrackTitle(track)
-  return fallback || t('music.untitledYouTube')
+  if (track) {
+    if (track.type === 'youtube' || track.type === 'file') memo.type = track.type
+    if (track.title) memo.title = track.title
+  }
+  if (memo.title) return memo.title
+  return t(memo.type === 'file' ? 'music.untitledFile' : 'music.untitledYouTube')
 }
 
 function djOnNotice (n) {
@@ -1123,14 +1131,16 @@ function djOnNotice (n) {
   if (!hasText(key)) return
   const by = n.by
   const trackId = n.trackId || null
-  const title = n.title || ''
-  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
+  // Satırın kendi belleği: bildirimin taşıdığı ad, parça kuyruktaysa şimdiki adı ve türü
+  const seen = { title: typeof n.title === 'string' ? n.title : '', type: null }
+  djLiveTitle(trackId, seen)
+  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, seen) })
   djRenderSoon()
   // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının az önce eklediği parça. Odaya katılınca
   // veya sayfa yenilenince gelen eski işlemin bildirimi listeye yazılmaz.
   const engine = djEngine()
   const fresh = !n.at || !engine || engine.serverNow() - n.at < DJ_NOTICE_FRESH_MS
-  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, title)
+  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, seen.title, seen.type)
 }
 
 // ------------------------------------------------------------------ yerleşim ve sayfa

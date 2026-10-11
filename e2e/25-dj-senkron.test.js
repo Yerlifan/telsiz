@@ -9,6 +9,7 @@
 // plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
 // parçayı izler ve gizlilik ayarı kapalıyken boşalır. Kilit ekranının ve medya tuşlarının Duraklat ve Oynat
 // işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), bekletme ses odasından çıkınca kalkar.
+// Kendiliğinden biten parçanın adı karttaki son işlem satırında ve Bildirimler kaydında kalır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -389,6 +390,34 @@ test('arka planda iki dosya parçası art arda aynı ses öğesinde çalar, kili
     window.requestAnimationFrame = window.e2eRaf
     document.dispatchEvent(new Event('visibilitychange'))
   })
+})
+
+test('kendiliğinden biten YouTube parçasının adı karttaki son işlem satırında ve Bildirimler kaydında kalır', async () => {
+  const { A, B } = W
+  const VID = 'D006aaaaaaa'
+  const me = await A.evaluate(() => userDisplayName(state.me.id))
+  // Önceki parça durdurulur, yeni parça boş oturuma eklenir (altı saniyelik sahte video)
+  await A.evaluate(() => (dj.engine.queue().current ? dj.engine.stop() : null))
+  await B.waitForFunction(() => !dj.engine.queue().current, null, { timeout: h.LONG })
+  await addTrack(A, VID)
+  await fakePaused(B, VID, false, 'B çalıyor')
+  const line = me + ' kuyruğa ekledi: Fake video ' + VID
+  const record = me + ' Telsiz DJ kuyruğuna ekledi: Fake video ' + VID
+  await B.waitForFunction((text) => document.querySelector('#dj .dj-last').textContent === text, line, { timeout: h.LONG })
+  const id = await (await B.waitForFunction((text) => {
+    const li = Array.from(document.querySelectorAll('#activity .activity-item.is-dj')).filter((n) => n.querySelector('.activity-text').textContent === text)[0]
+    return li ? li.getAttribute('data-activity-id') : null
+  }, record, { timeout: h.LONG })).jsonValue()
+  // Parçayı yalnızca B dinler: bittiğini B kendisi yazar, kendi işlemi için bildirim almaz, satır ekleme
+  // bildiriminde kalır
+  await A.evaluate(() => leaveVoice())
+  await B.waitForFunction(() => !dj.engine.queue().current, null, { timeout: h.LONG })
+  await h.sleep(500)
+  const after = await B.evaluate((aid) => ({
+    last: document.querySelector('#dj .dj-last').textContent,
+    record: document.querySelector('#activity .activity-item[data-activity-id="' + aid + '"] .activity-text').textContent
+  }), id)
+  assert.deepEqual(after, { last: line, record: record })
 })
 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
