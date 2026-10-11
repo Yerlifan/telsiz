@@ -648,6 +648,52 @@ describe('parseCommand', () => {
     assert.equal(M.parseCommand('/geç lobi şarkısı').query, undefined)
   })
 
+  test('köşeli parantez veya tırnak içindeki bağlantı çalınır, argümanın herhangi bir yerindeki bağlantı şarkı adı sayılmaz', () => {
+    for (const wrapped of ['<https://youtu.be/' + VID + '>', '"https://youtu.be/' + VID + '"', '\u201chttps://www.youtube.com/watch?v=' + VID + '\u201d', '(youtu.be/' + VID + ')']) {
+      const cmd = M.parseCommand('/çal ' + wrapped)
+      assert.equal(cmd.videoId, VID, wrapped)
+      assert.equal(cmd.query, undefined, wrapped)
+      assert.equal(cmd.error, undefined, wrapped)
+    }
+    const links = [
+      '/çal şarkı https://youtu.be/' + VID,
+      '/çal şarkı <https://youtu.be/' + VID + '>',
+      '/çal "https://youtu.be/kisa"',
+      '/çal <https://vimeo.com/1>',
+      '/çal bunu çal youtube.com/watch?v=' + VID,
+      '/çal dinle www.example.com',
+      '/çal dinle "example.com/x"',
+      '/çal adı: m.youtube.com'
+    ]
+    for (const text of links) {
+      const cmd = M.parseCommand(text)
+      assert.equal(cmd.error, 'bad_url', text)
+      assert.equal(cmd.query, undefined, text)
+      assert.equal(cmd.videoId, undefined, text)
+    }
+    // Noktalı kısaltma ve eğik çizgili adlar bağlantı değildir (son etiket en az iki harf olmalı)
+    for (const [text, query] of [['/çal R.E.M/Losing My Religion', 'R.E.M/Losing My Religion'], ['/çal "Bohemian Rhapsody"', '"Bohemian Rhapsody"'], ['/çal Vol.2/3 derleme', 'Vol.2/3 derleme']]) {
+      const cmd = M.parseCommand(text)
+      assert.equal(cmd.query, query, text)
+      assert.equal(cmd.error, undefined, text)
+    }
+  })
+
+  test('şarkı adı sunucudaki kuralla temizlenir, temizlenince boş kalan argüman boş /çal sayılır', () => {
+    const zw = String.fromCharCode(0x200b)
+    const rlo = String.fromCharCode(0x202e)
+    const ctl = String.fromCharCode(0x1b)
+    let cmd = M.parseCommand('/çal gece' + zw + 'şarkısı' + rlo + ' ' + ctl + 'remix')
+    assert.equal(cmd.query, 'gece şarkısı remix')
+    for (const only of [zw, zw + zw + ' ' + rlo, String.fromCharCode(0xfeff), ctl]) {
+      cmd = M.parseCommand('/çal ' + only)
+      assert.equal(cmd.name, 'play')
+      assert.equal(cmd.videoId, null, JSON.stringify(only))
+      assert.equal(cmd.query, undefined, JSON.stringify(only))
+      assert.equal(cmd.error, undefined, JSON.stringify(only))
+    }
+  })
+
   test('komut listesi sözleşmesi', () => {
     same(Object.keys(M.COMMANDS), ['play', 'skip', 'pause', 'resume', 'queue', 'stop'])
     assert.ok(M.COMMANDS.play.includes('/çal'))

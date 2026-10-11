@@ -318,22 +318,34 @@ var TelsizMusic = (function (root) {
     return typeof id === 'string' && VIDEO_ID_RE.test(id) ? { videoId: id } : null
   }
 
-  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). İlk sözcüğe bakılır: şema (x://) veya www. ile
-  // başlıyorsa, bilinen bir YouTube alan adıysa ya da alan adı ve yol biçimindeyse (example.com/x) bağlantıdır.
-  // "AC/DC", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
+  // Bağlantının çevresindeki işaretler: <...>, düz ve tipografik tırnaklar, parantez ve köşeli parantez
+  function unwrapLink (text) {
+    return text.replace(/^[<"'(\[\u201c\u201d\u2018\u2019\u00ab]+/, '').replace(/[>"')\]\u201c\u201d\u2018\u2019\u00bb]+$/, '')
+  }
+
+  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). Herhangi bir yerinde şema (x://) geçiyorsa ya da
+  // sözcüklerinden biri (çevresindeki işaretler atılarak) www. ile başlıyorsa, bilinen bir YouTube alan adıysa
+  // veya alan adı ve yol biçimindeyse (example.com/x, son etiket en az iki harf) bağlantıdır. "AC/DC",
+  // "R.E.M/Losing My Religion", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
   function looksLikeUrl (text) {
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
-    const first = text.split(/\s+/)[0]
-    if (/^www\./i.test(first)) return true
-    const host = first.split(/[/?#]/)[0].toLowerCase()
-    if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
-    return /^[a-z0-9-]+(\.[a-z0-9-]+)+[/?#]/i.test(first)
+    if (/[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
+    const words = text.split(/\s+/)
+    for (const raw of words) {
+      const word = unwrapLink(raw)
+      if (/^www\./i.test(word)) return true
+      const host = word.split(/[/?#]/)[0].toLowerCase()
+      if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
+      if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]/i.test(word)) return true
+    }
+    return false
   }
 
   // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, query?, error? }.
   // name: play, skip, pause, resume, queue, stop. play için arg boşsa videoId null olur (ekli dosya beklenir).
-  // play argümanı geçerli bir YouTube bağlantısıysa videoId, bağlantıya benzeyip geçersizse error 'bad_url',
-  // bağlantıya hiç benzemiyorsa query (aranacak şarkı adı, boşlukları sadeleşmiş) olur.
+  // play argümanı geçerli bir YouTube bağlantısıysa (<...> veya tırnak içinde de olabilir) videoId, bağlantıya
+  // benzeyip geçersizse error 'bad_url', bağlantıya hiç benzemiyorsa query olur. query aranacak şarkı adıdır:
+  // sunucudaki kuralla temizlenir (denetim ve yön karakterleri boşluk olur, boşluklar sadeleşir). Temizlenince
+  // boş kalan argüman boş argüman sayılır.
   function parseCommand (input) {
     if (typeof input !== 'string') return null
     let text = input
@@ -359,10 +371,12 @@ var TelsizMusic = (function (root) {
       if (arg === '') {
         out.videoId = null
       } else {
-        const yt = parseYouTubeUrl(arg)
+        const yt = parseYouTubeUrl(unwrapLink(arg))
+        const query = arg.replace(UNSAFE_TEXT_G, ' ').replace(/\s+/g, ' ').trim()
         if (yt) out.videoId = yt.videoId
         else if (looksLikeUrl(arg)) out.error = 'bad_url'
-        else out.query = arg.replace(/\s+/g, ' ')
+        else if (query === '') out.videoId = null
+        else out.query = query
       }
     }
     return out
