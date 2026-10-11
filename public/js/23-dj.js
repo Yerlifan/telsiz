@@ -17,11 +17,14 @@
 // YouTube oynatıcı alanı (.dj-yt) motora attachPlayer ile bir kez verilir ve hiç temizlenmez. Alan en az
 // 200x200 CSS pikseli ve görünürdür, üstüne hiçbir öğe konmaz (dokunarak başlat, uyarılar ve hata metinleri
 // alanın altındadır). Oynatıcı görünmezse motor YouTube parçasını bu cihazda duraklatır (music.js syncPlayer).
-// Köşedeki oynatıcı: kart görünmezken (sayfa kipinde sayfa kapalı) veya üstünü bir katman örterken (Ayarlar,
-// başka bir sayfa, menü, pencere) oynatıcı alanı yalnızca CSS sınıflarıyla köşeye sabitlenir, altında başlık,
-// duraklat ve "DJ'yi aç" düğmeleri olan küçük bir çubuk durur (djApplyLayout). Çerçeve ve ataları DOM'da hiç
-// taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir. Böylece müzik ses odasından
-// ayrılana kadar çalmaya devam eder.
+// Köşedeki oynatıcı: kart görünmezken (sayfa kipinde sayfa kapalı), üstünü bir katman örterken (Ayarlar,
+// başka bir sayfa, menü, pencere) veya "Yüzen Oynatıcı" açıkken yüzen kutu (oynatıcı alanı ya da dosya
+// parçasının dalga biçimi ve altında başlık, duraklat, Taşı, Küçült ve "DJ'yi aç" düğmeleri olan çubuk)
+// yalnızca CSS sınıflarıyla dört köşeden birine sabitlenir (djApplyLayout, djPlaceDock). Kutu çubuğundan
+// sürüklenir ve en yakın köşeye oturur (dockDrag), köşe cihazda saklanır (telsiz.djDock), alt köşede yazma
+// alanının ve telsiz kartının üstüne çıkar. Küçültülen kutuda yalnızca çubuk kalır, YouTube parçası bu cihazda
+// bekletilir. Çerçeve ve ataları DOM'da hiç taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile
+// gizlenir. Böylece müzik ses odasından ayrılana kadar çalmaya devam eder.
 // Çizim: motorun parça ve durum olaylarında kart hemen çizilir, diğer değişiklikler bir sonraki karede
 // toplanır. Sayfa gizliyken (arka plandaki sekme, simge durumundaki pencere) tarayıcı kareleri bekletir,
 // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.

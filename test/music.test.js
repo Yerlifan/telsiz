@@ -280,6 +280,10 @@ function fakeAudio (behaviour) {
       if (!listeners[name]) listeners[name] = []
       listeners[name].push(fn)
     },
+    removeEventListener: (name, fn) => {
+      listeners[name] = (listeners[name] || []).filter((x) => x !== fn)
+    },
+    listenerCount: () => Object.keys(listeners).reduce((n, k) => n + listeners[k].length, 0),
     fire: (name) => {
       const list = listeners[name] || []
       list.forEach((fn) => fn())
@@ -2170,7 +2174,9 @@ describe('inceleme bulguları: dosya indirme, kurtarma ve hata durumları', () =
     b.engine.resync()
     await flush(12)
     assert.equal(downloads, before + 1)
-    assert.equal(b.audios.length, 2)
+    // Tek <audio> öğesi: ikinci dosya da aynı öğede çalar
+    assert.equal(b.audios.length, 1)
+    assert.equal(b.audios[0].src, b.urls.created[b.urls.created.length - 1])
     assert.equal(b.engine.snapshot().player.error, null)
   })
 
@@ -3188,5 +3194,40 @@ describe('motor: yerel bekletme (setLocalHold)', () => {
     await timers.advance(600)
     assert.equal(audio.paused, false)
     b.engine.setLocalHold('minimized', false)
+  })
+})
+
+describe('motor: tek <audio> öğesi', () => {
+  test('art arda iki dosya parçası aynı öğede çalar, yalnızca src değişir, dinleyiciler birikmez', async () => {
+    const { timers, server, clients: [a, b] } = await setup()
+    await a.engine.addFile(encryptedWav(a.device, server, 2, 'bir.wav'), { durationMs: 2000 })
+    await a.engine.addFile(encryptedWav(a.device, server, 2, 'iki.wav'), { durationMs: 2000 })
+    b.sync()
+    await flush(12)
+    const audio = b.audios[0]
+    const firstSrc = audio.src
+    const listeners = audio.listenerCount()
+    audio.duration = 2
+    audio.fire('loadedmetadata')
+    audio.fire('canplay')
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+    assert.equal(audio.paused, false)
+    // Parça bu cihazda bitti, geçiş ikinci parçaya
+    await timers.advance(2000)
+    audio.ended = true
+    audio.fire('ended')
+    await timers.advance(600)
+    a.sync()
+    b.sync()
+    await flush(12)
+    assert.equal(b.engine.snapshot().session.current.title, 'iki.wav')
+    assert.equal(b.audios.length, 1)
+    assert.notEqual(audio.src, firstSrc)
+    assert.equal(audio.listenerCount(), listeners)
+    audio.ended = false
+    audio.fire('canplay')
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+    assert.equal(audio.paused, false)
+    assert.equal(b.engine.snapshot().player.status, 'playing')
   })
 })

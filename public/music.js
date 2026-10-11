@@ -934,13 +934,20 @@ var TelsizMusic = (function (root) {
 
   // ------------------------------------------------------------ <audio> bağdaştırıcısı
 
-  // Çözülmüş dosyayı çalar. src her zaman URL.createObjectURL ile üretilmiş blob adresidir.
-  function createAudioPlayer (env, track, url, hooks) {
-    const audio = env.createAudio()
+  // Çözülmüş dosyayı çalar. src her zaman URL.createObjectURL ile üretilmiş blob adresidir. Motor boyunca tek
+  // <audio> öğesi kullanılır (audio() her çağrıda aynı öğeyi verir), parça değişince yalnızca src değişir:
+  // arka planda başlayan sonraki parça da kullanıcının oynatma izni verdiği öğede çalar. Her oynatıcı kendi
+  // dinleyicilerini ekler ve kapanınca kaldırır.
+  function createAudioPlayer (audioOf, track, url, hooks) {
+    const audio = audioOf()
     let ready = false
     let destroyed = false
     audio.preload = 'auto'
-    const on = (name, fn) => audio.addEventListener(name, fn)
+    const handlers = []
+    const on = (name, fn) => {
+      handlers.push({ name: name, fn: fn })
+      audio.addEventListener(name, fn)
+    }
     on('loadedmetadata', () => {
       if (destroyed) return
       if (isFiniteNumber(audio.duration) && audio.duration > 0) hooks.duration(Math.round(audio.duration * 1000))
@@ -1014,6 +1021,13 @@ var TelsizMusic = (function (root) {
         } catch (e) {
           // Yoksa sessiz
         }
+        handlers.forEach((hd) => {
+          try {
+            audio.removeEventListener(hd.name, hd.fn)
+          } catch (e) {
+            // Yoksa sessiz
+          }
+        })
         try {
           audio.removeAttribute('src')
           audio.load()
@@ -1094,6 +1108,8 @@ var TelsizMusic = (function (root) {
     let decryptRetried = null
     let host = null
     let player = null
+    // Dosya parçalarının tek <audio> öğesi (ilk dosya parçasında kurulur)
+    let sharedAudio = null
     let tickHandle = null
     let leadHandle = null
     let lastPositionEvent = 0
@@ -2284,13 +2300,18 @@ var TelsizMusic = (function (root) {
         changed()
         return
       }
-      player = createAudioPlayer(env, track, result.url, hooksFor(room, track))
+      player = createAudioPlayer(audioElement, track, result.url, hooksFor(room, track))
       local.loadingTrack = null
       local.error = null
       cancelRecovery()
       setStatus('loading')
       applyAudioSettings()
       changed()
+    }
+
+    function audioElement () {
+      if (!sharedAudio) sharedAudio = env.createAudio()
+      return sharedAudio
     }
 
     function onYouTubeEvent (ev, hooks) {
