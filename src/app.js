@@ -114,8 +114,9 @@ const DEFAULTS = Object.freeze({
   musicWindowMs: 10000,
   musicIdleMs: 30 * 60 * 1000,
   // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
-  // en çok 300 YouTube isteği (önbellekten verilen yanıtlar sayılmaz). Tavan kota için değil, sunucunun adresinin
-  // YouTube tarafından engellenmesine karşıdır.
+  // en çok 300 YouTube isteği. Bir arama en çok iki istek yapar (InnerTube ve sonuç sayfası), önbellekten verilen
+  // yanıtlar ve devre kesici açıkken istek atmadan reddedilen aramalar sayılmaz. Tavan kota için değil, sunucunun
+  // adresinin YouTube tarafından engellenmesine karşıdır.
   musicSearchLimit: 10,
   musicSearchWindowMs: 60000,
   musicSearchDailyMax: 300,
@@ -1030,7 +1031,8 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
-  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar)
+  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
+  // YouTube'a giden her istekte spendSearchBudget ile düşer)
   const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
   const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
@@ -1049,14 +1051,23 @@ async function createChatServer (options) {
   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
 
   // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
-  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz.
+  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz. Sunucu
+  // geneli tavan YouTube'a giden her istekten hemen önce düşer (budget). Enjekte edilen arayıcı arama başına tek
+  // istek sayılır.
+  function spendSearchBudget () {
+    return musicSearchDaily.consume('all', Date.now()) === 0
+  }
   const searchEngine = typeof config.youtubeSearch === 'function'
     ? null
     : youtubeSearch.createYouTubeSearch({
       request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
+      budget: spendSearchBudget,
       onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
     })
-  const runYouTubeSearch = searchEngine ? searchEngine.search : config.youtubeSearch
+  const runYouTubeSearch = searchEngine ? searchEngine.search : (query) => {
+    if (!spendSearchBudget()) throw youtubeSearch.searchError('search_daily_limit', 'daily_limit', false)
+    return config.youtubeSearch(query)
+  }
   // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
   const musicSearchCache = new Map()
   const musicSearchPending = new Map()
@@ -3544,10 +3555,9 @@ async function createChatServer (options) {
     if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
     let pending = musicSearchPending.get(key)
     if (!pending) {
-      const dailyWait = musicSearchDaily.consume('all', ctx.now)
-      if (dailyWait > 0) {
-        return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(dailyWait / 1000))) })
-      }
+      // Tavan burada yalnızca okunur, YouTube'a giden her istekte düşer (spendSearchBudget)
+      const dailyWait = musicSearchDaily.blocked('all', ctx.now)
+      if (dailyWait > 0) return searchDailyLimited(ctx, dailyWait)
       pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
       musicSearchPending.set(key, pending)
       pending.then((results) => {
@@ -3564,10 +3574,16 @@ async function createChatServer (options) {
     } catch (err) {
       if (closing) return fail(ctx, 503, 'shutting_down')
       if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+      // Tavan bu arama başlarken doluydu (aynı anda başlayan başka aramalar doldurmuş olabilir)
+      if (err && err.code === 'search_daily_limit') return searchDailyLimited(ctx, musicSearchDaily.blocked('all', Date.now()))
       return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
     }
     if (closing) return fail(ctx, 503, 'shutting_down')
     ok(ctx, { results })
+  }
+
+  function searchDailyLimited (ctx, waitMs) {
+    return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(waitMs / 1000))) })
   }
 
   // ---------------------------------------------------------------- yönlendirme

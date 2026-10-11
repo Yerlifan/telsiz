@@ -344,14 +344,21 @@ function readClientVersion (html, data) {
 
 // İstek işlevi: { method, path, headers, body, maxBytes, timeoutMs } -> Promise<{ status, text }>. Yalnızca sabit
 // sunucuya gider, yönlendirme izlenmez (3xx başarısızlıktır), sıkıştırma istenmez ve sıkıştırılmış yanıt kabul
-// edilmez, gövde maxBytes'ı aşınca bağlantı kesilir. transport, host ve port yalnızca testler içindir.
+// edilmez, gövde maxBytes'ı aşınca bağlantı kesilir. abortAll'dan sonra süren istekler ve yeni istekler 'closed'
+// nedeniyle biter. transport, host ve port yalnızca testler içindir.
 function makeRequester (options) {
   const o = options || {}
   const transport = o.transport || https
   const host = o.host || HOST
   const port = o.port || 443
   const active = new Set()
+  let closed = false
+  // Bağlantı hatası: abortAll'un kestiği istek 'closed', gerisi 'network' (ikisi de kesiciye sayılmaz)
+  function brokenError () {
+    return searchError('search_failed', closed ? 'closed' : 'network', false)
+  }
   function request (opts) {
+    if (closed) return Promise.reject(brokenError())
     return new Promise((resolve, reject) => {
       let settled = false
       let req = null
@@ -401,22 +408,23 @@ function makeRequester (options) {
             chunks.push(chunk)
           })
           res.on('end', () => finish(null, { status, text: Buffer.concat(chunks).toString('utf8') }))
-          res.on('error', () => finish(searchError('search_failed', 'network', false)))
-          res.on('aborted', () => finish(searchError('search_failed', 'network', false)))
+          res.on('error', () => finish(brokenError()))
+          res.on('aborted', () => finish(brokenError()))
         })
       } catch (err) {
-        finish(searchError('search_failed', 'network', false))
+        finish(brokenError())
         return
       }
       active.add(req)
-      req.on('error', () => finish(searchError('search_failed', 'network', false)))
+      req.on('error', () => finish(brokenError()))
       if (opts.body !== undefined && opts.body !== null) req.write(opts.body)
       req.end()
     })
   }
-  // Süren istekleri keser (sunucu kapanırken)
+  // Süren istekleri keser ve bundan sonraki istekleri ağa çıkmadan reddeder (sunucu kapanırken)
   request.abortAll = function abortAll () {
-    for (const req of Array.from(active)) req.destroy(searchError('search_failed', 'closed', false))
+    closed = true
+    for (const req of Array.from(active)) req.destroy(brokenError())
     active.clear()
   }
   return request
@@ -424,17 +432,21 @@ function makeRequester (options) {
 
 // ---------------------------------------------------------------- arama
 
-// options: { request, now, onBreak(reason, minutes) }. Sonuç { search(query), close(), status() }.
+// options: { request, now, onBreak(reason, minutes), budget() }. Sonuç { search(query), close(), status() }.
 // search: Promise<[{ videoId, title, channel, durationS }]> (çalınabilir sonuçlar, sonuç yoksa boş dizi). Hata
-// kodu search_failed. Devre kesici açıkken istek atılmadan search_failed döner.
+// kodu search_failed. Devre kesici açıkken ve close'tan sonra istek atılmadan search_failed döner. budget her
+// YouTube isteğinden hemen önce çağrılır (sunucu geneli tavan, src/app.js): false dönerse istek atılmaz. İlk
+// istekte bu search_daily_limit hatasıdır, sonuç sayfası yedeğinde ise yedek denenmez ve ilk hata döner.
 function createYouTubeSearch (options) {
   const o = options || {}
   const request = typeof o.request === 'function' ? o.request : makeRequester()
   const now = typeof o.now === 'function' ? o.now : Date.now
   const onBreak = typeof o.onBreak === 'function' ? o.onBreak : noop
+  const budget = typeof o.budget === 'function' ? o.budget : () => true
   let clientVersion = DEFAULT_CLIENT_VERSION
   let fails = 0
   let openUntil = 0
+  let closed = false
 
   function remaining (deadline) {
     return Math.max(1, deadline - now())
@@ -500,7 +512,9 @@ function createYouTubeSearch (options) {
 
   async function search (query) {
     if (typeof query !== 'string' || query.trim() === '') throw searchError('search_failed', 'bad_query', false)
+    if (closed) throw searchError('search_failed', 'closed', false)
     if (now() < openUntil) throw searchError('search_failed', 'paused', false)
+    if (!budget()) throw searchError('search_daily_limit', 'daily_limit', false)
     const deadline = now() + LIMITS.timeoutMs
     let failure = null
     try {
@@ -510,7 +524,8 @@ function createYouTubeSearch (options) {
     } catch (err) {
       failure = err
     }
-    if (failure && failure.reason !== 'closed' && now() < deadline) {
+    // Sunucu kapanıyorsa yedek denenmez. Tavan doluysa (budget) da denenmez, bu durumda ilk hata döner.
+    if (failure && !closed && failure.reason !== 'closed' && now() < deadline && budget()) {
       try {
         const results = await viaPage(query, deadline)
         fails = 0
@@ -531,7 +546,9 @@ function createYouTubeSearch (options) {
     throw searchError('search_failed', failure ? failure.reason : 'unknown', false)
   }
 
+  // Süren aramaları keser, sonraki aramalar istek atmadan reddedilir (sunucu kapanırken)
   function close () {
+    closed = true
     if (typeof request.abortAll === 'function') request.abortAll()
   }
 
@@ -544,6 +561,7 @@ function createYouTubeSearch (options) {
 
 module.exports = {
   LIMITS,
+  searchError,
   DEFAULT_CLIENT_VERSION,
   VIDEO_PARAMS,
   createYouTubeSearch,

@@ -325,6 +325,64 @@ describe('arama akışı (enjekte edilen istek işlevi)', () => {
     for (const q of ['', '   ', null, 5]) await assert.rejects(engine.search(q), (err) => err.code === 'search_failed')
     assert.equal(request.calls.length, 0)
   })
+
+  it('budget her istekten önce sorulur: ilk istekte izin yoksa search_daily_limit, yedekte izin yoksa yedek denenmez', async () => {
+    let allow = 0
+    let asked = 0
+    const budget = () => {
+      asked += 1
+      if (allow === 0) return false
+      allow -= 1
+      return true
+    }
+    const request = fakeRequest([{ status: 400, text: '{}' }])
+    const engine = ys.createYouTubeSearch({ request, budget })
+    await assert.rejects(engine.search('a'), (err) => err.code === 'search_daily_limit' && err.reason === 'daily_limit' && err.counts === false)
+    assert.equal(request.calls.length, 0, 'izin yokken istek atılmadı')
+    // Yalnızca InnerTube'a izin var: yedek denenmez, InnerTube'un hatası döner
+    allow = 1
+    await assert.rejects(engine.search('b'), (err) => err.code === 'search_failed' && err.reason === 'status_400')
+    assert.deepEqual(request.calls.map((c) => c.method), ['POST'])
+    assert.equal(asked, 3)
+    // İki isteğe izin var: InnerTube ve sonuç sayfası
+    const both = fakeRequest([{ status: 400, text: '{}' }, { status: 200, text: page(fixture(RAW_VIDEO)) }])
+    const engine2 = ys.createYouTubeSearch({ request: both, budget })
+    allow = 2
+    asked = 0
+    assert.deepEqual((await engine2.search('c')).map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
+    assert.deepEqual(both.calls.map((c) => c.method), ['POST', 'GET'])
+    assert.equal(asked, 2)
+    // Kesici açıkken budget sorulmaz (istek atılmayan arama tavana sayılmaz)
+    let clock = 1000000
+    const broken = fakeRequest([{ status: 200, text: '{"yeniBicim":true}' }])
+    const engine3 = ys.createYouTubeSearch({ request: broken, budget, now: () => clock })
+    allow = 6
+    for (const q of ['d', 'e', 'f']) await assert.rejects(engine3.search(q), (err) => err.reason === 'format')
+    asked = 0
+    await assert.rejects(engine3.search('g'), (err) => err.reason === 'paused')
+    assert.equal(asked, 0)
+  })
+
+  it('close: süren aramada yedek denenmez, sonraki arama istek atmaz (abortAll bilmeyen istek işleviyle de)', async () => {
+    const calls = []
+    let fail = null
+    const request = (opts) => {
+      calls.push(opts.method)
+      return new Promise((resolve, reject) => {
+        fail = reject
+      })
+    }
+    const engine = ys.createYouTubeSearch({ request })
+    const pending = engine.search('a')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(calls, ['POST'])
+    engine.close()
+    fail(ys.searchError('search_failed', 'network', false))
+    await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'network')
+    assert.deepEqual(calls, ['POST'], 'sonuç sayfası istenmedi')
+    await assert.rejects(engine.search('b'), (err) => err.code === 'search_failed' && err.reason === 'closed')
+    assert.deepEqual(calls, ['POST'])
+  })
 })
 
 // Sahte sunucu: her istek kaydedilir, yanıtı handler verir
@@ -426,11 +484,36 @@ describe('ağ katmanı (sahte HTTP sunucusu)', () => {
       const pending = get(s.request, { timeoutMs: 5000 })
       await new Promise((resolve) => setTimeout(resolve, 100))
       s.request.abortAll()
-      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.counts === false)
+      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'closed' && err.counts === false)
+      // abortAll'dan sonra yeni istek ağa çıkmaz
+      await assert.rejects(get(s.request), (err) => err.reason === 'closed' && err.counts === false)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      assert.equal(s.seen.length, 2)
     } finally {
       await s.close()
     }
     const closed = ys.makeRequester({ transport: http, host: '127.0.0.1', port: 9 })
     await assert.rejects(get(closed), (err) => err.reason === 'network' && err.counts === false)
+  })
+
+  it('close süren aramayı hemen bitirir: neden closed, sonuç sayfası yedeği istenmez, sonraki arama istek atmaz', async () => {
+    const s = await fakeServer(() => {})
+    try {
+      const engine = ys.createYouTubeSearch({ request: s.request })
+      const pending = engine.search('gizli sorgu')
+      const t0 = Date.now()
+      while (s.seen.length === 0 && Date.now() - t0 < 5000) await new Promise((resolve) => setTimeout(resolve, 10))
+      assert.equal(s.seen.length, 1)
+      const closedAt = Date.now()
+      engine.close()
+      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'closed' && err.counts === false)
+      assert.ok(Date.now() - closedAt < 1000, 'arama close ile bitti: ' + (Date.now() - closedAt) + ' ms')
+      await assert.rejects(engine.search('başka'), (err) => err.reason === 'closed')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      assert.deepEqual(s.seen.map((r) => r.method + ' ' + r.url.split('?')[0]), ['POST /youtubei/v1/search'])
+      assert.equal(engine.status().fails, 0)
+    } finally {
+      await s.close()
+    }
   })
 })

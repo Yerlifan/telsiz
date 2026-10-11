@@ -4,19 +4,23 @@
 // kapalı, meta.music.search), DJ ve YouTube kaynağı şartı, oturum, ses odası ve kısıtlı kip denetimleri, sorgu
 // doğrulaması, sonuçların temizlenmesi, kullanıcı başına hız sınırı, sunucu geneli 24 saatlik tavan, önbellek ve
 // eşzamanlı aynı sorgunun tek aramaya inmesi, arayıcı hataları. Arama metninin günlüklere düşmediği, gerçek
-// ayrıştırıcının sahte istek işleviyle çalıştığı ve devre kesicinin günlüğe tek satır yazdığı da sınanır. Canlı
-// YouTube'a hiçbir istek gitmez.
+// ayrıştırıcının sahte istek işleviyle çalıştığı, devre kesicinin günlüğe tek satır yazdığı, tavanın YouTube
+// isteklerini saydığı ve sunucu kapanırken süren aramanın kesildiği de sınanır. Canlı YouTube'a hiçbir istek gitmez.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const http = require('node:http')
 const h = require('./server-yardimci')
 const i18n = require('../src/i18n')
+const ys = require('../src/youtube-search')
 
 const VOICE = 3
 const TEXT = 1
 const RAW_LOCKUP = fs.readFileSync(path.join(__dirname, 'fixtures', 'yt-arama', 'ornek-lockupviewmodel.json'), 'utf8')
+// Aynı örneğin sonuç sayfası (HTML yedeği) biçimi
+const PAGE_LOCKUP = '<html><script>var ytInitialData = ' + JSON.stringify(JSON.parse(RAW_LOCKUP)) + ';</script></html>'
 
 // Sahte arayıcı: çağrılar kaydedilir, yanıtı reply verir (varsayılan iki sonuç)
 function fakeSearch (reply) {
@@ -300,6 +304,89 @@ describe('Telsiz DJ araması: gerçek ayrıştırıcı ve günlük', () => {
       assert.equal(allLogs(ctx).indexOf('GIZLISORGU'), -1, 'sorgu günlükte yok')
     } finally {
       await ctx.cleanup()
+    }
+  })
+
+  it('sunucu geneli tavan YouTube isteklerini sayar: yedeğe düşen arama iki istek sayılır, kesici açıkken reddedilen arama sayılmaz', async () => {
+    // InnerTube 400 verir, sonuç sayfası çalışır: her arama iki istek
+    const requests = []
+    let broken = false
+    const request = (opts) => {
+      requests.push(opts.method)
+      if (broken) return Promise.resolve({ status: 200, text: '{"yeniBicim":true}' })
+      return Promise.resolve(opts.method === 'POST' ? { status: 400, text: '{}' } : { status: 200, text: PAGE_LOCKUP })
+    }
+    let r = await room({ youtubeSearch: { request }, musicSearchDailyMax: 5, musicSearchLimit: 50 })
+    try {
+      await enable(r.ctx, r.owner.token)
+      h.expectStatus(await join(r.ctx, r.ayse.token, VOICE), 200)
+      for (const q of ['bir', 'iki']) {
+        const res = await search(r.ctx, r.ayse.token, q)
+        h.expectStatus(res, 200)
+        assert.equal(res.data.results[0].videoId, 'TLSZornek01')
+      }
+      assert.deepEqual(requests, ['POST', 'GET', 'POST', 'GET'])
+      // Beşinci istek InnerTube'a gider, yedeğe izin kalmaz: yedek denenmez, arama başarısız
+      h.expectStatus(await search(r.ctx, r.ayse.token, 'üç'), 502, 'search_failed')
+      assert.deepEqual(requests, ['POST', 'GET', 'POST', 'GET', 'POST'])
+      const daily = await search(r.ctx, r.ayse.token, 'dört')
+      h.expectStatus(daily, 429, 'search_daily_limit')
+      assert.ok(Number(daily.headers['retry-after']) > 3600)
+      assert.equal(requests.length, 5)
+      // Önbellekteki sorgu tavan doluyken de verilir
+      h.expectStatus(await search(r.ctx, r.ayse.token, 'BIR'), 200)
+      assert.equal(requests.length, 5)
+    } finally {
+      await r.ctx.cleanup()
+    }
+
+    // Kesici açıkken istek atılmaz ve tavan düşmez: tavan dolmadığı için yanıt 429 değil 502 olur
+    requests.length = 0
+    broken = true
+    r = await room({ youtubeSearch: { request }, musicSearchDailyMax: 7, musicSearchLimit: 50 })
+    try {
+      await enable(r.ctx, r.owner.token)
+      h.expectStatus(await join(r.ctx, r.ayse.token, VOICE), 200)
+      for (const q of ['bir', 'iki', 'üç']) h.expectStatus(await search(r.ctx, r.ayse.token, q), 502, 'search_failed')
+      assert.equal(requests.length, 6)
+      assert.equal(r.ctx.log.lines.warn.length, 1)
+      for (const q of ['dört', 'beş', 'altı', 'yedi']) h.expectStatus(await search(r.ctx, r.ayse.token, q), 502, 'search_failed')
+      assert.equal(requests.length, 6, 'kesici açıkken istek atılmadı')
+    } finally {
+      await r.ctx.cleanup()
+    }
+  })
+
+  it('sunucu kapanırken süren arama kesilir: istemci 503 shutting_down alır, sonuç sayfası istenmez, kapanış beklemez', async () => {
+    // Hiç yanıt vermeyen sahte YouTube (gerçek ağ katmanı, yerel sunucu)
+    const seen = []
+    const yt = http.createServer((req) => {
+      seen.push(req.method + ' ' + req.url.split('?')[0])
+    })
+    await new Promise((resolve) => yt.listen(0, '127.0.0.1', resolve))
+    const request = ys.makeRequester({ transport: http, host: '127.0.0.1', port: yt.address().port })
+    const { ctx, owner, ayse } = await room({ youtubeSearch: { request } })
+    let stopped = false
+    try {
+      await enable(ctx, owner.token)
+      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
+      const pending = search(ctx, ayse.token, 'GIZLISORGU kapanış')
+      await h.waitFor(() => seen.length === 1)
+      const t0 = Date.now()
+      const closed = ctx.stop()
+      const res = await pending
+      await closed
+      stopped = true
+      h.expectStatus(res, 503, 'shutting_down')
+      assert.ok(Date.now() - t0 < 1500, 'kapanış ' + (Date.now() - t0) + ' ms sürdü')
+      await h.sleep(100)
+      assert.deepEqual(seen, ['POST /youtubei/v1/search'])
+      assert.equal(allLogs(ctx).indexOf('GIZLISORGU'), -1)
+    } finally {
+      if (typeof yt.closeAllConnections === 'function') yt.closeAllConnections()
+      await new Promise((resolve) => yt.close(resolve))
+      if (stopped) h.removeRoot(ctx.root)
+      else await ctx.cleanup()
     }
   })
 
