@@ -1969,6 +1969,31 @@ describe('motor: kalıcı YouTube çerçevesi (istek 13, ikinci aşama)', () => 
     await timers.advance(100)
   })
 
+  test('başka bir ses odasına geçince çerçeve kapanır, o odanın parçası yeni çerçevede çalar', async () => {
+    const { timers, server, clients } = await setup(persistent)
+    const [a, b] = clients
+    allowYouTube(clients)
+    server.join(OTHER_ROOM, 3)
+    const c = makeClient(server, timers, 3, { yt: { persistent: true } })
+    c.engine.setVoiceRoom(OTHER_ROOM)
+    c.sync()
+    await a.engine.addYouTube(VID, { durationMs: 200000 })
+    await c.engine.addYouTube(VID2, { durationMs: 200000 })
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    assert.equal(p.state.playing, true)
+    server.leave(ROOM, 2)
+    server.join(OTHER_ROOM, 2)
+    b.engine.setVoiceRoom(OTHER_ROOM)
+    b.sync()
+    assert.equal(p.state.destroyed, true)
+    assert.ok(!p.state.commands.some((x) => x.startsWith('load:')))
+    assert.equal(b.ytPlayers.length, 2)
+    assert.equal(b.ytPlayers[1].cfg.videoId, VID2)
+  })
+
   test('hata bildiren veya henüz hazır olmayan çerçeve yeniden kullanılmaz, load desteklemeyen bağdaştırıcıda her parça yeni çerçeve kurar', async () => {
     const { timers, clients } = await setup(persistent)
     const [a, b] = clients
