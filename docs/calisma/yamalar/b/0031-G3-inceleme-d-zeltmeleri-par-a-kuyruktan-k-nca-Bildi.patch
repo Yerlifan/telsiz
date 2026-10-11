@@ -1,0 +1,248 @@
+From e549e78fcd5cb8cb031bd59421e064a804b19605 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 04:43:58 +0000
+Subject: [PATCH 31/33] =?UTF-8?q?G3:=20inceleme=20d=C3=BCzeltmeleri=20(par?=
+ =?UTF-8?q?=C3=A7a=20kuyruktan=20=C3=A7=C4=B1k=C4=B1nca=20Bildirimler=20ka?=
+ =?UTF-8?q?yd=C4=B1=20ve=20son=20i=C5=9Flem=20sat=C4=B1r=C4=B1=20ad=C4=B1?=
+ =?UTF-8?q?=20korur)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+djLiveTitle artık kaydın kendi belleğini ({ title, type }) alır: parça
+kuyruktayken güncel adı ve türü bu belleğe yazılır. Parça bitince,
+geçilince veya durdurulunca Bildirimler kaydı ve karttaki son işlem satırı
+en son bilinen adı gösterir, ad hiç bilinmediyse metin türe göre seçilir
+(adı boş dosya "Ses dosyası" olarak kalır). activityDjRefresh kayıtların
+belleğini liste çizilmemiş olsa da her durum değişikliğinde günceller.
+Birim testi ve kendiliğinden biten YouTube parçası için e2e adımı eklendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/25-dj-senkron.test.js | 29 ++++++++++++++++++++++++++++
+ public/js/23-dj.js        | 24 ++++++++++++++++-------
+ public/js/28-bildirim.js  | 35 ++++++++++++++++++++++------------
+ test/social.test.js       | 40 +++++++++++++++++++++++++++++++++++++--
+ 4 files changed, 107 insertions(+), 21 deletions(-)
+
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index bc088dc..451ae98 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -9,6 +9,7 @@
+ // plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
+ // parçayı izler ve gizlilik ayarı kapalıyken boşalır. Kilit ekranının ve medya tuşlarının Duraklat ve Oynat
+ // işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), bekletme ses odasından çıkınca kalkar.
++// Kendiliğinden biten parçanın adı karttaki son işlem satırında ve Bildirimler kaydında kalır.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -391,6 +392,34 @@ test('arka planda iki dosya parçası art arda aynı ses öğesinde çalar, kili
+   })
+ })
+ 
++test('kendiliğinden biten YouTube parçasının adı karttaki son işlem satırında ve Bildirimler kaydında kalır', async () => {
++  const { A, B } = W
++  const VID = 'D006aaaaaaa'
++  const me = await A.evaluate(() => userDisplayName(state.me.id))
++  // Önceki parça durdurulur, yeni parça boş oturuma eklenir (altı saniyelik sahte video)
++  await A.evaluate(() => (dj.engine.queue().current ? dj.engine.stop() : null))
++  await B.waitForFunction(() => !dj.engine.queue().current, null, { timeout: h.LONG })
++  await addTrack(A, VID)
++  await fakePaused(B, VID, false, 'B çalıyor')
++  const line = me + ' kuyruğa ekledi: Fake video ' + VID
++  const record = me + ' Telsiz DJ kuyruğuna ekledi: Fake video ' + VID
++  await B.waitForFunction((text) => document.querySelector('#dj .dj-last').textContent === text, line, { timeout: h.LONG })
++  const id = await (await B.waitForFunction((text) => {
++    const li = Array.from(document.querySelectorAll('#activity .activity-item.is-dj')).filter((n) => n.querySelector('.activity-text').textContent === text)[0]
++    return li ? li.getAttribute('data-activity-id') : null
++  }, record, { timeout: h.LONG })).jsonValue()
++  // Parçayı yalnızca B dinler: bittiğini B kendisi yazar, kendi işlemi için bildirim almaz, satır ekleme
++  // bildiriminde kalır
++  await A.evaluate(() => leaveVoice())
++  await B.waitForFunction(() => !dj.engine.queue().current, null, { timeout: h.LONG })
++  await h.sleep(500)
++  const after = await B.evaluate((aid) => ({
++    last: document.querySelector('#dj .dj-last').textContent,
++    record: document.querySelector('#activity .activity-item[data-activity-id="' + aid + '"] .activity-text').textContent
++  }), id)
++  assert.deepEqual(after, { last: line, record: record })
++})
++
+ // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
+ // yeniden dener. Bu protokolün parçasıdır, tarayıcı yanıtı "Failed to load resource" olarak yazar.
+ const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state/.test(l.url)
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index e805859..93e2b36 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -1110,11 +1110,19 @@ function djLiveTrack (trackId) {
+   return all.filter((tr) => tr && tr.id === trackId)[0] || null
+ }
+ 
+-// Parçanın gösterilecek adı: kuyruktaysa güncel adı, değilse bildirimin taşıdığı ad
+-function djLiveTitle (trackId, fallback) {
++// Parçanın gösterilecek adı. seen, adı gösteren kaydın kendi belleğidir ({ title, type }: Bildirimler kaydı
++// veya karttaki son işlem satırı). Parça kuyruktayken güncel adı ve türü bu belleğe yazılır, böylece parça
++// kuyruktan çıkınca (bitti, geçildi, durduruldu) kayıt en son bilinen adı gösterir. Ad hiç bilinmediyse metin
++// parçanın türüne göre seçilir ("YouTube videosu" veya "Ses dosyası").
++function djLiveTitle (trackId, seen) {
++  const memo = seen && typeof seen === 'object' ? seen : {}
+   const track = djLiveTrack(trackId)
+-  if (track) return djTrackTitle(track)
+-  return fallback || t('music.untitledYouTube')
++  if (track) {
++    if (track.type === 'youtube' || track.type === 'file') memo.type = track.type
++    if (track.title) memo.title = track.title
++  }
++  if (memo.title) return memo.title
++  return t(memo.type === 'file' ? 'music.untitledFile' : 'music.untitledYouTube')
+ }
+ 
+ function djOnNotice (n) {
+@@ -1123,14 +1131,16 @@ function djOnNotice (n) {
+   if (!hasText(key)) return
+   const by = n.by
+   const trackId = n.trackId || null
+-  const title = n.title || ''
+-  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
++  // Satırın kendi belleği: bildirimin taşıdığı ad, parça kuyruktaysa şimdiki adı ve türü
++  const seen = { title: typeof n.title === 'string' ? n.title : '', type: null }
++  djLiveTitle(trackId, seen)
++  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, seen) })
+   djRenderSoon()
+   // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının az önce eklediği parça. Odaya katılınca
+   // veya sayfa yenilenince gelen eski işlemin bildirimi listeye yazılmaz.
+   const engine = djEngine()
+   const fresh = !n.at || !engine || engine.serverNow() - n.at < DJ_NOTICE_FRESH_MS
+-  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, title)
++  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, seen.title, seen.type)
+ }
+ 
+ // ------------------------------------------------------------------ yerleşim ve sayfa
+diff --git a/public/js/28-bildirim.js b/public/js/28-bildirim.js
+index b1ae61c..0cfa76f 100644
+--- a/public/js/28-bildirim.js
++++ b/public/js/28-bildirim.js
+@@ -80,24 +80,34 @@ function activityShare (userId, on) {
+   if (on || activityState.items.length !== before) renderActivity()
+ }
+ 
+-// Telsiz DJ: aynı ses odasında başkası kuyruğa parça ekledi
+-function activityDj (userId, channelId, trackId, title) {
++// Telsiz DJ: aynı ses odasında başkası kuyruğa parça ekledi. title ve type kaydın parça belleğidir (23-dj.js
++// djLiveTitle doldurur): ad sonradan gelince kayda yazılır, parça kuyruktan çıkınca kayıt bu adı gösterir.
++function activityDj (userId, channelId, trackId, title, type) {
+   if (userId === null || userId === undefined) return
+-  activityAdd({ kind: 'dj', userId: String(userId), channelId: channelId === null || channelId === undefined ? null : String(channelId), trackId: trackId || null, title: title || '' })
++  activityAdd({
++    kind: 'dj',
++    userId: String(userId),
++    channelId: channelId === null || channelId === undefined ? null : String(channelId),
++    trackId: trackId || null,
++    title: typeof title === 'string' ? title : '',
++    type: type === 'youtube' || type === 'file' ? type : null
++  })
+   renderActivity()
+ }
+ 
+-// Telsiz DJ kayıtlarının metni yenilenir (parçanın adı ekleme anında bilinmeyebilir, sonradan gelir)
++// Motorun her durum değişikliğinde Telsiz DJ kayıtları yenilenir: parçanın adı ekleme anında bilinmeyebilir,
++// sonradan gelir. Kaydın belleği liste çizilmemiş olsa da güncellenir, parça kuyruktan çıkınca ad korunur.
+ function activityDjRefresh () {
++  const texts = new Map()
++  activityState.items.forEach((item) => {
++    if (item.kind === 'dj') texts.set(item.id, activityText(item))
++  })
+   const list = el.activityList
+-  if (!list || !activityState.items.some((item) => item.kind === 'dj')) return
++  if (!list || !texts.size) return
+   Array.from(list.children).forEach((li) => {
+-    const id = Number(li.getAttribute('data-activity-id'))
+-    const item = activityState.items.filter((x) => x.id === id && x.kind === 'dj')[0]
+-    const text = item ? li.querySelector('.activity-text') : null
+-    if (!text) return
+-    const value = activityText(item)
+-    if (text.textContent !== value) text.textContent = value
++    const value = texts.get(Number(li.getAttribute('data-activity-id')))
++    const text = value === undefined ? null : li.querySelector('.activity-text')
++    if (text && text.textContent !== value) text.textContent = value
+   })
+ }
+ 
+@@ -122,7 +132,8 @@ function activityShown () {
+ function activityText (item) {
+   const name = shownName(item.userId)
+   if (item.kind === 'share') return t('activity.share', { name: name })
+-  if (item.kind === 'dj') return t('activity.djAdd', { name: name, title: typeof djLiveTitle === 'function' ? djLiveTitle(item.trackId, item.title) : item.title })
++  // Kayıt djLiveTitle'a parça belleği olarak verilir (ad ve tür kayda yazılır)
++  if (item.kind === 'dj') return t('activity.djAdd', { name: name, title: typeof djLiveTitle === 'function' ? djLiveTitle(item.trackId, item) : item.title })
+   const room = findChannel(item.channelId)
+   const roomName = room && room.name ? String(room.name) : t('activity.voiceRoom')
+   return t(item.kind === 'join' ? 'activity.join' : 'activity.leave', { name: name, room: roomName })
+diff --git a/test/social.test.js b/test/social.test.js
+index 18ac709..79c1ccd 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -5,7 +5,8 @@
+ // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
+ // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
+ // kimliği, sabitlenmiş anahtarlar, eski anahtar), Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
+-// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı sınanır.
++// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı ve Telsiz DJ
++// kaydının parça adı belleği (23-dj.js djLiveTitle, motor taklit edilir) sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -18,7 +19,7 @@ const PUB = path.join(__dirname, '..', 'public')
+ const FILES = [
+   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
+   'js/01-core.js', 'js/02-state-dom.js', 'js/06-messages.js',
+-  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/28-bildirim.js'
++  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/23-dj.js', 'js/28-bildirim.js'
+ ]
+ const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
+ 
+@@ -274,6 +275,41 @@ test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düze
+   assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
+ })
+ 
++test('Telsiz DJ kaydı ve son işlem satırı: parçanın adı kuyruktan çıkınca korunur, adsız parça türüyle yazılır', () => {
++  const { run } = load()
++  // Motor taklidi: djEngine kurulu motoru döndürür, kuyruk window.djq'dan okunur
++  run("window.djq = { current: { id: 'y1', type: 'youtube', title: '' }, queue: [] }")
++  run('dj.engine = { queue: () => window.djq, serverNow: () => Date.now() }')
++  const title = (expr) => {
++    const text = run(expr)
++    return text.slice(text.lastIndexOf(': ') + 2)
++  }
++  // YouTube parçasının adı ekleme anında bilinmez, oynatıcı bildirince gelir, parça bitince kayıtta kalır
++  run("activityDj(2, '9', 'y1', '', null)")
++  assert.strictEqual(title('activityText(activityState.items[0])'), 'YouTube videosu')
++  run("window.djq.current.title = 'Lobi teması'")
++  run('activityDjRefresh()')
++  run("window.djq = { current: null, queue: [] }")
++  assert.strictEqual(title('activityText(activityState.items[0])'), 'Lobi teması')
++  // Adı boş dosya parçası kuyruktan çıkınca da "Ses dosyası" olarak kalır (tür bildirim anında kayda yazılır)
++  run("window.djq = { current: null, queue: [{ id: 'f1', type: 'file', title: '' }] }")
++  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'f1', title: '', at: 0 })")
++  run("window.djq = { current: null, queue: [] }")
++  assert.strictEqual(title('activityText(activityState.items[0])'), 'Ses dosyası')
++  assert.strictEqual(title('dj.notice()'), 'Ses dosyası')
++  // Karttaki son işlem satırı: kendiliğinden biten parçanın bildirimi yoktur, satır ekleme bildiriminde kalır
++  run("window.djq = { current: { id: 'y2', type: 'youtube', title: '' }, queue: [] }")
++  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'y2', title: '', at: 0 })")
++  assert.strictEqual(title('dj.notice()'), 'YouTube videosu')
++  // Ad gelince motor değişiklik olayı verir: kart çizilir, Bildirimler kayıtları yenilenir
++  run("window.djq.current.title = 'Gece yayını'")
++  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
++  run('activityDjRefresh()')
++  run("window.djq = { current: null, queue: [] }")
++  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
++  assert.strictEqual(title('activityText(activityState.items[0])'), 'Gece yayını')
++})
++
+ test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayıtlarla listeden düşmez', () => {
+   const { run } = load()
+   const kinds = () => JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.kind + ":" + x.userId))'))
