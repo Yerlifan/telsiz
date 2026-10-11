@@ -1,0 +1,190 @@
+From 549d93e510b48a59d32c266e55194c5c64a778d5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 13:09:41 +0000
+Subject: [PATCH 52/52] =?UTF-8?q?G4:=20inceleme=20d=C3=BCzeltmeleri=20(ara?=
+ =?UTF-8?q?ma=20s=C3=BCrerken=20ses=20odas=C4=B1=20de=C4=9Fi=C5=9Fince=20p?=
+ =?UTF-8?q?ar=C3=A7a=20eklenmez,=20"aran=C4=B1yor"=20sat=C4=B1r=C4=B1=20ye?=
+ =?UTF-8?q?ni=20odada=20g=C3=B6r=C3=BCnmez)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- /çal şarkı adı araması komutun verildiği ses odası içindir. Yanıt geldiğinde bu cihaz başka bir ses odasındaysa
+  veya hiçbir ses odasında değilse parça eklenmez, kişi music.errors.search_room_changed metnini görür. Oda
+  yanıt gelince saniyelik denetimden önce yeniden okunur.
+- Ses odası değişince "aranıyor" satırı kalkar ve arama sıra numarası artar, eski aramanın yanıtı yeni odanın
+  kartını değiştirmez.
+- e2e/06-dj: arama sürerken Lobi'den Oyun'a geçilince parça iki odaya da eklenmez, duyuru gitmez.
+- MIMARI/ARCHITECTURE: oda denetimi ve /çal bağlantı denetiminin bütün argümana bakan kuralı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/ARCHITECTURE.md |  2 +-
+ docs/MIMARI.md       |  2 +-
+ e2e/06-dj.test.js    | 49 ++++++++++++++++++++++++++++++++++++++++++++
+ public/i18n.js       |  2 ++
+ public/js/23-dj.js   | 16 +++++++++++++--
+ 5 files changed, 67 insertions(+), 4 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index f50ccad..36e6e4c 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -178,7 +178,7 @@ If the server owner turns off Telsiz DJ, the server rejects DJ writes. If the Yo
+ 
+ If a device cannot open the music state because it does not have the key, it keeps the record and decrypts the same version again once the key is added (on the key screen, in Settings, or on every poll and meta update).
+ 
+-**Search by song name.** If the argument of the `/play` command does not look like a link (it does not start with a scheme or `www.`, and it is not a known YouTube domain or a domain with a path), the engine treats it as a song name and leaves the search to the interface (`needs_search`). If the owner has turned on search (`music.search`, off by default, true in the meta only while Telsiz DJ and the YouTube source are also on), the interface sends `POST /api/music/search { channelId, q }` and adds the first result with its title through `addYouTube`. The announcement goes out with the title right away. If search is off or fails, the interface shows a clear error message and a link to YouTube's results page on the DJ card (in a new tab, `rel="noopener noreferrer"`), and the owner also sees where the setting is. The client sends no request to YouTube, and the Content Security Policy does not change.
++**Search by song name.** If the argument of the `/play` command does not look like a link (no scheme such as `x://` appears anywhere in it, and none of its words starts with `www.`, is a known YouTube domain or is a domain with a path such as `example.com/x`), the engine treats it as a song name and leaves the search to the interface (`needs_search`). If the owner has turned on search (`music.search`, off by default, true in the meta only while Telsiz DJ and the YouTube source are also on), the interface sends `POST /api/music/search { channelId, q }` and adds the first result with its title through `addYouTube`. The announcement goes out with the title right away. The search is made for the voice room where the command was given: if this device is in another voice room or in no voice room when the response arrives, the track is not added and the person sees an error message saying so. When the room changes, the "searching" line on the card goes away, and the response of the old search does not change the card. If search is off or fails, the interface shows a clear error message and a link to YouTube's results page on the DJ card (in a new tab, `rel="noopener noreferrer"`), and the owner also sees where the setting is. The client sends no request to YouTube, and the Content Security Policy does not change.
+ 
+ The server endpoint runs the same checks as `/api/music/state` (the person is in that voice room, the DJ permission in restricted mode). The query is between 1 and 200 code points, and control characters become spaces. It accepts 10 requests per minute per user and at most 300 YouTube requests in the last 24 hours across the server (`429 rate_limited`, `429 search_daily_limit`). The cap is charged right before each request to YouTube: a search makes at most two requests, and the results page fallback is skipped when no allowance is left for it. A search refused while search is paused after repeated failures (see below) does not count. When the server shuts down, a running search is cut off and the fallback is not tried. The same query (lowercased) is kept in memory for 10 minutes, and identical queries arriving at the same time share one search. The response holds at most 5 results: `{ results: [{ videoId, title, channel, durationS }] }`. The ID must match `^[A-Za-z0-9_-]{11}$`, and the title and channel name are cleaned of control and direction characters and cut to 120 code points. The errors are `503 search_unavailable` (the setting is off) and `502 search_failed` (no usable response from YouTube). The search text is not logged.
+ 
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index 9ae46b6..3fe9c8e 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -178,7 +178,7 @@ Sunucu sahibi Telsiz DJ'yi kapatırsa sunucu DJ yazımlarını reddeder. YouTube
+ 
+ Bir cihaz müzik durumunu anahtarı olmadığı için açamazsa kaydı saklar ve anahtar eklendiğinde (anahtar ekranı, Ayarlar veya her poll ve meta güncellemesinde) aynı sürümü yeniden çözer.
+ 
+-**Şarkı adıyla arama.** `/çal` komutundaki argüman bir bağlantıya benzemiyorsa (şema veya `www.` ile başlamıyor, bilinen bir YouTube alan adı ya da alan adı ve yol biçiminde değil) motor onu şarkı adı sayar ve aramayı arayüze bırakır (`needs_search`). Sahip aramayı açtıysa (`music.search`, varsayılan kapalı, metada yalnızca DJ ve YouTube kaynağı da açıkken doğru) arayüz `POST /api/music/search { channelId, q }` gönderir ve ilk sonucu başlığıyla `addYouTube` ile ekler. Duyuru başlıkla hemen gider. Arama kapalıysa veya yapılamazsa arayüz açık bir hata metni ve DJ kartında YouTube'un sonuç sayfasına giden bir bağlantı gösterir (yeni sekmede, `rel="noopener noreferrer"`), sahip ayarın yerini de görür. İstemci YouTube'a hiçbir istek göndermez, içerik güvenliği politikası değişmez.
++**Şarkı adıyla arama.** `/çal` komutundaki argüman bir bağlantıya benzemiyorsa (hiçbir yerinde `x://` biçiminde bir şema geçmiyor ve sözcüklerinin hiçbiri `www.` ile başlamıyor, bilinen bir YouTube alan adı ya da `example.com/x` gibi alan adı ve yol biçiminde değil) motor onu şarkı adı sayar ve aramayı arayüze bırakır (`needs_search`). Sahip aramayı açtıysa (`music.search`, varsayılan kapalı, metada yalnızca DJ ve YouTube kaynağı da açıkken doğru) arayüz `POST /api/music/search { channelId, q }` gönderir ve ilk sonucu başlığıyla `addYouTube` ile ekler. Duyuru başlıkla hemen gider. Arama komutun verildiği ses odası için yapılır: yanıt geldiğinde bu cihaz başka bir ses odasındaysa veya hiçbir ses odasında değilse parça eklenmez ve kişi bunu bildiren bir hata metni görür. Oda değişince karttaki "aranıyor" satırı kalkar, eski aramanın yanıtı kartı değiştirmez. Arama kapalıysa veya yapılamazsa arayüz açık bir hata metni ve DJ kartında YouTube'un sonuç sayfasına giden bir bağlantı gösterir (yeni sekmede, `rel="noopener noreferrer"`), sahip ayarın yerini de görür. İstemci YouTube'a hiçbir istek göndermez, içerik güvenliği politikası değişmez.
+ 
+ Sunucu ucu `/api/music/state` ile aynı denetimleri yapar (kişi o ses odasında, kısıtlı kipte DJ izni). Sorgu 1 ile 200 kod noktası arasındadır, denetim karakterleri boşluğa çevrilir. Kullanıcı başına dakikada 10 istek ve sunucu genelinde son 24 saatte en çok 300 YouTube isteği kabul edilir (`429 rate_limited`, `429 search_daily_limit`). Tavan YouTube'a giden her istekten hemen önce düşer: bir arama en çok iki istek yapar, sonuç sayfası yedeğine izin kalmamışsa yedek denenmez. Art arda hatalardan sonra arama kapalıyken (aşağıya bakın) reddedilen arama tavana sayılmaz. Sunucu kapanırken süren arama kesilir ve yedek denenmez. Aynı sorgu (küçük harfe çevrilmiş) 10 dakika bellekte tutulur, aynı anda gelen aynı sorgu tek aramaya iner. Yanıt en çok 5 sonuçtur: `{ results: [{ videoId, title, channel, durationS }] }`. Kimlik `^[A-Za-z0-9_-]{11}$` desenine uymalı, başlık ve kanal adı denetim ve yön karakterlerinden temizlenip 120 kod noktasına kısaltılır. Hatalar `503 search_unavailable` (ayar kapalı) ve `502 search_failed` (YouTube'dan kullanılabilir yanıt gelmedi). Arama metni günlüğe yazılmaz.
+ 
+diff --git a/e2e/06-dj.test.js b/e2e/06-dj.test.js
+index 3dfb087..eb70efa 100644
+--- a/e2e/06-dj.test.js
++++ b/e2e/06-dj.test.js
+@@ -15,6 +15,7 @@
+ // bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
+ // isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa kartta bağlantı çıkar, kişi
+ // başı sınır ve ağ hatası yalnızca açık metinle bildirilir, önce başlatılan aramanın yanıtı kartı değiştirmez.
++// Arama sürerken başka bir ses odasına geçilirse bulunan parça hiçbir odaya eklenmez.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -1085,6 +1086,54 @@ test('ses odasından ayrılınca müzik durur ve köşedeki oynatıcı kalkar',
+   await A.evaluate(() => closeSettings())
+ })
+ 
++test('/çal şarkı adı: arama sürerken başka bir ses odasına geçilirse parça hiçbir odaya eklenmez, "aranıyor" satırı yeni odada görünmez', async () => {
++  const { A, B } = W
++  const oyun = W.w.room('Oyun')
++  assert.equal(await A.evaluate(() => state.meta.music.search), true, 'arama önceki testte açıldı')
++  await h.joinVoice(A, W.lobi.id)
++  await A.waitForFunction((id) => String(dj.voiceRoom) === String(id), W.lobi.id, { timeout: h.LONG })
++  await A.evaluate(() => {
++    window.e2eToasts = []
++  })
++  const searchesBefore = W.searches.length
++  // Sunucunun yanıtı A kişisi oda değiştirene kadar bekletilir, sonra bir sonuçla verilir
++  let release = null
++  let sentRoom = null
++  await A.route('**/api/music/search', async (route) => {
++    sentRoom = JSON.parse(route.request().postData()).channelId
++    await new Promise((resolve) => {
++      release = resolve
++    })
++    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ videoId: 'D120oda0001', title: 'Oda Şarkısı', channel: 'Telsiz Kayıtları', durationS: 180 }] }) })
++  })
++  try {
++    await A.fill('#composer-input', '/çal oda şarkısı')
++    await A.keyboard.press('Enter')
++    await h.until(() => release, h.LONG, 'arama sunucuya gitti')
++    assert.equal(String(sentRoom), String(W.lobi.id), 'arama komutun verildiği odayla gitti')
++    await A.waitForFunction(() => document.querySelector('#dj .dj-search-text').textContent === 'YouTube\'da aranıyor: oda şarkısı' && !document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
++    // A kişisi Oyun odasına geçer: yeni odanın kartında önceki odanın araması görünmez
++    await h.joinVoice(A, oyun.id)
++    await A.waitForFunction((id) => String(dj.voiceRoom) === String(id), oyun.id, { timeout: h.LONG })
++    await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
++    release()
++    await A.waitForFunction(() => window.e2eToasts.indexOf('Arama sürerken ses odası değişti. "oda şarkısı" kuyruğa eklenmedi.') !== -1, null, { timeout: h.LONG })
++    await h.sleep(500)
++  } finally {
++    if (release) release()
++    await A.unroute('**/api/music/search')
++  }
++  const has = () => dj.engine.queue().queue.concat(dj.engine.queue().current ? [dj.engine.queue().current] : []).some((t) => t.videoId === 'D120oda0001')
++  assert.equal(await A.evaluate(has), false, 'Oyun odasının kuyruğuna eklenmedi')
++  assert.equal(await B.evaluate(has), false, 'Lobi odasının kuyruğuna eklenmedi')
++  assert.equal(await A.evaluate(() => window.e2eToasts.some((x) => x.indexOf('Oda Şarkısı') !== -1)), false, 'eklendi bildirimi yok')
++  assert.equal(await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent.indexOf('Oda Şarkısı') !== -1)), false, 'duyuru gitmedi')
++  assert.deepEqual(await searchCard(A), { shown: false, text: '', href: null, owner: false })
++  assert.deepEqual(W.searches.slice(searchesBefore), [], 'taklit edilen yanıt sunucuya gitmedi')
++  await A.evaluate(() => leaveVoice())
++  await A.waitForFunction(() => dj.voiceRoom === null, null, { timeout: h.LONG })
++})
++
+ // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
+ // yeniden dener. Bu protokolün parçasıdır, tarayıcı yanıtı "Failed to load resource" olarak yazar.
+ const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state/.test(l.url)
+diff --git a/public/i18n.js b/public/i18n.js
+index 6d51e38..1ee5e8e 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -51,6 +51,7 @@ window.I18N = (function () {
+     'music.errors.search_rate': 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.',
+     'music.errors.search_daily': 'Bu sunucunun son 24 saatlik arama sınırı doldu. YouTube bağlantısını yapıştırın.',
+     'music.errors.search_bad_query': 'Şarkı adı 1 ile 200 karakter arasında olmalıdır.',
++    'music.errors.search_room_changed': 'Arama sürerken ses odası değişti. "{query}" kuyruğa eklenmedi.',
+     'music.searching': 'YouTube\'da aranıyor: {query}',
+     'music.ok.addedTitle': 'Kuyruğa eklendi: {title}',
+     'dj.searchOnYoutube': 'YouTube\'da Ara',
+@@ -2039,6 +2040,7 @@ window.I18N = (function () {
+     'music.errors.search_rate': 'Too many searches. Try again in a minute.',
+     'music.errors.search_daily': 'This server\'s search limit for the last 24 hours has been reached. Paste a YouTube link.',
+     'music.errors.search_bad_query': 'The song name must be between 1 and 200 characters.',
++    'music.errors.search_room_changed': 'The voice room changed during the search. "{query}" was not added to the queue.',
+     'music.searching': 'Searching YouTube: {query}',
+     'music.ok.addedTitle': 'Added to the queue: {title}',
+     'dj.searchOnYoutube': 'Search on YouTube',
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 1134ff0..445cc1a 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -98,8 +98,8 @@ const dj = {
+   consentRow: null,
+   consentWarnFor: null,
+   titleWatch: [],
+-  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada artan sıra numarası ve
+-  // arama yapılamayınca kartta gösterilen { query, code, room }
++  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada ve ses odası her
++  // değiştiğinde artan sıra numarası ve arama yapılamayınca kartta gösterilen { query, code, room }
+   searching: null,
+   searchSeq: 0,
+   searchMiss: null
+@@ -238,6 +238,10 @@ function djSyncVoice () {
+   if (room === dj.voiceRoom) return
+   dj.voiceRoom = room
+   dj.searchMiss = null
++  // Önceki odada süren aramanın "aranıyor" satırı yeni odada görünmez, yanıtı kartı değiştirmez ve bulunan parça
++  // hiçbir odaya eklenmez (djPlaySearch)
++  dj.searching = null
++  dj.searchSeq += 1
+   // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
+   // da önceki odada kalır (yerel bekletme 'media')
+   dj.minimized = false
+@@ -1862,6 +1866,8 @@ function djPlaySearch (query, text) {
+   djRenderSoon()
+   // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
+   return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
++    // Ses odası saniyelik denetimden önce yeniden okunur: yanıt gelmeden oda değiştiyse arama eskimiştir
++    djSyncVoice()
+     const stale = seq !== dj.searchSeq
+     if (!stale) {
+       dj.searching = null
+@@ -1879,6 +1885,12 @@ function djPlaySearch (query, text) {
+       djSearchMissed(query, 'search_no_results', stale)
+       return fail('search_no_results')
+     }
++    // Arama komutun verildiği ses odası içindir. Yanıt gelmeden bu cihaz başka bir ses odasına geçtiyse veya
++    // odadan çıktıysa parça eklenmez: motor artık yeni odanın kuyruğunu yazar
++    if (!sameId(dj.voiceRoom, voiceRoom)) {
++      toast(() => t('music.errors.search_room_changed', { query: query }), 'error', 7000)
++      return fail('search_room_changed')
++    }
+     const title = cleanDjTitle(first.title)
+     return engine.addYouTube(first.videoId, { title: title }).then((r) => {
+       if (!r || !r.ok || r.noop) {
