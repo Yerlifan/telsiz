@@ -54,6 +54,11 @@
 //   açık katmanı (emoji seçici) kapatırken kaydırmaz, katman yokken okundu sayıp en alta iner. Ctrl+K panelinde Odalar
 //   ve Kişiler bölümü oda adını (Türkçe harfler ve büyük harf duyarsız) ve özel konuşmanın görünen adını bulur, aşağı
 //   ok ve Enter konuşmayı açar, eşleşme yoksa bölüm gizlidir. Rehber kartında üç kısayol satırı var.
+// G10, küçük düzeltmeler (S11, S13, S14, S15): uygulama kapalıyken 60 mesaj gelen odanın rozeti açılışta "50+", oda
+//   açılınca şerit 60 der ve alta inmeden çıkınca rozet 60 olur. Telefonda (dokunmatik, 360) kapalı telsiz kartı 44
+//   piksellik Ses Odaları düğmesidir ve İstasyonlar sayfasını ses odalarında açar, üst çubuğun düğmeleri ve satırlar en
+//   az 44 piksel yüksekliktedir (412 genişlikte genişlik de), sayfa tutamaçtan 40 piksel sürüklenince yerine döner,
+//   120 piksel sürüklenince kapanır ve odak açan düğmeye döner, ses odasına bağlıyken düğme gizlidir.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -1232,6 +1237,111 @@ test('Ctrl+K: Odalar ve Kişiler bölümünde oda ve özel konuşma adı eşleş
   assert.deepEqual(hints, ['Alt + Yukarı/Aşağı: önceki veya sonraki konuşma', 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış', 'Esc: okundu işaretle ve en alta in'])
   await page.keyboard.press('Escape')
   await page.waitForSelector('#hints-card', { state: 'hidden' })
+})
+
+// G10 (S11, S13, S14, S15): okunmamış alt sınırı, telefonda Ses Odaları düğmesi, dokunma hedefleri, sayfayı sürükleyerek
+// kapatma
+
+test('okunmamış alt sınırı: açılışta sayılan sayfa doluysa rozet "50+", oda açılınca kesin sayı', async () => {
+  const page = W.deniz
+  const arsiv = W.w.room('arsiv')
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  await openRoomRow(page, genel)
+  // Uygulama kapalıyken 60 mesaj gelir, açılışta yalnızca en yeni sayfa (50) sayılır
+  await page.evaluate(() => stopPoll())
+  let i = 0
+  while (i < 60) {
+    await W.w.say('selin', arsiv, 'uzun ara ' + (i + 1))
+    i += 1
+  }
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await waitConversation(page, 'channel', genel)
+  const mark = (id) => page.evaluate((x) => {
+    const b = document.querySelector('#inbox-list .room-row[data-station="text-' + x + '"]')
+    const m = b ? b.querySelector('.station-mark') : null
+    return m ? m.textContent : ''
+  }, id)
+  await page.waitForFunction((x) => {
+    const b = document.querySelector('#inbox-list .room-row[data-station="text-' + x + '"] .station-mark')
+    return Boolean(b && b.textContent === '50+')
+  }, arsiv.id, { timeout: h.LONG })
+  assert.equal(await page.evaluate((x) => state.unread[x], arsiv.id), 50)
+  // Oda açılınca okunmamışlar iki sayfadan sayılır, alta inmeden çıkınca rozet kesin sayıdır
+  await openRoomRow(page, arsiv.id)
+  await page.waitForSelector('#message-list .unread-divider')
+  assert.equal(await page.evaluate(() => document.querySelector('#unread-bar .unread-bar-count').textContent), '60 yeni mesaj')
+  await openRoomRow(page, genel)
+  assert.equal(await mark(arsiv.id), '60')
+  assert.ok(await h.overflowX(page) <= 0, 'yatay taşma')
+})
+
+test('telefon: kapalı telsiz kartı Ses Odaları düğmesi, dokunma hedefleri en az 44 piksel, sayfa tutamaçtan sürüklenince kapanır', async () => {
+  const page = await W.w.pageFor('ece', { viewport: { width: 360, height: 780 }, mobile: true })
+  assert.equal(await page.evaluate(() => window.matchMedia('(pointer: coarse)').matches), true)
+  const pick = await page.evaluate(() => {
+    const b = document.getElementById('radio-pick-button')
+    const r = b.getBoundingClientRect()
+    return { shown: b.getClientRects().length > 0, height: r.height, text: b.textContent.trim(), radio: Math.round(document.getElementById('radio').getBoundingClientRect().height), textShown: document.getElementById('radio-pick').getClientRects().length > 0 }
+  })
+  assert.deepEqual([pick.shown, pick.text, pick.textShown], [true, 'Ses Odaları', false])
+  assert.ok(pick.height >= 43.5, 'Ses Odaları düğmesi ' + pick.height + ' piksel')
+  assert.ok(pick.radio <= 72, 'kapalı telsiz kartı ' + pick.radio + ' piksel')
+  // Üst çubuğun düğmeleri en az 44 piksel yükseklikte
+  const heights = await page.evaluate(() => Array.from(document.querySelectorAll('.top-bar button')).filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().height))
+  assert.ok(heights.length >= 5 && heights.every((x) => x >= 43.5), 'üst düğmeler: ' + heights.join(','))
+  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte yatay taşma')
+  // Ses Odaları düğmesi İstasyonlar sayfasını ses odalarında açar, satırlar en az 44 piksel
+  await page.click('#radio-pick-button')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await page.waitForFunction(() => document.activeElement && document.activeElement.classList.contains('room-row-voice'))
+  assert.equal(await page.getAttribute('#radio-pick-button', 'aria-expanded'), 'true')
+  const rows = await page.evaluate(() => Array.from(document.querySelectorAll('#stations-list .room-row')).map((b) => b.getBoundingClientRect().height))
+  assert.ok(rows.length > 3 && rows.every((x) => x >= 43.5), 'satırlar: ' + rows.join(','))
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'radio-pick-button')
+
+  // Tutamaç: az sürüklenince sayfa yerine döner, 80 pikselden çok sürüklenince kapanır
+  const drag = async (dy) => {
+    const box = await page.locator('#stations-sheet .sheet-handle').boundingBox()
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y + dy / 2)
+    await page.mouse.move(x, y + dy)
+    const moved = await page.evaluate(() => document.getElementById('stations-sheet').style.transform)
+    await page.mouse.up()
+    return moved
+  }
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await h.sleep(400)
+  assert.equal(await drag(40), 'translateY(40px)', 'sayfa parmağı izler')
+  await h.sleep(200)
+  assert.deepEqual(await page.evaluate(() => [document.getElementById('stations-sheet').hidden, document.getElementById('stations-sheet').style.transform]), [false, ''])
+  await drag(120)
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-rooms')
+  // Kartın düğmesi ses odasına bağlıyken gizlidir
+  if (h.FAKE_MIC) {
+    await page.click('#radio-pick-button')
+    await page.waitForSelector('#stations-sheet:not([hidden])')
+    await page.click('#stations-list .room-row-voice')
+    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on', null, { timeout: h.LONG })
+    assert.equal(await page.evaluate(() => document.getElementById('radio-pick-button').getClientRects().length), 0)
+    await page.click('#voice-leave')
+    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  }
+  // Daha geniş telefonda üst çubuğun düğmeleri en az 44 piksel genişlikte de
+  await page.setViewportSize({ width: 412, height: 860 })
+  await page.waitForFunction(() => window.innerWidth === 412)
+  const widths = await page.evaluate(() => Array.from(document.querySelectorAll('.top-bar .top-chip, .top-bar .top-personal-button')).filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().width))
+  assert.ok(widths.length >= 4 && widths.every((x) => x >= 43.5), 'üst düğme genişlikleri: ' + widths.join(','))
+  assert.ok(await h.overflowX(page) <= 0, '412 genişlikte yatay taşma')
+  await page.close()
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

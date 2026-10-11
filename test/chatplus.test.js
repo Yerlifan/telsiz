@@ -305,3 +305,10 @@ test('Odalar ve Kişiler: oda ve özel konuşma adları aramayla aynı katlamayl
   run('state.me = null')
   assert.deepStrictEqual(names('genel'), [])
 })
+
+test('rozet sayısı: alt sınır "50+" ile, 99 üstü "99+" (G10)', () => {
+  for (const lang of ['tr', 'en']) {
+    const { json } = load(lang)
+    assert.deepStrictEqual(json('[countText(50), countText(50, true), countText(1, true), countText(120, true), countText(120)]'), ['50', '50+', '1+', '99+', '99+'], lang)
+  }
+})

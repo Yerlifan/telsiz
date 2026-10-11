@@ -306,8 +306,10 @@ function voiceSpeakingIn (channelId) {
   return Object.keys(peers).some((id) => peers[id] && peers[id].speaking)
 }
 
-function countText (n) {
-  return n > 99 ? '99+' : String(n)
+// Rozet sayısı. more: sayı alt sınırdır (açılışta sayılan sayfa doluydu, 38-gezinme.js navUnreadIsMore), "50+" yazılır.
+function countText (n, more) {
+  if (n > 99) return '99+'
+  return more ? t('count.more', { count: n }) : String(n)
 }
 
 // Odaların veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (İstasyonlar listesi ve sayfası, üst
@@ -347,10 +349,11 @@ function bandModel () {
     const isTuned = tuned === 'text-' + c.id
     const unread = isTuned ? 0 : Number(state.unread[c.id]) || 0
     const mention = isTuned ? 0 : mentionCount(c.id)
+    const more = unread > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(c.id)
     let label = t('band.textLabel', { name: c.name })
     if (mention) label = t('band.textMentionLabel', { name: c.name, count: mention })
     else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: unread })
-    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, mention: mention, tuned: isTuned, label: label }
+    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, more: more, mention: mention, tuned: isTuned, label: label }
   })
   const voices = voiceChannels().map((c) => {
     const roster = voiceRoster(c.id)
@@ -410,7 +413,7 @@ function bandGroups (model) {
 }
 
 function stationKeyOf (st) {
-  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
+  return [st.key, st.name, st.sub, st.unread, st.more ? 1 : 0, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
     const info = avatarInfoFor(id)
     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
   }).join(','), (st.members || []).map((m) => [m.id, shownName(m.id), memberVoiceIcon(m), m.camera ? 1 : 0].join('.')).join(','), st.label].join(':')
@@ -455,12 +458,12 @@ function buildRoomPeople (st) {
 
 function buildStationMark (st) {
   if (st.mention > 0) {
-    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention))
+    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention, st.more))
     mark.setAttribute('aria-hidden', 'true')
     return mark
   }
   if (st.unread > 0) {
-    const mark = h('span', 'station-mark mark-unread', countText(st.unread))
+    const mark = h('span', 'station-mark mark-unread', countText(st.unread, st.more))
     mark.setAttribute('aria-hidden', 'true')
     return mark
   }
@@ -1172,7 +1175,8 @@ function markRead (opts) {
   return true
 }
 
-// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
+// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar). Sayfanın
+// en eski mesajı da okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js).
 async function scanUnread () {
   const me = state.me
   const list = textChannels().filter((c) => !sameId(c.id, state.channelId))
@@ -1184,7 +1188,10 @@ async function scanUnread () {
     const lastRead = Number(state.lastRead[c.id]) || 0
     const unread = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id))
     if (sameId(c.id, state.channelId)) continue
-    if (unread.length > (state.unread[c.id] || 0)) state.unread[c.id] = unread.length
+    if (unread.length > (state.unread[c.id] || 0)) {
+      state.unread[c.id] = unread.length
+      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(c.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
+    }
     if (typeof messageMentionsMe === 'function') {
       const mentions = unread.filter((m) => !(typeof isBlocked === 'function' && isBlocked(m.authorId)) && messageMentionsMe(m)).length
       if (mentions > (Number(state.mentions[c.id]) || 0)) state.mentions[c.id] = mentions

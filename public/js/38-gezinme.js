@@ -34,6 +34,13 @@
 // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
 // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
 //
+// Telefonda ses odaları ve sayfa sürükleme (S13, S15). Kapalı telsiz kartı İstasyonlar sayfasını ses odalarında açan
+// Ses Odaları düğmesidir. Dokunmatik ekranda satırlar ve üst düğmeler en az 44 pikseldir (S14, frekans.css). Alttan
+// açılan sayfa tutamacından aşağı sürüklenince kapanır.
+//
+// Okunmamış sayısının alt sınırı (S11). Açılışta sayılan sayfanın hepsi okunmamışsa ve daha eskisi varsa rozet
+// "50+" gösterir (navUnreadIsMore).
+//
 // Kısayollar (S10). Alt+Yukarı/Aşağı önceki ve sonraki konuşma, Alt+Shift+Yukarı/Aşağı sıradaki okunmamış (anmalar
 // önce), Esc (açık katman yokken) okundu say ve en alta in. Ctrl+K paneli adı eşleşen odaları ve kişileri de
 // gösterir (17-search.js).
@@ -233,6 +240,7 @@ function navStop () {
   navCacheClear()
   navCache.shown = null
   navCache.ready = false
+  navUnreadMore.clear()
   if (was) {
     navState.ops.push({ kind: 'rewind', fallback: extra })
     navRun()
@@ -417,6 +425,9 @@ function navInit () {
   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
   navWatchInfoCards()
   navWatchDmHeader()
+  navBindSheetDrag()
+  const pick = byId('radio-pick-button')
+  if (pick) pick.addEventListener('click', navOpenVoiceRooms)
   // Alt ile oklar yazma alanının kendi tuşlarından önce yakalanır, Esc diğer modüllerden (öneri listesi, düzenleme,
   // katmanlar) sonra işlenir
   if (typeof document.addEventListener === 'function') {
@@ -598,6 +609,11 @@ function navKeepUnread (channelId) {
   const u = navState.unread
   if (!sameId(u.channelId, channelId) || !(u.count > 0)) return
   let changed = false
+  if (u.count >= (Number(state.unread[channelId]) || 0)) {
+    // Sayı alt sınırsa rozet "+" ile gösterilir (S11)
+    if (navUnreadMore.has(String(channelId)) !== (u.more === true)) changed = true
+    navSetUnreadMore(channelId, u.more === true)
+  }
   if (u.count > (Number(state.unread[channelId]) || 0)) {
     state.unread[channelId] = u.count
     changed = true
@@ -611,8 +627,31 @@ function navKeepUnread (channelId) {
   if (typeof renderHomeEntry === 'function') renderHomeEntry()
 }
 
+// Okunmamış sayısı alt sınır mı (S11): açılışta sayılan sayfanın (04-meta.js scanUnread, 15-dm.js scanDmUnread)
+// hepsi okunmamıştı ve daha eskisi vardı. Rozet sayının sonuna + koyar ("50+"). Konuşma okununca veya açılıp
+// okunmamışlar sayılınca kalkar.
+const navUnreadMore = new Set()
+
+function navSetUnreadMore (id, more) {
+  if (more) navUnreadMore.add(String(id))
+  else navUnreadMore.delete(String(id))
+}
+
+function navUnreadIsMore (id) {
+  return navUnreadMore.has(String(id)) && navUnreadOf(id) > 0
+}
+
+// Sayfa (mesajlar, hasMore) son okunandan sonraki bütün mesajları kapsamıyor mu: en eski mesaj da son okunandan
+// yeni ve daha eskisi var
+function navPageIsPartial (messages, hasMore, readMark) {
+  if (hasMore !== true || !Array.isArray(messages) || !messages.length) return false
+  const oldest = messages.reduce((min, m) => Math.min(min, Number(m.id)), Infinity)
+  return oldest > (Number(readMark) || 0)
+}
+
 // Okundu sayıldı (04-meta.js markRead): şerit ve kapsül kalkar, ayraç konuşmadan çıkılana kadar kalır
 function navAfterRead (channelId) {
+  navSetUnreadMore(channelId, false)
   if (sameId(navState.unread.channelId, channelId)) navState.unread.bar = false
   navState.newBelow = 0
   navRenderBar()
@@ -784,6 +823,7 @@ function navDmGroup () {
       unread: 0,
       // Özel mesajın okunmamışı Özel düğmesindeki gibi anma rengindedir
       mention: n,
+      more: n > 0 && navUnreadIsMore(d.id),
       tuned: open !== null && sameId(d.id, open),
       blocked: typeof isBlocked === 'function' && isBlocked(d.userId),
       status: shownStatus(d.userId),
@@ -973,6 +1013,81 @@ function navReadToBottom () {
   navState.newBelow = 0
   navRenderBelow()
   return true
+}
+
+// ------------------------------------------------------------------ telefonda ses odaları ve sayfa sürükleme (S13, S15)
+
+// Telefonda kapalı telsiz kartı tek bir Ses Odaları düğmesidir (#radio-pick-button, frekans.css): İstasyonlar sayfası
+// açılır, ilk odak ses odaları grubundaki ilk odadır
+function navOpenVoiceRooms () {
+  const pick = byId('radio-pick-button')
+  if (typeof openSheet === 'function') openSheet('stations', pick, navVoiceSheetFocus)
+}
+
+function navVoiceSheetFocus (panel) {
+  return panel ? panel.querySelector('.room-row-voice') : null
+}
+
+// Alttan açılan sayfa (telefon) tutamacından veya başlığından NAV_DRAG_CLOSE_PX aşağı sürüklenince kapanır. Sayfa
+// parmağı izler, daha az sürüklenince yerine döner. Başlıktaki düğmelerden başlayan sürükleme sayılmaz.
+const NAV_DRAG_CLOSE_PX = 80
+const navDrag = { layer: null, panel: null, y0: 0, dy: 0 }
+
+function navDragPoint (e) {
+  if (e.touches && e.touches.length) return e.touches[0]
+  if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0]
+  return e
+}
+
+function navDragStart (e) {
+  if (navDrag.layer || typeof isNarrow !== 'function' || !isNarrow()) return
+  if (typeof e.button === 'number' && e.button !== 0) return
+  const target = e.target
+  if (!target || !target.closest) return
+  const grip = target.closest('.sheet-handle, .sheet-head')
+  if (!grip || target.closest('button, a, input, select, textarea')) return
+  const layer = topLayer()
+  if (!layer || !layer.el || !layer.el.contains(grip)) return
+  navDrag.layer = layer
+  navDrag.panel = layer.el
+  navDrag.y0 = navDragPoint(e).clientY
+  navDrag.dy = 0
+  layer.el.classList.add('is-dragging')
+}
+
+function navDragMove (e) {
+  if (!navDrag.layer) return
+  const dy = Math.max(0, navDragPoint(e).clientY - navDrag.y0)
+  navDrag.dy = dy
+  navDrag.panel.style.transform = dy ? 'translateY(' + Math.round(dy) + 'px)' : ''
+  if (dy && e.cancelable) e.preventDefault()
+}
+
+function navDragEnd () {
+  const layer = navDrag.layer
+  if (!layer) return
+  const panel = navDrag.panel
+  const dy = navDrag.dy
+  navDrag.layer = null
+  navDrag.panel = null
+  panel.style.transform = ''
+  panel.classList.remove('is-dragging')
+  if (dy >= NAV_DRAG_CLOSE_PX && layers.indexOf(layer) !== -1) closeLayer(layer, true)
+}
+
+function navBindSheetDrag () {
+  if (typeof document.addEventListener !== 'function') return
+  if (window.PointerEvent) {
+    document.addEventListener('pointerdown', navDragStart)
+    document.addEventListener('pointermove', navDragMove)
+    document.addEventListener('pointerup', navDragEnd)
+    document.addEventListener('pointercancel', navDragEnd)
+    return
+  }
+  document.addEventListener('touchstart', navDragStart, { passive: true })
+  document.addEventListener('touchmove', navDragMove, { passive: false })
+  document.addEventListener('touchend', navDragEnd)
+  document.addEventListener('touchcancel', navDragEnd)
 }
 
 // ------------------------------------------------------------------ dar özel mesaj başlığı (S9)

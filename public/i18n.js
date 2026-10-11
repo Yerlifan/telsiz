@@ -61,6 +61,8 @@ window.I18N = (function () {
     'hints.altArrows': 'Alt + Yukarı/Aşağı: önceki veya sonraki konuşma',
     'hints.altShiftArrows': 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış',
     'hints.esc': 'Esc: okundu işaretle ve en alta in',
+    'count.more': '{count}+',
+    'radio.pickButton': 'Ses Odaları',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Saha Telsizi',
@@ -2101,6 +2103,8 @@ window.I18N = (function () {
     'hints.altArrows': 'Alt + Up/Down: previous or next conversation',
     'hints.altShiftArrows': 'Alt + Shift + Up/Down: next unread',
     'hints.esc': 'Esc: mark as read and jump to bottom',
+    'count.more': '{count}+',
+    'radio.pickButton': 'Voice Rooms',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Field Radio',

@@ -2247,6 +2247,35 @@
   display: none;
 }
 
+/* Telefonda kapalı telsiz kartının Ses Odaları düğmesi (istek 17): İstasyonlar sayfasını ses odalarında açar */
+.radio-pick-button {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 2.9375rem;
+  padding: 0 1rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--screen-bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.radio-pick-button:hover {
+  border-color: var(--line-strong);
+}
+
+.radio-pick-button .icon {
+  flex: none;
+  margin-right: 0.5rem;
+  color: var(--accent-text);
+}
+
 .sheet-section {
   margin: 1rem 0.25rem 0.375rem;
 }
@@ -2777,13 +2806,23 @@
     display: none;
   }
 
+  /* Kapalı kart tek bir Ses Odaları düğmesidir (44 piksel), ses odası İstasyonlar sayfasında seçilir */
   .radio[data-state="off"] .radio-screen {
-    padding: 0.5rem 0.75rem;
+    padding: 0;
+    border: 0;
+    background-color: transparent;
   }
 
   .radio[data-state="off"] .radio-pick {
-    margin: 0;
-    font-size: var(--text-sm);
+    display: none;
+  }
+
+  .radio[data-state="off"] .radio-pick-button:not([hidden]) {
+    display: flex;
+  }
+
+  .radio[data-state="off"] .radio-support {
+    margin: 0.5rem 0 0;
   }
 
   .radio[data-state="on"] .radio-screen,
@@ -2830,7 +2869,10 @@
     animation: sheet-from-bottom var(--dur-med) var(--ease);
   }
 
+  /* Tutamaç ve başlık aşağı sürüklenince sayfa kapanır (38-gezinme.js, istek 17). Tutamacın dokunma alanı görünen
+     çizgiden geniştir (görünmez ::before). */
   .sheet-handle {
+    position: relative;
     display: block;
     flex: none;
     width: 2.75rem;
@@ -2838,6 +2880,27 @@
     margin: 0.5rem auto 0;
     border-radius: var(--radius-pill);
     background-color: var(--line-strong);
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .sheet-handle::before {
+    content: "";
+    position: absolute;
+    top: -0.5rem;
+    right: -1.5rem;
+    bottom: -0.5rem;
+    left: -1.5rem;
+  }
+
+  .sheet-head {
+    touch-action: none;
+  }
+
+  .sheet.is-dragging,
+  .side-dj.is-dragging {
+    -webkit-animation: none;
+    animation: none;
   }
 
   .sheet-head,
@@ -2864,5 +2927,31 @@
   .side-left.is-open {
     -webkit-animation: none;
     animation: none;
+  }
+}
+
+/* Dokunmatik ekranda (istek 17) oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel
+   yüksekliktedir. Üst çubuğun düğmeleri 400 pikselden dar telefonda eninde kalır (frekans amblemi sığsın). */
+@media (pointer: coarse) {
+  .top-brand-button,
+  .top-chip,
+  .top-personal-button,
+  .room-row,
+  .sheet-row,
+  .convo-head .icon-button,
+  .sheet-close {
+    min-height: 2.9375rem;
+  }
+
+  .convo-head .icon-button,
+  .sheet-close {
+    min-width: 2.9375rem;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 400px) {
+  .top-chip,
+  .top-personal-button {
+    min-width: 2.9375rem;
   }
 }

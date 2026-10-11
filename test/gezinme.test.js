@@ -631,3 +631,29 @@ test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş
   run("testEntries.length = 0; textChannels = function () { return [{ id: 10, name: 'a' }] }; testView = 'channel'; state.channelId = 10")
   assert.strictEqual(step('c:10', 1), null)
 })
+
+test('okunmamış alt sınırı: sayfanın hepsi okunmamışsa ve daha eskisi varsa "+" işareti, okununca ve kesin sayı bilinince kalkar', () => {
+  const { run, json } = load()
+  const page = '[{ id: 60, authorId: 2 }, { id: 61, authorId: 2 }, { id: 62, authorId: 1 }]'
+  assert.deepStrictEqual(json('[navPageIsPartial(' + page + ', true, 40), navPageIsPartial(' + page + ', true, 60), navPageIsPartial(' + page + ', false, 40), navPageIsPartial([], true, 40), navPageIsPartial(' + page + ', true, 0)]'),
+    [true, false, false, false, true])
+  run('state.unread[11] = 50; navSetUnreadMore(11, true); navSetUnreadMore(12, true)')
+  // Okunmamışı olmayan konuşmada işaret yok sayılır
+  assert.deepStrictEqual(json('[navUnreadIsMore(11), navUnreadIsMore(12)]'), [true, false])
+  run('navAfterRead(11)')
+  assert.strictEqual(json('navUnreadIsMore(11)'), false)
+  // Konuşma açılınca sayılan sayı kesinse işaret kalkar, alt sınırsa kalır (06-messages.js loadChannel)
+  run("state.unread[11] = 50; navSetUnreadMore(11, true); navState.unread = { channelId: 11, id: 61, since: 0, count: 60, more: false, mentions: 0, bar: true }; navKeepUnread(11)")
+  assert.deepStrictEqual(json('[state.unread[11], navUnreadIsMore(11)]'), [60, false])
+  run('navState.unread.more = true; navState.unread.count = 70; navKeepUnread(11)')
+  assert.deepStrictEqual(json('[state.unread[11], navUnreadIsMore(11)]'), [70, true])
+  // Özel mesajlar grubunun satırı da işareti taşır, oturum kapanınca işaretler silinir
+  run(`
+    function bandDmEntries () { return [{ id: 50, userId: 2, lastMessageAt: 1 }] }
+    state.unread[50] = 50
+    navSetUnreadMore(50, true)
+  `)
+  assert.deepStrictEqual(json('navDmGroup().stations.map((s) => [s.id, s.mention, s.more])'), [[50, 50, true]])
+  run('navStop()')
+  assert.deepStrictEqual(json('[navUnreadIsMore(11), navUnreadIsMore(50)]'), [false, false])
+})

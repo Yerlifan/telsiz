@@ -640,6 +640,8 @@
             <!-- Ekran: kapalıyken ses odaları ve Katıl, bağlanırken ve bağlıyken oda adı, kadro ve konuşma satırı (10-voice.js) -->
             <div class="radio-screen">
               <p id="radio-pick" class="radio-pick" data-i18n="radio.pick">Bir ses odası seçin</p>
+              <!-- Telefonda kapalı telsiz kartı: İstasyonlar sayfasını ses odalarında açar (38-gezinme.js, istek 17) -->
+              <button id="radio-pick-button" class="radio-pick-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet"><svg class="icon" aria-hidden="true"><use href="#i-speaker" xlink:href="#i-speaker"></use></svg><span data-i18n="radio.pickButton">Ses Odaları</span></button>
               <p id="radio-support" class="radio-support" hidden></p>
               <ul id="voice-channels" class="radio-rooms" aria-label="Ses odaları" data-i18n-aria-label="channels.voice"></ul>
               <div id="radio-tuned" class="radio-tuned" hidden>

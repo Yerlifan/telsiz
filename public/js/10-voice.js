@@ -746,6 +746,9 @@ function renderVoicePanel () {
   // Kapalı: ses odaları listesi, destek uyarısı ve tuş ipucu
   const problem = live ? null : voiceSupportCode()
   el.radioPick.hidden = live
+  // Telefonda Ses Odaları düğmesi (38-gezinme.js) yalnızca kart kapalıyken
+  const pickButton = byId('radio-pick-button')
+  if (pickButton) pickButton.hidden = live
   el.voiceChannels.hidden = live
   setMsg(el.radioSupport, problem ? voiceErrorText(problem, '') : '')
   renderRadioHint(live || Boolean(problem), s)

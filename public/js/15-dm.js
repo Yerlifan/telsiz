@@ -100,7 +100,7 @@ function renderDmList () {
     const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name })
     if (count > 0 && !current) {
       b.classList.add('is-unread')
-      const badge = h('span', 'unread-badge station-mark mark-mention', count > 99 ? '99+' : String(count))
+      const badge = h('span', 'unread-badge station-mark mark-mention', countText(count, typeof navUnreadIsMore === 'function' && navUnreadIsMore(d.id)))
       badge.setAttribute('aria-hidden', 'true')
       b.appendChild(badge)
     }
@@ -501,7 +501,11 @@ async function scanDmUnread () {
     const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(d.id) + '&limit=' + PAGE_SIZE)
     if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) continue
     const count = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id)).length
-    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) state.unread[d.id] = count
+    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) {
+      state.unread[d.id] = count
+      // Sayfanın hepsi okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js)
+      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(d.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
+    }
   }
   if (gen === dmState.scanGen && state.inApp && state.me === me) {
     renderDmList()
