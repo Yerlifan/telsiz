@@ -1,7 +1,7 @@
 'use strict'
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
-// hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
+// hesaplar ve kişisel anahtarlar, kurtarma kodu, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
 // özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
 // liste ve düzgün kapanış.
 // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
@@ -503,6 +503,14 @@ function normalizeUserFields (u, config, log) {
       changed = true
     }
   }
+  // Kurtarma kodu kaydı (istek 14). Alanı olmayan eski kayıtlar diske yazılmadan null olur. Anahtar çifti yoksa
+  // kurtarma kodunun sarılmış anahtarı da anlamsızdır, silinir.
+  if (u.recovery === undefined) {
+    u.recovery = null
+  } else if (u.recovery !== null && (u.deleted || u.publicKey === null || !auth.isRecoveryRecord(u.recovery))) {
+    u.recovery = null
+    changed = true
+  }
   if (typeof u.allowMemberDms !== 'boolean') {
     u.allowMemberDms = u.allowMemberDms !== false
     changed = true
@@ -844,6 +852,13 @@ function metaUser (user) {
 
 function ownKeys (user) {
   return { publicKey: user.publicKey, wrappedKey: user.wrappedKey }
+}
+
+// Kurtarma kodunun kişinin kendisine gösterilen bilgisi: oluşturma zamanı ve cihaz etiketi. Karma ve sarılmış
+// anahtar hiçbir yanıtta dönmez (sarılmış anahtar yalnızca doğru kodla /api/recover/keys yanıtında).
+function recoveryView (user) {
+  const rec = user.recovery
+  return rec ? { createdAt: rec.createdAt, label: rec.label } : null
 }
 
 function publicChannel (channel) {
@@ -1625,8 +1640,15 @@ async function createChatServer (options) {
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    // Kurtarma kodu eski anahtar çiftini sarıyordu, sıfırlamayla birlikte silinir
+    user.recovery = null
     user.resetPending = true
     user.pv++
+  }
+
+  // Yeni kurtarma kodu kaydı (istemcinin authKey'inin karması ve kodla sarılmış özel anahtar)
+  function recoveryRecord (setup, hash, req) {
+    return { v: 1, hash, wrappedKey: setup.wrappedKey, createdAt: Date.now(), label: auth.sessionLabel(req.headers['user-agent']) }
   }
 
   // ---------------------------------------------------------------- uç noktalar: hesap
@@ -1696,13 +1718,22 @@ async function createChatServer (options) {
     const kdf = auth.cleanKdf(b.kdf)
     if (kdf === null) return fail(ctx, 400, 'bad_kdf')
     if (!auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey)) return fail(ctx, 400, 'bad_keys')
+    // İsteğe bağlı kurtarma kodu: hesapla birlikte (aynı yazımda) saklanır
+    const hasRecovery = b.recovery !== undefined && b.recovery !== null
+    const recoverySetup = hasRecovery ? auth.cleanRecoverySetup(b.recovery) : null
+    if (hasRecovery && recoverySetup === null) return fail(ctx, 400, 'bad_keys')
     const setup = !ownerExists()
     const input = setup ? b.setupCode : b.inviteCode
     if (!codeAccepted(setup, input)) return fail(ctx, 403, 'bad_code', setup ? 'detail.setupCodeWrong' : 'detail.inviteCodeWrong')
     if (serverFull()) return fail(ctx, 503, 'server_full')
     if (usersByKey.has(name)) return fail(ctx, 409, 'name_taken')
 
-    const passHash = await gatedHash(() => auth.hashPassword(b.authKey, config.scryptN))
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.authKey, config.scryptN)
+      const rec = recoverySetup ? await auth.hashPassword(recoverySetup.authKey, config.scryptN) : null
+      return { pass, rec }
+    })
+    const passHash = hashes.pass
 
     // Karma hesaplanırken durum değişmiş olabilir (ör. aynı anda iki kurulum isteği), denetimler yinelenir
     if (closing) return fail(ctx, 503, 'shutting_down')
@@ -1723,6 +1754,7 @@ async function createChatServer (options) {
       publicKey: b.publicKey,
       wrappedKey: b.wrappedKey,
       identity: null,
+      recovery: recoverySetup ? recoveryRecord(recoverySetup, hashes.rec, ctx.req) : null,
       profile: null,
       avatarUploadId: null,
       coverUploadId: null,
@@ -1827,6 +1859,7 @@ async function createChatServer (options) {
       now: Date.now(),
       me: Object.assign(publicUser(ctx.user), { status: ctx.user.status }),
       keys: ownKeys(ctx.user),
+      recovery: recoveryView(ctx.user),
       peerId: ctx.rt.peerId,
       sigSeq: ctx.rt.sigSeq,
       iceServers: config.iceServers,
@@ -1865,6 +1898,10 @@ async function createChatServer (options) {
     const hasPublic = b.publicKey !== undefined && b.publicKey !== null
     const newPair = !hadKeys && hasPublic
     if (hadKeys ? hasPublic || !auth.isWrappedKey(b.wrappedKey) : newPair ? !auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey) : !noWrapped) return fail(ctx, 400, 'bad_keys')
+    // İsteğe bağlı yeni kurtarma kodu (yeni parolayla birlikte yenilenir). Verilmezse var olan kod geçerli kalır.
+    const hasRecovery = b.recovery !== undefined && b.recovery !== null
+    const recoverySetup = hasRecovery ? auth.cleanRecoverySetup(b.recovery) : null
+    if (hasRecovery && (recoverySetup === null || !(hadKeys || newPair))) return fail(ctx, 400, 'bad_keys')
     const failKey = 'p:' + user.id
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, b.oldAuthKey)
@@ -1873,12 +1910,16 @@ async function createChatServer (options) {
       return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     }
     const hashUsed = user.passHash
-    const passHash = await gatedHash(() => auth.hashPassword(b.newAuthKey, config.scryptN))
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.newAuthKey, config.scryptN)
+      const rec = recoverySetup ? await auth.hashPassword(recoverySetup.authKey, config.scryptN) : null
+      return { pass, rec }
+    })
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
     if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
-    user.passHash = passHash
+    user.passHash = hashes.pass
     user.credEpoch = auth.newCredEpoch()
     user.kdf = kdf
     user.wrappedKey = hadKeys || newPair ? b.wrappedKey : null
@@ -1886,15 +1927,17 @@ async function createChatServer (options) {
     if (newPair) {
       user.publicKey = b.publicKey
       user.identity = null
+      user.recovery = null
       user.pv++
       hub.bumpMeta()
     }
+    if (recoverySetup) user.recovery = recoveryRecord(recoverySetup, hashes.rec, ctx.req)
     accountFailLimiter.reset(failKey)
     resetLoginFails(user.key)
     deleteSessions(sessionsOf(user.id).filter((s) => s !== ctx.session), 'invalid_token')
     store.saveState()
     // Önceki giriş cihazı işaretleri yeni parola karmasıyla geçersizdir, bu cihaz yenisini alır
-    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)) })
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)), recovery: recoveryView(user) })
   }
 
   // Türetme gücünü yükseltir: aynı parola, varsayılan güçte yeni ayar (yeni tuz, N=KDF_DEFAULT_N). İstemci girişten
@@ -1951,10 +1994,169 @@ async function createChatServer (options) {
     user.publicKey = b.publicKey
     user.wrappedKey = b.wrappedKey
     user.identity = null
+    user.recovery = null
     user.pv++
     store.saveState()
     hub.bumpMeta()
     ok(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- kurtarma kodu (istek 14)
+
+  // Kurtarma kodunu oluşturur, yeniler ({ authKey, recovery: { authKey, wrappedKey } }) veya kaldırır (recovery: null).
+  // Şu anki parola gerekir: parolayı bir kez öğrenen biri kişiden habersiz kod kurup sonradan hesabı geri alamasın
+  // diye kod yalnızca parolayla değiştirilir, oluşturan cihaz kişiye Ayarlar'da gösterilir.
+  async function handleMyRecovery (ctx) {
+    const b = ctx.body
+    const user = ctx.user
+    if (b.recovery === undefined) return fail(ctx, 400, 'bad_request')
+    const setup = b.recovery === null ? null : auth.cleanRecoverySetup(b.recovery)
+    if (b.recovery !== null && setup === null) return fail(ctx, 400, 'bad_keys')
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
+    if (user.publicKey === null) return fail(ctx, 409, 'no_keys')
+    if (!takeSocialSlot(ctx)) return
+    const failKey = 'p:' + user.id
+    if (accountBlocked(ctx, failKey)) return
+    const good = await checkAuthKey(user, b.authKey)
+    if (!good) {
+      accountFailLimiter.hit(failKey)
+      return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    }
+    const hashUsed = user.passHash
+    const publicKeyUsed = user.publicKey
+    const recoveryUsed = user.recovery
+    const hash = setup ? await gatedHash(() => auth.hashPassword(setup.authKey, config.scryptN)) : null
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
+    if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
+    // Anahtar çifti veya kod bu arada değiştiyse (başka bir cihaz) sarılmış anahtar güncel olmayabilir
+    if (user.publicKey !== publicKeyUsed || user.recovery !== recoveryUsed) return fail(ctx, 409, 'keys_changed')
+    accountFailLimiter.reset(failKey)
+    user.recovery = setup ? recoveryRecord(setup, hash, ctx.req) : null
+    store.saveState()
+    return okDurable(ctx, { ok: true, recovery: recoveryView(user) })
+  }
+
+  // Kurtarma denemelerinin sayaçları girişinkilerden ayrıdır ('r:' öneki): kurtarma denemeleri girişi kilitlemez.
+  // Geçerli giriş cihazı işareti olan istek yalnızca işaretin sayacına bağlıdır (loginFailKeys ile aynı kural).
+  function recoverFailKeys (ctx, name, user, device) {
+    if (name === null) return []
+    const deviceId = user ? auth.loginDeviceId(state.serverSecret, user.id, deviceEpoch(user), device) : null
+    if (deviceId !== null) return [{ limiter: loginFailLimiter, key: 'rd:' + deviceId }]
+    return [
+      { limiter: loginFailLimiter, key: 'r:' + name + '|' + requestIpKey(ctx.req) },
+      { limiter: user ? accountNameLimiter : loginNameLimiter, key: 'r:' + name }
+    ]
+  }
+
+  function resetRecoverFails (name) {
+    loginNameLimiter.reset('r:' + name)
+    accountNameLimiter.reset('r:' + name)
+    loginFailLimiter.resetPrefix('r:' + name + '|')
+  }
+
+  // Kurtarma kodundan türetilen authKey doğrulaması. Hesap yoksa, kurtarma kodu yoksa veya anahtar çifti yoksa aynı
+  // maliyetle sahte karma doğrulanır (ad taraması yapılamasın). Sonuç bekleme süresince kayıt değişmediyse geçerlidir.
+  async function checkRecoveryKey (user, value) {
+    const key = auth.isAuthKey(value) ? value : ''
+    const rec = user && !user.deleted && user.publicKey !== null ? user.recovery : null
+    const hashUsed = rec ? rec.hash : dummyHash
+    const good = await gatedHash(() => auth.verifyPassword(key === '' ? 'x' : key, hashUsed))
+    return good && rec !== null && key !== '' && user.recovery === rec && !user.deleted
+  }
+
+  // Ortak ön adım: adres sınırı, sayaçlar ve kodun doğrulanması. Başarısızsa yanıt verilmiş ve null döner,
+  // başarılıysa { name, user, failKeys }. Hesap yok, kod yok ve kod yanlış durumlarının yanıtı aynıdır.
+  async function verifyRecoveryRequest (ctx) {
+    const wait = authLimiter.consume(requestIpKey(ctx.req), ctx.now)
+    if (wait > 0) {
+      tooMany(ctx, wait, 'detail.authRate')
+      return null
+    }
+    const b = ctx.body
+    const name = auth.cleanUsername(b.name)
+    const user = name === null ? null : usersByKey.get(name) || null
+    const failKeys = recoverFailKeys(ctx, name, user, b.device)
+    for (const f of failKeys) {
+      const blocked = f.limiter.blocked(f.key, ctx.now)
+      if (blocked > 0) {
+        tooMany(ctx, blocked, 'detail.loginRate')
+        return null
+      }
+    }
+    const good = await checkRecoveryKey(user, b.recoveryAuthKey)
+    if (!good || usersByKey.get(name) !== user) {
+      for (const f of failKeys) f.limiter.hit(f.key)
+      if (failKeys.length === 1) accountNameLimiter.hit('r:' + name)
+      fail(ctx, 401, 'bad_recovery')
+      return null
+    }
+    // Engel yalnızca doğru koddan sonra açığa çıkar (girişle aynı kural)
+    if (user.banned) {
+      fail(ctx, 403, 'banned')
+      return null
+    }
+    if (closing) {
+      fail(ctx, 503, 'shutting_down')
+      return null
+    }
+    return { name, user, failKeys }
+  }
+
+  // Oturumsuz: doğru kurtarma koduyla açık anahtar ve kodla sarılmış özel anahtar döner ({ name, recoveryAuthKey }).
+  // İstemci özel anahtarı kodla açar ve yeni parolayla yeniden sarıp /api/recover ile gönderir.
+  async function handleRecoverKeys (ctx) {
+    const found = await verifyRecoveryRequest(ctx)
+    if (!found) return
+    ok(ctx, { publicKey: found.user.publicKey, wrappedKey: found.user.recovery.wrappedKey })
+  }
+
+  // Oturumsuz: kurtarma koduyla yeni parola. Gövde { name, recoveryAuthKey, publicKey, newAuthKey, kdf, wrappedKey,
+  // recovery: { authKey, wrappedKey }, device? }. Kimlik anahtarı değişmez (açık anahtar, kimlik kaydı ve profil
+  // sürümü aynı kalır), aynı özel anahtar yeni parolayla ve yeni kurtarma koduyla yeniden sarılır. Kurtarma kodu tek
+  // kullanımlıktır, yenisi zorunludur. Bütün oturumlar kapanır, bu cihaza yeni oturum açılır.
+  async function handleRecover (ctx) {
+    const b = ctx.body
+    if (!auth.isAuthKey(b.newAuthKey)) return fail(ctx, 400, 'bad_auth_key')
+    const kdf = auth.cleanKdf(b.kdf)
+    if (kdf === null) return fail(ctx, 400, 'bad_kdf')
+    const setup = auth.cleanRecoverySetup(b.recovery)
+    if (!auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey) || setup === null) return fail(ctx, 400, 'bad_keys')
+    const found = await verifyRecoveryRequest(ctx)
+    if (!found) return
+    const user = found.user
+    if (user.publicKey !== b.publicKey) return fail(ctx, 409, 'keys_changed')
+    const recoveryUsed = user.recovery
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.newAuthKey, config.scryptN)
+      const rec = await auth.hashPassword(setup.authKey, config.scryptN)
+      return { pass, rec }
+    })
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    // Aynı kodla gelen ikinci istek kodun değiştiğini görür ve reddedilir
+    if (user.deleted || usersByKey.get(found.name) !== user || user.recovery !== recoveryUsed) return fail(ctx, 401, 'bad_recovery')
+    if (user.banned) return fail(ctx, 403, 'banned')
+    if (user.publicKey !== b.publicKey) return fail(ctx, 409, 'keys_changed')
+    user.passHash = hashes.pass
+    user.credEpoch = auth.newCredEpoch()
+    user.kdf = kdf
+    user.wrappedKey = b.wrappedKey
+    user.recovery = recoveryRecord(setup, hashes.rec, ctx.req)
+    user.resetPending = false
+    resetLoginFails(user.key)
+    resetRecoverFails(user.key)
+    for (const f of found.failKeys) f.limiter.reset(f.key)
+    accountFailLimiter.reset('p:' + user.id)
+    deleteSessions(sessionsOf(user.id), 'invalid_token')
+    const token = createSession(user, ctx.req)
+    return okDurable(ctx, {
+      token,
+      user: publicUser(user),
+      keys: ownKeys(user),
+      device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)),
+      recovery: recoveryView(user)
+    })
   }
 
   // Grup anahtarıyla mühürlenmiş { v, u, pk } kaydı. Sunucu yalnızca zarf biçimini denetler.
@@ -2019,6 +2221,7 @@ async function createChatServer (options) {
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    user.recovery = null
     user.pv++
     // Profil, profil resmi ve kapak fotoğrafı silinir (ikisi de bağlanmamış yüklemeler arasında silinir)
     const doomed = []
@@ -3508,6 +3711,8 @@ async function createChatServer (options) {
   route('/api/prelogin', 'POST', handlePrelogin, { auth: false })
   route('/api/register', 'POST', handleRegister, { auth: false })
   route('/api/login', 'POST', handleLogin, { auth: false })
+  route('/api/recover/keys', 'POST', handleRecoverKeys, { auth: false })
+  route('/api/recover', 'POST', handleRecover, { auth: false })
   route('/api/logout', 'POST', handleLogout)
   route('/api/state', 'GET', handleState)
   route('/api/poll', 'GET', handlePoll)
@@ -3530,6 +3735,7 @@ async function createChatServer (options) {
   route('/api/users/reset-password', 'POST', handleResetPassword)
   route('/api/me/password', 'POST', handleMyPassword)
   route('/api/me/keys', 'POST', handleMyKeys)
+  route('/api/me/recovery', 'POST', handleMyRecovery)
   route('/api/me/kdf', 'POST', handleMyKdf)
   route('/api/me/identity', 'POST', handleMyIdentity)
   route('/api/me/username', 'POST', handleMyUsername)
