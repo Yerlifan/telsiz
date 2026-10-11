@@ -501,10 +501,10 @@ function dropAvatar (uploadId) {
   dropProfileImage(profileState.avatars, uploadId)
 }
 
-// Kapak geldi: yalnızca o kişinin açık kartı yeniden çizilir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
+// Kapak geldi: yalnızca o kişinin açık kartındaki bant değişir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
 // Ayarlar önizlemesi sayfa imzasıyla (myProfileSignature) kendiliğinden yenilenir.
 function profileCoverReady (userId) {
-  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCard()
+  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCardCover()
 }
 
 function avatarUrlOf (userId) {
@@ -843,6 +843,17 @@ function refreshProfileCard () {
   const focusKey = activeFocusKey(card)
   buildProfileCard(card, profileState.cardUserId)
   restoreFocusKey(card, focusKey)
+}
+
+// Kapak inince açık kartın yalnızca renk bandı yenilenir. Kart bütünüyle yeniden kurulmaz, böylece kartta sürüklenen
+// ses düzeyi kaydırıcısı ve odak yerinde kalır.
+function refreshProfileCardCover () {
+  const card = byId('profile-card')
+  const userId = profileState.cardUserId
+  if (!card || userId === null || card.hidden) return
+  const band = card.querySelector('.profile-card-band')
+  if (!band || band.parentNode !== card) return
+  card.replaceChild(profileCoverBand(coverUrlOf(userId, false), userColorIndex(userId)), band)
 }
 
 // Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol

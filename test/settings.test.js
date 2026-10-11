@@ -8,8 +8,8 @@
 // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
 // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
-// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma ve kayıt sürerken
-// hazırlanması biten kapak da sınanır.
+// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma, kayıt sürerken hazırlanması
+// biten kapak ve kapak inince profil kartında yalnızca bandın yenilenmesi de sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -1538,4 +1538,36 @@ test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizl
   assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:b')
   assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
   assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+})
+
+test('kapak inince açık profil kartında yalnızca bant değişir, kartın geri kalanı yeniden kurulmaz', () => {
+  const { run, doc, sandbox } = load({ role: 'member' })
+  const card = doc.createElement('div')
+  card.id = 'profile-card'
+  card.hidden = true
+  doc.body.appendChild(card)
+  sandbox.__coverUrl = null
+  run('coverUrlOf = function () { return __coverUrl }')
+  run('openProfileCard(2, null)')
+  assert.strictEqual(card.hidden, false)
+  const band = card.querySelector('.profile-card-band')
+  assert.strictEqual(band.classList.contains('has-cover'), false)
+  const body = card.querySelector('.profile-card-body')
+  const head = card.querySelector('.profile-card-head')
+  assert.ok(body && head)
+  // Başka kişinin kapağı gelince kart değişmez
+  sandbox.__coverUrl = 'blob:ece-kapak'
+  run('profileCoverReady(3)')
+  assert.strictEqual(card.querySelector('.profile-card-band'), band)
+  // Kart sahibinin kapağı gelince bant değişir, ad, durum, ses düzeyi ve düğmeler aynı öğeler olarak kalır
+  run('profileCoverReady(2)')
+  const fresh = card.querySelector('.profile-card-band')
+  assert.notStrictEqual(fresh, band)
+  assert.strictEqual(card.firstChild, fresh, 'bant kartın başında kalır')
+  assert.strictEqual(fresh.classList.contains('has-cover'), true)
+  assert.strictEqual(fresh.querySelector('img.profile-card-cover').src, 'blob:ece-kapak')
+  assert.strictEqual(card.querySelectorAll('.profile-card-band').length, 1)
+  assert.strictEqual(card.querySelector('.profile-card-body'), body)
+  assert.strictEqual(card.querySelector('.profile-card-head'), head)
+  assert.strictEqual(body.parentNode, card)
 })

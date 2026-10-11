@@ -601,7 +601,7 @@ test('kapak başvurusu yalnızca sunucudaki coverUploadId ile eşleşirse kabul 
   assert.strictEqual(run('coverUrlOf(2, true)'), null)
 })
 
-test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenilenir, düşen indirme yeniden denenir', async (t) => {
+test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kartın bandı yenilenir, düşen indirme yeniden denenir', async (t) => {
   const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
   const { run, sandbox } = ctx
   await flush()
@@ -609,12 +609,17 @@ test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenil
   assert.strictEqual(run('coverUrlOf(2)'), null)
   await flush()
   assert.strictEqual(downloads.length, 0, 'yalnızca sorgu indirmez')
-  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve kart yeniden çizilir
+  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve yalnızca kartın bandı yenilenir
   let refreshed = 0
+  let rebuilt = 0
   sandbox.__refresh = () => {
     refreshed++
   }
-  run('refreshProfileCard = function () { __refresh() }')
+  sandbox.__rebuild = () => {
+    rebuilt++
+  }
+  run('refreshProfileCardCover = function () { __refresh() }')
+  run('refreshProfileCard = function () { __rebuild() }')
   run('profileState.cardUserId = 2')
   assert.strictEqual(run('coverUrlOf(2, true)'), null)
   await flush()
@@ -625,7 +630,8 @@ test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenil
   await flush()
   assert.strictEqual(downloads.length, 2)
   assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
-  assert.strictEqual(refreshed, 1, 'açık kart yenilenir')
+  assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
+  assert.strictEqual(rebuilt, 0, 'kart bütünüyle yeniden kurulmaz')
   assert.strictEqual(run('profileEpoch()'), epoch, 'kapak profil sürümünü değiştirmez')
   assert.strictEqual(run('avatarUrlOf(2)'), null)
   // Yeniden sorgu indirmeyi yinelemez
