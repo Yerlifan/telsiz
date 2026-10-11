@@ -311,6 +311,8 @@ function showHome (tab, opts) {
   if (tab && HOME_TABS.indexOf(tab) !== -1) socialState.homeTab = tab
   const leaving = socialState.view !== 'home'
   if (leaving) {
+    // Çizili konuşma önbelleğe yazılır, dönünce kaldığı yerden açılır (38-gezinme.js)
+    if (typeof navCacheLeave === 'function') navCacheLeave(null)
     // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
     composerLeave()
     state.loadGen += 1

@@ -33,6 +33,12 @@
 //
 // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
 // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
+//
+// Konum ve önbellek (S6). Son NAV_CACHE_MAX konuşmanın mesajları (sunucudan gelen şifreli zarflar) bellekte
+// tutulur. Konuşmaya geri dönülünce liste iskelet göstermeden ve sunucuya sormadan çizilir, kişi kaldığı yere döner
+// (görünür alandaki ilk mesaj ve kayması), ardından en yeni sayfa arka planda alınıp birleştirilir (06-messages.js
+// restoreChannel). Önbellekteki konuşmalara gelen olaylar önbelleğe de uygulanır (05-poll.js). Yeniden eşitlemede,
+// oturum açılıp kapanınca ve anahtar değişince önbellek silinir. Çözülmüş metin önbelleğe girmez.
 
 const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
 const NAV_POP_WAIT_MS = 2000
@@ -40,6 +46,8 @@ const NAV_POP_WAIT_MS = 2000
 const NAV_FAR_SCREENS = 2
 // Özel Mesajlar grubunda Tüm Özel Mesajlar açılmadan gösterilen en çok satır
 const NAV_DM_ROWS = 6
+// Bellekte tutulan en çok konuşma (S6)
+const NAV_CACHE_MAX = 8
 
 const navState = {
   bound: false,
@@ -194,6 +202,8 @@ function navSchedule () {
 function navStart () {
   if (!state.me) return
   if (navState.on) navStop()
+  // Açılışta önceki oturumun önbelleği kalmaz (açılan konuşma navCache.shown olarak kalır)
+  navCacheClear()
   navState.on = true
   navState.u = state.me.id
   navState.stack = [navCurrentConv()]
@@ -213,6 +223,9 @@ function navStop () {
   navState.convMode = ''
   navState.dmAll = false
   navUnreadReset(null)
+  navCacheClear()
+  navCache.shown = null
+  navCache.ready = false
   if (was) {
     navState.ops.push({ kind: 'rewind', fallback: extra })
     navRun()
@@ -830,4 +843,140 @@ function navSavedView () {
     return { mode: 'dm', id: dmEntry(v.id).id }
   }
   return null
+}
+
+// ------------------------------------------------------------------ konum ve önbellek (S6)
+
+// map: konuşma kimliği (yazı odası ve özel konuşma kimlikleri ortak sayaçtan gelir) ile kayıt, eklenme sırası
+// kullanım sırasıdır. Kayıt: { id, u, stamp, messages (şifreli zarflar), hasMore, hasNewer, newWhileOlder, anchor
+// ({ id, offset }: görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı), stick (kişi en alttaydı), newBelow
+// (kişi yukarıdayken gelen mesajlar) }. shown: listede mesajları çizili konuşma, ready: yüklemesi başarıyla bitti.
+const navCache = { map: new Map(), shown: null, ready: false }
+
+function navCacheClear () {
+  navCache.map.clear()
+}
+
+// Anahtar damgası: etkin grup anahtarı, bu cihazda tutulup tutulmadığı ve kişisel kimlik anahtarı. Damga
+// değiştiyse (anahtar değişti) önbellekteki kayıt kullanılmaz.
+function navCacheStamp () {
+  const kid = typeof activeKid === 'function' ? activeKid() : null
+  const held = kid && typeof kidHeld === 'function' && kidHeld(kid) ? '1' : '0'
+  let pair = null
+  if (typeof myIdentity === 'function') {
+    try {
+      pair = myIdentity()
+    } catch (err) {
+      pair = null
+    }
+  }
+  return String(kid || '') + ':' + held + ':' + (pair && typeof pair.publicKey === 'string' ? pair.publicKey : '')
+}
+
+// Görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı (piksel), mesaj yoksa null
+function navCacheAnchor () {
+  const box = el.messages
+  if (!box || !box.clientHeight || typeof box.getBoundingClientRect !== 'function') return null
+  const top = box.getBoundingClientRect().top
+  let i = 0
+  while (i < state.messages.length) {
+    const node = state.nodes.get(String(state.messages[i].id))
+    if (node && node.parentNode) {
+      const r = node.getBoundingClientRect()
+      if (r.bottom > top + 1) return { id: state.messages[i].id, offset: Math.round(r.top - top) }
+    }
+    i += 1
+  }
+  return null
+}
+
+function navCacheStore (id) {
+  if (!state.me || state.loading) return
+  const entry = {
+    id: String(id),
+    u: state.me.id,
+    stamp: navCacheStamp(),
+    messages: state.messages.slice(),
+    hasMore: state.hasMore === true,
+    hasNewer: state.hasNewer === true,
+    newWhileOlder: state.newWhileOlder === true,
+    anchor: navCacheAnchor(),
+    stick: state.hasNewer !== true && isNearBottom(),
+    newBelow: navState.newBelow
+  }
+  navCache.map.delete(entry.id)
+  navCache.map.set(entry.id, entry)
+  while (navCache.map.size > NAV_CACHE_MAX) navCache.map.delete(navCache.map.keys().next().value)
+}
+
+// Konuşma yükleniyor (06-messages.js loadChannel) veya Arkadaşlar görünümüne geçiliyor (14-social.js showHome,
+// nextId null). Çizili konuşmanın yüklemesi başarıyla bittiyse önbelleğe yazılır. Başka konuşmaya geçiliyorsa true
+// döner. Aynı konuşma yeniden yükleniyorsa (En Yeni Mesajlara Dön, Tekrar Dene, yeniden eşitleme) kaydı silinir.
+function navCacheLeave (nextId) {
+  const prev = navCache.shown
+  const none = nextId === null || nextId === undefined
+  const switching = prev === null || none || !sameId(prev, nextId)
+  if (prev !== null && switching && navCache.ready) navCacheStore(prev)
+  if (!switching) navCache.map.delete(String(nextId))
+  navCache.shown = none ? null : nextId
+  navCache.ready = false
+  return switching
+}
+
+// Konuşmanın yüklemesi bitti (06-messages.js loadChannel ve restoreChannel)
+function navCacheReady () {
+  navCache.ready = true
+}
+
+// Önbellekteki kayıt alınır ve önbellekten çıkar (konuşma açıkken güncel hâli listededir). Başka hesabın, anahtarı
+// değişmiş veya boş konuşmanın kaydı kullanılmaz.
+function navCacheTake (id) {
+  const key = String(id)
+  const entry = navCache.map.get(key)
+  if (!entry) return null
+  navCache.map.delete(key)
+  if (!state.me || !sameId(entry.u, state.me.id) || entry.stamp !== navCacheStamp() || !entry.messages.length) return null
+  return entry
+}
+
+function navCacheIndex (list, id) {
+  let i = list.length - 1
+  while (i >= 0) {
+    if (sameId(list[i].id, id)) return i
+    i -= 1
+  }
+  return -1
+}
+
+// Önbellekteki konuşmaya gelen olay (05-poll.js applyEvent): yeni mesaj sıraya eklenir (kişi yukarıdaysa kapsülün
+// sayısı artar, daha yeni mesajları yüklü olmayan eski bir bölümde eklenmez, şerit uyarır), düzenlenen mesaj
+// değişir, silinen mesaj çıkar. Liste MAX_RENDERED'ı aşınca en eskiler düşer.
+function navCacheApply (ev) {
+  if (!ev || ev.channelId === null || ev.channelId === undefined) return
+  const entry = navCache.map.get(String(ev.channelId))
+  if (!entry) return
+  const list = entry.messages
+  if ((ev.type === 'msg' || ev.type === 'edit') && validMessage(ev.message)) {
+    const i = navCacheIndex(list, ev.message.id)
+    if (i !== -1) {
+      list[i] = ev.message
+      return
+    }
+    if (ev.type === 'edit') return
+    if (entry.hasNewer) {
+      entry.newWhileOlder = true
+      return
+    }
+    let at = list.length
+    while (at > 0 && Number(list[at - 1].id) > Number(ev.message.id)) at -= 1
+    list.splice(at, 0, ev.message)
+    if (!entry.stick && !navOwn(ev.message)) entry.newBelow += 1
+    if (list.length > MAX_RENDERED) {
+      list.splice(0, list.length - TRIM_TO)
+      entry.hasMore = true
+    }
+  } else if (ev.type === 'del') {
+    const i = navCacheIndex(list, ev.messageId)
+    if (i !== -1) list.splice(i, 1)
+  }
 }

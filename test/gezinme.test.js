@@ -9,7 +9,8 @@
 // büyütme) geri tuşu ve oturum kapanınca geri sarma (açık katman yokken ve model eskimişken de). Ayrıca ilk okunmamış
 // mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
 // sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
-// Mesajlar ve görünümün hatırlanması.
+// Mesajlar ve görünümün hatırlanması. G10: konuşma önbelleği (son sekiz konuşma, aynı konuşmanın yeniden yüklenmesi,
+// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı).
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -500,4 +501,94 @@ test('görünüm: açık görünüm kişiye özel anahtarda saklanır, açılı�
   assert.strictEqual(json('navSavedView()'), null)
   run("state.me = { id: 2, name: 'ece', role: 'member' }")
   assert.strictEqual(json('navSavedView()'), null)
+})
+
+// G10 (S6): konum ve önbellek. Konuşmanın çizimi taklit edilir: testShow önce çizili konuşmadan ayrılır
+// (06-messages.js loadChannel gibi), sonra yeni konuşmanın mesajlarını koyar ve yüklemeyi bitmiş sayar.
+function loadCache () {
+  const ctx = load()
+  ctx.run(`
+    var testBottom = true
+    var testKid = 'a'
+    function isNearBottom () { return testBottom }
+    function validMessage (m) { return Boolean(m && typeof m === 'object' && m.id !== undefined && m.id !== null && typeof m.body === 'string') }
+    function activeKid () { return testKid }
+    function testMsg (id, channelId, authorId, body) { return { id: id, channelId: channelId, authorId: authorId || 2, body: body || 'zarf-' + id } }
+    function testShow (id, ids) {
+      const switching = navCacheLeave(id)
+      state.channelId = id
+      state.messages = ids.map((x) => testMsg(x, id))
+      navCacheReady()
+      return switching
+    }
+    function testKeys () { return Array.from(navCache.map.keys()) }
+  `)
+  return ctx
+}
+
+test('önbellek: son sekiz konuşma tutulur, aynı konuşmanın yeniden yüklenmesi kaydı siler, anahtar veya hesap değişince kayıt kullanılmaz', () => {
+  const { run, json } = loadCache()
+  run('let i = 10; while (i < 20) { testShow(i, [i * 100 + 1, i * 100 + 2]); i += 1 }')
+  assert.deepStrictEqual(json('testKeys()'), ['11', '12', '13', '14', '15', '16', '17', '18'])
+  // Kayıt şifreli zarfları ve konumu tutar
+  assert.deepStrictEqual(json("[navCache.map.get('12').messages.map((m) => m.body), navCache.map.get('12').stick, navCache.map.get('12').hasMore]"), [['zarf-1201', 'zarf-1202'], true, false])
+  // Önbellekteki konuşmaya geçiş (06-messages.js loadChannel): çizili konuşma yazılır, en eski kayıt düşer, açılan
+  // konuşmanın kaydı alınır. Yüklemesi bitmeden ayrılan konuşma kayıt yazmaz.
+  assert.strictEqual(json('navCacheLeave(12)'), true)
+  run('navCacheTake(12)')
+  assert.deepStrictEqual(json('testKeys()'), ['13', '14', '15', '16', '17', '18', '19'])
+  run('navCacheLeave(13)')
+  assert.deepStrictEqual(json('[testKeys().length, navCache.shown]'), [7, 13])
+  // Aynı konuşma yeniden yükleniyor (En Yeni Mesajlara Dön, Tekrar Dene): geçiş sayılmaz, kaydı silinir
+  assert.strictEqual(json('navCacheLeave(13)'), false)
+  assert.strictEqual(json("navCache.map.has('13')"), false)
+  // Alınan kayıt önbellekten çıkar
+  assert.deepStrictEqual(json('navCacheTake(15).messages.map((m) => m.id)'), [1501, 1502])
+  assert.strictEqual(json("navCache.map.has('15')"), false)
+  assert.strictEqual(json('navCacheTake(15)'), null)
+  // Anahtar değişti: kayıt kullanılmaz ve silinir
+  run("testKid = 'b'")
+  assert.strictEqual(json('navCacheTake(16)'), null)
+  assert.strictEqual(json("navCache.map.has('16')"), false)
+  run("testKid = 'a'")
+  // Başka hesap: kayıt kullanılmaz
+  run("state.me = { id: 2, name: 'ece', role: 'member' }")
+  assert.strictEqual(json('navCacheTake(17)'), null)
+  run("state.me = { id: 1, name: 'burak', role: 'owner' }")
+  assert.deepStrictEqual(json('navCacheTake(18).messages.length'), 2)
+  // Oturum kapanınca önbellek ve çizili konuşma bilgisi silinir
+  run('navStop()')
+  assert.deepStrictEqual(json('[testKeys(), navCache.shown, navCache.ready]'), [[], null, false])
+})
+
+test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yukarıdan ayrılan konuşmada kapsül sayılır', () => {
+  const { run, json } = loadCache()
+  run('testShow(30, [1, 2, 3]); testBottom = false; navState.newBelow = 2; testShow(31, [5])')
+  assert.deepStrictEqual(json("[navCache.map.get('30').stick, navCache.map.get('30').newBelow]"), [false, 2])
+  const entry = (code) => json("(function () { const e = navCache.map.get('30'); return " + code + ' })()')
+  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(4, 30) })')
+  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(6, 30, 1) })')
+  // Sıra dışı gelen mesaj yerine girer, aynı mesaj iki kez eklenmez
+  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(5, 30) })')
+  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(5, 30) })')
+  assert.deepStrictEqual(entry('[e.messages.map((m) => m.id), e.newBelow]'), [[1, 2, 3, 4, 5, 6], 4])
+  run('navCacheApply({ type: \'edit\', channelId: 30, message: testMsg(2, 30, 2, \'yeni-zarf\') })')
+  run('navCacheApply({ type: \'edit\', channelId: 30, message: testMsg(99, 30, 2, \'yok\') })')
+  run('navCacheApply({ type: \'del\', channelId: 30, messageId: 1 })')
+  assert.deepStrictEqual(entry('e.messages.map((m) => m.body)'), ['yeni-zarf', 'zarf-3', 'zarf-4', 'zarf-5', 'zarf-6'])
+  // Önbellekte olmayan konuşmanın ve geçersiz olayın etkisi yok
+  run('navCacheApply({ type: \'msg\', channelId: 77, message: testMsg(1, 77) }); navCacheApply({ type: \'msg\', channelId: 30, message: { id: 8 } }); navCacheApply(null)')
+  assert.deepStrictEqual(entry('e.messages.length'), 5)
+  // En alttan ayrılan konuşmada kapsül sayılmaz
+  run('testBottom = true; navState.newBelow = 0; testShow(32, [9])')
+  run('navCacheApply({ type: \'msg\', channelId: 31, message: testMsg(7, 31) })')
+  assert.deepStrictEqual(json("[navCache.map.get('31').messages.map((m) => m.id), navCache.map.get('31').newBelow]"), [[5, 7], 0])
+  // Daha yeni mesajları yüklü olmayan eski bölüm: mesaj eklenmez, şerit uyarır
+  run("navCache.map.get('30').hasNewer = true")
+  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(10, 30) })')
+  assert.deepStrictEqual(entry('[e.messages.length, e.newWhileOlder]'), [5, true])
+  // Liste MAX_RENDERED'ı aşınca en eskiler düşer, daha eskisi yüklenebilir
+  run("navCache.map.get('30').hasNewer = false")
+  run('let k = 100; while (k < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(k, 30) }); k += 1 }')
+  assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id]'), [json('TRIM_TO') + 4, true, 699])
 })

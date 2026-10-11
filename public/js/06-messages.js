@@ -556,6 +556,8 @@ function setMessagesView (kind, res) {
 async function loadChannel () {
   const channelId = state.channelId
   if (!channelId) return
+  // Çizili konuşma önbelleğe yazılır, önbellekteki konuşmaya geçilirken liste sunucuya sormadan çizilir (38-gezinme.js)
+  const switching = typeof navCacheLeave === 'function' && navCacheLeave(channelId)
   socialOnChannelLoad(channelId)
   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
@@ -569,6 +571,13 @@ async function loadChannel () {
   if (nav) navUnreadReset(channelId)
   state.loadGen += 1
   const gen = state.loadGen
+  // Kayıt her durumda önbellekten çıkar, aramadan veya En Yeni Mesajlara Dön ile gelindiyse kullanılmaz
+  const taken = switching ? navCacheTake(channelId) : null
+  const cached = !jump && !latest ? taken : null
+  if (cached) {
+    restoreChannel(channelId, cached, gen, readMark, knownUnread)
+    return
+  }
   state.loading = true
   state.pendingEvents = []
   state.messages = []
@@ -644,6 +653,99 @@ async function loadChannel () {
   // Kişi alta inmediyse sayılan okunmamışlar sayaçta kalır: başka konuşmaya geçince rozet görünür
   if (!markRead() && nav && !jump) navKeepUnread(channelId)
   if (nav) navOnScroll()
+  if (typeof navCacheReady === 'function') navCacheReady()
+}
+
+// Önbellekteki konuşma (38-gezinme.js navCacheTake, istek 17 S6): iskelet ve istek olmadan çizilir. Kişi en alttan
+// ayrıldıysa yeni mesajlar varken Yeni mesajlar ayracına, yoksa en alta, yukarıdan ayrıldıysa kaldığı yere (görünür
+// alandaki ilk mesaj ve kayması) dönülür. Ardından en yeni sayfa arka planda alınıp birleştirilir (refreshNewest).
+function restoreChannel (channelId, entry, gen, readMark, knownUnread) {
+  state.loading = false
+  state.pendingEvents = []
+  state.messages = entry.messages
+  state.hasMore = entry.hasMore
+  state.hasNewer = entry.hasNewer
+  state.newWhileOlder = entry.newWhileOlder
+  state.loadingNewer = false
+  state.nodes = new Map()
+  decryptCache.clear()
+  state.editingId = null
+  clear(el.messageList)
+  setMessagesView('')
+  chatPlusOnChannelLoad(channelId)
+  renderAllMessages()
+  const divider = navShowUnread(channelId, readMark, knownUnread, null)
+  if (!entry.stick && scrollToAnchor(entry.anchor)) {
+    navState.newBelow = entry.newBelow
+  } else if (divider) {
+    scrollToDivider(divider)
+  } else {
+    scrollToBottom()
+  }
+  if (!markRead()) navKeepUnread(channelId)
+  navOnScroll()
+  navCacheReady()
+  refreshNewest(channelId, gen)
+}
+
+// Görünür alandaki ilk mesaj yeniden aynı kaymayla görünür alanın üstüne gelir. Mesaj listede yoksa false döner.
+function scrollToAnchor (anchor) {
+  const node = anchor ? state.nodes.get(String(anchor.id)) : null
+  const box = el.messages
+  if (!node || node.parentNode !== el.messageList) return false
+  const offset = node.getBoundingClientRect().top - box.getBoundingClientRect().top
+  box.scrollTop = box.scrollTop + offset - (Number(anchor.offset) || 0)
+  stickBottom = isNearBottom()
+  return true
+}
+
+// Önbellekten çizilen konuşmanın en yeni sayfası: kaçırılan yeni mesajlar eklenir, sonradan düzenlenen mesajlar
+// yenilenir, en yeni sayfanın aralığında olup sayfada olmayan mesajlar silinmiştir. En yeni sayfa yüklü mesajlara
+// bitişmiyorsa (arada sayfadan çok mesaj var) daha yeni mesajlar aşağı inildikçe yüklenir (hasNewer) ve şerit uyarır.
+async function refreshNewest (channelId, gen) {
+  if (state.hasNewer) return
+  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&limit=' + PAGE_SIZE)
+  if (gen !== state.loadGen || !sameId(channelId, state.channelId) || state.loading || state.hasNewer) return
+  if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) return
+  const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
+  mergeNewest(channelId, page, res.data.hasMore === true)
+}
+
+function mergeNewest (channelId, page, pageHasMore) {
+  if (!page.length) return
+  const tail = state.messages[state.messages.length - 1]
+  const last = tail ? Number(tail.id) : 0
+  const lo = Number(page[0].id)
+  const hi = Number(page[page.length - 1].id)
+  if (pageHasMore && lo > last) {
+    state.hasNewer = true
+    state.newWhileOlder = true
+    renderListChrome()
+    if (typeof navRenderBelow === 'function') navRenderBelow()
+    return
+  }
+  const inPage = Object.create(null)
+  page.forEach((m) => {
+    inPage[String(m.id)] = m
+  })
+  state.messages.filter((m) => Number(m.id) >= lo && Number(m.id) <= hi && !inPage[String(m.id)]).map((m) => m.id).forEach((id) => {
+    removeMessage(id)
+  })
+  page.forEach((m) => {
+    const i = indexOfMessage(m.id)
+    if (i !== -1 && (Number(m.editedAt) || 0) > (Number(state.messages[i].editedAt) || 0)) replaceMessage(m)
+  })
+  const fresh = page.filter((m) => Number(m.id) > last && indexOfMessage(m.id) === -1)
+  if (!fresh.length) return
+  fresh.forEach((m) => {
+    insertMessage(m, { own: false })
+  })
+  const others = fresh.filter((m) => !(state.me && sameId(m.authorId, state.me.id))).length
+  const read = !document.hidden && markRead()
+  if (!read && others) {
+    state.unread[channelId] = (Number(state.unread[channelId]) || 0) + others
+    renderBand()
+  }
 }
 
 async function loadOlder () {

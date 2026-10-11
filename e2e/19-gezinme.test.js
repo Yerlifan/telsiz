@@ -35,6 +35,11 @@
 //   yenilenince geri gelen özel konuşma (40 okunmamış): şerit sayısı doğru, alta inmeden çıkınca rozet ve sayaç kalır
 // - Açık katman yokken durum menüsünden Çıkış Yap ve oturumun düşmesi geçmişi kök kayda sarar, giriş ekranında tek
 //   geri basış uygulamadan çıkar, yeniden girişte uygulamada kalınır
+// G10, konum ve önbellek (S6):
+// - Ortasına kaydırılan konuşmaya dönülünce liste önbellekten çizilir: iskelet ve yükleniyor durumu yok, ilk görünen
+//   mesaj ve kayması korunur, tek istek (en yeni sayfa) liste çizildikten sonra gider. Uzaktayken gelen mesaj önbelleğe
+//   eklenir ve kapsülde sayılır, olay alımı dururken gelen mesaj arka plandaki en yeni sayfayla eklenir (geri tuşuyla
+//   dönüşte de), mesaj bir kez çizilir. 120 okunmamış testi önbellekte olmayan konuşmayı sınar.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -67,7 +72,7 @@ async function dmWith (who, text) {
 
 before(async () => {
   // Selin'in hiç özel konuşması yoktur (Özel Mesajlar düğmesi testi)
-  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']], extraPeople: { selin: 'Selin' } })
+  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text'], ['arsiv', 'text']], extraPeople: { selin: 'Selin' } })
   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
   W.deniz = await W.w.pageFor('deniz')
   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
@@ -568,6 +573,9 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
   await openRoom(page, genel)
   const sent = await eceSays('kalabalik', 120, 'kalabalık')
   await page.waitForFunction((id) => state.unread[id] === 120, kalabalik, { timeout: h.LONG })
+  // Bu test önbellekte olmayan konuşmanın yüklenmesini sınar: önbellekteki konuşma sunucuya sormadan çizilir (G10 S6,
+  // aşağıdaki dönüş testi)
+  await page.evaluate(() => navCacheClear())
   const requests = []
   const onRequest = (req) => {
     if (req.url().indexOf('/api/messages?channel=' + kalabalik) !== -1) requests.push(req.url().replace(/^.*\?/, ''))
@@ -589,6 +597,7 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
   await openRoom(page, genel)
   const more = await eceSays('kalabalik', 60, 'yeni tur')
   await page.waitForFunction((id) => state.unread[id] === 60, kalabalik, { timeout: h.LONG })
+  await page.evaluate(() => navCacheClear())
   await openRoom(page, kalabalik)
   await page.waitForSelector('#message-list .unread-divider')
   assert.equal(await page.evaluate(() => state.hasNewer), true, 'son okunanın çevresi yüklendi')
@@ -860,6 +869,110 @@ test('çıkış: açık katman yokken Çıkış Yap ve oturum düşmesi geçmiş
   assert.ok(now.href.indexOf(W.w.base + '/') === 0 && now.href !== before, 'uygulamadan çıkılmadı')
   await page.goBack({ waitUntil: 'commit' })
   await page.waitForURL(before)
+})
+
+// G10 (S6): konum ve önbellek. Konuşmaya dönülünce liste önbellekten, iskeletsiz ve sunucuya sormadan çizilir.
+
+// Görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı
+function firstVisible (page) {
+  return page.evaluate(() => {
+    const top = el.messages.getBoundingClientRect().top
+    const node = Array.from(document.querySelectorAll('#message-list .msg[data-id]')).filter((n) => n.getBoundingClientRect().bottom > top + 1)[0]
+    return node ? { id: node.getAttribute('data-id'), offset: Math.round(node.getBoundingClientRect().top - top) } : null
+  })
+}
+
+// Sayfadaki /api/messages istekleri: isteğin açıldığı anda listede çizili mesaj sayısı, yükleniyor durumu ve iskelet
+async function watchMessageRequests (page) {
+  await page.evaluate(() => {
+    window.testRequests = []
+    if (window.testOpenHooked) return
+    window.testOpenHooked = true
+    const open = XMLHttpRequest.prototype.open
+    XMLHttpRequest.prototype.open = function (method, url) {
+      if (String(url).indexOf('/api/messages?') !== -1) {
+        window.testRequests.push({ query: String(url).replace(/^.*\?/, ''), nodes: state.nodes.size, loading: state.loading, skeleton: el.messages.classList.contains('is-loading') })
+      }
+      return open.apply(this, arguments)
+    }
+  })
+}
+
+// Konum değişmeyene kadar beklenir (kaydırma olayları ve kendiliğinden yükleme biter)
+async function settledFirstVisible (page) {
+  let prev = null
+  let i = 0
+  while (i < 20) {
+    await h.sleep(150)
+    const now = await firstVisible(page)
+    if (prev && now && prev.id === now.id && prev.offset === now.offset) return now
+    prev = now
+    i += 1
+  }
+  return prev
+}
+
+test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, istek çizimden sonra gider, kaçırılan mesaj eklenir', async () => {
+  const page = W.deniz
+  const arsiv = W.w.room('arsiv')
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  let i = 0
+  while (i < 130) {
+    await W.w.say('selin', arsiv, 'arşiv ' + (i + 1))
+    i += 1
+  }
+  await openRoomRow(page, arsiv.id)
+  // Odanın bütün mesajları yüklenir, kişi ortaya kaydırır: ne en üstte ne en altta
+  await page.evaluate(async () => {
+    while (state.hasMore) await loadOlder()
+  })
+  assert.equal(await page.evaluate(() => state.messages.length), 130)
+  await page.evaluate(() => {
+    el.messages.scrollTop = Math.round((el.messages.scrollHeight - el.messages.clientHeight) / 2)
+  })
+  await page.waitForFunction(() => !isNearBottom())
+  const before = await settledFirstVisible(page)
+  const loaded = await page.evaluate(() => state.messages.length)
+  await openRoomRow(page, genel)
+  // Uzaktayken gelen mesaj olay alımıyla önbelleğe de eklenir
+  const late = await W.w.say('ece', arsiv, 'uzaktayken yazdım')
+  await page.waitForFunction((a) => {
+    const entry = navCache.map.get(String(a.id))
+    return Boolean(entry && entry.messages.some((m) => String(m.id) === String(a.m)))
+  }, { id: arsiv.id, m: late.id }, { timeout: h.LONG })
+  await watchMessageRequests(page)
+  await page.click('#inbox-list .room-row[data-station="text-' + arsiv.id + '"]')
+  // Tıklamanın hemen ardından: liste çizili, yükleniyor ve iskelet yok
+  const now = await page.evaluate(() => ({ view: currentViewMode(), id: String(state.channelId), nodes: state.nodes.size, loading: state.loading, skeleton: el.messages.classList.contains('is-loading') }))
+  assert.deepEqual(now, { view: 'channel', id: String(arsiv.id), nodes: loaded + 1, loading: false, skeleton: false })
+  assert.deepEqual(await firstVisible(page), before, 'ilk görünen mesaj ve kayması korundu')
+  // Tek istek: en yeni sayfa, liste çizildikten sonra
+  const ofRoom = async () => (await page.evaluate(() => window.testRequests)).filter((r) => r.query.indexOf('channel=' + arsiv.id + '&') === 0)
+  await page.waitForFunction(() => window.testRequests.length > 0)
+  await h.sleep(300)
+  assert.deepEqual(await ofRoom(), [{ query: 'channel=' + arsiv.id + '&limit=50', nodes: loaded + 1, loading: false, skeleton: false }])
+  await page.waitForSelector('#new-below:not([hidden])')
+  assert.equal(await page.evaluate(() => document.querySelector('#new-below-button .button-text').textContent), 'Aşağıda 1 yeni mesaj')
+  assert.deepEqual(await firstVisible(page), before, 'arka plandaki yenileme konumu değiştirmedi')
+
+  // Olay alımı dururken gelen mesaj önbellekte yoktur, geri tuşuyla dönülünce arka plandaki en yeni sayfayla eklenir
+  await openRoomRow(page, genel)
+  await page.evaluate(() => stopPoll())
+  const missed = await W.w.say('ece', arsiv, 'olay kaçtı')
+  await watchMessageRequests(page)
+  await goBack(page)
+  await waitConversation(page, 'channel', arsiv.id)
+  await page.waitForFunction((id) => state.nodes.has(String(id)), missed.id, { timeout: h.LONG })
+  const back = await ofRoom()
+  assert.equal(back.length, 1)
+  assert.deepEqual([back[0].query, back[0].nodes > 0, back[0].loading, back[0].skeleton], ['channel=' + arsiv.id + '&limit=50', true, false, false])
+  assert.deepEqual(await firstVisible(page), before)
+  await page.waitForFunction(() => document.querySelector('#new-below-button .button-text').textContent === 'Aşağıda 2 yeni mesaj')
+  await page.evaluate(() => startPoll())
+  await page.click('#new-below-button')
+  await page.waitForFunction((a) => !state.unread[a.id] && Number(state.lastRead[a.id]) === a.last, { id: arsiv.id, last: missed.id })
+  assert.equal(await page.evaluate((id) => document.querySelectorAll('#message-list .msg[data-id="' + id + '"]').length, missed.id), 1, 'mesaj bir kez çizildi')
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {
