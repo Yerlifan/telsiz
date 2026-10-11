@@ -4101,8 +4101,9 @@ button.member:hover {
     border-radius: 0;
   }
 
+  /* positionPopup kartı kenarlardan 8 piksel içeride tutar, büyük yazı boyutunda kart ekrandan taşmasın */
   .profile-card {
-    max-width: 100%;
+    max-width: calc(100% - 16px);
   }
 
   .key-warning {

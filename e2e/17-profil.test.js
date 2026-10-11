@@ -9,7 +9,8 @@
 //   düşer: resim 10 saniyelik yeniden denemeyle gelir.
 // - Kart düzeni üç temada (Arcade, Gece, Turkuaz): ad avatarın sağında, rol rozeti adla aynı satırda, @kullanıcı
 //   adı adın altında. Üye kartında soluk "Üye" rozeti, özel rolü olan üyede iki rozet. Avatar menüsünde rol adın
-//   yanında, Ayarlar önizlemesinde özel rol rozeti. 360 piksel genişlikte yatay taşma yok.
+//   yanında, Ayarlar önizlemesinde özel rol rozeti. 360 piksel genişlikte yatay taşma yok, kart büyük yazı boyutunda
+//   da ekrana sığar.
 // - Konsol ve sunucu günlüğü temiz (bilerek düşürülen isteklerin hataları dışında)
 
 const { before, after } = require('node:test')
@@ -293,6 +294,19 @@ test('kart düzeni üç temada: ad avatarın sağında, rol adın yanında, üye
   assert.ok(fits, 'kart 360 piksele sığar')
   assert.ok(await h.overflowX(ece) <= 0, 'yatay taşma yok')
   await closeCard(ece)
+  // Büyük yazı boyutunda (18 piksel) kart ekran genişliğine yaklaşır, yine de kenarlardan taşmaz. Ad avatarın sağında
+  // kalır (rozet sığmazsa alt satıra kayabilir)
+  await ece.evaluate(() => window.TelsizTheme.set({ fontSize: 'large' }))
+  await openCard(ece, P.deniz.id)
+  const large = await identityGeometry(ece, '#profile-card')
+  assert.ok(large.nameLeft > large.avRight, '360 büyük yazı: ad avatarın sağında')
+  const fitsLarge = await ece.evaluate(() => {
+    const b = document.getElementById('profile-card').getBoundingClientRect()
+    return b.left >= 0 && b.right <= document.documentElement.clientWidth
+  })
+  assert.ok(fitsLarge, 'büyük yazıda kart 360 piksele sığar')
+  await closeCard(ece)
+  await ece.evaluate(() => window.TelsizTheme.set({ fontSize: 'auto' }))
   await ece.setViewportSize({ width: 1440, height: 900 })
 })
 

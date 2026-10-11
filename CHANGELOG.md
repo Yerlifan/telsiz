@@ -7,7 +7,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 ### Değişiklikler
 
 - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
-- Profil kartında görünen ad ve @kullanıcı adı artık profil resminin sağında, rol de adın hemen yanında durur. Önceden ad, kullanıcı adı ve rol resmin altında alt alta diziliyordu. Düz üyelerin kartında da soluk bir "Üye" rozeti çıkar, özel rolü olan kişide iki rozet de görünür. Ayarlar'daki Hesabım ve Profil önizlemeleri ile avatar menüsünün başı aynı düzeni kullanır ve özel rolü de gösterir (avatar menüsü önceden rolü kullanıcı adının yanında yazıyordu). Ad uzunsa rol alt satıra kayar, kart çok daralırsa (örneğin telefonda büyük yazı boyutuyla) ad resmin altına iner.
+- Profil kartında görünen ad ve @kullanıcı adı artık profil resminin sağında, rol de adın hemen yanında durur. Önceden ad, kullanıcı adı ve rol resmin altında alt alta diziliyordu. Düz üyelerin kartında da soluk bir "Üye" rozeti çıkar, özel rolü olan kişide iki rozet de görünür. Ayarlar'daki Hesabım ve Profil önizlemeleri ile avatar menüsünün başı aynı düzeni kullanır ve özel rolü de gösterir (avatar menüsü önceden rolü kullanıcı adının yanında yazıyordu). Ad uzunsa rol alt satıra kayar, kart çok daralırsa (örneğin telefonda büyük yazı boyutuyla) ad resmin altına iner. Telefonda büyük yazı boyutunda kartın sağ kenarı artık ekrandan taşmaz.
 
 ### Düzeltmeler
 

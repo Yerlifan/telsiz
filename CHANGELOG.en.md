@@ -7,7 +7,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 ### Changes
 
 - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
-- The display name and @username on the profile card now sit to the right of the profile picture, with the role right next to the name. Before, the name, username and role were stacked below the picture. Plain members now also get a faint "Member" badge on their card, and someone with a custom role shows both badges. The My Account and Profile previews in Settings and the head of the avatar menu use the same layout and also show the custom role (the avatar menu used to write the role next to the username). If the name is long the role wraps to the next line, and if the card gets very narrow (for example on a phone with a large font size) the name moves below the picture.
+- The display name and @username on the profile card now sit to the right of the profile picture, with the role right next to the name. Before, the name, username and role were stacked below the picture. Plain members now also get a faint "Member" badge on their card, and someone with a custom role shows both badges. The My Account and Profile previews in Settings and the head of the avatar menu use the same layout and also show the custom role (the avatar menu used to write the role next to the username). If the name is long the role wraps to the next line, and if the card gets very narrow (for example on a phone with a large font size) the name moves below the picture. On a phone with a large font size the right edge of the card no longer runs off the screen.
 
 ### Fixes
 
