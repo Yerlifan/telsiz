@@ -298,13 +298,24 @@ test('Yüksek Kontrast ilk açılışta: saklı tema yoksa ve sistem yüksek kar
   assert.ok(SKINS.indexOf(plain.theme.contrastSkin) !== -1)
 })
 
-test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir', () => {
-  const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
-  const at = base.indexOf('@media (forced-colors: active)')
-  assert.ok(at !== -1, 'forced-colors bölümü')
-  const block = base.slice(at)
-  assert.ok(/\.station\.is-tuned[\s\S]*border-color: Highlight/.test(block), 'ayarlı istasyon kenarı')
-  assert.ok(/forced-color-adjust: none/.test(block), 'durum işaretleri rengini korur')
+test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir, kurallar sonraki dosyalara ezilmez', () => {
+  const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8')
+  const rules = skinRules(base).filter((rule) => rule.atRules.indexOf('@media (forced-colors: active)') !== -1)
+  assert.ok(rules.length > 0, 'forced-colors bölümü')
+  const ruleOf = (selector) => {
+    const found = rules.filter((rule) => rule.selectors.indexOf(selector) !== -1)
+    assert.equal(found.length, 1, 'forced-colors bölümünde tek kural: ' + selector)
+    return found[0].body
+  }
+  // base.css bileşen ve süs dosyalarından önce yüklenir. Aynı ya da daha özgül sonraki kurallar (ör. frekans.css
+  // .station.is-tuned, radio.css .radio .radio-ptt, :root[data-skin] kuralları) ezmesin diye bildirimler !important.
+  // Gerçek tarayıcıdaki sonuç e2e/04-ayarlar.test.js içinde her temada ölçülür.
+  const selected = ['.station.is-tuned', '.room-row.is-current', '.dm-item[aria-current]', '.settings-cat[aria-current="page"]', '.settings-theme-card.is-selected', '.top-personal-button.is-current']
+  for (const selector of selected) assert.match(ruleOf(selector), /border-color:\s*Highlight\s*!important/, selector + ' kenarı')
+  for (const selector of ['.room-row.is-current::before', '.needle::after']) assert.match(ruleOf(selector), /background-color:\s*Highlight\s*!important/, selector)
+  assert.match(ruleOf('.radio .radio-ptt'), /border:\s*2px solid ButtonText\s*!important/, 'Bas Konuş kenarı')
+  assert.match(ruleOf(':focus-visible'), /outline-width:\s*4px\s*!important/, 'kalın odak çerçevesi')
+  for (const selector of ['.avatar[data-status]::after', '.radio-led', '.unread-badge', '.theme-swatch > span']) assert.match(ruleOf(selector), /forced-color-adjust:\s*none/, selector + ' rengini korur')
 })
 
 test('kademe yardımcısı: özgül blok genel bloğu ezer, uymayan öznitelik uygulanmaz, var() geri dönüşü çalışır', () => {

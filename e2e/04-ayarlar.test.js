@@ -7,6 +7,8 @@
 // ve modda 1440 ve 390 piksel genişlikte yatay taşma yoktur ve Gönder düğmesinde tek bir simge görünür (telefonda
 // etiket gizlenince düğmenin tek işareti). Sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
 // forced-colors: active öykünmesi) saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, saklı tema önce gelir.
+// Zorlanmış renk kipinde her tema ve modda seçili öğelerin kenarı sistem vurgusu renginde, seçili olmayanlarınki başka
+// renkte, Bas konuş kenarlıdır (base.css kuralları bileşen ve süs dosyalarındaki kurallara ezilmez).
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -20,6 +22,57 @@ function keyLikeTokens () {
   const text = document.body.innerText
   const found = text.match(/\b[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*){1,4}\b/g) || []
   return found.filter((s) => !/^\d/.test(s))
+}
+
+// Zorlanmış renk kipinde seçili öğelerin kenarı sistem vurgusu (Highlight) renginde, seçili olmayanlarınki başka
+// renkte olmalı. Bas konuş kenarlı, ayarlı odanın çizgisi ve ibre vurgu renginde. Bu sayfada seçili özel mesaj ve
+// seçili kişisel düğme yok, kademeyi ölçmek için ikisi geçici olarak işaretlenir. Bulunan sorunları döndürür.
+function forcedColorProblems () {
+  const probe = document.createElement('div')
+  probe.style.color = 'Highlight'
+  document.body.appendChild(probe)
+  const highlight = getComputedStyle(probe).color
+  probe.remove()
+  const list = document.getElementById('dm-list')
+  const dmOn = document.createElement('button')
+  dmOn.className = 'dm-item'
+  dmOn.setAttribute('aria-current', 'page')
+  const dmOff = document.createElement('button')
+  dmOff.className = 'dm-item'
+  list.appendChild(dmOn)
+  list.appendChild(dmOff)
+  const topDm = document.getElementById('top-dm')
+  const wasCurrent = topDm.classList.contains('is-current')
+  topDm.classList.add('is-current')
+  const out = []
+  const one = (sel) => document.querySelector(sel)
+  const pairs = [
+    ['ayarlı istasyon', one('#band-track .station.is-tuned'), one('#band-track .station:not(.is-tuned)')],
+    ['ayarlı oda', one('.room-row.is-current'), one('.room-row:not(.is-current)')],
+    ['ayar kategorisi', one('.settings-cat[aria-current="page"]'), one('.settings-cat:not([aria-current])')],
+    ['tema kartı', one('.settings-theme-card.is-selected'), one('.settings-theme-card:not(.is-selected)')],
+    ['özel mesaj', dmOn, dmOff],
+    ['kişisel düğme', topDm, one('#top-friends')]
+  ]
+  pairs.forEach((p) => {
+    if (!p[1]) {
+      out.push(p[0] + ' bulunamadı')
+      return
+    }
+    const on = getComputedStyle(p[1])
+    if (on.borderTopColor !== highlight || on.borderTopStyle === 'none' || on.borderTopWidth === '0px') out.push(p[0] + ' kenarı ' + on.borderTopColor + ' ' + on.borderTopWidth + ' ' + on.borderTopStyle)
+    if (p[2] && getComputedStyle(p[2]).borderTopColor === highlight) out.push(p[0] + ': seçili olmayan öğe de vurgu renginde')
+  })
+  const ptt = getComputedStyle(one('#ptt-button'))
+  if (ptt.borderTopStyle === 'none' || ptt.borderTopWidth === '0px') out.push('Bas konuş kenarsız: ' + ptt.borderTopWidth + ' ' + ptt.borderTopStyle)
+  const bar = getComputedStyle(one('.room-row.is-current'), '::before').backgroundColor
+  if (bar !== highlight) out.push('ayarlı oda çizgisi ' + bar)
+  const needle = getComputedStyle(one('.needle'), '::after').backgroundColor
+  if (needle !== highlight) out.push('ibre ' + needle)
+  dmOn.remove()
+  dmOff.remove()
+  if (!wasCurrent) topDm.classList.remove('is-current')
+  return out
 }
 
 async function openAppearance (page) {
@@ -159,6 +212,29 @@ test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta 
   assert.equal(await reload(), 'gece')
   await page.emulateMedia({ contrast: null, forcedColors: null })
   await page.evaluate(() => window.TelsizTheme.set({ skin: 'turkuaz', scheme: 'light' }))
+})
+
+test('zorlanmış renk kipinde her tema ve modda seçili öğeler sistem vurgusu renginde kenar alır, Bas konuş kenarlıdır', async () => {
+  const page = W.page
+  await page.waitForSelector('#band-track .station.is-tuned', { timeout: h.LONG })
+  await page.waitForSelector('.room-row.is-current', { state: 'attached', timeout: h.LONG })
+  const skins = await page.evaluate(() => window.TelsizTheme.skins.slice())
+  await page.emulateMedia({ forcedColors: 'active' })
+  assert.equal(await page.evaluate(() => matchMedia('(forced-colors: active)').matches), true, 'forced-colors öykünmesi çalışır')
+  await openAppearance(page)
+  const problems = []
+  for (const skin of skins) {
+    for (const scheme of ['dark', 'light']) {
+      await page.evaluate((a) => window.TelsizTheme.set({ skin: a[0], scheme: a[1] }), [skin, scheme])
+      await page.waitForFunction((a) => document.documentElement.getAttribute('data-skin') === a[0] && document.documentElement.getAttribute('data-scheme') === a[1], [skin, scheme])
+      const found = await page.evaluate(forcedColorProblems)
+      found.forEach((p) => problems.push(skin + ' ' + scheme + ': ' + p))
+    }
+  }
+  await closeSettings(page)
+  await page.emulateMedia({ forcedColors: null })
+  await page.evaluate(() => window.TelsizTheme.set({ skin: 'turkuaz', scheme: 'light' }))
+  assert.deepEqual(problems, [])
 })
 
 test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async () => {

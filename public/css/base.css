@@ -351,8 +351,14 @@ textarea:focus {
 
 /* Zorlanmış renkler (Windows Yüksek Karşıtlık gibi): tarayıcı renkleri sistem renkleriyle değiştirir, gölgeleri ve
    zemin resimlerini kaldırır. Seçili ve ayarlı öğeler gölge veya yalnızca zemin rengi yerine sistem vurgusu renginde
-   kenarla ayrılır, odak çerçevesi kalınlaşır. Anlam taşıyan küçük renk işaretleri (durum noktası, telsiz lambası,
-   okunmamış noktası, tema önizlemesi) kendi renklerini korur. Destekleyen tarayıcı yoksa kural yok sayılır. */
+   kenarla ayrılır, Bas konuş kenarla çizilir, odak çerçevesi kalınlaşır. Anlam taşıyan küçük renk işaretleri (durum
+   noktası, telsiz lambası, okunmamış noktası, tema önizlemesi) kendi renklerini korur. Destekleyen tarayıcı yoksa kural
+   yok sayılır.
+   Bu dosya bileşen ve tema dosyalarından önce yüklenir. Onların aynı ya da daha özgül kuralları (ör. frekans.css
+   .station.is-tuned, Bas konuş kenarını sıfırlayan radio.css .radio .radio-ptt, süs dosyalarındaki :root[data-skin]
+   kuralları) bu bölümü ezerdi. Hareketi azalt bölümündeki gibi kişinin sistem tercihi önce gelsin diye bildirimler
+   !important ile yazılır. Gönder düğmesinin kenarını sonraki dosyalar silmez, Yüksek Kontrast'taki kesik kenarlı
+   devre dışı hâli korunsun diye o kural !important değildir. Sonuç e2e/04-ayarlar.test.js içinde her temada ölçülür. */
 @media (forced-colors: active) {
   .station.is-tuned,
   .room-row.is-current,
@@ -360,22 +366,25 @@ textarea:focus {
   .settings-cat[aria-current="page"],
   .settings-theme-card.is-selected,
   .top-personal-button.is-current {
-    border-color: Highlight;
+    border-color: Highlight !important;
   }
 
   .room-row.is-current::before,
   .needle::after {
-    background-color: Highlight;
+    background-color: Highlight !important;
     forced-color-adjust: none;
   }
 
-  .radio .radio-ptt,
+  .radio .radio-ptt {
+    border: 2px solid ButtonText !important;
+  }
+
   #composer .send-button {
     border: 2px solid ButtonText;
   }
 
   :focus-visible {
-    outline-width: 4px;
+    outline-width: 4px !important;
   }
 
   .avatar[data-status]::after,
