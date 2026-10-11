@@ -20,7 +20,7 @@
 // - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
 //   inilince düşer, Okunmamışa Git ayracı geri getirir
 // - Yukarıdayken gelen mesajda kaydırma olmaz, kapsül "Aşağıda 1 yeni mesaj" der, son okunan değişmez, kapsüle
-//   basınca en alta inilir ve okundu sayılır
+//   basınca en alta inilir ve okundu sayılır (üstünde kısa bildirim dururken de)
 // - Telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle (around) yüklenir, Okundu İşaretle hepsini okur, En
 //   Yeni Mesajlara Dön son okunanın çevresine geri dönmez
 // G9, Özel mesajlar grubu ve görünümün hatırlanması (S5, S12):
@@ -512,6 +512,8 @@ test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve ok
   assert.deepEqual(capsule, { text: 'Aşağıda 1 yeni mesaj', top: 0, reach: true })
   let v = await unreadView(page, sohbet)
   assert.deepEqual([v.lastRead, v.unread], [before.lastRead, 1], 'yukarıdayken okundu sayılmadı')
+  // Aynı yerde duran kısa bildirim kapsüle basmayı engellemez
+  await page.evaluate(() => toast('Kapsülün üstünde kısa bildirim'))
   await page.click('#new-below-button')
   await page.waitForFunction((id) => !state.unread[id], sohbet)
   v = await unreadView(page, sohbet)

@@ -944,11 +944,14 @@
    7. Bildirim şeridi ve bağlantı şeridi
    ========================================================= */
 
+/* Kısa bildirim yalnızca metindir, tıklamaları altındaki öğeye bırakır (ör. mesaj akışının altındaki yeni mesaj
+   kapsülü, 38-gezinme.js) */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 6rem;
   z-index: 100;
+  pointer-events: none;
   max-width: 36rem;
   padding: 0.75rem 1rem;
   border: var(--border-width) solid var(--line-strong);

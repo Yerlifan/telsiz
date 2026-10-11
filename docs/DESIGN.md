@@ -227,7 +227,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
 | Screen sharing and camera grid | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open, `#cast[data-mode="cams"]` for the grid. |
 | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | The YouTube player area (`.dj-yt`) is always at least 200x200 CSS pixels regardless of font size, and nothing is drawn on top of it. While the card is hidden or covered, the player is docked in a corner with the `.dj-dock` bar below it. |
 | Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-cards`, `.settings-theme-group`, `.settings-theme-list`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | The selected category is marked with a left line in the needle color. The theme cards form a single radio group in two groups titled Radio Themes and Accessibility. The preview strip is 2rem and the description is visible only on the selected card (on the other cards it is read through `aria-describedby`). |
-| Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. |
+| Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. The short notice (`.toast`) is text only and lets clicks through to the element under it. |
 
 ## State classes and JavaScript contract
 

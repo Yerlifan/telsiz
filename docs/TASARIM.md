@@ -227,7 +227,7 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl�
 | Ekran paylaşımı ve kameralar ızgarası | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | Sahne açıkken `body[data-cast="live"]`, ızgarada `#cast[data-mode="cams"]`. |
 | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | YouTube oynatıcı alanı (`.dj-yt`) yazı boyutundan bağımsız olarak her zaman en az 200x200 CSS pikselidir ve üstüne hiçbir şey bindirilmez. Kart görünmezken veya örtülürken oynatıcı köşeye sabitlenir, altında `.dj-dock` çubuğu durur. |
 | Ayarlar | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-cards`, `.settings-theme-group`, `.settings-theme-list`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | Seçili kategori ibre renginde sol çizgiyle işaretlenir. Tema kartları tek radyo grubudur ve Telsiz Temaları ile Erişilebilirlik başlıklı iki grupta durur. Önizleme şeridi 2rem, açıklama yalnızca seçili kartta görünür (öteki kartlarda `aria-describedby` ile okunur). |
-| Katmanlar | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | Dar ekranda katmanlar alttan açılır. |
+| Katmanlar | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | Dar ekranda katmanlar alttan açılır. Kısa bildirim (`.toast`) yalnızca metindir, tıklamaları altındaki öğeye bırakır. |
 
 ## Durum sınıfları ve JavaScript sözleşmesi
 
