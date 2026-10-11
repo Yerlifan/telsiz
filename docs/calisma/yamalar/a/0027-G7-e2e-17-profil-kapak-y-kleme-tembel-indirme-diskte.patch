@@ -1,0 +1,298 @@
+From 3ebb5de0812c52fab56a90e7e9d63b4ace32146b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:11:15 +0000
+Subject: [PATCH 27/69] =?UTF-8?q?G7:=20e2e=2017-profil:=20kapak=20y=C3=BCk?=
+ =?UTF-8?q?leme,=20tembel=20indirme,=20diskte=20d=C3=BCz=20bayt=20yok?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kapak Ayarlar'dan seçilip kaydedilir. Ece'de kart açılmadan indirilmez, kart
+açılınca bir kez iner, üç temada bandı doldurur ve avatar üstte kalır. Kapak
+1200x400 JPEG ve ortadan 3:1 kırpılmıştır. Veri klasöründe düz JPEG baytları
+yoktur. Eski istemcinin kaydı kapağı kaldırır, İngilizce arayüzde kapak
+seçilip Remove Cover ile kaldırılır ve açık karttan da kalkar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/17-profil.test.js | 248 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 248 insertions(+)
+
+diff --git a/e2e/17-profil.test.js b/e2e/17-profil.test.js
+index 42547c0..3ffc0ab 100644
+--- a/e2e/17-profil.test.js
++++ b/e2e/17-profil.test.js
+@@ -15,10 +15,18 @@
+ //   adı adın altında. Üye kartında soluk "Üye" rozeti, özel rolü olan üyede iki rozet. Avatar menüsünde rol adın
+ //   yanında, Ayarlar önizlemesinde özel rol rozeti. 360 piksel genişlikte yatay taşma yok, kart büyük yazı boyutunda
+ //   da ekrana sığar.
++// - Kapak fotoğrafı (istek 8, G7): Deniz Ayarlar > Profil'den kapak seçer, iki önizlemede görünür ve kaydedilir. Ece'de
++//   kapak kart açılmadan indirilmez, kart açılınca bir kez iner ve üç temada bandın içinde, banda binen avatarın altında
++//   görünür. Kapak 1200x400 JPEG'dir ve kaynağın ortasından 3:1 kırpılmıştır. Veri klasöründe yalnızca şifreli kapak
++//   vardır, düz JPEG baytları hiçbir dosyada yoktur. Kapağı bilmeyen eski bir istemcinin kaydı kapağı kaldırır ve dosya
++//   silinir. İngilizce arayüzde kapak seçilir ve Remove Cover ile kaldırılır, Ece'nin açık kartındaki kapak da kalkar.
+ // - Konsol ve sunucu günlüğü temiz (bilerek düşürülen isteklerin ve Telsiz DJ sürüm çakışmasının (409) hataları dışında)
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const zlib = require('node:zlib')
+ const h = require('./yardimci')
+ 
+ const W = { w: null, deniz: null, ece: null, lobi: null, genel: null }
+@@ -31,6 +39,100 @@ const SKINS = ['arcade', 'gece', 'turkuaz']
+ 
+ const crewSel = (id) => '#radio-crew .crew-item[data-user-id="' + id + '"]'
+ 
++// PNG yazımı için CRC-32 (zlib.crc32 her Node.js 20 sürümünde yok)
++const CRC_TABLE = (() => {
++  const table = new Int32Array(256)
++  let n = 0
++  while (n < 256) {
++    let c = n
++    let k = 0
++    while (k < 8) {
++      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
++      k++
++    }
++    table[n] = c
++    n++
++  }
++  return table
++})()
++
++function crc32 (buf) {
++  let c = -1
++  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8)
++  return (c ^ -1) >>> 0
++}
++
++function pngChunk (type, data) {
++  const head = Buffer.alloc(8)
++  head.writeUInt32BE(data.length, 0)
++  head.write(type, 4, 'ascii')
++  const crc = Buffer.alloc(4)
++  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0)
++  return Buffer.concat([head, data, crc])
++}
++
++// Kare PNG: üst üçte biri kırmızı, ortası yeşil, altı mavi. Ortadan alınan 3:1 bölge tam olarak yeşil şerittir.
++function stripesPng (size) {
++  const row = 1 + size * 3
++  const raw = Buffer.alloc(row * size)
++  const colors = [[220, 30, 30], [30, 200, 60], [30, 60, 220]]
++  let y = 0
++  while (y < size) {
++    const rgb = colors[Math.floor(y * 3 / size)]
++    let x = 0
++    while (x < size) {
++      raw.set(rgb, y * row + 1 + x * 3)
++      x++
++    }
++    y++
++  }
++  const ihdr = Buffer.alloc(13)
++  ihdr.writeUInt32BE(size, 0)
++  ihdr.writeUInt32BE(size, 4)
++  ihdr[8] = 8
++  ihdr[9] = 2
++  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib.deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0))])
++}
++
++// Kişinin profil kaydındaki kapak yükleme kimliği (yoksa null)
++function coverIdOf (page, id) {
++  return page.evaluate((d) => {
++    const rec = profileRecord(d)
++    return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
++  }, id)
++}
++
++// Açık profil kartındaki kapak: boyutlar, bandı doldurup doldurmadığı, avatarın kapağın üstünde kalıp kalmadığı ve
++// kapağın üç noktasındaki renk (ortadan 3:1 kırpma yeşil şeridi verir)
++function cardCoverLook (page) {
++  return page.evaluate(() => {
++    const card = document.getElementById('profile-card')
++    const band = card.querySelector('.profile-card-band')
++    const img = band.querySelector('img.profile-card-cover')
++    const av = card.querySelector('.profile-card-avatar .avatar')
++    const b = band.getBoundingClientRect()
++    const i = img.getBoundingClientRect()
++    const a = av.getBoundingClientRect()
++    const onTop = document.elementFromPoint(a.left + a.width / 2, a.top + 3)
++    const canvas = document.createElement('canvas')
++    canvas.width = img.naturalWidth
++    canvas.height = img.naturalHeight
++    const ctx = canvas.getContext('2d', { willReadFrequently: true })
++    ctx.drawImage(img, 0, 0)
++    // Tek okuma: art arda getImageData çağrıları Chromium'da konsola uyarı yazar
++    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
++    const at = (x, y) => Array.from(data.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 3))
++    return {
++      w: img.naturalWidth,
++      h: img.naturalHeight,
++      fills: Math.abs(i.width - b.width) <= 1 && Math.abs(i.height - b.height) <= 1 && Math.abs(i.top - b.top) <= 1,
++      overlap: a.top < b.bottom,
++      avatarOnTop: Boolean(onTop && av.contains(onTop)),
++      samples: [at(12, 12), at(600, 200), at(1188, 388)]
++    }
++  })
++}
++
+ // Deniz'in profilini Node tarafında yazar (görünen ad ve isteğe bağlı profil resmi)
+ async function writeProfile (displayName, avatar) {
+   const w = W.w
+@@ -402,6 +504,152 @@ test('profil değişikliği Telsiz DJ kuyruğuna, paylaşan seçicisine ve izley
+   for (const p of [deniz, ece]) await p.waitForFunction(() => document.getElementById('cast').hidden, null, { timeout: h.LONG })
+ })
+ 
++test('kapak fotoğrafı Ayarlar > Profil\'den yüklenir, yalnızca kart açılınca iner, diskte düz baytı yok, eski istemcinin kaydı kapağı kaldırır', async () => {
++  const { deniz, ece } = W
++  const w = W.w
++  const D = w.P.deniz.id
++  // Ece'nin yükleme indirmeleri kaydedilir (kapağın ne zaman indiği için)
++  const downloads = []
++  ece.on('request', (req) => {
++    const m = /\/api\/uploads\/([0-9a-f]{32})$/.exec(req.url())
++    if (m) downloads.push(m[1])
++  })
++
++  // Deniz kapak seçer: bant önizlemesinde ve profil kartı önizlemesinde görünür, kaydeder
++  await deniz.evaluate(() => openSettings('profile'))
++  await deniz.waitForSelector('#set-cover-pick')
++  assert.equal(await deniz.textContent('#set-cover-title'), 'Kapak fotoğrafı')
++  await deniz.setInputFiles('#set-cover-file', { name: 'kapak.png', mimeType: 'image/png', buffer: stripesPng(900) })
++  await deniz.waitForFunction(() => document.getElementById('set-cover-msg').classList.contains('is-ok') && !document.getElementById('set-profile-save').disabled, null, { timeout: h.LONG })
++  assert.equal(await deniz.textContent('#set-cover-msg'), 'Kapak hazır, kaydedince yüklenir.')
++  for (const sel of ['#set-cover-preview', '#set-profile-card']) assert.ok(await deniz.$(sel + ' .profile-card-band.has-cover img.profile-card-cover'), sel)
++  await deniz.click('#set-profile-save')
++  await deniz.waitForFunction((d) => {
++    const rec = profileRecord(d)
++    return Boolean(rec && rec.profile && rec.profile.cover)
++  }, D, { timeout: h.LONG })
++  const coverId = await coverIdOf(deniz, D)
++  // Sunucudaki kapak Deniz'in cihazında çözülür ve önizlemede yerel kopyanın yerini alır
++  await deniz.waitForFunction((u) => {
++    const entry = profileState.covers.get(u)
++    const img = document.querySelector('#set-profile-card img.profile-card-cover')
++    return Boolean(entry && entry.state === 'ok' && img && img.src === entry.url)
++  }, coverId, { timeout: h.LONG })
++  await deniz.keyboard.press('Escape')
++  await deniz.waitForSelector('#settings-view', { state: 'hidden' })
++
++  // Ece profili alır ama kartı açmadan kapak indirilmez
++  await ece.waitForFunction((a) => {
++    const rec = profileRecord(a.d)
++    return Boolean(rec && rec.profile && rec.profile.cover && rec.profile.cover.u === a.u)
++  }, { d: D, u: coverId }, { timeout: h.SHORT })
++  await h.sleep(500)
++  assert.equal(downloads.filter((u) => u === coverId).length, 0, 'kart açılmadan kapak indirilmez')
++
++  // Kart açılınca kapak bir kez iner. Üç temada bandı doldurur, avatar kapağın üstündedir, kırpma ortadan 3:1'dir.
++  for (const skin of SKINS) {
++    await ece.evaluate((s) => window.TelsizTheme.set({ skin: s }), skin)
++    await openCard(ece, D)
++    await ece.waitForFunction(() => {
++      const img = document.querySelector('#profile-card .profile-card-band.has-cover img.profile-card-cover')
++      return Boolean(img && img.complete && img.naturalWidth > 0)
++    }, null, { timeout: h.SHORT })
++    const look = await cardCoverLook(ece)
++    assert.deepEqual([look.w, look.h], [1200, 400], skin + ': 1200x400')
++    assert.ok(look.fills, skin + ': kapak bandı doldurur')
++    assert.ok(look.overlap && look.avatarOnTop, skin + ': avatar banda biner ve kapağın üstünde kalır')
++    for (const [r, g, b] of look.samples) assert.ok(g > 150 && r < 90 && b < 110, skin + ': ortadaki yeşil şerit ' + [r, g, b])
++    await closeCard(ece)
++  }
++  assert.equal(downloads.filter((u) => u === coverId).length, 1, 'kapak bir kez indirilir')
++  await ece.evaluate(() => window.TelsizTheme.set({ skin: 'arcade' }))
++
++  // Veri klasöründe yalnızca şifreli kapak: dosya profildeki anahtarla çözülür, düz JPEG baytları hiçbir dosyada yok
++  const ref = await ece.evaluate((d) => {
++    const c = profileRecord(d).profile.cover
++    return { k: c.k, n: c.n, m: c.m }
++  }, D)
++  assert.equal(ref.m, 'image/jpeg')
++  const files = h.readDataDir(w.srv.dataDir)
++  const stored = files.find((f) => path.basename(f.file) === coverId + '.bin')
++  assert.ok(stored, 'şifreli kapak dosyası')
++  const plain = Buffer.from(w.E.decryptFile(new Uint8Array(stored.data), ref.k, ref.n))
++  assert.deepEqual(Array.from(plain.subarray(0, 3)), [0xff, 0xd8, 0xff], 'kapak JPEG')
++  assert.equal(stored.data.length, plain.length + 16)
++  assert.ok(plain.length <= 1024 * 1024, 'kapak 1 MB sınırında')
++  for (const f of files) {
++    for (const at of [0, Math.floor(plain.length / 2), plain.length - 64]) {
++      assert.equal(f.data.indexOf(plain.subarray(at, at + 64)), -1, f.file + ' içinde düz kapak baytları')
++    }
++  }
++
++  // Kapağı bilmeyen eski istemci profili kaydeder (zarfta kapak yok, coverUploadId gönderilmez): sunucu kapağı kaldırır,
++  // Ece'nin kartında kapak görünmez, dosya silinir
++  await writeProfile('Deniz On', null)
++  await ece.waitForFunction((d) => {
++    const rec = profileRecord(d)
++    return Boolean(rec && rec.profile && rec.profile.displayName === 'Deniz On' && !rec.profile.cover && !rec.coverUploadId)
++  }, D, { timeout: h.SHORT })
++  await openCard(ece, D)
++  assert.equal(await ece.$('#profile-card .profile-card-band.has-cover'), null)
++  assert.ok(await ece.$('#profile-card .profile-card-band'))
++  await closeCard(ece)
++  await h.until(() => !fs.existsSync(stored.file), h.SHORT, 'eski kapak silindi')
++})
++
++test('İngilizce arayüzde kapak seçilir ve Remove Cover ile kaldırılır, açık karttaki kapak da kalkar', async () => {
++  const { deniz, ece } = W
++  const D = W.w.P.deniz.id
++  await deniz.evaluate(() => openSettings('appearance'))
++  await deniz.waitForSelector('#set-lang')
++  await deniz.selectOption('#set-lang', 'en')
++  await deniz.waitForFunction(() => document.documentElement.lang === 'en')
++  await deniz.evaluate(() => showSettingsCat('profile', 'title'))
++  await deniz.waitForSelector('#set-cover-pick')
++  const labels = await deniz.evaluate(() => [
++    document.getElementById('set-cover-title').textContent,
++    document.querySelector('#set-cover-pick .button-text').textContent,
++    document.querySelector('#set-cover-remove .button-text').textContent
++  ])
++  assert.deepEqual(labels, ['Cover photo', 'Choose Cover', 'Remove Cover'])
++  await deniz.setInputFiles('#set-cover-file', { name: 'cover.png', mimeType: 'image/png', buffer: stripesPng(600) })
++  await deniz.waitForFunction(() => document.getElementById('set-cover-msg').classList.contains('is-ok'), null, { timeout: h.LONG })
++  assert.equal(await deniz.textContent('#set-cover-msg'), 'Cover ready. It uploads when you save.')
++  await deniz.click('#set-profile-save')
++  await deniz.waitForFunction((d) => {
++    const rec = profileRecord(d)
++    return Boolean(rec && rec.profile && rec.profile.cover)
++  }, D, { timeout: h.LONG })
++  const coverId = await coverIdOf(deniz, D)
++
++  // Ece kartı açık tutar, kapak görünür. Deniz kapağı kaldırıp kaydeder: açık karttaki kapak kalkar.
++  await ece.waitForFunction((a) => {
++    const rec = profileRecord(a.d)
++    return Boolean(rec && rec.profile && rec.profile.cover && rec.profile.cover.u === a.u)
++  }, { d: D, u: coverId }, { timeout: h.SHORT })
++  await openCard(ece, D)
++  await ece.waitForSelector('#profile-card .profile-card-band.has-cover img.profile-card-cover', { timeout: h.SHORT })
++  await deniz.click('#set-cover-remove')
++  assert.equal(await deniz.textContent('#set-cover-msg'), 'The cover is removed when you save.')
++  assert.equal(await deniz.$('#set-profile-card .profile-card-band.has-cover'), null)
++  await deniz.click('#set-profile-save')
++  await deniz.waitForFunction((d) => {
++    const rec = profileRecord(d)
++    return Boolean(rec && rec.profile && !rec.profile.cover)
++  }, D, { timeout: h.LONG })
++  await ece.waitForFunction(() => !document.querySelector('#profile-card .profile-card-band.has-cover') && Boolean(document.querySelector('#profile-card .profile-card-band')), null, { timeout: h.SHORT })
++  await closeCard(ece)
++  await h.until(() => !fs.existsSync(path.join(W.w.srv.dataDir, 'uploads', coverId + '.bin')), h.SHORT, 'kaldırılan kapak silindi')
++
++  // Arayüz Türkçeye döner
++  await deniz.evaluate(() => showSettingsCat('appearance', 'title'))
++  await deniz.waitForSelector('#set-lang')
++  await deniz.selectOption('#set-lang', 'tr')
++  await deniz.waitForFunction(() => document.documentElement.lang === 'tr')
++  await deniz.keyboard.press('Escape')
++  await deniz.waitForSelector('#settings-view', { state: 'hidden' })
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Bilerek düşürülen istekler (route.abort) Ece'nin konsoluna ağ hatası olarak yazılır, beklenen bir durumdur
+   const aborted = (l) => l.label === 'ece' && l.type === 'error' && /ERR_CONNECTION_RESET/.test(l.text) && /\/api\/(profiles|uploads)/.test(l.url)

@@ -1,0 +1,116 @@
+From 4c3e8792c64454ad4221949ad5a2a2ebb818077a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 12:19:34 +0000
+Subject: [PATCH 61/69] =?UTF-8?q?G6:=20inceleme=20d=C3=BCzeltmeleri=20(dar?=
+ =?UTF-8?q?=20kartta=20ve=20uzun=20adda=20kimlik=20sat=C4=B1rlar=C4=B1n?=
+ =?UTF-8?q?=C4=B1n=20kaymas=C4=B1=20s=C4=B1nan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Planın 9. adımındaki iki kayma hiçbir testte sınanmıyordu. 17-profil.test.js'e
+yeni bir ölçüm eklendi. 16rem genişliğe zorlanan kartta ad, rol rozeti ve
+@kullanıcı adı avatarın altına, avatarla aynı sol kenara kayar ve kartta yatay
+taşma olmaz. 32 karakterlik boşluklu adda ad avatarın sağında kalır, Üye rozeti
+adın altındaki satıra geçer. .profile-card-head kuralındaki flex-wrap veya
+metin sütununun 9.75rem esas genişliği silinirse test düşer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/17-profil.test.js | 58 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 57 insertions(+), 1 deletion(-)
+
+diff --git a/e2e/17-profil.test.js b/e2e/17-profil.test.js
+index 3ffc0ab..e1361b4 100644
+--- a/e2e/17-profil.test.js
++++ b/e2e/17-profil.test.js
+@@ -14,7 +14,8 @@
+ // - Kart düzeni üç temada (Arcade, Gece, Turkuaz): ad avatarın sağında, rol rozeti adla aynı satırda, @kullanıcı
+ //   adı adın altında. Üye kartında soluk "Üye" rozeti, özel rolü olan üyede iki rozet. Avatar menüsünde rol adın
+ //   yanında, Ayarlar önizlemesinde özel rol rozeti. 360 piksel genişlikte yatay taşma yok, kart büyük yazı boyutunda
+-//   da ekrana sığar.
++//   da ekrana sığar. 18rem'den dar kartta ad, rol ve @kullanıcı adı avatarın altına kayar. 32 karakterlik uzun adda ad
++//   avatarın sağında kalır, rol rozeti adın altındaki satıra geçer.
+ // - Kapak fotoğrafı (istek 8, G7): Deniz Ayarlar > Profil'den kapak seçer, iki önizlemede görünür ve kaydedilir. Ece'de
+ //   kapak kart açılmadan indirilmez, kart açılınca bir kez iner ve üç temada bandın içinde, banda binen avatarın altında
+ //   görünür. Kapak 1200x400 JPEG'dir ve kaynağın ortasından 3:1 kırpılmıştır. Veri klasöründe yalnızca şifreli kapak
+@@ -180,9 +181,12 @@ function identityGeometry (page, sel) {
+     const handle = box.querySelector('.profile-identity-handle')
+     const hr = handle ? r(handle) : null
+     return {
++      avLeft: av.left,
+       avRight: av.right,
++      avBottom: av.bottom,
+       nameLeft: name.left,
+       nameRight: name.right,
++      nameTop: name.top,
+       nameMid: (name.top + name.bottom) / 2,
+       nameBottom: name.bottom,
+       handle: handle ? handle.textContent : null,
+@@ -192,6 +196,8 @@ function identityGeometry (page, sel) {
+         text: b.textContent,
+         cls: b.className,
+         left: r(b).left,
++        top: r(b).top,
++        bottom: r(b).bottom,
+         mid: (r(b).top + r(b).bottom) / 2
+       }))
+     }
+@@ -434,6 +440,56 @@ test('kart düzeni üç temada: ad avatarın sağında, rol adın yanında, üye
+   await ece.setViewportSize({ width: 1440, height: 900 })
+ })
+ 
++test('kart 18rem\'den darsa ad ve rol avatarın altına kayar, uzun adda rozet adın altındaki satıra geçer', async () => {
++  const { ece } = W
++  const P = W.w.P
++  await ece.evaluate(() => window.TelsizTheme.set({ skin: 'arcade' }))
++  // Dar kart (16rem): ad, Sahip rozeti ve @kullanıcı adı avatarın altında, avatarla aynı sol kenarda. Rozet adla aynı
++  // satırda kalır, kartta yatay taşma yok
++  await openCard(ece, P.deniz.id)
++  await ece.evaluate(() => {
++    document.getElementById('profile-card').style.width = '16rem'
++  })
++  const narrow = await identityGeometry(ece, '#profile-card')
++  assert.ok(narrow.nameTop >= narrow.avBottom - 1, 'dar kart: ad avatarın altında (' + narrow.nameTop + ' >= ' + narrow.avBottom + ')')
++  assert.ok(Math.abs(narrow.nameLeft - narrow.avLeft) <= 1, 'dar kart: ad avatarla aynı sol kenarda (' + narrow.nameLeft + ' ~ ' + narrow.avLeft + ')')
++  assert.deepEqual(narrow.badges.map((b) => b.text), ['Sahip'], 'dar kart: rozet')
++  assert.ok(Math.abs(narrow.badges[0].mid - narrow.nameMid) <= 4, 'dar kart: rozet adla aynı satırda')
++  assert.ok(narrow.handleTop >= narrow.nameBottom - 1 && Math.abs(narrow.handleLeft - narrow.nameLeft) <= 1, 'dar kart: @kullanıcı adı adın altında')
++  const spill = await ece.evaluate(() => {
++    const card = document.getElementById('profile-card')
++    return card.scrollWidth - card.clientWidth
++  })
++  assert.ok(spill <= 0, 'dar kartta yatay taşma yok (' + spill + ')')
++  await ece.evaluate(() => {
++    document.getElementById('profile-card').style.width = ''
++  })
++  await closeCard(ece)
++
++  // Mert'in görünen adı 32 karakter ve boşluklu: ad avatarın sağında kalıp satırlara bölünür, Üye rozeti adın
++  // altındaki satırda adın sol kenarından başlar, @kullanıcı adı rozetin altında
++  const w = W.w
++  const long = 'Mehmet Ertuğrul Kaan Yıldırımkan'
++  assert.equal(long.length, 32)
++  const setMert = async (displayName) => {
++    const plain = { v: 1, u: P.mert.id, displayName, statusText: '', bio: '', color: 2, avatar: null }
++    const res = await w.call('POST', '/api/me/profile', { profile: w.E.sealJson(w.kid, plain), avatarUploadId: null }, P.mert.token)
++    assert.equal(res.status, 200, JSON.stringify(res.data))
++    await ece.waitForFunction((a) => userDisplayName(a.id) === a.name, { id: P.mert.id, name: displayName }, { timeout: h.SHORT })
++  }
++  await setMert(long)
++  await openCard(ece, P.mert.id)
++  const g = await identityGeometry(ece, '#profile-card')
++  assert.ok(g.nameLeft > g.avRight, 'uzun ad avatarın sağında (' + g.nameLeft + ' > ' + g.avRight + ')')
++  assert.deepEqual(g.badges.map((b) => b.text), ['Üye'], 'uzun ad: rozet')
++  assert.ok(g.badges[0].top >= g.nameBottom - 1, 'uzun ad: rozet adın altındaki satırda (' + g.badges[0].top + ' >= ' + g.nameBottom + ')')
++  assert.ok(Math.abs(g.badges[0].left - g.nameLeft) <= 1, 'uzun ad: rozet adın sol kenarından başlar (' + g.badges[0].left + ' ~ ' + g.nameLeft + ')')
++  assert.equal(g.handle, '@mert')
++  assert.ok(g.handleTop >= g.badges[0].bottom - 1, 'uzun ad: @kullanıcı adı rozetin altında')
++  await closeCard(ece)
++  await setMert('Mert')
++})
++
+ test('profil değişikliği Telsiz DJ kuyruğuna, paylaşan seçicisine ve izleyici yığınına yansır, Bildirimler odağı korur', async () => {
+   const { deniz, ece } = W
+   const D = W.w.P.deniz.id

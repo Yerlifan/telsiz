@@ -1,0 +1,151 @@
+From b595b2cb3053f7639ffa135d35ae26c4959d07dd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:46:00 +0000
+Subject: [PATCH 32/69] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmeleri=20(kap?=
+ =?UTF-8?q?ak=20inince=20yaln=C4=B1zca=20kart=20band=C4=B1=20yenilenir)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kapak inince açık profil kartı bütünüyle yeniden kurulmuyordu, kartta
+sürüklenen ses düzeyi kaydırıcısı DOM'dan çıkıyordu. Artık yalnızca
+kartın renk bandı yeni bantla değiştirilir, ad, durum, ses düzeyi ve
+düğmeler aynı öğeler olarak kalır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/13-profile.js | 15 +++++++++++++--
+ test/settings.test.js   | 36 ++++++++++++++++++++++++++++++++++--
+ test/social.test.js     | 14 ++++++++++----
+ 3 files changed, 57 insertions(+), 8 deletions(-)
+
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index 63f1e71..6474f64 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -501,10 +501,10 @@ function dropAvatar (uploadId) {
+   dropProfileImage(profileState.avatars, uploadId)
+ }
+ 
+-// Kapak geldi: yalnızca o kişinin açık kartı yeniden çizilir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
++// Kapak geldi: yalnızca o kişinin açık kartındaki bant değişir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
+ // Ayarlar önizlemesi sayfa imzasıyla (myProfileSignature) kendiliğinden yenilenir.
+ function profileCoverReady (userId) {
+-  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCard()
++  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCardCover()
+ }
+ 
+ function avatarUrlOf (userId) {
+@@ -845,6 +845,17 @@ function refreshProfileCard () {
+   restoreFocusKey(card, focusKey)
+ }
+ 
++// Kapak inince açık kartın yalnızca renk bandı yenilenir. Kart bütünüyle yeniden kurulmaz, böylece kartta sürüklenen
++// ses düzeyi kaydırıcısı ve odak yerinde kalır.
++function refreshProfileCardCover () {
++  const card = byId('profile-card')
++  const userId = profileState.cardUserId
++  if (!card || userId === null || card.hidden) return
++  const band = card.querySelector('.profile-card-band')
++  if (!band || band.parentNode !== card) return
++  card.replaceChild(profileCoverBand(coverUrlOf(userId, false), userColorIndex(userId)), band)
++}
++
+ // Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol
+ // rozetleri (ad uzunsa rozetler alt satıra kayar), alt satırda @kullanıcı adı. Profil kartı, Ayarlar'daki iki önizleme
+ // kartı ve avatar menüsünün başı bu yardımcıyı kullanır, düzen components.css .profile-identity kurallarındadır.
+diff --git a/test/settings.test.js b/test/settings.test.js
+index b4d058c..d06db7a 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -8,8 +8,8 @@
+ // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
+ // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
+ // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+-// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma ve kayıt sürerken
+-// hazırlanması biten kapak da sınanır.
++// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma, kayıt sürerken hazırlanması
++// biten kapak ve kapak inince profil kartında yalnızca bandın yenilenmesi de sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -1539,3 +1539,35 @@ test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizl
+   assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
+   assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+ })
++
++test('kapak inince açık profil kartında yalnızca bant değişir, kartın geri kalanı yeniden kurulmaz', () => {
++  const { run, doc, sandbox } = load({ role: 'member' })
++  const card = doc.createElement('div')
++  card.id = 'profile-card'
++  card.hidden = true
++  doc.body.appendChild(card)
++  sandbox.__coverUrl = null
++  run('coverUrlOf = function () { return __coverUrl }')
++  run('openProfileCard(2, null)')
++  assert.strictEqual(card.hidden, false)
++  const band = card.querySelector('.profile-card-band')
++  assert.strictEqual(band.classList.contains('has-cover'), false)
++  const body = card.querySelector('.profile-card-body')
++  const head = card.querySelector('.profile-card-head')
++  assert.ok(body && head)
++  // Başka kişinin kapağı gelince kart değişmez
++  sandbox.__coverUrl = 'blob:ece-kapak'
++  run('profileCoverReady(3)')
++  assert.strictEqual(card.querySelector('.profile-card-band'), band)
++  // Kart sahibinin kapağı gelince bant değişir, ad, durum, ses düzeyi ve düğmeler aynı öğeler olarak kalır
++  run('profileCoverReady(2)')
++  const fresh = card.querySelector('.profile-card-band')
++  assert.notStrictEqual(fresh, band)
++  assert.strictEqual(card.firstChild, fresh, 'bant kartın başında kalır')
++  assert.strictEqual(fresh.classList.contains('has-cover'), true)
++  assert.strictEqual(fresh.querySelector('img.profile-card-cover').src, 'blob:ece-kapak')
++  assert.strictEqual(card.querySelectorAll('.profile-card-band').length, 1)
++  assert.strictEqual(card.querySelector('.profile-card-body'), body)
++  assert.strictEqual(card.querySelector('.profile-card-head'), head)
++  assert.strictEqual(body.parentNode, card)
++})
+diff --git a/test/social.test.js b/test/social.test.js
+index c62aaea..d627692 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -601,7 +601,7 @@ test('kapak başvurusu yalnızca sunucudaki coverUploadId ile eşleşirse kabul
+   assert.strictEqual(run('coverUrlOf(2, true)'), null)
+ })
+ 
+-test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenilenir, düşen indirme yeniden denenir', async (t) => {
++test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kartın bandı yenilenir, düşen indirme yeniden denenir', async (t) => {
+   const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
+   const { run, sandbox } = ctx
+   await flush()
+@@ -609,12 +609,17 @@ test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenil
+   assert.strictEqual(run('coverUrlOf(2)'), null)
+   await flush()
+   assert.strictEqual(downloads.length, 0, 'yalnızca sorgu indirmez')
+-  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve kart yeniden çizilir
++  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve yalnızca kartın bandı yenilenir
+   let refreshed = 0
++  let rebuilt = 0
+   sandbox.__refresh = () => {
+     refreshed++
+   }
+-  run('refreshProfileCard = function () { __refresh() }')
++  sandbox.__rebuild = () => {
++    rebuilt++
++  }
++  run('refreshProfileCardCover = function () { __refresh() }')
++  run('refreshProfileCard = function () { __rebuild() }')
+   run('profileState.cardUserId = 2')
+   assert.strictEqual(run('coverUrlOf(2, true)'), null)
+   await flush()
+@@ -625,7 +630,8 @@ test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenil
+   await flush()
+   assert.strictEqual(downloads.length, 2)
+   assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
+-  assert.strictEqual(refreshed, 1, 'açık kart yenilenir')
++  assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
++  assert.strictEqual(rebuilt, 0, 'kart bütünüyle yeniden kurulmaz')
+   assert.strictEqual(run('profileEpoch()'), epoch, 'kapak profil sürümünü değiştirmez')
+   assert.strictEqual(run('avatarUrlOf(2)'), null)
+   // Yeniden sorgu indirmeyi yinelemez

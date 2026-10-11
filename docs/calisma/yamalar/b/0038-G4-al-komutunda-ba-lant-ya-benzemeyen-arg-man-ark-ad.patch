@@ -1,0 +1,172 @@
+From 673d91bda239072ffc9aa15a9a3d90fbb4218d7f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:52:42 +0000
+Subject: [PATCH 38/60] =?UTF-8?q?G4:=20/=C3=A7al=20komutunda=20ba=C4=9Flan?=
+ =?UTF-8?q?t=C4=B1ya=20benzemeyen=20arg=C3=BCman=20=C5=9Fark=C4=B1=20ad?=
+ =?UTF-8?q?=C4=B1=20say=C4=B1l=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+parseCommand bağlantıya benzemeyen argümanı { name: 'play', query } olarak
+döner, bağlantıya benzeyip geçersiz olan bad_url kalır, boş /çal yine
+play_needs_source olur. runCommand şarkı adını aramaz, sonucu needs_search
+koduyla arayüze bırakır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/i18n.js     |  2 ++
+ public/music.js    | 25 ++++++++++++++++++++++---
+ test/music.test.js | 43 +++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 67 insertions(+), 3 deletions(-)
+
+diff --git a/public/i18n.js b/public/i18n.js
+index 4be1b7d..55b9abf 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -44,6 +44,7 @@ window.I18N = (function () {
+     'settings.privacy.mediaSession': 'Kilit ekranında parça adını göster',
+     'settings.privacy.mediaSessionHint': 'Açıkken çalan parçanın adı işletim sisteminin medya denetimlerinde ve kilit ekranında görünür. Ad uçtan uca şifreli DJ durumundan gelir ve böylece uygulamanın dışına çıkar.',
+     // G4 Telsiz DJ araması
++    'music.errors.needs_search': 'Şarkı adıyla eklemek için arama gerekir. YouTube bağlantısını yapıştırın.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+@@ -2013,6 +2014,7 @@ window.I18N = (function () {
+     'settings.privacy.mediaSession': 'Show the track name on the lock screen',
+     'settings.privacy.mediaSessionHint': 'When on, the playing track\'s name appears in your system\'s media controls and on the lock screen. The name comes from the end-to-end encrypted DJ state and so leaves the app.',
+     // G4 Telsiz DJ araması
++    'music.errors.needs_search': 'Adding by song name needs a search. Paste a YouTube link.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+diff --git a/public/music.js b/public/music.js
+index f39ca81..02a57c6 100644
+--- a/public/music.js
++++ b/public/music.js
+@@ -132,7 +132,8 @@ var TelsizMusic = (function (root) {
+     flac: 'audio/flac'
+   }
+ 
+-  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi ve arama desteklenmez.
++  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi desteklenmez. Bağlantıya benzemeyen /çal argümanı şarkı
++  // adı sayılır, aramayı arayüz sunucuya yaptırır (istek 5).
+   const WATCH_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com']
+   const NOCOOKIE_HOSTS = ['youtube-nocookie.com', 'www.youtube-nocookie.com']
+ 
+@@ -317,8 +318,22 @@ var TelsizMusic = (function (root) {
+     return typeof id === 'string' && VIDEO_ID_RE.test(id) ? { videoId: id } : null
+   }
+ 
+-  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, error? }.
++  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). İlk sözcüğe bakılır: şema (x://) veya www. ile
++  // başlıyorsa, bilinen bir YouTube alan adıysa ya da alan adı ve yol biçimindeyse (example.com/x) bağlantıdır.
++  // "AC/DC", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
++  function looksLikeUrl (text) {
++    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
++    const first = text.split(/\s+/)[0]
++    if (/^www\./i.test(first)) return true
++    const host = first.split(/[/?#]/)[0].toLowerCase()
++    if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
++    return /^[a-z0-9-]+(\.[a-z0-9-]+)+[/?#]/i.test(first)
++  }
++
++  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, query?, error? }.
+   // name: play, skip, pause, resume, queue, stop. play için arg boşsa videoId null olur (ekli dosya beklenir).
++  // play argümanı geçerli bir YouTube bağlantısıysa videoId, bağlantıya benzeyip geçersizse error 'bad_url',
++  // bağlantıya hiç benzemiyorsa query (aranacak şarkı adı, boşlukları sadeleşmiş) olur.
+   function parseCommand (input) {
+     if (typeof input !== 'string') return null
+     let text = input
+@@ -346,7 +361,8 @@ var TelsizMusic = (function (root) {
+       } else {
+         const yt = parseYouTubeUrl(arg)
+         if (yt) out.videoId = yt.videoId
+-        else out.error = 'bad_url'
++        else if (looksLikeUrl(arg)) out.error = 'bad_url'
++        else out.query = arg.replace(/\s+/g, ' ')
+       }
+     }
+     return out
+@@ -1931,6 +1947,8 @@ var TelsizMusic = (function (root) {
+ 
+     // Yazılan metin bir DJ komutuysa uygular. DJ komutu değilse null döner (metin mesaj olarak gider).
+     // ctx: { file } /çal ile birlikte gönderilen ses dosyası eki. Sonuç Promise<{ ok, code?, command, queue? }>.
++    // /çal şarkı adı motor tarafından aranmaz: sonuç { ok: false, code: 'needs_search', query } olur, aramayı
++    // arayüz (23-dj.js djCommand) sunucuya yaptırır ve bulunan parçayı addYouTube ile ekler.
+     function runCommand (text, ctx) {
+       const cmd = parseCommand(text)
+       if (!cmd) return null
+@@ -1939,6 +1957,7 @@ var TelsizMusic = (function (root) {
+       if (cmd.error) return tag(rejected(cmd.error))
+       if (cmd.name === 'play') {
+         if (cmd.videoId) return tag(addYouTube(cmd.videoId))
++        if (cmd.query) return tag(Promise.resolve({ ok: false, code: 'needs_search', query: cmd.query }))
+         if (c.file) return tag(addFile(c.file))
+         return tag(rejected('play_needs_source'))
+       }
+diff --git a/test/music.test.js b/test/music.test.js
+index 1c95c6a..f81e205 100644
+--- a/test/music.test.js
++++ b/test/music.test.js
+@@ -607,9 +607,47 @@ describe('parseCommand', () => {
+     assert.equal(empty.name, 'play')
+     assert.equal(empty.videoId, null)
+     assert.equal(empty.error, undefined)
++    assert.equal(empty.query, undefined)
+     assert.equal(M.parseCommand('/skip   fazladan').arg, 'fazladan')
+   })
+ 
++  test('bağlantıya benzemeyen /çal argümanı şarkı adıdır (query), bağlantıya benzeyip geçersiz olan bad_url kalır', () => {
++    const songs = [
++      ['/çal lobi şarkısı', 'lobi şarkısı'],
++      ['/play   AC/DC    Thunderstruck  ', 'AC/DC Thunderstruck'],
++      ['/çal Mr. Brightside', 'Mr. Brightside'],
++      ['/çal will.i.am', 'will.i.am'],
++      ['/ÇAL Gece Şarkısı (Resmi Video)', 'Gece Şarkısı (Resmi Video)'],
++      ['/cal 3:33', '3:33']
++    ]
++    for (const [text, query] of songs) {
++      const cmd = M.parseCommand(text)
++      assert.equal(cmd.name, 'play', text)
++      assert.equal(cmd.query, query, text)
++      assert.equal(cmd.error, undefined, text)
++      assert.equal(cmd.videoId, undefined, text)
++    }
++    const links = [
++      '/çal https://vimeo.com/1',
++      '/çal http://example.com',
++      '/çal ftp://youtu.be/' + VID,
++      '/çal https://youtu.be/' + VID + ' fazladan',
++      '/çal youtube.com/playlist?list=PL123',
++      '/çal www.example.com',
++      '/çal youtu.be/kisa',
++      '/çal music.youtube.com/shorts/' + VID,
++      '/çal example.com/x bir şarkı'
++    ]
++    for (const text of links) {
++      const cmd = M.parseCommand(text)
++      assert.equal(cmd.error, 'bad_url', text)
++      assert.equal(cmd.query, undefined, text)
++    }
++    assert.equal(M.parseCommand('/çal https://youtu.be/' + VID).query, undefined)
++    // Yalnızca /çal argüman alır
++    assert.equal(M.parseCommand('/geç lobi şarkısı').query, undefined)
++  })
++
+   test('komut listesi sözleşmesi', () => {
+     same(Object.keys(M.COMMANDS), ['play', 'skip', 'pause', 'resume', 'queue', 'stop'])
+     assert.ok(M.COMMANDS.play.includes('/çal'))
+@@ -1053,6 +1091,11 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
+     assert.equal(r.code, 'play_needs_source')
+     r = await a.engine.runCommand('/play https://vimeo.com/1')
+     assert.equal(r.code, 'bad_url')
++    // Şarkı adını motor aramaz, sorgu arayüze bırakılır, kuyruk değişmez
++    const v = a.engine.snapshot().session
++    r = await a.engine.runCommand('/çal lobi şarkısı')
++    same(r, { command: 'play', ok: false, code: 'needs_search', query: 'lobi şarkısı' })
++    assert.deepEqual(a.engine.snapshot().session, v)
+   })
+ 
+   test('kuyruktan çıkarma ve sıralama', async () => {

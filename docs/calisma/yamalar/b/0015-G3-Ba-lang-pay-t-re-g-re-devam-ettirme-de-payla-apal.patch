@@ -1,0 +1,319 @@
+From c0ad54ea383a299349c0cff59123d08494c48880 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:56:15 +0000
+Subject: [PATCH 15/60] =?UTF-8?q?G3:=20Ba=C5=9Flang=C4=B1=C3=A7=20pay?=
+ =?UTF-8?q?=C4=B1=20t=C3=BCre=20g=C3=B6re,=20devam=20ettirme=20de=20payla?=
+ =?UTF-8?q?=20=C3=A7apalan=C4=B1r=20(istek=2013)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+YouTube parçaları 3000 ms, dosya parçaları 1500 ms ileri çapalanır. Devam
+ettirmede anchorAt artık now + pay: uzaktaki cihazlar atlayıp tamponlayana
+kadar konum ilerlemez, herkes aynı yerden sürdürür. LIMITS.startLeadMs
+yerine startLeadYouTubeMs ve startLeadFileMs. Birim testleri yeni paylara
+göre güncellendi, e2e/25 devam ettirmeyi de ölçer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/25-dj-senkron.test.js | 32 ++++++++++++++++++++++++++++--
+ public/music.js           | 23 ++++++++++++++++------
+ test/music.test.js        | 41 ++++++++++++++++++++++++---------------
+ 3 files changed, 72 insertions(+), 24 deletions(-)
+
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index 51b7a06..890ea28 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -12,9 +12,9 @@ const fs = require('node:fs')
+ const path = require('node:path')
+ const h = require('./yardimci')
+ 
+-// Sahte oynatıcıya sesin ilk başladığı anı kaydeden ek (aynı makinedeki iki sayfa aynı saati okur)
++// Sahte oynatıcıya sesin başladığı anları kaydeden ek (aynı makinedeki iki sayfa aynı saati okur)
+ const FAKE_JS = fs.readFileSync(path.join(__dirname, 'sahte-youtube.js'), 'utf8') +
+-  '\n;(function () { var F = window.FAKE; F.audio.addEventListener("playing", function () { if (!F.firstPlayAt) F.firstPlayAt = Date.now() }) })()\n'
++  '\n;(function () { var F = window.FAKE; F.playTimes = []; F.audio.addEventListener("playing", function () { if (!F.firstPlayAt) F.firstPlayAt = Date.now(); F.playTimes.push(Date.now()) }) })()\n'
+ const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleapis\.com)(:\d+)?\//i
+ const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
+ const CONSENT = { 'telsiz.djYoutubeConsent': '1' }
+@@ -57,6 +57,19 @@ async function firstPlay (page, videoId, label) {
+   }, h.LONG, label)
+ }
+ 
++// Sahte oynatıcının sesi n. kez başladığında sayfanın saatiyle o an (ms)
++async function nthPlay (page, videoId, n, label) {
++  return h.until(async () => {
++    const frame = fakeFrame(page, videoId)
++    if (!frame) return null
++    try {
++      return await frame.evaluate((i) => window.FAKE.playTimes[i] || null, n - 1)
++    } catch (err) {
++      return null
++    }
++  }, h.LONG, label)
++}
++
+ async function addTrack (page, videoId) {
+   await page.fill('#composer-input', '/çal https://youtu.be/' + videoId)
+   await page.keyboard.press('Enter')
+@@ -90,6 +103,21 @@ test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır', async
+   assert.ok(Math.abs(a - b) <= SYNC_MS, 'başlangıç farkı ' + (b - a) + ' ms')
+ })
+ 
++test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte sürdürür', async () => {
++  const { A, B } = W
++  await B.click('#dj .dj-toggle')
++  for (const page of [A, B]) {
++    await h.until(async () => {
++      const frame = fakeFrame(page, 'D120aaaaaaa')
++      return frame && (await frame.evaluate(() => window.FAKE.audio.paused))
++    }, h.LONG, 'duraklatıldı')
++  }
++  await A.click('#dj .dj-toggle')
++  const a = await nthPlay(A, 'D120aaaaaaa', 2, 'A sürdürdü')
++  const b = await nthPlay(B, 'D120aaaaaaa', 2, 'B sürdürdü')
++  assert.ok(Math.abs(a - b) <= SYNC_MS, 'sürdürme farkı ' + (b - a) + ' ms')
++})
++
+ test('arka plandaki sekme: oynatıcı alanı köşeye çizilir, parça A ile birlikte başlar', async () => {
+   const { A, B } = W
+   await stopMusic(A)
+diff --git a/public/music.js b/public/music.js
+index 06ad03e..b67c485 100644
+--- a/public/music.js
++++ b/public/music.js
+@@ -40,7 +40,10 @@ var TelsizMusic = (function (root) {
+   const BUFFER_STALL_MS = 10000
+   // Ses komutundan sonra oynatıcının bildirdiği ses düzeyinin yok sayıldığı süre (kendi komutumuzun yankısı)
+   const SOUND_ECHO_MS = 1500
+-  const START_LEAD_MS = 1500
++  // Başlangıç payı: yeni parça, geçiş ve devam ettirme bu kadar ileri çapalanır, herkes yükleyip aynı anda
++  // başlar. YouTube çerçevesinin yüklenmesi ve tamponlaması dosyanın çözülmesinden uzun sürer.
++  const START_LEAD_YT_MS = 3000
++  const START_LEAD_FILE_MS = 1500
+   const MAX_LEAD_MS = 5000
+   const END_GRACE_MS = 2500
+   const EARLY_END_MS = 5000
+@@ -550,6 +553,11 @@ var TelsizMusic = (function (root) {
+     return { by: by, since: raw.since, writes: writes, authors: authors }
+   }
+ 
++  // Parçanın başlangıç payı (türüne göre)
++  function startLeadFor (track) {
++    return track && track.type === 'youtube' ? START_LEAD_YT_MS : START_LEAD_FILE_MS
++  }
++
+   // Oturumdan çıkan parçaların kimlikleri gone listesine eklenir (en eskiler düşer)
+   function bury (s, tracks) {
+     tracks.forEach((t) => {
+@@ -558,14 +566,14 @@ var TelsizMusic = (function (root) {
+     if (s.gone.length > MAX_GONE) s.gone = s.gone.slice(s.gone.length - MAX_GONE)
+   }
+ 
+-  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça kısa bir başlangıç
++  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça türüne göre bir başlangıç
+   // payıyla (herkesin yüklemesi için) çapalanır.
+   function advance (s, now) {
+     if (s.current) bury(s, [s.current])
+     const next = s.queue.length > 0 ? s.queue.shift() : null
+     s.current = next
+     s.anchorPos = 0
+-    s.anchorAt = next && s.playing ? now + START_LEAD_MS : now
++    s.anchorAt = next && s.playing ? now + startLeadFor(next) : now
+     if (!next) s.playing = false
+   }
+ 
+@@ -609,7 +617,7 @@ var TelsizMusic = (function (root) {
+       if (!base.current) {
+         base.current = cloneTrack(op.track)
+         base.playing = true
+-        base.anchorAt = now + START_LEAD_MS
++        base.anchorAt = now + startLeadFor(op.track)
+         base.anchorPos = 0
+       } else {
+         if (base.queue.length >= MAX_QUEUE) throw fail('queue_full')
+@@ -649,8 +657,10 @@ var TelsizMusic = (function (root) {
+       s.playing = false
+       last = lastOf('pause', me, s.current)
+     } else if (op.type === 'resume') {
++      // Devam ettirme de başlangıç payıyla çapalanır: uzaktaki cihazlar atlayıp tamponlayana kadar konum
++      // ilerlemez, herkes aynı yerden sürdürür
+       if (!s.current || s.playing) return null
+-      s.anchorAt = now
++      s.anchorAt = now + startLeadFor(s.current)
+       s.playing = true
+       last = lastOf('resume', me, s.current)
+     } else if (op.type === 'stop') {
+@@ -2871,7 +2881,8 @@ var TelsizMusic = (function (root) {
+       maxTitle: MAX_TITLE,
+       maxEnvChars: MAX_ENV_CHARS,
+       driftLimitMs: DRIFT_LIMIT_MS,
+-      startLeadMs: START_LEAD_MS,
++      startLeadYouTubeMs: START_LEAD_YT_MS,
++      startLeadFileMs: START_LEAD_FILE_MS,
+       endGraceMs: END_GRACE_MS,
+       maxDurationMs: MAX_DURATION_MS
+     }),
+diff --git a/test/music.test.js b/test/music.test.js
+index 75fca9b..1e3292d 100644
+--- a/test/music.test.js
++++ b/test/music.test.js
+@@ -713,7 +713,7 @@ describe('applyOp', () => {
+     const s = M.applyOp(null, { type: 'add', track: track() }, ctx())
+     assert.equal(s.current.id, track().id)
+     assert.equal(s.playing, true)
+-    assert.equal(s.anchorAt, 50000 + M.LIMITS.startLeadMs)
++    assert.equal(s.anchorAt, 50000 + M.LIMITS.startLeadYouTubeMs)
+     assert.equal(s.seq, 1)
+     assert.equal(s.sid, 'aaaaaaaaaaaaaaaa')
+     same({ op: s.last.op, by: s.last.by }, { op: 'add', by: 7 })
+@@ -738,7 +738,8 @@ describe('applyOp', () => {
+     assert.equal(a.current.id, fileTrack().id)
+     assert.equal(a.queue.length, 0)
+     assert.equal(a.anchorPos, 0)
+-    assert.equal(a.anchorAt, 2000000 + M.LIMITS.startLeadMs)
++    // Sıradaki parça dosya: dosyanın başlangıç payı
++    assert.equal(a.anchorAt, 2000000 + M.LIMITS.startLeadFileMs)
+     assert.equal(a.seq, s.seq + 1)
+     // Aynı parça kimliğiyle ikinci geçiş (başka bir istemciden) reddedilir
+     assert.equal(M.applyOp(a, { type: 'end', id: s.current.id }, ctx()), null)
+@@ -781,10 +782,15 @@ describe('applyOp', () => {
+     assert.equal(p.anchorPos, 7000)
+     assert.equal(p.anchorAt, 15000)
+     assert.equal(M.applyOp(p, { type: 'pause' }, ctx()), null)
++    // Devam ettirme başlangıç payıyla çapalanır, pay bitene kadar konum ilerlemez
+     const r = M.applyOp(p, { type: 'resume' }, ctx(20000))
+     assert.equal(r.playing, true)
+     assert.equal(r.anchorPos, 7000)
+-    assert.equal(r.anchorAt, 20000)
++    assert.equal(r.anchorAt, 20000 + M.LIMITS.startLeadYouTubeMs)
++    assert.equal(M.positionAt(r, 21000), 7000)
++    assert.equal(M.positionAt(r, 20000 + M.LIMITS.startLeadYouTubeMs + 500), 7500)
++    const rf = M.applyOp(Object.assign({}, p, { current: fileTrack({ id: '5555555555555555' }), queue: [] }), { type: 'resume' }, ctx(20000))
++    assert.equal(rf.anchorAt, 20000 + M.LIMITS.startLeadFileMs)
+     assert.equal(M.applyOp(r, { type: 'resume' }, ctx()), null)
+     const st = M.applyOp(r, { type: 'stop' }, ctx(30000))
+     assert.equal(st.current, null)
+@@ -936,7 +942,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
+     assert.equal(sb.session.current.title, 'Deneme')
+     assert.equal(sb.session.v, sa.session.v)
+     assert.equal(sb.session.playing, true)
+-    assert.ok(sb.session.startsInMs > 0 && sb.session.startsInMs <= M.LIMITS.startLeadMs)
++    assert.ok(sb.session.startsInMs > 0 && sb.session.startsInMs <= M.LIMITS.startLeadYouTubeMs)
+     assert.equal(b.count('track'), 1)
+     assert.equal(b.last('notice').op, 'add')
+     assert.equal(a.count('notice'), 0)
+@@ -973,8 +979,8 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
+     const before = server.rooms.get(ROOM).v
+     const firstId = a.engine.snapshot().session.current.id
+     server.hold(3)
+-    // Süre 4 sn, başlangıç payı 1,5 sn, son payı 2,5 sn: 8,5 sn sonra her istemci yedek geçişi ister
+-    await timers.advance(9000)
++    // Süre 4 sn, YouTube başlangıç payı 3 sn, son payı 2,5 sn: 9,5 sn sonra her istemci yedek geçişi ister
++    await timers.advance(4000 + M.LIMITS.startLeadYouTubeMs + 2500 + 500)
+     syncAll()
+     const s = a.engine.snapshot().session
+     assert.notEqual(s.current.id, firstId)
+@@ -995,7 +1001,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
+     late.engine.setVoiceRoom(ROOM)
+     late.sync()
+     const pos = late.engine.snapshot().session.positionMs
+-    assert.ok(Math.abs(pos - (20000 - M.LIMITS.startLeadMs)) <= 5, String(pos))
++    assert.ok(Math.abs(pos - (20000 - M.LIMITS.startLeadYouTubeMs)) <= 5, String(pos))
+     assert.ok(Math.abs(late.engine.serverNow() - server.now()) <= 1)
+   })
+ 
+@@ -1010,7 +1016,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
+     a.sync()
+     const paused = a.engine.snapshot().session
+     assert.equal(paused.playing, false)
+-    assert.ok(Math.abs(paused.positionMs - 3500) <= 5)
++    assert.ok(Math.abs(paused.positionMs - (5000 - M.LIMITS.startLeadYouTubeMs)) <= 5)
+     await timers.advance(3000)
+     a.sync()
+     assert.equal(a.engine.snapshot().session.positionMs, paused.positionMs)
+@@ -1406,7 +1412,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     assert.ok(p.state.commands.includes('volume:50'))
+     assert.ok(p.state.commands.includes('muted:false'))
+     assert.equal(p.state.playing, false)
+-    await timers.advance(M.LIMITS.startLeadMs + 20)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 20)
+     assert.equal(p.state.playing, true)
+     assert.equal(b.engine.snapshot().player.status, 'playing')
+     // Yerel oynatıcı 2 sn geride kalır. Oynatma başladıktan sonra oynatıcı oturunca (1 sn) düzeltilir.
+@@ -1430,7 +1436,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     b.sync()
+     const p = b.ytPlayers[0]
+     p.becomeReady()
+-    await timers.advance(2000)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
+     assert.equal(p.state.playing, true)
+     await a.engine.pause()
+     b.sync()
+@@ -1439,7 +1445,10 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     assert.equal(b.engine.snapshot().player.status, 'paused')
+     await a.engine.resume()
+     b.sync()
++    // Devam ettirme başlangıç payıyla çapalanır: pay bitene kadar oynatıcı duraklatılmış kalır
+     await timers.advance(600)
++    assert.equal(p.state.playing, false)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs)
+     assert.equal(p.state.playing, true)
+     // Kişi YouTube denetimleriyle durdurur
+     await timers.advance(3000)
+@@ -1532,7 +1541,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     await a.engine.addYouTube(VID2)
+     const p = a.ytPlayers[0]
+     p.becomeReady()
+-    await timers.advance(M.LIMITS.startLeadMs + 3000)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 3000)
+     p.state.playing = false
+     p.emit({ type: 'ended' })
+     await timers.advance(1000)
+@@ -1563,7 +1572,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     audio.duration = 2
+     audio.fire('loadedmetadata')
+     audio.fire('canplay')
+-    await timers.advance(M.LIMITS.startLeadMs + 200)
++    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+     assert.equal(audio.paused, false)
+     assert.equal(b.engine.snapshot().player.status, 'playing')
+     a.sync()
+@@ -1637,7 +1646,7 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
+     await flush()
+     const audio = b.audios[0]
+     audio.fire('canplay')
+-    await timers.advance(M.LIMITS.startLeadMs + 100)
++    await timers.advance(M.LIMITS.startLeadFileMs + 100)
+     assert.equal(b.count('tapneeded'), 1)
+     assert.equal(b.engine.snapshot().player.needsTap, true)
+     await timers.advance(5000)
+@@ -2177,7 +2186,7 @@ describe('inceleme bulguları: dosya indirme, kurtarma ve hata durumları', () =
+     assert.equal(b.engine.snapshot().player.error, 'yt_unresponsive')
+     p0.becomeReady()
+     assert.equal(b.engine.snapshot().player.error, null)
+-    await timers.advance(2000)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
+     assert.equal(p0.state.playing, true)
+     assert.equal(b.engine.snapshot().player.status, 'playing')
+     assert.equal(b.engine.snapshot().player.error, null)
+@@ -2238,7 +2247,7 @@ describe('inceleme bulguları: dosya indirme, kurtarma ve hata durumları', () =
+       f.fire('load')
+       deliver(f, { event: 'initialDelivery', id: wid, info: { playerState: -1, currentTime: 0, duration: 300 } })
+       deliver(f, { event: 'onReady', id: wid })
+-      await timers.advance(1600)
++      await timers.advance(M.LIMITS.startLeadYouTubeMs + 100)
+       const plays = () => f.sent.filter((m) => m.data.func === 'playVideo').length
+       assert.equal(plays(), 1)
+       // 5: HTML5 hatası (geçilmez), failWrite: 150 (geçilir ama yazım başarısız)
+@@ -2396,7 +2405,7 @@ describe('inceleme bulguları: eşitleme ve oynatma', () => {
+     assert.equal(b.engine.snapshot().player.status, 'paused')
+     await a.engine.resume()
+     b.sync()
+-    await timers.advance(600)
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 600)
+     assert.equal(p.state.playing, true)
+     assert.ok(p.state.commands.includes('seek:' + pausedAt) || p.state.commands.some((c) => c.startsWith('seek:')))
+     assert.ok(Math.abs(p.impl.position() - b.engine.snapshot().session.positionMs) <= 700)

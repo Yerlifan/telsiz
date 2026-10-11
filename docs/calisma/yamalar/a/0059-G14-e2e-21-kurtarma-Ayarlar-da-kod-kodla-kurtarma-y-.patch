@@ -1,0 +1,353 @@
+From 41a8ef7b259837c4927355a647a3084ac780a321 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 07:09:33 +0000
+Subject: [PATCH 59/69] =?UTF-8?q?G14:=20e2e=2021-kurtarma:=20Ayarlar'da=20?=
+ =?UTF-8?q?kod,=20kodla=20kurtarma,=20y=C3=B6nlendirme=20ve=20telefon=20ge?=
+ =?UTF-8?q?ni=C5=9Fli=C4=9Fi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kurtarmadan sonra eski özel mesajlar okunur ve karşı tarafta anahtar
+uyarısı çıkmaz. Kodu olmayan kişi yönlendirme metnini görür, girişten
+sonra bir kez hatırlatılır, sahibin sıfırlamasından sonra yeni kod alır.
+360 piksel genişlikte kartlarda yatay taşma yoktur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/21-kurtarma.test.js | 325 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 325 insertions(+)
+ create mode 100644 e2e/21-kurtarma.test.js
+
+diff --git a/e2e/21-kurtarma.test.js b/e2e/21-kurtarma.test.js
+new file mode 100644
+index 0000000..9f056b4
+--- /dev/null
++++ b/e2e/21-kurtarma.test.js
+@@ -0,0 +1,325 @@
++'use strict'
++
++// Kurtarma kodu ve Parolamı Unuttum (istek 14, yuva 31).
++// - Ece Ayarlar > Hesabım'dan parolasıyla kurtarma kodu oluşturur, kod penceresinde Devam "kaydettim" onayına kadar
++//   kapalıdır. Kodu yeniler (eski kod sunucuda geçmez), yanlış parolada hata görür, kodu kaldırır ve yeniden oluşturur.
++// - Ece ile Deniz özel mesajlaşmıştır. Ece çıkış yapar, Parolamı Unuttum kartında kodu küçük harfle ve boşluklarla
++//   yazıp yeni parola belirler. Yeni kod gösterilir (eskisi geçersiz), uygulama açılır. Eski özel mesajlar Ece'de
++//   okunur, Deniz'de anahtar değişti uyarısı çıkmaz, kurtarmadan sonra gönderilen mesaj da okunur. Eski parola ve eski
++//   kod geçmez, yeni parola geçer.
++// - Kodu olmayan Mert yanlış kodla hata, grup anahtarı koduyla ayrı uyarı görür. "Kurtarma kodum yok" bölümü sahibe
++//   yönlendirir ve sahibin komutunu yazdığı adla gösterir. Parolayla girişten sonra bir kez hatırlatma çıkar, Kod
++//   Oluştur Ayarlar'daki bölümü açar, sonraki girişte hatırlatma yoktur. Sahip parolasını sıfırlayınca yeni parolayla
++//   birlikte yeni kurtarma kodu da gösterilir.
++// - Telefon genişliğinde (360 piksel) davetle kayıt: kurtarma kodu kartı profil adımından önce gelir, Parolamı
++//   Unuttum ve kod kartında yatay taşma yoktur.
++// - Konsol ve sunucu günlüğü temiz
++
++const { before, after } = require('node:test')
++const assert = require('node:assert/strict')
++const crypto = require('node:crypto')
++const h = require('./yardimci')
++
++const W = { w: null, ece: null, deniz: null, dmId: null, code: '' }
++const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
++
++const FROM_DENIZ = 'Deniz: kurtarmadan önce gönderilen gizli not 5521'
++const FROM_ECE = 'Ece: kurtarmadan önce gönderilen yanıt 8834'
++const AFTER = 'Ece: kurtarmadan sonra yazıldı 1290'
++
++// Node tarafında kurtarma kodunun authKey değeri (public/crypto.js ile)
++function recoveryAuthKey (code) {
++  const E = W.w.E
++  return E.recovery.derive(E.recovery.parse(code).secret).authKey
++}
++
++function recoverKeys (name, code) {
++  return W.w.call('POST', '/api/recover/keys', { name, recoveryAuthKey: recoveryAuthKey(code) })
++}
++
++// İstemcinin giriş türetmesi: ön giriş, scrypt ve SHA-512 alan ayrımı, /api/login
++async function apiLogin (name, password) {
++  const pre = await W.w.call('POST', '/api/prelogin', { name })
++  const kdf = pre.data.kdf
++  const master = crypto.scryptSync(Buffer.from(password.normalize('NFC'), 'utf8'), Buffer.from(kdf.salt, 'base64url'), 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 128 * 1024 * 1024 })
++  const authKey = crypto.createHash('sha512').update(Buffer.from('telsiz-auth-v1', 'utf8')).update(master).digest().subarray(0, 32).toString('hex')
++  return W.w.call('POST', '/api/login', { name, authKey })
++}
++
++function dmTexts (page) {
++  return page.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).map((n) => n.textContent))
++}
++
++async function openDm (page) {
++  await page.waitForFunction((id) => typeof dmEntry === 'function' && Boolean(dmEntry(id)), W.dmId, { timeout: h.LONG })
++  await page.evaluate((id) => showDm(id, { focus: true }), W.dmId)
++  await page.waitForFunction((id) => String(state.channelId) === String(id) && !state.loading, W.dmId, { timeout: h.LONG })
++}
++
++// Ayarlar > Hesabım'daki Kurtarma Kodu bölümünde parolayla işlem (oluşturma, yenileme veya kaldırma)
++async function recoveryAction (page, buttonSel, password) {
++  await page.click(buttonSel)
++  await page.waitForSelector('#set-recovery-form:not([hidden])')
++  await page.fill('#set-recovery-password', password)
++  await page.click('#set-recovery-submit')
++}
++
++// Kod penceresi: kod okunur, Devam onaydan önce kapalı, onaylanıp kapatılır
++async function passCodeDialog (page) {
++  await page.waitForSelector('#recovery-code-dialog #recovery-dialog-code', { timeout: h.LONG })
++  const code = await page.textContent('#recovery-dialog-code')
++  assert.match(code, h.RECOVERY_CODE_RE)
++  assert.equal(await page.isDisabled('#recovery-dialog-continue'), true)
++  await page.check('#recovery-dialog-saved')
++  await page.click('#recovery-dialog-continue')
++  await page.waitForSelector('#recovery-code-dialog', { state: 'detached' })
++  return code
++}
++
++// Anahtar adres parçasıyla açılan, oturumu olmayan sayfa: giriş kartı görünür
++async function loginPage (label, opts) {
++  const page = await W.w.tb.newPage(label, Object.assign({ extra: { 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' } }, opts || {}))
++  await page.goto(W.w.base + '/#anahtar=' + encodeURIComponent(W.w.keyCode), { timeout: h.LONG })
++  await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++  return page
++}
++
++async function uiLogin (page, name, password) {
++  await page.fill('#login-name', name)
++  await page.fill('#login-password', password)
++  await page.click('#login-submit')
++}
++
++before(async () => {
++  W.w = await h.setupWorld({ slot: 31 })
++  const { P, E } = W.w
++  let res = await W.w.call('POST', '/api/friends/request', { name: 'deniz' }, P.ece.token)
++  assert.equal(res.status, 200, JSON.stringify(res.data))
++  res = await W.w.call('POST', '/api/friends/accept', { userId: P.ece.id }, P.deniz.token)
++  assert.equal(res.status, 200, JSON.stringify(res.data))
++  res = await W.w.call('POST', '/api/dms/open', { userId: P.deniz.id }, P.ece.token)
++  assert.equal(res.status, 200, JSON.stringify(res.data))
++  W.dmId = res.data.dm.id
++  const send = async (from, to, text) => {
++    const body = E.dm.seal({ v: 1, a: P[from].id, c: W.dmId, t: text, f: [] }, P[to].publicKey, P[from].secretKey)
++    const r = await W.w.call('POST', '/api/messages', { channelId: W.dmId, body, uploads: [] }, P[from].token)
++    assert.equal(r.status, 200, JSON.stringify(r.data))
++  }
++  await send('deniz', 'ece', FROM_DENIZ)
++  await send('ece', 'deniz', FROM_ECE)
++})
++
++after(async () => {
++  if (W.w) await W.w.close()
++})
++
++test('Ayarlar: kurtarma kodu parolayla oluşturulur, yenilenir, kaldırılır', async () => {
++  const page = W.ece = await W.w.pageFor('ece')
++  await page.evaluate(() => openSettings('account', null))
++  await page.waitForSelector('#set-recovery-section')
++  await page.waitForFunction(() => document.getElementById('set-recovery-status').classList.contains('is-missing'), null, { timeout: h.LONG })
++  assert.equal(await page.textContent('#set-recovery-status'), 'Kurtarma kodu yok.')
++  assert.equal(await page.textContent('#set-recovery-create'), 'Kod Oluştur')
++  assert.equal(await page.isHidden('#set-recovery-remove'), true)
++  assert.equal(await page.isHidden('#set-password-renew-recovery'), true, 'kod yokken parola formunda yenileme kutusu yok')
++
++  // Yanlış parola
++  await recoveryAction(page, '#set-recovery-create', 'yanlis-parola-1')
++  await page.waitForFunction(() => document.getElementById('set-recovery-msg').textContent === 'Parola hatalı.', null, { timeout: h.LONG })
++
++  // Oluşturma
++  await page.fill('#set-recovery-password', 'parola-ece-1')
++  await page.click('#set-recovery-submit')
++  const first = await passCodeDialog(page)
++  await page.waitForFunction(() => /oluşturuldu\.$/.test(document.getElementById('set-recovery-status').textContent), null, { timeout: h.LONG })
++  assert.equal(await page.evaluate(() => document.getElementById('set-recovery-status').classList.contains('is-missing')), false)
++  assert.equal(await page.textContent('#set-recovery-create'), 'Yeni Kod Oluştur')
++  assert.equal(await page.isVisible('#set-recovery-remove'), true)
++  assert.equal(await page.isVisible('#set-password-renew-recovery'), true)
++  assert.equal((await recoverKeys('ece', first)).status, 200)
++
++  // Yenileme: eski kod geçmez
++  await recoveryAction(page, '#set-recovery-create', 'parola-ece-1')
++  const second = await passCodeDialog(page)
++  assert.notEqual(second, first)
++  assert.equal((await recoverKeys('ece', first)).status, 401)
++  assert.equal((await recoverKeys('ece', second)).status, 200)
++
++  // Kaldırma (onay penceresi kabul edilir)
++  page.once('dialog', (d) => d.accept())
++  await recoveryAction(page, '#set-recovery-remove', 'parola-ece-1')
++  await page.waitForFunction(() => document.getElementById('set-recovery-msg').textContent === 'Kurtarma kodu kaldırıldı.', null, { timeout: h.LONG })
++  assert.equal(await page.textContent('#set-recovery-status'), 'Kurtarma kodu yok.')
++  assert.equal((await recoverKeys('ece', second)).status, 401)
++
++  // Yeniden oluşturulur, sonraki testte kullanılır
++  await recoveryAction(page, '#set-recovery-create', 'parola-ece-1')
++  W.code = await passCodeDialog(page)
++  await page.evaluate(() => closeSettings())
++})
++
++test('Parolamı Unuttum: kodla yeni parola, eski özel mesajlar okunur, karşı tarafta anahtar uyarısı çıkmaz', async () => {
++  const deniz = W.deniz = await W.w.pageFor('deniz')
++  await openDm(deniz)
++  await deniz.waitForFunction((t) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === t), FROM_ECE, { timeout: h.LONG })
++  const ece = W.ece
++  await openDm(ece)
++  await ece.waitForFunction((t) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === t), FROM_DENIZ, { timeout: h.LONG })
++
++  // Çıkış, Parolamı Unuttum
++  await ece.evaluate(() => logout())
++  await ece.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++  await ece.fill('#login-name', 'ece')
++  await ece.click('#login-forgot')
++  await ece.waitForSelector('#forgot-card:not([hidden]) #forgot-form')
++  assert.equal(await ece.inputValue('#forgot-name'), 'ece', 'giriş formundaki ad gelir')
++  assert.equal(await ece.evaluate(() => document.activeElement && document.activeElement.id), 'forgot-code')
++  await ece.fill('#forgot-code', W.code.toLowerCase().replace(/-/g, ' '))
++  await ece.fill('#forgot-password', 'Ece-Yeni-Parola-2026')
++  await ece.fill('#forgot-password2', 'Ece-Baska-Parola')
++  await ece.click('#forgot-submit')
++  await ece.waitForFunction(() => document.getElementById('forgot-error').textContent === 'Parolalar aynı değil.', null, { timeout: h.LONG })
++  await ece.fill('#forgot-password2', 'Ece-Yeni-Parola-2026')
++  await ece.click('#forgot-submit')
++  // Yeni kod: eskisi geçersiz uyarısıyla
++  await ece.waitForSelector('#recovery-card:not([hidden]) .recovery-rotated', { timeout: h.LONG })
++  assert.equal(await ece.textContent('#recovery-card .recovery-rotated'), 'Parolanız değişti. Eski kurtarma kodu artık geçersiz, yenisi aşağıda.')
++  const next = await h.passRecoveryCard(ece)
++  assert.notEqual(next, W.code)
++  await ece.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  assert.equal(await ece.isVisible('#key-card'), false, 'grup anahtarı cihazda kaldı')
++
++  // Eski özel mesajlar okunur, kurtarmadan sonra yazılan mesaj karşı tarafta okunur
++  await openDm(ece)
++  await ece.waitForFunction((t) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === t), FROM_DENIZ, { timeout: h.LONG })
++  const texts = await dmTexts(ece)
++  assert.ok(texts.includes(FROM_ECE), texts.join(' | '))
++  assert.equal(await ece.isHidden('#key-warning'), true)
++  await ece.waitForFunction(() => !document.getElementById('composer-input').disabled, null, { timeout: h.LONG })
++  await ece.fill('#composer-input', AFTER)
++  await ece.keyboard.press('Enter')
++  await deniz.waitForFunction((t) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === t), AFTER, { timeout: h.LONG })
++  // Deniz'de anahtar değişti uyarısı yok, sayfa yeniden açılınca da yok
++  assert.equal(await deniz.isHidden('#key-warning'), true)
++  await deniz.reload({ waitUntil: 'domcontentloaded' })
++  await deniz.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  await openDm(deniz)
++  await deniz.waitForFunction((t) => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent === t), AFTER, { timeout: h.LONG })
++  assert.equal(await deniz.isHidden('#key-warning'), true)
++
++  // Sunucu: eski parola ve eski kod geçmez, yeni parola ve yeni kod geçer, açık anahtar aynı
++  assert.equal((await apiLogin('ece', 'parola-ece-1')).status, 401)
++  const relog = await apiLogin('ece', 'Ece-Yeni-Parola-2026')
++  assert.equal(relog.status, 200)
++  assert.equal(relog.data.keys.publicKey, W.w.P.ece.publicKey)
++  assert.equal((await recoverKeys('ece', W.code)).status, 401)
++  assert.equal((await recoverKeys('ece', next)).status, 200)
++})
++
++test('kodu olmayan kişi: hata ve yönlendirme metni, girişten sonra bir kez hatırlatma, sıfırlamadan sonra yeni kod', async () => {
++  const page = await loginPage('mert')
++  await page.fill('#login-name', 'mert')
++  await page.click('#login-forgot')
++  await page.waitForSelector('#forgot-card:not([hidden])')
++  // Grup anahtarı kodu istemcide tanınır, istek gitmez
++  await page.fill('#forgot-code', W.w.keyCode)
++  await page.fill('#forgot-password', 'Mert-Yeni-Parola-1')
++  await page.fill('#forgot-password2', 'Mert-Yeni-Parola-1')
++  await page.click('#forgot-submit')
++  await page.waitForFunction(() => document.getElementById('forgot-error').textContent === 'Bu bir frekans anahtarı, kurtarma kodu değil.', null, { timeout: h.LONG })
++  // Biçimi doğru ama hesabın kodu yok: sunucunun genel yanıtı
++  await page.fill('#forgot-code', W.w.E.recovery.generate())
++  await page.click('#forgot-submit')
++  await page.waitForFunction(() => document.getElementById('forgot-error').textContent === 'Kullanıcı adı veya kurtarma kodu hatalı.', null, { timeout: h.LONG })
++  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'forgot-code')
++  // Kurtarma kodum yok
++  assert.equal(await page.isVisible('#forgot-owner'), false)
++  await page.click('#forgot-nocode-title')
++  await page.waitForSelector('#forgot-owner', { state: 'visible' })
++  const noCode = await page.textContent('#forgot-nocode')
++  assert.ok(noCode.includes('Ayarlar > Üyeler > Parola Sıfırla'), noCode)
++  assert.ok(noCode.includes('eski özel mesajlarınız okunamaz'), noCode)
++  assert.equal(await page.textContent('#forgot-command'), 'node server.js sifre-sifirla mert')
++  // Dil değişince kart da değişir
++  await page.click('#auth-lang [data-lang="en"]')
++  assert.equal(await page.textContent('#forgot-title'), 'Reset Your Password with a Recovery Code')
++  assert.equal(await page.textContent('#forgot-error'), 'Wrong username or recovery code.')
++  await page.click('#auth-lang [data-lang="tr"]')
++  // Girişe dönüş
++  await page.click('#forgot-back')
++  await page.waitForSelector('#login-card:not([hidden])')
++  assert.equal(await page.isVisible('#forgot-card'), false)
++
++  // Parolayla giriş: kod yok, bir kez hatırlatma
++  await uiLogin(page, 'mert', 'parola-mert-1')
++  await page.waitForSelector('#recovery-remind-dialog', { timeout: h.LONG })
++  assert.equal(await page.textContent('#recovery-remind-dialog .lead'), 'Hesabınızın kurtarma kodu yok. Parolanızı unutursanız özel mesajlarınızı kaybedersiniz.')
++  await page.click('#recovery-remind-create')
++  await page.waitForSelector('#set-recovery-section', { timeout: h.LONG })
++  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'set-recovery-create', null, { timeout: h.LONG })
++  await page.evaluate(() => closeSettings())
++  await page.evaluate(() => logout())
++  await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++  await uiLogin(page, 'mert', 'parola-mert-1')
++  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  await h.sleep(3000)
++  assert.equal(await page.$('#recovery-remind-dialog'), null, 'hatırlatma bir kez gösterilir')
++  await page.evaluate(() => logout())
++  await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++
++  // Sahip parolayı sıfırlar: geçici parolayla giriş, yeni parola, yeni kurtarma kodu
++  const reset = await W.w.call('POST', '/api/users/reset-password', { userId: W.w.P.mert.id }, W.w.P.deniz.token)
++  assert.equal(reset.status, 200)
++  await uiLogin(page, 'mert', reset.data.tempPassword)
++  await page.waitForSelector('#identity-reset-dialog', { timeout: h.LONG })
++  await page.fill('#identity-reset-old', reset.data.tempPassword)
++  await page.fill('#identity-reset-new', 'Mert-Yeni-Parola-2026')
++  await page.fill('#identity-reset-new2', 'Mert-Yeni-Parola-2026')
++  await page.click('#identity-reset-submit')
++  const code = await passCodeDialog(page)
++  assert.equal((await recoverKeys('mert', code)).status, 200)
++  assert.equal(await page.$('#recovery-remind-dialog'), null)
++})
++
++test('telefon genişliği: davetle kayıtta kod kartı profil adımından önce, kartlarda yatay taşma yok', async () => {
++  const page = await W.w.tb.newPage('telefon', { viewport: { width: 360, height: 760 }, mobile: true, extra: { 'telsiz.skin': 'turkuaz', 'telsiz.scheme': 'light' } })
++  await page.goto(W.w.base + '/#davet=' + encodeURIComponent(W.w.invite) + '&anahtar=' + encodeURIComponent(W.w.keyCode), { timeout: h.LONG })
++  await page.waitForSelector('#register-form:not([hidden])', { timeout: h.LONG })
++  // Önce Parolamı Unuttum kartı
++  await page.click('#auth-tab-login')
++  await page.click('#login-forgot')
++  await page.waitForSelector('#forgot-card:not([hidden])')
++  await page.click('#forgot-nocode-title')
++  assert.ok(await h.overflowX(page) <= 0, 'Parolamı Unuttum kartında taşma')
++  await page.click('#forgot-back')
++  await page.click('#auth-tab-register')
++  await page.fill('#register-name', 'can')
++  await page.fill('#register-password', 'Can-Parola-2026')
++  await page.fill('#register-password2', 'Can-Parola-2026')
++  await page.click('#register-submit')
++  await page.waitForSelector('#recovery-card:not([hidden]) #recovery-card-code', { timeout: h.LONG })
++  assert.ok(await h.overflowX(page) <= 0, 'kod kartında taşma')
++  for (const sel of ['#recovery-card-copy', '#recovery-card-download', '#recovery-card-saved']) {
++    await page.evaluate((s) => document.querySelector(s).scrollIntoView({ block: 'center' }), sel)
++    assert.ok(await h.reachable(page, sel), sel)
++  }
++  // İndirilen dosya kodu, kullanıcıyı ve sunucuyu içerir
++  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#recovery-card-download')])
++  assert.equal(download.suggestedFilename(), 'telsiz-kurtarma-kodu.txt')
++  const text = require('node:fs').readFileSync(await download.path(), 'utf8')
++  const code = await page.textContent('#recovery-card-code')
++  assert.ok(text.includes('Kod: ' + code), text)
++  assert.ok(text.includes('Kullanıcı: can'), text)
++  assert.ok(text.includes('Sunucu: Kankalar (' + W.w.base + ')'), text)
++  await h.passRecoveryCard(page)
++  await page.waitForSelector('#profile-step-name', { timeout: h.LONG })
++  assert.ok(await h.overflowX(page) <= 0)
++  assert.equal((await recoverKeys('can', code)).status, 200)
++})
++
++test('konsol ve sunucu günlüğü temiz', async () => {
++  // Bilerek yanlış kodla yapılan kurtarma denemesinin ve Ayarlar'da yanlış parolanın 401 yanıtları tarayıcı konsoluna
++  // kaynak hatası olarak düşer
++  const expected401 = (l) => l.type === 'error' && /status of 401/.test(l.text) && /\/api\/(recover\/keys|me\/recovery)$/.test(l.url)
++  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [expected401])
++})

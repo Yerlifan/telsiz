@@ -1,0 +1,247 @@
+From 77086ecc73961322940f115d2069108459d39bb2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:44:28 +0000
+Subject: [PATCH 48/69] =?UTF-8?q?G12:=20Y=C3=BCksek=20Kontrast=20temas?=
+ =?UTF-8?q?=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Metin rolleri en az 7:1, 2 piksel kenarlar, degrade, gölge ve zemin ışığı yok, bağlantılar altı çizili,
+4 piksel odak çerçevesi. Devre dışı düğmeler (boş yazma alanındaki Gönder dahil) soluklaşmaz, kesik kenar
+ve ikincil metinle ayrılır. Önizleme renkleri, iki dilde ad ve açıklama, index.html ve sw.js kaydı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css     |   4 +
+ public/css/skins/kontrast.css | 142 ++++++++++++++++++++++++++++++++++
+ public/i18n.js                |   4 +
+ public/index.html             |   1 +
+ public/sw.js                  |   1 +
+ public/theme-init.js          |   2 +-
+ 6 files changed, 153 insertions(+), 1 deletion(-)
+ create mode 100644 public/css/skins/kontrast.css
+
+diff --git a/public/css/components.css b/public/css/components.css
+index ed28b4d..c58cdf7 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3981,6 +3981,10 @@ button.member:hover {
+ .theme-swatch-kokpit > span:nth-child(2) { background-color: #ff5cd1; }
+ .theme-swatch-kokpit > span:nth-child(3) { background-color: #5ce1ff; }
+ .theme-swatch-kokpit > span:nth-child(4) { background-color: #e9eaec; }
++.theme-swatch-kontrast > span:nth-child(1) { background-color: #000000; }
++.theme-swatch-kontrast > span:nth-child(2) { background-color: #ffe600; }
++.theme-swatch-kontrast > span:nth-child(3) { background-color: #80dfff; }
++.theme-swatch-kontrast > span:nth-child(4) { background-color: #ffffff; }
+ 
+ .theme-name {
+   font-weight: var(--weight-strong);
+diff --git a/public/css/skins/kontrast.css b/public/css/skins/kontrast.css
+new file mode 100644
+index 0000000..1bb3604
+--- /dev/null
++++ b/public/css/skins/kontrast.css
+@@ -0,0 +1,142 @@
++/*
++  Yüksek Kontrast teması (Erişilebilirlik). En yüksek okunurluk: metin rolleri en az 7:1 (WCAG AAA,
++  test/tema.test.js), 2 piksel kenarlar, degrade, gölge, parıltı ve zemin ışığı yok. Bağlantılar altı
++  çizili, odak çerçevesi 4 piksel. Devre dışı düğmeler soluklaşmaz (saydamlık yazının kontrastını düşürür),
++  kesik kenar ve ikincil metin rengiyle ayrılır. Durum işaretleri her temada olduğu gibi biçimle de ayrılır.
++  Saklı tema tercihi yokken sistemde yüksek karşıtlık açıksa ilk açılışta bu tema seçilir (theme-init.js).
++  Her seçici :root[data-skin="kontrast"] ile başlar.
++*/
++
++/* Gönder simgesi: kâğıt uçak (işaretlemede Turkuaz'ın simgesi) */
++:root[data-skin="kontrast"] .skin-turkuaz {
++  display: inline-block;
++}
++
++/* Zemin ışığı yok */
++:root[data-skin="kontrast"] body::before {
++  background-image: none;
++}
++
++/* Gölge ve degrade yok: telsiz gövdesi, Bas konuş, Gönder, paneller */
++:root[data-skin="kontrast"] .radio,
++:root[data-skin="kontrast"] .band,
++:root[data-skin="kontrast"] .convo,
++:root[data-skin="kontrast"] .side-card,
++:root[data-skin="kontrast"] .toast,
++:root[data-skin="kontrast"] .modal-dialog {
++  box-shadow: none;
++}
++
++:root[data-skin="kontrast"] .radio,
++:root[data-skin="kontrast"] .band,
++:root[data-skin="kontrast"] .convo,
++:root[data-skin="kontrast"] .side-card {
++  border: 2px solid var(--line-strong);
++}
++
++:root[data-skin="kontrast"] .radio {
++  border-radius: var(--radius-card);
++}
++
++:root[data-skin="kontrast"] .radio .radio-ptt,
++:root[data-skin="kontrast"] .radio .radio-ptt.is-active {
++  border: 2px solid var(--text);
++  background-image: none;
++  box-shadow: none;
++}
++
++:root[data-skin="kontrast"] .radio .radio-ptt.is-active {
++  outline: 4px solid var(--live);
++  outline-offset: 2px;
++}
++
++:root[data-skin="kontrast"] .radio-ptt-dome {
++  border: 2px solid var(--on-accent-fill);
++}
++
++:root[data-skin="kontrast"] .radio[data-state="on"] .radio-led {
++  box-shadow: none;
++}
++
++:root[data-skin="kontrast"] #composer .send-button {
++  border: 2px solid transparent;
++  background-image: none;
++  box-shadow: none;
++}
++
++/* Kenarlar 2 piksel: telsiz ekranı, kart düğmeleri, ayarlı istasyon */
++:root[data-skin="kontrast"] .radio .radio-screen,
++:root[data-skin="kontrast"] .radio .radio-button {
++  border-width: 2px;
++}
++
++:root[data-skin="kontrast"] .station.is-tuned {
++  border: 2px solid var(--accent);
++}
++
++/* Devre dışı düğmeler: saydamlık yerine kesik kenar ve ikincil metin */
++:root[data-skin="kontrast"] .button:disabled,
++:root[data-skin="kontrast"] .icon-button:disabled,
++:root[data-skin="kontrast"] .tool-button:disabled,
++:root[data-skin="kontrast"] #composer .send-button:disabled {
++  border: 2px dashed var(--edge);
++  background-color: transparent;
++  background-image: none;
++  color: var(--text-2);
++  box-shadow: none;
++  opacity: 1;
++}
++
++/* Bağlantılar altı çizili (düğme biçimli bağlantılar hariç) */
++:root[data-skin="kontrast"] a:not(.button):not(.icon-button) {
++  text-decoration: underline;
++}
++
++/* Odak: 4 piksel çerçeve, hare yok */
++:root[data-skin="kontrast"] :focus,
++:root[data-skin="kontrast"] input:focus,
++:root[data-skin="kontrast"] select:focus,
++:root[data-skin="kontrast"] textarea:focus {
++  outline-width: 4px;
++}
++
++:root[data-skin="kontrast"] :focus-visible {
++  outline: 4px solid var(--focus);
++  outline-offset: 2px;
++  box-shadow: none;
++}
++
++/* Bileşik kutular: yazma alanı odakta kalın kenar */
++:root[data-skin="kontrast"] .composer-box:focus-within {
++  border-color: var(--focus);
++  box-shadow: none;
++}
++
++/* Okunmamış noktası ve anma: dolgu ve kenar */
++:root[data-skin="kontrast"] .unread-badge {
++  background-color: var(--text);
++}
++
++:root[data-skin="kontrast"] .mention {
++  border: 1px solid var(--mention-line);
++}
++
++/* Anahtarsız şifreli mesaj: kesik kenarlı kutu */
++:root[data-skin="kontrast"] .msg-notice {
++  display: inline-flex;
++  padding: 0.45rem 0.75rem;
++  border: 2px dashed var(--edge);
++  border-radius: var(--radius-control);
++  background-color: var(--surface-1);
++  font-style: normal;
++}
++
++/* Seçili ayar kategorisi ve tema kartı: kalın kenar */
++:root[data-skin="kontrast"] .settings-cat[aria-current="page"] {
++  border: 2px solid var(--accent);
++  box-shadow: none;
++}
++
++:root[data-skin="kontrast"] .settings-theme-card.is-selected {
++  border-color: var(--accent);
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 2150eb3..2806047 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -55,6 +55,8 @@ window.I18N = (function () {
+     'theme.skinHint.plak': 'Patlıcan moru, gül pembesi ve altın yaldızlı gece plak yayını.',
+     'theme.skin.kokpit': 'Kokpit',
+     'theme.skinHint.kokpit': 'Grafit cam kokpit, macenta rota ve camgöbeği seçim.',
++    'theme.skin.kontrast': 'Yüksek Kontrast',
++    'theme.skinHint.kontrast': 'En yüksek okunurluk: 7:1 metin, kalın kenarlar, süs yok.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+@@ -2029,6 +2031,8 @@ window.I18N = (function () {
+     'theme.skinHint.plak': 'A late-night vinyl show in aubergine, rose and gold.',
+     'theme.skin.kokpit': 'Cockpit',
+     'theme.skinHint.kokpit': 'A graphite glass cockpit with a magenta route and cyan selection.',
++    'theme.skin.kontrast': 'High Contrast',
++    'theme.skinHint.kontrast': 'Maximum legibility: 7:1 text, bold borders, no decoration.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+diff --git a/public/index.html b/public/index.html
+index 64428ff..7988a5d 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -37,6 +37,7 @@
+   <link rel="stylesheet" href="/css/skins/kutup.css">
+   <link rel="stylesheet" href="/css/skins/plak.css">
+   <link rel="stylesheet" href="/css/skins/kokpit.css">
++  <link rel="stylesheet" href="/css/skins/kontrast.css">
+   <script src="/vendor/nacl-fast.min.js" defer></script>
+   <script src="/vendor/scrypt.js" defer></script>
+   <script src="/i18n.js" defer></script>
+diff --git a/public/sw.js b/public/sw.js
+index 0fc8c7a..51576db 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -35,6 +35,7 @@ const SHELL = [
+   '/css/skins/kutup.css',
+   '/css/skins/plak.css',
+   '/css/skins/kokpit.css',
++  '/css/skins/kontrast.css',
+   '/i18n.js',
+   '/crypto.js',
+   '/emoji.js',
+diff --git a/public/theme-init.js b/public/theme-init.js
+index 3322a7a..79f2898 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -8,7 +8,7 @@
+ // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
+ 
+ function createTelsizTheme () {
+-  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup', 'plak', 'kokpit']
++  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup', 'plak', 'kokpit', 'kontrast']
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']

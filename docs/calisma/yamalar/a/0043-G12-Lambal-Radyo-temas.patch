@@ -1,0 +1,197 @@
+From 1bafc4b07f1488110957dbec48a96b1bcf159037 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:35:02 +0000
+Subject: [PATCH 43/69] =?UTF-8?q?G12:=20Lambal=C4=B1=20Radyo=20temas=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Koyu modda ceviz damarlı telsiz gövdesi, fildişi kadran camı parlaması, tırtıklı Bas konuş topuzu,
+pirinç bölüm yazıları ve sihirli göz yeşili ayar lambası. Önizleme renkleri, iki dilde ad ve açıklama,
+index.html ve sw.js kaydı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css  |  4 ++
+ public/css/skins/lamba.css | 93 ++++++++++++++++++++++++++++++++++++++
+ public/i18n.js             |  4 ++
+ public/index.html          |  1 +
+ public/sw.js               |  1 +
+ public/theme-init.js       |  2 +-
+ 6 files changed, 104 insertions(+), 1 deletion(-)
+ create mode 100644 public/css/skins/lamba.css
+
+diff --git a/public/css/components.css b/public/css/components.css
+index 6b0d0be..0f80c0c 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3961,6 +3961,10 @@ button.member:hover {
+ .theme-swatch-saha > span:nth-child(2) { background-color: #ff8f3a; }
+ .theme-swatch-saha > span:nth-child(3) { background-color: #c9d48a; }
+ .theme-swatch-saha > span:nth-child(4) { background-color: #e4e0cc; }
++.theme-swatch-lamba > span:nth-child(1) { background-color: #281b12; }
++.theme-swatch-lamba > span:nth-child(2) { background-color: #e2b25a; }
++.theme-swatch-lamba > span:nth-child(3) { background-color: #7fe0a0; }
++.theme-swatch-lamba > span:nth-child(4) { background-color: #efe4cc; }
+ 
+ .theme-name {
+   font-weight: var(--weight-strong);
+diff --git a/public/css/skins/lamba.css b/public/css/skins/lamba.css
+new file mode 100644
+index 0000000..f8ee984
+--- /dev/null
++++ b/public/css/skins/lamba.css
+@@ -0,0 +1,93 @@
++/*
++  Lambalı Radyo teması. 1950'ler lambalı radyosu: ceviz kasa, fildişi kadran camı, pirinç yazılar ve
++  "sihirli göz" yeşili ayar lambası. Koyu modda telsiz gövdesinde ince ceviz damarı, kadran camında hafif
++  parlama, Bas konuş kubbesi tırtıklı topuz gibi. Damar ve parlama çok saydamdır, metin her zaman okunur
++  zeminde kalır. Her seçici :root[data-skin="lamba"] ile başlar.
++*/
++
++/* Gönder simgesi: kâğıt uçak (işaretlemede Turkuaz'ın simgesi) */
++:root[data-skin="lamba"] .skin-turkuaz {
++  display: inline-block;
++}
++
++/* Ceviz kasa: telsiz gövdesinde yumuşak köşe ve koyu modda ince damar */
++:root[data-skin="lamba"] .radio {
++  border-radius: 1.25rem;
++}
++
++:root[data-skin="lamba"][data-scheme="dark"] .radio {
++  background-image: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.022) 0, rgba(255, 255, 255, 0.022) 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 7px, rgba(0, 0, 0, 0.05) 7px, rgba(0, 0, 0, 0.05) 9px, rgba(0, 0, 0, 0) 9px, rgba(0, 0, 0, 0) 15px);
++}
++
++/* Fildişi kadran camı: frekans bandı ve telsiz ekranında üstten parlama, içe çökük kenar */
++:root[data-skin="lamba"] .band,
++:root[data-skin="lamba"] .radio .radio-screen {
++  box-shadow: inset 0 1px 0 var(--top-light), inset 0 -6px 14px rgba(0, 0, 0, 0.12);
++}
++
++:root[data-skin="lamba"] .radio .radio-screen {
++  border-color: var(--line-strong);
++  border-radius: 0.875rem;
++}
++
++/* Pirinç yazılar: bölüm etiketleri ve telsiz başlığı */
++:root[data-skin="lamba"] .section-title,
++:root[data-skin="lamba"] .rooms-group-title,
++:root[data-skin="lamba"] .radio .radio-label,
++:root[data-skin="lamba"] .band-group-label {
++  color: var(--accent-text);
++  text-transform: none;
++}
++
++/* Sihirli göz: bağlıyken yeşil ışıyan ayar lambası */
++:root[data-skin="lamba"] .radio[data-state="on"] .radio-led {
++  background-image: radial-gradient(circle at 50% 50%, var(--accent-2) 0, var(--live) 70%);
++  box-shadow: 0 0 0 2px var(--live-bg), 0 0 8px var(--halo-1);
++}
++
++/* Bas konuş: tırtıklı topuz, pirinç halka */
++:root[data-skin="lamba"] .radio .radio-ptt {
++  border-radius: 1.5rem;
++}
++
++:root[data-skin="lamba"] .radio-ptt-dome {
++  border: 3px dashed var(--accent-lip);
++  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
++}
++
++/* İbre topuzu: pirinç halka */
++:root[data-skin="lamba"] .needle::before {
++  border-color: var(--accent-lip);
++}
++
++/* Konuşan kişi: sihirli göz gibi yumuşak yeşil hale */
++:root[data-skin="lamba"] .avatar.has-face.is-speaking .avatar-face,
++:root[data-skin="lamba"] .is-speaking > .avatar.has-face .avatar-face {
++  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 14px 2px var(--halo-1);
++}
++
++/* Anahtarsız şifreli mesaj: fildişi etiket */
++:root[data-skin="lamba"] .msg-notice {
++  display: inline-flex;
++  padding: 0.5rem 0.85rem;
++  border: 1px dashed var(--edge);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-3);
++  font-style: normal;
++}
++
++/* Profil kartı bandı: hoparlör kumaşı */
++:root[data-skin="lamba"] .profile-card-band {
++  background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px), repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px);
++}
++
++/* Telsiz ızgarası: hoparlör kumaşı gibi sık çizgi */
++:root[data-skin="lamba"] .radio .radio-grille {
++  background-image: repeating-linear-gradient(90deg, var(--accent-lip) 0, var(--accent-lip) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px);
++}
++
++/* Ayarlar: seçili kategoride pirinç çizgi */
++:root[data-skin="lamba"] .settings-cat[aria-current="page"] {
++  border-color: transparent;
++  box-shadow: inset 3px 0 0 var(--accent-lip);
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 54e648d..629b37d 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -45,6 +45,8 @@ window.I18N = (function () {
+     // G12 Temalar
+     'theme.skin.saha': 'Saha Telsizi',
+     'theme.skinHint.saha': 'Zeytin yeşili sahra telsizi, turuncu sinyal ve şablon etiketler.',
++    'theme.skin.lamba': 'Lambalı Radyo',
++    'theme.skinHint.lamba': 'Ceviz kasa, fildişi kadran ve pirinç yazılarla 1950\'ler radyosu.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+@@ -2009,6 +2011,8 @@ window.I18N = (function () {
+     // G12 Temalar
+     'theme.skin.saha': 'Field Radio',
+     'theme.skinHint.saha': 'An olive field radio with orange signals and stencil labels.',
++    'theme.skin.lamba': 'Tube Radio',
++    'theme.skinHint.lamba': 'A 1950s tube radio with a walnut case, ivory dial and brass lettering.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+diff --git a/public/index.html b/public/index.html
+index 3bdd918..09bb8f5 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -32,6 +32,7 @@
+   <link rel="stylesheet" href="/css/skins/gece.css">
+   <link rel="stylesheet" href="/css/skins/turkuaz.css">
+   <link rel="stylesheet" href="/css/skins/saha.css">
++  <link rel="stylesheet" href="/css/skins/lamba.css">
+   <script src="/vendor/nacl-fast.min.js" defer></script>
+   <script src="/vendor/scrypt.js" defer></script>
+   <script src="/i18n.js" defer></script>
+diff --git a/public/sw.js b/public/sw.js
+index 74b3073..9d7e13f 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -30,6 +30,7 @@ const SHELL = [
+   '/css/skins/gece.css',
+   '/css/skins/turkuaz.css',
+   '/css/skins/saha.css',
++  '/css/skins/lamba.css',
+   '/i18n.js',
+   '/crypto.js',
+   '/emoji.js',
+diff --git a/public/theme-init.js b/public/theme-init.js
+index fe42e9e..3781e71 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -8,7 +8,7 @@
+ // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
+ 
+ function createTelsizTheme () {
+-  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha']
++  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba']
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']

@@ -1,0 +1,213 @@
+From df998d5df70f8e6330696ed3e937a3fe653fa625 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:39:11 +0000
+Subject: [PATCH 45/69] =?UTF-8?q?G12:=20Kutup=20=C4=B0stasyonu=20temas?=
+ =?UTF-8?q?=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Zeminde ince harita ızgarası, @supports içinde buzlu cam paneller (telefonda opak), turuncu şeritli
+telsiz gövdesi ve parka turuncusu okunmamış noktası. Önizleme renkleri, iki dilde ad ve açıklama,
+index.html ve sw.js kaydı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css  |   4 ++
+ public/css/skins/kutup.css | 108 +++++++++++++++++++++++++++++++++++++
+ public/i18n.js             |   4 ++
+ public/index.html          |   1 +
+ public/sw.js               |   1 +
+ public/theme-init.js       |   2 +-
+ 6 files changed, 119 insertions(+), 1 deletion(-)
+ create mode 100644 public/css/skins/kutup.css
+
+diff --git a/public/css/components.css b/public/css/components.css
+index efb4487..c62670d 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3969,6 +3969,10 @@ button.member:hover {
+ .theme-swatch-fosfor > span:nth-child(2) { background-color: #39ff7a; }
+ .theme-swatch-fosfor > span:nth-child(3) { background-color: #ffcf5c; }
+ .theme-swatch-fosfor > span:nth-child(4) { background-color: #c9d1b4; }
++.theme-swatch-kutup > span:nth-child(1) { background-color: #121c27; }
++.theme-swatch-kutup > span:nth-child(2) { background-color: #5aa9ff; }
++.theme-swatch-kutup > span:nth-child(3) { background-color: #ff7a45; }
++.theme-swatch-kutup > span:nth-child(4) { background-color: #e8eef5; }
+ 
+ .theme-name {
+   font-weight: var(--weight-strong);
+diff --git a/public/css/skins/kutup.css b/public/css/skins/kutup.css
+new file mode 100644
+index 0000000..7b0896b
+--- /dev/null
++++ b/public/css/skins/kutup.css
+@@ -0,0 +1,108 @@
++/*
++  Kutup İstasyonu teması. Kutup araştırma istasyonu: buzul mavisi ve buz beyazı, parka turuncusu dikkat
++  rengi, ince harita ızgarası üstünde buzlu cam paneller. Açık mod öncelikli tasarlandı. backdrop-filter
++  her zaman @supports içinde ve öneklidir, desteklenmezse paneller opak kalır. Telefonda cam kalkar
++  (Arcade'deki gibi, sabit konumlu alt öğeler için kapsayıcı blok oluşmasın). Her seçici
++  :root[data-skin="kutup"] ile başlar.
++*/
++
++/* Gönder simgesi: kâğıt uçak (işaretlemede Turkuaz'ın simgesi) */
++:root[data-skin="kutup"] .skin-turkuaz {
++  display: inline-block;
++}
++
++/* İnce harita ızgarası: zeminde, iki yumuşak ışığın üstünde */
++:root[data-skin="kutup"] body::before {
++  background-image:
++    linear-gradient(var(--line) 1px, rgba(0, 0, 0, 0) 1px),
++    linear-gradient(90deg, var(--line) 1px, rgba(0, 0, 0, 0) 1px),
++    radial-gradient(60rem 38rem at 6% -8%, var(--bg-glow-a), var(--bg-glow-a0) 70%),
++    radial-gradient(52rem 34rem at 102% 108%, var(--bg-glow-b), var(--bg-glow-b0) 70%);
++  background-size: 3rem 3rem, 3rem 3rem, auto, auto;
++}
++
++/* Buzlu cam paneller: frekans bandı, konuşma sütunu, sol ve sağ sütun kartları */
++:root[data-skin="kutup"] .band,
++:root[data-skin="kutup"] .convo,
++:root[data-skin="kutup"] .side-card {
++  border-color: var(--line-strong);
++}
++
++@supports ((-webkit-backdrop-filter: blur(2px)) or (backdrop-filter: blur(2px))) {
++  :root[data-skin="kutup"] .band,
++  :root[data-skin="kutup"] .convo,
++  :root[data-skin="kutup"] .side-card {
++    background-color: var(--surface-1-glass);
++    -webkit-backdrop-filter: blur(16px) saturate(120%);
++    backdrop-filter: blur(16px) saturate(120%);
++  }
++}
++
++@media (max-width: 759px) {
++  :root[data-skin="kutup"] .convo,
++  :root[data-skin="kutup"] .band {
++    background-color: var(--surface-1);
++    -webkit-backdrop-filter: none;
++    backdrop-filter: none;
++  }
++}
++
++/* Telsiz gövdesi: istasyon cihazı gibi yumuşak köşe, üstte turuncu şerit */
++:root[data-skin="kutup"] .radio {
++  border-radius: var(--radius-panel);
++  border-top: 3px solid var(--accent-2);
++}
++
++:root[data-skin="kutup"] .radio::before {
++  background-color: var(--accent-2);
++}
++
++/* Okunmamış noktası parka turuncusu */
++:root[data-skin="kutup"] .unread-badge {
++  background-color: var(--accent-2-text);
++}
++
++/* Bölüm etiketleri: harita koordinatı gibi tek aralıklı, ince çizgiyle uzar */
++:root[data-skin="kutup"] .section-title::after {
++  content: "";
++  flex: 1 1 auto;
++  height: 1px;
++  margin-left: 0.6rem;
++  background-color: var(--line-strong);
++}
++
++/* Ayarlı istasyon: buzul mavisi alt çizgi */
++:root[data-skin="kutup"] .station.is-tuned {
++  box-shadow: inset 0 -2px 0 var(--accent);
++}
++
++/* Anahtarsız şifreli mesaj: buz kartı */
++:root[data-skin="kutup"] .msg-notice {
++  display: inline-flex;
++  padding: 0.5rem 0.85rem;
++  border: 1px dashed var(--edge);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-3);
++  font-style: normal;
++}
++
++/* Profil kartı bandı: harita ızgarası */
++:root[data-skin="kutup"] .profile-card-band {
++  background-image: linear-gradient(rgba(255, 255, 255, 0.18) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, rgba(0, 0, 0, 0) 1px);
++  background-size: 1.25rem 1.25rem;
++}
++
++/* Seviye ölçer: termometre gibi ince bölmeli */
++:root[data-skin="kutup"] .meter-bar {
++  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 14px, var(--surface-sunken) 14px, var(--surface-sunken) 15px);
++}
++
++:root[data-skin="kutup"] .meter-threshold {
++  background-color: var(--accent-2-text);
++}
++
++/* Ayarlar: seçili kategoride turuncu çizgi */
++:root[data-skin="kutup"] .settings-cat[aria-current="page"] {
++  border-color: transparent;
++  box-shadow: inset 3px 0 0 var(--accent-2);
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 29e0bd1..6c8be8d 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -49,6 +49,8 @@ window.I18N = (function () {
+     'theme.skinHint.lamba': 'Ceviz kasa, fildişi kadran ve pirinç yazılarla 1950\'ler radyosu.',
+     'theme.skin.fosfor': 'Fosfor',
+     'theme.skinHint.fosfor': 'Yeşil fosforlu tarayıcı ekranı, açık modda LCD.',
++    'theme.skin.kutup': 'Kutup İstasyonu',
++    'theme.skinHint.kutup': 'Buzul mavisi ve parka turuncusu araştırma istasyonu.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+@@ -2017,6 +2019,8 @@ window.I18N = (function () {
+     'theme.skinHint.lamba': 'A 1950s tube radio with a walnut case, ivory dial and brass lettering.',
+     'theme.skin.fosfor': 'Phosphor',
+     'theme.skinHint.fosfor': 'A green phosphor scanner screen, LCD in light mode.',
++    'theme.skin.kutup': 'Polar Station',
++    'theme.skinHint.kutup': 'A research station in glacier blue and parka orange.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+diff --git a/public/index.html b/public/index.html
+index 4aa16ab..fb065fb 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -34,6 +34,7 @@
+   <link rel="stylesheet" href="/css/skins/saha.css">
+   <link rel="stylesheet" href="/css/skins/lamba.css">
+   <link rel="stylesheet" href="/css/skins/fosfor.css">
++  <link rel="stylesheet" href="/css/skins/kutup.css">
+   <script src="/vendor/nacl-fast.min.js" defer></script>
+   <script src="/vendor/scrypt.js" defer></script>
+   <script src="/i18n.js" defer></script>
+diff --git a/public/sw.js b/public/sw.js
+index 4611ae0..dae3aab 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -32,6 +32,7 @@ const SHELL = [
+   '/css/skins/saha.css',
+   '/css/skins/lamba.css',
+   '/css/skins/fosfor.css',
++  '/css/skins/kutup.css',
+   '/i18n.js',
+   '/crypto.js',
+   '/emoji.js',
+diff --git a/public/theme-init.js b/public/theme-init.js
+index c4253f5..56b2e98 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -8,7 +8,7 @@
+ // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
+ 
+ function createTelsizTheme () {
+-  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor']
++  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup']
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']

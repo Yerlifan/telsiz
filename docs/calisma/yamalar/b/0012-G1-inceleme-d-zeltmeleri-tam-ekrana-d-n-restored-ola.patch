@@ -1,0 +1,295 @@
+From 99558d1fb831467bb3f4ac112aad2f2a2de5fd05 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:25:55 +0000
+Subject: [PATCH 12/60] =?UTF-8?q?G1:=20inceleme=20d=C3=BCzeltmeleri=20(tam?=
+ =?UTF-8?q?=20ekrana=20d=C3=B6n=C3=BC=C5=9F=20restored=20olarak=20bildiril?=
+ =?UTF-8?q?ir)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Windows'ta tam ekrandaki pencere simge durumundan dönünce Electron 44.5.1
+restore yerine yalnızca enter-full-screen gönderiyor (native_window_views_win.cc
+HandleSizeEvent, SIZE_RESTORED). Sayfa 'restored' almıyordu ve sonraki
+küçültme yinelenen değer olarak süzülüyordu. Son değer 'minimized' iken
+enter-full-screen veya focus gelir ve pencere artık simge durumunda değilse
+'restored' gönderilir. Yarım kalan düzeltmedeki boş dizi döngüsü
+RETURN_EVENTS ile tamamlandı. Birim testi ve duman testi bu sırayı denetler.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md                     |  2 +-
+ CHANGELOG.md                        |  2 +-
+ desktop/README.en.md                |  2 +-
+ desktop/README.md                   |  2 +-
+ desktop/e2e/duman.test.js           | 34 ++++++++++++++++-
+ desktop/src/lib/window-state.js     | 28 +++++++++++++-
+ desktop/src/main.js                 |  5 ++-
+ desktop/test/pencere-durumu.test.js | 59 ++++++++++++++++++++++++++++-
+ 8 files changed, 124 insertions(+), 10 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index b4b0d85..20e4ac5 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -7,7 +7,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ ### Changes
+ 
+ - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
+-- The desktop app tells the page the window state and the system idle time. The page learns through `telsizDesktop.onWindowState` when the window is minimized, comes back from being minimized, is hidden to the tray and is shown again (including coming back from the tray). It reads the time since the last user input in whole seconds through `telsizDesktop.idleSeconds()`, and the background windows of frequencies that are not open read it through `telsizArkaPlan.idleSeconds()`. Only one of four state values reaches the page, and only the app window and background windows may read the idle time. These channels are the desktop groundwork for Telsiz DJ, the floating window and automatic idle, and make no visible change on their own.
++- The desktop app tells the page the window state and the system idle time. The page learns through `telsizDesktop.onWindowState` when the window is minimized, comes back from being minimized (including going back to full screen), is hidden to the tray and is shown again (including coming back from the tray). It reads the time since the last user input in whole seconds through `telsizDesktop.idleSeconds()`, and the background windows of frequencies that are not open read it through `telsizArkaPlan.idleSeconds()`. Only one of four state values reaches the page, and only the app window and background windows may read the idle time. These channels are the desktop groundwork for Telsiz DJ, the floating window and automatic idle, and make no visible change on their own.
+ 
+ ### Fixes
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 66eff3a..bcf7fc9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,7 +7,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ ### Değişiklikler
+ 
+ - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
+-- Masaüstü uygulaması sayfaya pencerenin durumunu ve sistemin boşta süresini bildirir. Sayfa pencerenin simge durumuna küçültüldüğünü, simge durumundan döndüğünü, tepsiye gizlendiğini ve yeniden gösterildiğini (tepsiden dönüş dahil) `telsizDesktop.onWindowState` ile öğrenir. Son kullanıcı girişinden bu yana geçen süreyi tam saniye olarak `telsizDesktop.idleSeconds()` ile, açık olmayan frekansların arka plan pencereleri `telsizArkaPlan.idleSeconds()` ile okur. Sayfaya yalnızca dört durum değerinden biri gider, boşta süresini yalnızca uygulama penceresi ve arka plan pencereleri okuyabilir. Bu kanallar Telsiz DJ, yüzen pencere ve otomatik boşta için masaüstü altyapısıdır, kendi başlarına görünür bir değişiklik yapmaz.
++- Masaüstü uygulaması sayfaya pencerenin durumunu ve sistemin boşta süresini bildirir. Sayfa pencerenin simge durumuna küçültüldüğünü, simge durumundan döndüğünü (tam ekrana dönüş dahil), tepsiye gizlendiğini ve yeniden gösterildiğini (tepsiden dönüş dahil) `telsizDesktop.onWindowState` ile öğrenir. Son kullanıcı girişinden bu yana geçen süreyi tam saniye olarak `telsizDesktop.idleSeconds()` ile, açık olmayan frekansların arka plan pencereleri `telsizArkaPlan.idleSeconds()` ile okur. Sayfaya yalnızca dört durum değerinden biri gider, boşta süresini yalnızca uygulama penceresi ve arka plan pencereleri okuyabilir. Bu kanallar Telsiz DJ, yüzen pencere ve otomatik boşta için masaüstü altyapısıdır, kendi başlarına görünür bir değişiklik yapmaz.
+ 
+ ### Düzeltmeler
+ 
+diff --git a/desktop/README.en.md b/desktop/README.en.md
+index 85c50dc..f255027 100644
+--- a/desktop/README.en.md
++++ b/desktop/README.en.md
+@@ -151,7 +151,7 @@ The `window.telsizDesktop` API:
+ | `titleBar.setColors(background, symbol)` | Background and symbol color of the window buttons, both `#rrggbb` |
+ | `titleBar.openMenu(index, x, y)` | Opens that part of the app menu at the position on the page (CSS pixels), `true` when the menu closes |
+ | `titleBar.onFullscreen(cb)` | `cb(true)` when the window enters full screen, `cb(false)` when it leaves, the returned function removes the subscription |
+-| `onWindowState(cb)` | `cb('minimized')` when the window is minimized, `cb('restored')` when it comes back from being minimized, `cb('hidden')` when it is hidden to the tray, `cb('shown')` when it is shown (including coming back from the tray). No other value reaches the page, and the same value in a row arrives once. There can be several listeners, the returned function removes the subscription |
++| `onWindowState(cb)` | `cb('minimized')` when the window is minimized, `cb('restored')` when it comes back from being minimized (including going back to full screen on Windows), `cb('hidden')` when it is hidden to the tray, `cb('shown')` when it is shown (including coming back from the tray). No other value reaches the page, and the same value in a row arrives once. There can be several listeners, the returned function removes the subscription |
+ | `idleSeconds()` | Time since the last user input on the system (mouse, keyboard) in whole seconds (Electron `powerMonitor.getSystemIdleTime`). `0` when it cannot be read |
+ | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, the active frequency first, `order` is the saved order (the band uses it) |
+ | `switchFrequency(origin)` | Switches to a frequency in the list, `{ ok }` |
+diff --git a/desktop/README.md b/desktop/README.md
+index b74dbbb..6b60897 100644
+--- a/desktop/README.md
++++ b/desktop/README.md
+@@ -151,7 +151,7 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
+ | `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
+ | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
+ | `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
+-| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır |
++| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce (Windows'ta tam ekrana dönüş dahil) `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır |
+ | `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0` |
+ | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
+ | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
+diff --git a/desktop/e2e/duman.test.js b/desktop/e2e/duman.test.js
+index 27228a1..4e71675 100644
+--- a/desktop/e2e/duman.test.js
++++ b/desktop/e2e/duman.test.js
+@@ -17,7 +17,8 @@
+ // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
+ // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
+ //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
+-// - pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya yalnızca izinli değerlerle gelir
++// - pencere durumu: küçültme, geri yükleme (tam ekrana dönüş dahil), tepsiye gizleme ve tepsiden dönüş sayfaya
++//   yalnızca izinli değerlerle gelir
+ // - sistemin boşta süresi sayfadan tam saniye olarak okunur
+ //
+ // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
+@@ -1059,6 +1060,37 @@ test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden d
+     else win.emit('restore')
+   }, realMinimize)
+   next = await seen('restored', next, 'restored')
++  // Tam ekrandaki pencere küçültülüp geri gelir. Windows'ta Electron bu dönüşte restore yerine yalnızca
++  // enter-full-screen gönderir (shell/browser/native_window_views_win.cc HandleSizeEvent), sayfa yine
++  // 'restored' almalıdır. Pencere yöneticisi yoksa veya tam ekrandaki pencere küçültülemezse bu sıra
++  // (minimize, ardından restore olmadan enter-full-screen) ana süreçte elle üretilir.
++  const fullscreen = (value) => ctx.app.evaluate(async ({ BrowserWindow }, on) => {
++    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
++    win.setFullScreen(on)
++    const end = Date.now() + 5000
++    while (Date.now() < end && win.isFullScreen() !== on) await new Promise((resolve) => setTimeout(resolve, 100))
++    return win.isFullScreen()
++  }, value)
++  assert.equal(await fullscreen(true), true)
++  const realFullMinimize = await ctx.app.evaluate(async ({ BrowserWindow }, real) => {
++    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
++    if (real) {
++      win.minimize()
++      const end = Date.now() + 3000
++      while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
++      if (win.isMinimized()) {
++        win.restore()
++        return true
++      }
++    }
++    win.emit('minimize')
++    win.emit('enter-full-screen')
++    return false
++  }, realMinimize)
++  if (!realFullMinimize) t.diagnostic('tam ekrandan küçültme: minimize ve enter-full-screen olayları ana süreçte elle üretildi')
++  next = await seen('minimized', next, 'minimized in full screen')
++  next = await seen('restored', next, 'restored to full screen')
++  assert.equal(await fullscreen(false), false)
+   const visible = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
+   // Tepsiye kapatma pencereyi hide() ile gizler
+   await ctx.app.evaluate(({ BrowserWindow }) => {
+diff --git a/desktop/src/lib/window-state.js b/desktop/src/lib/window-state.js
+index f063bf8..eff7d4f 100644
+--- a/desktop/src/lib/window-state.js
++++ b/desktop/src/lib/window-state.js
+@@ -8,6 +8,11 @@
+ // 'shown' (gösterildi, tepsiden geri dönüş dahil). Olay nesnesi ve pencere bilgisi sayfaya hiç gitmez.
+ // Art arda gelen aynı değer bir kez gönderilir: tepsiden dönüşte show olayı ile ana sürecin kendi
+ // bildirimi (showMain) aynı anda gelebilir. Sayfada window.telsizDesktop.onWindowState(cb) ile alınır.
++// Simge durumundan dönüş her zaman restore olayıyla gelmez: Windows'ta tam ekrandaki pencere simge
++// durumundan dönünce Electron restore yerine yalnızca enter-full-screen gönderir (Electron 44.5.1,
++// shell/browser/native_window_views_win.cc HandleSizeEvent, SIZE_RESTORED). Bu yüzden son değer
++// 'minimized' iken enter-full-screen veya focus gelir ve pencere artık simge durumunda değilse de
++// 'restored' gönderilir. focus, restore olayı gelmeyen başka bir dönüş yolu için yedektir.
+ //
+ // Boşta süresi: telsiz:idle-seconds çağrısı sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen
+ // süreyi tam saniye olarak döndürür (Electron powerMonitor.getSystemIdleTime). Çağrı yalnızca uygulama
+@@ -25,6 +30,9 @@ const EVENTS = Object.freeze({
+   show: 'shown'
+ })
+ 
++// Son değer 'minimized' iken simge durumundan dönüşü gösterebilen ve restore yerine gelebilen olaylar
++const RETURN_EVENTS = Object.freeze(['enter-full-screen', 'focus'])
++
+ function isState (value) {
+   return typeof value === 'string' && STATES.includes(value)
+ }
+@@ -34,8 +42,17 @@ function stateForEvent (name) {
+   return typeof name === 'string' && Object.prototype.hasOwnProperty.call(EVENTS, name) ? EVENTS[name] : null
+ }
+ 
+-// win: on(olay, işlev) yöntemi olan pencere (BrowserWindow). send(değer): değeri sayfaya iletir.
+-// Dönen nesne: report(değer) beyaz listedeki bir değeri elle bildirir (önceki değerle aynıysa
++// Pencere hâlâ simge durumunda mı? isMinimized yöntemi yoksa veya pencere kapanmışsa false.
++function stillMinimized (win) {
++  try {
++    return typeof win.isMinimized === 'function' && win.isMinimized() === true
++  } catch (err) {
++    return false
++  }
++}
++
++// win: on(olay, işlev) ve isMinimized() yöntemleri olan pencere (BrowserWindow). send(değer): değeri sayfaya
++// iletir. Dönen nesne: report(değer) beyaz listedeki bir değeri elle bildirir (önceki değerle aynıysa
+ // gönderilmez, gönderildiyse true döner), current() son gönderilen değeri verir (henüz yoksa null).
+ function watch (win, send) {
+   let last = null
+@@ -50,6 +67,12 @@ function watch (win, send) {
+       report(EVENTS[name])
+     })
+   }
++  // restore olayı gelmeden simge durumundan dönüş (ör. Windows'ta tam ekrana dönüş)
++  for (const name of RETURN_EVENTS) {
++    win.on(name, () => {
++      if (last === 'minimized' && !stillMinimized(win)) report('restored')
++    })
++  }
+   return {
+     report,
+     current: () => last
+@@ -66,6 +89,7 @@ function cleanIdleSeconds (raw) {
+ module.exports = {
+   STATES,
+   EVENTS,
++  RETURN_EVENTS,
+   isState,
+   stateForEvent,
+   watch,
+diff --git a/desktop/src/main.js b/desktop/src/main.js
+index ef56649..5216cf0 100644
+--- a/desktop/src/main.js
++++ b/desktop/src/main.js
+@@ -574,8 +574,9 @@ function openMainWindow () {
+     win.on('enter-full-screen', () => sendFullscreen(true))
+     win.on('leave-full-screen', () => sendFullscreen(false))
+   }
+-  // Simge durumuna küçültme, geri yükleme, tepsiye gizleme ve gösterme bu pencerenin sayfasına yalnızca
+-  // beyaz listedeki değerlerle bildirilir (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
++  // Simge durumuna küçültme, geri yükleme (Windows'ta restore olayı gelmeyen tam ekrana dönüş dahil), tepsiye
++  // gizleme ve gösterme bu pencerenin sayfasına yalnızca beyaz listedeki değerlerle bildirilir
++  // (src/lib/window-state.js, sayfada telsizDesktop.onWindowState)
+   state.windowStates.set(win, windowState.watch(win, (value) => {
+     if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(CHANNELS.windowState, value)
+   }))
+diff --git a/desktop/test/pencere-durumu.test.js b/desktop/test/pencere-durumu.test.js
+index 6bc92da..638217e 100644
+--- a/desktop/test/pencere-durumu.test.js
++++ b/desktop/test/pencere-durumu.test.js
+@@ -88,7 +88,8 @@ test('bildirici: pencere olaylarını değere çevirir, olay nesnesi gitmez, art
+   win.emit('minimize')
+   win.emit('restore')
+   win.emit('hide')
+-  // Dinlenmeyen olaylar hiçbir şey göndermez
++  // Eşlenmeyen olaylar hiçbir şey göndermez. Dönüş olayları (focus, enter-full-screen) yalnızca son değer
++  // 'minimized' iken bir şey gönderebilir, burada son değer 'restored'.
+   for (const name of ['focus', 'blur', 'close', 'closed', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) win.emit(name)
+   win.emit('show')
+   assert.deepEqual(sent, [['shown'], ['minimized'], ['restored'], ['hidden'], ['shown']])
+@@ -107,6 +108,62 @@ test('bildirici: pencere olaylarını değere çevirir, olay nesnesi gitmez, art
+   assert.equal(reporter.current(), 'shown')
+ })
+ 
++// Windows'ta tam ekrandaki pencere simge durumundan dönünce Electron restore yerine yalnızca enter-full-screen
++// gönderir (Electron 44.5.1, shell/browser/native_window_views_win.cc HandleSizeEvent). Sayfa yine 'restored'
++// almalı, yoksa son değer 'minimized' kalır ve sonraki küçültme de yinelenen değer olarak süzülür.
++test('bildirici: restore gelmeden simge durumundan dönüş (tam ekrana dönüş, focus) restored olarak bildirilir', () => {
++  assert.deepEqual(Array.from(windowState.RETURN_EVENTS), ['enter-full-screen', 'focus'])
++  assert.ok(Object.isFrozen(windowState.RETURN_EVENTS))
++  const win = new EventEmitter()
++  let minimized = false
++  win.isMinimized = () => minimized
++  const sent = []
++  const reporter = windowState.watch(win, (value) => sent.push(value))
++  win.emit('show')
++  // Son değer 'minimized' değilken tam ekrana giriş ve odak hiçbir şey göndermez
++  win.emit('enter-full-screen')
++  win.emit('focus')
++  assert.deepEqual(sent, ['shown'])
++  // Tam ekrandaki pencere küçültülür. Simge durumundaki pencereye odak veya tam ekran olayı gelse de pencere hâlâ
++  // simge durumunda olduğu için bir şey gönderilmez
++  minimized = true
++  win.emit('minimize')
++  win.emit('focus')
++  win.emit('enter-full-screen')
++  assert.deepEqual(sent, ['shown', 'minimized'])
++  // Görev çubuğundan veya Alt+Tab ile dönüş: restore olayı gelmez, yalnızca enter-full-screen gelir
++  minimized = false
++  win.emit('enter-full-screen')
++  assert.deepEqual(sent, ['shown', 'minimized', 'restored'])
++  assert.equal(reporter.current(), 'restored')
++  // Ardından restore veya odak gelse de değer ikinci kez gönderilmez
++  win.emit('restore')
++  win.emit('focus')
++  assert.deepEqual(sent, ['shown', 'minimized', 'restored'])
++  // Sonraki küçültme yeniden bildirilir, restore gelmeyen dönüşü odak yakalar
++  minimized = true
++  win.emit('minimize')
++  minimized = false
++  win.emit('focus')
++  win.emit('enter-full-screen')
++  assert.deepEqual(sent, ['shown', 'minimized', 'restored', 'minimized', 'restored'])
++  // Tepsiye gizlenen pencerede odak 'restored' göndermez, dönüşü show bildirir
++  minimized = true
++  win.emit('minimize')
++  win.emit('hide')
++  minimized = false
++  win.emit('focus')
++  win.emit('show')
++  assert.deepEqual(sent.slice(5), ['minimized', 'hidden', 'shown'])
++  // isMinimized yöntemi olmayan pencerede dönüş olayı simge durumundan çıkış sayılır
++  const plain = new EventEmitter()
++  const plainSent = []
++  windowState.watch(plain, (value) => plainSent.push(value))
++  plain.emit('minimize')
++  plain.emit('enter-full-screen')
++  assert.deepEqual(plainSent, ['minimized', 'restored'])
++})
++
+ test('ön yükleme: yalnızca beyaz listedeki değer sayfaya ulaşır, birden çok dinleyici olur, abonelikten çıkılır', () => {
+   const p = loadPreload(['--telsiz-version=2.0.0'])
+   const api = p.exposed.telsizDesktop

@@ -1,0 +1,889 @@
+From 68ccaa63b50ce6adc45a781c3d778e446a989a6d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 14:06:59 +0000
+Subject: [PATCH 69/69] =?UTF-8?q?G9:=20ara=20kay=C4=B1t,=20s=C4=B1nanmad?=
+ =?UTF-8?q?=C4=B1=20(okunmam=C4=B1=C5=9F=20ayrac=C4=B1=20ve=20yeni=20mesaj?=
+ =?UTF-8?q?=20kaps=C3=BCl=C3=BC=20yar=C4=B1m,=20kota=20nedeniyle=20durduru?=
+ =?UTF-8?q?ldu)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js   | 129 ++++++++++++++++++-
+ public/css/convo.css     | 130 +++++++++++++++++++
+ public/i18n.js           |  20 +++
+ public/js/04-meta.js     |  23 ++--
+ public/js/05-poll.js     |   7 +-
+ public/js/06-messages.js |  48 ++++++-
+ public/js/12-init.js     |   2 +
+ public/js/15-dm.js       |   2 +-
+ public/js/38-gezinme.js  | 264 ++++++++++++++++++++++++++++++++++++++-
+ 9 files changed, 606 insertions(+), 19 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index ea18002..1473941 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -47,7 +47,7 @@ async function dmWith (who, text) {
+ }
+ 
+ before(async () => {
+-  W.w = await h.setupWorld({ slot: 27 })
++  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']] })
+   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
+   W.deniz = await W.w.pageFor('deniz')
+   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
+@@ -410,6 +410,133 @@ test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfada
+   await setWidth(page, 1440)
+ })
+ 
++// G9 (S3, S4): okunmamış ayracı, şerit, okundu kuralı ve yeni mesaj kapsülü
++
++function unreadView (page, roomId) {
++  return page.evaluate((id) => {
++    const box = document.getElementById('messages').getBoundingClientRect()
++    const divider = document.querySelector('#message-list .unread-divider')
++    const r = divider ? divider.getBoundingClientRect() : null
++    const next = divider ? divider.nextElementSibling : null
++    const bar = document.getElementById('unread-bar')
++    return {
++      divider: Boolean(divider),
++      dividerText: divider ? divider.textContent : '',
++      inView: Boolean(r && r.top >= box.top && r.bottom <= box.bottom),
++      upperHalf: Boolean(r && r.top - box.top <= box.height / 2),
++      firstUnread: next ? next.getAttribute('data-id') : null,
++      firstGroup: Boolean(next && next.classList.contains('msg-first')),
++      bar: Boolean(bar && !bar.hidden),
++      barText: bar && !bar.hidden ? bar.querySelector('.unread-bar-count').textContent : '',
++      unread: Number(state.unread[id]) || 0,
++      lastRead: Number(state.lastRead[id]) || 0,
++      atBottom: isNearBottom()
++    }
++  }, roomId)
++}
++
++// Ece odaya n mesaj yazar, sayfa olayları alır (Deniz başka odadayken sayaç artar)
++async function eceSays (roomName, n, label) {
++  const room = W.w.room(roomName)
++  const out = []
++  let i = 0
++  while (i < n) {
++    out.push(await W.w.say('ece', room, label + ' ' + (i + 1)))
++    i += 1
++  }
++  return out
++}
++
++test('ayraç: ilk okunmamış mesaj görünür alanda, şerit sayıyı gösterir, sayaç ancak alta inilince düşer', async () => {
++  const page = W.deniz
++  const sohbet = W.w.room('sohbet').id
++  const genel = W.w.room('genel').id
++  await setWidth(page, 1440)
++  const first = (await eceSays('sohbet', 1, 'ilk'))[0]
++  await openRoomRow(page, sohbet)
++  await page.waitForFunction((a) => Number(state.lastRead[a.id]) === a.last, { id: sohbet, last: first.id })
++  await openRoomRow(page, genel)
++  const sent = await eceSays('sohbet', 40, 'okunmamış')
++  await page.waitForFunction((id) => state.unread[id] === 40, sohbet, { timeout: h.LONG })
++  await openRoomRow(page, sohbet)
++  await page.waitForSelector('#message-list .unread-divider')
++  let v = await unreadView(page, sohbet)
++  assert.deepEqual([v.divider, v.dividerText, v.inView, v.upperHalf, v.firstUnread, v.firstGroup], [true, 'Yeni mesajlar', true, true, String(sent[0].id), true])
++  assert.deepEqual([v.bar, v.barText, v.atBottom], [true, '40 yeni mesaj', false])
++  assert.deepEqual([v.unread, v.lastRead], [40, first.id], 'odaya girmek okundu saymaz')
++  // Okunmamışa Git ayracı yeniden görünür alana getirir
++  await page.evaluate(() => {
++    el.messages.scrollTop = 0
++  })
++  await page.click('#unread-bar-jump')
++  v = await unreadView(page, sohbet)
++  assert.deepEqual([v.inView, v.unread], [true, 40])
++  // En alta inilince okundu sayılır: sayaç düşer, şerit kalkar, ayraç kalır
++  await page.evaluate(() => {
++    el.messages.scrollTop = el.messages.scrollHeight
++  })
++  await page.waitForFunction((id) => !state.unread[id], sohbet)
++  v = await unreadView(page, sohbet)
++  assert.deepEqual([v.unread, v.lastRead, v.bar, v.divider], [0, sent[39].id, false, true])
++})
++
++test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve okundu sayılmaz', async () => {
++  const page = W.deniz
++  const sohbet = W.w.room('sohbet').id
++  await waitConversation(page, 'channel', sohbet)
++  const before = await unreadView(page, sohbet)
++  await page.evaluate(() => {
++    el.messages.scrollTop = 0
++  })
++  await page.waitForFunction(() => !isNearBottom())
++  const msg = (await eceSays('sohbet', 1, 'yukarıdayken'))[0]
++  await page.waitForFunction((id) => state.nodes.has(String(id)), msg.id, { timeout: h.LONG })
++  await page.waitForSelector('#new-below:not([hidden])')
++  const capsule = await page.evaluate(() => ({
++    text: document.querySelector('#new-below-button .button-text').textContent,
++    top: el.messages.scrollTop,
++    reach: document.getElementById('new-below-button').getBoundingClientRect().bottom <= document.getElementById('messages').getBoundingClientRect().bottom
++  }))
++  assert.deepEqual(capsule, { text: 'Aşağıda 1 yeni mesaj', top: 0, reach: true })
++  let v = await unreadView(page, sohbet)
++  assert.deepEqual([v.lastRead, v.unread], [before.lastRead, 1], 'yukarıdayken okundu sayılmadı')
++  await page.click('#new-below-button')
++  await page.waitForFunction((id) => !state.unread[id], sohbet)
++  v = await unreadView(page, sohbet)
++  assert.deepEqual([v.lastRead, v.atBottom], [msg.id, true])
++  assert.equal(await page.evaluate(() => document.getElementById('new-below').hidden), true, 'kapsül kalktı')
++})
++
++test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur', async () => {
++  const page = W.deniz
++  const kalabalik = W.w.room('kalabalik').id
++  const genel = W.w.room('genel').id
++  await setWidth(page, 360)
++  const first = (await eceSays('kalabalik', 1, 'ilk'))[0]
++  await openRoom(page, kalabalik)
++  await page.waitForFunction((a) => Number(state.lastRead[a.id]) === a.last, { id: kalabalik, last: first.id })
++  await openRoom(page, genel)
++  const sent = await eceSays('kalabalik', 120, 'kalabalık')
++  await page.waitForFunction((id) => state.unread[id] === 120, kalabalik, { timeout: h.LONG })
++  const requests = []
++  const onRequest = (req) => {
++    if (req.url().indexOf('/api/messages?channel=' + kalabalik) !== -1) requests.push(req.url().replace(/^.*\?/, ''))
++  }
++  page.on('request', onRequest)
++  await openRoom(page, kalabalik)
++  page.off('request', onRequest)
++  await page.waitForSelector('#message-list .unread-divider')
++  assert.deepEqual(requests, ['channel=' + kalabalik + '&limit=50', 'channel=' + kalabalik + '&around=' + first.id + '&limit=100'])
++  const v = await unreadView(page, kalabalik)
++  assert.deepEqual([v.firstUnread, v.inView, v.bar, v.barText, v.unread], [String(sent[0].id), true, true, '120 yeni mesaj', 120])
++  assert.equal(await page.evaluate(() => state.hasNewer), true, 'daha yeni mesajlar aşağı inildikçe yüklenir')
++  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte şerit açıkken yatay taşma')
++  await page.click('#unread-bar-read')
++  await page.waitForFunction((id) => !state.unread[id] && document.getElementById('unread-bar').hidden, kalabalik)
++  assert.equal(await page.evaluate((id) => Number(state.lastRead[id]), kalabalik), sent[119].id, 'en yeni mesaj okundu')
++  await setWidth(page, 1440)
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/css/convo.css b/public/css/convo.css
+index d729836..4f46dab 100644
+--- a/public/css/convo.css
++++ b/public/css/convo.css
+@@ -251,6 +251,136 @@
+   padding: 0 1rem 0.25rem;
+ }
+ 
++/* =========================================================
++   3a. Okunmamış (istek 17, 38-gezinme.js): Yeni mesajlar ayracı, üstteki şerit ve yeni mesaj kapsülü
++   ========================================================= */
++
++/* Ayraç: ilk okunmamış mesajın önünde ince bir çizgi, sağ ucunda "Yeni mesajlar" etiketi */
++.unread-divider {
++  display: flex;
++  align-items: center;
++  margin: 0.5rem 0 0.375rem;
++  padding: 0 0.25rem 0 0.75rem;
++}
++
++.unread-divider::before {
++  content: "";
++  flex: 1 1 auto;
++  height: 0;
++  border-top: var(--border-width) solid var(--danger);
++}
++
++.unread-divider-text {
++  flex: none;
++  margin-left: 0.5rem;
++  padding: 0 0.5rem;
++  border-radius: var(--radius-pill);
++  background-color: var(--danger-bg);
++  color: var(--danger);
++  font-family: var(--font-label);
++  font-size: var(--label-size);
++  font-weight: 700;
++  letter-spacing: var(--label-spacing);
++  line-height: 1.6;
++  text-transform: uppercase;
++}
++
++:root[data-skin="turkuaz"] .unread-divider-text {
++  text-transform: none;
++}
++
++/* Şerit: konuşmanın üstünde okunmamış sayısı ve saati, Okunmamışa Git ve Okundu İşaretle */
++.unread-bar {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  flex: none;
++  margin: 0.5rem 1rem 0;
++  padding: 0.25rem 0.375rem 0.25rem 0.875rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-float);
++  box-shadow: var(--shadow-card);
++  color: var(--text-2);
++}
++
++.unread-bar[hidden] {
++  display: none;
++}
++
++.unread-bar-text {
++  flex: 1 1 10rem;
++  min-width: 0;
++  margin: 0.25rem 0.75rem 0.25rem 0;
++  font-size: var(--text-sm);
++}
++
++.unread-bar-count {
++  margin-right: 0.375rem;
++  color: var(--text-strong);
++  font-weight: var(--weight-strong);
++}
++
++.unread-bar .button {
++  flex: none;
++  min-height: var(--target);
++  margin: 0.125rem 0 0.125rem 0.375rem;
++}
++
++/* Kapsül: kişi yukarıdayken mesaj akışının altında yapışık durur, basınca en alta inilir */
++.new-below {
++  position: -webkit-sticky;
++  position: sticky;
++  bottom: 0.5rem;
++  z-index: 2;
++  margin: 0.5rem 0 0;
++  text-align: center;
++  pointer-events: none;
++}
++
++.new-below[hidden] {
++  display: none;
++}
++
++.new-below-button {
++  display: inline-flex;
++  align-items: center;
++  min-height: var(--target);
++  padding: 0 1rem 0 0.75rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-pill);
++  background-color: var(--surface-float);
++  box-shadow: var(--shadow-card);
++  color: var(--text-strong);
++  font-size: var(--text-sm);
++  font-weight: var(--weight-strong);
++  pointer-events: auto;
++  cursor: pointer;
++}
++
++.new-below-button .icon {
++  margin-right: 0.375rem;
++}
++
++.new-below-button.has-new {
++  border-color: var(--accent);
++  background-color: var(--accent);
++  color: var(--on-accent);
++}
++
++.new-below-button:hover {
++  border-color: var(--accent);
++}
++
++.new-below-button.has-new:hover {
++  background-color: var(--accent-hover);
++}
++
++.app-view[data-view="home"] .unread-bar,
++.app-view[data-view="home"] .new-below {
++  display: none;
++}
++
+ /* =========================================================
+    4. Yazıyor satırı
+    ========================================================= */
+diff --git a/public/i18n.js b/public/i18n.js
+index 99528a5..7fd5392 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -41,6 +41,16 @@ window.I18N = (function () {
+     'errors.cover_too_large': 'Kapak fotoğrafı çok büyük.',
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
++    'nav.newDivider': 'Yeni mesajlar',
++    'nav.unreadBar_one': '{count} yeni mesaj',
++    'nav.unreadBar_other': '{count} yeni mesaj',
++    'nav.unreadSince': '{time} saatinden beri',
++    'nav.jumpToUnread': 'Okunmamışa Git',
++    'nav.markRead': 'Okundu İşaretle',
++    'nav.newBelow_one': 'Aşağıda {count} yeni mesaj',
++    'nav.newBelow_other': 'Aşağıda {count} yeni mesaj',
++    'nav.newBelowLabel': 'Yeni mesajlara in',
++    'nav.jumpToBottom': 'En Alta Git',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Saha Telsizi',
+@@ -2061,6 +2071,16 @@ window.I18N = (function () {
+     'errors.cover_too_large': 'The cover photo is too large.',
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
++    'nav.newDivider': 'New messages',
++    'nav.unreadBar_one': '{count} new message',
++    'nav.unreadBar_other': '{count} new messages',
++    'nav.unreadSince': 'since {time}',
++    'nav.jumpToUnread': 'Jump to Unread',
++    'nav.markRead': 'Mark as Read',
++    'nav.newBelow_one': '{count} new message below',
++    'nav.newBelow_other': '{count} new messages below',
++    'nav.newBelowLabel': 'Go down to new messages',
++    'nav.jumpToBottom': 'Jump to Bottom',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Field Radio',
+diff --git a/public/js/04-meta.js b/public/js/04-meta.js
+index a69365a..d082ae8 100644
+--- a/public/js/04-meta.js
++++ b/public/js/04-meta.js
+@@ -1061,10 +1061,15 @@ function renderComposerState () {
+   updateSendState()
+ }
+ 
+-// Okunmamış sayaçlar
++// Okunmamış sayaçlar. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır (istek 17
++// S4): yukarıdayken gelen mesaj okunmuş sayılmaz. force: true ile (Okundu İşaretle) yüklü son mesaj okundu sayılır.
++// Okundu sayıldıysa true döner.
+ 
+-function markRead () {
+-  if (!state.channelId || document.hidden) return
++function markRead (opts) {
++  const options = opts || {}
++  if (!state.channelId || document.hidden || state.loading) return false
++  if (!options.force && (state.hasNewer || !isNearBottom())) return false
++  const channelId = state.channelId
+   const last = state.messages.length ? state.messages[state.messages.length - 1].id : null
+   if (last !== null && last !== undefined) {
+     const prev = Number(state.lastRead[state.channelId]) || 0
+@@ -1086,6 +1091,8 @@ function markRead () {
+   }
+   if (changed) renderBand()
+   if (mentionsChanged && typeof renderHomeEntry === 'function') renderHomeEntry()
++  if (typeof navAfterRead === 'function') navAfterRead(channelId)
++  return true
+ }
+ 
+ // Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
+@@ -1113,9 +1120,9 @@ async function scanUnread () {
+ }
+ 
+ // Oda seçimi. Özel mesaj veya Arkadaşlar görünümündeyken önce oda görünümüne dönülür. Bant yeniden çizilir,
+-// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Geçmişe kayıt
+-// 38-gezinme.js ile yazılır: fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir
+-// (kaydı değiştirir).
++// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Okunmamış
++// sayacı odaya girince değil, kişi en alta inince sıfırlanır (markRead). Geçmişe kayıt 38-gezinme.js ile yazılır:
++// fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir (kaydı değiştirir).
+ 
+ function selectChannel (id, opts) {
+   const options = opts || {}
+@@ -1141,11 +1148,7 @@ function selectChannel (id, opts) {
+   closeMessageMenu()
+   state.channelId = ch.id
+   storeSet(userKey('channel'), String(ch.id))
+-  state.unread[ch.id] = 0
+-  const hadMentions = Boolean(state.mentions && state.mentions[ch.id])
+-  if (state.mentions) state.mentions[ch.id] = 0
+   renderBand()
+-  if (hadMentions && typeof renderHomeEntry === 'function') renderHomeEntry()
+   renderChannelHeader()
+   composerEnter()
+   renderComposerState()
+diff --git a/public/js/05-poll.js b/public/js/05-poll.js
+index ce6a55f..eb4d808 100644
+--- a/public/js/05-poll.js
++++ b/public/js/05-poll.js
+@@ -171,7 +171,12 @@ function onIncomingMessage (message, inCurrent) {
+   const dm = isDmMessage(message)
+   if (inCurrent) {
+     insertMessage(message, { own: mine })
+-    if (!document.hidden) markRead()
++    // Kişi yukarıdayken veya sayfa gizliyken gelen mesaj okunmuş sayılmaz (istek 17 S4), sayaç artar
++    const read = !document.hidden && markRead()
++    if (!mine && !read) {
++      state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
++      if (!dm && typeof mentionOnIncoming === 'function') mentionOnIncoming(message)
++    }
+   } else if (!mine) {
+     state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
+     if (dm) {
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index 9bd4a66..82f5862 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -301,7 +301,8 @@ function buildMessageNode (m) {
+   return node
+ }
+ 
+-// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder.
++// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder. Yeni mesajlar ayracından
++// (38-gezinme.js) sonraki ilk mesaj her zaman yeni grup başlatır.
+ function startsGroup (m, prev) {
+   if (!prev) return true
+   if (!sameId(prev.authorId, m.authorId)) return true
+@@ -312,10 +313,11 @@ function startsGroup (m, prev) {
+ }
+ 
+ function regroup () {
++  const divided = typeof navPlaceDivider === 'function' ? navPlaceDivider() : null
+   let prev = null
+   state.messages.forEach((m) => {
+     const node = state.nodes.get(String(m.id))
+-    if (node) node.classList.toggle('msg-first', startsGroup(m, prev))
++    if (node) node.classList.toggle('msg-first', startsGroup(m, prev) || (divided !== null && sameId(m.id, divided)))
+     prev = m
+   })
+ }
+@@ -402,6 +404,9 @@ function insertMessage (m, opts) {
+   if (options.own || stick) {
+     trimRendered()
+     scrollToBottom()
++  } else if (typeof navNewBelow === 'function') {
++    // Kişi yukarıdayken kaydırılmaz, kapsül yeni mesajı sayar (38-gezinme.js)
++    navNewBelow()
+   }
+ }
+ 
+@@ -473,9 +478,21 @@ function scrollToBottom () {
+   stickBottom = true
+ }
+ 
++// En alta inilince konuşma okundu sayılır (04-meta.js markRead), kapsül güncellenir (38-gezinme.js)
+ function onMessagesScroll () {
+   stickBottom = isNearBottom()
+   if (state.hasNewer && stickBottom) loadNewer()
++  else if (stickBottom) markRead()
++  if (typeof navOnScroll === 'function') navOnScroll()
++}
++
++// Yeni mesajlar ayracı görünür alanın üst kısmına (yüksekliğin dörtte biri) gelir. İçerik kısaysa en alta
++// inilir, o zaman konuşma okundu sayılır.
++function scrollToDivider (divider) {
++  const box = el.messages
++  const offset = divider.getBoundingClientRect().top - box.getBoundingClientRect().top
++  box.scrollTop = box.scrollTop + offset - Math.round(box.clientHeight / 4)
++  stickBottom = isNearBottom()
+ }
+ 
+ function keepBottom () {
+@@ -533,6 +550,9 @@ function setMessagesView (kind, res) {
+ 
+ // Kanal mesajlarını yükleme ve sayfalama
+ 
++// İlk okunmamış mesaj en yeni sayfada değilse (son okunandan bu yana sayfadan çok mesaj geldiyse) konuşma son
++// okunan mesajın çevresiyle (around) yeniden istenir, daha yeni mesajlar aşağı inildikçe yüklenir (loadNewer).
++// Yükleme bitince ilk okunmamışın önüne Yeni mesajlar ayracı konur ve ayraç görünür alana kaydırılır (38-gezinme.js).
+ async function loadChannel () {
+   const channelId = state.channelId
+   if (!channelId) return
+@@ -540,6 +560,10 @@ async function loadChannel () {
+   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
+   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
+   state.pendingJump = null
++  const nav = typeof navUnreadReset === 'function'
++  const readMark = nav && !jump ? navReadMark(channelId) : 0
++  const knownUnread = Number(state.unread[channelId]) || 0
++  if (nav) navUnreadReset(channelId)
+   state.loadGen += 1
+   const gen = state.loadGen
+   state.loading = true
+@@ -557,8 +581,20 @@ async function loadChannel () {
+   renderListChrome()
+   chatPlusOnChannelLoad(channelId)
+   const query = jump ? '&around=' + encodeURIComponent(jump.messageId) + '&limit=' + JUMP_LIMIT : '&limit=' + PAGE_SIZE
+-  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
++  let res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
+   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
++  let around = false
++  if (readMark && res.status === 200 && res.data && Array.isArray(res.data.messages)) {
++    const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
++    if (navNeedsAround(page, res.data.hasMore, readMark)) {
++      const near = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&around=' + encodeURIComponent(readMark) + '&limit=' + JUMP_LIMIT)
++      if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
++      if (near.status === 200 && near.data && Array.isArray(near.data.messages)) {
++        res = near
++        around = true
++      }
++    }
++  }
+   state.loading = false
+   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
+     setMessagesView('error', res)
+@@ -570,7 +606,7 @@ async function loadChannel () {
+   setMessagesView('')
+   state.messages = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
+   state.hasMore = res.data.hasMore === true
+-  state.hasNewer = Boolean(jump) && res.data.hasNewer === true
++  state.hasNewer = (Boolean(jump) || around) && res.data.hasNewer === true
+   const pending = state.pendingEvents
+   state.pendingEvents = []
+   pending.forEach((ev) => {
+@@ -588,15 +624,19 @@ async function loadChannel () {
+     }
+   })
+   renderAllMessages()
++  const divider = nav && !jump ? navShowUnread(channelId, readMark, knownUnread) : null
+   if (jump) {
+     if (!highlightMessage(jump.messageId)) {
+       scrollNearMessage(jump.messageId)
+       toast(() => t('search.notFound'), 'error')
+     }
++  } else if (divider) {
++    scrollToDivider(divider)
+   } else {
+     scrollToBottom()
+   }
+   markRead()
++  if (nav) navOnScroll()
+ }
+ 
+ async function loadOlder () {
+diff --git a/public/js/12-init.js b/public/js/12-init.js
+index 96018d8..342f9e5 100644
+--- a/public/js/12-init.js
++++ b/public/js/12-init.js
+@@ -518,6 +518,8 @@ function applyLanguage () {
+   renderAttachments()
+   updateCounter()
+   refreshEmojiLanguage()
++  // Okunmamış şeridi, ayraç ve yeni mesaj kapsülü (38-gezinme.js)
++  if (typeof navOnLanguage === 'function') navOnLanguage()
+   if (findLayer('peer')) renderPeerMute()
+   settingsOnLanguage()
+ }
+diff --git a/public/js/15-dm.js b/public/js/15-dm.js
+index 823242e..01477d8 100644
+--- a/public/js/15-dm.js
++++ b/public/js/15-dm.js
+@@ -170,7 +170,7 @@ function showDm (dmId, opts) {
+   dmState.activeId = entry.id
+   dmState.partnerId = entry.userId
+   state.channelId = entry.id
+-  state.unread[entry.id] = 0
++  // Okunmamış sayacı kişi en alta inince sıfırlanır (04-meta.js markRead)
+   setConversationMode('dm')
+   renderChannels()
+   renderDmList()
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index d06222f..968f2ba 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -1,6 +1,7 @@
+ 'use strict'
+ 
+-// Yazı kanallarında ve sohbetlerde gezinme (istek 17): tarayıcı geçmişi.
++// Yazı kanallarında ve sohbetlerde gezinme (istek 17): tarayıcı geçmişi, okunmamış ayracı ve şeridi, yeni mesaj
++// kapsülü.
+ //
+ // Geçmiş (S2). Açılışta o anki kayıt kök kayda çevrilir: { telsiz: { v: 1, u, d: 0, view, id } }. Kişi başka bir
+ // konuşmaya geçince (oda, özel mesaj, Arkadaşlar) yeni kayıt eklenir. Adres ve # bölümü hiç değişmez, çünkü #
+@@ -18,6 +19,8 @@
+ 
+ const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
+ const NAV_POP_WAIT_MS = 2000
++// Kişi bu kadar ekran yukarıdaysa yeni mesaj olmasa da En Alta Git kapsülü görünür
++const NAV_FAR_SCREENS = 2
+ 
+ const navState = {
+   bound: false,
+@@ -31,7 +34,12 @@ const navState = {
+   waiting: false,
+   waitTimer: 0,
+   scheduled: false,
+-  restoring: false
++  restoring: false,
++  // Okunmamış ayracı ve şeridi: konuşma, ilk okunmamış mesajın kimliği ve zamanı, sayı, şerit açık mı
++  unread: { channelId: null, id: null, since: 0, count: 0, bar: false },
++  // Kişi yukarıdayken gelen mesaj sayısı (kapsül)
++  newBelow: 0,
++  divider: null
+ }
+ 
+ // ------------------------------------------------------------------ geçmiş
+@@ -159,6 +167,7 @@ function navStop () {
+   navState.on = false
+   navState.stack = []
+   navState.convMode = ''
++  navUnreadReset(null)
+   if (extra > 0) {
+     navState.ops.push({ kind: 'go', delta: -extra })
+     navRun()
+@@ -169,6 +178,7 @@ function navStop () {
+ // değişiklik kayıt eklemez. force: true ile programın yaptığı seçim (açılış, silinen oda) kaydı değiştirir.
+ function navOnConversation (opts) {
+   const o = opts || {}
++  if (navCurrentConv().view === 'home') navUnreadReset(null)
+   if (!navState.on || o.fromHistory || navState.restoring) return
+   if (!o.force) navState.convMode = 'push'
+   else if (!navState.convMode) navState.convMode = 'replace'
+@@ -307,3 +317,253 @@ function navInit () {
+   watchLayers(navLayersChanged)
+   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
+ }
++
++// ------------------------------------------------------------------ okunmamış ayracı, şerit ve kapsül (S3, S4)
++
++function navReadMark (channelId) {
++  return Number(state.lastRead[channelId]) || 0
++}
++
++function navOwn (m) {
++  return Boolean(state.me && sameId(m.authorId, state.me.id))
++}
++
++// İlk okunmamış mesajın sırası (son okunandan yeni, kendi mesajım değil). Okuma kaydı yoksa -1.
++function navFirstUnread (messages, readMark) {
++  if (!(readMark > 0)) return -1
++  let i = 0
++  while (i < messages.length) {
++    if (Number(messages[i].id) > readMark && !navOwn(messages[i])) return i
++    i += 1
++  }
++  return -1
++}
++
++function navCountUnread (messages, readMark) {
++  if (!(readMark > 0)) return 0
++  return messages.filter((m) => Number(m.id) > readMark && !navOwn(m)).length
++}
++
++// En yeni sayfanın hepsi son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir,
++// konuşma son okunan mesajın çevresiyle (around) yeniden yüklenir
++function navNeedsAround (messages, hasMore, readMark) {
++  return readMark > 0 && hasMore === true && messages.length > 0 && Number(messages[0].id) > readMark
++}
++
++// Konuşma değişti veya yükleniyor: şerit, ayraç ve kapsül kalkar
++function navUnreadReset (channelId) {
++  navState.unread = { channelId: channelId === undefined ? null : channelId, id: null, since: 0, count: 0, bar: false }
++  navState.newBelow = 0
++  if (navState.divider && navState.divider.parentNode) navState.divider.parentNode.removeChild(navState.divider)
++  navRenderBar()
++  navRenderBelow()
++}
++
++// Yükleme bitti (06-messages.js loadChannel): ilk okunmamış mesaj yüklüyse ayraç konur ve şerit gösterilir.
++// Ayracın öğesi döner (06-messages.js onu görünür alanın üst kısmına kaydırır), yoksa null.
++function navShowUnread (channelId, readMark, knownUnread) {
++  const i = navFirstUnread(state.messages, readMark)
++  if (i === -1 || !sameId(channelId, state.channelId)) return null
++  const first = state.messages[i]
++  navState.unread = {
++    channelId: channelId,
++    id: first.id,
++    since: Number(first.createdAt) || 0,
++    count: Math.max(Number(knownUnread) || 0, navCountUnread(state.messages, readMark)),
++    bar: true
++  }
++  regroup()
++  navRenderBar()
++  return navState.divider && navState.divider.parentNode ? navState.divider : null
++}
++
++function navDividerEl () {
++  if (!navState.divider) {
++    const node = h('div', 'unread-divider')
++    node.setAttribute('role', 'separator')
++    node.appendChild(h('span', 'unread-divider-text'))
++    navState.divider = node
++  }
++  const text = navState.divider.querySelector('.unread-divider-text')
++  text.textContent = t('nav.newDivider')
++  navState.divider.setAttribute('aria-label', t('nav.newDivider'))
++  return navState.divider
++}
++
++// Ayracı ilk okunmamış mesajın (silindiyse ondan sonraki ilk mesajın) önüne yerleştirir. 06-messages.js regroup
++// her çizimden sonra çağırır. Ayracın önünde durduğu mesajın kimliği döner, ayraç yoksa null.
++function navPlaceDivider () {
++  const u = navState.unread
++  const live = u.id !== null && sameId(u.channelId, state.channelId) && el.messageList && navCurrentConv().view !== 'home'
++  const target = live ? state.messages.filter((m) => Number(m.id) >= Number(u.id))[0] : null
++  const node = target ? state.nodes.get(String(target.id)) : null
++  if (!node || node.parentNode !== el.messageList) {
++    if (navState.divider && navState.divider.parentNode) navState.divider.parentNode.removeChild(navState.divider)
++    return null
++  }
++  const divider = navDividerEl()
++  if (node.previousSibling !== divider) el.messageList.insertBefore(divider, node)
++  return target.id
++}
++
++// Üstteki şerit (#unread-bar): sayı, ilk okunmamışın saati, Okunmamışa Git ve Okundu İşaretle
++function navBarEl () {
++  let bar = byId('unread-bar')
++  if (!bar && el.main && el.messages && el.messages.parentNode === el.main) {
++    bar = h('div', 'unread-bar')
++    bar.id = 'unread-bar'
++    bar.setAttribute('role', 'status')
++    bar.hidden = true
++    const text = h('p', 'unread-bar-text')
++    text.appendChild(h('span', 'unread-bar-count'))
++    text.appendChild(h('span', 'unread-bar-since'))
++    bar.appendChild(text)
++    const jump = button('button button-small button-secondary unread-bar-jump', '', 'i-up')
++    jump.id = 'unread-bar-jump'
++    jump.appendChild(h('span', 'button-text'))
++    jump.addEventListener('click', navJumpToUnread)
++    bar.appendChild(jump)
++    const read = button('button button-small unread-bar-read', '', 'i-check')
++    read.id = 'unread-bar-read'
++    read.appendChild(h('span', 'button-text'))
++    read.addEventListener('click', navMarkAllRead)
++    bar.appendChild(read)
++    el.main.insertBefore(bar, el.messages)
++  }
++  return bar
++}
++
++function navSinceText (ts) {
++  const date = toDate(ts)
++  return sameDay(date, new Date()) ? formatClock(date.getTime()) : formatShort(date.getTime())
++}
++
++function navRenderBar () {
++  const u = navState.unread
++  const show = u.bar && u.count > 0 && sameId(u.channelId, state.channelId) && navCurrentConv().view !== 'home' && !state.loading
++  if (!show && !byId('unread-bar')) return
++  const bar = navBarEl()
++  if (!bar) return
++  bar.hidden = !show
++  if (!show) return
++  bar.querySelector('.unread-bar-count').textContent = t('nav.unreadBar', { count: u.count })
++  bar.querySelector('.unread-bar-since').textContent = u.since ? t('nav.unreadSince', { time: navSinceText(u.since) }) : ''
++  byId('unread-bar-jump').querySelector('.button-text').textContent = t('nav.jumpToUnread')
++  byId('unread-bar-read').querySelector('.button-text').textContent = t('nav.markRead')
++}
++
++// Okundu sayıldı (04-meta.js markRead): şerit ve kapsül kalkar, ayraç konuşmadan çıkılana kadar kalır
++function navAfterRead (channelId) {
++  if (sameId(navState.unread.channelId, channelId)) navState.unread.bar = false
++  navState.newBelow = 0
++  navRenderBar()
++  navRenderBelow()
++}
++
++function navJumpToUnread () {
++  const divider = navState.divider && navState.divider.parentNode ? navState.divider : null
++  if (divider) {
++    scrollToDivider(divider)
++    navRenderBelow()
++    return
++  }
++  // İlk okunmamış artık yüklü değil: konuşma son okunanın çevresiyle yeniden yüklenir
++  if (state.channelId) loadChannel()
++}
++
++// Okundu İşaretle: daha yeni mesajlar yüklü değilse en yeni mesajın kimliği sunucudan alınır
++async function navMarkAllRead () {
++  const channelId = state.channelId
++  if (!channelId) return
++  if (!state.hasNewer) {
++    markRead({ force: true })
++    return
++  }
++  const gen = state.loadGen
++  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&limit=1')
++  if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
++  const list = res.status === 200 && res.data && Array.isArray(res.data.messages) ? res.data.messages : null
++  if (!list) {
++    toast(() => errorText(res, t('messages.loadFailed')), 'error')
++    return
++  }
++  const last = list.length ? Number(list[list.length - 1].id) : 0
++  if (last > navReadMark(channelId)) {
++    state.lastRead[channelId] = last
++    storeSetJson(userKey('read'), state.lastRead)
++  }
++  state.unread[channelId] = 0
++  if (state.mentions) state.mentions[channelId] = 0
++  renderBand()
++  if (typeof renderHomeEntry === 'function') renderHomeEntry()
++  navAfterRead(channelId)
++}
++
++// Kapsül (#new-below): kişi yukarıdayken gelen mesajları sayar, basınca en alta inilir ve okundu sayılır.
++// Yeni mesaj yokken kişi çok yukarıdaysa En Alta Git olarak görünür.
++function navBelowEl () {
++  let wrap = byId('new-below')
++  if (!wrap && el.messages && el.messageList) {
++    wrap = h('div', 'new-below')
++    wrap.id = 'new-below'
++    wrap.hidden = true
++    // Mesaj günlüğünün canlı bölgesi kapsülün sayısını ayrıca okumaz, düğmenin adı yeterli
++    wrap.setAttribute('aria-live', 'off')
++    const b = button('new-below-button', '', 'i-down')
++    b.id = 'new-below-button'
++    b.appendChild(h('span', 'button-text'))
++    b.addEventListener('click', navGoBottom)
++    wrap.appendChild(b)
++    el.messages.insertBefore(wrap, el.messageList.nextSibling)
++  }
++  return wrap
++}
++
++function navFarFromBottom () {
++  const box = el.messages
++  if (!box || !box.clientHeight) return false
++  return box.scrollHeight - box.scrollTop - box.clientHeight > NAV_FAR_SCREENS * box.clientHeight
++}
++
++function navRenderBelow () {
++  const count = navState.newBelow
++  const usable = Boolean(state.channelId) && !state.loading && !state.hasNewer && navCurrentConv().view !== 'home'
++  const show = usable && (count > 0 || navFarFromBottom()) && !isNearBottom()
++  if (!show && !byId('new-below')) return
++  const wrap = navBelowEl()
++  if (!wrap) return
++  wrap.hidden = !show
++  if (!show) return
++  const b = byId('new-below-button')
++  const text = count > 0 ? t('nav.newBelow', { count: count }) : t('nav.jumpToBottom')
++  b.querySelector('.button-text').textContent = text
++  b.classList.toggle('has-new', count > 0)
++  const label = count > 0 ? text + ', ' + t('nav.newBelowLabel') : text
++  b.setAttribute('aria-label', label)
++  b.title = count > 0 ? t('nav.newBelowLabel') : text
++}
++
++// Kişi yukarıdayken açık konuşmaya mesaj geldi (06-messages.js insertMessage)
++function navNewBelow () {
++  navState.newBelow += 1
++  navRenderBelow()
++}
++
++// Kaydırma (06-messages.js onMessagesScroll)
++function navOnScroll () {
++  navRenderBelow()
++}
++
++function navGoBottom () {
++  scrollToBottom()
++  markRead()
++  navState.newBelow = 0
++  navRenderBelow()
++  focusNode(el.composerInput && !el.composerInput.disabled ? el.composerInput : el.messages)
++}
++
++function navOnLanguage () {
++  if (navState.divider && navState.divider.parentNode) navDividerEl()
++  navRenderBar()
++  navRenderBelow()
++}

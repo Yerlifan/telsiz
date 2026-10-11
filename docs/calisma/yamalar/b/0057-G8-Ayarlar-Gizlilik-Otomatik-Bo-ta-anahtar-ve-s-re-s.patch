@@ -1,0 +1,162 @@
+From f63ad77c8812bd67cc8819f4a7ba9cc34cba5174 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 13:50:39 +0000
+Subject: [PATCH 57/60] =?UTF-8?q?G8:=20Ayarlar=20>=20Gizlilik:=20Otomatik?=
+ =?UTF-8?q?=20Bo=C5=9Fta=20anahtar=C4=B1=20ve=20s=C3=BCre=20se=C3=A7imi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Yazıyor göstergesinin altına Otomatik Boşta bölümü eklendi: "Hareketsiz
+kalınca durumumu Boşta göster" anahtarı (varsayılan açık) ve 5, 10, 15, 30
+veya 60 dakikalık süre seçimi (varsayılan 10). Ayar cihaza özeldir, değişiklik
+idleSettingsChanged ile hemen uygulanır, anahtar kapalıyken süre devre
+dışıdır. Açıklama sunucunun ve üyelerin hareketsiz kalma zamanını
+görebileceğini söyler. i18n anahtarları G8 işaretinin altında iki dilde.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/i18n.js           | 12 ++++++++++++
+ public/js/11-settings.js | 25 ++++++++++++++++++++++++-
+ test/settings.test.js    | 40 +++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 75 insertions(+), 2 deletions(-)
+
+diff --git a/public/i18n.js b/public/i18n.js
+index 1ee5e8e..503d3e6 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -66,6 +66,12 @@ window.I18N = (function () {
+     'dj.settings.searchOff': 'Şarkı adıyla YouTube araması kapatıldı. Parçalar yalnızca bağlantıyla eklenir.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
++    'settings.privacy.idleTitle': 'Otomatik Boşta',
++    'settings.privacy.autoIdle': 'Hareketsiz kalınca durumumu Boşta göster',
++    'settings.privacy.autoIdleHint': 'Bu cihazda seçilen süre boyunca fare, klavye, dokunma veya oyun kolu kullanılmazsa durumunuz başkalarına Boşta görünür. Birden çok cihazda oturumunuz açıksa hepsi hareketsiz kalınca Boşta görünürsünüz. Ses odasındayken boşta sayılmazsınız. Sunucu ve üyeler ne zaman hareketsiz kaldığınızı görebilir. Elle seçtiğiniz durumlar değişmez.',
++    'settings.privacy.autoIdleAfter': 'Süre',
++    'settings.privacy.autoIdleMinutes_one': '{count} dakika',
++    'settings.privacy.autoIdleMinutes_other': '{count} dakika',
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
+     // G12 Temalar
+@@ -2055,6 +2061,12 @@ window.I18N = (function () {
+     'dj.settings.searchOff': 'YouTube search by song name is off. Tracks are added by link only.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
++    'settings.privacy.idleTitle': 'Automatic Idle',
++    'settings.privacy.autoIdle': 'Show me as Idle when I\'m inactive',
++    'settings.privacy.autoIdleHint': 'If you don\'t use the mouse, keyboard, touch or a gamepad on this device for the chosen time, others see you as Idle. If you are signed in on several devices, you appear Idle once all of them are inactive. You are never idle while in a voice room. The server and members can see when you went inactive. Statuses you set yourself are not changed.',
++    'settings.privacy.autoIdleAfter': 'After',
++    'settings.privacy.autoIdleMinutes_one': '{count} minute',
++    'settings.privacy.autoIdleMinutes_other': '{count} minutes',
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
+     // G12 Temalar
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 7e01ab8..71cc86a 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -1608,6 +1608,26 @@ function buildPrivacyPage (page) {
+   typingSec.appendChild(typing.row)
+   typingSec.appendChild(typingMsg)
+ 
++  // Otomatik boşta (40-bosta.js): cihaza özel anahtar ve süre, değişiklik hemen uygulanır
++  const idleSec = sSection(page, t('settings.privacy.idleTitle'), 'set-idle-section')
++  const idleMinutes = h('select', 'input select select-small')
++  const autoIdle = sSwitch('set-auto-idle', t('settings.privacy.autoIdle'), autoIdleEnabled(), (checked) => {
++    storeSet(SETTINGS_KEYS.autoIdle, checked ? '1' : '0')
++    idleMinutes.disabled = !checked
++    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
++  }, t('settings.privacy.autoIdleHint'))
++  idleSec.appendChild(autoIdle.row)
++  sField(idleSec, 'set-auto-idle-minutes', t('settings.privacy.autoIdleAfter'), idleMinutes)
++  AUTO_IDLE_MINUTES.forEach((n) => {
++    const opt = h('option', '', t('settings.privacy.autoIdleMinutes', { count: n }))
++    opt.value = String(n)
++    idleMinutes.appendChild(opt)
++  })
++  idleMinutes.addEventListener('change', () => {
++    storeSet(SETTINGS_KEYS.autoIdleMinutes, idleMinutes.value)
++    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
++  })
++
+   // YouTube oynatıcısı izni (Ek L2.5): izin Telsiz DJ'de ilk YouTube parçasında istenir, burada
+   // durumu görünür ve geri alınabilir
+   const ytSec = sSection(page, t('settings.youtube.title'), 'set-youtube-section')
+@@ -1688,6 +1708,9 @@ function buildPrivacyPage (page) {
+   const update = () => {
+     if (!allow.input.disabled) allow.input.checked = priv().allowMemberDms !== false
+     typing.input.checked = typingEnabled()
++    autoIdle.input.checked = autoIdleEnabled()
++    idleMinutes.value = String(autoIdleMinutes())
++    idleMinutes.disabled = !autoIdleEnabled()
+     const consent = youtubeConsentState()
+     ytState.textContent = t(consent === 'granted' ? 'settings.youtube.granted' : consent === 'denied' ? 'settings.youtube.denied' : 'settings.youtube.notGranted')
+     ytState.setAttribute('data-state', consent === 'granted' ? 'granted' : consent === 'denied' ? 'denied' : 'default')
+@@ -1713,7 +1736,7 @@ function buildPrivacyPage (page) {
+     signature: () => {
+       const p = priv()
+       const blocked = p.blocked.map((id) => id + ':' + safeCall(() => userDisplayName(id), '') + ':' + safeCall(() => avatarInfoFor(id).blobUrl, '')).join(',')
+-      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
++      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), autoIdleEnabled(), autoIdleMinutes(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
+     }
+   }
+ }
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 4b926b9..b5e77f0 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -609,7 +609,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
+   const expected = {
+     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
+     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
++    privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
+     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
+@@ -974,6 +974,44 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
+   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
+ })
+ 
++test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişiklik hemen bildirilir', () => {
++  const { run, root, storage } = load()
++  run('var __idleChanges = 0; function idleSettingsChanged () { __idleChanges += 1 }')
++  run("openSettings('privacy', null)")
++  const sw = root.querySelector('#set-auto-idle')
++  const minutes = root.querySelector('#set-auto-idle-minutes')
++  assert.strictEqual(sw.checked, true)
++  assert.strictEqual(sw.getAttribute('role'), 'switch')
++  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Ses odasındayken boşta sayılmazsınız') !== -1)
++  assert.strictEqual(root.querySelector('#set-idle-section-title').textContent, 'Otomatik Boşta')
++  assert.deepStrictEqual(minutes.childNodes.map((o) => o.value), ['5', '10', '15', '30', '60'])
++  assert.deepStrictEqual(minutes.childNodes.map((o) => o.textContent), ['5 dakika', '10 dakika', '15 dakika', '30 dakika', '60 dakika'])
++  assert.strictEqual(minutes.value, '10')
++  assert.strictEqual(minutes.disabled, false)
++  const label = root.querySelectorAll('label').filter((l) => l.getAttribute('for') === 'set-auto-idle-minutes')[0]
++  assert.strictEqual(label.textContent, 'Süre')
++  minutes.value = '30'
++  minutes.dispatchEvent(fakeEvent('change'))
++  assert.strictEqual(storage.getItem('telsiz.autoIdleMinutes'), '30')
++  assert.strictEqual(run('__idleChanges'), 1)
++  sw.click()
++  assert.strictEqual(storage.getItem('telsiz.autoIdle'), '0')
++  assert.strictEqual(minutes.disabled, true)
++  assert.strictEqual(run('__idleChanges'), 2)
++  // Başka sekmede değişen ayar sayfa yenilenince görünür
++  storage.setItem('telsiz.autoIdle', '1')
++  storage.setItem('telsiz.autoIdleMinutes', '5')
++  run("showSettingsCat('notifications', null)")
++  run("showSettingsCat('privacy', null)")
++  assert.strictEqual(root.querySelector('#set-auto-idle').checked, true)
++  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').value, '5')
++  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').disabled, false)
++  // İngilizce tekil ve çoğul
++  run("I18N.setLang('en')")
++  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 1 })"), '1 minute')
++  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 5 })"), '5 minutes')
++})
++
+ test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
+   const { run, root, storage } = load()
+   assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')

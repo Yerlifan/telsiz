@@ -1,0 +1,1019 @@
+From 0f1f768ff082c21fc20238326c70bb9be7405390 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 14:03:40 +0000
+Subject: [PATCH 68/69] =?UTF-8?q?G9:=2038-gezinme.js:=20konu=C5=9Fmalar=20?=
+ =?UTF-8?q?ve=20katmanlar=20taray=C4=B1c=C4=B1=20ge=C3=A7mi=C5=9Finde,=20g?=
+ =?UTF-8?q?eri=20tu=C5=9Fu=20her=20geni=C5=9Flikte=20=C3=A7al=C4=B1=C5=9F?=
+ =?UTF-8?q?=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Konuşma geçişleri (oda, özel mesaj, Arkadaşlar) adres değişmeden geçmişe kayıt ekler. Sayfalar, arama,
+ayarlar, resim görüntüleyici ve profil kartı her genişlikte kendi kaydını ekler, 12-init.js içindeki
+telefona özel sayfa yığınının yerini alır. Geri tuşu önce açık katmanı kapatır, sonra önceki konuşmayı
+açar. Kök kayıttan geri basılınca uygulamadan çıkılır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js  | 131 +++++++++++++++++
+ public/index.html       |   1 +
+ public/js/04-meta.js    |   7 +-
+ public/js/12-init.js    |  52 ++-----
+ public/js/14-social.js  |   2 +
+ public/js/15-dm.js      |   2 +
+ public/js/38-gezinme.js | 309 +++++++++++++++++++++++++++++++++++++++
+ public/sw.js            |   1 +
+ test/gezinme.test.js    | 315 ++++++++++++++++++++++++++++++++++++++++
+ 9 files changed, 782 insertions(+), 38 deletions(-)
+ create mode 100644 public/js/38-gezinme.js
+ create mode 100644 test/gezinme.test.js
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 794a9b5..ea18002 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -12,6 +12,10 @@
+ // - Taslakta süresi dolmak üzere olan ek konuşmaya dönülünce yeniden yüklenir, sunucunun tanımadığı ek
+ //   (bad_uploads) gönderimde yeniden yüklenir ve mesaj yeni ekle gider
+ // - Kişi engellenince o kişiyle özel konuşmanın bekleyen taslağı ve eki silinir
++// G9, tarayıcı geçmişi (S2, public/js/38-gezinme.js):
++// - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
++// - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
++// - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -279,6 +283,133 @@ test('kişi engellenince o kişiyle özel konuşmanın taslağı ve eki silinir'
+   assert.deepEqual(await composerView(page), { text: '', chips: [], send: false })
+ })
+ 
++// G9 (S2): tarayıcı geçmişi. Konuşmalar arayüz düğmeleriyle açılır (kişinin eylemi), geri tuşu sırasıyla döner.
++
++// Geçmişin o anki kaydı ve adres
++function historyNow (page) {
++  return page.evaluate(() => {
++    const s = window.history.state && window.history.state.telsiz
++    return { view: s ? (s.overlay ? 'overlay:' + s.overlay : s.view) : null, id: s && s.id !== undefined ? s.id : null, d: s ? s.d : null, href: window.location.href }
++  })
++}
++
++async function setWidth (page, width, height) {
++  await page.setViewportSize({ width, height: height || (width < 760 ? 780 : 900) })
++  await page.waitForFunction((x) => document.documentElement.clientWidth === x && el.appView.getAttribute('data-layout') === layoutClass(), width)
++}
++
++// Geçmiş işlemleri bitti: kuyruk boş, beklenen popstate yok
++function navIdle (page) {
++  return page.waitForFunction(() => !navState.waiting && !navState.ops.length && !navState.scheduled)
++}
++
++// Kişinin geri tuşu
++async function goBack (page) {
++  await page.goBack({ waitUntil: 'commit' })
++  await navIdle(page)
++}
++
++test('geri tuşu: oda, oda ve özel mesaj geçişlerinden sonra sırasıyla döner, adres değişmez', async () => {
++  const page = W.deniz
++  const genel = W.w.room('genel').id
++  const oyun = W.w.room('oyun-gecesi').id
++  await setWidth(page, 1440)
++  const href = (await historyNow(page)).href
++  assert.doesNotMatch(href, /#/, 'adreste # bölümü yok')
++  await openRoomRow(page, genel)
++  await openRoomRow(page, oyun)
++  await page.click('#top-dm')
++  await page.waitForFunction(() => currentViewMode() === 'dm' && !state.loading, null, { timeout: h.LONG })
++  const dmId = await page.evaluate(() => String(state.channelId))
++  await navIdle(page)
++  const top = await historyNow(page)
++  assert.deepEqual([top.view, String(top.id), top.href], ['dm', dmId, href])
++  await goBack(page)
++  await waitConversation(page, 'channel', oyun)
++  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(oyun), d: top.d - 1, href })
++  await goBack(page)
++  await waitConversation(page, 'channel', genel)
++  assert.equal((await historyNow(page)).d, top.d - 2)
++  // İleri tuşu da çalışır, yeni geçiş ileri kayıtları siler
++  await page.goForward({ waitUntil: 'commit' })
++  await waitConversation(page, 'channel', oyun)
++  await navIdle(page)
++  await openRoomRow(page, genel)
++  await navIdle(page)
++  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(genel), d: top.d, href })
++})
++
++test('telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, konuşma değişmez', async () => {
++  const page = W.deniz
++  const genel = W.w.room('genel').id
++  await setWidth(page, 360)
++  await openRoom(page, genel)
++  await navIdle(page)
++  const base = await historyNow(page)
++  await page.click('#btn-rooms')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await navIdle(page)
++  assert.equal((await historyNow(page)).view, 'overlay:sheet-stations')
++  await goBack(page)
++  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
++  assert.deepEqual(await historyNow(page), base)
++
++  await page.click('#btn-search')
++  await page.waitForSelector('#search-panel:not([hidden])')
++  await navIdle(page)
++  assert.equal((await historyNow(page)).view, 'overlay:search')
++  await goBack(page)
++  await page.waitForSelector('#search-panel', { state: 'hidden' })
++  assert.deepEqual(await historyNow(page), base)
++
++  await page.focus('#composer-input')
++  await page.keyboard.press('Control+Comma')
++  await page.waitForFunction(() => isSettingsOpen())
++  await navIdle(page)
++  assert.equal((await historyNow(page)).view, 'overlay:settings')
++  await goBack(page)
++  await page.waitForFunction(() => !isSettingsOpen())
++  assert.deepEqual(await historyNow(page), base)
++  await waitConversation(page, 'channel', genel)
++
++  // Esc ile kapanan sayfanın kaydı geri alınır: geri tuşu sayfayı değil önceki konuşmayı gösterir
++  await page.click('#btn-rooms')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await page.keyboard.press('Escape')
++  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
++  await navIdle(page)
++  assert.deepEqual(await historyNow(page), base)
++  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte yatay taşma')
++})
++
++test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfadaki oda satırı sayfanın kaydını değiştirir', async () => {
++  const page = W.deniz
++  const genel = W.w.room('genel').id
++  const foto = W.w.room('fotograflar').id
++  await setWidth(page, 768, 1024)
++  await openRoom(page, genel)
++  await navIdle(page)
++  const base = await historyNow(page)
++  await page.click('#btn-rooms')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await navIdle(page)
++  await goBack(page)
++  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
++  assert.deepEqual(await historyNow(page), base)
++  await waitConversation(page, 'channel', genel)
++  // Sayfadan oda seçmek: sayfa kapanır, odanın kaydı sayfanın kaydının yerine yazılır
++  await page.click('#btn-rooms')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await navIdle(page)
++  await page.click('#stations-list .room-row[data-station="text-' + foto + '"]')
++  await waitConversation(page, 'channel', foto)
++  await navIdle(page)
++  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(foto), d: base.d + 1, href: base.href })
++  await goBack(page)
++  await waitConversation(page, 'channel', genel)
++  await setWidth(page, 1440)
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/index.html b/public/index.html
+index 324803f..7109f58 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -78,6 +78,7 @@
+   <script src="/js/30-pencere.js" defer></script>
+   <script src="/js/31-sesler.js" defer></script>
+   <script src="/js/32-arama.js" defer></script>
++  <script src="/js/38-gezinme.js" defer></script>
+   <script src="/js/41-kurtarma.js" defer></script>
+ </head>
+ <body>
+diff --git a/public/js/04-meta.js b/public/js/04-meta.js
+index de60125..a69365a 100644
+--- a/public/js/04-meta.js
++++ b/public/js/04-meta.js
+@@ -29,6 +29,8 @@ function openApp () {
+     renderChannelHeader()
+     renderComposerState()
+   }
++  // Geçmişin kök kaydı açık görünümle yazılır
++  if (typeof navStart === 'function') navStart()
+   startPoll()
+   showFragmentNotice()
+   scanUnread()
+@@ -1111,7 +1113,9 @@ async function scanUnread () {
+ }
+ 
+ // Oda seçimi. Özel mesaj veya Arkadaşlar görünümündeyken önce oda görünümüne dönülür. Bant yeniden çizilir,
+-// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender).
++// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Geçmişe kayıt
++// 38-gezinme.js ile yazılır: fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir
++// (kaydı değiştirir).
+ 
+ function selectChannel (id, opts) {
+   const options = opts || {}
+@@ -1146,5 +1150,6 @@ function selectChannel (id, opts) {
+   composerEnter()
+   renderComposerState()
+   loadChannel()
++  if (typeof navOnConversation === 'function') navOnConversation(options)
+   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
+ }
+diff --git a/public/js/12-init.js b/public/js/12-init.js
+index 736e423..96018d8 100644
+--- a/public/js/12-init.js
++++ b/public/js/12-init.js
+@@ -10,7 +10,8 @@
+ // açılan yan sayfa, telefonda alttan açılan sayfadır (biçim frekans.css içinde). Aynı anda tek sayfa açıktır,
+ // ortak örtü #drawer-backdrop'tur. Sayfa katman yığınına 'sheet-<ad>' adıyla girer: açılınca odak sayfadaki
+ // ilk anlamlı öğeye gider, odak sayfanın içinde kalır, Esc, örtüye tıklama, Kapat düğmesi ve tarayıcının
+-// geri düğmesi (dar ekranda) kapatır, odak açan düğmeye döner.
++// geri düğmesi kapatır, odak açan düğmeye döner. Geri düğmesi her genişlikte çalışır: sayfanın geçmiş kaydını
++// 38-gezinme.js katman yığınını izleyerek ekler ve kaldırır.
+ 
+ const SHEETS = {
+   frekans: { id: 'frekans-sheet', trigger: 'band-all' },
+@@ -20,8 +21,9 @@ const SHEETS = {
+ }
+ 
+ const sheetState = {
+-  history: false,
+-  switching: false
++  switching: false,
++  // Açılan sayfanın ilk odağı (ör. Özel düğmesi İstasyonlar sayfasını Özel Mesajlar grubunda açar)
++  focus: null
+ }
+ 
+ // 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz. Telsiz DJ sütunu görünürken de
+@@ -58,6 +60,9 @@ function isSheetOpen (name) {
+ }
+ 
+ function sheetInitialFocus (name, panel) {
++  const wanted = sheetState.focus ? sheetState.focus(panel) : null
++  sheetState.focus = null
++  if (wanted) return wanted
+   if (name === 'stations' || name === 'frekans') {
+     const current = panel.querySelector('.room-row[aria-current], .sheet-row[aria-current]')
+     if (current) return current
+@@ -66,8 +71,9 @@ function sheetInitialFocus (name, panel) {
+   return items[0] || panel.querySelector('[data-sheet-close]')
+ }
+ 
+-// Sayfayı açar. Aynı sayfa açıksa kapatır (düğme açma ve kapama işini birlikte görür).
+-function openSheet (name, trigger) {
++// Sayfayı açar. Aynı sayfa açıksa kapatır (düğme açma ve kapama işini birlikte görür). focus verilirse
++// sayfanın ilk odağını seçer (sayfa öğesini alır, öğe döndürmezse olağan ilk odak kullanılır).
++function openSheet (name, trigger, focus) {
+   const conf = SHEETS[name]
+   const panel = conf ? byId(conf.id) : null
+   if (!panel || !state.inApp) return
+@@ -98,7 +104,7 @@ function openSheet (name, trigger) {
+   el.appView.classList.add('has-sheet')
+   el.drawerBackdrop.hidden = false
+   if (opener) opener.setAttribute('aria-expanded', 'true')
+-  if (isNarrow() && !sheetState.history) pushSheetHistory()
++  sheetState.focus = typeof focus === 'function' ? focus : null
+   openLayer({
+     name: 'sheet-' + name,
+     el: panel,
+@@ -115,10 +121,9 @@ function openSheet (name, trigger) {
+         panel.hidden = true
+       }
+       if (opener) opener.setAttribute('aria-expanded', 'false')
+-      if (!openSheetLayer()) {
++      if (!openSheetLayer() && !sheetState.switching) {
+         el.appView.classList.remove('has-sheet')
+         el.drawerBackdrop.hidden = true
+-        if (!sheetState.switching) popSheetHistory()
+       }
+     }
+   })
+@@ -151,34 +156,6 @@ function onSheetCloseClick (e) {
+   if (btn) closeTopSheet(true)
+ }
+ 
+-// Dar ekranda tarayıcının (ve telefonun) geri düğmesi açık sayfayı kapatır. Sayfa açılınca geçmişe bir
+-// kayıt eklenir, sayfa başka yoldan kapanınca bu kayıt geri alınır.
+-function pushSheetHistory () {
+-  try {
+-    if (!window.history || typeof window.history.pushState !== 'function') return
+-    window.history.pushState({ telsizSheet: true }, '')
+-    sheetState.history = true
+-  } catch (err) {
+-    sheetState.history = false
+-  }
+-}
+-
+-function popSheetHistory () {
+-  if (!sheetState.history) return
+-  sheetState.history = false
+-  try {
+-    window.history.back()
+-  } catch (err) {
+-    // Geçmiş kullanılamıyor
+-  }
+-}
+-
+-function onPopState () {
+-  if (!sheetState.history) return
+-  sheetState.history = false
+-  closeTopSheet(true)
+-}
+-
+ // Pencere boyutu: geniş (1280 ve üstü), geniş dar (1000 ile 1279), orta (760 ile 999), dar (760 altı) ve
+ // televizyon (1800 ve üstü). Düzen sınıfı değişince açık sayfa ve açılır katmanlar kapanır.
+ let lastLayoutClass = ''
+@@ -352,6 +329,8 @@ function bindEvents () {
+ 
+   // Frekans düzeni: bant (21-band.js), sayfalar, üst çubuk ve oda bilgisi kartı
+   if (typeof bandInit === 'function') bandInit()
++  // Tarayıcı geçmişi: konuşmalar ve katmanlar geri tuşuyla gezilir (38-gezinme.js)
++  if (typeof navInit === 'function') navInit()
+   on(el.bandAll, 'click', () => {
+     openSheet('frekans', el.bandAll)
+   })
+@@ -385,7 +364,6 @@ function bindEvents () {
+   on(byId('frekans-sheet'), 'click', onSheetCloseClick)
+   on(el.peopleSheet, 'click', onSheetCloseClick)
+   on(el.infoCol, 'click', onSheetCloseClick)
+-  on(window, 'popstate', onPopState)
+   on(document, 'keydown', onSettingsShortcut)
+ 
+   on(el.meButton, 'click', () => {
+diff --git a/public/js/14-social.js b/public/js/14-social.js
+index 325de53..59b53a9 100644
+--- a/public/js/14-social.js
++++ b/public/js/14-social.js
+@@ -327,6 +327,8 @@ function showHome (tab, opts) {
+   renderChannels()
+   renderDmList()
+   renderHomeView()
++  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
++  if (leaving && typeof navOnConversation === 'function') navOnConversation(options)
+   // Geniş ekranda Arkadaş ekle sekmesi yoktur, form sol sütundaki karttadır
+   if (wantAdd && homeAddInline()) {
+     const input = byId('friend-add-name')
+diff --git a/public/js/15-dm.js b/public/js/15-dm.js
+index 10935b1..823242e 100644
+--- a/public/js/15-dm.js
++++ b/public/js/15-dm.js
+@@ -179,6 +179,8 @@ function showDm (dmId, opts) {
+   dmRefreshChrome()
+   composerEnter()
+   loadChannel()
++  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
++  if (typeof navOnConversation === 'function') navOnConversation(options)
+   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
+ }
+ 
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+new file mode 100644
+index 0000000..d06222f
+--- /dev/null
++++ b/public/js/38-gezinme.js
+@@ -0,0 +1,309 @@
++'use strict'
++
++// Yazı kanallarında ve sohbetlerde gezinme (istek 17): tarayıcı geçmişi.
++//
++// Geçmiş (S2). Açılışta o anki kayıt kök kayda çevrilir: { telsiz: { v: 1, u, d: 0, view, id } }. Kişi başka bir
++// konuşmaya geçince (oda, özel mesaj, Arkadaşlar) yeni kayıt eklenir. Adres ve # bölümü hiç değişmez, çünkü #
++// bölümü anahtar ve davet gibi gizli veriler taşıyabilir. Sayfalar, arama, ayarlar, resim görüntüleyici ve profil
++// kartı her genişlikte kendi kaydını ekler: { telsiz: { v: 1, u, d, overlay } }. Katman başka yoldan (Esc, Kapat,
++// dışarı tıklama) kapanınca kaydı history.go ile geri alınır. Geri tuşu önce açık katmanı kapatır, katman yoksa
++// önceki konuşmaya döner (selectChannel, showDm, showHome { fromHistory: true } ile). Kayıttaki kullanıcı
++// kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır. Kök kayıttan geri basılınca tarayıcı
++// uygulamadan çıkar, tuzak kurulmaz. d kaydın kökten uzaklığıdır, ileri ve geri yönü bununla ayrılır.
++//
++// Geçmiş işlemleri (pushState, replaceState, go) bir kuyrukta sırayla yapılır: history.go zaman uyumsuzdur, kendi
++// popstate olayı gelene kadar sonraki işlemler bekler. Katman ve konuşma değişiklikleri aynı görev içinde
++// toplanır, bir sonraki mikro görevde (navReconcile) beklenen geçmişle karşılaştırılır. Böylece sayfadaki bir
++// satıra basmak (sayfa kapanır, oda açılır) sayfanın kaydını yeni odanın kaydıyla değiştirir.
++
++const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
++const NAV_POP_WAIT_MS = 2000
++
++const navState = {
++  bound: false,
++  on: false,
++  u: null,
++  // Kökten bu yana beklenen geçmiş: { view, id } konuşma kaydı veya { overlay } katman kaydı, sıra d'dir
++  stack: [],
++  // Bekleyen konuşma değişikliği: 'push' (kişinin eylemi) veya 'replace' (programın seçimi)
++  convMode: '',
++  ops: [],
++  waiting: false,
++  waitTimer: 0,
++  scheduled: false,
++  restoring: false
++}
++
++// ------------------------------------------------------------------ geçmiş
++
++function navIsOverlay (name) {
++  return typeof name === 'string' && (name.indexOf('sheet-') === 0 || NAV_OVERLAYS.indexOf(name) !== -1)
++}
++
++function navOpenOverlays () {
++  return layers.filter((layer) => navIsOverlay(layer.name)).map((layer) => layer.name)
++}
++
++function navCurrentConv () {
++  const view = typeof currentViewMode === 'function' ? currentViewMode() : 'channel'
++  const id = view === 'home' || state.channelId === null || state.channelId === undefined ? null : String(state.channelId)
++  return { view: view, id: id }
++}
++
++function navSameConv (a, b) {
++  if (!a || !b || a.overlay || b.overlay || a.view !== b.view) return false
++  if (a.id === null || b.id === null) return a.id === b.id
++  return sameId(a.id, b.id)
++}
++
++function navConvIndex () {
++  let i = navState.stack.length - 1
++  while (i > 0 && navState.stack[i].overlay) i -= 1
++  return i
++}
++
++function navStateOf (entry, d) {
++  const rec = { v: 1, u: navState.u, d: d }
++  if (entry.overlay) {
++    rec.overlay = entry.overlay
++  } else {
++    rec.view = entry.view
++    rec.id = entry.id
++  }
++  return { telsiz: rec }
++}
++
++// Geçmiş kaydından giriş: { d, overlay } veya { d, view, id }. Bize ait değilse null.
++function navEntryFrom (raw) {
++  const s = raw && typeof raw === 'object' ? raw.telsiz : null
++  if (!s || typeof s !== 'object' || s.v !== 1 || typeof s.d !== 'number' || !isFinite(s.d) || s.d < 0) return null
++  if (!state.me || !sameId(s.u, state.me.id)) return null
++  const d = Math.floor(s.d)
++  if (typeof s.overlay === 'string') return { d: d, entry: { overlay: s.overlay } }
++  const view = s.view === 'dm' || s.view === 'home' ? s.view : 'channel'
++  const id = view === 'home' || s.id === null || s.id === undefined ? null : String(s.id)
++  return { d: d, entry: { view: view, id: id } }
++}
++
++function navHistory () {
++  return window.history && typeof window.history.pushState === 'function' ? window.history : null
++}
++
++// Model hemen güncellenir, tarayıcı geçmişine yazma kuyruğa girer
++function navQueuePush (entry) {
++  navState.stack.push(entry)
++  navState.ops.push({ kind: 'push', state: navStateOf(entry, navState.stack.length - 1) })
++}
++
++function navQueueReplace (entry) {
++  const d = navState.stack.length - 1
++  navState.stack[d] = entry
++  navState.ops.push({ kind: 'replace', state: navStateOf(entry, d) })
++}
++
++function navQueueGo (delta) {
++  if (!delta) return
++  if (delta < 0) navState.stack.length = Math.max(1, navState.stack.length + delta)
++  navState.ops.push({ kind: 'go', delta: delta })
++}
++
++function navRun () {
++  const hist = navHistory()
++  while (!navState.waiting && navState.ops.length) {
++    const op = navState.ops.shift()
++    if (!hist) continue
++    try {
++      if (op.kind === 'push') {
++        hist.pushState(op.state, '')
++      } else if (op.kind === 'replace') {
++        hist.replaceState(op.state, '')
++      } else {
++        navState.waiting = true
++        clearTimeout(navState.waitTimer)
++        navState.waitTimer = setTimeout(navPopTimeout, NAV_POP_WAIT_MS)
++        hist.go(op.delta)
++      }
++    } catch (err) {
++      navState.waiting = false
++    }
++  }
++}
++
++// Beklenen popstate gelmezse (geçmiş tarayıcıda daha kısaysa) kuyruk yine de sürer
++function navPopTimeout () {
++  navState.waiting = false
++  navRun()
++}
++
++function navSchedule () {
++  if (navState.scheduled) return
++  navState.scheduled = true
++  Promise.resolve().then(navReconcile)
++}
++
++// Uygulama açıldı: o anki kayıt kök kayıt olur. Önceki oturumun kayıtları kapanmadan kaldıysa önce geri alınır.
++function navStart () {
++  if (!state.me) return
++  if (navState.on) navStop()
++  navState.on = true
++  navState.u = state.me.id
++  navState.stack = [navCurrentConv()]
++  navState.convMode = ''
++  navState.ops.push({ kind: 'replace', state: navStateOf(navState.stack[0], 0) })
++  navRun()
++}
++
++// Uygulamadan çıkıldı (oturum kapandı): geçmiş kök kayda geri sarılır, bundan sonraki popstate yok sayılır
++function navStop () {
++  const extra = navState.stack.length - 1
++  navState.on = false
++  navState.stack = []
++  navState.convMode = ''
++  if (extra > 0) {
++    navState.ops.push({ kind: 'go', delta: -extra })
++    navRun()
++  }
++}
++
++// Konuşma değişti (04-meta.js selectChannel, 15-dm.js showDm, 14-social.js showHome). Geçmişten gelen
++// değişiklik kayıt eklemez. force: true ile programın yaptığı seçim (açılış, silinen oda) kaydı değiştirir.
++function navOnConversation (opts) {
++  const o = opts || {}
++  if (!navState.on || o.fromHistory || navState.restoring) return
++  if (!o.force) navState.convMode = 'push'
++  else if (!navState.convMode) navState.convMode = 'replace'
++  navSchedule()
++}
++
++function navLayersChanged () {
++  if (navState.on) navSchedule()
++}
++
++// Beklenen geçmişi (konuşma kaydı ve üstündeki katman kayıtları) açık katmanlarla ve açık konuşmayla eşitler
++function navReconcile () {
++  navState.scheduled = false
++  if (!navState.on) return
++  if (!state.inApp || !state.me || !sameId(state.me.id, navState.u)) {
++    navStop()
++    return
++  }
++  const ci = navConvIndex()
++  const have = navState.stack.slice(ci + 1).map((e) => e.overlay)
++  const want = navOpenOverlays()
++  const cur = navCurrentConv()
++  if (!navSameConv(navState.stack[ci], cur)) {
++    // Yeni konuşmanın kaydı eski konuşmanın üstündeki ilk katman kaydının yerine yazılır
++    if (navState.convMode === 'push' && have.length) {
++      navQueueGo(-(have.length - 1))
++      navQueueReplace(cur)
++    } else if (navState.convMode === 'push') {
++      navQueuePush(cur)
++    } else {
++      navQueueGo(-have.length)
++      navQueueReplace(cur)
++    }
++    want.forEach((name) => {
++      navQueuePush({ overlay: name })
++    })
++  } else {
++    let k = 0
++    while (k < have.length && k < want.length && have[k] === want[k]) k += 1
++    const pops = have.length - k
++    const adds = want.slice(k)
++    if (pops && adds.length) {
++      navQueueGo(-(pops - 1))
++      navQueueReplace({ overlay: adds[0] })
++      adds.slice(1).forEach((name) => {
++        navQueuePush({ overlay: name })
++      })
++    } else {
++      navQueueGo(-pops)
++      adds.forEach((name) => {
++        navQueuePush({ overlay: name })
++      })
++    }
++  }
++  navState.convMode = ''
++  navRun()
++}
++
++function navOnPopState (e) {
++  if (navState.waiting) {
++    navState.waiting = false
++    clearTimeout(navState.waitTimer)
++    navRun()
++    return
++  }
++  if (!navState.on || !state.inApp) return
++  const found = navEntryFrom(e ? e.state : null)
++  if (!found) return
++  const top = navState.stack.length - 1
++  // Kilitli katman (ör. kurtarma kodu penceresi) açıkken gezinilmez: geçmiş eski yerine döner
++  if (layers.some((layer) => layer.locked === true)) {
++    if (found.d !== top) {
++      navState.ops.push({ kind: 'go', delta: top - found.d })
++      navRun()
++    }
++    return
++  }
++  const stack = navState.stack
++  if (found.d > top) {
++    // İleri: aradaki bilinmeyen kayıtlar açık konuşmanın kopyası sayılır
++    const fill = stack[top] && !stack[top].overlay ? stack[top] : navCurrentConv()
++    while (stack.length < found.d) stack.push(fill)
++    stack.push(found.entry)
++  } else {
++    stack.length = found.d + 1
++    stack[found.d] = found.entry
++  }
++  // Katmanı açık olmayan katman kaydı (ileri gidilince veya kayıt geride kalınca) atlanır
++  if (found.entry.overlay && !findLayer(found.entry.overlay)) navQueueGo(-1)
++  const ci = navConvIndex()
++  const keep = stack.slice(ci + 1).map((entry) => entry.overlay)
++  layers.slice().reverse().forEach((layer) => {
++    if (keep.indexOf(layer.name) === -1) closeLayer(layer, true)
++  })
++  const conv = stack[ci]
++  if (conv && !navSameConv(conv, navCurrentConv()) && !navRestore(conv)) {
++    // Konuşma artık yok (oda silindi, özel konuşma kapandı): kayıt açık konuşmaya çevrilir
++    stack[ci] = navCurrentConv()
++    if (ci === stack.length - 1) navQueueReplace(stack[ci])
++  }
++  navRun()
++}
++
++function navRestore (conv) {
++  navState.restoring = true
++  let ok = false
++  try {
++    if (conv.view === 'dm') {
++      if (typeof dmEntry === 'function' && dmEntry(conv.id) && typeof showDm === 'function') {
++        showDm(conv.id, { fromHistory: true })
++        ok = true
++      }
++    } else if (conv.view === 'home') {
++      if (typeof showHome === 'function') {
++        showHome(null, { fromHistory: true })
++        ok = true
++      }
++    } else if (conv.id !== null && typeof findChannel === 'function') {
++      const ch = findChannel(conv.id)
++      if (ch && ch.type === 'text') {
++        selectChannel(ch.id, { fromHistory: true })
++        ok = true
++      }
++    }
++  } catch (err) {
++    window.console.error(err)
++  } finally {
++    navState.restoring = false
++  }
++  return ok && navSameConv(conv, navCurrentConv())
++}
++
++function navInit () {
++  if (navState.bound) return
++  navState.bound = true
++  watchLayers(navLayersChanged)
++  if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
++}
+diff --git a/public/sw.js b/public/sw.js
+index 8caf88f..04d611d 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -74,6 +74,7 @@ const SHELL = [
+   '/js/30-pencere.js',
+   '/js/31-sesler.js',
+   '/js/32-arama.js',
++  '/js/38-gezinme.js',
+   '/js/41-kurtarma.js',
+   '/fonts/figtree-latin-ext-wght-normal.woff2',
+   '/fonts/figtree-latin-wght-normal.woff2',
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+new file mode 100644
+index 0000000..436af0f
+--- /dev/null
++++ b/test/gezinme.test.js
+@@ -0,0 +1,315 @@
++'use strict'
++
++// Gezinme (public/js/38-gezinme.js, istek 17). Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm
++// bağlamında yüklenir. Tarayıcı geçmişi (pushState, replaceState, go ve zaman uyumsuz popstate) bellekte taklit
++// edilir, konuşma açan işlevler (selectChannel, showDm, showHome) görünümü değiştiren basit taklitlerdir.
++// Sınananlar: kök kayıt, konuşma kayıtlarının sırası, geri ve ileri tuşuyla dönüş, katman kayıtları (sayfa,
++// profil kartı, sayfa değişimi, satıra basınca sayfanın kaydının yeni konuşmayla değişmesi), başka hesabın ve
++// uygulama dışının kayıtlarının yok sayılması, kilitli katmanda geri tuşu ve oturum kapanınca geri sarma.
++
++const test = require('node:test')
++const assert = require('node:assert')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const PUB = path.join(__dirname, '..', 'public')
++const FILES = ['i18n.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/38-gezinme.js']
++const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
++
++function makeStorage () {
++  const map = new Map()
++  return {
++    getItem: (k) => (map.has(k) ? map.get(k) : null),
++    setItem: (k, v) => {
++      map.set(k, String(v))
++    },
++    removeItem: (k) => {
++      map.delete(k)
++    }
++  }
++}
++
++// Tarayıcı geçmişinin taklidi: go zaman uyumsuzdur ve hedef kayıt varsa popstate yayımlar
++function makeHistory () {
++  const h = { entries: [{ state: null }], index: 0, listeners: [], calls: [] }
++  const copy = (s) => (s === null || s === undefined ? null : JSON.parse(JSON.stringify(s)))
++  const fire = () => {
++    const ev = { state: copy(h.entries[h.index].state) }
++    h.listeners.forEach((fn) => fn(ev))
++  }
++  h.api = {
++    get state () {
++      return copy(h.entries[h.index].state)
++    },
++    get length () {
++      return h.entries.length
++    },
++    pushState (s) {
++      h.calls.push('push')
++      h.entries.splice(h.index + 1)
++      h.entries.push({ state: copy(s) })
++      h.index += 1
++    },
++    replaceState (s) {
++      h.calls.push('replace')
++      h.entries[h.index] = { state: copy(s) }
++    },
++    go (n) {
++      h.calls.push('go' + n)
++      const target = h.index + n
++      if (!n || target < 0 || target >= h.entries.length) return
++      setTimeout(() => {
++        h.index = target
++        fire()
++      }, 0)
++    },
++    back () {
++      h.api.go(-1)
++    }
++  }
++  // Kişinin geri ve ileri tuşu
++  h.user = (n) => h.api.go(n)
++  h.top = () => h.entries[h.index].state ? h.entries[h.index].state.telsiz : null
++  h.list = () => h.entries.slice(0, h.index + 1).map((e) => {
++    const s = e.state ? e.state.telsiz : null
++    if (!s) return null
++    return s.overlay ? s.d + ':' + s.overlay : s.d + ':' + s.view + (s.id === null ? '' : '-' + s.id)
++  })
++  return h
++}
++
++// Odalar 10, 11, 12 (yazı), özel konuşma 50, kullanıcı 1
++function load () {
++  const sandbox = vm.createContext({})
++  const hist = makeHistory()
++  sandbox.self = sandbox
++  sandbox.window = sandbox
++  sandbox.setTimeout = setTimeout
++  sandbox.clearTimeout = clearTimeout
++  sandbox.history = hist.api
++  sandbox.addEventListener = (type, fn) => {
++    if (type === 'popstate') hist.listeners.push(fn)
++  }
++  sandbox.localStorage = makeStorage()
++  sandbox.sessionStorage = makeStorage()
++  sandbox.localStorage.setItem('telsiz.lang', 'tr')
++  sandbox.navigator = { languages: ['tr-TR'], language: 'tr-TR', userAgent: 'node' }
++  sandbox.document = { documentElement: { lang: 'tr' }, readyState: 'loading', hidden: false, getElementById: () => null, activeElement: null }
++  sandbox.console = { warn () {}, log () {}, error () {} }
++  for (const src of SOURCES) vm.runInContext(src.code, sandbox, { filename: src.file })
++  const run = (code) => vm.runInContext(code, sandbox)
++  run(`
++    state.me = { id: 1, name: 'burak', role: 'owner' }
++    state.inApp = true
++    state.channelId = 10
++    var testView = 'channel'
++    var testRooms = { 10: true, 11: true, 12: true }
++    var testDms = { 50: true }
++    var testCalls = []
++    function userKey (name) { return 'telsiz.' + name + '.' + (state.me ? state.me.id : '') }
++    function currentViewMode () { return testView }
++    function findChannel (id) { return testRooms[id] ? { id: Number(id), type: 'text', name: 'oda' + id } : null }
++    function dmEntry (id) { return testDms[id] ? { id: Number(id), userId: 2 } : null }
++    function selectChannel (id, opts) {
++      testCalls.push('channel-' + id + (opts && opts.fromHistory ? '-geçmiş' : ''))
++      testView = 'channel'
++      state.channelId = Number(id)
++      navOnConversation(opts)
++    }
++    function showDm (id, opts) {
++      testCalls.push('dm-' + id + (opts && opts.fromHistory ? '-geçmiş' : ''))
++      testView = 'dm'
++      state.channelId = Number(id)
++      navOnConversation(opts)
++    }
++    function showHome (tab, opts) {
++      testCalls.push('home' + (opts && opts.fromHistory ? '-geçmiş' : ''))
++      testView = 'home'
++      state.channelId = null
++      navOnConversation(opts)
++    }
++    function testOpen (name, level, locked) {
++      openLayer({ name: name, el: {}, level: level || 1, focus: false, locked: locked === true, onClose: () => { testCalls.push('kapandı-' + name) } })
++    }
++    function testClose (name) {
++      const layer = findLayer(name)
++      if (layer) closeLayer(layer, false)
++    }
++    function testOpenNames () { return layers.map((l) => l.name) }
++    navInit()
++    navStart()
++  `)
++  return { run: run, hist: hist, json: (code) => JSON.parse(run('JSON.stringify(' + code + ')')) }
++}
++
++// Mikro görevler ve zaman uyumsuz popstate olayları biter
++async function settle () {
++  let i = 0
++  while (i < 6) {
++    await new Promise((resolve) => setTimeout(resolve, 0))
++    i += 1
++  }
++}
++
++test('geçmiş: kök kayıt açık konuşmayla yazılır, konuşma geçişleri sırayla eklenir, adres değişmez', async () => {
++  const { run, hist } = load()
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10'])
++  assert.deepStrictEqual(hist.calls, ['replace'])
++  assert.strictEqual(hist.top().u, 1)
++  run('selectChannel(11, {})')
++  await settle()
++  run('showDm(50, { focus: true })')
++  await settle()
++  run('showHome(null, {})')
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:dm-50', '3:home'])
++  // Aynı konuşmayı yeniden seçmek ve programın seçimi (force) yeni kayıt eklemez
++  run('selectChannel(12, { force: true })')
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:dm-50', '3:channel-12'])
++  assert.strictEqual(hist.entries.length, 4)
++})
++
++test('geçmiş: geri tuşu önceki konuşmaları sırayla açar, ileri tuşu geri getirir, yeni geçiş ileriyi siler', async () => {
++  const { run, hist, json } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  run('showDm(50, {})')
++  await settle()
++  run('showHome(null, {})')
++  await settle()
++  run('testCalls.length = 0')
++  hist.user(-1)
++  await settle()
++  hist.user(-1)
++  await settle()
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('testCalls'), ['dm-50-geçmiş', 'channel-11-geçmiş', 'channel-10-geçmiş'])
++  assert.strictEqual(hist.index, 0)
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 10])
++  // Geçmişten gelen geçişler kayıt eklemez
++  assert.strictEqual(hist.entries.length, 4)
++  // Kök kayıttan geri basmak uygulamadan çıkarır: tuzak kaydı yok
++  hist.user(-1)
++  await settle()
++  assert.strictEqual(hist.index, 0)
++  assert.strictEqual(hist.entries.length, 4)
++  hist.user(1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 11])
++  run('selectChannel(12, {})')
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:channel-12'])
++  assert.strictEqual(hist.entries.length, 3)
++})
++
++test('geçmiş: sayfa ve profil kartı kendi kaydını ekler, geri tuşu önce en üstteki katmanı kapatır', async () => {
++  const { run, hist, json } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  run("testOpen('sheet-people', 1)")
++  await settle()
++  run("testOpen('profile-card', 2)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:sheet-people', '3:profile-card'])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('testOpenNames()'), ['sheet-people'])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('testOpenNames()'), [])
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 11], 'konuşma değişmedi')
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 10])
++  // İleri tuşu katmanı açık olmayan katman kaydına gelince kayıt atlanır
++  hist.user(1)
++  await settle()
++  hist.user(1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId, testOpenNames()]'), ['channel', 11, []])
++  assert.strictEqual(hist.index, 1)
++})
++
++test('geçmiş: Esc ile kapanan katmanın kaydı geri alınır, satıra basınca sayfanın kaydı yeni konuşmayla değişir', async () => {
++  const { run, hist, json } = load()
++  run("testOpen('search', 1)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:search'])
++  run("testClose('search')")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10'])
++  // Sayfa açıkken başka sayfa açılır: kayıt yer değiştirir
++  run("testOpen('sheet-stations', 1)")
++  await settle()
++  run("testOpen('sheet-people', 1)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:sheet-people'])
++  run("testClose('sheet-people'); testOpen('sheet-stations', 1)")
++  await settle()
++  // İstasyonlar sayfasındaki satır: sayfa kapanır ve oda açılır (aynı görevde)
++  run("testClose('sheet-stations'); selectChannel(12, {})")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-12'])
++  assert.deepStrictEqual(json('testOpenNames()'), [])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 10])
++  // Profil kartından özel mesaja geçiş: kart açık kalsa da konuşmanın kaydı kartın altına girer
++  run("testOpen('profile-card', 2)")
++  await settle()
++  run('showDm(50, {})')
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:dm-50', '2:profile-card'])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId, testOpenNames()]'), ['dm', 50, []])
++})
++
++test('geçmiş: başka hesabın kaydı ve uygulama dışındaki olay yok sayılır, kilitli katman açıkken geri gidilmez', async () => {
++  const { run, hist, json } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  // Aynı adreste başka bir hesabın kaydı
++  hist.entries[0].state.telsiz.u = 2
++  run('testCalls.length = 0')
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testCalls, testView, state.channelId]'), [[], 'channel', 11])
++  hist.user(1)
++  await settle()
++  hist.entries[0].state.telsiz.u = 1
++  // Kilitli katman (kurtarma kodu penceresi): geçmiş eski yerine döner, katman açık kalır
++  run("testOpen('app-dialog', 3, true)")
++  await settle()
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testCalls, testOpenNames(), state.channelId]'), [[], ['app-dialog'], 11])
++  assert.strictEqual(hist.index, 1)
++  run("closeLayer(findLayer('app-dialog'), false)")
++  // Uygulamadan çıkıldıysa olay yok sayılır
++  run('testCalls.length = 0; state.inApp = false')
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testCalls, state.channelId]'), [[], 11])
++})
++
++test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır, yeniden açılışta kök kayıt yazılır', async () => {
++  const { run, hist } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  run("testOpen('settings', 1)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:settings'])
++  // 03-auth.js resetAppState: katmanlar kapanır, uygulamadan çıkılır
++  run('closeAllLayers(); state.inApp = false')
++  await settle()
++  assert.strictEqual(hist.index, 0)
++  assert.strictEqual(hist.top().view, 'channel')
++  run('state.inApp = true; state.channelId = 12; navStart()')
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-12'])
++})

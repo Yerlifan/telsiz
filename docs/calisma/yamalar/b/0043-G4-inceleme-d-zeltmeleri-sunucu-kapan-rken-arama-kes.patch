@@ -1,0 +1,513 @@
+From 715f67e326e2f5ddf04e319b3dfcbd98e5956daf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:41:16 +0000
+Subject: [PATCH 43/60] =?UTF-8?q?G4:=20inceleme=20d=C3=BCzeltmeleri=20(sun?=
+ =?UTF-8?q?ucu=20kapan=C4=B1rken=20arama=20kesilir,=20tavan=20YouTube=20is?=
+ =?UTF-8?q?teklerini=20sayar)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- abortAll ile kesilen istek 'network' yerine 'closed' nedeniyle biter, sonraki istekler ağa çıkmaz. close()
+  sonrasında arama sonuç sayfası yedeğini denemez. Sunucu kapanırken süren aramanın istemcisi 503
+  shutting_down alır, kapanış CLOSE_GRACE_MS beklemez.
+- Sunucu geneli 24 saatlik tavan aramaları değil YouTube'a giden istekleri sayar (budget). Yedeğe izin
+  kalmamışsa yedek denenmez. Devre kesici açıkken reddedilen arama tavana sayılmaz.
+- Birim ve sunucu testleri, MIMARI/ARCHITECTURE ve KURULUM/DEPLOYMENT açıklamaları.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/ARCHITECTURE.md             |  2 +-
+ docs/DEPLOYMENT.md               |  2 +-
+ docs/KURULUM.md                  |  2 +-
+ docs/MIMARI.md                   |  2 +-
+ src/app.js                       | 34 ++++++++----
+ src/youtube-search.js            | 38 +++++++++----
+ test/server-music-search.test.js | 91 +++++++++++++++++++++++++++++++-
+ test/youtube-search.test.js      | 85 ++++++++++++++++++++++++++++-
+ 8 files changed, 230 insertions(+), 26 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 110ac4c..0ba176d 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -178,7 +178,7 @@ If a device cannot open the music state because it does not have the key, it kee
+ 
+ **Search by song name.** If the argument of the `/play` command does not look like a link (it does not start with a scheme or `www.`, and it is not a known YouTube domain or a domain with a path), the engine treats it as a song name and leaves the search to the interface (`needs_search`). If the owner has turned on search (`music.search`, off by default, true in the meta only while Telsiz DJ and the YouTube source are also on), the interface sends `POST /api/music/search { channelId, q }` and adds the first result with its title through `addYouTube`. The announcement goes out with the title right away. If search is off or fails, the interface shows a clear error message and a link to YouTube's results page on the DJ card (in a new tab, `rel="noopener noreferrer"`), and the owner also sees where the setting is. The client sends no request to YouTube, and the Content Security Policy does not change.
+ 
+-The server endpoint runs the same checks as `/api/music/state` (the person is in that voice room, the DJ permission in restricted mode). The query is between 1 and 200 code points, and control characters become spaces. It accepts 10 requests per minute per user and at most 300 YouTube requests in the last 24 hours across the server (`429 rate_limited`, `429 search_daily_limit`). The same query (lowercased) is kept in memory for 10 minutes, and identical queries arriving at the same time share one search. The response holds at most 5 results: `{ results: [{ videoId, title, channel, durationS }] }`. The ID must match `^[A-Za-z0-9_-]{11}$`, and the title and channel name are cleaned of control and direction characters and cut to 120 code points. The errors are `503 search_unavailable` (the setting is off) and `502 search_failed` (no usable response from YouTube). The search text is not logged.
++The server endpoint runs the same checks as `/api/music/state` (the person is in that voice room, the DJ permission in restricted mode). The query is between 1 and 200 code points, and control characters become spaces. It accepts 10 requests per minute per user and at most 300 YouTube requests in the last 24 hours across the server (`429 rate_limited`, `429 search_daily_limit`). The cap is charged right before each request to YouTube: a search makes at most two requests, and the results page fallback is skipped when no allowance is left for it. A search refused while search is paused after repeated failures (see below) does not count. When the server shuts down, a running search is cut off and the fallback is not tried. The same query (lowercased) is kept in memory for 10 minutes, and identical queries arriving at the same time share one search. The response holds at most 5 results: `{ results: [{ videoId, title, channel, durationS }] }`. The ID must match `^[A-Za-z0-9_-]{11}$`, and the title and channel name are cleaned of control and direction characters and cut to 120 code points. The errors are `503 search_unavailable` (the setting is off) and `502 search_failed` (no usable response from YouTube). The search text is not logged.
+ 
+ The search does not use the official YouTube Data API (`src/youtube-search.js`, no dependencies, `node:https`). The server first calls the search endpoint of YouTube's web interface: `POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false` with the body `{ context: { client: { clientName: 'WEB', clientVersion, hl: 'en', gl: 'US', utcOffsetMinutes: 0 }, user: {} }, query, params: 'EgIQAQ%3D%3D' }` (a video only filter). No `key` is sent, and the `Cookie: SOCS=CAI` header that an open source client sends for the EU consent page is added (its effect could not be verified). If the response cannot be used, the results page (`GET https://www.youtube.com/results?search_query=...&sp=EgIQAQ%3D%3D&hl=en&gl=US`) is read, and its `ytInitialData` object is cut out with a brace counter that knows about strings and escape characters. The client version on that page (`INNERTUBE_CONTEXT_CLIENT_VERSION`) replaces the default in memory (`2.20260720.04.00`). The two requests may take 8 seconds in total, redirects are not followed, compression is not requested, and at most 4 MB of a JSON response and 6 MB of a page are read. The parser walks the tree with an explicit stack (at most 200000 nodes and 64 levels) and collects only `videoRenderer` nodes (and their compact and grid forms) and `lockupViewModel` nodes whose type is `LOCKUP_CONTENT_TYPE_VIDEO`. It does not descend into ads (`adSlotRenderer`, `searchPyvRenderer`, `promoted...` and similar), shelves, channels, playlists or the side column. Items whose duration cannot be parsed as `H:MM:SS`, and items marked as live or upcoming, are skipped, and each ID is taken once. If the structure is not recognized at all (neither a results container nor a known video node), the response counts as unusable. After 3 unusable responses in a row the search turns off for 1 hour, and a single warning line without the search text is written to the server log (`log.musicSearchPaused`, with the reason). Network errors and timeouts are not counted.
+ 
+diff --git a/docs/DEPLOYMENT.md b/docs/DEPLOYMENT.md
+index f62e727..175e81c 100644
+--- a/docs/DEPLOYMENT.md
++++ b/docs/DEPLOYMENT.md
+@@ -228,7 +228,7 @@ When on, the server searches YouTube for the song name in the `/play` command an
+ - **Terms of Service.** The search does not use the official YouTube Data API or an API key. The server calls the search endpoint that YouTube's web page uses (`https://www.youtube.com/youtubei/v1/search`) and, if that fails, reads the results page (`https://www.youtube.com/results`). YouTube's Terms of Service prohibit automated access. Turning on the search goes against those terms, and you take on the risk as the server owner.
+ - **Outgoing requests.** While search is on, when someone types a song name the server sends an HTTPS request to `www.youtube.com` on port 443. This is the only case in which the Telsiz server itself connects out. If your firewall restricts outgoing connections, allow this address. The request is made directly with Node.js's `node:https` module, and proxy environment variables such as `HTTPS_PROXY` are not used by default. If the server can reach the internet only through a proxy, the search does not work. The clients' addresses do not go to YouTube, YouTube sees only the server's address.
+ - **Privacy.** Unlike the DJ state, the search text is not encrypted: it reaches the server as plain text and goes to YouTube. The server does not log the text and keeps results in memory for 10 minutes.
+-- **Limits.** 10 searches per minute per person, and at most 300 YouTube requests in the last 24 hours across the server (results served from the cache do not count). The cap is not about a quota, it lowers the chance that YouTube blocks the server's address. A search takes at most 8 seconds, and redirects are not followed.
++- **Limits.** 10 searches per minute per person, and at most 300 YouTube requests in the last 24 hours across the server. A search makes at most two requests (the search endpoint and the results page), and neither results served from the cache nor searches refused while search is paused after repeated failures count. The cap is not about a quota, it lowers the chance that YouTube blocks the server's address. A search takes at most 8 seconds, and redirects are not followed.
+ - **Breakage.** If YouTube changes its response format, redirects the server to a consent page or blocks the server's address, the search returns nothing. After 3 unusable responses in a row the search turns off for 1 hour, and a single warning line with the reason is written to the log ("YouTube search by song name was turned off for 60 minutes after repeated failures"). Adding by link always works.
+ 
+ **The first live test has to be done on the server.** Since the development environment cannot reach youtube.com, the search has never been tried against the real YouTube. The response format was extracted from the source code of open source YouTube clients and tested with hand-made sample responses. After turning the search on, try the following:
+diff --git a/docs/KURULUM.md b/docs/KURULUM.md
+index 7d3decb..86a8c34 100644
+--- a/docs/KURULUM.md
++++ b/docs/KURULUM.md
+@@ -228,7 +228,7 @@ Açıkken `/çal` komutundaki şarkı adını sunucu YouTube'da arar ve ilk çal
+ - **Hizmet Şartları.** Arama resmî YouTube Data API'sini ve bir API anahtarını kullanmaz. Sunucu YouTube'un web sayfasının kullandığı arama ucunu (`https://www.youtube.com/youtubei/v1/search`) çağırır, olmazsa sonuç sayfasını (`https://www.youtube.com/results`) okur. YouTube Hizmet Şartları otomatik erişimi yasaklar. Aramayı açmak bu şartlara aykırıdır ve riski sunucu sahibi olarak siz üstlenirsiniz.
+ - **Dışarıya giden istek.** Arama açıkken biri şarkı adı yazınca sunucu `www.youtube.com` adresine 443 numaralı bağlantı noktasından HTTPS isteği gönderir. Bu, Telsiz sunucusunun kendisinin dışarıya bağlandığı tek durumdur. Güvenlik duvarınız giden bağlantıları kısıtlıyorsa bu adrese izin verin. İstek Node.js'in `node:https` modülüyle doğrudan yapılır, `HTTPS_PROXY` gibi vekil ortam değişkenleri varsayılan olarak kullanılmaz. Sunucu internete yalnızca bir vekil üzerinden çıkabiliyorsa arama çalışmaz. İstemcilerin adresi YouTube'a gitmez, YouTube yalnızca sunucunun adresini görür.
+ - **Gizlilik.** Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin olarak gelir ve YouTube'a gider. Sunucu metni günlüğe yazmaz, sonuçları 10 dakika bellekte tutar.
+-- **Sınırlar.** Kişi başına dakikada 10 arama, sunucu genelinde son 24 saatte en çok 300 YouTube isteği (önbellekten verilen sonuçlar sayılmaz). Tavan kota için değil, sunucunun adresinin YouTube tarafından engellenmesi olasılığını azaltmak içindir. Bir arama en çok 8 saniye sürer, yönlendirmeler izlenmez.
++- **Sınırlar.** Kişi başına dakikada 10 arama, sunucu genelinde son 24 saatte en çok 300 YouTube isteği. Bir arama en çok iki istek yapar (arama ucu ve sonuç sayfası), önbellekten verilen sonuçlar ve art arda hatalardan sonra arama kapalıyken reddedilen aramalar sayılmaz. Tavan kota için değil, sunucunun adresinin YouTube tarafından engellenmesi olasılığını azaltmak içindir. Bir arama en çok 8 saniye sürer, yönlendirmeler izlenmez.
+ - **Bozulma.** YouTube yanıt biçimini değiştirirse, sunucuyu onay sayfasına yönlendirirse veya sunucunun adresini engellerse arama sonuç vermez. Art arda 3 kullanılamayan yanıttan sonra arama 1 saat kapanır ve günlüğe nedeniyle birlikte tek bir uyarı satırı yazılır ("şarkı adıyla YouTube araması art arda başarısız olduğu için 60 dakika kapatıldı"). Bağlantıyla ekleme her durumda çalışır.
+ 
+ **İlk canlı deneme sunucuda yapılmalıdır.** Geliştirme ortamı youtube.com adresine erişemediği için arama gerçek YouTube'a karşı hiç denenmedi. Yanıt biçimi açık kaynaklı YouTube istemcilerinin kaynak kodundan çıkarıldı ve elle hazırlanmış örnek yanıtlarla sınandı. Aramayı açtıktan sonra şunları deneyin:
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index eada1ac..1c5ee99 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -178,7 +178,7 @@ Bir cihaz müzik durumunu anahtarı olmadığı için açamazsa kaydı saklar ve
+ 
+ **Şarkı adıyla arama.** `/çal` komutundaki argüman bir bağlantıya benzemiyorsa (şema veya `www.` ile başlamıyor, bilinen bir YouTube alan adı ya da alan adı ve yol biçiminde değil) motor onu şarkı adı sayar ve aramayı arayüze bırakır (`needs_search`). Sahip aramayı açtıysa (`music.search`, varsayılan kapalı, metada yalnızca DJ ve YouTube kaynağı da açıkken doğru) arayüz `POST /api/music/search { channelId, q }` gönderir ve ilk sonucu başlığıyla `addYouTube` ile ekler. Duyuru başlıkla hemen gider. Arama kapalıysa veya yapılamazsa arayüz açık bir hata metni ve DJ kartında YouTube'un sonuç sayfasına giden bir bağlantı gösterir (yeni sekmede, `rel="noopener noreferrer"`), sahip ayarın yerini de görür. İstemci YouTube'a hiçbir istek göndermez, içerik güvenliği politikası değişmez.
+ 
+-Sunucu ucu `/api/music/state` ile aynı denetimleri yapar (kişi o ses odasında, kısıtlı kipte DJ izni). Sorgu 1 ile 200 kod noktası arasındadır, denetim karakterleri boşluğa çevrilir. Kullanıcı başına dakikada 10 istek ve sunucu genelinde son 24 saatte en çok 300 YouTube isteği kabul edilir (`429 rate_limited`, `429 search_daily_limit`). Aynı sorgu (küçük harfe çevrilmiş) 10 dakika bellekte tutulur, aynı anda gelen aynı sorgu tek aramaya iner. Yanıt en çok 5 sonuçtur: `{ results: [{ videoId, title, channel, durationS }] }`. Kimlik `^[A-Za-z0-9_-]{11}$` desenine uymalı, başlık ve kanal adı denetim ve yön karakterlerinden temizlenip 120 kod noktasına kısaltılır. Hatalar `503 search_unavailable` (ayar kapalı) ve `502 search_failed` (YouTube'dan kullanılabilir yanıt gelmedi). Arama metni günlüğe yazılmaz.
++Sunucu ucu `/api/music/state` ile aynı denetimleri yapar (kişi o ses odasında, kısıtlı kipte DJ izni). Sorgu 1 ile 200 kod noktası arasındadır, denetim karakterleri boşluğa çevrilir. Kullanıcı başına dakikada 10 istek ve sunucu genelinde son 24 saatte en çok 300 YouTube isteği kabul edilir (`429 rate_limited`, `429 search_daily_limit`). Tavan YouTube'a giden her istekten hemen önce düşer: bir arama en çok iki istek yapar, sonuç sayfası yedeğine izin kalmamışsa yedek denenmez. Art arda hatalardan sonra arama kapalıyken (aşağıya bakın) reddedilen arama tavana sayılmaz. Sunucu kapanırken süren arama kesilir ve yedek denenmez. Aynı sorgu (küçük harfe çevrilmiş) 10 dakika bellekte tutulur, aynı anda gelen aynı sorgu tek aramaya iner. Yanıt en çok 5 sonuçtur: `{ results: [{ videoId, title, channel, durationS }] }`. Kimlik `^[A-Za-z0-9_-]{11}$` desenine uymalı, başlık ve kanal adı denetim ve yön karakterlerinden temizlenip 120 kod noktasına kısaltılır. Hatalar `503 search_unavailable` (ayar kapalı) ve `502 search_failed` (YouTube'dan kullanılabilir yanıt gelmedi). Arama metni günlüğe yazılmaz.
+ 
+ Arama resmî YouTube Data API'sini kullanmaz (`src/youtube-search.js`, bağımlılıksız, `node:https`). Sunucu önce YouTube'un web arayüzünün arama ucuna istek atar: `POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false`, gövde `{ context: { client: { clientName: 'WEB', clientVersion, hl: 'en', gl: 'US', utcOffsetMinutes: 0 }, user: {} }, query, params: 'EgIQAQ%3D%3D' }` (yalnızca video süzgeci), `key` gönderilmez, açık kaynaklı bir istemcinin AB onay sayfası için gönderdiği `Cookie: SOCS=CAI` başlığı eklenir (etkisi doğrulanamadı). Yanıt kullanılamazsa sonuç sayfası (`GET https://www.youtube.com/results?search_query=...&sp=EgIQAQ%3D%3D&hl=en&gl=US`) okunur ve içindeki `ytInitialData` nesnesi dizgi ve kaçış karakterini bilen bir süslü parantez sayacıyla çıkarılır. Sayfadaki istemci sürümü (`INNERTUBE_CONTEXT_CLIENT_VERSION`) bellekteki varsayılanın (`2.20260720.04.00`) yerine geçer. İki istek toplam 8 saniye sürebilir, yönlendirme izlenmez, sıkıştırma istenmez, JSON yanıtı en çok 4 MB, sayfa en çok 6 MB okunur. Ayrıştırıcı ağacı açık bir yığınla (en çok 200000 düğüm, 64 düzey) gezer ve yalnızca `videoRenderer` (ve dar ile ızgara biçimleri) ile türü `LOCKUP_CONTENT_TYPE_VIDEO` olan `lockupViewModel` düğümlerini toplar. Reklam (`adSlotRenderer`, `searchPyvRenderer`, `promoted...` ve benzerleri), raf, kanal, oynatma listesi ve yan sütun alt ağaçlarına inmez. Süresi `H:MM:SS` biçiminde ayrıştırılamayan, canlı veya yaklaşan yayın işaretli öğe atlanır, aynı kimlik bir kez alınır. Yapı hiç tanınmazsa (ne sonuç kapsayıcısı ne bilinen bir video düğümü) yanıt kullanılamaz sayılır. Art arda 3 kullanılamayan yanıttan sonra arama 1 saat kapanır, sunucu günlüğüne arama metni içermeyen tek bir uyarı satırı yazılır (`log.musicSearchPaused`, nedeniyle). Ağ hataları ve zaman aşımı sayılmaz.
+ 
+diff --git a/src/app.js b/src/app.js
+index 6723f77..eed7fae 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -114,8 +114,9 @@ const DEFAULTS = Object.freeze({
+   musicWindowMs: 10000,
+   musicIdleMs: 30 * 60 * 1000,
+   // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
+-  // en çok 300 YouTube isteği (önbellekten verilen yanıtlar sayılmaz). Tavan kota için değil, sunucunun adresinin
+-  // YouTube tarafından engellenmesine karşıdır.
++  // en çok 300 YouTube isteği. Bir arama en çok iki istek yapar (InnerTube ve sonuç sayfası), önbellekten verilen
++  // yanıtlar ve devre kesici açıkken istek atmadan reddedilen aramalar sayılmaz. Tavan kota için değil, sunucunun
++  // adresinin YouTube tarafından engellenmesine karşıdır.
+   musicSearchLimit: 10,
+   musicSearchWindowMs: 60000,
+   musicSearchDailyMax: 300,
+@@ -1030,7 +1031,8 @@ async function createChatServer (options) {
+   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
+   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
+   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
+-  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar)
++  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
++  // YouTube'a giden her istekte spendSearchBudget ile düşer)
+   const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
+   const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
+   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
+@@ -1049,14 +1051,23 @@ async function createChatServer (options) {
+   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
+ 
+   // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
+-  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz.
++  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz. Sunucu
++  // geneli tavan YouTube'a giden her istekten hemen önce düşer (budget). Enjekte edilen arayıcı arama başına tek
++  // istek sayılır.
++  function spendSearchBudget () {
++    return musicSearchDaily.consume('all', Date.now()) === 0
++  }
+   const searchEngine = typeof config.youtubeSearch === 'function'
+     ? null
+     : youtubeSearch.createYouTubeSearch({
+       request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
++      budget: spendSearchBudget,
+       onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
+     })
+-  const runYouTubeSearch = searchEngine ? searchEngine.search : config.youtubeSearch
++  const runYouTubeSearch = searchEngine ? searchEngine.search : (query) => {
++    if (!spendSearchBudget()) throw youtubeSearch.searchError('search_daily_limit', 'daily_limit', false)
++    return config.youtubeSearch(query)
++  }
+   // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
+   const musicSearchCache = new Map()
+   const musicSearchPending = new Map()
+@@ -3544,10 +3555,9 @@ async function createChatServer (options) {
+     if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
+     let pending = musicSearchPending.get(key)
+     if (!pending) {
+-      const dailyWait = musicSearchDaily.consume('all', ctx.now)
+-      if (dailyWait > 0) {
+-        return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(dailyWait / 1000))) })
+-      }
++      // Tavan burada yalnızca okunur, YouTube'a giden her istekte düşer (spendSearchBudget)
++      const dailyWait = musicSearchDaily.blocked('all', ctx.now)
++      if (dailyWait > 0) return searchDailyLimited(ctx, dailyWait)
+       pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
+       musicSearchPending.set(key, pending)
+       pending.then((results) => {
+@@ -3564,12 +3574,18 @@ async function createChatServer (options) {
+     } catch (err) {
+       if (closing) return fail(ctx, 503, 'shutting_down')
+       if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
++      // Tavan bu arama başlarken doluydu (aynı anda başlayan başka aramalar doldurmuş olabilir)
++      if (err && err.code === 'search_daily_limit') return searchDailyLimited(ctx, musicSearchDaily.blocked('all', Date.now()))
+       return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
+     }
+     if (closing) return fail(ctx, 503, 'shutting_down')
+     ok(ctx, { results })
+   }
+ 
++  function searchDailyLimited (ctx, waitMs) {
++    return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(waitMs / 1000))) })
++  }
++
+   // ---------------------------------------------------------------- yönlendirme
+ 
+   const routes = new Map()
+diff --git a/src/youtube-search.js b/src/youtube-search.js
+index dd63973..b8833ae 100644
+--- a/src/youtube-search.js
++++ b/src/youtube-search.js
+@@ -344,14 +344,21 @@ function readClientVersion (html, data) {
+ 
+ // İstek işlevi: { method, path, headers, body, maxBytes, timeoutMs } -> Promise<{ status, text }>. Yalnızca sabit
+ // sunucuya gider, yönlendirme izlenmez (3xx başarısızlıktır), sıkıştırma istenmez ve sıkıştırılmış yanıt kabul
+-// edilmez, gövde maxBytes'ı aşınca bağlantı kesilir. transport, host ve port yalnızca testler içindir.
++// edilmez, gövde maxBytes'ı aşınca bağlantı kesilir. abortAll'dan sonra süren istekler ve yeni istekler 'closed'
++// nedeniyle biter. transport, host ve port yalnızca testler içindir.
+ function makeRequester (options) {
+   const o = options || {}
+   const transport = o.transport || https
+   const host = o.host || HOST
+   const port = o.port || 443
+   const active = new Set()
++  let closed = false
++  // Bağlantı hatası: abortAll'un kestiği istek 'closed', gerisi 'network' (ikisi de kesiciye sayılmaz)
++  function brokenError () {
++    return searchError('search_failed', closed ? 'closed' : 'network', false)
++  }
+   function request (opts) {
++    if (closed) return Promise.reject(brokenError())
+     return new Promise((resolve, reject) => {
+       let settled = false
+       let req = null
+@@ -401,22 +408,23 @@ function makeRequester (options) {
+             chunks.push(chunk)
+           })
+           res.on('end', () => finish(null, { status, text: Buffer.concat(chunks).toString('utf8') }))
+-          res.on('error', () => finish(searchError('search_failed', 'network', false)))
+-          res.on('aborted', () => finish(searchError('search_failed', 'network', false)))
++          res.on('error', () => finish(brokenError()))
++          res.on('aborted', () => finish(brokenError()))
+         })
+       } catch (err) {
+-        finish(searchError('search_failed', 'network', false))
++        finish(brokenError())
+         return
+       }
+       active.add(req)
+-      req.on('error', () => finish(searchError('search_failed', 'network', false)))
++      req.on('error', () => finish(brokenError()))
+       if (opts.body !== undefined && opts.body !== null) req.write(opts.body)
+       req.end()
+     })
+   }
+-  // Süren istekleri keser (sunucu kapanırken)
++  // Süren istekleri keser ve bundan sonraki istekleri ağa çıkmadan reddeder (sunucu kapanırken)
+   request.abortAll = function abortAll () {
+-    for (const req of Array.from(active)) req.destroy(searchError('search_failed', 'closed', false))
++    closed = true
++    for (const req of Array.from(active)) req.destroy(brokenError())
+     active.clear()
+   }
+   return request
+@@ -424,17 +432,21 @@ function makeRequester (options) {
+ 
+ // ---------------------------------------------------------------- arama
+ 
+-// options: { request, now, onBreak(reason, minutes) }. Sonuç { search(query), close(), status() }.
++// options: { request, now, onBreak(reason, minutes), budget() }. Sonuç { search(query), close(), status() }.
+ // search: Promise<[{ videoId, title, channel, durationS }]> (çalınabilir sonuçlar, sonuç yoksa boş dizi). Hata
+-// kodu search_failed. Devre kesici açıkken istek atılmadan search_failed döner.
++// kodu search_failed. Devre kesici açıkken ve close'tan sonra istek atılmadan search_failed döner. budget her
++// YouTube isteğinden hemen önce çağrılır (sunucu geneli tavan, src/app.js): false dönerse istek atılmaz. İlk
++// istekte bu search_daily_limit hatasıdır, sonuç sayfası yedeğinde ise yedek denenmez ve ilk hata döner.
+ function createYouTubeSearch (options) {
+   const o = options || {}
+   const request = typeof o.request === 'function' ? o.request : makeRequester()
+   const now = typeof o.now === 'function' ? o.now : Date.now
+   const onBreak = typeof o.onBreak === 'function' ? o.onBreak : noop
++  const budget = typeof o.budget === 'function' ? o.budget : () => true
+   let clientVersion = DEFAULT_CLIENT_VERSION
+   let fails = 0
+   let openUntil = 0
++  let closed = false
+ 
+   function remaining (deadline) {
+     return Math.max(1, deadline - now())
+@@ -500,7 +512,9 @@ function createYouTubeSearch (options) {
+ 
+   async function search (query) {
+     if (typeof query !== 'string' || query.trim() === '') throw searchError('search_failed', 'bad_query', false)
++    if (closed) throw searchError('search_failed', 'closed', false)
+     if (now() < openUntil) throw searchError('search_failed', 'paused', false)
++    if (!budget()) throw searchError('search_daily_limit', 'daily_limit', false)
+     const deadline = now() + LIMITS.timeoutMs
+     let failure = null
+     try {
+@@ -510,7 +524,8 @@ function createYouTubeSearch (options) {
+     } catch (err) {
+       failure = err
+     }
+-    if (failure && failure.reason !== 'closed' && now() < deadline) {
++    // Sunucu kapanıyorsa yedek denenmez. Tavan doluysa (budget) da denenmez, bu durumda ilk hata döner.
++    if (failure && !closed && failure.reason !== 'closed' && now() < deadline && budget()) {
+       try {
+         const results = await viaPage(query, deadline)
+         fails = 0
+@@ -531,7 +546,9 @@ function createYouTubeSearch (options) {
+     throw searchError('search_failed', failure ? failure.reason : 'unknown', false)
+   }
+ 
++  // Süren aramaları keser, sonraki aramalar istek atmadan reddedilir (sunucu kapanırken)
+   function close () {
++    closed = true
+     if (typeof request.abortAll === 'function') request.abortAll()
+   }
+ 
+@@ -544,6 +561,7 @@ function createYouTubeSearch (options) {
+ 
+ module.exports = {
+   LIMITS,
++  searchError,
+   DEFAULT_CLIENT_VERSION,
+   VIDEO_PARAMS,
+   createYouTubeSearch,
+diff --git a/test/server-music-search.test.js b/test/server-music-search.test.js
+index 6034cf5..53d0c2d 100644
+--- a/test/server-music-search.test.js
++++ b/test/server-music-search.test.js
+@@ -4,19 +4,23 @@
+ // kapalı, meta.music.search), DJ ve YouTube kaynağı şartı, oturum, ses odası ve kısıtlı kip denetimleri, sorgu
+ // doğrulaması, sonuçların temizlenmesi, kullanıcı başına hız sınırı, sunucu geneli 24 saatlik tavan, önbellek ve
+ // eşzamanlı aynı sorgunun tek aramaya inmesi, arayıcı hataları. Arama metninin günlüklere düşmediği, gerçek
+-// ayrıştırıcının sahte istek işleviyle çalıştığı ve devre kesicinin günlüğe tek satır yazdığı da sınanır. Canlı
+-// YouTube'a hiçbir istek gitmez.
++// ayrıştırıcının sahte istek işleviyle çalıştığı, devre kesicinin günlüğe tek satır yazdığı, tavanın YouTube
++// isteklerini saydığı ve sunucu kapanırken süren aramanın kesildiği de sınanır. Canlı YouTube'a hiçbir istek gitmez.
+ 
+ const { describe, it } = require('node:test')
+ const assert = require('node:assert/strict')
+ const fs = require('node:fs')
+ const path = require('node:path')
++const http = require('node:http')
+ const h = require('./server-yardimci')
+ const i18n = require('../src/i18n')
++const ys = require('../src/youtube-search')
+ 
+ const VOICE = 3
+ const TEXT = 1
+ const RAW_LOCKUP = fs.readFileSync(path.join(__dirname, 'fixtures', 'yt-arama', 'ornek-lockupviewmodel.json'), 'utf8')
++// Aynı örneğin sonuç sayfası (HTML yedeği) biçimi
++const PAGE_LOCKUP = '<html><script>var ytInitialData = ' + JSON.stringify(JSON.parse(RAW_LOCKUP)) + ';</script></html>'
+ 
+ // Sahte arayıcı: çağrılar kaydedilir, yanıtı reply verir (varsayılan iki sonuç)
+ function fakeSearch (reply) {
+@@ -303,6 +307,89 @@ describe('Telsiz DJ araması: gerçek ayrıştırıcı ve günlük', () => {
+     }
+   })
+ 
++  it('sunucu geneli tavan YouTube isteklerini sayar: yedeğe düşen arama iki istek sayılır, kesici açıkken reddedilen arama sayılmaz', async () => {
++    // InnerTube 400 verir, sonuç sayfası çalışır: her arama iki istek
++    const requests = []
++    let broken = false
++    const request = (opts) => {
++      requests.push(opts.method)
++      if (broken) return Promise.resolve({ status: 200, text: '{"yeniBicim":true}' })
++      return Promise.resolve(opts.method === 'POST' ? { status: 400, text: '{}' } : { status: 200, text: PAGE_LOCKUP })
++    }
++    let r = await room({ youtubeSearch: { request }, musicSearchDailyMax: 5, musicSearchLimit: 50 })
++    try {
++      await enable(r.ctx, r.owner.token)
++      h.expectStatus(await join(r.ctx, r.ayse.token, VOICE), 200)
++      for (const q of ['bir', 'iki']) {
++        const res = await search(r.ctx, r.ayse.token, q)
++        h.expectStatus(res, 200)
++        assert.equal(res.data.results[0].videoId, 'TLSZornek01')
++      }
++      assert.deepEqual(requests, ['POST', 'GET', 'POST', 'GET'])
++      // Beşinci istek InnerTube'a gider, yedeğe izin kalmaz: yedek denenmez, arama başarısız
++      h.expectStatus(await search(r.ctx, r.ayse.token, 'üç'), 502, 'search_failed')
++      assert.deepEqual(requests, ['POST', 'GET', 'POST', 'GET', 'POST'])
++      const daily = await search(r.ctx, r.ayse.token, 'dört')
++      h.expectStatus(daily, 429, 'search_daily_limit')
++      assert.ok(Number(daily.headers['retry-after']) > 3600)
++      assert.equal(requests.length, 5)
++      // Önbellekteki sorgu tavan doluyken de verilir
++      h.expectStatus(await search(r.ctx, r.ayse.token, 'BIR'), 200)
++      assert.equal(requests.length, 5)
++    } finally {
++      await r.ctx.cleanup()
++    }
++
++    // Kesici açıkken istek atılmaz ve tavan düşmez: tavan dolmadığı için yanıt 429 değil 502 olur
++    requests.length = 0
++    broken = true
++    r = await room({ youtubeSearch: { request }, musicSearchDailyMax: 7, musicSearchLimit: 50 })
++    try {
++      await enable(r.ctx, r.owner.token)
++      h.expectStatus(await join(r.ctx, r.ayse.token, VOICE), 200)
++      for (const q of ['bir', 'iki', 'üç']) h.expectStatus(await search(r.ctx, r.ayse.token, q), 502, 'search_failed')
++      assert.equal(requests.length, 6)
++      assert.equal(r.ctx.log.lines.warn.length, 1)
++      for (const q of ['dört', 'beş', 'altı', 'yedi']) h.expectStatus(await search(r.ctx, r.ayse.token, q), 502, 'search_failed')
++      assert.equal(requests.length, 6, 'kesici açıkken istek atılmadı')
++    } finally {
++      await r.ctx.cleanup()
++    }
++  })
++
++  it('sunucu kapanırken süren arama kesilir: istemci 503 shutting_down alır, sonuç sayfası istenmez, kapanış beklemez', async () => {
++    // Hiç yanıt vermeyen sahte YouTube (gerçek ağ katmanı, yerel sunucu)
++    const seen = []
++    const yt = http.createServer((req) => {
++      seen.push(req.method + ' ' + req.url.split('?')[0])
++    })
++    await new Promise((resolve) => yt.listen(0, '127.0.0.1', resolve))
++    const request = ys.makeRequester({ transport: http, host: '127.0.0.1', port: yt.address().port })
++    const { ctx, owner, ayse } = await room({ youtubeSearch: { request } })
++    let stopped = false
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      const pending = search(ctx, ayse.token, 'GIZLISORGU kapanış')
++      await h.waitFor(() => seen.length === 1)
++      const t0 = Date.now()
++      const closed = ctx.stop()
++      const res = await pending
++      await closed
++      stopped = true
++      h.expectStatus(res, 503, 'shutting_down')
++      assert.ok(Date.now() - t0 < 1500, 'kapanış ' + (Date.now() - t0) + ' ms sürdü')
++      await h.sleep(100)
++      assert.deepEqual(seen, ['POST /youtubei/v1/search'])
++      assert.equal(allLogs(ctx).indexOf('GIZLISORGU'), -1)
++    } finally {
++      if (typeof yt.closeAllConnections === 'function') yt.closeAllConnections()
++      await new Promise((resolve) => yt.close(resolve))
++      if (stopped) h.removeRoot(ctx.root)
++      else await ctx.cleanup()
++    }
++  })
++
+   it('geçersiz youtubeSearch seçeneği reddedilir', async () => {
+     for (const value of ['evet', 5, { request: 'x' }]) {
+       const root = h.makeRoot()
+diff --git a/test/youtube-search.test.js b/test/youtube-search.test.js
+index ec06d57..12a33ad 100644
+--- a/test/youtube-search.test.js
++++ b/test/youtube-search.test.js
+@@ -325,6 +325,64 @@ describe('arama akışı (enjekte edilen istek işlevi)', () => {
+     for (const q of ['', '   ', null, 5]) await assert.rejects(engine.search(q), (err) => err.code === 'search_failed')
+     assert.equal(request.calls.length, 0)
+   })
++
++  it('budget her istekten önce sorulur: ilk istekte izin yoksa search_daily_limit, yedekte izin yoksa yedek denenmez', async () => {
++    let allow = 0
++    let asked = 0
++    const budget = () => {
++      asked += 1
++      if (allow === 0) return false
++      allow -= 1
++      return true
++    }
++    const request = fakeRequest([{ status: 400, text: '{}' }])
++    const engine = ys.createYouTubeSearch({ request, budget })
++    await assert.rejects(engine.search('a'), (err) => err.code === 'search_daily_limit' && err.reason === 'daily_limit' && err.counts === false)
++    assert.equal(request.calls.length, 0, 'izin yokken istek atılmadı')
++    // Yalnızca InnerTube'a izin var: yedek denenmez, InnerTube'un hatası döner
++    allow = 1
++    await assert.rejects(engine.search('b'), (err) => err.code === 'search_failed' && err.reason === 'status_400')
++    assert.deepEqual(request.calls.map((c) => c.method), ['POST'])
++    assert.equal(asked, 3)
++    // İki isteğe izin var: InnerTube ve sonuç sayfası
++    const both = fakeRequest([{ status: 400, text: '{}' }, { status: 200, text: page(fixture(RAW_VIDEO)) }])
++    const engine2 = ys.createYouTubeSearch({ request: both, budget })
++    allow = 2
++    asked = 0
++    assert.deepEqual((await engine2.search('c')).map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++    assert.deepEqual(both.calls.map((c) => c.method), ['POST', 'GET'])
++    assert.equal(asked, 2)
++    // Kesici açıkken budget sorulmaz (istek atılmayan arama tavana sayılmaz)
++    let clock = 1000000
++    const broken = fakeRequest([{ status: 200, text: '{"yeniBicim":true}' }])
++    const engine3 = ys.createYouTubeSearch({ request: broken, budget, now: () => clock })
++    allow = 6
++    for (const q of ['d', 'e', 'f']) await assert.rejects(engine3.search(q), (err) => err.reason === 'format')
++    asked = 0
++    await assert.rejects(engine3.search('g'), (err) => err.reason === 'paused')
++    assert.equal(asked, 0)
++  })
++
++  it('close: süren aramada yedek denenmez, sonraki arama istek atmaz (abortAll bilmeyen istek işleviyle de)', async () => {
++    const calls = []
++    let fail = null
++    const request = (opts) => {
++      calls.push(opts.method)
++      return new Promise((resolve, reject) => {
++        fail = reject
++      })
++    }
++    const engine = ys.createYouTubeSearch({ request })
++    const pending = engine.search('a')
++    await new Promise((resolve) => setImmediate(resolve))
++    assert.deepEqual(calls, ['POST'])
++    engine.close()
++    fail(ys.searchError('search_failed', 'network', false))
++    await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'network')
++    assert.deepEqual(calls, ['POST'], 'sonuç sayfası istenmedi')
++    await assert.rejects(engine.search('b'), (err) => err.code === 'search_failed' && err.reason === 'closed')
++    assert.deepEqual(calls, ['POST'])
++  })
+ })
+ 
+ // Sahte sunucu: her istek kaydedilir, yanıtı handler verir
+@@ -426,11 +484,36 @@ describe('ağ katmanı (sahte HTTP sunucusu)', () => {
+       const pending = get(s.request, { timeoutMs: 5000 })
+       await new Promise((resolve) => setTimeout(resolve, 100))
+       s.request.abortAll()
+-      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.counts === false)
++      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'closed' && err.counts === false)
++      // abortAll'dan sonra yeni istek ağa çıkmaz
++      await assert.rejects(get(s.request), (err) => err.reason === 'closed' && err.counts === false)
++      await new Promise((resolve) => setTimeout(resolve, 50))
++      assert.equal(s.seen.length, 2)
+     } finally {
+       await s.close()
+     }
+     const closed = ys.makeRequester({ transport: http, host: '127.0.0.1', port: 9 })
+     await assert.rejects(get(closed), (err) => err.reason === 'network' && err.counts === false)
+   })
++
++  it('close süren aramayı hemen bitirir: neden closed, sonuç sayfası yedeği istenmez, sonraki arama istek atmaz', async () => {
++    const s = await fakeServer(() => {})
++    try {
++      const engine = ys.createYouTubeSearch({ request: s.request })
++      const pending = engine.search('gizli sorgu')
++      const t0 = Date.now()
++      while (s.seen.length === 0 && Date.now() - t0 < 5000) await new Promise((resolve) => setTimeout(resolve, 10))
++      assert.equal(s.seen.length, 1)
++      const closedAt = Date.now()
++      engine.close()
++      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.reason === 'closed' && err.counts === false)
++      assert.ok(Date.now() - closedAt < 1000, 'arama close ile bitti: ' + (Date.now() - closedAt) + ' ms')
++      await assert.rejects(engine.search('başka'), (err) => err.reason === 'closed')
++      await new Promise((resolve) => setTimeout(resolve, 100))
++      assert.deepEqual(s.seen.map((r) => r.method + ' ' + r.url.split('?')[0]), ['POST /youtubei/v1/search'])
++      assert.equal(engine.status().fails, 0)
++    } finally {
++      await s.close()
++    }
++  })
+ })

@@ -1,0 +1,225 @@
+From 04e7aa95675b793fdc3614bd1064a57af5ae5c6b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 07:03:19 +0000
+Subject: [PATCH 46/60] =?UTF-8?q?G5:=20YouTube=20ba=C4=9Fda=C5=9Ft=C4=B1r?=
+ =?UTF-8?q?=C4=B1c=C4=B1s=C4=B1=20ayn=C4=B1=20=C3=A7er=C3=A7evede=20yeni?=
+ =?UTF-8?q?=20video=20haz=C4=B1rlar=20(load,=20cueVideoById)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kalıcı çerçevenin ilk adımı (istek 13, ikinci aşama). load(videoId) çerçeveyi yeniden
+kurmadan yeni videoyu cueVideoById ile hazırlar, videoya ait bilgileri sıfırlar ve
+bekleyen oynatma sözünü çözer. load anında yolda olan eski video iletileri (konum,
+süre, ad, çalıyor veya bitti durumu) yeni videoya yazılmaz: pencere video hazırlandı
+veya başlamadı durumuyla, yeni kimliği taşıyan videoData ile ya da en çok 1,5 saniye
+sonra kapanır. Köken, kaynak ve sandbox denetimleri değişmez.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/dj/youtube.js | 58 ++++++++++++++++++++++++++++++++++--
+ test/music.test.js   | 70 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 126 insertions(+), 2 deletions(-)
+
+diff --git a/public/dj/youtube.js b/public/dj/youtube.js
+index 4dc7359..b83262e 100644
+--- a/public/dj/youtube.js
++++ b/public/dj/youtube.js
+@@ -22,6 +22,13 @@
+ //
+ // Çerçevenin src adresi yalnızca kesin [A-Za-z0-9_-]{11} desenindeki video kimliğinden ve sabit
+ // parametrelerden kurulur. Bu dosyada kullanıcıya görünen metin yoktur, çerçeve başlığı çağırandan gelir.
++//
++// Kalıcı çerçeve: ses odasındaki oturum boyunca tek çerçeve kullanılır. Parça değişince çerçeve yeniden
++// kurulmaz, load() aynı çerçevede yeni videoyu cueVideoById komutuyla hazırlar (video yüklenir ama oynamaz,
++// motor onu ortak çapada seekTo ve playVideo ile başlatır). Böylece çerçevenin yükleme süresi her parçada
++// yeniden ödenmez ve kişinin çerçevede verdiği oynatma izni çerçevenin belgesiyle birlikte korunur. Bu işlev
++// resmi IFrame Player API başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference),
++// başvuru bu geliştirme ortamından açılamadığı için davranışı yalnızca sahte oynatıcıyla sınandı.
+ 
+ var TelsizYouTube = (function (root) {
+   const VERSION = 1
+@@ -37,6 +44,8 @@ var TelsizYouTube = (function (root) {
+   const MAX_MESSAGE_CHARS = 65536
+   const MAX_TITLE_CHARS = 1000
+   const MAX_SECONDS = 86400
++  // load() sonrasında yolda kalmış eski video iletilerinin yok sayıldığı en uzun süre (ms)
++  const SWITCH_SETTLE_MS = 1500
+   // allow-same-origin burada YouTube çerçevesinin kendi kökenini korur (çerçeve zaten çapraz kökenlidir,
+   // ana sayfaya erişemez). Üst pencereyi yönlendirme, form ve indirme izinleri verilmez. Açılır pencere
+   // izni yalnızca oynatıcıdaki "YouTube'da izle" bağlantısı içindir.
+@@ -122,6 +131,10 @@ var TelsizYouTube = (function (root) {
+     const onEvent = typeof opts.onEvent === 'function' ? opts.onEvent : () => {}
+     const widgetId = nextWidgetId++
+     const frame = doc.createElement('iframe')
++    // Çerçevede şu an hazırlanmış videonun kimliği (load() ile değişir, çerçevenin src adresi değişmez)
++    let currentId = opts.videoId
++    // Parça değişimi sürüyor: { from, to, at } (switchSettled)
++    let switching = null
+     let destroyed = false
+     let connected = false
+     let ready = false
+@@ -206,8 +219,26 @@ var TelsizYouTube = (function (root) {
+       }
+     }
+ 
++    // load() sonrasında gelen ileti yeni videoya mı ait? Çerçeve komutları sırayla işler, load() anında yolda
++    // olan iletiler eski videonundur (konum, süre, ad, çalıyor veya bitti durumu). Yeni komutun etkisi
++    // sayılanlar: video hazırlandı (5) veya başlamadı (-1) durumu ve yeni kimliği taşıyan videoData.video_id
++    // (bu alan belgelenmemiştir, yalnızca varsa ve kimlik önceki videodan farklıysa kullanılır). Pencere en çok
++    // SWITCH_SETTLE_MS sürer, sonra gelen her ileti yeni videonun sayılır.
++    function switchSettled (playerState, videoData) {
++      if (switching === null) return true
++      const fresh = playerState === STATE.CUED || playerState === STATE.UNSTARTED ||
++        (switching.from !== switching.to && isObj(videoData) && videoData.video_id === switching.to)
++      if (fresh || now() - switching.at >= SWITCH_SETTLE_MS) switching = null
++      return switching === null
++    }
++
+     function applyInfo (info) {
+       if (!isObj(info)) return
++      if (switchSettled(info.playerState, info.videoData)) applyVideoInfo(info)
++      applySoundInfo(info)
++    }
++
++    function applyVideoInfo (info) {
+       if (isNum(info.currentTime) && info.currentTime >= 0 && info.currentTime <= MAX_SECONDS) {
+         lastTimeMs = Math.round(info.currentTime * 1000)
+         lastTimeAt = now()
+@@ -227,6 +258,9 @@ var TelsizYouTube = (function (root) {
+         }
+       }
+       if (typeof info.playerState === 'number') setState(info.playerState)
++    }
++
++    function applySoundInfo (info) {
+       // Ses düzeyi oynatıcının kendi denetimleriyle de değişebilir, değişiklik motora bildirilir
+       let soundChanged = false
+       if (isNum(info.volume) && info.volume >= 0 && info.volume <= 100 && Math.round(info.volume) !== reportedVolume) {
+@@ -265,8 +299,8 @@ var TelsizYouTube = (function (root) {
+       } else if (msg.event === 'initialDelivery' || msg.event === 'infoDelivery') {
+         applyInfo(msg.info)
+       } else if (msg.event === 'onStateChange') {
+-        if (typeof msg.info === 'number') setState(msg.info)
+-        else if (isObj(msg.info) && typeof msg.info.playerState === 'number') setState(msg.info.playerState)
++        const next = typeof msg.info === 'number' ? msg.info : (isObj(msg.info) && typeof msg.info.playerState === 'number' ? msg.info.playerState : null)
++        if (next !== null && switchSettled(next, null)) setState(next)
+       } else if (msg.event === 'onAutoplayBlocked') {
+         // Bekleyen oynatma sözü hemen 'blocked' ile çözülür, motor "Dinlemek için dokunun" gösterir
+         settleWaiters('blocked')
+@@ -459,6 +493,24 @@ var TelsizYouTube = (function (root) {
+       return fractions.every((fy) => fractions.every((fx) => doc.elementFromPoint(left + (right - left) * fx, top + (bottom - top) * fy) === frame))
+     }
+ 
++    // Aynı çerçevede başka bir video hazırlar (cueVideoById). Videoya ait bilgiler (konum, süre, ad, durum)
++    // sıfırlanır, bekleyen oynatma sözü 'aborted' ile çözülür. Sonuç true: komut gönderildi. Kimlik geçersizse,
++    // oynatıcı henüz hazır değilse veya kapatıldıysa false (çağıran yeni çerçeve kurar).
++    function load (videoId) {
++      if (destroyed || !ready || typeof videoId !== 'string' || !VIDEO_ID_RE.test(videoId)) return false
++      if (!command('cueVideoById', [videoId])) return false
++      settleWaiters('aborted')
++      switching = { from: currentId, to: videoId, at: now() }
++      currentId = videoId
++      state = STATE.UNSTARTED
++      lastTimeMs = null
++      lastTimeAt = 0
++      durationMs = 0
++      durationSent = false
++      titleSent = false
++      return true
++    }
++
+     function destroy () {
+       if (destroyed) return
+       settleWaiters('aborted')
+@@ -500,6 +552,8 @@ var TelsizYouTube = (function (root) {
+       },
+       visible: visible,
+       element: () => frame,
++      videoId: () => currentId,
++      load: load,
+       destroy: destroy
+     })
+   }
+diff --git a/test/music.test.js b/test/music.test.js
+index 6a6798a..f748395 100644
+--- a/test/music.test.js
++++ b/test/music.test.js
+@@ -1970,6 +1970,76 @@ describe('YouTube bağdaştırıcısı (yol ii)', () => {
+     assert.equal(await p.play(), 'aborted')
+   })
+ 
++  test('load: aynı çerçevede yeni video hazırlanır, eski videonun yolda kalmış iletileri yeni videoya yazılmaz', async () => {
++    const { YT, frames, deliver, listeners } = loadYouTube()
++    const timers = makeTimers()
++    const events = []
++    const p = YT.create({ container: { appendChild () {} }, videoId: VID, now: timers.now, timers, onEvent: (e) => events.push(e) })
++    const f = frames[0]
++    const src = f.src
++    const cmds = () => f.sent.filter((m) => m.data.event === 'command').map((m) => m.data.func + ':' + JSON.stringify(m.data.args))
++    f.fire('load')
++    // Oynatıcı hazır değilken video değiştirilemez, çağıran yeni çerçeve kurar
++    assert.equal(p.load(VID2), false)
++    assert.ok(!cmds().some((c) => c.startsWith('cueVideoById')))
++    deliver(f, { event: 'onReady', id: p.widgetId })
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 212.5, videoData: { title: 'Bir Video', video_id: VID }, currentTime: 0, playerState: 5 } })
++    const pr = p.play()
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 3 } })
++    for (const bad of ['x', VID2 + '/', null]) assert.equal(p.load(bad), false)
++    assert.equal(p.videoId(), VID)
++    assert.equal(p.load(VID2), true)
++    assert.equal(cmds()[cmds().length - 1], 'cueVideoById:["' + VID2 + '"]')
++    // Çerçeve ve adresi aynı kalır, bekleyen oynatma sözü çözülür, videoya ait bilgiler sıfırlanır
++    assert.equal(frames.length, 1)
++    assert.equal(f.src, src)
++    assert.equal(listeners.length, 1)
++    assert.equal(await pr, 'aborted')
++    assert.equal(p.videoId(), VID2)
++    assert.equal(p.ready(), true)
++    assert.equal(p.state(), -1)
++    assert.equal(p.playing(), false)
++    assert.equal(p.position(), null)
++    assert.equal(p.durationMs(), 0)
++    // Yolda kalmış eski video iletileri: konum, süre, ad ve durum yeni videoya yazılmaz, ses düzeyi yine gelir
++    const before = events.length
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { currentTime: 200, playerState: 1, duration: 212.5, videoData: { title: 'Bir Video', video_id: VID } } })
++    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 0 })
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { volume: 55, muted: false } })
++    same(events.slice(before), [{ type: 'volume', volume: 55, muted: false }])
++    assert.equal(p.position(), null)
++    assert.equal(p.state(), -1)
++    // Video hazırlandı durumu (5) yeni komutun etkisidir: sonraki iletiler yeni videoya aittir
++    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 5 })
++    assert.equal(p.state(), 5)
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 90, videoData: { title: 'İkinci Video', video_id: VID2 }, currentTime: 0 } })
++    same(events.filter((e) => e.type === 'duration'), [{ type: 'duration', ms: 212500 }, { type: 'duration', ms: 90000 }])
++    same(events.filter((e) => e.type === 'title'), [{ type: 'title', text: 'Bir Video' }, { type: 'title', text: 'İkinci Video' }])
++    assert.equal(p.position(), 0)
++    const pr2 = p.play()
++    assert.equal(cmds()[cmds().length - 1], 'playVideo:[]')
++    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 1 })
++    assert.equal(await pr2, 'ok')
++    assert.equal(p.playing(), true)
++    // Durum bildirilmese de yeni kimliği taşıyan videoData (önceki videodan farklıysa) pencereyi kapatır
++    assert.equal(p.load(VID), true)
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 212.5, videoData: { title: 'Bir Video', video_id: VID }, currentTime: 0 } })
++    assert.equal(events.filter((e) => e.type === 'title').length, 3)
++    assert.equal(p.durationMs(), 212500)
++    // Aynı video yeniden hazırlanınca kimlik bir şey kanıtlamaz: eski "bitti" iletisi parçayı bitirmez, pencere
++    // süre dolunca kapanır
++    assert.equal(p.load(VID), true)
++    const ended = events.filter((e) => e.type === 'ended').length
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 0, currentTime: 212.5, videoData: { title: 'Bir Video', video_id: VID } } })
++    assert.equal(events.filter((e) => e.type === 'ended').length, ended)
++    assert.equal(p.position(), null)
++    await timers.advance(1600)
++    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { currentTime: 3 } })
++    assert.equal(p.position(), 3000)
++    p.destroy()
++    assert.equal(p.load(VID2), false)
++  })
++
+   test('yanıt vermeyen oynatıcı bildirilir', async () => {
+     const { YT, frames } = loadYouTube()
+     const timers = makeTimers()

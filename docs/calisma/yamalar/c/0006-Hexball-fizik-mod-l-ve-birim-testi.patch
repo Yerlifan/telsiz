@@ -1,0 +1,1896 @@
+From f8e6d57b68ae0c9179e01a1f7367e69c06b63b40 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:22:28 +0000
+Subject: [PATCH 06/11] =?UTF-8?q?Hexball:=20fizik=20mod=C3=BCl=C3=BC=20ve?=
+ =?UTF-8?q?=20birim=20testi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+public/js/44-hexball-fizik.js (window.TelsizHexballPhysics): 60 Hz sabit adım
+ve iki alt adım, üç saha ön ayarı (quick, classic, long), oyuncu ve top
+diskleri, dürtüyle çarpışma, saha çizgileri, direkler ve kale filesi,
+vuruş, başlama vuruşu kısıtı, gol algılama, gol sonrası bekleme, maç saati,
+gol sınırı ve altın gol, duraklatma. Saat ve rastgelelik kullanmaz,
+aynı girdiye aynı sonucu verir. Maç sonu kuralları kural motoruyla aynıdır.
+
+test/hexball-fizik.test.js: 43 test (gol, duvar ve direk, çarpışmada
+momentum ve sekme, kinetik enerji, hız sınırları ve tünelleme, başlama
+vuruşu, süre ve altın gol, belirlenimcilik, kural motoruyla uyum).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CONTRIBUTING.en.md            |    1 +
+ CONTRIBUTING.md               |    1 +
+ public/js/44-hexball-fizik.js |  650 ++++++++++++++++++
+ test/hexball-fizik.test.js    | 1179 +++++++++++++++++++++++++++++++++
+ 4 files changed, 1831 insertions(+)
+ create mode 100644 public/js/44-hexball-fizik.js
+ create mode 100644 test/hexball-fizik.test.js
+
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 5cdfb01..9b5f486 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -136,6 +136,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
+ | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+ | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
++| `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
+ 
+ If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
+ 
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index ff40fb2..e311ee0 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -136,6 +136,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
+ | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+ | `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
++| `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
+ 
+ Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
+ 
+diff --git a/public/js/44-hexball-fizik.js b/public/js/44-hexball-fizik.js
+new file mode 100644
+index 0000000..63c20f1
+--- /dev/null
++++ b/public/js/44-hexball-fizik.js
+@@ -0,0 +1,650 @@
++'use strict'
++
++// Hexball fiziği (window.TelsizHexballPhysics). DOM, ağ, saat, rastgelelik ve sözlük kullanmaz, kullanıcıya görünen
++// metin üretmez. Saat yoktur: dünya adım sayısıyla ilerler, bir adım 1/60 saniyedir ve iki alt adımda çözülür. Fiziği
++// yalnızca ev sahibi hesaplar (45-hexball-ag.js oyunculara anlık görüntü gönderir), oyuncular çizim için ara değer
++// bulur. Belirlenimcidir: aynı dünyaya aynı girdi dizisi her zaman aynı sonucu verir. Bunun için gizli durum,
++// Math.random, trigonometri ve sırası belirsiz yineleme kullanılmaz, diskler her zaman yuva sırasıyla işlenir.
++// Değerler başlangıç değerleridir, oynanarak ayarlanır ve başka bir oyundan kopyalanmamıştır.
++// Koordinatlar: orta nokta (0, 0), x sağa, y aşağı artar. Kırmızı soldaki kaleyi (x < 0), Mavi sağdakini savunur.
++// Top kale çizgisini bütünüyle geçince (merkezi çizginin yarıçap kadar ötesinde) gol olur.
++// Aşamalar:
++// - kickoff: başlama vuruşu. Topa dokunulana kadar herkes kendi yarısında kalır, savunan takım orta yuvarlağın
++//   dışında bekler. Topa ilk dokunuşla play başlar. Maç saati işlemez.
++// - play: oyun. Maç saati yalnızca bu aşamada işler.
++// - goal: gol sonrası 2 saniye. Diskler hareket eder, gol sayılmaz, saat işlemez. Sonra gol yiyen takım başlar.
++// - paused: ev sahibi durakladı (pause, resume), adım hiçbir şey yapmaz.
++// - over: maç bitti (gol sınırı, süre, altın gol ya da stop), adım hiçbir şey yapmaz.
++// Maç sonu kuralları 43-hexball-kural.js ile aynıdır: gol sınırına ulaşan kazanır, süre bitince önde olan kazanır,
++// beraberlikte altın gol oynanır ve ilk gol maçı bitirir. Ev sahibi step olaylarını (goal, time) kural motoruna
++// hamle olarak gönderir, iki taraf aynı sonuca varır.
++// Dünya düz bir nesnedir ve step tarafından yerinde değiştirilir. Kopya için cloneWorld kullanılır.
++
++window.TelsizHexballPhysics = (function () {
++  const VERSION = 1
++  const TICK_HZ = 60
++  const SUBSTEPS = 2
++  const RULES = ['quick', 'classic', 'long']
++  // Saha ölçüleri (genişlik, yükseklik, kale ağzı). Maç süresi ve gol sınırı kural motorundadır (PRESETS).
++  const FIELDS = {
++    quick: { w: 720, h: 360, goal: 120 },
++    classic: { w: 880, h: 440, goal: 140 },
++    long: { w: 1040, h: 520, goal: 160 }
++  }
++  const TEAMS = ['red', 'blue']
++  const PHASES = ['kickoff', 'play', 'goal', 'paused', 'over']
++  const WHY = ['score', 'time', 'golden']
++  const MAX_SLOTS = 8
++  // Kalan süre anlık görüntüde u16 desisaniyedir, en uzun maç buna sığar
++  const MAX_SECS = 6000
++  // Skor anlık görüntüde bir bayttır
++  const MAX_GOALS = 255
++  // Golün maç saatindeki saniyesi (kural motorundaki MAX_AT)
++  const MAX_AT = 65535
++
++  // Saha
++  const GOAL_DEPTH = 30
++  const POST_R = 7
++  // Oyuncuların saha çizgilerinin dışında kalabileceği pay
++  const MARGIN = 50
++  const CENTER_R = 70
++  // Oyuncu diski
++  const PLAYER_R = 15
++  const PLAYER_INV = 0.5
++  const PLAYER_DAMP = 0.96
++  const ACCEL = 0.11
++  const KICK_ACCEL = 0.07
++  // Top
++  const BALL_R = 10
++  const BALL_INV = 1
++  const BALL_DAMP = 0.985
++  // Vuruş: itki ve erim (yarıçaplar toplamına eklenen)
++  const KICK_POWER = 5.6
++  const KICK_REACH = 4
++  // Sekme katsayıları
++  const E_DISC = 0.5
++  const E_BALL_WALL = 0.6
++  const E_PLAYER_WALL = 0.5
++  // Hız sınırları (birim/adım). Alt adımda top en çok 8 birim yol alır: top yarıçapından (10) ve top ile direk
++  // yarıçaplarının toplamından (17) küçük olduğu için top duvardan ya da direkten geçemez.
++  const MAX_BALL_SPEED = 16
++  const MAX_PLAYER_SPEED = 8
++  // Gol sonrası bekleme (adım)
++  const GOAL_PAUSE = 2 * TICK_HZ
++
++  // Başlama vuruşu dizilişi: takımdaki kişi sayısına göre [x, y], x yarı genişliğin, y yarı yüksekliğin oranı.
++  // Kırmızı için x eksi, Mavi için artı alınır. En yakın oyuncu en küçük sahada da orta yuvarlağın dışındadır:
++  // 0,3 x 360 = 108, yuvarlak ve disk yarıçapı 70 + 15 = 85.
++  const FORMATIONS = [
++    [],
++    [[0.5, 0]],
++    [[0.5, -0.4], [0.5, 0.4]],
++    [[0.3, 0], [0.6, -0.5], [0.6, 0.5]],
++    [[0.3, -0.3], [0.3, 0.3], [0.65, -0.55], [0.65, 0.55]]
++  ]
++
++  const OPTION_KEYS = ['rules', 'secs', 'goals', 'kick', 'players']
++  const PLAYER_KEYS = ['slot', 'side']
++
++  // ----- Küçük yardımcılar -----
++
++  function fail (code) {
++    const err = new Error(code)
++    err.code = code
++    return err
++  }
++
++  function hasOwn (obj, key) {
++    return Object.prototype.hasOwnProperty.call(obj, key)
++  }
++
++  function isPlain (x) {
++    return x !== null && typeof x === 'object' && !Array.isArray(x)
++  }
++
++  function exactKeys (obj, keys) {
++    const own = Object.keys(obj)
++    return own.length === keys.length && keys.every((key) => hasOwn(obj, key))
++  }
++
++  function isInt (n, min, max) {
++    return Number.isInteger(n) && n >= min && n <= max
++  }
++
++  function otherTeam (side) {
++    return side === 'red' ? 'blue' : 'red'
++  }
++
++  function clampUnit (n) {
++    if (typeof n !== 'number' || !isFinite(n)) return 0
++    return n < -1 ? -1 : n > 1 ? 1 : n
++  }
++
++  // ----- Saha geometrisi -----
++
++  // Duvar parçası: a'dan b'ye, (nx, ny) disk tam üstündeyken kullanılan iç yön. players: oyuncular da çarpar.
++  function segment (ax, ay, bx, by, nx, ny, players) {
++    return Object.freeze({ ax: ax, ay: ay, bx: bx, by: by, nx: nx, ny: ny, players: players })
++  }
++
++  // Top saha çizgilerinde kalır, kale ağzı açıktır. Kale filesi (iki yan ve arka) hem topu hem oyuncuları durdurur,
++  // oyuncular kaleye yalnızca ağızdan girer. Direkler kale ağzının iki ucundadır.
++  function buildField (rules) {
++    const f = FIELDS[rules]
++    const hw = f.w / 2
++    const hh = f.h / 2
++    const g = f.goal / 2
++    const d = GOAL_DEPTH
++    const segments = [
++      segment(-hw, -hh, hw, -hh, 0, 1, false),
++      segment(-hw, hh, hw, hh, 0, -1, false),
++      segment(-hw, -hh, -hw, -g, 1, 0, false),
++      segment(-hw, g, -hw, hh, 1, 0, false),
++      segment(hw, -hh, hw, -g, -1, 0, false),
++      segment(hw, g, hw, hh, -1, 0, false),
++      segment(-hw, -g, -hw - d, -g, 0, 1, true),
++      segment(-hw - d, -g, -hw - d, g, 1, 0, true),
++      segment(-hw - d, g, -hw, g, 0, -1, true),
++      segment(hw, -g, hw + d, -g, 0, 1, true),
++      segment(hw + d, -g, hw + d, g, -1, 0, true),
++      segment(hw + d, g, hw, g, 0, -1, true)
++    ]
++    const posts = [
++      Object.freeze({ x: -hw, y: -g, nx: 1 }),
++      Object.freeze({ x: -hw, y: g, nx: 1 }),
++      Object.freeze({ x: hw, y: -g, nx: -1 }),
++      Object.freeze({ x: hw, y: g, nx: -1 })
++    ]
++    return Object.freeze({
++      rules: rules,
++      w: f.w,
++      h: f.h,
++      goal: f.goal,
++      hw: hw,
++      hh: hh,
++      depth: d,
++      postR: POST_R,
++      margin: MARGIN,
++      centerR: CENTER_R,
++      playerR: PLAYER_R,
++      ballR: BALL_R,
++      segments: Object.freeze(segments),
++      posts: Object.freeze(posts)
++    })
++  }
++
++  const GEOMETRY = {}
++  RULES.forEach((rules) => {
++    GEOMETRY[rules] = buildField(rules)
++  })
++
++  // Ön ayarın saha geometrisi (dondurulmuş, çizim için de kullanılır) ya da null
++  function field (rules) {
++    return typeof rules === 'string' && hasOwn(GEOMETRY, rules) ? GEOMETRY[rules] : null
++  }
++
++  // ----- Girdi -----
++
++  // Ağdan gelen girdi sınırlanır: x ve y [-1, 1] aralığında, vektörün boyu en çok 1, vuruş yalnızca true ile.
++  // Sayı olmayan ya da sonlu olmayan değer 0 sayılır.
++  function normalizeInput (raw) {
++    if (raw === null || typeof raw !== 'object') return { x: 0, y: 0, kick: false }
++    let x = clampUnit(raw.x)
++    let y = clampUnit(raw.y)
++    const len2 = x * x + y * y
++    if (len2 > 1) {
++      const len = Math.sqrt(len2)
++      x /= len
++      y /= len
++    }
++    return { x: x, y: y, kick: raw.kick === true }
++  }
++
++  // ----- Dünya -----
++
++  // Seçenekler: rules ön ayar, secs maç süresi (saniye), goals etkin gol sınırı (1-255, kural motorunda goalLimit),
++  // kick başlayan takım, players 1-8 kişi { slot: 0-7 benzersiz, side: red | blue }. Dönüş: kendi kopyası veya null.
++  function validateOptions (o) {
++    if (!isPlain(o) || !exactKeys(o, OPTION_KEYS) || RULES.indexOf(o.rules) < 0) return null
++    if (!isInt(o.secs, 1, MAX_SECS) || !isInt(o.goals, 1, MAX_GOALS) || TEAMS.indexOf(o.kick) < 0) return null
++    const p = o.players
++    if (!Array.isArray(p) || p.length < 1 || p.length > MAX_SLOTS) return null
++    const seen = []
++    const ok = p.every((x) => {
++      if (!isPlain(x) || !exactKeys(x, PLAYER_KEYS) || !isInt(x.slot, 0, MAX_SLOTS - 1)) return false
++      if (TEAMS.indexOf(x.side) < 0 || seen.indexOf(x.slot) >= 0) return false
++      seen.push(x.slot)
++      return true
++    })
++    if (!ok) return null
++    const players = p.map((x) => ({ slot: x.slot, side: x.side }))
++    players.sort((a, b) => a.slot - b.slot)
++    return { rules: o.rules, secs: o.secs, goals: o.goals, kick: o.kick, players: players }
++  }
++
++  function formation (k, i) {
++    if (k < FORMATIONS.length) return FORMATIONS[k][i]
++    return [0.5, (2 * (i + 1)) / (k + 1) - 1]
++  }
++
++  // Başlama vuruşu dizilişi: top ortada, oyuncular kendi yarılarında, hepsi durgun
++  function placeKickoff (w) {
++    const f = GEOMETRY[w.rules]
++    TEAMS.forEach((side) => {
++      const s = side === 'red' ? -1 : 1
++      const team = w.players.filter((p) => p.side === side)
++      team.forEach((p, i) => {
++        const at = formation(team.length, i)
++        p.x = s * at[0] * f.hw
++        p.y = at[1] * f.hh
++        p.vx = 0
++        p.vy = 0
++      })
++    })
++    w.ball.x = 0
++    w.ball.y = 0
++    w.ball.vx = 0
++    w.ball.vy = 0
++    w.touch = -1
++    w.phase = 'kickoff'
++  }
++
++  // Yeni maç: başlama vuruşu aşamasında, skor 0-0, saat 0. Hatalı seçenekte bad_options fırlatır.
++  // Alanlar: tick (biten adım sayısı), clock (play aşamasındaki adım sayısı), restart (gol sonrası başlama
++  // vuruşunun yapılacağı adım), touch (topa son dokunanın yuvası, yoksa -1), held (duraklamadan önceki aşama).
++  function createWorld (opts) {
++    const o = validateOptions(opts)
++    if (!o) throw fail('bad_options')
++    const w = {
++      rules: o.rules,
++      secs: o.secs,
++      goals: o.goals,
++      tick: 0,
++      phase: 'kickoff',
++      held: null,
++      clock: 0,
++      golden: false,
++      kick: o.kick,
++      score: { red: 0, blue: 0 },
++      restart: 0,
++      touch: -1,
++      ball: { x: 0, y: 0, vx: 0, vy: 0 },
++      players: o.players.map((p) => ({ slot: p.slot, side: p.side, x: 0, y: 0, vx: 0, vy: 0, kick: false, armed: true }))
++    }
++    placeKickoff(w)
++    return w
++  }
++
++  function cloneWorld (w) {
++    return {
++      rules: w.rules,
++      secs: w.secs,
++      goals: w.goals,
++      tick: w.tick,
++      phase: w.phase,
++      held: w.held,
++      clock: w.clock,
++      golden: w.golden,
++      kick: w.kick,
++      score: { red: w.score.red, blue: w.score.blue },
++      restart: w.restart,
++      touch: w.touch,
++      ball: { x: w.ball.x, y: w.ball.y, vx: w.ball.vx, vy: w.ball.vy },
++      players: w.players.map((p) => ({
++        slot: p.slot, side: p.side, x: p.x, y: p.y, vx: p.vx, vy: p.vy, kick: p.kick, armed: p.armed
++      }))
++    }
++  }
++
++  // ----- Çarpışmalar -----
++
++  // İki hareketli disk: iç içe geçme ters kütle oranıyla ayrılır, yaklaşıyorlarsa normal yönde dürtü uygulanır
++  // (sekme katsayısı e). Merkezler çakışırsa yön (1, 0) alınır. Dönüş: diskler değdi mi.
++  function collideDiscs (a, ra, ia, b, rb, ib, e) {
++    const dx = b.x - a.x
++    const dy = b.y - a.y
++    const rr = ra + rb
++    const d2 = dx * dx + dy * dy
++    if (d2 >= rr * rr) return false
++    let nx = 1
++    let ny = 0
++    let d = 0
++    if (d2 > 0) {
++      d = Math.sqrt(d2)
++      nx = dx / d
++      ny = dy / d
++    }
++    const im = ia + ib
++    const pen = rr - d
++    a.x -= nx * pen * ia / im
++    a.y -= ny * pen * ia / im
++    b.x += nx * pen * ib / im
++    b.y += ny * pen * ib / im
++    const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
++    if (rel < 0) {
++      const j = -(1 + e) * rel / im
++      a.vx -= nx * j * ia
++      a.vy -= ny * j * ia
++      b.vx += nx * j * ib
++      b.vy += ny * j * ib
++    }
++    return true
++  }
++
++  // Disk ile sabit nokta (r: toplam yarıçap). Merkez tam noktadaysa (fx, fy) yönüne itilir.
++  function hitPoint (disc, r, px, py, e, fx, fy) {
++    let nx = disc.x - px
++    let ny = disc.y - py
++    const d2 = nx * nx + ny * ny
++    if (d2 >= r * r) return false
++    const d = Math.sqrt(d2)
++    if (d > 0) {
++      nx /= d
++      ny /= d
++    } else {
++      nx = fx
++      ny = fy
++    }
++    const pen = r - d
++    disc.x += nx * pen
++    disc.y += ny * pen
++    const vn = disc.vx * nx + disc.vy * ny
++    if (vn < 0) {
++      disc.vx -= (1 + e) * vn * nx
++      disc.vy -= (1 + e) * vn * ny
++    }
++    return true
++  }
++
++  // Disk ile duvar parçası: parçanın diske en yakın noktası sabit nokta gibi davranır
++  function hitSegment (disc, r, s, e) {
++    const ex = s.bx - s.ax
++    const ey = s.by - s.ay
++    let t = ((disc.x - s.ax) * ex + (disc.y - s.ay) * ey) / (ex * ex + ey * ey)
++    t = t < 0 ? 0 : t > 1 ? 1 : t
++    return hitPoint(disc, r, s.ax + ex * t, s.ay + ey * t, e, s.nx, s.ny)
++  }
++
++  // Önce direkler, sonra duvarlar: kalenin direk yanındaki köşesine sıkışan oyuncu direğe çok az girebilir ama
++  // fileden hiçbir zaman taşmaz
++  function hitWalls (disc, r, f, e, playerOnly) {
++    f.posts.forEach((p) => {
++      hitPoint(disc, r + POST_R, p.x, p.y, e, p.nx, 0)
++    })
++    f.segments.forEach((s) => {
++      if (!playerOnly || s.players) hitSegment(disc, r, s, e)
++    })
++  }
++
++  // Oyuncular saha çizgilerinin MARGIN kadar dışına kadar gidebilir. Dışa doğru hız sıfırlanır.
++  function keepInBox (p, f) {
++    const lx = f.hw + MARGIN - PLAYER_R
++    const ly = f.hh + MARGIN - PLAYER_R
++    if (p.x < -lx) {
++      p.x = -lx
++      if (p.vx < 0) p.vx = 0
++    } else if (p.x > lx) {
++      p.x = lx
++      if (p.vx > 0) p.vx = 0
++    }
++    if (p.y < -ly) {
++      p.y = -ly
++      if (p.vy < 0) p.vy = 0
++    } else if (p.y > ly) {
++      p.y = ly
++      if (p.vy > 0) p.vy = 0
++    }
++  }
++
++  // Başlama vuruşu kısıtı: disk orta çizgiyi geçmez, savunan takımın diski orta yuvarlağa girmez
++  function keepKickoff (w, p) {
++    const s = p.side === 'red' ? -1 : 1
++    if (p.x * s < PLAYER_R) {
++      p.x = s * PLAYER_R
++      if (p.vx * s < 0) p.vx = 0
++    }
++    if (p.side === w.kick) return
++    const min = CENTER_R + PLAYER_R
++    const d2 = p.x * p.x + p.y * p.y
++    if (d2 >= min * min) return
++    const d = Math.sqrt(d2)
++    const nx = p.x / d
++    const ny = p.y / d
++    p.x = nx * min
++    p.y = ny * min
++    const vn = p.vx * nx + p.vy * ny
++    if (vn < 0) {
++      p.vx -= vn * nx
++      p.vy -= vn * ny
++    }
++  }
++
++  function capSpeed (disc, max) {
++    const s2 = disc.vx * disc.vx + disc.vy * disc.vy
++    if (s2 <= max * max) return
++    const k = max / Math.sqrt(s2)
++    disc.vx *= k
++    disc.vy *= k
++  }
++
++  function capAll (w) {
++    w.players.forEach((p) => capSpeed(p, MAX_PLAYER_SPEED))
++    capSpeed(w.ball, MAX_BALL_SPEED)
++  }
++
++  // ----- Maç akışı -----
++
++  function matchSecond (w) {
++    return Math.min(MAX_AT, Math.floor(w.clock / TICK_HZ))
++  }
++
++  // Kalan süre (adım). Altın golde 0.
++  function remaining (w) {
++    return w.golden ? 0 : Math.max(0, w.secs * TICK_HZ - w.clock)
++  }
++
++  function finish (w, winner, why, ev) {
++    w.phase = 'over'
++    ev.push({ e: 'over', winner: winner, why: why })
++  }
++
++  // Topa dokunuş: başlama vuruşunda oyunu başlatır
++  function touchBall (w, p, ev) {
++    w.touch = p.slot
++    if (w.phase === 'kickoff') {
++      w.phase = 'play'
++      ev.push({ e: 'play', by: p.slot })
++    }
++  }
++
++  // side golü kazanan takım, by topa son dokunanın yuvası (kendi kalesine gol kural motorunda ayrılır)
++  function scoreGoal (w, side, ev) {
++    w.score[side]++
++    ev.push({ e: 'goal', side: side, by: w.touch >= 0 ? w.touch : null, at: matchSecond(w) })
++    if (w.golden) return finish(w, side, 'golden', ev)
++    if (w.score[side] >= w.goals) return finish(w, side, 'score', ev)
++    w.phase = 'goal'
++    w.restart = w.tick + GOAL_PAUSE
++    w.kick = otherTeam(side)
++  }
++
++  function checkGoal (w, f, ev) {
++    const b = w.ball
++    if (Math.abs(b.y) >= f.goal / 2) return
++    if (b.x < -(f.hw + BALL_R)) scoreGoal(w, 'blue', ev)
++    else if (b.x > f.hw + BALL_R) scoreGoal(w, 'red', ev)
++  }
++
++  // Girdi: ivme (vuruş tutulurken daha az) ve vuruş. Vuruş tutuldukça bir kez vurur, top erime girince vurur,
++  // bırakılınca yeniden kurulur.
++  function applyInput (w, p, inp, ev) {
++    p.kick = inp.kick
++    const acc = inp.kick ? KICK_ACCEL : ACCEL
++    p.vx += inp.x * acc
++    p.vy += inp.y * acc
++    if (!inp.kick) {
++      p.armed = true
++      return
++    }
++    if (!p.armed) return
++    const b = w.ball
++    const dx = b.x - p.x
++    const dy = b.y - p.y
++    const d2 = dx * dx + dy * dy
++    const reach = PLAYER_R + BALL_R + KICK_REACH
++    if (d2 === 0 || d2 > reach * reach) return
++    const d = Math.sqrt(d2)
++    b.vx += dx / d * KICK_POWER * BALL_INV
++    b.vy += dy / d * KICK_POWER * BALL_INV
++    p.armed = false
++    touchBall(w, p, ev)
++  }
++
++  // Alt adım: konumlar, diskler arası çarpışmalar (yuva sırasıyla, top en sonda), duvarlar ve direkler, oyuncu
++  // kutusu, başlama vuruşu kısıtı, hız sınırları ve gol denetimi
++  function substep (w, f, ev) {
++    const ps = w.players
++    const b = w.ball
++    ps.forEach((p) => {
++      p.x += p.vx / SUBSTEPS
++      p.y += p.vy / SUBSTEPS
++    })
++    b.x += b.vx / SUBSTEPS
++    b.y += b.vy / SUBSTEPS
++    let i = 0
++    while (i < ps.length) {
++      let j = i + 1
++      while (j < ps.length) {
++        collideDiscs(ps[i], PLAYER_R, PLAYER_INV, ps[j], PLAYER_R, PLAYER_INV, E_DISC)
++        j++
++      }
++      if (collideDiscs(ps[i], PLAYER_R, PLAYER_INV, b, BALL_R, BALL_INV, E_DISC)) touchBall(w, ps[i], ev)
++      i++
++    }
++    ps.forEach((p) => hitWalls(p, PLAYER_R, f, E_PLAYER_WALL, true))
++    hitWalls(b, BALL_R, f, E_BALL_WALL, false)
++    ps.forEach((p) => keepInBox(p, f))
++    if (w.phase === 'kickoff') ps.forEach((p) => keepKickoff(w, p))
++    capAll(w)
++    if (w.phase === 'play') checkGoal(w, f, ev)
++  }
++
++  // Bir adım (1/60 saniye). inputs yuva numarasıyla dizinlenir (dizi ya da nesne), eksik girdi boş sayılır.
++  // Dönüş: bu adımın olayları, sırasıyla:
++  // { e: 'play', by } başlama vuruşu yapıldı, { e: 'goal', side, by, at } gol (at maç saatindeki saniye),
++  // { e: 'time' } süre bitti, { e: 'golden' } altın gol başladı, { e: 'over', winner, why } maç bitti,
++  // { e: 'kickoff', kick } gol sonrası başlama vuruşu dizilişi.
++  function step (w, inputs) {
++    const ev = []
++    if (w.phase === 'paused' || w.phase === 'over') return ev
++    const f = GEOMETRY[w.rules]
++    const list = inputs !== null && typeof inputs === 'object' ? inputs : {}
++    w.players.forEach((p) => applyInput(w, p, normalizeInput(list[p.slot]), ev))
++    capAll(w)
++    let n = 0
++    while (n < SUBSTEPS) {
++      substep(w, f, ev)
++      n++
++    }
++    w.players.forEach((p) => {
++      p.vx *= PLAYER_DAMP
++      p.vy *= PLAYER_DAMP
++    })
++    w.ball.vx *= BALL_DAMP
++    w.ball.vy *= BALL_DAMP
++    if (w.phase === 'play') {
++      w.clock++
++      if (!w.golden && w.clock >= w.secs * TICK_HZ) {
++        ev.push({ e: 'time' })
++        if (w.score.red === w.score.blue) {
++          w.golden = true
++          ev.push({ e: 'golden' })
++        } else {
++          finish(w, w.score.red > w.score.blue ? 'red' : 'blue', 'time', ev)
++        }
++      }
++    } else if (w.phase === 'goal' && w.tick >= w.restart) {
++      placeKickoff(w)
++      ev.push({ e: 'kickoff', kick: w.kick })
++    }
++    w.tick++
++    return ev
++  }
++
++  // Duraklatma: adım hiçbir şey yapmaz, resume önceki aşamaya döner. Dönüş: durum değişti mi.
++  function pause (w) {
++    if (w.phase === 'paused' || w.phase === 'over') return false
++    w.held = w.phase
++    w.phase = 'paused'
++    return true
++  }
++
++  function resume (w) {
++    if (w.phase !== 'paused') return false
++    w.phase = w.held
++    w.held = null
++    return true
++  }
++
++  // Maçı dışarıdan bitirir (ev sahibi durdurdu ya da bir takım boşaldı). Olay üretilmez.
++  function stop (w) {
++    if (w.phase === 'over') return false
++    w.phase = 'over'
++    w.held = null
++    return true
++  }
++
++  function freezeFields () {
++    const out = {}
++    RULES.forEach((key) => {
++      out[key] = Object.freeze({ w: FIELDS[key].w, h: FIELDS[key].h, goal: FIELDS[key].goal })
++    })
++    return Object.freeze(out)
++  }
++
++  return Object.freeze({
++    VERSION: VERSION,
++    TICK_HZ: TICK_HZ,
++    SUBSTEPS: SUBSTEPS,
++    RULES: Object.freeze(RULES.slice()),
++    FIELDS: freezeFields(),
++    TEAMS: Object.freeze(TEAMS.slice()),
++    PHASES: Object.freeze(PHASES.slice()),
++    WHY: Object.freeze(WHY.slice()),
++    MAX_SLOTS: MAX_SLOTS,
++    MAX_SECS: MAX_SECS,
++    MAX_GOALS: MAX_GOALS,
++    MAX_AT: MAX_AT,
++    GOAL_DEPTH: GOAL_DEPTH,
++    POST_R: POST_R,
++    MARGIN: MARGIN,
++    CENTER_R: CENTER_R,
++    PLAYER_R: PLAYER_R,
++    PLAYER_INV: PLAYER_INV,
++    PLAYER_DAMP: PLAYER_DAMP,
++    ACCEL: ACCEL,
++    KICK_ACCEL: KICK_ACCEL,
++    BALL_R: BALL_R,
++    BALL_INV: BALL_INV,
++    BALL_DAMP: BALL_DAMP,
++    KICK_POWER: KICK_POWER,
++    KICK_REACH: KICK_REACH,
++    E_DISC: E_DISC,
++    E_BALL_WALL: E_BALL_WALL,
++    E_PLAYER_WALL: E_PLAYER_WALL,
++    MAX_BALL_SPEED: MAX_BALL_SPEED,
++    MAX_PLAYER_SPEED: MAX_PLAYER_SPEED,
++    GOAL_PAUSE: GOAL_PAUSE,
++    field: field,
++    validateOptions: validateOptions,
++    createWorld: createWorld,
++    cloneWorld: cloneWorld,
++    normalizeInput: normalizeInput,
++    step: step,
++    pause: pause,
++    resume: resume,
++    stop: stop,
++    remaining: remaining,
++    matchSecond: matchSecond
++  })
++})()
+diff --git a/test/hexball-fizik.test.js b/test/hexball-fizik.test.js
+new file mode 100644
+index 0000000..9d3e02b
+--- /dev/null
++++ b/test/hexball-fizik.test.js
+@@ -0,0 +1,1179 @@
++'use strict'
++
++// Hexball fiziği (public/js/44-hexball-fizik.js, window.TelsizHexballPhysics) testleri. Modül tarayıcıdaki gibi Node vm
++// bağlamında yüklenir, yalnızca window verilir (DOM, saat ve zamanlayıcı yok). Sınananlar: rapordaki başlangıç
++// değerleri ve üç saha ön ayarı, seçeneklerin katı denetimi, girdi sınırlama, ivme ve sürtünme, vuruş (erim, tek vuruş,
++// yeniden kurulma), diskler arası çarpışmada momentum ve sekme, duvar ve direk sekmesi, oyuncu kutusu ve kale filesi,
++// başlama vuruşu kısıtı, gol algılama (kale çizgisini bütünüyle geçme, direk, kendi kalesi), gol sonrası bekleme,
++// gol sınırı, süre ve altın gol, duraklatma, belirlenimcilik (aynı tohumlu girdiyle aynı dünya, ayrı bağlamlarda da),
++// girdisiz dünyada kinetik enerjinin artmaması, hız sınırları ve tünelleme olmaması, kural motoruyla (43) aynı maç
++// sonucu. Rastgele girdiler tohumlu xorshift32 ile üretilir. vm bağlamından dönen nesneler JSON kopyasıyla
++// karşılaştırılır.
++
++const { describe, test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const ROOT = path.join(__dirname, '..')
++const PHYS_PATH = path.join(ROOT, 'public', 'js', '44-hexball-fizik.js')
++const PHYS_SRC = fs.readFileSync(PHYS_PATH, 'utf8')
++const HEX_SRC = fs.readFileSync(path.join(ROOT, 'public', 'js', '43-hexball-kural.js'), 'utf8')
++const GAME_SRC = fs.readFileSync(path.join(ROOT, 'public', 'js', '33-oyun-protokol.js'), 'utf8')
++
++// Boş bir vm bağlamı: yalnızca window. rules: true protokol çekirdeğini ve kural motorunu da yükler.
++function load (opts) {
++  const o = opts || {}
++  const sandbox = vm.createContext({})
++  sandbox.window = sandbox
++  if (o.rules) {
++    vm.runInContext(GAME_SRC, sandbox, { filename: '33-oyun-protokol.js' })
++    vm.runInContext(HEX_SRC, sandbox, { filename: '43-hexball-kural.js' })
++  }
++  vm.runInContext(PHYS_SRC, sandbox, { filename: '44-hexball-fizik.js' })
++  return sandbox
++}
++
++const P = load().TelsizHexballPhysics
++const EPS = 1e-9
++
++function plain (x) {
++  return x === undefined ? undefined : JSON.parse(JSON.stringify(x))
++}
++
++function same (actual, expected, message) {
++  assert.deepEqual(plain(actual), plain(expected), message)
++}
++
++function close (actual, expected, message, eps) {
++  const tol = eps === undefined ? EPS : eps
++  assert.ok(Math.abs(actual - expected) <= tol, (message || '') + ': ' + actual + ' yerine ' + expected + ' bekleniyordu')
++}
++
++function codeOf (fn) {
++  try {
++    fn()
++  } catch (e) {
++    return e.code === undefined ? 'no_code: ' + e.message : e.code
++  }
++  return null
++}
++
++function xorshift (seed) {
++  let x = (seed >>> 0) || 0x9e3779b9
++  return () => {
++    x ^= x << 13
++    x >>>= 0
++    x ^= x >>> 17
++    x ^= x << 5
++    x >>>= 0
++    return x
++  }
++}
++
++// [-1, 1] aralığında tohumlu sayı
++function unit (next) {
++  return (next() % 2001 - 1000) / 1000
++}
++
++function speed (d) {
++  return Math.sqrt(d.vx * d.vx + d.vy * d.vy)
++}
++
++function dist (a, bx, by) {
++  return Math.sqrt((a.x - bx) * (a.x - bx) + (a.y - by) * (a.y - by))
++}
++
++// Varsayılan dünya: classic, 300 sn, 5 gol, Kırmızı başlar, yuva 0 Kırmızı ve yuva 1 Mavi
++function world (over) {
++  const o = Object.assign({
++    rules: 'classic',
++    secs: 300,
++    goals: 5,
++    kick: 'red',
++    players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }]
++  }, over || {})
++  return P.createWorld(o)
++}
++
++function slot (w, n) {
++  return w.players.filter((p) => p.slot === n)[0]
++}
++
++function put (disc, x, y, vx, vy) {
++  disc.x = x
++  disc.y = y
++  disc.vx = vx || 0
++  disc.vy = vy || 0
++}
++
++// Oyun aşamasında, oyuncular dış kutunun köşelerinde (sahadan ve toptan uzakta), top ortada durgun
++function playWorld (over) {
++  const w = world(over)
++  const f = P.field(w.rules)
++  w.phase = 'play'
++  w.touch = 0
++  w.players.forEach((p, i) => {
++    const sx = i % 2 === 0 ? -1 : 1
++    const sy = i % 4 < 2 ? -1 : 1
++    put(p, sx * (f.hw + P.MARGIN - P.PLAYER_R), sy * (f.hh + P.MARGIN - P.PLAYER_R - 40 * Math.floor(i / 4)))
++  })
++  put(w.ball, 0, 0)
++  return w
++}
++
++function run (w, n, inputs) {
++  const all = []
++  let i = 0
++  while (i < n) {
++    const ev = P.step(w, typeof inputs === 'function' ? inputs(w, i) : inputs)
++    ev.forEach((e) => all.push(plain(e)))
++    i++
++  }
++  return all
++}
++
++function kinetic (w) {
++  let k = 0
++  w.players.forEach((p) => {
++    k += 0.5 * (1 / P.PLAYER_INV) * (p.vx * p.vx + p.vy * p.vy)
++  })
++  k += 0.5 * (1 / P.BALL_INV) * (w.ball.vx * w.ball.vx + w.ball.vy * w.ball.vy)
++  return k
++}
++
++// Sahadaki kalıcı sınırlar: top saha ve kale içinde, direklere girmez. Oyuncular dış kutuda, kale filesinden
++// taşmaz. Kale ağzının direk yanındaki köşesine sıkışan oyuncu direğe çok az girebilir (en çok 1 birim).
++function checkBounds (w, label) {
++  const f = P.field(w.rules)
++  const g = f.goal / 2
++  const b = w.ball
++  const r = P.BALL_R
++  const tag = (label || '') + ' tick ' + w.tick
++  assert.ok(Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.vx) && Number.isFinite(b.vy), tag)
++  assert.ok(Math.abs(b.y) <= f.hh - r + EPS, tag + ' top yan çizgide: ' + b.y)
++  assert.ok(Math.abs(b.x) <= f.hw + f.depth - r + EPS, tag + ' top kalenin arkasında: ' + b.x)
++  if (Math.abs(b.y) >= g) assert.ok(Math.abs(b.x) <= f.hw - r + EPS, tag + ' top kale çizgisinde: ' + b.x + ', ' + b.y)
++  if (Math.abs(b.x) > f.hw) assert.ok(Math.abs(b.y) <= g - r + EPS, tag + ' top kale filesinde: ' + b.y)
++  f.posts.forEach((q) => assert.ok(dist(b, q.x, q.y) >= r + P.POST_R - EPS, tag + ' top direğin içinde'))
++  const lx = f.hw + P.MARGIN - P.PLAYER_R
++  const ly = f.hh + P.MARGIN - P.PLAYER_R
++  w.players.forEach((p) => {
++    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.vx) && Number.isFinite(p.vy), tag)
++    assert.ok(Math.abs(p.x) <= lx + EPS && Math.abs(p.y) <= ly + EPS, tag + ' oyuncu kutunun dışında')
++    if (Math.abs(p.y) < g) assert.ok(Math.abs(p.x) <= f.hw + f.depth - P.PLAYER_R + EPS, tag + ' oyuncu fileden taştı')
++    f.posts.forEach((q) => assert.ok(dist(p, q.x, q.y) >= P.PLAYER_R + P.POST_R - 1, tag + ' oyuncu direğin içinde'))
++  })
++}
++
++// Topun arkasına geçip rakip kaleye süren basit oyuncu. Tohumlu gürültü eklenir, vuruş top yakınken rastgeledir.
++function bot (next) {
++  return (w) => {
++    const f = P.field(w.rules)
++    const out = {}
++    w.players.forEach((p) => {
++      const goalX = p.side === 'red' ? f.hw + 20 : -f.hw - 20
++      const bx = w.ball.x
++      const by = w.ball.y
++      const gx = goalX - bx
++      const gy = -by
++      const gl = Math.sqrt(gx * gx + gy * gy) || 1
++      const tx = bx - gx / gl * 22
++      const ty = by - gy / gl * 22
++      const dx = tx - p.x
++      const dy = ty - p.y
++      const dl = Math.sqrt(dx * dx + dy * dy) || 1
++      out[p.slot] = {
++        x: dx / dl + unit(next) * 0.4,
++        y: dy / dl + unit(next) * 0.4,
++        kick: dist(p, bx, by) < 32 && next() % 5 < 3
++      }
++    })
++    return out
++  }
++}
++
++// Tamamen rastgele girdiler
++function noise (next) {
++  return (w) => {
++    const out = {}
++    w.players.forEach((p) => {
++      out[p.slot] = { x: unit(next), y: unit(next), kick: next() % 4 === 0 }
++    })
++    return out
++  }
++}
++
++function eightPlayers () {
++  const out = []
++  let i = 0
++  while (i < 8) {
++    out.push({ slot: i, side: i % 2 === 0 ? 'red' : 'blue' })
++    i++
++  }
++  return out
++}
++
++describe('sözleşme ve başlangıç değerleri', () => {
++  test('modül dondurulmuş, değerler rapordaki başlangıç değerleri', () => {
++    assert.ok(Object.isFrozen(P))
++    assert.equal(P.VERSION, 1)
++    assert.equal(P.TICK_HZ, 60)
++    assert.equal(P.SUBSTEPS, 2)
++    same(P.TEAMS, ['red', 'blue'])
++    // Anlık görüntüdeki aşama kodunun sırası (45-hexball-ag.js)
++    same(P.PHASES, ['kickoff', 'play', 'goal', 'paused', 'over'])
++    same(P.WHY, ['score', 'time', 'golden'])
++    assert.equal(P.MAX_SLOTS, 8)
++    assert.equal(P.MAX_GOALS, 255)
++    assert.equal(P.MAX_AT, 65535)
++    assert.ok(P.MAX_SECS * 10 <= 65535, 'kalan süre u16 desisaniyeye sığar')
++    const expect = {
++      GOAL_DEPTH: 30,
++      POST_R: 7,
++      MARGIN: 50,
++      CENTER_R: 70,
++      PLAYER_R: 15,
++      PLAYER_INV: 0.5,
++      PLAYER_DAMP: 0.96,
++      ACCEL: 0.11,
++      KICK_ACCEL: 0.07,
++      BALL_R: 10,
++      BALL_INV: 1,
++      BALL_DAMP: 0.985,
++      KICK_POWER: 5.6,
++      KICK_REACH: 4,
++      E_DISC: 0.5,
++      E_BALL_WALL: 0.6,
++      E_PLAYER_WALL: 0.5,
++      GOAL_PAUSE: 120
++    }
++    Object.keys(expect).forEach((key) => assert.equal(P[key], expect[key], key))
++    // Alt adımda top yarıçapından ve top ile direk yarıçaplarının toplamından az yol alır
++    assert.ok(P.MAX_BALL_SPEED / P.SUBSTEPS < P.BALL_R)
++    assert.ok(P.MAX_BALL_SPEED / P.SUBSTEPS < P.BALL_R + P.POST_R)
++    assert.ok(P.MAX_PLAYER_SPEED / P.SUBSTEPS < P.PLAYER_R)
++    // Girdiyle ulaşılan en yüksek oyuncu hızı sınırın altında
++    assert.ok(P.ACCEL * P.PLAYER_DAMP / (1 - P.PLAYER_DAMP) < P.MAX_PLAYER_SPEED)
++  })
++
++  test('üç saha ön ayarı ve geometrisi, ön ayar adları kural motoruyla aynı', () => {
++    const ctx = load({ rules: true })
++    same(P.RULES, ['quick', 'classic', 'long'])
++    same(P.RULES, ctx.TelsizHexball.RULES)
++    same(P.FIELDS, {
++      quick: { w: 720, h: 360, goal: 120 },
++      classic: { w: 880, h: 440, goal: 140 },
++      long: { w: 1040, h: 520, goal: 160 }
++    })
++    assert.ok(Object.isFrozen(P.FIELDS) && Object.isFrozen(P.FIELDS.classic))
++    for (const rules of P.RULES) {
++      const f = P.field(rules)
++      assert.ok(Object.isFrozen(f) && Object.isFrozen(f.segments) && Object.isFrozen(f.posts), rules)
++      assert.equal(f.rules, rules)
++      assert.equal(f.w, P.FIELDS[rules].w)
++      assert.equal(f.h, P.FIELDS[rules].h)
++      assert.equal(f.goal, P.FIELDS[rules].goal)
++      assert.equal(f.hw, f.w / 2)
++      assert.equal(f.hh, f.h / 2)
++      assert.equal(f.depth, 30)
++      same(f.posts.map((q) => [q.x, q.y]), [[-f.hw, -f.goal / 2], [-f.hw, f.goal / 2], [f.hw, -f.goal / 2], [f.hw, f.goal / 2]])
++      // Saha çizgileri yalnızca topu, kale filesi topu ve oyuncuları durdurur
++      assert.equal(f.segments.length, 12)
++      assert.equal(f.segments.filter((s) => s.players).length, 6)
++      f.segments.forEach((s) => {
++        assert.equal(s.nx * s.nx + s.ny * s.ny, 1, 'iç yön birim vektör')
++        if (s.players) assert.ok(Math.abs(s.ax) >= f.hw && Math.abs(s.bx) >= f.hw, 'file kale çizgisinin arkasında')
++      })
++    }
++    assert.equal(P.field('stack'), null)
++    assert.equal(P.field('__proto__'), null)
++    assert.equal(P.field(null), null)
++  })
++
++  test('saflık: saat, zamanlayıcı, DOM, rastgelelik ve trigonometri yok, başka bir oyunun adı geçmiyor', () => {
++    const code = PHYS_SRC.split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n')
++    const banned = [/Math\.random/, /\bDate\b/, /performance/, /setTimeout/, /setInterval/, /requestAnimationFrame/,
++      /\bdocument\b/, /navigator/, /Math\.(sin|cos|tan|asin|acos|atan|atan2|exp|pow|log|hypot|cbrt|fround)\b/,
++      /structuredClone/, /\bfor\s*\(/]
++    banned.forEach((re) => assert.ok(!re.test(code), String(re)))
++    assert.ok(/window\.TelsizHexballPhysics = \(function \(\) \{/.test(code))
++    const name = new RegExp(String.fromCharCode(104, 97, 120, 98, 97, 108, 108), 'i')
++    assert.ok(!name.test(PHYS_SRC), 'fizik kaynağı')
++    assert.ok(!name.test(fs.readFileSync(__filename, 'utf8')), 'test dosyası')
++  })
++})
++
++describe('dünya ve seçenekler', () => {
++  test('yeni dünya: başlama vuruşu, skor 0-0, top ortada, oyuncular yuva sırasıyla', () => {
++    const w = world({ players: [{ slot: 3, side: 'blue' }, { slot: 1, side: 'red' }] })
++    same(Object.keys(w).sort(), ['ball', 'clock', 'goals', 'golden', 'held', 'kick', 'phase', 'players', 'restart',
++      'rules', 'score', 'secs', 'tick', 'touch'])
++    assert.equal(w.phase, 'kickoff')
++    assert.equal(w.tick, 0)
++    assert.equal(w.clock, 0)
++    assert.equal(w.golden, false)
++    assert.equal(w.held, null)
++    assert.equal(w.touch, -1)
++    assert.equal(w.kick, 'red')
++    same(w.score, { red: 0, blue: 0 })
++    same(w.ball, { x: 0, y: 0, vx: 0, vy: 0 })
++    same(w.players.map((p) => [p.slot, p.side, p.vx, p.vy, p.kick, p.armed]),
++      [[1, 'red', 0, 0, false, true], [3, 'blue', 0, 0, false, true]])
++    assert.equal(P.remaining(w), 300 * 60)
++    assert.equal(P.matchSecond(w), 0)
++  })
++
++  test('diziliş: kendi yarısında, ayna simetrik, savunan orta yuvarlağın dışında, diskler çakışmıyor', () => {
++    for (const rules of P.RULES) {
++      const f = P.field(rules)
++      let k = 1
++      while (k <= 4) {
++        const players = []
++        let i = 0
++        while (i < k) {
++          players.push({ slot: 2 * i, side: 'red' })
++          players.push({ slot: 2 * i + 1, side: 'blue' })
++          i++
++        }
++        for (const kick of P.TEAMS) {
++          const w = world({ rules: rules, kick: kick, players: players })
++          const red = w.players.filter((p) => p.side === 'red')
++          const blue = w.players.filter((p) => p.side === 'blue')
++          red.forEach((p, n) => {
++            assert.ok(p.x <= -P.PLAYER_R, rules + ' kırmızı solda')
++            assert.equal(blue[n].x, -p.x, 'ayna')
++            assert.equal(blue[n].y, p.y, 'ayna')
++          })
++          w.players.forEach((p) => {
++            assert.ok(Math.abs(p.y) <= f.hh - P.PLAYER_R, 'saha içinde')
++            if (p.side !== kick) assert.ok(dist(p, 0, 0) >= P.CENTER_R + P.PLAYER_R, 'savunan yuvarlağın dışında')
++            w.players.forEach((q) => {
++              if (q !== p) assert.ok(dist(p, q.x, q.y) >= 2 * P.PLAYER_R, 'çakışma yok')
++            })
++          })
++          checkBounds(w, rules + ' ' + k)
++        }
++        k++
++      }
++      // Kural motoru takım başına en çok 4 kişiye izin verir, fizik bir takımda 8 kişiyi de dizer
++      const w = world({ rules: rules, players: eightPlayers().map((p) => ({ slot: p.slot, side: 'red' })) })
++      w.players.forEach((p) => {
++        assert.ok(p.x < 0 && Math.abs(p.y) <= f.hh - P.PLAYER_R)
++        w.players.forEach((q) => {
++          if (q !== p) assert.ok(dist(p, q.x, q.y) >= 2 * P.PLAYER_R)
++        })
++      })
++    }
++  })
++
++  test('hatalı seçenekler bad_options ile reddedilir', () => {
++    const base = {
++      rules: 'quick',
++      secs: 180,
++      goals: 3,
++      kick: 'blue',
++      players: [{ slot: 0, side: 'red' }, { slot: 7, side: 'blue' }]
++    }
++    assert.equal(codeOf(() => P.createWorld(base)), null)
++    const bad = [
++      null, 5, [], 'quick',
++      Object.assign({}, base, { rules: 'stack' }),
++      Object.assign({}, base, { rules: 'toString' }),
++      Object.assign({}, base, { secs: 0 }),
++      Object.assign({}, base, { secs: 1.5 }),
++      Object.assign({}, base, { secs: P.MAX_SECS + 1 }),
++      Object.assign({}, base, { secs: '180' }),
++      Object.assign({}, base, { goals: 0 }),
++      Object.assign({}, base, { goals: 256 }),
++      Object.assign({}, base, { kick: 'spec' }),
++      Object.assign({}, base, { kick: null }),
++      Object.assign({}, base, { players: [] }),
++      Object.assign({}, base, { players: eightPlayers().concat([{ slot: 0, side: 'red' }]) }),
++      Object.assign({}, base, { players: [{ slot: 0, side: 'red' }, { slot: 0, side: 'blue' }] }),
++      Object.assign({}, base, { players: [{ slot: 8, side: 'red' }] }),
++      Object.assign({}, base, { players: [{ slot: -1, side: 'red' }] }),
++      Object.assign({}, base, { players: [{ slot: 0, side: 'spec' }] }),
++      Object.assign({}, base, { players: [{ slot: 0, side: 'red', x: 0 }] }),
++      Object.assign({}, base, { players: [{ slot: 0 }] }),
++      Object.assign({}, base, { players: [null] }),
++      Object.assign({}, base, { players: 'x' }),
++      Object.assign({}, base, { extra: 1 })
++    ]
++    const missing = Object.assign({}, base)
++    delete missing.kick
++    bad.push(missing)
++    bad.forEach((o, i) => {
++      assert.equal(codeOf(() => P.createWorld(o)), 'bad_options', 'durum ' + i)
++      assert.equal(P.validateOptions(o), null, 'durum ' + i)
++    })
++  })
++
++  test('seçenekler kopyalanır: girdiyi sonradan değiştirmek dünyayı etkilemez', () => {
++    const players = [{ slot: 2, side: 'red' }, { slot: 1, side: 'blue' }]
++    const o = { rules: 'long', secs: 600, goals: 255, kick: 'red', players: players }
++    const copy = P.validateOptions(o)
++    same(copy, { rules: 'long', secs: 600, goals: 255, kick: 'red', players: [{ slot: 1, side: 'blue' }, { slot: 2, side: 'red' }] })
++    const w = P.createWorld(o)
++    players[0].side = 'blue'
++    players.push({ slot: 5, side: 'red' })
++    same(w.players.map((p) => [p.slot, p.side]), [[1, 'blue'], [2, 'red']])
++    same(o.players.map((p) => p.slot), [2, 1, 5], 'girdi sıralanmadı')
++  })
++
++  test('cloneWorld bağımsız ve eşit bir kopya verir', () => {
++    const w = world({ players: eightPlayers() })
++    run(w, 200, bot(xorshift(3)))
++    const c = P.cloneWorld(w)
++    same(c, w)
++    c.ball.x += 1
++    c.players[0].vx += 1
++    c.score.red = 9
++    assert.notEqual(w.ball.x, c.ball.x)
++    assert.notEqual(w.players[0].vx, c.players[0].vx)
++    assert.equal(w.score.red === 9, false)
++  })
++})
++
++describe('girdi', () => {
++  test('normalizeInput sınırlar ve temizler', () => {
++    same(P.normalizeInput(null), { x: 0, y: 0, kick: false })
++    same(P.normalizeInput(undefined), { x: 0, y: 0, kick: false })
++    same(P.normalizeInput('x'), { x: 0, y: 0, kick: false })
++    same(P.normalizeInput({ x: 0.5, y: -0.25, kick: true }), { x: 0.5, y: -0.25, kick: true })
++    same(P.normalizeInput({ x: 5, y: 0 }), { x: 1, y: 0, kick: false })
++    same(P.normalizeInput({ x: -1e9, y: 0 }), { x: -1, y: 0, kick: false })
++    same(P.normalizeInput({ x: NaN, y: Infinity, kick: 1 }), { x: 0, y: 0, kick: false })
++    same(P.normalizeInput({ x: '1', y: -Infinity, kick: 'true' }), { x: 0, y: 0, kick: false })
++    const d = P.normalizeInput({ x: 1, y: 1 })
++    close(d.x * d.x + d.y * d.y, 1, 'çapraz girdi birim boyda')
++    close(d.x, d.y, 'yön korunur')
++    const small = P.normalizeInput({ x: 0.3, y: 0.4 })
++    same(small, { x: 0.3, y: 0.4, kick: false }, 'boyu 1 altındaki girdi aynı kalır')
++  })
++
++  test('girdi dizi, nesne ya da hiç verilmeyebilir, girdi değiştirilmez', () => {
++    const a = world()
++    const b = world()
++    const c = world()
++    const inputs = Object.freeze([Object.freeze({ x: 1, y: 0, kick: false }), Object.freeze({ x: -1, y: 0.5, kick: true })])
++    run(a, 50, inputs)
++    run(b, 50, { 0: { x: 1, y: 0, kick: false }, 1: { x: -1, y: 0.5, kick: true } })
++    same(a, b)
++    run(c, 50, null)
++    const d = world()
++    run(d, 50, undefined)
++    same(c, d)
++    same(c.players.map((p) => [p.vx, p.vy]), [[0, 0], [0, 0]], 'girdisiz oyuncular durur')
++  })
++})
++
++describe('hareket ve vuruş', () => {
++  test('ivme, sürtünme ve en yüksek hız', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    const p = slot(w, 0)
++    put(p, -f.hw, 0)
++    put(w.ball, 300, 150)
++    P.step(w, { 0: { x: 1, y: 0 } })
++    close(p.vx, P.ACCEL * P.PLAYER_DAMP, 'ilk adım')
++    let top = 0
++    // 150 adımda oyuncu sahanın ortasına varmaz, hiçbir şeye çarpmaz
++    run(w, 150, (ww) => {
++      top = Math.max(top, speed(slot(ww, 0)))
++      return { 0: { x: 1, y: 0 } }
++    })
++    const terminal = P.ACCEL * P.PLAYER_DAMP / (1 - P.PLAYER_DAMP)
++    assert.ok(top <= terminal + EPS, 'en yüksek hız aşılmaz')
++    close(p.vx, terminal, 'en yüksek hıza yaklaşır', 0.05)
++    assert.ok(p.x < -50)
++    // Vuruş tutulurken ivme daha az
++    put(p, -200, -f.hh)
++    run(w, 150, { 0: { x: 0, y: 1, kick: true } })
++    assert.ok(p.y < 50)
++    close(p.vy, P.KICK_ACCEL * P.PLAYER_DAMP / (1 - P.PLAYER_DAMP), 'vuruş tutulurken', 0.05)
++    // Çapraz girdi düz girdiden hızlı değil
++    const q = slot(w, 1)
++    put(q, 100, 0)
++    run(w, 400, { 1: { x: 1, y: 1 } })
++    assert.ok(speed(q) <= terminal + EPS)
++    // Top sürtünmesi
++    put(w.ball, 0, 0, 5, 0)
++    P.step(w, null)
++    close(w.ball.vx, 5 * P.BALL_DAMP, 'top sürtünmesi')
++    close(w.ball.x, 5, 'top iki alt adımda bir adımlık yol alır')
++  })
++
++  test('vuruş: erimde topa itki verir, tutuldukça bir kez vurur, bırakılınca yeniden kurulur', () => {
++    const w = playWorld()
++    const p = slot(w, 0)
++    const reach = P.PLAYER_R + P.BALL_R + P.KICK_REACH
++    put(p, -reach, 0)
++    put(w.ball, 0, 0)
++    P.step(w, { 0: { kick: true } })
++    close(w.ball.vx, P.KICK_POWER * P.BALL_DAMP, 'erimin tam sınırında vurur')
++    close(w.ball.vy, 0)
++    assert.equal(p.armed, false)
++    assert.equal(p.kick, true)
++    // Tutmaya devam: top yeniden erime girse de vurmaz
++    put(w.ball, 0, 0)
++    P.step(w, { 0: { kick: true } })
++    same([w.ball.vx, w.ball.vy], [0, 0], 'tutulan vuruş yeniden vurmaz')
++    // Bırak ve yeniden bas
++    P.step(w, { 0: { kick: false } })
++    assert.equal(p.armed, true)
++    assert.equal(p.kick, false)
++    put(p, -20, -20)
++    put(w.ball, 0, 0)
++    P.step(w, { 0: { kick: true } })
++    close(w.ball.vx, P.KICK_POWER / Math.sqrt(2) * P.BALL_DAMP, 'yön oyuncudan topa')
++    close(w.ball.vy, P.KICK_POWER / Math.sqrt(2) * P.BALL_DAMP)
++  })
++
++  test('vuruş: erim dışında vurmaz, kurulu kalır ve top erime girince vurur', () => {
++    const w = playWorld()
++    const p = slot(w, 0)
++    put(p, -29.5, 0)
++    put(w.ball, 0, 0)
++    P.step(w, { 0: { kick: true } })
++    same([w.ball.vx, w.ball.vy], [0, 0])
++    assert.equal(p.armed, true)
++    put(p, -28.5, 0)
++    P.step(w, { 0: { kick: true } })
++    close(w.ball.vx, P.KICK_POWER * P.BALL_DAMP)
++    assert.equal(p.armed, false)
++    assert.equal(w.touch, 0)
++  })
++
++  test('aynı adımda iki vuruş ve hızlı top: top hız sınırını aşmaz', () => {
++    const w = playWorld()
++    put(slot(w, 0), -27, 0)
++    put(slot(w, 1), -20, -18)
++    put(w.ball, 0, 0, 14, 0)
++    P.step(w, { 0: { kick: true }, 1: { kick: true } })
++    assert.equal(slot(w, 0).armed, false)
++    assert.equal(slot(w, 1).armed, false)
++    assert.ok(speed(w.ball) <= P.MAX_BALL_SPEED + EPS)
++    close(speed(w.ball), P.MAX_BALL_SPEED * P.BALL_DAMP, 'sınıra kırpılır', 1e-6)
++  })
++})
++
++describe('çarpışmalar', () => {
++  // İki disk karşı karşıya: momentum korunur, normal yöndeki bağıl hız -e katına iner, diskler iç içe kalmaz.
++  // Adım sonundaki sürtünme geri alınarak çarpışmadan hemen sonraki hız bulunur.
++  function headOn (w, a, ma, da, b, mb, db, e) {
++    const before = { av: a.vx, bv: b.vx }
++    const events = P.step(w, null)
++    const av = a.vx / da
++    const bv = b.vx / db
++    close(ma * av + mb * bv, ma * before.av + mb * before.bv, 'momentum')
++    close(bv - av, -e * (before.bv - before.av), 'sekme')
++    close(a.vy, 0)
++    close(b.vy, 0)
++    return events
++  }
++
++  test('oyuncu ile oyuncu', () => {
++    const w = playWorld()
++    const a = slot(w, 0)
++    const b = slot(w, 1)
++    put(a, -40, 50, 4, 0)
++    put(b, -8, 50, -2, 0)
++    headOn(w, a, 1 / P.PLAYER_INV, P.PLAYER_DAMP, b, 1 / P.PLAYER_INV, P.PLAYER_DAMP, P.E_DISC)
++    assert.ok(b.x - a.x >= 2 * P.PLAYER_R - EPS, 'iç içe değil')
++  })
++
++  test('oyuncu ile top: dokunuş kaydedilir', () => {
++    const w = playWorld()
++    w.touch = -1
++    const p = slot(w, 1)
++    put(p, -36, 0, 3, 0)
++    put(w.ball, -10, 0, -1, 0)
++    headOn(w, p, 1 / P.PLAYER_INV, P.PLAYER_DAMP, w.ball, 1 / P.BALL_INV, P.BALL_DAMP, P.E_DISC)
++    assert.ok(w.ball.x - p.x >= P.PLAYER_R + P.BALL_R - EPS, 'iç içe değil')
++    assert.equal(w.touch, 1)
++  })
++
++  test('merkezleri çakışan diskler belirlenimci yönde ayrılır', () => {
++    const w = playWorld()
++    put(slot(w, 0), 0, 100)
++    put(slot(w, 1), 0, 100)
++    P.step(w, null)
++    assert.ok(slot(w, 1).x > slot(w, 0).x, 'küçük yuva sola, büyük yuva sağa')
++    close(slot(w, 1).x - slot(w, 0).x, 2 * P.PLAYER_R)
++  })
++
++  // Sekmenin olduğu adımı bulur: o adımda hızın duvara dik bileşeni -e katına iner, paralel bileşen değişmez
++  function bounce (w, disc, damp, axis, e, max) {
++    let i = 0
++    while (i < max) {
++      const vn = axis === 'x' ? disc.vx : disc.vy
++      const vt = axis === 'x' ? disc.vy : disc.vx
++      P.step(w, null)
++      const an = (axis === 'x' ? disc.vx : disc.vy) / damp
++      const at = (axis === 'x' ? disc.vy : disc.vx) / damp
++      if (Math.sign(an) !== Math.sign(vn) && vn !== 0) {
++        close(an, -e * vn, 'dik bileşen')
++        close(at, vt, 'paralel bileşen')
++        return true
++      }
++      i++
++    }
++    return false
++  }
++
++  test('top yan çizgiden ve kale çizgisinden 0,6 ile seker', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    put(w.ball, 0, -f.hh + 30, 2, -4)
++    assert.ok(bounce(w, w.ball, P.BALL_DAMP, 'y', P.E_BALL_WALL, 60), 'üst çizgi')
++    put(w.ball, f.hw - 40, f.goal / 2 + 60, 5, 1)
++    assert.ok(bounce(w, w.ball, P.BALL_DAMP, 'x', P.E_BALL_WALL, 60), 'kale çizgisi')
++    checkBounds(w)
++  })
++
++  test('top direkten 0,6, oyuncu direkten 0,5 ile seker, direğe çarpan top gol olmaz', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    const g = f.goal / 2
++    put(w.ball, f.hw - 40, g, 6, 0)
++    assert.ok(bounce(w, w.ball, P.BALL_DAMP, 'x', P.E_BALL_WALL, 60), 'top')
++    assert.ok(dist(w.ball, f.hw, g) >= P.BALL_R + P.POST_R - EPS)
++    const p = slot(w, 0)
++    put(p, -f.hw + 60, -g, -4, 0)
++    assert.ok(bounce(w, p, P.PLAYER_DAMP, 'x', P.E_PLAYER_WALL, 60), 'oyuncu')
++    assert.ok(dist(p, -f.hw, -g) >= P.PLAYER_R + P.POST_R - EPS)
++    const events = run(w, 120, null)
++    same(events, [], 'gol yok')
++    same(w.score, { red: 0, blue: 0 })
++  })
++})
++
++describe('saha sınırları', () => {
++  test('en yüksek hızdaki top her yönde sahada kalır, duvardan ve direkten geçmez', () => {
++    const next = xorshift(11)
++    for (const rules of P.RULES) {
++      const f = P.field(rules)
++      let n = 0
++      while (n < 150) {
++        const w = playWorld({ rules: rules })
++        const ang = (next() % 3600) / 3600
++        // Yön trigonometri yerine birim kare çevresinden seçilir ve normalleştirilir
++        let dx = ang < 0.25 ? 1 : ang < 0.5 ? 1 - (ang - 0.25) * 8 : ang < 0.75 ? -1 : -1 + (ang - 0.75) * 8
++        let dy = ang < 0.25 ? -1 + ang * 8 : ang < 0.5 ? 1 : ang < 0.75 ? 1 - (ang - 0.5) * 8 : -1
++        const len = Math.sqrt(dx * dx + dy * dy)
++        dx /= len
++        dy /= len
++        const x = unit(next) * (f.hw - 20)
++        const y = unit(next) * (f.hh - 20)
++        put(w.ball, x, y, dx * P.MAX_BALL_SPEED, dy * P.MAX_BALL_SPEED)
++        let i = 0
++        while (i < 90) {
++          P.step(w, null)
++          checkBounds(w, rules + ' atış ' + n)
++          assert.ok(speed(w.ball) <= P.MAX_BALL_SPEED + EPS)
++          i++
++        }
++        n++
++      }
++    }
++  })
++
++  test('köşelere, direklere ve kale içine en yüksek hızla atılan top sahada kalır', () => {
++    for (const rules of P.RULES) {
++      const f = P.field(rules)
++      const g = f.goal / 2
++      const shots = [
++        [f.hw - 100, f.hh - 100, 1, 1],
++        [-f.hw + 100, -f.hh + 100, -1, -1],
++        [f.hw - 100, g, 1, 0],
++        [f.hw - 100, g - 12, 1, 0.05],
++        [f.hw - 100, -g + 12, 1, -0.05],
++        [-f.hw + 100, g + 3, -1, 0],
++        [f.hw - 60, 0, 1, 0.9],
++        [f.hw - 60, 0, 1, -0.9],
++        [f.hw + 5, 0, 1, 0.3],
++        [-f.hw - 5, g - 15, -0.2, 1]
++      ]
++      shots.forEach((s, n) => {
++        const w = playWorld({ rules: rules })
++        const len = Math.sqrt(s[2] * s[2] + s[3] * s[3])
++        put(w.ball, s[0], s[1], s[2] / len * P.MAX_BALL_SPEED, s[3] / len * P.MAX_BALL_SPEED)
++        let i = 0
++        while (i < 120) {
++          P.step(w, null)
++          checkBounds(w, rules + ' atış ' + n)
++          i++
++        }
++      })
++    }
++  })
++
++  test('oyuncu dış kutuda kalır, kaleye ağızdan girer ama kalenin arkasına geçemez', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    const p = slot(w, 0)
++    const lx = f.hw + P.MARGIN - P.PLAYER_R
++    const ly = f.hh + P.MARGIN - P.PLAYER_R
++    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]
++    dirs.forEach((d) => {
++      // Top oyuncunun sekiz yolunun hiçbirinde değil
++      put(w.ball, -300, -60)
++      put(p, 0, 150)
++      run(w, 900, (ww) => {
++        checkBounds(ww)
++        return { 0: { x: d[0], y: d[1] } }
++      })
++      if (d[1] === 0) close(Math.abs(p.x), lx, 'kutunun kenarı')
++      if (d[0] === 0) close(Math.abs(p.y), ly, 'kutunun kenarı')
++    })
++    // Ağızdan girip arka fileye dayanır
++    put(p, f.hw - 60, 0)
++    run(w, 300, { 0: { x: 1, y: 0 } })
++    // Fileden 0,5 ile sekip yeniden ivmelendiği için fileye çok yakın titrer
++    close(p.x, f.hw + f.depth - P.PLAYER_R, 'arka file', 0.1)
++    // Kalenin dışından dolanıp arkasına geçmeye çalışır: üstten aşağı, alttan yukarı
++    put(p, f.hw + 34, -f.hh)
++    run(w, 400, (ww) => {
++      checkBounds(ww)
++      return { 0: { x: 0.3, y: 1 } }
++    })
++    assert.ok(p.y < -f.goal / 2, 'kalenin üstünde kalır: ' + p.y)
++    put(p, -f.hw - 34, f.hh)
++    run(w, 400, (ww) => {
++      checkBounds(ww)
++      return { 0: { x: -0.3, y: -1 } }
++    })
++    assert.ok(p.y > f.goal / 2, 'kalenin altında kalır: ' + p.y)
++  })
++})
++
++describe('başlama vuruşu', () => {
++  test('topa dokunulana kadar herkes kendi yarısında, savunan orta yuvarlağın dışında, saat işlemez', () => {
++    for (const kick of P.TEAMS) {
++      const w = world({ kick: kick, players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 2, side: 'red' }, { slot: 3, side: 'blue' }] })
++      const events = run(w, 400, (ww) => {
++        ww.players.forEach((p) => {
++          const s = p.side === 'red' ? -1 : 1
++          assert.ok(p.x * s >= P.PLAYER_R - EPS, 'kendi yarısında')
++          if (p.side !== kick) assert.ok(dist(p, 0, 0) >= P.CENTER_R + P.PLAYER_R - EPS, 'yuvarlağın dışında')
++        })
++        const out = {}
++        ww.players.forEach((p) => {
++          // Savunanlar topa, başlayan takım topa değmeden rakip yarıya koşar
++          out[p.slot] = p.side === kick ? { x: p.side === 'red' ? 1 : -1, y: p.slot < 2 ? -1 : 1 } : { x: -p.x, y: -p.y }
++        })
++        return out
++      })
++      same(events, [], kick)
++      assert.equal(w.phase, 'kickoff')
++      assert.equal(w.clock, 0)
++      assert.equal(w.tick, 400)
++      same(w.ball, { x: 0, y: 0, vx: 0, vy: 0 })
++      assert.equal(P.remaining(w), 300 * 60)
++      const defender = w.players.filter((p) => p.side !== kick)[0]
++      // İki savunan yuvarlağın kenarında birbirine dayanır, aralarındaki itiş onları çok az dışarı itebilir
++      close(dist(defender, 0, 0), P.CENTER_R + P.PLAYER_R, 'savunan yuvarlağın kenarında', 1e-3)
++    }
++  })
++
++  test('ilk dokunuş oyunu başlatır, kısıt kalkar ve saat işlemeye başlar', () => {
++    const w = world()
++    const kicker = slot(w, 0)
++    let events = []
++    let n = 0
++    while (w.phase === 'kickoff' && n < 400) {
++      events = events.concat(run(w, 1, { 0: { x: -kicker.x, y: -kicker.y }, 1: { x: -1, y: 0 } }))
++      n++
++    }
++    same(events, [{ e: 'play', by: 0 }])
++    assert.equal(w.phase, 'play')
++    assert.equal(w.touch, 0)
++    assert.equal(w.clock, 1, 'dokunuşun olduğu adım sayılır')
++    // Savunan artık yuvarlağa girebilir
++    let inside = false
++    run(w, 300, (ww) => {
++      if (dist(slot(ww, 1), 0, 0) < P.CENTER_R) inside = true
++      return { 1: { x: -slot(ww, 1).x, y: -slot(ww, 1).y } }
++    })
++    assert.ok(inside)
++  })
++
++  test('başlama vuruşunda vuruş da oyunu başlatır', () => {
++    const w = world({ kick: 'blue' })
++    put(slot(w, 1), 27, 0)
++    const events = run(w, 1, { 1: { kick: true } })
++    same(events, [{ e: 'play', by: 1 }])
++    assert.ok(w.ball.vx < 0, 'top Kırmızının yarısına gider')
++  })
++})
++
++describe('gol', () => {
++  // Topu yuva by'nin vuruşuyla verilen hızda gönderir, gol olana kadar adımlar. Dönüş: gol adımının olayları.
++  function shoot (w, x, y, vx, vy, by) {
++    put(w.ball, x, y, vx, vy)
++    w.touch = by
++    let i = 0
++    while (i < 200) {
++      const tick = w.tick
++      const ev = plain(P.step(w, null))
++      if (ev.length) return { ev: ev, tick: tick }
++      i++
++    }
++    return { ev: [], tick: -1 }
++  }
++
++  test('sağ kaleye giren top Kırmızının golüdür, gol sonrası 2 saniye beklenir, gol yiyen takım başlar', () => {
++    const w = playWorld({ players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 4, side: 'red' }] })
++    const f = P.field(w.rules)
++    w.clock = 150
++    const res = shoot(w, f.hw - 100, 0, 6, 0, 4)
++    same(res.ev, [{ e: 'goal', side: 'red', by: 4, at: 2 }])
++    assert.ok(w.ball.x > f.hw + P.BALL_R, 'top çizgiyi bütünüyle geçti')
++    assert.equal(w.phase, 'goal')
++    same(w.score, { red: 1, blue: 0 })
++    assert.equal(w.kick, 'blue')
++    assert.equal(w.restart, res.tick + P.GOAL_PAUSE)
++    const clock = w.clock
++    // Bekleme sırasında top fileden döner, karşı kaleye taşınsa da gol sayılmaz, saat işlemez
++    let events = run(w, 60, null)
++    put(w.ball, -f.hw - 15, 0)
++    events = events.concat(run(w, P.GOAL_PAUSE - 61, null))
++    same(events, [])
++    assert.equal(w.phase, 'goal')
++    assert.equal(w.clock, clock)
++    same(w.score, { red: 1, blue: 0 })
++    events = run(w, 1, null)
++    same(events, [{ e: 'kickoff', kick: 'blue' }])
++    assert.equal(w.phase, 'kickoff')
++    assert.equal(w.tick, res.tick + P.GOAL_PAUSE + 1)
++    assert.equal(w.touch, -1)
++    same(w.ball, { x: 0, y: 0, vx: 0, vy: 0 })
++    const fresh = world({ kick: 'blue', players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 4, side: 'red' }] })
++    same(w.players.map((p) => [p.x, p.y, p.vx, p.vy]), fresh.players.map((p) => [p.x, p.y, p.vx, p.vy]), 'diziliş')
++  })
++
++  test('sol kaleye giren top Mavinin golüdür, Kırmızı oyuncu attıysa by yine onun yuvasıdır', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    const res = shoot(w, -f.hw + 80, 20, -7, 0.5, 0)
++    same(res.ev, [{ e: 'goal', side: 'blue', by: 0, at: 0 }])
++    assert.equal(w.kick, 'red')
++  })
++
++  test('top kale çizgisini bütünüyle geçmeden gol olmaz', () => {
++    for (const s of [1, -1]) {
++      const w = playWorld()
++      const f = P.field(w.rules)
++      put(w.ball, s * (f.hw + 5), 0)
++      same(run(w, 10, null), [], 'yarısı geçti')
++      put(w.ball, s * (f.hw + P.BALL_R), -5)
++      same(run(w, 10, null), [], 'tam çizgide')
++      put(w.ball, s * (f.hw + P.BALL_R + 0.001), 5)
++      same(run(w, 1, null), [{ e: 'goal', side: s > 0 ? 'red' : 'blue', by: 0, at: 0 }])
++    }
++  })
++
++  test('kale çizgisi boyunca dışarıda yuvarlanan top ve başlama vuruşundaki top gol olmaz', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    put(w.ball, f.hw - P.BALL_R, f.goal / 2 + 40, 0, 4)
++    same(run(w, 120, null), [])
++    const k = world()
++    put(k.ball, f.hw + 15, 0)
++    same(run(k, 5, null), [], 'başlama vuruşu aşamasında gol yok')
++    assert.equal(k.phase, 'kickoff')
++  })
++
++  test('gol sınırına ulaşan takım kazanır, sonra adım hiçbir şey yapmaz', () => {
++    const w = playWorld({ goals: 2 })
++    const f = P.field(w.rules)
++    w.score.blue = 1
++    w.clock = 600
++    const res = shoot(w, -f.hw + 50, 0, -8, 0, 1)
++    same(res.ev, [{ e: 'goal', side: 'blue', by: 1, at: 10 }, { e: 'over', winner: 'blue', why: 'score' }])
++    assert.equal(w.phase, 'over')
++    const before = plain(w)
++    same(run(w, 30, { 0: { x: 1, y: 1, kick: true } }), [])
++    same(w, before)
++  })
++})
++
++describe('süre ve altın gol', () => {
++  test('saat yalnızca oyunda işler, süre bitince önde olan kazanır', () => {
++    const w = playWorld({ secs: 2 })
++    w.score.red = 1
++    assert.equal(P.remaining(w), 120)
++    same(run(w, 119, null), [])
++    assert.equal(w.clock, 119)
++    assert.equal(P.remaining(w), 1)
++    assert.equal(P.matchSecond(w), 1)
++    same(run(w, 1, null), [{ e: 'time' }, { e: 'over', winner: 'red', why: 'time' }])
++    assert.equal(w.phase, 'over')
++    assert.equal(P.remaining(w), 0)
++  })
++
++  test('beraberlikte altın gol: süre yeniden bitmez, ilk gol maçı bitirir', () => {
++    const w = playWorld({ secs: 1 })
++    const f = P.field(w.rules)
++    w.score = { red: 2, blue: 2 }
++    same(run(w, 60, null), [{ e: 'time' }, { e: 'golden' }])
++    assert.equal(w.phase, 'play')
++    assert.equal(w.golden, true)
++    assert.equal(P.remaining(w), 0)
++    same(run(w, 600, null), [], 'süre yeniden bitmez')
++    assert.equal(w.clock, 660)
++    put(w.ball, f.hw - 30, 0, 8, 0)
++    w.touch = 1
++    same(run(w, 30, null), [{ e: 'goal', side: 'red', by: 1, at: 11 }, { e: 'over', winner: 'red', why: 'golden' }])
++    same(w.score, { red: 3, blue: 2 })
++  })
++
++  test('golün saniyesi MAX_AT ile sınırlanır', () => {
++    const w = playWorld()
++    w.clock = (P.MAX_AT + 10) * P.TICK_HZ
++    assert.equal(P.matchSecond(w), P.MAX_AT)
++  })
++})
++
++describe('duraklatma ve durdurma', () => {
++  test('pause adımı durdurur, resume önceki aşamaya döner, stop maçı bitirir', () => {
++    const w = world({ players: eightPlayers() })
++    run(w, 100, bot(xorshift(5)))
++    const phase = w.phase
++    assert.equal(P.pause(w), true)
++    assert.equal(w.phase, 'paused')
++    assert.equal(w.held, phase)
++    assert.equal(P.pause(w), false, 'iki kez duraklatılmaz')
++    const before = plain(w)
++    same(run(w, 50, bot(xorshift(6))), [])
++    same(w, before, 'duraklamada dünya değişmez')
++    assert.equal(P.resume(w), true)
++    assert.equal(w.phase, phase)
++    assert.equal(w.held, null)
++    assert.equal(P.resume(w), false)
++    assert.equal(P.stop(w), true)
++    assert.equal(w.phase, 'over')
++    assert.equal(P.stop(w), false)
++    assert.equal(P.pause(w), false)
++    assert.equal(P.resume(w), false)
++    const b = world()
++    P.pause(b)
++    assert.equal(P.stop(b), true, 'duraklamadaki maç da durdurulur')
++    assert.equal(b.held, null)
++  })
++
++  test('gol beklemesi duraklamada ilerlemez', () => {
++    const w = playWorld()
++    const f = P.field(w.rules)
++    put(w.ball, f.hw + 11, 0)
++    run(w, 1, null)
++    assert.equal(w.phase, 'goal')
++    run(w, 10, null)
++    P.pause(w)
++    run(w, 500, null)
++    P.resume(w)
++    same(run(w, P.GOAL_PAUSE - 11, null), [])
++    same(run(w, 1, null), [{ e: 'kickoff', kick: 'blue' }])
++  })
++})
++
++describe('belirlenimcilik', () => {
++  function simulate (Phys, seed, ticks, kind) {
++    const w = Phys.createWorld({ rules: 'classic', secs: 120, goals: 255, kick: 'red', players: eightPlayers() })
++    const next = xorshift(seed)
++    const input = kind === 'noise' ? noise(next) : bot(next)
++    const events = []
++    let i = 0
++    while (i < ticks) {
++      Phys.step(w, input(w)).forEach((e) => events.push(plain(Object.assign({ tick: w.tick }, e))))
++      i++
++    }
++    return { world: plain(w), events: events }
++  }
++
++  test('aynı tohumlu girdiyle aynı dünya ve aynı olaylar', () => {
++    for (const kind of ['bot', 'noise']) {
++      const a = simulate(P, 42, 6000, kind)
++      const b = simulate(P, 42, 6000, kind)
++      same(a, b, kind)
++      const c = simulate(P, 43, 6000, kind)
++      assert.notDeepEqual(a.world, c.world, 'başka tohum başka sonuç')
++    }
++    const goals = simulate(P, 42, 6000, 'bot').events.filter((e) => e.e === 'goal')
++    assert.ok(goals.length >= 2, 'maçta gol olur: ' + goals.length)
++  })
++
++  test('ayrı bağlamlarda yüklenen iki modül aynı sonucu verir, iç durum paylaşılmaz', () => {
++    const other = load().TelsizHexballPhysics
++    same(simulate(other, 7, 4000, 'bot'), simulate(P, 7, 4000, 'bot'))
++    // İki dünyayı iç içe ilerletmek sonucu değiştirmez
++    const a = P.createWorld({ rules: 'quick', secs: 180, goals: 3, kick: 'blue', players: eightPlayers() })
++    const b = P.cloneWorld(a)
++    const solo = P.cloneWorld(a)
++    const na = xorshift(9)
++    const nb = xorshift(9)
++    const ns = xorshift(9)
++    let i = 0
++    while (i < 3000) {
++      P.step(a, bot(na)(a))
++      P.step(b, bot(nb)(b))
++      i++
++    }
++    run(solo, 3000, bot(ns))
++    same(a, b)
++    same(a, solo)
++  })
++})
++
++describe('enerji ve hız sınırları', () => {
++  test('girdisiz dünyada kinetik enerji hiçbir adımda artmaz', () => {
++    let seed = 1
++    while (seed <= 12) {
++      const next = xorshift(seed)
++      const rules = P.RULES[seed % 3]
++      const w = playWorld({ rules: rules, players: eightPlayers() })
++      const f = P.field(rules)
++      w.players.forEach((p) => {
++        put(p, unit(next) * (f.hw - 20), unit(next) * (f.hh - 20), unit(next) * 5, unit(next) * 5)
++      })
++      put(w.ball, unit(next) * (f.hw - 20), unit(next) * (f.hh - 20), unit(next) * 11, unit(next) * 11)
++      let k = kinetic(w)
++      let i = 0
++      while (i < 900) {
++        P.step(w, null)
++        const now = kinetic(w)
++        assert.ok(now <= k * (1 + 1e-12) + 1e-12, 'tohum ' + seed + ' adım ' + i + ': ' + k + ' -> ' + now)
++        k = now
++        i++
++      }
++      assert.ok(k < 1, 'sürtünmeyle durulur: ' + k)
++      seed++
++    }
++  })
++
++  test('çarpışmalar enerji üretmez: iki disk karşılaşmasında enerji azalır', () => {
++    const w = playWorld()
++    put(slot(w, 0), -40, 60, 4, 0)
++    put(slot(w, 1), -8, 60, -4, 0)
++    const k0 = kinetic(w)
++    P.step(w, null)
++    const lossFree = k0 * P.PLAYER_DAMP * P.PLAYER_DAMP
++    assert.ok(kinetic(w) < lossFree, 'sekme katsayısı 1 altında')
++  })
++
++  test('uzun rastgele oyunda hız sınırları aşılmaz, top ve oyuncular sınırlarda kalır', () => {
++    for (const rules of P.RULES) {
++      for (const kind of ['bot', 'noise']) {
++        const w = P.createWorld({ rules: rules, secs: 600, goals: 255, kick: 'red', players: eightPlayers() })
++        const next = xorshift(rules.length * 31 + kind.length)
++        const input = kind === 'noise' ? noise(next) : bot(next)
++        let topBall = 0
++        let topPlayer = 0
++        let i = 0
++        while (i < 8000) {
++          P.step(w, input(w))
++          checkBounds(w, rules + ' ' + kind)
++          topBall = Math.max(topBall, speed(w.ball))
++          w.players.forEach((p) => {
++            topPlayer = Math.max(topPlayer, speed(p))
++          })
++          i++
++        }
++        assert.ok(topBall <= P.MAX_BALL_SPEED + EPS, rules + ' top ' + topBall)
++        assert.ok(topPlayer <= P.MAX_PLAYER_SPEED + EPS, rules + ' oyuncu ' + topPlayer)
++      }
++    }
++  })
++
++  test('en hızlı top duran oyuncuya çarpınca oyuncu hız sınırında kalır', () => {
++    const w = playWorld()
++    const p = slot(w, 1)
++    put(p, 100, 0)
++    put(w.ball, 60, 0, P.MAX_BALL_SPEED, 0)
++    run(w, 4, null)
++    assert.ok(p.vx > 0)
++    assert.ok(speed(p) <= P.MAX_PLAYER_SPEED + EPS)
++    assert.ok(w.ball.x < p.x - P.PLAYER_R, 'top oyuncudan geçmedi')
++  })
++})
++
++describe('kural motoruyla uyum', () => {
++  // Ev sahibinin yaptığı gibi: kural motorunda maç başlar, fizik yuvalar ve başlayan takımla kurulur, fiziğin goal ve
++  // time olayları hamle olarak kural motoruna verilir. İki taraf aynı skora, aynı başlayan takıma ve aynı sonuca varır.
++  function match (rules, seed, secs) {
++    const ctx = load({ rules: true })
++    const H = ctx.TelsizHexball
++    const Phys = ctx.TelsizHexballPhysics
++    const ids = ['5', '12', '7', '30', '41', '8']
++    const host = ids[0]
++    const bytes = xorshift(seed)
++    let s = H.newGame({ rules: rules, players: ids, dealSeat: 0 }).state
++    s = H.applyMove(s, host, { t: 'kickoff' }, (n) => {
++      const out = []
++      while (out.length < n) out.push(bytes() & 255)
++      return out
++    }).state
++    const owner = {}
++    const players = s.seats.filter((id) => s.teams[id] !== 'spec').map((id) => {
++      owner[s.slots[id]] = id
++      return { slot: s.slots[id], side: s.teams[id] }
++    })
++    const w = Phys.createWorld({ rules: rules, secs: secs || H.PRESETS[rules].secs, goals: H.goalLimit(rules), kick: s.kick, players: players })
++    const input = bot(xorshift(seed + 1000))
++    const noRng = () => {
++      throw new Error('rng çağrılmamalı')
++    }
++    const seen = []
++    let i = 0
++    while (w.phase !== 'over' && i < 200000) {
++      Phys.step(w, input(w)).forEach((e) => {
++        seen.push(e.e)
++        if (e.e === 'goal') {
++          const by = e.by === null ? null : owner[e.by]
++          s = H.applyMove(s, host, { t: 'goal', mt: s.mt, side: e.side, by: by, at: e.at }, noRng).state
++        } else if (e.e === 'time') {
++          s = H.applyMove(s, host, { t: 'time', mt: s.mt }, noRng).state
++        } else if (e.e === 'over') {
++          assert.equal(s.ph, 'result')
++          same(s.result, { winner: e.winner, why: e.why })
++        }
++        assert.ok(H.validateState(s))
++      })
++      same(s.score, w.score)
++      assert.equal(s.golden, w.golden)
++      if (s.ph === 'match') assert.equal(s.kick, w.kick)
++      i++
++    }
++    assert.equal(w.phase, 'over')
++    assert.equal(s.ph, 'result')
++    return { seen: seen, result: plain(s.result), score: plain(s.score) }
++  }
++
++  test('quick ve classic: gol sınırı ya da süre', () => {
++    const q = match('quick', 1)
++    const c = match('classic', 2)
++    for (const r of [q, c]) {
++      assert.ok(['score', 'time', 'golden'].indexOf(r.result.why) >= 0)
++      assert.ok(r.seen.indexOf('goal') >= 0)
++      assert.ok(r.seen.indexOf('play') >= 0)
++    }
++  })
++
++  test('kısa süreli long: süre biter, beraberlikte altın golle biter', () => {
++    let golden = null
++    let timed = null
++    let seed = 1
++    while (seed < 40 && (golden === null || timed === null)) {
++      const r = match('long', seed, 4)
++      if (r.result.why === 'golden' && golden === null) golden = r
++      if (r.result.why === 'time' && timed === null) timed = r
++      seed++
++    }
++    assert.ok(golden, 'altın golle biten maç bulundu')
++    assert.ok(golden.seen.indexOf('golden') >= 0)
++    assert.equal(Math.abs(golden.score.red - golden.score.blue), 1)
++    assert.ok(timed, 'süreyle biten maç bulundu')
++  })
++})

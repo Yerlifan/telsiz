@@ -1,0 +1,47 @@
+From b3de39d2fc8cca7a248f2f771bb50938fefd7b20 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:27:14 +0000
+Subject: [PATCH 55/69] =?UTF-8?q?G12:=20inceleme=20d=C3=BCzeltmeleri=20(CH?=
+ =?UTF-8?q?ANGELOG'da=20rol=20renkleri=20notu=20d=C3=BCzeltildi)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Açık modların ortak rol renklerinden yalnızca yedisi değişti ve hepsi
+koyulaştı, mavi (#1f56c0) aynı kaldı. TR ve EN not bunu söyler, öteki
+ayarlanan renklerin hangisinin koyulaşıp hangisinin açıldığı da ayrı
+yazılır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md | 2 +-
+ CHANGELOG.md    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 83e077e..0915e27 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -13,7 +13,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ 
+ - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
+ - The display name and @username on the profile card now sit to the right of the profile picture, with the role right next to the name. Before, the name, username and role were stacked below the picture. Plain members now also get a faint "Member" badge on their card, and someone with a custom role shows both badges. The My Account and Profile previews in Settings and the head of the avatar menu use the same layout and also show the custom role (the avatar menu used to write the role next to the username). If the name is long the role wraps to the next line, and if the card gets very narrow (for example on a phone with a large font size) the name moves below the picture. On a phone with a large font size the right edge of the card no longer runs off the screen.
+-- In every theme text and user interface component colors are now measured on all nine surfaces, hover and selected backgrounds included (`scripts/kontrast.js`, `test/tema.test.js`). Colors that fell slightly below the threshold in this measurement were adjusted: in Night Frequency light mode the online and idle markers, in Turquoise and Copper dark mode the danger text and the input border, in its light mode the live color, and in all light modes the eight custom role colors became slightly darker or lighter. The colors of the Camera, Microphone, Deafen and Screen buttons on the radio card now come from tone tokens (`--tone-*`) that themes can override.
++- In every theme text and user interface component colors are now measured on all nine surfaces, hover and selected backgrounds included (`scripts/kontrast.js`, `test/tema.test.js`). Colors that fell slightly below the threshold in this measurement were adjusted: the online and idle markers in Night Frequency light mode and the live color in Turquoise and Copper light mode became slightly darker, and the danger text and the input border in Turquoise and Copper dark mode became slightly lighter. Of the eight custom role colors shared by the light modes, seven became slightly darker and blue stayed the same. The colors of the Camera, Microphone, Deafen and Screen buttons on the radio card now come from tone tokens (`--tone-*`) that themes can override.
+ 
+ ### Fixes
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4a5dedb..c160c00 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -13,7 +13,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ 
+ - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
+ - Profil kartında görünen ad ve @kullanıcı adı artık profil resminin sağında, rol de adın hemen yanında durur. Önceden ad, kullanıcı adı ve rol resmin altında alt alta diziliyordu. Düz üyelerin kartında da soluk bir "Üye" rozeti çıkar, özel rolü olan kişide iki rozet de görünür. Ayarlar'daki Hesabım ve Profil önizlemeleri ile avatar menüsünün başı aynı düzeni kullanır ve özel rolü de gösterir (avatar menüsü önceden rolü kullanıcı adının yanında yazıyordu). Ad uzunsa rol alt satıra kayar, kart çok daralırsa (örneğin telefonda büyük yazı boyutuyla) ad resmin altına iner. Telefonda büyük yazı boyutunda kartın sağ kenarı artık ekrandan taşmaz.
+-- Bütün temalarda metin ve arayüz bileşeni renkleri artık üzerine gelme ve seçili zeminler dahil dokuz yüzeyin hepsinde ölçülür (`scripts/kontrast.js`, `test/tema.test.js`). Bu ölçümde eşiğin biraz altında kalan renkler ayarlandı: Gece Frekansı açık modda çevrimiçi ve boşta işaretleri, Turkuaz ve Bakır koyu modda tehlike metni ve girdi kenarı, açık modda canlı rengi ve bütün açık modlarda sekiz özel rol rengi biraz koyulaştı veya açıldı. Telsiz kartındaki Kamera, Mikrofon, Sağırlaştır ve Ekran düğmelerinin renkleri artık temaların ezebildiği ton belirteçlerinden (`--tone-*`) gelir.
++- Bütün temalarda metin ve arayüz bileşeni renkleri artık üzerine gelme ve seçili zeminler dahil dokuz yüzeyin hepsinde ölçülür (`scripts/kontrast.js`, `test/tema.test.js`). Bu ölçümde eşiğin biraz altında kalan renkler ayarlandı: Gece Frekansı açık modda çevrimiçi ve boşta işaretleri ile Turkuaz ve Bakır açık modda canlı rengi biraz koyulaştı, Turkuaz ve Bakır koyu modda tehlike metni ve girdi kenarı biraz açıldı. Açık modlarda ortak kullanılan sekiz özel rol renginden yedisi biraz koyulaştı, mavi aynı kaldı. Telsiz kartındaki Kamera, Mikrofon, Sağırlaştır ve Ekran düğmelerinin renkleri artık temaların ezebildiği ton belirteçlerinden (`--tone-*`) gelir.
+ 
+ ### Düzeltmeler
+ 

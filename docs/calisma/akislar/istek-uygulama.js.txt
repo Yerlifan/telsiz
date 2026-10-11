@@ -1,0 +1,192 @@
+export const meta = {
+  name: 'istek-uygulama',
+  description: '18 isteği plan gruplarına göre iki paralel zincirde, ayrı çalışma kopyalarında uygula, her grubu bağımsız incele ve düzelt, sonunda zincirleri birleştir',
+  phases: [
+    { title: 'G0', detail: 'iskele ve hızlı düzeltmeler, iki zincirin ortak tabanı' },
+    { title: 'Zincir A', detail: 'G2, G6, G7, G12, G14, G9, G10, G13 (çalışma kopyası /home/user/wt/a)' },
+    { title: 'Zincir B', detail: 'G1, G3, G4, G5, G8, G11, G16, G15 (çalışma kopyası /home/user/wt/b)' },
+    { title: 'Birleştirme', detail: 'istek/b dalını istek/a dalına birleştir, bütün testler' }
+  ]
+}
+
+const ANA = '/home/user/ps5-pc-communication'
+const PLAN = ANA + '/docs/calisma/istek-plani.md'
+const RAPOR = ANA + '/docs/calisma/raporlar/wf_0a579f99-523-ara-t-rma-'
+const YT_NOT = ANA + '/docs/calisma/youtube-arama-notlari.md'
+const YT_ORNEK = ANA + '/docs/calisma/yt-arama/'
+const TASARIM = ANA + '/docs/calisma/tasarim/'
+const WT_A = '/home/user/wt/a'
+const WT_B = '/home/user/wt/b'
+const IMZA = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT'
+
+const KURALLAR = `Ortak kurallar (hepsine uy):
+1. Yalnızca sana verilen çalışma kopyasında çalış ve her zaman mutlak yol kullan. Ana kopya ${ANA} içinde başka bir iş akışı Renk kart oyununu yazıyor. Orada hiçbir dosyayı değiştirme ve git komutu çalıştırma. Oradan yalnızca docs/calisma altındaki plan, rapor ve örnek dosyaları okuyabilirsin.
+2. Plan: ${PLAN}. Önce şu bölümleri oku: 2 (kısıtlar), 3.1 (numara ve yuva dağıtımı), 3.3 sonundaki çakışmayı azaltan kurallar, 5 başındaki ortak kurallar ve kendi grubunun bölümü. Ayrıntı için ilgili araştırma raporunu oku: ${RAPOR}<alan>.txt (alanlar: dj, profil, yuzen, gezinme, tasarim, parola, android, hexball).
+3. Planın satır numaraları eski bir HEAD'e göredir, yeri işlev adıyla bul. Plan yanlışsa ya da uygulanamıyorsa en küçük sapmayı yap ve gerekçesini sonuçta "sapmalar" alanına yaz. Doğrulayamadığın dış bilgiyi kodda, metinde ya da belgede doğruymuş gibi yazma.
+4. Kullanıcı kararları: Plandaki "Önerilen varsayılan" sütunu ve grup bölümlerindeki varsayılanlar onaylanmış sayılır (kullanıcı "hepsini yap" ve "bütün yetki sende" dedi). İstek 5 için kullanıcı Data API anahtarı yerine anahtarsız sunucu aramasını seçti, ayrıntılar ${YT_NOT}. G7, G14 ve G15 için proje kuralının istediği issue'ları orkestratör açar, sen issue açma.
+5. git: Her plan adımını ya da birbirine sıkı bağlı birkaç küçük adımı ayrı commit'le. Commit başlığı "<grup>: <Türkçe kısa özet>" biçiminde olsun. Mesajın sonuna bir boş satır ve tam olarak şu iki satırı ekle:
+${IMZA}
+Asla push etme. git stash, git checkout, git switch, git restore, git reset --hard, git rebase, git commit --amend ve git clean kullanma. Başka dala geçme. Commit'lenmemiş bir değişikliği geri almak gerekirse dosyayı düzenleyerek geri al.
+6. Her commit'ten önce çalışma kopyasında "npm run denetle" ve "npm test" geçmeli. Kendi e2e dosyalarını "node --test e2e/<dosya>" ile çalıştır. Chromium /opt/pw-browsers altında hazır, playwright install çalıştırma. Grubun sonunda dokunduğun alanın var olan e2e dosyalarını da çalıştır. Makinede başka testler de koştuğu için bir e2e testi zamanlama yüzünden düşerse bir kez yeniden çalıştır. İkinci kez düşen test gerçek hatadır, düzelt. Hiçbir testi atlama, devre dışı bırakma ya da gevşetme.
+7. Kapsam: Yalnızca kendi grubunun adımlarını yap. Renk dosyalarına (public/voice.js, public/js/33 ile 37 arası dosyalar, public/css/oyun.css, public/css/renk.css) dokunma. Bu dosyalar senin çalışma kopyanda yok ya da eski hâlde olabilir, bu beklenen bir durumdur.
+8. Yazım: CONTRIBUTING kuralları geçerli (ES2017, innerHTML yok, noktalı virgülsüz kod, uzun ve kısa tire yok, Markdown düzyazısında noktalı virgül yok, CSS'te grid, gap, clamp, :is, :where, aspect-ratio ve inset yok). Arayüz metinleri resmî ve doğal Türkçe olsun, İngilizce karşılıkları da eklensin. Düğme etiketlerinde her kelime büyük harfle başlar. Belgelerde ve arayüzde başka bir sohbet uygulamasının adı geçmez. Yazar adı gerekirse Burak Aslancan Pak.
+9. Her grup CHANGELOG'a TR ve EN olarak "Yayımlanmamış" (Unreleased) başlığı altına kendi paragrafını ekler. Belge çiftleri (README ve README.en gibi) birlikte güncellenir.
+10. Grubun bazı adımları önceki bir denemede commit'lenmiş olabilir. Başlarken "git log --oneline" ile kendi grubunun commit'lerine bak ve bitenleri tekrarlama. Commit'lenmemiş değişiklik varsa incele, doğruysa sürdür.
+11. Çözemediğin bir sorun kalırsa yarım ve testten geçmeyen işi commit'leme, durumu sonuçta açıkça yaz.`
+
+const IMPL_SCHEMA = {
+  type: 'object',
+  properties: {
+    tamam: { type: 'boolean', description: 'grubun bütün adımları bitti ve testler geçti mi' },
+    baslangic: { type: 'string', description: 'grubun ilk commitinden hemen önceki commitin tam sha değeri' },
+    commitler: { type: 'array', items: { type: 'string' }, description: 'kısa sha ve başlık' },
+    testler: { type: 'string', description: 'çalıştırılan denetim, birim ve e2e testleri ve sonuçları' },
+    sapmalar: { type: 'array', items: { type: 'string' } },
+    kullaniciya: { type: 'array', items: { type: 'string' }, description: 'kullanıcının yapması ya da bilmesi gerekenler' },
+    kalan: { type: 'array', items: { type: 'string' }, description: 'yapılamayan adımlar ve nedeni' }
+  },
+  required: ['tamam', 'baslangic', 'commitler', 'testler', 'sapmalar', 'kullaniciya', 'kalan']
+}
+
+const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    bulgular: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          onem: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] },
+          dosya: { type: 'string' },
+          satir: { type: 'integer' },
+          ozet: { type: 'string' },
+          senaryo: { type: 'string', description: 'somut girdi ya da durum ve yanlış sonuç' },
+          oneri: { type: 'string' }
+        },
+        required: ['onem', 'dosya', 'ozet', 'senaryo']
+      }
+    },
+    testler: { type: 'string' }
+  },
+  required: ['bulgular', 'testler']
+}
+
+const FIX_SCHEMA = {
+  type: 'object',
+  properties: {
+    duzeltilen: { type: 'array', items: { type: 'string' } },
+    reddedilen: { type: 'array', items: { type: 'string' }, description: 'gerçek olmadığı doğrulanan bulgular ve kanıtı' },
+    commitler: { type: 'array', items: { type: 'string' } },
+    testler: { type: 'string' }
+  },
+  required: ['duzeltilen', 'reddedilen', 'commitler', 'testler']
+}
+
+const WT_B_HAZIRLIK = `Önce çalışma kopyasını hazırla. ${WT_B} yoksa şunları çalıştır:
+git -C ${ANA} worktree add ${WT_B} -b istek/b istek/a
+ln -s ${ANA}/node_modules ${WT_B}/node_modules
+ln -s ${ANA}/desktop/node_modules ${WT_B}/desktop/node_modules
+${WT_B} zaten varsa ve istek/b dalındaysa olduğu gibi kullan. node_modules bağlantıları eksikse ekle.`
+
+const GRUPLAR = {
+  G0: { ad: 'İskele ve hızlı düzeltmeler (istek 12, tasarım bulguları A ve D)', alan: 'tasarim ve profil' },
+  G1: { ad: 'Masaüstü pencere ve boşta kanalları', alan: 'yuzen, dj ve profil' },
+  G2: { ad: 'Taslak ve ek sızıntısı (istek 17, P0)', alan: 'gezinme' },
+  G3: { ad: 'Telsiz DJ çekirdeği (istek 6, 13 birinci aşama, 15, 18)', alan: 'dj' },
+  G4: { ad: 'Telsiz DJ araması, anahtarsız (istek 5)', alan: 'dj', ek: `Bu grup kullanıcının anahtarsız arama kararını uygular. Teknik notlar ${YT_NOT}. Örnek yanıtlar ${YT_ORNEK} altında (ornek-videorenderer.json, ornek-lockupviewmodel.json, taslak.js.txt). Örnekleri test/fixtures/yt-arama/ altına kopyala. Bu makine youtube.com'a erişemez, canlı istek atma, testlerde sahte HTTPS sunucusu ya da enjekte edilen istek işlevi kullan. Belgelerde Hizmet Şartları riskini ve ilk canlı denemenin sunucuda yapılacağını açıkça yaz.` },
+  G5: { ad: 'Kalıcı YouTube çerçevesi (istek 13 ikinci aşama)', alan: 'dj' },
+  G6: { ad: 'Profil eşitlemesi ve kart düzeni (istek 3, 9)', alan: 'profil' },
+  G7: { ad: 'Kapak fotoğrafı (istek 8)', alan: 'profil' },
+  G8: { ad: 'Otomatik boşta (istek 2)', alan: 'profil' },
+  G9: { ad: 'Gezinme 1 (istek 17)', alan: 'gezinme' },
+  G10: { ad: 'Gezinme 2 (istek 17)', alan: 'gezinme' },
+  G11: { ad: 'Yüzen pencereler (istek 7, 16)', alan: 'yuzen' },
+  G12: { ad: 'Yeni temalar (istek 11)', alan: 'tasarim', ek: `Planın bahsettiği yeni-temalar.css dosyası ${TASARIM}yeni-temalar.css.txt olarak saklandı.` },
+  G13: { ad: 'Özgün tasarım, Telsiz yönü (istek 10)', alan: 'tasarim', ek: `Planın bahsettiği telsiz-yonu-prototip.css dosyası ${TASARIM}telsiz-yonu-prototip.css.txt olarak saklandı.` },
+  G14: { ad: 'Kurtarma kodu, şifremi unuttum (istek 14)', alan: 'parola' },
+  G15: { ad: 'Android uygulaması (istek 1)', alan: 'android', ek: 'Android SDK bu makinede indirilemez, APK ve AAB yalnızca GitHub Actions üzerinde derlenir. Saf Kotlin ya da JVM çekirdeğini burada sınayabildiğin kadar sına. GitHub Actions iş akışı PR üzerinde kırmızıya düşerse birleştirmeyi engelleyeceği için iş akışını dikkatle yaz ve sonuçta derlemenin burada doğrulanamadığını açıkça belirt. İmza anahtarı, Play Console hesabı ve gizli değerler kullanıcıya kalır, depoya hiçbir gizli değer yazma.' },
+  G16: { ad: 'İçerik şikâyeti (Play önkoşulu)', alan: 'android' }
+}
+
+function implPrompt (id, wt, hazirlik) {
+  const g = GRUPLAR[id]
+  return `Telsiz deposunda plan grubu ${id} uyguluyorsun: ${g.ad}.
+Çalışma kopyan: ${wt} (yerel dal ${wt === WT_A ? 'istek/a' : 'istek/b'}).
+${hazirlik || ''}
+Planda grubunun bölümü "### ${id} " başlığıyla başlar. İlgili araştırma raporları: ${g.alan}.
+${g.ek || ''}
+
+${KURALLAR}
+
+Grubun bütün adımlarını uygula, testlerini yaz, belgelerini güncelle ve adım adım commit'le. Sonuç olarak şemadaki alanları doldur. "baslangic" alanına grubunun ilk commit'inden hemen önceki commit'in tam sha değerini yaz.`
+}
+
+function reviewPrompt (id, wt, impl) {
+  const g = GRUPLAR[id]
+  return `Bağımsız ve şüpheci bir kod inceleyicisisin. Telsiz deposunda plan grubu ${id} (${g.ad}) az önce uygulandı. Çalışma kopyası: ${wt}. İnceleyeceğin değişiklik: "git -C ${wt} diff ${impl.baslangic}..HEAD" ve "git -C ${wt} log --oneline ${impl.baslangic}..HEAD".
+Hiçbir dosyayı değiştirme, commit atma.
+Uygulayıcının bildirdiği sapmalar: ${JSON.stringify(impl.sapmalar)}. Yapamadıkları: ${JSON.stringify(impl.kalan)}.
+Plan: ${PLAN} (grubun bölümü "### ${id} " başlığıyla başlar, kabul ölçütlerine bak). İlgili araştırma raporları: ${RAPOR}<alan>.txt, alanlar: ${g.alan}.
+
+Bul ve bildir:
+- Gerçek hatalar: yanlış mantık, yarış durumları, hata yollarında çökme, eski veriyle uyumsuzluk, bellek ya da dinleyici sızıntısı.
+- Planın kabul ölçütlerinden karşılanmayanlar ve atlanmış adımlar.
+- Güvenlik ve gizlilik: sunucu uçlarında yetki ve girdi denetimi, şifreli içeriğin sunucuya düz metin sızması, masaüstü pencere ve IPC güvenliği, dış isteklerde zaman aşımı ve boyut sınırı.
+- Var olan özelliklerde gerileme.
+- Proje kurallarına aykırılık: CONTRIBUTING kuralları, düğme etiketlerinde her kelimenin büyük harfle başlaması, TR ve EN metinlerin eksiksizliği, belgede ya da arayüzde başka bir sohbet uygulamasının adının geçmesi.
+- Test eksikleri: değişikliğin önemli bir yolu hiç sınanmıyorsa.
+Ayrıca çalışma kopyasında "npm run denetle", "npm test" ve grubun e2e dosyalarını çalıştır, sonuçlarını yaz.
+Yalnızca somut ve doğrulanabilir bulguları bildir. Her bulgu için somut bir başarısızlık senaryosu ver. Zevk meselesi olan üslup önerilerini bildirme.`
+}
+
+function fixPrompt (id, wt, impl, rev) {
+  const g = GRUPLAR[id]
+  return `Telsiz deposunda plan grubu ${id} (${g.ad}) uygulandı ve bağımsız bir inceleyici aşağıdaki bulguları bildirdi. Çalışma kopyası: ${wt}. Grubun değişikliği: "git -C ${wt} diff ${impl.baslangic}..HEAD".
+Bulgular:
+${JSON.stringify(rev.bulgular, null, 1)}
+İnceleyicinin test sonuçları: ${rev.testler}
+
+Her bulguyu kodda doğrula. Gerçekse düzelt, gerekiyorsa test ekle. Gerçek değilse neden olmadığını kanıtıyla yaz. Düzeltmeleri "${id}: inceleme düzeltmeleri" başlıklı bir ya da birkaç commit olarak at.
+
+${KURALLAR}`
+}
+
+async function grup (id, wt, zincir, hazirlik) {
+  const impl = await agent(implPrompt(id, wt, hazirlik), { label: id + ' uygula', phase: zincir, schema: IMPL_SCHEMA })
+  if (!impl) return { id, hata: 'uygulama ajanı sonuç vermedi' }
+  log(id + ' uygulandı, tamam=' + impl.tamam + ', ' + impl.commitler.length + ' commit')
+  const rev = await agent(reviewPrompt(id, wt, impl), { label: id + ' incele', phase: zincir, schema: REVIEW_SCHEMA })
+  let fix = null
+  if (rev && rev.bulgular.length > 0) {
+    fix = await agent(fixPrompt(id, wt, impl, rev), { label: id + ' düzelt', phase: zincir, schema: FIX_SCHEMA })
+  }
+  log(id + ' bitti, bulgu ' + (rev ? rev.bulgular.length : 'yok') + ', düzeltilen ' + (fix ? fix.duzeltilen.length : 0))
+  return { id, impl, inceleme: rev, duzeltme: fix }
+}
+
+async function zincir (ad, wt, ids, ilkHazirlik) {
+  const sonuc = []
+  for (let i = 0; i < ids.length; i++) {
+    sonuc.push(await grup(ids[i], wt, ad, i === 0 ? ilkHazirlik : ''))
+  }
+  return sonuc
+}
+
+phase('G0')
+const g0 = await grup('G0', WT_A, 'G0', '')
+
+const zincirler = await parallel([
+  () => zincir('Zincir A', WT_A, ['G2', 'G6', 'G7', 'G12', 'G14', 'G9', 'G10', 'G13'], ''),
+  () => zincir('Zincir B', WT_B, ['G1', 'G3', 'G4', 'G5', 'G8', 'G11', 'G16', 'G15'], WT_B_HAZIRLIK)
+])
+
+phase('Birleştirme')
+const birlesme = await agent(`Telsiz deposunda iki yerel dal paralel geliştirildi: istek/a (çalışma kopyası ${WT_A}) ve istek/b (çalışma kopyası ${WT_B}). İkisi de G0 grubundan sonra ayrıldı. Görevin istek/b dalını ${WT_A} içinde istek/a dalına birleştirmek.
+1. ${WT_A} içinde "git merge --no-ff istek/b" çalıştır. Commit mesajı "Birleştirme: istek/b dalı istek/a dalına" olsun ve sonuna bir boş satır ile şu iki satır eklensin:
+${IMZA}
+2. Çakışmaları iki tarafın özelliklerini de koruyarak çöz. public/i18n.js içinde gruplar kendi işaret yorumlarının altına yazdı, iki tarafın anahtarlarını da tut. index.html ve sw.js içindeki betik satırlarını numara sırasıyla tut. CHANGELOG paragraflarının ikisini de tut.
+3. Birleştirmeden sonra "npm run denetle", "npm test" ve bütün e2e testlerini ("npm run test:e2e", Chromium) çalıştır. Birleştirmeden doğan hataları düzelt ve "Birleştirme: düzeltmeler" başlığıyla commit'le.
+Asla push etme. git stash, git checkout, git switch, git restore, git reset --hard, git rebase, git commit --amend ve git clean kullanma. Ana kopya ${ANA} içinde hiçbir şey değiştirme.
+Sonuç: çakışan dosyalar ve nasıl çözüldükleri, test sonuçları, kalan sorunlar.`, { label: 'zincirleri birleştir', phase: 'Birleştirme' })
+
+return { g0, zincirA: zincirler[0], zincirB: zincirler[1], birlesme }

@@ -1,0 +1,140 @@
+From 9faa8b11f2da23525d967a1b583989ac770494d0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 04:37:36 +0000
+Subject: [PATCH 36/69] =?UTF-8?q?G6:=20inceleme=20d=C3=BCzeltmeleri=20(pol?=
+ =?UTF-8?q?l=20d=C3=B6ng=C3=BCs=C3=BCn=C3=BCn=20profil=20yeniden=20denemes?=
+ =?UTF-8?q?ini=20ba=C5=9Flatmas=C4=B1=20s=C4=B1nan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+profilesAfterPoll'u poll döngüsüne bağlayan satır hiçbir testte
+çalışmıyordu. social.test.js isteyen testte 05-poll.js'i de tarayıcıdaki
+sırasıyla yükler. Yeni test sahte api ile pollLoop'u çalıştırır: beş kez
+düşen profil isteği ve dört kez düşen profil resmi hata yanıtından sonra
+istenmez, başarılı yanıttan sonra ikisi de 60 saniye içinde gelir. Satır
+silinince veya hata dalına taşınınca test düşer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ test/social.test.js | 78 +++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 75 insertions(+), 3 deletions(-)
+
+diff --git a/test/social.test.js b/test/social.test.js
+index 549d975..4d750bc 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -8,7 +8,8 @@
+ // artan beklemeyle yeniden denenmesi, başarılı poll'dan sonra bekleme dolunca yeniden istenmesi (ağ düzelince en geç
+ // 60 saniye), ilk kez istenen kişinin ve kendi kaydedilen profilin beklemeye takılmaması, profil resmi indirmesinin
+ // yeniden denenmesi, deneme hakkı bitse de başarılı poll'dan sonra ağ düzelince en geç 60 saniye içinde gelmesi ve
+-// kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
++// kalıcı hatada (404, çözülemeyen dosya) durması, poll döngüsünün (05-poll.js pollLoop) bu yeniden denemeleri yalnızca
++// başarılı yanıttan sonra başlatması sahte saatle (t.mock.timers), önbellekli
+ // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
+ // bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
+ // kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, önbelleğin son kullanılan
+@@ -29,6 +30,9 @@ const FILES = [
+   'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js'
+ ]
+ const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
++// Poll döngüsü yalnızca isteyen testlerde, tarayıcıdaki sırasıyla (02-state-dom.js ile 06-messages.js arasında) yüklenir
++const POLL_SOURCE = { file: 'js/05-poll.js', code: fs.readFileSync(path.join(PUB, 'js/05-poll.js'), 'utf8') }
++const POLL_AT = FILES.indexOf('js/06-messages.js')
+ 
+ function makeStorage () {
+   const map = new Map()
+@@ -44,7 +48,7 @@ function makeStorage () {
+ }
+ 
+ // Yeni bir bağlamda istemci modüllerini yükler, modüllerin genel adlarına erişim için run(ifade) döner.
+-// opts.clock: sahte saat açıkken bağlam testin (sahte) Date ve zamanlayıcılarını kullanır.
++// opts.clock: sahte saat açıkken bağlam testin (sahte) Date ve zamanlayıcılarını kullanır. opts.poll: 05-poll.js de yüklenir.
+ function load (opts) {
+   const options = opts || {}
+   const sandbox = vm.createContext({})
+@@ -60,7 +64,8 @@ function load (opts) {
+   sandbox.navigator = { languages: ['tr-TR'], language: 'tr-TR', userAgent: 'node' }
+   sandbox.document = { documentElement: { lang: 'tr' }, readyState: 'complete', hidden: false }
+   sandbox.console = { warn () {}, log () {}, error () {} }
+-  for (const src of SOURCES) vm.runInContext(src.code, sandbox, { filename: src.file })
++  const sources = options.poll ? SOURCES.slice(0, POLL_AT).concat([POLL_SOURCE], SOURCES.slice(POLL_AT)) : SOURCES
++  for (const src of sources) vm.runInContext(src.code, sandbox, { filename: src.file })
+   const run = (code) => vm.runInContext(code, sandbox)
+   // Oturum: kendi kimliğim 1, sunucudaki açık anahtar ve bu cihazdaki kimlik
+   run("state.me = { id: 1, name: 'burak', role: 'owner', status: 'online' }")
+@@ -648,6 +653,73 @@ test('başarılı poll deneme hakkı bitmiş kapağı yalnızca kart açıkken y
+   assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
+ })
+ 
++test('poll döngüsü düşen profil isteğini ve profil resmini başarılı yanıttan sonra yeniden ister, hata yanıtından sonra istemez', async (t) => {
++  // Kişi 2'nin profil resmi indirmesi ve kişi 3'ün profil isteği ağ düzelene kadar düşer
++  let up = false
++  const { ctx, downloads } = avatarWorld(t, () => (up ? { ok: true, bytes: new Uint8Array(PNG_BYTES) } : { ok: false, status: 0 }), { poll: true })
++  const { run, sandbox } = ctx
++  const tick = async (ms) => {
++    t.mock.timers.tick(ms)
++    await flush()
++  }
++  // Sahte api: poll yanıtı test çözene kadar bekler (uzun poll), profil isteği ağ durumuna göre yanıtlanır
++  const polls = []
++  const profileCalls = []
++  sandbox.__api = (method, url) => {
++    if (url.indexOf('/api/poll?') === 0) {
++      let resolve = null
++      const pending = new Promise((r) => {
++        resolve = r
++      })
++      pending.abort = () => resolve({ status: 0, data: null })
++      polls.push(resolve)
++      return pending
++    }
++    profileCalls.push(url)
++    return Promise.resolve(up ? { status: 200, data: { profiles: [{ id: 3, pv: 2, profile: null }] } } : { status: 0, data: null })
++  }
++  run('api = function (method, url) { return __api(method, url) }')
++  run('el.connBanner = { hidden: true }')
++  run("state.token = 'oturum'")
++  run('state.meta.users[1].pv = 2')
++  run("state.meta.users.push({ id: 3, name: 'mert', role: 'member', online: true, status: 'online', pv: 2 })")
++  run('storeProfileEntry({ id: 1, pv: 1, profile: null })')
++  run('profilesOnMeta()')
++  // Profil isteği beş kez (ilk istek ve 2, 5, 15, 60 saniye sonra), profil resmi dört kez düşer
++  for (const wait of Array(400).fill(1000)) await tick(wait)
++  assert.deepStrictEqual(profileCalls, Array(5).fill('/api/profiles?ids=3'))
++  assert.strictEqual(downloads.length, 4)
++  // Poll döngüsü başlar, ilk poll hata döner: profil isteği ve indirme başlamaz
++  run('startPoll()')
++  await flush()
++  assert.strictEqual(polls.length, 1)
++  polls[0]({ status: 0, data: null })
++  await flush()
++  assert.strictEqual(run('state.connLost'), true)
++  await tick(1000)
++  assert.strictEqual(polls.length, 2, 'hatadan sonra yeni poll')
++  await tick(120000)
++  assert.strictEqual(profileCalls.length, 5, 'hata yanıtı profil isteği başlatmaz')
++  assert.strictEqual(downloads.length, 4, 'hata yanıtı indirme başlatmaz')
++  // Ağ düzeldi, poll başarılı döner: profil ve profil resmi 60 saniye içinde gelir
++  up = true
++  polls[1]({ status: 200, data: {} })
++  await flush()
++  assert.strictEqual(run('state.connLost'), false)
++  assert.strictEqual(polls.length, 3, 'başarılı yanıttan sonra yeni poll')
++  let waited = 0
++  while (waited < 60000 && (run('profileRecord(3)') === null || run('avatarUrlOf(2)') === null)) {
++    await tick(1000)
++    waited += 1000
++  }
++  assert.strictEqual(run('profileRecord(3).pv'), 2, 'profil ' + waited + ' ms içinde gelir')
++  assert.strictEqual(run('avatarUrlOf(2)'), 'blob:profil-resmi')
++  assert.strictEqual(profileCalls.length, 6)
++  assert.strictEqual(downloads.length, 5)
++  run('stopPoll()')
++  await flush()
++})
++
+ test('profiller sıfırlanınca bekleyen profil resmi denemesi iptal olur', async (t) => {
+   const { ctx, downloads } = avatarWorld(t, [{ ok: false, status: 0 }])
+   await flush()

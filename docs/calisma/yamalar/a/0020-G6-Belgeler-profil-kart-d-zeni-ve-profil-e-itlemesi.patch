@@ -1,0 +1,101 @@
+From 15fdf0056ff76cc18285703e5df337560f316783 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:59:14 +0000
+Subject: [PATCH 20/69] =?UTF-8?q?G6:=20Belgeler:=20profil=20kart=C4=B1=20d?=
+ =?UTF-8?q?=C3=BCzeni=20ve=20profil=20e=C5=9Fitlemesi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+TASARIM ve DESIGN bileşen tablosuna profil kartı satırı, rozet satırına
+soluk Üye rozeti ve özel rol rozeti, avatar menüsü satırına baş kısmın yeni
+düzeni eklendi. CHANGELOG iki dilde: kart düzeni (Değişiklikler) ve profil
+eşitlemesi (Düzeltmeler) (istek 3, 9).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md | 2 ++
+ CHANGELOG.md    | 2 ++
+ docs/DESIGN.md  | 5 +++--
+ docs/TASARIM.md | 5 +++--
+ 4 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 609a9ae..8ae1469 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -7,9 +7,11 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ ### Changes
+ 
+ - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
++- The display name and @username on the profile card now sit to the right of the profile picture, with the role right next to the name. Before, the name, username and role were stacked below the picture. Plain members now also get a faint "Member" badge on their card, and someone with a custom role shows both badges. The My Account and Profile previews in Settings and the head of the avatar menu use the same layout and also show the custom role (the avatar menu used to write the role next to the username). If the name is long the role wraps to the next line, and if the card gets very narrow (for example on a phone with a large font size) the name moves below the picture.
+ 
+ ### Fixes
+ 
++- Profile changes did not show up everywhere: when someone changed their display name or profile picture, the camera grid, the Notifications list, the name of the person who added a track in the Telsiz DJ queue and the title of an open volume card kept showing the old name and picture. All surfaces now update right away. A username change reaches the same surfaces. If a profile request failed with a connection error, the change did not arrive until the next unrelated change, and if a profile picture download failed, the picture did not show until the page was reloaded. A failed profile request is now retried after 2, 5, 15 and 60 seconds, and after that at most once a minute while the connection works. A failed profile picture download is retried after 10 seconds, 30 seconds and 2 minutes, and a picture the server does not have or that cannot be decrypted is not requested again.
+ - In the Arcade and Turquoise and Copper themes the border of the camera indicator on the radio card ("Your camera is on, everyone in the room can see it") and of the notice shown when someone starts sharing their screen was not drawn at all. The muted Microphone and active Camera buttons of a direct message call, the chip and panel of your own share, the Stop Watching button, the Telsiz DJ error box and the verified safety number button were also drawn in the text color instead of their own border color. Both themes now have live and danger border colors, and the borders show with at least 3:1 contrast on every surface.
+ - Text and attachments in the message field stayed there when you moved to another conversation: text typed in a direct message and a photo attached to it remained in the message field after switching to a text room and could be sent to that room with the Send button. The same happened between text rooms. Every text room and direct message now has its own draft: when you leave a conversation its text and attachments stay with it and are back when you return, they never show up in another conversation's message field and cannot be sent there. An attachment that is still uploading finishes in its own conversation. Drafts are kept only in memory and never written to disk. They are deleted when you sign out and when you switch frequencies, the draft of a direct message is deleted when you block that person and the draft of a text room is deleted when the room is deleted. Because the server deletes uploads that are not attached to a message after an hour, an attachment left waiting in a draft for a long time could not be sent and every attempt showed "The files attached to the message are invalid." Such an attachment is now uploaded again from its file when you return to the conversation or press Send, the text stays in place and the message can be sent once the upload finishes. The upload queue handles the open conversation's attachments first, and an upload error in one conversation no longer marks the attachments of other conversations as failed.
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 9849360..7a07236 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,9 +7,11 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ ### Değişiklikler
+ 
+ - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
++- Profil kartında görünen ad ve @kullanıcı adı artık profil resminin sağında, rol de adın hemen yanında durur. Önceden ad, kullanıcı adı ve rol resmin altında alt alta diziliyordu. Düz üyelerin kartında da soluk bir "Üye" rozeti çıkar, özel rolü olan kişide iki rozet de görünür. Ayarlar'daki Hesabım ve Profil önizlemeleri ile avatar menüsünün başı aynı düzeni kullanır ve özel rolü de gösterir (avatar menüsü önceden rolü kullanıcı adının yanında yazıyordu). Ad uzunsa rol alt satıra kayar, kart çok daralırsa (örneğin telefonda büyük yazı boyutuyla) ad resmin altına iner.
+ 
+ ### Düzeltmeler
+ 
++- Profil değişikliği her yere yansımıyordu: biri görünen adını veya profil resmini değiştirince kameralar ızgarası, Bildirimler listesi, Telsiz DJ kuyruğundaki ekleyen adı ve açık kişi ses kartının başlığı eski adı ve resmi göstermeye devam ediyordu. Artık bütün yüzeyler hemen güncellenir. Kullanıcı adı değişikliği de aynı yüzeylere yansır. Profil isteği bağlantı hatasıyla düşerse değişiklik bir sonraki ilgisiz değişikliğe kadar hiç gelmiyordu, profil resmi indirmesi düşerse resim sayfa yenilenene kadar görünmüyordu. Düşen profil isteği artık 2, 5, 15 ve 60 saniye sonra, sonra da bağlantı düzeldikçe en çok dakikada bir yeniden denenir. Düşen profil resmi indirmesi 10 saniye, 30 saniye ve 2 dakika sonra yeniden denenir, sunucuda bulunmayan veya çözülemeyen resim yeniden istenmez.
+ - Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
+ - Başka bir konuşmaya geçince yazma alanındaki metin ve ekler yeni konuşmada da duruyordu: özel mesajda yazılan metin ve eklenen fotoğraf bir yazı odasına geçince yazma alanında duruyor ve Gönder düğmesiyle o odaya gönderilebiliyordu. Aynı durum yazı odaları arasında da vardı. Artık her yazı odasının ve özel konuşmanın kendi taslağı vardır: konuşmadan çıkınca metin ve ekler o konuşmada kalır, geri dönünce yerinde durur, başka bir konuşmanın yazma alanında görünmez ve gönderilemez. Yüklemesi süren ek kendi konuşmasında tamamlanır. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değiştirilince silinir, kişi engellenince o kişiyle özel konuşmanın, yazı odası silinince o odanın taslağı silinir. Sunucu mesaja eklenmemiş yüklemeleri bir saat sonra sildiği için taslakta uzun süre bekleyen ek gönderilemiyor ve her denemede "Mesaja eklenen dosyalar geçersiz." uyarısı çıkıyordu. Artık böyle bir ek konuşmaya dönünce veya gönderirken dosyasından yeniden yüklenir, metin yerinde kalır ve yükleme bitince mesaj gönderilebilir. Yükleme sırasında açık konuşmanın ekleri öne alınır, bir konuşmadaki yükleme hatası başka konuşmaların eklerine geçmez.
+ 
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index 947483c..5f14a8a 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -185,7 +185,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
+ | Check and switch | `.check`, `.switch`, `.segmented` | Diamond knob in Turkuaz. |
+ | Slider and meter | `.range`, `.meter`, `.meter-bar`, `.meter-threshold` | Segmented in Arcade, LED segments in Gece, tiled in Turkuaz. |
+ | Key cap | `.kbd` | Push to talk key and binding display. |
+-| Badge and tag | `.badge-owner`, `.badge-admin`, `.tag`, `.unread-badge`, `.mention-badge` | The mention badge uses `--attention`. |
++| Badge and tag | `.badge-owner`, `.badge-admin`, `.badge-member`, `.badge-custom`, `.tag`, `.unread-badge`, `.mention-badge` | The mention badge uses `--attention`. The faint Member badge (`.badge-member`) only appears on the profile card, in the Settings preview and in the avatar menu. Plain members have no badge in the message flow or in the Online list. |
+ | Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` to `.avatar-c7`, `.avatar-xs`, `.avatar-sm`, `.avatar-md`, `.avatar-lg`, `.avatar-xl` | Status through the `data-status` attribute (`online`, `idle`, `dnd`, `offline`), speaking through `.is-speaking`. |
+ | Top bar | `.top-bar`, `.top-side`, `.top-side-start`, `.top-brand-button`, `.top-personal`, `.top-personal-button`, `.top-chip`, `.top-me`, `.top-stack` | Frequency switcher, Online, Search, personal buttons and the avatar chip. The left section can shrink, and the frequency name is cut with an ellipsis. |
+ | Frequency menu | `.frekans-menu`, `.frekans-row`, `.frekans-item`, `.frekans-emblem`, `.frekans-remove`, `.frekans-add` | The open frequency has `.is-active` and `aria-checked="true"`. |
+@@ -194,7 +194,8 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
+ | Left column and Stations | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.inbox-head`, `.rooms-list`, `.room-row`, `.top-rooms` | Row states: `.is-current`, `.is-unread`, and for voice `.is-connected`, `.is-joining`, `.is-live`. |
+ | Conversation column | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | A message that mentions you gets the `--mention-bg` background and a left line. |
+ | Radio card | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.crew-avatar.has-camera`, `.cam-video`, `.radio-tools`, `.cams-tool`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-cam-bar`, `.radio-cam-live`, `.radio-cam-flip`, `.radio-button` | `.is-speaking` and `.has-camera` on crew items, `aria-pressed` on buttons, `.is-mirrored` on your own video (except a rear camera), `aria-disabled` on Flip Camera while switching. |
+-| Avatar menu | `.avatar-menu` | Status options are `menuitemradio`. |
++| Profile card | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | The avatar overlaps the color band. The display name sits to the right of the avatar, the role badges (the base role and a custom role if there is one) right next to the name, and the @username below the name (`13-profile.js buildProfileIdentity`). If the name is long the badges wrap to the next line, and if the card is narrower than 18rem the name, badges and @username move below the avatar. The two preview cards in Settings and the head of the avatar menu use the same layout. In Turquoise the band keeps its arch shape. |
++| Avatar menu | `.avatar-menu` | Status options are `menuitemradio`. The head shows the role badges next to the name and the @username below it. |
+ | People | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | The Online sheet, the Friends station, the direct message header. |
+ | Sign in card | `.auth-card`, `.auth-dial`, `.auth-needle` | A card shaped like a radio body. |
+ | Screen sharing and camera grid | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open, `#cast[data-mode="cams"]` for the grid. |
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index 60af4e3..8a7935c 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -185,7 +185,7 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl
+ | Onay ve anahtar | `.check`, `.switch`, `.segmented` | Turkuaz'da elmas topuz. |
+ | Kaydırıcı ve ölçer | `.range`, `.meter`, `.meter-bar`, `.meter-threshold` | Arcade'de segmentli, Gece'de LED bölütlü, Turkuaz'da karo bölmeli. |
+ | Tuş kapağı | `.kbd` | Bas konuş tuşu ve atama gösterimi. |
+-| Rozet ve etiket | `.badge-owner`, `.badge-admin`, `.tag`, `.unread-badge`, `.mention-badge` | Anma rozeti `--attention` rengindedir. |
++| Rozet ve etiket | `.badge-owner`, `.badge-admin`, `.badge-member`, `.badge-custom`, `.tag`, `.unread-badge`, `.mention-badge` | Anma rozeti `--attention` rengindedir. Soluk Üye rozeti (`.badge-member`) yalnızca profil kartında, Ayarlar önizlemesinde ve avatar menüsünde çıkar, mesaj akışında ve Çevrimiçi listesinde düz üyenin rozeti yoktur. |
+ | Avatar | `.avatar`, `.avatar-face`, `.avatar-img`, `.avatar-c0` ile `.avatar-c7`, `.avatar-xs`, `.avatar-sm`, `.avatar-md`, `.avatar-lg`, `.avatar-xl` | Durum `data-status` özniteliğiyle (`online`, `idle`, `dnd`, `offline`), konuşma `.is-speaking` ile. |
+ | Üst çubuk | `.top-bar`, `.top-side`, `.top-side-start`, `.top-brand-button`, `.top-personal`, `.top-personal-button`, `.top-chip`, `.top-me`, `.top-stack` | Frekans değiştirici, Çevrimiçi, Ara, kişisel düğmeler ve avatar çipi. Sol bölüm kısalabilir, frekans adı üç noktayla kısalır. |
+ | Frekans menüsü | `.frekans-menu`, `.frekans-row`, `.frekans-item`, `.frekans-emblem`, `.frekans-remove`, `.frekans-add` | Açık frekans `.is-active` ve `aria-checked="true"`. |
+@@ -194,7 +194,8 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl
+ | Sol sütun ve İstasyonlar | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.inbox-head`, `.rooms-list`, `.room-row`, `.top-rooms` | Satır durumları: `.is-current`, `.is-unread`, ses için `.is-connected`, `.is-joining`, `.is-live`. |
+ | Konuşma sütunu | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | Beni anan mesaj `--mention-bg` zemin ve sol çizgiyle. |
+ | Telsiz kartı | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.crew-avatar.has-camera`, `.cam-video`, `.radio-tools`, `.cams-tool`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-cam-bar`, `.radio-cam-live`, `.radio-cam-flip`, `.radio-button` | Kadro öğesinde `.is-speaking` ve `.has-camera`, düğmelerde `aria-pressed`, kendi görüntüde `.is-mirrored` (arka kamera hariç), Kamerayı Çevir değiştirilirken `aria-disabled`. |
+-| Avatar menüsü | `.avatar-menu` | Durum seçenekleri `menuitemradio`. |
++| Profil kartı | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | Avatar renk bandına biner. Görünen ad avatarın sağında, rol rozetleri (temel rol ve varsa özel rol) adın hemen yanında, @kullanıcı adı adın altındadır (`13-profile.js buildProfileIdentity`). Ad uzunsa rozetler alt satıra kayar, kart 18rem'den darsa ad, rozetler ve @kullanıcı adı avatarın altına iner. Ayarlar'daki iki önizleme kartı ve avatar menüsünün başı aynı düzeni kullanır. Turkuaz'da bant kemer biçimini korur. |
++| Avatar menüsü | `.avatar-menu` | Durum seçenekleri `menuitemradio`. Baş kısımda adın yanında rol rozetleri, altında @kullanıcı adı. |
+ | Kişiler | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | Çevrimiçi sayfası, Arkadaşlar istasyonu, özel mesaj başlığı. |
+ | Giriş kartı | `.auth-card`, `.auth-dial`, `.auth-needle` | Telsiz gövdesi biçiminde kart. |
+ | Ekran paylaşımı ve kameralar ızgarası | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | Sahne açıkken `body[data-cast="live"]`, ızgarada `#cast[data-mode="cams"]`. |
