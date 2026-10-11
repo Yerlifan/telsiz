@@ -908,8 +908,11 @@ function floatDrawCanvas () {
 
 // ------------------------------------------------------------------ araç satırındaki düğme
 
-// Yüzen Pencere düğmesi telsiz kartının araç satırında (#radio-tools) Telsiz DJ düğmesinden önce durur. Ses
-// odasında değilken veya bu cihazda yüzen pencere yokken kaldırılır. Basınca açar, açıksa kapatır.
+// Yüzen Pencere düğmesi telsiz kartının araç satırında (#radio-tools) Oyun düğmesinden (yoksa Telsiz DJ
+// düğmesinden) hemen önce durur: sıra Büyüt, Yüzen Pencere, Oyun, Telsiz DJ. Oyun düğmesi (36-oyun.js
+// gameRenderTool) kendini Telsiz DJ'nin hemen önüne koyar, iki düğme aynı yeri isteseydi her çizimde yer
+// değiştirir ve odaktaki düğme odağı kaybederdi. Ses odasında değilken veya bu cihazda yüzen pencere yokken
+// kaldırılır. Basınca açar, açıksa kapatır.
 function floatRenderTool () {
   const box = el.radioTools
   if (!box) return
@@ -931,8 +934,9 @@ function floatRenderTool () {
       floatToggle('button')
     })
   }
-  const dj = box.querySelector('.crew-dj')
-  if (b.parentNode !== box || (dj && b.nextElementSibling !== dj)) box.insertBefore(b, dj || null)
+  const game = byId('radio-game')
+  const next = game && game.parentNode === box ? game : box.querySelector('.crew-dj')
+  if (b.parentNode !== box || (next && b.nextElementSibling !== next)) box.insertBefore(b, next || null)
   const open = floatIsOpen()
   const label = open ? t('float.close') : t('float.openLabel')
   b.setAttribute('aria-pressed', open ? 'true' : 'false')

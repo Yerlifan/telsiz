@@ -569,7 +569,8 @@ function gameRenderTool () {
     b.addEventListener('click', gameToolClick)
     gameState.toolKey = ''
   }
-  // Sıra: Büyüt başa (10-voice.js), Telsiz DJ sona (23-dj.js) kendini koyar, Oyun DJ'den hemen önce durur
+  // Sıra: Büyüt başa (10-voice.js), Telsiz DJ sona (23-dj.js) kendini koyar, Oyun DJ'den hemen önce durur. Yüzen
+  // Pencere (39-yuzen.js) Oyun'un önüne geçer, Oyun'un yerini değiştirmez
   const dj = box.querySelector('.crew-dj')
   const placed = b.parentNode === box && (dj ? b.nextElementSibling === dj : b === box.lastElementChild)
   if (!placed) {

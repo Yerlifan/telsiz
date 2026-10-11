@@ -1,13 +1,14 @@
 'use strict'
 
 // Yüzen pencere (istek 7), Chromium'un belge resim içinde resim penceresiyle (documentPictureInPicture). Deniz ve
-// Mert Lobi'ye katılır. Telsiz kartının araç satırında Yüzen Pencere düğmesi görünür. Mert kamerasını açar, Deniz
-// düğmeye basar: yüzen pencerede Mert'in kutusunda görüntü gerçekten oynar, pencere uygulamanın temasını ve simge
-// kümesini taşır, kontroller Mikrofon, Uygulamaya Dön ve Kapat'tır (Ayrıl yok). Mert kamerasını kapatınca kutusu
-// avatara döner, Mert konuşunca (sahte mikrofonun bipleri) avatarının çevresinde canlı renkli halka yanar. Yüzen
-// penceredeki Mikrofon düğmesi Deniz'in mikrofonunu kapatıp açar. Kapat'a basınca pencere kapanır ve 'float-'
-// önekli görüntü öğeleri bırakılır. Belge resim içinde resim yokken görüntü yedeği (tuval akışı) açılır.
-// Ayarlar > Ses ve Görüntü'deki anahtar telsiz.floatAuto değerini yazar.
+// Mert Lobi'ye katılır. Telsiz kartının araç satırında Yüzen Pencere düğmesi Oyun düğmesinin önünde görünür, telsiz
+// kartı yeniden çizilince iki düğme yer değiştirmez. Mert kamerasını açar, Deniz düğmeye basar: yüzen pencerede
+// Mert'in kutusunda görüntü gerçekten oynar, pencere uygulamanın temasını ve simge kümesini taşır, kontroller
+// Mikrofon, Uygulamaya Dön ve Kapat'tır (Ayrıl yok). Mert kamerasını kapatınca kutusu avatara döner, Mert konuşunca
+// (sahte mikrofonun bipleri) avatarının çevresinde canlı renkli halka yanar. Yüzen penceredeki Mikrofon düğmesi
+// Deniz'in mikrofonunu kapatıp açar. Kapat'a basınca pencere kapanır ve 'float-' önekli görüntü öğeleri bırakılır.
+// Belge resim içinde resim yokken görüntü yedeği (tuval akışı) açılır. Ayarlar > Ses ve Görüntü'deki anahtar
+// telsiz.floatAuto değerini yazar.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -63,6 +64,31 @@ test('ses odasında araç satırında Yüzen Pencere düğmesi görünür, odada
     }
   })
   assert.deepEqual(r, { label: 'Ses odasını yüzen pencerede aç', title: 'Yüzen Pencere', pressed: 'false', beforeDj: true, mode: 'document' })
+  // Oyun düğmesi de Telsiz DJ'nin hemen önüne konur: Yüzen Pencere onun önünde durur, telsiz kartı yeniden
+  // çizilince iki düğme yer değiştirmez ve odaktaki Yüzen Pencere odağı korur
+  await deniz.waitForSelector('#radio-tools #radio-game')
+  const order = await deniz.evaluate(() => {
+    const box = document.getElementById('radio-tools')
+    const b = document.getElementById('radio-float')
+    b.focus()
+    let moves = 0
+    const watch = new MutationObserver((list) => {
+      moves += list.filter((m) => m.type === 'childList').length
+    })
+    watch.observe(box, { childList: true })
+    renderVoiceAll()
+    renderVoiceAll()
+    moves += watch.takeRecords().filter((m) => m.type === 'childList').length
+    watch.disconnect()
+    const game = document.getElementById('radio-game')
+    return {
+      nextIsGame: b.nextElementSibling === game,
+      gameBeforeDj: game.nextElementSibling === box.querySelector('.crew-dj'),
+      moves: moves,
+      focused: document.activeElement === b
+    }
+  })
+  assert.deepEqual(order, { nextIsGame: true, gameBeforeDj: true, moves: 0, focused: true })
 })
 
 test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', async () => {

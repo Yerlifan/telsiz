@@ -358,11 +358,11 @@ button.crew-button:hover {
   transform: scaleX(-1);
 }
 
-/* Kadronun altındaki araç satırı (#radio-tools): Büyüt (kameralar varken), Oyun (oyun.css) ve Telsiz DJ yan yana,
-   etiketli düğmeler. Büyüt vurgu renginde, ızgara açıkken canlı renkte. Telsiz DJ canlı renkte (dj.css).
-   Düğmeler içerikleri kadar yer alır, kalan genişliği paylaşır. Etiketler satıra sığmazsa satır sarılır, etiket
-   kesilmez (üç düğme 232 piksellik kartta yan yana sığmaz). Satırın eksi sol boşluğu her düğmenin sol boşluğunu
-   karşılar, böylece sarılan satır da kartın kenarından başlar. */
+/* Kadronun altındaki araç satırı (#radio-tools): Büyüt (kameralar varken), Yüzen Pencere (yuzen.css, yalnızca
+   simge), Oyun (oyun.css) ve Telsiz DJ yan yana, etiketli düğmeler. Büyüt vurgu renginde, ızgara açıkken canlı
+   renkte. Telsiz DJ canlı renkte (dj.css). Düğmeler içerikleri kadar yer alır, kalan genişliği paylaşır. Etiketler
+   satıra sığmazsa satır sarılır, etiket kesilmez (üç düğme 232 piksellik kartta yan yana sığmaz). Satırın eksi sol
+   boşluğu her düğmenin sol boşluğunu karşılar, böylece sarılan satır da kartın kenarından başlar. */
 .radio-tools {
   display: flex;
   flex-wrap: wrap;
