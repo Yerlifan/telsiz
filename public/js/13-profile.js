@@ -438,8 +438,8 @@ function loadAvatar (rec) {
   if (ref) loadProfileImage(profileState.avatars, rec.id, ref)
 }
 
-// Kapak herkesin profil resmi gibi önceden indirilmez, yalnızca kart açılınca istenir. Bu yüzden sunucu kimin hangi
-// kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
+// Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca istenir. Bu yüzden sunucu kimin
+// hangi kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
 function loadCover (rec) {
   const ref = rec && rec.profile && rec.profile.cover
   if (ref) loadProfileImage(profileState.covers, rec.id, ref)
