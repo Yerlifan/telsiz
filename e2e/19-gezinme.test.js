@@ -40,6 +40,10 @@
 //   mesaj ve kayması korunur, tek istek (en yeni sayfa) liste çizildikten sonra gider. Uzaktayken gelen mesaj önbelleğe
 //   eklenir ve kapsülde sayılır, olay alımı dururken gelen mesaj arka plandaki en yeni sayfayla eklenir (geri tuşuyla
 //   dönüşte de), mesaj bir kez çizilir. 120 okunmamış testi önbellekte olmayan konuşmayı sınar.
+// G10, eski mesajların kendiliğinden yüklenmesi (S7): en alttayken yüklenmez, en üste yaklaşınca (düğme 800 piksel
+//   yakında) daha eski sayfa düğmeye basmadan gelir, önceki ilk mesaj görünür alanda ve odak yazma alanında kalır,
+//   odanın başına gelince düğme kalkar. IntersectionObserver olmayan tarayıcıda kaydırma 400 pikselin altına inince
+//   yükler.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -72,7 +76,7 @@ async function dmWith (who, text) {
 
 before(async () => {
   // Selin'in hiç özel konuşması yoktur (Özel Mesajlar düğmesi testi)
-  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text'], ['arsiv', 'text']], extraPeople: { selin: 'Selin' } })
+  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text'], ['arsiv', 'text'], ['eski', 'text']], extraPeople: { selin: 'Selin' } })
   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
   W.deniz = await W.w.pageFor('deniz')
   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
@@ -882,6 +886,11 @@ function firstVisible (page) {
   })
 }
 
+// Aynı mesaj görünür alanın üstünde aynı yerde (alt piksel yuvarlaması için 1 piksel pay)
+function assertSameSpot (actual, expected, message) {
+  assert.ok(actual && expected && actual.id === expected.id && Math.abs(actual.offset - expected.offset) <= 1, (message || 'konum') + ': ' + JSON.stringify([actual, expected]))
+}
+
 // Sayfadaki /api/messages istekleri: isteğin açıldığı anda listede çizili mesaj sayısı, yükleniyor durumu ve iskelet
 async function watchMessageRequests (page) {
   await page.evaluate(() => {
@@ -924,9 +933,10 @@ test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, ist
   }
   await openRoomRow(page, arsiv.id)
   // Odanın bütün mesajları yüklenir, kişi ortaya kaydırır: ne en üstte ne en altta
-  await page.evaluate(async () => {
-    while (state.hasMore) await loadOlder()
-  })
+  while (await page.evaluate(() => state.hasMore)) {
+    await page.evaluate(() => loadOlder())
+    await page.waitForFunction(() => !state.loadingOlder)
+  }
   assert.equal(await page.evaluate(() => state.messages.length), 130)
   await page.evaluate(() => {
     el.messages.scrollTop = Math.round((el.messages.scrollHeight - el.messages.clientHeight) / 2)
@@ -946,7 +956,7 @@ test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, ist
   // Tıklamanın hemen ardından: liste çizili, yükleniyor ve iskelet yok
   const now = await page.evaluate(() => ({ view: currentViewMode(), id: String(state.channelId), nodes: state.nodes.size, loading: state.loading, skeleton: el.messages.classList.contains('is-loading') }))
   assert.deepEqual(now, { view: 'channel', id: String(arsiv.id), nodes: loaded + 1, loading: false, skeleton: false })
-  assert.deepEqual(await firstVisible(page), before, 'ilk görünen mesaj ve kayması korundu')
+  assertSameSpot(await firstVisible(page), before, 'ilk görünen mesaj ve kayması korundu')
   // Tek istek: en yeni sayfa, liste çizildikten sonra
   const ofRoom = async () => (await page.evaluate(() => window.testRequests)).filter((r) => r.query.indexOf('channel=' + arsiv.id + '&') === 0)
   await page.waitForFunction(() => window.testRequests.length > 0)
@@ -954,7 +964,7 @@ test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, ist
   assert.deepEqual(await ofRoom(), [{ query: 'channel=' + arsiv.id + '&limit=50', nodes: loaded + 1, loading: false, skeleton: false }])
   await page.waitForSelector('#new-below:not([hidden])')
   assert.equal(await page.evaluate(() => document.querySelector('#new-below-button .button-text').textContent), 'Aşağıda 1 yeni mesaj')
-  assert.deepEqual(await firstVisible(page), before, 'arka plandaki yenileme konumu değiştirmedi')
+  assertSameSpot(await firstVisible(page), before, 'arka plandaki yenileme konumu değiştirmedi')
 
   // Olay alımı dururken gelen mesaj önbellekte yoktur, geri tuşuyla dönülünce arka plandaki en yeni sayfayla eklenir
   await openRoomRow(page, genel)
@@ -967,12 +977,70 @@ test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, ist
   const back = await ofRoom()
   assert.equal(back.length, 1)
   assert.deepEqual([back[0].query, back[0].nodes > 0, back[0].loading, back[0].skeleton], ['channel=' + arsiv.id + '&limit=50', true, false, false])
-  assert.deepEqual(await firstVisible(page), before)
+  assertSameSpot(await firstVisible(page), before, 'geri tuşuyla dönüş')
   await page.waitForFunction(() => document.querySelector('#new-below-button .button-text').textContent === 'Aşağıda 2 yeni mesaj')
   await page.evaluate(() => startPoll())
   await page.click('#new-below-button')
   await page.waitForFunction((a) => !state.unread[a.id] && Number(state.lastRead[a.id]) === a.last, { id: arsiv.id, last: missed.id })
   assert.equal(await page.evaluate((id) => document.querySelectorAll('#message-list .msg[data-id="' + id + '"]').length, missed.id), 1, 'mesaj bir kez çizildi')
+})
+
+// G10 (S7): eski mesajların kendiliğinden yüklenmesi
+
+test('eski mesajlar: en üste yaklaşınca düğmeye basmadan yüklenir, görünen mesaj yerinde ve odak yazma alanında kalır', async () => {
+  const page = W.deniz
+  const eski = W.w.room('eski')
+  await setWidth(page, 1440)
+  let i = 0
+  while (i < 120) {
+    await W.w.say('selin', eski, 'eski ' + (i + 1))
+    i += 1
+  }
+  await openRoomRow(page, eski.id)
+  assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
+  await page.focus('#composer-input')
+  await h.sleep(300)
+  assert.equal(await page.evaluate(() => state.messages.length), 50, 'en alttayken yüklenmez')
+  // En üste yaklaşmak yeter: düğme görünür alanın 800 piksel yakınında. Görünür alandaki ilk mesaj kaydırmayla aynı
+  // görevde ölçülür (kaydırma olayından önce).
+  const before = await page.evaluate(() => {
+    el.messages.scrollTop = 300
+    const top = el.messages.getBoundingClientRect().top
+    const node = Array.from(document.querySelectorAll('#message-list .msg[data-id]')).filter((n) => n.getBoundingClientRect().bottom > top + 1)[0]
+    return { id: node.getAttribute('data-id'), offset: Math.round(node.getBoundingClientRect().top - top) }
+  })
+  await page.waitForFunction(() => state.messages.length === 100 && !state.loadingOlder, null, { timeout: h.LONG })
+  assertSameSpot(await firstVisible(page), before, 'görünen mesaj yerinde')
+  assert.deepEqual(await page.evaluate(() => [document.activeElement.id, document.getElementById('load-older-wrap').hidden]), ['composer-input', false], 'odak yazma alanında, düğme yerinde')
+  await page.evaluate(() => {
+    el.messages.scrollTop = 0
+  })
+  await page.waitForFunction(() => state.messages.length === 120 && !state.hasMore && !state.loadingOlder, null, { timeout: h.LONG })
+  assert.deepEqual(await page.evaluate(() => [document.getElementById('channel-start').hidden, document.getElementById('load-older-wrap').hidden, document.activeElement.id]), [false, true, 'composer-input'])
+})
+
+test('eski mesajlar: IntersectionObserver olmayan tarayıcıda kaydırma en üste yaklaşınca yükler', async () => {
+  const noObserver = async (context) => {
+    await context.addInitScript(() => {
+      delete window.IntersectionObserver
+    })
+  }
+  const page = await W.w.pageFor('ece', { route: noObserver, viewport: { width: 1024, height: 700 } })
+  const eski = W.w.room('eski')
+  assert.equal(await page.evaluate(() => typeof window.IntersectionObserver), 'undefined')
+  await openRoom(page, eski.id)
+  assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
+  // 400 pikselden uzakta yüklenmez, yakında yüklenir
+  await page.evaluate(() => {
+    el.messages.scrollTop = 600
+  })
+  await h.sleep(400)
+  assert.equal(await page.evaluate(() => state.messages.length), 50)
+  await page.evaluate(() => {
+    el.messages.scrollTop = 100
+  })
+  await page.waitForFunction(() => state.messages.length === 100 && !state.loadingOlder, null, { timeout: h.LONG })
+  await page.close()
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

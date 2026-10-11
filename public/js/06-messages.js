@@ -478,12 +478,50 @@ function scrollToBottom () {
   stickBottom = true
 }
 
-// En alta inilince konuşma okundu sayılır (04-meta.js markRead), kapsül güncellenir (38-gezinme.js)
+// En alta inilince konuşma okundu sayılır (04-meta.js markRead), kapsül güncellenir (38-gezinme.js), en üste
+// yaklaşınca eski mesajlar yüklenir (autoLoadOlder)
 function onMessagesScroll () {
   stickBottom = isNearBottom()
   if (state.hasNewer && stickBottom) loadNewer()
   else if (stickBottom) markRead()
+  if (!stickBottom && state.hasMore && olderNear()) autoLoadOlder()
   if (typeof navOnScroll === 'function') navOnScroll()
+}
+
+// Eski mesajların kendiliğinden yüklenmesi (istek 17 S7): Daha Eski Mesajları Yükle düğmesinin kabı (#load-older-wrap)
+// görünür alanın OLDER_MARGIN_PX yakınına gelince (IntersectionObserver ve kaydırma) daha eski sayfa yüklenir.
+// IntersectionObserver olmayan tarayıcıda (eski WebKit) kaydırmada scrollTop < OLDER_SCROLL_PX denetlenir. Kişi en
+// alttayken yüklenmez: kısa mesajlarla dolu sayfada düğme açılışta da yakındadır. Düğme yerinde kalır, kaydırma
+// telafisi loadOlder içindedir.
+const OLDER_MARGIN_PX = 800
+const OLDER_SCROLL_PX = 400
+let olderObserver = null
+
+function observeOlder () {
+  if (olderObserver || typeof window.IntersectionObserver !== 'function' || !el.messages || !el.loadOlderWrap) return
+  try {
+    olderObserver = new window.IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) autoLoadOlder()
+    }, { root: el.messages, rootMargin: OLDER_MARGIN_PX + 'px 0px 0px 0px' })
+    olderObserver.observe(el.loadOlderWrap)
+  } catch (err) {
+    olderObserver = null
+  }
+}
+
+function autoLoadOlder () {
+  if (!state.inApp || !state.hasMore || state.loading || state.loadingOlder || !state.messages.length) return
+  if (el.messages.hidden || el.loadOlderWrap.hidden || isNearBottom()) return
+  loadOlder()
+}
+
+// Yüklenen sayfa kısaysa düğme hâlâ görünür alanın yakınında kalır, gözlemci yeniden bildirmez: sıradaki sayfa da
+// yüklenir
+function olderNear () {
+  const box = el.messages
+  if (!box || el.loadOlderWrap.hidden || !box.clientHeight) return false
+  if (!olderObserver) return box.scrollTop < OLDER_SCROLL_PX
+  return el.loadOlderWrap.getBoundingClientRect().bottom >= box.getBoundingClientRect().top - OLDER_MARGIN_PX
 }
 
 // Yeni mesajlar ayracı görünür alanın üst kısmına (yüksekliğin dörtte biri) gelir. İçerik kısaysa en alta
@@ -499,7 +537,9 @@ function keepBottom () {
   if (stickBottom && state.inApp && !state.hasNewer) scrollToBottom()
 }
 
+// Mesaj alanının gözlemcileri: boyut değişince altta kalma ve eski mesajların kendiliğinden yüklenmesi
 function observeMessagesSize () {
+  observeOlder()
   if (typeof window.ResizeObserver !== 'function') return
   try {
     const observer = new window.ResizeObserver(keepBottom)
@@ -753,6 +793,8 @@ async function loadOlder () {
   const channelId = state.channelId
   const gen = state.loadGen
   const first = state.messages[0]
+  // Odak düğmedeyse ve daha eski mesaj kalmadıysa odak listeye geçer (kendiliğinden yüklemede odak yerinde kalır)
+  const hadFocus = document.activeElement === el.loadOlder
   state.loadingOlder = true
   el.loadOlder.disabled = true
   el.loadOlder.textContent = t('messages.loadingOlder')
@@ -781,7 +823,8 @@ async function loadOlder () {
   regroup()
   renderListChrome()
   box.scrollTop = box.scrollHeight - before
-  if (!state.hasMore) focusNode(el.messages)
+  if (!state.hasMore && hadFocus) focusNode(el.messages)
+  if (state.hasMore && olderNear()) nextFrame(autoLoadOlder)
 }
 
 // Konuşma değişince yazıyor satırı, öneri listesi ve açık arama paneli güncellenir (17..19)
