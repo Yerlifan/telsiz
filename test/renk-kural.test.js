@@ -1650,7 +1650,7 @@ describe('saflık', () => {
 
   test('dışa açılan nesne ve listeler dondurulmuştur', () => {
     assert.ok(Object.isFrozen(R))
-    for (const key of ['RULES', 'ERRORS', 'EVENTS', 'COLORS', 'LAST_CARD']) assert.ok(Object.isFrozen(R[key]), key)
+    for (const key of ['RULES', 'ERRORS', 'EVENTS', 'COLORS', 'LAST_CARD', 'DELAYED_MOVES']) assert.ok(Object.isFrozen(R[key]), key)
     assert.equal(R.id, 'renk')
     assert.equal(R.VERSION, 1)
     assert.equal(R.MIN_PLAYERS, 2)
@@ -1659,6 +1659,9 @@ describe('saflık', () => {
     assert.equal(R.HIDDEN, true)
     same(R.RULES, ['official', 'stack'])
     same(R.LAST_CARD, { official: true, stack: true })
+    // Masa yöneticisinin gecikmeli işlediği sıra dışı hamleler (Tek! ve Yakala) motorun hamle türleridir
+    same(R.DELAYED_MOVES, ['last', 'catch'])
+    for (const t of R.DELAYED_MOVES) assert.ok(R.validateMove(t === 'last' ? { t } : { t, p: '12' }), t)
     for (const name of ['newGame', 'validateMove', 'applyMove', 'removePlayer', 'endGame', 'isOver', 'turnOf',
       'publicView', 'privateView', 'validateView', 'validatePrivate', 'legalMoves', 'buildDeck', 'isCard',
       'parseCards', 'cardColor', 'cardValue', 'isWild', 'points', 'canPlay', 'validateState', 'dealFrom']) {

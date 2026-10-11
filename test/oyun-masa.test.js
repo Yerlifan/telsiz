@@ -9,7 +9,8 @@
 // - now elle ilerletilir, rastgelelik tohumludur.
 // Genelliği göstermek için yalnızca burada tanımlı küçük bir "sayaç" uygulaması kullanılır: her oyuncu sırayla
 // {t:'add', step} gönderir, toplam 10 olunca el biter. Sıra dışı {t:'last'} ve {t:'catch', p} hamleleri kurpiyerin
-// gecikmeli kendi hamlelerini sınamak içindir. Gerçek Renk ile de iki tam el oynanır.
+// gecikmeli kendi hamlelerini sınamak içindir (uygulama bunları DELAYED_MOVES ile bildirir). Gerçek Renk ile de iki
+// tam el oynanır.
 
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -118,6 +119,7 @@ function counterApp () {
     HIDDEN: false,
     ERRORS: ['bad_options', 'bad_random', 'bad_move', 'bad_player', 'game_over', 'not_your_turn', 'stale', 'not_catchable', 'self_catch'],
     EVENTS: ['start', 'add', 'last', 'caught', 'leave', 'end'],
+    DELAYED_MOVES: ['last', 'catch'],
     calls,
     newGame (o, rng) {
       calls.newGame++
@@ -837,6 +839,26 @@ describe('kurpiyer: hamleler ve sayaçlar', () => {
     // Tur hamlesi gecikmesiz uygulanır
     assert.equal(K.desk.act({ t: 'add', step: 0 }), true)
     assert.equal(K.m().view.total, 1)
+  })
+
+  test('gecikmeli hamle türlerini uygulama verir: listesi olmayan uygulamada kurpiyerin catch hamlesi hemen işlenir', () => {
+    const { w, K } = started({ players: 2 })
+    delete w.app.DELAYED_MOVES
+    assert.equal(K.desk.act({ t: 'catch', p: '12' }), true)
+    same(K.m().view.log, ['catch:5'], 'gecikmesiz')
+    // Uygulamanın kendi listesi masa yöneticisinin varsayılanı değildir: yalnızca listedeki tür bekletilir
+    w.app.DELAYED_MOVES = ['last']
+    assert.equal(K.desk.act({ t: 'catch', p: '12' }), true)
+    same(K.m().view.log, ['catch:5', 'catch:5'])
+    assert.equal(K.desk.act({ t: 'last' }), true)
+    same(K.m().view.log, ['catch:5', 'catch:5'], 'last bekletilir')
+    w.advance(TM.SELF_DELAY_MS, [K])
+    same(K.m().view.log, ['catch:5', 'catch:5', 'last:5'])
+  })
+
+  test('Renk kendi gecikmeli hamle türlerini verir: Tek! ve Yakala', () => {
+    same(R.DELAYED_MOVES, ['last', 'catch'])
+    assert.ok(Object.isFrozen(R.DELAYED_MOVES))
   })
 
   test('Oyunu Bitir, Yeni El ve kural seçimi', () => {
@@ -2074,7 +2096,8 @@ describe('modül', () => {
       OFFER_PROBE_MS: 60000,
       SELF_DELAY_MS: 300
     })
-    same(DESK.DELAYED_MOVES, ['last', 'catch'])
+    // Gecikmeli hamle türleri uygulamaya özeldir (A.DELAYED_MOVES), masa yöneticisinin ortak listesi yoktur
+    assert.equal(DESK.DELAYED_MOVES, undefined)
     for (const code of DESK.ERRORS) assert.ok(G.isCode(code), code)
   })
 
