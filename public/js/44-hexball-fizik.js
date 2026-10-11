@@ -594,6 +594,22 @@ window.TelsizHexballPhysics = (function () {
     return true
   }
 
+  // Maç sürerken ayrılan ya da koltuktan çıkarılan kişinin diski dünyadan kalkar. Topa son dokunan oysa dokunuş
+  // silinir (sonraki gol takıma yazılır). Başlama vuruşu beklenirken kalanlar yeni sayıya göre yeniden dizilir,
+  // sonraki başlama vuruşlarında da diziliş kalanlara göredir. Olay üretilmez. Dönüş: disk vardı ve kalktı.
+  function removePlayer (w, slot) {
+    const i = w.players.findIndex((p) => p.slot === slot)
+    if (i < 0) return false
+    w.players.splice(i, 1)
+    if (w.touch === slot) w.touch = -1
+    if (w.phase === 'kickoff' || (w.phase === 'paused' && w.held === 'kickoff')) {
+      const phase = w.phase
+      placeKickoff(w)
+      w.phase = phase
+    }
+    return true
+  }
+
   function freezeFields () {
     const out = {}
     RULES.forEach((key) => {
@@ -644,6 +660,7 @@ window.TelsizHexballPhysics = (function () {
     pause: pause,
     resume: resume,
     stop: stop,
+    removePlayer: removePlayer,
     remaining: remaining,
     matchSecond: matchSecond
   })

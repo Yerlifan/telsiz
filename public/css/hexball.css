@@ -521,8 +521,15 @@
     flex-basis: 100%;
   }
 
+  /* Takım adı görsel olarak gizlenir, ekran okuyucu skoru takım adıyla okur (rozet aria-hidden) */
   .hex-board-name {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .hex-overlay {
@@ -535,13 +542,24 @@
     font-size: var(--text-md);
   }
 
+  /* Büyük yazı boyutunda da çubuk ve Vur ekrana sığar: ölçüler ekran genişliğiyle sınırlanır, yuvarlak kalır */
   .hex-stick {
     width: 7rem;
     height: 7rem;
+    max-width: 34vw;
+    max-height: 34vw;
+  }
+
+  .hex-knob {
+    width: 50%;
+    height: 50%;
+    margin: -25% 0 0 -25%;
   }
 
   .hex-kick {
     width: 5.5rem;
     height: 5.5rem;
+    max-width: 28vw;
+    max-height: 28vw;
   }
 }

@@ -15,6 +15,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const { spawnSync } = require('node:child_process')
 const { same, stripComments, makeDocument, makeClock, fakeDm, seeded, STAGE_FAKES, NAMES } = require('./oyun-ortam')
 
 const ROOT = path.join(__dirname, '..')
@@ -617,24 +618,49 @@ function loadEngine () {
   return { H: sandbox.TelsizHexball, P: sandbox.TelsizHexballPhysics }
 }
 
-// Metin dosyaları: depo kökünden, bağımlılıklar, git ve derleme çıktıları dışında
-function textFiles () {
-  const skip = new Set(['node_modules', '.git', 'dist'])
-  const generated = [path.join(ROOT, 'desktop', 'app'), path.join(ROOT, 'desktop', 'dist')]
-  const binary = /\.(png|jpe?g|gif|webp|ico|bmp|avif|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|mp3|ogg|wav|mp4|webm|wasm)$/i
+// Metin dosyaları: git'in izlediği ve yoksaymadığı dosyalar, böylece .gitignore'daki yerel veri (veri/), test
+// çıktıları (e2e-sonuclar/), bağımlılıklar ve derleme çıktıları taranmaz. Çalışma dalında taşınıp PR öncesinde
+// çıkarılan çalışma notları (docs/calisma) incelemenin kendi kayıtlarıdır, taranmaz. git kullanılamıyorsa depo kökü
+// aynı klasörler dışında dolaşılır.
+const TEXT_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'veri', 'e2e-sonuclar'])
+const TEXT_SKIP_PATHS = [path.join('desktop', 'app'), path.join('desktop', 'build'), path.join('docs', 'calisma')]
+const BINARY_RE = /\.(png|jpe?g|gif|webp|ico|bmp|avif|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|mp3|ogg|wav|mp4|webm|wasm)$/i
+
+function walkFiles () {
   const out = []
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
+      const rel = path.relative(ROOT, full)
       if (entry.isDirectory()) {
-        if (!skip.has(entry.name) && generated.indexOf(full) === -1) walk(full)
-      } else if (entry.isFile() && !binary.test(entry.name)) {
-        out.push(full)
+        if (!TEXT_SKIP_DIRS.has(entry.name) && TEXT_SKIP_PATHS.indexOf(rel) === -1) walk(full)
+      } else if (entry.isFile()) {
+        out.push(rel)
       }
     }
   }
   walk(ROOT)
   return out
+}
+
+function gitFiles () {
+  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  if (r.error || r.status !== 0 || typeof r.stdout !== 'string' || !r.stdout) return null
+  return r.stdout.split('\0').filter(Boolean).map((f) => path.join(...f.split('/')))
+}
+
+function textFiles () {
+  const rels = gitFiles() || walkFiles()
+  return rels
+    .filter((rel) => !BINARY_RE.test(rel) && !TEXT_SKIP_PATHS.some((dir) => rel === dir || rel.indexOf(dir + path.sep) === 0))
+    .map((rel) => path.join(ROOT, rel))
+    .filter((full) => {
+      try {
+        return fs.statSync(full).isFile()
+      } catch (err) {
+        return false
+      }
+    })
 }
 
 describe('i18n ve marka adı', () => {
@@ -727,6 +753,12 @@ describe('i18n ve marka adı', () => {
     assert.ok(files.length > 200, String(files.length))
     for (const rel of ['test/hexball-arayuz.test.js', 'public/js/46-hexball.js', 'public/css/hexball.css', 'public/i18n.js', 'README.md']) {
       assert.ok(files.indexOf(path.join(ROOT, rel)) !== -1, rel)
+    }
+    // git dolaşımı da aynı kümeyi verir: yoksayılan klasörler ve çalışma notları ikisinde de yok
+    const walked = new Set(walkFiles().filter((rel) => !BINARY_RE.test(rel)).map((rel) => path.join(ROOT, rel)))
+    for (const file of files) assert.ok(walked.has(file), path.relative(ROOT, file))
+    for (const dir of ['veri', 'e2e-sonuclar', 'node_modules', path.join('docs', 'calisma')]) {
+      assert.ok(!files.some((f) => path.relative(ROOT, f).indexOf(dir + path.sep) === 0), dir)
     }
     const hits = files.filter((file) => brand.test(fs.readFileSync(file, 'utf8')))
     same(hits.map((f) => path.relative(ROOT, f)), [])
@@ -1005,6 +1037,191 @@ describe('maç: tuval, girdi, gol ve sonuç', () => {
   })
 })
 
+describe('maç sürerken ayrılma, maç sonu, duraklama ve gönderim hızı', () => {
+  test('maç sürerken ayrılanın diski sahadan kalkar: karedeki yuvalar görünümün yuvalarıyla aynı, kalan dizilir', () => {
+    const world = makeWorld(['5', '12', '7'])
+    const [deniz, ece] = world.pages
+    openTable('quick', world)
+    linksReady(world)
+    kickoff(world)
+    world.net.advance(500)
+    same(deniz.view().slots, { 5: 0, 12: 1, 7: 2 })
+    for (const page of [deniz, ece]) same(page.frame().players.map((p) => p.slot), [0, 1, 2])
+    // Mert (Kırmızı, yuva 2) ses odasından ayrılır, Kırmızı'da Deniz kaldığı için maç sürer
+    for (const page of [deniz, ece]) {
+      delete page.fake.snap.peers['7']
+      page.run("gameOnVoiceEvent({ type: 'peer-leave', peerId: 'p7', userId: '7' })")
+    }
+    world.net.flush()
+    world.net.advance(500)
+    const hw = deniz.run("TelsizHexballPhysics.field('quick').hw")
+    for (const page of [deniz, ece]) {
+      assert.equal(page.view().ph, 'match')
+      same(page.view().slots, { 5: 0, 12: 1 })
+      const f = page.frame()
+      same(f.players.map((p) => p.slot), [0, 1], NAMES[page.me])
+      // Başlama vuruşu beklenirken Kırmızı'da kalan tek kişi tek kişilik dizilişte
+      same([discOf(f, 0).x, discOf(f, 0).y], [-0.5 * hw, 0])
+      same(Array.from(page.qa('.hex-legend-item')).map((li) => li.getAttribute('data-user-id')), ['5', '12'])
+    }
+    // Tuvale yalnızca kalan iki disk çizilir
+    const ctx = ece.canvas().contexts[0]
+    ctx.texts.length = 0
+    world.net.advance(100)
+    assert.ok(ctx.texts.length > 0)
+    same(Array.from(new Set(ctx.texts)).sort(), ['K1', 'M1'])
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+
+  test('maç bitince oyuncu masanın sonucu gelene kadar son skoru görür, Bağlantı Yok görmez', () => {
+    const world = makeWorld(['5', '12'])
+    const [deniz, ece] = world.pages
+    openTable('quick', world)
+    linksReady(world)
+    kickoff(world)
+    deniz.keyDown('ArrowRight')
+    ece.keyDown('ArrowUp')
+    world.net.until(() => deniz.view().score.red === 1, 15000, 'gol')
+    deniz.keyUp('ArrowRight')
+    ece.keyUp('ArrowUp')
+    // Maç 15 sn'yi aşar (oyuncunun bekleme süresi maçın başından sayılsaydı dolardı)
+    world.net.advance(16000)
+    assert.equal(ece.run('hexballPlayerLink(gameModel())'), 'ready')
+    deniz.press('hex-stop')
+    deniz.press('hex-stop-yes')
+    assert.equal(deniz.view().ph, 'result')
+    // Masa iletisi (sinyal yolu) henüz teslim edilmedi, veri kanalındaki son anlık görüntü ve lobi el sıkışması geldi
+    world.net.clock.advance(300)
+    assert.equal(ece.view().ph, 'match')
+    assert.equal(ece.run('hexballState.player.state().epoch'), null)
+    assert.equal(ece.run('hexballPlayerLink(gameModel())'), 'ready')
+    ece.run('gameRefreshStage()')
+    world.net.clock.advance(100)
+    const f = ece.frame()
+    assert.ok(f, 'son kare çizilir')
+    assert.equal(f.phase, 'over')
+    same(f.score, { red: 1, blue: 0 })
+    assert.equal(ece.q('.hex-link'), null, 'Bağlantı Yok notu yok')
+    assert.equal(ece.q('.hex-overlay').getAttribute('data-kind'), 'over')
+    assert.equal(ece.text('.hex-board-team[data-side="red"] .hex-board-score'), '1')
+    assert.equal(ece.q('.hex-lag').hidden, true, 'son karede Bağlantı Yavaş yok')
+    // Masa iletisi gelince sonuç ekranı
+    world.net.flush()
+    world.net.advance(100)
+    assert.equal(ece.view().ph, 'result')
+    assert.equal(ece.text('.hex-result-score'), 'Kırmızı 1, Mavi 0')
+    assert.equal(ece.q('.hex-link'), null)
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+
+  test('ev sahibinin döngüsü kısılınca maç duraklar: herkes duraklama yazısını görür, bir kez duyurulur, düzelince sürer', () => {
+    const world = makeWorld(['5', '12'])
+    const [deniz, ece] = world.pages
+    openTable('quick', world)
+    linksReady(world)
+    kickoff(world)
+    world.net.advance(500)
+    const clock = world.net.clock
+    const normal = deniz.sandbox.setTimeout
+    // Arka plandaki sekme: ev sahibinin zamanlayıcıları 300 ms gecikir
+    deniz.sandbox.setTimeout = (fn, ms) => clock.add(fn, (ms || 0) + 300)
+    world.net.advance(1500)
+    const text = 'Ev sahibinin sekmesi arka planda, maç duraklatıldı.'
+    for (const page of [deniz, ece]) {
+      assert.equal(page.frame().paused, true, NAMES[page.me])
+      assert.equal(page.q('.hex-overlay').getAttribute('data-kind'), 'paused', NAMES[page.me])
+      assert.equal(page.text('.hex-overlay'), text)
+      assert.equal(page.spoken().filter((x) => x === text).length, 1, page.spoken().join(' | '))
+    }
+    assert.equal(ece.q('.hex-lag').hidden, true, 'duraklamada Bağlantı Yavaş yok')
+    deniz.sandbox.setTimeout = normal
+    world.net.advance(1500)
+    for (const page of [deniz, ece]) {
+      assert.equal(page.frame().paused, false, NAMES[page.me])
+      assert.notEqual(page.q('.hex-overlay').getAttribute('data-kind'), 'paused')
+    }
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+
+  test('oyuncuda en yeni anlık görüntü 400 ms\'den eskiyse Bağlantı Yavaş görünür, akış dönünce kalkar, ev sahibinde hiç görünmez', () => {
+    const world = makeWorld(['5', '12'])
+    const [deniz, ece] = world.pages
+    openTable('quick', world)
+    linksReady(world)
+    kickoff(world)
+    world.net.advance(500)
+    assert.equal(ece.q('.hex-lag').hidden, true)
+    assert.equal(ece.text('.hex-lag'), 'Bağlantı Yavaş')
+    ece.fake.dropData = true
+    world.net.advance(300)
+    assert.equal(ece.q('.hex-lag').hidden, true, '400 ms dolmadı')
+    world.net.advance(300)
+    assert.equal(ece.q('.hex-lag').hidden, false)
+    assert.equal(deniz.q('.hex-lag').hidden, true)
+    ece.fake.dropData = false
+    world.net.advance(200)
+    assert.equal(ece.q('.hex-lag').hidden, true)
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+
+  test('gönderim hızı tahmini hazır bağ başına 40 kbps\'in altındaysa herkese 20 Hz, üstündeyse 30 Hz, yalnızca maçta ve 5 sn\'de bir ölçülür', async () => {
+    // Tahmin söz (Promise) olarak gelir: saat ilerledikten sonra mikro görevler işlenir
+    const settle = () => new Promise((resolve) => setImmediate(resolve))
+    const world = makeWorld(['5', '12', '7'])
+    const [deniz] = world.pages
+    let calls = 0
+    deniz.run('const realUplink = voice.uplinkEstimate')
+    deniz.sandbox.countUplink = () => { calls++ }
+    deniz.run('voice.uplinkEstimate = () => { countUplink(); return realUplink() }')
+    // Anlık görüntüler sayılır (ev sahibinden Ece'ye giden SNAP)
+    const sent = []
+    const data = world.net.data
+    world.net.data = (fromId, peerId, buf) => {
+      if (String(fromId) === '5' && peerId === 'p12' && new Uint8Array(buf)[1] === 4) sent.push(world.net.clock.now)
+      return data(fromId, peerId, buf)
+    }
+    const step = async (ms) => {
+      let left = ms
+      while (left > 0) {
+        world.net.advance(Math.min(250, left))
+        left -= 250
+        await settle()
+      }
+    }
+    const rate = async (ms) => {
+      const from = world.net.clock.now
+      await step(ms)
+      return sent.filter((t) => t > from).length * 1000 / ms
+    }
+    deniz.fake.uplink = 10
+    openTable('quick', world)
+    linksReady(world)
+    await step(6000)
+    assert.equal(calls, 0, 'maç yokken ölçülmez')
+    assert.equal(deniz.run('hexballState.lowUplink'), false)
+    // İki hazır bağ: eşik 80 kbps. 70 kbps düşüktür.
+    deniz.fake.uplink = 70
+    kickoff(world)
+    await step(1000)
+    assert.equal(deniz.run('hexballState.lowUplink'), true)
+    const low = await rate(3000)
+    assert.ok(low >= 18 && low <= 22, 'düşük hız ' + low)
+    // 90 kbps eşiğin üstünde: sonraki ölçümde 30 Hz'e döner
+    deniz.fake.uplink = 90
+    await step(5000)
+    assert.equal(deniz.run('hexballState.lowUplink'), false)
+    const high = await rate(3000)
+    assert.ok(high >= 28 && high <= 32, 'normal hız ' + high)
+    // 5 sn'de bir ölçülür (yaklaşık 9 sn'de en çok 3 ölçüm)
+    assert.ok(calls >= 2 && calls <= 3, 'ölçüm ' + calls)
+    // Tahmin yoksa (null) düşük sayılmaz
+    deniz.fake.uplink = null
+    await step(5000)
+    assert.equal(deniz.run('hexballState.lowUplink'), false)
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+})
+
 describe('Bağlantı Yok', () => {
   test('oyun verisini almayan istemci ev sahibinde Bağlantı Yok olur, Maçı Başlat pasif kalır, izleyicilere alınınca açılır', () => {
     const world = makeWorld(['5', '12', '7'], { page: { 7: {} } })
@@ -1068,6 +1285,31 @@ describe('Bağlantı Yok', () => {
     assert.equal(world.net.errors.length + old.net.errors.length, 0, String(world.net.errors[0] || old.net.errors[0]))
   })
 
+  test('ev sahibinde ses bağlantısı olmayan oturan kişi bekleme süresi dolunca Bağlantı Yok olur, bağlantı dönünce hazır olur', () => {
+    const world = makeWorld(['5', '12', '7'])
+    const [deniz] = world.pages
+    openTable('quick', world)
+    linksReady(world)
+    // Mert'in eşi ev sahibinin ses motorunda yok (koltuk duruyor): bağ açılamaz
+    const peer = deniz.fake.snap.peers['7']
+    delete deniz.fake.snap.peers['7']
+    world.net.advance(1000)
+    assert.equal(deniz.run('hexballLinks()')['7'], 'none')
+    assert.equal(deniz.text('.hex-person[data-user-id="7"] .hex-chip'), 'Bağlantı bekleniyor')
+    assert.equal(deniz.disabled('hex-kickoff'), true)
+    world.net.advance(15000)
+    assert.equal(deniz.run('hexballLinks()')['7'], 'failed')
+    assert.equal(deniz.text('.hex-person[data-user-id="7"] .hex-chip'), 'Bağlantı Yok')
+    assert.match(deniz.text('.hex-failed .game-note-text'), /^Oyun bağlantısı kurulamadı: Mert\./)
+    // Ses bağlantısı döner: bağ yeniden açılır ve el sıkışılır
+    deniz.fake.snap.peers['7'] = peer
+    world.net.until(() => deniz.run('hexballLinks()')['7'] === 'ready', 5000, 'bağ yeniden hazır')
+    world.net.advance(300)
+    assert.equal(deniz.q('.hex-person[data-user-id="7"] .hex-chip'), null)
+    assert.equal(deniz.disabled('hex-kickoff'), false)
+    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
+  })
+
   test('oyuncu ev sahibiyle ses bağlantısı yokken bekler, süre dolunca Bağlantı Yok, ses oturumu bitince oturumlar kapanır', () => {
     const world = makeWorld(['5', '12'])
     const [deniz, ece] = world.pages
@@ -1097,6 +1339,9 @@ describe('dokunmatik ve oyun kolu', () => {
     ece.sandbox.coarse = true
     openTable('quick', world)
     linksReady(world)
+    // Takımlar ekranının yardım satırı da cihaza göre: dokunmatikte çubuk ve Vur, klavyede tuşlar
+    assert.equal(ece.text('.hex-help'), 'Soldaki çubukla hareket edin, Vur düğmesiyle vurun.')
+    assert.equal(deniz.text('.hex-help'), 'Oklar veya WASD ile hareket, X veya Boşluk ile vuruş.')
     kickoff(world)
     assert.equal(deniz.q('.hex-touch').hidden, true, 'ince işaretçide gizli')
     const touch = ece.q('.hex-touch')
@@ -1145,7 +1390,7 @@ describe('dokunmatik ve oyun kolu', () => {
     assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
   })
 
-  test('oyun kolu: sol çubuk ve yön tuşları hareket, alt yüz düğmesi vuruş, bas konuş o düğmedeyse sol yüz düğmesi', () => {
+  test('oyun kolu: sol çubuk ve yön tuşları hareket, alt yüz düğmesi vuruş, ses atamasındaki düğmeler oyunda kullanılmaz', () => {
     const world = makeWorld(['5', '12'])
     const [deniz, ece] = world.pages
     openTable('quick', world)
@@ -1175,6 +1420,36 @@ describe('dokunmatik ve oyun kolu', () => {
     ece.sandbox.fakePads = [pad([0, 0], [2])]
     world.net.advance(50)
     same(ece.input(), { x: 0, y: 0, kick: true })
+    // Sustur sol yüz düğmesine atanırsa o düğme vurmaz (basışı ses motoru alır), vuruş üst yüz düğmesidir
+    ece.fake.settings.bindings.toggleMute = { type: 'gamepad', button: 2 }
+    ece.run('hexballState.padCheck = 0')
+    world.net.advance(50)
+    same(ece.input(), { x: 0, y: 0, kick: false })
+    ece.sandbox.fakePads = [pad([0, 0], [3])]
+    world.net.advance(50)
+    same(ece.input(), { x: 0, y: 0, kick: true })
+    // Üç yüz düğmesi de atanmışsa kolda vuruş yok, sağ yüz düğmesi (üstteki katmanı kapatır) hiç vurmaz
+    ece.fake.settings.bindings.toggleDeafen = { type: 'gamepad', button: 3 }
+    ece.run('hexballState.padCheck = 0')
+    ece.sandbox.fakePads = [pad([0, 0], [0, 1, 2, 3])]
+    world.net.advance(50)
+    same(ece.input(), { x: 0, y: 0, kick: false })
+    assert.equal(ece.run('hexballState.padKick'), null)
+    // Ses atamasındaki yön tuşu hareket ettirmez, öbür yön tuşları ettirir
+    ece.fake.settings.bindings.toggleMute = { type: 'gamepad', button: 12 }
+    ece.run('hexballState.padCheck = 0')
+    ece.sandbox.fakePads = [pad([0, 0], [12])]
+    world.net.advance(50)
+    same(ece.input(), { x: 0, y: 0, kick: false })
+    ece.sandbox.fakePads = [pad([0, 0], [12, 15])]
+    world.net.advance(50)
+    same(ece.input(), { x: 1, y: 0, kick: false })
+    // Klavye atamaları kolu etkilemez
+    ece.fake.settings.bindings = { ptt: { type: 'key', code: 'KeyV' } }
+    ece.run('hexballState.padCheck = 0')
+    ece.sandbox.fakePads = [pad([0, 0], [0, 12])]
+    world.net.advance(50)
+    same(ece.input(), { x: 0, y: -1, kick: true })
     ece.sandbox.fakePads = []
     world.net.advance(50)
     same(ece.input(), { x: 0, y: 0, kick: false })

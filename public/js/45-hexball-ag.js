@@ -17,8 +17,10 @@
 // İki döngü arası 250 ms'yi aşarsa (arka planda kısılan sekme) maç duraklar, döngü 500 ms düzenli işleyince sürer.
 // Ev sahibinin kendi girdisi oyuncuların ortalama gidiş dönüş süresi kadar, en çok 80 ms bekletilir.
 // El sıkışma: kanal açılınca ev sahibi HELLO gönderir ve HELLO_ACK gelene kadar 250 ms'de bir yineler. Kanal
-// açıldıktan sonra 5 sn içinde hiç HELLO_ACK gelmezse bağ "failed" olur (eski istemci). Her maç başında ve sonunda
-// yeni maç kimliğiyle el yeniden sıkışılır, onaylamayan eşe anlık görüntü gitmez ve girdisi işlenmez.
+// açıldıktan sonra 5 sn içinde hiç HELLO_ACK gelmezse bağ "failed" olur (eski istemci). Kanal 15 sn içinde
+// açılmaya başlayamazsa (ses bağlantısı hazır değil, eş yok) ya da açılmaya başlayıp 15 sn içinde açılmazsa da
+// "failed" olur. Her maç başında ve sonunda yeni maç kimliğiyle el yeniden sıkışılır, onaylamayan eşe anlık
+// görüntü gitmez ve girdisi işlenmez. Maç sonunda onaylamış eşlere son skorla son bir anlık görüntü gider.
 // Denetimler: ev sahibi yalnızca masadaki kişinin bu kişiye ait eş kimliğinden (setPeers) gelen ve maçta yuvası
 // olan kişinin girdisini işler, eş başına saniyede en çok 120 girdi, eski seq atılır, eksenler sınırlanır. Oyuncu
 // yalnızca ev sahibinin eşinden gelen HELLO ve SNAP iletilerini alır, en yeni tick'ten eski olan SNAP atılır.
@@ -442,13 +444,15 @@ window.TelsizHexballNet = (function (P, H) {
       return env.now()
     }
 
-    function newPeer (id, peerId) {
+    // since: kanal açılmaya başladı (opening) ya da açıldı, wantAt: kanalsız (none) beklemenin başladığı an
+    function newPeer (id, peerId, t) {
       return {
         id: id,
         peerId: peerId,
         link: 'none',
         chan: false,
         since: 0,
+        wantAt: t,
         tried: -Infinity,
         helloAt: -Infinity,
         helloEpoch: undefined,
@@ -521,6 +525,7 @@ window.TelsizHexballNet = (function (P, H) {
     function linkLost (r, link) {
       r.chan = false
       r.tried = now()
+      r.wantAt = r.tried
       resetInput(r)
       setLink(r, link)
     }
@@ -542,13 +547,17 @@ window.TelsizHexballNet = (function (P, H) {
       } else if (code === 'blocked' || code === 'unsupported' || code === 'private') setLink(r, 'failed')
     }
 
-    // Bağ bakımı: kanalı olmayan eşe yeniden açma, el sıkışma yinelemesi ve zaman aşımları. Hiç onaylamamış eş
-    // kanal açıldıktan 5 sn sonra failed olur, kanalı açık failed eşe saniyede bir HELLO gider (geç onay kabul edilir).
+    // Bağ bakımı: kanalı olmayan eşe yeniden açma, el sıkışma yinelemesi ve zaman aşımları. Kanal açılmaya
+    // başlayamıyorsa (ses bağlantısı hazır değil, eş yok) 15 sn sonra, açılmaya başlayıp 15 sn içinde açılmazsa
+    // failed olur. Hiç onaylamamış eş kanal açıldıktan 5 sn sonra failed olur, kanalı açık failed eşe saniyede bir
+    // HELLO gider (geç onay kabul edilir). Kanalı olmayan failed eş ses bağlantısı yeniden hazır olunca (peer-ready)
+    // yeniden denenir.
     function maintain (t) {
       Object.keys(peers).forEach((pid) => {
         const r = peers[pid]
         if (r.link === 'none') {
           if (t - r.tried >= LINK_RETRY_MS) tryOpen(r, t)
+          if (r.link === 'none' && t - r.wantAt > OPEN_TIMEOUT_MS) setLink(r, 'failed')
         } else if (r.link === 'opening') {
           if (t - r.since > OPEN_TIMEOUT_MS) setLink(r, 'failed')
         } else if (r.link === 'waiting') {
@@ -566,7 +575,7 @@ window.TelsizHexballNet = (function (P, H) {
       Object.keys(peers).forEach((pid) => {
         const r = peers[pid]
         let at = Infinity
-        if (r.link === 'none') at = r.tried + LINK_RETRY_MS
+        if (r.link === 'none') at = Math.min(r.tried + LINK_RETRY_MS, r.wantAt + OPEN_TIMEOUT_MS + 1)
         else if (r.link === 'opening') at = r.since + OPEN_TIMEOUT_MS
         else if (r.link === 'waiting') at = Math.min(r.helloAt + HELLO_RESEND_MS, r.everReady ? Infinity : r.since + HELLO_TIMEOUT_MS)
         else if (r.link === 'failed' && r.chan) at = r.helloAt + LINK_RETRY_MS
@@ -734,12 +743,13 @@ window.TelsizHexballNet = (function (P, H) {
       })
       if (!ok) return false
       const next = {}
+      const t = now()
       let added = false
       list.forEach((x) => {
         const old = peers[x.peerId]
         if (old && old.id === x.id) next[x.peerId] = old
         else {
-          next[x.peerId] = newPeer(x.id, x.peerId)
+          next[x.peerId] = newPeer(x.id, x.peerId, t)
           added = true
         }
       })
@@ -799,14 +809,47 @@ window.TelsizHexballNet = (function (P, H) {
       return true
     }
 
-    // Maç bitti ya da kaldırıldı (sonuç, lobi, masa kapandı): dünya bırakılır, el lobi kimliğiyle sıkışılır
+    // Maç bitti ya da kaldırıldı (sonuç, lobi, masa kapandı): onaylamış eşlere son skorla ve over aşamasıyla son
+    // bir anlık görüntü gider (bitiren gol, süre ya da durdurma çoğu zaman bir adımın içinde gelir ve o adımın
+    // anlık görüntüsü gönderilmeden maç kalkar), sonra dünya bırakılır, el lobi kimliğiyle sıkışılır
     function endMatch () {
       if (destroyed || !match) return false
+      P.stop(match.world)
+      // Son anlık görüntü yeni bir adım numarasıyla gider (oyuncu aynı ya da eski adımı atar)
+      netTick = netTick >= MAX_TICK ? 0 : netTick + 1
+      sendSnaps(now(), true)
       match = null
       lagPaused = false
       localQueue = []
       rehello(now())
       schedule(0)
+      return true
+    }
+
+    // Maç sürerken masadan ayrılan ya da koltuktan çıkarılan kişinin yuvası maçtan çıkar: diski dünyadan kalkar
+    // (fizikte removePlayer), girdisi işlenmez ve anlık görüntülerde yer almaz. Maç aynı kimlikle sürer. Kişinin
+    // kanalı açıksa el yuvasız yeniden sıkışılır. Dönüş: kişinin yuvası vardı
+    function dropPlayer (id) {
+      if (destroyed || !match || !isKey(id) || !hasOwn(match.slots, id)) return false
+      const slot = match.slots[id]
+      delete match.slots[id]
+      delete match.ids[slot]
+      if (match.self === slot) {
+        match.self = null
+        localQueue = []
+        localLatch = false
+        local = { x: 0, y: 0, kick: false }
+      }
+      P.removePlayer(match.world, slot)
+      const t = now()
+      Object.keys(peers).forEach((pid) => {
+        const r = peers[pid]
+        if (r.id !== id) return
+        resetInput(r)
+        if (!r.chan) return
+        if (r.link === 'ready') setLink(r, 'waiting')
+        sendHello(r, t)
+      })
       return true
     }
 
@@ -873,6 +916,7 @@ window.TelsizHexballNet = (function (P, H) {
       } else if (evt.type === 'peer-ready') {
         if (r.link === 'failed' && !r.chan) {
           r.tried = -Infinity
+          r.wantAt = t
           setLink(r, 'none')
         }
         schedule(0)
@@ -927,6 +971,7 @@ window.TelsizHexballNet = (function (P, H) {
     return Object.freeze({
       setPeers: setPeers,
       startMatch: startMatch,
+      dropPlayer: dropPlayer,
       endMatch: endMatch,
       setInput: setInput,
       onData: onData,
@@ -970,6 +1015,8 @@ window.TelsizHexballNet = (function (P, H) {
     let lastSent = -Infinity
     let timer = null
     let destroyed = false
+    // Maç bitti, lobi el sıkışması geldi: { slot } maçtaki yuva (son anlık görüntü çizilirken kendi diskiniz)
+    let ended = null
 
     function now () {
       return env.now()
@@ -980,9 +1027,10 @@ window.TelsizHexballNet = (function (P, H) {
       timer = null
     }
 
-    function resetMatch () {
-      snaps = []
-      lastTick = -1
+    // keepLast: maç bitti (lobi el sıkışması), masanın sonuç durumu gelene kadar son anlık görüntü çizilir
+    function resetMatch (keepLast) {
+      snaps = keepLast && snaps.length ? [snaps[snaps.length - 1]] : []
+      lastTick = snaps.length ? snaps[0].tick : -1
       jitter = 0
       rt = null
       seq = 0
@@ -998,7 +1046,8 @@ window.TelsizHexballNet = (function (P, H) {
       hello = false
       epoch = null
       slot = null
-      resetMatch()
+      ended = null
+      resetMatch(false)
       if (had) emit({ e: 'lost' })
     }
 
@@ -1036,12 +1085,15 @@ window.TelsizHexballNet = (function (P, H) {
       else later(t)
     }
 
+    // Maçtan lobiye dönen el sıkışmada (maç bitti) son anlık görüntü ve yuva çizim için kalır (ended)
     function onHello (msg) {
       if (!hello || msg.epoch !== epoch || msg.slot !== slot) {
+        const over = hello && epoch !== null && msg.epoch === null && snaps.length > 0
+        ended = over ? { slot: slot } : null
         hello = true
         epoch = msg.epoch
         slot = msg.slot
-        resetMatch()
+        resetMatch(over)
         interval = TICK_HZ / msg.snapHz
         emit({ e: 'hello', epoch: epoch, slot: slot })
       }
@@ -1049,7 +1101,15 @@ window.TelsizHexballNet = (function (P, H) {
     }
 
     function onSnap (msg, t) {
-      if (!hello || epoch === null || msg.tick <= lastTick) return
+      if (!hello || msg.tick <= lastTick) return
+      // Maç bittikten sonra sırasız kanalda lobi el sıkışmasından sonra gelen son anlık görüntü yalnızca çizilir
+      if (epoch === null) {
+        if (!ended) return
+        msg.at = t
+        snaps = [msg]
+        lastTick = msg.tick
+        return
+      }
       const prev = snaps.length ? snaps[snaps.length - 1] : null
       if (prev) {
         const dt = msg.tick - prev.tick
@@ -1158,7 +1218,7 @@ window.TelsizHexballNet = (function (P, H) {
         score: { red: a.score.red, blue: a.score.blue },
         ball: blendDisc(a.ball, b.ball, f, dt, P.MAX_BALL_SPEED),
         players: players,
-        me: slot,
+        me: ended && epoch === null ? ended.slot : slot,
         paused: a.phase === 'paused'
       }
     }
@@ -1169,6 +1229,7 @@ window.TelsizHexballNet = (function (P, H) {
       return {
         ready: hello,
         epoch: epoch,
+        ended: Boolean(ended) && epoch === null,
         slot: slot,
         tick: lastTick,
         age: snaps.length ? t - snaps[snaps.length - 1].at : null,

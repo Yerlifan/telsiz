@@ -7,8 +7,10 @@
 // ve tampon sınırları, kabul kuralları (etiket, ayarlar, eş başına tek kanal, özel arama), aynı anda iki taraf
 // açınca tek kanal kalması, kapatma ve bağlantı kapanınca link-close, veri bölümü anlaşmaya eklenemeyince
 // (yanıt veya teklif uygulanamadı, karşı taraf reddetti, teklif zarf sınırını aştı) ekran ve kamera hatası
-// verilmeden bağın engellenmesi ve yeniden kurulum döngüsü olmaması, m satırı sayımının yalnız ses ve görüntüyü
-// sayması, bağ açıkken ve açılırken ekran paylaşımı yeniden anlaşmasının ve mikrofonun sürmesi. Her istemci ayrı
+// verilmeden bağın engellenmesi ve yeniden kurulum döngüsü olmaması, çakışmada veri bölümü kaybolacağı zaman
+// bağlantının bir kez kanal ilk teklifte olacak biçimde yeniden kurulması ve veri bölümsüz teklifin gönderilmemesi
+// (teklif yanıt döngüsü olmaz), m satırı sayımının yalnız ses ve görüntüyü sayması, bağ açıkken ve açılırken ekran
+// paylaşımı yeniden anlaşmasının ve mikrofonun sürmesi. Her istemci ayrı
 // vm bağlamında gerçek voice.js çalıştırır, sahte WebRTC SDP, aktarıcı, veri kanalı ve paket akışını taklit eder
 // (test/screenshare.test.js düzeneğine veri kanalı eklenmiş biçimi), saat belirlenimcidir.
 
@@ -87,7 +89,9 @@ test('10-voice.js oyun bağı verisini korumalı olarak gameOnData işleyicisine
 // açık gelir), açan tarafta 'open' karşı tarafın onayından sonra gelir (Chromium'daki DCEP sırası). Kapatma ve
 // iletiler karşıya 5 ms sonra ulaşır. Seçenekler: failOffer ve failAnswer(p, pc) tanım uygulanamaz, rejectData
 // yanıtta veri bölümü reddedilir (kapı 0), oldClient ondatachannel işleyicisi kurulamaz (oyun bağını bilmeyen eski
-// istemci, tarayıcı kanalı yine açar), noDataChannel createDataChannel yok, throwData veri dinleyicisi hata fırlatır.
+// istemci, tarayıcı kanalı yine açar), noDataChannel createDataChannel yok, throwData veri dinleyicisi hata fırlatır,
+// dropData teklif henüz anlaşılmamış veri bölümünü hiç içermez. Chromium'daki gibi veri bölümünü ilk kez ekleyen
+// teklif geri alınınca bu bağlantıda veri bölümü bir daha teklif edilmez (sctpLost).
 
 const VIDEO_CAPS = [
   { mimeType: 'video/VP8', clockRate: 90000 },
@@ -506,6 +510,7 @@ function makeRoom () {
         this.trs = []
         this.ml = []
         this.dataT = null
+        this.sctpLost = false
         this.channels = []
         this.usedMids = new Set()
         this.midSeq = 0
@@ -602,7 +607,7 @@ function makeRoom () {
       createDataChannel (label, init) {
         if (this.closed) throw domErr('InvalidStateError', 'closed')
         const ch = new FChannel(this, label, init, true)
-        if (!this.dataT || this.dataT.stopped) this.dataT = new FDataSection()
+        if (!this.sctpLost && (!this.dataT || this.dataT.stopped)) this.dataT = new FDataSection()
         clock.setTimeout(() => this.pump(), 0)
         return ch
       }
@@ -617,6 +622,7 @@ function makeRoom () {
         const assign = []
         this.allTs().forEach((t) => {
           if (t.mid !== null || t.stopped || list.indexOf(t) >= 0) return
+          if (t === this.dataT && eo.dropData) return
           const mid = this.newMid()
           assign.push([t, mid])
           const slot = list.findIndex((x) => x.stopped && x.recyclable && !x.taken)
@@ -764,6 +770,12 @@ function makeRoom () {
             p.assign.forEach((a) => {
               if (a[0].mid === a[1]) a[0].mid = null
             })
+            // Chromium: veri bölümünü ilk kez ekleyen teklif geri alınınca bu bağlantının sonraki tekliflerinde
+            // veri bölümü yer almaz, yeni kanal da eklemez, açılmakta olan kanal hiç açılmaz
+            if (this.dataT && p.assign.some((a) => a[0] === this.dataT)) {
+              this.dataT = null
+              this.sctpLost = true
+            }
             if (p.adds) {
               this.trs.forEach((t) => { t.sender.broken = true })
               this.negotiated = false
@@ -1062,7 +1074,7 @@ function makeRoom () {
     win.window = win
     win.document = { visibilityState: 'visible', documentElement: element('html'), body: element('body'), createElement: element, addEventListener: noop, removeEventListener: noop }
     const md = {
-      getUserMedia: () => Promise.resolve(new FStream([new FTrack('audio')])),
+      getUserMedia: (c) => Promise.resolve(new FStream([new FTrack(c && c.video ? 'video' : 'audio')])),
       enumerateDevices: () => Promise.resolve([]),
       getDisplayMedia: (c) => Promise.resolve(new FStream(c && c.audio ? [new FTrack('video'), new FTrack('audio')] : [new FTrack('video')]))
     }
@@ -1706,6 +1718,133 @@ test('veri bölümlü teklif zarf sınırını aşarsa (400) bağ engellenir, ba
   const c = consistent(room, 'A', 'B')
   assert.ok(c.ok, JSON.stringify(c))
   assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
+  assert.deepEqual(room.clock.errors.map(String), [])
+  await room.leaveAll()
+})
+
+// Kibar eş (A) veri bölümünü ilk kez ekleyen teklifi gönderirken kaba eş (B) kamera açıp kendi teklifini gönderir
+// (Hexball'da ev sahibi sonradan katılan oyunculara karşı kibardır). A teklifini geri alır, Chromium'da bu bağlantıda
+// veri bölümü bir daha teklif edilmez. Eskiden A veri bölümsüz teklifler gönderip duruyordu, kanal 'connecting'
+// kalıyordu.
+test('çakışmada veri bölümünü ilk kez ekleyen teklif geri alınırsa bağlantı bir kez kanal ilk teklifte olacak biçimde yeniden kurulur, teklif döngüsü olmaz', async () => {
+  const room = await twoRoom()
+  const A = room.engines.A
+  const B = room.engines.B
+  const oldSid = room.sidOf('A', 'B')
+  const oldPc = room.pc('A', 'B')
+  const t0 = room.clock.now()
+  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
+  const cam = B.voice.startCamera()
+  await room.advance(100)
+  await cam
+  await room.advance(5000)
+  // Çakışmada A teklifini geri almadı (geri alsa veri bölümü bu bağlantıda kaybolurdu), B'nin teklifini
+  // yanıtlamadan bağlantıyı yeni sid ile yeniden kurdu, ilk teklifte veri bölümü var
+  assert.ok(!oldPc.calls.some((c) => c.call === 'sLD:rollback'))
+  assert.equal(oldPc.closed, true)
+  assert.equal(room.answers('A', 'B').filter((s) => s.sid === oldSid && s.t >= t0).length, 0)
+  const sid = room.sidOf('A', 'B')
+  assert.notEqual(sid, oldSid)
+  const first = room.offers('A', 'B').filter((s) => s.sid === sid)[0]
+  assert.match(first.sdp, /\r\nm=application 9 /)
+  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
+  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
+  assert.deepEqual(room.links('A'), [['link-close', B.peerId, B.userId], ['link-open', B.peerId, B.userId]])
+  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
+  assert.equal(A.voice.sendGameData(B.peerId, new Uint8Array([7])), true)
+  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([8])), true)
+  await room.advance(50)
+  assert.deepEqual(B.data.map((d) => d.bytes), [[7]])
+  assert.deepEqual(A.data.map((d) => d.bytes), [[8]])
+  // Kamera yeni bağlantıda da gelir, mikrofon iki yönde akar
+  assert.ok(room.pc('A', 'B').ml.some((t) => t.kind === 'video'), 'kamera m satırı')
+  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
+  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
+  // Teklif döngüsü yok: sinyal sayısı sınırlı kalır, bağlantı bir kez yeniden kuruldu
+  const before = room.signals
+  await room.advance(30000)
+  assert.ok(room.signals - before < 10, 'sinyal: ' + (room.signals - before))
+  const offers = room.offers('A', 'B').concat(room.offers('B', 'A')).filter((s) => s.t >= t0)
+  assert.ok(offers.length <= 8, 'teklif: ' + offers.length)
+  assert.equal(room.pcsOf('A').length, 2)
+  const c = consistent(room, 'A', 'B')
+  assert.ok(c.ok, JSON.stringify(c))
+  noNegotiationErrors(room, 'A')
+  noNegotiationErrors(room, 'B')
+  assert.deepEqual(room.clock.errors.map(String), [])
+  await room.leaveAll()
+})
+
+test('kanal kapatılıp geri alınan teklif veri bölümünü kaybettirirse yeniden açınca veri bölümsüz teklif gitmez, bağlantı kanalla yeniden kurulur', async () => {
+  const room = await twoRoom()
+  const A = room.engines.A
+  const B = room.engines.B
+  const oldSid = room.sidOf('A', 'B')
+  const oldPc = room.pc('A', 'B')
+  // A kanalı açar ve teklif yoldayken kapatır, B aynı anda kamera açar: A kanalsız teklifini geri alır
+  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
+  const cam = B.voice.startCamera()
+  await room.advance(5)
+  assert.equal(A.voice.closeGameLink(B.peerId), true)
+  await room.advance(100)
+  await cam
+  await room.advance(3000)
+  assert.ok(oldPc.calls.some((c) => c.call === 'sLD:rollback'), 'A geri almalı')
+  assert.equal(oldPc.sctpLost, true)
+  assert.equal(room.sidOf('A', 'B'), oldSid)
+  const t1 = room.clock.now()
+  // Yeniden açınca tarayıcı veri bölümünü teklife eklemez: teklif gönderilmez, bağlantı kanalla yeniden kurulur
+  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
+  await room.advance(3000)
+  assert.equal(room.offers('A', 'B').filter((s) => s.t >= t1 && s.sid === oldSid).length, 0)
+  const sid = room.sidOf('A', 'B')
+  assert.notEqual(sid, oldSid)
+  assert.match(room.offers('A', 'B').filter((s) => s.sid === sid)[0].sdp, /\r\nm=application 9 /)
+  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
+  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
+  assert.deepEqual(room.links('A').map((x) => x[0]), ['link-close', 'link-open'])
+  const before = room.signals
+  await room.advance(30000)
+  assert.ok(room.signals - before < 10, 'sinyal: ' + (room.signals - before))
+  const c = consistent(room, 'A', 'B')
+  assert.ok(c.ok, JSON.stringify(c))
+  noNegotiationErrors(room, 'A')
+  noNegotiationErrors(room, 'B')
+  assert.deepEqual(room.clock.errors.map(String), [])
+  await room.leaveAll()
+})
+
+test('tarayıcı veri bölümünü teklife eklemezse teklif gönderilmez: bağlantı bir kez yeniden kurulur, yine olmazsa bağ engellenir', async () => {
+  const room = await twoRoom(null, { dropData: true })
+  const A = room.engines.A
+  const B = room.engines.B
+  const oldSid = room.sidOf('B', 'A')
+  const t0 = room.clock.now()
+  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
+  await room.advance(5000)
+  // Eski bağlantıda veri bölümsüz teklif gitmedi, yeni bağlantı kuruldu, orada da eklenemedi: bağ engellendi
+  assert.notEqual(room.sidOf('B', 'A'), oldSid)
+  assert.equal(room.offers('B', 'A').filter((s) => s.t >= t0 && s.sid === oldSid).length, 0)
+  assert.deepEqual(room.links('B'), [['link-close', A.peerId, A.userId], ['link-failed', A.peerId, A.userId]])
+  assert.deepEqual(room.links('A'), [])
+  assert.equal(B.voice.openGameLink(A.peerId), 'blocked')
+  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
+  const before = room.signals
+  await room.advance(60000)
+  assert.ok(room.signals - before < 10, 'sinyal: ' + (room.signals - before))
+  assert.equal(room.pcsOf('B').length, 2)
+  noNegotiationErrors(room, 'A')
+  noNegotiationErrors(room, 'B')
+  const c = consistent(room, 'A', 'B')
+  assert.ok(c.ok, JSON.stringify(c))
+  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
+  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
+  // Ses oturumu yenilenince engel ve yeniden kurulum hakkı sıfırlanır
+  await B.voice.leave()
+  await room.advance(1000)
+  await room.join('B')
+  await room.advance(1500)
+  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
   assert.deepEqual(room.clock.errors.map(String), [])
   await room.leaveAll()
 })

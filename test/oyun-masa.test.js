@@ -901,7 +901,8 @@ describe('kurpiyer: hamleler ve sayaçlar', () => {
     K.locked = true
     K.desk.tick()
     assert.equal(K.m().stage, 'none')
-    same(K.noticesOf('ended').map((x) => x.data), [{ reason: 'keys' }])
+    // Masa silindiği için uygulama bildirimle gelir (bitiş metni uygulamanın sözcükleriyle yazılır)
+    same(K.noticesOf('ended').map((x) => x.data), [{ reason: 'keys', app: 'sayac' }])
     assert.equal(K.lastTo(B, 'close').msg.why, 'dealer')
     assert.equal(K.lastTo(C, 'close').msg.why, 'dealer')
     w.deliver()

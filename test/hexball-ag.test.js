@@ -629,7 +629,7 @@ describe('el sıkışma ve bağ', () => {
     noErrors(M)
   })
 
-  test('bağ açma kodları: not_ready yinelenir, blocked failed, open hemen el sıkışır, açılmayan bağ 15 sn sonra failed', () => {
+  test('bağ açma kodları: not_ready yinelenir, blocked failed, open hemen el sıkışır, açılmayan ya da açılmaya başlamayan bağ 15 sn sonra failed', () => {
     const W = makeWorld({ players: ['2'] })
     W.openCode = () => 'not_ready'
     W.clock.run(3500)
@@ -659,6 +659,37 @@ describe('el sıkışma ve bağ', () => {
     S.clock.run(16000)
     assert.equal(S.host.links()['2'], 'failed')
     noErrors(S)
+
+    // Kanal hiç açılmaya başlayamazsa (ses bağlantısı hazır değil, eş yok) da 15 sn sonra failed olur, ses
+    // bağlantısı hazır olunca (peer-ready) yeniden denenir
+    for (const code of ['not_ready', 'no_peer', 'not_in_voice']) {
+      const Z = makeWorld({ players: ['2'] })
+      Z.openCode = () => code
+      Z.clock.run(14900)
+      assert.equal(Z.host.links()['2'], 'none', code)
+      Z.clock.run(15100)
+      assert.equal(Z.host.links()['2'], 'failed', code)
+      same(Z.linkEvents('2'), ['failed'])
+      const opens = Z.opens.length
+      Z.clock.run(30000)
+      assert.equal(Z.opens.length, opens, 'failed kendiliğinden yeniden denenmez: ' + code)
+      Z.openCode = () => 'ok'
+      Z.host.onVoiceEvent({ type: 'peer-ready', peerId: 'p2', userId: '2' })
+      Z.clock.run(31000)
+      assert.equal(Z.host.links()['2'], 'ready', code)
+      noErrors(Z)
+    }
+    // Kanal kapanınca 15 sn yeniden sayılır
+    const C = makeWorld({ players: ['2'] })
+    C.clock.run(20000)
+    assert.equal(C.host.links()['2'], 'ready')
+    C.openCode = () => 'not_ready'
+    C.linkDown('2', 'link-close')
+    C.clock.run(34000)
+    assert.equal(C.host.links()['2'], 'none')
+    C.clock.run(35100)
+    assert.equal(C.host.links()['2'], 'failed')
+    noErrors(C)
   })
 
   test('kanal kapanınca none olur ve yeniden açılır, link-failed failed yapar, ses oturumu bitince hepsi none', () => {
@@ -1144,18 +1175,36 @@ describe('oyuncu', () => {
     noErrors(W)
   })
 
-  test('maç bitince lobi kimliğiyle el sıkışılır, yeni maçta yuva değişebilir', () => {
+  test('maç bitince son skorla son bir anlık görüntü gider, lobi kimliğiyle el sıkışılır, yeni maçta yuva değişebilir', () => {
     const W = makeWorld({ players: ['2', '3'] })
     W.clock.run(200)
     W.start()
     W.clock.run(1500)
     assert.ok(W.players['2'].frame())
+    const before = W.hostSent.length
     assert.equal(W.host.endMatch(), true)
     assert.equal(W.host.endMatch(), false)
     assert.equal(W.host.frame(), null)
+    // Maç kalkmadan önce onaylamış eşlere over aşamasıyla son anlık görüntü, ardından lobi HELLO'su gider
+    for (const id of ['2', '3']) {
+      const after = W.hostSent.slice(before).filter((x) => x.to === id).map((x) => x.msg.type + ':' + (x.msg.phase || x.msg.epoch))
+      same(after, ['snap:over', 'hello:null'])
+    }
     W.clock.run(2000)
-    assert.equal(W.players['2'].frame(), null)
-    assert.equal(W.players['2'].state().epoch, null)
+    // Oyuncu lobiye döner ama masanın sonuç durumu gelene kadar son kareyi (kendi diskiyle) çizer
+    const st = W.players['2'].state()
+    assert.equal(st.epoch, null)
+    assert.equal(st.ended, true)
+    assert.equal(st.ready, true)
+    const last = W.players['2'].frame()
+    assert.equal(last.phase, 'over')
+    assert.equal(last.me, 1)
+    same(last.score, { red: 0, blue: 0 })
+    // Lobide girdi gönderilmez
+    const sent = W.playerSent['2'].filter((x) => x.msg.type === 'input').length
+    W.players['2'].setInput({ x: 1, y: 0, kick: true })
+    W.clock.step(100)
+    assert.equal(W.playerSent['2'].filter((x) => x.msg.type === 'input').length, sent)
     const n = W.sentTo('2', 'snap').length
     W.clock.run(3000)
     assert.equal(W.sentTo('2', 'snap').length, n, 'maç yokken anlık görüntü yok')
@@ -1163,6 +1212,79 @@ describe('oyuncu', () => {
     W.clock.run(4000)
     same(W.playerEvents['2'].map((e) => [e.epoch, e.slot]), [[null, null], [EPOCH_A, 1], [null, null], [EPOCH_B, 0]])
     assert.equal(W.players['2'].frame().me, 0)
+    assert.equal(W.players['2'].state().ended, false)
+    assert.equal(W.players['2'].frame().phase, 'kickoff', 'yeni maçta önceki maçın son karesi kalmaz')
+    noErrors(W)
+  })
+
+  test('sırasız kanalda lobi HELLO\'su son anlık görüntüden önce gelirse son kare yine çizilir, girdi gitmez', () => {
+    const W = makeWorld({ players: ['2'], latency: 20 })
+    W.clock.run(200)
+    W.start()
+    W.clock.run(1000)
+    // Son SNAP lobi HELLO'sundan sonra ulaşır
+    let held = null
+    W.filter = (dir, id, msg) => {
+      if (dir === 'down' && msg.type === 'snap' && msg.phase === 'over' && !held) {
+        held = msg
+        return false
+      }
+      return true
+    }
+    W.host.endMatch()
+    W.clock.step(100)
+    W.filter = null
+    assert.ok(held, 'son anlık görüntü tutuldu')
+    assert.equal(W.players['2'].state().ended, true)
+    assert.notEqual(W.players['2'].frame().phase, 'over')
+    W.players['2'].onData('p1', '1', N.encodeSnap(held))
+    assert.equal(W.players['2'].frame().phase, 'over')
+    // Eski ya da aynı adımdaki anlık görüntü kareyi geri almaz
+    W.players['2'].onData('p1', '1', N.encodeSnap(Object.assign({}, held, { tick: held.tick - 5, phase: 'play' })))
+    assert.equal(W.players['2'].frame().phase, 'over')
+    const inputs = W.playerSent['2'].filter((x) => x.msg.type === 'input').length
+    W.clock.step(500)
+    assert.equal(W.playerSent['2'].filter((x) => x.msg.type === 'input').length, inputs)
+    // Bağ koparsa son kare de kalkar
+    W.linkDown('2', 'link-close')
+    assert.equal(W.players['2'].frame(), null)
+    assert.equal(W.players['2'].state().ended, false)
+    noErrors(W)
+  })
+
+  test('maç sürerken ayrılanın yuvası maçtan çıkar: disk dünyadan ve anlık görüntülerden kalkar, girdisi işlenmez', () => {
+    const W = makeWorld({ players: ['2', '3'] })
+    W.clock.run(200)
+    W.start(EPOCH_A, [{ id: '1', slot: 0, side: 'red' }, { id: '2', slot: 1, side: 'blue' }, { id: '3', slot: 2, side: 'red' }])
+    W.clock.run(1000)
+    same(W.host.frame().players.map((p) => p.slot), [0, 1, 2])
+    assert.equal(W.host.dropPlayer('9'), false, 'maçta olmayan kişi')
+    assert.equal(W.host.dropPlayer('3'), true)
+    assert.equal(W.host.dropPlayer('3'), false)
+    same(W.host.frame().players.map((p) => p.slot), [0, 1])
+    // Başlama vuruşu beklenirken Kırmızı'da kalan tek kişi tek kişilik dizilişe geçer
+    same([W.slotOf(0).x, W.slotOf(0).y], [-180, 0])
+    // Ayrılanın el sıkışması yuvasız yinelenir, girdisi işlenmez, oyuncuların karesinde iki disk kalır
+    const hello = W.hellos('3').pop()
+    W.clock.step(500)
+    assert.equal(W.hellos('3').pop().slot, null)
+    assert.equal(hello.slot, 2)
+    W.toHost('3', input(500, -1, 0, true))
+    W.clock.step(500)
+    same(W.players['2'].frame().players.map((p) => p.slot), [0, 1])
+    same(W.snaps('2').pop().msg.players.map((p) => p.slot), [0, 1])
+    // Maç aynı kimlikle sürer, startMatch aynı kimlikle yeniden verilse de disk geri gelmez
+    assert.equal(W.host.info().epoch, EPOCH_A)
+    assert.equal(W.host.startMatch({ epoch: EPOCH_A, rules: 'quick', kick: 'red', players: [{ id: '1', slot: 0, side: 'red' }, { id: '2', slot: 1, side: 'blue' }, { id: '3', slot: 2, side: 'red' }] }), true)
+    same(W.host.frame().players.map((p) => p.slot), [0, 1])
+    // Ev sahibinin kendi yuvası da kalkabilir: girdisi yok sayılır, karede me null
+    assert.equal(W.host.dropPlayer('1'), true)
+    assert.equal(W.host.frame().me, null)
+    W.host.setInput({ x: 1, y: 0, kick: false })
+    W.clock.step(200)
+    same(W.host.frame().players.map((p) => p.slot), [1])
+    assert.equal(W.host.endMatch(), true)
+    assert.equal(W.host.dropPlayer('2'), false, 'maç yokken')
     noErrors(W)
   })
 })

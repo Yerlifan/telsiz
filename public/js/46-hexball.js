@@ -21,8 +21,9 @@
 // - Tuşlar (oklar veya WASD ile hareket, X veya Boşluk ile vuruş) yalnızca maçta yuvası olan kişide, sahne oyun
 //   kipinde görünürken, odak yazı alanında değilken ve tam ekran dışında açık katman yokken dinlenir. Ses
 //   atamalarının tuşları (bas konuş, varsayılan V) kullanılmaz ve engellenmez. Oyun kolunda sol çubuk veya yön tuşları
-//   hareket, alt yüz düğmesi (Çarpı veya A, bu düğme bas konuşa atanmışsa sol yüz düğmesi) vuruştur. Maç sürerken
-//   L1 ve R1 frekans değiştirmez (ownsPad, 21-band.js padPoll).
+//   hareket, alt yüz düğmesi (Çarpı veya A) vuruştur. Ses atamalarının kol düğmeleri de oyunda kullanılmaz: alt yüz
+//   düğmesi atanmışsa vuruş sol (Kare veya X), o da atanmışsa üst yüz düğmesidir (Üçgen veya Y), hepsi atanmışsa
+//   kolda vuruş yoktur. Maç sürerken L1 ve R1 frekans değiştirmez (ownsPad, 21-band.js padPoll).
 // - Dokunmatikte solda Pointer Events ve işaretçi yakalamayla sanal çubuk, sağda Vur düğmesi bulunur (kaba işaretçili
 //   cihazda ya da sahaya ilk dokunuşta görünür). Basılan işaretçinin hareketi ve bırakılması pencere düzeyinde izlenir.
 //   Tuvalde, çubukta ve Vur düğmesinde touch-action: none.
@@ -46,9 +47,9 @@ const HEXBALL_LAG_MS = 400
 // Oyuncu ev sahibinden bu süre içinde el sıkışma almazsa "Bağlantı Yok" (45-hexball-ag.js OPEN_TIMEOUT_MS)
 const HEXBALL_WAIT_FAIL_MS = 15000
 const HEXBALL_DEADZONE = 0.2
-// Standart oyun kolu düzeni: 0 alt yüz düğmesi, 2 sol yüz düğmesi, 12-15 yön tuşları
-const HEXBALL_PAD_KICK = 0
-const HEXBALL_PAD_KICK_ALT = 2
+// Standart oyun kolu düzeni: 0 alt, 2 sol, 3 üst yüz düğmesi, 12-15 yön tuşları. Vuruş sıradaki ilk boş yüz
+// düğmesidir (1, sağ yüz düğmesi, üstteki katmanı kapatır, 21-band.js padPoll)
+const HEXBALL_PAD_KICKS = [0, 2, 3]
 const HEXBALL_PAD_UP = 12
 const HEXBALL_PAD_DOWN = 13
 const HEXBALL_PAD_LEFT = 14
@@ -120,6 +121,10 @@ const hexballState = {
   host: null,
   hostKey: '',
   epoch: null,
+  // Ev sahibinde maçtaki kişiler (yuvası olanlar): görünümden çıkan kişinin yuvası maçtan kalkar (dropPlayer)
+  matchIds: [],
+  // Ev sahibinde oturumda eşi olmayan oturan kişiler: kimlik -> ilk görüldüğü an
+  peerless: {},
   links: '',
   player: null,
   playerKey: '',
@@ -139,7 +144,9 @@ const hexballState = {
   keys: {},
   touch: { x: 0, y: 0, kick: false, pointer: null, kickPointer: null },
   pad: { x: 0, y: 0, kick: false },
-  padKick: HEXBALL_PAD_KICK,
+  // Ses atamalarındaki kol düğmeleri (oyunda kullanılmaz) ve vuruş düğmesi (hepsi atanmışsa null)
+  padUsed: [],
+  padKick: HEXBALL_PAD_KICKS[0],
   padCheck: 0,
   sent: null,
   touchSeen: false,
@@ -295,27 +302,43 @@ function hexballSyncHost (m) {
     }
     hexballState.hostKey = key
     hexballState.epoch = null
+    hexballState.matchIds = []
     hexballState.links = ''
   }
   const host = hexballState.host
   const list = []
+  const peerless = {}
+  const now = hexballNow()
   m.seats.forEach((seat) => {
-    const peerId = seat.id === m.me ? null : hexballPeerOf(s, seat.id)
+    if (seat.id === m.me) return
+    const peerId = hexballPeerOf(s, seat.id)
     if (peerId) list.push({ id: seat.id, peerId: peerId })
+    else peerless[seat.id] = hexballHas(hexballState.peerless, seat.id) ? hexballState.peerless[seat.id] : now
   })
+  // Ses bağlantısı olmayan oturan kişi (oturumda eşi yok): bağ açılamaz, HEXBALL_WAIT_FAIL_MS sonra "Bağlantı Yok"
+  hexballState.peerless = peerless
   host.setPeers(list)
   if (v.ph === 'match' && v.epoch) {
     if (hexballState.epoch !== v.epoch) {
       const players = Object.keys(v.slots).map((id) => ({ id: id, slot: v.slots[id], side: v.teams[id] }))
       if (host.startMatch({ epoch: v.epoch, rules: v.rules, kick: v.kick, players: players })) {
         hexballState.epoch = v.epoch
+        hexballState.matchIds = Object.keys(v.slots)
         // Yeni maçta ev sahibinin bekletilen girdisi sıfırlandı, basılı tuşlar yeniden bildirilir
         hexballState.sent = null
         hexballPushInput()
       }
+    } else {
+      // Maç sürerken ayrılan ya da koltuktan çıkarılan kişinin yuvası maçtan, diski sahadan kalkar
+      const gone = hexballState.matchIds.filter((id) => !hexballHas(v.slots, id))
+      if (gone.length) {
+        gone.forEach((id) => host.dropPlayer(id))
+        hexballState.matchIds = Object.keys(v.slots)
+      }
     }
   } else if (hexballState.epoch !== null) {
     hexballState.epoch = null
+    hexballState.matchIds = []
     host.endMatch()
   }
 }
@@ -365,6 +388,8 @@ function hexballDropHost () {
   hexballState.host = null
   hexballState.hostKey = ''
   hexballState.epoch = null
+  hexballState.matchIds = []
+  hexballState.peerless = {}
   hexballState.links = ''
   hexballState.lowUplink = false
   host.destroy()
@@ -408,7 +433,15 @@ function hexballTick () {
       hexballSoon()
     }
   }
-  if (hexballState.host && hexballState.epoch) hexballWatchUplink()
+  if (hexballState.host) {
+    // Bekleme süresi dolan bağlar (olay üretmeyenler dahil) ekrana yansır
+    const links = JSON.stringify(hexballLinks())
+    if (links !== hexballState.links) {
+      hexballState.links = links
+      hexballSoon()
+    }
+    if (hexballState.epoch) hexballWatchUplink()
+  }
 }
 
 // Ev sahibinin gönderim hızı tahmini (voice.js uplinkEstimate) düşükse anlık görüntüler 20 Hz'e iner
@@ -458,26 +491,38 @@ function hexballOnHostEvent (evt) {
   }
 }
 
+// El sıkışma geldi ya da bağ koptu: bekleme süresi (HEXBALL_WAIT_FAIL_MS) yeniden sayılır
 function hexballOnPlayerEvent (evt) {
   if (!evt) return
-  if (evt.e === 'lost') hexballState.playerSince = hexballNow()
-  if (evt.e === 'hello' || evt.e === 'lost') hexballSoon()
+  if (evt.e === 'hello' || evt.e === 'lost') {
+    hexballState.playerSince = hexballNow()
+    hexballSoon()
+  }
 }
 
-// Ev sahibinde kişi kimliği -> none | waiting | ready | failed
+// Ev sahibinde kişi kimliği -> none | waiting | ready | failed. Oturumda eşi olmayan oturan kişi none, bekleme süresi
+// dolunca failed.
 function hexballLinks () {
-  return hexballState.host ? hexballState.host.links() : {}
+  if (!hexballState.host) return {}
+  const out = hexballState.host.links()
+  const now = hexballNow()
+  Object.keys(hexballState.peerless).forEach((id) => {
+    if (!hexballHas(out, id)) out[id] = now - hexballState.peerless[id] > HEXBALL_WAIT_FAIL_MS ? 'failed' : 'none'
+  })
+  return out
 }
 
 // Oyuncunun ev sahibiyle bağı: ready, waiting ya da failed. Ses motoru oyun bağını bilmiyorsa ya da bağ kurulamadıysa
 // (link-failed) hemen, el sıkışma ya da ses bağlantısı HEXBALL_WAIT_FAIL_MS içinde gelmezse "Bağlantı Yok" olur.
+// Maç ev sahibinde bitti ve el lobi kimliğiyle sıkışıldıysa (ended) bağ hazırdır: masanın sonuç durumu sinyal
+// yolundan veri kanalından daha geç gelir, o arada son anlık görüntü çizilir.
 function hexballPlayerLink (m) {
   const p = hexballState.player
   if (!voice || typeof voice.sendGameData !== 'function') return 'failed'
   if (p) {
     const s = p.state()
     const v = m.view
-    if (s.ready && (!v || v.ph !== 'match' || s.epoch === v.epoch)) return 'ready'
+    if (s.ready && (!v || v.ph !== 'match' || s.epoch === v.epoch || s.ended)) return 'ready'
     if (hexballState.playerLink === 'failed') return 'failed'
   }
   const since = hexballState.playerSince
@@ -604,23 +649,28 @@ function hexballPadOn (gp, index) {
   return Boolean(b && (b.pressed || b.value > 0.5))
 }
 
-// Vuruş düğmesi: alt yüz düğmesi, bas konuş ona atanmışsa sol yüz düğmesi
-function hexballPadKickButton () {
+// Ses atamalarının kol düğmeleri (bas konuş, sustur, sağırlaştır) oyunda kullanılmaz, basışı ses motoru alır
+// (klavyedeki hexballVoiceKey ile aynı kural). Vuruş HEXBALL_PAD_KICKS içinden atanmamış ilk düğmedir, hepsi
+// atanmışsa kolda vuruş yoktur. Atamalar HEXBALL_PAD_CHECK_FRAMES karede bir okunur.
+function hexballPadButtons () {
   hexballState.padCheck--
-  if (hexballState.padCheck > 0) return hexballState.padKick
+  if (hexballState.padCheck > 0) return
   hexballState.padCheck = HEXBALL_PAD_CHECK_FRAMES
-  let kick = HEXBALL_PAD_KICK
+  const used = []
   if (voice && typeof voice.settings === 'function') {
     try {
       const b = voice.settings().bindings || {}
-      const used = Object.keys(b).some((name) => Boolean(b[name]) && b[name].type === 'gamepad' && b[name].button === HEXBALL_PAD_KICK)
-      if (used) kick = HEXBALL_PAD_KICK_ALT
+      Object.keys(b).forEach((name) => {
+        const x = b[name]
+        if (x && x.type === 'gamepad' && typeof x.button === 'number') used.push(x.button)
+      })
     } catch (err) {
-      kick = HEXBALL_PAD_KICK
+      // Ses ayarları okunamadı, atama yok sayılır
     }
   }
-  hexballState.padKick = kick
-  return kick
+  hexballState.padUsed = used
+  hexballState.padKick = HEXBALL_PAD_KICKS.filter((n) => used.indexOf(n) === -1)[0]
+  if (hexballState.padKick === undefined) hexballState.padKick = null
 }
 
 function hexballPollPad () {
@@ -630,7 +680,10 @@ function hexballPollPad () {
   } catch (err) {
     pads = []
   }
-  const kickButton = pads.length ? hexballPadKickButton() : HEXBALL_PAD_KICK
+  if (pads.length) hexballPadButtons()
+  const used = hexballState.padUsed
+  const kickButton = hexballState.padKick
+  const on = (gp, n) => used.indexOf(n) === -1 && hexballPadOn(gp, n)
   let x = 0
   let y = 0
   let kick = false
@@ -642,11 +695,11 @@ function hexballPollPad () {
       x += ax
       y += ay
     }
-    if (hexballPadOn(gp, HEXBALL_PAD_UP)) y -= 1
-    if (hexballPadOn(gp, HEXBALL_PAD_DOWN)) y += 1
-    if (hexballPadOn(gp, HEXBALL_PAD_LEFT)) x -= 1
-    if (hexballPadOn(gp, HEXBALL_PAD_RIGHT)) x += 1
-    if (hexballPadOn(gp, kickButton)) kick = true
+    if (on(gp, HEXBALL_PAD_UP)) y -= 1
+    if (on(gp, HEXBALL_PAD_DOWN)) y += 1
+    if (on(gp, HEXBALL_PAD_LEFT)) x -= 1
+    if (on(gp, HEXBALL_PAD_RIGHT)) x += 1
+    if (kickButton !== null && on(gp, kickButton)) kick = true
   })
   x = hexballClamp(x)
   y = hexballClamp(y)
@@ -962,7 +1015,8 @@ function hexballRenderTeams (root, m, v) {
   } else {
     root.appendChild(gameNote('game-wait', null, t(v.ph === 'result' ? 'game.hexball.waitAgain' : 'game.hexball.waitKickoff')))
   }
-  root.appendChild(h('p', 'hex-help', t('game.hexball.controls.keys')))
+  // Maç ekranındaki gibi dokunmatik cihazda dokunmatik denetimler anlatılır
+  root.appendChild(h('p', 'hex-help', t(hexballTouchMode() ? 'game.hexball.controls.touch' : 'game.hexball.controls.keys')))
 }
 
 // ----- Maç ekranı -----
@@ -1468,9 +1522,9 @@ function hexballUpdateBoard (kit, m, v, f) {
     if (paused) gameAnnounce(t('game.hexball.paused'), false)
   }
   let lag = false
-  if (hexballState.player && f && !paused) {
+  if (hexballState.player && f && !paused && f.phase !== 'over') {
     const st = hexballState.player.state()
-    lag = st.age !== null && st.age > HEXBALL_LAG_MS
+    lag = !st.ended && st.age !== null && st.age > HEXBALL_LAG_MS
   }
   if (kit.lag.hidden === lag) kit.lag.hidden = !lag
 }

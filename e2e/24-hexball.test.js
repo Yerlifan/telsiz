@@ -12,8 +12,8 @@
 // - Klavye: ev sahibi (Deniz) ve oyuncu (Mert) oklarla kendi diskini hareket ettirir, disk durunca konumu üç sayfada
 //   aynıdır. Ece oklarla ve X ile topu kaleye sürer: gol, skor ve golü atan üç sayfada aynıdır.
 // - Telefonda takımlar ve maç ekranında yatay taşma yoktur. Tam Ekran'da skor tablosu, tuval, çubuk ve Vur düğmesi
-//   kaydırmadan birlikte görünür.
-// - Mert ses odasından ayrılınca maç sürer (Mavi takımda Deniz kalır), iki koltuk kalır
+//   kaydırmadan birlikte görünür, en büyük özel yazı boyutunda (28 piksel) da çubuk ve Vur düğmesi kırpılmaz.
+// - Mert ses odasından ayrılınca maç sürer (Mavi takımda Deniz kalır), iki koltuk kalır, Mert'in diski sahadan kalkar
 // - Ev sahibi ses odasından ayrılınca Ece'de bitiş metni görünür, oyun oturumu kapanır, Kapat odağı Oyun düğmesine
 //   verir
 // - Bağlantı Yok: Mert odaya döner, Ece masa kurar ama sayfasında RTCPeerConnection.prototype.createDataChannel
@@ -440,6 +440,38 @@ test('telefonda maç ekranında yatay taşma yok, Tam Ekran\'da tuval ve denetim
     t.diagnostic('telefonda tuval ' + r.w + ' x ' + r.h + ', tam ekranda ' + full.w + ' x ' + full.h)
     assert.equal(await h.reachable(mert, '#cast .hex-kick'), true, 'Vur düğmesi tam ekranda ulaşılabilir')
     assert.ok(await h.overflowX(mert) <= 0, 'tam ekranda yatay taşma')
+    // En büyük özel yazı boyutunda (28 piksel) da çubuk ve Vur düğmesi ekrana sığar, kırpılmaz ve yuvarlak kalır
+    const font = await mert.evaluate(() => {
+      const root = document.documentElement
+      const was = { size: root.getAttribute('data-font-size'), px: root.style.getPropertyValue('--font-px') }
+      root.setAttribute('data-font-size', 'custom')
+      root.style.setProperty('--font-px', '28px')
+      return was
+    })
+    try {
+      await mert.waitForFunction(() => parseFloat(getComputedStyle(document.documentElement).fontSize) === 28, null, { timeout: h.LONG })
+      await phoneFits(mert, ['#cast .hex-kick', '#cast .hex-stick'])
+      const big = await mert.evaluate(() => {
+        const box = document.querySelector('#cast .cast-game')
+        const size = (s) => {
+          const b = document.querySelector(s).getBoundingClientRect()
+          return { w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right) }
+        }
+        return { scroll: box.scrollWidth, client: box.clientWidth, kick: size('#cast .hex-kick'), stick: size('#cast .hex-stick') }
+      })
+      assert.ok(big.scroll <= big.client, 'sahnede yatay kırpılma: ' + JSON.stringify(big))
+      assert.equal(big.kick.w, big.kick.h, 'Vur yuvarlak')
+      assert.equal(big.stick.w, big.stick.h, 'çubuk yuvarlak')
+      assert.equal(await h.reachable(mert, '#cast .hex-kick'), true, 'Vur düğmesi büyük yazıda ulaşılabilir')
+    } finally {
+      await mert.evaluate((was) => {
+        const root = document.documentElement
+        if (was.size === null) root.removeAttribute('data-font-size')
+        else root.setAttribute('data-font-size', was.size)
+        if (was.px) root.style.setProperty('--font-px', was.px)
+        else root.style.removeProperty('--font-px')
+      }, font)
+    }
   } finally {
     // Sonraki adımlar telsiz kartına ulaşır: tam ekrandan her durumda çıkılır
     if (await mert.evaluate(() => castState.full)) await mert.click('#cast .cast-full')
@@ -453,7 +485,10 @@ test('Mert ses odasından ayrılınca maç sürer, iki koltuk kalır', async () 
   await mert.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
   await mert.waitForSelector('#cast', { state: 'hidden', timeout: h.LONG })
   assert.equal(await mert.evaluate(() => hexballFrameNow()), null, 'Mert\'in oyun oturumu kapandı')
-  const list = await untilAll([deniz, ece], (x) => x.seats.length === 2 && x.legend.length === 2, 'Mert koltuktan kalkmadı')
+  // Mert'in diski sahadan kalkar: karedeki yuvalar görünümün yuvalarıyla aynı
+  const slotsOf = (x) => Object.keys(x.slots).map((id) => x.slots[id]).sort().join(',')
+  const discs = (x) => (x.frame ? x.frame.players.map((p) => p.slot).sort().join(',') : '')
+  const list = await untilAll([deniz, ece], (x) => x.seats.length === 2 && x.legend.length === 2 && Boolean(x.frame) && discs(x) === slotsOf(x), 'Mert koltuktan ya da diski sahadan kalkmadı')
   list.forEach((x) => {
     // Mavi takımda Deniz kaldığı için maç sürer, skor korunur
     assert.equal(x.ph, 'match')
@@ -462,7 +497,7 @@ test('Mert ses odasından ayrılınca maç sürer, iki koltuk kalır', async () 
     assert.deepEqual(x.slots, { [idOf('deniz')]: 0, [idOf('ece')]: 1 })
     assert.deepEqual(x.legend, [idOf('deniz'), idOf('ece')])
     assert.match(x.sub, / · 2 Oyuncu$/)
-    assert.ok(x.frame, 'kare sürüyor')
+    assert.equal(x.frame.players.length, 2, 'karede iki disk')
   })
   assert.deepEqual(list[0].links, { [idOf('ece')]: 'ready' })
   assert.equal(list[1].link, 'ready')

@@ -370,11 +370,13 @@ window.TelsizGameDesk = (function (G) {
       Object.keys(T.invites).forEach((uid) => to(T.invites[uid].peerId))
     }
 
-    // Kimlik kilitlendi: masa yerelde kapanır, hâlâ seste isem oyunculara düz close gider
+    // Kimlik kilitlendi: masa yerelde kapanır, hâlâ seste isem oyunculara düz close gider. Masa silindiği için
+    // bildirim uygulamayı da taşır (bitiş metni uygulamanın kendi sözcükleriyle yazılır).
     function lockClose () {
+      const app = T.app
       if (chan()) closeAll('dealer')
       T = null
-      notice('ended', { reason: 'keys' })
+      notice('ended', { reason: 'keys', app: app })
     }
 
     // Koltuk kaldırma (leave, peer-leave, removeSeat). Kurpiyerin koltuğu (seats[0]) kaldırılmaz. Oyun durumu

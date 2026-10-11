@@ -999,8 +999,10 @@ window.VoiceClient = (function () {
       cameraPost: Promise.resolve(),
       cameraSeen: false,
       camBlocked: Object.create(null),
-      // Oyun bağı: veri kanalının anlaşmaya eklenemediği eşler (bu ses oturumunda yeniden açılmaz, 'blocked')
-      linkBlocked: Object.create(null)
+      // Oyun bağı: veri kanalının anlaşmaya eklenemediği eşler (bu ses oturumunda yeniden açılmaz, 'blocked') ve
+      // oyun bağı için bağlantısı bu ses oturumunda bir kez yeniden kurulmuş eşler (bkz. gameLinkLost)
+      linkBlocked: Object.create(null),
+      linkRebuilt: Object.create(null)
     }
 
     loadSettings()
@@ -2993,6 +2995,11 @@ window.VoiceClient = (function () {
         if (doRestart) peer.restartWanted = true
         return
       }
+      // Oyun bağının kanalı var, veri bölümü anlaşılmamış ama tarayıcı teklife eklemiyor: bu bağlantıda kanal
+      // açılamaz (bkz. gameLinkLost). Teklif böyle gitseydi yanıttan sonra needsNegotiation yine doğru döner ve
+      // teklif yanıt döngüsü hiç durmazdı. Bağlantı yeniden kurulduysa bu teklif gönderilmez, bağ engellendiyse
+      // teklif başka bir değişiklik için istenmiş olabileceğinden gönderilir.
+      if (peer.ready && peer.gameDc && !dataLive(remoteSdp(peer)) && !dataLive(offer.sdp) && gameLinkLost(peer)) return
       // Yeni teklifin adayları teklif gönderilene kadar bekletilir. Teklif uygulanamazsa mevcut
       // anlaşmanın bekletilen adayları gönderilir (aday akışı kilitlenmesin).
       peer.localReady = false
@@ -3160,11 +3167,19 @@ window.VoiceClient = (function () {
       return typeof sdp === 'string' && /\r\nm=application [1-9]/.test(sdp)
     }
 
+    function remoteSdp (peer) {
+      var rd = peer.pc.remoteDescription
+      return rd && rd.sdp ? rd.sdp : ''
+    }
+
+    // Teklif (bu tarafın yerel tanımı) veri bölümünü bu bağlantıda ilk kez ekliyor
+    function addsData (peer, sdp) {
+      return dataLive(sdp) && !dataLive(remoteSdp(peer))
+    }
+
     // Teklif (bu tarafın yerel tanımı) ses ve görüntü eklemeden yalnız veri bölümünü ekliyor
     function addsOnlyData (peer, sdp) {
-      var rd = peer.pc.remoteDescription
-      var rsdp = rd && rd.sdp ? rd.sdp : ''
-      return dataLive(sdp) && !dataLive(rsdp) && mlineCount(sdp) <= mlineCount(rsdp)
+      return addsData(peer, sdp) && mlineCount(sdp) <= mlineCount(remoteSdp(peer))
     }
 
     // Teklif sunucunun zarf sınırını aştı (karşı tarafa ulaşmadı). Teklif geri alınsa da eklediği aktarıcılar
@@ -3201,12 +3216,13 @@ window.VoiceClient = (function () {
     }
 
     // Bağlantıyı yeniden kurar: eskisi kapanır (ekran durumu temizlenir), bu taraf yeni sid ile teklif eder.
-    // İzlenen paylaşım yeni bağlantıda yeniden istenir.
-    function rebuildPeer (peer) {
+    // İzlenen paylaşım yeni bağlantıda yeniden istenir. withLink: oyun bağının kanalı yeni bağlantının ilk
+    // teklifinde açılır.
+    function rebuildPeer (peer, withLink) {
       var pid = peer.peerId
       if (st.watchWant[pid]) st.rewatch[pid] = st.watchWant[pid]
       closePeer(peer, 'reconnect')
-      if (st.inVoice && st.roster[pid]) startInitiator(pid)
+      if (st.inVoice && st.roster[pid]) startInitiator(pid, withLink)
     }
 
     // Kararlı duruma dönüldü (yanıt uygulandı, teklif yanıtlandı veya geri alındı): ilk anlaşmadan sonra
@@ -3224,9 +3240,11 @@ window.VoiceClient = (function () {
       await syncSendersNow(peer)
     }
 
-    function startInitiator (pid) {
+    // withLink: oyun bağının kanalı ilk tekliften önce açılır, veri bölümü ilk anlaşmada yer alır (bkz. gameLinkLost)
+    function startInitiator (pid, withLink) {
       var peer = createPeer(pid, true, randomHex(8))
       if (!peer) return
+      if (withLink) addGameChannel(peer)
       runOp(pid, function () { return sendOffer(peer, false) })
     }
 
@@ -3259,6 +3277,10 @@ window.VoiceClient = (function () {
             // uzak teklif (have-remote-offer, yanıt oluşturulamamış) her iki rolde de geri alınır.
             var glare = peer.pc.signalingState === 'have-local-offer'
             if (glare && !peer.polite) return
+            // Geri alınacak teklif oyun bağının veri bölümünü bu bağlantıda ilk kez ekliyor ve karşı teklifte veri
+            // bölümü yok: geri almadan sonra bu bağlantıda kanal açılamaz (bkz. gameLinkLost). Bağlantı yeniden
+            // kurulduysa karşı teklif eski bağlantıya aittir ve yanıtlanmaz.
+            if (glare && peer.gameDc && peer.pending && addsData(peer, peer.pending.sdp) && !dataLive(d.sdp) && gameLinkLost(peer)) return
             var wasRestart = glare && !!peer.pending && peer.pending.restart
             clearNegoTimer(peer)
             if (!(await rollback(peer))) return
@@ -3579,8 +3601,10 @@ window.VoiceClient = (function () {
     // (needsNegotiation, sendOffer, kibar ve kaba eş kuralı). Özel aramada oyun bağı yoktur.
     // Olaylar (onGameEvent): link-open kanal açıldı. link-close kanal kapandı (karşı taraf kapattı, bağlantı
     // kapandı veya yeniden kuruldu, ses oturumu bitti), yeniden kurulan bağlantıda gerekiyorsa peer-ready olayından
-    // sonra yeniden açılır. link-failed kanal açılamadı: karşı taraf kanalı açılmadan kapattı veya veri bölümü
-    // anlaşmaya eklenemedi (bu durumda bu eşle bu ses oturumunda yeniden açılmaz, openGameLink 'blocked').
+    // sonra yeniden açılır. Veri bölümü bir bağlantıda anlaşılamaz olunca yeniden kurulan bağlantıda (bkz.
+    // gameLinkLost) kanal ilk teklifte kendiliğinden açılır, link-open gelir. link-failed kanal açılamadı: karşı
+    // taraf kanalı açılmadan kapattı veya veri bölümü anlaşmaya eklenemedi (bu durumda bu eşle bu ses oturumunda
+    // yeniden açılmaz, openGameLink 'blocked').
     // closeGameLink ile kapatılan kanal için olay yoktur. "Açık" kanal karşı tarafın oyun modülünün dinlediğini
     // göstermez (eski istemcide tarayıcı kanalı yine açar), bunu oyun modülü kendi el sıkışmasıyla anlar.
     // Gelen veri opts.onGameData(peerId, userId, ArrayBuffer) ile eşzamanlı verilir, dinleyici hatası motoru bozmaz.
@@ -3613,6 +3637,38 @@ window.VoiceClient = (function () {
       st.linkBlocked[peer.peerId] = true
       if (peer.gameDc) detachGameLink(peer, 'link-failed')
       else if (announce && first) linkEvent(peer, 'link-failed')
+    }
+
+    // Oyun bağının veri bölümü bu bağlantıda artık anlaşılamıyor: Chromium'da (141'de ölçüldü) veri bölümünü ilk
+    // kez ekleyen teklif çakışmada geri alınınca sonraki tekliflerde veri bölümü yer almıyor, yeni kanal açılsa da
+    // eklenmiyor ve kanal hiç açılmıyor. Bağlantı bu ses oturumunda bir kez, kanal ilk teklifte açılmış olarak
+    // yeniden kurulur (eski bağlantının kanalı için link-close). İlk teklif yanıtlanmadan karşı taraf teklif
+    // edemediği için yeni bağlantıda bu çakışma olmaz. Yine olursa (ör. karşı taraf ilk teklifi yanıtlamayıp yeni
+    // bağlantı başlatırsa) bu eşle oyun bağı engellenir (link-failed). Dönüş: bağlantı yeniden kuruldu
+    function gameLinkLost (peer) {
+      var pid = peer.peerId
+      if (!st.linkRebuilt[pid] && !st.privateCall) {
+        st.linkRebuilt[pid] = true
+        rebuildPeer(peer, true)
+        return true
+      }
+      blockGameLink(peer, true)
+      return false
+    }
+
+    // Kanal açılır (henüz anlaşılmamışsa veri bölümü sonraki teklife eklenir). Dönüş: kanal açıldı
+    function addGameChannel (peer) {
+      if (peer.closed || peer.gameDc || st.privateCall || st.linkBlocked[peer.peerId]) return false
+      if (typeof peer.pc.createDataChannel !== 'function') return false
+      var dc = null
+      try {
+        dc = peer.pc.createDataChannel(GAME_LINK_LABEL, { ordered: false, maxRetransmits: 0 })
+      } catch (e) {
+        dc = null
+      }
+      if (!dc) return false
+      attachGameLink(peer, dc, true, false)
+      return true
     }
 
     // wasOpen: aynı anda iki taraf kanal açtığında yerine geçilen kanal açıktı (link-open yeniden bildirilmez)
@@ -3700,15 +3756,7 @@ window.VoiceClient = (function () {
       if (!peer.ready) return 'not_ready'
       if (st.linkBlocked[peerId]) return 'blocked'
       if (peer.gameDc) return peer.gameOpen ? 'open' : 'ok'
-      if (typeof peer.pc.createDataChannel !== 'function') return 'unsupported'
-      var dc = null
-      try {
-        dc = peer.pc.createDataChannel(GAME_LINK_LABEL, { ordered: false, maxRetransmits: 0 })
-      } catch (e) {
-        dc = null
-      }
-      if (!dc) return 'unsupported'
-      attachGameLink(peer, dc, true, false)
+      if (!addGameChannel(peer)) return 'unsupported'
       // Veri bölümü henüz anlaşılmamışsa yeniden teklif edilir (needsNegotiation)
       syncScreenSenders(peer)
       return 'ok'
@@ -3785,7 +3833,7 @@ window.VoiceClient = (function () {
     // İz taşıyan ama henüz anlaşılmamış (mid'i olmayan) aktarıcı varsa yeniden anlaşma gerekir. Oyun bağı kanalı
     // varken karşı tarafın tanımında kullanılabilir veri bölümü (m=application) yoksa da gerekir.
     function needsNegotiation (peer) {
-      if (peer.gameDc && !dataLive(peer.pc.remoteDescription ? peer.pc.remoteDescription.sdp : null)) return true
+      if (peer.gameDc && !dataLive(remoteSdp(peer))) return true
       return transceiversOf(peer.pc).some(function (t) {
         return !isStopped(t) && t.mid === null && !!t.sender && !!t.sender.track
       })
@@ -5513,6 +5561,7 @@ window.VoiceClient = (function () {
         delete st.screenLimit[pid]
         delete st.camBlocked[pid]
         delete st.linkBlocked[pid]
+        delete st.linkRebuilt[pid]
         gameEvent({ type: 'peer-leave', peerId: pid, userId: st.roster[pid].userId })
       })
       st.roster = next
@@ -5611,6 +5660,7 @@ window.VoiceClient = (function () {
       stopCamera('left', true)
       st.camBlocked = Object.create(null)
       st.linkBlocked = Object.create(null)
+      st.linkRebuilt = Object.create(null)
       Object.keys(st.peers).forEach(function (pid) { closePeer(st.peers[pid]) })
       Object.keys(st.remote).forEach(function (pid) { dropRemote(pid, 'left') })
       st.remote = Object.create(null)

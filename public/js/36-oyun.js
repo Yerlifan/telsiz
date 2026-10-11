@@ -442,7 +442,8 @@ function gameOnNotice (kind, data) {
     gameAnnounce(text, false)
     if (!gameStageVisible()) toast(() => gameErrorText(data, m.app), 'error', 6000)
   } else if (kind === 'ended' && data) {
-    gameOnEnded(data.reason, m.app)
+    // Kurpiyerin kimliği kilitlenince masa bildirimden önce silinir, uygulama bildirimle gelir
+    gameOnEnded(data.reason, typeof data.app === 'string' ? data.app : m.app)
   }
 }
 

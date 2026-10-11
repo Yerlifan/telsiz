@@ -979,6 +979,52 @@ describe('duraklatma ve durdurma', () => {
   })
 })
 
+describe('maç sürerken ayrılan oyuncu', () => {
+  test('removePlayer diski dünyadan kaldırır, topa son dokunan oysa dokunuş silinir, top artık ona çarpmaz', () => {
+    const w = playWorld({ rules: 'quick', players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 2, side: 'red' }] })
+    put(slot(w, 2), -180, 72)
+    put(w.ball, -120, 72, -8, 0)
+    w.touch = 2
+    assert.equal(P.removePlayer(w, 2), true)
+    assert.equal(P.removePlayer(w, 2), false)
+    assert.equal(P.removePlayer(w, 7), false)
+    same(w.players.map((p) => p.slot), [0, 1])
+    assert.equal(w.touch, -1)
+    assert.equal(w.phase, 'play', 'aşama değişmez')
+    // Top boş kalan yerden geçer (ayrılanın diskine çarpıp durmaz)
+    run(w, 12, null)
+    assert.ok(w.ball.x < -180, 'top ' + w.ball.x)
+    assert.equal(w.touch, -1)
+  })
+
+  test('başlama vuruşu beklenirken kalanlar yeni sayıya göre dizilir, duraklamada aşama korunur, sonraki dizilişler kalanlara göre', () => {
+    const w = world({ rules: 'quick', players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 2, side: 'red' }] })
+    const f = P.field(w.rules)
+    same([slot(w, 0).y, slot(w, 2).y].map(Math.sign), [-1, 1], 'iki Kırmızı üst ve altta')
+    P.removePlayer(w, 2)
+    assert.equal(w.phase, 'kickoff')
+    same([slot(w, 0).x, slot(w, 0).y], [-0.5 * f.hw, 0], 'tek Kırmızı ortada')
+    // Duraklamadaki başlama vuruşu
+    const d = world({ rules: 'quick', players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 3, side: 'blue' }] })
+    P.pause(d)
+    P.removePlayer(d, 3)
+    assert.equal(d.phase, 'paused')
+    assert.equal(d.held, 'kickoff')
+    same([slot(d, 1).x, slot(d, 1).y], [0.5 * f.hw, 0])
+    // Oyunda ayrılınca diziliş hemen değişmez, gol sonrası başlama vuruşu kalanlara göredir
+    const g = playWorld({ rules: 'quick', players: [{ slot: 0, side: 'red' }, { slot: 1, side: 'blue' }, { slot: 2, side: 'red' }] })
+    put(slot(g, 0), -100, -100)
+    P.removePlayer(g, 2)
+    same([slot(g, 0).x, slot(g, 0).y], [-100, -100])
+    put(g.ball, f.hw + 11, 0)
+    run(g, 1, null)
+    assert.equal(g.phase, 'goal')
+    run(g, P.GOAL_PAUSE, null)
+    assert.equal(g.phase, 'kickoff')
+    same([slot(g, 0).x, slot(g, 0).y], [-0.5 * f.hw, 0])
+  })
+})
+
 describe('belirlenimcilik', () => {
   function simulate (Phys, seed, ticks, kind) {
     const w = Phys.createWorld({ rules: 'classic', secs: 120, goals: 255, kick: 'red', players: eightPlayers() })

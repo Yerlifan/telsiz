@@ -1785,6 +1785,22 @@ describe('Renk: masa çizimi ve hamleler', () => {
 })
 
 describe('Renk: iki cihazda gerçek masa', () => {
+  test('kurpiyerin kimliği kilitlenince bitiş Renk\'in kendi sözcüğüyle (Kurpiyer) duyurulur', () => {
+    const { net, pages } = makeWorld(['5', '12'], { renk: true, seed: 3 })
+    const [deniz] = pages
+    deniz.press('tool-game')
+    deniz.press('game-open')
+    net.flush()
+    assert.match(deniz.text('#cast .cast-sub'), /Kurpiyer Sizsiniz/)
+    deniz.fake.locked = true
+    deniz.run('gameRender()')
+    net.flush()
+    net.clock.advance(400)
+    assert.equal(deniz.model().stage, 'none')
+    assert.equal(deniz.text('#game-live .game-live-polite'), 'Kurpiyerle şifreli bağlantı kurulamıyor, oyun bitti.')
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
   test('başlatınca iki sayfada Renk masası, sıradaki hamle iki sayfada aynı atılan kartı gösterir', () => {
     const { net, pages } = makeWorld(['5', '12'], { renk: true, seed: 3 })
     const [deniz, ece] = pages
