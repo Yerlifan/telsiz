@@ -666,6 +666,19 @@
   margin: 0 0.5rem 0.5rem 0;
 }
 
+/* Kapak fotoğrafı önizlemesi: profil kartının bandı (kapak yoksa profil rengi), altında düğmeler */
+.settings-cover-host {
+  max-width: 24rem;
+  margin: 0 0 0.5rem;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+}
+
+.settings-cover-host .profile-card-band {
+  border-radius: 0;
+}
+
 /* Frekans fotoğrafı önizlemesi: büyük frekans amblemi (fotoğraf yoksa baş harf), dar ekranda düğmeler
    önizlemenin yanında alt alta durur */
 .settings-photo-row {

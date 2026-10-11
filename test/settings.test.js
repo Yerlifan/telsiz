@@ -8,6 +8,7 @@
 // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
 // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma ve geri alma da sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -571,10 +572,12 @@ test('yardımcılar: atama karşılaştırma, seviye yüzdesi, kaydırıcı sın
   assert.strictEqual(run("sliderValue({ value: '-140' }, -100, 0)"), -100)
   assert.strictEqual(run("sliderValue({ value: '12.6' }, 0, 1000)"), 13)
   assert.strictEqual(run("sliderValue({ value: 'x' }, 0, 1000)"), 0)
-  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server' }"
+  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server', coverMode: 'server' }"
   assert.strictEqual(run('draftDirty(' + base + ')'), false)
   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { color: 3 }))"), true)
   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { avatarMode: 'removed' }))"), true)
+  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'new' }))"), true)
+  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'removed' }))"), true)
 })
 
 test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', () => {
@@ -588,7 +591,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   assert.deepStrictEqual(cats, ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app', 'general', 'channels', 'members', 'roles', 'invite'])
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
-    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-cover-preview', 'set-cover-pick', 'set-cover-file', 'set-cover-remove', 'set-cover-hint', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
     privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
@@ -1284,3 +1287,82 @@ test('önizleme kartında ad avatarın yanında, rol rozetleri adın yanında: �
   ctx.run("openSettings('account', null)")
   assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-owner', 'Sahip']])
 })
+
+test('Profil sayfasında kapak fotoğrafı: seçilen kapak iki önizlemede görünür, kaydedince saveProfile kapağı alır, kaldırma ve geri alma', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  // Bekleyen söz zincirlerinin ilerlemesi için olay döngüsüne birkaç tur verilir
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const band = (id) => root.querySelector('#' + id + ' .profile-card-band')
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  run('hasActiveKey = function () { return true }')
+  run("openSettings('profile', null)")
+  assert.strictEqual(root.querySelector('#set-cover-title').textContent, 'Kapak fotoğrafı')
+  assert.strictEqual(root.querySelector('#set-cover-pick .button-text').textContent, 'Kapak Seç')
+  assert.strictEqual(root.querySelector('#set-cover-remove .button-text').textContent, 'Kapağı Kaldır')
+  assert.ok(root.querySelector('#set-cover-hint').textContent.indexOf('1200x400') !== -1)
+  // Kapak yokken iki önizlemede de yalnızca profil rengi
+  for (const id of ['set-cover-preview', 'set-profile-card']) {
+    assert.ok(band(id), id + ' bandı')
+    assert.strictEqual(band(id).classList.contains('has-cover'), false)
+    assert.strictEqual(coverImg(id), null)
+  }
+  assert.strictEqual(root.querySelector('#set-cover-pick').disabled, false)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  const file = root.querySelector('#set-cover-file')
+  const choose = async (picked) => {
+    file.files = [picked]
+    file.dispatchEvent(fakeEvent('change'))
+    await settle()
+  }
+  // Kaynak dosya 20 MB'tan büyükse okunmaz
+  await choose({ name: 'buyuk.jpg', size: 21 * 1024 * 1024 })
+  assert.match(root.querySelector('#set-cover-msg').textContent, /^Resim en fazla /)
+  // Kodlanamayan veya sınıra sığmayan kapak: hata metni, taslak değişmez
+  sandbox.__preview = { error: () => 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.' }
+  run('makeCoverPreview = function () { return Promise.resolve(__preview) }')
+  await choose({ name: 'gurultu.png', size: 1000 })
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  // Kırpılmış kapak önizlemesi: bant önizlemesinde ve profil kartı önizlemesinde görünür
+  sandbox.__preview = { url: 'blob:kapak-onizleme' }
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  await choose(chosen)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
+  for (const id of ['set-cover-preview', 'set-profile-card']) {
+    assert.strictEqual(band(id).classList.contains('has-cover'), true, id)
+    assert.strictEqual(coverImg(id).src, 'blob:kapak-onizleme', id)
+    assert.strictEqual(coverImg(id).alt, '')
+  }
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
+  // Geri al: kapak taslaktan çıkar
+  root.querySelector('#set-profile-reset').click()
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
+  // Yeniden seçip kaldırınca da kapak düşer, sunucuda kapak olmadığı için taslak temiz kalır
+  await choose(chosen)
+  root.querySelector('#set-cover-remove').click()
+  assert.strictEqual(coverImg('set-profile-card'), null)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  // Kaydet: seçilen dosya saveProfile'a coverFile olarak gider, profil resmi alanı gönderilmez
+  sandbox.__saved = []
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  await choose(chosen)
+  root.querySelector('#set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  assert.strictEqual('avatarFile' in sandbox.__saved[0], false)
+  assert.strictEqual(root.querySelector('#set-profile-msg').textContent, 'Profil kaydedildi.')
+  // Sunucudaki kapak çözülene kadar yerel önizleme kalır, taslak temizdir
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:kapak-onizleme')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
+})
+

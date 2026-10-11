@@ -813,11 +813,13 @@ function myProfileView () {
     statusText: profile && profile.statusText ? profile.statusText : '',
     bio: profile && profile.bio ? profile.bio : '',
     color: profile && profile.color !== null && profile.color !== undefined ? profile.color : defaultColorIndex(id),
-    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null)
+    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null),
+    // Kendi kapağım önizlemede gösterileceği için indirilir (13-profile.js coverUrlOf)
+    coverUrl: safeCall(() => coverUrlOf(id, true), null)
   }
 }
 
-// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl }
+// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl, coverUrl }
 function buildPreviewCard (view, id) {
   const me = state.me
   const status = shownStatusOf(me.id)
@@ -825,9 +827,8 @@ function buildPreviewCard (view, id) {
   if (id) card.id = id
   card.setAttribute('aria-label', t('settings.profile.previewLabel'))
   card.setAttribute('role', 'group')
-  const band = h('div', 'profile-card-band')
-  band.setAttribute('data-color', String(view.color))
-  card.appendChild(band)
+  // Kartla aynı bant: kapak fotoğrafı varsa bandın içinde (13-profile.js profileCoverBand)
+  card.appendChild(profileCoverBand(view.coverUrl, view.color))
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || me.name), view.color, status))
   // Kartla aynı düzen ve rozetler (13-profile.js): ad avatarın sağında, rol ve özel rol adın yanında
@@ -856,7 +857,7 @@ function myProfileSignature () {
   if (!state.me) return ''
   const id = state.me.id
   const rec = safeCall(() => profileRecord(id), null)
-  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
+  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, ''), safeCall(() => coverUrlOf(id), '')].join('|')
 }
 
 // 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
@@ -1150,8 +1151,9 @@ async function submitAccountDelete (ui) {
   focusNode(ui.pass)
 }
 
-// 2. Profil: profil resmi (kare kırpma önizlemesi), görünen ad, özel durum, hakkımda, renk ve canlı
-// önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip sunucuya gider.
+// 2. Profil: profil resmi (kare kırpma önizlemesi), kapak fotoğrafı (3:1 kırpma önizlemesi), görünen ad, özel
+// durum, hakkımda, renk ve canlı önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip
+// sunucuya gider.
 
 function profileDraft () {
   const me = state.me
@@ -1169,7 +1171,12 @@ function profileDraft () {
     avatarMode: 'server',
     avatarFile: null,
     avatarUrl: '',
-    pending: null
+    pending: null,
+    // Kapak fotoğrafı: avatar alanlarıyla aynı anlam (server, new, removed), coverPending kayıttan sonraki yerel önizleme
+    coverMode: 'server',
+    coverFile: null,
+    coverUrl: '',
+    coverPending: null
   }
   return settingsUi.draft
 }
@@ -1191,10 +1198,12 @@ function dropProfileDraft () {
   if (!d) return
   revokeBlobLater(d.avatarUrl)
   if (d.pending) revokeBlobLater(d.pending.url)
+  revokeBlobLater(d.coverUrl)
+  if (d.coverPending) revokeBlobLater(d.coverPending.url)
 }
 
 function draftDirty (d) {
-  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server'
+  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server' || d.coverMode !== 'server'
 }
 
 function myAvatarUploadId () {
@@ -1220,13 +1229,48 @@ function draftAvatarUrl (d) {
   return serverUrl || ''
 }
 
+function myCoverUploadId () {
+  if (!state.me) return null
+  const rec = safeCall(() => profileRecord(state.me.id), null)
+  return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
+}
+
+// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir.
+function draftCoverUrl (d) {
+  if (d.coverMode === 'new') return d.coverUrl
+  if (d.coverMode === 'removed') return ''
+  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
+  const p = d.coverPending
+  if (p) {
+    const stillOld = myCoverUploadId() === p.from
+    const waiting = p.url && !serverUrl
+    if ((stillOld || waiting) && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
+    d.coverPending = null
+    revokeBlobLater(p.url)
+  }
+  return serverUrl || ''
+}
+
 function draftView (d) {
   return {
     displayName: d.displayName.trim(),
     statusText: d.statusText.trim(),
     bio: d.bio.trim(),
     color: d.color,
-    avatarUrl: draftAvatarUrl(d)
+    avatarUrl: draftAvatarUrl(d),
+    coverUrl: draftCoverUrl(d)
+  }
+}
+
+// Kapak önizlemesi: kayıtta yüklenecek kodlamanın aynısı (13-profile.js prepareCover, ortadan 3:1, 1200x400 JPEG).
+// Sonuç { url } veya { error }.
+async function makeCoverPreview (file) {
+  const prepared = await prepareCover(file)
+  if (!prepared.ok) return { error: prepared.error }
+  try {
+    return { url: URL.createObjectURL(new Blob([prepared.bytes], { type: prepared.mime })) }
+  } catch (err) {
+    return { error: () => t('profile.coverInvalid') }
   }
 }
 
@@ -1310,6 +1354,28 @@ function buildProfilePage (page) {
   const avatarMsg = sMsg('set-avatar-msg')
   form.appendChild(avatarMsg)
 
+  // Kapak fotoğrafı: bant biçiminde önizleme, seçme ve kaldırma
+  sSub(form, t('settings.profile.coverTitle'), 'set-cover-title')
+  const coverHost = h('div', 'settings-cover-host')
+  coverHost.id = 'set-cover-preview'
+  form.appendChild(coverHost)
+  const coverButtons = h('div', 'settings-avatar-buttons')
+  const coverPick = sButton('button button-secondary', t('settings.profile.coverPick'), 'set-cover-pick', null, 'i-image')
+  const coverRemove = sButton('button button-ghost', t('settings.profile.coverRemove'), 'set-cover-remove', null, 'i-trash')
+  coverButtons.appendChild(coverPick)
+  coverButtons.appendChild(coverRemove)
+  form.appendChild(coverButtons)
+  const coverFile = h('input', 'file-input')
+  coverFile.type = 'file'
+  coverFile.accept = 'image/*'
+  coverFile.id = 'set-cover-file'
+  coverFile.tabIndex = -1
+  coverFile.setAttribute('aria-hidden', 'true')
+  form.appendChild(coverFile)
+  form.appendChild(sHint(t('settings.profile.coverHint'), 'set-cover-hint'))
+  const coverMsg = sMsg('set-cover-msg')
+  form.appendChild(coverMsg)
+
   // Metin alanları ve karakter sayaçları
   const counters = []
   const addText = (id, labelKey, value, max, multiline, placeholder, field) => {
@@ -1391,9 +1457,12 @@ function buildProfilePage (page) {
     const view = draftView(d)
     clear(avatarHost)
     avatarHost.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || state.me.name), view.color, ''))
+    clear(coverHost)
+    coverHost.appendChild(profileCoverBand(view.coverUrl, view.color))
     clear(previewHost)
     previewHost.appendChild(buildPreviewCard(view, 'set-profile-card'))
     remove.disabled = !view.avatarUrl
+    coverRemove.disabled = !view.coverUrl && !(d.coverMode === 'server' && myCoverUploadId())
     counters.forEach((c) => {
       const len = cpLength(c.control.value.trim())
       c.counter.textContent = t('settings.profile.counter', { count: formatNumber(len), max: formatNumber(c.max) })
@@ -1406,6 +1475,7 @@ function buildProfilePage (page) {
       save.disabled = !dirty || !keyOk
       reset.disabled = !dirty
       pick.disabled = !keyOk
+      coverPick.disabled = !keyOk
     }
     dirtyNote.hidden = !dirty
   }
@@ -1449,8 +1519,48 @@ function buildProfilePage (page) {
     refresh()
     focusNode(pick)
   })
+  coverPick.addEventListener('click', () => {
+    coverFile.value = ''
+    coverFile.click()
+  })
+  coverFile.addEventListener('change', async () => {
+    const chosen = coverFile.files && coverFile.files[0] ? coverFile.files[0] : null
+    coverFile.value = ''
+    if (!chosen) return
+    if (chosen.size > AVATAR_SOURCE_MAX) {
+      setMsg(coverMsg, () => t('settings.profile.avatarTooBig', { size: formatSize(AVATAR_SOURCE_MAX) }), 'error')
+      return
+    }
+    setMsg(coverMsg, () => t('settings.profile.coverReading'))
+    const preview = await makeCoverPreview(chosen)
+    if (!preview.url) {
+      setMsg(coverMsg, preview.error, 'error')
+      return
+    }
+    if (settingsUi.draft !== d) {
+      revokeBlobLater(preview.url)
+      return
+    }
+    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+    d.coverMode = 'new'
+    d.coverFile = chosen
+    d.coverUrl = preview.url
+    setMsg(coverMsg, () => t('settings.profile.coverReady'), 'ok')
+    refresh()
+    if (isConnected(coverPick)) focusNode(coverPick)
+  })
+  coverRemove.addEventListener('click', () => {
+    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+    d.coverFile = null
+    d.coverUrl = ''
+    d.coverMode = myCoverUploadId() || d.coverPending ? 'removed' : 'server'
+    setMsg(coverMsg, () => t('settings.profile.coverRemoved'))
+    refresh()
+    focusNode(coverPick)
+  })
   reset.addEventListener('click', () => {
     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
+    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
     d.displayName = d.base.displayName
     d.statusText = d.base.statusText
     d.bio = d.base.bio
@@ -1458,15 +1568,19 @@ function buildProfilePage (page) {
     d.avatarMode = 'server'
     d.avatarFile = null
     d.avatarUrl = ''
+    d.coverMode = 'server'
+    d.coverFile = null
+    d.coverUrl = ''
     fillInputs()
     setMsg(avatarMsg, '')
+    setMsg(coverMsg, '')
     setMsg(msg, () => t('settings.profile.resetDone'))
     refresh()
     focusNode(nameInput)
   })
   form.addEventListener('submit', (e) => {
     e.preventDefault()
-    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg })
+    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg, coverMsg: coverMsg })
   })
 
   fillInputs()
@@ -1484,7 +1598,7 @@ function buildProfilePage (page) {
     }
     refresh()
   }
-  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') }
+  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') + (d.coverPending ? 'c' : '') }
 }
 
 async function saveProfileDraft (d, ui) {
@@ -1495,17 +1609,21 @@ async function saveProfileDraft (d, ui) {
   }
   setFormBusy(ui.form, true)
   setMsg(ui.msg, () => t('settings.profile.saving'))
-  // Önceki kaydın profil resmi sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
+  // Önceki kaydın profil resmi ve kapağı sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
   let waited = 0
-  while (d.pending && myAvatarUploadId() === d.pending.from && waited < 3000) {
+  while (((d.pending && myAvatarUploadId() === d.pending.from) || (d.coverPending && myCoverUploadId() === d.coverPending.from)) && waited < 3000) {
     await wait(100)
     waited += 100
   }
   const input = { displayName: d.displayName, statusText: d.statusText, bio: d.bio, color: d.color }
   if (d.avatarMode === 'new') input.avatarFile = d.avatarFile
   else if (d.avatarMode === 'removed') input.avatarFile = null
+  if (d.coverMode === 'new') input.coverFile = d.coverFile
+  else if (d.coverMode === 'removed') input.coverFile = null
   const before = myAvatarUploadId()
   const mode = d.avatarMode
+  const coverBefore = myCoverUploadId()
+  const coverMode = d.coverMode
   const result = await saveProfile(input)
   setFormBusy(ui.form, false)
   if (!result.ok) {
@@ -1533,7 +1651,18 @@ async function saveProfileDraft (d, ui) {
   d.avatarMode = 'server'
   d.avatarFile = null
   d.avatarUrl = ''
+  if (d.coverPending) revokeBlobLater(d.coverPending.url)
+  d.coverPending = null
+  if (coverMode === 'new') {
+    d.coverPending = { from: coverBefore, url: d.coverUrl, at: Date.now() }
+  } else if (coverMode === 'removed') {
+    d.coverPending = { from: coverBefore, url: '', at: Date.now() }
+  }
+  d.coverMode = 'server'
+  d.coverFile = null
+  d.coverUrl = ''
   setMsg(ui.avatarMsg, '')
+  setMsg(ui.coverMsg, '')
   setMsg(ui.msg, () => t('settings.profile.saved'), 'ok')
   if (isConnected(ui.form)) {
     ui.fill()
