@@ -502,10 +502,18 @@ const fakeUi = {
 `
 
 // İkinci oyun: Renk motorunun "hexball" kimlikli kopyası (masa yöneticisi için motorun kendisi önemsizdir) ve
-// testte tanımlı küçük bir arayüz. Sonuç bölümünü kendisi çizer (renderResults). Kayıt sonucu döner.
+// testte tanımlı küçük bir arayüz. Sonuç bölümünü kendisi çizer (renderResults), ses olaylarını ve oyun verisini
+// kaydeder (fakeUi2Calls). Kayıt sonucu döner.
 const SECOND_APP = `
 window.TelsizHexball = Object.assign({}, TelsizRenk, { id: 'hexball' })
+const fakeUi2Calls = []
 const fakeUi2 = {
+  onVoiceEvent: (evt, m) => {
+    fakeUi2Calls.push(['event', evt.type, evt.peerId || null, m.stage])
+  },
+  onData: (peerId, userId, data, m) => {
+    fakeUi2Calls.push(['data', peerId, userId, Array.from(new Uint8Array(data)), m.app])
+  },
   name: () => 'Saha',
   tagline: () => 'Takım oyunu',
   render: (box, m) => {
@@ -1591,6 +1599,42 @@ describe('birden çok oyun: Oyun Seç ve tarafsız metinler', () => {
     page.press('tool-game')
     assert.equal(page.q('.game-body').getAttribute('data-stage'), 'choose', 'yeniden açılır')
     assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('oyun verisi ve ses olayları yalnızca masadaki oyunun arayüzüne gider, reset bütün arayüzlere', () => {
+    const page = makePage('5', makeNet())
+    page.run(SECOND_APP)
+    const calls = () => page.run('JSON.stringify(fakeUi2Calls.splice(0))')
+    const data = "gameOnData('p12', '12', new Uint8Array([1, 2, 3]).buffer)"
+    const link = "gameOnVoiceEvent({ type: 'link-open', peerId: 'p12', userId: '12' })"
+    // Masa yokken atılır
+    page.run(data)
+    page.run(link)
+    assert.equal(calls(), '[]')
+    // Başka oyunun masasında bu arayüze bir şey gelmez
+    page.run("gameCall('openSetup', 'renk')")
+    page.run(data)
+    page.run(link)
+    assert.equal(calls(), '[]')
+    page.run("gameCall('cancelSetup')")
+    page.run("gameCall('openSetup', 'hexball')")
+    page.run(data)
+    page.run(link)
+    page.run("gameOnVoiceEvent({ type: 'message', peerId: 'p12', userId: '12', p: 'x' })")
+    same(JSON.parse(calls()), [['data', 'p12', '12', [1, 2, 3], 'hexball'], ['event', 'link-open', 'p12', 'setup']])
+    // Özel aramada veri de olay da atılır
+    page.fake.snap.private = true
+    page.run(data)
+    page.run(link)
+    assert.equal(calls(), '[]')
+    page.fake.snap.private = false
+    // Ses oturumu bitince masa kapanır, reset arayüze bir kez gelir
+    page.run("gameOnVoiceEvent({ type: 'reset' })")
+    assert.equal(page.model().stage, 'none')
+    same(JSON.parse(calls()), [['event', 'reset', null, 'none']])
+    // Masa yokken de reset kayıtlı bütün arayüzlere gelir (arayüz kendi bağlarını bırakır)
+    page.run("gameOnVoiceEvent({ type: 'reset' })")
+    same(JSON.parse(calls()), [['event', 'reset', null, 'none']])
   })
 
   test('kendi metni olmayan oyunda genel metinler ev sahibi der, sonucu uygulama çizer', () => {

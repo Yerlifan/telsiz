@@ -24,7 +24,10 @@
 //   statusParts(model) -> [metin], turnOf(model) -> id, turnText(model), onTurn(box, model), eventText(olay, model),
 //   errorText(kod) -> metin veya false (sessiz kod), results(model) -> { reason, winner, total, ranks: [{ id, rank, n, points }] },
 //   renderResults(box, model) (sonuç bölümünün içini uygulama çizer, varsa results ve varsayılan liste kullanılmaz),
-//   notes(model) -> [metin], firstFocus(box) -> öğe, stageClosed() (sahne kapandı, uygulama kendi katmanlarını kapatır)
+//   notes(model) -> [metin], firstFocus(box) -> öğe, stageClosed() (sahne kapandı, uygulama kendi katmanlarını kapatır),
+//   onVoiceEvent(olay, model) (masadaki oyuna ses olayları: peer-ready, peer-leave, link-open, link-close, link-failed,
+//   ses oturumu bitince reset bütün arayüzlere), onData(peerId, userId, veri, model) (masadaki oyuna oyun veri
+//   kanalından gelen ikili veri, masa yöneticisinden geçmez)
 
 const GAME_TICK_MS = 250
 const GAME_ANNOUNCE_MS = 400
@@ -255,7 +258,8 @@ function gameCall (name, arg) {
   return gameUser(() => desk[name](arg))
 }
 
-// Ses motorunun olayları: özel aramada ve seste değilken reset dışındakiler atılır (4.8 ortak ön adımlar)
+// Ses motorunun olayları: özel aramada ve seste değilken reset dışındakiler atılır (4.8 ortak ön adımlar). Masa
+// yöneticisinden sonra masadaki oyunun arayüzü de olayı alır (gameAppEvent).
 function gameOnVoiceEvent (evt) {
   if (!evt || typeof evt !== 'object') return
   const desk = gameDesk()
@@ -264,7 +268,29 @@ function gameOnVoiceEvent (evt) {
     const s = snap()
     if (s.private || s.channelId === null || s.channelId === undefined) return
   }
+  const app = gameModel().app
   desk.onVoiceEvent(evt)
+  gameAppEvent(app, evt)
+}
+
+// Oyun iletileri (message) yalnızca masa yöneticisine gider. Diğer olaylar olaydan önceki masanın oyununa, ses
+// oturumunun bitişi (reset) masa kapanmış olacağı için kayıtlı bütün arayüzlere iletilir.
+function gameAppEvent (app, evt) {
+  if (evt.type === 'message') return
+  const ids = evt.type === 'reset' ? gameAppIds() : app ? [app] : []
+  ids.forEach((id) => {
+    gameUiCall(gameUi(id), 'onVoiceEvent', [evt, gameModel()], null)
+  })
+}
+
+// Oyun veri kanalından gelen ikili veri (10-voice.js onGameData): yalnızca masadaki oyunun arayüzüne gider (onData).
+// Masa yokken, seste değilken ve özel aramada atılır. Saniyede yüzlerce kez gelebilir: model yeniden kurulmaz.
+function gameOnData (peerId, userId, data) {
+  const s = snap()
+  if (!s || s.private || s.channelId === null || s.channelId === undefined) return
+  const m = gameModel()
+  if (!m.app) return
+  gameUiCall(gameUi(m.app), 'onData', [peerId, userId, data, m], null)
 }
 
 function gameTick () {
