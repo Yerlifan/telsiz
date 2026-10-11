@@ -57,6 +57,8 @@ window.I18N = (function () {
     'theme.skinHint.kokpit': 'Grafit cam kokpit, macenta rota ve camgöbeği seçim.',
     'theme.skin.kontrast': 'Yüksek Kontrast',
     'theme.skinHint.kontrast': 'En yüksek okunurluk: 7:1 metin, kalın kenarlar, süs yok.',
+    'theme.groupRadio': 'Telsiz Temaları',
+    'theme.groupAccess': 'Erişilebilirlik',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2033,6 +2035,8 @@ window.I18N = (function () {
     'theme.skinHint.kokpit': 'A graphite glass cockpit with a magenta route and cyan selection.',
     'theme.skin.kontrast': 'High Contrast',
     'theme.skinHint.kontrast': 'Maximum legibility: 7:1 text, bold borders, no decoration.',
+    'theme.groupRadio': 'Radio Themes',
+    'theme.groupAccess': 'Accessibility',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android

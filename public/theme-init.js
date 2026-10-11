@@ -12,6 +12,8 @@ function createTelsizTheme () {
   const SCHEMES = ['dark', 'light', 'system']
   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
+  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir
+  const CONTRAST_SKIN = 'kontrast'
   const STORE = {
     skin: 'telsiz.skin',
     scheme: 'telsiz.scheme',
@@ -210,6 +212,7 @@ function createTelsizTheme () {
     get: snapshot,
     set: set,
     skins: SKINS.slice(),
+    contrastSkin: CONTRAST_SKIN,
     schemes: SCHEMES.slice(),
     fontSizes: FONT_SIZES.slice(),
     fontPxRange: { min: FONT_PX.min, max: FONT_PX.max },

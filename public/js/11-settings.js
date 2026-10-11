@@ -3143,16 +3143,45 @@ function skinChoices () {
   return theme && Array.isArray(theme.skins) && theme.skins.length ? theme.skins.slice() : ['arcade']
 }
 
+// Tema kartlarının grupları: Telsiz Temaları ve Erişilebilirlik (Yüksek Kontrast, theme-init.js contrastSkin).
+// Boş grup çizilmez.
+function skinGroups (skins) {
+  const theme = window.TelsizTheme
+  const access = theme && typeof theme.contrastSkin === 'string' ? theme.contrastSkin : null
+  return [
+    { id: 'radio', title: t('theme.groupRadio'), skins: skins.filter((skin) => skin !== access) },
+    { id: 'access', title: t('theme.groupAccess'), skins: skins.filter((skin) => skin === access) }
+  ].filter((group) => group.skins.length > 0)
+}
+
 function buildAppearancePage (page) {
   const current = themeState()
 
-  // Tema kartları
+  // Tema kartları iki grupta (Telsiz Temaları, Erişilebilirlik). Bütün kartlar tek radyo grubudur (aynı ad),
+  // grup başlıkları role="group" ile okunur. Kartlar sıkıştırılmıştır: önizleme şeridi kısa, açıklama yalnızca
+  // seçili kartta görünür (settings.css), aria-describedby ile her kartta okunur.
   const skinSec = sSection(page, t('theme.title'), 'set-skin-section')
   const cards = h('div', 'settings-theme-cards')
   cards.setAttribute('role', 'radiogroup')
   cards.setAttribute('aria-labelledby', 'set-skin-section-title')
   const skinInputs = {}
   const skins = skinChoices()
+  const lists = {}
+  skinGroups(skins).forEach((group) => {
+    const box = h('div', 'settings-theme-group')
+    box.setAttribute('role', 'group')
+    box.setAttribute('data-skin-group', group.id)
+    const title = h('h4', 'settings-subtitle settings-theme-group-title', group.title)
+    title.id = 'set-skin-group-' + group.id + '-title'
+    box.setAttribute('aria-labelledby', title.id)
+    box.appendChild(title)
+    const list = h('div', 'settings-theme-list')
+    box.appendChild(list)
+    cards.appendChild(box)
+    group.skins.forEach((skin) => {
+      lists[skin] = list
+    })
+  })
   skins.forEach((skin) => {
     const card = h('label', 'theme-card settings-theme-card')
     card.setAttribute('for', 'set-skin-' + skin)
@@ -3182,7 +3211,7 @@ function buildAppearancePage (page) {
     input.addEventListener('change', () => {
       if (input.checked) setTheme({ skin: skin })
     })
-    cards.appendChild(card)
+    lists[skin].appendChild(card)
     skinInputs[skin] = input
   })
   skinSec.appendChild(cards)

@@ -1076,7 +1076,18 @@
    7. Görünüm: tema kartları
    ========================================================= */
 
-.settings-theme-cards {
+/* Kartlar iki grupta (Telsiz Temaları, Erişilebilirlik), her grup kendi içinde satır kırar. On kart telefonda
+   uzun bir liste olmasın diye sıkıştırılmıştır: önizleme şeridi 2rem, açıklama yalnızca seçili kartta görünür
+   (öteki kartlarda aria-describedby ile okunur). */
+.settings-theme-group + .settings-theme-group {
+  margin-top: 0.5rem;
+}
+
+.settings-theme-group:first-child > .settings-theme-group-title {
+  margin-top: 0.25rem;
+}
+
+.settings-theme-list {
   display: flex;
   flex-wrap: wrap;
 }
@@ -1086,7 +1097,15 @@
   flex: 1 1 12rem;
   max-width: 17rem;
   margin: 0 0.75rem 0.75rem 0;
-  padding: 0.6rem 0.6rem 0.75rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+}
+
+.settings-theme-card .theme-swatch {
+  height: 2rem;
+}
+
+.settings-theme-card:not(.is-selected) .settings-theme-hint {
+  display: none;
 }
 
 .settings-theme-card:hover {

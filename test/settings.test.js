@@ -32,15 +32,16 @@ const SETTINGS_SOURCE = fs.readFileSync(path.join(PUB, 'js', '11-settings.js'), 
 
 // Tema listesinin tek kaynağı theme-init.js: ön yükleyici küçük bir tarayıcı taklidinde çalıştırılır, ayarlar
 // görünümüne verilen TelsizTheme taklidi bu listeyi taşır
-function themeInitSkins () {
+function loadThemeInit () {
   const root = { setAttribute () {}, style: { setProperty () {} }, classList: { add () {} } }
   const box = { document: { documentElement: root }, localStorage: { getItem: () => null, setItem () {} } }
   box.window = box
   vm.createContext(box)
   vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
-  return Array.from(box.window.TelsizTheme.skins)
+  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin }
 }
-const SKINS = themeInitSkins()
+const THEME_INIT = loadThemeInit()
+const SKINS = THEME_INIT.skins
 
 // Küçük DOM taklidi
 
@@ -472,6 +473,7 @@ function load (options) {
   sandbox.console = { warn () {}, log () {}, error () {} }
   sandbox.TelsizTheme = {
     skins: SKINS.slice(),
+    contrastSkin: THEME_INIT.contrastSkin,
     prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' },
     get () {
       return Object.assign({}, this.prefs)
@@ -980,6 +982,44 @@ test('tema kartları theme-init.js listesinden çizilir, ayarlar kendi kopyasın
   // Ön yükleyici yoksa yalnızca varsayılan tema
   sandbox.TelsizTheme.skins = undefined
   assert.deepStrictEqual(Array.from(run('skinChoices()')), ['arcade'])
+})
+
+test('tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında, Yüksek Kontrast ayrı grupta', () => {
+  assert.strictEqual(THEME_INIT.contrastSkin, 'kontrast')
+  assert.ok(SKINS.indexOf('kontrast') !== -1, 'Yüksek Kontrast tema listesinde')
+  const { run, root } = load()
+  run("openSettings('appearance', null)")
+  const radiogroup = root.querySelector('.settings-theme-cards')
+  assert.strictEqual(radiogroup.getAttribute('role'), 'radiogroup')
+  assert.strictEqual(radiogroup.getAttribute('aria-labelledby'), 'set-skin-section-title')
+  const groups = root.querySelectorAll('.settings-theme-group')
+  assert.deepStrictEqual(groups.map((g) => g.getAttribute('data-skin-group')), ['radio', 'access'])
+  const titles = groups.map((g) => {
+    assert.strictEqual(g.getAttribute('role'), 'group')
+    const title = root.querySelector('#' + g.getAttribute('aria-labelledby'))
+    assert.ok(title, 'grup başlığı')
+    return title.textContent
+  })
+  assert.deepStrictEqual(titles, ['Telsiz Temaları', 'Erişilebilirlik'])
+  const inGroup = (id) => groups[id === 'radio' ? 0 : 1].querySelectorAll('label[data-skin-choice]').map((n) => n.getAttribute('data-skin-choice'))
+  assert.deepStrictEqual(inGroup('access'), ['kontrast'])
+  assert.deepStrictEqual(inGroup('radio'), SKINS.filter((s) => s !== 'kontrast'))
+  // Bütün kartlar tek radyo grubudur
+  const names = root.querySelectorAll('input[name="set-skin"]').map((n) => n.id)
+  assert.strictEqual(names.length, SKINS.length)
+  // İngilizce başlıklar
+  run("I18N.setLang('en')")
+  run('settingsOnLanguage()')
+  const en = root.querySelectorAll('.settings-theme-group-title').map((n) => n.textContent)
+  assert.deepStrictEqual(en, ['Radio Themes', 'Accessibility'])
+  run("I18N.setLang('tr')")
+})
+
+test('tema kartları sıkışık: önizleme 2rem, açıklama yalnızca seçili kartta görünür', () => {
+  const css = fs.readFileSync(path.join(PUB, 'css', 'settings.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.ok(/\.settings-theme-card \.theme-swatch \{\s*height: 2rem\x3b/.test(css), 'önizleme şeridi 2rem')
+  assert.ok(/\.settings-theme-card:not\(\.is-selected\) \.settings-theme-hint \{\s*display: none\x3b/.test(css), 'açıklama seçili olmayan kartta gizli')
+  assert.ok(/\.settings-theme-list \{\s*display: flex\x3b\s*flex-wrap: wrap\x3b/.test(css), 'grup içinde satır kırılır')
 })
 
 test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
