@@ -42,8 +42,9 @@ async function pollLoop (generation) {
       '&boot=' + encodeURIComponent(state.boot) +
       // muv: Telsiz DJ müzik sürümü (23-dj.js motoru). Gönderilmezse poll müzik yazımıyla uyanmaz.
       (typeof djPollParam === 'function' ? '&muv=' + encodeURIComponent(djPollParam()) : '') +
-      // idle: otomatik boşta (40-bosta.js), '1' bu cihaz boşta. Değişince poll yeniden başlatılır.
-      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) : '')
+      // idle: otomatik boşta (40-bosta.js), '1' bu cihaz boşta. Değişince poll yeniden başlatılır. tab: bu sayfanın
+      // kimliği, aynı oturumu paylaşan sekmelerin bildirimleri sunucuda ayrı tutulur.
+      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) + '&tab=' + encodeURIComponent(idleTabParam()) : '')
     const t0 = djClockNow()
     const pending = api('GET', path, null, { timeout: POLL_TIMEOUT_MS })
     state.activePoll = pending

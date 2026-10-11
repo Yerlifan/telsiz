@@ -7,6 +7,8 @@
 //   durum Çevrimiçi kalır. Ece sayfaya tıklayınca Deniz onu yeniden Çevrimiçi görür.
 // - Ses odasındayken boşta olunmaz (sahte mikrofon yalnızca Chromium bayraklarıyla)
 // - Ayarlar > Gizlilik: anahtar kapalıyken hiç boşta olunmaz, 5 dakika seçilince 5 dakikada boşa geçilir
+// - Aynı tarayıcıdaki iki sekme aynı oturumu paylaşır: biri kullanılırken öteki boşta bildirse de Ece Çevrimiçi kalır,
+//   durum sırayla değişmez ve meta yayını yapılmaz (sunucu her sekmenin bildirimini tab kimliğiyle ayrı tutar)
 // - Konsol ve sunucu günlüğü temiz
 
 const { before, after } = require('node:test')
@@ -39,6 +41,25 @@ async function clockPage (who) {
   const w = W.w
   const page = await w.tb.newPage(who, { person: w.P[who], extra: { 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' } })
   await page.clock.install()
+  await page.goto(w.base + '/#anahtar=' + encodeURIComponent(w.keyCode), { timeout: h.LONG, waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  return page
+}
+
+// Ece'nin bağlamında ikinci sekme: aynı jeton (aynı oturum) ve aynı Playwright saati. Konsolu ve hataları ortak
+// günlüğe yazılır, düşen testte ekran görüntüsü alınır.
+async function secondTab (label) {
+  const w = W.w
+  const page = await W.ece.context().newPage()
+  page.setDefaultTimeout(h.SHORT)
+  h.domReadyGoto(page)
+  page.on('console', (m) => {
+    const type = m.type()
+    if (type === 'error' || type === 'warning') w.logs.push({ label, type, text: m.text() })
+  })
+  page.on('pageerror', (e) => w.logs.push({ label, type: 'pageerror', text: e.message + '\n' + (e.stack || '') }))
+  w.pages.push({ label, page })
   await page.goto(w.base + '/#anahtar=' + encodeURIComponent(w.keyCode), { timeout: h.LONG, waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
   await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
@@ -132,6 +153,36 @@ test('ayar kapalıyken boşta olunmaz, 5 dakika seçilince 5 dakikada boşa geç
   await ece.waitForFunction(() => idlePollParam() === '1')
   await seenAs('idle')
   await touch(ece)
+  await seenAs('online')
+})
+
+test('aynı tarayıcıdaki iki sekme: biri kullanılırken öteki boşta bildirse de Ece Çevrimiçi kalır', async () => {
+  const { ece, deniz } = W
+  const tab = await secondTab('ece-2')
+  await seenAs('online')
+  const ids = [await ece.evaluate(() => idleTabParam()), await tab.evaluate(() => idleTabParam())]
+  assert.match(ids[0], /^[0-9a-f]{16}$/)
+  assert.notEqual(ids[0], ids[1], 'her sekmenin kimliği ayrı')
+  // İki sekme de hareketsiz kalınca Boşta
+  await ece.clock.fastForward('10:30')
+  await ece.waitForFunction(() => idlePollParam() === '1')
+  await tab.waitForFunction(() => idlePollParam() === '1')
+  await seenAs('idle')
+  // İkinci sekme kullanılınca Çevrimiçi, ilk sekme boşta bildirmeyi sürdürür
+  await touch(tab)
+  assert.equal(await tab.evaluate(() => idlePollParam()), '0')
+  await seenAs('online')
+  assert.equal(await ece.evaluate(() => idlePollParam()), '1')
+  const mv = await deniz.evaluate(() => state.metaVersion)
+  // Boşa geçiş sınırı (5 sn) dolduktan sonra yeni mesaj iki sekmenin poll'unu da uyandırır: ilk sekme yeniden boşta
+  // bildirir, durum değişmez ve meta yayını yapılmaz
+  await h.sleep(5500)
+  await W.w.say('deniz', W.w.room('genel'), 'iki sekme denemesi')
+  await h.sleep(1500)
+  assert.equal(await deniz.evaluate(memberStatus, W.eceId), 'online')
+  assert.equal(await deniz.evaluate(() => state.metaVersion), mv, 'durum sırayla değişmedi')
+  await touch(ece)
+  await tab.close()
   await seenAs('online')
 })
 

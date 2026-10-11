@@ -1913,10 +1913,11 @@ async function createChatServer (options) {
     return state.users.filter((u) => u.banned && !u.deleted).sort((a, b) => a.id - b.id)
   }
 
-  // idle: otomatik boşta ('1' bu oturum boşta, '0' değil). Yalnızca hub'ın belleğinde tutulur, diske yazılmaz.
+  // idle: otomatik boşta ('1' bu sayfa boşta, '0' değil), tab: bildiren sayfanın kimliği (aynı oturumu paylaşan
+  // sekmeler ayrı tutulur). Yalnızca hub'ın belleğinde tutulur, diske yazılmaz.
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot'), idle: q.get('idle') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot'), idle: q.get('idle'), tab: q.get('tab') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır. Anahtar çifti yoksa (parola

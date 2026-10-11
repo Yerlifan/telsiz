@@ -131,7 +131,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
 | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
-| `40-bosta.js` | Automatic idle: measures inactivity from mouse, keyboard, touch, wheel and gamepad input (and from the system idle time in the desktop app), adds `idle` to the long-poll query, and never counts a device in a voice room as idle |
+| `40-bosta.js` | Automatic idle: measures inactivity from mouse, keyboard, touch, wheel and gamepad input (and from the system idle time in the desktop app), adds `idle` and the page id `tab` to the long-poll query, and never counts a device in a voice room as idle |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 

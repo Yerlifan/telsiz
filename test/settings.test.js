@@ -983,6 +983,7 @@ test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişi
   assert.strictEqual(sw.checked, true)
   assert.strictEqual(sw.getAttribute('role'), 'switch')
   assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Ses odasındayken boşta sayılmazsınız') !== -1)
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Bu frekans birden çok cihazda veya sekmede açıksa') !== -1)
   assert.strictEqual(root.querySelector('#set-idle-section-title').textContent, 'Otomatik Boşta')
   assert.deepStrictEqual(minutes.childNodes.map((o) => o.value), ['5', '10', '15', '30', '60'])
   assert.deepStrictEqual(minutes.childNodes.map((o) => o.textContent), ['5 dakika', '10 dakika', '15 dakika', '30 dakika', '60 dakika'])

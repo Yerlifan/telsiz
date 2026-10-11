@@ -1,8 +1,9 @@
 'use strict'
 
-// Otomatik boşta (src/hub.js, GET /api/poll?idle=0|1): oturum başına boşta bayrağı, kişinin bütün etkin oturumları
+// Otomatik boşta (src/hub.js, GET /api/poll?idle=0|1&tab=): oturum başına boşta bayrağı, kişinin bütün etkin oturumları
 // boştaysa başkalarına Boşta görünmesi, elle seçilen durumların korunması, görünmez kişide meta sürümünün değişmemesi,
-// oturum düşünce yeniden hesaplama, geçersiz değerler, boşa geçiş sınırı ve diske hiçbir şey yazılmaması.
+// oturum düşünce yeniden hesaplama, aynı oturumu paylaşan sekmeler (her sayfanın bildirimi ayrı), ses odasındaki
+// oturum, geçersiz değerler, boşa geçiş sınırı ve diske hiçbir şey yazılmaması.
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
@@ -11,9 +12,10 @@ const path = require('node:path')
 const h = require('./server-yardimci')
 const { createChatServer, DEFAULTS } = require('../src/app')
 
-// Poll sorgusu yalnızca idle taşır: boot verilmediği için yanıt hemen yeniden eşitleme olarak döner
-async function report (ctx, token, value) {
-  const res = await h.get(ctx, '/api/poll?idle=' + encodeURIComponent(value), token)
+// Poll sorgusu yalnızca idle (ve verilirse sayfa kimliği tab) taşır: boot verilmediği için yanıt hemen yeniden
+// eşitleme olarak döner
+async function report (ctx, token, value, tab) {
+  const res = await h.get(ctx, '/api/poll?idle=' + encodeURIComponent(value) + (tab === undefined ? '' : '&tab=' + encodeURIComponent(tab)), token)
   h.expectStatus(res, 200)
   assert.equal(res.data.resync, true)
   return res.data
@@ -171,6 +173,88 @@ describe('otomatik boşta', () => {
       assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
       h.expectStatus(await h.post(ctx, '/api/logout', ayse.token), 200)
       assert.deepEqual(view(await seen(ctx, owner.token, id)), { online: false, status: 'offline' })
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('aynı oturumu paylaşan sekmeler: oturum ancak bütün sekmeleri boştayken boştadır, ses odasında boşta sayılmaz', async () => {
+    const ctx = await h.startServer({ idleGapMs: 100 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const id = ayse.user.id
+      await h.stateOf(ctx, ayse.token)
+
+      // Kullanılan A sekmesi ve unutulmuş B sekmesi aynı jetonla sırayla bildirir: durum ve meta sürümü değişmez
+      await report(ctx, ayse.token, '0', 'a')
+      await report(ctx, ayse.token, '1', 'b')
+      const start = await seen(ctx, owner.token, id)
+      assert.deepEqual(view(start), { online: true, status: 'online' })
+      for (const round of [1, 2, 3, 4]) {
+        await h.sleep(120)
+        await report(ctx, ayse.token, '1', 'b')
+        assert.equal((await seen(ctx, owner.token, id)).status, 'online', 'B boşta, A kullanılıyor, tur ' + round)
+        await report(ctx, ayse.token, '0', 'a')
+      }
+      assert.equal((await seen(ctx, owner.token, id)).mv, start.mv, 'meta yayını yapılmadı')
+
+      // İki sekme de boşta kalınca Boşta, birinde girdi olunca hemen Çevrimiçi
+      await report(ctx, ayse.token, '1', 'a')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
+      await report(ctx, ayse.token, '0', 'b')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online')
+      await h.sleep(120)
+      await report(ctx, ayse.token, '1', 'b')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
+
+      // Ses odasına katılan oturum, sekmeleri boşta bildirse de poll beklenmeden Çevrimiçi görünür
+      h.expectStatus(await h.post(ctx, '/api/voice/join', ayse.token, { channelId: 3 }), 200)
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online')
+      await h.sleep(120)
+      await report(ctx, ayse.token, '1', 'a')
+      await report(ctx, ayse.token, '1', 'b')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online', 'ses odasında')
+      h.expectStatus(await h.post(ctx, '/api/voice/leave', ayse.token), 200)
+      await report(ctx, ayse.token, '1', 'a')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'idle', 'odadan çıkınca')
+
+      // Geçersiz sayfa kimliği kimliksiz bildirimle aynı sayfa sayılır
+      await report(ctx, ayse.token, '0', 'A-B')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online')
+      await h.sleep(120)
+      await report(ctx, ayse.token, '1')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('kapanan sekmenin bildirimi poll süresi dolunca unutulur, oturum başına en çok 8 sekme izlenir', async () => {
+    const ctx = await h.startServer({ idleGapMs: 100, pollTimeoutMs: 300, graceMs: 300 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const ayse = await h.addUser(ctx, owner.token, 'ayse')
+      const id = ayse.user.id
+      await report(ctx, ayse.token, '0', 'a')
+      await report(ctx, ayse.token, '1', 'b')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online')
+      // A sekmesi kapandı: B bildirdikçe A'nın son bildirimi 600 ms sonra unutulur
+      const started = Date.now()
+      await h.waitFor(async () => {
+        await report(ctx, ayse.token, '1', 'b')
+        return (await seen(ctx, owner.token, id)).status === 'idle'
+      }, { timeout: 5000, label: 'kapanan sekme unutuldu' })
+      assert.ok(Date.now() - started >= 500, 'bildirim poll süresi dolmadan unutulmaz')
+
+      // Dokuzuncu sekme en eski bildirimi (boşta olmayan X) unutturur
+      await report(ctx, ayse.token, '0', 'x')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online')
+      for (const n of [1, 2, 3, 4, 5, 6, 7]) await report(ctx, ayse.token, '1', 's' + n)
+      assert.equal((await seen(ctx, owner.token, id)).status, 'online', '8 sekme izleniyor, X boşta değil')
+      await h.sleep(120)
+      await report(ctx, ayse.token, '1', 's8')
+      assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
     } finally {
       await ctx.cleanup()
     }

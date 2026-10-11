@@ -13,6 +13,9 @@
 // - Masaüstü uygulamasında sistemin boşta süresi de okunur (telsizDesktop.idleSeconds, arka plan penceresinde
 //   telsizArkaPlan.idleSeconds): kişi başka bir uygulamayı kullanıyorsa boşta sayılmaz. Arka plan penceresinde
 //   girdi dinlenmez, karar yalnızca sistemin boşta süresine dayanır.
+// - Poll sorgusu sayfanın kimliğini de taşır (tab): aynı tarayıcıdaki sekmeler ve kurulu uygulama penceresi aynı
+//   oturumu paylaşır, sunucu (src/hub.js setIdle) her sayfanın bildirimini ayrı tutar ve oturumu ancak bütün
+//   sayfaları boştayken boşta sayar. Kullanılan sekme ile unutulmuş sekme oturumu sırayla değiştirmez.
 // - Durum değişince poll yeni değerle yeniden başlar (startPoll, arka planda bgRestartPoll).
 
 const IDLE_CHECK_MS = 15000
@@ -23,6 +26,8 @@ const IDLE_PAD_DEADZONE = 0.5
 const idleState = {
   started: false,
   idle: false,
+  // Bu sayfanın kimliği (poll sorgusundaki tab), sayfa açılınca bir kez üretilir
+  tab: idleNewTab(),
   lastInput: Date.now(),
   // Sistemin boşta süresinden çıkarılan son girdi zamanı (masaüstü), bilinmiyorsa 0
   systemInput: 0,
@@ -30,6 +35,17 @@ const idleState = {
   padTimer: 0,
   pads: Object.create(null),
   reading: false
+}
+
+// Rastgele sayfa kimliği: 16 onaltılık karakter (src/hub.js IDLE_TAB_RE ile uyumlu)
+function idleNewTab () {
+  try {
+    const bytes = new Uint8Array(8)
+    window.crypto.getRandomValues(bytes)
+    return Array.prototype.map.call(bytes, (b) => ('0' + b.toString(16)).slice(-2)).join('')
+  } catch (err) {
+    return Math.floor(Math.random() * 1e15).toString(36)
+  }
 }
 
 function idleBgMode () {
@@ -68,6 +84,11 @@ function idleDecide (now) {
 // Poll sorgusunun idle değeri: '1' bu cihaz boşta, '0' değil
 function idlePollParam () {
   return idleState.idle ? '1' : '0'
+}
+
+// Poll sorgusunun tab değeri: bu sayfanın kimliği
+function idleTabParam () {
+  return idleState.tab
 }
 
 // Bu cihaz boşta bildiriyor mu (13-profile.js kendi durumumun gösterimi)

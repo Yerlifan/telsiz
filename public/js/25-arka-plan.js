@@ -25,9 +25,9 @@
 // - O frekansta masaüstü bildirimleri açıksa (Ayarlar > Bildirimler, bildirim düzeyi ve Rahatsız etmeyin
 //   kuralı) sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterir. Bildirime basınca ana
 //   süreç o frekansa geçer (telsizArkaPlan.open).
-// - Otomatik boşta (40-bosta.js): long-poll sorgusu idle=0|1 taşır, karar sistemin boşta süresine
-//   (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Değer değişince
-//   bekleyen poll bırakılıp yeni değerle hemen yeniden gönderilir (bgRestartPoll).
+// - Otomatik boşta (40-bosta.js): long-poll sorgusu idle=0|1 ve pencerenin kimliğini (tab) taşır, karar sistemin
+//   boşta süresine (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Değer
+//   değişince bekleyen poll bırakılıp yeni değerle hemen yeniden gönderilir (bgRestartPoll).
 // Sayılar oturuma özeldir: uygulama yeniden açılınca açılış taraması son okunandan yeniden sayar.
 
 const BG_REPORT_GAP_MS = 1000
@@ -289,7 +289,7 @@ async function bgPoll (gen) {
       '&pmv=' + encodeURIComponent(socialPmv()) +
       '&sig=' + encodeURIComponent(state.sigSeq) +
       '&boot=' + encodeURIComponent(state.boot) +
-      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) : '')
+      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) + '&tab=' + encodeURIComponent(idleTabParam()) : '')
     bgState.restartPoll = false
     const pending = request('GET', path, { timeout: POLL_TIMEOUT_MS })
     bgState.activePoll = pending

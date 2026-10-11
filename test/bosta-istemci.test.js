@@ -2,9 +2,10 @@
 
 // Otomatik boşta istemcisi (public/js/40-bosta.js): süre dolunca poll'un idle=1 taşıması ve yeniden başlaması,
 // girdiyle hemen dönüş, fare hareketinin kısılması, ayar, uygulama dışı ve ses odası kuralları, oyun kolunun ölü
-// bölgesi, masaüstünde sistemin boşta süresi, arka plan penceresi (25-arka-plan.js bgRestartPoll) ve index.html,
-// sw.js, poll sorgusu bağlantıları. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında, gerekli
-// yardımcılar taklit edilerek yüklenir. Saat ve zamanlayıcılar elle ilerletilir.
+// bölgesi, sayfa kimliği (tab), masaüstünde sistemin boşta süresi, arka plan penceresi (25-arka-plan.js
+// bgRestartPoll) ve index.html, sw.js, poll sorgusu bağlantıları.
+// Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında, gerekli yardımcılar taklit edilerek yüklenir.
+// Saat ve zamanlayıcılar elle ilerletilir.
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -63,6 +64,7 @@ function load (opts) {
   sandbox.window = sandbox
   if (o.desktop) sandbox.telsizDesktop = o.desktop
   if (o.bgDesktop) sandbox.telsizArkaPlan = o.bgDesktop
+  if (o.crypto) sandbox.crypto = o.crypto
   vm.createContext(sandbox)
   vm.runInContext(BOSTA, sandbox, { filename: '40-bosta.js' })
   const run = (code) => vm.runInContext(code, sandbox)
@@ -207,6 +209,19 @@ test('oyun kolu: düğme ve ölü bölgeyi aşan eksen girdi sayılır, çubuk t
   assert.equal(env.run('idlePollParam()'), '1')
 })
 
+test('sayfa kimliği: her sayfa açılışta bir kez üretilir ve sunucunun kabul ettiği biçimdedir', () => {
+  const crypto = require('node:crypto')
+  const a = load({ crypto: { getRandomValues: (bytes) => crypto.randomFillSync(bytes) } })
+  const b = load({ crypto: { getRandomValues: (bytes) => crypto.randomFillSync(bytes) } })
+  const tab = a.run('idleTabParam()')
+  assert.match(tab, /^[0-9a-f]{16}$/)
+  assert.equal(a.run('idleTabParam()'), tab, 'kimlik sayfa boyunca aynı kalır')
+  assert.notEqual(b.run('idleTabParam()'), tab)
+  // crypto yoksa yedek kimlik de sunucunun biçimine uyar
+  const c = load()
+  assert.match(c.run('idleTabParam()'), /^[0-9a-z]{1,32}$/)
+})
+
 test('masaüstü: sistemin boşta süresi kısaysa boşta olunmaz, okunamazsa sayfanın girdisi sayılır', async () => {
   const desktop = { seconds: 30, fail: false, calls: 0 }
   desktop.idleSeconds = () => {
@@ -268,6 +283,7 @@ test('arka plan poll döngüsü: idle sorguda gider, bgRestartPoll bekleyen poll
     socialPmv: () => 1,
     idle: '0',
     idlePollParam: () => sandbox.idle,
+    idleTabParam: () => 'a1b2',
     request: (method, url) => {
       let resolve = null
       const p = new Promise((r) => {
@@ -289,12 +305,12 @@ test('arka plan poll döngüsü: idle sorguda gider, bgRestartPoll bekleyen poll
   const loop = run('bgPoll(bgState.gen)')
   await settle()
   assert.equal(requests.length, 1)
-  assert.match(requests[0].url, /&idle=0$/)
+  assert.match(requests[0].url, /&idle=0&tab=a1b2$/)
   sandbox.idle = '1'
   run('bgRestartPoll()')
   await settle()
   assert.equal(requests.length, 2, 'bırakılan poll hata sayılmadan hemen yeniden gönderilir')
-  assert.match(requests[1].url, /&idle=1$/)
+  assert.match(requests[1].url, /&idle=1&tab=a1b2$/)
   assert.equal(run('bgState.status'), 'starting', 'durum değişmedi')
   // Döngü sona erer
   run('bgState.gen += 1')
@@ -303,9 +319,10 @@ test('arka plan poll döngüsü: idle sorguda gider, bgRestartPoll bekleyen poll
   assert.equal(run('bgState.gen'), gen + 1)
 })
 
-test('index.html, sw.js ve poll sorguları: modül bağlı, idle gönderilir', () => {
+test('index.html, sw.js ve poll sorguları: modül bağlı, idle ve tab gönderilir', () => {
   assert.ok(HTML.indexOf('<script src="/js/40-bosta.js" defer></script>') > HTML.indexOf('<script src="/js/32-arama.js" defer></script>'))
   assert.ok(SW.indexOf("'/js/40-bosta.js'") > SW.indexOf("'/js/32-arama.js'"))
-  assert.ok(POLL.indexOf("'&idle=' + encodeURIComponent(idlePollParam())") !== -1)
-  assert.ok(ARKA.indexOf("'&idle=' + encodeURIComponent(idlePollParam())") !== -1)
+  const query = "'&idle=' + encodeURIComponent(idlePollParam()) + '&tab=' + encodeURIComponent(idleTabParam())"
+  assert.ok(POLL.indexOf(query) !== -1)
+  assert.ok(ARKA.indexOf(query) !== -1)
 })
