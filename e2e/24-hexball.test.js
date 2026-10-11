@@ -419,9 +419,16 @@ test('telefonda maç ekranında yatay taşma yok, Tam Ekran\'da tuval ve denetim
   assert.equal(r.touch, 'none')
   // Tam ekranda skor tablosu, tuval, çubuk ve Vur düğmesi kaydırmadan görünür (tuvalin ölçüsü birkaç karede bir
   // yeniden okunur, 46-hexball.js hexballFit)
+  // Başsız Firefox tarayıcı tam ekranını telefon görünümünün değil kendi ekranının boyutunda (1280x720) açar, sayfa
+  // orada telefon genişliğinde olmaz. Telefondaki tam ekranla aynı yerleşimin her tarayıcıda ölçülmesi için tarayıcı
+  // tam ekranı bu testte reddedilir, panel 22-cast.js'in bu durumda kullandığı sayfa içi tam ekranla (is-full) açılır
+  await mert.evaluate(() => {
+    window.__hexFullscreen = Element.prototype.requestFullscreen
+    Element.prototype.requestFullscreen = function () { return Promise.reject(new Error('test')) }
+  })
   await mert.click('#cast .cast-full')
   try {
-    await mert.waitForFunction(() => castState.full, null, { timeout: h.LONG })
+    await mert.waitForFunction(() => castState.full && castState.pseudoFull, null, { timeout: h.LONG })
     // Tuval tam ekranın yüksekliğine göre büyüyene ve dört öğe birlikte görünür alana girene kadar
     await mert.waitForFunction((a) => {
       const c = document.querySelector('#cast .hex-canvas')
@@ -476,6 +483,10 @@ test('telefonda maç ekranında yatay taşma yok, Tam Ekran\'da tuval ve denetim
     // Sonraki adımlar telsiz kartına ulaşır: tam ekrandan her durumda çıkılır
     if (await mert.evaluate(() => castState.full)) await mert.click('#cast .cast-full')
     await mert.waitForFunction(() => !castState.full, null, { timeout: h.LONG })
+    await mert.evaluate(() => {
+      Element.prototype.requestFullscreen = window.__hexFullscreen
+      delete window.__hexFullscreen
+    })
   }
 })
 
