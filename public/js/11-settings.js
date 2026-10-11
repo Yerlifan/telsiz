@@ -3149,11 +3149,11 @@ function playMessageSound (opts) {
   return playAlertSound('message', opts)
 }
 
-// 7. Görünüm: tema, mod, yazı boyutu, kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
+// 7. Görünüm: tema, mod, yazı boyutu, mesaj düzeni ve kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
 
 function themeState () {
   const theme = window.TelsizTheme
-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system' }
+  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
   return theme.get()
 }
 
@@ -3168,6 +3168,12 @@ function setTheme (patch) {
 function skinChoices () {
   const theme = window.TelsizTheme
   return theme && Array.isArray(theme.skins) && theme.skins.length ? theme.skins.slice() : ['arcade']
+}
+
+// Mesaj düzenleri (Kayıt Defteri, Klasik): listenin kaynağı theme-init.js (window.TelsizTheme.msgLayouts)
+function msgLayoutChoices () {
+  const theme = window.TelsizTheme
+  return theme && Array.isArray(theme.msgLayouts) && theme.msgLayouts.length ? theme.msgLayouts.slice() : ['kayit', 'klasik']
 }
 
 // Tema kartlarının grupları: Telsiz Temaları ve Erişilebilirlik (Yüksek Kontrast, theme-init.js contrastSkin).
@@ -3277,7 +3283,15 @@ function buildAppearancePage (page) {
   sizeSec.appendChild(pxRange)
   showPx(pxOf(current))
 
+  // Mesaj görünümü: düzen (Kayıt Defteri varsayılan, Klasik) ve iki düzende de çalışan kompakt anahtarı
   const compactSec = sSection(page, t('settings.appearance.messagesTitle'), 'set-compact-section')
+  sSub(compactSec, t('theme.msgLayout'), 'set-msg-layout-title')
+  const layouts = sRadios('set-msg-layout', 'set-msg-layout-title', msgLayoutChoices().map((v) => ({ value: v, label: t('theme.msgLayout.' + v) })), current.msgLayout || 'kayit', (value) => {
+    setTheme({ msgLayout: value })
+  }, 'is-chips')
+  layouts.group.setAttribute('aria-describedby', 'set-msg-layout-hint')
+  compactSec.appendChild(layouts.group)
+  compactSec.appendChild(sHint(t('theme.msgLayoutHint'), 'set-msg-layout-hint'))
   const compact = sSwitch('set-compact', t('theme.compact'), current.compact, (checked) => {
     setTheme({ compact: checked })
   }, t('theme.compactHint'))
@@ -3322,6 +3336,7 @@ function buildAppearancePage (page) {
       pxRange.value = String(pxOf(now))
       showPx(pxOf(now))
     }
+    setRadioValue(layouts.inputs, now.msgLayout || 'kayit')
     compact.input.checked = Boolean(now.compact)
     setRadioValue(motions.inputs, now.reduceMotion)
     if (lang.value !== window.I18N.lang) lang.value = window.I18N.lang

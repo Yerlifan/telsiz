@@ -1954,6 +1954,20 @@ mark,
   display: none;
 }
 
+/* Çağrı işareti (06-messages.js buildMessageNode): küçük avatar ve ad. Klasik düzende yalnızca ad görünür, küçük
+   avatar ve yön etiketi (TX, RX) Kayıt Defteri düzenine aittir (convo.css). */
+.msg-call {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.msg-call-avatar,
+.msg-dir {
+  display: none;
+}
+
 .msg-author {
   margin-right: 0.5rem;
   color: var(--text);

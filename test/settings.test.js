@@ -39,7 +39,7 @@ function loadThemeInit () {
   box.window = box
   vm.createContext(box)
   vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
-  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin }
+  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin, msgLayouts: Array.from(box.window.TelsizTheme.msgLayouts) }
 }
 const THEME_INIT = loadThemeInit()
 const SKINS = THEME_INIT.skins
@@ -475,7 +475,8 @@ function load (options) {
   sandbox.TelsizTheme = {
     skins: SKINS.slice(),
     contrastSkin: THEME_INIT.contrastSkin,
-    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' },
+    msgLayouts: THEME_INIT.msgLayouts.slice(),
+    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system', msgLayout: 'kayit' },
     get () {
       return Object.assign({}, this.prefs)
     },
@@ -614,7 +615,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
-    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang']),
+    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-msg-layout-kayit', 'set-msg-layout-klasik', 'set-msg-layout-hint', 'set-compact', 'set-motion-on', 'set-lang']),
     app: ['set-install', 'set-version', 'set-repo-link'],
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
@@ -959,6 +960,56 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   run('refreshThemeSettings()')
   assert.strictEqual(root.querySelector('#set-skin-gece').checked, true)
   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
+})
+
+// Ön yükleyici gerçek tarayıcı taklidinde: kök öznitelikleri ve localStorage kaydı
+function runThemeInit (stored) {
+  const attrs = {}
+  const saved = Object.assign({}, stored || {})
+  const root = { setAttribute (k, v) { attrs[k] = v }, style: { setProperty () {} }, classList: { add () {} } }
+  const box = { document: { documentElement: root }, localStorage: { getItem: (k) => (k in saved ? saved[k] : null), setItem (k, v) { saved[k] = String(v) } } }
+  box.window = box
+  vm.createContext(box)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
+  return { theme: box.window.TelsizTheme, attrs, saved }
+}
+
+test('mesaj düzeni (msgLayout): Kayıt Defteri varsayılan, Klasik saklanır, geçersiz değer yok sayılır', () => {
+  assert.deepStrictEqual(THEME_INIT.msgLayouts, ['kayit', 'klasik'])
+  const first = runThemeInit()
+  assert.strictEqual(first.theme.get().msgLayout, 'kayit')
+  assert.strictEqual(first.attrs['data-msg-layout'], 'kayit', 'ilk çizimde kök özniteliği')
+  first.theme.set({ msgLayout: 'klasik' })
+  assert.strictEqual(first.attrs['data-msg-layout'], 'klasik')
+  assert.strictEqual(first.saved['telsiz.msgLayout'], 'klasik')
+  first.theme.set({ msgLayout: 'discord' })
+  assert.strictEqual(first.theme.get().msgLayout, 'klasik', 'listede olmayan değer yok sayılır')
+  const again = runThemeInit({ 'telsiz.msgLayout': 'klasik' })
+  assert.strictEqual(again.attrs['data-msg-layout'], 'klasik', 'yeniden açılışta saklı düzen')
+  const bad = runThemeInit({ 'telsiz.msgLayout': '<b>' })
+  assert.strictEqual(bad.attrs['data-msg-layout'], 'kayit', 'bozuk kayıt varsayılana düşer')
+})
+
+test('Görünüm > Mesaj görünümü: düzen radyo grubu ve kompakt anahtarı birlikte çalışır', () => {
+  const { run, root, sandbox } = load()
+  run("openSettings('appearance', null)")
+  const group = root.querySelector('#set-msg-layout-kayit').parentNode.parentNode
+  assert.strictEqual(group.getAttribute('role'), 'radiogroup')
+  assert.strictEqual(group.getAttribute('aria-labelledby'), 'set-msg-layout-title')
+  assert.strictEqual(group.getAttribute('aria-describedby'), 'set-msg-layout-hint')
+  assert.strictEqual(root.querySelector('#set-msg-layout-title').textContent, 'Mesaj Düzeni')
+  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'Kayıt Defteri varsayılan')
+  assert.strictEqual(root.querySelector('label[for="set-msg-layout-kayit"]').textContent, 'Kayıt Defteri')
+  assert.strictEqual(root.querySelector('label[for="set-msg-layout-klasik"]').textContent, 'Klasik')
+  root.querySelector('#set-msg-layout-klasik').click()
+  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik')
+  root.querySelector('#set-compact').click()
+  assert.strictEqual(sandbox.TelsizTheme.prefs.compact, true)
+  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik', 'kompakt anahtarı düzeni değiştirmez')
+  sandbox.TelsizTheme.prefs.msgLayout = 'kayit'
+  run('refreshThemeSettings()')
+  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'başka yerden değişen düzen yansır')
+  assert.strictEqual(root.querySelector('#set-compact').checked, true)
 })
 
 test('zaten işaretli tema kartına tıklamak temayı yeniden seçer (kendiliğinden seçilen Yüksek Kontrast saklanır)', () => {

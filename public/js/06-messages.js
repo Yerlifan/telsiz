@@ -202,6 +202,8 @@ function buildMessageNode (m) {
   if (mine) node.classList.add('msg-own', 'is-own')
   const name = userDisplayName(m.authorId)
   const role = userRole(m.authorId)
+  // Kayıt Defteri düzeninde (theme-init.js data-msg-layout) grubu bağlayan yayın çizgisinin rengi: yazarın profil rengi
+  node.setAttribute('data-av', 'c' + userColorIndex(m.authorId))
 
   const gutter = h('div', 'msg-gutter')
   const av = personAvatar(m.authorId, 'md')
@@ -218,14 +220,29 @@ function buildMessageNode (m) {
 
   const content = h('div', 'msg-content')
   const head = h('div', 'msg-head')
+  // Çağrı işareti: Kayıt Defteri düzeninde adın yanında küçük avatar (Klasik düzende avatar gizlidir, ad aynı yerde
+  // kalır). Küçük avatar sekme durağı değildir, tıklanınca profil kartını açar, ad erişilebilir bağlantıdır.
+  const call = h('span', 'msg-call')
   const author = h('span', 'msg-author', name)
   makeUserLink(author, m.authorId)
-  head.appendChild(author)
+  const callAvatar = personAvatar(m.authorId, 'xs')
+  callAvatar.classList.add('msg-call-avatar')
+  callAvatar.addEventListener('click', (e) => {
+    e.stopPropagation()
+    openProfileCard(m.authorId, author)
+  })
+  call.appendChild(callAvatar)
+  call.appendChild(author)
+  head.appendChild(call)
   const badge = roleBadge(role)
   if (badge) head.appendChild(badge)
   const time = h('span', 'msg-time', formatShort(m.createdAt))
   time.title = formatLong(m.createdAt)
   head.appendChild(time)
+  // Yön etiketi: gönderdiğim mesaj TX, gelen mesaj RX. Yalnızca görsel, ekran okuyucu metni (msg-sr) değişmez.
+  const dir = h('span', 'msg-dir ' + (mine ? 'is-out' : 'is-in'), t(mine ? 'msg.dirOut' : 'msg.dirIn'))
+  dir.setAttribute('aria-hidden', 'true')
+  head.appendChild(dir)
   content.appendChild(head)
   const sr = h('span', 'sr-only msg-sr', t('msg.srHead', { name: name, time: formatShort(m.createdAt) }))
   content.appendChild(sr)

@@ -83,6 +83,12 @@ window.I18N = (function () {
     'theme.groupRadio': 'Telsiz Temaları',
     'theme.groupAccess': 'Erişilebilirlik',
     // G13 Özgün tasarım
+    'theme.msgLayout': 'Mesaj Düzeni',
+    'theme.msgLayout.kayit': 'Kayıt Defteri',
+    'theme.msgLayout.klasik': 'Klasik',
+    'theme.msgLayoutHint': 'Kayıt defterinde saat her mesajın solunda görünür, gönderdikleriniz TX, gelenler RX ile işaretlenir.',
+    'msg.dirOut': 'TX',
+    'msg.dirIn': 'RX',
     // G14 Kurtarma kodu
     'auth.forgot': 'Parolamı Unuttum',
     'auth.forgotTitle': 'Kurtarma Koduyla Parolayı Sıfırla',
@@ -2126,6 +2132,12 @@ window.I18N = (function () {
     'theme.groupRadio': 'Radio Themes',
     'theme.groupAccess': 'Accessibility',
     // G13 Özgün tasarım
+    'theme.msgLayout': 'Message Layout',
+    'theme.msgLayout.kayit': 'Logbook',
+    'theme.msgLayout.klasik': 'Classic',
+    'theme.msgLayoutHint': 'In the logbook the time is shown left of every message, and messages you send are marked TX, received ones RX.',
+    'msg.dirOut': 'TX',
+    'msg.dirIn': 'RX',
     // G14 Kurtarma kodu
     'auth.forgot': 'Forgot My Password',
     'auth.forgotTitle': 'Reset Your Password with a Recovery Code',

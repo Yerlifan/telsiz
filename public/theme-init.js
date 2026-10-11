@@ -1,8 +1,8 @@
 'use strict'
 
 // Tema ön yükleyicisi (Ek G1.5). <head> içinde defer olmadan, stil dosyalarından önce yüklenir.
-// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact ve
-// data-reduce-motion özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
+// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact, data-reduce-motion
+// ve data-msg-layout özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
 // çizimde doğru temayla açılır.
 // window.TelsizTheme arayüzü ayarlar görünümü ve uygulama tarafından kullanılır.
 // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
@@ -12,6 +12,8 @@ function createTelsizTheme () {
   const SCHEMES = ['dark', 'light', 'system']
   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
+  // Mesaj düzeni: kayit (Kayıt Defteri: saat her mesajın solunda, küçük avatar adın yanında, TX ve RX) veya klasik
+  const MSG_LAYOUTS = ['kayit', 'klasik']
   // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir, sistem yüksek karşıtlık istiyorsa ilk açılışta seçilir
   const CONTRAST_SKIN = 'kontrast'
   const STORE = {
@@ -20,13 +22,14 @@ function createTelsizTheme () {
     fontSize: 'telsiz.fontSize',
     fontPx: 'telsiz.fontPx',
     compact: 'telsiz.compact',
-    reduceMotion: 'telsiz.reduceMotion'
+    reduceMotion: 'telsiz.reduceMotion',
+    msgLayout: 'telsiz.msgLayout'
   }
   // Elle ayarlanan yazı boyutunun (custom) sınırları, piksel
   const FONT_PX = { min: 12, max: 28 }
   // Yazı boyutu varsayılanı 15 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür. Özel boyut
   // da ilk açılışta 15 pikseldir.
-  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system' }
+  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
   const root = document.documentElement
   const listeners = []
 
@@ -88,7 +91,8 @@ function createTelsizTheme () {
     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
     fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,
     compact: read(STORE.compact) === 'true',
-    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion)
+    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion),
+    msgLayout: pick(MSG_LAYOUTS, read(STORE.msgLayout), DEFAULTS.msgLayout)
   }
 
   // Sistem tercihi bilinmiyorsa koyu (Ek G3)
@@ -116,7 +120,8 @@ function createTelsizTheme () {
       fontPx: prefs.fontPx,
       compact: prefs.compact,
       reduceMotion: prefs.reduceMotion,
-      motionReduced: resolvedMotion()
+      motionReduced: resolvedMotion(),
+      msgLayout: prefs.msgLayout
     }
   }
 
@@ -129,6 +134,7 @@ function createTelsizTheme () {
     if (root.style && typeof root.style.setProperty === 'function') root.style.setProperty('--font-px', prefs.fontPx + 'px')
     root.setAttribute('data-compact', prefs.compact ? 'true' : 'false')
     root.setAttribute('data-reduce-motion', resolvedMotion() ? 'true' : 'false')
+    root.setAttribute('data-msg-layout', prefs.msgLayout)
   }
 
   function notify () {
@@ -189,6 +195,11 @@ function createTelsizTheme () {
         changed = true
       }
     }
+    if (next.msgLayout !== undefined && MSG_LAYOUTS.indexOf(next.msgLayout) !== -1 && next.msgLayout !== prefs.msgLayout) {
+      prefs.msgLayout = next.msgLayout
+      write(STORE.msgLayout, prefs.msgLayout)
+      changed = true
+    }
     if (changed) {
       apply()
       notify()
@@ -235,6 +246,7 @@ function createTelsizTheme () {
     schemes: SCHEMES.slice(),
     fontSizes: FONT_SIZES.slice(),
     fontPxRange: { min: FONT_PX.min, max: FONT_PX.max },
+    msgLayouts: MSG_LAYOUTS.slice(),
     onChange: onChange
   }
 }

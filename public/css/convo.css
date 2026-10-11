@@ -97,6 +97,138 @@
 }
 
 /* =========================================================
+   2a. Kayıt Defteri mesaj düzeni (istek 10, varsayılan): theme-init.js kök öğeye data-msg-layout="kayit" yazar,
+   "klasik" bu bölümü kapatır ve yukarıdaki görünüm aynen kalır. Saat her mesajda solda tek aralıklı sütunda,
+   avatar adın yanında küçük çağrı işareti (1.5rem), grup yazarın profil renginde ince bir yayın çizgisiyle
+   bağlanır (06-messages.js data-av), başlığın sonunda gönderdiğim mesajda TX, gelende RX. Başlıktaki saat
+   görünmez ama ekran okuyucu için yerinde kalır, okuma sırası Klasik düzenle aynıdır. Yön etiketi aria-hidden.
+   ========================================================= */
+
+:root[data-msg-layout="kayit"] .convo .msg-gutter {
+  justify-content: flex-end;
+  width: 4.875rem;
+  padding: 0 0.75rem 0 0.125rem;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-first .msg-avatar {
+  display: none;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-hover-time,
+:root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
+  display: block;
+  padding-top: 0.25rem;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  white-space: nowrap;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
+  padding-top: 0.1875rem;
+}
+
+/* Yayın çizgisi: içeriğin solunda, mesajlar arasındaki boşluğu da kapatır (grup kesintisiz görünür) */
+:root[data-msg-layout="kayit"] .convo .msg-content {
+  padding-left: 0.75rem;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: -0.125rem;
+  left: 4.875rem;
+  width: 2px;
+  background-color: var(--msg-line, var(--line-strong));
+  pointer-events: none;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-first::after {
+  top: 0.3125rem;
+}
+
+:root[data-msg-layout="kayit"] .msg[data-av="c0"] { --msg-line: var(--av-0); }
+:root[data-msg-layout="kayit"] .msg[data-av="c1"] { --msg-line: var(--av-1); }
+:root[data-msg-layout="kayit"] .msg[data-av="c2"] { --msg-line: var(--av-2); }
+:root[data-msg-layout="kayit"] .msg[data-av="c3"] { --msg-line: var(--av-3); }
+:root[data-msg-layout="kayit"] .msg[data-av="c4"] { --msg-line: var(--av-4); }
+:root[data-msg-layout="kayit"] .msg[data-av="c5"] { --msg-line: var(--av-5); }
+:root[data-msg-layout="kayit"] .msg[data-av="c6"] { --msg-line: var(--av-6); }
+:root[data-msg-layout="kayit"] .msg[data-av="c7"] { --msg-line: var(--av-7); }
+
+/* Başlık: çağrı işareti, rol, (gizli) saat ve sağ uçta yön etiketi */
+:root[data-msg-layout="kayit"] .convo .msg-head {
+  flex-wrap: nowrap;
+  min-height: 1.5rem;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-call {
+  flex: 0 1 auto;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-call-avatar {
+  display: inline-flex;
+  flex: none;
+  margin-right: 0.4375rem;
+  cursor: pointer;
+  --status-ring: var(--surface-2);
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-head .badge {
+  flex: none;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-head .msg-time {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-dir {
+  display: inline-block;
+  flex: none;
+  margin-left: auto;
+  padding: 0 0.375rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.0625rem;
+  letter-spacing: 0.04em;
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-dir.is-out {
+  border-color: var(--accent-text);
+  color: var(--accent-text);
+}
+
+:root[data-msg-layout="kayit"] .convo .msg-first {
+  margin-top: 0.875rem;
+}
+
+/* Kompakt: küçük avatar ve yön etiketi gizlenir, ad ve metin tek satırda (components.css kompakt bölümü) */
+:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-call-avatar,
+:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-dir {
+  display: none;
+}
+
+:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-head {
+  min-height: 0;
+}
+
+:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-first {
+  margin-top: 0.35rem;
+}
+
+/* =========================================================
    3. Başlangıç bloğu (boş oda) ve durumlar: yükleniyor, hata
    ========================================================= */
 
@@ -889,6 +1021,25 @@
   .convo .msg-avatar.avatar-md {
     width: 2.5rem;
     height: 2.5rem;
+  }
+
+  :root[data-msg-layout="kayit"] .convo .msg-gutter {
+    width: 4rem;
+    padding-right: 0.5rem;
+    padding-left: 0;
+  }
+
+  :root[data-msg-layout="kayit"] .convo .msg::after {
+    left: 4rem;
+  }
+
+  :root[data-msg-layout="kayit"] .convo .msg-content {
+    padding-left: 0.5rem;
+  }
+
+  :root[data-msg-layout="kayit"] .convo .msg-hover-time,
+  :root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
+    font-size: 0.625rem;
   }
 
   .convo .channel-start:not(.is-dm) {
