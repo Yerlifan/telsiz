@@ -11,22 +11,21 @@
   "363aa20 G7: inceleme düzeltmesi (kaldırılan kapak kayıttan sonra yeniden istenmez)",
   "77811d0 G7: inceleme düzeltmeleri (kayıt sürerken seçilen kapak ve Kaldır düğmeleri)",
   "b595b2c G7: inceleme düzeltmeleri (kapak inince yalnızca kart bandı yenilenir)",
-  "90209b9 G7: inceleme düzeltmeleri (kapak önbelleği son kullanılan 20 kapakla sınırlı)"
+  "90209b9 G7: inceleme düzeltmeleri (kapak önbelleği son kullanılan 20 kapakla sınırlı)",
+  "50c9463 G7: inceleme düzeltmeleri (eski profil kaydı resimleri ezmez, Hesabım odağı korunur)",
+  "f5dc38c G7: inceleme düzeltmeleri (kapağın avatarın altında kalmamasının gerekçesi)"
  ],
- "testler": "Bütün G7 adımları önceki denemede commit'lenmişti. Bu turda yeni değişiklik yapılmadı, güncel HEAD (9faa8b1, istek/a dalı) üzerinde testler yeniden çalıştırıldı. npm run denetle: 254 dosya tarandı, ihlal yok. npm test: 929 testin 928'i geçti, 0 düştü. Atlanan 1 test G7'den önce de vardı (SEA derlemesi, TELSIZ_SEA_TEST=1 verilmeyince atlanıyor). Kendi e2e dosyası: node --test e2e/17-profil.test.js 7/7 geçti (kapak yükleme ve tembel indirme, diskte düz bayt yok, eski istemci kaydında kapağın kalkması, İngilizce arayüzde Remove Cover). Dokunulan alanın var olan e2e dosyaları: 03-sosyal 9/9, 04-ayarlar 5/5, 01-kurulum 5/5, 02-frekans 17/17, 15-ozel-arama 8/8. Hepsi ilk denemede geçti. Kapakla ilgili birim testleri test/server-profile.test.js, test/social.test.js ve test/settings.test.js içinde: bağlama ve ret, boyut sınırı, indirme yetkisi, eskisinin silinmesi, kotaya sayılması, alan gönderilmezse kapağın kalkması, 3:1 kırpma, kalite sırası 0.85, 0.7 ve 0.55, tembel indirme ve yeniden deneme, 20 kapaklık önbellek sınırı.",
+ "testler": "G7'nin bütün adımları önceki denemede commit'lenmişti, bu turda yeni commit gerekmedi. /home/user/wt/a üzerindeki HEAD'de (4c3e879) yeniden doğrulandı. npm run denetle: 266 dosya tarandı, ihlal yok. npm test: 978 test, 977 geçti, 0 düştü. Atlanan 1 test önceden var olan ve TELSIZ_SEA_TEST=1 ister (ikili derleme duman testi). e2e: node --test e2e/17-profil.test.js 8/8 geçti, aralarında kapak yükleme, kart açılınca tembel indirme, diskte düz bayt olmaması, eski istemcinin kaydının kapağı kaldırması ve İngilizce arayüzde Remove Cover var. Dokunulan alanın öteki e2e dosyaları: 04-ayarlar 9/9, 03-sosyal 9/9, 02-frekans 17/17 geçti. Hiçbir test yeniden çalıştırılmadı ya da atlanmadı.",
  "sapmalar": [
-  "Adım 6: .profile-card-band öğesine position: relative verilmedi, yalnızca overflow: hidden eklendi. Bant konumlandırılsaydı banda binen avatar kapağın altında kalırdı. Kapak resmi (.profile-card-cover) object-fit: cover ile bandı dolduruyor. Turkuaz'ın kemer biçimi overflow: hidden sayesinde kapakta da korunuyor. Bu durum TASARIM/DESIGN belgelerinde yazılı.",
-  "i18n: settings.profile.coverTooBig metni planda sabit \"1 MB\" yazıyordu. Sınır avatarMaxBytes ayarına bağlı olduğu için metne {size} yer tutucusu kondu ve var olan avatarTooBig ile aynı biçime getirildi: \"Kapak {size} sınırına sığdırılamadı. Başka bir resim seçin.\"",
-  "i18n: settings.profile.coverTitle planda \"Kapak Fotoğrafı\" idi. Düğme olmayan başlıklarda var olan avatarTitle'ın (\"Profil resmi\") yazımına uyuldu: \"Kapak fotoğrafı\" / \"Cover photo\". Düğme etiketleri (Kapak Seç, Kapağı Kaldır, Choose Cover, Remove Cover) her kelimesi büyük harfle yazıldı.",
-  "i18n: settings.profile.coverHint metni genişletildi. Üst verilerin silindiği ve kapak yalnızca kart açılınca indirildiği için sunucunun kartı kimin açtığını görebileceği de eklendi (MIMARI'deki üst veri notuyla aynı).",
-  "Plana ek olarak inceleme sırasında iki şey eklendi. Kapak önbelleği son kullanılan 20 kapakla sınırlandı (açık kartın ve kendi profilinin kapağı önbellekten atılmaz). Kapak indiğinde açık profil kartında yalnızca bant yenilenir, böylece kartta sürüklenen ses düzeyi kaydırıcısı DOM'dan çıkmaz.",
-  "Adım 1 (issue) uygulanmadı. Kurallara göre G7 issue'sunu orkestratör açar."
+  "CSS: Plan .profile-card-band için position: relative istiyordu, bu eklenmedi. Bantta yalnızca overflow: hidden var. position: relative eklenseydi bant, banda binen avatarın (.avatar-wrap, position: relative) üstünde çizilirdi. Ağaçta banttan sonra gelen avatar kapağın üstünde kalsın diye bu özellik eklenmedi. Gerekçe f5dc38c ile components.css yorumuna ve TASARIM/DESIGN'a yazıldı.",
+  "i18n: settings.profile.coverTitle 'Kapak fotoğrafı' / 'Cover photo' olarak yazıldı, planda 'Kapak Fotoğrafı' vardı. Bu bir düğme değil, alt başlık. Aynı sayfadaki öteki alt başlıklar da bu biçimde ('Profil resmi', 'Profil rengi').",
+  "i18n: settings.profile.coverTooBig sabit '1 MB' yerine {size} yer tutucusunu kullanıyor. Sınır avatarMaxBytes ayarına bağlı ve değiştirilebiliyor. coverHint metnine, kart açılınca kapağın indirildiğini ve bu yüzden sunucunun kartı kimin açtığını görebildiğini söyleyen not eklendi.",
+  "İnceleme düzeltmeleri plan dışında şunları ekledi: kapak önbelleği son kullanılan 20 kapakla sınırlı, kapak inince yalnızca kart bandı yenilenir, kayıt sürerken Kaldır düğmeleri kapalı kalır, eski profil kaydı resimleri ezmez."
  ],
  "kullaniciya": [
-  "G7 bitti. Commit'ler yalnızca yerel istek/a dalında (/home/user/wt/a), push edilmedi.",
-  "Proje kuralının istediği G7 issue'su (profil zarfına cover alanı, coverUploadId) henüz açılmadı. Bunu orkestratör açmalı.",
-  "Gizlilik notu: kapak önceden indirilmiyor, yalnızca kart açılınca indiriliyor. Bu yüzden sunucu kimin hangi kişinin kartını ne zaman açtığını görebilir. Bu not README, MIMARI/ARCHITECTURE, CHANGELOG ve Ayarlar'daki ipucu metninde yazılı.",
-  "Kapağı bilmeyen eski bir istemci profili kaydederse kapak kalkar (plandaki tutarlılık kuralı). Bu davranış CHANGELOG'da duyuruldu."
+  "G7 (kapak fotoğrafı, istek 8) istek/a dalında tamam. Bu turda yeni bir değişiklik ya da commit yapılmadı, yalnızca doğrulama yapıldı.",
+  "/home/user/wt/a içinde commit'lenmemiş değişiklikler var: CHANGELOG×2, CONTRIBUTING×2, README×2, SECURITY.md, docs/ARCHITECTURE.md, docs/MIMARI.md, docs/DEPLOYMENT.md, docs/KURULUM.md. Bunlar G7'ye değil G14'ün (kurtarma kodu) belge adımına ait. Dosyalar saat 07:11 ile 07:13 arasında yazılmış, kullanım sınırına takılan G14 denemesinden kalmış görünüyor. Bu dosyalara dokunmadım ve onları commit'lemedim. G14 sürdürülürken bu değişiklikler incelenip commit'lenmeli.",
+  "Proje kuralının istediği G7 issue'su (profil zarfına cover alanı) orkestratör tarafından açılmalı."
  ],
  "kalan": []
 }

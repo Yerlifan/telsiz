@@ -1,0 +1,4582 @@
+From 0ded0cf3e606c201992eb3ad9511a9331fffc81e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 12:27:44 +0000
+Subject: [PATCH 9/9] =?UTF-8?q?Hexball:=20aray=C3=BCz,=20saha=20tuvali,=20?=
+ =?UTF-8?q?denetimler=20ve=20kay=C4=B1t?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+46-hexball.js gameUiRegister('hexball') ile kaydolur: Takımlar ve sonuç ekranı (takım seçimi, ev sahibinin takım
+ataması, Maçı Başlat, Tekrar Oyna, Lobiye Dön), maç ekranı (skor tablosu, saat, saha tuvali, oyuncular, Maçı Durdur
+onay satırıyla), klavye (oklar veya WASD, X veya Boşluk), oyun kolu (sol çubuk ve yön tuşları, alt yüz düğmesi, bas
+konuş o düğmedeyse sol yüz düğmesi), telefonda dokunmatik çubuk ve Vur düğmesi. Basılı işaretçi pencere düzeyinde
+izlenir, ekran yeniden çizilince çubuk bırakılmaz. Ev sahibinde ağ oturumu kurulur, fiziğin gol ve süre olayları kural
+motoruna hamle olarak gider. Bağ kurulamayan ya da el sıkışmayı yanıtlamayan kişi ev sahibinde 'Bağlantı Yok' görünür,
+Maçı Başlat takımdakilerin bağı hazır olana kadar pasiftir. Oyuncu el sıkışmayı 15 sn içinde alamazsa ya da ses motoru
+oyun bağını bilmiyorsa aynı durumu görür. Güven notuna ev sahibinin hile yapabileceği eklenir. Maç sürerken oyun kolu
+oyundadır (ownsPad), L1 ve R1 frekans değiştirmez.
+
+hexball.css ve tokens.css --hex-* belirteçleri (bütün temalarda aynı, koyu ve açık mod ayrı). index.html ve sw.js 43,
+44, 45, 46 ve hexball.css kayıtları numara sırasıyla. i18n.js game.hexball.* anahtarları TR ve EN. İki oyun kayıtlı
+olduğu için Oyun düğmesi önce Oyun Seç ekranını açar, e2e/16-oyun.test.js Renk'i bu ekrandan seçer.
+
+test/hexball-arayuz.test.js: iki ve üç cihaz gerçek masa, fizik ve ağla (sahte ses motoru, ortak sahte saat), her
+tema ve modda belirteç ve kontrast denetimi, i18n kapsamı ve marka denetimi. Oyun arayüzü testlerinin ortak ortamı
+test/oyun-ortam.js dosyasına taşındı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CONTRIBUTING.en.md          |    1 +
+ CONTRIBUTING.md             |    1 +
+ e2e/16-oyun.test.js         |    9 +
+ public/css/hexball.css      |  547 +++++++++++++
+ public/css/tokens.css       |   39 +
+ public/i18n.js              |  188 +++++
+ public/index.html           |    5 +
+ public/js/46-hexball.js     | 1499 +++++++++++++++++++++++++++++++++++
+ public/sw.js                |    5 +
+ test/hexball-arayuz.test.js | 1184 +++++++++++++++++++++++++++
+ test/oyun-arayuz.test.js    |  454 +----------
+ test/oyun-ortam.js          |  462 +++++++++++
+ 12 files changed, 3942 insertions(+), 452 deletions(-)
+ create mode 100644 public/css/hexball.css
+ create mode 100644 public/js/46-hexball.js
+ create mode 100644 test/hexball-arayuz.test.js
+ create mode 100644 test/oyun-ortam.js
+
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 3fc391c..6490da6 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -138,6 +138,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
+ | `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
+ | `45-hexball-ag.js` | Hexball networking (`window.TelsizHexballNet`): the binary messages on the game data channel (HELLO, HELLO_ACK, INPUT, SNAP) and their strict decoders, the handshake, the host's authoritative physics loop, pausing when two loop runs are more than 250 ms apart, holding back the host's own input, input limits, and the snapshot buffer and interpolation on players. Clock, timers and sending are passed in |
++| `46-hexball.js` | The Hexball interface: the Teams and result screen, the match screen's scoreboard and field canvas (colors from the `--hex-*` tokens in `tokens.css`), keyboard (arrows or WASD, X or Space), gamepad, the touch stick and Kick button on phones, the 'No Connection' state, and the trust note saying that the host could cheat. On the host it sets up the network session and sends the goal and time up events of the physics to the rule engine as moves. During a match L1 and R1 do not change the frequency (`ownsPad`). Its styles are in `hexball.css` |
+ 
+ If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
+ 
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index add590d..d21928a 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -138,6 +138,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
+ | `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
+ | `45-hexball-ag.js` | Hexball ağı (`window.TelsizHexballNet`): oyun veri kanalındaki ikili iletiler (HELLO, HELLO_ACK, INPUT, SNAP) ve katı çözücüleri, el sıkışma, ev sahibinin otoriter fizik döngüsü, iki döngü arası 250 ms'yi aşınca duraklama, ev sahibinin kendi girdisinin bekletilmesi, girdi kısıtları, oyuncuda anlık görüntü tamponu ve ara değerleme. Saat, zamanlayıcı ve gönderim dışarıdan verilir |
++| `46-hexball.js` | Hexball arayüzü: Takımlar ve sonuç ekranı, maç ekranının skor tablosu ve saha tuvali (renkler `tokens.css` `--hex-*` belirteçlerinden), klavye (oklar veya WASD, X veya Boşluk), oyun kolu, telefonda dokunmatik çubuk ve Vur düğmesi, 'Bağlantı Yok' durumu, ev sahibinin hile yapabileceğini yazan güven notu. Ev sahibinde ağ oturumunu kurar, fiziğin gol ve süre olaylarını kural motoruna hamle olarak gönderir. Maç sürerken L1 ve R1 frekans değiştirmez (`ownsPad`). Stilleri `hexball.css` |
+ 
+ Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
+ 
+diff --git a/e2e/16-oyun.test.js b/e2e/16-oyun.test.js
+index de91863..8e3317f 100644
+--- a/e2e/16-oyun.test.js
++++ b/e2e/16-oyun.test.js
+@@ -3,6 +3,7 @@
+ // Renk kart oyunu (public/js/33-oyun-protokol.js ile 37-renk.js) gerçek tarayıcıda, dört kişi aynı ses odasında.
+ // Deniz kurpiyerdir ve Aylin'i engellemiştir. Ece ve Deniz geniş ekranda, Mert telefonda (360 x 740).
+ // - Oyun düğmesi telsiz kartının araç satırında Telsiz DJ'den hemen önce durur
++// - Oyun Seç: iki oyun kayıtlı olduğu için Oyun düğmesi önce oyun seçimini açar, Renk seçilir
+ // - Masa Kur: Resmî kural seçili, engellenen Aylin "Engellediniz" çipiyle görünür, Masa Aç lobiyi açar
+ // - Davet: Ece ve Mert'te Oyun düğmesi "Davet" olur, Ece'nin Bildirimler listesine kayıt düşer, Aylin davet görmez
+ // - Ece Masaya Bak ile güven notunu görüp katılır. Mert reddeder, kurpiyerde "Reddetti" görünür, düğmeden
+@@ -208,6 +209,14 @@ test('dört kişi ses odasında, Oyun düğmesi araç satırında Telsiz DJ\'den
+ test('kurpiyer Masa Kur ekranında Resmî kuralı ve engellediği kişiyi görür, masayı açar', async () => {
+   const { deniz } = W
+   await deniz.click('#radio-game')
++  // İki oyun kayıtlı (Renk ve Hexball): önce Oyun Seç ekranı açılır
++  await deniz.waitForSelector(onStage('game-pick-renk'), { timeout: h.LONG })
++  const picks = await deniz.evaluate(() => ({
++    title: document.querySelector('#cast .cast-title').textContent,
++    apps: Array.from(document.querySelectorAll('#cast .game-pick')).map((b) => b.getAttribute('data-app'))
++  }))
++  assert.deepEqual(picks, { title: 'Oyun Seç', apps: ['renk', 'hexball'] })
++  await deniz.click(key('game-pick-renk'))
+   await deniz.waitForSelector(onStage('game-open'), { timeout: h.LONG })
+   const r = await deniz.evaluate(() => ({
+     title: document.querySelector('#cast .cast-title').textContent,
+diff --git a/public/css/hexball.css b/public/css/hexball.css
+new file mode 100644
+index 0000000..cf38e8e
+--- /dev/null
++++ b/public/css/hexball.css
+@@ -0,0 +1,547 @@
++/*
++  Hexball masası (46-hexball.js): Takımlar ve sonuç ekranı, maç ekranının skor tablosu, saha tuvali, bindirme yazısı,
++  dokunmatik çubuk ve Vur düğmesi, oyuncu açıklaması. Masa yayın sahnesinin game kipinde oyun.css'in .game-app
++  kutusunun içindedir. Saha ve takım renkleri tokens.css --hex-* belirteçlerindendir, tuval de onları okur.
++  Takımlar yalnızca renkle ayrılmaz: rozette ve diskte takım harfi ile numara, sütun başlığında takımın adı yazar.
++  Kurallar oyun.css ile aynıdır: renkler yalnızca var(--...) ile, ölçüler rem, grid, flex gap, clamp, :is, :where,
++  aspect-ratio ve inset kullanılmaz, z-index en çok 3. Tuval, çubuk ve Vur düğmesi sayfayı kaydırmaz
++  (touch-action: none). Geçiş ve canlandırma yoktur, sarsıntı efekti de yoktur (hareketi azalt seçeneğinde de aynı).
++*/
++
++/* =========================================================
++   1. Ortak parçalar: rozet ve bağ çipi
++   ========================================================= */
++
++.hex-table {
++  position: relative;
++}
++
++/* Takım rozeti: takım rengi zemin, üstünde harf ve numara (ör. K1) */
++.hex-badge {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  flex: none;
++  min-width: 1.75rem;
++  height: 1.75rem;
++  padding: 0 0.375rem;
++  border-radius: var(--radius-pill);
++  background-color: var(--hex-red);
++  color: var(--hex-ink);
++  font-size: var(--text-xs);
++  font-weight: var(--weight-strong);
++  line-height: 1;
++}
++
++.hex-badge[data-side="blue"] {
++  background-color: var(--hex-blue);
++}
++
++/* Bağ durumu: bekleniyor kesik çerçeveyle, Bağlantı Yok tehlike rengiyle, her ikisinde yazı vardır */
++.hex-chip {
++  display: inline-flex;
++  align-items: center;
++  flex: none;
++  min-height: 1.75rem;
++  margin-left: 0.5rem;
++  padding: 0 0.625rem;
++  border: var(--border-width) dashed var(--warn-line);
++  border-radius: var(--radius-pill);
++  background-color: var(--warn-bg);
++  color: var(--warn);
++  font-size: var(--text-xs);
++  font-weight: var(--weight-strong);
++  white-space: nowrap;
++}
++
++.hex-chip.is-failed {
++  border-style: solid;
++  border-color: var(--danger);
++  background-color: var(--danger-bg);
++  color: var(--danger);
++}
++
++.hex-mine,
++.hex-help {
++  margin: 0 0 0.75rem;
++  color: var(--text-2);
++  font-size: var(--text-sm);
++}
++
++.hex-mine {
++  color: var(--text);
++  font-weight: var(--weight-strong);
++}
++
++.hex-help {
++  margin: 0.75rem 0 0;
++}
++
++.hex-help-role {
++  color: var(--text);
++  font-weight: var(--weight-strong);
++}
++
++/* =========================================================
++   2. Takımlar ekranı: üç sütun (Kırmızı, Mavi, İzleyici)
++   ========================================================= */
++
++.hex-teams {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: flex-start;
++  margin: 0 -0.375rem 0.5rem;
++}
++
++.hex-team {
++  display: flex;
++  flex-direction: column;
++  flex: 1 1 13rem;
++  min-width: 0;
++  margin: 0 0.375rem 0.75rem;
++  padding: 0.625rem 0.75rem 0.75rem;
++  border: var(--border-width) solid var(--line);
++  border-top: 0.25rem solid var(--hex-red);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-1);
++}
++
++.hex-team[data-side="blue"] {
++  border-top-color: var(--hex-blue);
++}
++
++.hex-team[data-side="spec"] {
++  border-top-color: var(--line-strong);
++}
++
++.hex-team-title {
++  display: flex;
++  align-items: center;
++  margin: 0 0 0.5rem;
++  color: var(--text-strong);
++  font-size: var(--text-md);
++  font-weight: var(--weight-strong);
++}
++
++.hex-team-title .hex-badge {
++  margin-right: 0.5rem;
++}
++
++.hex-team-name {
++  flex: 1 1 auto;
++  min-width: 0;
++}
++
++.hex-team-count {
++  flex: none;
++  margin-left: 0.5rem;
++  color: var(--text-2);
++  font-size: var(--text-sm);
++  font-weight: normal;
++}
++
++.hex-roster {
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++
++.hex-person {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  min-height: var(--target);
++  padding: 0.375rem 0;
++}
++
++.hex-person + .hex-person {
++  border-top: var(--border-width) solid var(--line);
++}
++
++.hex-person.is-me .hex-person-name {
++  color: var(--accent-text);
++}
++
++.hex-person > .hex-badge {
++  margin-right: 0.5rem;
++}
++
++.hex-person-avatar {
++  flex: none;
++  margin-right: 0.5rem;
++}
++
++.hex-person-text {
++  flex: 1 1 6rem;
++  min-width: 0;
++}
++
++.hex-person-name {
++  display: flex;
++  align-items: center;
++  min-width: 0;
++  overflow: hidden;
++  color: var(--text-strong);
++  font-weight: var(--weight-strong);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.hex-crown {
++  flex: none;
++  width: 1rem;
++  height: 1rem;
++  margin-left: 0.375rem;
++  color: var(--warn);
++}
++
++/* Ev sahibinin takım atama düğmeleri kişinin altında, dar sütunda da sığar */
++.hex-set-row {
++  display: flex;
++  flex-wrap: wrap;
++  flex: 1 1 100%;
++  margin: 0.25rem -0.125rem 0;
++}
++
++.hex-set-row > .button {
++  margin: 0.125rem;
++}
++
++.hex-set[aria-disabled="true"] {
++  cursor: default;
++  opacity: 0.55;
++}
++
++.hex-empty {
++  margin: 0.25rem 0 0.5rem;
++  color: var(--text-3);
++  font-size: var(--text-sm);
++}
++
++.hex-join {
++  align-self: stretch;
++  margin-top: 0.5rem;
++}
++
++.hex-join[aria-disabled="true"] {
++  cursor: default;
++  opacity: 0.55;
++}
++
++/* =========================================================
++   3. Sonuç
++   ========================================================= */
++
++.hex-result {
++  margin: 0 0 1rem;
++}
++
++.hex-result-win {
++  display: flex;
++  align-items: center;
++  margin: 0 0 0.25rem;
++  color: var(--text-strong);
++  font-size: var(--text-lg);
++  font-weight: var(--weight-strong);
++}
++
++.hex-result-win .hex-badge {
++  margin-right: 0.5rem;
++}
++
++.hex-result-why,
++.hex-result-score {
++  margin: 0 0 0.25rem;
++  color: var(--text-2);
++  font-size: var(--text-sm);
++}
++
++.hex-result-score {
++  color: var(--text);
++  font-weight: var(--weight-strong);
++}
++
++.hex-goals-title {
++  margin: 0.75rem 0 0.375rem;
++  color: var(--text-strong);
++  font-size: var(--text-sm);
++  font-weight: var(--weight-strong);
++}
++
++.hex-goals {
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++
++.hex-goal {
++  display: flex;
++  align-items: baseline;
++  padding: 0.25rem 0 0.25rem 0.625rem;
++  border-left: 0.25rem solid var(--hex-red);
++  font-size: var(--text-sm);
++}
++
++.hex-goal[data-side="blue"] {
++  border-left-color: var(--hex-blue);
++}
++
++.hex-goal + .hex-goal {
++  margin-top: 0.25rem;
++}
++
++.hex-goal-time {
++  flex: none;
++  margin-right: 0.625rem;
++  color: var(--text-2);
++  font-family: var(--font-mono);
++}
++
++.hex-goal-who {
++  min-width: 0;
++  color: var(--text);
++}
++
++/* =========================================================
++   4. Maç ekranı: skor tablosu, saha, bindirme yazısı
++   ========================================================= */
++
++.hex-board {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  margin: 0 0 0.5rem;
++  padding: 0.375rem 0.5rem;
++  border: var(--border-width) solid var(--line);
++  border-radius: var(--radius-control);
++  background-color: var(--surface-1);
++}
++
++.hex-board-team {
++  display: flex;
++  align-items: center;
++  flex: 1 1 0;
++  min-width: 0;
++}
++
++.hex-board-team[data-side="blue"] {
++  flex-direction: row-reverse;
++}
++
++.hex-board-name {
++  min-width: 0;
++  margin: 0 0.5rem;
++  overflow: hidden;
++  color: var(--text);
++  font-size: var(--text-sm);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.hex-board-score {
++  flex: none;
++  color: var(--text-strong);
++  font-size: var(--text-xl);
++  font-weight: var(--weight-display);
++  font-variant-numeric: tabular-nums;
++}
++
++.hex-board-mid {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  flex: none;
++  margin: 0 0.5rem;
++}
++
++.hex-clock {
++  color: var(--text-strong);
++  font-family: var(--font-mono);
++  font-size: var(--text-md);
++  font-variant-numeric: tabular-nums;
++}
++
++.hex-clock.is-golden {
++  color: var(--warn);
++  font-family: inherit;
++  font-weight: var(--weight-strong);
++}
++
++.hex-lag {
++  margin: 0.25rem 0 0;
++}
++
++.hex-field {
++  position: relative;
++  margin: 0 0 0.5rem;
++  text-align: center;
++}
++
++.hex-canvas {
++  display: block;
++  max-width: 100%;
++  margin: 0 auto;
++  border-radius: var(--radius-small);
++  background-color: var(--hex-out);
++  touch-action: none;
++}
++
++/* Gol, başlama vuruşu, duraklama ve bağlantı yazısı sahanın üst kenarında ortalanır: küçük sahada da diskleri ve
++   topu örtmez, dokunmayı engellemez */
++.hex-overlay {
++  position: absolute;
++  top: 0.5rem;
++  left: 50%;
++  z-index: 2;
++  max-width: 90%;
++  margin: 0;
++  padding: 0.25rem 0.75rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-control);
++  background-color: var(--surface-float);
++  box-shadow: var(--shadow-card);
++  color: var(--text-strong);
++  font-size: var(--text-md);
++  font-weight: var(--weight-strong);
++  pointer-events: none;
++  -webkit-transform: translateX(-50%);
++  transform: translateX(-50%);
++}
++
++.hex-overlay[data-kind="goal"] {
++  font-size: var(--text-lg);
++}
++
++.hex-overlay[data-kind="paused"],
++.hex-overlay[data-kind="link"] {
++  border-style: dashed;
++  border-color: var(--warn-line);
++}
++
++/* Maçtaki oyuncular: rozet ve ad */
++.hex-legend {
++  display: flex;
++  flex-wrap: wrap;
++  margin: 0 -0.25rem;
++  padding: 0;
++  list-style: none;
++}
++
++.hex-legend-item {
++  display: flex;
++  align-items: center;
++  max-width: 100%;
++  margin: 0.25rem;
++  padding: 0.125rem 0.5rem 0.125rem 0.125rem;
++  border: var(--border-width) solid var(--line);
++  border-radius: var(--radius-pill);
++  background-color: var(--surface-1);
++  font-size: var(--text-sm);
++}
++
++.hex-legend-item.is-me {
++  border-color: var(--accent-text);
++}
++
++.hex-legend-name {
++  min-width: 0;
++  margin-left: 0.375rem;
++  overflow: hidden;
++  color: var(--text);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++/* =========================================================
++   5. Dokunmatik denetimler: solda çubuk, sağda Vur
++   ========================================================= */
++
++.hex-touch {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  margin: 0 0 0.5rem;
++  -webkit-user-select: none;
++  user-select: none;
++}
++
++.hex-touch[hidden] {
++  display: none;
++}
++
++.hex-stick {
++  position: relative;
++  flex: none;
++  width: 8rem;
++  height: 8rem;
++  border: 0.125rem solid var(--line-strong);
++  border-radius: 50%;
++  background-color: var(--surface-2);
++  touch-action: none;
++}
++
++.hex-knob {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  width: 3.5rem;
++  height: 3.5rem;
++  margin: -1.75rem 0 0 -1.75rem;
++  border-radius: 50%;
++  background-color: var(--accent);
++  box-shadow: var(--shadow-card);
++  pointer-events: none;
++}
++
++.hex-kick {
++  flex: none;
++  width: 6rem;
++  height: 6rem;
++  margin-left: 1rem;
++  border: 0.125rem solid transparent;
++  border-radius: 50%;
++  background-color: var(--accent);
++  box-shadow: var(--shadow-card);
++  color: var(--on-accent);
++  font: inherit;
++  font-size: var(--text-lg);
++  font-weight: var(--weight-display);
++  touch-action: none;
++  -webkit-user-select: none;
++  user-select: none;
++  -webkit-tap-highlight-color: transparent;
++}
++
++.hex-kick:active {
++  background-color: var(--accent-hover);
++}
++
++@media (max-width: 759px) {
++  .hex-team {
++    flex-basis: 100%;
++  }
++
++  .hex-board-name {
++    display: none;
++  }
++
++  .hex-overlay {
++    top: 0.25rem;
++    padding: 0.125rem 0.5rem;
++    font-size: var(--text-sm);
++  }
++
++  .hex-overlay[data-kind="goal"] {
++    font-size: var(--text-md);
++  }
++
++  .hex-stick {
++    width: 7rem;
++    height: 7rem;
++  }
++
++  .hex-kick {
++    width: 5.5rem;
++    height: 5.5rem;
++  }
++}
+diff --git a/public/css/tokens.css b/public/css/tokens.css
+index f652d9c..0e74054 100644
+--- a/public/css/tokens.css
++++ b/public/css/tokens.css
+@@ -740,6 +740,45 @@ html[data-font-size="custom"] {
+   --role-pink: #ad236d;
+ }
+ 
++/*
++  Hexball sahası ve takımları (46-hexball.js tuvali ve hexball.css): bütün temalarda aynı, koyu ve açık mod için
++  ayrı tonlar. Tuval renkleri kök öğede çözülüp okunur. Saha düz renktir, üstünde ince altıgen deseni vardır.
++  Takımlar yalnızca renkle ayrılmaz: diskte ve rozette takım harfi ile numara yazar.
++  Kontrastlar (test/hexball-arayuz.test.js her tema ve modda yeniden hesaplar):
++  - yazı ve takım rengi en az 4.5:1: beyaz ve kırmızı 5.28, beyaz ve mavi 5.69
++  - sahada görünen her çizim (çizgi, direk, disk kenarı, top, kendi diskinizin halkası, vuruş halkası) sahayla en az
++    3:1. Koyu modda disk kenarı ve top açık, açık modda disk kenarı ve topun kenarı koyudur.
++*/
++:root {
++  --hex-field: #1d5446;
++  --hex-pattern: rgba(255, 255, 255, 0.06);
++  --hex-out: #123a30;
++  --hex-line: #e6f2ec;
++  --hex-net: #2a6656;
++  --hex-post: #f4f6f5;
++  --hex-red: #c9303f;
++  --hex-blue: #2d5fd3;
++  --hex-ink: #ffffff;
++  --hex-disc-edge: #f4f6f5;
++  --hex-ball: #ffffff;
++  --hex-ball-edge: #0f1a16;
++  --hex-me: #ffd447;
++  --hex-kick: #7fe6ff;
++}
++
++:root[data-scheme="light"] {
++  --hex-field: #d6efe2;
++  --hex-pattern: rgba(28, 74, 59, 0.09);
++  --hex-out: #bfe0cf;
++  --hex-line: #1c4a3b;
++  --hex-net: #c3e2d2;
++  --hex-post: #1c4a3b;
++  --hex-disc-edge: #10241d;
++  --hex-ball-edge: #10241d;
++  --hex-me: #6a2fd0;
++  --hex-kick: #a1440a;
++}
++
+ /*
+   Kart oyunları (Renk, ileride Pişti): yüzler iki modda aynı, kenar, gölge ve kart arkası moda göre.
+   Joker yüzü koyu temalarda, sarı yüz açık temalarda zeminden ayrışmadığı için kenar zorunludur.
+diff --git a/public/i18n.js b/public/i18n.js
+index e0cc5c1..0d68c5d 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -938,6 +938,100 @@ window.I18N = (function () {
+     'game.renk.err.no_last': 'Şu anda Tek! diyemezsiniz.',
+     'game.renk.err.self_catch': 'Kendinizi yakalayamazsınız.',
+     'game.renk.err.not_catchable': 'Geç kaldınız, yakalanamadı.',
++    'game.hexball.name': 'Hexball',
++    'game.hexball.desc': 'Ses odasındakilerle üstten görünümlü gerçek zamanlı futbol.',
++    'game.hexball.rules.quick': 'Hızlı',
++    'game.hexball.rules.classic': 'Klasik',
++    'game.hexball.rules.long': 'Uzun',
++    'game.hexball.rulesHint.quick': 'Küçük saha, 3 dakika. 3 gol atan takım kazanır.',
++    'game.hexball.rulesHint.classic': 'Orta saha, 5 dakika. 5 gol atan takım kazanır.',
++    'game.hexball.rulesHint.long': 'Büyük saha, 10 dakika. Gol sınırı yoktur.',
++    'game.hexball.rulesLine.quick': 'Hızlı Maç',
++    'game.hexball.rulesLine.classic': 'Klasik Maç',
++    'game.hexball.rulesLine.long': 'Uzun Maç',
++    'game.hexball.team.red': 'Kırmızı',
++    'game.hexball.team.blue': 'Mavi',
++    'game.hexball.team.spec': 'İzleyici',
++    'game.hexball.letter.red': 'K',
++    'game.hexball.letter.blue': 'M',
++    'game.hexball.to.red': 'Kırmızıya Geç',
++    'game.hexball.to.blue': 'Maviye Geç',
++    'game.hexball.to.spec': 'İzleyici Ol',
++    'game.hexball.set.red': 'Kırmızıya Al',
++    'game.hexball.set.blue': 'Maviye Al',
++    'game.hexball.set.spec': 'İzleyicilere Al',
++    'game.hexball.setLabel': '{label}: {name}',
++    'game.hexball.empty': 'Henüz kimse yok.',
++    'game.hexball.yourTeam': 'Takımınız: {team}',
++    'game.hexball.youSpec': 'Maçı izliyorsunuz.',
++    'game.hexball.youPlay': '{team} takımında oynuyorsunuz.',
++    'game.hexball.kickoff': 'Maçı Başlat',
++    'game.hexball.again': 'Tekrar Oyna',
++    'game.hexball.toLobby': 'Lobiye Dön',
++    'game.hexball.stop': 'Maçı Durdur',
++    'game.hexball.stopAsk': 'Maç kazanansız bitsin mi?',
++    'game.hexball.confirmStop': 'Durdur',
++    'game.hexball.waitKickoff': 'Ev sahibinin maçı başlatması bekleniyor.',
++    'game.hexball.waitAgain': 'Ev sahibinin yeni maçı başlatması bekleniyor.',
++    'game.hexball.golden': 'Altın gol',
++    'game.hexball.goldenRule': 'Süre bittiğinde skor eşitse altın gol oynanır, ilk golü atan takım kazanır.',
++    'game.hexball.paused': 'Ev sahibinin sekmesi arka planda, maç duraklatıldı.',
++    'game.hexball.goal': 'Gol! {name}',
++    'game.hexball.ownGoal': 'Kendi kalesine: {name}',
++    'game.hexball.goalShort': 'Gol!',
++    'game.hexball.goalTeam': 'Gol! {team}',
++    'game.hexball.win': '{team} kazandı',
++    'game.hexball.kickoffBy': 'Başlama vuruşu: {team}',
++    'game.hexball.link.waiting': 'Bağlantı bekleniyor',
++    'game.hexball.link.failed': 'Bağlantı Yok',
++    'game.hexball.link.waitingPlayer': 'Ev sahibiyle oyun bağlantısı kuruluyor.',
++    'game.hexball.link.failedPlayer': 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.',
++    'game.hexball.link.notReady': 'Oyun bağlantısı bekleniyor: {names}',
++    'game.hexball.link.failedHost': 'Oyun bağlantısı kurulamadı: {names}. Eski bir sürüm kullanıyor ya da bağlantısı engelleniyor olabilir. İzleyicilere alabilir ya da koltuktan çıkarabilirsiniz.',
++    'game.hexball.lag': 'Bağlantı Yavaş',
++    'game.hexball.kick': 'Vur',
++    'game.hexball.controls.keys': 'Oklar veya WASD ile hareket, X veya Boşluk ile vuruş.',
++    'game.hexball.controls.pad': 'Oyun kolunda sol çubuk veya yön tuşlarıyla hareket, Çarpı veya A düğmesiyle vuruş. Bas konuş bu düğmeye atanmışsa Kare veya X düğmesi vurur.',
++    'game.hexball.controls.touch': 'Soldaki çubukla hareket edin, Vur düğmesiyle vurun.',
++    'game.hexball.a11y': 'Gerçek zamanlı maç ekran okuyucuyla oynanamaz. Goller, skor ve sonuç duyurulur.',
++    'game.hexball.trustHost': 'Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.',
++    'game.hexball.ph.teams': 'Takımlar',
++    'game.hexball.ph.match': '{mt}. Maç',
++    'game.hexball.ph.result': 'Maç Bitti',
++    'game.hexball.why.time': 'Süre doldu.',
++    'game.hexball.why.score': 'Gol sınırına ulaşıldı.',
++    'game.hexball.why.golden': 'Altın golle bitti.',
++    'game.hexball.why.host': 'Ev sahibi maçı durdurdu.',
++    'game.hexball.why.too_few': 'Bir takımda oyuncu kalmadığı için maç bitti.',
++    'game.hexball.scoreLine': 'Kırmızı {red}, Mavi {blue}',
++    'game.hexball.goalsTitle': 'Goller',
++    'game.hexball.goalBy': '{name} ({team})',
++    'game.hexball.ownGoalBy': '{name}, kendi kalesine ({team} lehine)',
++    'game.hexball.fieldLabel': 'Saha. Kırmızı {red}, Mavi {blue}.',
++    'game.hexball.ev.goal': 'Gol: {name} ({team}).',
++    'game.hexball.ev.own_goal': 'Kendi kalesine gol: {name}, {team} lehine.',
++    'game.hexball.ev.goalNobody': 'Gol: {team}.',
++    'game.hexball.ev.score': 'Skor: Kırmızı {red}, Mavi {blue}.',
++    'game.hexball.ev.kickoff': 'Maç başladı, başlama vuruşu {team} takımında.',
++    'game.hexball.ev.time_up': 'Süre doldu.',
++    'game.hexball.ev.golden': 'Skor eşit, altın gol oynanıyor.',
++    'game.hexball.ev.win': '{team} kazandı.',
++    'game.hexball.ev.stop.host': 'Ev sahibi maçı durdurdu.',
++    'game.hexball.ev.stop.too_few': 'Bir takımda oyuncu kalmadı, maç bitti.',
++    'game.hexball.ev.team.red': '{name} Kırmızı takımda.',
++    'game.hexball.ev.team.blue': '{name} Mavi takımda.',
++    'game.hexball.ev.team.spec': '{name} izleyicilerde.',
++    'game.hexball.err.bad_options': 'Oyun bu ayarlarla başlatılamadı.',
++    'game.hexball.err.bad_random': 'Güvenli rastgele sayı üretilemedi.',
++    'game.hexball.err.no_random': 'Bu cihazda güvenli rastgele sayı üretilemiyor.',
++    'game.hexball.err.bad_move': 'Bu işlem geçersiz.',
++    'game.hexball.err.bad_player': 'Bu kişi masada değil.',
++    'game.hexball.err.game_over': 'Masa bitti.',
++    'game.hexball.err.stale': 'Maç değişti, işleminiz uygulanmadı.',
++    'game.hexball.err.not_host': 'Bunu yalnızca ev sahibi yapabilir.',
++    'game.hexball.err.bad_phase': 'Şu anda bu yapılamaz.',
++    'game.hexball.err.team_full': 'Bu takım dolu. Bir takımda en çok 4 kişi olabilir.',
++    'game.hexball.err.teams_empty': 'Maçı başlatmak için her takımda en az bir kişi olmalı.',
+     'band.e2e': 'Uçtan Uca Şifreli',
+     'band.e2eTitle': 'Mesajlar bu cihazda şifrelenir, sunucu içeriği göremez',
+     'band.keys': 'Şifreleme Ayrıntıları',
+@@ -3132,6 +3226,100 @@ window.I18N = (function () {
+     'game.renk.err.no_last': 'You cannot call Last Card right now.',
+     'game.renk.err.self_catch': 'You cannot catch yourself.',
+     'game.renk.err.not_catchable': 'Too late, nobody was caught.',
++    'game.hexball.name': 'Hexball',
++    'game.hexball.desc': 'Real-time top-down football with your voice room.',
++    'game.hexball.rules.quick': 'Quick',
++    'game.hexball.rules.classic': 'Classic',
++    'game.hexball.rules.long': 'Long',
++    'game.hexball.rulesHint.quick': 'Small field, 3 minutes. The first team to score 3 goals wins.',
++    'game.hexball.rulesHint.classic': 'Medium field, 5 minutes. The first team to score 5 goals wins.',
++    'game.hexball.rulesHint.long': 'Large field, 10 minutes. There is no goal limit.',
++    'game.hexball.rulesLine.quick': 'Quick Match',
++    'game.hexball.rulesLine.classic': 'Classic Match',
++    'game.hexball.rulesLine.long': 'Long Match',
++    'game.hexball.team.red': 'Red',
++    'game.hexball.team.blue': 'Blue',
++    'game.hexball.team.spec': 'Spectator',
++    'game.hexball.letter.red': 'R',
++    'game.hexball.letter.blue': 'B',
++    'game.hexball.to.red': 'Join Red',
++    'game.hexball.to.blue': 'Join Blue',
++    'game.hexball.to.spec': 'Spectate',
++    'game.hexball.set.red': 'Move to Red',
++    'game.hexball.set.blue': 'Move to Blue',
++    'game.hexball.set.spec': 'Move to Spectators',
++    'game.hexball.setLabel': '{label}: {name}',
++    'game.hexball.empty': 'Nobody here yet.',
++    'game.hexball.yourTeam': 'Your team: {team}',
++    'game.hexball.youSpec': 'You are watching the match.',
++    'game.hexball.youPlay': 'You play for {team}.',
++    'game.hexball.kickoff': 'Start Match',
++    'game.hexball.again': 'Play Again',
++    'game.hexball.toLobby': 'Back to Lobby',
++    'game.hexball.stop': 'Stop Match',
++    'game.hexball.stopAsk': 'End the match without a winner?',
++    'game.hexball.confirmStop': 'Stop',
++    'game.hexball.waitKickoff': 'Waiting for the host to start the match.',
++    'game.hexball.waitAgain': 'Waiting for the host to start a new match.',
++    'game.hexball.golden': 'Golden goal',
++    'game.hexball.goldenRule': 'If the score is level when time runs out, a golden goal is played and the next goal wins.',
++    'game.hexball.paused': 'The host\'s tab is in the background, the match is paused.',
++    'game.hexball.goal': 'Goal! {name}',
++    'game.hexball.ownGoal': 'Own goal: {name}',
++    'game.hexball.goalShort': 'Goal!',
++    'game.hexball.goalTeam': 'Goal! {team}',
++    'game.hexball.win': '{team} wins',
++    'game.hexball.kickoffBy': 'Kickoff: {team}',
++    'game.hexball.link.waiting': 'Waiting for connection',
++    'game.hexball.link.failed': 'No Connection',
++    'game.hexball.link.waitingPlayer': 'Connecting to the host for the game.',
++    'game.hexball.link.failedPlayer': 'Could not connect to the host for the game. If your app is out of date, reload the page.',
++    'game.hexball.link.notReady': 'Waiting for the game connection: {names}',
++    'game.hexball.link.failedHost': 'No game connection: {names}. They may be using an older version or their connection may be blocked. You can move them to spectators or remove them from the table.',
++    'game.hexball.lag': 'Slow Connection',
++    'game.hexball.kick': 'Kick',
++    'game.hexball.controls.keys': 'Arrows or WASD to move, X or Space to kick.',
++    'game.hexball.controls.pad': 'On a gamepad, move with the left stick or the D-pad and kick with Cross or A. If push to talk uses that button, Square or X kicks.',
++    'game.hexball.controls.touch': 'Move with the stick on the left, kick with the Kick button.',
++    'game.hexball.a11y': 'The real-time match cannot be played with a screen reader. Goals, the score and the result are announced.',
++    'game.hexball.trustHost': 'The host runs the physics and could cheat.',
++    'game.hexball.ph.teams': 'Teams',
++    'game.hexball.ph.match': 'Match {mt}',
++    'game.hexball.ph.result': 'Full Time',
++    'game.hexball.why.time': 'Time ran out.',
++    'game.hexball.why.score': 'The goal limit was reached.',
++    'game.hexball.why.golden': 'Decided by a golden goal.',
++    'game.hexball.why.host': 'The host stopped the match.',
++    'game.hexball.why.too_few': 'The match ended because a team ran out of players.',
++    'game.hexball.scoreLine': 'Red {red}, Blue {blue}',
++    'game.hexball.goalsTitle': 'Goals',
++    'game.hexball.goalBy': '{name} ({team})',
++    'game.hexball.ownGoalBy': '{name}, own goal (for {team})',
++    'game.hexball.fieldLabel': 'Field. Red {red}, Blue {blue}.',
++    'game.hexball.ev.goal': 'Goal: {name} ({team}).',
++    'game.hexball.ev.own_goal': 'Own goal by {name}, for {team}.',
++    'game.hexball.ev.goalNobody': 'Goal for {team}.',
++    'game.hexball.ev.score': 'Score: Red {red}, Blue {blue}.',
++    'game.hexball.ev.kickoff': 'The match started, {team} kicks off.',
++    'game.hexball.ev.time_up': 'Time is up.',
++    'game.hexball.ev.golden': 'The score is level, a golden goal decides.',
++    'game.hexball.ev.win': '{team} wins.',
++    'game.hexball.ev.stop.host': 'The host stopped the match.',
++    'game.hexball.ev.stop.too_few': 'A team ran out of players, the match ended.',
++    'game.hexball.ev.team.red': '{name} is on Red.',
++    'game.hexball.ev.team.blue': '{name} is on Blue.',
++    'game.hexball.ev.team.spec': '{name} is spectating.',
++    'game.hexball.err.bad_options': 'The game could not be started with these settings.',
++    'game.hexball.err.bad_random': 'Secure random numbers could not be generated.',
++    'game.hexball.err.no_random': 'This device cannot generate secure random numbers.',
++    'game.hexball.err.bad_move': 'This action is not valid.',
++    'game.hexball.err.bad_player': 'This person is not at the table.',
++    'game.hexball.err.game_over': 'The table has ended.',
++    'game.hexball.err.stale': 'The match changed, your action was not applied.',
++    'game.hexball.err.not_host': 'Only the host can do this.',
++    'game.hexball.err.bad_phase': 'This cannot be done right now.',
++    'game.hexball.err.team_full': 'This team is full. A team can have at most 4 players.',
++    'game.hexball.err.teams_empty': 'Each team needs at least one player to start the match.',
+     'band.e2e': 'End-to-End Encrypted',
+     'band.e2eTitle': 'Messages are encrypted on this device, the server cannot read them',
+     'band.keys': 'Encryption Details',
+diff --git a/public/index.html b/public/index.html
+index 78ff83d..e23b77a 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -30,6 +30,7 @@
+   <link rel="stylesheet" href="/css/tanitim.css">
+   <link rel="stylesheet" href="/css/oyun.css">
+   <link rel="stylesheet" href="/css/renk.css">
++  <link rel="stylesheet" href="/css/hexball.css">
+   <link rel="stylesheet" href="/css/skins/arcade.css">
+   <link rel="stylesheet" href="/css/skins/gece.css">
+   <link rel="stylesheet" href="/css/skins/turkuaz.css">
+@@ -78,6 +79,10 @@
+   <script src="/js/35-renk-kural.js" defer></script>
+   <script src="/js/36-oyun.js" defer></script>
+   <script src="/js/37-renk.js" defer></script>
++  <script src="/js/43-hexball-kural.js" defer></script>
++  <script src="/js/44-hexball-fizik.js" defer></script>
++  <script src="/js/45-hexball-ag.js" defer></script>
++  <script src="/js/46-hexball.js" defer></script>
+ </head>
+ <body>
+   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
+diff --git a/public/js/46-hexball.js b/public/js/46-hexball.js
+new file mode 100644
+index 0000000..45c3f4b
+--- /dev/null
++++ b/public/js/46-hexball.js
+@@ -0,0 +1,1499 @@
++'use strict'
++
++// Hexball arayüzü: yayın sahnesinin game kipinde 36-oyun.js'in açtığı .game-app kutusunun içi. Takımlar ve sonuç
++// ekranı, maç ekranı (skor tablosu, saha tuvali, dokunmatik çubuk ve Vur düğmesi), klavye, oyun kolu ve oyun veri
++// kanalındaki oturumlar. Yüklenirken gameUiRegister('hexball', ...) ile kaydolur. Kural motoru (43-hexball-kural.js,
++// window.TelsizHexball), fizik (44-hexball-fizik.js) ve ağ (45-hexball-ag.js) çalışma anında okunur.
++//
++// Kurallar:
++// - Takım seçimi, takım atama, maçı başlatma, gol, süre bitti ve durdurma gameCall('act', hamle) ile masa yöneticisine
++//   gider. Seçenekler yalnızca modelin legal alanından (motorun legalMoves sonucu) okunur, bu dosya kural yazmaz.
++// - Gerçek zamanlı veri masa yöneticisinden geçmez. Masa oyun aşamasındayken (stage play) ev sahibinde
++//   TelsizHexballNet.createHost, oyuncuda createPlayer oturumu vardır. Oturumlar sahne küçültülünce de sürer, model
++//   250 ms'de bir okunur (hexballTick). Ev sahibi koltuklara oyun bağı açar (voice.js openGameLink), maç başlayınca
++//   fiziği yürütür ve fizik olaylarından gol ve süre bittiyi kural motoruna hamle olarak gönderir.
++// - 'Bağlantı Yok': ev sahibi oyun bağı kurulamayan ya da el sıkışmayı yanıtlamayan kişiyi (eski istemci, engellenmiş
++//   bağ) böyle görür. Maçı Başlat takımdaki herkesin bağı hazır olana kadar pasiftir, ev sahibi kişiyi izleyicilere
++//   alabilir ya da koltuktan çıkarabilir. Oyuncu ev sahibinden 15 sn içinde el sıkışma alamazsa, bağ kurulamazsa ya da
++//   ses motoru oyun bağını bilmiyorsa aynı durumu görür.
++// - Fiziği ev sahibi hesapladığı için ev sahibi hile yapabilir: bu not güven notunun sonuna eklenir (trustNote), Masa
++//   Kur, lobi ve davet ekranında katılmadan önce okunur.
++// - Tuşlar (oklar veya WASD ile hareket, X veya Boşluk ile vuruş) yalnızca maçta yuvası olan kişide, sahne oyun
++//   kipinde görünürken, odak yazı alanında değilken ve tam ekran dışında açık katman yokken dinlenir. Ses
++//   atamalarının tuşları (bas konuş, varsayılan V) kullanılmaz ve engellenmez. Oyun kolunda sol çubuk veya yön tuşları
++//   hareket, alt yüz düğmesi (Çarpı veya A, bu düğme bas konuşa atanmışsa sol yüz düğmesi) vuruştur. Maç sürerken
++//   L1 ve R1 frekans değiştirmez (ownsPad, 21-band.js padPoll).
++// - Dokunmatikte solda Pointer Events ve işaretçi yakalamayla sanal çubuk, sağda Vur düğmesi bulunur (kaba işaretçili
++//   cihazda ya da sahaya ilk dokunuşta görünür). Basılan işaretçinin hareketi ve bırakılması pencere düzeyinde izlenir.
++//   Tuvalde, çubukta ve Vur düğmesinde touch-action: none.
++// - Tuval: renkler tokens.css belirteçlerinden (--hex-*) okunur, devicePixelRatio en çok 2. Saha, çizgiler ve fileler
++//   ayrı bir tuvalde bir kez çizilir. Diskte takım harfi ve numara (ör. K1, M2) bulunur, takımlar yalnızca renkle
++//   ayrılmaz. Kendi diskinizde halka, vuruş tutulurken dış halka vardır. Sarsıntı efekti yoktur.
++// - Maç ekranının skor tablosu, tuvali ve dokunmatik denetimleri maç boyunca aynı öğelerdir (hexballKit): gol ya da
++//   bağ değişince yeniden çizilen ekran onları yeniden yerleştirir, tuval boşalmaz, basılı çubuk bırakılmaz.
++// - Erişilebilirlik: goller, skor ve sonuç canlı bölgeden duyurulur (eventText). Gerçek zamanlı maç ekran
++//   okuyucuyla oynanamaz, bu not Ayrıntı bölümündedir.
++
++const HEXBALL_ID = 'hexball'
++const HEXBALL_SIDES = ['red', 'blue', 'spec']
++const HEXBALL_TEAMS = ['red', 'blue']
++const HEXBALL_SYNC_MS = 250
++const HEXBALL_UPLINK_MS = 5000
++// Alıcı başına gereken gönderim hızı tahmini (kbps): 30 Hz x (en çok 102 bayt + yaklaşık 60 bayt ek yük) x 8 bit
++const HEXBALL_KBPS_PER_PEER = 40
++// Oyuncuda en yeni anlık görüntü bu kadar eskiyse "Bağlantı Yavaş"
++const HEXBALL_LAG_MS = 400
++// Oyuncu ev sahibinden bu süre içinde el sıkışma almazsa "Bağlantı Yok" (45-hexball-ag.js OPEN_TIMEOUT_MS)
++const HEXBALL_WAIT_FAIL_MS = 15000
++const HEXBALL_DEADZONE = 0.2
++// Standart oyun kolu düzeni: 0 alt yüz düğmesi, 2 sol yüz düğmesi, 12-15 yön tuşları
++const HEXBALL_PAD_KICK = 0
++const HEXBALL_PAD_KICK_ALT = 2
++const HEXBALL_PAD_UP = 12
++const HEXBALL_PAD_DOWN = 13
++const HEXBALL_PAD_LEFT = 14
++const HEXBALL_PAD_RIGHT = 15
++const HEXBALL_PAD_CHECK_FRAMES = 60
++const HEXBALL_MAX_DPR = 2
++const HEXBALL_SIZE_FRAMES = 30
++// Tuvalde sahanın çevresinde gösterilen pay (birim): oyuncuların çıkabildiği dış kutuyla aynı (fizikte MARGIN)
++const HEXBALL_PAD = 50
++// Saha desenindeki altıgenin yarıçapı (birim)
++const HEXBALL_HEX_R = 36
++const HEXBALL_KICK_PULSE_MS = 120
++// Fiziksel tuş konumları (KeyboardEvent.code), code vermeyen eski tarayıcıda key değerleri
++const HEXBALL_KEY_CODES = {
++  ArrowUp: 'up',
++  KeyW: 'up',
++  ArrowDown: 'down',
++  KeyS: 'down',
++  ArrowLeft: 'left',
++  KeyA: 'left',
++  ArrowRight: 'right',
++  KeyD: 'right',
++  KeyX: 'kick',
++  Space: 'kick'
++}
++const HEXBALL_KEY_NAMES = {
++  ArrowUp: 'up',
++  Up: 'up',
++  w: 'up',
++  W: 'up',
++  ArrowDown: 'down',
++  Down: 'down',
++  s: 'down',
++  S: 'down',
++  ArrowLeft: 'left',
++  Left: 'left',
++  a: 'left',
++  A: 'left',
++  ArrowRight: 'right',
++  Right: 'right',
++  d: 'right',
++  D: 'right',
++  x: 'kick',
++  X: 'kick',
++  ' ': 'kick',
++  Spacebar: 'kick'
++}
++// Panelde kısa metinle gösterilen hata kodları, diğerleri sessizdir (gelen yeni durum arayüzü düzeltir)
++const HEXBALL_SHOWN_ERRORS = ['team_full', 'teams_empty', 'not_host', 'bad_random', 'no_random']
++// Tuval renkleri: özellik adı -> tokens.css belirteci
++const HEXBALL_COLOR_TOKENS = {
++  field: '--hex-field',
++  pattern: '--hex-pattern',
++  out: '--hex-out',
++  line: '--hex-line',
++  net: '--hex-net',
++  post: '--hex-post',
++  red: '--hex-red',
++  blue: '--hex-blue',
++  ink: '--hex-ink',
++  edge: '--hex-disc-edge',
++  ball: '--hex-ball',
++  ballEdge: '--hex-ball-edge',
++  me: '--hex-me',
++  kick: '--hex-kick'
++}
++
++const hexballState = {
++  host: null,
++  hostKey: '',
++  epoch: null,
++  links: '',
++  player: null,
++  playerKey: '',
++  playerPeer: null,
++  playerEpoch: null,
++  playerLink: 'waiting',
++  playerSince: 0,
++  playerShown: '',
++  timer: 0,
++  uplinkAt: 0,
++  uplinkBusy: false,
++  lowUplink: false,
++  refresh: 0,
++  kit: null,
++  raf: false,
++  listening: false,
++  keys: {},
++  touch: { x: 0, y: 0, kick: false, pointer: null, kickPointer: null },
++  pad: { x: 0, y: 0, kick: false },
++  padKick: HEXBALL_PAD_KICK,
++  padCheck: 0,
++  sent: null,
++  touchSeen: false,
++  colors: null,
++  colorsKey: '',
++  confirmStop: false,
++  paused: false
++}
++
++// ----- Küçük yardımcılar -----
++
++function hexballHas (obj, key) {
++  return Boolean(obj) && Object.prototype.hasOwnProperty.call(obj, key)
++}
++
++function hexballNow () {
++  const p = window.performance
++  return p && typeof p.now === 'function' ? p.now() : Date.now()
++}
++
++function hexballClamp (n) {
++  return n < -1 ? -1 : n > 1 ? 1 : n
++}
++
++function hexballTeamName (side) {
++  return HEXBALL_SIDES.indexOf(side) >= 0 ? t('game.hexball.team.' + side) : ''
++}
++
++function hexballLetter (side) {
++  return HEXBALL_TEAMS.indexOf(side) >= 0 ? t('game.hexball.letter.' + side) : ''
++}
++
++// Saniye -> dd:ss
++function hexballClock (secs) {
++  const n = Math.max(0, Math.floor(Number(secs) || 0))
++  const m = Math.floor(n / 60)
++  const s = n % 60
++  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s
++}
++
++function hexballSetText (node, text) {
++  if (node && node.textContent !== text) node.textContent = text
++}
++
++function hexballByKey (root, key) {
++  if (!root || !key) return null
++  return Array.from(root.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0] || null
++}
++
++function hexballEnabled (node) {
++  return Boolean(node) && node.getAttribute('aria-disabled') !== 'true'
++}
++
++// Takımdaki kişilerin numaraları: koltuk sırasıyla takım içinde 1'den başlar (maçtaki yuva sırasıyla aynıdır)
++function hexballNumbers (v) {
++  const out = {}
++  const n = { red: 0, blue: 0 }
++  v.seats.forEach((id) => {
++    const side = v.teams[id]
++    if (side !== 'red' && side !== 'blue') return
++    n[side]++
++    out[id] = n[side]
++  })
++  return out
++}
++
++function hexballTag (v, numbers, id) {
++  const side = v.teams[id]
++  return HEXBALL_TEAMS.indexOf(side) >= 0 && numbers[id] ? hexballLetter(side) + numbers[id] : ''
++}
++
++// Yuva -> kişi kimliği
++function hexballSlotIds (v) {
++  const out = {}
++  Object.keys(v.slots || {}).forEach((id) => {
++    out[v.slots[id]] = id
++  })
++  return out
++}
++
++function hexballHasSlot (m) {
++  return Boolean(m && m.view && m.me !== null && hexballHas(m.view.slots, m.me))
++}
++
++function hexballInMatch (m) {
++  return Boolean(m && m.app === HEXBALL_ID && m.stage === 'play' && m.view && m.view.ph === 'match')
++}
++
++// ----- Oyun veri kanalı oturumları -----
++
++function hexballLive (m) {
++  if (!m || m.app !== HEXBALL_ID || m.stage !== 'play' || !m.view || m.me === null) return false
++  if (m.role !== 'dealer' && m.role !== 'player') return false
++  const s = snap()
++  if (!s || s.private || s.channelId === null || s.channelId === undefined) return false
++  return Boolean(voice && typeof voice.sendGameData === 'function' && window.TelsizHexballNet && window.TelsizHexballPhysics)
++}
++
++function hexballPeerOf (s, id) {
++  const p = s && s.peers && hexballHas(s.peers, id) ? s.peers[id] : null
++  return p && typeof p.peerId === 'string' && p.peerId !== '' ? p.peerId : null
++}
++
++function hexballSend (peerId, buf) {
++  if (!voice || typeof voice.sendGameData !== 'function') return false
++  return voice.sendGameData(peerId, buf) === true
++}
++
++function hexballEnv (onEvent) {
++  return {
++    now: hexballNow,
++    setTimeout: (fn, ms) => setTimeout(fn, ms),
++    clearTimeout: (id) => clearTimeout(id),
++    send: hexballSend,
++    onEvent: onEvent,
++    onError: (err) => window.console.error(err)
++  }
++}
++
++// Modelin istediği oturumlar: ev sahibinde host, oyuncuda player, masa oyun aşamasında değilse hiçbiri
++function hexballSync (m) {
++  if (!hexballLive(m)) {
++    hexballDrop()
++    return
++  }
++  if (m.role === 'dealer') {
++    hexballDropPlayer()
++    hexballSyncHost(m)
++  } else {
++    hexballDropHost()
++    hexballSyncPlayer(m)
++  }
++  if (!hexballState.timer) hexballState.timer = setInterval(hexballTick, HEXBALL_SYNC_MS)
++}
++
++function hexballSyncHost (m) {
++  const s = snap()
++  const v = m.view
++  const key = m.g + ':' + m.me
++  if (hexballState.host && hexballState.hostKey !== key) hexballDropHost()
++  if (!hexballState.host) {
++    const env = hexballEnv(hexballOnHostEvent)
++    env.openLink = (peerId) => (typeof voice.openGameLink === 'function' ? voice.openGameLink(peerId) : 'unsupported')
++    env.closeLink = (peerId) => {
++      if (typeof voice.closeGameLink === 'function') voice.closeGameLink(peerId)
++    }
++    env.lowUplink = () => hexballState.lowUplink
++    try {
++      hexballState.host = window.TelsizHexballNet.createHost(env, { me: String(m.me) })
++    } catch (err) {
++      window.console.error(err)
++      return
++    }
++    hexballState.hostKey = key
++    hexballState.epoch = null
++    hexballState.links = ''
++  }
++  const host = hexballState.host
++  const list = []
++  m.seats.forEach((seat) => {
++    const peerId = seat.id === m.me ? null : hexballPeerOf(s, seat.id)
++    if (peerId) list.push({ id: seat.id, peerId: peerId })
++  })
++  host.setPeers(list)
++  if (v.ph === 'match' && v.epoch) {
++    if (hexballState.epoch !== v.epoch) {
++      const players = Object.keys(v.slots).map((id) => ({ id: id, slot: v.slots[id], side: v.teams[id] }))
++      if (host.startMatch({ epoch: v.epoch, rules: v.rules, kick: v.kick, players: players })) {
++        hexballState.epoch = v.epoch
++        // Yeni maçta ev sahibinin bekletilen girdisi sıfırlandı, basılı tuşlar yeniden bildirilir
++        hexballState.sent = null
++        hexballPushInput()
++      }
++    }
++  } else if (hexballState.epoch !== null) {
++    hexballState.epoch = null
++    host.endMatch()
++  }
++}
++
++function hexballSyncPlayer (m) {
++  const v = m.view
++  const dealer = String(m.dealer)
++  const peer = hexballPeerOf(snap(), dealer)
++  if (!peer) {
++    // Ev sahibiyle ses bağlantısı yok: oturum kurulmaz, bekleme süresi dolunca "Bağlantı Yok"
++    hexballDropPlayer()
++    if (!hexballState.playerSince) hexballState.playerSince = hexballNow()
++    return
++  }
++  const key = m.g + ':' + m.me
++  if (hexballState.player && hexballState.playerKey !== key) hexballDropPlayer()
++  if (!hexballState.player) {
++    try {
++      hexballState.player = window.TelsizHexballNet.createPlayer(hexballEnv(hexballOnPlayerEvent), { hostId: dealer, hostPeer: peer })
++    } catch (err) {
++      window.console.error(err)
++      return
++    }
++    hexballState.playerKey = key
++    hexballState.playerPeer = peer
++    hexballState.playerEpoch = v.epoch
++    hexballState.playerLink = 'waiting'
++    hexballState.playerSince = hexballNow()
++    return
++  }
++  if (hexballState.playerPeer !== peer) {
++    // Ev sahibinin bağlantısı yeniden kuruldu: yeni eşle el yeniden sıkışılır
++    hexballState.playerPeer = peer
++    hexballState.playerLink = 'waiting'
++    hexballState.playerSince = hexballNow()
++    hexballState.player.setHost(dealer, peer)
++  }
++  if (hexballState.playerEpoch !== v.epoch) {
++    hexballState.playerEpoch = v.epoch
++    if (hexballState.playerLink !== 'failed') hexballState.playerSince = hexballNow()
++  }
++}
++
++function hexballDropHost () {
++  const host = hexballState.host
++  if (!host) return
++  hexballState.host = null
++  hexballState.hostKey = ''
++  hexballState.epoch = null
++  hexballState.links = ''
++  hexballState.lowUplink = false
++  host.destroy()
++}
++
++function hexballDropPlayer () {
++  const player = hexballState.player
++  if (!player) return
++  hexballState.player = null
++  hexballState.playerKey = ''
++  hexballState.playerPeer = null
++  hexballState.playerEpoch = null
++  hexballState.playerLink = 'waiting'
++  hexballState.playerSince = 0
++  hexballState.playerShown = ''
++  player.destroy()
++}
++
++function hexballDrop () {
++  hexballDropHost()
++  hexballDropPlayer()
++  hexballState.playerSince = 0
++  if (hexballState.timer) {
++    clearInterval(hexballState.timer)
++    hexballState.timer = 0
++  }
++  hexballSyncListen(false)
++  hexballState.kit = null
++  hexballState.confirmStop = false
++  hexballState.paused = false
++}
++
++// Model 250 ms'de bir okunur: sahne küçültülmüşken de maç başlar ve biter, oyuncunun bağ durumu güncellenir
++function hexballTick () {
++  const m = gameModel()
++  hexballSync(m)
++  if (m.role === 'player' && hexballLive(m)) {
++    const shown = hexballPlayerLink(m)
++    if (shown !== hexballState.playerShown) {
++      hexballState.playerShown = shown
++      hexballSoon()
++    }
++  }
++  if (hexballState.host && hexballState.epoch) hexballWatchUplink()
++}
++
++// Ev sahibinin gönderim hızı tahmini (voice.js uplinkEstimate) düşükse anlık görüntüler 20 Hz'e iner
++function hexballWatchUplink () {
++  const now = hexballNow()
++  if (hexballState.uplinkBusy || now - hexballState.uplinkAt < HEXBALL_UPLINK_MS) return
++  if (!voice || typeof voice.uplinkEstimate !== 'function') return
++  hexballState.uplinkAt = now
++  hexballState.uplinkBusy = true
++  let job = null
++  try {
++    job = Promise.resolve(voice.uplinkEstimate())
++  } catch (err) {
++    job = Promise.resolve(null)
++  }
++  job.then((kbps) => {
++    hexballState.uplinkBusy = false
++    const links = hexballLinks()
++    const ready = Object.keys(links).filter((id) => links[id] === 'ready').length
++    hexballState.lowUplink = typeof kbps === 'number' && kbps < HEXBALL_KBPS_PER_PEER * Math.max(1, ready)
++  }, () => {
++    hexballState.uplinkBusy = false
++  })
++}
++
++// Ev sahibinin oturum olayları: bağ durumu değişince ekran yenilenir, gol ve süre bitti kural motoruna gider
++function hexballOnHostEvent (evt) {
++  if (!evt || typeof evt.e !== 'string') return
++  if (evt.e === 'link') {
++    const now = JSON.stringify(hexballLinks())
++    if (now !== hexballState.links) {
++      hexballState.links = now
++      hexballSoon()
++    }
++    return
++  }
++  if (evt.e === 'paused' || evt.e === 'resumed') return
++  const m = gameModel()
++  const v = m.view
++  if (m.role !== 'dealer' || !hexballInMatch(m) || evt.epoch !== v.epoch) return
++  if (evt.e === 'goal') {
++    // Topa son dokunan maçtan ayrıldıysa gol takıma yazılır
++    const by = evt.by !== null && hexballHas(v.teams, evt.by) && v.teams[evt.by] !== 'spec' ? evt.by : null
++    gameCall('act', { t: 'goal', mt: v.mt, side: evt.side, by: by, at: evt.at })
++  } else if (evt.e === 'time') {
++    gameCall('act', { t: 'time', mt: v.mt })
++  }
++}
++
++function hexballOnPlayerEvent (evt) {
++  if (!evt) return
++  if (evt.e === 'lost') hexballState.playerSince = hexballNow()
++  if (evt.e === 'hello' || evt.e === 'lost') hexballSoon()
++}
++
++// Ev sahibinde kişi kimliği -> none | waiting | ready | failed
++function hexballLinks () {
++  return hexballState.host ? hexballState.host.links() : {}
++}
++
++// Oyuncunun ev sahibiyle bağı: ready, waiting ya da failed. Ses motoru oyun bağını bilmiyorsa ya da bağ kurulamadıysa
++// (link-failed) hemen, el sıkışma ya da ses bağlantısı HEXBALL_WAIT_FAIL_MS içinde gelmezse "Bağlantı Yok" olur.
++function hexballPlayerLink (m) {
++  const p = hexballState.player
++  if (!voice || typeof voice.sendGameData !== 'function') return 'failed'
++  if (p) {
++    const s = p.state()
++    const v = m.view
++    if (s.ready && (!v || v.ph !== 'match' || s.epoch === v.epoch)) return 'ready'
++    if (hexballState.playerLink === 'failed') return 'failed'
++  }
++  const since = hexballState.playerSince
++  return since && hexballNow() - since > HEXBALL_WAIT_FAIL_MS ? 'failed' : 'waiting'
++}
++
++// Takımdaki (izleyici olmayan) diğer kişilerden bağı hazır olmayanlar (ev sahibinde)
++function hexballNotReady (m, v) {
++  const links = hexballLinks()
++  return v.seats.filter((id) => id !== m.me && v.teams[id] !== 'spec' && links[id] !== 'ready')
++}
++
++// Ekran bir sonraki adımda bir kez yenilenir (oturum olayları çizimin içinden de gelebilir)
++function hexballSoon () {
++  if (hexballState.refresh) return
++  hexballState.refresh = setTimeout(() => {
++    hexballState.refresh = 0
++    if (gameModel().app === HEXBALL_ID && gameStageVisible()) gameRefreshStage()
++  }, 0)
++}
++
++// ----- Girdi -----
++
++function hexballInput () {
++  const st = hexballState
++  let x = st.touch.x + st.pad.x
++  let y = st.touch.y + st.pad.y
++  let kick = st.touch.kick || st.pad.kick
++  Object.keys(st.keys).forEach((code) => {
++    const a = st.keys[code]
++    if (a === 'up') y -= 1
++    else if (a === 'down') y += 1
++    else if (a === 'left') x -= 1
++    else if (a === 'right') x += 1
++    else if (a === 'kick') kick = true
++  })
++  return { x: hexballClamp(x), y: hexballClamp(y), kick: kick }
++}
++
++// Girdi değişince oturuma bildirilir (ev sahibinde bekletilmek üzere sıraya, oyuncuda ağa)
++function hexballPushInput () {
++  const inp = hexballInput()
++  const last = hexballState.sent
++  if (last && last.x === inp.x && last.y === inp.y && last.kick === inp.kick) return
++  hexballState.sent = inp
++  if (hexballState.host) hexballState.host.setInput(inp)
++  else if (hexballState.player) hexballState.player.setInput(inp)
++}
++
++function hexballKeyAction (e) {
++  if (e.code && hexballHas(HEXBALL_KEY_CODES, e.code)) return HEXBALL_KEY_CODES[e.code]
++  if (!e.code && typeof e.key === 'string' && hexballHas(HEXBALL_KEY_NAMES, e.key)) return HEXBALL_KEY_NAMES[e.key]
++  return null
++}
++
++// Ses atamasının tuşu (bas konuş, sustur, sağırlaştır): oyunda kullanılmaz, olayı ses motoru alır
++function hexballVoiceKey (e) {
++  if (!voice || typeof voice.settings !== 'function' || !e.code) return false
++  try {
++    const b = voice.settings().bindings || {}
++    return Object.keys(b).some((name) => Boolean(b[name]) && b[name].type === 'key' && b[name].code === e.code)
++  } catch (err) {
++    return false
++  }
++}
++
++// Tam ekran dışında açık bir katman (pencere, seçici) varken tuşlar ona bırakılır
++function hexballLayerOpen () {
++  const top = typeof topLayer === 'function' ? topLayer() : null
++  return Boolean(top && top.name !== 'cast-full')
++}
++
++function hexballOnKey (e) {
++  const action = hexballKeyAction(e)
++  if (!action) return
++  const keys = hexballState.keys
++  const code = e.code || e.key
++  if (e.type === 'keyup') {
++    if (!hexballHas(keys, code)) return
++    delete keys[code]
++    e.preventDefault()
++    hexballPushInput()
++    return
++  }
++  if (e.ctrlKey || e.metaKey || e.altKey) return
++  if (typeof isTypingTarget === 'function' && isTypingTarget(e.target)) return
++  if (hexballLayerOpen() || hexballVoiceKey(e)) return
++  // Oklar ve Boşluk sayfayı kaydırmaz, odaktaki düğmeyi çalıştırmaz
++  e.preventDefault()
++  if (typeof e.stopPropagation === 'function') e.stopPropagation()
++  if (keys[code] === action) return
++  keys[code] = action
++  hexballPushInput()
++}
++
++// Bütün denetimler bırakılır (pencere odağı gitti, sekme gizlendi, maç ekranı kapandı)
++function hexballRelease () {
++  const tc = hexballState.touch
++  hexballState.keys = {}
++  hexballState.touch = { x: 0, y: 0, kick: false, pointer: null, kickPointer: null }
++  hexballState.pad = { x: 0, y: 0, kick: false }
++  const kit = hexballState.kit
++  if (kit && tc.pointer !== null) kit.knob.style.transform = ''
++  hexballPushInput()
++}
++
++function hexballSyncListen (on) {
++  const want = Boolean(on)
++  if (want === hexballState.listening) return
++  hexballState.listening = want
++  const fn = want ? 'addEventListener' : 'removeEventListener'
++  window[fn]('keydown', hexballOnKey, true)
++  window[fn]('keyup', hexballOnKey, true)
++  window[fn]('pointermove', hexballOnPointerMove)
++  window[fn]('pointerup', hexballOnPointerEnd)
++  window[fn]('pointercancel', hexballOnPointerEnd)
++  window[fn]('blur', hexballRelease)
++  document[fn]('visibilitychange', hexballRelease)
++  if (!want) hexballRelease()
++}
++
++function hexballPadOn (gp, index) {
++  const b = gp.buttons[index]
++  return Boolean(b && (b.pressed || b.value > 0.5))
++}
++
++// Vuruş düğmesi: alt yüz düğmesi, bas konuş ona atanmışsa sol yüz düğmesi
++function hexballPadKickButton () {
++  hexballState.padCheck--
++  if (hexballState.padCheck > 0) return hexballState.padKick
++  hexballState.padCheck = HEXBALL_PAD_CHECK_FRAMES
++  let kick = HEXBALL_PAD_KICK
++  if (voice && typeof voice.settings === 'function') {
++    try {
++      const b = voice.settings().bindings || {}
++      const used = Object.keys(b).some((name) => Boolean(b[name]) && b[name].type === 'gamepad' && b[name].button === HEXBALL_PAD_KICK)
++      if (used) kick = HEXBALL_PAD_KICK_ALT
++    } catch (err) {
++      kick = HEXBALL_PAD_KICK
++    }
++  }
++  hexballState.padKick = kick
++  return kick
++}
++
++function hexballPollPad () {
++  let pads = []
++  try {
++    pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((gp) => gp && gp.connected !== false && gp.buttons) : []
++  } catch (err) {
++    pads = []
++  }
++  const kickButton = pads.length ? hexballPadKickButton() : HEXBALL_PAD_KICK
++  let x = 0
++  let y = 0
++  let kick = false
++  pads.forEach((gp) => {
++    const axes = gp.axes && gp.axes.length > 1 ? gp.axes : [0, 0]
++    const ax = Number(axes[0]) || 0
++    const ay = Number(axes[1]) || 0
++    if (Math.sqrt(ax * ax + ay * ay) >= HEXBALL_DEADZONE) {
++      x += ax
++      y += ay
++    }
++    if (hexballPadOn(gp, HEXBALL_PAD_UP)) y -= 1
++    if (hexballPadOn(gp, HEXBALL_PAD_DOWN)) y += 1
++    if (hexballPadOn(gp, HEXBALL_PAD_LEFT)) x -= 1
++    if (hexballPadOn(gp, HEXBALL_PAD_RIGHT)) x += 1
++    if (hexballPadOn(gp, kickButton)) kick = true
++  })
++  x = hexballClamp(x)
++  y = hexballClamp(y)
++  const p = hexballState.pad
++  if (p.x === x && p.y === y && p.kick === kick) return
++  hexballState.pad = { x: x, y: y, kick: kick }
++  hexballPushInput()
++}
++
++function hexballCoarse () {
++  try {
++    return Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
++  } catch (err) {
++    return false
++  }
++}
++
++function hexballTouchMode () {
++  return hexballState.touchSeen || hexballCoarse()
++}
++
++// Sanal çubuk: işaretçi çubuğun merkezine göre birim çembere çekilir, ölü bölgede hareket yok
++function hexballStickMove (e) {
++  const kit = hexballState.kit
++  if (!kit) return
++  const r = kit.stick.getBoundingClientRect()
++  const radius = r.width / 2
++  if (!(radius > 0)) return
++  let x = (e.clientX - (r.left + radius)) / radius
++  let y = (e.clientY - (r.top + r.height / 2)) / radius
++  const len = Math.sqrt(x * x + y * y)
++  if (len > 1) {
++    x /= len
++    y /= len
++  }
++  const dead = len < HEXBALL_DEADZONE
++  hexballState.touch.x = dead ? 0 : x
++  hexballState.touch.y = dead ? 0 : y
++  kit.knob.style.transform = 'translate(' + Math.round(x * 64) + '%, ' + Math.round(y * 64) + '%)'
++  hexballPushInput()
++}
++
++// Çubuk ve Vur düğmesi işaretçiyi basınca alır. Hareket ve bırakma pencere düzeyinde izlenir (hexballSyncListen):
++// gol ya da bağ değişince yeniden çizilen ekran öğeleri yeniden yerleştirir, bu sırada işaretçi yakalaması düşse de
++// basılı çubuk ve düğme bırakılmaz.
++function hexballBindStick (stick) {
++  stick.addEventListener('pointerdown', (e) => {
++    const tc = hexballState.touch
++    if (tc.pointer !== null) return
++    tc.pointer = e.pointerId
++    try {
++      stick.setPointerCapture(e.pointerId)
++    } catch (err) {
++      // İşaretçi yakalanamadı, çubuk pencere düzeyindeki olaylarla yine de hareket eder
++    }
++    e.preventDefault()
++    hexballStickMove(e)
++  })
++}
++
++function hexballBindKick (b) {
++  b.addEventListener('pointerdown', (e) => {
++    const tc = hexballState.touch
++    if (tc.kickPointer !== null) return
++    tc.kick = true
++    tc.kickPointer = e.pointerId
++    try {
++      b.setPointerCapture(e.pointerId)
++    } catch (err) {
++      // İşaretçi yakalanamadı
++    }
++    if (e.pointerType !== 'mouse') e.preventDefault()
++    hexballPushInput()
++  })
++  // Klavyeyle (Enter) etkinleştirilen düğme kısa bir vuruş yapar. Boşluk zaten vuruş tuşudur.
++  b.addEventListener('click', (e) => {
++    if (e.detail !== 0 || hexballState.touch.kick) return
++    hexballState.touch.kick = true
++    hexballPushInput()
++    setTimeout(() => {
++      if (hexballState.touch.kickPointer !== null) return
++      hexballState.touch.kick = false
++      hexballPushInput()
++    }, HEXBALL_KICK_PULSE_MS)
++  })
++}
++
++function hexballOnPointerMove (e) {
++  if (e.pointerId === hexballState.touch.pointer) hexballStickMove(e)
++}
++
++function hexballOnPointerEnd (e) {
++  const tc = hexballState.touch
++  let changed = false
++  if (e.pointerId === tc.pointer) {
++    tc.pointer = null
++    tc.x = 0
++    tc.y = 0
++    if (hexballState.kit) hexballState.kit.knob.style.transform = ''
++    changed = true
++  }
++  if (e.pointerId === tc.kickPointer) {
++    tc.kick = false
++    tc.kickPointer = null
++    changed = true
++  }
++  if (changed) hexballPushInput()
++}
++
++// ----- Metinler -----
++
++function hexballEventText (ev, m) {
++  if (!ev || typeof ev.e !== 'string') return ''
++  const v = m && m.view ? m.view : null
++  const team = (side) => hexballTeamName(side)
++  if (ev.e === 'goal' || ev.e === 'own_goal') {
++    let text = ''
++    if (ev.e === 'own_goal') text = t('game.hexball.ev.own_goal', { name: shownName(ev.p), team: team(ev.side) })
++    else if (ev.p) text = t('game.hexball.ev.goal', { name: shownName(ev.p), team: team(ev.side) })
++    else text = t('game.hexball.ev.goalNobody', { team: team(ev.side) })
++    if (v && v.score) text += ' ' + t('game.hexball.ev.score', { red: v.score.red, blue: v.score.blue })
++    return text
++  }
++  if (ev.e === 'kickoff') return t('game.hexball.ev.kickoff', { team: team(ev.kick) })
++  if (ev.e === 'time_up' || ev.e === 'golden') return t('game.hexball.ev.' + ev.e)
++  if (ev.e === 'win') return t('game.hexball.ev.win', { team: team(ev.side) })
++  if (ev.e === 'stop' && (ev.why === 'host' || ev.why === 'too_few')) return t('game.hexball.ev.stop.' + ev.why)
++  if (ev.e === 'team' && HEXBALL_SIDES.indexOf(ev.side) >= 0) return t('game.hexball.ev.team.' + ev.side, { name: shownName(ev.p) })
++  // Ayrılan kişiyi masa yöneticisi duyurur
++  return ''
++}
++
++function hexballErrorText (code) {
++  return HEXBALL_SHOWN_ERRORS.indexOf(code) >= 0 ? t('game.hexball.err.' + code) : false
++}
++
++function hexballRules (rules) {
++  return window.TelsizHexball && window.TelsizHexball.RULES.indexOf(rules) >= 0
++}
++
++function hexballStatusParts (m) {
++  const v = m.view
++  if (!v || m.stage !== 'play') return []
++  if (v.ph === 'match') return [t('game.hexball.ph.match', { mt: v.mt })]
++  if (v.ph === 'result') return [t('game.hexball.ph.result')]
++  return [t('game.hexball.ph.teams')]
++}
++
++function hexballNotes () {
++  return [t('game.hexball.goldenRule'), t('game.hexball.controls.keys'), t('game.hexball.controls.pad'),
++    t('game.hexball.controls.touch'), t('game.hexball.a11y')]
++}
++
++// ----- Takımlar ve sonuç ekranı -----
++
++function hexballAct (move) {
++  return gameCall('act', move)
++}
++
++function hexballKickoff () {
++  const m = gameModel()
++  const v = m.view
++  if (m.role !== 'dealer' || !v || !m.legal || !m.legal.kickoff || hexballNotReady(m, v).length) return
++  hexballAct({ t: 'kickoff' })
++}
++
++// Lobiye Dön: maç sonucu korunarak masa biter ve hemen lobiye döner, yeni kişiler katılabilir
++function hexballToLobby () {
++  const m = gameModel()
++  if (m.role !== 'dealer' || !m.view || m.view.ph !== 'result') return
++  if (gameCall('endGame')) gameCall('newRound')
++}
++
++function hexballChip (kind) {
++  return h('span', 'hex-chip is-' + kind, t(kind === 'failed' ? 'game.hexball.link.failed' : 'game.hexball.link.waiting'))
++}
++
++function hexballBadge (side, text) {
++  const b = h('span', 'hex-badge', text)
++  b.setAttribute('data-side', side)
++  b.setAttribute('aria-hidden', 'true')
++  return b
++}
++
++function hexballPerson (m, v, ctx, id, side) {
++  const li = h('li', 'hex-person')
++  li.setAttribute('data-user-id', id)
++  li.classList.toggle('is-me', id === m.me)
++  const tag = hexballTag(v, ctx.numbers, id)
++  if (tag) li.appendChild(hexballBadge(side, tag))
++  li.appendChild(avatar(id, 'sm', 'hex-person-avatar'))
++  const text = h('span', 'hex-person-text')
++  const name = h('span', 'hex-person-name', shownName(id))
++  if (id === v.seats[0]) name.appendChild(icon('i-crown', 'hex-crown'))
++  text.appendChild(name)
++  li.appendChild(text)
++  if (ctx.host && id !== m.me) {
++    const st = hexballHas(ctx.links, id) ? ctx.links[id] : 'none'
++    if (st === 'failed') li.appendChild(hexballChip('failed'))
++    else if (st !== 'ready' && side !== 'spec') li.appendChild(hexballChip('waiting'))
++  }
++  if (ctx.host && id !== m.me && ctx.legal.set) {
++    const row = h('span', 'hex-set-row')
++    HEXBALL_SIDES.filter((x) => x !== side).forEach((x) => {
++      const label = t('game.hexball.set.' + x)
++      const b = gameButton('button button-small button-ghost hex-set', label, null, 'hex-set-' + id + '-' + x, () => {
++        hexballAct({ t: 'set', id: id, side: x })
++      })
++      b.setAttribute('aria-label', t('game.hexball.setLabel', { label: label, name: shownName(id) }))
++      if (x !== 'spec' && ctx.legal.counts && ctx.legal.counts[x] >= window.TelsizHexball.TEAM_MAX) b.setAttribute('aria-disabled', 'true')
++      row.appendChild(b)
++    })
++    li.appendChild(row)
++  }
++  return li
++}
++
++function hexballTeamColumn (m, v, ctx, side) {
++  const ids = v.seats.filter((id) => v.teams[id] === side)
++  const sec = h('section', 'hex-team')
++  sec.setAttribute('data-side', side)
++  const head = h('h3', 'hex-team-title')
++  head.id = 'hex-team-' + side
++  sec.setAttribute('aria-labelledby', head.id)
++  if (side !== 'spec') head.appendChild(hexballBadge(side, hexballLetter(side)))
++  head.appendChild(h('span', 'hex-team-name', hexballTeamName(side)))
++  const count = h('span', 'hex-team-count', side === 'spec' ? String(ids.length) : ids.length + '/' + window.TelsizHexball.TEAM_MAX)
++  count.setAttribute('aria-hidden', 'true')
++  head.appendChild(count)
++  head.appendChild(h('span', 'sr-only', t('game.players', { count: ids.length })))
++  sec.appendChild(head)
++  if (ids.length) {
++    const list = h('ul', 'hex-roster')
++    ids.forEach((id) => list.appendChild(hexballPerson(m, v, ctx, id, side)))
++    sec.appendChild(list)
++  } else {
++    sec.appendChild(h('p', 'hex-empty', t('game.hexball.empty')))
++  }
++  // Kişinin kendi takım değişikliği bu sütunun altında
++  if (ctx.legal.team && ctx.legal.team.indexOf(side) >= 0) {
++    const join = gameButton('button button-secondary hex-join', t('game.hexball.to.' + side), null, 'hex-join-' + side, () => {
++      hexballAct({ t: 'team', side: side })
++    })
++    if (m.pending) join.setAttribute('aria-disabled', 'true')
++    sec.appendChild(join)
++  }
++  return sec
++}
++
++function hexballResultBlock (v) {
++  const r = v.result
++  const sec = h('div', 'hex-result')
++  if (!r) return sec
++  const win = h('p', 'hex-result-win', r.winner ? t('game.hexball.win', { team: hexballTeamName(r.winner) }) : t('game.resultNone'))
++  if (r.winner) win.insertBefore(hexballBadge(r.winner, hexballLetter(r.winner)), win.firstChild)
++  sec.appendChild(win)
++  sec.appendChild(h('p', 'hex-result-why', t('game.hexball.why.' + r.why)))
++  if (v.mt < 1) return sec
++  sec.appendChild(h('p', 'hex-result-score', t('game.hexball.scoreLine', { red: v.score.red, blue: v.score.blue })))
++  if (!v.goals.length) return sec
++  const title = h('h4', 'hex-goals-title', t('game.hexball.goalsTitle'))
++  sec.appendChild(title)
++  const list = h('ol', 'hex-goals')
++  v.goals.forEach((g) => {
++    const li = h('li', 'hex-goal')
++    li.setAttribute('data-side', g.side)
++    const who = g.by === null ? hexballTeamName(g.side) : g.own
++      ? t('game.hexball.ownGoalBy', { name: shownName(g.by), team: hexballTeamName(g.side) })
++      : t('game.hexball.goalBy', { name: shownName(g.by), team: hexballTeamName(g.side) })
++    li.appendChild(h('span', 'hex-goal-time', hexballClock(g.at)))
++    li.appendChild(h('span', 'hex-goal-who', who))
++    list.appendChild(li)
++  })
++  sec.appendChild(list)
++  return sec
++}
++
++function hexballLinkNote (m) {
++  if (m.role !== 'player') return null
++  const st = hexballPlayerLink(m)
++  hexballState.playerShown = st
++  if (st === 'ready') return null
++  const failed = st === 'failed'
++  return gameNote('hex-link is-' + st, failed ? 'i-alert' : null, t(failed ? 'game.hexball.link.failedPlayer' : 'game.hexball.link.waitingPlayer'))
++}
++
++function hexballRenderTeams (root, m, v) {
++  const host = m.role === 'dealer'
++  const legal = m.legal || { team: [], set: false, kickoff: false, kickoffWhy: null, counts: null }
++  const ctx = { host: host, legal: legal, links: host ? hexballLinks() : {}, numbers: hexballNumbers(v) }
++  if (v.ph === 'result') root.appendChild(hexballResultBlock(v))
++  const link = hexballLinkNote(m)
++  if (link) root.appendChild(link)
++  const side = hexballHas(v.teams, m.me) ? v.teams[m.me] : null
++  if (side) root.appendChild(h('p', 'hex-mine', side === 'spec' ? t('game.hexball.youSpec') : t('game.hexball.yourTeam', { team: hexballTeamName(side) })))
++  const cols = h('div', 'hex-teams')
++  HEXBALL_SIDES.forEach((x) => cols.appendChild(hexballTeamColumn(m, v, ctx, x)))
++  root.appendChild(cols)
++  const actions = h('div', 'game-actions hex-actions')
++  if (host) {
++    const waiting = hexballNotReady(m, v)
++    const failed = waiting.filter((id) => ctx.links[id] === 'failed')
++    if (legal.kickoffWhy === 'teams_empty') root.appendChild(gameNote('game-hint', null, t('game.hexball.err.teams_empty')))
++    else if (waiting.length) root.appendChild(gameNote('game-hint hex-not-ready', null, t('game.hexball.link.notReady', { names: waiting.map(shownName).join(', ') })))
++    if (failed.length) root.appendChild(gameNote('game-alert hex-failed', 'i-alert', t('game.hexball.link.failedHost', { names: failed.map(shownName).join(', ') })))
++    if (v.ph === 'result') {
++      actions.appendChild(gameButton('button button-secondary', t('game.hexball.toLobby'), null, 'hex-lobby', hexballToLobby))
++    }
++    const start = gameButton('button game-primary', t(v.ph === 'result' ? 'game.hexball.again' : 'game.hexball.kickoff'), 'i-play', 'hex-kickoff', hexballKickoff)
++    if (!legal.kickoff || waiting.length) start.setAttribute('aria-disabled', 'true')
++    actions.appendChild(start)
++    root.appendChild(actions)
++  } else {
++    root.appendChild(gameNote('game-wait', null, t(v.ph === 'result' ? 'game.hexball.waitAgain' : 'game.hexball.waitKickoff')))
++  }
++  root.appendChild(h('p', 'hex-help', t('game.hexball.controls.keys')))
++}
++
++// ----- Maç ekranı -----
++
++// Maç boyunca aynı kalan öğeler: skor tablosu, saha tuvali ve dokunmatik denetimler. Maç, dil ya da kişi değişince
++// yeniden kurulur.
++function hexballKit (m, v) {
++  const lang = window.I18N ? window.I18N.lang : ''
++  const key = [v.epoch, lang, m.me].join('|')
++  if (hexballState.kit && hexballState.kit.key === key) return hexballState.kit
++  const kit = { key: key, epoch: v.epoch, ctx: null, layer: null, layerKey: '', w: 0, h: 0, dpr: 1, scale: 1, frames: 0, label: '' }
++  const board = h('div', 'hex-board')
++  HEXBALL_TEAMS.forEach((side, i) => {
++    const team = h('span', 'hex-board-team')
++    team.setAttribute('data-side', side)
++    team.appendChild(hexballBadge(side, hexballLetter(side)))
++    team.appendChild(h('span', 'hex-board-name', hexballTeamName(side)))
++    const score = h('b', 'hex-board-score', '0')
++    team.appendChild(score)
++    kit[side] = score
++    board.appendChild(team)
++    if (i === 0) {
++      const mid = h('span', 'hex-board-mid')
++      kit.clock = h('span', 'hex-clock', '')
++      kit.clock.setAttribute('role', 'timer')
++      kit.clock.setAttribute('aria-live', 'off')
++      mid.appendChild(kit.clock)
++      kit.lag = h('span', 'hex-chip is-waiting hex-lag', t('game.hexball.lag'))
++      kit.lag.hidden = true
++      mid.appendChild(kit.lag)
++      board.appendChild(mid)
++    }
++  })
++  kit.board = board
++  const wrap = h('div', 'hex-field')
++  const canvas = h('canvas', 'hex-canvas')
++  canvas.setAttribute('role', 'img')
++  wrap.appendChild(canvas)
++  const overlay = h('p', 'hex-overlay')
++  overlay.setAttribute('aria-hidden', 'true')
++  overlay.hidden = true
++  wrap.appendChild(overlay)
++  wrap.addEventListener('pointerdown', (e) => {
++    if (e.pointerType !== 'touch' || hexballState.touchSeen) return
++    hexballState.touchSeen = true
++    hexballSoon()
++  })
++  kit.wrap = wrap
++  kit.canvas = canvas
++  kit.overlay = overlay
++  const touch = h('div', 'hex-touch')
++  const stick = h('div', 'hex-stick')
++  stick.setAttribute('aria-hidden', 'true')
++  const knob = h('span', 'hex-knob')
++  stick.appendChild(knob)
++  hexballBindStick(stick)
++  const kick = h('button', 'hex-kick', t('game.hexball.kick'))
++  kick.type = 'button'
++  kick.setAttribute('data-focus-key', 'hex-kick')
++  hexballBindKick(kick)
++  touch.appendChild(stick)
++  touch.appendChild(kick)
++  kit.touch = touch
++  kit.stick = stick
++  kit.knob = knob
++  kit.kick = kick
++  if (hexballState.kit) hexballRelease()
++  hexballState.kit = kit
++  return kit
++}
++
++function hexballLegend (m, v) {
++  const numbers = hexballNumbers(v)
++  const links = m.role === 'dealer' ? hexballLinks() : {}
++  const list = h('ul', 'hex-legend')
++  list.setAttribute('aria-label', t('game.seatsTitle'))
++  v.seats.filter((id) => v.teams[id] === 'red' || v.teams[id] === 'blue').forEach((id) => {
++    const side = v.teams[id]
++    const li = h('li', 'hex-legend-item')
++    li.setAttribute('data-user-id', id)
++    li.classList.toggle('is-me', id === m.me)
++    li.appendChild(hexballBadge(side, hexballTag(v, numbers, id)))
++    li.appendChild(h('span', 'hex-legend-name', shownName(id)))
++    li.appendChild(h('span', 'sr-only', hexballTeamName(side)))
++    if (m.role === 'dealer' && id !== m.me && links[id] !== 'ready') li.appendChild(hexballChip(links[id] === 'failed' ? 'failed' : 'waiting'))
++    list.appendChild(li)
++  })
++  return list
++}
++
++function hexballStopRow () {
++  const row = h('div', 'game-confirm hex-confirm')
++  row.setAttribute('role', 'group')
++  row.setAttribute('aria-labelledby', 'hex-stop-text')
++  const p = h('p', 'game-confirm-text', t('game.hexball.stopAsk'))
++  p.id = 'hex-stop-text'
++  row.appendChild(p)
++  const actions = h('div', 'game-actions')
++  const cancel = () => {
++    hexballState.confirmStop = false
++    gameState.focusNext = 'hex-stop'
++    gameRefreshStage()
++  }
++  actions.appendChild(gameButton('button button-secondary', t('game.confirmStay'), null, 'hex-stop-no', cancel))
++  actions.appendChild(gameButton('button button-danger', t('game.hexball.confirmStop'), null, 'hex-stop-yes', () => {
++    hexballState.confirmStop = false
++    hexballAct({ t: 'stop' })
++  }))
++  row.appendChild(actions)
++  row.addEventListener('keydown', (e) => {
++    if (e.key !== 'Escape' && e.key !== 'Esc') return
++    e.preventDefault()
++    cancel()
++  })
++  return row
++}
++
++function hexballRenderMatch (root, m, v) {
++  const kit = hexballKit(m, v)
++  root.appendChild(kit.board)
++  const link = hexballLinkNote(m)
++  if (link) root.appendChild(link)
++  root.appendChild(kit.wrap)
++  const touch = hexballTouchMode() && hexballHasSlot(m)
++  kit.touch.hidden = !touch
++  root.appendChild(kit.touch)
++  root.appendChild(hexballLegend(m, v))
++  const side = hexballHasSlot(m) ? v.teams[m.me] : null
++  const help = h('p', 'hex-help')
++  help.appendChild(h('span', 'hex-help-role', side ? t('game.hexball.youPlay', { team: hexballTeamName(side) }) : t('game.hexball.youSpec')))
++  if (side) help.appendChild(h('span', 'hex-help-keys', ' ' + t(touch ? 'game.hexball.controls.touch' : 'game.hexball.controls.keys')))
++  root.appendChild(help)
++  if (m.role === 'dealer') {
++    if (hexballState.confirmStop) {
++      root.appendChild(hexballStopRow())
++    } else {
++      const actions = h('div', 'game-actions hex-actions')
++      actions.appendChild(gameButton('button button-danger', t('game.hexball.stop'), null, 'hex-stop', () => {
++        hexballState.confirmStop = true
++        gameState.focusNext = 'hex-stop-no'
++        gameRefreshStage()
++      }))
++      root.appendChild(actions)
++    }
++  }
++  hexballUpdateBoard(kit, m, v, hexballFrameNow())
++}
++
++function hexballRender (box, m) {
++  hexballSync(m)
++  const v = m.view
++  if (!v || !Array.isArray(v.seats) || !window.TelsizHexball) return
++  if (!hexballInMatch(m)) hexballState.confirmStop = false
++  const root = h('div', 'hex-table')
++  root.setAttribute('data-ph', v.ph)
++  if (hexballInMatch(m)) hexballRenderMatch(root, m, v)
++  else if (m.stage === 'play') hexballRenderTeams(root, m, v)
++  box.appendChild(root)
++  if (hexballInMatch(m)) hexballStartFrames()
++}
++
++function hexballRenderResults (box, m) {
++  if (m.view && m.view.result) box.appendChild(hexballResultBlock(m.view))
++}
++
++function hexballFirstFocus (box) {
++  const keys = ['hex-kickoff', 'hex-kick', 'hex-stop']
++  for (const key of keys) {
++    const node = hexballByKey(box, key)
++    if (node && !node.closest('[hidden]')) return node
++  }
++  return box.querySelector('.hex-join')
++}
++
++// Sahne kapandı (küçültüldü): maç oturumları sürer, tuşlar ve denetimler bırakılır
++function hexballStageClosed () {
++  hexballState.confirmStop = false
++  hexballSyncListen(false)
++}
++
++function hexballOnVoiceEvent (evt, m) {
++  if (!evt || typeof evt !== 'object') return
++  if (evt.type === 'reset') {
++    hexballDrop()
++    return
++  }
++  if (hexballState.host) hexballState.host.onVoiceEvent(evt)
++  if (hexballState.player) {
++    hexballState.player.onVoiceEvent(evt)
++    if (evt.type === 'link-failed' && evt.peerId === hexballState.playerPeer) {
++      hexballState.playerLink = 'failed'
++      hexballSoon()
++    }
++  }
++  if (evt.type === 'peer-ready' || evt.type === 'peer-leave') hexballSync(m)
++}
++
++function hexballOnData (peerId, userId, data) {
++  if (hexballState.host) hexballState.host.onData(peerId, userId, data)
++  else if (hexballState.player) hexballState.player.onData(peerId, userId, data)
++}
++
++// ----- Çizim -----
++
++function hexballFrameNow () {
++  if (hexballState.host) return hexballState.host.frame()
++  if (hexballState.player) return hexballState.player.frame(hexballNow())
++  return null
++}
++
++function hexballStartFrames () {
++  if (hexballState.raf) return
++  hexballState.raf = true
++  nextFrame(hexballFrame)
++}
++
++function hexballFrame () {
++  hexballState.raf = false
++  const kit = hexballState.kit
++  const m = gameModel()
++  const v = m.view
++  const on = Boolean(kit) && isConnected(kit.canvas) && gameStageVisible() && hexballInMatch(m) && v.epoch === kit.epoch
++  hexballSyncListen(on && hexballHasSlot(m))
++  if (!on) return
++  if (hexballHasSlot(m)) hexballPollPad()
++  const f = hexballFrameNow()
++  hexballDraw(kit, v, f)
++  hexballUpdateBoard(kit, m, v, f)
++  hexballState.raf = true
++  nextFrame(hexballFrame)
++}
++
++// Belirteçler kök öğede çözülür, tema ya da mod değişince yeniden okunur
++function hexballColors () {
++  const root = document.documentElement
++  const key = (root.getAttribute('data-skin') || '') + '|' + (root.getAttribute('data-scheme') || '')
++  if (hexballState.colors && hexballState.colorsKey === key) return hexballState.colors
++  let style = null
++  try {
++    style = window.getComputedStyle(root)
++  } catch (err) {
++    style = null
++  }
++  const out = {}
++  Object.keys(HEXBALL_COLOR_TOKENS).forEach((name) => {
++    const value = style ? String(style.getPropertyValue(HEXBALL_COLOR_TOKENS[name]) || '').trim() : ''
++    out[name] = value || 'gray'
++  })
++  const font = style ? String(style.getPropertyValue('--font-label') || '').trim() : ''
++  out.font = font || 'sans-serif'
++  hexballState.colors = out
++  hexballState.colorsKey = key
++  return out
++}
++
++function hexballRem () {
++  let size = 16
++  try {
++    size = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
++  } catch (err) {
++    size = 16
++  }
++  return size
++}
++
++// Tuval sahanın en boy oranıyla kutuya sığar: genişlik kutunun genişliği, yükseklik sahnenin görünen yüksekliğinde
++// tuvalin üstünden alta kalan yeri (telefonda altındaki dokunmatik denetimler de görünür kalır) aşmaz. Oyuncular,
++// açıklama ve alt satır gerekirse kaydırılarak görülür. Ölçü her HEXBALL_SIZE_FRAMES karede bir okunur.
++function hexballFit (kit, geo) {
++  kit.frames++
++  if (kit.w && kit.frames % HEXBALL_SIZE_FRAMES !== 1) return
++  const viewW = geo.w + 2 * HEXBALL_PAD
++  const viewH = geo.h + 2 * HEXBALL_PAD
++  const avail = Number(kit.wrap.clientWidth) || 0
++  let maxH = Infinity
++  const box = kit.wrap.closest('.cast-game')
++  if (box) {
++    const rem = hexballRem()
++    const top = kit.wrap.getBoundingClientRect().top - box.getBoundingClientRect().top + (Number(box.scrollTop) || 0)
++    const touch = kit.touch.hidden ? 0 : Number(kit.touch.offsetHeight) || 0
++    const room = Number(box.clientHeight) - top - touch - rem * 1.75
++    if (room > 0) maxH = Math.max(rem * 9, room)
++  }
++  let w = avail
++  let hh = w * viewH / viewW
++  if (hh > maxH) {
++    hh = maxH
++    w = hh * viewW / viewH
++  }
++  w = Math.floor(w)
++  hh = Math.floor(hh)
++  const dpr = Math.min(HEXBALL_MAX_DPR, Math.max(1, Number(window.devicePixelRatio) || 1))
++  if (w === kit.w && hh === kit.h && dpr === kit.dpr) return
++  kit.w = w
++  kit.h = hh
++  kit.dpr = dpr
++  kit.scale = w / viewW
++  kit.canvas.width = Math.round(w * dpr)
++  kit.canvas.height = Math.round(hh * dpr)
++  kit.canvas.style.width = w + 'px'
++  kit.canvas.style.height = hh + 'px'
++  kit.layer = null
++}
++
++function hexballHexPath (g, x, y, r, k) {
++  g.moveTo(x + r, y)
++  g.lineTo(x + r / 2, y + r * k)
++  g.lineTo(x - r / 2, y + r * k)
++  g.lineTo(x - r, y)
++  g.lineTo(x - r / 2, y - r * k)
++  g.lineTo(x + r / 2, y - r * k)
++  g.closePath()
++}
++
++// Saha deseni: düz kenarı yukarıda altıgenler
++function hexballHexGrid (g, hw, hh) {
++  const r = HEXBALL_HEX_R
++  const k = Math.sqrt(3) / 2
++  const dx = r * 1.5
++  const dy = r * 2 * k
++  let col = 0
++  let x = -hw - r
++  g.beginPath()
++  while (x <= hw + r) {
++    let y = -hh - dy + (col % 2 ? dy / 2 : 0)
++    while (y <= hh + dy) {
++      hexballHexPath(g, x, y, r, k)
++      y += dy
++    }
++    x += dx
++    col++
++  }
++  g.stroke()
++}
++
++function hexballPaintField (g, width, height, s, geo, c) {
++  const hw = geo.hw
++  const hh = geo.hh
++  const gh = geo.goal / 2
++  g.setTransform(1, 0, 0, 1, 0, 0)
++  g.fillStyle = c.out
++  g.fillRect(0, 0, width, height)
++  g.setTransform(s, 0, 0, s, width / 2, height / 2)
++  g.fillStyle = c.net
++  g.fillRect(-hw - geo.depth, -gh, geo.depth, geo.goal)
++  g.fillRect(hw, -gh, geo.depth, geo.goal)
++  g.fillStyle = c.field
++  g.fillRect(-hw, -hh, geo.w, geo.h)
++  g.save()
++  g.beginPath()
++  g.rect(-hw, -hh, geo.w, geo.h)
++  g.clip()
++  g.strokeStyle = c.pattern
++  g.lineWidth = 2
++  hexballHexGrid(g, hw, hh)
++  g.restore()
++  g.strokeStyle = c.line
++  g.lineWidth = 3
++  g.strokeRect(-hw, -hh, geo.w, geo.h)
++  g.beginPath()
++  g.moveTo(0, -hh)
++  g.lineTo(0, hh)
++  g.stroke()
++  g.beginPath()
++  g.arc(0, 0, geo.centerR, 0, Math.PI * 2)
++  g.stroke()
++  g.lineWidth = 2
++  g.strokeRect(-hw - geo.depth, -gh, geo.depth, geo.goal)
++  g.strokeRect(hw, -gh, geo.depth, geo.goal)
++  g.fillStyle = c.post
++  geo.posts.forEach((p) => {
++    g.beginPath()
++    g.arc(p.x, p.y, geo.postR, 0, Math.PI * 2)
++    g.fill()
++  })
++}
++
++// Saha katmanı ayrı bir tuvalde bir kez çizilir, ölçü, ön ayar ya da renkler değişince yenilenir
++function hexballFieldLayer (kit, geo, colors) {
++  const key = [geo.rules, kit.canvas.width, kit.canvas.height, hexballState.colorsKey].join('|')
++  if (kit.layer && kit.layerKey === key) return kit.layer
++  const c = document.createElement('canvas')
++  const g = typeof c.getContext === 'function' ? c.getContext('2d') : null
++  if (!g) return null
++  c.width = kit.canvas.width
++  c.height = kit.canvas.height
++  hexballPaintField(g, c.width, c.height, kit.scale * kit.dpr, geo, colors)
++  kit.layer = c
++  kit.layerKey = key
++  return c
++}
++
++function hexballCircle (ctx, x, y, r) {
++  ctx.beginPath()
++  ctx.arc(x, y, r, 0, Math.PI * 2)
++}
++
++function hexballDraw (kit, v, f) {
++  const P = window.TelsizHexballPhysics
++  const geo = P ? P.field(v.rules) : null
++  const canvas = kit.canvas
++  if (!geo || typeof canvas.getContext !== 'function') return
++  if (!kit.ctx) kit.ctx = canvas.getContext('2d')
++  const ctx = kit.ctx
++  if (!ctx) return
++  hexballFit(kit, geo)
++  if (!kit.w || !kit.h) return
++  const c = hexballColors()
++  const s = kit.scale * kit.dpr
++  const layer = hexballFieldLayer(kit, geo, c)
++  if (layer) {
++    ctx.setTransform(1, 0, 0, 1, 0, 0)
++    ctx.drawImage(layer, 0, 0)
++  } else {
++    hexballPaintField(ctx, canvas.width, canvas.height, s, geo, c)
++  }
++  ctx.setTransform(s, 0, 0, s, canvas.width / 2, canvas.height / 2)
++  if (!f) return
++  const ids = hexballSlotIds(v)
++  const numbers = hexballNumbers(v)
++  ctx.font = '700 13px ' + c.font
++  ctx.textAlign = 'center'
++  ctx.textBaseline = 'middle'
++  f.players.forEach((p) => {
++    const id = hexballHas(ids, p.slot) ? ids[p.slot] : null
++    const side = id ? v.teams[id] : null
++    if (side !== 'red' && side !== 'blue') return
++    const r = P.PLAYER_R
++    if (p.kick) {
++      hexballCircle(ctx, p.x, p.y, r + 7)
++      ctx.strokeStyle = c.kick
++      ctx.lineWidth = 2
++      ctx.stroke()
++    }
++    hexballCircle(ctx, p.x, p.y, r)
++    ctx.fillStyle = c[side]
++    ctx.fill()
++    ctx.strokeStyle = c.edge
++    ctx.lineWidth = 2
++    ctx.stroke()
++    if (p.slot === f.me) {
++      hexballCircle(ctx, p.x, p.y, r + 3.5)
++      ctx.strokeStyle = c.me
++      ctx.lineWidth = 2.5
++      ctx.stroke()
++    }
++    ctx.fillStyle = c.ink
++    ctx.fillText(hexballLetter(side) + (numbers[id] || ''), p.x, p.y + 0.5)
++  })
++  hexballCircle(ctx, f.ball.x, f.ball.y, P.BALL_R)
++  ctx.fillStyle = c.ball
++  ctx.fill()
++  ctx.strokeStyle = c.ballEdge
++  ctx.lineWidth = 2
++  ctx.stroke()
++}
++
++// Gol yazısı: modeldeki son gol anlık görüntünün skoruyla aynıysa atanın adı, değilse yalnızca "Gol!"
++function hexballGoalText (v, f) {
++  const total = f.score.red + f.score.blue
++  const g = v.goals.length && v.score.red + v.score.blue === total ? v.goals[v.goals.length - 1] : null
++  if (!g) return t('game.hexball.goalShort')
++  if (g.by === null) return t('game.hexball.goalTeam', { team: hexballTeamName(g.side) })
++  return g.own ? t('game.hexball.ownGoal', { name: shownName(g.by) }) : t('game.hexball.goal', { name: shownName(g.by) })
++}
++
++function hexballOverlay (m, v, f) {
++  if (!f) {
++    const st = m.role === 'player' ? hexballPlayerLink(m) : 'waiting'
++    return { kind: 'link', text: t(st === 'failed' ? 'game.hexball.link.failed' : 'game.hexball.link.waiting') }
++  }
++  if (f.paused || f.phase === 'paused') return { kind: 'paused', text: t('game.hexball.paused') }
++  if (f.phase === 'goal') return { kind: 'goal', text: hexballGoalText(v, f) }
++  if (f.phase === 'over') return { kind: 'over', text: t('game.hexball.ph.result') }
++  if (f.phase === 'kickoff') return { kind: 'kickoff', text: t('game.hexball.kickoffBy', { team: hexballTeamName(v.kick) }) }
++  return null
++}
++
++// Skor tablosu, saat, bindirme yazısı ve tuvalin erişilebilir adı (yalnızca değişen metin yazılır)
++function hexballUpdateBoard (kit, m, v, f) {
++  const score = f ? f.score : v.score
++  hexballSetText(kit.red, String(score.red))
++  hexballSetText(kit.blue, String(score.blue))
++  const golden = v.golden || Boolean(f && f.remaining === 0 && (f.phase === 'play' || f.phase === 'kickoff' || f.phase === 'goal'))
++  let secs = window.TelsizHexball.PRESETS[v.rules].secs
++  if (f) secs = Math.ceil(f.remaining / 10)
++  hexballSetText(kit.clock, golden ? t('game.hexball.golden') : hexballClock(secs))
++  kit.clock.classList.toggle('is-golden', golden)
++  const label = t('game.hexball.fieldLabel', { red: score.red, blue: score.blue })
++  if (kit.label !== label) {
++    kit.label = label
++    kit.canvas.setAttribute('aria-label', label)
++  }
++  const over = hexballOverlay(m, v, f)
++  kit.overlay.hidden = !over
++  if (over) {
++    hexballSetText(kit.overlay, over.text)
++    if (kit.overlay.getAttribute('data-kind') !== over.kind) kit.overlay.setAttribute('data-kind', over.kind)
++  }
++  const paused = Boolean(over && over.kind === 'paused')
++  if (paused !== hexballState.paused) {
++    hexballState.paused = paused
++    if (paused) gameAnnounce(t('game.hexball.paused'), false)
++  }
++  let lag = false
++  if (hexballState.player && f && !paused) {
++    const st = hexballState.player.state()
++    lag = st.age !== null && st.age > HEXBALL_LAG_MS
++  }
++  if (kit.lag.hidden === lag) kit.lag.hidden = !lag
++}
++
++const hexballUi = {
++  name: () => t('game.hexball.name'),
++  tagline: () => t('game.hexball.desc'),
++  rulesLabel: (rules) => (hexballRules(rules) ? t('game.hexball.rules.' + rules) : ''),
++  rulesHint: (rules) => (hexballRules(rules) ? t('game.hexball.rulesHint.' + rules) : ''),
++  rulesLine: (rules) => (hexballRules(rules) ? t('game.hexball.rulesLine.' + rules) : ''),
++  render: hexballRender,
++  renderResults: hexballRenderResults,
++  statusParts: hexballStatusParts,
++  turnOf: () => null,
++  eventText: hexballEventText,
++  errorText: hexballErrorText,
++  notes: hexballNotes,
++  trustNote: () => t('game.hexball.trustHost'),
++  firstFocus: hexballFirstFocus,
++  stageClosed: hexballStageClosed,
++  ownsPad: (m) => hexballInMatch(m) && hexballHasSlot(m),
++  onVoiceEvent: hexballOnVoiceEvent,
++  onData: hexballOnData
++}
++
++if (typeof gameUiRegister === 'function') gameUiRegister(HEXBALL_ID, hexballUi)
+diff --git a/public/sw.js b/public/sw.js
+index ea1ee03..0865335 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -28,6 +28,7 @@ const SHELL = [
+   '/css/tanitim.css',
+   '/css/oyun.css',
+   '/css/renk.css',
++  '/css/hexball.css',
+   '/css/skins/arcade.css',
+   '/css/skins/gece.css',
+   '/css/skins/turkuaz.css',
+@@ -74,6 +75,10 @@ const SHELL = [
+   '/js/35-renk-kural.js',
+   '/js/36-oyun.js',
+   '/js/37-renk.js',
++  '/js/43-hexball-kural.js',
++  '/js/44-hexball-fizik.js',
++  '/js/45-hexball-ag.js',
++  '/js/46-hexball.js',
+   '/fonts/figtree-latin-ext-wght-normal.woff2',
+   '/fonts/figtree-latin-wght-normal.woff2',
+   '/fonts/manrope-latin-ext-wght-normal.woff2',
+diff --git a/test/hexball-arayuz.test.js b/test/hexball-arayuz.test.js
+new file mode 100644
+index 0000000..08a1fd8
+--- /dev/null
++++ b/test/hexball-arayuz.test.js
+@@ -0,0 +1,1184 @@
++'use strict'
++
++// Hexball arayüzü testleri: public/js/46-hexball.js (Takımlar ve sonuç ekranı, maç ekranı, saha tuvali, klavye, oyun
++// kolu, dokunmatik çubuk ve Vur düğmesi, oyun veri kanalındaki oturumlar, 'Bağlantı Yok' durumu, güven notu),
++// hexball.css, tokens.css saha ve takım belirteçleri (her tema ve modda tanımlı, kontrast yeterli), index.html ve sw.js
++// bağlantıları, i18n kapsamı ve marka denetimi (başka bir oyunun adı hiçbir dosyada geçmez).
++// Arayüz tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir: gerçek i18n.js, 01-core.js,
++// 02-state-dom.js, masa modülleri (33, 34, 36), 28-bildirim.js ve Hexball modülleri (43, 44, 45, 46). DOM, yayın sahnesi
++// ve ses arayüzü test/oyun-ortam.js taklitleridir, tuval bağlamı burada taklit edilir. Ses motoru taklidi masa
++// iletilerini (sendGame) ve oyun veri kanalını (openGameLink, sendGameData, onGameData) cihazlar arasında sahte bir
++// ağla taşır. Bütün cihazlar aynı sahte saati paylaşır, fizik, ağ ve kural motoru gerçektir.
++
++const { describe, test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++const { same, stripComments, makeDocument, makeClock, fakeDm, seeded, STAGE_FAKES, NAMES } = require('./oyun-ortam')
++
++const ROOT = path.join(__dirname, '..')
++const PUB = path.join(ROOT, 'public')
++const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8')
++const HTML = read(PUB, 'index.html')
++const SW = read(PUB, 'sw.js')
++const I18N_SRC = read(PUB, 'i18n.js')
++const CSS = read(PUB, 'css', 'hexball.css')
++const TOKENS = read(PUB, 'css', 'tokens.css')
++const UI_SRC = read(PUB, 'js', '46-hexball.js')
++const HEX_SCRIPTS = ['43-hexball-kural.js', '44-hexball-fizik.js', '45-hexball-ag.js', '46-hexball.js']
++const SOURCES = ['01-core.js', '02-state-dom.js', '33-oyun-protokol.js', '34-oyun-masa.js', '36-oyun.js', '28-bildirim.js']
++  .concat(HEX_SCRIPTS).map((name) => ({ name, code: read(PUB, 'js', name) }))
++// Ağ gecikmesi (ms): masa iletileri flush ile, oyun verisi sahte saatle bu kadar sonra teslim edilir
++const LATENCY = 10
++
++// ------------------------------------------------------------------ tokens.css kademesi
++
++// Kök öğedeki belirteçler: :root ile başlayan üst düzey kurallar (@media dışında) özgüllük ve kaynak sırasıyla
++// uygulanır, var() başvuruları çözülür. Tema listesi theme-init.js içindedir.
++function tokenRules () {
++  const css = stripComments(TOKENS)
++  const out = []
++  let depth = 0
++  let start = 0
++  let i = 0
++  while (i < css.length) {
++    const c = css[i]
++    if (c === '{') {
++      if (depth === 0) {
++        const prelude = css.slice(start, i).trim()
++        let d = 1
++        let j = i + 1
++        while (j < css.length && d > 0) {
++          if (css[j] === '{') d++
++          else if (css[j] === '}') d--
++          j++
++        }
++        if (prelude.charAt(0) !== '@') {
++          const decls = {}
++          for (const m of css.slice(i + 1, j - 1).matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) decls[m[1]] = m[2].trim()
++          out.push({ selectors: prelude.split(',').map((s) => s.trim()), decls })
++        }
++        i = j
++        start = j
++        continue
++      }
++    }
++    i++
++  }
++  return out
++}
++
++const RULES = tokenRules()
++const SKINS = JSON.parse(read(PUB, 'theme-init.js').match(/const SKINS = (\[[^\]]*\])/)[1].replace(/'/g, '"'))
++const SCHEMES = ['dark', 'light']
++
++// Seçicinin kök öğeye uyup uymadığı ve özgüllüğü (öznitelik sayısı), uymuyorsa -1
++function rootMatch (selector, attrs) {
++  if (selector.indexOf(':root') !== 0) return -1
++  const rest = selector.slice(5)
++  const parts = rest.match(/\[[a-z-]+="[^"]*"\]/g) || []
++  if (parts.join('') !== rest) return -1
++  for (const part of parts) {
++    const m = part.match(/^\[([a-z-]+)="([^"]*)"\]$/)
++    if (attrs[m[1]] !== m[2]) return -1
++  }
++  return parts.length
++}
++
++function cascade (skin, scheme) {
++  const attrs = { 'data-skin': skin, 'data-scheme': scheme }
++  const hits = []
++  RULES.forEach((rule, order) => {
++    const spec = Math.max.apply(null, rule.selectors.map((s) => rootMatch(s, attrs)))
++    if (spec >= 0) hits.push({ spec, order, decls: rule.decls })
++  })
++  hits.sort((a, b) => a.spec - b.spec || a.order - b.order)
++  const vars = {}
++  hits.forEach((h) => Object.assign(vars, h.decls))
++  return vars
++}
++
++function resolve (vars, name, depth) {
++  if ((depth || 0) > 20 || !Object.prototype.hasOwnProperty.call(vars, name)) return null
++  return vars[name].replace(/var\((--[a-z0-9-]+)(?:,\s*([^)]+))?\)/g, (m, ref, fallback) => {
++    const v = resolve(vars, ref, (depth || 0) + 1)
++    return v === null ? (fallback || 'TANIMSIZ') : v
++  })
++}
++
++function luminance (hex) {
++  const v = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)))
++  return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
++}
++
++function ratio (a, b) {
++  const x = luminance(a)
++  const y = luminance(b)
++  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
++}
++
++// ------------------------------------------------------------------ tuval, pencere ve ses taklidi
++
++// Tuvalin 2B bağlamı: çizim çağrıları sayılır, dolgu renkleri ve yazılar kaydedilir
++function makeContext (canvas) {
++  const ctx = {
++    canvas,
++    fills: [],
++    texts: [],
++    images: 0,
++    fillStyle: '',
++    strokeStyle: '',
++    lineWidth: 1,
++    font: '',
++    textAlign: '',
++    textBaseline: '',
++    fill () { ctx.fills.push(ctx.fillStyle) },
++    fillText (text) { ctx.texts.push(String(text)) },
++    drawImage () { ctx.images++ }
++  }
++  for (const name of ['setTransform', 'fillRect', 'beginPath', 'rect', 'clip', 'save', 'restore', 'stroke', 'moveTo', 'lineTo',
++    'closePath', 'arc', 'strokeRect']) {
++    ctx[name] = () => {}
++  }
++  return ctx
++}
++
++// DOM taklidine tuval, ölçüler ve işaretçi yakalaması eklenir. Tarayıcıdaki gibi işaretçiyi yakalamış öğe DOM'da
++// yer değiştirince yakalama düşer (lostpointercapture).
++function extendDocument (doc) {
++  const proto = Object.getPrototypeOf(doc.body)
++  proto.getBoundingClientRect = function () {
++    return this.rect || { left: 0, top: 0, width: 0, height: 0 }
++  }
++  proto.setPointerCapture = function (id) {
++    this.captured = id
++  }
++  const detach = proto.detach
++  proto.detach = function (node) {
++    if (node.captured !== undefined && node.parentNode) {
++      const id = node.captured
++      delete node.captured
++      node.dispatch('lostpointercapture', { pointerId: id })
++    }
++    return detach.call(this, node)
++  }
++  Object.defineProperty(proto, 'clientWidth', { get () { return this.visible() ? 640 : 0 } })
++  Object.defineProperty(proto, 'clientHeight', { get () { return this.visible() ? 600 : 0 } })
++  const create = doc.createElement
++  doc.createElement = (tag) => {
++    const node = create(tag)
++    if (String(tag).toLowerCase() === 'canvas') {
++      node.width = 300
++      node.height = 150
++      node.contexts = []
++      node.getContext = (kind) => {
++        if (kind !== '2d') return null
++        const ctx = makeContext(node)
++        node.contexts.push(ctx)
++        return ctx
++      }
++    }
++    return node
++  }
++  doc.removeEventListener = () => {}
++}
++
++// Bir cihaz: kendi vm bağlamı, DOM'u, ses motoru taklidi, gerçek masa ve Hexball modülleri
++function makePage (me, net, opts) {
++  const o = opts || {}
++  const clock = net.clock
++  const doc = makeDocument()
++  extendDocument(doc)
++  class FakeDate extends Date {
++    static now () { return clock.now }
++  }
++  const store = {}
++  const sandbox = {
++    console: { log () {}, warn () {}, error: (e) => { net.errors.push(e) } },
++    document: doc,
++    navigator: { languages: [o.lang || 'tr-TR'], language: o.lang || 'tr-TR', userAgent: '', getGamepads: () => sandbox.fakePads },
++    localStorage: {
++      getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
++      setItem: (k, v) => { store[k] = String(v) },
++      removeItem: (k) => { delete store[k] }
++    },
++    Date: FakeDate,
++    setTimeout: (fn, ms) => clock.add(fn, ms),
++    clearTimeout: (id) => clock.clear(id),
++    setInterval: (fn, ms) => clock.add(fn, ms, true),
++    clearInterval: (id) => clock.clear(id),
++    innerWidth: 1440,
++    devicePixelRatio: 2,
++    E2EE: { dm: fakeDm },
++    nacl: { randomBytes: seeded(Number(me) + net.seed) },
++    fakeVoice: {
++      snap: { channelId: 3, private: false, joining: false, peers: {} },
++      roster: [],
++      keys: {},
++      blocked: [],
++      locked: false,
++      settings: { bindings: { ptt: { type: 'key', code: 'KeyV' }, toggleMute: null, toggleDeafen: null } },
++      uplink: 5000,
++      blockLink: false,
++      dropData: false,
++      noGameLink: false
++    },
++    fakePads: [],
++    coarse: false,
++    winListeners: {},
++    netSend: (peerId, p, done) => net.send(me, peerId, p, done),
++    netOpen: (peerId) => net.open(me, peerId),
++    netClose: (peerId) => net.close(me, peerId),
++    netData: (peerId, buf) => net.data(me, peerId, buf)
++  }
++  sandbox.window = sandbox
++  sandbox.self = sandbox
++  sandbox.addEventListener = (type, fn) => {
++    if (!sandbox.winListeners[type]) sandbox.winListeners[type] = []
++    if (sandbox.winListeners[type].indexOf(fn) === -1) sandbox.winListeners[type].push(fn)
++  }
++  sandbox.removeEventListener = (type, fn) => {
++    if (sandbox.winListeners[type]) sandbox.winListeners[type] = sandbox.winListeners[type].filter((f) => f !== fn)
++  }
++  sandbox.matchMedia = (q) => ({ matches: q === '(pointer: coarse)' && sandbox.coarse === true })
++  // Kök öğedeki belirteçler tokens.css kademesinden (tema ve mod kök öğenin özniteliklerinden)
++  sandbox.getComputedStyle = () => {
++    const root = doc.documentElement
++    const vars = cascade(root.getAttribute('data-skin') || 'arcade', root.getAttribute('data-scheme') || 'dark')
++    return { fontSize: '16px', getPropertyValue: (name) => resolve(vars, name) || '' }
++  }
++  vm.createContext(sandbox)
++  const run = (code) => vm.runInContext(code, sandbox)
++  vm.runInContext(I18N_SRC, sandbox, { filename: 'i18n.js' })
++  for (const s of SOURCES) {
++    if (o.skip && o.skip.indexOf(s.name) !== -1) continue
++    vm.runInContext(s.code, sandbox, { filename: s.name })
++  }
++  vm.runInContext(STAGE_FAKES, sandbox, { filename: 'sahne-taklidi.js' })
++  run(`
++    state.me = { id: ${Number(me)} }
++    state.inApp = true
++    ${Object.keys(NAMES).map((id) => `state.users.set('${id}', { name: '${NAMES[id]}' })`).join('\n')}
++    voice = {
++      sendGame: (peerId, p, done) => netSend(peerId, p, done),
++      settings: () => fakeVoice.settings,
++      uplinkEstimate: () => Promise.resolve(fakeVoice.uplink)
++    }
++    if (!fakeVoice.noGameLink) {
++      voice.openGameLink = (peerId) => netOpen(peerId)
++      voice.closeGameLink = (peerId) => netClose(peerId)
++      voice.sendGameData = (peerId, buf) => netData(peerId, buf)
++    }
++    const tools = h('div', 'radio-tools')
++    tools.id = 'radio-tools'
++    document.body.appendChild(tools)
++    el.radioTools = tools
++    const cast = h('section', 'cast')
++    cast.id = 'cast'
++    cast.hidden = true
++    const title = cast.appendChild(h('h2', 'cast-title'))
++    title.id = 'cast-title'
++    const sub = cast.appendChild(h('p', 'cast-sub'))
++    const game = cast.appendChild(h('div', 'cast-game'))
++    const gameMin = cast.appendChild(h('button', 'cast-game-min'))
++    document.body.appendChild(cast)
++    el.cast = cast
++    castState.nodes = { title: title, sub: sub, game: game, gameMin: gameMin }
++    const activity = h('section', 'activity-card')
++    activity.id = 'activity'
++    activity.hidden = true
++    activity.appendChild(h('ul', 'activity-list'))
++    document.body.appendChild(activity)
++    el.activity = activity
++    el.activityList = activity.firstChild
++    const toastNode = h('div', 'toast')
++    toastNode.hidden = true
++    document.body.appendChild(toastNode)
++    el.toast = toastNode
++    // Duyurular: 400 ms içinde birleşenler de tek tek kaydedilir
++    const spoken = []
++    const realAnnounce = gameAnnounce
++    gameAnnounce = function (text, assertive) {
++      if (text) spoken.push(String(text))
++      return realAnnounce(text, assertive)
++    }
++  `)
++  const page = {
++    me: String(me),
++    peerId: 'p' + me,
++    sandbox,
++    doc,
++    run,
++    fake: sandbox.fakeVoice,
++    q: (sel) => doc.querySelector(sel),
++    qa: (sel) => doc.querySelectorAll(sel),
++    key: (k) => doc.querySelector('[data-focus-key="' + k + '"]'),
++    press: (k) => {
++      const node = doc.querySelector('[data-focus-key="' + k + '"]')
++      assert.ok(node, 'düğme yok: ' + k)
++      node.click()
++    },
++    model: () => run('gameModel()'),
++    view: () => JSON.parse(JSON.stringify(run('gameModel().view'))),
++    stage: () => (doc.getElementById('cast').hidden ? null : doc.getElementById('cast').getAttribute('data-mode')),
++    text: (sel) => {
++      const node = doc.querySelector(sel)
++      return node ? node.textContent : null
++    },
++    disabled: (k) => {
++      const node = doc.querySelector('[data-focus-key="' + k + '"]')
++      assert.ok(node, 'düğme yok: ' + k)
++      return node.getAttribute('aria-disabled') === 'true'
++    },
++    spoken: () => run('spoken.slice()'),
++    // Pencereye klavye ve işaretçi olayı: dinleyiciler sırayla çağrılır, olay nesnesi döner
++    win: (type, extra) => {
++      const evt = Object.assign({ type, target: doc.body, defaultPrevented: false, ctrlKey: false, metaKey: false, altKey: false }, extra || {})
++      evt.preventDefault = () => { evt.defaultPrevented = true }
++      evt.stopPropagation = () => {}
++      for (const fn of (sandbox.winListeners[type] || []).slice()) fn(evt)
++      return evt
++    },
++    listening: () => (sandbox.winListeners.keydown || []).length > 0,
++    // Ev sahibinin dünyası ya da oyuncunun ara değerli durumu
++    frame: () => run('hexballFrameNow()'),
++    input: () => JSON.parse(JSON.stringify(run('hexballState.sent'))),
++    canvas: () => doc.querySelector('.hex-canvas')
++  }
++  page.keyDown = (code, key) => page.win('keydown', { code, key: key || code })
++  page.keyUp = (code, key) => page.win('keyup', { code, key: key || code })
++  net.pages[page.peerId] = page
++  return page
++}
++
++// Sahte ağ: masa iletileri kuyruğa yazılır, flush teslim eder. Oyun bağı ve oyun verisi sahte saatle LATENCY ms
++// sonra karşı tarafa ulaşır. blockLink bağı açılmadan düşürür (link-failed), dropData gelen oyun verisini atar (oyun
++// verisini almayan eski istemci).
++function makeNet (seed) {
++  const net = { pages: {}, queue: [], errors: [], clock: makeClock(), seed: seed || 1, links: {} }
++  net.send = (fromId, peerId, p, done) => {
++    if (!net.pages[peerId]) return 'no_peer'
++    net.queue.push({ from: 'p' + fromId, fromId: String(fromId), to: peerId, p, done })
++    return 'ok'
++  }
++  net.flush = () => {
++    let guard = 0
++    while (net.queue.length && guard < 400) {
++      guard++
++      const m = net.queue.shift()
++      const target = net.pages[m.to]
++      target.sandbox.gameOnVoiceEvent({ type: 'message', peerId: m.from, userId: m.fromId, p: m.p })
++      if (typeof m.done === 'function') m.done(true)
++    }
++  }
++  const pair = (a, b) => [a, b].sort().join('|')
++  net.open = (fromId, peerId) => {
++    const target = net.pages[peerId]
++    if (!target) return 'no_peer'
++    const from = 'p' + fromId
++    const k = pair(from, peerId)
++    if (net.links[k] === 'open') return 'open'
++    if (net.links[k] === 'connecting') return 'ok'
++    net.links[k] = 'connecting'
++    net.clock.add(() => {
++      if (net.links[k] !== 'connecting') return
++      const source = net.pages[from]
++      if (source.fake.blockLink || target.fake.blockLink) {
++        delete net.links[k]
++        source.sandbox.gameOnVoiceEvent({ type: 'link-failed', peerId, userId: target.me })
++        return
++      }
++      net.links[k] = 'open'
++      source.sandbox.gameOnVoiceEvent({ type: 'link-open', peerId, userId: target.me })
++      target.sandbox.gameOnVoiceEvent({ type: 'link-open', peerId: from, userId: String(fromId) })
++    }, LATENCY)
++    return 'ok'
++  }
++  net.close = (fromId, peerId) => {
++    delete net.links[pair('p' + fromId, peerId)]
++  }
++  net.data = (fromId, peerId, buf) => {
++    const from = 'p' + fromId
++    const k = pair(from, peerId)
++    if (net.links[k] !== 'open') return false
++    const copy = buf.slice(0)
++    net.clock.add(() => {
++      const target = net.pages[peerId]
++      if (!target || target.fake.dropData || net.links[k] !== 'open') return
++      target.sandbox.gameOnData(from, String(fromId), copy)
++    }, LATENCY)
++    return true
++  }
++  // Saat ilerler, arada masa iletileri teslim edilir
++  net.advance = (ms, step) => {
++    const each = step || 50
++    let left = ms
++    while (left > 0) {
++      const d = Math.min(each, left)
++      net.clock.advance(d)
++      net.flush()
++      left -= d
++    }
++  }
++  // Koşul doğru olana kadar (en çok limit ms) saat ilerler
++  net.until = (fn, limit, label) => {
++    let waited = 0
++    while (!fn()) {
++      assert.ok(waited < (limit || 20000), 'beklenen durum gelmedi: ' + (label || ''))
++      net.advance(50)
++      waited += 50
++    }
++    return waited
++  }
++  return net
++}
++
++// Aynı ses odasındaki kişiler. opts.page[id] o kişinin makePage seçenekleri.
++function makeWorld (ids, opts) {
++  const o = opts || {}
++  const net = makeNet(o.seed)
++  const pages = ids.map((id) => makePage(id, net, (o.page && o.page[id]) || {}))
++  for (const page of pages) {
++    page.fake.roster = ids.map((id) => ({ userId: Number(id) }))
++    for (const other of pages) {
++      if (other !== page) page.fake.snap.peers[other.me] = { peerId: other.peerId, status: 'connected' }
++    }
++    page.run('gameRender()')
++  }
++  return { net, pages }
++}
++
++// Ev sahibi masayı kurar (kural seti rules), herkes katılır, ev sahibi başlatır: masa Takımlar aşamasında
++function openTable (rules, world) {
++  const { net, pages } = world
++  const host = pages[0]
++  host.press('tool-game')
++  assert.equal(host.model().stage, 'setup')
++  if (rules) host.press('game-rule-' + rules)
++  host.press('game-open')
++  net.flush()
++  for (const page of pages.slice(1)) {
++    page.press('tool-game')
++    page.press('game-join')
++    net.flush()
++  }
++  host.press('game-start')
++  net.flush()
++  for (const page of pages) assert.equal(page.model().stage, 'play', page.me)
++  assert.equal(host.view().ph, 'teams')
++}
++
++// Takımlar aşamasında bağlar hazır olur (el sıkışma)
++function linksReady (world) {
++  const host = world.pages[0]
++  world.net.until(() => {
++    const links = host.run('hexballLinks()')
++    return world.pages.slice(1).every((p) => links[p.me] === 'ready')
++  }, 5000, 'bağlar hazır')
++}
++
++// Maçı başlatır, iki tarafta maç ekranı çizilir
++function kickoff (world) {
++  const host = world.pages[0]
++  assert.equal(host.disabled('hex-kickoff'), false)
++  host.press('hex-kickoff')
++  world.net.flush()
++  for (const page of world.pages) assert.equal(page.view().ph, 'match', page.me)
++  world.net.advance(200)
++}
++
++const slotOf = (page, id) => page.view().slots[id]
++const discOf = (frame, slot) => frame.players.filter((p) => p.slot === slot)[0]
++
++// ------------------------------------------------------------------ bağlantılar, stiller ve belirteçler
++
++describe('bağlantılar, stiller ve belirteçler', () => {
++  test('index.html hexball.css dosyasını renk.css ile tema dosyaları arasında, betikleri 37-renk.js satırından sonra numara sırasıyla bir kez yükler', () => {
++    const count = (text, part) => text.split(part).length - 1
++    const css = '<link rel="stylesheet" href="/css/hexball.css">'
++    assert.equal(count(HTML, css), 1)
++    assert.ok(HTML.indexOf(css) > HTML.indexOf('href="/css/renk.css"'))
++    assert.ok(HTML.indexOf(css) < HTML.indexOf('href="/css/skins/arcade.css"'))
++    let prev = HTML.indexOf('<script src="/js/37-renk.js" defer></script>')
++    assert.ok(prev > 0)
++    for (const name of HEX_SCRIPTS) {
++      const tag = '<script src="/js/' + name + '" defer></script>'
++      assert.equal(count(HTML, tag), 1, name)
++      assert.ok(HTML.indexOf(tag) > prev, 'sıra ' + name)
++      prev = HTML.indexOf(tag)
++    }
++    assert.ok(prev < HTML.indexOf('</head>'))
++    // Numara sırası: index.html'deki bütün betikler artan numarayla
++    const nums = Array.from(HTML.matchAll(/<script src="\/js\/(\d+)-[a-z-]+\.js" defer><\/script>/g)).map((m) => Number(m[1]))
++    same(nums.slice().sort((a, b) => a - b), nums)
++  })
++
++  test('sw.js kabuğu hexball.css dosyasını ve dört betiği numara sırasıyla önbelleğe alır', () => {
++    assert.ok(SW.indexOf("'/css/hexball.css',") > SW.indexOf("'/css/renk.css',"))
++    let prev = SW.indexOf("'/js/37-renk.js',")
++    for (const name of HEX_SCRIPTS) {
++      const at = SW.indexOf("'/js/" + name + "',")
++      assert.ok(at > prev, name)
++      prev = at
++    }
++  })
++
++  test('hexball.css yalnızca belirteçlerle ve eski WebKit kurallarıyla yazılır, tuval ve dokunmatik denetimler sayfayı kaydırmaz', () => {
++    const css = stripComments(CSS)
++    assert.ok(!/(^|[\s{;])(row-|column-)?gap\s*:|clamp\(|:is\(|:where\(|aspect-ratio|(^|[\s{;])inset\s*:|display:\s*(inline-)?grid/.test(css), 'yasak özellik')
++    same(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g) || [], [], 'renkler yalnızca var(--...) ile')
++    for (const m of css.matchAll(/z-index:\s*(\d+)/g)) assert.ok(Number(m[1]) <= 3, 'z-index ' + m[1])
++    for (const m of css.replace(/@media[^{]*/g, '').matchAll(/(\d*\.?\d+)px/g)) assert.equal(m[1], '1', m[0])
++    for (const sel of ['.hex-canvas', '.hex-stick', '.hex-kick']) {
++      const i = css.indexOf('\n' + sel + ' {')
++      assert.ok(i !== -1, sel)
++      assert.match(css.slice(i, css.indexOf('}', i)), /touch-action: none;/, sel)
++    }
++    // Gizlenen dokunmatik denetim yer kaplamaz (display: flex hidden özniteliğini ezmez)
++    assert.match(css, /\.hex-touch\[hidden\] \{\s*display: none;/)
++    // Kullanılan bütün sınıflar arayüzde üretilir
++    for (const m of new Set(Array.from(css.matchAll(/\.(hex-[a-z-]+)/g)).map((x) => x[1]))) {
++      assert.ok(UI_SRC.indexOf("'" + m) !== -1 || UI_SRC.indexOf(' ' + m) !== -1, 'arayüzde yok: ' + m)
++    }
++  })
++
++  test('tuvalin okuduğu --hex-* belirteçleri ve hexball.css içindeki her belirteç her tema ve modda çözülür', () => {
++    const names = Array.from(UI_SRC.match(/const HEXBALL_COLOR_TOKENS = \{([\s\S]*?)\n\}/)[1].matchAll(/'(--[a-z-]+)'/g)).map((m) => m[1])
++    assert.ok(names.length >= 14, names.join(','))
++    const used = new Set(Array.from(stripComments(CSS).matchAll(/var\((--[a-z0-9-]+)\)/g)).map((m) => m[1]))
++    assert.ok(used.has('--hex-red') && used.has('--hex-blue') && used.has('--hex-ink'))
++    assert.ok(SKINS.length >= 3 && SKINS[0] === 'arcade', SKINS.join(','))
++    for (const skin of SKINS) {
++      for (const scheme of SCHEMES) {
++        const vars = cascade(skin, scheme)
++        for (const name of names.concat(Array.from(used))) {
++          const v = resolve(vars, name)
++          assert.ok(v && v.indexOf('TANIMSIZ') === -1, skin + ' ' + scheme + ': ' + name)
++        }
++      }
++    }
++  })
++
++  test('kontrast: takım rengi ve yazı 4.5:1, sahadaki çizimler sahayla 3:1 üstünde (her tema ve modda)', () => {
++    const below = []
++    for (const skin of SKINS) {
++      for (const scheme of SCHEMES) {
++        const vars = cascade(skin, scheme)
++        const c = (name) => {
++          const v = resolve(vars, '--hex-' + name)
++          assert.match(v, /^#[0-9a-f]{6}$/, skin + ' ' + scheme + ' --hex-' + name)
++          return v
++        }
++        const check = (label, value, limit) => {
++          if (!(value >= limit)) below.push(skin + ' ' + scheme + ' ' + label + ' ' + value.toFixed(2))
++        }
++        check('ink/red', ratio(c('ink'), c('red')), 4.5)
++        check('ink/blue', ratio(c('ink'), c('blue')), 4.5)
++        const field = c('field')
++        for (const name of ['line', 'post', 'me', 'kick']) check(name + '/field', ratio(c(name), field), 3)
++        check('line/out', ratio(c('line'), c('out')), 3)
++        // Disk ve top: dolgu ya da kenarından biri sahadan ayrışır
++        for (const team of ['red', 'blue']) check(team + ' disk', Math.max(ratio(c(team), field), ratio(c('disc-edge'), field)), 3)
++        check('top', Math.max(ratio(c('ball'), field), ratio(c('ball-edge'), field)), 3)
++        check('top kenarı/top', ratio(c('ball-edge'), c('ball')), 3)
++      }
++    }
++    same(below, [], 'eşik altındaki çiftler')
++  })
++
++  test('tokens.css: saha ve takım belirteçleri ortak koyu ve açık blokta, kart belirteçleri bloğu en sonda kalır', () => {
++    const css = TOKENS.replace(/\r\n/g, '\n')
++    const at = css.indexOf('\n  --hex-field:')
++    assert.ok(at !== -1)
++    assert.ok(at < css.lastIndexOf('\n:root {'), 'kart oyunlarının :root bloğu Hexball bloğundan sonra')
++    assert.ok(css.lastIndexOf('\n  --hex-field:') < css.indexOf('\n  --card-edge:'))
++  })
++})
++
++// ------------------------------------------------------------------ i18n ve marka adı
++
++function loadI18n () {
++  const sandbox = vm.createContext({})
++  sandbox.window = sandbox
++  sandbox.localStorage = { getItem: () => null, setItem () {}, removeItem () {} }
++  sandbox.navigator = { languages: ['tr-TR'], language: 'tr-TR' }
++  sandbox.document = { documentElement: { lang: 'tr' }, readyState: 'loading', querySelectorAll: () => [] }
++  sandbox.console = { warn () {}, log () {}, error () {} }
++  vm.runInContext(I18N_SRC, sandbox, { filename: 'i18n.js' })
++  return sandbox.I18N
++}
++
++function loadEngine () {
++  const sandbox = { console }
++  sandbox.window = sandbox
++  vm.createContext(sandbox)
++  for (const name of ['33-oyun-protokol.js', '43-hexball-kural.js', '44-hexball-fizik.js']) vm.runInContext(read(PUB, 'js', name), sandbox)
++  return { H: sandbox.TelsizHexball, P: sandbox.TelsizHexballPhysics }
++}
++
++// Metin dosyaları: depo kökünden, bağımlılıklar, git ve derleme çıktıları dışında
++function textFiles () {
++  const skip = new Set(['node_modules', '.git', 'dist'])
++  const generated = [path.join(ROOT, 'desktop', 'app'), path.join(ROOT, 'desktop', 'dist')]
++  const binary = /\.(png|jpe?g|gif|webp|ico|bmp|avif|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|mp3|ogg|wav|mp4|webm|wasm)$/i
++  const out = []
++  const walk = (dir) => {
++    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
++      const full = path.join(dir, entry.name)
++      if (entry.isDirectory()) {
++        if (!skip.has(entry.name) && generated.indexOf(full) === -1) walk(full)
++      } else if (entry.isFile() && !binary.test(entry.name)) {
++        out.push(full)
++      }
++    }
++  }
++  walk(ROOT)
++  return out
++}
++
++describe('i18n ve marka adı', () => {
++  test('game.hexball.* anahtarları iki sözlükte aynı sırada, plandaki çekirdek metinler ve düğme etiketleri', () => {
++    const I = loadI18n()
++    const keys = (lang) => Object.keys(I.messages[lang]).filter((k) => k.indexOf('game.hexball.') === 0)
++    same(keys('tr'), keys('en'))
++    assert.ok(keys('tr').length >= 60, String(keys('tr').length))
++    const expect = {
++      tr: { name: 'Hexball', 'team.red': 'Kırmızı', 'team.blue': 'Mavi', 'team.spec': 'İzleyici', kickoff: 'Maçı Başlat', again: 'Tekrar Oyna', toLobby: 'Lobiye Dön', golden: 'Altın gol', 'link.waiting': 'Bağlantı bekleniyor', 'link.failed': 'Bağlantı Yok', kick: 'Vur', trustHost: 'Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.', desc: 'Ses odasındakilerle üstten görünümlü gerçek zamanlı futbol.', paused: 'Ev sahibinin sekmesi arka planda, maç duraklatıldı.' },
++      en: { name: 'Hexball', 'team.red': 'Red', 'team.blue': 'Blue', 'team.spec': 'Spectator', kickoff: 'Start Match', again: 'Play Again', toLobby: 'Back to Lobby', golden: 'Golden goal', 'link.waiting': 'Waiting for connection', 'link.failed': 'No Connection', kick: 'Kick', trustHost: 'The host runs the physics and could cheat.', desc: 'Real-time top-down football with your voice room.', paused: 'The host\'s tab is in the background, the match is paused.' }
++    }
++    // Düğme etiketlerinde her kelime büyük harfle başlar
++    const buttons = ['kickoff', 'again', 'toLobby', 'stop', 'confirmStop', 'kick', 'to.red', 'to.blue', 'to.spec', 'set.red', 'set.blue', 'set.spec', 'link.failed', 'lag', 'ph.result']
++    for (const lang of ['tr', 'en']) {
++      I.setLang(lang)
++      for (const [k, v] of Object.entries(expect[lang])) assert.equal(I.t('game.hexball.' + k), v, lang + ': ' + k)
++      for (const k of buttons) {
++        const words = I.t('game.hexball.' + k).split(' ').filter((w) => !/^(to|for|of|the|a)$/.test(w))
++        for (const w of words) assert.equal(w.charAt(0), w.charAt(0).toLocaleUpperCase(lang), lang + ': ' + k + ' = ' + I.t('game.hexball.' + k))
++      }
++    }
++  })
++
++  test('kural motorunun ön ayarları, takımları, hata kodları, olayları ve sonuç nedenleri iki dilde metne çevrilir', () => {
++    const I = loadI18n()
++    const { H } = loadEngine()
++    const page = makePage('5', makeNet())
++    for (const lang of ['tr', 'en']) {
++      I.setLang(lang)
++      page.run(`I18N.setLang('${lang}')`)
++      const ok = (key, params) => {
++        const text = I.t(key, params || { name: 'Ece', team: 'X', red: 1, blue: 2, mt: 3, names: 'Ece', label: 'L' })
++        assert.ok(I.has(key) && text && text.indexOf('{') === -1, lang + ': ' + key)
++      }
++      for (const r of H.RULES) ['rules.', 'rulesHint.', 'rulesLine.'].forEach((p) => ok('game.hexball.' + p + r))
++      for (const s of H.SIDES) ['team.', 'to.', 'set.', 'ev.team.'].forEach((p) => ok('game.hexball.' + p + s))
++      for (const s of H.TEAMS) ok('game.hexball.letter.' + s)
++      const why = JSON.parse(read(PUB, 'js', '43-hexball-kural.js').match(/const WHY = (\[[^\]]*\])/)[1].replace(/'/g, '"'))
++      assert.ok(why.length >= 5, why.join(','))
++      for (const w of why) ok('game.hexball.why.' + w)
++      for (const code of H.ERRORS) ok('game.hexball.err.' + code)
++      // Gösterilen hata kodları metin verir, diğerleri sessizdir (gelen yeni durum arayüzü düzeltir)
++      const shown = ['team_full', 'teams_empty', 'not_host', 'bad_random', 'no_random']
++      for (const code of H.ERRORS) {
++        const text = page.run(`gameErrorText('${code}', 'hexball')`)
++        if (shown.indexOf(code) >= 0) assert.equal(text, I.t('game.hexball.err.' + code), lang + ': ' + code)
++        else assert.equal(text, '', lang + ': ' + code)
++      }
++      // Her olay kodu duyurulur, ayrılan kişiyi masa yöneticisi duyurur
++      const sample = {
++        team: { e: 'team', p: '12', side: 'blue' },
++        kickoff: { e: 'kickoff', mt: 1, kick: 'red' },
++        goal: { e: 'goal', side: 'red', p: '12', at: 3 },
++        own_goal: { e: 'own_goal', side: 'red', p: '12', at: 3 },
++        time_up: { e: 'time_up' },
++        golden: { e: 'golden' },
++        win: { e: 'win', side: 'blue', why: 'score' },
++        stop: { e: 'stop', why: 'host' },
++        leave: { e: 'leave', p: '12' }
++      }
++      same(Object.keys(sample).sort(), H.EVENTS.slice().sort())
++      const view = { score: { red: 1, blue: 0 } }
++      for (const ev of Object.values(sample)) {
++        const text = page.run('hexballEventText(' + JSON.stringify(ev) + ', { view: ' + JSON.stringify(view) + ' })')
++        if (ev.e === 'leave') assert.equal(text, '')
++        else assert.ok(text && text.indexOf('{') === -1 && text.indexOf('game.') === -1, lang + ': ' + ev.e + ' ' + text)
++      }
++    }
++    page.run("I18N.setLang('tr')")
++    assert.equal(page.run('hexballEventText({ e: "goal", side: "red", p: "12", at: 3 }, { view: { score: { red: 1, blue: 0 } } })'), 'Gol: Ece (Kırmızı). Skor: Kırmızı 1, Mavi 0.')
++    assert.equal(page.run('hexballEventText({ e: "goal", side: "blue", p: null, at: 3 }, null)'), 'Gol: Mavi.')
++  })
++
++  test('oyunun adı yalnızca i18n sözlüğünde, kodda ve stillerde ad metni yok', () => {
++    const name = /\bHexball\b/
++    for (const file of HEX_SCRIPTS.map((n) => path.join(PUB, 'js', n)).concat([path.join(PUB, 'js', '36-oyun.js'), path.join(PUB, 'css', 'hexball.css'), path.join(PUB, 'index.html')])) {
++      const code = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/<!--[\s\S]*?-->/g, '')
++      assert.ok(!name.test(code), path.relative(ROOT, file))
++    }
++    const I = loadI18n()
++    assert.equal(I.messages.tr['game.hexball.name'], 'Hexball')
++    assert.equal(I.messages.en['game.hexball.name'], 'Hexball')
++  })
++
++  test('marka denetimi: başka bir oyunun adı hiçbir dosyada ve i18n değerinde geçmez', () => {
++    // Ad karakter kodlarıyla kurulur, bu dosyanın kendisi de taranır
++    const brand = new RegExp(String.fromCharCode(104, 97, 120) + '[\\s_.-]*' + String.fromCharCode(98, 97, 108, 108), 'i')
++    const files = textFiles()
++    assert.ok(files.length > 200, String(files.length))
++    for (const rel of ['test/hexball-arayuz.test.js', 'public/js/46-hexball.js', 'public/css/hexball.css', 'public/i18n.js', 'README.md']) {
++      assert.ok(files.indexOf(path.join(ROOT, rel)) !== -1, rel)
++    }
++    const hits = files.filter((file) => brand.test(fs.readFileSync(file, 'utf8')))
++    same(hits.map((f) => path.relative(ROOT, f)), [])
++    const I = loadI18n()
++    for (const lang of ['tr', 'en']) {
++      for (const [key, value] of Object.entries(I.messages[lang])) assert.ok(!brand.test(key + ' ' + value), lang + ': ' + key)
++    }
++  })
++})
++
++// ------------------------------------------------------------------ masa ve maç
++
++describe('Masa Kur, Takımlar ve güven notu', () => {
++  test('yalnızca Hexball kayıtlıyken Oyun düğmesi Masa Kur ekranını açar, ön ayarlar ve güven notu Masa Kur, davet ve Ayrıntı bölümünde', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    deniz.press('tool-game')
++    assert.equal(deniz.model().stage, 'setup')
++    assert.equal(deniz.model().app, 'hexball')
++    assert.equal(deniz.text('.cast-sub'), 'Ses odasındakilerle üstten görünümlü gerçek zamanlı futbol.')
++    same(Array.from(deniz.qa('.game-rules [role="radio"]')).map((b) => [b.getAttribute('data-value'), b.getAttribute('aria-checked'), b.textContent]),
++      [['quick', 'false', 'Hızlı'], ['classic', 'true', 'Klasik'], ['long', 'false', 'Uzun']])
++    const host = 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır. Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.'
++    assert.equal(deniz.text('.game-trust'), host)
++    deniz.press('game-rule-quick')
++    deniz.press('game-open')
++    world.net.flush()
++    assert.equal(deniz.text('.game-trust'), host)
++    ece.press('tool-game')
++    assert.equal(ece.text('.game-trust'), 'Ev sahibi Deniz. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir. Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.')
++    ece.press('game-join')
++    world.net.flush()
++    deniz.press('game-start')
++    world.net.flush()
++    assert.equal(ece.text('.cast-sub'), 'Hızlı Maç · Ev Sahibi Deniz · 2 Oyuncu')
++    ece.press('game-trust-more')
++    const detail = Array.from(ece.qa('.game-trust-detail .game-trust-text')).map((p) => p.textContent)
++    assert.equal(detail[0], 'Ev sahibi Deniz. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir. Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.')
++    assert.ok(detail.indexOf('Gerçek zamanlı maç ekran okuyucuyla oynanamaz. Goller, skor ve sonuç duyurulur.') > 0)
++    assert.ok(detail.indexOf('Oklar veya WASD ile hareket, X veya Boşluk ile vuruş.') > 0)
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++
++  test('Takımlar: koltuklar sırayla Kırmızı ve Mavi, bağ el sıkışmayla hazır olunca Maçı Başlat etkin, takım değiştirme ve atama', () => {
++    const world = makeWorld(['5', '12', '7'])
++    const [deniz, ece, mert] = world.pages
++    openTable('quick', world)
++    assert.equal(deniz.text('.game-status-chip'), 'Takımlar')
++    const column = (page, side) => Array.from(page.qa('.hex-team[data-side="' + side + '"] .hex-person')).map((li) => li.getAttribute('data-user-id'))
++    same(column(deniz, 'red'), ['5', '7'])
++    same(column(deniz, 'blue'), ['12'])
++    same(column(deniz, 'spec'), [])
++    assert.equal(deniz.text('.hex-team[data-side="red"] .hex-team-count'), '2/4')
++    assert.equal(deniz.text('.hex-team[data-side="spec"] .hex-empty'), 'Henüz kimse yok.')
++    // Takım harfi ve numarası: K1, K2, M1
++    same(Array.from(deniz.qa('.hex-person .hex-badge')).map((b) => b.textContent), ['K1', 'K2', 'M1'])
++    assert.equal(ece.text('.hex-mine'), 'Takımınız: Mavi')
++    // El sıkışmadan önce bağ bekleniyor, Maçı Başlat pasif
++    assert.equal(deniz.disabled('hex-kickoff'), true)
++    assert.equal(deniz.text('.hex-person[data-user-id="12"] .hex-chip'), 'Bağlantı bekleniyor')
++    assert.equal(ece.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kuruluyor.')
++    assert.match(deniz.text('.hex-not-ready'), /^Oyun bağlantısı bekleniyor: (Ece, Mert|Mert, Ece)$/)
++    linksReady(world)
++    world.net.advance(300)
++    assert.equal(deniz.q('.hex-chip'), null)
++    assert.equal(deniz.q('.hex-not-ready'), null)
++    assert.equal(ece.q('.hex-link'), null)
++    assert.equal(deniz.disabled('hex-kickoff'), false)
++    // Oyuncu yalnızca kendi takımını değiştirir, atama düğmeleri ev sahibindedir
++    assert.equal(ece.q('.hex-set'), null)
++    assert.equal(ece.key('hex-kickoff'), null)
++    assert.equal(ece.text('.game-wait .game-note-text'), 'Ev sahibinin maçı başlatması bekleniyor.')
++    same(Array.from(ece.qa('.hex-join')).map((b) => b.textContent), ['Kırmızıya Geç', 'İzleyici Ol'])
++    ece.press('hex-join-spec')
++    world.net.flush()
++    same(column(deniz, 'spec'), ['12'])
++    assert.equal(ece.text('.hex-mine'), 'Maçı izliyorsunuz.')
++    // Mavi boşaldı: Maçı Başlat pasif ve nedeni yazar
++    assert.equal(deniz.disabled('hex-kickoff'), true)
++    assert.equal(deniz.text('.game-hint .game-note-text'), 'Maçı başlatmak için her takımda en az bir kişi olmalı.')
++    const set = deniz.key('hex-set-7-blue')
++    assert.equal(set.textContent, 'Maviye Al')
++    assert.equal(set.getAttribute('aria-label'), 'Maviye Al: Mert')
++    deniz.press('hex-set-7-blue')
++    world.net.flush()
++    same(column(mert, 'blue'), ['7'])
++    assert.equal(mert.text('.hex-mine'), 'Takımınız: Mavi')
++    assert.equal(deniz.disabled('hex-kickoff'), false)
++    assert.ok(mert.spoken().indexOf('Mert Mavi takımda.') !== -1, mert.spoken().join(' | '))
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++})
++
++describe('maç: tuval, girdi, gol ve sonuç', () => {
++  test('maç ekranı: skor tablosu, saat, saha tuvali belirteç renkleriyle çizilir, oyun kolu bandı değiştirmez', () => {
++    const world = makeWorld(['5', '12', '7'])
++    const [deniz, ece, mert] = world.pages
++    openTable('quick', world)
++    ece.press('hex-join-spec')
++    world.net.flush()
++    deniz.press('hex-set-7-blue')
++    world.net.flush()
++    linksReady(world)
++    // Takımlar ekranında kol bandındır
++    assert.equal(mert.run('gameOwnsPad()'), false)
++    kickoff(world)
++    for (const page of world.pages) {
++      assert.equal(page.q('.hex-table').getAttribute('data-ph'), 'match')
++      assert.equal(page.text('.game-status-chip'), '1. Maç')
++      same(Array.from(page.qa('.hex-board-team')).map((t) => [t.getAttribute('data-side'), t.querySelector('.hex-badge').textContent, t.querySelector('.hex-board-name').textContent]),
++        [['red', 'K', 'Kırmızı'], ['blue', 'M', 'Mavi']])
++      assert.equal(page.text('.hex-clock'), '03:00')
++      assert.equal(page.q('.hex-clock').getAttribute('role'), 'timer')
++      assert.equal(page.canvas().getAttribute('role'), 'img')
++      assert.equal(page.canvas().getAttribute('aria-label'), 'Saha. Kırmızı 0, Mavi 0.')
++    }
++    // Başlama vuruşunu Kırmızı yapar (1. maç)
++    assert.equal(mert.text('.hex-overlay'), 'Başlama vuruşu: Kırmızı')
++    assert.equal(mert.q('.hex-overlay').getAttribute('data-kind'), 'kickoff')
++    // Tuval sahaya sığar (devicePixelRatio 2), saha katmanı ayrı tuvalde bir kez çizilir
++    const canvas = deniz.canvas()
++    assert.equal(canvas.style.width, '640px')
++    assert.equal(canvas.width, 1280)
++    const ctx = canvas.contexts[0]
++    assert.ok(ctx.images > 10, 'saha katmanı her karede kopyalanır: ' + ctx.images)
++    // Diskler takım rengi, top beyaz, disklerde takım harfi ve numarası
++    assert.ok(ctx.fills.indexOf('#c9303f') !== -1 && ctx.fills.indexOf('#2d5fd3') !== -1 && ctx.fills.indexOf('#ffffff') !== -1, ctx.fills.slice(-6).join(','))
++    assert.ok(ctx.texts.indexOf('K1') !== -1 && ctx.texts.indexOf('M1') !== -1, ctx.texts.slice(-4).join(','))
++    // Açık modda belirteçler yeniden okunur
++    deniz.doc.documentElement.setAttribute('data-scheme', 'light')
++    world.net.advance(100)
++    assert.equal(deniz.run('hexballColors().field'), '#d6efe2')
++    assert.equal(deniz.run('hexballColors().red'), '#c9303f')
++    // İzleyicide tuşlar ve kol oyunun değildir
++    assert.equal(ece.q('.hex-help-role').textContent, 'Maçı izliyorsunuz.')
++    assert.equal(ece.listening(), false)
++    assert.equal(ece.run('gameOwnsPad()'), false)
++    assert.equal(mert.listening(), true)
++    assert.equal(mert.run('gameOwnsPad()'), true)
++    assert.equal(deniz.run('gameOwnsPad()'), true)
++    assert.equal(mert.text('.hex-help-role'), 'Mavi takımında oynuyorsunuz.')
++    assert.equal(mert.text('.hex-help-keys'), ' Oklar veya WASD ile hareket, X veya Boşluk ile vuruş.')
++    // Ev sahibi maçı durdurabilir (onay satırıyla), oyuncu durduramaz
++    assert.equal(mert.key('hex-stop'), null)
++    assert.ok(deniz.key('hex-stop'))
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++
++  test('klavye: oyuncunun tuşları veri kanalından ev sahibinin dünyasına ulaşır, ses ataması ve modlu tuşlar oyunun değildir', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    openTable('quick', world)
++    linksReady(world)
++    kickoff(world)
++    const slot = slotOf(deniz, '12')
++    const start = discOf(deniz.frame(), slot)
++    const down = ece.keyDown('ArrowUp')
++    assert.equal(down.defaultPrevented, true, 'oklar sayfayı kaydırmaz')
++    same(ece.input(), { x: 0, y: -1, kick: false })
++    world.net.advance(600)
++    const moved = discOf(deniz.frame(), slot)
++    assert.ok(moved.y < start.y - 20, start.y + ' -> ' + moved.y)
++    // Oyuncunun ara değerli görüntüsü de aynı yöne gider
++    assert.ok(discOf(ece.frame(), slot).y < start.y - 10)
++    ece.keyUp('ArrowUp')
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    // WASD ve vuruş tuşları, çapraz girdi
++    ece.keyDown('KeyD', 'd')
++    ece.keyDown('KeyS', 's')
++    ece.keyDown('Space', ' ')
++    same(ece.input(), { x: 1, y: 1, kick: true })
++    ece.keyUp('Space', ' ')
++    ece.keyDown('KeyX', 'x')
++    same(ece.input(), { x: 1, y: 1, kick: true })
++    world.net.advance(100)
++    // Vuruş tutulurken diskin bayrağı ev sahibinden gelir (dış halka çizilir)
++    assert.equal(discOf(ece.frame(), slot).kick, true)
++    for (const code of ['KeyD', 'KeyS', 'KeyX']) ece.keyUp(code)
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    // Bas konuş tuşu (V) ve modlu tuşlar engellenmez
++    const ptt = ece.keyDown('KeyV', 'v')
++    assert.equal(ptt.defaultPrevented, false)
++    ece.fake.settings.bindings.ptt = { type: 'key', code: 'KeyW' }
++    assert.equal(ece.keyDown('KeyW', 'w').defaultPrevented, false, 'bas konuşa atanan W oyunda kullanılmaz')
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    assert.equal(ece.win('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', ctrlKey: true }).defaultPrevented, false)
++    // Yazı alanında ve açık pencerede tuşlar dinlenmez
++    ece.run("isTypingTarget = (node) => Boolean(node && node.tagName === 'INPUT')")
++    assert.equal(ece.win('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', target: ece.doc.createElement('input') }).defaultPrevented, false)
++    ece.run("layers.push({ name: 'settings', el: document.body })")
++    assert.equal(ece.keyDown('ArrowLeft').defaultPrevented, false)
++    ece.run('layers.length = 0')
++    ece.run("layers.push({ name: 'cast-full', el: document.body })")
++    assert.equal(ece.keyDown('ArrowLeft').defaultPrevented, true, 'tam ekranda oynanır')
++    same(ece.input(), { x: -1, y: 0, kick: false })
++    // Pencere odağı gidince denetimler bırakılır
++    ece.win('blur')
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    ece.run('layers.length = 0')
++    // Sahne küçültülünce tuşlar bırakılır, maç sürer
++    ece.press('tool-game')
++    assert.equal(ece.stage(), null)
++    world.net.advance(100)
++    assert.equal(ece.listening(), false)
++    assert.equal(ece.run('gameOwnsPad()'), false)
++    assert.ok(ece.run('hexballState.player') !== null, 'oyuncu oturumu sürer')
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++
++  test('gol, skor ve duyuru iki tarafta, Maçı Durdur ile sonuç ekranı, Tekrar Oyna ve Lobiye Dön', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    openTable('quick', world)
++    linksReady(world)
++    kickoff(world)
++    // Deniz (Kırmızı) topu sağdaki kaleye sürer, Ece (Mavi) yoldan çekilir
++    deniz.keyDown('ArrowRight')
++    ece.keyDown('ArrowUp')
++    world.net.until(() => deniz.view().score.red === 1, 15000, 'gol')
++    world.net.advance(100)
++    same(deniz.view().goals.map((g) => [g.side, g.by, g.own]), [['red', '5', false]])
++    for (const page of world.pages) {
++      assert.equal(page.text('.hex-board-team[data-side="red"] .hex-board-score'), '1')
++      assert.equal(page.text('.hex-board-team[data-side="blue"] .hex-board-score'), '0')
++      assert.equal(page.canvas().getAttribute('aria-label'), 'Saha. Kırmızı 1, Mavi 0.')
++      assert.ok(page.spoken().indexOf('Gol: Deniz (Kırmızı). Skor: Kırmızı 1, Mavi 0.') !== -1, page.spoken().join(' | '))
++    }
++    assert.equal(ece.q('.hex-overlay').getAttribute('data-kind'), 'goal')
++    assert.equal(ece.text('.hex-overlay'), 'Gol! Deniz')
++    deniz.keyUp('ArrowRight')
++    ece.keyUp('ArrowUp')
++    // Maçı Durdur onay satırıyla
++    deniz.press('hex-stop')
++    assert.equal(deniz.text('#hex-stop-text'), 'Maç kazanansız bitsin mi?')
++    assert.equal(deniz.run('document.activeElement').getAttribute('data-focus-key'), 'hex-stop-no')
++    deniz.press('hex-stop-no')
++    assert.ok(deniz.key('hex-stop'))
++    deniz.press('hex-stop')
++    deniz.press('hex-stop-yes')
++    world.net.flush()
++    world.net.advance(100)
++    for (const page of world.pages) {
++      assert.equal(page.view().ph, 'result')
++      assert.equal(page.q('.hex-table').getAttribute('data-ph'), 'result')
++      assert.equal(page.text('.hex-result-win'), 'Kazanan Yok')
++      assert.equal(page.text('.hex-result-why'), 'Ev sahibi maçı durdurdu.')
++      assert.equal(page.text('.hex-result-score'), 'Kırmızı 1, Mavi 0')
++      const at = page.view().goals[0].at
++      assert.ok(at >= 1 && at <= 15, String(at))
++      same(Array.from(page.qa('.hex-goal')).map((li) => [li.getAttribute('data-side'), li.querySelector('.hex-goal-time').textContent, li.querySelector('.hex-goal-who').textContent]),
++        [['red', '00:' + (at < 10 ? '0' : '') + at, 'Deniz (Kırmızı)']])
++      assert.equal(page.run('gameOwnsPad()'), false, 'sonuçta kol bandındır')
++      assert.equal(page.listening(), false)
++    }
++    assert.equal(ece.text('.game-wait .game-note-text'), 'Ev sahibinin yeni maçı başlatması bekleniyor.')
++    assert.equal(deniz.key('hex-kickoff').textContent, 'Tekrar Oyna')
++    assert.equal(deniz.key('hex-lobby').textContent, 'Lobiye Dön')
++    // Tekrar Oyna: 2. maçı Mavi başlatır, skor sıfırlanır
++    deniz.press('hex-kickoff')
++    world.net.flush()
++    world.net.advance(300)
++    assert.equal(ece.text('.game-status-chip'), '2. Maç')
++    assert.equal(ece.text('.hex-board-team[data-side="red"] .hex-board-score'), '0')
++    assert.equal(ece.text('.hex-overlay'), 'Başlama vuruşu: Mavi')
++    assert.ok(ece.spoken().indexOf('Maç başladı, başlama vuruşu Mavi takımında.') !== -1)
++    // Lobiye Dön: sonuç korunarak masa biter ve lobiye dönülür
++    deniz.press('hex-stop')
++    deniz.press('hex-stop-yes')
++    world.net.flush()
++    deniz.press('hex-lobby')
++    world.net.flush()
++    assert.equal(deniz.model().stage, 'lobby')
++    world.net.advance(300)
++    assert.equal(deniz.run('hexballState.host'), null, 'lobide oturum yok')
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++})
++
++describe('Bağlantı Yok', () => {
++  test('oyun verisini almayan istemci ev sahibinde Bağlantı Yok olur, Maçı Başlat pasif kalır, izleyicilere alınınca açılır', () => {
++    const world = makeWorld(['5', '12', '7'], { page: { 7: {} } })
++    const [deniz, ece, mert] = world.pages
++    mert.fake.dropData = true
++    openTable('quick', world)
++    world.net.until(() => deniz.run('hexballLinks()')['12'] === 'ready', 5000)
++    world.net.advance(6000)
++    assert.equal(deniz.run('hexballLinks()')['7'], 'failed')
++    assert.equal(deniz.text('.hex-person[data-user-id="7"] .hex-chip'), 'Bağlantı Yok')
++    assert.ok(deniz.q('.hex-person[data-user-id="7"] .hex-chip').classList.contains('is-failed'))
++    assert.equal(deniz.q('.hex-person[data-user-id="12"] .hex-chip'), null)
++    assert.equal(deniz.text('.hex-failed .game-note-text'), 'Oyun bağlantısı kurulamadı: Mert. Eski bir sürüm kullanıyor ya da bağlantısı engelleniyor olabilir. İzleyicilere alabilir ya da koltuktan çıkarabilirsiniz.')
++    assert.equal(deniz.disabled('hex-kickoff'), true)
++    deniz.press('hex-kickoff')
++    deniz.run('hexballKickoff()')
++    world.net.flush()
++    assert.equal(deniz.view().ph, 'teams', 'pasif düğme de işlev de maçı başlatmaz')
++    // Oyuncunun kendisi el sıkışma alamaz: bekleme süresi dolunca Bağlantı Yok
++    assert.equal(mert.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kuruluyor.')
++    world.net.advance(10000)
++    assert.equal(mert.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.')
++    assert.ok(mert.q('.hex-link').classList.contains('is-failed'))
++    // İzleyicinin bağı maçı başlatmayı engellemez, Bağlantı Yok çipi kalır
++    deniz.press('hex-set-7-spec')
++    world.net.flush()
++    assert.equal(deniz.disabled('hex-kickoff'), false)
++    assert.equal(deniz.text('.hex-person[data-user-id="7"] .hex-chip'), 'Bağlantı Yok')
++    kickoff(world)
++    assert.equal(deniz.text('.hex-legend-item[data-user-id="12"] .hex-badge'), 'M1')
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++
++  test('engellenen bağ (link-failed) ev sahibinde hemen, oyuncuda bekleme sonunda Bağlantı Yok, oyun bağı olmayan ses motorunda hemen', () => {
++    const world = makeWorld(['5', '12', '7'])
++    const [deniz, ece, mert] = world.pages
++    ece.fake.blockLink = true
++    openTable('quick', world)
++    world.net.advance(400)
++    assert.equal(deniz.run('hexballLinks()')['12'], 'failed')
++    assert.equal(deniz.text('.hex-person[data-user-id="12"] .hex-chip'), 'Bağlantı Yok')
++    assert.equal(deniz.text('.hex-person[data-user-id="7"] .hex-chip'), null)
++    assert.equal(ece.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kuruluyor.')
++    assert.equal(mert.q('.hex-link'), null)
++    world.net.advance(15000)
++    assert.equal(ece.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.')
++    assert.equal(deniz.text('.hex-person[data-user-id="12"] .hex-chip'), 'Bağlantı Yok')
++    // Ses motoru oyun bağını hiç bilmiyorsa (sendGameData yok) oturum kurulmaz, oyuncu hemen Bağlantı Yok görür,
++    // ev sahibi bağ açılmadığı için bekleme sonunda
++    const old = makeWorld(['5', '30'])
++    const [host, aylin] = old.pages
++    aylin.run('delete voice.openGameLink; delete voice.sendGameData; delete voice.closeGameLink')
++    openTable('quick', old)
++    old.net.advance(1000)
++    assert.equal(aylin.run('hexballState.player'), null)
++    assert.equal(aylin.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.')
++    assert.equal(host.text('.hex-person[data-user-id="30"] .hex-chip'), 'Bağlantı bekleniyor')
++    old.net.advance(16000)
++    assert.equal(host.run('hexballLinks()')['30'], 'failed')
++    assert.equal(host.text('.hex-person[data-user-id="30"] .hex-chip'), 'Bağlantı Yok')
++    assert.equal(world.net.errors.length + old.net.errors.length, 0, String(world.net.errors[0] || old.net.errors[0]))
++  })
++
++  test('oyuncu ev sahibiyle ses bağlantısı yokken bekler, süre dolunca Bağlantı Yok, ses oturumu bitince oturumlar kapanır', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    openTable('quick', world)
++    linksReady(world)
++    world.net.advance(300)
++    assert.equal(ece.q('.hex-link'), null)
++    // Ev sahibinin eşi ses motorunun anlık görüntüsünden düştü (ör. yeniden bağlanıyor): oturum kapanır
++    delete ece.fake.snap.peers['5']
++    world.net.advance(1000)
++    assert.equal(ece.run('hexballState.player'), null)
++    assert.equal(ece.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kuruluyor.')
++    world.net.advance(15000)
++    assert.equal(ece.text('.hex-link .game-note-text'), 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.')
++    // Ses oturumu bitti: bütün oturumlar ve zamanlayıcı kapanır
++    deniz.run("gameOnVoiceEvent({ type: 'reset' })")
++    assert.equal(deniz.run('hexballState.host'), null)
++    assert.equal(deniz.run('hexballState.timer'), 0)
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++})
++
++describe('dokunmatik ve oyun kolu', () => {
++  test('dokunmatik çubuk ve Vur düğmesi: kaba işaretçide görünür, ekran yeniden çizilse de basılı çubuk bırakılmaz', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    ece.sandbox.coarse = true
++    openTable('quick', world)
++    linksReady(world)
++    kickoff(world)
++    assert.equal(deniz.q('.hex-touch').hidden, true, 'ince işaretçide gizli')
++    const touch = ece.q('.hex-touch')
++    assert.equal(touch.hidden, false)
++    assert.equal(ece.text('.hex-help-keys'), ' Soldaki çubukla hareket edin, Vur düğmesiyle vurun.')
++    const stick = ece.q('.hex-stick')
++    const kick = ece.key('hex-kick')
++    assert.equal(stick.getAttribute('aria-hidden'), 'true')
++    assert.equal(kick.textContent, 'Vur')
++    assert.equal(kick.getAttribute('type'), 'button')
++    stick.rect = { left: 0, top: 0, width: 128, height: 128 }
++    const down = stick.dispatch('pointerdown', { pointerId: 3, pointerType: 'touch', clientX: 128, clientY: 64 })
++    assert.equal(down.defaultPrevented, true)
++    same(ece.input(), { x: 1, y: 0, kick: false })
++    assert.equal(ece.q('.hex-knob').style.transform, 'translate(64%, 0%)')
++    // Ölü bölgede hareket yok
++    ece.win('pointermove', { pointerId: 3, clientX: 70, clientY: 64 })
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    ece.win('pointermove', { pointerId: 3, clientX: 64, clientY: 0 })
++    same(ece.input(), { x: 0, y: -1, kick: false })
++    // Ekran yeniden çizilir (ör. gol): aynı öğeler yeniden yerleşir, çubuk basılı kalır
++    ece.run('gameRefreshStage()')
++    assert.equal(ece.q('.hex-stick'), stick)
++    ece.win('pointermove', { pointerId: 3, clientX: 0, clientY: 64 })
++    same(ece.input(), { x: -1, y: 0, kick: false })
++    // Başka parmak çubuğu almaz, Vur düğmesine basar
++    kick.dispatch('pointerdown', { pointerId: 4, pointerType: 'touch' })
++    same(ece.input(), { x: -1, y: 0, kick: true })
++    ece.win('pointermove', { pointerId: 4, clientX: 128, clientY: 64 })
++    same(ece.input(), { x: -1, y: 0, kick: true })
++    ece.win('pointerup', { pointerId: 4 })
++    same(ece.input(), { x: -1, y: 0, kick: false })
++    ece.win('pointercancel', { pointerId: 3 })
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    assert.equal(ece.q('.hex-knob').style.transform, '')
++    // Klavyeyle (Enter) etkinleştirilen Vur kısa bir vuruştur
++    kick.dispatch('click', { detail: 0 })
++    same(ece.input(), { x: 0, y: 0, kick: true })
++    world.net.advance(200)
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    // İnce işaretçili cihazda sahaya ilk dokunuş denetimleri gösterir
++    assert.equal(deniz.q('.hex-touch').hidden, true)
++    deniz.q('.hex-field').dispatch('pointerdown', { pointerId: 1, pointerType: 'touch' })
++    world.net.advance(50)
++    assert.equal(deniz.q('.hex-touch').hidden, false)
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++
++  test('oyun kolu: sol çubuk ve yön tuşları hareket, alt yüz düğmesi vuruş, bas konuş o düğmedeyse sol yüz düğmesi', () => {
++    const world = makeWorld(['5', '12'])
++    const [deniz, ece] = world.pages
++    openTable('quick', world)
++    linksReady(world)
++    kickoff(world)
++    const pad = (axes, pressed) => ({
++      index: 0,
++      connected: true,
++      axes,
++      buttons: Array.from({ length: 17 }, (x, i) => ({ pressed: pressed.indexOf(i) !== -1, value: pressed.indexOf(i) !== -1 ? 1 : 0 }))
++    })
++    ece.sandbox.fakePads = [pad([0.1, -0.1], [])]
++    world.net.advance(50)
++    assert.equal(ece.input(), null, 'ölü bölgede girdi yok')
++    ece.sandbox.fakePads = [pad([0.8, 0], [0])]
++    world.net.advance(50)
++    same(ece.input(), { x: 0.8, y: 0, kick: true })
++    ece.sandbox.fakePads = [pad([0, 0], [12, 14])]
++    world.net.advance(50)
++    same(ece.input(), { x: -1, y: -1, kick: false })
++    // Bas konuş alt yüz düğmesine atanırsa vuruş sol yüz düğmesidir
++    ece.fake.settings.bindings.ptt = { type: 'gamepad', button: 0 }
++    ece.run('hexballState.padCheck = 0')
++    ece.sandbox.fakePads = [pad([0, 0], [0])]
++    world.net.advance(50)
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    ece.sandbox.fakePads = [pad([0, 0], [2])]
++    world.net.advance(50)
++    same(ece.input(), { x: 0, y: 0, kick: true })
++    ece.sandbox.fakePads = []
++    world.net.advance(50)
++    same(ece.input(), { x: 0, y: 0, kick: false })
++    assert.equal(ece.run('gameOwnsPad()'), true)
++    assert.equal(world.net.errors.length, 0, String(world.net.errors[0]))
++  })
++})
+diff --git a/test/oyun-arayuz.test.js b/test/oyun-arayuz.test.js
+index 1605e07..77a2a2f 100644
+--- a/test/oyun-arayuz.test.js
++++ b/test/oyun-arayuz.test.js
+@@ -30,458 +30,8 @@ const GAME_SCRIPTS = ['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.j
+ const GAME_STYLES = ['oyun.css', 'renk.css']
+ const RENK_SRC = read(PUB, 'js', '37-renk.js')
+ 
+-// vm bağlamındaki nesnelerin ön örnekleri farklıdır, karşılaştırma JSON kopyasıyla yapılır
+-function same (actual, expected, message) {
+-  const plain = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)))
+-  assert.deepEqual(plain(actual), plain(expected), message)
+-}
+-
+-function stripComments (css) {
+-  return css.replace(/\/\*[\s\S]*?\*\//g, '')
+-}
+-
+-// ------------------------------------------------------------------ küçük DOM taklidi
+-
+-function parseCompound (text) {
+-  const out = { tag: null, id: null, classes: [], attrs: [], nots: [] }
+-  let rest = text.replace(/:not\(([^)]*)\)/g, (m, inner) => {
+-    out.nots.push(parseCompound(inner))
+-    return ''
+-  })
+-  rest = rest.replace(/\[([a-zA-Z0-9_-]+)(?:="([^"]*)")?\]/g, (m, name, value) => {
+-    out.attrs.push({ name, value: value === undefined ? null : value })
+-    return ''
+-  })
+-  for (const part of rest.match(/[#.]?[a-zA-Z0-9_-]+/g) || []) {
+-    if (part.charAt(0) === '#') out.id = part.slice(1)
+-    else if (part.charAt(0) === '.') out.classes.push(part.slice(1))
+-    else out.tag = part.toUpperCase()
+-  }
+-  return out
+-}
+-
+-// Boşlukla ayrılmış seçici: son parça öğenin kendisine, öncekiler sırayla atalarına uyar
+-function matchesComplex (node, text) {
+-  const parts = text.trim().split(/\s+/).map(parseCompound)
+-  if (!matchesCompound(node, parts[parts.length - 1])) return false
+-  let i = parts.length - 2
+-  let n = node.parentNode
+-  while (i >= 0 && n) {
+-    if (matchesCompound(n, parts[i])) i--
+-    n = n.parentNode
+-  }
+-  return i < 0
+-}
+-
+-function matchesCompound (node, c) {
+-  if (!node || node.nodeType !== 1) return false
+-  if (c.tag && node.tagName !== c.tag) return false
+-  if (c.id && node.getAttribute('id') !== c.id) return false
+-  if (c.classes.some((cls) => !node.classList.contains(cls))) return false
+-  if (c.attrs.some((a) => (a.value === null ? !node.hasAttribute(a.name) : node.getAttribute(a.name) !== a.value))) return false
+-  return !c.nots.some((n) => matchesCompound(node, n))
+-}
+-
+-function makeDocument () {
+-  const counter = { mutations: 0 }
+-  const doc = { activeElement: null, readyState: 'complete', counter }
+-
+-  class TextNode {
+-    constructor (text) {
+-      this.nodeType = 3
+-      this.data = String(text)
+-      this.parentNode = null
+-    }
+-
+-    get textContent () {
+-      return this.data
+-    }
+-  }
+-
+-  class Element {
+-    constructor (tag) {
+-      this.nodeType = 1
+-      this.tagName = String(tag).toUpperCase()
+-      this.attrs = {}
+-      this.childNodes = []
+-      this.parentNode = null
+-      this.listeners = {}
+-      this.style = {}
+-      const el = this
+-      this.classList = {
+-        list: () => (el.attrs.class || '').split(/\s+/).filter(Boolean),
+-        contains: (name) => el.classList.list().indexOf(name) !== -1,
+-        add: (...names) => {
+-          const now = el.classList.list()
+-          names.forEach((n) => {
+-            if (now.indexOf(n) === -1) now.push(n)
+-          })
+-          el.setAttribute('class', now.join(' '))
+-        },
+-        remove: (...names) => {
+-          el.setAttribute('class', el.classList.list().filter((n) => names.indexOf(n) === -1).join(' '))
+-        },
+-        toggle: (name, force) => {
+-          const on = force === undefined ? !el.classList.contains(name) : Boolean(force)
+-          if (on && !el.classList.contains(name)) el.classList.add(name)
+-          if (!on && el.classList.contains(name)) el.classList.remove(name)
+-          return on
+-        }
+-      }
+-    }
+-
+-    get className () { return this.attrs.class || '' }
+-    set className (v) { this.setAttribute('class', v) }
+-    get id () { return this.attrs.id || '' }
+-    set id (v) { this.setAttribute('id', v) }
+-    get type () { return this.attrs.type || '' }
+-    set type (v) { this.setAttribute('type', v) }
+-    get title () { return this.attrs.title || '' }
+-    set title (v) { this.setAttribute('title', v) }
+-    get hidden () { return this.hasAttribute('hidden') }
+-    set hidden (v) {
+-      if (v) this.setAttribute('hidden', '')
+-      else this.removeAttribute('hidden')
+-    }
+-
+-    get disabled () { return this.hasAttribute('disabled') }
+-    set disabled (v) {
+-      if (v) this.setAttribute('disabled', '')
+-      else this.removeAttribute('disabled')
+-    }
+-
+-    get children () { return this.childNodes.filter((n) => n.nodeType === 1) }
+-    get firstChild () { return this.childNodes[0] || null }
+-    get lastChild () { return this.childNodes[this.childNodes.length - 1] || null }
+-    get firstElementChild () { return this.children[0] || null }
+-    get lastElementChild () {
+-      const c = this.children
+-      return c[c.length - 1] || null
+-    }
+-
+-    get nextElementSibling () {
+-      if (!this.parentNode) return null
+-      const c = this.parentNode.children
+-      return c[c.indexOf(this) + 1] || null
+-    }
+-
+-    get textContent () {
+-      return this.childNodes.map((n) => n.textContent).join('')
+-    }
+-
+-    set textContent (v) {
+-      this.childNodes.forEach((n) => { n.parentNode = null })
+-      this.childNodes = []
+-      if (v !== '' && v !== null && v !== undefined) this.appendChild(new TextNode(v))
+-      counter.mutations++
+-    }
+-
+-    get isConnected () {
+-      let n = this
+-      while (n.parentNode) n = n.parentNode
+-      return n === doc.documentElement
+-    }
+-
+-    get offsetWidth () { return this.visible() ? 10 : 0 }
+-    get offsetHeight () { return this.visible() ? 10 : 0 }
+-
+-    visible () {
+-      return this.isConnected && !this.closest('[hidden]')
+-    }
+-
+-    getClientRects () {
+-      return this.visible() ? [{}] : []
+-    }
+-
+-    setAttribute (name, value) {
+-      this.attrs[name] = String(value)
+-      counter.mutations++
+-    }
+-
+-    setAttributeNS (ns, name, value) {
+-      this.setAttribute(name, value)
+-    }
+-
+-    getAttribute (name) {
+-      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null
+-    }
+-
+-    hasAttribute (name) {
+-      return Object.prototype.hasOwnProperty.call(this.attrs, name)
+-    }
+-
+-    removeAttribute (name) {
+-      delete this.attrs[name]
+-      counter.mutations++
+-    }
+-
+-    detach (node) {
+-      if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1)
+-      node.parentNode = null
+-    }
+-
+-    appendChild (node) {
+-      this.detach(node)
+-      node.parentNode = this
+-      this.childNodes.push(node)
+-      counter.mutations++
+-      return node
+-    }
+-
+-    insertBefore (node, ref) {
+-      if (!ref) return this.appendChild(node)
+-      this.detach(node)
+-      node.parentNode = this
+-      this.childNodes.splice(this.childNodes.indexOf(ref), 0, node)
+-      counter.mutations++
+-      return node
+-    }
+-
+-    removeChild (node) {
+-      this.detach(node)
+-      counter.mutations++
+-      return node
+-    }
+-
+-    replaceChild (node, old) {
+-      this.insertBefore(node, old)
+-      return this.removeChild(old)
+-    }
+-
+-    contains (node) {
+-      let n = node
+-      while (n) {
+-        if (n === this) return true
+-        n = n.parentNode
+-      }
+-      return false
+-    }
+-
+-    matches (selector) {
+-      return selector.split(',').some((part) => matchesComplex(this, part))
+-    }
+-
+-    closest (selector) {
+-      let n = this
+-      while (n && n.nodeType === 1) {
+-        if (n.matches(selector)) return n
+-        n = n.parentNode
+-      }
+-      return null
+-    }
+-
+-    querySelectorAll (selector) {
+-      const out = []
+-      const walk = (node) => {
+-        node.children.forEach((c) => {
+-          if (c.matches(selector)) out.push(c)
+-          walk(c)
+-        })
+-      }
+-      walk(this)
+-      return out
+-    }
+-
+-    querySelector (selector) {
+-      return this.querySelectorAll(selector)[0] || null
+-    }
+-
+-    addEventListener (type, fn) {
+-      if (!this.listeners[type]) this.listeners[type] = []
+-      this.listeners[type].push(fn)
+-    }
+-
+-    removeEventListener (type, fn) {
+-      if (this.listeners[type]) this.listeners[type] = this.listeners[type].filter((f) => f !== fn)
+-    }
+-
+-    dispatch (type, extra) {
+-      const evt = Object.assign({ type, target: this, defaultPrevented: false }, extra || {})
+-      evt.preventDefault = () => { evt.defaultPrevented = true }
+-      evt.stopPropagation = () => {}
+-      let n = this
+-      while (n) {
+-        const fns = n.listeners[type] || []
+-        fns.slice().forEach((fn) => fn(evt))
+-        n = n.parentNode
+-      }
+-      return evt
+-    }
+-
+-    click () {
+-      return this.dispatch('click')
+-    }
+-
+-    focus () {
+-      doc.activeElement = this
+-    }
+-  }
+-
+-  doc.createElement = (tag) => new Element(tag)
+-  doc.createElementNS = (ns, tag) => new Element(tag)
+-  doc.createTextNode = (text) => new TextNode(text)
+-  doc.documentElement = new Element('html')
+-  doc.body = doc.documentElement.appendChild(new Element('body'))
+-  doc.activeElement = doc.body
+-  doc.getElementById = (id) => doc.documentElement.querySelector('#' + id)
+-  doc.querySelectorAll = (selector) => doc.documentElement.querySelectorAll(selector)
+-  doc.querySelector = (selector) => doc.documentElement.querySelector(selector)
+-  doc.addEventListener = () => {}
+-  return doc
+-}
+-
+-// ------------------------------------------------------------------ zaman, ağ ve cihazlar
+-
+-function makeClock () {
+-  const clock = { now: 1700000000000, jobs: [], seq: 0 }
+-  clock.add = (fn, ms, every) => {
+-    clock.seq++
+-    clock.jobs.push({ id: clock.seq, fn, due: clock.now + (ms || 0), every: every ? ms : 0 })
+-    return clock.seq
+-  }
+-  clock.clear = (id) => {
+-    clock.jobs = clock.jobs.filter((j) => j.id !== id)
+-  }
+-  clock.advance = (ms) => {
+-    const end = clock.now + ms
+-    while (true) {
+-      const due = clock.jobs.filter((j) => j.due <= end).sort((a, b) => a.due - b.due || a.id - b.id)[0]
+-      if (!due) break
+-      clock.now = Math.max(clock.now, due.due)
+-      if (due.every) due.due += due.every
+-      else clock.clear(due.id)
+-      due.fn()
+-    }
+-    clock.now = end
+-  }
+-  return clock
+-}
+-
+-// Sahte iç zarf (test/oyun-masa.test.js kalıbı): gönderenin gizli ve alıcının açık anahtarı iki tarafı belirler
+-const fakeDm = {
+-  seal (obj, pk, sk) {
+-    if (typeof pk !== 'string' || typeof sk !== 'string') throw new Error('anahtar')
+-    return '2.' + Buffer.from(JSON.stringify({ a: sk.slice(3), b: pk.slice(3), m: obj })).toString('base64')
+-  },
+-  open (p, pks, sk) {
+-    let x = null
+-    try {
+-      x = JSON.parse(Buffer.from(p.slice(2), 'base64').toString('utf8'))
+-    } catch (e) {
+-      return { ok: false, reason: 'bad' }
+-    }
+-    const me = sk.slice(3)
+-    const other = pks[0].slice(3)
+-    const pair = (x.a === me && x.b === other) || (x.a === other && x.b === me)
+-    return pair ? { ok: true, value: x.m, pk: pks[0] } : { ok: false, reason: 'key' }
+-  }
+-}
+-
+-function seeded (seed) {
+-  let x = (seed * 2654435761) >>> 0 || 1
+-  return (n) => {
+-    const out = []
+-    while (out.length < n) {
+-      x ^= x << 13
+-      x >>>= 0
+-      x ^= x >>> 17
+-      x ^= x << 5
+-      x >>>= 0
+-      out.push(x & 255)
+-    }
+-    return out
+-  }
+-}
+-
+-// Yayın sahnesinin (22-cast.js) ve ses arayüzünün (10-voice.js) bu testteki karşılıkları
+-const STAGE_FAKES = `
+-const castState = { nodes: null, full: false }
+-let fakeShare = 'off'
+-function castSync () {
+-  const s = snap()
+-  const want = s.channelId !== null && !s.private && gameStageWanted()
+-  if (want) {
+-    el.cast.hidden = false
+-    el.cast.setAttribute('data-mode', 'game')
+-    castRenderGame(castState.nodes)
+-  } else if (!el.cast.hidden) {
+-    const had = el.cast.contains(document.activeElement)
+-    el.cast.hidden = true
+-    el.cast.removeAttribute('data-mode')
+-    clear(castState.nodes.game)
+-    gameStageClosed()
+-    if (had) focusNode(byId('radio-game'))
+-  }
+-  gameRenderTool()
+-}
+-function castRenderGame (n) {
+-  setLive(n.title, () => gameStageTitle())
+-  setLive(n.sub, () => gameStageSub())
+-  gameRenderStage(n.game)
+-}
+-function castOpenGame (moveFocus) {
+-  castSync()
+-  if (moveFocus && !el.cast.hidden) focusNode(gameFirstFocus())
+-}
+-function castMinimizeGame () {
+-  gameSetMinimized(true)
+-  castSync()
+-  focusNode(byId('radio-game'))
+-}
+-function castScreen () {
+-  return { state: fakeShare }
+-}
+-function castChoiceGroup (className, labelledBy, options, current, onPick, itemClass) {
+-  const group = h('div', className)
+-  group.setAttribute('role', 'radiogroup')
+-  group.setAttribute('aria-labelledby', labelledBy)
+-  options.forEach((opt) => {
+-    const b = h('button', itemClass)
+-    b.setAttribute('role', 'radio')
+-    b.setAttribute('data-value', opt.value)
+-    b.setAttribute('aria-checked', opt.value === current ? 'true' : 'false')
+-    b.appendChild(h('b', itemClass + '-label', opt.label))
+-    b.addEventListener('click', () => onPick(opt.value))
+-    group.appendChild(b)
+-  })
+-  return group
+-}
+-function activeFocusKey (container) {
+-  const active = document.activeElement
+-  if (!active || !container || !container.contains(active)) return null
+-  return active.getAttribute('data-focus-key')
+-}
+-function restoreFocusKey (container, key) {
+-  if (!key || !container) return
+-  const found = Array.from(container.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0]
+-  if (found) focusNode(found)
+-}
+-function isTypingTarget () {
+-  return false
+-}
+-function snap () {
+-  return fakeVoice.snap
+-}
+-function voiceRoster (channelId) {
+-  return fakeVoice.roster
+-}
+-function inCallRoom (s) {
+-  return Boolean(s && s.private)
+-}
+-function dmSendState (uid) {
+-  const r = fakeVoice.keys[String(uid)]
+-  return r ? { ok: false, reason: r } : { ok: true, pk: 'pk:' + uid }
+-}
+-function myIdentity () {
+-  return fakeVoice.locked ? null : { secretKey: 'sk:' + state.me.id }
+-}
+-function isBlocked (uid) {
+-  return fakeVoice.blocked.indexOf(String(uid)) !== -1
+-}
+-function profilesEnsure () {}
+-`
+-
+-const NAMES = { 5: 'Deniz', 12: 'Ece', 7: 'Mert', 30: 'Aylin' }
++// Ortak ortam: DOM taklidi, sahte saat, sahte iç zarf, sahnenin ve ses arayüzünün karşılıkları (test/oyun-ortam.js)
++const { same, stripComments, makeDocument, makeClock, fakeDm, seeded, STAGE_FAKES, NAMES } = require('./oyun-ortam')
+ 
+ // Testte tanımlı küçük oyun arayüzü (Renk arayüzü yerine)
+ const FAKE_UI = `
+diff --git a/test/oyun-ortam.js b/test/oyun-ortam.js
+new file mode 100644
+index 0000000..5e7fecf
+--- /dev/null
++++ b/test/oyun-ortam.js
+@@ -0,0 +1,462 @@
++'use strict'
++
++// Oyun arayüzü testlerinin ortak ortamı (test/oyun-arayuz.test.js ve test/hexball-arayuz.test.js): küçük DOM taklidi,
++// sahte saat, sahte iç zarf, tohumlu rastgelelik, yayın sahnesinin (22-cast.js) ve ses arayüzünün (10-voice.js) vm
++// bağlamına yüklenen karşılıkları ve testteki kişilerin adları. Test dosyası değildir (adı .test.js ile bitmez).
++
++const assert = require('node:assert/strict')
++
++// vm bağlamındaki nesnelerin ön örnekleri farklıdır, karşılaştırma JSON kopyasıyla yapılır
++function same (actual, expected, message) {
++  const plain = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)))
++  assert.deepEqual(plain(actual), plain(expected), message)
++}
++
++function stripComments (css) {
++  return css.replace(/\/\*[\s\S]*?\*\//g, '')
++}
++
++// ------------------------------------------------------------------ küçük DOM taklidi
++
++function parseCompound (text) {
++  const out = { tag: null, id: null, classes: [], attrs: [], nots: [] }
++  let rest = text.replace(/:not\(([^)]*)\)/g, (m, inner) => {
++    out.nots.push(parseCompound(inner))
++    return ''
++  })
++  rest = rest.replace(/\[([a-zA-Z0-9_-]+)(?:="([^"]*)")?\]/g, (m, name, value) => {
++    out.attrs.push({ name, value: value === undefined ? null : value })
++    return ''
++  })
++  for (const part of rest.match(/[#.]?[a-zA-Z0-9_-]+/g) || []) {
++    if (part.charAt(0) === '#') out.id = part.slice(1)
++    else if (part.charAt(0) === '.') out.classes.push(part.slice(1))
++    else out.tag = part.toUpperCase()
++  }
++  return out
++}
++
++// Boşlukla ayrılmış seçici: son parça öğenin kendisine, öncekiler sırayla atalarına uyar
++function matchesComplex (node, text) {
++  const parts = text.trim().split(/\s+/).map(parseCompound)
++  if (!matchesCompound(node, parts[parts.length - 1])) return false
++  let i = parts.length - 2
++  let n = node.parentNode
++  while (i >= 0 && n) {
++    if (matchesCompound(n, parts[i])) i--
++    n = n.parentNode
++  }
++  return i < 0
++}
++
++function matchesCompound (node, c) {
++  if (!node || node.nodeType !== 1) return false
++  if (c.tag && node.tagName !== c.tag) return false
++  if (c.id && node.getAttribute('id') !== c.id) return false
++  if (c.classes.some((cls) => !node.classList.contains(cls))) return false
++  if (c.attrs.some((a) => (a.value === null ? !node.hasAttribute(a.name) : node.getAttribute(a.name) !== a.value))) return false
++  return !c.nots.some((n) => matchesCompound(node, n))
++}
++
++function makeDocument () {
++  const counter = { mutations: 0 }
++  const doc = { activeElement: null, readyState: 'complete', counter }
++
++  class TextNode {
++    constructor (text) {
++      this.nodeType = 3
++      this.data = String(text)
++      this.parentNode = null
++    }
++
++    get textContent () {
++      return this.data
++    }
++  }
++
++  class Element {
++    constructor (tag) {
++      this.nodeType = 1
++      this.tagName = String(tag).toUpperCase()
++      this.attrs = {}
++      this.childNodes = []
++      this.parentNode = null
++      this.listeners = {}
++      this.style = {}
++      const el = this
++      this.classList = {
++        list: () => (el.attrs.class || '').split(/\s+/).filter(Boolean),
++        contains: (name) => el.classList.list().indexOf(name) !== -1,
++        add: (...names) => {
++          const now = el.classList.list()
++          names.forEach((n) => {
++            if (now.indexOf(n) === -1) now.push(n)
++          })
++          el.setAttribute('class', now.join(' '))
++        },
++        remove: (...names) => {
++          el.setAttribute('class', el.classList.list().filter((n) => names.indexOf(n) === -1).join(' '))
++        },
++        toggle: (name, force) => {
++          const on = force === undefined ? !el.classList.contains(name) : Boolean(force)
++          if (on && !el.classList.contains(name)) el.classList.add(name)
++          if (!on && el.classList.contains(name)) el.classList.remove(name)
++          return on
++        }
++      }
++    }
++
++    get className () { return this.attrs.class || '' }
++    set className (v) { this.setAttribute('class', v) }
++    get id () { return this.attrs.id || '' }
++    set id (v) { this.setAttribute('id', v) }
++    get type () { return this.attrs.type || '' }
++    set type (v) { this.setAttribute('type', v) }
++    get title () { return this.attrs.title || '' }
++    set title (v) { this.setAttribute('title', v) }
++    get hidden () { return this.hasAttribute('hidden') }
++    set hidden (v) {
++      if (v) this.setAttribute('hidden', '')
++      else this.removeAttribute('hidden')
++    }
++
++    get disabled () { return this.hasAttribute('disabled') }
++    set disabled (v) {
++      if (v) this.setAttribute('disabled', '')
++      else this.removeAttribute('disabled')
++    }
++
++    get children () { return this.childNodes.filter((n) => n.nodeType === 1) }
++    get firstChild () { return this.childNodes[0] || null }
++    get lastChild () { return this.childNodes[this.childNodes.length - 1] || null }
++    get firstElementChild () { return this.children[0] || null }
++    get lastElementChild () {
++      const c = this.children
++      return c[c.length - 1] || null
++    }
++
++    get nextElementSibling () {
++      if (!this.parentNode) return null
++      const c = this.parentNode.children
++      return c[c.indexOf(this) + 1] || null
++    }
++
++    get textContent () {
++      return this.childNodes.map((n) => n.textContent).join('')
++    }
++
++    set textContent (v) {
++      this.childNodes.forEach((n) => { n.parentNode = null })
++      this.childNodes = []
++      if (v !== '' && v !== null && v !== undefined) this.appendChild(new TextNode(v))
++      counter.mutations++
++    }
++
++    get isConnected () {
++      let n = this
++      while (n.parentNode) n = n.parentNode
++      return n === doc.documentElement
++    }
++
++    get offsetWidth () { return this.visible() ? 10 : 0 }
++    get offsetHeight () { return this.visible() ? 10 : 0 }
++
++    visible () {
++      return this.isConnected && !this.closest('[hidden]')
++    }
++
++    getClientRects () {
++      return this.visible() ? [{}] : []
++    }
++
++    setAttribute (name, value) {
++      this.attrs[name] = String(value)
++      counter.mutations++
++    }
++
++    setAttributeNS (ns, name, value) {
++      this.setAttribute(name, value)
++    }
++
++    getAttribute (name) {
++      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null
++    }
++
++    hasAttribute (name) {
++      return Object.prototype.hasOwnProperty.call(this.attrs, name)
++    }
++
++    removeAttribute (name) {
++      delete this.attrs[name]
++      counter.mutations++
++    }
++
++    detach (node) {
++      if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1)
++      node.parentNode = null
++    }
++
++    appendChild (node) {
++      this.detach(node)
++      node.parentNode = this
++      this.childNodes.push(node)
++      counter.mutations++
++      return node
++    }
++
++    insertBefore (node, ref) {
++      if (!ref) return this.appendChild(node)
++      this.detach(node)
++      node.parentNode = this
++      this.childNodes.splice(this.childNodes.indexOf(ref), 0, node)
++      counter.mutations++
++      return node
++    }
++
++    removeChild (node) {
++      this.detach(node)
++      counter.mutations++
++      return node
++    }
++
++    replaceChild (node, old) {
++      this.insertBefore(node, old)
++      return this.removeChild(old)
++    }
++
++    contains (node) {
++      let n = node
++      while (n) {
++        if (n === this) return true
++        n = n.parentNode
++      }
++      return false
++    }
++
++    matches (selector) {
++      return selector.split(',').some((part) => matchesComplex(this, part))
++    }
++
++    closest (selector) {
++      let n = this
++      while (n && n.nodeType === 1) {
++        if (n.matches(selector)) return n
++        n = n.parentNode
++      }
++      return null
++    }
++
++    querySelectorAll (selector) {
++      const out = []
++      const walk = (node) => {
++        node.children.forEach((c) => {
++          if (c.matches(selector)) out.push(c)
++          walk(c)
++        })
++      }
++      walk(this)
++      return out
++    }
++
++    querySelector (selector) {
++      return this.querySelectorAll(selector)[0] || null
++    }
++
++    addEventListener (type, fn) {
++      if (!this.listeners[type]) this.listeners[type] = []
++      this.listeners[type].push(fn)
++    }
++
++    removeEventListener (type, fn) {
++      if (this.listeners[type]) this.listeners[type] = this.listeners[type].filter((f) => f !== fn)
++    }
++
++    dispatch (type, extra) {
++      const evt = Object.assign({ type, target: this, defaultPrevented: false }, extra || {})
++      evt.preventDefault = () => { evt.defaultPrevented = true }
++      evt.stopPropagation = () => {}
++      let n = this
++      while (n) {
++        const fns = n.listeners[type] || []
++        fns.slice().forEach((fn) => fn(evt))
++        n = n.parentNode
++      }
++      return evt
++    }
++
++    click () {
++      return this.dispatch('click')
++    }
++
++    focus () {
++      doc.activeElement = this
++    }
++  }
++
++  doc.createElement = (tag) => new Element(tag)
++  doc.createElementNS = (ns, tag) => new Element(tag)
++  doc.createTextNode = (text) => new TextNode(text)
++  doc.documentElement = new Element('html')
++  doc.body = doc.documentElement.appendChild(new Element('body'))
++  doc.activeElement = doc.body
++  doc.getElementById = (id) => doc.documentElement.querySelector('#' + id)
++  doc.querySelectorAll = (selector) => doc.documentElement.querySelectorAll(selector)
++  doc.querySelector = (selector) => doc.documentElement.querySelector(selector)
++  doc.addEventListener = () => {}
++  return doc
++}
++
++// ------------------------------------------------------------------ zaman, ağ ve cihazlar
++
++function makeClock () {
++  const clock = { now: 1700000000000, jobs: [], seq: 0 }
++  clock.add = (fn, ms, every) => {
++    clock.seq++
++    clock.jobs.push({ id: clock.seq, fn, due: clock.now + (ms || 0), every: every ? ms : 0 })
++    return clock.seq
++  }
++  clock.clear = (id) => {
++    clock.jobs = clock.jobs.filter((j) => j.id !== id)
++  }
++  clock.advance = (ms) => {
++    const end = clock.now + ms
++    while (true) {
++      const due = clock.jobs.filter((j) => j.due <= end).sort((a, b) => a.due - b.due || a.id - b.id)[0]
++      if (!due) break
++      clock.now = Math.max(clock.now, due.due)
++      if (due.every) due.due += due.every
++      else clock.clear(due.id)
++      due.fn()
++    }
++    clock.now = end
++  }
++  return clock
++}
++
++// Sahte iç zarf (test/oyun-masa.test.js kalıbı): gönderenin gizli ve alıcının açık anahtarı iki tarafı belirler
++const fakeDm = {
++  seal (obj, pk, sk) {
++    if (typeof pk !== 'string' || typeof sk !== 'string') throw new Error('anahtar')
++    return '2.' + Buffer.from(JSON.stringify({ a: sk.slice(3), b: pk.slice(3), m: obj })).toString('base64')
++  },
++  open (p, pks, sk) {
++    let x = null
++    try {
++      x = JSON.parse(Buffer.from(p.slice(2), 'base64').toString('utf8'))
++    } catch (e) {
++      return { ok: false, reason: 'bad' }
++    }
++    const me = sk.slice(3)
++    const other = pks[0].slice(3)
++    const pair = (x.a === me && x.b === other) || (x.a === other && x.b === me)
++    return pair ? { ok: true, value: x.m, pk: pks[0] } : { ok: false, reason: 'key' }
++  }
++}
++
++function seeded (seed) {
++  let x = (seed * 2654435761) >>> 0 || 1
++  return (n) => {
++    const out = []
++    while (out.length < n) {
++      x ^= x << 13
++      x >>>= 0
++      x ^= x >>> 17
++      x ^= x << 5
++      x >>>= 0
++      out.push(x & 255)
++    }
++    return out
++  }
++}
++
++// Yayın sahnesinin (22-cast.js) ve ses arayüzünün (10-voice.js) bu testteki karşılıkları
++const STAGE_FAKES = `
++const castState = { nodes: null, full: false }
++let fakeShare = 'off'
++function castSync () {
++  const s = snap()
++  const want = s.channelId !== null && !s.private && gameStageWanted()
++  if (want) {
++    el.cast.hidden = false
++    el.cast.setAttribute('data-mode', 'game')
++    castRenderGame(castState.nodes)
++  } else if (!el.cast.hidden) {
++    const had = el.cast.contains(document.activeElement)
++    el.cast.hidden = true
++    el.cast.removeAttribute('data-mode')
++    clear(castState.nodes.game)
++    gameStageClosed()
++    if (had) focusNode(byId('radio-game'))
++  }
++  gameRenderTool()
++}
++function castRenderGame (n) {
++  setLive(n.title, () => gameStageTitle())
++  setLive(n.sub, () => gameStageSub())
++  gameRenderStage(n.game)
++}
++function castOpenGame (moveFocus) {
++  castSync()
++  if (moveFocus && !el.cast.hidden) focusNode(gameFirstFocus())
++}
++function castMinimizeGame () {
++  gameSetMinimized(true)
++  castSync()
++  focusNode(byId('radio-game'))
++}
++function castScreen () {
++  return { state: fakeShare }
++}
++function castChoiceGroup (className, labelledBy, options, current, onPick, itemClass) {
++  const group = h('div', className)
++  group.setAttribute('role', 'radiogroup')
++  group.setAttribute('aria-labelledby', labelledBy)
++  options.forEach((opt) => {
++    const b = h('button', itemClass)
++    b.setAttribute('role', 'radio')
++    b.setAttribute('data-value', opt.value)
++    b.setAttribute('aria-checked', opt.value === current ? 'true' : 'false')
++    b.appendChild(h('b', itemClass + '-label', opt.label))
++    b.addEventListener('click', () => onPick(opt.value))
++    group.appendChild(b)
++  })
++  return group
++}
++function activeFocusKey (container) {
++  const active = document.activeElement
++  if (!active || !container || !container.contains(active)) return null
++  return active.getAttribute('data-focus-key')
++}
++function restoreFocusKey (container, key) {
++  if (!key || !container) return
++  const found = Array.from(container.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0]
++  if (found) focusNode(found)
++}
++function isTypingTarget () {
++  return false
++}
++function snap () {
++  return fakeVoice.snap
++}
++function voiceRoster (channelId) {
++  return fakeVoice.roster
++}
++function inCallRoom (s) {
++  return Boolean(s && s.private)
++}
++function dmSendState (uid) {
++  const r = fakeVoice.keys[String(uid)]
++  return r ? { ok: false, reason: r } : { ok: true, pk: 'pk:' + uid }
++}
++function myIdentity () {
++  return fakeVoice.locked ? null : { secretKey: 'sk:' + state.me.id }
++}
++function isBlocked (uid) {
++  return fakeVoice.blocked.indexOf(String(uid)) !== -1
++}
++function profilesEnsure () {}
++`
++
++const NAMES = { 5: 'Deniz', 12: 'Ece', 7: 'Mert', 30: 'Aylin' }
++
++module.exports = { same, stripComments, makeDocument, makeClock, fakeDm, seeded, STAGE_FAKES, NAMES }
