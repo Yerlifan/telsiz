@@ -53,6 +53,8 @@ window.I18N = (function () {
     'theme.skinHint.kutup': 'Buzul mavisi ve parka turuncusu araştırma istasyonu.',
     'theme.skin.plak': 'Plak',
     'theme.skinHint.plak': 'Patlıcan moru, gül pembesi ve altın yaldızlı gece plak yayını.',
+    'theme.skin.kokpit': 'Kokpit',
+    'theme.skinHint.kokpit': 'Grafit cam kokpit, macenta rota ve camgöbeği seçim.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2025,6 +2027,8 @@ window.I18N = (function () {
     'theme.skinHint.kutup': 'A research station in glacier blue and parka orange.',
     'theme.skin.plak': 'Vinyl',
     'theme.skinHint.plak': 'A late-night vinyl show in aubergine, rose and gold.',
+    'theme.skin.kokpit': 'Cockpit',
+    'theme.skinHint.kokpit': 'A graphite glass cockpit with a magenta route and cyan selection.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
