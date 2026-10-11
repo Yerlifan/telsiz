@@ -1,0 +1,343 @@
+From 77811d0531bd868a77b65da0ec54922fd1b73ec9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:44:53 +0000
+Subject: [PATCH 31/33] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmeleri=20(kay?=
+ =?UTF-8?q?=C4=B1t=20s=C3=BCrerken=20se=C3=A7ilen=20kapak=20ve=20Kald?=
+ =?UTF-8?q?=C4=B1r=20d=C3=BC=C4=9Fmeleri)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Profil kaydı sürerken hazırlanması biten kapak veya profil resmi artık
+kayıt bitince taslaktan silinmez. Yalnızca kayda giren resim alanları
+sıfırlanır, sonradan hazır olan resim taslakta kalır ve bir sonraki
+kayıtta yüklenir. Kayda giren önizleme kayıt sırasında bırakılmaz, kayıt
+düşerse ve taslakta yoksa bırakılır.
+
+Kaldır düğmeleri kayıt sürerken kapalı kalır. Ayar izleyicisinin
+yenilemesi onları açmaz, kaldırma ve geri alma işleyicileri kayıt
+sürerken bir şey yapmaz.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/11-settings.js |  68 +++++++++++++++-----
+ test/settings.test.js    | 134 ++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 185 insertions(+), 17 deletions(-)
+
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 8ac844e..6e35b37 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -1177,7 +1177,9 @@ function profileDraft () {
+     coverMode: 'server',
+     coverFile: null,
+     coverUrl: '',
+-    coverPending: null
++    coverPending: null,
++    // Kayıt sürerken kayda giren önizlemeler { avatarUrl, coverUrl } (releaseDraftUrl), kayıt yokken null
++    saving: null
+   }
+   return settingsUi.draft
+ }
+@@ -1463,8 +1465,6 @@ function buildProfilePage (page) {
+     coverHost.appendChild(profileCoverBand(view.coverUrl, view.color))
+     clear(previewHost)
+     previewHost.appendChild(buildPreviewCard(view, 'set-profile-card'))
+-    remove.disabled = !view.avatarUrl
+-    coverRemove.disabled = !view.coverUrl && !(d.coverMode === 'server' && myCoverUploadId())
+     counters.forEach((c) => {
+       const len = cpLength(c.control.value.trim())
+       c.counter.textContent = t('settings.profile.counter', { count: formatNumber(len), max: formatNumber(c.max) })
+@@ -1473,11 +1473,14 @@ function buildProfilePage (page) {
+     const keyOk = hasActiveKey()
+     keyNotice.hidden = keyOk
+     const dirty = draftDirty(d)
++    // Kayıt sürerken (setFormBusy) düğmeler kapalı kalır, ayar izleyicisinin yenilemesi de onları açmaz
+     if (!isBusy(form)) {
+       save.disabled = !dirty || !keyOk
+       reset.disabled = !dirty
+       pick.disabled = !keyOk
+       coverPick.disabled = !keyOk
++      remove.disabled = !view.avatarUrl
++      coverRemove.disabled = !view.coverUrl && !(d.coverMode === 'server' && myCoverUploadId())
+     }
+     dirtyNote.hidden = !dirty
+   }
+@@ -1504,7 +1507,7 @@ function buildProfilePage (page) {
+       revokeBlobLater(preview.url)
+       return
+     }
+-    if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
++    if (d.avatarMode === 'new') releaseDraftUrl(d, d.avatarUrl)
+     d.avatarMode = 'new'
+     d.avatarFile = chosen
+     d.avatarUrl = preview.url
+@@ -1513,6 +1516,7 @@ function buildProfilePage (page) {
+     if (isConnected(pick)) focusNode(pick)
+   })
+   remove.addEventListener('click', () => {
++    if (isBusy(form)) return
+     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
+     d.avatarFile = null
+     d.avatarUrl = ''
+@@ -1543,7 +1547,7 @@ function buildProfilePage (page) {
+       revokeBlobLater(preview.url)
+       return
+     }
+-    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
++    if (d.coverMode === 'new') releaseDraftUrl(d, d.coverUrl)
+     d.coverMode = 'new'
+     d.coverFile = chosen
+     d.coverUrl = preview.url
+@@ -1552,6 +1556,7 @@ function buildProfilePage (page) {
+     if (isConnected(coverPick)) focusNode(coverPick)
+   })
+   coverRemove.addEventListener('click', () => {
++    if (isBusy(form)) return
+     if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+     d.coverFile = null
+     d.coverUrl = ''
+@@ -1561,6 +1566,7 @@ function buildProfilePage (page) {
+     focusNode(coverPick)
+   })
+   reset.addEventListener('click', () => {
++    if (isBusy(form)) return
+     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
+     if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+     d.displayName = d.base.displayName
+@@ -1603,6 +1609,16 @@ function buildProfilePage (page) {
+   return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') + (d.coverPending ? 'c' : '') }
+ }
+ 
++// Taslaktan çıkan önizleme bırakılır. Kayıt sürerken kayda giren önizleme bırakılmaz, kayıt bitince saveProfileDraft
++// onu bekleyen önizleme olarak kullanır veya bırakır.
++function releaseDraftUrl (d, url) {
++  if (d.saving && (d.saving.avatarUrl === url || d.saving.coverUrl === url)) return
++  revokeBlobLater(url)
++}
++
++// Kayıt sürerken taslak değişebilir: kayıttan önce seçilip hazırlanması kayıt sırasında biten profil resmi veya kapak.
++// Kayıt bitince yalnızca kayda giren resim alanları sıfırlanır, sonradan seçilen resim taslakta kalır ve bir sonraki
++// kayıtta yüklenir.
+ async function saveProfileDraft (d, ui) {
+   if (isBusy(ui.form)) return
+   if (!hasActiveKey()) {
+@@ -1624,11 +1640,27 @@ async function saveProfileDraft (d, ui) {
+   else if (d.coverMode === 'removed') input.coverFile = null
+   const before = myAvatarUploadId()
+   const mode = d.avatarMode
++  const avatarFile = d.avatarFile
++  const avatarUrl = d.avatarUrl
+   const coverBefore = myCoverUploadId()
+   const coverMode = d.coverMode
+-  const result = await saveProfile(input)
++  const coverFile = d.coverFile
++  const coverUrl = d.coverUrl
++  d.saving = { avatarUrl: mode === 'new' ? avatarUrl : '', coverUrl: coverMode === 'new' ? coverUrl : '' }
++  let result = null
++  try {
++    result = await saveProfile(input)
++  } catch (err) {
++    result = { ok: false, error: errorProducer(err, () => t('profile.saveFailed')) }
++  }
++  d.saving = null
+   setFormBusy(ui.form, false)
++  const avatarKept = d.avatarMode !== mode || d.avatarFile !== avatarFile
++  const coverKept = d.coverMode !== coverMode || d.coverFile !== coverFile
+   if (!result.ok) {
++    // Kayda giren önizleme kayıt sırasında taslaktan çıktıysa artık kullanılmaz
++    if (avatarKept && mode === 'new') revokeBlobLater(avatarUrl)
++    if (coverKept && coverMode === 'new') revokeBlobLater(coverUrl)
+     setMsg(ui.msg, result.error, 'error')
+     ui.refresh()
+     return
+@@ -1646,25 +1678,29 @@ async function saveProfileDraft (d, ui) {
+   if (d.pending) revokeBlobLater(d.pending.url)
+   d.pending = null
+   if (mode === 'new') {
+-    d.pending = { from: before, url: d.avatarUrl, at: Date.now() }
++    d.pending = { from: before, url: avatarUrl, at: Date.now() }
+   } else if (mode === 'removed') {
+     d.pending = { from: before, url: '', at: Date.now() }
+   }
+-  d.avatarMode = 'server'
+-  d.avatarFile = null
+-  d.avatarUrl = ''
++  if (!avatarKept) {
++    d.avatarMode = 'server'
++    d.avatarFile = null
++    d.avatarUrl = ''
++    setMsg(ui.avatarMsg, '')
++  }
+   if (d.coverPending) revokeBlobLater(d.coverPending.url)
+   d.coverPending = null
+   if (coverMode === 'new') {
+-    d.coverPending = { from: coverBefore, url: d.coverUrl, at: Date.now() }
++    d.coverPending = { from: coverBefore, url: coverUrl, at: Date.now() }
+   } else if (coverMode === 'removed') {
+     d.coverPending = { from: coverBefore, url: '', at: Date.now() }
+   }
+-  d.coverMode = 'server'
+-  d.coverFile = null
+-  d.coverUrl = ''
+-  setMsg(ui.avatarMsg, '')
+-  setMsg(ui.coverMsg, '')
++  if (!coverKept) {
++    d.coverMode = 'server'
++    d.coverFile = null
++    d.coverUrl = ''
++    setMsg(ui.coverMsg, '')
++  }
+   setMsg(ui.msg, () => t('settings.profile.saved'), 'ok')
+   if (isConnected(ui.form)) {
+     ui.fill()
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 403c522..b4d058c 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -8,7 +8,8 @@
+ // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
+ // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
+ // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+-// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma ve geri alma da sınanır.
++// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma ve kayıt sürerken
++// hazırlanması biten kapak da sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -1407,3 +1408,134 @@ test('Profil sayfası kaldırılan kapağı kayıttan sonra, sunucu kaydı yenil
+   assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
+ })
+ 
++
++test('Profil kaydı sürerken hazırlanması biten kapak taslakta kalır, Kaldır düğmeleri kayıt bitene kadar kapalı kalır', async () => {
++  const { run, root, sandbox } = load({ role: 'member' })
++  const settle = async (rounds = 6) => {
++    if (rounds === 0) return
++    await new Promise((resolve) => setImmediate(resolve))
++    return settle(rounds - 1)
++  }
++  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
++  const byId = (id) => root.querySelector('#' + id)
++  // Kapak hazırlığı ve kayıt, testin bitirdiği sözlerle sürer
++  sandbox.__finishPreview = null
++  sandbox.__finishSave = null
++  sandbox.__saved = []
++  run('hasActiveKey = function () { return true }')
++  run('makeCoverPreview = function () { return new Promise(function (resolve) { __finishPreview = resolve }) }')
++  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
++  run("openSettings('profile', null)")
++  // Görünen ad değişir, Kaydet açılır
++  const name = byId('set-display-name')
++  name.value = 'Burak Yeni'
++  name.dispatchEvent(fakeEvent('input'))
++  assert.strictEqual(byId('set-profile-save').disabled, false)
++  // Büyük bir kapak seçilir, kapak hazırlanırken Kaydet'e basılır: kayıt kapaksız gider
++  const chosen = { name: 'buyuk-kapak.jpg', size: 9 * 1024 * 1024 }
++  const file = byId('set-cover-file')
++  file.files = [chosen]
++  file.dispatchEvent(fakeEvent('change'))
++  await settle()
++  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazırlanıyor...')
++  byId('set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved.length, 1)
++  assert.strictEqual('coverFile' in sandbox.__saved[0], false)
++  // Kayıt sürerken kapak hazır olur: önizlemede görünür, düğmeler kayıt bitene kadar kapalı kalır
++  sandbox.__finishPreview({ url: 'blob:gec-kapak' })
++  await settle()
++  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
++  for (const id of ['set-profile-save', 'set-profile-reset', 'set-cover-pick', 'set-cover-remove', 'set-avatar-pick', 'set-avatar-remove']) {
++    assert.strictEqual(byId(id).disabled, true, id + ' kayıt sürerken kapalı')
++  }
++  // Ayar izleyicisinin yenilemesi de Kaldır düğmelerini açmaz, kapalı düğmeye basılsa da taslak değişmez
++  run('updateSettingsPage()')
++  assert.strictEqual(byId('set-cover-remove').disabled, true)
++  assert.strictEqual(byId('set-avatar-remove').disabled, true)
++  byId('set-cover-remove').dispatchEvent(fakeEvent('click'))
++  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
++  // Kayıt biter: görünen ad kaydedilir, kayda girmeyen kapak taslakta kalır ve kaydedilmemiş değişiklik olarak görünür
++  sandbox.__finishSave({ ok: true })
++  await settle()
++  assert.strictEqual(byId('set-profile-msg').textContent, 'Profil kaydedildi.')
++  assert.strictEqual(run('settingsUi.draft.base.displayName'), 'Burak Yeni')
++  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
++  assert.strictEqual(run('settingsUi.draft.coverFile === __saved[0].coverFile'), false)
++  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
++  assert.strictEqual(coverImg('set-profile-card').src, 'blob:gec-kapak')
++  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
++  assert.strictEqual(byId('set-profile-dirty').hidden, false)
++  assert.strictEqual(byId('set-profile-save').disabled, false)
++  assert.strictEqual(byId('set-cover-remove').disabled, false)
++  // İkinci kayıt kapağı yükler
++  byId('set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved.length, 2)
++  assert.strictEqual(sandbox.__saved[1].coverFile, chosen)
++  sandbox.__finishSave({ ok: true })
++  await settle()
++  assert.strictEqual(run('settingsUi.draft.coverMode'), 'server')
++  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:gec-kapak')
++  assert.strictEqual(byId('set-profile-dirty').hidden, true)
++})
++
++test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizlemesi bırakılmaz, kayıt düşerse bırakılır', async () => {
++  const { run, root, sandbox } = load({ role: 'member' })
++  const settle = async (rounds = 6) => {
++    if (rounds === 0) return
++    await new Promise((resolve) => setImmediate(resolve))
++    return settle(rounds - 1)
++  }
++  const byId = (id) => root.querySelector('#' + id)
++  sandbox.__previews = []
++  sandbox.__finishSave = null
++  sandbox.__saved = []
++  sandbox.__revoked = []
++  run('hasActiveKey = function () { return true }')
++  run('revokeBlobLater = function (url) { if (url) __revoked.push(url) }')
++  run('makeCoverPreview = function () { return new Promise(function (resolve) { __previews.push(resolve) }) }')
++  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
++  run("openSettings('profile', null)")
++  const file = byId('set-cover-file')
++  const choose = async (picked) => {
++    file.files = [picked]
++    file.dispatchEvent(fakeEvent('change'))
++    await settle()
++  }
++  // A kapağı hazır, B kapağı hazırlanırken Kaydet: kayda A girer
++  const first = { name: 'a.jpg', size: 5000 }
++  const second = { name: 'b.jpg', size: 5000 }
++  await choose(first)
++  sandbox.__previews.shift()({ url: 'blob:a' })
++  await settle()
++  await choose(second)
++  byId('set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved[0].coverFile, first)
++  // B kayıt sürerken hazır olur: taslağa girer, kayda giren A bırakılmaz
++  sandbox.__previews.shift()({ url: 'blob:b' })
++  await settle()
++  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:b')
++  assert.deepStrictEqual(sandbox.__revoked, [])
++  // Kayıt düşer: A artık taslakta olmadığı için bırakılır, B taslakta kalır
++  sandbox.__finishSave({ ok: false, error: () => 'Profil kaydedilemedi.' })
++  await settle()
++  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
++  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
++  assert.strictEqual(run('settingsUi.draft.coverFile.name'), 'b.jpg')
++  // C kapağı hazırlanırken yeniden kaydedilir: kayda B girer, kayıt başarılı olunca B bekleyen önizleme olur, kayıt
++  // sürerken hazır olan C taslakta kalır
++  await choose({ name: 'c.jpg', size: 5000 })
++  byId('set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved[1].coverFile, second)
++  sandbox.__previews.shift()({ url: 'blob:c' })
++  await settle()
++  sandbox.__finishSave({ ok: true })
++  await settle()
++  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
++  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:b')
++  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
++  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
++})
