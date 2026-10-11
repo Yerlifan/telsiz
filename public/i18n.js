@@ -55,6 +55,12 @@ window.I18N = (function () {
     'rooms.dmGroup': 'Özel mesajlar',
     'rooms.dmAll': 'Tüm Özel Mesajlar',
     'rooms.dmFewer': 'Daha Az Göster',
+    'search.quickTitle': 'Odalar ve Kişiler',
+    'search.quickOpen': '{name} aç',
+    'search.quickRoom': 'Yazı Odası',
+    'hints.altArrows': 'Alt + Yukarı/Aşağı: önceki veya sonraki konuşma',
+    'hints.altShiftArrows': 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış',
+    'hints.esc': 'Esc: okundu işaretle ve en alta in',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Saha Telsizi',
@@ -2089,6 +2095,12 @@ window.I18N = (function () {
     'rooms.dmGroup': 'Direct messages',
     'rooms.dmAll': 'All Direct Messages',
     'rooms.dmFewer': 'Show Fewer',
+    'search.quickTitle': 'Rooms and People',
+    'search.quickOpen': 'Open {name}',
+    'search.quickRoom': 'Text Room',
+    'hints.altArrows': 'Alt + Up/Down: previous or next conversation',
+    'hints.altShiftArrows': 'Alt + Shift + Up/Down: next unread',
+    'hints.esc': 'Esc: mark as read and jump to bottom',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Field Radio',

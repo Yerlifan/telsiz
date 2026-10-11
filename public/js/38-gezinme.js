@@ -34,6 +34,10 @@
 // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
 // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
 //
+// Kısayollar (S10). Alt+Yukarı/Aşağı önceki ve sonraki konuşma, Alt+Shift+Yukarı/Aşağı sıradaki okunmamış (anmalar
+// önce), Esc (açık katman yokken) okundu say ve en alta in. Ctrl+K paneli adı eşleşen odaları ve kişileri de
+// gösterir (17-search.js).
+//
 // Orta genişlik (S8, frekans.css) ve dar özel mesaj başlığı (S9). 760 ile 1279 px arasında İstasyonlar kartı sağ
 // sütunda telsiz kartının üstündedir. Özel mesaj başlığı sığmazsa düğmeler yalnızca simgeye döner (navFitDmHeader).
 //
@@ -413,6 +417,12 @@ function navInit () {
   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
   navWatchInfoCards()
   navWatchDmHeader()
+  // Alt ile oklar yazma alanının kendi tuşlarından önce yakalanır, Esc diğer modüllerden (öneri listesi, düzenleme,
+  // katmanlar) sonra işlenir
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('keydown', navOnShortcut, true)
+    document.addEventListener('keydown', navOnEscape)
+  }
 }
 
 // ------------------------------------------------------------------ okunmamış ayracı, şerit ve kapsül (S3, S4)
@@ -825,6 +835,144 @@ function navWatchInfoCards () {
   const observer = new window.MutationObserver(navSyncInfoCards)
   observer.observe(el.infoCol, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] })
   navSyncInfoCards()
+}
+
+// ------------------------------------------------------------------ kısayollar (S10)
+
+// Alt+Yukarı ve Alt+Aşağı önceki ve sonraki konuşmayı, Alt+Shift+Yukarı ve Alt+Shift+Aşağı sıradaki okunmamış
+// konuşmayı (anmalar ve özel mesajlar önce) açar. Sıra İstasyonlar listesindeki gibidir: yazı odaları, sonra Özel
+// mesajlar grubu. Uçlarda başa dönülür. Açık katman varken, yazma alanı dışındaki bir metin alanında ve bas konuş veya
+// başka bir ses tuşu Alt, Shift ya da oklara atanmışsa (12-init.js commaBound kalıbı) kısayol çalışmaz. Esc (açık
+// katman yokken) konuşmayı okundu sayar ve en alta iner. Alt+Sol ve Alt+Sağ (tarayıcının geri ve ileri tuşu) ile
+// Ctrl+PageUp ve Ctrl+PageDown (sekme değiştirme) kullanılmaz.
+const NAV_ALT_CODES = ['AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown']
+const NAV_SHIFT_CODES = ['ShiftLeft', 'ShiftRight']
+
+// Konuşma listesi: { key ('c:<oda>' veya 'd:<özel konuşma>'), view, id, unread, mention }. Özel mesajın okunmamışı
+// anma sayılır (Özel düğmesindeki gibi anma rengindedir).
+function navConvList () {
+  const out = []
+  const rooms = typeof textChannels === 'function' ? textChannels() : []
+  rooms.forEach((c) => {
+    out.push({ key: 'c:' + c.id, view: 'channel', id: c.id, unread: navUnreadOf(c.id), mention: typeof mentionCount === 'function' ? mentionCount(c.id) : 0 })
+  })
+  const entries = typeof bandDmEntries === 'function' && state.me ? bandDmEntries() : []
+  const open = navOpenDmId()
+  const unreadOf = (id) => (open !== null && sameId(id, open) ? 0 : navUnreadOf(id))
+  navDmOrder(entries, unreadOf).forEach((d) => {
+    const n = unreadOf(d.id)
+    out.push({ key: 'd:' + d.id, view: 'dm', id: d.id, unread: n, mention: n })
+  })
+  return out
+}
+
+function navConvKey () {
+  const cur = navCurrentConv()
+  if (cur.view === 'home' || cur.id === null) return ''
+  return (cur.view === 'dm' ? 'd:' : 'c:') + cur.id
+}
+
+function navKeyIndex (list, key) {
+  let i = 0
+  while (i < list.length) {
+    if (list[i].key === key) return i
+    i += 1
+  }
+  return -1
+}
+
+// Açık konuşmadan dir yönünde (1 aşağı, -1 yukarı) k adım ötedeki sıra, uçlarda başa döner. Açık konuşma listede
+// yoksa (Arkadaşlar görünümü) aşağı ilk, yukarı son konuşmadan başlanır.
+function navStepIndex (n, i, dir, k) {
+  const start = i === -1 ? (dir > 0 ? -1 : n) : i
+  return (((start + dir * k) % n) + n) % n
+}
+
+// Önceki veya sonraki konuşma, başka konuşma yoksa null
+function navStepConv (list, key, dir) {
+  const i = navKeyIndex(list, key)
+  if (!list.length || (i !== -1 && list.length < 2)) return null
+  return list[navStepIndex(list.length, i, dir, 1)]
+}
+
+// Sıradaki okunmamış konuşma: anması olan (özel mesajda okunmamışı olan) konuşmalar önce, yoksa okunmamışı olanlar.
+// Açık konuşma sayılmaz. Yoksa null.
+function navNextUnread (list, key, dir) {
+  const others = list.filter((c) => c.key !== key)
+  let pool = others.filter((c) => c.mention > 0)
+  if (!pool.length) pool = others.filter((c) => c.unread > 0)
+  if (!pool.length) return null
+  const i = navKeyIndex(list, key)
+  let k = 1
+  while (k <= list.length) {
+    const c = list[navStepIndex(list.length, i, dir, k)]
+    if (pool.indexOf(c) !== -1) return c
+    k += 1
+  }
+  return null
+}
+
+function navOpenConv (c) {
+  if (!c) return
+  if (c.view === 'dm') {
+    if (typeof showDm === 'function') showDm(c.id, { focus: true })
+  } else {
+    selectChannel(c.id, { focus: true })
+  }
+}
+
+// Ses tuşlarından biri verilen tuşlardan birine atanmış mı
+function navKeyBound (codes) {
+  if (!voice || typeof voice.settings !== 'function') return false
+  try {
+    const bindings = voice.settings().bindings || {}
+    return Object.keys(bindings).some((name) => {
+      const b = bindings[name]
+      return Boolean(b && b.type === 'key' && codes.indexOf(b.code) !== -1)
+    })
+  } catch (err) {
+    return false
+  }
+}
+
+function navShortcutReady () {
+  return Boolean(state.inApp && el.appView && !el.appView.hidden && !topLayer())
+}
+
+function navOnShortcut (e) {
+  if (!e || !e.altKey || e.ctrlKey || e.metaKey) return
+  const down = e.key === 'ArrowDown' || e.key === 'Down'
+  const up = e.key === 'ArrowUp' || e.key === 'Up'
+  if ((!down && !up) || !navShortcutReady()) return
+  const target = e.target
+  if (target && target !== el.composerInput && typeof isTypingTarget === 'function' && isTypingTarget(target)) return
+  if (navKeyBound(e.shiftKey ? NAV_ALT_CODES.concat(NAV_SHIFT_CODES) : NAV_ALT_CODES)) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.repeat) return
+  const list = navConvList()
+  const key = navConvKey()
+  navOpenConv(e.shiftKey ? navNextUnread(list, key, down ? 1 : -1) : navStepConv(list, key, down ? 1 : -1))
+}
+
+function navOnEscape (e) {
+  if (!e || (e.key !== 'Escape' && e.key !== 'Esc') || e.defaultPrevented) return
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !navShortcutReady()) return
+  navReadToBottom()
+}
+
+// Okundu say ve en alta in: daha yeni mesajlar yüklü değilse en yeni sayfa açılır (06-messages.js jumpToLatest)
+function navReadToBottom () {
+  if (!state.channelId || state.loading || navCurrentConv().view === 'home' || !el.messages) return false
+  if (state.hasNewer) {
+    if (typeof jumpToLatest === 'function') jumpToLatest()
+    return true
+  }
+  scrollToBottom()
+  markRead({ force: true })
+  navState.newBelow = 0
+  navRenderBelow()
+  return true
 }
 
 // ------------------------------------------------------------------ dar özel mesaj başlığı (S9)

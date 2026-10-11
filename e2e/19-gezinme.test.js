@@ -48,6 +48,12 @@
 //   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
 //   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
 //   başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
+// G10, kısayollar (S10): Alt+Aşağı ve Alt+Yukarı İstasyonlar listesinin sırasıyla (yazı odaları, özel konuşmalar)
+//   konuşma değiştirir ve uçlarda başa döner, odak yazma alanında kalır. Alt+Shift+Aşağı önce anması olan odaya, sonra
+//   okunmamış odaya gider, okunmamış kalmayınca konuşma değişmez. Bas konuş Alt tuşuna atanınca kısayol çalışmaz. Esc
+//   açık katmanı (emoji seçici) kapatırken kaydırmaz, katman yokken okundu sayıp en alta iner. Ctrl+K panelinde Odalar
+//   ve Kişiler bölümü oda adını (Türkçe harfler ve büyük harf duyarsız) ve özel konuşmanın görünen adını bulur, aşağı
+//   ok ve Enter konuşmayı açar, eşleşme yoksa bölüm gizlidir. Rehber kartında üç kısayol satırı var.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -1110,6 +1116,122 @@ test('dar özel mesaj başlığı: 1024 ile 1280 px arasında ad en az 80 piksel
     assert.deepEqual([v.overlap, v.inside, v.labels], [false, true, true], width + ' genişlikte başlık')
   }
   await setWidth(page, 1440)
+})
+
+// G10 (S10): kısayollar ve Ctrl+K'de odalar ve kişiler
+
+test('kısayollar: Alt+ok önceki ve sonraki konuşma, Alt+Shift+ok sıradaki okunmamış (anma önce), Esc okundu sayıp en alta iner', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  await openRoomRow(page, genel)
+  const order = await page.evaluate(() => navConvList().map((c) => c.key))
+  assert.equal(order[0], 'c:' + genel)
+  assert.ok(order.indexOf('d:' + W.dmEce) !== -1 && order.indexOf('d:' + W.dmMert) !== -1, 'özel konuşmalar sırada')
+  await page.focus('#composer-input')
+  await page.keyboard.press('Alt+ArrowDown')
+  await waitConversation(page, 'channel', order[1].slice(2))
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'composer-input')
+  await page.keyboard.press('Alt+ArrowUp')
+  await waitConversation(page, 'channel', genel)
+  // Yukarı en baştan sona döner (son konuşma bir özel konuşma)
+  await page.keyboard.press('Alt+ArrowUp')
+  await waitConversation(page, 'dm', order[order.length - 1].slice(2))
+  await page.keyboard.press('Alt+ArrowDown')
+  await waitConversation(page, 'channel', genel)
+
+  // Okunmamış: önceki testlerden kalan sayaçlar sıfırlanır, sonra oyun-gecesi'nde düz mesaj, sohbet'te anma gelir.
+  // Alt+Shift+Aşağı önce anmaya, sonra okunmamışa gider
+  await page.evaluate(() => {
+    Object.keys(state.unread).forEach((id) => {
+      state.unread[id] = 0
+    })
+    state.mentions = Object.create(null)
+    renderBand()
+  })
+  const oyun = W.w.room('oyun-gecesi').id
+  const sohbet = W.w.room('sohbet').id
+  await W.w.say('ece', W.w.room('oyun-gecesi'), 'akşam oyun var mı')
+  await W.w.say('ece', W.w.room('sohbet'), '@deniz bakar mısın')
+  await page.waitForFunction((a) => state.unread[a.oyun] === 1 && mentionCount(a.sohbet) === 1, { oyun, sohbet }, { timeout: h.LONG })
+  await page.keyboard.press('Alt+Shift+ArrowDown')
+  await waitConversation(page, 'channel', sohbet)
+  await page.waitForFunction((id) => !state.unread[id], sohbet)
+  await page.keyboard.press('Alt+Shift+ArrowDown')
+  await waitConversation(page, 'channel', oyun)
+  await page.waitForFunction((id) => !state.unread[id], oyun)
+  // Okunmamış kalmayınca konuşma değişmez
+  await page.keyboard.press('Alt+Shift+ArrowDown')
+  await h.sleep(300)
+  await waitConversation(page, 'channel', oyun)
+
+  // Bas konuş Alt tuşuna atanmışsa kısayol çalışmaz
+  await page.evaluate(() => voice.setSettings({ bindings: { ptt: { type: 'key', code: 'AltLeft' } } }))
+  await page.keyboard.press('Alt+ArrowDown')
+  await h.sleep(300)
+  await waitConversation(page, 'channel', oyun)
+  await page.evaluate(() => voice.setSettings({ bindings: { ptt: { type: 'key', code: 'KeyV' } } }))
+
+  // Esc: açık katman varken yalnızca katman kapanır, yokken okundu sayılır ve en alta inilir
+  const arsiv = W.w.room('arsiv').id
+  await openRoomRow(page, arsiv)
+  await page.evaluate(() => {
+    el.messages.scrollTop = 0
+  })
+  await page.waitForFunction(() => !isNearBottom())
+  await page.focus('#composer-input')
+  await page.click('#btn-emoji')
+  await page.waitForSelector('#emoji-picker:not([hidden])')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#emoji-picker', { state: 'hidden' })
+  assert.equal(await page.evaluate(() => isNearBottom()), false, 'katman kapanırken kaydırılmadı')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => isNearBottom())
+  assert.equal(await page.evaluate((id) => Number(state.lastRead[id]) === Number(state.messages[state.messages.length - 1].id), arsiv), true)
+})
+
+test('Ctrl+K: Odalar ve Kişiler bölümünde oda ve özel konuşma adı eşleşir, seçilen konuşma açılır, rehberde kısayollar', async () => {
+  const page = W.deniz
+  const foto = W.w.room('fotograflar').id
+  await setWidth(page, 1440)
+  await page.focus('#messages')
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('#search-panel:not([hidden])')
+  await page.fill('#search-input', 'FOTOĞ')
+  await page.waitForSelector('#search-quick:not([hidden])')
+  const quick = await page.evaluate(() => ({
+    title: document.getElementById('search-quick-title').textContent,
+    items: Array.from(document.querySelectorAll('#search-quick-list .search-quick-item')).map((b) => [b.getAttribute('data-quick-kind'), b.querySelector('.search-quick-name').textContent, b.getAttribute('aria-label')])
+  }))
+  assert.deepEqual(quick, { title: 'Odalar ve Kişiler', items: [['channel', 'fotograflar', 'fotograflar aç']] })
+  // Kişi: özel konuşmanın görünen adı
+  await page.fill('#search-input', 'ece')
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('#search-quick-list .search-quick-item')).some((b) => b.getAttribute('data-quick-kind') === 'dm'))
+  assert.equal(await page.evaluate(() => document.querySelector('#search-quick-list .search-quick-item[data-quick-kind="dm"]').getAttribute('aria-label')), 'Ece ile özel mesaj aç')
+  // Klavyeyle: aşağı ok ilk sonuca, Enter açar
+  await page.fill('#search-input', 'fotog')
+  await page.waitForSelector('#search-quick-list .search-quick-item[data-quick-id="' + foto + '"]')
+  await page.focus('#search-input')
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-quick-id')), String(foto))
+  await page.keyboard.press('Enter')
+  await waitConversation(page, 'channel', foto)
+  await page.waitForSelector('#search-panel', { state: 'hidden' })
+  // Eşleşme yoksa bölüm gizli
+  await page.focus('#messages')
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('#search-panel:not([hidden])')
+  await page.fill('#search-input', 'xyzq')
+  await page.waitForFunction(() => document.getElementById('search-quick').hidden)
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#search-panel', { state: 'hidden' })
+  // Rehber kartında kısayol satırları
+  await page.click('#band-help')
+  await page.waitForSelector('#hints-card:not([hidden])')
+  const hints = await page.evaluate(() => Array.from(document.querySelectorAll('#hints-card .hints-conv')).map((n) => n.textContent))
+  assert.deepEqual(hints, ['Alt + Yukarı/Aşağı: önceki veya sonraki konuşma', 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış', 'Esc: okundu işaretle ve en alta in'])
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#hints-card', { state: 'hidden' })
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

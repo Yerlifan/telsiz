@@ -10,7 +10,8 @@
 // mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
 // sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
 // Mesajlar ve görünümün hatırlanması. G10: konuşma önbelleği (son sekiz konuşma, aynı konuşmanın yeniden yüklenmesi,
-// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı).
+// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı), kısayolların konuşma sırası ve sıradaki
+// okunmamış konuşma.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -591,4 +592,42 @@ test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yuk
   run("navCache.map.get('30').hasNewer = false")
   run('let k = 100; while (k < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(k, 30) }); k += 1 }')
   assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id]'), [json('TRIM_TO') + 4, true, 699])
+})
+
+test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş, sıradaki okunmamış (anmalar ve özel mesajlar önce)', () => {
+  const { run, json } = load()
+  run(`
+    var testEntries = [{ id: 50, userId: 2, lastMessageAt: 300 }, { id: 51, userId: 3, lastMessageAt: 200 }]
+    var testMentions = {}
+    function bandDmEntries () { return testEntries.slice() }
+    function textChannels () { return [{ id: 10, name: 'a' }, { id: 11, name: 'b' }, { id: 12, name: 'c' }] }
+    function mentionCount (id) { return testMentions[id] || 0 }
+  `)
+  const step = (key, dir) => json('(function () { const c = navStepConv(navConvList(), ' + JSON.stringify(key) + ', ' + dir + '); return c ? c.key : null })()')
+  const unread = (key, dir) => json('(function () { const c = navNextUnread(navConvList(), ' + JSON.stringify(key) + ', ' + dir + '); return c ? c.key : null })()')
+  // İstasyonlar listesindeki sıra: yazı odaları, sonra özel konuşmalar
+  assert.deepStrictEqual(json('navConvList().map((c) => c.key)'), ['c:10', 'c:11', 'c:12', 'd:50', 'd:51'])
+  assert.strictEqual(json('navConvKey()'), 'c:10')
+  assert.deepStrictEqual([step('c:10', 1), step('c:10', -1), step('d:51', 1), step('c:12', 1)], ['c:11', 'd:51', 'c:10', 'd:50'])
+  // Arkadaşlar görünümünde aşağı ilk, yukarı son konuşma
+  run("testView = 'home'; state.channelId = null")
+  assert.deepStrictEqual([json('navConvKey()'), step('', 1), step('', -1)], ['', 'c:10', 'd:51'])
+  run("testView = 'channel'; state.channelId = 10")
+  // Okunmamış yoksa gidilmez, okunmamışlar sırayla, yukarı yönde geriye doğru
+  assert.strictEqual(unread('c:10', 1), null)
+  run('state.unread[11] = 3; state.unread[12] = 1')
+  assert.deepStrictEqual([unread('c:10', 1), unread('c:10', -1), unread('c:11', 1)], ['c:11', 'c:12', 'c:12'])
+  // Anması olan oda önce
+  run('testMentions[12] = 1')
+  assert.deepStrictEqual([unread('c:10', 1), unread('c:12', 1)], ['c:12', 'c:11'])
+  // Özel mesajın okunmamışı anma sayılır, okunmamış özel konuşma grubun başına geçer
+  run('state.unread[51] = 2')
+  assert.deepStrictEqual(json('navConvList().map((c) => c.key)'), ['c:10', 'c:11', 'c:12', 'd:51', 'd:50'])
+  assert.deepStrictEqual([unread('c:12', 1), unread('c:10', -1)], ['d:51', 'd:51'])
+  // Açık konuşmanın okunmamışı sayılmaz
+  run("testView = 'dm'; state.channelId = 51")
+  assert.deepStrictEqual([json('navConvKey()'), unread('d:51', 1)], ['d:51', 'c:12'])
+  // Tek konuşma varken önceki ve sonraki yoktur
+  run("testEntries.length = 0; textChannels = function () { return [{ id: 10, name: 'a' }] }; testView = 'channel'; state.channelId = 10")
+  assert.strictEqual(step('c:10', 1), null)
 })
