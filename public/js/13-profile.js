@@ -28,6 +28,9 @@ const AVATAR_TYPES = ['image/png', 'image/jpeg']
 const COVER_W = 1200
 const COVER_H = 400
 const COVER_QUALITIES = [0.85, 0.7, 0.55]
+// Bellekte tutulan en çok kapak sayısı. Kapak 1 MB'a kadar olabildiği için önbellek son kullanılan kapaklarla sınırlıdır,
+// açık kartın ve kendi profilimin kapağı atılmaz (trimCovers).
+const COVER_CACHE_MAX = 20
 const STATUS_CHOICES = ['online', 'idle', 'dnd', 'invisible']
 const SHOWN_STATUSES = ['online', 'idle', 'dnd', 'offline']
 
@@ -35,7 +38,7 @@ const profileState = {
   entries: new Map(),
   avatars: new Map(),
   // Kapak fotoğrafları (yükleme kimliği -> kayıt, avatars ile aynı biçim). Kapak yalnızca profil kartında ve Ayarlar
-  // önizlemesinde gösterileceği zaman indirilir (loadCover).
+  // önizlemesinde gösterileceği zaman indirilir (loadCover). Sıra son kullanıma göredir, en eskisi baştadır.
   covers: new Map(),
   formerUsers: new Map(),
   queue: new Set(),
@@ -243,6 +246,7 @@ async function fetchProfiles () {
         // Silinmiş veya sunucudan engellenmiş: yeniden istenmesin
         const old = profileRecord(id)
         if (old && old.missing) return
+        if (old && old.profile && old.profile.cover) dropProfileImage(profileState.covers, old.profile.cover.u)
         profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, coverUploadId: null, keyState: 'none' })
         profileState.changed.add(id)
       })
@@ -442,7 +446,34 @@ function loadAvatar (rec) {
 // hangi kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
 function loadCover (rec) {
   const ref = rec && rec.profile && rec.profile.cover
-  if (ref) loadProfileImage(profileState.covers, rec.id, ref)
+  if (!ref) return
+  const covers = profileState.covers
+  const entry = covers.get(ref.u)
+  if (entry) {
+    // Son kullanılan sona alınır (Map ekleme sırasını korur)
+    covers.delete(ref.u)
+    covers.set(ref.u, entry)
+    return
+  }
+  loadProfileImage(covers, rec.id, ref)
+  trimCovers()
+}
+
+// Kapak önbelleği COVER_CACHE_MAX kaydı aşarsa en uzun süredir kullanılmayan kapaklar bırakılır. Açık kartın ve kendi
+// profilimin (Ayarlar önizlemesi) kapağı tutulur.
+function trimCovers () {
+  const covers = profileState.covers
+  if (covers.size <= COVER_CACHE_MAX) return
+  const keep = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
+  Array.from(covers.keys()).forEach((uploadId) => {
+    if (covers.size > COVER_CACHE_MAX && keep.indexOf(uploadId) === -1) dropProfileImage(covers, uploadId)
+  })
+}
+
+function coverIdOf (userId) {
+  if (userId === null || userId === undefined) return null
+  const profile = activeProfile(userId)
+  return profile && profile.cover ? profile.cover.u : null
 }
 
 function loadProfileImage (images, userId, ref) {

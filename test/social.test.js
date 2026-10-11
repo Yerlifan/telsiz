@@ -10,8 +10,9 @@
 // yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
 // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
 // bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
-// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, kaydetmede korunması ve
-// kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7, 0.55).
+// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, önbelleğin son kullanılan
+// kapaklarla sınırlı kalması, kaydetmede korunması ve kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7,
+// 0.55).
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -659,6 +660,81 @@ test('kapağı kaldırılan kişinin eski kapağı bırakılır, türü tutmayan
   await flush()
   assert.strictEqual(world.downloads.length, 1)
   assert.strictEqual(world.ctx.run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+})
+
+test('kapak önbelleği son kullanılan 20 kapakla sınırlıdır, açık kartın ve kendi kapağım atılmaz, silinen kişinin kapağı bırakılır', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
+  const ctx = load({ clock: true })
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  // Her kapak sırayla gösterilir, blob adresi son indirilen kapağın kimliğini taşır
+  let last = ''
+  const revoked = []
+  sandbox.URL = {
+    createObjectURL: () => 'blob:' + last,
+    revokeObjectURL (url) {
+      revoked.push(url)
+    }
+  }
+  sandbox.Blob = Blob
+  sandbox.downloadPlain = (f) => {
+    last = f.u
+    return Promise.resolve({ ok: true, bytes: new Uint8Array(JPEG_HEAD) })
+  }
+  const coverOf = (id) => id.toString(16).padStart(32, '0')
+  // a..b (ikisi de dahil) kimlikleri
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (x, i) => a + i)
+  const users = []
+  for (const id of range(1, 30)) users.push({ id: id, name: 'kisi' + id, role: 'member', online: true, status: 'online', pv: 2 })
+  sandbox.__users = users
+  run('state.meta.users = __users')
+  for (const id of range(1, 30)) {
+    const cover = { u: coverOf(id), k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
+    sandbox.__entry = { id: id, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: id, displayName: 'Kişi ' + id, statusText: '', bio: '', color: 1, avatar: null, cover: cover }), avatarUploadId: null, coverUploadId: cover.u, publicKey: null, identity: null }
+    run('storeProfileEntry(__entry)')
+  }
+  const show = async (id) => {
+    run('coverUrlOf(' + id + ', true)')
+    await flush()
+  }
+  // Bağlamdaki dizi başka bir realm'den gelir, karşılaştırma için düz JSON'a çevrilir
+  const cached = () => JSON.parse(run('JSON.stringify(Array.from(profileState.covers.keys()))'))
+  // Önce kendi kapağım (Ayarlar önizlemesi) ve açık kart, sonra 18 kişinin kartı: sınır dolar, hiçbiri atılmaz
+  await show(1)
+  run('refreshProfileCardCover = function () {}')
+  run('profileState.cardUserId = 2')
+  await show(2)
+  for (const id of range(3, 20)) await show(id)
+  assert.strictEqual(cached().length, 20)
+  // Yeniden gösterilen kapak sona alınır, sınırı aşan ilk kapakta en uzun süredir kullanılmayan (4) bırakılır
+  await show(3)
+  await show(21)
+  assert.strictEqual(cached().length, 20)
+  assert.strictEqual(cached().indexOf(coverOf(3)) !== -1, true, 'yeniden gösterilen kapak tutulur')
+  assert.strictEqual(cached().indexOf(coverOf(4)), -1, 'en eski kapak bırakılır')
+  for (const id of range(22, 30)) await show(id)
+  const expected = [1, 2, 3]
+  for (const id of range(14, 30)) expected.push(id)
+  assert.deepStrictEqual(cached().slice().sort(), expected.map(coverOf).sort())
+  assert.strictEqual(run('profileState.covers.size'), 20)
+  // Bırakılan kapakların blob adresleri süre dolunca serbest kalır
+  t.mock.timers.tick(60000)
+  const dropped = []
+  for (const id of range(4, 13)) dropped.push('blob:' + coverOf(id))
+  assert.deepStrictEqual(revoked.slice().sort(), dropped.sort())
+  assert.strictEqual(run('coverUrlOf(1)'), 'blob:' + coverOf(1), 'kendi kapağım bellekte kalır')
+  assert.strictEqual(run('coverUrlOf(2)'), 'blob:' + coverOf(2), 'açık kartın kapağı bellekte kalır')
+  // Silinen veya sunucudan engellenen kişinin (profil yanıtında yok) kapağı bırakılır
+  const net = fakeProfiles(ctx)
+  net.replies.push(() => ({ status: 200, data: { profiles: [] } }))
+  run("state.token = 'oturum'")
+  run("profileState.queue.add('30')")
+  await run('fetchProfiles()')
+  assert.deepStrictEqual(net.calls, ['/api/profiles?ids=30'])
+  assert.strictEqual(run('profileRecord(30).missing'), true)
+  assert.strictEqual(run("profileState.covers.has('" + coverOf(30) + "')"), false)
+  t.mock.timers.tick(60000)
+  assert.strictEqual(revoked.indexOf('blob:' + coverOf(30)) !== -1, true)
 })
 
 test('kendi profili kaydedilirken kapak korunur, null ile kaldırılır, yeni kapak zarfa ve isteğe girer', async () => {
