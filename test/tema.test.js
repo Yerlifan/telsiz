@@ -298,6 +298,28 @@ test('Yüksek Kontrast ilk açılışta: saklı tema yoksa ve sistem yüksek kar
   assert.ok(SKINS.indexOf(plain.theme.contrastSkin) !== -1)
 })
 
+test('kendiliğinden seçilen Yüksek Kontrast aynı tema seçilince saklanır, sistem ayarı kapansa da korunur', () => {
+  const auto = bootTheme({ media: ['(prefers-contrast: more)'] })
+  let notified = 0
+  auto.theme.onChange(() => {
+    notified += 1
+  })
+  assert.equal(auto.theme.get().skin, 'kontrast')
+  assert.equal(auto.store['telsiz.skin'], undefined, 'otomatik seçim saklı değil')
+  // Ayarlar'da işaretli görünen Yüksek Kontrast kartına tıklamak aynı temayı seçer
+  auto.theme.set({ skin: 'kontrast' })
+  assert.equal(auto.store['telsiz.skin'], 'kontrast', 'onaylanan seçim saklanır')
+  assert.equal(notified, 0, 'görünüm değişmediği için yeniden uygulanmaz')
+  assert.equal(bootTheme({ stored: auto.store }).theme.get().skin, 'kontrast', 'sistem ayarı kapansa da korunur')
+  // Varsayılan Arcade de aynı yolla saklanabilir, saklı tema varken aynı temayı seçmek depoyu değiştirmez
+  const plain = bootTheme()
+  plain.theme.set({ skin: 'arcade' })
+  assert.equal(plain.store['telsiz.skin'], 'arcade')
+  const stored = bootTheme({ stored: { 'telsiz.skin': 'gece' } })
+  stored.theme.set({ skin: 'gece' })
+  assert.deepEqual(stored.store, { 'telsiz.skin': 'gece' })
+})
+
 test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir, kurallar sonraki dosyalara ezilmez', () => {
   const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8')
   const rules = skinRules(base).filter((rule) => rule.atRules.indexOf('@media (forced-colors: active)') !== -1)

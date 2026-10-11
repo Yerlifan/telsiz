@@ -7,6 +7,7 @@
 // ve modda 1440 ve 390 piksel genişlikte yatay taşma yoktur ve Gönder düğmesinde tek bir simge görünür (telefonda
 // etiket gizlenince düğmenin tek işareti). Sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
 // forced-colors: active öykünmesi) saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, saklı tema önce gelir.
+// Kendiliğinden seçilen Yüksek Kontrast'ın işaretli kartına tıklamak seçimi saklar.
 // Zorlanmış renk kipinde her tema ve modda seçili öğelerin kenarı sistem vurgusu renginde, seçili olmayanlarınki başka
 // renkte, Bas konuş kenarlıdır (base.css kuralları bileşen ve süs dosyalarındaki kurallara ezilmez).
 
@@ -190,7 +191,7 @@ test('her tema ve modda 1440 ve 390 piksel genişlikte yatay taşma yok, Gönder
   assert.deepEqual(problems, [])
 })
 
-test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta Yüksek Kontrast seçilir', async () => {
+test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, kartına tıklamak seçimi saklar', async () => {
   const page = W.page
   const reload = async () => {
     await page.reload({ waitUntil: 'domcontentloaded' })
@@ -206,6 +207,15 @@ test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta 
   assert.equal(await page.evaluate(() => localStorage.getItem('telsiz.skin')), null, 'otomatik seçim saklanmaz')
   await page.emulateMedia({ contrast: null, forcedColors: 'active' })
   assert.equal(await reload(), 'kontrast', 'forced-colors: active')
+  // Kendiliğinden seçilen Yüksek Kontrast kartı işaretli görünür. Karta tıklamak (change olayı üretmez) seçimi saklar,
+  // sistem ayarı kapansa da tema korunur.
+  await openAppearance(page)
+  assert.equal(await page.evaluate(() => document.getElementById('set-skin-kontrast').checked), true, 'Yüksek Kontrast kartı işaretli')
+  await page.click('label[for="set-skin-kontrast"]')
+  await page.waitForFunction(() => localStorage.getItem('telsiz.skin') === 'kontrast')
+  await closeSettings(page)
+  await page.emulateMedia({ contrast: null, forcedColors: null })
+  assert.equal(await reload(), 'kontrast', 'onaylanan Yüksek Kontrast sistem ayarı olmadan da korunur')
   // Saklı tema sistem ayarının önüne geçer
   await page.emulateMedia({ contrast: 'more', forcedColors: null })
   await page.evaluate(() => localStorage.setItem('telsiz.skin', 'gece'))

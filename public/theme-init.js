@@ -73,7 +73,8 @@ function createTelsizTheme () {
 
   // İlk açılış: saklı (geçerli) tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
   // Windows Yüksek Karşıtlık gibi zorlanmış renkler) Yüksek Kontrast seçilir. Seçim saklanmaz, kişi Ayarlar'dan bir
-  // tema seçene kadar her açılışta sistem ayarına bakılır. Bu sorguları tanımayan eski tarayıcılarda varsayılan kalır.
+  // tema seçene kadar (kendiliğinden seçilen Yüksek Kontrast dahil) her açılışta sistem ayarına bakılır. Bu sorguları
+  // tanımayan eski tarayıcılarda varsayılan kalır.
   function initialSkin () {
     const stored = read(STORE.skin)
     if (SKINS.indexOf(stored) !== -1) return stored
@@ -144,10 +145,16 @@ function createTelsizTheme () {
   function set (partial) {
     const next = partial && typeof partial === 'object' ? partial : {}
     let changed = false
-    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1 && next.skin !== prefs.skin) {
-      prefs.skin = next.skin
-      write(STORE.skin, prefs.skin)
-      changed = true
+    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1) {
+      if (next.skin !== prefs.skin) {
+        prefs.skin = next.skin
+        write(STORE.skin, prefs.skin)
+        changed = true
+      } else if (read(STORE.skin) !== prefs.skin) {
+        // Sistem ayarıyla kendiliğinden seçilen tema saklı değildir. Kişi aynı temayı seçerse seçim saklanır ve
+        // sistem ayarı kapansa da korunur. Görünüm değişmediği için yeniden uygulanmaz.
+        write(STORE.skin, prefs.skin)
+      }
     }
     if (next.scheme !== undefined && SCHEMES.indexOf(next.scheme) !== -1 && next.scheme !== prefs.scheme) {
       prefs.scheme = next.scheme

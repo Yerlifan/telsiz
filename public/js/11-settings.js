@@ -3211,6 +3211,11 @@ function buildAppearancePage (page) {
     input.addEventListener('change', () => {
       if (input.checked) setTheme({ skin: skin })
     })
+    // Zaten işaretli karta tıklamak change üretmez. Sistem ayarıyla kendiliğinden seçilen Yüksek Kontrast böyle
+    // işaretli görünür, tıklama seçimi onaylar ve theme-init.js onu saklar (sistem ayarı kapansa da korunur).
+    input.addEventListener('click', () => {
+      if (input.checked) setTheme({ skin: skin })
+    })
     lists[skin].appendChild(card)
     skinInputs[skin] = input
   })

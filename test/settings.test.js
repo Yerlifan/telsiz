@@ -960,6 +960,26 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
 })
 
+test('zaten işaretli tema kartına tıklamak temayı yeniden seçer (kendiliğinden seçilen Yüksek Kontrast saklanır)', () => {
+  const { run, root, sandbox } = load()
+  sandbox.TelsizTheme.prefs.skin = THEME_INIT.contrastSkin
+  const calls = []
+  const set = sandbox.TelsizTheme.set
+  sandbox.TelsizTheme.set = function (p) {
+    calls.push(p.skin)
+    return set.call(this, p)
+  }
+  run("openSettings('appearance', null)")
+  const input = root.querySelector('#set-skin-' + THEME_INIT.contrastSkin)
+  assert.strictEqual(input.checked, true, 'kendiliğinden seçilen tema işaretli')
+  // Tarayıcıda işaretli radyo düğmesine tıklamak change üretmez, yalnızca click gelir
+  input.dispatchEvent(fakeEvent('click'))
+  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
+  // İşaretli olmayan kartın click olayı tek başına tema seçmez
+  root.querySelector('#set-skin-gece').dispatchEvent(fakeEvent('click'))
+  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
+})
+
 test('tema kartları theme-init.js listesinden çizilir, ayarlar kendi kopyasını tutmaz', () => {
   // Liste yalnızca theme-init.js içinde: ayarlar modülünde tema kimliklerini sıralayan bir dizi yok
   assert.ok(!/['"]arcade['"]\s*,\s*['"]gece['"]/.test(SETTINGS_SOURCE), '11-settings.js tema listesinin kopyasını tutmamalı')
