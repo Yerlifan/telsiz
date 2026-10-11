@@ -26,9 +26,10 @@
 // Kalıcı çerçeve: ses odasındaki oturum boyunca tek çerçeve kullanılır. Parça değişince çerçeve yeniden
 // kurulmaz, load() aynı çerçevede yeni videoyu cueVideoById komutuyla hazırlar (video yüklenir ama oynamaz,
 // motor onu ortak çapada seekTo ve playVideo ile başlatır). Böylece çerçevenin yükleme süresi her parçada
-// yeniden ödenmez ve kişinin çerçevede verdiği oynatma izni çerçevenin belgesiyle birlikte korunur. Bu işlev
-// resmi IFrame Player API başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference),
-// başvuru bu geliştirme ortamından açılamadığı için davranışı yalnızca sahte oynatıcıyla sınandı.
+// yeniden ödenmez ve çerçevenin belgesi korunur. Amaç kişinin çerçevede dokunarak verdiği oynatma iznini de
+// sonraki parçalara taşımaktır, bu telefonda gerçek YouTube ile denenmedi. cueVideoById resmi IFrame Player API
+// başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference), başvuru bu geliştirme
+// ortamından açılamadığı için davranışı yalnızca sahte oynatıcıyla sınandı.
 
 var TelsizYouTube = (function (root) {
   const VERSION = 1
