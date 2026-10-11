@@ -47,10 +47,12 @@ function decryptMessageRaw (m) {
   return result
 }
 
-// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid, title? } veya ses dosyası için
-// { op: 'add', src: 'file', title? }. title isteğe bağlıdır: parçanın adı, denetim ve yön karakterleri
-// boşluğa çevrilmiş, en çok 120 kod noktası. Eski istemciler bu alanı bilmez ve t alanındaki metni gösterir,
-// title alanını bilmeyen istemciler başlıksız duyuruyu gösterir.
+// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid, title? }, aynı mesajdaki ses dosyası için
+// { op: 'add', src: 'file', title? } (/çal ve ek) veya başka bir mesajdaki ses dosyası için
+// { op: 'add', src: 'fileref', title? } ("DJ'de Çal", mesajda ek yoktur). title isteğe bağlıdır: parçanın adı,
+// denetim ve yön karakterleri boşluğa çevrilmiş, en çok 120 kod noktası. title alanını bilmeyen istemciler
+// başlıksız duyuruyu gösterir. 'fileref' kaynağını bilmeyen eski istemciler (2.5.0) d alanını yok sayar ve t
+// alanını düz metin olarak gösterir, bu yüzden o duyurunun t alanı çevrilmiş tam duyuru metnidir.
 const DJ_NOTICE_TITLE_MAX = 120
 const DJ_NOTICE_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
 
@@ -88,7 +90,7 @@ function cleanDjNotice (d) {
   if (!d || typeof d !== 'object' || d.op !== 'add') return null
   let out = null
   if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) out = { op: 'add', src: 'yt', vid: d.vid }
-  else if (d.src === 'file') out = { op: 'add', src: 'file' }
+  else if (d.src === 'file' || d.src === 'fileref') out = { op: 'add', src: d.src }
   if (!out) return null
   const title = cleanDjTitle(d.title)
   if (title) out.title = title
@@ -96,13 +98,15 @@ function cleanDjNotice (d) {
 }
 
 // Duyuru satırı: nota simgesi, metin (parçanın adı biliniyorsa onunla) ve YouTube parçasında kimlikten kurulan
-// bağlantı. Ad yalnızca metin olarak yazılır.
+// bağlantı. Ad yalnızca metin olarak yazılır. "Bu ses dosyası" yalnızca dosya aynı mesajdayken (src 'file')
+// yazılır.
 function buildDjNotice (d) {
   const line = h('div', 'msg-text msg-dj')
   line.appendChild(icon('i-music'))
   let text = ''
   if (d.title) text = t(d.src === 'yt' ? 'dj.notice.youtubeTitle' : 'dj.notice.fileTitle', { title: d.title })
-  else text = t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')
+  else if (d.src === 'yt') text = t('dj.notice.youtube')
+  else text = t(d.src === 'fileref' ? 'dj.notice.fileRef' : 'dj.notice.file')
   line.appendChild(h('span', 'msg-dj-text', text))
   if (d.src === 'yt') {
     const a = h('a', 'msg-dj-link', t('dj.notice.openYoutube'))

@@ -668,12 +668,16 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
   await A.waitForFunction(() => document.querySelectorAll('#dj .dj-queue .dj-queue-item').length === 1 && /lobi-temasi/.test(document.querySelector('#dj .dj-queue-name').textContent), null, { timeout: h.LONG })
   // "DJ'de çal" dosyanın bulunduğu yazı odasına adıyla duyurulur
   await B.waitForFunction(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav'), null, { timeout: h.LONG })
+  // Duyuru eki olmayan bir mesajdır: kaynağı 'fileref', metni çevrilmiş tam duyurudur (bu kaynağı bilmeyen
+  // eski istemci "Bu ses dosyası" yerine bu metni gösterir)
   const fileNotice = await B.evaluate(() => {
     const n = Array.from(document.querySelectorAll('#message-list .msg-dj-text')).filter((x) => x.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')[0]
     const msg = n.closest('.msg')
-    return { author: msg.querySelector('.msg-author').textContent, link: Boolean(msg.querySelector('.msg-dj-link')) }
+    const m = state.messages.filter((x) => String(x.id) === msg.getAttribute('data-id'))[0]
+    const r = decryptMessage(m)
+    return { author: msg.querySelector('.msg-author').textContent, link: Boolean(msg.querySelector('.msg-dj-link')), files: msg.querySelectorAll('.dj-play-file').length, src: r.dj.src, text: r.text }
   })
-  assert.deepEqual(fileNotice, { author: 'Ece', link: false })
+  assert.deepEqual(fileNotice, { author: 'Ece', link: false, files: 0, src: 'fileref', text: 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav' })
   await A.waitForFunction(() => Array.from(document.querySelectorAll('#activity .activity-item.is-dj .activity-text')).some((n) => n.textContent === 'Ece Telsiz DJ kuyruğuna ekledi: lobi-temasi.wav'), null, { timeout: h.LONG })
   await A.click('#dj .dj-skip')
   for (const page of [A, B]) {

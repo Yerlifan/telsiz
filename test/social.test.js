@@ -248,11 +248,36 @@ test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temi
   // Dize olmayan veya temizlenince boş kalan ad yazılmaz, bilinmeyen alanlar atılır
   assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: 42, extra: 'x' }), { op: 'add', src: 'yt', vid: vid })
   assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: '\u200b\u0000 \u2066' }), { op: 'add', src: 'file' })
+  // Başka bir mesajdaki dosya ("DJ'de Çal", mesajda ek yok) kendi kaynağıyla gelir
+  assert.deepStrictEqual(clean({ op: 'add', src: 'fileref', title: 'lobi-temasi.wav' }), { op: 'add', src: 'fileref', title: 'lobi-temasi.wav' })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'fileref', vid: vid }), { op: 'add', src: 'fileref' })
   // Geçersiz işlem, kaynak veya video kimliği
   assert.strictEqual(clean({ op: 'remove', src: 'file', title: 'a' }), null)
   assert.strictEqual(clean({ op: 'add', src: 'yt', vid: 'kisa', title: 'a' }), null)
   assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
   assert.strictEqual(clean(null), null)
+})
+
+// 2.5.0 istemcisinin cleanDjNotice işlevi (yayımlanmış sürümden aynen): bilmediği kaynağı yok sayar, mesajın t
+// alanı düz metin olarak gösterilir
+function cleanDjNotice250 (d) {
+  if (!d || typeof d !== 'object' || d.op !== 'add') return null
+  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
+  if (d.src === 'file') return { op: 'add', src: 'file' }
+  return null
+}
+
+test('"DJ\'de Çal" duyurusu eki olmayan mesajdır: eski istemci "Bu ses dosyası" demez, çevrilmiş tam metni gösterir', () => {
+  const { run } = load()
+  // Yeni istemcinin gönderdiği gövde (23-dj.js djPlayFile): kaynak 'fileref', t çevrilmiş tam duyuru
+  const titled = { op: 'add', src: 'fileref', title: 'lobi-temasi.wav' }
+  const untitled = { op: 'add', src: 'fileref' }
+  assert.strictEqual(cleanDjNotice250(titled), null)
+  assert.strictEqual(cleanDjNotice250(untitled), null)
+  assert.strictEqual(run("t('dj.notice.fileTitle', { title: 'lobi-temasi.wav' })"), 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')
+  assert.strictEqual(run("t('dj.notice.fileRef')"), 'Telsiz DJ kuyruğuna bir ses dosyası ekledi.')
+  // /çal ve ek yolu (dosya aynı mesajda) eski biçimde kalır, eski istemci onu duyuru olarak çizer
+  assert.deepStrictEqual(cleanDjNotice250({ op: 'add', src: 'file', title: 'x.wav' }), { op: 'add', src: 'file' })
 })
 
 test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düzenleme gizlenir', () => {

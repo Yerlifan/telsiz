@@ -1837,7 +1837,9 @@ function djDecorateAttachments (wrap, files, m) {
   })
 }
 
-// "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur
+// "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur. Duyuru eki taşımaz
+// (dosya başka bir mesajdadır), kaynağı 'fileref' olur. Bu kaynağı bilmeyen eski istemciler duyuruyu düz metin
+// olarak gösterir, mesajın metni bu yüzden çevrilmiş tam duyurudur (06-messages.js cleanDjNotice).
 function djPlayFile (f, b, m) {
   const engine = djEngine()
   if (!engine || b.getAttribute('aria-busy') === 'true') return
@@ -1848,9 +1850,9 @@ function djPlayFile (f, b, m) {
     if (r && r.ok && !r.noop && m) {
       const track = djLiveTrack(r.trackId)
       const title = cleanDjTitle(track ? track.title : f.name)
-      const notice = { op: 'add', src: 'file' }
+      const notice = { op: 'add', src: 'fileref' }
       if (title) notice.title = title
-      djAnnounce(m.channelId, title, notice)
+      djAnnounce(m.channelId, title ? t('dj.notice.fileTitle', { title: title }) : t('dj.notice.fileRef'), notice)
     }
   }, (err) => {
     b.removeAttribute('aria-busy')
