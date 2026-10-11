@@ -12,7 +12,7 @@ function createTelsizTheme () {
   const SCHEMES = ['dark', 'light', 'system']
   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
-  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir
+  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir, sistem yüksek karşıtlık istiyorsa ilk açılışta seçilir
   const CONTRAST_SKIN = 'kontrast'
   const STORE = {
     skin: 'telsiz.skin',
@@ -68,9 +68,21 @@ function createTelsizTheme () {
   const darkQuery = media('(prefers-color-scheme: dark)')
   const lightQuery = media('(prefers-color-scheme: light)')
   const motionQuery = media('(prefers-reduced-motion: reduce)')
+  const contrastQuery = media('(prefers-contrast: more)')
+  const forcedQuery = media('(forced-colors: active)')
+
+  // İlk açılış: saklı (geçerli) tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
+  // Windows Yüksek Karşıtlık gibi zorlanmış renkler) Yüksek Kontrast seçilir. Seçim saklanmaz, kişi Ayarlar'dan bir
+  // tema seçene kadar her açılışta sistem ayarına bakılır. Bu sorguları tanımayan eski tarayıcılarda varsayılan kalır.
+  function initialSkin () {
+    const stored = read(STORE.skin)
+    if (SKINS.indexOf(stored) !== -1) return stored
+    if ((contrastQuery && contrastQuery.matches) || (forcedQuery && forcedQuery.matches)) return CONTRAST_SKIN
+    return DEFAULTS.skin
+  }
 
   const prefs = {
-    skin: pick(SKINS, read(STORE.skin), DEFAULTS.skin),
+    skin: initialSkin(),
     scheme: pick(SCHEMES, read(STORE.scheme), DEFAULTS.scheme),
     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
     fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,

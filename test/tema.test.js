@@ -255,6 +255,58 @@ test('süs dosyaları: her seçici kendi temasıyla başlar, yasaklı CSS yok, b
   }
 })
 
+// theme-init.js'i sahte depolama ve medya sorgularıyla çalıştırır. opts.stored: saklı anahtarlar, opts.media: doğru
+// dönen medya sorguları
+function bootTheme (opts) {
+  const o = opts || {}
+  const attrs = {}
+  const store = Object.assign({}, o.stored || {})
+  const root = { setAttribute (k, v) { attrs[k] = v }, style: { setProperty () {} }, classList: { add () {} } }
+  const sandbox = {
+    document: { documentElement: root },
+    localStorage: { getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null), setItem (k, v) { store[k] = String(v) } },
+    matchMedia: (q) => ({ matches: (o.media || []).indexOf(q) !== -1, addEventListener () {} })
+  }
+  sandbox.window = sandbox
+  vm.createContext(sandbox)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), sandbox, { filename: 'theme-init.js' })
+  return { theme: sandbox.window.TelsizTheme, attrs, store }
+}
+
+test('Yüksek Kontrast ilk açılışta: saklı tema yoksa ve sistem yüksek karşıtlık istiyorsa seçilir, saklanmaz', () => {
+  const plain = bootTheme()
+  assert.equal(plain.theme.get().skin, 'arcade', 'varsayılan Arcade')
+  assert.equal(plain.theme.contrastSkin, 'kontrast')
+  for (const query of ['(prefers-contrast: more)', '(forced-colors: active)']) {
+    const r = bootTheme({ media: [query] })
+    assert.equal(r.theme.get().skin, 'kontrast', query)
+    assert.equal(r.attrs['data-skin'], 'kontrast', query + ' kök özniteliği')
+    assert.equal(r.store['telsiz.skin'], undefined, query + ' seçim saklanmaz')
+  }
+  // Saklı tercih her zaman önce gelir
+  const stored = bootTheme({ stored: { 'telsiz.skin': 'gece' }, media: ['(prefers-contrast: more)', '(forced-colors: active)'] })
+  assert.equal(stored.theme.get().skin, 'gece')
+  // Geçersiz saklı değer tercih sayılmaz
+  const invalid = bootTheme({ stored: { 'telsiz.skin': 'yok' }, media: ['(prefers-contrast: more)'] })
+  assert.equal(invalid.theme.get().skin, 'kontrast')
+  // Kişinin seçtiği tema saklanır ve sonraki açılışta sistem ayarının önüne geçer
+  const chosen = bootTheme({ media: ['(prefers-contrast: more)'] })
+  chosen.theme.set({ skin: 'arcade' })
+  assert.equal(chosen.store['telsiz.skin'], 'arcade')
+  assert.equal(bootTheme({ stored: chosen.store, media: ['(prefers-contrast: more)'] }).theme.get().skin, 'arcade')
+  // Kontrast teması tema listesinde ve Ayarlar'ın Erişilebilirlik grubunda
+  assert.ok(SKINS.indexOf(plain.theme.contrastSkin) !== -1)
+})
+
+test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir', () => {
+  const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const at = base.indexOf('@media (forced-colors: active)')
+  assert.ok(at !== -1, 'forced-colors bölümü')
+  const block = base.slice(at)
+  assert.ok(/\.station\.is-tuned[\s\S]*border-color: Highlight/.test(block), 'ayarlı istasyon kenarı')
+  assert.ok(/forced-color-adjust: none/.test(block), 'durum işaretleri rengini korur')
+})
+
 test('kademe yardımcısı: özgül blok genel bloğu ezer, uymayan öznitelik uygulanmaz, var() geri dönüşü çalışır', () => {
   const rules = parseRules([
     ':root { --a: #000; --c: var(--b, #111); }',
