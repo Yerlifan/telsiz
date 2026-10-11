@@ -46,7 +46,8 @@
 // gösterir (17-search.js).
 //
 // Orta genişlik (S8, frekans.css) ve dar özel mesaj başlığı (S9). 760 ile 1279 px arasında İstasyonlar kartı sağ
-// sütunda telsiz kartının üstündedir. Özel mesaj başlığı sığmazsa düğmeler yalnızca simgeye döner (navFitDmHeader).
+// sütunda telsiz kartının üstündedir, uzayan telsiz kartı listeye yer bırakmayınca gizlenir (navFitInbox). Özel mesaj
+// başlığı sığmazsa düğmeler yalnızca simgeye döner (navFitDmHeader).
 //
 // Konum ve önbellek (S6). Son NAV_CACHE_MAX konuşmanın mesajları (sunucudan gelen şifreli zarflar) bellekte
 // tutulur. Konuşmaya geri dönülünce liste iskelet göstermeden ve sunucuya sormadan çizilir, kişi kaldığı yere döner
