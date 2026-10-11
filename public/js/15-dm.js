@@ -170,7 +170,7 @@ function showDm (dmId, opts) {
   dmState.activeId = entry.id
   dmState.partnerId = entry.userId
   state.channelId = entry.id
-  state.unread[entry.id] = 0
+  // Okunmamış sayacı kişi en alta inince sıfırlanır (04-meta.js markRead)
   setConversationMode('dm')
   renderChannels()
   renderDmList()

@@ -171,7 +171,12 @@ function onIncomingMessage (message, inCurrent) {
   const dm = isDmMessage(message)
   if (inCurrent) {
     insertMessage(message, { own: mine })
-    if (!document.hidden) markRead()
+    // Kişi yukarıdayken veya sayfa gizliyken gelen mesaj okunmuş sayılmaz (istek 17 S4), sayaç artar
+    const read = !document.hidden && markRead()
+    if (!mine && !read) {
+      state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
+      if (!dm && typeof mentionOnIncoming === 'function') mentionOnIncoming(message)
+    }
   } else if (!mine) {
     state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
     if (dm) {

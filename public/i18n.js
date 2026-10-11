@@ -41,6 +41,16 @@ window.I18N = (function () {
     'errors.cover_too_large': 'Kapak fotoğrafı çok büyük.',
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
+    'nav.newDivider': 'Yeni mesajlar',
+    'nav.unreadBar_one': '{count} yeni mesaj',
+    'nav.unreadBar_other': '{count} yeni mesaj',
+    'nav.unreadSince': '{time} saatinden beri',
+    'nav.jumpToUnread': 'Okunmamışa Git',
+    'nav.markRead': 'Okundu İşaretle',
+    'nav.newBelow_one': 'Aşağıda {count} yeni mesaj',
+    'nav.newBelow_other': 'Aşağıda {count} yeni mesaj',
+    'nav.newBelowLabel': 'Yeni mesajlara in',
+    'nav.jumpToBottom': 'En Alta Git',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Saha Telsizi',
@@ -2061,6 +2071,16 @@ window.I18N = (function () {
     'errors.cover_too_large': 'The cover photo is too large.',
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
+    'nav.newDivider': 'New messages',
+    'nav.unreadBar_one': '{count} new message',
+    'nav.unreadBar_other': '{count} new messages',
+    'nav.unreadSince': 'since {time}',
+    'nav.jumpToUnread': 'Jump to Unread',
+    'nav.markRead': 'Mark as Read',
+    'nav.newBelow_one': '{count} new message below',
+    'nav.newBelow_other': '{count} new messages below',
+    'nav.newBelowLabel': 'Go down to new messages',
+    'nav.jumpToBottom': 'Jump to Bottom',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Field Radio',

@@ -301,7 +301,8 @@ function buildMessageNode (m) {
   return node
 }
 
-// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder.
+// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder. Yeni mesajlar ayracından
+// (38-gezinme.js) sonraki ilk mesaj her zaman yeni grup başlatır.
 function startsGroup (m, prev) {
   if (!prev) return true
   if (!sameId(prev.authorId, m.authorId)) return true
@@ -312,10 +313,11 @@ function startsGroup (m, prev) {
 }
 
 function regroup () {
+  const divided = typeof navPlaceDivider === 'function' ? navPlaceDivider() : null
   let prev = null
   state.messages.forEach((m) => {
     const node = state.nodes.get(String(m.id))
-    if (node) node.classList.toggle('msg-first', startsGroup(m, prev))
+    if (node) node.classList.toggle('msg-first', startsGroup(m, prev) || (divided !== null && sameId(m.id, divided)))
     prev = m
   })
 }
@@ -402,6 +404,9 @@ function insertMessage (m, opts) {
   if (options.own || stick) {
     trimRendered()
     scrollToBottom()
+  } else if (typeof navNewBelow === 'function') {
+    // Kişi yukarıdayken kaydırılmaz, kapsül yeni mesajı sayar (38-gezinme.js)
+    navNewBelow()
   }
 }
 
@@ -473,9 +478,21 @@ function scrollToBottom () {
   stickBottom = true
 }
 
+// En alta inilince konuşma okundu sayılır (04-meta.js markRead), kapsül güncellenir (38-gezinme.js)
 function onMessagesScroll () {
   stickBottom = isNearBottom()
   if (state.hasNewer && stickBottom) loadNewer()
+  else if (stickBottom) markRead()
+  if (typeof navOnScroll === 'function') navOnScroll()
+}
+
+// Yeni mesajlar ayracı görünür alanın üst kısmına (yüksekliğin dörtte biri) gelir. İçerik kısaysa en alta
+// inilir, o zaman konuşma okundu sayılır.
+function scrollToDivider (divider) {
+  const box = el.messages
+  const offset = divider.getBoundingClientRect().top - box.getBoundingClientRect().top
+  box.scrollTop = box.scrollTop + offset - Math.round(box.clientHeight / 4)
+  stickBottom = isNearBottom()
 }
 
 function keepBottom () {
@@ -533,6 +550,9 @@ function setMessagesView (kind, res) {
 
 // Kanal mesajlarını yükleme ve sayfalama
 
+// İlk okunmamış mesaj en yeni sayfada değilse (son okunandan bu yana sayfadan çok mesaj geldiyse) konuşma son
+// okunan mesajın çevresiyle (around) yeniden istenir, daha yeni mesajlar aşağı inildikçe yüklenir (loadNewer).
+// Yükleme bitince ilk okunmamışın önüne Yeni mesajlar ayracı konur ve ayraç görünür alana kaydırılır (38-gezinme.js).
 async function loadChannel () {
   const channelId = state.channelId
   if (!channelId) return
@@ -540,6 +560,10 @@ async function loadChannel () {
   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
   state.pendingJump = null
+  const nav = typeof navUnreadReset === 'function'
+  const readMark = nav && !jump ? navReadMark(channelId) : 0
+  const knownUnread = Number(state.unread[channelId]) || 0
+  if (nav) navUnreadReset(channelId)
   state.loadGen += 1
   const gen = state.loadGen
   state.loading = true
@@ -557,8 +581,20 @@ async function loadChannel () {
   renderListChrome()
   chatPlusOnChannelLoad(channelId)
   const query = jump ? '&around=' + encodeURIComponent(jump.messageId) + '&limit=' + JUMP_LIMIT : '&limit=' + PAGE_SIZE
-  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
+  let res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
+  let around = false
+  if (readMark && res.status === 200 && res.data && Array.isArray(res.data.messages)) {
+    const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
+    if (navNeedsAround(page, res.data.hasMore, readMark)) {
+      const near = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&around=' + encodeURIComponent(readMark) + '&limit=' + JUMP_LIMIT)
+      if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
+      if (near.status === 200 && near.data && Array.isArray(near.data.messages)) {
+        res = near
+        around = true
+      }
+    }
+  }
   state.loading = false
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
     setMessagesView('error', res)
@@ -570,7 +606,7 @@ async function loadChannel () {
   setMessagesView('')
   state.messages = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true
-  state.hasNewer = Boolean(jump) && res.data.hasNewer === true
+  state.hasNewer = (Boolean(jump) || around) && res.data.hasNewer === true
   const pending = state.pendingEvents
   state.pendingEvents = []
   pending.forEach((ev) => {
@@ -588,15 +624,19 @@ async function loadChannel () {
     }
   })
   renderAllMessages()
+  const divider = nav && !jump ? navShowUnread(channelId, readMark, knownUnread) : null
   if (jump) {
     if (!highlightMessage(jump.messageId)) {
       scrollNearMessage(jump.messageId)
       toast(() => t('search.notFound'), 'error')
     }
+  } else if (divider) {
+    scrollToDivider(divider)
   } else {
     scrollToBottom()
   }
   markRead()
+  if (nav) navOnScroll()
 }
 
 async function loadOlder () {

@@ -1061,10 +1061,15 @@ function renderComposerState () {
   updateSendState()
 }
 
-// Okunmamış sayaçlar
+// Okunmamış sayaçlar. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır (istek 17
+// S4): yukarıdayken gelen mesaj okunmuş sayılmaz. force: true ile (Okundu İşaretle) yüklü son mesaj okundu sayılır.
+// Okundu sayıldıysa true döner.
 
-function markRead () {
-  if (!state.channelId || document.hidden) return
+function markRead (opts) {
+  const options = opts || {}
+  if (!state.channelId || document.hidden || state.loading) return false
+  if (!options.force && (state.hasNewer || !isNearBottom())) return false
+  const channelId = state.channelId
   const last = state.messages.length ? state.messages[state.messages.length - 1].id : null
   if (last !== null && last !== undefined) {
     const prev = Number(state.lastRead[state.channelId]) || 0
@@ -1086,6 +1091,8 @@ function markRead () {
   }
   if (changed) renderBand()
   if (mentionsChanged && typeof renderHomeEntry === 'function') renderHomeEntry()
+  if (typeof navAfterRead === 'function') navAfterRead(channelId)
+  return true
 }
 
 // Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
@@ -1113,9 +1120,9 @@ async function scanUnread () {
 }
 
 // Oda seçimi. Özel mesaj veya Arkadaşlar görünümündeyken önce oda görünümüne dönülür. Bant yeniden çizilir,
-// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Geçmişe kayıt
-// 38-gezinme.js ile yazılır: fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir
-// (kaydı değiştirir).
+// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Okunmamış
+// sayacı odaya girince değil, kişi en alta inince sıfırlanır (markRead). Geçmişe kayıt 38-gezinme.js ile yazılır:
+// fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir (kaydı değiştirir).
 
 function selectChannel (id, opts) {
   const options = opts || {}
@@ -1141,11 +1148,7 @@ function selectChannel (id, opts) {
   closeMessageMenu()
   state.channelId = ch.id
   storeSet(userKey('channel'), String(ch.id))
-  state.unread[ch.id] = 0
-  const hadMentions = Boolean(state.mentions && state.mentions[ch.id])
-  if (state.mentions) state.mentions[ch.id] = 0
   renderBand()
-  if (hadMentions && typeof renderHomeEntry === 'function') renderHomeEntry()
   renderChannelHeader()
   composerEnter()
   renderComposerState()

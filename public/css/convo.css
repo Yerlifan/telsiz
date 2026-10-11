@@ -252,6 +252,136 @@
 }
 
 /* =========================================================
+   3a. Okunmamış (istek 17, 38-gezinme.js): Yeni mesajlar ayracı, üstteki şerit ve yeni mesaj kapsülü
+   ========================================================= */
+
+/* Ayraç: ilk okunmamış mesajın önünde ince bir çizgi, sağ ucunda "Yeni mesajlar" etiketi */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  margin: 0.5rem 0 0.375rem;
+  padding: 0 0.25rem 0 0.75rem;
+}
+
+.unread-divider::before {
+  content: "";
+  flex: 1 1 auto;
+  height: 0;
+  border-top: var(--border-width) solid var(--danger);
+}
+
+.unread-divider-text {
+  flex: none;
+  margin-left: 0.5rem;
+  padding: 0 0.5rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: var(--label-spacing);
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+:root[data-skin="turkuaz"] .unread-divider-text {
+  text-transform: none;
+}
+
+/* Şerit: konuşmanın üstünde okunmamış sayısı ve saati, Okunmamışa Git ve Okundu İşaretle */
+.unread-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: none;
+  margin: 0.5rem 1rem 0;
+  padding: 0.25rem 0.375rem 0.25rem 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-card);
+  color: var(--text-2);
+}
+
+.unread-bar[hidden] {
+  display: none;
+}
+
+.unread-bar-text {
+  flex: 1 1 10rem;
+  min-width: 0;
+  margin: 0.25rem 0.75rem 0.25rem 0;
+  font-size: var(--text-sm);
+}
+
+.unread-bar-count {
+  margin-right: 0.375rem;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.unread-bar .button {
+  flex: none;
+  min-height: var(--target);
+  margin: 0.125rem 0 0.125rem 0.375rem;
+}
+
+/* Kapsül: kişi yukarıdayken mesaj akışının altında yapışık durur, basınca en alta inilir */
+.new-below {
+  position: -webkit-sticky;
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 2;
+  margin: 0.5rem 0 0;
+  text-align: center;
+  pointer-events: none;
+}
+
+.new-below[hidden] {
+  display: none;
+}
+
+.new-below-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 1rem 0 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-card);
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.new-below-button .icon {
+  margin-right: 0.375rem;
+}
+
+.new-below-button.has-new {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.new-below-button:hover {
+  border-color: var(--accent);
+}
+
+.new-below-button.has-new:hover {
+  background-color: var(--accent-hover);
+}
+
+.app-view[data-view="home"] .unread-bar,
+.app-view[data-view="home"] .new-below {
+  display: none;
+}
+
+/* =========================================================
    4. Yazıyor satırı
    ========================================================= */
 

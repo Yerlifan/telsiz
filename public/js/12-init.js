@@ -518,6 +518,8 @@ function applyLanguage () {
   renderAttachments()
   updateCounter()
   refreshEmojiLanguage()
+  // Okunmamış şeridi, ayraç ve yeni mesaj kapsülü (38-gezinme.js)
+  if (typeof navOnLanguage === 'function') navOnLanguage()
   if (findLayer('peer')) renderPeerMute()
   settingsOnLanguage()
 }

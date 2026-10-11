@@ -47,7 +47,7 @@ async function dmWith (who, text) {
 }
 
 before(async () => {
-  W.w = await h.setupWorld({ slot: 27 })
+  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']] })
   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
   W.deniz = await W.w.pageFor('deniz')
   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
@@ -407,6 +407,133 @@ test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfada
   assert.deepEqual(await historyNow(page), { view: 'channel', id: String(foto), d: base.d + 1, href: base.href })
   await goBack(page)
   await waitConversation(page, 'channel', genel)
+  await setWidth(page, 1440)
+})
+
+// G9 (S3, S4): okunmamış ayracı, şerit, okundu kuralı ve yeni mesaj kapsülü
+
+function unreadView (page, roomId) {
+  return page.evaluate((id) => {
+    const box = document.getElementById('messages').getBoundingClientRect()
+    const divider = document.querySelector('#message-list .unread-divider')
+    const r = divider ? divider.getBoundingClientRect() : null
+    const next = divider ? divider.nextElementSibling : null
+    const bar = document.getElementById('unread-bar')
+    return {
+      divider: Boolean(divider),
+      dividerText: divider ? divider.textContent : '',
+      inView: Boolean(r && r.top >= box.top && r.bottom <= box.bottom),
+      upperHalf: Boolean(r && r.top - box.top <= box.height / 2),
+      firstUnread: next ? next.getAttribute('data-id') : null,
+      firstGroup: Boolean(next && next.classList.contains('msg-first')),
+      bar: Boolean(bar && !bar.hidden),
+      barText: bar && !bar.hidden ? bar.querySelector('.unread-bar-count').textContent : '',
+      unread: Number(state.unread[id]) || 0,
+      lastRead: Number(state.lastRead[id]) || 0,
+      atBottom: isNearBottom()
+    }
+  }, roomId)
+}
+
+// Ece odaya n mesaj yazar, sayfa olayları alır (Deniz başka odadayken sayaç artar)
+async function eceSays (roomName, n, label) {
+  const room = W.w.room(roomName)
+  const out = []
+  let i = 0
+  while (i < n) {
+    out.push(await W.w.say('ece', room, label + ' ' + (i + 1)))
+    i += 1
+  }
+  return out
+}
+
+test('ayraç: ilk okunmamış mesaj görünür alanda, şerit sayıyı gösterir, sayaç ancak alta inilince düşer', async () => {
+  const page = W.deniz
+  const sohbet = W.w.room('sohbet').id
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  const first = (await eceSays('sohbet', 1, 'ilk'))[0]
+  await openRoomRow(page, sohbet)
+  await page.waitForFunction((a) => Number(state.lastRead[a.id]) === a.last, { id: sohbet, last: first.id })
+  await openRoomRow(page, genel)
+  const sent = await eceSays('sohbet', 40, 'okunmamış')
+  await page.waitForFunction((id) => state.unread[id] === 40, sohbet, { timeout: h.LONG })
+  await openRoomRow(page, sohbet)
+  await page.waitForSelector('#message-list .unread-divider')
+  let v = await unreadView(page, sohbet)
+  assert.deepEqual([v.divider, v.dividerText, v.inView, v.upperHalf, v.firstUnread, v.firstGroup], [true, 'Yeni mesajlar', true, true, String(sent[0].id), true])
+  assert.deepEqual([v.bar, v.barText, v.atBottom], [true, '40 yeni mesaj', false])
+  assert.deepEqual([v.unread, v.lastRead], [40, first.id], 'odaya girmek okundu saymaz')
+  // Okunmamışa Git ayracı yeniden görünür alana getirir
+  await page.evaluate(() => {
+    el.messages.scrollTop = 0
+  })
+  await page.click('#unread-bar-jump')
+  v = await unreadView(page, sohbet)
+  assert.deepEqual([v.inView, v.unread], [true, 40])
+  // En alta inilince okundu sayılır: sayaç düşer, şerit kalkar, ayraç kalır
+  await page.evaluate(() => {
+    el.messages.scrollTop = el.messages.scrollHeight
+  })
+  await page.waitForFunction((id) => !state.unread[id], sohbet)
+  v = await unreadView(page, sohbet)
+  assert.deepEqual([v.unread, v.lastRead, v.bar, v.divider], [0, sent[39].id, false, true])
+})
+
+test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve okundu sayılmaz', async () => {
+  const page = W.deniz
+  const sohbet = W.w.room('sohbet').id
+  await waitConversation(page, 'channel', sohbet)
+  const before = await unreadView(page, sohbet)
+  await page.evaluate(() => {
+    el.messages.scrollTop = 0
+  })
+  await page.waitForFunction(() => !isNearBottom())
+  const msg = (await eceSays('sohbet', 1, 'yukarıdayken'))[0]
+  await page.waitForFunction((id) => state.nodes.has(String(id)), msg.id, { timeout: h.LONG })
+  await page.waitForSelector('#new-below:not([hidden])')
+  const capsule = await page.evaluate(() => ({
+    text: document.querySelector('#new-below-button .button-text').textContent,
+    top: el.messages.scrollTop,
+    reach: document.getElementById('new-below-button').getBoundingClientRect().bottom <= document.getElementById('messages').getBoundingClientRect().bottom
+  }))
+  assert.deepEqual(capsule, { text: 'Aşağıda 1 yeni mesaj', top: 0, reach: true })
+  let v = await unreadView(page, sohbet)
+  assert.deepEqual([v.lastRead, v.unread], [before.lastRead, 1], 'yukarıdayken okundu sayılmadı')
+  await page.click('#new-below-button')
+  await page.waitForFunction((id) => !state.unread[id], sohbet)
+  v = await unreadView(page, sohbet)
+  assert.deepEqual([v.lastRead, v.atBottom], [msg.id, true])
+  assert.equal(await page.evaluate(() => document.getElementById('new-below').hidden), true, 'kapsül kalktı')
+})
+
+test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur', async () => {
+  const page = W.deniz
+  const kalabalik = W.w.room('kalabalik').id
+  const genel = W.w.room('genel').id
+  await setWidth(page, 360)
+  const first = (await eceSays('kalabalik', 1, 'ilk'))[0]
+  await openRoom(page, kalabalik)
+  await page.waitForFunction((a) => Number(state.lastRead[a.id]) === a.last, { id: kalabalik, last: first.id })
+  await openRoom(page, genel)
+  const sent = await eceSays('kalabalik', 120, 'kalabalık')
+  await page.waitForFunction((id) => state.unread[id] === 120, kalabalik, { timeout: h.LONG })
+  const requests = []
+  const onRequest = (req) => {
+    if (req.url().indexOf('/api/messages?channel=' + kalabalik) !== -1) requests.push(req.url().replace(/^.*\?/, ''))
+  }
+  page.on('request', onRequest)
+  await openRoom(page, kalabalik)
+  page.off('request', onRequest)
+  await page.waitForSelector('#message-list .unread-divider')
+  assert.deepEqual(requests, ['channel=' + kalabalik + '&limit=50', 'channel=' + kalabalik + '&around=' + first.id + '&limit=100'])
+  const v = await unreadView(page, kalabalik)
+  assert.deepEqual([v.firstUnread, v.inView, v.bar, v.barText, v.unread], [String(sent[0].id), true, true, '120 yeni mesaj', 120])
+  assert.equal(await page.evaluate(() => state.hasNewer), true, 'daha yeni mesajlar aşağı inildikçe yüklenir')
+  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte şerit açıkken yatay taşma')
+  await page.click('#unread-bar-read')
+  await page.waitForFunction((id) => !state.unread[id] && document.getElementById('unread-bar').hidden, kalabalik)
+  assert.equal(await page.evaluate((id) => Number(state.lastRead[id]), kalabalik), sent[119].id, 'en yeni mesaj okundu')
   await setWidth(page, 1440)
 })
 
