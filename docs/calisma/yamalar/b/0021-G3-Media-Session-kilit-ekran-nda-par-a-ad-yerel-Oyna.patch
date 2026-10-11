@@ -1,0 +1,361 @@
+From e48c7fa42319f61ef1d2bab121a848b7c39e2655 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 00:33:40 +0000
+Subject: [PATCH 21/22] =?UTF-8?q?G3:=20Media=20Session:=20kilit=20ekran?=
+ =?UTF-8?q?=C4=B1nda=20par=C3=A7a=20ad=C4=B1,=20yerel=20Oynat=20ve=20Durak?=
+ =?UTF-8?q?lat=20(istek=2018)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Telsiz DJ çalan parçanın adını ve "Telsiz DJ · oda" bilgisini işletim
+sisteminin medya denetimlerine verir, konumu setPositionState ile bildirir.
+Oynat ve Duraklat işleyicileri yalnızca bu cihazdaki yerel bekletmeyi
+yönetir, odanın durumunu değiştirmez. Odadan çıkınca metadata null olur.
+Ayarlar > Gizlilik'te Medya denetimleri bölümü: "Kilit ekranında parça adını
+göster" (telsiz.djMediaSession, varsayılan açık). Kartın uyarı satırı medya
+tuşuyla bekletilen müziği Yeniden Eşitle ile sürdürür. e2e/25 arka plandaki
+sekmede iki dosya parçasının art arda aynı ses öğesinde çaldığını, başlığın
+parçayı izlediğini ve ayar kapalıyken boşaldığını sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/25-dj-senkron.test.js | 84 +++++++++++++++++++++++++++++++++--
+ public/i18n.js            |  8 ++++
+ public/js/11-settings.js  | 14 +++++-
+ public/js/23-dj.js        | 92 +++++++++++++++++++++++++++++++++++++++
+ test/settings.test.js     | 20 ++++++++-
+ 5 files changed, 212 insertions(+), 6 deletions(-)
+
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index 593d0a9..c7fe918 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -5,7 +5,9 @@
+ // YouTube'a erişilmez. Sahte oynatıcının sesinin ilk başladığı an iki istemcide aynı saatle ölçülür ve en çok
+ // 250 ms ayrı olmalıdır. Arka plandaki sekme benzetilir (requestAnimationFrame çalışmaz, visibilityState
+ // hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar. Rıza
+-// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür.
++// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür. Arka
++// plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
++// parçayı izler ve gizlilik ayarı kapalıyken boşalır.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -124,7 +126,12 @@ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte s
+   for (const page of [A, B]) {
+     await h.until(async () => {
+       const frame = fakeFrame(page, 'D120aaaaaaa')
+-      return frame && (await frame.evaluate(() => window.FAKE.audio.paused))
++      if (!frame) return false
++      try {
++        return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.audio.paused)
++      } catch (err) {
++        return false
++      }
+     }, h.LONG, 'duraklatıldı')
+   }
+   await A.click('#dj .dj-toggle')
+@@ -228,11 +235,82 @@ test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında
+   await C.waitForFunction(() => localStorage.getItem('telsiz.djYoutubeConsent') === '1' && document.querySelector('#radio-tuned .radio-dj-consent').hidden, null, { timeout: h.LONG })
+   await h.until(async () => {
+     const frame = fakeFrame(C, 'D120bbbbbbb')
+-    return frame && (await frame.evaluate(() => window.FAKE.state === 1 && !window.FAKE.audio.paused))
++    if (!frame) return false
++    try {
++      return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.state === 1 && !window.FAKE.audio.paused)
++    } catch (err) {
++      return false
++    }
+   }, h.LONG, 'C dinliyor')
+   await C.evaluate(() => leaveVoice())
+ })
+ 
++test('arka planda iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranında parça adı görünür', async () => {
++  const { A } = W
++  const genel = W.w.room('genel')
++  const E = W.w.E
++  const files = []
++  for (const name of ['bir.wav', 'iki.wav']) {
++    const wav = h.makeWav(3, 8000)
++    const enc = E.encryptFile(new Uint8Array(wav))
++    const up = await W.w.call('POST', '/api/uploads', null, W.w.P.deniz.token, Buffer.from(enc.box))
++    assert.equal(up.status, 200)
++    files.push({ u: up.data.id, k: enc.key, n: enc.nonce, kind: 'file', name: name, m: 'audio/wav', s: wav.length })
++  }
++  for (const f of files) await W.w.say('deniz', genel, f.name, [f], [f.u])
++  await A.evaluate((id) => selectChannel(id, {}), genel.id)
++  await A.waitForFunction(() => document.querySelectorAll('#message-list .dj-play-file').length >= 2, null, { timeout: h.LONG })
++  const buttons = await A.$$('#message-list .dj-play-file')
++  for (const b of buttons.slice(-2)) {
++    await b.click()
++    await h.sleep(400)
++  }
++  await A.waitForFunction(() => dj.engine.queue().queue.length === 2, null, { timeout: h.LONG })
++  // Arka plandaki sekme benzetimi ve sesi başlayan blob öğelerinin kaydı
++  await A.evaluate(() => {
++    window.e2eRaf = window.requestAnimationFrame
++    window.requestAnimationFrame = () => 0
++    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
++    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
++    document.dispatchEvent(new Event('visibilitychange'))
++    window.e2ePlayed = []
++    window.e2eTitles = []
++    const play = HTMLMediaElement.prototype.play
++    HTMLMediaElement.prototype.play = function () {
++      if (String(this.src).indexOf('blob:') === 0 && window.e2ePlayed.indexOf(this) === -1) window.e2ePlayed.push(this)
++      return play.apply(this, arguments)
++    }
++    setInterval(() => {
++      const m = navigator.mediaSession.metadata
++      const title = m ? m.title : null
++      if (window.e2eTitles[window.e2eTitles.length - 1] !== title) window.e2eTitles.push(title)
++    }, 100)
++    dj.engine.skip()
++  })
++  await A.waitForFunction(() => {
++    const s = dj.engine.snapshot()
++    return s.session && s.session.current && s.session.current.title === 'iki.wav' && s.player.kind === 'file' && s.player.status === 'playing'
++  }, null, { timeout: h.LONG })
++  const r = await A.evaluate(() => ({
++    elements: window.e2ePlayed.length,
++    titles: window.e2eTitles.filter((x) => x === 'bir.wav' || x === 'iki.wav'),
++    artist: navigator.mediaSession.metadata.artist,
++    state: navigator.mediaSession.playbackState
++  }))
++  assert.deepEqual(r, { elements: 1, titles: ['bir.wav', 'iki.wav'], artist: 'Telsiz DJ · Lobi', state: 'playing' })
++  // Gizlilik ayarı kapalıyken parça adı işletim sistemine verilmez
++  await A.evaluate(() => localStorage.setItem('telsiz.djMediaSession', '0'))
++  await A.waitForFunction(() => navigator.mediaSession.metadata === null)
++  await A.evaluate(() => localStorage.removeItem('telsiz.djMediaSession'))
++  await A.waitForFunction(() => navigator.mediaSession.metadata && navigator.mediaSession.metadata.title === 'iki.wav')
++  await A.evaluate(() => {
++    delete document.visibilityState
++    delete document.hidden
++    window.requestAnimationFrame = window.e2eRaf
++    document.dispatchEvent(new Event('visibilitychange'))
++  })
++})
++
+ // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
+ // yeniden dener. Bu protokolün parçasıdır, tarayıcı yanıtı "Failed to load resource" olarak yazar.
+ const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state/.test(l.url)
+diff --git a/public/i18n.js b/public/i18n.js
+index 40ac4ad..b017d84 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -35,6 +35,10 @@ window.I18N = (function () {
+     'dj.dock.minimize': 'Küçült',
+     'dj.dock.restore': 'Göster',
+     'dj.dock.float': 'Yüzen Oynatıcı',
++    'dj.mediaSession.artist': 'Telsiz DJ · {room}',
++    'settings.privacy.mediaSessionTitle': 'Medya denetimleri',
++    'settings.privacy.mediaSession': 'Kilit ekranında parça adını göster',
++    'settings.privacy.mediaSessionHint': 'Açıkken çalan parçanın adı işletim sisteminin medya denetimlerinde ve kilit ekranında görünür. Ad uçtan uca şifreli DJ durumundan gelir ve böylece uygulamanın dışına çıkar.',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+@@ -1996,6 +2000,10 @@ window.I18N = (function () {
+     'dj.dock.minimize': 'Minimize',
+     'dj.dock.restore': 'Show',
+     'dj.dock.float': 'Floating Player',
++    'dj.mediaSession.artist': 'Telsiz DJ · {room}',
++    'settings.privacy.mediaSessionTitle': 'Media controls',
++    'settings.privacy.mediaSession': 'Show the track name on the lock screen',
++    'settings.privacy.mediaSessionHint': 'When on, the playing track\'s name appears in your system\'s media controls and on the lock screen. The name comes from the end-to-end encrypted DJ state and so leaves the app.',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 09cf45b..f20e938 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -39,13 +39,15 @@ const SETTINGS_ICONS = {
+ // varsayılan, 'none'), telsiz.messageSound ('0' kapalı). Ekran paylaşımı kalitesi
+ // telsiz.screenQuality içinde JSON olarak ({ hint: 'motion' | 'detail', preset: '720p15' | '720p30' |
+ // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
+-// başka her değer veya anahtarın olmaması verilmedi) saklanır.
++// başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
++// denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
+ const SETTINGS_KEYS = {
+   typing: 'telsiz.typing',
+   notifyLevel: 'telsiz.notifyLevel',
+   messageSound: 'telsiz.messageSound',
+   screenQuality: 'telsiz.screenQuality',
+-  youtubeConsent: 'telsiz.djYoutubeConsent'
++  youtubeConsent: 'telsiz.djYoutubeConsent',
++  djMediaSession: 'telsiz.djMediaSession'
+ }
+ const NOTIFY_LEVELS = ['all', 'mentions', 'none']
+ const SCREEN_HINT_CHOICES = ['motion', 'detail']
+@@ -1614,6 +1616,14 @@ function buildPrivacyPage (page) {
+   ytRow.appendChild(ytRevoke)
+   ytSec.appendChild(ytMsg)
+ 
++  // Telsiz DJ'nin medya denetimleri (Media Session): çalan parçanın adı kilit ekranında ve işletim sisteminin
++  // medya denetimlerinde görünür. Ad uçtan uca şifreli DJ durumundan gelir, kapatılabilir.
++  const mediaSec = sSection(page, t('settings.privacy.mediaSessionTitle'), 'set-media-session-section')
++  const media = sSwitch('set-dj-media-session', t('settings.privacy.mediaSession'), storeGet(SETTINGS_KEYS.djMediaSession) !== '0', (checked) => {
++    storeSet(SETTINGS_KEYS.djMediaSession, checked ? '1' : '0')
++  }, t('settings.privacy.mediaSessionHint'))
++  mediaSec.appendChild(media.row)
++
+   // Engellenen kullanıcılar
+   const blockSec = sSection(page, t('settings.privacy.blockedTitle'), 'set-blocked-section')
+   blockSec.appendChild(sHint(t('settings.privacy.blockedHint')))
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 81f1c50..44a5a27 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -69,6 +69,9 @@ const dj = {
+   layoutBusy: false,
+   dockBottom: null,
+   minimized: false,
++  mediaKey: null,
++  mediaPosKey: '',
++  mediaPosAt: 0,
+   consentRow: null,
+   consentWarnFor: null,
+   titleWatch: []
+@@ -637,6 +640,7 @@ function djRender () {
+   djEnsureCrewItem(show)
+   if (!show || !dj.ui || !s) {
+     djSyncConsentWarn(null)
++    djMediaSession(null)
+     return
+   }
+   const ui = dj.ui
+@@ -740,6 +744,94 @@ function djRender () {
+   ui.speakerHint.hidden = !(current && vad)
+   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
+   djSyncConsentWarn(s)
++  djMediaSession(s)
++}
++
++// ------------------------------------------------------------------ Media Session
++
++const DJ_MEDIA_KEY = 'telsiz.djMediaSession'
++const DJ_MEDIA_POSITION_MS = 5000
++
++// Ayarlar > Gizlilik: parça adı işletim sisteminin medya denetimlerine verilsin mi (varsayılan açık)
++function djMediaSessionOn () {
++  return djStoreGet(DJ_MEDIA_KEY) !== '0'
++}
++
++// İşletim sisteminin medya denetimleri ve kilit ekranı (navigator.mediaSession): başlık parçanın adı, sanatçı
++// alanı "Telsiz DJ · oda". Oynat ve Duraklat yalnızca bu cihazdaki yerel bekletmeyi yönetir (music.js
++// setLocalHold 'media'), odanın durumunu değiştirmez: bir kulaklık tuşu bütün odayı durdurmaz. Konum
++// setPositionState ile bildirilir. Odadan çıkınca, parça kalmayınca veya ayar kapalıyken metadata null olur ve
++// işleyiciler kaldırılır. Başka modüller aynı nesneye yalnızca kendi eylem işleyicilerini ekler, metadata'yı
++// yalnızca bu işlev yazar.
++function djMediaSession (s) {
++  const ms = navigator.mediaSession
++  if (!ms) return
++  const engine = djEngine()
++  const session = s ? s.session : null
++  const current = session ? session.current : null
++  const active = Boolean(engine && s && s.supported && s.enabled && current && dj.voiceRoom !== null && djMediaSessionOn())
++  if (!active) {
++    if (dj.mediaKey === null) return
++    dj.mediaKey = null
++    dj.mediaPosAt = 0
++    try {
++      ms.metadata = null
++      ms.playbackState = 'none'
++      ms.setActionHandler('play', null)
++      ms.setActionHandler('pause', null)
++    } catch (err) {
++      // Desteklenmeyen eylem
++    }
++    return
++  }
++  if (dj.mediaKey === null) {
++    try {
++      ms.setActionHandler('play', () => {
++        const e = djEngine()
++        if (e) e.setLocalHold('media', false)
++      })
++      ms.setActionHandler('pause', () => {
++        const e = djEngine()
++        if (e) e.setLocalHold('media', true)
++      })
++    } catch (err) {
++      // Desteklenmeyen eylem
++    }
++  }
++  const title = djTrackTitle(current)
++  const artist = t('dj.mediaSession.artist', { room: djRoomName(dj.voiceRoom) })
++  const key = current.id + '|' + title + '|' + artist
++  if (key !== dj.mediaKey) {
++    dj.mediaKey = key
++    dj.mediaPosAt = 0
++    try {
++      ms.metadata = typeof window.MediaMetadata === 'function' ? new window.MediaMetadata({ title: title, artist: artist }) : null
++    } catch (err) {
++      ms.metadata = null
++    }
++  }
++  const p = s.player || {}
++  const held = Array.isArray(p.localHold) && p.localHold.length > 0
++  const state = session.playing && !held ? 'playing' : 'paused'
++  const posKey = state + '|' + current.id
++  try {
++    if (ms.playbackState !== state) ms.playbackState = state
++  } catch (err) {
++    // Yoksa sessiz
++  }
++  // Konum: parça veya durum değişince ve birkaç saniyede bir
++  const dur = current.durationMs || 0
++  const now = Date.now()
++  if (typeof ms.setPositionState === 'function' && dur > 0 && (posKey !== dj.mediaPosKey || now - dj.mediaPosAt >= DJ_MEDIA_POSITION_MS)) {
++    dj.mediaPosKey = posKey
++    dj.mediaPosAt = now
++    const pos = Math.max(0, Math.min(dur, Number(engine.queue().positionMs) || 0))
++    try {
++      ms.setPositionState({ duration: dur / 1000, playbackRate: 1, position: pos / 1000 })
++    } catch (err) {
++      // Geçersiz konum, sonraki denetimde yeniden denenir
++    }
++  }
+ }
+ 
+ // ------------------------------------------------------------------ erken YouTube rızası
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 8433e03..5984cc6 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -588,7 +588,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
+   const expected = {
+     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
+     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
++    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
+     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
+@@ -953,6 +953,24 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
+   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
+ })
+ 
++test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
++  const { run, root, storage } = load()
++  assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')
++  run("openSettings('privacy', null)")
++  const sw = root.querySelector('#set-dj-media-session')
++  assert.strictEqual(sw.checked, true)
++  assert.strictEqual(sw.getAttribute('role'), 'switch')
++  assert.ok(root.querySelector('#set-dj-media-session-hint').textContent.indexOf('kilit ekranında') !== -1)
++  sw.click()
++  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '0')
++  sw.click()
++  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '1')
++  storage.setItem('telsiz.djMediaSession', '0')
++  run("showSettingsCat('notifications', null)")
++  run("showSettingsCat('privacy', null)")
++  assert.strictEqual(root.querySelector('#set-dj-media-session').checked, false)
++})
++
+ test('settings.css yalnızca belirteçlerle yazılır ve eski WebKit kurallarına uyar', () => {
+   const css = fs.readFileSync(path.join(PUB, 'css', 'settings.css'), 'utf8')
+   const body = css.replace(/\/\*[\s\S]*?\*\//g, '')
