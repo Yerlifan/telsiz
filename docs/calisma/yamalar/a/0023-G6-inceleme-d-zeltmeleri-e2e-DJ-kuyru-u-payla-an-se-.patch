@@ -1,0 +1,157 @@
+From 70318a8d414335ab787168a5725c187766e28729 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 00:42:16 +0000
+Subject: [PATCH 23/23] =?UTF-8?q?G6:=20inceleme=20d=C3=BCzeltmeleri=20(e2e?=
+ =?UTF-8?q?:=20DJ=20kuyru=C4=9Fu,=20payla=C5=9Fan=20se=C3=A7icisi,=20izley?=
+ =?UTF-8?q?iciler=20ve=20Bildirimler=20oda=C4=9F=C4=B1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- e2e 17-profil: Deniz'in Telsiz DJ'ye eklediği ikinci parça Ece'nin
+  kuyruğunda bekler, Deniz adını değiştirince .dj-queue-by güncellenir.
+  Deniz ve Ece ekranlarını paylaşır, Deniz Ece'yi izler: Deniz adını ve
+  resmini değiştirince Ece'nin paylaşan seçicisindeki .cast-chip-name ve
+  avatar, izleyici yığınındaki avatar güncellenir. Bildirimler'deki İzle
+  düğmesi odaktayken liste güncellenir, odak aynı düğmede kalır.
+  23-dj.js kuyruk anahtarından, 22-cast.js pickKey veya viewersKey
+  satırından profileEpoch() çıkarılınca ya da odak geri verilmeyince
+  adım düşer (dördü de denendi).
+- Konsol denetimi Telsiz DJ'nin sürüm çakışması yanıtını (409,
+  /api/music/state) 06-dj.test.js ile aynı gerekçeyle kabul eder.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/17-profil.test.js | 99 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 97 insertions(+), 2 deletions(-)
+
+diff --git a/e2e/17-profil.test.js b/e2e/17-profil.test.js
+index 3e6edb2..42547c0 100644
+--- a/e2e/17-profil.test.js
++++ b/e2e/17-profil.test.js
+@@ -7,11 +7,15 @@
+ //   adını yeniden değiştirir, iki kartın başlığı da güncellenir.
+ // - Ece'nin ilk /api/profiles isteği bağlantı hatasıyla düşer: ad yine SHORT içinde gelir. İlk profil resmi indirmesi
+ //   düşer: resim 10 saniyelik yeniden denemeyle gelir.
++// - Deniz'in Telsiz DJ'ye eklediği parça Ece'nin kuyruğunda bekler, Deniz ve Ece ekranlarını paylaşır, Deniz Ece'nin
++//   paylaşımını izler. Deniz adını ve resmini değiştirince Ece'de kuyruktaki ekleyen adı, paylaşan seçicisindeki ad ve
++//   izleyici yığınındaki avatar güncellenir. Bildirimler listesindeki İzle düğmesi odaktayken liste güncellenir, odak
++//   aynı düğmede kalır.
+ // - Kart düzeni üç temada (Arcade, Gece, Turkuaz): ad avatarın sağında, rol rozeti adla aynı satırda, @kullanıcı
+ //   adı adın altında. Üye kartında soluk "Üye" rozeti, özel rolü olan üyede iki rozet. Avatar menüsünde rol adın
+ //   yanında, Ayarlar önizlemesinde özel rol rozeti. 360 piksel genişlikte yatay taşma yok, kart büyük yazı boyutunda
+ //   da ekrana sığar.
+-// - Konsol ve sunucu günlüğü temiz (bilerek düşürülen isteklerin hataları dışında)
++// - Konsol ve sunucu günlüğü temiz (bilerek düşürülen isteklerin ve Telsiz DJ sürüm çakışmasının (409) hataları dışında)
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -105,6 +109,24 @@ function assertIdentity (g, label, badges, handle) {
+   assert.ok(Math.abs(g.handleLeft - g.nameLeft) <= 1, label + ': ad ve @kullanıcı adı aynı sütunda')
+ }
+ 
++// Ses dosyası mesajı: Deniz genel odasına gönderir, Telsiz DJ'de çalınabilir. Parça testin sonuna kadar sürer.
++async function sayAudio (name) {
++  const w = W.w
++  const wav = h.makeWav(120, 8000)
++  const enc = w.E.encryptFile(new Uint8Array(wav))
++  const up = await w.call('POST', '/api/uploads', null, w.P.deniz.token, Buffer.from(enc.box))
++  assert.equal(up.status, 200, JSON.stringify(up.data))
++  await w.say('deniz', W.genel, name, [{ u: up.data.id, k: enc.key, n: enc.nonce, kind: 'file', name: name + '.wav', m: 'audio/wav', s: wav.length }], [up.data.id])
++}
++
++// Telsiz kartının Ekran düğmesi ve paylaşım penceresiyle ekran paylaşımı başlar
++async function shareScreen (page) {
++  await page.click('#btn-screen')
++  await page.waitForSelector('#cast-dialog:not([hidden]) .cast-dialog-panel')
++  await page.click('#cast-dialog .cast-primary')
++  await page.waitForSelector('#cast[data-mode="own"]:not([hidden])', { timeout: h.LONG })
++}
++
+ async function openCard (page, id) {
+   await page.evaluate((d) => openProfileCard(d, document.getElementById('me-button')), id)
+   await page.waitForSelector('#profile-card:not([hidden]) .profile-identity-name')
+@@ -310,8 +332,81 @@ test('kart düzeni üç temada: ad avatarın sağında, rol adın yanında, üye
+   await ece.setViewportSize({ width: 1440, height: 900 })
+ })
+ 
++test('profil değişikliği Telsiz DJ kuyruğuna, paylaşan seçicisine ve izleyici yığınına yansır, Bildirimler odağı korur', async () => {
++  const { deniz, ece } = W
++  const D = W.w.P.deniz.id
++  const E = W.w.P.ece.id
++  // Deniz genel odasındaki iki ses dosyasını Telsiz DJ'de çalar: ilki çalar, ikincisi kuyrukta bekler
++  await sayAudio('birinci-parca')
++  await sayAudio('ikinci-parca')
++  await deniz.evaluate((id) => selectChannel(id, {}), W.genel.id)
++  await deniz.waitForFunction(() => document.querySelectorAll('#message-list .dj-play-file').length === 2, null, { timeout: h.LONG })
++  const plays = await deniz.$$('#message-list .dj-play-file')
++  await plays[0].click()
++  await deniz.waitForFunction(() => {
++    const s = dj.engine.snapshot()
++    return Boolean(s.session && s.session.current)
++  }, null, { timeout: h.LONG })
++  await plays[1].click()
++  const queueBy = '#dj .dj-queue .dj-queue-item .dj-queue-by'
++  const byName = (name) => ece.waitForFunction((a) => {
++    const rows = document.querySelectorAll(a.sel)
++    return rows.length === 1 && rows[0].textContent.endsWith('ekleyen: ' + a.name)
++  }, { sel: queueBy, name }, { timeout: h.LONG })
++  await byName('Deniz Altı')
++  // Deniz adını değiştirir (resmi kalkar): Ece'nin kuyruğundaki ekleyen adı güncellenir
++  await writeProfile('Deniz Yedi', null)
++  await byName('Deniz Yedi')
++
++  // Deniz paylaşır. Ece'nin Bildirimler listesindeki İzle düğmesi odaktayken Deniz adını değiştirir: liste güncellenir,
++  // odak aynı kaydın İzle düğmesinde kalır
++  await shareScreen(deniz)
++  const shareRow = '#activity-list li.is-share[data-user-id="' + D + '"]'
++  await ece.waitForSelector(shareRow + ' .activity-watch', { timeout: h.LONG })
++  await ece.focus(shareRow + ' .activity-watch')
++  await writeProfile('Deniz Sekiz', null)
++  await ece.waitForFunction((sel) => {
++    const n = document.querySelector(sel + ' .activity-text')
++    return Boolean(n && n.textContent.startsWith('Deniz Sekiz '))
++  }, shareRow, { timeout: h.SHORT })
++  const focus = await ece.evaluate(() => {
++    const a = document.activeElement
++    const li = a ? a.closest('li') : null
++    return { watch: Boolean(a && a.classList.contains('activity-watch')), user: li ? li.getAttribute('data-user-id') : null, kind: li ? li.classList.contains('is-share') : null }
++  })
++  assert.deepEqual(focus, { watch: true, user: String(D), kind: true }, 'odak İzle düğmesinde kalır')
++
++  // Ece de paylaşır: sahnesindeki paylaşan seçicisinde Deniz ve Siz düğmeleri. Deniz Ece'nin paylaşımını izler, Ece'nin
++  // izleyici yığınında Deniz'in avatarı (resimsiz) görünür
++  await shareScreen(ece)
++  const chip = '#cast .cast-pick:not([hidden]) .cast-chip[data-cast-user="' + D + '"]'
++  await ece.waitForSelector(chip, { timeout: h.LONG })
++  assert.equal(await ece.textContent(chip + ' .cast-chip-name'), 'Deniz Sekiz')
++  const eceChip = '#cast .cast-pick:not([hidden]) .cast-chip[data-cast-user="' + E + '"]'
++  await deniz.waitForSelector(eceChip, { timeout: h.LONG })
++  await deniz.click(eceChip)
++  await deniz.waitForSelector('#cast[data-mode="watch"]:not([hidden])', { timeout: h.LONG })
++  const viewer = '#cast .cast-viewers-stack .avatar[data-user-id="' + D + '"]'
++  await ece.waitForSelector(viewer, { timeout: h.LONG })
++  assert.equal(await ece.$(viewer + ' img.avatar-img'), null, 'Deniz\'in resmi yok')
++  // Deniz adını ve resmini değiştirir: seçicideki ad ve avatar, izleyici yığınındaki avatar güncellenir
++  const avatar = await uploadAvatar()
++  await writeProfile('Deniz Dokuz', avatar)
++  await ece.waitForFunction((a) => {
++    const name = document.querySelector(a.chip + ' .cast-chip-name')
++    return Boolean(name && name.textContent === 'Deniz Dokuz' && document.querySelector(a.chip + ' img.avatar-img') && document.querySelector(a.viewer + ' img.avatar-img'))
++  }, { chip, viewer }, { timeout: h.SHORT })
++
++  // Paylaşımlar durur, iki sahne de kapanır
++  for (const p of [deniz, ece]) await p.evaluate(() => document.getElementById('btn-screen').click())
++  for (const p of [deniz, ece]) await p.waitForFunction(() => document.getElementById('cast').hidden, null, { timeout: h.LONG })
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Bilerek düşürülen istekler (route.abort) Ece'nin konsoluna ağ hatası olarak yazılır, beklenen bir durumdur
+   const aborted = (l) => l.label === 'ece' && l.type === 'error' && /ERR_CONNECTION_RESET/.test(l.text) && /\/api\/(profiles|uploads)/.test(l.url)
+-  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [aborted])
++  // İki istemci Telsiz DJ durumunu aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni
++  // durumla yeniden dener (06-dj.test.js ile aynı gerekçe). Tarayıcı yanıtı "Failed to load resource" olarak yazar.
++  const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state$/.test(l.url)
++  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [aborted, casConflict])
+ })
