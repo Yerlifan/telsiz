@@ -572,7 +572,15 @@ function floatBuildShare (stage, plan, s) {
     floatState.shareVideo = v
   }
   v.setAttribute('aria-label', t('screen.sharingUser', { name: shownName(plan.watching) }))
-  const stream = floatShareStream(s, plan.watching)
+  floatBindShare(v, floatShareStream(s, plan.watching))
+  box.appendChild(v)
+  box.appendChild(h('span', 'float-name', t('screen.sharingUser', { name: shownName(plan.watching) })))
+  stage.appendChild(box)
+}
+
+// Yayının akışı görüntü öğesine bağlanır. Akış pencere açıldıktan sonra da gelebilir (İzle'ye yeni basıldı, yayın
+// henüz 'requested' aşamasında veya bağlantı yenilendi) ve yenisiyle değişebilir: her çizimde yeniden denetlenir.
+function floatBindShare (v, stream) {
   if (v.srcObject !== stream) {
     try {
       v.srcObject = stream
@@ -580,9 +588,7 @@ function floatBuildShare (stage, plan, s) {
       v.srcObject = null
     }
   }
-  box.appendChild(v)
-  box.appendChild(h('span', 'float-name', t('screen.sharingUser', { name: shownName(plan.watching) })))
-  stage.appendChild(box)
+  if (stream) floatPlay(v)
 }
 
 function floatShareStream (s, userId) {
@@ -596,11 +602,12 @@ function floatShareStream (s, userId) {
   return null
 }
 
-// Sık değişenler: konuşma halkası, mikrofon düğmesi, oda adı
+// Sık değişenler: izlenen yayının akışı, konuşma halkası, mikrofon düğmesi, oda adı
 function floatLive (plan, s) {
   const doc = floatState.doc
   const n = floatState.nodes
   if (!doc || !n) return
+  if (plan.kind === 'share' && floatState.shareVideo) floatBindShare(floatState.shareVideo, floatShareStream(s, plan.watching))
   const speaking = {}
   plan.tiles.forEach((tile) => {
     speaking[tile.id] = tile.speaking

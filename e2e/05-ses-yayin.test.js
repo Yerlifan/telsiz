@@ -4,8 +4,8 @@
 // kadroda ikisi ve Telsiz DJ öğesi görünür, konuşma halesi avatar şeklini izler. Biri ekranını paylaşır,
 // öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşan önizlemeyi küçültür (paylaşım sürer) ve
 // üst çubuktaki çipten geri getirir, Yüzen Pencere odayı ve Durdur'u gösterir. İzleyicinin yüzen penceresinde
-// yayın oynar. Paylaşım sürerken paylaşanın üst çubuğu dar pencerede taşmaz, profil düğmesi görünür kalır.
-// Paylaşım durdurulunca sahne kapanır.
+// yayın oynar, yayının akışı pencere açıldıktan sonra gelse de. Paylaşım sürerken paylaşanın üst çubuğu dar
+// pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -339,6 +339,54 @@ test('izleyicinin Yüzen Pencere düğmesi izlenen yayını yüzen pencerede oyn
   const info = await first.jsonValue()
   assert.equal(info.name, 'Deniz ekranını paylaşıyor')
   await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, info.t, { timeout: h.LONG })
+  await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
+  await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+})
+
+// Yayının akışı yüzen pencere açıldıktan sonra da gelebilir (İzle'ye yeni basıldı, yayın henüz 'requested'
+// aşamasında veya bağlantı yenilendi). Pencere akışsız açılır, akış gelince aynı pencerede oynar. Akışın gecikmesi
+// yüzen pencerenin okuduğu ses durumunda (radioScreen ve getScreenStream) taklit edilir, sahne etkilenmez.
+test('izleyicinin yüzen penceresi yayının akışı gelmeden açılırsa akış gelince oynar', async () => {
+  const { mert } = W
+  await mert.evaluate(() => {
+    window.__radioScreen = radioScreen
+    window.__getScreenStream = voice.getScreenStream
+    radioScreen = function (s) {
+      const sc = window.__radioScreen(s)
+      const remote = {}
+      Object.keys(sc.remote || {}).forEach((id) => {
+        remote[id] = Object.assign({}, sc.remote[id], { status: 'requested', stream: null })
+      })
+      return Object.assign({}, sc, { remote })
+    }
+    voice.getScreenStream = () => null
+  })
+  try {
+    await mert.click('#cast .cast-float')
+    const pending = await mert.waitForFunction(() => {
+      const pip = window.documentPictureInPicture.window
+      const v = pip ? pip.document.querySelector('.float-share .float-share-video') : null
+      return v && pip.document.body.getAttribute('data-kind') === 'share' ? { stream: Boolean(v.srcObject) } : null
+    }, null, { timeout: h.LONG })
+    assert.deepEqual(await pending.jsonValue(), { stream: false })
+  } finally {
+    await mert.evaluate(() => {
+      radioScreen = window.__radioScreen
+      voice.getScreenStream = window.__getScreenStream
+    })
+  }
+  // Akış gelir: bir sonraki ses durumu değişikliğinde (burada mikrofon kapatılıp açılır) pencere akışı bağlar
+  const muted = await mert.evaluate(() => snap().muted)
+  await mert.evaluate(() => toggleMute())
+  await mert.waitForFunction((m) => snap().muted !== m, muted)
+  await mert.evaluate(() => toggleMute())
+  await mert.waitForFunction((m) => snap().muted === m, muted)
+  const first = await mert.waitForFunction(() => {
+    const v = window.documentPictureInPicture.window.document.querySelector('.float-share-video')
+    return v && v.srcObject && v.videoWidth > 0 && !v.paused ? v.currentTime : null
+  }, null, { timeout: h.LONG })
+  const t0 = await first.jsonValue()
+  await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, t0, { timeout: h.LONG })
   await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
   await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
 })

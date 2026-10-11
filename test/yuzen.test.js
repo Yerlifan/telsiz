@@ -189,6 +189,50 @@ test('masaüstü: simge durumunda ve tepsiye gizlenince yalnızca ses odasınday
   assert.equal(env.run('floatIsOpen()'), false)
 })
 
+// İzlenen yayının akışı pencere açıldıktan sonra gelebilir (İzle'ye yeni basıldı, bağlantı yenilendi) ve yenisiyle
+// değişebilir. Pencerenin yapısı değişmediği için yeniden kurulmaz, akış her çizimde (floatLive) yeniden bağlanır.
+test('izlenen yayın: akış pencere açıldıktan sonra gelirse veya değişirse aynı görüntü öğesine bağlanıp oynar', () => {
+  const env = load({ documentPip: true })
+  let stream = null
+  env.sandbox.radioScreen = () => ({ remote: { 2: { status: stream ? 'live' : 'requested', stream } } })
+  env.sandbox.castCall = () => null
+  env.sandbox.setIcon = () => {}
+  env.sandbox.castRoomName = () => 'Lobi'
+  const video = {
+    srcObject: null,
+    paused: true,
+    plays: 0,
+    play () {
+      this.plays++
+      this.paused = false
+      return Promise.resolve()
+    }
+  }
+  env.sandbox.__video = video
+  env.run("floatState.mode = 'document'; floatState.doc = { querySelectorAll: () => [] }; floatState.nodes = { mic: { setAttribute () {}, classList: { toggle () {} } }, title: { textContent: 'Lobi' } }; floatState.shareVideo = __video")
+  const plan = { kind: 'share', tiles: [{ id: '2', cam: false, self: false, speaking: false }], more: 0, sharing: false, watching: '2' }
+  const draw = () => env.sandbox.floatLive(plan, { channelId: 5 })
+  draw()
+  assert.equal(video.srcObject, null, 'akış yokken öğe boş kalır')
+  assert.equal(video.plays, 0)
+  const first = { id: 'yayin-1' }
+  stream = first
+  draw()
+  assert.equal(video.srcObject, first, 'akış gelince bağlanır')
+  assert.equal(video.plays, 1)
+  draw()
+  assert.equal(video.plays, 1, 'oynayan öğe yeniden başlatılmaz')
+  const second = { id: 'yayin-2' }
+  stream = second
+  video.paused = true
+  draw()
+  assert.equal(video.srcObject, second, 'yeni akış eskisinin yerine geçer')
+  assert.equal(video.plays, 2)
+  stream = null
+  draw()
+  assert.equal(video.srcObject, null, 'yayın gidince öğe boşalır')
+})
+
 test('tarayıcı: otomatik açılış işleyicisi yalnızca belge yolunda, odadayken ve ayar açıkken kayıtlıdır', () => {
   const env = load({ documentPip: true })
   const change = env.hooks.find((hk) => hk.kind === 'change').fn
