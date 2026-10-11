@@ -27,9 +27,11 @@
 //
 // Kendi paylaşımının önizlemesi küçültülebilir (istek 16): Küçült sahneyi kapatır, paylaşım sürer, üst çubuktaki
 // çipte Önizlemeyi Göster çıkar. Seçim bu cihazda telsiz.castOwnMin içinde saklanır ('1' küçük), sonraki paylaşım
-// da küçük başlar. Dar ekranda (759 px ve altı) üst çubukta çip olmadığı için önizleme her zaman görünür. Yüzen
-// Pencere düğmesi (39-yuzen.js) kendi paylaşımında odayı yüzen pencerede açıp sahneyi yalnızca o paylaşım için
-// küçültür (saklanan seçim değişmez), izlerken izlenen yayını yüzen pencerede açar.
+// da küçük başlar. Dar ekranda (759 px ve altı) üst çubukta çip olmadığı için önizleme her zaman görünür. Önizleme
+// kip önceliğinde en sondadır: sahnede izlenen paylaşım, kamera ızgarası veya oyun masası varken küçültme yalnızca
+// saklanır, Önizlemeyi Göster o kip kapanınca çıkar (castShowWanted). Yüzen Pencere düğmesi (39-yuzen.js) kendi
+// paylaşımında odayı yüzen pencerede açıp sahneyi yalnızca o paylaşım için küçültür (saklanan seçim değişmez),
+// izlerken izlenen yayını yüzen pencerede açar.
 //
 // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
 // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
@@ -250,7 +252,7 @@ function castSync () {
   if (castState.cams && camCount === 0) castState.cams = false
   const game = inVoice && !s.private && typeof gameStageWanted === 'function' && gameStageWanted()
   const mode = castModeFor({ watching: castState.watching, cams: castState.cams, game: game, sharing: sharing })
-  castRenderTop(sc, remote, sharing)
+  castRenderTop(sc, remote, sharing, mode)
   castRenderStage(mode, sc, remote)
   if (castState.dialog) castRenderDialogState()
   // Oyun düğmesinin etiketi sahnenin görünürlüğüne bağlıdır (Küçült veya Masaya Dön)
@@ -270,10 +272,10 @@ function castRemoteIds (remote) {
   return Object.keys(remote).sort()
 }
 
-function castRenderTop (sc, remote, sharing) {
+function castRenderTop (sc, remote, sharing, mode) {
   const box = el.topCast
   if (!box) return
-  const minimized = sharing && castOwnMinimized()
+  const minimized = castShowWanted(sharing, mode)
   const key = [sharing ? 1 : 0, minimized ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
   if (key === castState.topKey) return
   castState.topKey = key
@@ -403,6 +405,13 @@ function castFocusAfterMode () {
 // Kendi paylaşımının önizlemesi: Küçült ve Önizlemeyi Göster. Dar ekranda önizleme küçültülmez.
 function castOwnMinimized () {
   return castState.ownMin && !isNarrow()
+}
+
+// Çipteki Önizlemeyi Göster yalnızca basınca önizleme görünecekse durur: paylaşım sürüyor, önizleme küçük ve
+// sahnede ondan önce gelen bir kip (izlenen paylaşım, kamera ızgarası, oyun masası, castModeFor) yok. Oyun
+// masası sahnedeyken düğme görünmez, masa küçültülünce çıkar. mode: castModeFor'un küçültmeden önceki sonucu.
+function castShowWanted (sharing, mode) {
+  return Boolean(sharing && mode === 'own' && castOwnMinimized())
 }
 
 // Küçült düğmesi: seçim bu cihazda saklanır, sonraki paylaşımlar da önizlemesiz başlar

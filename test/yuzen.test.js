@@ -428,6 +428,30 @@ test('22-cast: Küçült önizlemeyi kapatır ve seçimi saklar, Önizlemeyi Gö
   assert.deepEqual(stage.calls, [], 'sahne zaten kapalıysa bir şey yapılmaz')
 })
 
+// Önizleme kip önceliğinde en sondadır (castModeFor): izlenen paylaşım, kamera ızgarası ve oyun masası onun önüne
+// geçer. Çipteki Önizlemeyi Göster yalnızca basınca önizleme görünecekse durur, oyun sürerken masa sahnedeyken yoktur
+test('22-cast: Önizlemeyi Göster yalnızca önizleme sahnenin en üstteki kipi olacaksa çipte durur', () => {
+  const env = loadCast()
+  env.run('castState.ownMin = true')
+  const modeFor = (o) => env.run('castModeFor(' + JSON.stringify(o) + ')')
+  const own = modeFor({ watching: null, cams: false, game: false, sharing: true })
+  assert.equal(own, 'own')
+  assert.equal(env.run('castShowWanted(true, ' + JSON.stringify(own) + ')'), true)
+  const above = [
+    modeFor({ watching: '2', cams: false, game: false, sharing: true }),
+    modeFor({ watching: null, cams: true, game: false, sharing: true }),
+    modeFor({ watching: null, cams: false, game: true, sharing: true })
+  ]
+  assert.deepEqual(above, ['watch', 'cams', 'game'])
+  for (const mode of above) assert.equal(env.run('castShowWanted(true, ' + JSON.stringify(mode) + ')'), false, mode)
+  assert.equal(env.run("castShowWanted(false, 'own')"), false, 'paylaşım yok')
+  env.sandbox.innerWidth = 600
+  assert.equal(env.run("castShowWanted(true, 'own')"), false, 'dar ekranda önizleme küçültülmez')
+  env.sandbox.innerWidth = 1440
+  env.run('castState.ownMin = false')
+  assert.equal(env.run("castShowWanted(true, 'own')"), false, 'önizleme küçük değil')
+})
+
 test('22-cast: Yüzen Pencere düğmesi kendi paylaşımında ve izlerken, Küçült yalnızca kendi paylaşımında', () => {
   const env = loadCast()
   const n = { float: env.attr(), ownMin: env.attr() }
