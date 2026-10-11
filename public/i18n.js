@@ -89,6 +89,12 @@ window.I18N = (function () {
     'settings.voice.floatHintDesktop': 'Ses odasındayken pencere küçültülür ya da tepsiye gizlenirse kameralar veya profil fotoğrafları her zaman üstte kalan küçük bir pencerede görünür. Windows ve macOS\'ta bu pencere ekran paylaşımına girmez.',
     'settings.voice.floatHintBrowser': 'Chrome ve Edge\'de ses odasındayken başka sekmeye geçince açılır. Tarayıcı simge durumuna küçültülünce kendiliğinden açılmaz, Yüzen Pencere düğmesini kullanın.',
     'settings.voice.floatHintWayland': 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.',
+    'cast.minimize': 'Küçült',
+    'cast.minimizeLabel': 'Önizlemeyi küçült, paylaşım sürer',
+    'cast.showPreview': 'Önizlemeyi Göster',
+    'cast.float': 'Yüzen Pencere',
+    'cast.floatLabel': 'Yayını yüzen pencerede izle',
+    'cast.floatLinuxNote': 'Linux\'ta ve tarayıcıda yüzen pencere tam ekran paylaşımında görünür, izleyenler arkadaşlarınızın görüntüsünü de görebilir.',
     // G12 Temalar
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
@@ -2099,6 +2105,12 @@ window.I18N = (function () {
     'settings.voice.floatHintDesktop': 'While you\'re in a voice room, minimizing the window or hiding it to the tray shows cameras or profile photos in a small always-on-top window. On Windows and macOS this window is excluded from screen sharing.',
     'settings.voice.floatHintBrowser': 'In Chrome and Edge it opens when you switch tabs while in a voice room. It doesn\'t open by itself when the browser is minimized. Use the Floating Window button.',
     'settings.voice.floatHintWayland': 'In a Wayland session the window can\'t stay on top and may appear in screen shares.',
+    'cast.minimize': 'Minimize',
+    'cast.minimizeLabel': 'Minimize the preview, sharing continues',
+    'cast.showPreview': 'Show Preview',
+    'cast.float': 'Floating Window',
+    'cast.floatLabel': 'Watch the stream in a floating window',
+    'cast.floatLinuxNote': 'On Linux and in the browser the floating window shows up in full-screen shares, so viewers may see your friends\' video too.',
     // G12 Temalar
     // G13 Özgün tasarım
     // G14 Kurtarma kodu

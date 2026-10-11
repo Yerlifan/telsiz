@@ -23,12 +23,19 @@
 // - .cast-screen[data-fit="contain" | "cover"]: Sığdır ve Doldur seçimi. İzlenen paylaşım ve kamera ızgarası
 //   ayrı seçim tutar (paylaşımda varsayılan Sığdır, kameralarda Doldur).
 //
+// Kendi paylaşımının önizlemesi küçültülebilir (istek 16): Küçült sahneyi kapatır, paylaşım sürer, üst çubuktaki
+// çipte Önizlemeyi Göster çıkar. Seçim bu cihazda telsiz.castOwnMin içinde saklanır ('1' küçük), sonraki paylaşım
+// da küçük başlar. Dar ekranda (759 px ve altı) üst çubukta çip olmadığı için önizleme her zaman görünür. Yüzen
+// Pencere düğmesi (39-yuzen.js) kendi paylaşımında odayı yüzen pencerede açıp sahneyi küçültür, izlerken izlenen
+// yayını yüzen pencerede açar.
+//
 // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
 // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
 // Esc tam ekrandan çıkar.
 
 const CAST_FIT_KEY = 'telsiz.castFit'
 const CAM_FIT_KEY = 'telsiz.camFit'
+const CAST_OWN_MIN_KEY = 'telsiz.castOwnMin'
 const CAST_QUALITY_KEY = 'telsiz.screenQuality'
 const CAST_NOTICE_MS = 20000
 const CAST_REWATCH_MS = 20000
@@ -57,6 +64,8 @@ const castState = {
   // Kameralar ızgarası açık mı ve son çizilen ızgaranın anahtarı
   cams: false,
   camsKey: '',
+  // Kendi paylaşımının önizlemesi küçültüldü mü (telsiz.castOwnMin)
+  ownMin: false,
   bound: false
 }
 
@@ -252,7 +261,8 @@ function castRemoteIds (remote) {
 function castRenderTop (sc, remote, sharing) {
   const box = el.topCast
   if (!box) return
-  const key = [sharing ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
+  const minimized = sharing && castOwnMinimized()
+  const key = [sharing ? 1 : 0, minimized ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
   if (key === castState.topKey) return
   castState.topKey = key
   const hadFocus = box.contains(document.activeElement)
@@ -263,6 +273,19 @@ function castRenderTop (sc, remote, sharing) {
     led.setAttribute('aria-hidden', 'true')
     own.appendChild(led)
     setLive(own.appendChild(h('span', 'top-cast-text')), () => t('cast.ownChip'))
+    // Önizleme küçültüldüyse sahneyi geri getiren düğme
+    if (minimized) {
+      const show = h('button', 'top-cast-show')
+      show.type = 'button'
+      show.setAttribute('data-focus-key', 'cast-top-show')
+      show.setAttribute('aria-controls', 'cast')
+      show.appendChild(icon('i-screen'))
+      setLive(show.appendChild(h('span', 'top-cast-show-text')), () => t('cast.showPreview'))
+      show.setAttribute('aria-label', t('cast.showPreview'))
+      show.title = t('cast.showPreview')
+      show.addEventListener('click', castShowOwn)
+      own.appendChild(show)
+    }
     const stop = h('button', 'top-cast-stop')
     stop.type = 'button'
     stop.setAttribute('data-focus-key', 'cast-top-stop')
@@ -349,6 +372,48 @@ function castStopShare () {
   castCall('stopScreenShare')
   castSync()
   if (hadFocus && !castVisible()) castFocusAfterClose()
+}
+
+// Kendi paylaşımının önizlemesi: Küçült ve Önizlemeyi Göster. Dar ekranda önizleme küçültülmez.
+function castOwnMinimized () {
+  return castState.ownMin && !isNarrow()
+}
+
+function castMinimizeOwn () {
+  const hadFocus = el.cast.contains(document.activeElement)
+  castState.ownMin = true
+  storeSet(CAST_OWN_MIN_KEY, '1')
+  castSync()
+  if (!hadFocus) return
+  const show = el.topCast ? el.topCast.querySelector('.top-cast-show') : null
+  if (show && show.getClientRects().length) focusNode(show)
+  else castFocusAfterClose()
+}
+
+function castShowOwn () {
+  castState.ownMin = false
+  storeSet(CAST_OWN_MIN_KEY, '0')
+  castSync()
+  if (castState.nodes && castVisible() && el.cast.getAttribute('data-mode') === 'own') focusNode(castState.nodes.ownMin)
+}
+
+// Yüzen Pencere (sahne başlığı, 39-yuzen.js): kendi paylaşımında oda yüzen pencerede açılır ve önizleme küçülür,
+// izlerken izlenen yayın yüzen pencerede açılır. Linux masaüstünde ve tarayıcıda yüzen pencere tam ekran paylaşımına
+// girebildiği için paylaşan kişiye bir kez not gösterilir.
+function castFloat () {
+  if (typeof floatOpen !== 'function') return
+  const mode = el.cast.getAttribute('data-mode')
+  if (mode === 'own') {
+    floatOpen('share-own').then((ok) => {
+      if (!ok) return
+      const d = window.telsizDesktop
+      const guarded = Boolean(d && (d.platform === 'win32' || d.platform === 'darwin'))
+      if (!guarded) toast(() => t('cast.floatLinuxNote'), '', 8000)
+      if (castVisible() && el.cast.getAttribute('data-mode') === 'own') castMinimizeOwn()
+    })
+  } else if (mode === 'watch') {
+    floatOpen('share')
+  }
 }
 
 // Kameralar ızgarası (telsiz kartındaki Büyüt düğmesi)
@@ -448,6 +513,16 @@ function castBuildStage () {
     openCastDialog(n.quality, 'quality')
   })
   head.appendChild(n.quality)
+  // Yüzen Pencere (kendi paylaşımında ve izlerken) ve Küçült (yalnızca kendi paylaşımında)
+  n.float = castHeadButton('cast-float', 'i-pip', () => t('cast.float'))
+  n.float.setAttribute('data-focus-key', 'cast-float')
+  n.float.addEventListener('click', castFloat)
+  head.appendChild(n.float)
+  n.ownMin = castHeadButton('cast-own-min', 'i-minimize', () => t('cast.minimize'))
+  n.ownMin.setAttribute('data-focus-key', 'cast-own-min')
+  n.ownMin.setAttribute('aria-controls', 'cast')
+  n.ownMin.addEventListener('click', castMinimizeOwn)
+  head.appendChild(n.ownMin)
   n.unwatch = castHeadButton('cast-unwatch is-danger', 'i-screen-off', () => t('screen.unwatch'))
   n.unwatch.addEventListener('click', castUnwatch)
   head.appendChild(n.unwatch)
@@ -598,6 +673,8 @@ function castHeadButton (className, iconName, producer) {
 
 function castRenderStage (mode, sc, remote) {
   const root = el.cast
+  // Küçültülen önizleme: sahne kapanır, paylaşım sürer
+  if (mode === 'own' && castOwnMinimized()) mode = null
   if (!mode) {
     if (!root.hidden) castCloseStage()
     return
@@ -611,6 +688,7 @@ function castRenderStage (mode, sc, remote) {
   castApplyChat()
   castRefreshAttrs(root)
   castRenderPick(sc, remote, mode)
+  castRenderFloatTools(castState.nodes, mode)
   const own = mode === 'own'
   const cams = mode === 'cams'
   const fit = cams ? castState.camFit : castState.fit
@@ -649,6 +727,17 @@ function castRenderStage (mode, sc, remote) {
     castObserve(true)
     castRenderDock()
   }
+}
+
+// Başlıktaki Yüzen Pencere ve Küçült: Yüzen Pencere kendi paylaşımında ve izlerken (bu cihazda yüzen pencere
+// varsa), Küçült yalnızca kendi paylaşımında. Görünür ad kısadır, erişilebilir ad ne olacağını söyler.
+function castRenderFloatTools (n, mode) {
+  const own = mode === 'own'
+  const can = typeof floatMode === 'function' && floatMode() !== null
+  n.float.hidden = !can || !(own || mode === 'watch')
+  n.float.setAttribute('aria-label', t(own ? 'float.openLabel' : 'cast.floatLabel'))
+  n.ownMin.hidden = !own
+  n.ownMin.setAttribute('aria-label', t('cast.minimizeLabel'))
 }
 
 // Kameralar ızgarası: kadro sırasıyla, sütun ve satır sayısı kamera sayısından (1, 2x1, 2x2, 3x2, 3x3, 4x3)
@@ -1367,10 +1456,13 @@ function castInit () {
   document.addEventListener('fullscreenchange', castOnFullChange)
   document.addEventListener('webkitfullscreenchange', castOnFullChange)
   // Telefon ve geniş düzen arasında geçince sohbet yeniden düzenin varsayılanına döner
+  castState.ownMin = storeGet(CAST_OWN_MIN_KEY) === '1'
   let narrow = isNarrow()
   window.addEventListener('resize', () => {
     const now = isNarrow()
     if (now !== narrow) castState.chatOpen = null
+    // Küçültülen önizleme dar ekranda görünür, geniş ekrana dönünce yeniden küçülür
+    if (now !== narrow && castState.ownMin && state.inApp) castSync()
     narrow = now
     if (castVisible()) castApplyChat()
   })

@@ -267,3 +267,87 @@ test('index.html ve sw.js: modül 32 ile 40 arasında, stil dosyası ve simgeler
   assert.ok(SW.indexOf("'/js/39-yuzen.js'") < SW.indexOf("'/js/40-bosta.js'"))
   assert.ok(SW.includes("'/css/yuzen.css'"))
 })
+
+// Ekran paylaşımı (public/js/22-cast.js, istek 16): kendi paylaşımının önizlemesini küçültme ve Yüzen Pencere
+// düğmeleri. Modül vm bağlamında, sahne çizimi taklit edilerek yüklenir.
+function loadCast (opts) {
+  const o = opts || {}
+  const store = new Map(Object.entries(o.store || {}))
+  const calls = []
+  const attr = () => {
+    const a = {}
+    return {
+      hidden: false,
+      setAttribute: (k, v) => {
+        a[k] = String(v)
+      },
+      getAttribute: (k) => (k in a ? a[k] : null),
+      attrs: a
+    }
+  }
+  const sandbox = {
+    console,
+    window: null,
+    document: { readyState: 'loading', addEventListener () {}, activeElement: null },
+    innerWidth: o.width || 1440,
+    isNarrow: () => sandbox.innerWidth < 760,
+    storeGet: (k) => (store.has(k) ? store.get(k) : null),
+    storeSet: (k, v) => store.set(k, String(v)),
+    t: (key) => key,
+    el: { cast: Object.assign(attr(), { hidden: o.stageHidden === true, contains: () => false }), topCast: null },
+    state: { inApp: true },
+    voice: null
+  }
+  sandbox.window = sandbox
+  sandbox.addEventListener = () => {}
+  vm.createContext(sandbox)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'js', '22-cast.js'), 'utf8'), sandbox, { filename: '22-cast.js' })
+  vm.runInContext('castSync = function () { __calls.push("sync") }\ncastCloseStage = function () { __calls.push("close") }\ncastFocusAfterClose = function () {}', Object.assign(sandbox, { __calls: calls }))
+  return { sandbox, run: (code) => vm.runInContext(code, sandbox), store, calls, attr }
+}
+
+test('22-cast: Küçült önizlemeyi kapatır ve seçimi saklar, Önizlemeyi Göster geri getirir, dar ekranda küçültme yok', () => {
+  const env = loadCast()
+  assert.equal(env.run('CAST_OWN_MIN_KEY'), 'telsiz.castOwnMin')
+  assert.equal(env.run('castOwnMinimized()'), false)
+  env.run('castMinimizeOwn()')
+  assert.equal(env.store.get('telsiz.castOwnMin'), '1')
+  assert.equal(env.run('castState.ownMin'), true)
+  assert.equal(env.run('castOwnMinimized()'), true)
+  assert.deepEqual(env.calls, ['sync'])
+  // Kendi paylaşımının kipi küçükken sahne kapanır (paylaşım sürer, motor çağrılmaz)
+  env.run("castRenderStage('own', { state: 'live' }, {})")
+  assert.deepEqual(env.calls, ['sync', 'close'])
+  // Dar ekranda üst çubukta çip yoktur: önizleme küçük sayılmaz
+  env.sandbox.innerWidth = 600
+  assert.equal(env.run('castOwnMinimized()'), false)
+  env.sandbox.innerWidth = 1440
+  env.run('castShowOwn()')
+  assert.equal(env.store.get('telsiz.castOwnMin'), '0')
+  assert.equal(env.run('castOwnMinimized()'), false)
+  const stage = loadCast({ stageHidden: true })
+  stage.run('castState.ownMin = true')
+  stage.run("castRenderStage('own', { state: 'live' }, {})")
+  assert.deepEqual(stage.calls, [], 'sahne zaten kapalıysa bir şey yapılmaz')
+})
+
+test('22-cast: Yüzen Pencere düğmesi kendi paylaşımında ve izlerken, Küçült yalnızca kendi paylaşımında', () => {
+  const env = loadCast()
+  const n = { float: env.attr(), ownMin: env.attr() }
+  env.sandbox.__n = n
+  // Yüzen pencere modülü yokken düğme gizli
+  env.run("castRenderFloatTools(__n, 'own')")
+  assert.equal(n.float.hidden, true)
+  assert.equal(n.ownMin.hidden, false)
+  assert.equal(n.ownMin.attrs['aria-label'], 'cast.minimizeLabel')
+  env.run("var floatMode = function () { return 'document' }")
+  const cases = [['own', false, false, 'float.openLabel'], ['watch', false, true, 'cast.floatLabel'], ['cams', true, true, 'cast.floatLabel']]
+  for (const [mode, floatHidden, minHidden, label] of cases) {
+    env.run('castRenderFloatTools(__n, ' + JSON.stringify(mode) + ')')
+    assert.deepEqual([n.float.hidden, n.ownMin.hidden, n.float.attrs['aria-label']], [floatHidden, minHidden, label], mode)
+  }
+  // Saklanan seçim açılışta okunur
+  const stored = loadCast({ store: { 'telsiz.castOwnMin': '1' } })
+  stored.run('castInit()')
+  assert.equal(stored.run('castState.ownMin'), true)
+})

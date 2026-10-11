@@ -466,6 +466,15 @@ function floatBuild (doc, plan, s) {
   if (plan.kind === 'share') {
     floatBuildShare(stage, plan, s)
   } else {
+    // İzlenen yayın bitti veya bırakıldı: yayının görüntü öğesi bırakılır
+    if (floatState.shareVideo) {
+      try {
+        floatState.shareVideo.srcObject = null
+      } catch (err) {
+        // Öğe zaten bırakıldı
+      }
+      floatState.shareVideo = null
+    }
     const streams = typeof cameraStreams === 'function' ? cameraStreams(s) : {}
     const big = h('div', 'float-cams')
     const strip = h('div', plan.kind === 'cams' ? 'float-strip' : 'float-avatars')
