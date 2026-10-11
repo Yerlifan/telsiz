@@ -2,59 +2,36 @@
  "bulgular": [
   {
    "onem": "orta",
-   "dosya": "public/css/dj.css",
-   "satir": 846,
-   "ozet": "Varsayılan sağ üst köşe Ayarlar'daki denetimleri örtüyor. Üst köşe için yer ayrılmıyor, eski sağ alt köşe ve padding düzeni bozuldu.",
-   "senaryo": "1100x800 pencerede YouTube parçası çalarken Ayarlar açılır. 760 ile 1279 piksel arasında varsayılan köşe 'tr' olduğundan kutu x 751-1085, y 124-375 aralığına yerleşir. Tarayıcıda yaptığım ölçümde Kısayollar sayfasında set-bind-ptt-assign düğmesinin ortası köşedeki oynatıcının altında kaldı ve sayfa kaydırılamıyor (scrollHeight - clientHeight = 0), yani düğmeye tıklanamıyor. Gizlilik'te set-allow-dms ile set-typing, Bildirimler'de set-notify, Görünüm'de set-skin-turkuaz, Ses'te set-mic-refresh de örtülüyor. Eski kodda kutu hep sağ altta duruyordu ve body.has-dj-dock .settings-main-inner alttan boşluk aldığı için her satıra kaydırarak ulaşılabiliyordu. Artık bu boşluk yalnızca has-dj-dock-bottom için var. Ana görünümde de 800x1000 ve 900x700'de varsayılan köşe #btn-room-info (Oda bilgisi) düğmesini örtüyor.",
-   "oneri": "Bir katman açıkken (Ayarlar gibi) üst köşeye de içerik payı ekleyin: settings-main-inner için üstten veya sağdan --dj-dock-clear kadar boşluk. Ya da katman açıkken oynatıcıyı alt köşeye alın. e2e'ye 1100x800'de Ayarlar açıkken h.reachable denetimi ekleyin."
-  },
-  {
-   "onem": "orta",
-   "dosya": "public/music.js",
-   "satir": 1603,
-   "ozet": "Medya tuşu veya kilit ekranıyla konan 'media' yerel bekletmesi ses odasından çıkınca kalkmıyor. Yeniden katılınca müzik bu cihazda sessiz kalıyor.",
-   "senaryo": "Kişi DJ çalarken klavyedeki Duraklat medya tuşuna basar, Media Session 'pause' işleyicisi setLocalHold('media', true) çağırır. Sonra ses odasından ayrılır. djMediaSession(null) işleyicileri kaldırır ama localHolds Map'i olduğu gibi kalır, setVoiceRoom yalnızca local.hold'u sıfırlar. Aynı veya başka bir ses odasına sonradan katılınca parça bu cihazda çalmaz. Tarayıcıda doğruladım: ayrıldıktan sonra localHold ['media'] kaldı. Yeniden katılınca 6 saniye sonra durum 'paused', sahte oynatıcı paused, kartta 'Müzik bu cihazda ... medya tuşlarıyla durduruldu' uyarısı vardı. Eski cihaz bekletmesi (holdReason 'device') oda değişince temizleniyordu, yeni bekletme bu davranıştan ayrılıyor.",
-   "oneri": "setVoiceRoom içinde (oda değişince) 'all' kapsamlı 'media' bekletmesini silin. Ya da 23-dj.js djSyncVoice'ta oda değişince engine.setLocalHold('media', false) çağırın. Bunun için bir birim testi ekleyin."
+   "dosya": "public/js/23-dj.js",
+   "satir": 1114,
+   "ozet": "Bildirimler kaydı ve karttaki son işlem satırı, parça kuyruktan çıkınca şarkının adını kaybedip 'YouTube videosu' yazısına dönüyor (istek 6'nın asıl amacı bozuluyor).",
+   "senaryo": "Geçici bir e2e betiğiyle (scratchpad/e2echeck/baslik.test.js) doğrulandı. Deniz /çal https://youtu.be/D120aaaaaaa yazıyor. Ece'nin Bildirimler kaydı parça çalarken 'Deniz Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa' gösteriyor. Parça durdurulunca aynı kayıt 'Deniz Telsiz DJ kuyruğuna ekledi: YouTube videosu' oluyor. Nedeni şu: djLiveTitle, parça kuyrukta yoksa bildirimin ekleme anındaki adına düşüyor. YouTube'da bu ad o anda hep boş olduğu için sabit 'music.untitledYouTube' metni çıkıyor. activityDjRefresh her motor değişikliğinde bu metni yeniden yazıyor. Parça kendiliğinden bitince ('end' bildirim üretmez) dj.notice kapanışı da aynı yoldan karttaki satırı adsız metne döndürüyor. Ayrıca adı boş bir dosya parçası kuyruktan çıkınca 'YouTube videosu' yazıyor.",
+   "oneri": "İlk kez canlı bir ad bulununca onu kayda yazın (activityDjRefresh içinde item.title'ı güncelleyin, djOnNotice kapanışında da son boş olmayan adı saklayın). Ad yoksa gösterilecek metni parçanın türüne göre seçin. Parça bittikten sonra kaydın adı koruduğunu sınayan bir e2e adımı ekleyin."
   },
   {
    "onem": "dusuk",
    "dosya": "public/js/23-dj.js",
-   "satir": 1354,
-   "ozet": "Üst köşede kutu görünüm alanına sığdırılmıyor. Kısa pencerede çerçeve kırpılıyor ve YouTube bu cihazda duraklıyor.",
-   "senaryo": "djPlaceDock alt köşelerde maxLift ile kutuyu sınırlıyor, üst köşelerde ise yalnızca --dj-dock-top = bant altı + 1rem yazıyor. 1100x360'ta kutu y 124-375 aralığında, çubuğun alttaki 15 pikseli ekran dışında. 1100x320 ve 1100x300'de çerçeve 125-325 aralığında kalıyor ve alt kenarı ekran dışına taşıyor. Ölçümde motor player.hidden=true ve status 'paused' bildirdi, sahte oynatıcı state 2 (duraklatıldı). Plandaki 'Kutu her zaman görünüm alanında kalır, kırpılmaz, pencere boyutu değişince yeniden sınırlanır' ve '200x200 kuralı her durumda korunur' ölçütleri üst köşelerde karşılanmıyor. Aynı genişlikte alt köşe bu yüksekliklerde sığıyor.",
-   "oneri": "Üst köşede de top değerini min(top, vh - box.height - gap) ile sınırlayın, gerekirse bandın üstüne çıkın. Ya da sığmayınca alt köşeye düşün. Kısa pencere için bir e2e denetimi ekleyin."
+   "satir": 1843,
+   "ozet": "'DJ'de Çal' duyurusu eki olmayan bir mesaj. Yayındaki 2.5.0 istemciler (ve adı boş dosyada yeni istemciler) bunu 'Bu ses dosyasını Telsiz DJ kuyruğuna ekledi.' diye, ortada dosya yokken gösteriyor.",
+   "senaryo": "Odada eski ve yeni sürüm birlikte var. Ece eski bir mesajdaki ses dosyasında DJ'de Çal'a basıyor. djPlayFile ekleri olmayan bir mesaj gönderiyor: { op: 'add', src: 'file', title }. 2.5.0 istemcisinin cleanDjNotice işlevi title alanını yok sayıp src:'file' bildirimini kabul ediyor ve dj.notice.file metnini basıyor: 'Bu ses dosyasını Telsiz DJ kuyruğuna ekledi.' Mesajda ne dosya ne de dosya adı var, okuyan hangi dosyanın eklendiğini bilemiyor. 'Bu ses dosyası' metni, dosyanın aynı mesajda bulunduğu /çal ve ek yolu için yazılmıştı. Eski istemcilere geri dönüş metni olarak giden t alanı da yalnızca çıplak dosya adı (ad yoksa boş dize).",
+   "oneri": "Eki olmayan duyuruyu eski istemcilerin src:'file' yoluna sokmayın, örneğin ayrı bir src değeri kullanıp t alanına çevrilmiş tam duyuru metnini koyun. En azından yeni istemcide ad yoksa 'bu dosya' demeyen bir metin gösterin."
   },
   {
    "onem": "dusuk",
    "dosya": "public/js/06-messages.js",
-   "satir": 290,
-   "ozet": "DJ duyurusu biçimindeki her mesajda 'düzenlendi' etiketi koşulsuz gizleniyor. Değiştirilmiş bir istemci geçmiş bir mesajı iz bırakmadan yeniden yazabilir.",
-   "senaryo": "Sunucu düzenlemede yalnızca yazarı denetliyor (handleMessageEdit) ve gövdeyi göremiyor. Kötü niyetli bir üye kendi eski bir mesajını '/api/messages/edit' ile d: { op: 'add', src: 'yt', vid: <başka video>, title: <kendi seçtiği 120 karakter> } taşıyan bir gövdeye çevirir. Ya da gerçek bir DJ duyurusunun vid alanını değiştirir. Herkes yeni metni ve yeni YouTube bağlantısını görür ama m.editedAt dolu olduğu hâlde 'düzenlendi' etiketi çıkmaz. Önceden bu düzenleme etiketle görünürdü. Gizlemeyi plan istiyor, yalnız şu anki kapsamı mesaj bütünlüğü göstergesini tamamen devre dışı bırakıyor.",
-   "oneri": "Etiketi yalnızca düzenleme DJ_TITLE_EDIT_MS içinde yapıldıysa gizleyin (m.editedAt - m.createdAt <= 10 dk). Böylece adın sonradan eklenmesi etiketsiz kalır, sonraki değişiklikler görünür olur."
-  },
-  {
-   "onem": "dusuk",
-   "dosya": "public/js/28-bildirim.js",
-   "satir": 32,
-   "ozet": "Yeni DJ kayıtları en çok 5 kayıtlık Bildirimler listesinden süren ekran paylaşımı kaydını ve onun İzle düğmesini düşürüyor.",
-   "senaryo": "Geniş ekranda A ekran paylaşmaya başlar. B'nin Bildirimler listesinde 'A ekran paylaşıyor [İzle]' kaydı durur. Liste görünür olduğu için sağ üstteki paylaşım bildirimi hiç açılmaz (castShowNotice). Ardından C art arda beş /çal ile parça ekler. Her ekleme activityAdd ile bir 'dj' kaydı ekler ve ACTIVITY_MAX=5 en eski kaydı, yani paylaşım kaydını keser. Paylaşım sürdüğü hâlde listedeki İzle düğmesi kaybolur. DJ eklemeleri, katılma ve ayrılmaya göre çok daha sık geldiği için bu durum G3 ile olası hâle geldi.",
-   "oneri": "Kesmede 'share' kayıtlarını koruyun (önce dj, join ve leave kayıtlarını düşürün). Ya da DJ kayıtları için ayrı bir üst sınır koyun."
+   "satir": 78,
+   "ozet": "'düzenlendi' etiketinin gizlenmesi yalnızca mesajın son hâline bakıyor. Sıradan bir mesaj DJ duyurusuna çevrilirse ya da duyurudaki vid başka bir videoya değiştirilirse ilk 11 dakika içinde iz kalmıyor.",
+   "senaryo": "Değiştirilmiş bir istemci 'merhaba' yazıyor, başkaları yanıt veriyor. 5 dakika sonra /api/messages/edit ile gövdeyi { d: { op: 'add', src: 'yt', vid: <başka video>, title: 'herhangi bir metin' } } yapıyor. showEditedMark(m, true) değeri edited - created <= 11 dk olduğu için false dönüyor. Mesaj etiketsiz bir DJ duyurusuna ve başka bir YouTube bağlantısına dönüşüyor. Aynı yolla gerçek bir duyurunun bağlantısı da sessizce başka bir videoya yönlendirilebiliyor. Uygulayıcının bildirdiği sapma yalnızca 10 dakikadan sonraki düzenlemeleri kapsıyor.",
+   "oneri": "Etiketi yalnızca açık konuşmada önceki hâli zaten DJ duyurusu olan ve vid'i aynı kalan düzenlemede gizleyin (replaceMessage, eski çözülmüş gövdeyle kıyaslayabilir). Önceki hâli bilinmiyorsa etiketi gösterin."
   },
   {
    "onem": "dusuk",
    "dosya": "public/js/23-dj.js",
-   "satir": 1646,
-   "ozet": "Ad beklenirken (en çok 8 sn) sekme kapanır veya yenilenirse duyuru hiç gitmez. Önceden duyuru eklemeyle birlikte hemen gidiyordu.",
-   "senaryo": "A '/çal https://youtu.be/...' yazar. Odada kimse YouTube rızası vermediği için ad gelmez ve duyuru dj.titleWatch içinde 8 saniye bekler. A bu sürede sekmeyi kapatır, sayfayı yeniler veya masaüstünde frekans değiştirir. Bekleyen kayıt yalnızca bellekte olduğu için yazı odasına hiçbir duyuru gitmez, parça kuyrukta ama kimseye bildirilmemiş olur. Eski kodda postSideMessage ekleme sonucuyla hemen çağrılıyordu.",
-   "oneri": "pagehide veya visibilitychange (hidden) olayında bekleyen kayıtları hemen adsız gönderin. Ad sonradan gelirse düzenleme yolu zaten var."
-  },
-  {
-   "onem": "dusuk",
-   "dosya": "e2e/25-dj-senkron.test.js",
-   "ozet": "Media Session Oynat ve Duraklat işleyicileri ile 'media' uyarı eylemi hiçbir testte çalıştırılmıyor.",
-   "senaryo": "23-dj.js'teki ms.setActionHandler('play'/'pause') bağlantısı ve djOnAlertAction'daki 'media' dalı silinse ya da odayı duraklatacak biçimde değiştirilse bile birim ve e2e testleri geçer. Birim testi yalnızca engine.setLocalHold('media') çağrısını sınıyor. Planın 'play ve pause işleyicileri yalnızca yerel bekletmeyi yönetir, odayı değiştirmez' kuralı, yani kulaklık tuşunun bütün odayı durdurmaması, uçtan uca doğrulanmıyor.",
-   "oneri": "e2e'de navigator.mediaSession.setActionHandler'ı sarmalayıp kaydedilen 'pause' işleyicisini çağırın. Ardından session.playing'in true kaldığını, localHold'un ['media'] olduğunu, kartta uyarının çıktığını ve Yeniden Eşitle düğmesiyle çalmanın sürdüğünü sınayın."
+   "satir": 966,
+   "ozet": "Köşedeki oynatıcının çubuğu bu cihazın yerel bekletmesini (media, minimized) göstermiyor. Çubukta 'Duraklat' yazıyor ve basmak bütün odayı duraklatıyor.",
+   "senaryo": "Ayarlar açık, oynatıcı köşede. Kişi klavyedeki medya Duraklat tuşuna basıyor ve 'media' bekletmesi bu cihazdaki sesi kesiyor. Uyarı satırı ve Yeniden Eşitle düğmesi kartın içinde, kart da visibility ile gizli, yani görünmüyor. djRenderDock simgeyi yalnızca session.playing değerine göre seçtiği için çubukta 'Duraklat' simgesi ve etiketi kalıyor. Sesi geri getirmek isteyen kişi bu düğmeye basınca djOnToggle engine.pause() çağırıyor ve oda herkes için duruyor. Bu, 'kulaklık tuşu bütün odayı durdurmasın' kararının arayüz tarafındaki açığı. 'media' bekletmesi parça ve oturum bitince de sürdüğü için (eski 'device' bekletmesi parça değişince kalkıyordu) kişi sonraki parçalarda da sessiz kalıyor ve bunu çubuktan anlayamıyor.",
+   "oneri": "Etkin bir yerel bekletme varsa çubuktaki düğme bekletmeyi kaldırsın (setLocalHold('media', false), minimized için Göster) ya da en azından durumu bir simge ve etiketle göstersin. Bu durum için e2e'ye köşedeki oynatıcıda bir adım ekleyin."
   }
  ],
- "testler": "Çalışma kopyası /home/user/wt/b, HEAD 1dce643 (af75bfe'den sonra 12 commit). Çalışma kopyasına dokunmadım, git status temiz.\n- npm run denetle: geçti. 254 dosya tarandı, ihlal yok (CSS_EXCEPTIONS listesi boşaldı, istisna kaydı kalmadı).\n- npm test: geçti. 886 test, 885 başarılı, 0 başarısız, 1 atlandı (yaklaşık 37 sn).\n- e2e (node --test --test-concurrency=1 e2e/06-dj.test.js e2e/25-dj-senkron.test.js, Chromium): 23 testin 23'ü geçti (yaklaşık 76 sn). 06'da 17, 25'te 6 test var.\n- Ek doğrulama: scratchpad/g3probe/probe.test.js adlı geçici bir e2e betiği (yuva 47, sahte YouTube) yazıp çalıştırdım. Ölçtüklerim:\n  - 1100x800'de Ayarlar açıkken sağ üst köşe set-bind-ptt-assign, set-allow-dms, set-typing, set-notify, set-skin-turkuaz ve set-mic-refresh denetimlerini örtüyor. Kısayollar sayfası kaydırılamıyor.\n  - 1100x320 ve 1100x300'de üst köşedeki çerçeve kırpılıyor ve motor YouTube'u duraklatıyor (hidden=true).\n  - 'media' bekletmesi ses odasından çıkınca ['media'] olarak kalıyor ve yeniden katılınca çalma 'paused' kalıyor. Odadan çıkınca mediaSession.metadata doğru biçimde null oluyor.\n  - Köşe taramasında ses düğmeleri (#btn-camera, #btn-mute, #btn-deafen, #btn-screen, #voice-leave, DJ kadro düğmesi) 1100x800, 900x700, 800x1000, 1279x800 ve 390x844 boyutlarında hiçbir köşede örtülmedi. #btn-room-info ise 800-900 piksel genişlikte sağ köşelerde örtülüyor."
+ "testler": "Çalışma kopyası: /home/user/wt/b (HEAD 16e7edc). İnceleme boyunca hiçbir dosya değişmedi, git status temiz.\n- npm run denetle: GEÇTİ. 254 dosya tarandı, ihlal yok (CSS_EXCEPTIONS boş, G0 istisnası kalkmış).\n- npm test: GEÇTİ. 888 test, 887 geçti, 0 başarısız, 1 atlandı (yaklaşık 37 sn).\n- Grubun e2e dosyaları (node --test --test-concurrency=1 e2e/06-dj.test.js e2e/25-dj-senkron.test.js): GEÇTİ. 26 testin 26'sı geçti, yaklaşık 74 sn. Bunlar arasında ±250 ms senkron, gizli sekme, rıza uyarısı, 1100x800'de ulaşılabilirlik, sürükleme ve yeniden yükleme, Küçült, masaüstü onWindowState, Media Session, tek <audio> öğesi ve konsol temizliği var.\n- Ek doğrulama: /tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/e2echeck/baslik.test.js geçici bir betik. Parça çalarken Bildirimler kaydı 'Deniz Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa', parça durunca 'Deniz Telsiz DJ kuyruğuna ekledi: YouTube videosu' oldu. Bu sonuç 1. bulguyu doğruluyor.\nPlan karşılaştırması: 22 adımın hepsi uygulanmış ve i18n tablosundaki anahtarların hepsi TR ve EN'de var (ek olarak settings.privacy.mediaSessionTitle). Kabul ölçütlerini sınayan e2e testleri geçiyor. Sunucuda değişiklik yok. Başka bir sohbet uygulamasının adı geçmiyor. Yeni düğme etiketleri her kelimesi büyük harfle (Taşı, Küçült, Göster, Yüzen Oynatıcı). Genel kapsamda yinelenen işlev veya const adı yok. desktop/app/music.js eski startLeadMs adını hâlâ taşıyor ama .gitignore'daki bir derleme çıktısı, sorun değil. Önemli test eksiği: parça kuyruktan çıktıktan sonra adın korunması ve eki olmayan 'DJ'de Çal' duyurusunun eski istemcide nasıl görüneceği hiç sınanmıyor."
 }
