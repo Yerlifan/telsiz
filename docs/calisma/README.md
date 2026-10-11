@@ -24,10 +24,10 @@ Bu klasör yalnızca çalışma dalında durur. Kota biter veya oturumun makines
 | Renk 7: masa arayüzü | Bitti | commit "Renk: masa arayüzü" |
 | Renk 8: uçtan uca test | Bitti | commit "Renk: uçtan uca test" |
 | Renk 9: belgeler | Bitti | commit "Renk: belgeler" |
-| Renk 10: bağımsız inceleme, düzeltme, PR | Sürüyor | issue Yerlifan/telsiz#42, commit "Renk: inceleme düzeltmeleri" |
+| Renk 10: bağımsız inceleme, düzeltme, PR | Bitti, Yerlifan/telsiz#43 birleşti | issue Yerlifan/telsiz#42, commit "Renk: inceleme düzeltmeleri" |
 | 18 isteğin araştırması ve planı | Bitti | `istek-plani.md` |
 | İstek grupları G0 ile G16 (Hexball hariç) | Sürüyor | yerel `istek/a` ve `istek/b` dalları, yamaları `yamalar/a` ve `yamalar/b` altında |
-| Hexball (G17), Renk'ten sonra | Bekliyor | |
+| Hexball (G17) | Sürüyor | yerel `istek/c` dalı (`/home/user/wt/c`, taban 9034306), yamaları `yamalar/c`, iş akışı `akislar/hexball-uygulama.js.txt`, issue Yerlifan/telsiz#44 |
 
 Grupların sırası: önce G0 (`istek/a` üzerinde), sonra iki zincir paralel. Zincir A (`/home/user/wt/a`, dal `istek/a`): G2, G6, G7, G12, G14, G9, G10, G13. Zincir B (`/home/user/wt/b`, dal `istek/b`, G0'dan ayrılır): G1, G3, G4, G5, G8, G11, G16, G15. En sonda `istek/b` dalı `istek/a` dalına birleştirilir. Her grup uygulama, bağımsız inceleme ve düzeltme adımlarından geçer. Commit başlıkları "G<n>: ..." biçimindedir.
 

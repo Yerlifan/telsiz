@@ -22,7 +22,9 @@ while [ "$i" -lt 864 ]; do
   for b in a b c; do
     if git rev-parse -q --verify "refs/heads/istek/$b" >/dev/null; then
       tmp=$(mktemp -d)
-      git format-patch -q --no-signature -o "$tmp" "$BASE..istek/$b" 2>>"$LOG"
+      TABAN=$BASE
+      [ "$b" = c ] && TABAN=9034306
+      git format-patch -q --no-signature -o "$tmp" "$TABAN..istek/$b" 2>>"$LOG"
       mkdir -p "docs/calisma/yamalar/$b"
       rm -f "docs/calisma/yamalar/$b/"*.patch
       cp "$tmp/"*.patch "docs/calisma/yamalar/$b/" 2>/dev/null
