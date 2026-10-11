@@ -3,8 +3,9 @@
 // Kurtarma kodunun istemci tarafı (public/js/16-identity.js, istek 14): kayıtta kodun üretilmesi, Parolamı Unuttum
 // akışı (recoverAccount aynı gizli anahtarı yeni parolayla ve yeni kodla yeniden sarar, istek gövdeleri doğru, 409
 // keys_changed gelince anahtarlar yeniden istenir), Ayarlar'dan kod oluşturma ve kaldırma, parola değişikliğinde
-// kodun isteğe bağlı yenilenmesi. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir,
-// ağ ve parola türetme taklit edilir (sifre-sifirlama-istemci.test.js kalıbı).
+// kodun isteğe bağlı yenilenmesi, kaydedildiği onaylanmayan kodun bayrağı ve kilitli katman (kod penceresi Esc ile
+// kapanmaz). Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir, ağ ve parola türetme
+// taklit edilir (sifre-sifirlama-istemci.test.js kalıbı).
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -118,6 +119,8 @@ test('kayıt: hesapla birlikte kurtarma kodu üretilir, kod aynı gizli anahtar�
   assert.equal(Buffer.from(viaCode).toString('hex'), Buffer.from(viaPassword).toString('hex'), 'aynı gizli anahtar')
   // Kodun authKey'i parolanınkinden farklıdır
   assert.notEqual(sent.recovery.authKey, sent.authKey)
+  // Kod sunucuda kaydedildi, kişi onaylayana kadar onaylanmamış sayılır (oluşturma zamanı henüz bilinmiyor)
+  assert.deepEqual(JSON.parse(sandbox.localStorage.getItem('telsiz.recoveryUnsaved')), { 'u:4': 0 })
 })
 
 test('recoverAccount aynı gizli anahtarı yeni parolayla ve yeni kodla yeniden sarar, istek gövdeleri doğru', async () => {
@@ -159,6 +162,8 @@ test('recoverAccount aynı gizli anahtarı yeni parolayla ve yeni kodla yeniden 
   assert.equal(run('identityState.pairUser'), '4')
   assert.equal(Buffer.from(run('identityState.pair.secretKey')).toString('hex'), acc.secretHex)
   assert.equal(run("loginDeviceOf('ece')"), 'e'.repeat(24) + '.' + 'f'.repeat(43))
+  // Yeni kod onaylanana kadar onaylanmamış sayılır, bayrak sunucudaki oluşturma zamanını taşır
+  assert.deepEqual(JSON.parse(sandbox.localStorage.getItem('telsiz.recoveryUnsaved')), { 'u:4': 5 })
 })
 
 test('409 keys_changed gelince anahtarlar yeniden istenir ve güncel anahtarla yeniden denenir', async () => {
@@ -251,6 +256,8 @@ test('Ayarlar: kod parolayla oluşturulur ve kaldırılır, sunucu bilgisi günc
   assert.equal(Buffer.from(run('window.E2EE.identity.unwrap(__rw, __ck.wrapKey, __pair.publicKey)')).toString('hex'), Buffer.from(run('__pair.secretKey')).toString('hex'))
   assert.deepEqual(JSON.parse(JSON.stringify(run('identityState.recovery'))), { createdAt: 1700000000000, label: 'Chrome, Linux' })
   assert.ok(run('hasIdentity()'), 'açılan kimlik bu cihazda saklandı')
+  assert.equal(run('recoveryUnsavedOf(4)'), 1700000000000)
+  assert.equal(run('recoveryUnsaved()'), true)
   // Kaldırma
   sandbox.__responses['/api/me/recovery'] = { status: 200, data: { ok: true, recovery: null } }
   const removed = await run("recoveryChangeRequest('Parolam-2026', false)")
@@ -259,6 +266,7 @@ test('Ayarlar: kod parolayla oluşturulur ve kaldırılır, sunucu bilgisi günc
   const last = sandbox.__requests.filter((r) => r.path === '/api/me/recovery').pop().body
   assert.equal(last.recovery, null)
   assert.equal(run('identityState.recovery'), null)
+  assert.equal(run('recoveryUnsavedOf(4)'), null, 'kaldırılan kodun bayrağı silindi')
   // Yanlış parola: sunucu 401, metin parola hatası
   sandbox.__responses['/api/me/recovery'] = { status: 401, data: { code: 'bad_credentials', error: 'x' } }
   const wrong = await run("recoveryChangeRequest('Yanlis-1', false)")
@@ -285,6 +293,7 @@ test('parola değişikliği: kod istenirse aynı istekle yenilenir, istenmezse g
   const plain = await run("changePasswordRequest('Parolam-2026', 'YeniParolam-2026')")
   assert.equal(plain.ok, true)
   assert.equal(plain.recoveryCode, undefined)
+  assert.equal(run('recoveryUnsavedOf(4)'), null, 'kod yenilenmeyince bayrak yazılmaz')
   const first = sandbox.__requests.filter((r) => r.path === '/api/me/password')[0].body
   assert.equal('recovery' in first, false)
   sandbox.__responses['/api/me/password'] = { status: 200, data: { ok: true, device: '', recovery: { createdAt: 7, label: 'Firefox, Linux' } } }
@@ -297,6 +306,7 @@ test('parola değişikliği: kod istenirse aynı istekle yenilenir, istenmezse g
   sandbox.__rw = second.recovery.wrappedKey
   assert.ok(run('window.E2EE.identity.unwrap(__rw, __ck.wrapKey, __pair.publicKey)'), 'yeni kod aynı kimliği açar')
   assert.equal(run('identityState.recovery.createdAt'), 7)
+  assert.equal(run('recoveryUnsavedOf(4)'), 7)
 })
 
 test('sıfırlamadan sonra yeni anahtar çifti kurulurken kurtarma kodu da yeni çifti sarar', async () => {
@@ -331,4 +341,76 @@ test('hatırlatma bayrağı kişi başına bir kez yazılır, kod metni dosyası
   assert.equal(run("forgotOwnerCommand('')"), 'node server.js sifre-sifirla <kullanıcı adı>')
   run("window.I18N.setLang('en')")
   assert.equal(run("forgotOwnerCommand('Geçersiz Ad')"), 'node server.js sifre-sifirla <username>')
+})
+
+test('onaylanmayan kod: bayrak sunucudaki kodla eşleşir, onayla, kaldırmayla veya başka cihazdaki yeni kodla biter', () => {
+  const { sandbox, run } = load()
+  const flags = () => JSON.parse(sandbox.localStorage.getItem('telsiz.recoveryUnsaved') || 'null')
+  run("state.me = { id: 4, name: 'ece' }")
+  // Sunucu bilgisi gelmeden karar verilmez
+  run('recoveryIssued(4, null)')
+  assert.equal(run('recoveryUnsaved()'), false)
+  assert.deepEqual(flags(), { 'u:4': 0 })
+  // Oluşturma zamanı bilinmeden yazılan bayrak sunucudaki kodu benimser, durum satırı uyarıyı da gösterir
+  run("setServerKeys(null, false, { createdAt: 1700, label: 'Chrome, Linux' })")
+  assert.equal(run('recoveryUnsaved()'), true)
+  assert.deepEqual(flags(), { 'u:4': 1700 })
+  assert.match(run('recoveryStatusText()'), /oluşturuldu\. Bu kodu kaydettiğinizi onaylamadınız\. Kodu bir yere yazmadıysanız yeni kod oluşturun\.$/)
+  assert.match(run('recoverySignature()'), /\|1$/)
+  // Başka bir kişinin bayrağı bu kişiyi etkilemez
+  run('recoveryIssued(9, 50)')
+  assert.deepEqual(flags(), { 'u:4': 1700, 'u:9': 50 })
+  // Kod başka bir cihazda yeniden oluşturuldu: bayrak bu kişi için silinir
+  run('setServerRecovery({ createdAt: 1800, label: null })')
+  assert.equal(run('recoveryUnsaved()'), false)
+  assert.deepEqual(flags(), { 'u:9': 50 })
+  assert.match(run('recoveryStatusText()'), /oluşturuldu\.$/)
+  // Bu cihazda yeni kod, Devam ile onay
+  run('recoveryIssued(4, 1900)')
+  run('setServerRecovery({ createdAt: 1900, label: null })')
+  assert.equal(run('recoveryUnsaved()'), true)
+  run('recoveryConfirmed(4)')
+  assert.equal(run('recoveryUnsaved()'), false)
+  assert.deepEqual(flags(), { 'u:9': 50 })
+  // Kod sunucuda yok (kaldırıldı veya sahip sıfırladı): uyarı yok
+  run('recoveryIssued(4, 2000)')
+  run('setServerRecovery(null)')
+  assert.equal(run('recoveryUnsaved()'), false)
+  assert.equal(run('recoverySignature().slice(-2)'), '|0')
+  // Bu sekmenin sunucu bilgisi eski (kod başka bir sekmede verildi): bayrak korunur, bilgi gelince uyarı çıkar
+  run('setServerRecovery({ createdAt: 1900, label: null })')
+  assert.equal(run('recoveryUnsaved()'), false)
+  assert.equal(run('recoveryUnsavedOf(4)'), 2000)
+  run('setServerRecovery({ createdAt: 2000, label: null })')
+  assert.equal(run('recoveryUnsaved()'), true)
+  // Son bayrak gidince depolama anahtarı da silinir
+  run('recoveryConfirmed(4)')
+  run('recoveryConfirmed(9)')
+  assert.equal(sandbox.localStorage.getItem('telsiz.recoveryUnsaved'), null)
+  run("window.I18N.setLang('en')")
+  run('recoveryIssued(4, 2100)')
+  run('setServerRecovery({ createdAt: 2100, label: null })')
+  assert.match(run('recoveryStatusText()'), /You didn't confirm that you saved this code\. If you didn't write it down, create a new code\.$/)
+})
+
+test('kilitli katman (kod penceresi) Esc, oyun kolu ve kapat yollarıyla kapanmaz, program kapatınca kapanır', () => {
+  const { sandbox, run } = load()
+  run("__closed = 0; __layer = { name: 'kilitli', el: {}, level: 3, focus: false, locked: true, onClose: function () { __closed += 1 } }; openLayer(__layer)")
+  // Esc ve kişinin kapatma yolları (odağı geri vererek kapatma) yok sayılır, Esc başka işleyiciye de geçmez
+  sandbox.__esc = { key: 'Escape', defaultPrevented: false, preventDefault () { this.defaultPrevented = true } }
+  run('onLayerKeydown(__esc)')
+  assert.equal(sandbox.__esc.defaultPrevented, true)
+  run('closeLayer(__layer, true)')
+  run('closeLayer(__layer)')
+  assert.equal(run('findLayer("kilitli") === __layer'), true)
+  assert.equal(run('__closed'), 0)
+  // Kendi düğmesi kilidi açınca kapanır
+  run('__layer.locked = false; closeLayer(__layer, true)')
+  assert.equal(run('findLayer("kilitli")'), null)
+  assert.equal(run('__closed'), 1)
+  // Program odağı geri vermeden kapatınca (oturum kapanması) kilide bakılmaz
+  run("__layer2 = { name: 'kilitli2', el: {}, level: 3, focus: false, locked: true, onClose: function () { __closed += 1 } }; openLayer(__layer2)")
+  run('closeAllLayers()')
+  assert.equal(run('findLayer("kilitli2")'), null)
+  assert.equal(run('__closed'), 2)
 })

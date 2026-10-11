@@ -2,11 +2,15 @@
 
 // Kurtarma kodu ve Parolamı Unuttum (istek 14, yuva 31).
 // - Ece Ayarlar > Hesabım'dan parolasıyla kurtarma kodu oluşturur, kod penceresinde Devam "kaydettim" onayına kadar
-//   kapalıdır. Kodu yeniler (eski kod sunucuda geçmez), yanlış parolada hata görür, kodu kaldırır ve yeniden oluşturur.
+//   kapalıdır, pencere Esc, dışarı tıklama veya oyun kolunun geri düğmesiyle kapanmaz, kapat düğmesi yoktur. Kodu
+//   yeniler (eski kod sunucuda geçmez), yanlış parolada hata görür, kodu kaldırır ve yeniden oluşturur.
 // - Ece ile Deniz özel mesajlaşmıştır. Ece çıkış yapar, Parolamı Unuttum kartında kodu küçük harfle ve boşluklarla
 //   yazıp yeni parola belirler. Yeni kod gösterilir (eskisi geçersiz), uygulama açılır. Eski özel mesajlar Ece'de
 //   okunur, Deniz'de anahtar değişti uyarısı çıkmaz, kurtarmadan sonra gönderilen mesaj da okunur. Eski parola ve eski
 //   kod geçmez, yeni parola geçer.
+// - Ece kodu yeniden kullanır, yeni kod kartı açıkken sayfa yenilenir: uygulama açılır, kodun kaydedildiği
+//   onaylanmadı uyarısı çıkar ve Ayarlar'daki durum vurgulanır. Daha Sonra ile uyarı sonraki açılışta yine çıkar,
+//   Kodu Kaydettim ile bir daha çıkmaz.
 // - Kodu olmayan Mert yanlış kodla hata, grup anahtarı koduyla ayrı uyarı görür. "Kurtarma kodum yok" bölümü sahibe
 //   yönlendirir ve sahibin komutunu yazdığı adla gösterir. Parolayla girişten sonra bir kez hatırlatma çıkar, Kod
 //   Oluştur Ayarlar'daki bölümü açar, sonraki girişte hatırlatma yoktur. Sahip parolasını sıfırlayınca yeni parolayla
@@ -20,7 +24,7 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const h = require('./yardimci')
 
-const W = { w: null, ece: null, deniz: null, dmId: null, code: '' }
+const W = { w: null, ece: null, deniz: null, dmId: null, code: '', next: '' }
 const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
 
 const FROM_DENIZ = 'Deniz: kurtarmadan önce gönderilen gizli not 5521'
@@ -130,6 +134,16 @@ test('Ayarlar: kurtarma kodu parolayla oluşturulur, yenilenir, kaldırılır', 
   // Oluşturma
   await page.fill('#set-recovery-password', 'parola-ece-1')
   await page.click('#set-recovery-submit')
+  // Pencere "kaydettim" onayı olmadan kapanmaz: kapat düğmesi yok, Esc, dışarı tıklama ve oyun kolunun geri düğmesinin
+  // yolu (21-band.js: closeLayer(topLayer(), true)) yok sayılır
+  await page.waitForSelector('#recovery-code-dialog #recovery-dialog-code', { timeout: h.LONG })
+  assert.equal(await page.isHidden('#recovery-code-dialog .app-dialog-close'), true)
+  await page.keyboard.press('Escape')
+  assert.equal(await page.evaluate(() => document.elementFromPoint(4, window.innerHeight - 4).classList.contains('app-dialog-backdrop')), true)
+  await page.mouse.click(4, (await page.evaluate(() => window.innerHeight)) - 4)
+  await page.evaluate(() => closeLayer(topLayer(), true))
+  await h.sleep(300)
+  assert.equal(await page.isVisible('#recovery-code-dialog'), true, 'kod penceresi onaysız kapanmadı')
   const first = await passCodeDialog(page)
   await page.waitForFunction(() => /oluşturuldu\.$/.test(document.getElementById('set-recovery-status').textContent), null, { timeout: h.LONG })
   assert.equal(await page.evaluate(() => document.getElementById('set-recovery-status').classList.contains('is-missing')), false)
@@ -214,6 +228,52 @@ test('Parolamı Unuttum: kodla yeni parola, eski özel mesajlar okunur, karşı 
   assert.equal(relog.data.keys.publicKey, W.w.P.ece.publicKey)
   assert.equal((await recoverKeys('ece', W.code)).status, 401)
   assert.equal((await recoverKeys('ece', next)).status, 200)
+  W.next = next
+})
+
+test('kod kartı onaylanmadan sayfa yenilenirse: uyarı çıkar, Ayarlar\'da durum vurgulanır, onaylanınca biter', async () => {
+  const ece = W.ece
+  await ece.evaluate(() => logout())
+  await ece.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
+  await ece.fill('#login-name', 'ece')
+  await ece.click('#login-forgot')
+  await ece.waitForSelector('#forgot-card:not([hidden]) #forgot-form')
+  await ece.fill('#forgot-code', W.next)
+  await ece.fill('#forgot-password', 'Ece-Parola-2027')
+  await ece.fill('#forgot-password2', 'Ece-Parola-2027')
+  await ece.click('#forgot-submit')
+  await ece.waitForSelector('#recovery-card:not([hidden]) #recovery-card-code', { timeout: h.LONG })
+  const code = await ece.textContent('#recovery-card-code')
+  assert.match(code, h.RECOVERY_CODE_RE)
+  // Kod sunucuda kayıtlı, kişi onaylamadan sayfa yenilenir: oturum açılır, kod bir daha gösterilemez
+  await ece.reload({ waitUntil: 'domcontentloaded' })
+  await ece.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await ece.waitForSelector('#recovery-unsaved-dialog', { timeout: h.LONG })
+  assert.equal(await ece.textContent('#recovery-unsaved-dialog .lead'), 'Son kurtarma kodunuzu kaydettiğinizi onaylamadınız. Kodu bir yere yazmadıysanız yeni kod oluşturun, eski kod geçersiz olur.')
+  assert.equal(await ece.textContent('#recovery-unsaved-confirm'), 'Kodu Kaydettim')
+  assert.equal((await recoverKeys('ece', code)).status, 200)
+  await ece.click('#recovery-unsaved-later')
+  await ece.waitForSelector('#recovery-unsaved-dialog', { state: 'detached' })
+  await ece.evaluate(() => openSettings('account', null))
+  await ece.waitForSelector('#set-recovery-section')
+  await ece.waitForFunction(() => document.getElementById('set-recovery-status').classList.contains('is-missing'), null, { timeout: h.LONG })
+  assert.match(await ece.textContent('#set-recovery-status'), /oluşturuldu\. Bu kodu kaydettiğinizi onaylamadınız\. Kodu bir yere yazmadıysanız yeni kod oluşturun\.$/)
+  await ece.evaluate(() => closeSettings())
+
+  // Daha Sonra denince uyarı sonraki açılışta yine çıkar, Kodu Kaydettim ile biter
+  await ece.reload({ waitUntil: 'domcontentloaded' })
+  await ece.waitForSelector('#recovery-unsaved-dialog', { timeout: h.LONG })
+  await ece.click('#recovery-unsaved-confirm')
+  await ece.waitForSelector('#recovery-unsaved-dialog', { state: 'detached' })
+  await ece.evaluate(() => openSettings('account', null))
+  await ece.waitForSelector('#set-recovery-section')
+  await ece.waitForFunction(() => /oluşturuldu\.$/.test(document.getElementById('set-recovery-status').textContent), null, { timeout: h.LONG })
+  assert.equal(await ece.evaluate(() => document.getElementById('set-recovery-status').classList.contains('is-missing')), false)
+  await ece.evaluate(() => closeSettings())
+  await ece.reload({ waitUntil: 'domcontentloaded' })
+  await ece.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await h.sleep(3000)
+  assert.equal(await ece.$('#recovery-unsaved-dialog'), null, 'onaylanan kod için uyarı çıkmaz')
 })
 
 test('kodu olmayan kişi: hata ve yönlendirme metni, girişten sonra bir kez hatırlatma, sıfırlamadan sonra yeni kod', async () => {

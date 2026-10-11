@@ -302,7 +302,7 @@
   max-width: 44rem;
 }
 
-/* Kurtarma kodu yoksa durum satırı uyarı olarak vurgulanır (41-kurtarma.js) */
+/* Kurtarma kodu yoksa veya kaydedildiği onaylanmadıysa durum satırı uyarı olarak vurgulanır (41-kurtarma.js) */
 .recovery-status.is-missing {
   padding: 0.6rem 0.85rem;
   border-left: 3px solid var(--warn);

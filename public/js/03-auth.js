@@ -312,7 +312,7 @@ async function submitSetup (e) {
     return
   }
   // Sıra: kurtarma kodu kartı, davet kartı, uygulama
-  withRecoveryCode(result.recoveryCode, name, () => {
+  withRecoveryCode(result.recoveryCode, { id: result.user.id, name: name }, () => {
     if (!created.ok) {
       startSession(st.data)
       toast(created.error, 'error', 10000)
@@ -324,9 +324,10 @@ async function submitSetup (e) {
   })
 }
 
-// Kayıttan sonra kurtarma kodu varsa önce kod kartı gösterilir (41-kurtarma.js), Devam ile next çalışır
-function withRecoveryCode (code, name, next) {
-  if (code && typeof showRecoveryCard === 'function') showRecoveryCard(code, name, false, next)
+// Kayıttan sonra kurtarma kodu varsa önce kod kartı gösterilir (41-kurtarma.js), Devam ile next çalışır.
+// user: { id, name }
+function withRecoveryCode (code, user, next) {
+  if (code && typeof showRecoveryCard === 'function') showRecoveryCard(code, user, false, next)
   else next()
 }
 
@@ -469,7 +470,7 @@ async function submitRegister (e) {
     storeRemove(KEYS.invite, 'session')
     setToken(result.token)
     // Sıra: kurtarma kodu kartı, ardından isteğe bağlı profil adımı (görünen ad)
-    withRecoveryCode(result.recoveryCode, name, () => {
+    withRecoveryCode(result.recoveryCode, { id: result.user.id, name: name }, () => {
       identityState.profileStep = true
       resumeSession()
     })

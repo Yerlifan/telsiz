@@ -413,6 +413,8 @@ async function registerAccount (name, password, codeField, code, onPercent) {
   }
   rememberIdentity(res.data.user.id, keys.publicKey, keys.secretKey)
   rememberLoginDevice(name, res.data.device)
+  // Kod hesapla birlikte kaydedildi, kişi kaydettiğini onaylayana kadar onaylanmamış sayılır (41-kurtarma.js)
+  if (typeof recoveryIssued === 'function') recoveryIssued(res.data.user.id, null)
   return { ok: true, token: res.data.token, user: res.data.user, recoveryCode: keys.recoveryCode }
 }
 
@@ -860,6 +862,8 @@ async function changePasswordRequest (oldPassword, newPassword, onPercent, opts)
       // Parola değişince önceki giriş cihazı işareti geçersizdir, sunucu yenisini verir
       if (res.data) rememberLoginDevice(state.me.name, res.data.device)
       if (res.data && res.data.recovery !== undefined) setServerRecovery(res.data.recovery)
+      // Yeni kod kişi kaydettiğini onaylayana kadar onaylanmamış sayılır (41-kurtarma.js)
+      if (recovery && typeof recoveryIssued === 'function') recoveryIssued(state.me.id, res.data && res.data.recovery ? res.data.recovery.createdAt : null)
       const code = recovery ? recovery.code : undefined
       if (fresh) {
         identityState.keys = { publicKey: fresh.publicKey, wrappedKey: wrappedKey }
@@ -990,6 +994,10 @@ async function recoveryChangeRequest (password, create, onPercent) {
     const res = await api('POST', '/api/me/recovery', { authKey: derived.authKey, recovery: recovery ? recovery.setup : null })
     if (res.status === 200 && res.data) {
       setServerRecovery(res.data.recovery)
+      // Yeni kod kişi kaydettiğini onaylayana kadar onaylanmamış sayılır, kaldırılan kodun bayrağı silinir
+      // (41-kurtarma.js)
+      if (recovery && typeof recoveryIssued === 'function') recoveryIssued(state.me.id, res.data.recovery ? res.data.recovery.createdAt : null)
+      if (!recovery && typeof recoveryConfirmed === 'function') recoveryConfirmed(state.me.id)
       // Parolayla açılan kimlik bu cihazda yoksa saklanır (parola değiştirmedeki gibi)
       if (opened) {
         rememberIdentity(state.me.id, keys.publicKey, opened)
@@ -1059,6 +1067,8 @@ async function recoverAccount (name, code, newPassword, onPercent) {
       if (res.status === 200 && res.data && typeof res.data.token === 'string' && res.data.user) {
         rememberLoginDevice(name, res.data.device)
         rememberIdentity(res.data.user.id, data.publicKey, secretKey)
+        // Yeni kod kişi kaydettiğini onaylayana kadar onaylanmamış sayılır (41-kurtarma.js)
+        if (typeof recoveryIssued === 'function') recoveryIssued(res.data.user.id, res.data.recovery ? res.data.recovery.createdAt : null)
         secretKey = null
         return { ok: true, token: res.data.token, user: res.data.user, code: recovery.code }
       }

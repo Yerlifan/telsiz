@@ -3,10 +3,12 @@
 // Kurtarma kodu arayüzü (istek 14): giriş ekranındaki Parolamı Unuttum kartı (kurtarma koduyla yeni parola, kodu
 // olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kurtarma kodu kartı,
 // uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, "kaydettim" onayı), Ayarlar > Hesabım içindeki
-// Kurtarma Kodu bölümü ve kodu olmayan hesaba parolayla girişten sonra bir kez gösterilen hatırlatma.
+// Kurtarma Kodu bölümü, kodu olmayan hesaba parolayla girişten sonra bir kez gösterilen hatırlatma ve kaydedildiği
+// onaylanmayan kod için uyarı.
 // Şifreleme ve sunucu istekleri 16-identity.js içindedir (recoverAccount, recoveryChangeRequest).
 
 const RECOVERY_REMIND_KEY = 'telsiz.recoveryReminded'
+const RECOVERY_UNSAVED_KEY = 'telsiz.recoveryUnsaved'
 const RECOVERY_REMIND_DELAY_MS = 1500
 const RECOVERY_REMIND_TRIES = 40
 
@@ -15,7 +17,9 @@ const recoveryUi = {
   forgot: null,
   remindPending: false,
   remindTimer: 0,
-  refreshing: false
+  refreshing: false,
+  // Onaylanmayan kod uyarısının bu sayfa açılışında gösterildiği kişi
+  unsavedShownFor: null
 }
 
 // Dil değişince yeniden çevrilen metinli öğe
@@ -33,6 +37,65 @@ function recoveryServerText () {
 function downloadRecoveryCode (code, name) {
   const text = t('recovery.fileText', { server: recoveryServerText(), name: name, code: code, date: formatLong(Date.now()) })
   saveBytes(window.E2EE.utf8.encode(text + '\n'), t('recovery.fileName'))
+}
+
+// ----- Kaydedildiği onaylanmayan kod -----
+
+// Sunucu yeni kodu kaydettikten sonra kod kişiye bir kez gösterilir. Sayfa yenilenir, sekme kapanır veya pencere
+// Devam'a basılmadan kapanırsa kod bir daha gösterilemez. Bu yüzden kod verilince kişi başına bir bayrak yazılır
+// (değer kodun sunucudaki oluşturma zamanı, bilinmiyorsa 0), "kaydettim" onayıyla Devam'a basılınca silinir. Bayrak
+// durdukça uygulama açılınca bir kez uyarı çıkar ve Ayarlar'daki durum satırı vurgulanır.
+
+function recoveryUnsavedOf (userId) {
+  if (userId === null || userId === undefined) return null
+  const value = storeGetJson(RECOVERY_UNSAVED_KEY, {})['u:' + userId]
+  return typeof value === 'number' && isFinite(value) && value >= 0 ? value : null
+}
+
+// value null bayrağı siler
+function writeRecoveryUnsaved (userId, value) {
+  const all = storeGetJson(RECOVERY_UNSAVED_KEY, {})
+  if (value === null) delete all['u:' + userId]
+  else all['u:' + userId] = value
+  if (Object.keys(all).length) storeSetJson(RECOVERY_UNSAVED_KEY, all)
+  else storeRemove(RECOVERY_UNSAVED_KEY)
+}
+
+// Ayarlar açıksa Kurtarma Kodu bölümü yenilenir
+function recoveryRefreshSettings () {
+  if (typeof isSettingsOpen === 'function' && isSettingsOpen() && typeof updateSettingsPage === 'function') updateSettingsPage()
+}
+
+// Sunucu yeni kodu kaydetti (16-identity.js: kayıt, kurtarma, Ayarlar'dan oluşturma, parola değişikliğiyle yenileme)
+function recoveryIssued (userId, createdAt) {
+  if (userId === null || userId === undefined) return
+  writeRecoveryUnsaved(userId, typeof createdAt === 'number' && isFinite(createdAt) && createdAt > 0 ? createdAt : 0)
+  recoveryRefreshSettings()
+}
+
+// Kişi kodu kaydettiğini onayladı veya kod kaldırıldı
+function recoveryConfirmed (userId) {
+  if (recoveryUnsavedOf(userId) === null) return
+  writeRecoveryUnsaved(userId, null)
+  recoveryRefreshSettings()
+}
+
+// Oturumdaki kişinin sunucudaki kodu kaydedildiği onaylanmamış kod mu? Sunucu bilgisi gelmeden veya sunucuda kod
+// yokken false döner. Oluşturma zamanı bilinmeden yazılan bayrak (kayıt yanıtı zamanı vermez) sunucudaki kodu
+// benimser. Sunucudaki kod bayraklı koddan sonra oluşturulduysa (ör. başka bir cihazda) bayrak silinir. Bu sekmenin
+// sunucu bilgisi eskiyse (bayraklı kod daha yeni, ör. kod başka bir sekmede verildi) bayrağa dokunulmaz.
+function recoveryUnsaved () {
+  if (!state.me || !identityState.recoveryKnown) return false
+  const id = state.me.id
+  const value = recoveryUnsavedOf(id)
+  const rec = identityState.recovery
+  if (value === null || !rec) return false
+  if (value === 0) {
+    writeRecoveryUnsaved(id, rec.createdAt)
+    return true
+  }
+  if (rec.createdAt > value) writeRecoveryUnsaved(id, null)
+  return rec.createdAt === value
 }
 
 // Kod görünümü: açıklama, kod (dörderli gruplar satır sonunda bölünebilir), uyarı, Kopyala, Dosya Olarak İndir,
@@ -93,8 +156,10 @@ function buildRecoveryCodeView (parent, opts) {
   return copy
 }
 
-// Giriş ekranındaki kod kartı (kurulum, kayıt ve kurtarma sonrası). next Devam ile çağrılır.
-function showRecoveryCard (code, name, rotated, next) {
+// Giriş ekranındaki kod kartı (kurulum, kayıt ve kurtarma sonrası). user: { id, name }. next Devam ile çağrılır.
+// Oturum kart gösterilmeden önce bu cihazda saklanmıştır: sayfa kart açıkken yenilenirse uygulama açılır ve kod
+// onaylanmamış sayılır (recoveryAfterEnter uyarısı, Ayarlar'da vurgulu durum).
+function showRecoveryCard (code, user, rotated, next) {
   const card = el.recoveryCard
   clear(card)
   const title = recoveryText('h2', 'section-heading', () => t('recovery.title'))
@@ -102,10 +167,11 @@ function showRecoveryCard (code, name, rotated, next) {
   card.appendChild(title)
   buildRecoveryCodeView(card, {
     code: code,
-    name: name,
+    name: user.name,
     rotated: rotated,
     idPrefix: 'recovery-card',
     onContinue: () => {
+      recoveryConfirmed(user.id)
       clear(card)
       next()
     }
@@ -114,11 +180,15 @@ function showRecoveryCard (code, name, rotated, next) {
   focusNode(byId('recovery-card-copy'))
 }
 
-// Uygulama içindeki kod penceresi (Ayarlar'dan oluşturma ve yenileme, sıfırlamadan sonra yeni parola).
-// opts: { trigger, rotated }
+// Uygulama içindeki kod penceresi (Ayarlar'dan oluşturma ve yenileme, parola değişikliğiyle yenileme, sıfırlamadan
+// sonra yeni parola). Pencere "kaydettim" onayıyla Devam'a basılmadan kapanmaz: kapat düğmesi gizlenir, katman
+// kilitlenir ve Esc, oyun kolunun geri düğmesi ve dışarı tıklama onu kapatmaz (02-state-dom.js closeLayer). Program
+// kapatırsa (ör. oturum kapanması) kod onaylanmamış sayılır. opts: { trigger, rotated }
 function openRecoveryCodeDialog (code, opts) {
   const o = opts || {}
-  return openAppDialog({
+  const userId = state.me ? state.me.id : null
+  let layer = null
+  const handle = openAppDialog({
     name: 'recovery-code',
     titleKey: 'recovery.title',
     trigger: o.trigger || null,
@@ -128,10 +198,20 @@ function openRecoveryCodeDialog (code, opts) {
       rotated: Boolean(o.rotated),
       idPrefix: 'recovery-dialog',
       onContinue: () => {
+        recoveryConfirmed(userId)
+        if (layer) layer.locked = false
         close('done')
       }
     })
   })
+  const opened = handle ? findLayer('app-dialog') : null
+  if (opened && opened.el && opened.el.id === 'recovery-code-dialog') {
+    layer = opened
+    layer.locked = true
+    const closeBtn = layer.el.querySelector('.app-dialog-close')
+    if (closeBtn) closeBtn.hidden = true
+  }
+  return handle
 }
 
 // ----- Parolamı Unuttum kartı -----
@@ -293,7 +373,7 @@ async function submitForgot () {
   if (!result.ok) return fail(result.error, result.field === 'code' ? f.code : f.name)
   clearForgotSecrets()
   setToken(result.token)
-  showRecoveryCard(result.code, name, true, () => {
+  showRecoveryCard(result.code, { id: result.user.id, name: name }, true, () => {
     resumeSession()
   })
 }
@@ -302,7 +382,7 @@ async function submitForgot () {
 
 function recoverySignature () {
   const rec = identityState.recovery
-  return [identityState.recoveryKnown ? 1 : 0, rec ? rec.createdAt : '', rec && rec.label ? rec.label : '', identityState.resetPending ? 1 : 0].join('|')
+  return [identityState.recoveryKnown ? 1 : 0, rec ? rec.createdAt : '', rec && rec.label ? rec.label : '', identityState.resetPending ? 1 : 0, recoveryUnsaved() ? 1 : 0].join('|')
 }
 
 // Bölüm her açılışta sunucudaki güncel bilgiyi bir kez ister (kod başka bir cihazda değişmiş olabilir)
@@ -320,7 +400,8 @@ async function recoveryRefresh () {
 function recoveryStatusText () {
   const rec = identityState.recovery
   if (!rec) return t('settings.account.recoveryNone')
-  return t('settings.account.recoveryCreated', { date: formatLong(rec.createdAt), device: rec.label || t('sessions.unknown') })
+  const created = t('settings.account.recoveryCreated', { date: formatLong(rec.createdAt), device: rec.label || t('sessions.unknown') })
+  return recoveryUnsaved() ? created + ' ' + t('settings.account.recoveryUnsaved') : created
 }
 
 function recoverySettingsSection (page) {
@@ -413,7 +494,7 @@ function recoverySettingsSection (page) {
   const update = () => {
     const rec = identityState.recovery
     status.textContent = recoveryStatusText()
-    status.classList.toggle('is-missing', identityState.recoveryKnown && !rec)
+    status.classList.toggle('is-missing', (identityState.recoveryKnown && !rec) || recoveryUnsaved())
     setButtonText(create, t(rec ? 'settings.account.recoveryRenew' : 'settings.account.recoveryCreate'))
     remove.hidden = !rec
     // Sıfırlanmış parolada kod kurulamaz, önce yeni parola belirlenir
@@ -447,25 +528,44 @@ function markRecoveryReminded (userId) {
   storeSetJson(RECOVERY_REMIND_KEY, all)
 }
 
-// Uygulama açılınca (03-auth.js enterApp). Profil adımı veya kimlik açma penceresi açıksa beklenir.
+// Uygulama açılınca (03-auth.js enterApp). Kaydedildiği onaylanmayan kod varsa her sayfa açılışında bir kez uyarı,
+// yoksa kodu olmayan hesaba parolayla girişten sonra bir kez hatırlatma. Profil adımı veya kimlik açma penceresi
+// açıksa beklenir.
 function recoveryAfterEnter () {
-  if (!recoveryUi.remindPending) return
+  if (!recoveryUi.remindPending && !(state.me && recoveryUnsavedOf(state.me.id) !== null)) return
   clearTimeout(recoveryUi.remindTimer)
   let tries = 0
   const tick = () => {
     recoveryUi.remindTimer = 0
-    if (!state.inApp || !state.me || !recoveryUi.remindPending) return
+    if (!state.inApp || !state.me) return
     if (findLayer('app-dialog') || (typeof isSettingsOpen === 'function' && isSettingsOpen()) || !identityState.recoveryKnown || !hasIdentity()) {
       tries += 1
       if (tries < RECOVERY_REMIND_TRIES) recoveryUi.remindTimer = setTimeout(tick, RECOVERY_REMIND_DELAY_MS)
       return
     }
+    const pending = recoveryUi.remindPending
     recoveryUi.remindPending = false
-    if (identityState.recovery || identityState.resetPending || recoveryReminded(state.me.id)) return
+    if (recoveryUnsaved()) {
+      if (recoveryUi.unsavedShownFor === state.me.id) return
+      recoveryUi.unsavedShownFor = state.me.id
+      openRecoveryUnsaved()
+      return
+    }
+    if (!pending || identityState.recovery || identityState.resetPending || recoveryReminded(state.me.id)) return
     markRecoveryReminded(state.me.id)
     openRecoveryRemind()
   }
   recoveryUi.remindTimer = setTimeout(tick, RECOVERY_REMIND_DELAY_MS)
+}
+
+// Ayarlar > Hesabım açılır ve Kurtarma Kodu bölümünün oluşturma düğmesine odaklanılır
+function openRecoverySettings () {
+  openSettings('account', null)
+  setTimeout(() => {
+    const section = byId('set-recovery-section')
+    if (section && typeof section.scrollIntoView === 'function') section.scrollIntoView()
+    focusNode(byId('set-recovery-create'))
+  }, 0)
 }
 
 function openRecoveryRemind () {
@@ -481,12 +581,7 @@ function openRecoveryRemind () {
       later.id = 'recovery-remind-later'
       create.addEventListener('click', () => {
         close('done')
-        openSettings('account', null)
-        setTimeout(() => {
-          const section = byId('set-recovery-section')
-          if (section && typeof section.scrollIntoView === 'function') section.scrollIntoView()
-          focusNode(byId('set-recovery-create'))
-        }, 0)
+        openRecoverySettings()
       })
       later.addEventListener('click', () => {
         close('later')
@@ -499,10 +594,47 @@ function openRecoveryRemind () {
   })
 }
 
+// Kaydedildiği onaylanmayan kod: yeni kod oluşturma (eskisi geçersiz olur), kodu kaydettiğini bildirme veya sonraya
+// bırakma. Sonraya bırakılırsa uyarı sonraki sayfa açılışında yeniden çıkar.
+function openRecoveryUnsaved () {
+  const userId = state.me.id
+  openAppDialog({
+    name: 'recovery-unsaved',
+    titleKey: 'settings.account.recoveryTitle',
+    build: (body, close) => {
+      body.appendChild(recoveryText('p', 'lead', () => t('recovery.unsavedRemind')))
+      const row = h('div', 'row dialog-actions')
+      const renew = button('button', t('settings.account.recoveryRenew'), 'i-key')
+      renew.id = 'recovery-unsaved-renew'
+      const saved = button('button button-secondary', t('recovery.unsavedConfirm'))
+      saved.id = 'recovery-unsaved-confirm'
+      const later = button('button button-secondary', t('identity.unlockLater'))
+      later.id = 'recovery-unsaved-later'
+      renew.addEventListener('click', () => {
+        close('done')
+        openRecoverySettings()
+      })
+      saved.addEventListener('click', () => {
+        recoveryConfirmed(userId)
+        close('done')
+      })
+      later.addEventListener('click', () => {
+        close('later')
+      })
+      row.appendChild(renew)
+      row.appendChild(saved)
+      row.appendChild(later)
+      body.appendChild(row)
+      return renew
+    }
+  })
+}
+
 // Oturum kapanınca bekleyen hatırlatma düşer (03-auth.js resetAppState)
 function recoveryReset () {
   recoveryUi.remindPending = false
   clearTimeout(recoveryUi.remindTimer)
   recoveryUi.remindTimer = 0
+  recoveryUi.unsavedShownFor = null
   clearForgotSecrets()
 }
