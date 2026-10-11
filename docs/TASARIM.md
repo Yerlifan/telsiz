@@ -145,20 +145,20 @@ Metin, vurgu ve durum:
 | `--av-0` ile `--av-7`, `--av-fg`, `--av-offline` | Sekiz avatar ve profil rengi, baş harf rengi, çevrimdışı avatar dolgusu. Gece temasında her renk kendi baş harf rengine sahiptir (`--av-fg-0` ile `--av-fg-7`). |
 | `--theme-color` | Tarayıcı çubuğu rengi |
 
-Biçim ve yazı (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`):
+Biçim, yazı ve düzen (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`). Düzen belirteçleri geniş ekranda (1000 piksel ve üstü) sahnenin iç boşluğunu ve sütunlar arasındaki aralığı verir (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`). Sahnenin yan ve alt boşluğu `--layout-pad` değerinin, 1280 pikselin altında sütun aralığı da `--column-gap` değerinin 1,25 katıdır. Yüzen panelli temalarda sütunlar arasında boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir:
 
-| Tema | Gövde (`--font-body`) | Başlık (`--font-display`) | Etiket (`--font-label`) | Köşeler | Kenar (`--border-width`) |
-| --- | --- | --- | --- | --- | --- |
-| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (yüzen paneller), 18px, 14px | 1px |
-| Gece Frekansı | Manrope | Manrope 800 | Martian Mono | 0 (düz paneller), 14px, 12px | 1px |
-| Turkuaz ve Bakır | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px |
-| Saha Telsizi | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px |
-| Lambalı Radyo | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px |
-| Fosfor | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px |
-| Kutup İstasyonu | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px |
-| Plak | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px |
-| Kokpit | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px |
-| Yüksek Kontrast | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px |
+| Tema | Gövde (`--font-body`) | Başlık (`--font-display`) | Etiket (`--font-label`) | Köşeler | Kenar (`--border-width`) | Düzen (`--layout-pad`, `--column-gap`) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (yüzen paneller), 18px, 14px | 1px | 1rem, 1rem |
+| Gece Frekansı | Manrope | Manrope 800 | Martian Mono | 0 (düz paneller), 14px, 12px | 1px | 0, 0 |
+| Turkuaz ve Bakır | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px | 0, 0 |
+| Saha Telsizi | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px | 0, 0 |
+| Lambalı Radyo | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px | 0, 0 |
+| Fosfor | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px | 0, 0 |
+| Kutup İstasyonu | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px | 0.75rem, 0.75rem |
+| Plak | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px | 0.875rem, 0.875rem |
+| Kokpit | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px | 0, 0 |
+| Yüksek Kontrast | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px | 0, 0 |
 
 Yeni temalar yeni yazı tipi getirmez, var olan altı ailenin (Rubik, Unbounded, Manrope, Martian Mono, Figtree, Young Serif) başka birleşimlerini kullanır. Martian Mono yalnızca 500 kalınlıkta paketlenmiştir.
 

@@ -171,6 +171,33 @@ test('ton belirteçleri (--tone-*) her temada çözülür, varsayılanları rol 
   }
 })
 
+test('düzen belirteçleri (--layout-pad, --column-gap) her temada yazılıdır, sahne ve sütun aralıkları bunlarla verilir', () => {
+  // Arcade, Kutup İstasyonu ve Plak yüzen paneller (iç boşluk ve aralık), düz panelli temalar 0: sütunlar ince
+  // ayırıcılarla bitişir. Telefon ve 1000 pikselin altı kendi sabit boşluklarını kullanır.
+  for (const c of combos()) {
+    for (const name of ['--layout-pad', '--column-gap']) {
+      const value = resolve(c.vars, name)
+      assert.ok(/^(0|\d*\.?\d+rem)$/.test(String(value)), c.skin + ' ' + c.scheme + ': ' + name + ' rem ya da 0: ' + value)
+      assert.ok(ownDecl(RULES, c.skin, c.scheme, name), c.skin + ': ' + name + ' temanın kendi bloğunda yok')
+    }
+  }
+  const arcade = cascade(RULES, { 'data-skin': 'arcade', 'data-scheme': 'dark' })
+  assert.equal(resolve(arcade, '--layout-pad'), '1rem', 'Arcade sahne iç boşluğu değişmez')
+  assert.equal(resolve(arcade, '--column-gap'), '1rem', 'Arcade sütun aralığı değişmez')
+  const frekans = parseRules(fs.readFileSync(path.join(PUB, 'css', 'frekans.css'), 'utf8'))
+  const decl = (selector, prop) => frekans.filter((rule) => rule.selectors.indexOf(selector) !== -1).map((rule) => {
+    const m = new RegExp('(?:^|[\\s\\x3b{])' + prop + '\\s*:\\s*([^\\x3b}]+)').exec(rule.body)
+    return m ? m[1].trim() : null
+  }).filter((v) => v !== null)
+  assert.ok(decl('.stage', 'padding').some((v) => v.indexOf('var(--layout-pad)') !== -1), '.stage iç boşluğu --layout-pad ile')
+  for (const pair of [['.side-left', 'margin-right'], ['.side-right', 'margin-left'], ['.side-dj', 'margin-left']]) {
+    const values = decl(pair[0], pair[1]).filter((v) => v !== '0')
+    assert.ok(values.length >= 2, pair[0] + ' iki genişlikte aralık verir: ' + values.join(', '))
+    const fixed = values.filter((v) => v.indexOf('var(--column-gap)') === -1)
+    assert.ok(values.length - fixed.length >= 2, pair[0] + ' ' + pair[1] + ' geniş ekranda --column-gap ile: ' + values.join(', '))
+  }
+})
+
 test('ortak CSS ve tema dosyalarında geri dönüşsüz kullanılan her belirteç ilgili tema ve modlarda çözülür', () => {
   // Bulgu A'nın sınıfı: yalnızca bir temada tanımlı belirteç ortak CSS'te var(--x) olarak, geri dönüş değeri
   // olmadan kullanılırsa öteki temalarda bildirim geçersiz olur. Bir temaya bağlı kurallar (seçicilerin hepsi

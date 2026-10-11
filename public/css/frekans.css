@@ -1125,12 +1125,15 @@
    4. Sahne: sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun
    ========================================================= */
 
+/* Sahnenin iç boşluğu ve sütun aralıkları temanın düzen belirteçlerinden gelir (--layout-pad, --column-gap):
+   yüzen panelli temalarda boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir. 1000
+   pikselin altı kendi sabit boşluklarını kullanır. */
 .stage {
   position: relative;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  padding: 1rem 1.25rem 1.25rem;
+  padding: var(--layout-pad) calc(var(--layout-pad) * 1.25) calc(var(--layout-pad) * 1.25);
 }
 
 .side {
@@ -1142,7 +1145,7 @@
 
 .side-left {
   width: var(--side-left-w);
-  margin-right: 1.25rem;
+  margin-right: calc(var(--column-gap) * 1.25);
 }
 
 .side-scroll {
@@ -1252,12 +1255,12 @@
 
 .side-dj {
   width: var(--side-w);
-  margin-left: 1.25rem;
+  margin-left: calc(var(--column-gap) * 1.25);
 }
 
 .side-right {
   width: var(--radio-w);
-  margin-left: 1.25rem;
+  margin-left: calc(var(--column-gap) * 1.25);
 }
 
 /* 1280 px altında telsiz kartı sağ altta, üstte kalan alanı İstasyonlar kartı kullanır */
@@ -1278,15 +1281,15 @@
 
   .side-dj {
     width: var(--side-right-w);
-    margin-left: 1rem;
+    margin-left: var(--column-gap);
   }
 
   .side-left {
-    margin-right: 1rem;
+    margin-right: var(--column-gap);
   }
 
   .side-right {
-    margin-left: 1rem;
+    margin-left: var(--column-gap);
   }
 
   /* Ayarlı istasyonun kartı geniş ekranda gösterilmez: oda adı ve şifreleme durumu konuşmanın başlığındadır,
