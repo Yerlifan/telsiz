@@ -151,7 +151,7 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
 | `titleBar.setColors(zemin, simge)` | Pencere düğmelerinin zemini ve simge rengi, ikisi de `#rrggbb` |
 | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
 | `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
-| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce (Windows'ta tam ekrana dönüş dahil) `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır |
+| `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce (Windows'ta tam ekrana dönüş dahil) `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır. Telsiz DJ bununla YouTube parçasını pencere simge durumundayken veya tepsideyken bu cihazda bekletir, pencere geri gelince odayla eşitleyip sürdürür (dosya parçaları çalmaya devam eder) |
 | `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0` |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |

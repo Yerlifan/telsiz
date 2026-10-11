@@ -120,12 +120,12 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `20-desktop.js` | Desktop app integration |
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
 | `22-cast.js` | Screen sharing interface and the camera grid |
-| `23-dj.js` | Telsiz DJ interface |
+| `23-dj.js` | Telsiz DJ interface: the card, the corner player (four corners, the `dockDrag` drag helper, minimizing, Floating Player), track announcements, Media Session, the YouTube consent notice on the radio card |
 | `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
 | `26-tanitim.js` | The frequency introduction page that visitors who are not signed in see |
 | `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
-| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), joining and leaving voice rooms |
+| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), joining and leaving voice rooms, a track added to Telsiz DJ in the same voice room |
 | `29-mikrofon.js` | The context menu of the Microphone button (right click, Shift+F10 or the Menu key): choosing between Push to talk and Voice activity |
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |

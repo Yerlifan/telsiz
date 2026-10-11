@@ -120,12 +120,12 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
 | `22-cast.js` | Ekran paylaşımı arayüzü ve kameralar ızgarası |
-| `23-dj.js` | Telsiz DJ arayüzü |
+| `23-dj.js` | Telsiz DJ arayüzü: kart, köşedeki oynatıcı (dört köşe, sürükleme yardımcısı `dockDrag`, küçültme, Yüzen Oynatıcı), parça duyuruları, Media Session, telsiz kartındaki YouTube rıza uyarısı |
 | `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 | `26-tanitim.js` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası |
 | `27-kapasite.js` | Ayarlar > Genel içindeki sunucu bilgileri bölümü, ses odası kapasitesi ve kamera sınırı önerisi, sunucu ipuçları |
-| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), ses odasına katılma ve ayrılma |
+| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), ses odasına katılma ve ayrılma, aynı ses odasında Telsiz DJ'ye eklenen parça |
 | `29-mikrofon.js` | Mikrofon düğmesinin bağlam menüsü (sağ tık, Shift+F10 veya Menü tuşu): Bas konuş ve Ses etkinliği seçimi |
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
