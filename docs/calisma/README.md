@@ -35,6 +35,8 @@ Grupların sırası: önce G0 (`istek/a` üzerinde), sonra iki zincir paralel. Z
 
 11 Ekim 13:15 UTC: Kullanıcı "Android kısmını şimdilik bir kenara bırakalım, diğerleri olsun" dedi. G15 B zincirinden çıkarıldı (zincir aynı run kimliğiyle sürdürüldü, G4 tamamlama sonucu önbellekten geldi). G16 içerik şikâyeti yine yapılır, Android koduna bağlı değildir. Yerlifan/telsiz#36 açık kalır, plandaki G15 bölümü sonraki bir oturum için geçerlidir.
 
+11 Ekim 14:07 UTC: Kota %92 olduğu için Zincir A ve Zincir B bilerek durduruldu, kalan kota Hexball düzeltmesine bırakıldı. Zincir A'da G14 tamamen bitti, G9 uygulaması yarıda kaldı (1. adım 0f1f768, yarım 2 ve 3. adımlar ara kayıt 68ccaa6, betikte G9 devam notu var). Zincir B'de G5 ve G8 uygulaması bitti, sırada G8 incelemesi var. Kota 16:50 UTC civarında sıfırlanır, 16:55 UTC'de "Kota sonrası devam" kontrolü üç iş akışını aynı run kimlikleriyle sürdürür.
+
 ## Kaldığı yerden devam
 
 1. `git log --oneline` ile hangi adımların commit'lendiğine bakılır. Tablodaki commit başlığı varsa adım bitmiştir.
