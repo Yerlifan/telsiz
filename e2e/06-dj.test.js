@@ -475,6 +475,50 @@ test('Küçült: YouTube yalnızca bu cihazda duraklar ve yalnızca çubuk kalı
   await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
 })
 
+test('masaüstü: pencere simge durumuna küçültülünce YouTube bu cihazda duraklar, geri gelince odayla eşitlenip sürer', async () => {
+  const { A, B } = W
+  await fakePlaying(A, 'A çalıyor')
+  // Masaüstü uygulamasının pencere durumu kanalı (20-desktop.js window.telsizDesktop.onWindowState) taklit edilir
+  await A.evaluate(() => {
+    window.telsizDesktop = {
+      onWindowState (cb) {
+        window.e2eWindowState = cb
+        return () => {}
+      }
+    }
+    djWatchWindowState()
+  })
+  await A.waitForFunction(() => {
+    const n = document.querySelector('#dj .dj-bg-note')
+    return n && !n.hidden && n.textContent === 'YouTube parçaları uygulama arka plandayken çalmaz, ses dosyaları çalar.'
+  })
+  await A.evaluate(() => window.e2eWindowState('minimized'))
+  await h.until(async () => {
+    const st = await fakeState(A)
+    return st && st.paused
+  }, h.LONG, 'küçültülünce duraklar')
+  const away = await A.evaluate(() => ({ holds: dj.engine.snapshot().player.localHold, playing: dj.engine.snapshot().session.playing, alert: document.querySelector('#dj .dj-alert-text').textContent }))
+  assert.deepEqual(away, { holds: ['window'], playing: true, alert: 'YouTube parçası pencere görünür olunca başlar.' })
+  await fakePlaying(B, 'B çalmaya devam ediyor')
+  await A.evaluate(() => window.e2eWindowState('restored'))
+  await A.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
+  await fakePlaying(A, 'geri gelince çalıyor')
+  const drift = await A.evaluate(() => {
+    const s = dj.engine.snapshot()
+    return Math.abs(s.player.positionMs - s.session.positionMs)
+  })
+  assert.ok(drift <= 2500, 'odayla eşitlendi: ' + drift + ' ms')
+  // Tepsiye gizleme ve tepsiden dönüş de aynı kuralı izler
+  await A.evaluate(() => window.e2eWindowState('hidden'))
+  await A.waitForFunction(() => dj.engine.snapshot().player.localHold.indexOf('window') !== -1)
+  await A.evaluate(() => window.e2eWindowState('shown'))
+  await A.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
+  await fakePlaying(A, 'tepsiden dönünce çalıyor')
+  await A.evaluate(() => {
+    delete window.telsizDesktop
+  })
+})
+
 test('Yüzen Oynatıcı: kart sütundayken de oynatıcı köşede, kart görünür kalır, kapatınca yerine döner', async () => {
   const { A } = W
   await A.waitForFunction(() => document.getElementById('app-view').getAttribute('data-dj-col') === 'on')

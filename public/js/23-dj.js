@@ -69,6 +69,7 @@ const dj = {
   layoutBusy: false,
   dockBottom: null,
   minimized: false,
+  desktopWatched: false,
   mediaKey: null,
   mediaPosKey: '',
   mediaPosAt: 0,
@@ -544,6 +545,9 @@ function djBuild () {
   card.appendChild(ui.addHint)
   ui.speakerHint = h('p', 'dj-hint dj-speaker-hint')
   card.appendChild(ui.speakerHint)
+  // Masaüstü uygulamasında: YouTube parçası pencere arka plandayken çalmaz
+  ui.bgNote = h('p', 'dj-hint dj-bg-note')
+  card.appendChild(ui.bgNote)
 
   dj.ui = ui
   const engine = djEngine()
@@ -743,6 +747,8 @@ function djRender () {
   const vad = Boolean(vs && !(vs.ptt && vs.ptt.enabled))
   ui.speakerHint.hidden = !(current && vad)
   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
+  ui.bgNote.hidden = !(isYt && dj.desktopWatched)
+  if (!ui.bgNote.hidden) djSetText(ui.bgNote, t('music.player.backgroundYoutube'))
   djSyncConsentWarn(s)
   djMediaSession(s)
 }
@@ -1734,6 +1740,24 @@ function djPlayFile (f, b, m) {
   })
 }
 
+// ------------------------------------------------------------------ masaüstü penceresi
+
+// Masaüstü uygulamasında (20-desktop.js window.telsizDesktop, onWindowState) pencere simge durumuna
+// küçültülünce veya tepsiye gizlenince YouTube parçası bu cihazda bekletilir (YouTube kuralları pencere kapalı
+// veya küçültülmüşken çalmayı yasaklar), dosya parçaları çalmaya devam eder. Pencere geri gelince ('restored'
+// veya 'shown') bekletme kalkar, oynatıcı odanın konumuna atlayıp sürer. Abonelik bir kez kurulur.
+function djWatchWindowState () {
+  const desktop = window.telsizDesktop
+  if (dj.desktopWatched || !desktop || typeof desktop.onWindowState !== 'function') return
+  dj.desktopWatched = true
+  desktop.onWindowState((value) => {
+    if (value !== 'minimized' && value !== 'hidden' && value !== 'restored' && value !== 'shown') return
+    const engine = djEngine()
+    if (engine && typeof engine.setLocalHold === 'function') engine.setLocalHold('window', value === 'minimized' || value === 'hidden', 'youtube')
+    djRenderSoon()
+  })
+}
+
 // ------------------------------------------------------------------ başlatma
 
 function djInit () {
@@ -1778,6 +1802,7 @@ function djInit () {
     }
   }, DJ_TICK_MS)
   if (typeof composerSetCommandHandler === 'function') composerSetCommandHandler(djCommand)
+  djWatchWindowState()
   dj.castLive = djDetectCast()
   if (state.meta) djOnMeta()
   djSyncVoice()
