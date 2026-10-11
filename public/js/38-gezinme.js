@@ -28,7 +28,8 @@
 // Özel Mesajlar grubu (S5). İstasyonlar kartında ve sayfasında yazı odalarının altında özel konuşmalar: okunmamışı
 // olanlar önce, en çok NAV_DM_ROWS satır, fazlası Tüm Özel Mesajlar ile açılır. 1280 px altında sol sütun yoktur,
 // üst çubuktaki Özel düğmesi İstasyonlar sayfasını bu grupta açar. Geniş ekranda okunmamışı olan en yeni
-// konuşmayı açar.
+// konuşmayı açar. Oda bilgisi sayfasında özel mesaj listesi yoktur, özel mesaj görünümünde Oda bilgisi düğmesi
+// yalnızca sayfada gelen istekler veya Bildirimler kartı varken görünür.
 //
 // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
 // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
@@ -394,6 +395,7 @@ function navInit () {
   navState.bound = true
   watchLayers(navLayersChanged)
   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
+  navWatchInfoCards()
 }
 
 // ------------------------------------------------------------------ okunmamış ayracı, şerit ve kapsül (S3, S4)
@@ -778,6 +780,34 @@ function navToggleDmAll () {
 // Özel düğmesi 1280 px altında İstasyonlar sayfasını açınca ilk odak gruptaki ilk konuşmadır
 function navDmSheetFocus (panel) {
   return panel ? panel.querySelector('.room-row-dm') : null
+}
+
+// ------------------------------------------------------------------ Oda bilgisi düğmesi (özel mesaj görünümü)
+
+// 1280 px altında özel mesaj görünümünde Oda bilgisi sayfasında oda bilgisi ve özel mesaj listesi yoktur. Düğme
+// yalnızca sayfada gösterilecek kart varken görünür: gelen arkadaşlık istekleri (14-social.js #req-card) veya
+// Bildirimler (28-bildirim.js #activity). Kartların hidden özniteliği izlenir, .app-view.has-info-cards
+// (frekans.css) düğmeyi gösterir. MutationObserver yoksa düğme hep görünür.
+const NAV_INFO_CARDS = ['req-card', 'activity']
+
+function navSyncInfoCards () {
+  if (!el.appView) return
+  const any = NAV_INFO_CARDS.some((id) => {
+    const card = byId(id)
+    return Boolean(card && !card.hidden)
+  })
+  el.appView.classList.toggle('has-info-cards', any)
+}
+
+function navWatchInfoCards () {
+  if (!el.infoCol || !el.appView) return
+  if (typeof window.MutationObserver !== 'function') {
+    el.appView.classList.add('has-info-cards')
+    return
+  }
+  const observer = new window.MutationObserver(navSyncInfoCards)
+  observer.observe(el.infoCol, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] })
+  navSyncInfoCards()
 }
 
 // ------------------------------------------------------------------ görünümün hatırlanması (S12)

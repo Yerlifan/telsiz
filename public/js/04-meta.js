@@ -544,8 +544,9 @@ function roomListGroups (rooms) {
 }
 
 // Üst çubuğun ortasındaki kişisel düğmeler (#top-dm, #top-friends): okunmamış özel mesaj ve bekleyen
-// arkadaşlık isteği rozetleri, açık görünümde aria-current. 1280 px altında Özel düğmesi İstasyonlar sayfasını
-// açar (21-band.js bandOpenDm), o zaman açılır pencere düğmesi olarak duyurulur.
+// arkadaşlık isteği rozetleri, açık görünümde aria-current. 1280 px altında ve özel konuşma varken Özel düğmesi
+// İstasyonlar sayfasını açar (21-band.js bandDmOpensSheet), yalnızca o zaman açılır pencere düğmesi olarak duyurulur.
+// Hiç özel konuşma yoksa düğme Arkadaşlar görünümünü açar.
 function renderTopPersonal (model) {
   const personal = (model || bandModel()).filter((g) => g.key === 'personal')[0]
   if (!personal) return
@@ -558,13 +559,13 @@ function renderTopPersonal (model) {
     if (st.tuned) b.setAttribute('aria-current', 'page')
     else b.removeAttribute('aria-current')
     b.classList.toggle('is-current', st.tuned)
-    if (st.key === 'dm' && typeof isInfoInline === 'function') {
-      if (isInfoInline()) {
-        b.removeAttribute('aria-haspopup')
-        b.removeAttribute('aria-expanded')
-      } else {
+    if (st.key === 'dm' && typeof bandDmOpensSheet === 'function') {
+      if (bandDmOpensSheet()) {
         b.setAttribute('aria-haspopup', 'dialog')
         if (!b.hasAttribute('aria-expanded')) b.setAttribute('aria-expanded', 'false')
+      } else {
+        b.removeAttribute('aria-haspopup')
+        b.removeAttribute('aria-expanded')
       }
     }
     const count = st.key === 'dm' ? st.mention : st.unread

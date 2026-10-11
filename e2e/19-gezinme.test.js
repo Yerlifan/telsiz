@@ -27,7 +27,8 @@
 // G9, Özel mesajlar grubu ve görünümün hatırlanması (S5, S12):
 // - 1440, 1024, 768 ve 360 genişlikte grup İstasyonlar listesinde, okunmamış konuşma önce. 1280 px altında Özel
 //   düğmesi İstasyonlar sayfasını okunmamış konuşmada açar, geniş ekranda okunmamışı olan en yeni konuşmayı açar.
-//   Özel mesaj görünümünde Oda bilgisi düğmesi yok
+//   Özel mesaj görünümünde Oda bilgisi düğmesi yalnızca sayfada kart (Bildirimler) varken görünür. Hiç özel
+//   konuşması olmayan kişide Özel düğmesi açılır pencere olarak duyurulmaz, Arkadaşlar görünümünü açar
 // - Özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür
 // G9 inceleme düzeltmeleri:
 // - Uygulama açılırken açılan oda (80 okunmamış, son okunanın çevresi ve en yeni sayfa birleşik sayılır) ve sayfa
@@ -65,7 +66,8 @@ async function dmWith (who, text) {
 }
 
 before(async () => {
-  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']] })
+  // Selin'in hiç özel konuşması yoktur (Özel Mesajlar düğmesi testi)
+  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']], extraPeople: { selin: 'Selin' } })
   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
   W.deniz = await W.w.pageFor('deniz')
   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
@@ -662,6 +664,19 @@ test('özel mesajlar grubu: İstasyonlar listesinde okunmamış önce, 1280 px a
   await waitConversation(page, 'dm', W.dmMert)
   await page.waitForSelector('#stations-sheet', { state: 'hidden' })
   assert.equal(await page.evaluate(() => document.getElementById('btn-room-info').getClientRects().length), 0, 'özel mesajda Oda bilgisi düğmesi yok')
+  // Sayfada gösterilecek kart varsa (Bildirimler: Ece ses odasına katıldı) Oda bilgisi düğmesi görünür ve sayfa kartı açar
+  const lobi = W.w.room('Lobi').id
+  let res = await W.w.call('POST', '/api/voice/join', { channelId: lobi }, W.w.P.ece.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  await page.waitForSelector('#activity:not([hidden])', { state: 'attached', timeout: h.LONG })
+  await page.waitForFunction(() => document.getElementById('btn-room-info').getClientRects().length > 0)
+  await page.click('#btn-room-info')
+  await page.waitForFunction(() => Boolean(findLayer('sheet-info')))
+  assert.equal(await page.evaluate(() => document.getElementById('activity').getClientRects().length > 0), true, 'sayfada Bildirimler kartı')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !findLayer('sheet-info'))
+  res = await W.w.call('POST', '/api/voice/leave', { channelId: lobi }, W.w.P.ece.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
   await page.evaluate(() => {
     el.messages.scrollTop = el.messages.scrollHeight
   })
@@ -676,6 +691,17 @@ test('özel mesajlar grubu: İstasyonlar listesinde okunmamış önce, 1280 px a
   await page.click('#top-dm')
   await waitConversation(page, 'dm', W.dmMert)
   assert.equal(await page.evaluate(() => document.getElementById('stations-sheet').hidden), true)
+})
+
+test('Özel Mesajlar düğmesi: hiç özel konuşma yokken açılır pencere olarak duyurulmaz, basınca Arkadaşlar açılır', async () => {
+  const page = await W.w.pageFor('selin', { viewport: { width: 360, height: 780 } })
+  await page.waitForFunction(() => currentViewMode() === 'channel' && !state.loading, null, { timeout: h.LONG })
+  assert.equal(await page.evaluate(() => bandDmEntries().length), 0)
+  assert.deepEqual([await page.getAttribute('#top-dm', 'aria-haspopup'), await page.getAttribute('#top-dm', 'aria-expanded')], [null, null])
+  await page.click('#top-dm')
+  await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden)
+  assert.equal(await page.evaluate(() => document.getElementById('stations-sheet').hidden), true, 'sayfa açılmadı')
+  assert.deepEqual([await page.getAttribute('#top-dm', 'aria-haspopup'), await page.getAttribute('#top-dm', 'aria-expanded')], [null, null])
 })
 
 test('görünüm: özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür', async () => {

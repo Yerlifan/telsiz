@@ -2466,8 +2466,9 @@
     display: none;
   }
 
-  /* Özel mesaj görünümünde sayfada gösterilecek oda bilgisi yoktur, Oda bilgisi düğmesi gizlenir */
-  .app-view[data-view="dm"] .convo-head .room-info-button {
+  /* Özel mesaj görünümünde sayfada oda bilgisi yoktur: Oda bilgisi düğmesi yalnızca sayfada gelen arkadaşlık
+     istekleri veya Bildirimler kartı varken görünür (38-gezinme.js navSyncInfoCards, .has-info-cards) */
+  .app-view[data-view="dm"]:not(.has-info-cards) .convo-head .room-info-button {
     display: none;
   }
 
