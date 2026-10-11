@@ -16,7 +16,8 @@
 //   Home ve End ilk ve son istasyon, Enter ve Boşluk ayarlar. Ayarlamak odağı bantta bırakır.
 // - Kol (Gamepad API): L1 ve R1 (standart düzende 4 ve 5) önceki ve sonraki frekans, daire düğmesi (1) en
 //   üstteki katmanı kapatır. Yalnızca sayfa görünür ve odaktayken yoklanır. Kol gerçekten algılanınca
-//   #app-view.has-gamepad sınıfı eklenir, L1 ve R1 ipuçları yalnızca o zaman görünür (Ek K7.6).
+//   #app-view.has-gamepad sınıfı eklenir, L1 ve R1 ipuçları yalnızca o zaman görünür (Ek K7.6). Kolu kendisi
+//   okuyan bir oyun sahnede sürerken (36-oyun.js gameOwnsPad, ör. Hexball maçı) L1 ve R1 frekans değiştirmez.
 // Yazı ve ses odaları sağdaki İstasyonlar listesinde ve İstasyonlar sayfasındadır. Satırları
 // (onStationRowClick) ve üst çubuktaki kişisel düğmeler odaları ve konuşmaları bandTune ile açar.
 
@@ -443,14 +444,17 @@ function padPoll () {
   setGamepadPresent(true)
   const focused = !document.hidden && (typeof document.hasFocus !== 'function' || document.hasFocus())
   const used = padBindingButtons()
+  // Gerçek zamanlı oyun kolu kendisi okurken L1 ve R1 frekans değiştirmez, daire düğmesi yine üstteki katmanı
+  // (ör. tam ekranı) kapatır
+  const game = typeof gameOwnsPad === 'function' && gameOwnsPad()
   pads.forEach((gp) => {
     const now = { l1: padPressed(gp, PAD_L1), r1: padPressed(gp, PAD_R1), circle: padPressed(gp, PAD_CIRCLE) }
     const before = bandState.pads[gp.index] || {}
     if (focused && state.inApp) {
       const top = topLayer()
       const modal = Boolean(top && top.trap)
-      if (now.l1 && !before.l1 && !modal && used.indexOf(PAD_L1) === -1) bandStep(-1)
-      if (now.r1 && !before.r1 && !modal && used.indexOf(PAD_R1) === -1) bandStep(1)
+      if (now.l1 && !before.l1 && !modal && !game && used.indexOf(PAD_L1) === -1) bandStep(-1)
+      if (now.r1 && !before.r1 && !modal && !game && used.indexOf(PAD_R1) === -1) bandStep(1)
       if (now.circle && !before.circle && top && used.indexOf(PAD_CIRCLE) === -1) closeLayer(top, true)
     }
     bandState.pads[gp.index] = now

@@ -27,7 +27,9 @@
 //   notes(model) -> [metin], firstFocus(box) -> öğe, stageClosed() (sahne kapandı, uygulama kendi katmanlarını kapatır),
 //   onVoiceEvent(olay, model) (masadaki oyuna ses olayları: peer-ready, peer-leave, link-open, link-close, link-failed,
 //   ses oturumu bitince reset bütün arayüzlere), onData(peerId, userId, veri, model) (masadaki oyuna oyun veri
-//   kanalından gelen ikili veri, masa yöneticisinden geçmez)
+//   kanalından gelen ikili veri, masa yöneticisinden geçmez), ownsPad(model) -> true (oyun kolunu oyun kendisi
+//   okuyor, ör. gerçek zamanlı maç: sahne oyun kipinde görünürken 21-band.js padPoll L1 ve R1 ile frekans değiştirmez,
+//   bkz. gameOwnsPad), trustNote(model) -> metin (güven notunun sonuna eklenen oyuna özgü uyarı, bkz. gameTrustText)
 
 const GAME_TICK_MS = 250
 const GAME_ANNOUNCE_MS = 400
@@ -679,6 +681,14 @@ function gameChoosing (m) {
   return gameState.choosing && m.stage === 'none'
 }
 
+// 21-band.js padPoll: masadaki oyun kolu kendisi okuyorsa (uygulamanın ownsPad kancası tam olarak true döner) ve
+// sahne oyun kipinde görünürken L1 ve R1 frekans değiştirmez. Küçültülmüş masada kol yine bandındır.
+function gameOwnsPad () {
+  const m = gameModel()
+  if (!m.app || !gameStageVisible()) return false
+  return gameUiCall(gameUi(m.app), 'ownsPad', [m], false) === true
+}
+
 function gameOpenStage (focus) {
   gameState.minimized = false
   gameState.wanted = gameStageWanted()
@@ -941,9 +951,14 @@ function gameErrorLine (m) {
   return p
 }
 
+// Güven notu: genel metin (ya da oyunun kendi trustDealer ve trustPlayer metni), ardından oyunun ek uyarısı
+// (trustNote kancası, ör. Hexball'da fiziği ev sahibinin hesapladığı). Masa Kur, lobi ve davet ekranında ve alt
+// satırın Ayrıntı bölümünde aynı metin görünür, oyuncu katılmadan önce okur.
 function gameTrustText (m, dealer) {
   const app = gameAppOf(m)
-  return m.me !== null && dealer === m.me ? gameText(app, 'trustDealer') : gameText(app, 'trustPlayer', { name: shownName(dealer) })
+  const base = m.me !== null && dealer === m.me ? gameText(app, 'trustDealer') : gameText(app, 'trustPlayer', { name: shownName(dealer) })
+  const extra = String(gameUiCall(gameUi(app), 'trustNote', [m], ''))
+  return extra ? base + ' ' + extra : base
 }
 
 function gameTrustNote (m, dealer) {

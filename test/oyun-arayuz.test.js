@@ -1692,6 +1692,151 @@ describe('birden çok oyun: Oyun Seç ve tarafsız metinler', () => {
   })
 })
 
+// ------------------------------------------------------------------ oyun kolu ve güven notu kancaları
+
+// 21-band.js içinden padPressed ve padPoll işlevleri küçük bir taklit ortamda çalıştırılır: kollar, katman yığını,
+// bandStep ve gameOwnsPad taklittir
+function loadPadPoll () {
+  const src = read(PUB, 'js', '21-band.js').replace(/\r\n/g, '\n')
+  const fn = (name) => {
+    const start = src.indexOf('\nfunction ' + name + ' (')
+    assert.ok(start !== -1, name)
+    const end = src.indexOf('\n}\n', start)
+    return src.slice(start, end + 3)
+  }
+  const sandbox = {
+    PAD_L1: 4,
+    PAD_R1: 5,
+    PAD_CIRCLE: 1,
+    pads: [],
+    owns: false,
+    top: null,
+    steps: [],
+    closed: [],
+    bandState: { pads: {}, polling: true },
+    state: { inApp: true },
+    document: { hidden: false, hasFocus: () => true },
+    padList: () => sandbox.pads,
+    setGamepadPresent () {},
+    padBindingButtons: () => [],
+    topLayer: () => sandbox.top,
+    bandStep: (d) => sandbox.steps.push(d),
+    closeLayer: (layer) => sandbox.closed.push(layer.name),
+    nextFrame () {}
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(fn('padPressed') + fn('padPoll') + '\nfunction gameOwnsPad () { return owns }\n', sandbox, { filename: '21-band.js' })
+  // Kolun düğme durumları: L1 (4), R1 (5) ve daire (1)
+  sandbox.press = (buttons) => {
+    const list = Array.from({ length: 16 }, (x, i) => ({ pressed: buttons.indexOf(i) !== -1, value: buttons.indexOf(i) !== -1 ? 1 : 0 }))
+    sandbox.pads = [{ index: 0, connected: true, buttons: list }]
+    vm.runInContext('padPoll()', sandbox)
+  }
+  return sandbox
+}
+
+describe('oyun kolu ve güven notu kancaları', () => {
+  test('gameOwnsPad: masadaki oyunun ownsPad kancası tam olarak true döner ve sahne oyun kipinde görünürken', () => {
+    const page = makePage('5', makeNet())
+    page.run(SECOND_APP)
+    page.run("var fakeOwnsStage = 'setup'")
+    page.run('fakeUi2.ownsPad = (m) => m.stage === fakeOwnsStage')
+    page.run('gameRender()')
+    assert.equal(page.run('gameOwnsPad()'), false, 'masa yok')
+    page.press('tool-game')
+    assert.equal(page.run('gameOwnsPad()'), false, 'Oyun Seç ekranında masa yok')
+    page.press('game-pick-hexball')
+    assert.equal(page.model().stage, 'setup')
+    assert.equal(page.stage(), 'game')
+    assert.equal(page.run('gameOwnsPad()'), true)
+    // Küçültülmüş masada kol yine bandındır
+    page.press('tool-game')
+    assert.equal(page.stage(), null)
+    assert.equal(page.run('gameOwnsPad()'), false, 'sahne kapalı')
+    page.press('tool-game')
+    assert.equal(page.stage(), 'game')
+    assert.equal(page.run('gameOwnsPad()'), true)
+    // Kanca true dışında bir değer dönerse ya da hata verirse kol bandındır
+    page.run("fakeUi2.ownsPad = () => 'evet'")
+    assert.equal(page.run('gameOwnsPad()'), false)
+    page.run("fakeUi2.ownsPad = () => { throw new Error('kanca') }")
+    assert.equal(page.run('gameOwnsPad()'), false)
+    // Başka oyunun masasında o oyunun kancası sorulur (Renk taklidinde kanca yok)
+    page.run('fakeUi2.ownsPad = () => true')
+    page.press('game-setup-cancel')
+    page.run("gameCall('openSetup', 'renk')")
+    page.run('gameOpenStage(false)')
+    assert.equal(page.model().app, 'renk')
+    assert.equal(page.stage(), 'game')
+    assert.equal(page.run('gameOwnsPad()'), false)
+  })
+
+  test('padPoll: oyun kolu oyundayken L1 ve R1 frekans değiştirmez, daire düğmesi yine katmanı kapatır', () => {
+    const s = loadPadPoll()
+    s.press([4])
+    s.press([])
+    s.press([5])
+    s.press([])
+    same(s.steps, [-1, 1], 'oyun yokken L1 ve R1 bandı gezdirir')
+    s.owns = true
+    s.steps.length = 0
+    s.press([4])
+    s.press([])
+    s.press([5])
+    s.press([4, 5])
+    same(s.steps, [], 'oyundayken bant değişmez')
+    s.top = { name: 'cast-full', trap: false }
+    s.press([4, 5, 1])
+    same(s.closed, ['cast-full'], 'daire düğmesi tam ekrandan çıkar')
+    // Oyun bitince basılı tutulan düğme yeni basış sayılmaz, bırakılıp yeniden basılınca bant gezer
+    s.owns = false
+    s.top = null
+    s.press([4, 5])
+    same(s.steps, [])
+    s.press([])
+    s.press([4])
+    same(s.steps, [-1])
+  })
+
+  test('trustNote: oyunun ek uyarısı Masa Kur, davet ve lobi güven notunun ve Ayrıntı bölümünün sonuna eklenir', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    for (const page of pages) {
+      page.run(SECOND_APP)
+      page.run("fakeUi2.trustNote = (m) => 'Ek uyari ' + m.stage + '.'")
+    }
+    const generic = 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır.'
+    deniz.press('tool-game')
+    deniz.press('game-pick-hexball')
+    assert.equal(deniz.text('.game-trust'), generic + ' Ek uyari setup.')
+    deniz.press('game-open')
+    assert.equal(deniz.text('.game-trust'), generic + ' Ek uyari lobby.')
+    net.flush()
+    ece.press('tool-game')
+    assert.equal(ece.text('.game-trust'), 'Ev sahibi Deniz. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir. Ek uyari invited.')
+    ece.press('game-join')
+    net.flush()
+    deniz.press('game-start')
+    net.flush()
+    deniz.press('game-trust-more')
+    assert.equal(deniz.text('.game-trust-detail .game-trust-text'), generic + ' Ek uyari play.')
+    // Boş metin ya da hata veren kanca genel metni değiştirmez
+    deniz.run("fakeUi2.trustNote = () => ''")
+    deniz.run('gameRefreshStage()')
+    assert.equal(deniz.text('.game-trust-detail .game-trust-text'), generic)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+    deniz.run("fakeUi2.trustNote = () => { throw new Error('kanca') }")
+    deniz.run('gameRefreshStage()')
+    assert.equal(deniz.text('.game-trust-detail .game-trust-text'), generic)
+    assert.ok(net.errors.length > 0 && net.errors.every((e) => e && e.message === 'kanca'), 'kancanın hatası günlüğe yazılır')
+    // Kancası olmayan oyunda (Renk taklidi) yalnızca oyunun kendi güven metni
+    const other = makePage('7', makeNet())
+    other.run('gameRender()')
+    other.press('tool-game')
+    assert.equal(other.text('.game-trust'), 'Kurpiyer sizsiniz. Desteyi bu cihaz karıştırır ve bütün elleri teknik olarak bilir. Başkalarının elleri bu ekranda gösterilmez. Oyunculara bu durum yazılır.')
+  })
+})
+
 // ------------------------------------------------------------------ Renk masası (37-renk.js)
 
 // Elle kurulmuş Renk eli: oyuncular ['12', '5'], dağıtan 12, soldaki (ilk sıra) 5. Kartlar dealFrom ile kanonik
