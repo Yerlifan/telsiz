@@ -120,7 +120,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
-| `22-cast.js` | Screen sharing interface and the camera grid |
+| `22-cast.js` | Screen sharing interface, the camera grid and minimizing the preview of your own share |
 | `23-dj.js` | Telsiz DJ interface: the card, the corner player (four corners, the `dockDrag` drag helper, minimizing, Floating Player), track announcements, Media Session, the YouTube consent notice on the radio card |
 | `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
@@ -131,6 +131,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
 | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
+| `39-yuzen.js` | Floating window: the cameras or avatars of the voice room and the speaking ring in a small always-on-top window. In the desktop app a window opened with a single-use name from the main process, in the browser document picture-in-picture, and as a fallback video picture-in-picture with a canvas stream. The Floating Window button on the radio card |
 | `40-bosta.js` | Automatic idle: measures inactivity from mouse, keyboard, touch, wheel and gamepad input (and from the system idle time in the desktop app), adds `idle` and the page id `tab` to the long-poll query, never counts a device in a voice room as idle, and also reads the gamepad on every frame of the `21-band.js` gamepad loop |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
@@ -180,7 +181,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
 | `src/http-util.js`, `src/static-source.js` | Security headers, Content Security Policy, the static file allowlist |
 | `public/sw.js` | Cached content, and making sure `/api/` requests are never cached |
-| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, update checks (`desktop/src/lib/updates.js`) |
+| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, the floating window as the only exception to the new window rule (`desktop/src/lib/float-window.js`), update checks (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | The whitelist of files that go into a release, the auto update info files, the authentication of the npm publish |
 
 Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code.

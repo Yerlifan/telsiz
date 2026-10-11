@@ -120,7 +120,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
-| `22-cast.js` | Ekran paylaşımı arayüzü ve kameralar ızgarası |
+| `22-cast.js` | Ekran paylaşımı arayüzü, kameralar ızgarası ve kendi paylaşımının önizlemesini küçültme |
 | `23-dj.js` | Telsiz DJ arayüzü: kart, köşedeki oynatıcı (dört köşe, sürükleme yardımcısı `dockDrag`, küçültme, Yüzen Oynatıcı), parça duyuruları, Media Session, telsiz kartındaki YouTube rıza uyarısı |
 | `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
@@ -131,6 +131,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
+| `39-yuzen.js` | Yüzen pencere: ses odasının kameraları veya avatarları ve konuşma halkası her zaman üstte kalan küçük pencerede. Masaüstünde ana sürecin tek kullanımlık adıyla açılan pencere, tarayıcıda belge resim içinde resim, yedek olarak tuval akışıyla görüntü resim içinde resim. Telsiz kartındaki Yüzen Pencere düğmesi |
 | `40-bosta.js` | Otomatik boşta: fare, klavye, dokunma, tekerlek ve oyun kolu girdisinden (masaüstünde sistemin boşta süresinden) hareketsizliği ölçer, long-poll sorgusuna `idle` ve sayfa kimliği `tab` ekler, ses odasındayken boşta saymaz, oyun kolunu `21-band.js` kol döngüsünün her karesinde de okur |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
@@ -180,7 +181,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, içerik güvenliği politikası, statik dosya beyaz listesi |
 | `public/sw.js` | Önbelleğe alınan içerik ve `/api/` isteklerinin önbelleğe alınmaması |
-| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, güncelleme denetimi (`desktop/src/lib/updates.js`) |
+| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, yeni pencere kuralının tek istisnası olan yüzen pencere (`desktop/src/lib/float-window.js`), güncelleme denetimi (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | Yayına giren dosyaların beyaz listesi, otomatik güncelleme bilgi dosyaları, npm yayınının kimlik doğrulaması |
 
 Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın.
