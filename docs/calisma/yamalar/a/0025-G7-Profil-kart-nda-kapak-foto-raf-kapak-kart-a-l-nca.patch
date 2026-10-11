@@ -1,0 +1,742 @@
+From 78cfce609c5080bb20c69c26ed3edf001706a817 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:00:12 +0000
+Subject: [PATCH 25/25] =?UTF-8?q?G7:=20Profil=20kart=C4=B1nda=20kapak=20fo?=
+ =?UTF-8?q?to=C4=9Fraf=C4=B1,=20kapak=20kart=20a=C3=A7=C4=B1l=C4=B1nca=20i?=
+ =?UTF-8?q?ndirilir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Profil zarfında cover { u, k, n, m, w, h } alanı (cleanCoverRef). Kapak
+ortasından 3:1 kırpılıp 1200x400 JPEG olarak kodlanır, sınır aşılırsa kalite
+0.85, 0.7 ve 0.55 sırasıyla denenir, kendi dosya anahtarıyla şifrelenir.
+Kapak yalnızca gösterileceği zaman indirilir ve profil resmiyle aynı yeniden
+deneme yolunu kullanır. saveProfile coverFile alır, başka alanlar
+kaydedilirken kapak korunur. Bant kapağı object-fit ile doldurur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css |  10 ++
+ public/i18n.js            |  10 ++
+ public/js/13-profile.js   | 250 +++++++++++++++++++++++++++++++++-----
+ test/social.test.js       | 226 +++++++++++++++++++++++++++++++++-
+ 4 files changed, 463 insertions(+), 33 deletions(-)
+
+diff --git a/public/css/components.css b/public/css/components.css
+index 1cc3a83..be4757c 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3201,11 +3201,21 @@ button.member:hover {
+ 
+ .profile-card-band {
+   height: 5.5rem;
++  overflow: hidden;
+   border-radius: var(--radius-card) var(--radius-card) 0 0;
+   background-color: var(--av-0);
+   background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.12));
+ }
+ 
++/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Bant
++   konumlandırılmaz, böylece banda binen avatar kapağın üstünde kalır. */
++.profile-card-cover {
++  display: block;
++  width: 100%;
++  height: 100%;
++  object-fit: cover;
++}
++
+ .profile-card-band[data-color="1"] { background-color: var(--av-1); }
+ .profile-card-band[data-color="2"] { background-color: var(--av-2); }
+ .profile-card-band[data-color="3"] { background-color: var(--av-3); }
+diff --git a/public/i18n.js b/public/i18n.js
+index fa829ea..aa5f9f8 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -27,6 +27,11 @@ window.I18N = (function () {
+     // G3 Telsiz DJ çekirdeği
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
++    'profile.coverInvalid': 'Kapak resmi okunamadı.',
++    'profile.coverUploadFailed': 'Kapak yüklenemedi.',
++    'settings.profile.coverTooBig': 'Kapak {size} sınırına sığdırılamadı. Başka bir resim seçin.',
++    'errors.bad_cover': 'Kapak fotoğrafı geçersiz.',
++    'errors.cover_too_large': 'Kapak fotoğrafı çok büyük.',
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
+@@ -1977,6 +1982,11 @@ window.I18N = (function () {
+     // G3 Telsiz DJ çekirdeği
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
++    'profile.coverInvalid': 'The cover image could not be read.',
++    'profile.coverUploadFailed': 'The cover could not be uploaded.',
++    'settings.profile.coverTooBig': 'The cover could not be made to fit the {size} limit. Choose another image.',
++    'errors.bad_cover': 'The cover photo is invalid.',
++    'errors.cover_too_large': 'The cover photo is too large.',
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index 3f75cd0..c4e3b71 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -1,10 +1,10 @@
+ 'use strict'
+ 
+ // Profiller: /api/profiles ile toplu çekme ve (id, pv) önbelleği, grup anahtarıyla şifreli profil
+-// zarfının çözülüp doğrulanması, profil resimleri (indirme, çözme, blob URL önbelleği), kişisel
+-// anahtarın kimlik bağlamasıyla doğrulanması ve ilk görüşte sabitlenmesi, görsel yardımcılar
+-// (görünen ad, @kullanıcı adı, avatar bilgisi, durum), ortak pencere yardımcısı, profil kartı,
+-// durum menüsü ve kendi profilini kaydetme.
++// zarfının çözülüp doğrulanması, profil resimleri ve kapak fotoğrafları (indirme, çözme, blob URL önbelleği,
++// kapak yalnızca gösterileceği zaman), kişisel anahtarın kimlik bağlamasıyla doğrulanması ve ilk görüşte
++// sabitlenmesi, görsel yardımcılar (görünen ad, @kullanıcı adı, avatar bilgisi, durum), ortak pencere yardımcısı,
++// profil kartı, durum menüsü ve kendi profilini kaydetme.
+ 
+ const PROFILE_BATCH = 100
+ const PROFILE_FETCH_DELAY_MS = 30
+@@ -23,12 +23,20 @@ const PROFILE_COLORS = 8
+ const AVATAR_EDGE = 256
+ const AVATAR_JPEG_QUALITY = 0.9
+ const AVATAR_TYPES = ['image/png', 'image/jpeg']
++// Kapak fotoğrafı (istek 8): ortasından 3:1 kırpılır ve 1200x400 JPEG olarak kodlanır. Dosya profil resmiyle aynı
++// sınırı (avatarMaxBytes) aşarsa kalite sırayla düşürülür.
++const COVER_W = 1200
++const COVER_H = 400
++const COVER_QUALITIES = [0.85, 0.7, 0.55]
+ const STATUS_CHOICES = ['online', 'idle', 'dnd', 'invisible']
+ const SHOWN_STATUSES = ['online', 'idle', 'dnd', 'offline']
+ 
+ const profileState = {
+   entries: new Map(),
+   avatars: new Map(),
++  // Kapak fotoğrafları (yükleme kimliği -> kayıt, avatars ile aynı biçim). Kapak yalnızca profil kartında ve Ayarlar
++  // önizlemesinde gösterileceği zaman indirilir (loadCover).
++  covers: new Map(),
+   formerUsers: new Map(),
+   queue: new Set(),
+   // Bekleyen profil isteği zamanlayıcısı ve çalışacağı an (Date.now)
+@@ -79,6 +87,11 @@ function profilesReset () {
+     revokeLater(entry.url)
+   })
+   profileState.avatars = new Map()
++  profileState.covers.forEach((entry) => {
++    clearTimeout(entry.timer)
++    revokeLater(entry.url)
++  })
++  profileState.covers = new Map()
+ }
+ 
+ function revokeLater (url) {
+@@ -230,7 +243,7 @@ async function fetchProfiles () {
+         // Silinmiş veya sunucudan engellenmiş: yeniden istenmesin
+         const old = profileRecord(id)
+         if (old && old.missing) return
+-        profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, keyState: 'none' })
++        profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, coverUploadId: null, keyState: 'none' })
+         profileState.changed.add(id)
+       })
+       queueProfileRender()
+@@ -281,6 +294,7 @@ function storeProfileEntry (entry) {
+     missing: false,
+     raw: typeof entry.profile === 'string' ? entry.profile : null,
+     avatarUploadId: typeof entry.avatarUploadId === 'string' && UPLOAD_ID_RE.test(entry.avatarUploadId) ? entry.avatarUploadId : null,
++    coverUploadId: typeof entry.coverUploadId === 'string' && UPLOAD_ID_RE.test(entry.coverUploadId) ? entry.coverUploadId : null,
+     publicKey: typeof entry.publicKey === 'string' ? entry.publicKey : null,
+     identity: typeof entry.identity === 'string' ? entry.identity : null,
+     profile: null,
+@@ -294,6 +308,10 @@ function storeProfileEntry (entry) {
+   const newAvatar = rec.profile && rec.profile.avatar ? rec.profile.avatar.u : null
+   if (oldAvatar && oldAvatar !== newAvatar) dropAvatar(oldAvatar)
+   if (rec.profile && rec.profile.avatar) loadAvatar(rec)
++  // Kapak burada indirilmez, kart açıksa yeniden çizilirken istenir (coverUrlOf)
++  const oldCover = old && old.profile && old.profile.cover ? old.profile.cover.u : null
++  const newCover = rec.profile && rec.profile.cover ? rec.profile.cover.u : null
++  if (oldCover && oldCover !== newCover) dropProfileImage(profileState.covers, oldCover)
+   profileState.changed.add(id)
+ }
+ 
+@@ -335,15 +353,26 @@ function cleanColor (value) {
+   return typeof value === 'number' && Math.floor(value) === value && value >= 0 && value < PROFILE_COLORS ? value : null
+ }
+ 
+-function cleanAvatarRef (value, rec) {
++// Profil zarfındaki resim başvurusu { u, k, n, m }: u sunucudaki kayıtta aynı alana bağlı yükleme olmalıdır
++function cleanImageRef (value, uploadId) {
+   if (!value || typeof value !== 'object') return null
+-  if (typeof value.u !== 'string' || !UPLOAD_ID_RE.test(value.u) || value.u !== rec.avatarUploadId) return null
++  if (typeof value.u !== 'string' || !UPLOAD_ID_RE.test(value.u) || value.u !== uploadId) return null
+   if (typeof value.k !== 'string' || !B64URL_RE.test(value.k) || typeof value.n !== 'string' || !B64URL_RE.test(value.n)) return null
+   const mime = typeof value.m === 'string' ? value.m : ''
+   if (AVATAR_TYPES.indexOf(mime) === -1) return null
+   return { u: value.u, k: value.k, n: value.n, m: mime }
+ }
+ 
++function cleanAvatarRef (value, rec) {
++  return cleanImageRef(value, rec.avatarUploadId)
++}
++
++// Kapak başvurusu { u, k, n, m, w, h } profil resmiyle aynı biçimdedir. Kapağı bilmeyen eski istemciler alanı yok sayar,
++// eski bir istemci profili kaydedince sunucu kapağı kaldırır, zarftaki başvuru da coverUploadId tutmadığı için düşer.
++function cleanCoverRef (value, rec) {
++  return cleanImageRef(value, rec.coverUploadId)
++}
++
+ // Profil zarfı grup anahtarıyla açılır, u alanı kişinin kimliği olmalıdır (sunucu profilleri
+ // kullanıcılar arasında değiştiremez). Açılamayan profil yok sayılır.
+ function decodeProfile (rec) {
+@@ -363,7 +392,8 @@ function decodeProfile (rec) {
+     statusText: cleanLine(v.statusText, PROFILE_STATUS_MAX),
+     bio: cleanBio(v.bio),
+     color: cleanColor(v.color),
+-    avatar: cleanAvatarRef(v.avatar, rec)
++    avatar: cleanAvatarRef(v.avatar, rec),
++    cover: cleanCoverRef(v.cover, rec)
+   }
+ }
+ 
+@@ -398,62 +428,85 @@ function verifyProfileKey (rec) {
+   }
+ }
+ 
+-// Profil resimleri: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
++// Profil resimleri ve kapak fotoğrafları: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
+ 
+ // Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer }. Düşen indirme 10 saniye,
+ // 30 saniye ve 2 dakika sonra yeniden denenir (en çok AVATAR_TRIES deneme). Sunucu dosyayı bulamazsa (404), dosya
+-// çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez.
++// çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez. images: profileState.avatars veya covers.
+ function loadAvatar (rec) {
+   const ref = rec.profile && rec.profile.avatar
+-  if (!ref) return
+-  const existing = profileState.avatars.get(ref.u)
+-  if (existing) return
++  if (ref) loadProfileImage(profileState.avatars, rec.id, ref)
++}
++
++// Kapak herkesin profil resmi gibi önceden indirilmez, yalnızca kart açılınca istenir. Bu yüzden sunucu kimin hangi
++// kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
++function loadCover (rec) {
++  const ref = rec && rec.profile && rec.profile.cover
++  if (ref) loadProfileImage(profileState.covers, rec.id, ref)
++}
++
++function loadProfileImage (images, userId, ref) {
++  if (images.get(ref.u)) return
+   const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0 }
+-  profileState.avatars.set(ref.u, entry)
+-  fetchAvatar(rec.id, ref, entry)
++  images.set(ref.u, entry)
++  fetchProfileImage(images, userId, ref, entry)
+ }
+ 
+-function fetchAvatar (userId, ref, entry) {
++function fetchProfileImage (images, userId, ref, entry) {
+   const gen = profileState.gen
+   entry.state = 'loading'
+   entry.tries += 1
+   downloadPlain({ u: ref.u, k: ref.k, n: ref.n }, null).then((res) => {
+-    if (gen !== profileState.gen || profileState.avatars.get(ref.u) !== entry) return
++    if (gen !== profileState.gen || images.get(ref.u) !== entry) return
+     entry.at = Date.now()
+     if (!res.ok) {
+       // 200 ile gelip çözülemeyen dosya da kalıcı hatadır
+-      avatarFailed(userId, ref, entry, res.status === 404 || res.status === 200)
++      profileImageFailed(images, userId, ref, entry, res.status === 404 || res.status === 200)
+       return
+     }
+     const sniffed = window.E2EE.sniffImage(res.bytes)
+     if (!sniffed || AVATAR_TYPES.indexOf(sniffed) === -1 || sniffed !== ref.m) {
+-      avatarFailed(userId, ref, entry, true)
++      profileImageFailed(images, userId, ref, entry, true)
+       return
+     }
+     entry.url = URL.createObjectURL(new Blob([res.bytes], { type: sniffed }))
+     entry.state = 'ok'
++    if (images === profileState.covers) {
++      profileCoverReady(userId)
++      return
++    }
+     profileState.changed.add(String(userId))
+     queueProfileRender()
+   })
+ }
+ 
+-function avatarFailed (userId, ref, entry, permanent) {
++function profileImageFailed (images, userId, ref, entry, permanent) {
+   entry.state = 'failed'
+   if (permanent || entry.tries >= AVATAR_TRIES) return
+   entry.timer = setTimeout(() => {
+     entry.timer = 0
+-    if (profileState.avatars.get(ref.u) === entry) fetchAvatar(userId, ref, entry)
++    if (images.get(ref.u) === entry) fetchProfileImage(images, userId, ref, entry)
+   }, AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
+ }
+ 
+-function dropAvatar (uploadId) {
+-  const entry = profileState.avatars.get(uploadId)
++function dropProfileImage (images, uploadId) {
++  const entry = images.get(uploadId)
+   if (!entry) return
+-  profileState.avatars.delete(uploadId)
++  images.delete(uploadId)
+   clearTimeout(entry.timer)
+   revokeLater(entry.url)
+ }
+ 
++function dropAvatar (uploadId) {
++  dropProfileImage(profileState.avatars, uploadId)
++}
++
++// Kapak geldi: yalnızca o kişinin açık kartı yeniden çizilir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
++// Ayarlar önizlemesi sayfa imzasıyla (myProfileSignature) kendiliğinden yenilenir.
++function profileCoverReady (userId) {
++  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCard()
++}
++
+ function avatarUrlOf (userId) {
+   const profile = activeProfile(userId)
+   const ref = profile ? profile.avatar : null
+@@ -462,6 +515,32 @@ function avatarUrlOf (userId) {
+   return entry && entry.state === 'ok' ? entry.url : null
+ }
+ 
++// Kişinin kapak fotoğrafının blob adresi (yoksa veya henüz inmediyse null). load: kapak gösterilecek, inmemişse
++// indirmeye başlanır (profil kartı ve Ayarlar önizlemesi).
++function coverUrlOf (userId, load) {
++  const profile = activeProfile(userId)
++  const ref = profile ? profile.cover : null
++  if (!ref) return null
++  if (load) loadCover(profileRecord(userId))
++  const entry = profileState.covers.get(ref.u)
++  return entry && entry.state === 'ok' ? entry.url : null
++}
++
++// Profil kartının renk bandı. Kapak fotoğrafı varsa bandın içinde durur (components.css .profile-card-cover), yoksa
++// profil rengi görünür. Profil kartı ve Ayarlar'daki önizleme kartları kullanır. Yalnızca blob adresi kabul edilir.
++function profileCoverBand (url, colorIndex) {
++  const band = h('div', 'profile-card-band')
++  band.setAttribute('data-color', String(colorIndex))
++  if (typeof url === 'string' && url.indexOf('blob:') === 0) {
++    band.classList.add('has-cover')
++    const img = h('img', 'profile-card-cover')
++    img.alt = ''
++    img.src = url
++    band.appendChild(img)
++  }
++  return band
++}
++
+ // Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir. Profil sürümü hemen artar, böylece arada
+ // çizilen önbellekli yüzeyler de değişikliği görür.
+ function queueProfileRender () {
+@@ -810,9 +889,7 @@ function buildProfileCard (card, userId) {
+   const status = userStatus(userId)
+   card.classList.toggle('is-own', self)
+   card.setAttribute('data-user-id', String(userId))
+-  const band = h('div', 'profile-card-band')
+-  band.setAttribute('data-color', String(userColorIndex(userId)))
+-  card.appendChild(band)
++  card.appendChild(profileCoverBand(coverUrlOf(userId, true), userColorIndex(userId)))
+   const av = h('span', 'avatar-wrap profile-card-avatar')
+   av.setAttribute('data-status', status)
+   av.appendChild(personAvatar(userId, 'xl'))
+@@ -1295,9 +1372,10 @@ function openCustomStatusDialog (trigger) {
+   })
+ }
+ 
+-// Kendi profilini kaydetme. avatarFile: undefined (değişmez), null (kaldırılır) veya resim dosyası.
++// Kendi profilini kaydetme. avatarFile ve coverFile: undefined (değişmez), null (kaldırılır) veya resim dosyası.
+ // Görünen ad, durum metni ve hakkımda grup anahtarıyla şifrelenir, profil resmi kare kırpılıp
+-// 256x256 boyutunda yeniden kodlanır (üst veri silinir) ve kendi dosya anahtarıyla şifrelenir.
++// 256x256 boyutunda, kapak fotoğrafı 3:1 kırpılıp 1200x400 boyutunda yeniden kodlanır (üst veri silinir) ve
++// ikisi de kendi dosya anahtarıyla şifrelenir.
+ async function saveProfile (input) {
+   const data = input || {}
+   if (!state.me) return { ok: false, error: () => t('profile.saveFailed') }
+@@ -1322,7 +1400,24 @@ async function saveProfile (input) {
+     avatarRef = made.ref
+     avatarUploadId = made.ref.u
+   }
+-  const plain = { v: 1, u: Number(state.me.id), displayName: displayName, statusText: statusText, bio: bio, color: color, avatar: avatarRef ? { u: avatarRef.u, k: avatarRef.k, n: avatarRef.n, m: avatarRef.m, w: AVATAR_EDGE, h: AVATAR_EDGE } : null }
++  let coverRef = rec && rec.profile && rec.profile.cover ? rec.profile.cover : null
++  if (data.coverFile === null) {
++    coverRef = null
++  } else if (data.coverFile) {
++    const made = await uploadCover(data.coverFile)
++    if (!made.ok) return made
++    coverRef = made.ref
++  }
++  const plain = {
++    v: 1,
++    u: Number(state.me.id),
++    displayName: displayName,
++    statusText: statusText,
++    bio: bio,
++    color: color,
++    avatar: avatarRef ? { u: avatarRef.u, k: avatarRef.k, n: avatarRef.n, m: avatarRef.m, w: AVATAR_EDGE, h: AVATAR_EDGE } : null,
++    cover: coverRef ? { u: coverRef.u, k: coverRef.k, n: coverRef.n, m: coverRef.m, w: COVER_W, h: COVER_H } : null
++  }
+   let envelope = ''
+   try {
+     envelope = window.E2EE.sealJson(kid, plain)
+@@ -1331,7 +1426,7 @@ async function saveProfile (input) {
+   }
+   const maxChars = state.info && state.info.limits && typeof state.info.limits.maxProfileChars === 'number' ? state.info.limits.maxProfileChars : 6000
+   if (envelope.length > maxChars) return { ok: false, error: () => t('profile.tooLarge') }
+-  const res = await api('POST', '/api/me/profile', { profile: envelope, avatarUploadId: avatarUploadId })
++  const res = await api('POST', '/api/me/profile', { profile: envelope, avatarUploadId: avatarUploadId, coverUploadId: coverRef ? coverRef.u : null })
+   if (res.status !== 200) {
+     return { ok: false, error: () => errorText(res, t('profile.saveFailed'), { rate_limited: t('profile.rateLimited') }) }
+   }
+@@ -1356,11 +1451,17 @@ async function uploadAvatar (file) {
+     return { ok: false, error: errorProducer(err, () => t('profile.avatarInvalid')) }
+   }
+   if (!encoded) return { ok: false, error: () => t('profile.avatarInvalid') }
++  return uploadProfileImage(encoded, 'profile.avatarUploadFailed')
++}
++
++// Yeniden kodlanmış resmi ({ bytes, mime }) kendi dosya anahtarıyla şifreleyip yükler, profil zarfına girecek
++// başvuruyu { u, k, n, m } döner
++async function uploadProfileImage (encoded, failKey) {
+   const enc = window.E2EE.encryptFile(encoded.bytes)
+   const res = await request('POST', '/api/uploads', { binary: enc.box, timeout: TRANSFER_TIMEOUT_MS })
+   checkAuthFailure(res)
+   if (res.status !== 200 || !res.data || typeof res.data.id !== 'string' || !UPLOAD_ID_RE.test(res.data.id)) {
+-    return { ok: false, error: () => errorText(res, t('profile.avatarUploadFailed'), { rate_limited: t('attach.rateLimited') }) }
++    return { ok: false, error: () => errorText(res, t(failKey), { rate_limited: t('attach.rateLimited') }) }
+   }
+   return { ok: true, ref: { u: res.data.id, k: enc.key, n: enc.nonce, m: encoded.mime } }
+ }
+@@ -1395,3 +1496,88 @@ async function squareAvatar (image, type) {
+   if (!actual || AVATAR_TYPES.indexOf(actual) === -1) return null
+   return { bytes: bytes, mime: actual }
+ }
++
++// Kapak fotoğrafı (istek 8)
++
++// Kapağın şifrelenmeden önceki en büyük boyutu: sunucunun profil resmi sınırı (avatarMaxBytes) şifreli dosyaya
++// uygulanır, şifreleme 16 bayt ekler
++function coverByteLimit () {
++  const limits = state.info && state.info.limits ? state.info.limits : null
++  const max = limits && typeof limits.avatarMaxBytes === 'number' ? limits.avatarMaxBytes : 1024 * 1024 + 16
++  return Math.max(1, max - 16)
++}
++
++// Kaynağın ortasından alınabilecek en büyük 3:1 dikdörtgen: { sx, sy, sw, sh } (boyut yoksa null)
++function coverCrop (w, h) {
++  if (!(w > 0) || !(h > 0)) return null
++  let sw = w
++  let sh = Math.max(1, Math.round(w * COVER_H / COVER_W))
++  if (sh > h) {
++    sh = h
++    sw = Math.max(1, Math.min(w, Math.round(h * COVER_W / COVER_H)))
++  }
++  return { sx: Math.floor((w - sw) / 2), sy: Math.floor((h - sh) / 2), sw: sw, sh: sh }
++}
++
++// Kırpılan bölge 1200x400 tuvale çizilir ve JPEG olarak kodlanır. Kalite önce 0.85, dosya maxBytes sınırını aşarsa
++// 0.7 ve 0.55 denenir. Sonuç { bytes, mime, quality }, hiçbiri sığmazsa { tooBig: true }, kodlanamazsa null.
++async function encodeCover (image, maxBytes) {
++  const crop = coverCrop(image.naturalWidth, image.naturalHeight)
++  if (!crop) return null
++  const canvas = document.createElement('canvas')
++  canvas.width = COVER_W
++  canvas.height = COVER_H
++  const ctx = canvas.getContext('2d')
++  if (!ctx) return null
++  // Saydam yerler JPEG'de beyaz görünür
++  ctx.fillStyle = '#ffffff'
++  ctx.fillRect(0, 0, COVER_W, COVER_H)
++  ctx.imageSmoothingEnabled = true
++  try {
++    ctx.imageSmoothingQuality = 'high'
++  } catch (err) {
++    // Eski tarayıcı
++  }
++  ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, COVER_W, COVER_H)
++  try {
++    for (const quality of COVER_QUALITIES) {
++      const bytes = await canvasToBytes(canvas, 'image/jpeg', quality)
++      if (window.E2EE.sniffImage(bytes) !== 'image/jpeg') return null
++      if (bytes.length <= maxBytes) return { bytes: bytes, mime: 'image/jpeg', quality: quality }
++    }
++    return { tooBig: true }
++  } finally {
++    canvas.width = 1
++    canvas.height = 1
++  }
++}
++
++// Seçilen dosyadan kapak hazırlar: { ok: true, bytes, mime } veya { ok: false, reason: 'invalid' | 'tooBig', error }.
++// Ayarlar önizlemesi ve yükleme aynı kodlamayı kullanır.
++async function prepareCover (file) {
++  const invalid = { ok: false, reason: 'invalid', error: () => t('profile.coverInvalid') }
++  const max = coverByteLimit()
++  let encoded = null
++  try {
++    const bytes = await readBlobBytes(file)
++    const sniffed = window.E2EE.sniffImage(bytes)
++    const decoded = await decodeImage(bytes, sniffed || String(file.type || 'application/octet-stream'))
++    if (!decoded) return invalid
++    try {
++      encoded = await encodeCover(decoded.image, max)
++    } finally {
++      decoded.release()
++    }
++  } catch (err) {
++    return { ok: false, reason: 'invalid', error: errorProducer(err, () => t('profile.coverInvalid')) }
++  }
++  if (!encoded) return invalid
++  if (encoded.tooBig) return { ok: false, reason: 'tooBig', error: () => t('settings.profile.coverTooBig', { size: formatSize(max) }) }
++  return { ok: true, bytes: encoded.bytes, mime: encoded.mime }
++}
++
++async function uploadCover (file) {
++  const prepared = await prepareCover(file)
++  if (!prepared.ok) return prepared
++  return uploadProfileImage(prepared, 'profile.coverUploadFailed')
++}
+diff --git a/test/social.test.js b/test/social.test.js
+index 9f013d4..c62aaea 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -9,7 +9,9 @@
+ // 60 saniye), ilk kez istenen kişinin ve kendi kaydedilen profilin beklemeye takılmaması, profil resmi indirmesinin
+ // yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
+ // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
+-// bir kişi değişince yeniden çizilmesi de ayrıca sınanır.
++// bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
++// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, kaydetmede korunması ve
++// kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7, 0.55).
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -545,3 +547,225 @@ test('profil sürümü profil değişince, kullanıcı adı değişince ve engel
+   run('profilesReset()')
+   assert.ok(run('profileEpoch()') > epoch, 'sıfırlama')
+ })
++
++// Kapak fotoğrafı (istek 8)
++
++const COVER_ID = 'c'.repeat(32)
++
++function coverWorld (t, replies) {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
++  const ctx = load({ clock: true })
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  const downloads = []
++  sandbox.downloadPlain = (f) => {
++    downloads.push(f.u)
++    const reply = replies.shift()
++    return Promise.resolve(reply || { ok: false, status: 0 })
++  }
++  sandbox.URL = { createObjectURL: () => 'blob:kapak', revokeObjectURL () {} }
++  sandbox.Blob = Blob
++  const coverRef = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
++  sandbox.__entry = { id: 2, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: coverRef }), avatarUploadId: null, coverUploadId: COVER_ID, publicKey: keys.theirs.publicKey, identity: E2EE.identity.sealBinding(keys.kid, 2, keys.theirs.publicKey) }
++  run('storeProfileEntry(__entry)')
++  return { ctx, keys, downloads, coverRef }
++}
++
++const JPEG_HEAD = [0xff, 0xd8, 0xff, 0xe0]
++
++test('kapak başvurusu yalnızca sunucudaki coverUploadId ile eşleşirse kabul edilir, kapağı olmayan eski zarf boş kapak verir', () => {
++  const ctx = load()
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  const ref = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
++  const entry = (pv, cover, coverUploadId) => ({ id: 2, pv: pv, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: cover }), avatarUploadId: null, coverUploadId: coverUploadId, publicKey: keys.theirs.publicKey, identity: null })
++  sandbox.__entry = entry(2, ref, COVER_ID)
++  run('storeProfileEntry(__entry)')
++  assert.deepStrictEqual(JSON.parse(run('JSON.stringify(profileRecord(2).profile.cover)')), { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg' })
++  assert.strictEqual(run('profileRecord(2).coverUploadId'), COVER_ID)
++  // Sunucu kapağı kaldırmışsa (eski istemcinin kaydı) zarftaki başvuru yok sayılır
++  sandbox.__entry = entry(3, ref, null)
++  run('storeProfileEntry(__entry)')
++  assert.strictEqual(run('profileRecord(2).profile.cover'), null)
++  // Başka bir yüklemeye işaret eden, türü desteklenmeyen veya alanı eksik başvuru
++  for (const bad of [Object.assign({}, ref, { u: 'd'.repeat(32) }), Object.assign({}, ref, { m: 'image/gif' }), { u: COVER_ID, k: 'anahtar', m: 'image/jpeg' }, 'kapak']) {
++    sandbox.__entry = entry(4, bad, COVER_ID)
++    run('storeProfileEntry(__entry)')
++    assert.strictEqual(run('profileRecord(2).profile.cover'), null, JSON.stringify(bad))
++  }
++  // Kapak alanı olmayan eski zarf
++  sandbox.__entry = { id: 2, pv: 5, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null }), avatarUploadId: null, publicKey: keys.theirs.publicKey, identity: null }
++  run('storeProfileEntry(__entry)')
++  assert.strictEqual(run('profileRecord(2).profile.cover'), null)
++  assert.strictEqual(run('profileRecord(2).coverUploadId'), null)
++  assert.strictEqual(run('coverUrlOf(2, true)'), null)
++})
++
++test('kapak yalnızca gösterileceği zaman indirilir, gelince açık kart yenilenir, düşen indirme yeniden denenir', async (t) => {
++  const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
++  const { run, sandbox } = ctx
++  await flush()
++  assert.strictEqual(downloads.length, 0, 'profil gelince kapak indirilmez')
++  assert.strictEqual(run('coverUrlOf(2)'), null)
++  await flush()
++  assert.strictEqual(downloads.length, 0, 'yalnızca sorgu indirmez')
++  // Kart açıkken: kapak istenir, ilk indirme düşer, 10 saniye sonra gelir ve kart yeniden çizilir
++  let refreshed = 0
++  sandbox.__refresh = () => {
++    refreshed++
++  }
++  run('refreshProfileCard = function () { __refresh() }')
++  run('profileState.cardUserId = 2')
++  assert.strictEqual(run('coverUrlOf(2, true)'), null)
++  await flush()
++  assert.deepStrictEqual(downloads, [COVER_ID])
++  assert.strictEqual(run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
++  const epoch = run('profileEpoch()')
++  t.mock.timers.tick(10000)
++  await flush()
++  assert.strictEqual(downloads.length, 2)
++  assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
++  assert.strictEqual(refreshed, 1, 'açık kart yenilenir')
++  assert.strictEqual(run('profileEpoch()'), epoch, 'kapak profil sürümünü değiştirmez')
++  assert.strictEqual(run('avatarUrlOf(2)'), null)
++  // Yeniden sorgu indirmeyi yinelemez
++  run('coverUrlOf(2, true)')
++  await flush()
++  assert.strictEqual(downloads.length, 2)
++})
++
++test('kapağı kaldırılan kişinin eski kapağı bırakılır, türü tutmayan kapak yeniden denenmez', async (t) => {
++  let world = coverWorld(t, [{ ok: true, bytes: new Uint8Array(JPEG_HEAD) }])
++  world.ctx.run('coverUrlOf(2, true)')
++  await flush()
++  assert.strictEqual(world.ctx.run('coverUrlOf(2)'), 'blob:kapak')
++  world.ctx.sandbox.__entry = { id: 2, pv: 3, profile: world.ctx.E2EE.sealJson(world.keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: null, cover: null }), avatarUploadId: null, coverUploadId: null, publicKey: world.keys.theirs.publicKey, identity: null }
++  world.ctx.run('storeProfileEntry(__entry)')
++  assert.strictEqual(world.ctx.run("profileState.covers.has('" + COVER_ID + "')"), false)
++  assert.strictEqual(world.ctx.run('coverUrlOf(2, true)'), null)
++  t.mock.timers.reset()
++
++  // PNG baytları JPEG başvurusuyla gelirse kalıcı hatadır
++  world = coverWorld(t, [{ ok: true, bytes: new Uint8Array(PNG_BYTES) }])
++  world.ctx.run('coverUrlOf(2, true)')
++  await flush()
++  t.mock.timers.tick(3600000)
++  await flush()
++  assert.strictEqual(world.downloads.length, 1)
++  assert.strictEqual(world.ctx.run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
++})
++
++test('kendi profili kaydedilirken kapak korunur, null ile kaldırılır, yeni kapak zarfa ve isteğe girer', async () => {
++  const ctx = load()
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  const ref = { u: COVER_ID, k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
++  sandbox.__entry = { id: 1, pv: 1, profile: E2EE.sealJson(keys.kid, { v: 1, u: 1, displayName: 'Burak', statusText: '', bio: '', color: 3, avatar: null, cover: ref }), avatarUploadId: null, coverUploadId: COVER_ID, publicKey: keys.mine.publicKey, identity: null }
++  run('storeProfileEntry(__entry)')
++  const posts = []
++  sandbox.__api = (method, url, body) => {
++    if (method === 'POST') posts.push({ url: url, body: body })
++    return Promise.resolve(method === 'POST' ? { status: 200, data: { ok: true, pv: 2 } } : { status: 0, data: null })
++  }
++  run('api = function (method, url, body) { return __api(method, url, body) }')
++  run('activeKid = function () { return state.meta.activeKid }')
++  run('hasActiveKey = function () { return true }')
++  // Bağlamdaki nesneler başka bir realm'den gelir, karşılaştırma için düz JSON'a çevrilir
++  const opened = (post) => JSON.parse(JSON.stringify(E2EE.openJson(post.body.profile).value))
++  // Durum metni gibi başka bir alan kaydedilince kapak aynen kalır
++  let result = await run("saveProfile({ displayName: 'Burak', statusText: 'Yeni durum', bio: '', color: 3 })")
++  assert.strictEqual(result.ok, true)
++  assert.strictEqual(posts[0].url, '/api/me/profile')
++  assert.strictEqual(posts[0].body.coverUploadId, COVER_ID)
++  assert.deepStrictEqual(opened(posts[0]).cover, ref)
++  // Yeni kapak: yüklenen başvuru zarfa ve coverUploadId alanına girer
++  const fresh = { u: 'e'.repeat(32), k: 'yeni', n: 'tek2', m: 'image/jpeg' }
++  sandbox.__fresh = fresh
++  run('uploadCover = function () { return Promise.resolve({ ok: true, ref: __fresh }) }')
++  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: {} })")
++  assert.strictEqual(result.ok, true)
++  assert.strictEqual(posts[1].body.coverUploadId, fresh.u)
++  assert.deepStrictEqual(opened(posts[1]).cover, Object.assign({}, fresh, { w: 1200, h: 400 }))
++  // Yükleme düşerse profil kaydedilmez
++  run("uploadCover = function () { return Promise.resolve({ ok: false, error: function () { return 'olmadı' } }) }")
++  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: {} })")
++  assert.strictEqual(result.ok, false)
++  assert.strictEqual(posts.length, 2)
++  // null kapağı kaldırır
++  result = await run("saveProfile({ displayName: 'Burak', statusText: '', bio: '', color: 3, coverFile: null })")
++  assert.strictEqual(result.ok, true)
++  assert.strictEqual(posts[2].body.coverUploadId, null)
++  assert.strictEqual(opened(posts[2]).cover, null)
++})
++
++test('kapak kırpması kaynağın ortasından en büyük 3:1 dikdörtgeni alır', () => {
++  const { run } = load()
++  const crop = (w, h) => JSON.parse(run('JSON.stringify(coverCrop(' + w + ', ' + h + '))'))
++  assert.deepStrictEqual(crop(3000, 2000), { sx: 0, sy: 500, sw: 3000, sh: 1000 }, 'yatay fotoğraf')
++  assert.deepStrictEqual(crop(1080, 1920), { sx: 0, sy: 780, sw: 1080, sh: 360 }, 'dikey fotoğraf')
++  assert.deepStrictEqual(crop(1000, 100), { sx: 350, sy: 0, sw: 300, sh: 100 }, 'çok geniş şerit')
++  assert.deepStrictEqual(crop(1200, 400), { sx: 0, sy: 0, sw: 1200, sh: 400 }, 'tam oran')
++  assert.deepStrictEqual(crop(1, 1), { sx: 0, sy: 0, sw: 1, sh: 1 }, 'tek piksel')
++  assert.strictEqual(run('coverCrop(0, 10)'), null)
++  assert.strictEqual(run('coverCrop(10, NaN)'), null)
++})
++
++test('kapak 1200x400 JPEG olarak kodlanır, sınır aşılırsa kalite 0.85, 0.7 ve 0.55 sırasıyla düşürülür', async () => {
++  const { run, sandbox } = load()
++  const draws = []
++  const sizes = []
++  const canvases = []
++  sandbox.document.createElement = (tag) => {
++    assert.strictEqual(tag, 'canvas')
++    const canvas = {
++      width: 0,
++      height: 0,
++      getContext: () => ({
++        fillRect () {},
++        drawImage (...args) {
++          draws.push(args.slice(1))
++        }
++      })
++    }
++    canvases.push(canvas)
++    return canvas
++  }
++  // Kaliteye göre boyutu değişen sahte JPEG
++  const bySize = { 0.85: 3000, 0.7: 1800, 0.55: 900 }
++  sandbox.canvasToBytes = (canvas, type, quality) => {
++    sizes.push([canvas.width, canvas.height, type, quality])
++    const out = new Uint8Array(bySize[quality])
++    out.set(JPEG_HEAD)
++    return Promise.resolve(out)
++  }
++  sandbox.__image = { naturalWidth: 3000, naturalHeight: 2000 }
++  const encode = async (max) => {
++    sizes.length = 0
++    const res = await run('encodeCover(__image, ' + max + ')')
++    return res
++  }
++  let res = await encode(5000)
++  assert.strictEqual(res.quality, 0.85)
++  assert.strictEqual(res.mime, 'image/jpeg')
++  assert.strictEqual(res.bytes.length, 3000)
++  assert.deepStrictEqual(sizes, [[1200, 400, 'image/jpeg', 0.85]])
++  assert.deepStrictEqual(draws[0], [0, 500, 3000, 1000, 0, 0, 1200, 400], 'ortadan 3:1 kırpılıp 1200x400 çizilir')
++  res = await encode(1000)
++  assert.strictEqual(res.quality, 0.55)
++  assert.deepStrictEqual(sizes.map((x) => x[3]), [0.85, 0.7, 0.55])
++  res = await encode(2000)
++  assert.strictEqual(res.quality, 0.7)
++  res = await encode(500)
++  assert.strictEqual(res.tooBig, true, 'en düşük kalite de sığmazsa')
++  assert.deepStrictEqual(sizes.map((x) => x[3]), [0.85, 0.7, 0.55])
++  // Tuval bellekte büyük yer tutmasın diye küçültülür
++  for (const c of canvases) assert.deepStrictEqual([c.width, c.height], [1, 1])
++  // JPEG çıkmayan tarayıcıda kapak kodlanamaz
++  sandbox.canvasToBytes = () => Promise.resolve(new Uint8Array([1, 2, 3, 4]))
++  assert.strictEqual(await run('encodeCover(__image, 5000)'), null)
++  // Sınır sunucunun profil resmi sınırından (şifreleme payı düşülerek) gelir
++  assert.strictEqual(run('coverByteLimit()'), 1024 * 1024)
++  run('state.info = { limits: { avatarMaxBytes: 2016 } }')
++  assert.strictEqual(run('coverByteLimit()'), 2000)
++})
++
