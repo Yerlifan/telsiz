@@ -7,7 +7,8 @@
 // hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar. Rıza
 // vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür. Arka
 // plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
-// parçayı izler ve gizlilik ayarı kapalıyken boşalır.
+// parçayı izler ve gizlilik ayarı kapalıyken boşalır. Kilit ekranının ve medya tuşlarının Duraklat ve Oynat
+// işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), bekletme ses odasından çıkınca kalkar.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -78,6 +79,19 @@ async function addTrack (page, videoId) {
   await page.keyboard.press('Enter')
 }
 
+// Sahte oynatıcı çalıyor (videoId parçası) veya duraklatıldı
+async function fakePaused (page, videoId, paused, label) {
+  await h.until(async () => {
+    const frame = fakeFrame(page, videoId)
+    if (!frame) return false
+    try {
+      return await frame.evaluate((p) => Boolean(window.FAKE) && window.FAKE.audio.paused === p && (p || window.FAKE.state === 1), paused)
+    } catch (err) {
+      return false
+    }
+  }, h.LONG, label)
+}
+
 // Çalan parçayı durdurur, sıradaki eklemede oturum yeniden başlar
 async function stopMusic (page) {
   await page.fill('#composer-input', '/dur')
@@ -138,6 +152,72 @@ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte s
   const a = await nthPlay(A, 'D120aaaaaaa', 2, 'A sürdürdü')
   const b = await nthPlay(B, 'D120aaaaaaa', 2, 'B sürdürdü')
   assert.ok(Math.abs(a - b) <= SYNC_MS, 'sürdürme farkı ' + (b - a) + ' ms')
+})
+
+test('kilit ekranı ve medya tuşları yalnızca bu cihazı bekletir, uyarıdan ve Oynat ile sürer, bekletme odadan çıkınca kalkar', async () => {
+  const { A, B } = W
+  const VID = 'D120aaaaaaa'
+  await fakePaused(B, VID, false, 'B çalıyor')
+  // İşleyiciler kaydedilirken yakalanır: gizlilik ayarı kapatılıp açılınca işleyiciler yeniden kaydedilir
+  await B.evaluate(() => localStorage.setItem('telsiz.djMediaSession', '0'))
+  await B.waitForFunction(() => navigator.mediaSession.metadata === null)
+  await B.evaluate(() => {
+    window.e2eMedia = {}
+    const ms = navigator.mediaSession
+    const set = ms.setActionHandler.bind(ms)
+    ms.setActionHandler = (action, fn) => {
+      window.e2eMedia[action] = fn
+      return set(action, fn)
+    }
+    localStorage.removeItem('telsiz.djMediaSession')
+  })
+  await B.waitForFunction(() => typeof window.e2eMedia.play === 'function' && typeof window.e2eMedia.pause === 'function' && navigator.mediaSession.playbackState === 'playing', null, { timeout: h.LONG })
+  const holds = (page) => page.evaluate(() => dj.engine.snapshot().player.localHold)
+  // Duraklat: yalnızca bu cihaz bekler, odanın durumu değişmez, A dinlemeye devam eder
+  await B.evaluate(() => window.e2eMedia.pause())
+  await fakePaused(B, VID, true, 'B duraklatıldı')
+  const held = await B.evaluate(() => {
+    const action = document.querySelector('#dj .dj-alert-action')
+    return {
+      holds: dj.engine.snapshot().player.localHold,
+      playing: dj.engine.snapshot().session.playing,
+      action: action.hidden ? null : action.getAttribute('data-action'),
+      label: action.textContent,
+      text: document.querySelector('#dj .dj-alert-text').textContent,
+      state: navigator.mediaSession.playbackState
+    }
+  })
+  assert.deepEqual(held, {
+    holds: ['media'],
+    playing: true,
+    action: 'media',
+    label: 'Yeniden Eşitle',
+    text: 'Müzik bu cihazda tarayıcı, işletim sistemi veya medya tuşlarıyla durduruldu. Odadaki diğer kişiler dinlemeye devam ediyor.',
+    state: 'paused'
+  })
+  await h.sleep(1500)
+  assert.equal(await A.evaluate(() => dj.engine.snapshot().session.playing), true, 'oda çalmaya devam ediyor')
+  await fakePaused(A, VID, false, 'A çalmaya devam ediyor')
+  // Uyarıdaki Yeniden Eşitle bekletmeyi kaldırır
+  await B.click('#dj .dj-alert-action')
+  await B.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
+  await fakePaused(B, VID, false, 'Yeniden Eşitle ile çalıyor')
+  // Oynat da bekletmeyi kaldırır
+  await B.evaluate(() => window.e2eMedia.pause())
+  await B.waitForFunction(() => dj.engine.snapshot().player.localHold.indexOf('media') !== -1)
+  await B.evaluate(() => window.e2eMedia.play())
+  await B.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
+  await fakePaused(B, VID, false, 'Oynat ile çalıyor')
+  // Bekletme ses odasında kalır: odadan çıkınca kalkar, yeniden katılınca müzik bu cihazda da çalar
+  await B.evaluate(() => window.e2eMedia.pause())
+  await B.waitForFunction(() => dj.engine.snapshot().player.localHold.indexOf('media') !== -1)
+  await B.evaluate(() => leaveVoice())
+  await B.waitForFunction(() => dj.voiceRoom === null && navigator.mediaSession.metadata === null, null, { timeout: h.LONG })
+  assert.deepEqual(await holds(B), [], 'odadan çıkınca bekletme yok')
+  await h.joinVoice(B, W.lobi.id)
+  await fakePaused(B, VID, false, 'yeniden katılınca çalıyor')
+  assert.deepEqual(await holds(B), [])
+  assert.equal(await B.evaluate(() => navigator.mediaSession.playbackState), 'playing')
 })
 
 test('arka plandaki sekme: oynatıcı alanı köşeye çizilir, parça A ile birlikte başlar', async () => {

@@ -214,8 +214,10 @@ function djSyncVoice () {
   }
   if (room === dj.voiceRoom) return
   dj.voiceRoom = room
-  // Küçültülmüş oynatıcı yeni odada yeniden açık başlar
+  // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
+  // da önceki odada kalır (yerel bekletme 'media')
   dj.minimized = false
+  if (typeof engine.setLocalHold === 'function') engine.setLocalHold('media', false)
   engine.setVoiceRoom(room)
   djRenderSoon()
 }
