@@ -179,6 +179,8 @@ function showDm (dmId, opts) {
   dmRefreshChrome()
   composerEnter()
   loadChannel()
+  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
+  if (typeof navOnConversation === 'function') navOnConversation(options)
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
 }
 

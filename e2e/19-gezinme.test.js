@@ -12,6 +12,10 @@
 // - Taslakta süresi dolmak üzere olan ek konuşmaya dönülünce yeniden yüklenir, sunucunun tanımadığı ek
 //   (bad_uploads) gönderimde yeniden yüklenir ve mesaj yeni ekle gider
 // - Kişi engellenince o kişiyle özel konuşmanın bekleyen taslağı ve eki silinir
+// G9, tarayıcı geçmişi (S2, public/js/38-gezinme.js):
+// - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
+// - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
+// - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -277,6 +281,133 @@ test('kişi engellenince o kişiyle özel konuşmanın taslağı ve eki silinir'
   await page.waitForFunction((id) => !isBlocked(id), W.w.P.mert.id, { timeout: h.LONG })
   await openDm(page, W.dmMert)
   assert.deepEqual(await composerView(page), { text: '', chips: [], send: false })
+})
+
+// G9 (S2): tarayıcı geçmişi. Konuşmalar arayüz düğmeleriyle açılır (kişinin eylemi), geri tuşu sırasıyla döner.
+
+// Geçmişin o anki kaydı ve adres
+function historyNow (page) {
+  return page.evaluate(() => {
+    const s = window.history.state && window.history.state.telsiz
+    return { view: s ? (s.overlay ? 'overlay:' + s.overlay : s.view) : null, id: s && s.id !== undefined ? s.id : null, d: s ? s.d : null, href: window.location.href }
+  })
+}
+
+async function setWidth (page, width, height) {
+  await page.setViewportSize({ width, height: height || (width < 760 ? 780 : 900) })
+  await page.waitForFunction((x) => document.documentElement.clientWidth === x && el.appView.getAttribute('data-layout') === layoutClass(), width)
+}
+
+// Geçmiş işlemleri bitti: kuyruk boş, beklenen popstate yok
+function navIdle (page) {
+  return page.waitForFunction(() => !navState.waiting && !navState.ops.length && !navState.scheduled)
+}
+
+// Kişinin geri tuşu
+async function goBack (page) {
+  await page.goBack({ waitUntil: 'commit' })
+  await navIdle(page)
+}
+
+test('geri tuşu: oda, oda ve özel mesaj geçişlerinden sonra sırasıyla döner, adres değişmez', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  const oyun = W.w.room('oyun-gecesi').id
+  await setWidth(page, 1440)
+  const href = (await historyNow(page)).href
+  assert.doesNotMatch(href, /#/, 'adreste # bölümü yok')
+  await openRoomRow(page, genel)
+  await openRoomRow(page, oyun)
+  await page.click('#top-dm')
+  await page.waitForFunction(() => currentViewMode() === 'dm' && !state.loading, null, { timeout: h.LONG })
+  const dmId = await page.evaluate(() => String(state.channelId))
+  await navIdle(page)
+  const top = await historyNow(page)
+  assert.deepEqual([top.view, String(top.id), top.href], ['dm', dmId, href])
+  await goBack(page)
+  await waitConversation(page, 'channel', oyun)
+  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(oyun), d: top.d - 1, href })
+  await goBack(page)
+  await waitConversation(page, 'channel', genel)
+  assert.equal((await historyNow(page)).d, top.d - 2)
+  // İleri tuşu da çalışır, yeni geçiş ileri kayıtları siler
+  await page.goForward({ waitUntil: 'commit' })
+  await waitConversation(page, 'channel', oyun)
+  await navIdle(page)
+  await openRoomRow(page, genel)
+  await navIdle(page)
+  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(genel), d: top.d, href })
+})
+
+test('telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, konuşma değişmez', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  await setWidth(page, 360)
+  await openRoom(page, genel)
+  await navIdle(page)
+  const base = await historyNow(page)
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await navIdle(page)
+  assert.equal((await historyNow(page)).view, 'overlay:sheet-stations')
+  await goBack(page)
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  assert.deepEqual(await historyNow(page), base)
+
+  await page.click('#btn-search')
+  await page.waitForSelector('#search-panel:not([hidden])')
+  await navIdle(page)
+  assert.equal((await historyNow(page)).view, 'overlay:search')
+  await goBack(page)
+  await page.waitForSelector('#search-panel', { state: 'hidden' })
+  assert.deepEqual(await historyNow(page), base)
+
+  await page.focus('#composer-input')
+  await page.keyboard.press('Control+Comma')
+  await page.waitForFunction(() => isSettingsOpen())
+  await navIdle(page)
+  assert.equal((await historyNow(page)).view, 'overlay:settings')
+  await goBack(page)
+  await page.waitForFunction(() => !isSettingsOpen())
+  assert.deepEqual(await historyNow(page), base)
+  await waitConversation(page, 'channel', genel)
+
+  // Esc ile kapanan sayfanın kaydı geri alınır: geri tuşu sayfayı değil önceki konuşmayı gösterir
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  await navIdle(page)
+  assert.deepEqual(await historyNow(page), base)
+  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte yatay taşma')
+})
+
+test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfadaki oda satırı sayfanın kaydını değiştirir', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  const foto = W.w.room('fotograflar').id
+  await setWidth(page, 768, 1024)
+  await openRoom(page, genel)
+  await navIdle(page)
+  const base = await historyNow(page)
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await navIdle(page)
+  await goBack(page)
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  assert.deepEqual(await historyNow(page), base)
+  await waitConversation(page, 'channel', genel)
+  // Sayfadan oda seçmek: sayfa kapanır, odanın kaydı sayfanın kaydının yerine yazılır
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await navIdle(page)
+  await page.click('#stations-list .room-row[data-station="text-' + foto + '"]')
+  await waitConversation(page, 'channel', foto)
+  await navIdle(page)
+  assert.deepEqual(await historyNow(page), { view: 'channel', id: String(foto), d: base.d + 1, href: base.href })
+  await goBack(page)
+  await waitConversation(page, 'channel', genel)
+  await setWidth(page, 1440)
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

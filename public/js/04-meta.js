@@ -29,6 +29,8 @@ function openApp () {
     renderChannelHeader()
     renderComposerState()
   }
+  // Geçmişin kök kaydı açık görünümle yazılır
+  if (typeof navStart === 'function') navStart()
   startPoll()
   showFragmentNotice()
   scanUnread()
@@ -1111,7 +1113,9 @@ async function scanUnread () {
 }
 
 // Oda seçimi. Özel mesaj veya Arkadaşlar görünümündeyken önce oda görünümüne dönülür. Bant yeniden çizilir,
-// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender).
+// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Geçmişe kayıt
+// 38-gezinme.js ile yazılır: fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir
+// (kaydı değiştirir).
 
 function selectChannel (id, opts) {
   const options = opts || {}
@@ -1146,5 +1150,6 @@ function selectChannel (id, opts) {
   composerEnter()
   renderComposerState()
   loadChannel()
+  if (typeof navOnConversation === 'function') navOnConversation(options)
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
 }

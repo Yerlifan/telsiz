@@ -327,6 +327,8 @@ function showHome (tab, opts) {
   renderChannels()
   renderDmList()
   renderHomeView()
+  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
+  if (leaving && typeof navOnConversation === 'function') navOnConversation(options)
   // Geniş ekranda Arkadaş ekle sekmesi yoktur, form sol sütundaki karttadır
   if (wantAdd && homeAddInline()) {
     const input = byId('friend-add-name')
