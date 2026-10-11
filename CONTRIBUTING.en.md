@@ -109,7 +109,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `09-emoji.js` | Emoji picker |
 | `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
 | `11-settings.js` | Full screen settings view |
-| `12-init.js` | Sheets, window size, PWA, event binding and startup |
+| `12-init.js` | Sheets, window size, PWA, event binding and startup (the back button entries of sheets are kept by `38-gezinme.js`) |
 | `13-profile.js` | Profiles, the profile card, the status menu |
 | `14-social.js` | Friends, blocking, the view mode |
 | `15-dm.js` | Direct messages and the safety number |
@@ -130,6 +130,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
 | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
+| `38-gezinme.js` | Moving between conversations: browser history (entries for room, direct message and Friends switches without changing the address, and for sheets, search, settings, the image viewer and the profile card, the back button), the New messages divider, the unread bar (Jump to Unread, Mark as Read), the new message pill, the Direct messages group in the Stations list, remembering the open view |
 | `41-kurtarma.js` | Recovery code interface: the Forgot My Password card on the sign in screen (new password with the code, pointing people without a code to the owner), the code card shown after setup, registration and recovery, the code dialog inside the app (Copy, Download as File, saved confirmation), the Recovery Code section in Settings > My Account, the one time reminder after signing in to an account without a code and the warning for a code that was not confirmed as saved |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.

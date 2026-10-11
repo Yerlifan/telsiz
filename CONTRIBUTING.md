@@ -109,7 +109,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `09-emoji.js` | Emoji seçici |
 | `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
-| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
+| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma (sayfaların geri tuşu kaydını `38-gezinme.js` tutar) |
 | `13-profile.js` | Profiller, profil kartı, durum menüsü |
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
@@ -130,6 +130,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
+| `38-gezinme.js` | Konuşmalarda gezinme: tarayıcı geçmişi (adres değişmeden oda, özel mesaj ve Arkadaşlar geçişleri ile sayfalar, arama, ayarlar, resim görüntüleyici ve profil kartı için kayıt, geri tuşu), Yeni mesajlar ayracı, okunmamış şeridi (Okunmamışa Git, Okundu İşaretle), yeni mesaj kapsülü, İstasyonlar listesindeki Özel mesajlar grubu, açık görünümün hatırlanması |
 | `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü, kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma ve kaydedildiği onaylanmayan kod için uyarı |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
