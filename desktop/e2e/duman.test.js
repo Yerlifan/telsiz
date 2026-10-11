@@ -1308,3 +1308,75 @@ test('yüzen pencere: tek kullanımlık adla açılır, üsttedir, izin alamaz, 
   await page.waitForLoadState('domcontentloaded')
   await waitFor(async () => (await floats()) === 0, 'floating window closed on reload')
 })
+
+// Yüzen pencere sayfa tarafıyla (public/js/39-yuzen.js): ses odasındayken uygulama penceresi simge durumuna
+// küçültülünce yüzen pencere kendiliğinden açılır, içini uygulama penceresinin betiği çizer (stil dosyaları CSP ile
+// yüklenir), pencere geri gelince kapanır. Uygulamaya Dön uygulama penceresini öne getirir ve yüzen pencereyi kapatır.
+// Duman testinde ses odasına katılınmaz: sayfanın ses durumu (snap) bir odadaymış gibi gösterilir.
+test('yüzen pencere: ses odasında simge durumuna küçültülünce açılır, içerik çizilir, geri gelince kapanır', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  await page.waitForFunction(() => typeof floatOnWindowState === 'function' && typeof snap === 'function')
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  await page.evaluate(() => {
+    window.__snapAsil = snap
+    snap = function () {
+      return Object.assign({}, window.__snapAsil(), { channelId: 'duman-oda', joining: false })
+    }
+  })
+  const minimize = () => ctx.app.evaluate(async ({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.minimize()
+    const end = Date.now() + 3000
+    while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (win.isMinimized()) return true
+    win.emit('minimize')
+    return false
+  })
+  const restore = (real) => ctx.app.evaluate(({ BrowserWindow }, value) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (value) win.restore()
+    else win.emit('restore')
+  }, real)
+  try {
+    const real = await minimize()
+    if (!real) t.diagnostic('pencere yöneticisi yok: minimize ve restore olayları ana süreçte elle üretildi')
+    await waitFor(async () => (await floats()) === 1, 'floating window opened on minimize')
+    const view = await waitFor(() => page.evaluate(() => {
+      const doc = floatState.doc
+      if (!doc || floatState.mode !== 'desktop' || floatState.reason !== 'auto') return null
+      const head = doc.querySelector('.float-head')
+      const back = doc.querySelector('.float-back')
+      if (!head || !back) return null
+      return {
+        drag: getComputedStyle(head).webkitAppRegion || getComputedStyle(head).getPropertyValue('-webkit-app-region'),
+        display: getComputedStyle(head).display,
+        back: back.textContent,
+        skin: doc.documentElement.getAttribute('data-skin'),
+        sprite: Boolean(doc.querySelector('symbol#i-close'))
+      }
+    }), 'floating window content')
+    assert.equal(view.display, 'flex', 'stil dosyaları yüklendi')
+    assert.equal(view.drag, 'drag')
+    assert.ok(view.back.length > 0)
+    assert.equal(view.skin, await page.evaluate(() => document.documentElement.getAttribute('data-skin')))
+    assert.equal(view.sprite, true)
+    const top = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').isAlwaysOnTop())
+    assert.equal(top, true)
+    await restore(real)
+    await waitFor(async () => (await floats()) === 0, 'floating window closed on restore')
+    assert.equal(await page.evaluate(() => floatIsOpen()), false)
+    // Yeniden küçültülür, bu kez Uygulamaya Dön ile dönülür
+    const again = await minimize()
+    await waitFor(async () => (await floats()) === 1, 'floating window opened again')
+    await waitFor(() => page.evaluate(() => Boolean(floatState.doc && floatState.doc.querySelector('.float-back'))), 'back button')
+    await page.evaluate(() => floatState.doc.querySelector('.float-back').click())
+    await waitFor(async () => (await floats()) === 0, 'floating window closed by Back to App')
+    const shown = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
+    assert.equal(shown, true)
+    if (!again) await restore(false)
+  } finally {
+    await page.evaluate(() => {
+      if (window.__snapAsil) snap = window.__snapAsil
+    })
+  }
+})
