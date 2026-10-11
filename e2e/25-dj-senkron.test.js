@@ -5,7 +5,9 @@
 // YouTube'a erişilmez. Sahte oynatıcının sesinin ilk başladığı an iki istemcide aynı saatle ölçülür ve en çok
 // 250 ms ayrı olmalıdır. Arka plandaki sekme benzetilir (requestAnimationFrame çalışmaz, visibilityState
 // hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar. Rıza
-// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür.
+// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür. Arka
+// plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
+// parçayı izler ve gizlilik ayarı kapalıyken boşalır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -124,7 +126,12 @@ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte s
   for (const page of [A, B]) {
     await h.until(async () => {
       const frame = fakeFrame(page, 'D120aaaaaaa')
-      return frame && (await frame.evaluate(() => window.FAKE.audio.paused))
+      if (!frame) return false
+      try {
+        return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.audio.paused)
+      } catch (err) {
+        return false
+      }
     }, h.LONG, 'duraklatıldı')
   }
   await A.click('#dj .dj-toggle')
@@ -228,9 +235,80 @@ test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında 
   await C.waitForFunction(() => localStorage.getItem('telsiz.djYoutubeConsent') === '1' && document.querySelector('#radio-tuned .radio-dj-consent').hidden, null, { timeout: h.LONG })
   await h.until(async () => {
     const frame = fakeFrame(C, 'D120bbbbbbb')
-    return frame && (await frame.evaluate(() => window.FAKE.state === 1 && !window.FAKE.audio.paused))
+    if (!frame) return false
+    try {
+      return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.state === 1 && !window.FAKE.audio.paused)
+    } catch (err) {
+      return false
+    }
   }, h.LONG, 'C dinliyor')
   await C.evaluate(() => leaveVoice())
+})
+
+test('arka planda iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranında parça adı görünür', async () => {
+  const { A } = W
+  const genel = W.w.room('genel')
+  const E = W.w.E
+  const files = []
+  for (const name of ['bir.wav', 'iki.wav']) {
+    const wav = h.makeWav(3, 8000)
+    const enc = E.encryptFile(new Uint8Array(wav))
+    const up = await W.w.call('POST', '/api/uploads', null, W.w.P.deniz.token, Buffer.from(enc.box))
+    assert.equal(up.status, 200)
+    files.push({ u: up.data.id, k: enc.key, n: enc.nonce, kind: 'file', name: name, m: 'audio/wav', s: wav.length })
+  }
+  for (const f of files) await W.w.say('deniz', genel, f.name, [f], [f.u])
+  await A.evaluate((id) => selectChannel(id, {}), genel.id)
+  await A.waitForFunction(() => document.querySelectorAll('#message-list .dj-play-file').length >= 2, null, { timeout: h.LONG })
+  const buttons = await A.$$('#message-list .dj-play-file')
+  for (const b of buttons.slice(-2)) {
+    await b.click()
+    await h.sleep(400)
+  }
+  await A.waitForFunction(() => dj.engine.queue().queue.length === 2, null, { timeout: h.LONG })
+  // Arka plandaki sekme benzetimi ve sesi başlayan blob öğelerinin kaydı
+  await A.evaluate(() => {
+    window.e2eRaf = window.requestAnimationFrame
+    window.requestAnimationFrame = () => 0
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.e2ePlayed = []
+    window.e2eTitles = []
+    const play = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function () {
+      if (String(this.src).indexOf('blob:') === 0 && window.e2ePlayed.indexOf(this) === -1) window.e2ePlayed.push(this)
+      return play.apply(this, arguments)
+    }
+    setInterval(() => {
+      const m = navigator.mediaSession.metadata
+      const title = m ? m.title : null
+      if (window.e2eTitles[window.e2eTitles.length - 1] !== title) window.e2eTitles.push(title)
+    }, 100)
+    dj.engine.skip()
+  })
+  await A.waitForFunction(() => {
+    const s = dj.engine.snapshot()
+    return s.session && s.session.current && s.session.current.title === 'iki.wav' && s.player.kind === 'file' && s.player.status === 'playing'
+  }, null, { timeout: h.LONG })
+  const r = await A.evaluate(() => ({
+    elements: window.e2ePlayed.length,
+    titles: window.e2eTitles.filter((x) => x === 'bir.wav' || x === 'iki.wav'),
+    artist: navigator.mediaSession.metadata.artist,
+    state: navigator.mediaSession.playbackState
+  }))
+  assert.deepEqual(r, { elements: 1, titles: ['bir.wav', 'iki.wav'], artist: 'Telsiz DJ · Lobi', state: 'playing' })
+  // Gizlilik ayarı kapalıyken parça adı işletim sistemine verilmez
+  await A.evaluate(() => localStorage.setItem('telsiz.djMediaSession', '0'))
+  await A.waitForFunction(() => navigator.mediaSession.metadata === null)
+  await A.evaluate(() => localStorage.removeItem('telsiz.djMediaSession'))
+  await A.waitForFunction(() => navigator.mediaSession.metadata && navigator.mediaSession.metadata.title === 'iki.wav')
+  await A.evaluate(() => {
+    delete document.visibilityState
+    delete document.hidden
+    window.requestAnimationFrame = window.e2eRaf
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
 })
 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla

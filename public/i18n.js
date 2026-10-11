@@ -35,6 +35,10 @@ window.I18N = (function () {
     'dj.dock.minimize': 'Küçült',
     'dj.dock.restore': 'Göster',
     'dj.dock.float': 'Yüzen Oynatıcı',
+    'dj.mediaSession.artist': 'Telsiz DJ · {room}',
+    'settings.privacy.mediaSessionTitle': 'Medya denetimleri',
+    'settings.privacy.mediaSession': 'Kilit ekranında parça adını göster',
+    'settings.privacy.mediaSessionHint': 'Açıkken çalan parçanın adı işletim sisteminin medya denetimlerinde ve kilit ekranında görünür. Ad uçtan uca şifreli DJ durumundan gelir ve böylece uygulamanın dışına çıkar.',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
@@ -1996,6 +2000,10 @@ window.I18N = (function () {
     'dj.dock.minimize': 'Minimize',
     'dj.dock.restore': 'Show',
     'dj.dock.float': 'Floating Player',
+    'dj.mediaSession.artist': 'Telsiz DJ · {room}',
+    'settings.privacy.mediaSessionTitle': 'Media controls',
+    'settings.privacy.mediaSession': 'Show the track name on the lock screen',
+    'settings.privacy.mediaSessionHint': 'When on, the playing track\'s name appears in your system\'s media controls and on the lock screen. The name comes from the end-to-end encrypted DJ state and so leaves the app.',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta

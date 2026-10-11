@@ -69,6 +69,9 @@ const dj = {
   layoutBusy: false,
   dockBottom: null,
   minimized: false,
+  mediaKey: null,
+  mediaPosKey: '',
+  mediaPosAt: 0,
   consentRow: null,
   consentWarnFor: null,
   titleWatch: []
@@ -637,6 +640,7 @@ function djRender () {
   djEnsureCrewItem(show)
   if (!show || !dj.ui || !s) {
     djSyncConsentWarn(null)
+    djMediaSession(null)
     return
   }
   const ui = dj.ui
@@ -740,6 +744,94 @@ function djRender () {
   ui.speakerHint.hidden = !(current && vad)
   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
   djSyncConsentWarn(s)
+  djMediaSession(s)
+}
+
+// ------------------------------------------------------------------ Media Session
+
+const DJ_MEDIA_KEY = 'telsiz.djMediaSession'
+const DJ_MEDIA_POSITION_MS = 5000
+
+// Ayarlar > Gizlilik: parça adı işletim sisteminin medya denetimlerine verilsin mi (varsayılan açık)
+function djMediaSessionOn () {
+  return djStoreGet(DJ_MEDIA_KEY) !== '0'
+}
+
+// İşletim sisteminin medya denetimleri ve kilit ekranı (navigator.mediaSession): başlık parçanın adı, sanatçı
+// alanı "Telsiz DJ · oda". Oynat ve Duraklat yalnızca bu cihazdaki yerel bekletmeyi yönetir (music.js
+// setLocalHold 'media'), odanın durumunu değiştirmez: bir kulaklık tuşu bütün odayı durdurmaz. Konum
+// setPositionState ile bildirilir. Odadan çıkınca, parça kalmayınca veya ayar kapalıyken metadata null olur ve
+// işleyiciler kaldırılır. Başka modüller aynı nesneye yalnızca kendi eylem işleyicilerini ekler, metadata'yı
+// yalnızca bu işlev yazar.
+function djMediaSession (s) {
+  const ms = navigator.mediaSession
+  if (!ms) return
+  const engine = djEngine()
+  const session = s ? s.session : null
+  const current = session ? session.current : null
+  const active = Boolean(engine && s && s.supported && s.enabled && current && dj.voiceRoom !== null && djMediaSessionOn())
+  if (!active) {
+    if (dj.mediaKey === null) return
+    dj.mediaKey = null
+    dj.mediaPosAt = 0
+    try {
+      ms.metadata = null
+      ms.playbackState = 'none'
+      ms.setActionHandler('play', null)
+      ms.setActionHandler('pause', null)
+    } catch (err) {
+      // Desteklenmeyen eylem
+    }
+    return
+  }
+  if (dj.mediaKey === null) {
+    try {
+      ms.setActionHandler('play', () => {
+        const e = djEngine()
+        if (e) e.setLocalHold('media', false)
+      })
+      ms.setActionHandler('pause', () => {
+        const e = djEngine()
+        if (e) e.setLocalHold('media', true)
+      })
+    } catch (err) {
+      // Desteklenmeyen eylem
+    }
+  }
+  const title = djTrackTitle(current)
+  const artist = t('dj.mediaSession.artist', { room: djRoomName(dj.voiceRoom) })
+  const key = current.id + '|' + title + '|' + artist
+  if (key !== dj.mediaKey) {
+    dj.mediaKey = key
+    dj.mediaPosAt = 0
+    try {
+      ms.metadata = typeof window.MediaMetadata === 'function' ? new window.MediaMetadata({ title: title, artist: artist }) : null
+    } catch (err) {
+      ms.metadata = null
+    }
+  }
+  const p = s.player || {}
+  const held = Array.isArray(p.localHold) && p.localHold.length > 0
+  const state = session.playing && !held ? 'playing' : 'paused'
+  const posKey = state + '|' + current.id
+  try {
+    if (ms.playbackState !== state) ms.playbackState = state
+  } catch (err) {
+    // Yoksa sessiz
+  }
+  // Konum: parça veya durum değişince ve birkaç saniyede bir
+  const dur = current.durationMs || 0
+  const now = Date.now()
+  if (typeof ms.setPositionState === 'function' && dur > 0 && (posKey !== dj.mediaPosKey || now - dj.mediaPosAt >= DJ_MEDIA_POSITION_MS)) {
+    dj.mediaPosKey = posKey
+    dj.mediaPosAt = now
+    const pos = Math.max(0, Math.min(dur, Number(engine.queue().positionMs) || 0))
+    try {
+      ms.setPositionState({ duration: dur / 1000, playbackRate: 1, position: pos / 1000 })
+    } catch (err) {
+      // Geçersiz konum, sonraki denetimde yeniden denenir
+    }
+  }
 }
 
 // ------------------------------------------------------------------ erken YouTube rızası

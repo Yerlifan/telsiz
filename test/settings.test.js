@@ -588,7 +588,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
+    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
@@ -951,6 +951,24 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
   assert.strictEqual(storage.getItem('telsiz.notifyLevel'), 'all')
   root.querySelector('#set-message-sound').click()
   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
+})
+
+test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
+  const { run, root, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-dj-media-session')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.ok(root.querySelector('#set-dj-media-session-hint').textContent.indexOf('kilit ekranında') !== -1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '0')
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '1')
+  storage.setItem('telsiz.djMediaSession', '0')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-dj-media-session').checked, false)
 })
 
 test('settings.css yalnızca belirteçlerle yazılır ve eski WebKit kurallarına uyar', () => {

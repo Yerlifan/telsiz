@@ -39,13 +39,15 @@ const SETTINGS_ICONS = {
 // varsayılan, 'none'), telsiz.messageSound ('0' kapalı). Ekran paylaşımı kalitesi
 // telsiz.screenQuality içinde JSON olarak ({ hint: 'motion' | 'detail', preset: '720p15' | '720p30' |
 // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
-// başka her değer veya anahtarın olmaması verilmedi) saklanır.
+// başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
+// denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
 const SETTINGS_KEYS = {
   typing: 'telsiz.typing',
   notifyLevel: 'telsiz.notifyLevel',
   messageSound: 'telsiz.messageSound',
   screenQuality: 'telsiz.screenQuality',
-  youtubeConsent: 'telsiz.djYoutubeConsent'
+  youtubeConsent: 'telsiz.djYoutubeConsent',
+  djMediaSession: 'telsiz.djMediaSession'
 }
 const NOTIFY_LEVELS = ['all', 'mentions', 'none']
 const SCREEN_HINT_CHOICES = ['motion', 'detail']
@@ -1613,6 +1615,14 @@ function buildPrivacyPage (page) {
   }, 'i-close')
   ytRow.appendChild(ytRevoke)
   ytSec.appendChild(ytMsg)
+
+  // Telsiz DJ'nin medya denetimleri (Media Session): çalan parçanın adı kilit ekranında ve işletim sisteminin
+  // medya denetimlerinde görünür. Ad uçtan uca şifreli DJ durumundan gelir, kapatılabilir.
+  const mediaSec = sSection(page, t('settings.privacy.mediaSessionTitle'), 'set-media-session-section')
+  const media = sSwitch('set-dj-media-session', t('settings.privacy.mediaSession'), storeGet(SETTINGS_KEYS.djMediaSession) !== '0', (checked) => {
+    storeSet(SETTINGS_KEYS.djMediaSession, checked ? '1' : '0')
+  }, t('settings.privacy.mediaSessionHint'))
+  mediaSec.appendChild(media.row)
 
   // Engellenen kullanıcılar
   const blockSec = sSection(page, t('settings.privacy.blockedTitle'), 'set-blocked-section')
