@@ -541,6 +541,27 @@ test('cihaz ayarı anahtarları ve varsayılanlar (yazıyor, bildirim düzeyi, m
   assert.strictEqual(run('messageSoundEnabled()'), false)
 })
 
+test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5, 10, 15, 30 veya 60', () => {
+  const { run, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdle'), 'telsiz.autoIdle')
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdleMinutes'), 'telsiz.autoIdleMinutes')
+  assert.deepStrictEqual(Array.from(run('AUTO_IDLE_MINUTES')), [5, 10, 15, 30, 60])
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  storage.setItem('telsiz.autoIdle', '0')
+  assert.strictEqual(run('autoIdleEnabled()'), false)
+  storage.setItem('telsiz.autoIdle', '1')
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  assert.strictEqual(run('autoIdleMinutes()'), 10)
+  for (const n of [5, 15, 30, 60]) {
+    storage.setItem('telsiz.autoIdleMinutes', String(n))
+    assert.strictEqual(run('autoIdleMinutes()'), n)
+  }
+  for (const bad of ['0', '7', '-5', 'on', '']) {
+    storage.setItem('telsiz.autoIdleMinutes', bad)
+    assert.strictEqual(run('autoIdleMinutes()'), 10, JSON.stringify(bad))
+  }
+})
+
 test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
   const { run, storage, audio } = load()
   assert.strictEqual(run('playMessageSound()'), true)

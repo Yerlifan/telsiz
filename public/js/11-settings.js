@@ -41,15 +41,21 @@ const SETTINGS_ICONS = {
 // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
 // başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
 // denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
+// Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
+// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır.
 const SETTINGS_KEYS = {
   typing: 'telsiz.typing',
   notifyLevel: 'telsiz.notifyLevel',
   messageSound: 'telsiz.messageSound',
   screenQuality: 'telsiz.screenQuality',
   youtubeConsent: 'telsiz.djYoutubeConsent',
-  djMediaSession: 'telsiz.djMediaSession'
+  djMediaSession: 'telsiz.djMediaSession',
+  autoIdle: 'telsiz.autoIdle',
+  autoIdleMinutes: 'telsiz.autoIdleMinutes'
 }
 const NOTIFY_LEVELS = ['all', 'mentions', 'none']
+const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
+const AUTO_IDLE_DEFAULT = 10
 const SCREEN_HINT_CHOICES = ['motion', 'detail']
 const SCREEN_PRESET_CHOICES = ['720p15', '720p30', '1080p15', '1080p30']
 const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
@@ -1550,6 +1556,16 @@ async function saveProfileDraft (d, ui) {
 
 function typingEnabled () {
   return storeGet(SETTINGS_KEYS.typing) !== '0'
+}
+
+// Otomatik boşta (40-bosta.js): varsayılan açık, süre AUTO_IDLE_MINUTES dışındaysa varsayılan 10 dakika
+function autoIdleEnabled () {
+  return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
+}
+
+function autoIdleMinutes () {
+  const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
+  return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
 }
 
 // YouTube oynatıcısı izni (music.js ile aynı anlam): '1' verildi, '0' reddedildi (yeniden sorulmaz),

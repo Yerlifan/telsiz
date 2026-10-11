@@ -25,6 +25,9 @@
 // - O frekansta masaüstü bildirimleri açıksa (Ayarlar > Bildirimler, bildirim düzeyi ve Rahatsız etmeyin
 //   kuralı) sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterir. Bildirime basınca ana
 //   süreç o frekansa geçer (telsizArkaPlan.open).
+// - Otomatik boşta (40-bosta.js): long-poll sorgusu idle=0|1 taşır, karar sistemin boşta süresine
+//   (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Değer değişince
+//   bekleyen poll bırakılıp yeni değerle hemen yeniden gönderilir (bgRestartPoll).
 // Sayılar oturuma özeldir: uygulama yeniden açılınca açılış taraması son okunandan yeniden sayar.
 
 const BG_REPORT_GAP_MS = 1000
@@ -42,6 +45,8 @@ const bgState = {
   failures: 0,
   dm: Object.create(null),
   activePoll: null,
+  // Bekleyen poll otomatik boşta değiştiği için bırakıldı (hata sayılmaz, hemen yeniden gönderilir)
+  restartPoll: false,
   reportTimer: 0,
   lastSentAt: 0,
   lastPayload: '',
@@ -283,12 +288,15 @@ async function bgPoll (gen) {
       '&mv=' + encodeURIComponent(state.metaVersion) +
       '&pmv=' + encodeURIComponent(socialPmv()) +
       '&sig=' + encodeURIComponent(state.sigSeq) +
-      '&boot=' + encodeURIComponent(state.boot)
+      '&boot=' + encodeURIComponent(state.boot) +
+      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) : '')
+    bgState.restartPoll = false
     const pending = request('GET', path, { timeout: POLL_TIMEOUT_MS })
     bgState.activePoll = pending
     const res = await pending
     if (gen !== bgState.gen) return
     bgState.activePoll = null
+    if (res.aborted && bgState.restartPoll) continue
     if (res.status === 200 && res.data) {
       failures = 0
       if (bgState.status !== 'ok' || bgState.online !== true) bgSetStatus('ok', hasActiveKey() ? null : 'no_key', true)
@@ -307,6 +315,15 @@ async function bgPoll (gen) {
     if (failures >= 2 && bgState.status !== 'offline') bgSetStatus('offline', 'unreachable', false)
     await wait(bgRetryDelay(failures))
   }
+}
+
+// Otomatik boşta değişti (40-bosta.js): bekleyen poll bırakılır, döngü yeni değerle hemen yeniden gönderir.
+// Poll beklemiyorsa (açılış taraması, yeniden deneme beklemesi) sonraki poll zaten güncel değeri taşır.
+function bgRestartPoll () {
+  const pending = bgState.activePoll
+  if (!pending || typeof pending.abort !== 'function') return
+  bgState.restartPoll = true
+  pending.abort()
 }
 
 function bgApplyPrivate (p, pmv) {
