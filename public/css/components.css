@@ -3981,6 +3981,10 @@ button.member:hover {
 .theme-swatch-kokpit > span:nth-child(2) { background-color: #ff5cd1; }
 .theme-swatch-kokpit > span:nth-child(3) { background-color: #5ce1ff; }
 .theme-swatch-kokpit > span:nth-child(4) { background-color: #e9eaec; }
+.theme-swatch-kontrast > span:nth-child(1) { background-color: #000000; }
+.theme-swatch-kontrast > span:nth-child(2) { background-color: #ffe600; }
+.theme-swatch-kontrast > span:nth-child(3) { background-color: #80dfff; }
+.theme-swatch-kontrast > span:nth-child(4) { background-color: #ffffff; }
 
 .theme-name {
   font-weight: var(--weight-strong);

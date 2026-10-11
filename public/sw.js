@@ -35,6 +35,7 @@ const SHELL = [
   '/css/skins/kutup.css',
   '/css/skins/plak.css',
   '/css/skins/kokpit.css',
+  '/css/skins/kontrast.css',
   '/i18n.js',
   '/crypto.js',
   '/emoji.js',

@@ -1,0 +1,142 @@
+/*
+  Yüksek Kontrast teması (Erişilebilirlik). En yüksek okunurluk: metin rolleri en az 7:1 (WCAG AAA,
+  test/tema.test.js), 2 piksel kenarlar, degrade, gölge, parıltı ve zemin ışığı yok. Bağlantılar altı
+  çizili, odak çerçevesi 4 piksel. Devre dışı düğmeler soluklaşmaz (saydamlık yazının kontrastını düşürür),
+  kesik kenar ve ikincil metin rengiyle ayrılır. Durum işaretleri her temada olduğu gibi biçimle de ayrılır.
+  Saklı tema tercihi yokken sistemde yüksek karşıtlık açıksa ilk açılışta bu tema seçilir (theme-init.js).
+  Her seçici :root[data-skin="kontrast"] ile başlar.
+*/
+
+/* Gönder simgesi: kâğıt uçak (işaretlemede Turkuaz'ın simgesi) */
+:root[data-skin="kontrast"] .skin-turkuaz {
+  display: inline-block;
+}
+
+/* Zemin ışığı yok */
+:root[data-skin="kontrast"] body::before {
+  background-image: none;
+}
+
+/* Gölge ve degrade yok: telsiz gövdesi, Bas konuş, Gönder, paneller */
+:root[data-skin="kontrast"] .radio,
+:root[data-skin="kontrast"] .band,
+:root[data-skin="kontrast"] .convo,
+:root[data-skin="kontrast"] .side-card,
+:root[data-skin="kontrast"] .toast,
+:root[data-skin="kontrast"] .modal-dialog {
+  box-shadow: none;
+}
+
+:root[data-skin="kontrast"] .radio,
+:root[data-skin="kontrast"] .band,
+:root[data-skin="kontrast"] .convo,
+:root[data-skin="kontrast"] .side-card {
+  border: 2px solid var(--line-strong);
+}
+
+:root[data-skin="kontrast"] .radio {
+  border-radius: var(--radius-card);
+}
+
+:root[data-skin="kontrast"] .radio .radio-ptt,
+:root[data-skin="kontrast"] .radio .radio-ptt.is-active {
+  border: 2px solid var(--text);
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-skin="kontrast"] .radio .radio-ptt.is-active {
+  outline: 4px solid var(--live);
+  outline-offset: 2px;
+}
+
+:root[data-skin="kontrast"] .radio-ptt-dome {
+  border: 2px solid var(--on-accent-fill);
+}
+
+:root[data-skin="kontrast"] .radio[data-state="on"] .radio-led {
+  box-shadow: none;
+}
+
+:root[data-skin="kontrast"] #composer .send-button {
+  border: 2px solid transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+/* Kenarlar 2 piksel: telsiz ekranı, kart düğmeleri, ayarlı istasyon */
+:root[data-skin="kontrast"] .radio .radio-screen,
+:root[data-skin="kontrast"] .radio .radio-button {
+  border-width: 2px;
+}
+
+:root[data-skin="kontrast"] .station.is-tuned {
+  border: 2px solid var(--accent);
+}
+
+/* Devre dışı düğmeler: saydamlık yerine kesik kenar ve ikincil metin */
+:root[data-skin="kontrast"] .button:disabled,
+:root[data-skin="kontrast"] .icon-button:disabled,
+:root[data-skin="kontrast"] .tool-button:disabled,
+:root[data-skin="kontrast"] #composer .send-button:disabled {
+  border: 2px dashed var(--edge);
+  background-color: transparent;
+  background-image: none;
+  color: var(--text-2);
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* Bağlantılar altı çizili (düğme biçimli bağlantılar hariç) */
+:root[data-skin="kontrast"] a:not(.button):not(.icon-button) {
+  text-decoration: underline;
+}
+
+/* Odak: 4 piksel çerçeve, hare yok */
+:root[data-skin="kontrast"] :focus,
+:root[data-skin="kontrast"] input:focus,
+:root[data-skin="kontrast"] select:focus,
+:root[data-skin="kontrast"] textarea:focus {
+  outline-width: 4px;
+}
+
+:root[data-skin="kontrast"] :focus-visible {
+  outline: 4px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Bileşik kutular: yazma alanı odakta kalın kenar */
+:root[data-skin="kontrast"] .composer-box:focus-within {
+  border-color: var(--focus);
+  box-shadow: none;
+}
+
+/* Okunmamış noktası ve anma: dolgu ve kenar */
+:root[data-skin="kontrast"] .unread-badge {
+  background-color: var(--text);
+}
+
+:root[data-skin="kontrast"] .mention {
+  border: 1px solid var(--mention-line);
+}
+
+/* Anahtarsız şifreli mesaj: kesik kenarlı kutu */
+:root[data-skin="kontrast"] .msg-notice {
+  display: inline-flex;
+  padding: 0.45rem 0.75rem;
+  border: 2px dashed var(--edge);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-1);
+  font-style: normal;
+}
+
+/* Seçili ayar kategorisi ve tema kartı: kalın kenar */
+:root[data-skin="kontrast"] .settings-cat[aria-current="page"] {
+  border: 2px solid var(--accent);
+  box-shadow: none;
+}
+
+:root[data-skin="kontrast"] .settings-theme-card.is-selected {
+  border-color: var(--accent);
+}
