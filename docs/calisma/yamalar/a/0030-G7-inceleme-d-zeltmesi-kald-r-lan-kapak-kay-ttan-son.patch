@@ -1,0 +1,134 @@
+From 363aa200efb7017f5dc79986025544cb49deb718 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:20:15 +0000
+Subject: [PATCH 30/30] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmesi=20(kald?=
+ =?UTF-8?q?=C4=B1r=C4=B1lan=20kapak=20kay=C4=B1ttan=20sonra=20yeniden=20is?=
+ =?UTF-8?q?tenmez)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Profil sayfası kapağı kaldırıp kaydettikten sonra, kendi profil kaydı
+yenilenene kadar eski kapağı indirmeye kalkıyordu. Kapak sunucuda silindiği
+için istek 404 ile düşüyor ve konsola hata yazıyordu (e2e 17-profil iki kez
+bu yüzden düştü). Bekleyen kayıt sürerken eski kapak istenmez, taslağın
+metin alanları için alınan görünüm de kapak indirmez.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/11-settings.js | 18 ++++++++++--------
+ test/settings.test.js    | 41 ++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 51 insertions(+), 8 deletions(-)
+
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index df044de..8ac844e 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -804,8 +804,9 @@ function statusDotNode (status) {
+   return dot
+ }
+ 
+-// Kendi profilimin şu anki görünümü (sunucudan çözülen profil)
+-function myProfileView () {
++// Kendi profilimin şu anki görünümü (sunucudan çözülen profil). textOnly: yalnızca metin alanları ve renk gerekiyor,
++// kapak indirilmez (Profil sayfasının taslağı kapağı draftCoverUrl ile kendisi yönetir).
++function myProfileView (textOnly) {
+   const id = state.me.id
+   const profile = safeCall(() => activeProfile(id), null)
+   return {
+@@ -815,7 +816,7 @@ function myProfileView () {
+     color: profile && profile.color !== null && profile.color !== undefined ? profile.color : defaultColorIndex(id),
+     avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null),
+     // Kendi kapağım önizlemede gösterileceği için indirilir (13-profile.js coverUrlOf)
+-    coverUrl: safeCall(() => coverUrlOf(id, true), null)
++    coverUrl: textOnly ? null : safeCall(() => coverUrlOf(id, true), null)
+   }
+ }
+ 
+@@ -1160,7 +1161,7 @@ function profileDraft () {
+   const existing = settingsUi.draft
+   if (existing && sameId(existing.userId, me.id)) return existing
+   dropProfileDraft()
+-  const view = myProfileView()
++  const view = myProfileView(true)
+   settingsUi.draft = {
+     userId: me.id,
+     base: { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color },
+@@ -1235,14 +1236,15 @@ function myCoverUploadId () {
+   return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
+ }
+ 
+-// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir.
++// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir. Kayıt
++// yenilenene kadar profil kaydında görünen eski kapak indirilmez: değiştirilen veya kaldırılan kapak sunucuda silinmiştir.
+ function draftCoverUrl (d) {
+   if (d.coverMode === 'new') return d.coverUrl
+   if (d.coverMode === 'removed') return ''
+-  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
+   const p = d.coverPending
++  const stillOld = Boolean(p) && myCoverUploadId() === p.from
++  const serverUrl = stillOld ? null : safeCall(() => coverUrlOf(state.me.id, true), null)
+   if (p) {
+-    const stillOld = myCoverUploadId() === p.from
+     const waiting = p.url && !serverUrl
+     if ((stillOld || waiting) && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
+     d.coverPending = null
+@@ -1588,7 +1590,7 @@ function buildProfilePage (page) {
+   const update = () => {
+     // Taslakta değişiklik yoksa sunucudaki profil (ör. başka cihazdan) taslağa yansır
+     if (!draftDirty(d) && !isBusy(form)) {
+-      const view = myProfileView()
++      const view = myProfileView(true)
+       d.base = { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color }
+       d.displayName = view.displayName
+       d.statusText = view.statusText
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 89c8f94..403c522 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -1366,3 +1366,44 @@ test('Profil sayfasında kapak fotoğrafı: seçilen kapak iki önizlemede gör
+   assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
+ })
+ 
++test('Profil sayfası kaldırılan kapağı kayıttan sonra, sunucu kaydı yenilenene kadar yeniden indirmeye kalkmaz', async () => {
++  const { run, root, sandbox } = load({ role: 'member' })
++  const settle = async (rounds = 6) => {
++    if (rounds === 0) return
++    await new Promise((resolve) => setImmediate(resolve))
++    return settle(rounds - 1)
++  }
++  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
++  // Sunucudaki kendi kaydımda kapak var. coverUrlOf indirme isteğini (load) kaydeder.
++  sandbox.__cover = 'c'.repeat(32)
++  sandbox.__loads = []
++  run('hasActiveKey = function () { return true }')
++  run("profileRecord = function (id) { return sameId(id, state.me.id) && __cover ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: { u: __cover } } } : null }")
++  run("coverUrlOf = function (id, load) { __loads.push(Boolean(load)); return __cover ? 'blob:sunucu-kapak' : null }")
++  run("openSettings('profile', null)")
++  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:sunucu-kapak')
++  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
++  root.querySelector('#set-cover-remove').click()
++  assert.strictEqual(coverImg('set-cover-preview'), null)
++  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak kaydedince kaldırılır.')
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
++  sandbox.__saved = []
++  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
++  sandbox.__loads.length = 0
++  root.querySelector('#set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved.length, 1)
++  assert.strictEqual(sandbox.__saved[0].coverFile, null)
++  // Kayıt yenilenene kadar eski kapak (sunucuda silindi) istenmez ve gösterilmez
++  run('updateSettingsPage()')
++  assert.deepStrictEqual(sandbox.__loads.filter(Boolean), [], 'silinen kapak indirilmez')
++  assert.strictEqual(coverImg('set-cover-preview'), null)
++  assert.strictEqual(coverImg('set-profile-card'), null)
++  // Sunucu kaydı kapaksız gelince bekleme biter
++  sandbox.__cover = null
++  run('updateSettingsPage()')
++  assert.strictEqual(coverImg('set-cover-preview'), null)
++  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
++  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
++})
++
