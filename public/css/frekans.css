@@ -1314,31 +1314,34 @@
   /* Telsiz DJ kartı açıkken İstasyonlar listesi sağ sütunun üstünde kalır, kart altına yerleşir (frekans bandı
      frekansları dizdiği için odalara buradan ulaşılır). Kart en çok içeriği kadar yer alır, liste en az 12rem
      kalır, kart sığmazsa kendi içinde kayar. Kart taşınmaz (YouTube çerçevesi yeniden yüklenmesin), yalnızca
-     ızgarada yeri değişir. */
+     yeri değişir. Düzen flexbox ile kurulur: sahne sütun yönlü ve satır kaydırmalıdır, sol sütun ve konuşma
+     sütunu tam yükseklikte birer flex çizgisi olur, üçüncü çizgide İstasyonlar listesi üstte (order), DJ kartı
+     altta durur. Kartın en büyük yüksekliği listeye 12rem bırakır, böylece kart dördüncü bir çizgiye kaymaz. */
   .app-view[data-dj-col="on"] .stage {
-    display: grid;
     /* Sağ sütun, YouTube oynatıcısı yazı boyutundan bağımsız en az 200 piksel kalacak kadar geniştir */
-    grid-template-columns: auto minmax(0, 1fr) max(var(--side-right-w), 15rem, calc(204px + 2rem));
-    grid-template-rows: minmax(12rem, 1fr) minmax(0, auto);
-    gap: 1rem;
+    --dj-col-w: max(var(--side-right-w), 15rem, calc(204px + 2rem));
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-content: flex-start;
   }
 
   .app-view[data-dj-col="on"] .side-left {
-    grid-column: 1;
-    grid-row: 1 / 3;
-    margin-right: 0;
+    flex: 0 0 100%;
+    margin-right: 1rem;
   }
 
   .app-view[data-dj-col="on"] .center {
-    grid-column: 2;
-    grid-row: 1 / 3;
+    flex: 0 0 100%;
+    width: calc(100% - var(--side-left-w) - var(--dj-col-w) - 2rem);
+    margin-right: 1rem;
   }
 
   .app-view[data-dj-col="on"] .side-dj {
-    grid-column: 3;
-    grid-row: 2;
-    width: auto;
-    margin: 0;
+    order: 2;
+    flex: 0 1 auto;
+    width: var(--dj-col-w);
+    max-height: calc(100% - 13rem);
+    margin: 1rem 0 0;
   }
 
   .app-view[data-dj-col="on"] .side-dj .dj-card {
@@ -1346,9 +1349,10 @@
   }
 
   .app-view[data-dj-col="on"] .side-right {
-    grid-column: 3;
-    grid-row: 1;
-    width: auto;
+    order: 1;
+    flex: 1 1 0;
+    width: var(--dj-col-w);
+    min-height: 12rem;
     margin: 0;
   }
 

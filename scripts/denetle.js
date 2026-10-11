@@ -123,13 +123,7 @@ const CSS_BANNED = [
 // Kaldırılması planlanmış bilinen ihlaller. Her kayıt bir dosyadaki tek bir kural bloğunu seçicisiyle kapsar.
 // Kayıt artık hiçbir ihlali kapsamıyorsa veya dosyası bulunamıyorsa (silinmiş, yeniden adlandırılmış) denetleyici
 // bunu da bildirir, böylece istisna listede unutulmaz.
-const CSS_EXCEPTIONS = [
-  {
-    file: 'public/css/frekans.css',
-    selector: '.app-view[data-dj-col="on"] .stage',
-    note: 'G3 kaldırır: Telsiz DJ sütunu açıkken sahnenin ızgara düzeni flexbox ile yeniden yazılacak'
-  }
-]
+const CSS_EXCEPTIONS = []
 
 // Türkçe ve İngilizce eş belgeler. Biri varsa diğeri de bulunur ve "## " başlık sayıları eşittir.
 const DOC_PAIRS = [
