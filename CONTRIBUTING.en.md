@@ -91,7 +91,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 and the RNNoise wasm build (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), never modified |
 | `desktop/` | Electron desktop app |
 | `deploy/` | Docker Compose, Caddy, nginx and systemd examples |
-| `scripts/` | Checker, test runner, single file build, release notes |
+| `scripts/` | Checker, test runner, single file build, release notes, theme contrast meter (`kontrast.js`) |
 | `test/`, `e2e/` | Unit and server tests, end-to-end tests |
 
 The client modules are numbered files under `public/js/` and are loaded in this order in `index.html`. They all share the same global scope, and a later module can use the functions of earlier ones.

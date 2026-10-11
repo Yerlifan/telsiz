@@ -91,7 +91,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 ve RNNoise wasm derlemesi (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), değiştirilmez |
 | `desktop/` | Electron masaüstü uygulaması |
 | `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
-| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
+| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları, tema kontrast ölçeri (`kontrast.js`) |
 | `test/`, `e2e/` | Birim ve sunucu testleri, uçtan uca testler |
 
 İstemci modülleri `public/js/` altında numaralı dosyalardır ve `index.html` içinde bu sırayla yüklenir. Hepsi aynı genel kapsamı paylaşır, sonraki modül öncekilerin işlevlerini kullanabilir.

@@ -2,7 +2,7 @@
 
 [Türkçe](TASARIM.md) | [English](DESIGN.md)
 
-The Telsiz interface is built on a single HTML structure, a layout called Frequency and three visual themes. The layout arranges the app like a radio dial: the frequencies you have joined (each a Telsiz server) sit as stations on a horizontal frequency band, the text and voice rooms of the open frequency are in the Stations list on the right, a single conversation column stands in the middle, and when you join a voice room a radio card that looks like a handheld radio opens. Themes change only CSS tokens and theme specific ornaments, and the markup never changes between themes. The default theme is Arcade, and on first start the mode follows the system preference (dark if unknown). This document describes the files, the layout, the breakpoints, the tokens, the themes, the components, the contrast measurements and the steps to add a new theme.
+The Telsiz interface is built on a single HTML structure, a layout called Frequency and ten visual themes. The layout arranges the app like a radio dial: the frequencies you have joined (each a Telsiz server) sit as stations on a horizontal frequency band, the text and voice rooms of the open frequency are in the Stations list on the right, a single conversation column stands in the middle, and when you join a voice room a radio card that looks like a handheld radio opens. Themes change only CSS tokens and theme specific ornaments, and the markup never changes between themes. The default theme is Arcade, and on first start the mode follows the system preference (dark if unknown). This document describes the files, the layout, the breakpoints, the tokens, the themes, the components, the contrast measurements and the steps to add a new theme.
 
 ## Files and load order
 
@@ -20,10 +20,10 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
 | `public/css/people.css` | The sign in card, the Online sheet and strip, the direct message list and personal cards, the direct message header, the Friends station. |
 | `public/css/cast.css` | Screen sharing: the live chip, share notice, broadcast stage, camera grid, collapsed chat strip, share start dialog. |
 | `public/css/dj.css` | The Telsiz DJ card, the docked player, the Telsiz DJ button in the tools row of the radio card, the "Play in DJ" button in messages. |
-| `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Theme specific styles. |
+| `public/css/skins/*.css` | Theme specific styles, one file per theme: `arcade`, `gece`, `turkuaz`, `saha`, `lamba`, `fosfor`, `kutup`, `plak`, `kokpit`, `kontrast`. |
 | `public/fonts/` | Local woff2 fonts and OFL license texts. |
 
-`index.html` links the stylesheets in this order: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, then the three theme files. Every rule in a theme file starts with `:root[data-skin="..."]`, so only the rules of the active theme apply. Loading all three files together makes theme switching instant without a page reload.
+`index.html` links the stylesheets in this order: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, arama, tanitim, then the theme files (in the order of the `theme-init.js` list). Every rule in a theme file starts with `:root[data-skin="..."]`, so only the rules of the active theme apply. Loading all theme files together makes theme switching instant without a page reload.
 
 ## Theme interface
 
@@ -33,10 +33,13 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
 | --- | --- |
 | `TelsizTheme.get()` | Returns the current preferences: theme (`skin`), chosen mode (`scheme`: `dark`, `light`, `system`), applied mode (`resolvedScheme`), font size, compact view and reduced motion. |
 | `TelsizTheme.set(partial)` | Validates the given fields, stores them on the device, updates the root attributes and calls the listeners. |
-| `TelsizTheme.skins` | `['arcade', 'gece', 'turkuaz']` |
+| `TelsizTheme.skins` | `['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup', 'plak', 'kokpit', 'kontrast']`. The single source of the theme list, the cards in Settings > Appearance are drawn from it. |
+| `TelsizTheme.contrastSkin` | `'kontrast'`: the accessibility theme. It is listed in its own group in Settings > Appearance and chosen on first start when the system asks for high contrast. |
 | `TelsizTheme.onChange(fn)` | Adds a change listener and returns a function that removes it. If "System" is selected, it is also called when the system mode changes. |
 
-Root element (`<html>`) attributes: `data-skin` (`arcade`, `gece`, `turkuaz`), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` and `data-reduce-motion` (`true`, `false`). The keys on the device are `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact` and `telsiz.reduceMotion`. If storage is unavailable, the choice lasts only for that session.
+Root element (`<html>`) attributes: `data-skin` (one of the ids in the theme list), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` and `data-reduce-motion` (`true`, `false`). The keys on the device are `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact` and `telsiz.reduceMotion`. If storage is unavailable, the choice lasts only for that session.
+
+If there is no stored (valid) theme preference on the device and the system asks for high contrast (`prefers-contrast: more`, or forced colors such as Windows High Contrast, `forced-colors: active`), the page opens with the High Contrast theme, otherwise with Arcade. This choice is not stored: until the person picks a theme in Settings, the system setting is checked on every start, and a chosen theme is stored and takes precedence over the system setting. Older browsers that do not know these media queries keep the default Arcade.
 
 `12-init.js` updates the `theme-color` meta tag to the `--theme-color` token of the active theme and the `color-scheme` meta tag to the applied mode every time the theme changes. The default font size is `normal` (15 pixels). With the `auto` font size, the root font size is 15 pixels, 18 pixels at 1280 pixels wide and up, and 22 pixels at 1800 pixels and up. `small` is 14, `normal` 15, `large` 18 and `tv` 22 pixels. With `custom`, the size is set by hand with the slider in Settings > Appearance between 12 and 28 pixels, and `theme-init.js` writes the value to the `--font-px` variable of the root element. All measurements use `rem`, so the interface grows with the font size.
 
@@ -72,7 +75,7 @@ Two more limits do not depend on the layout class. At 1439 pixels and below the 
 
 ## Design tokens
 
-Components never write color values and use only semantic tokens. Every theme and mode defines all color tokens. The tokens of the Frequency layout refer only to theme tokens, so they get the right color in all three themes and both modes automatically.
+Components never write color values and use only semantic tokens. Every theme and mode defines all color tokens. The tokens of the Frequency layout refer only to theme tokens, so they get the right color in every theme and both modes automatically.
 
 Scales and layout (theme independent):
 
@@ -136,19 +139,27 @@ Text, accent and status:
 | `--live`, `--live-bg`, `--live-edge`, `--speaking-bg`, `--halo-1`, `--halo-2` | Connected voice, the border of a live component (3:1), speaking person and the speaking halo |
 | `--danger`, `--danger-bg`, `--danger-edge`, `--danger-fill`, `--on-danger` | Danger text, background, border (3:1) and fill |
 | `--warn`, `--warn-bg`, `--warn-line` | Warning text, background and border |
+| `--role-red` to `--role-pink` | Eight custom role colors (the text of a role badge, Settings > Roles). The shared dark and light tones give at least 4.5:1 on every surface, and a theme whose surfaces do not suit them (Phosphor light, High Contrast) overrides the eight colors in its own block. |
+| `--tone-camera`, `--tone-mic`, `--tone-deafen`, `--tone-screen` | The icon and border color of the Camera, Microphone, Deafen and Screen buttons on the radio card (`radio.css` `tone-*`). They default to the blue, green, purple and orange role colors, and a theme can also override only the tones. |
 | `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
 | `--theme-color` | Browser bar color |
 
-Shape and type (they change per theme):
+Shape and type (they change per theme, the corners are `--radius-panel`, `--radius-card` and `--radius-control` in this order):
 
-| Token | Arcade | Night Frequency (Gece) | Turquoise and Copper (Turkuaz) |
-| --- | --- | --- | --- |
-| `--font-body` | Rubik | Manrope | Figtree |
-| `--font-display` | Unbounded 700 | Manrope 800 | Young Serif 400 |
-| `--font-label` | Unbounded | Martian Mono | Young Serif |
-| `--radius-panel` | 24px (floating panels) | 0 (flat panels) | 0 (flat panels) |
-| `--radius-card`, `--radius-control` | 18px, 14px | 14px, 12px | 1.125rem, 0.75rem |
-| `--layout-pad`, `--column-gap` | 1rem, 0.875rem | 0, 0 | 0, 0 |
+| Theme | Body (`--font-body`) | Display (`--font-display`) | Label (`--font-label`) | Corners | Border (`--border-width`) |
+| --- | --- | --- | --- | --- | --- |
+| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (floating panels), 18px, 14px | 1px |
+| Night Frequency (Gece) | Manrope | Manrope 800 | Martian Mono | 0 (flat panels), 14px, 12px | 1px |
+| Turquoise and Copper (Turkuaz) | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px |
+| Field Radio (Saha) | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px |
+| Tube Radio (Lamba) | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px |
+| Phosphor (Fosfor) | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px |
+| Polar Station (Kutup) | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px |
+| Vinyl (Plak) | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px |
+| Cockpit (Kokpit) | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px |
+| High Contrast (Kontrast) | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px |
+
+The new themes bring no new fonts, they use other combinations of the existing six families (Rubik, Unbounded, Manrope, Martian Mono, Figtree, Young Serif). Martian Mono is bundled only in weight 500.
 
 ## Themes
 
@@ -158,11 +169,25 @@ Shape and type (they change per theme):
 
 **Turquoise and Copper (Turkuaz ve Bakır).** The tradition of tiles and geometric patterns. Turquoise means "place and trust", copper means "attention and sound directed at you". A frieze of diamond chains under headings, arch shaped emblem and cards, diamond patterned status fills, a breathing green halo on the speaking person, an asymmetric copper Push to talk button, and a copper sealed card for encrypted messages. Patterns sit only on edges and empty areas, and text always sits on a plain background. Text with digits uses Figtree, because the digits of Young Serif are old style.
 
-The speaking indicator looks different in each theme but is always triggered by the same state class (`.is-speaking`). With reduced motion on, the halo, pulse, equalizer and typing dots stay still, and no information is lost. Theme specific ornament icons sit in the markup with the `.skin-arcade`, `.skin-gece` and `.skin-turkuaz` classes and are visible only in their own theme, for example the icon of the Send button.
+**Field Radio (Saha Telsizi).** A military field radio. An olive green body, an orange signal, monospaced stencil labels and times. Dashed tape separators, square LEDs, a matte rubber Push to talk button with a fine texture and a square cornered radio body. Rooms show a channel frequency in the Stations list and on the band.
+
+**Tube Radio (Lambalı Radyo).** A 1950s tube radio. A walnut case, an ivory dial and brass lettering. In dark mode a fine walnut grain on the radio body, a dial glass sheen on the band and the radio screen, a Push to talk dome like a knurled knob and a tuning lamp that glows "magic eye" green while connected.
+
+**Phosphor (Fosfor).** A scanner radio and a cathode ray screen. Green phosphor, and amber phosphor for things directed at you (mentions, attention). Scan lines sit only on the band, the radio screen and the top bar, and in dark mode the tuned station and the room name glow slightly. The light mode is an LCD screen, with fine cells on the band and the radio screen. Rooms show their frequency, and corners are almost sharp.
+
+**Polar Station (Kutup İstasyonu).** A polar research station. Glacier blue and ice white, with parka orange as the attention color. A thin map grid on the background, and frosted glass on the band, the conversation column and the column cards (only when `backdrop-filter` is supported, the `--surface-1-glass` token of this theme is semi transparent, and panels are opaque on phones). An orange stripe on top of the radio body. Designed light mode first.
+
+**Vinyl (Plak).** A late night vinyl show. An aubergine background, a rose record label and gold leaf section labels. Fine record grooves on the Push to talk dome and in the corner of the Telsiz DJ card, a pill shaped Push to talk button and rounded panels.
+
+**Cockpit (Kokpit).** A glass cockpit. A graphite body, a magenta active route (the needle), cyan selection and amber caution. Bezel screws on the corners of the radio body and the band, radio card buttons like the soft keys of a multi function display, and times in monospaced gauge lettering.
+
+**High Contrast (Yüksek Kontrast, accessibility).** For maximum legibility. Text roles reach at least 7:1 (WCAG AAA), borders are 2 pixels, and there are no gradients, shadows, glows or background light. Links are underlined and the focus ring is 4 pixels. Disabled buttons do not fade (transparency lowers the contrast of their text), they are set apart with a dashed border and the secondary text color, Send in an empty composer included. It sits in the Accessibility group of Settings > Appearance and is chosen on first start when the system asks for high contrast.
+
+The speaking indicator looks different in each theme but is always triggered by the same state class (`.is-speaking`). With reduced motion on, the halo, pulse, equalizer and typing dots stay still, and no information is lost. Theme specific ornament icons sit in the markup with the `.skin-arcade`, `.skin-gece` and `.skin-turkuaz` classes and are visible only in their own theme, for example the icon of the Send button. The new themes show one of these three icons in their own ornament file (Field Radio, Phosphor and Cockpit the up arrow, Tube Radio, Polar Station and High Contrast the paper plane, Vinyl the play triangle), so the Send button keeps an icon in every theme when its label is hidden on phones.
 
 ## Avatar and status shape
 
-All avatars are soft squares in all three themes, never circles: in the message flow, the crew of the radio card, the Online strip and sheet, the profile card, the avatar menu, friends, direct messages, suggestion lists and search results. The corner radius is set by `--avatar-radius: 28%`. Because the value is a percentage, the ratio is the same for a small stack avatar and a large profile avatar.
+All avatars are soft squares in every theme, never circles: in the message flow, the crew of the radio card, the Online strip and sheet, the profile card, the avatar menu, friends, direct messages, suggestion lists and search results. The corner radius is set by `--avatar-radius: 28%`. Because the value is a percentage, the ratio is the same for a small stack avatar and a large profile avatar.
 
 Status dots and corner markers (muted, deafened, sharing the screen) are soft squares of the same family (`--dot-radius: 32%`), sit on the bottom right corner of the avatar and are separated by a border in the background color. The speaking halo is drawn with `box-shadow`, so it follows the outside of the square frame. Telsiz DJ is not a real user: its avatar is a note icon with a dashed border and it carries a "bot" tag. The camera tile is the avatar itself and keeps the same soft-square shape, and the Enlarge item in the crew is an icon with a dashed border like Telsiz DJ. The circles that remain are not avatars: the needle knob, the pulse dot, the LED, the Push to talk dome and radio selection dots.
 
@@ -200,7 +225,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
 | Sign in card | `.auth-card`, `.auth-dial`, `.auth-needle` | A card shaped like a radio body. |
 | Screen sharing and camera grid | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open, `#cast[data-mode="cams"]` for the grid. |
 | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | The YouTube player area (`.dj-yt`) is always at least 200x200 CSS pixels regardless of font size, and nothing is drawn on top of it. While the card is hidden or covered, the player is docked in a corner with the `.dj-dock` bar below it. |
-| Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | The selected category is marked with a left line in the needle color. |
+| Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-cards`, `.settings-theme-group`, `.settings-theme-list`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | The selected category is marked with a left line in the needle color. The theme cards form a single radio group in two groups titled Radio Themes and Accessibility. The preview strip is 2rem and the description is visible only on the selected card (on the other cards it is read through `aria-describedby`). |
 | Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. |
 
 ## State classes and JavaScript contract
@@ -215,48 +240,43 @@ All modules use the same state names: `.is-speaking`, `.is-unread`, `.is-mention
 
 The focus ring is part of the design: a 3 pixel `--focus` line with a semi transparent halo around it, thicker at TV width. In older browsers without `:focus-visible`, the same ring comes with `:focus`. All buttons and fields are at least 2.75rem tall (44 pixels at a 16 pixel root). States are distinguished not only by color but also by shape and text, and the accessible names of stations and crew items include the unread count and the connection and speaking state. The reduced motion option stops transitions and loops and can follow the system `prefers-reduced-motion` setting.
 
-The table below shows the lowest contrast ratio for each role in each theme and mode. The ratios were computed from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula (text 4.5:1, user interface component 3:1). Semi transparent surfaces were measured blended with the background beneath them, and the Arcade glass panel was measured both on the plain background and on the brightest glow point. The filled button text (`--on-accent-fill`) was measured on both stops of the gradient (`--accent-fill-a` and `--accent-fill-b`). The live and danger borders were measured on every surface (hover and selected backgrounds included) and on their own semi transparent background, and `test/tema.test.js` checks that both tokens are defined in every theme and meet 3:1. All values in the table meet the threshold.
+In forced colors mode (such as Windows High Contrast) the browser replaces colors with system colors and removes shadows. In this mode selected and tuned items (the tuned station and room, the selected settings category and theme card) get a border in the system highlight color, the focus ring grows to 4 pixels, and the status dot, the radio lamp, the unread dot and the theme preview keep their own colors (`base.css`, `@media (forced-colors: active)`).
 
-| Role | Threshold | Arcade dark | Arcade light | Night Frequency dark | Night Frequency light | Turquoise and Copper dark | Turquoise and Copper light |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Main text | 4.5:1 | 12.92 | 15.23 | 13.16 | 12.60 | 10.08 | 11.27 |
-| Secondary text | 4.5:1 | 7.90 | 8.02 | 7.35 | 6.09 | 6.61 | 6.53 |
-| Muted text (time, label, placeholder) | 4.5:1 | 5.57 | 5.76 | 5.50 | 4.83 | 4.85 | 4.81 |
-| Accent text | 4.5:1 | 5.68 | 5.78 | 8.65 | 4.95 | 6.67 | 4.66 |
-| Second accent text | 4.5:1 | 9.06 | 4.86 | 9.36 | 5.03 | 5.33 | 4.97 |
-| Link | 4.5:1 | 10.40 | 5.78 | 9.56 | 5.48 | 7.95 | 5.20 |
-| Live (connected, speaking) | 4.5:1 | 7.89 | 5.36 | 9.82 | 5.56 | 7.26 | 4.91 |
-| Danger text | 4.5:1 | 5.09 | 5.00 | 6.64 | 5.02 | 4.71 | 4.72 |
-| Warning text | 4.5:1 | 7.91 | 5.63 | 9.33 | 5.35 | 8.57 | 5.31 |
-| Mention text | 4.5:1 | 8.14 | 7.58 | 9.33 | 5.35 | 6.60 | 5.64 |
-| Text on accent fill | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 7.11 | 5.41 |
-| Filled button text | 4.5:1 | 5.25 | 4.82 | 10.47 | 5.01 | 7.11 | 5.41 |
-| Text on second gradient stop (Arcade only) | 4.5:1 | 10.48 | 10.48 | n/a | n/a | n/a | n/a |
-| Attention badge text | 4.5:1 | 5.25 | 5.25 | 10.47 | 9.21 | 6.65 | 4.82 |
-| Text on danger fill | 4.5:1 | 8.37 | 6.67 | 8.49 | 6.66 | 7.06 | 6.53 |
-| Input and card border | 3:1 | 3.26 | 4.08 | 3.36 | 3.23 | 3.59 | 3.45 |
-| Live border | 3:1 | 3.24 | 3.23 | 3.07 | 3.48 | 3.22 | 3.23 |
-| Danger border | 3:1 | 3.22 | 3.21 | 3.39 | 3.53 | 3.20 | 3.21 |
-| Focus ring | 3:1 | 10.63 | 6.37 | 15.65 | 12.60 | 9.24 | 6.95 |
-| Status: online | 3:1 | 9.47 | 6.21 | 10.35 | 3.41 | 7.83 | 5.65 |
-| Status: idle | 3:1 | 9.50 | 4.60 | 9.56 | 3.32 | 8.58 | 5.03 |
-| Status: do not disturb | 3:1 | 5.96 | 4.87 | 6.05 | 4.28 | 5.62 | 5.27 |
-| Status: offline | 3:1 | 5.18 | 4.46 | 4.85 | 3.88 | 4.73 | 3.59 |
-| Fill (send, switch, meter) | 3:1 | 4.56 | 4.88 | 9.89 | 3.92 | 6.63 | 4.36 |
-| Fill second stop | 3:1 | 9.10 | 4.28 | 9.89 | 3.92 | 6.63 | 4.36 |
-| Avatar initial (8 colors) | 4.5:1 | 8.64 | 8.64 | 7.26 | 6.62 | 5.49 | 5.49 |
-| Offline avatar initial | 4.5:1 | 7.49 | 10.02 | 7.66 | 6.27 | 5.98 | 5.10 |
+The table below shows, for each theme and mode, the contrast ratio of the main roles and of the lowest text and component role. The ratios are computed by `scripts/kontrast.js` from the tokens in `public/css/tokens.css` with the WCAG 2.x relative luminance formula, and `node scripts/kontrast.js --en` prints this table (without `--en`, the Turkish one). Every role is measured on all nine surfaces (the background, `--surface-1`, `--surface-2`, `--surface-3`, `--surface-alt`, `--surface-sunken`, hover, selected and floating surface), and semi transparent backgrounds are blended with the surface beneath them. The text roles are main, secondary and muted text, accent and second accent text, link, live (also on its own semi transparent backgrounds), danger and warning text (also on their own backgrounds), mention text, text on fills (accent, both stops of the filled button gradient, attention badge, danger fill), avatar initials and the eight custom role colors. The component roles are the input and card border, the focus ring, the four status markers, both stops of the fill, the live and danger borders (also on their own semi transparent backgrounds) and the radio card button tones. The thresholds are 4.5:1 for text, 7:1 in the High Contrast theme, and 3:1 for user interface components. `test/tema.test.js` checks that every role meets its threshold in every theme and mode. All values in the table meet the threshold.
+
+| Theme and mode | Primary text | Secondary text | Muted text | Role colors | Lowest text role | Lowest component |
+| --- | --- | --- | --- | --- | --- | --- |
+| Arcade dark | 13.00 | 7.89 | 5.57 | 6.20 | 5.20 (Danger text) | 3.01 (Input and card border) |
+| Arcade light | 15.22 | 8.01 | 5.76 | 5.54 | 4.55 (Live) | 3.21 (Danger border) |
+| Night Frequency dark | 13.16 | 7.34 | 5.49 | 6.46 | 5.49 (Muted text) | 3.04 (Input and card border) |
+| Night Frequency light | 12.60 | 6.08 | 4.82 | 4.82 | 4.80 (Accent text) | 3.02 (Input and card border) |
+| Turquoise and Copper dark | 10.07 | 6.61 | 4.84 | 4.86 | 4.55 (Danger text) | 3.05 (Input and card border) |
+| Turquoise and Copper light | 11.29 | 6.53 | 4.80 | 4.76 | 4.51 (Warning text) | 3.09 (Input and card border) |
+| Field Radio dark | 11.48 | 7.73 | 5.85 | 5.63 | 5.63 (Role colors) | 3.16 (Danger border) |
+| Field Radio light | 11.81 | 6.76 | 5.42 | 4.60 | 4.60 (Role colors) | 3.31 (Live border) |
+| Tube Radio dark | 11.66 | 8.21 | 5.96 | 5.81 | 5.81 (Role colors) | 3.33 (Danger border) |
+| Tube Radio light | 12.71 | 7.54 | 6.26 | 4.80 | 4.80 (Role colors) | 3.07 (Live border) |
+| Phosphor dark | 11.93 | 8.84 | 6.48 | 6.02 | 6.02 (Role colors) | 3.18 (Danger border) |
+| Phosphor light | 10.16 | 7.05 | 5.91 | 4.81 | 4.81 (Role colors) | 3.57 (Live border) |
+| Polar Station dark | 11.87 | 7.80 | 5.72 | 5.70 | 5.60 (Mention text) | 3.19 (Danger border) |
+| Polar Station light | 14.44 | 7.17 | 5.67 | 5.22 | 5.01 (Live) | 3.39 (Live border) |
+| Vinyl dark | 12.49 | 8.63 | 6.48 | 6.19 | 5.90 (Avatar initial) | 3.54 (Danger border) |
+| Vinyl light | 14.00 | 8.36 | 6.80 | 5.03 | 4.83 (Live) | 3.27 (Live border) |
+| Cockpit dark | 13.44 | 8.69 | 6.23 | 6.30 | 6.23 (Muted text) | 3.32 (Danger border) |
+| Cockpit light | 14.79 | 8.06 | 6.18 | 5.08 | 4.87 (Live) | 3.30 (Live border) |
+| High Contrast dark | 15.13 | 12.81 | 10.20 | 7.94 | 7.45 (Danger text) | 5.99 (Status: do not disturb) |
+| High Contrast light | 16.82 | 13.94 | 10.88 | 7.61 | 7.14 (Danger text) | 5.38 (Status: online) |
 
 ## Adding a new theme
 
-1. Choose a name for the theme (lowercase, for example `kumsal`) and add it to the `SKINS` list in `public/theme-init.js`.
-2. Add a `:root[data-skin="kumsal"]` block (fonts, radii, `--layout-pad`, `--column-gap`) and the `:root[data-skin="kumsal"][data-scheme="dark"]` and `:root[data-skin="kumsal"][data-scheme="light"]` blocks to `public/css/tokens.css`. Define all color names from the "Design tokens" section, including `--on-accent-fill`. A missing token falls back to the Arcade dark value. Do not change the Frequency tokens or `--avatar-radius`.
-3. Create `public/css/skins/kumsal.css` for theme specific styles. Every selector must start with `:root[data-skin="kumsal"]`, and the markup is not changed. Draw the speaking indicator through `.is-speaking` and status markers through `data-status`, and keep the avatar shape.
+1. Choose a name for the theme (lowercase, for example `kumsal`) and add it to the `SKINS` list in `public/theme-init.js`. The cards in Settings > Appearance are drawn from this list, no other list is kept.
+2. Add a `:root[data-skin="kumsal"]` block (fonts, radii, `--layout-pad`, `--column-gap`) and the `:root[data-skin="kumsal"][data-scheme="dark"]` and `:root[data-skin="kumsal"][data-scheme="light"]` blocks to `public/css/tokens.css`. Define all color names from the "Design tokens" section, including `--on-accent-fill`. A missing token falls back to the Arcade dark value. A theme whose surfaces do not suit the shared role colors overrides the `--role-*` tokens, and the `--tone-*` tokens if needed, in its own block. Do not change the Frequency tokens or `--avatar-radius`.
+3. Create `public/css/skins/kumsal.css` for theme specific styles. Every selector must start with `:root[data-skin="kumsal"]`, and the markup is not changed. Draw the speaking indicator through `.is-speaking` and status markers through `data-status`, and keep the avatar shape. To show an icon on the Send button, make one of the `.skin-arcade`, `.skin-gece` or `.skin-turkuaz` icons visible in your theme (the label is hidden on phones). `backdrop-filter` is used only inside `@supports`, and `conic-gradient` is not used.
 4. Link the file in `index.html` after the other theme files and add it to the cache list in `public/sw.js`. If a new font is needed, put the woff2 file and its license under `public/fonts/` (file name in lowercase letters, digits and hyphens) and add an `@font-face` rule (`font-display: swap`) to `base.css`.
 5. For the theme card in Settings > Appearance, add the `theme.skin.kumsal` and `theme.skinHint.kumsal` keys in Turkish and English to `public/i18n.js`, and define the `.theme-swatch-kumsal` preview colors in `components.css`.
-6. Measure the contrast of all text and component pairs with the WCAG 2.x formula and add the new columns to the table above. No pair may stay below its threshold.
+6. Measure the contrast with `node scripts/kontrast.js` and add the new rows to the table above. No pair may stay below its threshold. `test/tema.test.js` in `npm test` checks this and the registration steps (the three blocks, the link and cache order, the texts in both languages, the preview colors, the selectors of the ornament file and banned CSS).
 7. Open the app at 1920x1080, 1440x900, 1280x800, 900x800 and 390x844 in dark and light mode and review the band, a voice room, screen sharing, Telsiz DJ, the emoji picker, settings and the sign in screen. There must be no horizontal overflow, unreadable text or invisible focus ring.
 
 ## Older browser support
 
-Stylesheets are written to work in the older WebKit based browsers of game consoles too. Layout uses only flexbox and margins. `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Animations and transforms are also written with `-webkit-` prefixes. `backdrop-filter` is used only inside `@supports` and together with `-webkit-backdrop-filter`, and when it is not supported the panels fall back to the opaque `--surface-1` color. The scale ticks of the band scroll with `background-attachment: local`, and in browsers without support only the decoration is lost. There are no inline styles or scripts (the Content Security Policy blocks them), and icons come from the SVG sprite in `index.html` through `<use>` (with both `href` and `xlink:href`).
+Stylesheets are written to work in the older WebKit based browsers of game consoles too. Layout uses only flexbox and margins. `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Animations and transforms are also written with `-webkit-` prefixes. `backdrop-filter` is used only inside `@supports` and together with `-webkit-backdrop-filter`, and when it is not supported the panels fall back to the opaque `--surface-1` color. The scale ticks of the band scroll with `background-attachment: local`, and in browsers without support only the decoration is lost. Browsers that do not know the `prefers-contrast` and `forced-colors` media queries do not choose High Contrast on their own on first start and ignore the forced colors rules, and the theme can still be chosen in Settings. There are no inline styles or scripts (the Content Security Policy blocks them), and icons come from the SVG sprite in `index.html` through `<use>` (with both `href` and `xlink:href`).
