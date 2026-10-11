@@ -371,10 +371,30 @@ test('/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı,
   assert.deepEqual(W.searches, [], 'arama kapalıyken sunucu aramadı')
   assert.equal(await A.evaluate(() => dj.engine.queue().queue.length), queueBefore)
 
-  // Sahip aramayı açar: ilk sonuç başlığıyla kuyruğa eklenir, duyuru başlıkla hemen gider
-  const on = await W.w.call('POST', '/api/settings', { music: { search: true } }, W.w.P.deniz.token)
-  assert.equal(on.status, 200)
+  // Sahip aramayı Ayarlar > Genel'den açar: onay penceresi riskleri yeniden gösterir, İptal anahtarı kapalı bırakır
+  await A.evaluate(() => openSettings('general'))
+  await A.waitForSelector('#set-music-search', { timeout: h.LONG })
+  assert.equal(await A.evaluate(() => document.getElementById('set-music-search').checked), false)
+  await A.click('#set-music-search')
+  await A.waitForSelector('#music-search-dialog', { timeout: h.LONG })
+  // İlk odak İptal düğmesindedir
+  await A.waitForFunction(() => document.activeElement && document.activeElement.id === 'music-search-cancel', null, { timeout: h.LONG })
+  const dialog = await A.evaluate(() => ({
+    title: document.querySelector('#music-search-dialog .app-dialog-title').textContent,
+    confirm: document.getElementById('music-search-confirm').textContent,
+    risk: document.querySelector('#music-search-dialog .lead').textContent.indexOf('Hizmet Şartları') !== -1
+  }))
+  assert.deepEqual(dialog, { title: 'Şarkı adıyla arama açılsın mı?', confirm: 'Riskleri Okudum, Aramayı Aç', risk: true })
+  await A.click('#music-search-cancel')
+  await A.waitForFunction(() => !document.getElementById('music-search-dialog'))
+  assert.equal(await A.evaluate(() => document.getElementById('set-music-search').checked || state.meta.music.search), false)
+  await A.click('#set-music-search')
+  await A.click('#music-search-confirm')
   for (const page of [A, B]) await page.waitForFunction(() => state.meta.music.search === true, null, { timeout: h.LONG })
+  assert.equal(await A.evaluate(() => document.getElementById('set-music-search').checked), true)
+  await A.evaluate(() => closeSettings())
+  await A.waitForFunction(() => !isSettingsOpen())
+  // İlk sonuç başlığıyla kuyruğa eklenir, duyuru başlıkla hemen gider
   await A.fill('#composer-input', '/çal lobi şarkısı')
   await A.keyboard.press('Enter')
   await A.waitForFunction(() => window.e2eToasts.indexOf('Kuyruğa eklendi: Lobi Şarkısı (Resmi Video)') !== -1, null, { timeout: h.LONG })

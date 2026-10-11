@@ -3287,6 +3287,17 @@ function buildGeneralPage (page) {
     musicSwitchChange('restricted', checked, input)
   }, t('settings.music.restrictedHint'))
   musicSec.appendChild(musicRestricted.row)
+  // Şarkı adıyla YouTube araması (istek 5): resmî API'yi kullanmaz ve YouTube Hizmet Şartları otomatik erişimi
+  // yasakladığı için varsayılan kapalıdır, açarken riskler onay penceresinde yeniden gösterilir
+  const musicSearch = sSwitch('set-music-search', t('settings.dj.search'), false, (checked, input) => {
+    if (!checked) {
+      musicSwitchChange('search', false, input)
+      return
+    }
+    input.checked = false
+    musicSearchConfirm(input)
+  }, t('settings.dj.searchHint'))
+  musicSec.appendChild(musicSearch.row)
   musicSec.appendChild(sMsg('set-music-msg'))
 
   // Ses odaları ve kameralar (yalnızca sahip değiştirir, yönetici salt okunur görür)
@@ -3314,9 +3325,11 @@ function buildGeneralPage (page) {
     musicOn.input.checked = music.enabled
     musicYt.input.checked = music.youtube
     musicRestricted.input.checked = music.restricted
+    musicSearch.input.checked = music.search
     musicOn.input.disabled = !MUSIC_SETTINGS_READY || !owner
     musicYt.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
     musicRestricted.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
+    musicSearch.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.youtube
     voiceLimits.update(owner)
     if (serverInfo) serverInfo.update(owner)
     clear(summary)
@@ -3759,18 +3772,50 @@ function buildAboutSection (page) {
   return { update: update }
 }
 
-// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted }, varsayılan ilk ikisi açık,
-// kısıtlı kip kapalı)
+// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted, search }, varsayılan ilk ikisi açık,
+// kısıtlı kip ve şarkı adıyla arama kapalı). Sunucu search alanını yalnızca DJ ve YouTube kaynağı açıkken doğru
+// verir, burada da aynı kural uygulanır.
 function musicServerSettings () {
   const m = state.meta && state.meta.music && typeof state.meta.music === 'object' ? state.meta.music : null
   const enabled = !m || m.enabled !== false
-  return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false), restricted: Boolean(m && m.restricted === true) }
+  const youtube = enabled && (!m || m.youtube !== false)
+  return { enabled: enabled, youtube: youtube, restricted: Boolean(m && m.restricted === true), search: youtube && Boolean(m && m.search === true) }
 }
 
 function musicSwitchOkKey (field, checked) {
   if (field === 'enabled') return checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff'
   if (field === 'restricted') return checked ? 'dj.settings.restrictedOn' : 'dj.settings.restrictedOff'
+  if (field === 'search') return checked ? 'dj.settings.searchOn' : 'dj.settings.searchOff'
   return checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff'
+}
+
+// Şarkı adıyla aramayı açmadan önce onay penceresi: riskler yeniden gösterilir, ilk odak İptal'dedir. Yalnızca
+// "Riskleri Okudum, Aramayı Aç" ile istek gönderilir, kapatılırsa anahtar kapalı kalır.
+function musicSearchConfirm (input) {
+  openAppDialog({
+    name: 'music-search',
+    titleKey: 'settings.dj.searchConfirmTitle',
+    trigger: input,
+    build: (body, close) => {
+      body.appendChild(h('p', 'lead', t('settings.dj.searchHint')))
+      body.appendChild(h('p', 'hint', t('settings.dj.searchConfirmNote')))
+      const row = h('div', 'row dialog-actions')
+      const confirm = button('button', t('settings.dj.searchConfirm'))
+      confirm.id = 'music-search-confirm'
+      const cancel = button('button button-secondary', t('common.cancel'))
+      cancel.id = 'music-search-cancel'
+      row.appendChild(confirm)
+      row.appendChild(cancel)
+      body.appendChild(row)
+      cancel.addEventListener('click', () => close('dismiss'))
+      confirm.addEventListener('click', () => {
+        close('done')
+        input.checked = true
+        musicSwitchChange('search', true, input)
+      })
+      return cancel
+    }
+  })
 }
 
 // Anahtar değişince POST /api/settings { music: { <alan>: değer } } gönderilir. Başarısızlıkta anahtar

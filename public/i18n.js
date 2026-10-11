@@ -56,6 +56,13 @@ window.I18N = (function () {
     'dj.searchOnYoutube': 'YouTube\'da Ara',
     'dj.searchMiss': 'Parçayı YouTube\'da "{query}" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
     'dj.searchOwnerHint': 'Şarkı adıyla aramayı Ayarlar > Genel > Müzik botu bölümünden açabilirsiniz.',
+    'settings.dj.search': 'Şarkı adıyla YouTube araması',
+    'settings.dj.searchHint': 'Açıkken sunucu /çal komutundaki şarkı adını YouTube\'da kendisi arar. Arama metni sunucuya, sunucunun IP adresiyle de YouTube\'a gider. Bu yol resmî YouTube API\'sini kullanmaz. YouTube Hizmet Şartları otomatik erişimi yasaklar ve YouTube biçimini değiştirirse arama kapanır. Bağlantıyla ekleme her durumda çalışır.',
+    'settings.dj.searchConfirmTitle': 'Şarkı adıyla arama açılsın mı?',
+    'settings.dj.searchConfirmNote': 'Sorumluluk bu sunucunun sahibi olarak sizdedir. YouTube sunucunun adresini engelleyebilir. Aramayı istediğiniz zaman bu anahtarla kapatabilirsiniz.',
+    'settings.dj.searchConfirm': 'Riskleri Okudum, Aramayı Aç',
+    'dj.settings.searchOn': 'Şarkı adıyla YouTube araması açıldı.',
+    'dj.settings.searchOff': 'Şarkı adıyla YouTube araması kapatıldı. Parçalar yalnızca bağlantıyla eklenir.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
@@ -2037,6 +2044,13 @@ window.I18N = (function () {
     'dj.searchOnYoutube': 'Search on YouTube',
     'dj.searchMiss': 'You can search YouTube for "{query}" and add the track\'s link with /play.',
     'dj.searchOwnerHint': 'You can turn on search by song name in Settings > General > Music bot.',
+    'settings.dj.search': 'YouTube search by song name',
+    'settings.dj.searchHint': 'When on, the server searches YouTube itself for the song name in the /play command. The search text goes to the server and, from the server\'s IP address, to YouTube. This does not use the official YouTube API. YouTube\'s Terms of Service prohibit automated access, and the search turns off if YouTube changes its format. Adding by link always works.',
+    'settings.dj.searchConfirmTitle': 'Turn on search by song name?',
+    'settings.dj.searchConfirmNote': 'As the owner of this server, the responsibility is yours. YouTube may block the server\'s address. You can turn search off with this switch at any time.',
+    'settings.dj.searchConfirm': 'I Have Read the Risks, Turn On Search',
+    'dj.settings.searchOn': 'YouTube search by song name is on.',
+    'dj.settings.searchOff': 'YouTube search by song name is off. Tracks are added by link only.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme

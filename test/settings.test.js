@@ -1095,6 +1095,53 @@ test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür ve sahipte etk
   assert.strictEqual(admin.root.querySelector('#set-music-section').hidden, true, 'yönetici görmez')
 })
 
+test('şarkı adıyla YouTube araması anahtarı: varsayılan kapalı, YouTube kapalıyken devre dışı, açarken onay penceresi', async () => {
+  const owner = load({ role: 'owner' })
+  const dialogRoot = owner.doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  owner.doc.body.appendChild(dialogRoot)
+  owner.run("openSettings('general', null)")
+  const sw = () => owner.root.querySelector('#set-music-search')
+  assert.strictEqual(sw().checked, false, 'varsayılan kapalı')
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.ok(owner.root.querySelector('#set-music-search-hint').textContent.indexOf('Hizmet Şartları') !== -1, 'risk açıklaması')
+  const settingsPosts = () => owner.sandbox.__requests.filter((r) => r.path === '/api/settings')
+  // Açmak onay ister: İptal anahtarı kapalı bırakır ve istek göndermez
+  sw().click()
+  assert.strictEqual(sw().checked, false)
+  const dialog = () => owner.doc.querySelector('#music-search-dialog')
+  assert.ok(dialog(), 'onay penceresi açıldı')
+  assert.strictEqual(owner.doc.querySelector('#music-search-confirm').textContent, 'Riskleri Okudum, Aramayı Aç')
+  owner.doc.querySelector('#music-search-cancel').click()
+  assert.strictEqual(dialog(), null)
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(settingsPosts().length, 0)
+  // Onay: POST /api/settings { music: { search: true } }
+  sw().click()
+  owner.doc.querySelector('#music-search-confirm').click()
+  await new Promise((resolve) => setImmediate(resolve))
+  owner.run('0')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }])
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(owner.root.querySelector('#set-music-msg').textContent, 'Şarkı adıyla YouTube araması açıldı.')
+  // Kapatmak onay istemez
+  sw().click()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(dialog(), null)
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }, { music: { search: false } }])
+  // YouTube kaynağı kapalıyken anahtar kapalı görünür ve devre dışıdır
+  owner.run('state.meta.music = { enabled: true, youtube: false, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(sw().disabled, true)
+  owner.run('state.meta.music = { enabled: true, youtube: true, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(sw().disabled, false)
+})
+
 test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam çizilir', () => {
   const { run, root } = load()
   run("openSettings('voice', null)")
