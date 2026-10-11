@@ -44,6 +44,7 @@ window.I18N = (function () {
     'settings.privacy.mediaSession': 'Kilit ekranında parça adını göster',
     'settings.privacy.mediaSessionHint': 'Açıkken çalan parçanın adı işletim sisteminin medya denetimlerinde ve kilit ekranında görünür. Ad uçtan uca şifreli DJ durumundan gelir ve böylece uygulamanın dışına çıkar.',
     // G4 Telsiz DJ araması
+    'music.errors.needs_search': 'Şarkı adıyla eklemek için arama gerekir. YouTube bağlantısını yapıştırın.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme
@@ -2013,6 +2014,7 @@ window.I18N = (function () {
     'settings.privacy.mediaSession': 'Show the track name on the lock screen',
     'settings.privacy.mediaSessionHint': 'When on, the playing track\'s name appears in your system\'s media controls and on the lock screen. The name comes from the end-to-end encrypted DJ state and so leaves the app.',
     // G4 Telsiz DJ araması
+    'music.errors.needs_search': 'Adding by song name needs a search. Paste a YouTube link.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
     // G9 ve G10 Gezinme

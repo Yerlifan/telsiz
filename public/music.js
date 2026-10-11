@@ -132,7 +132,8 @@ var TelsizMusic = (function (root) {
     flac: 'audio/flac'
   }
 
-  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi ve arama desteklenmez.
+  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi desteklenmez. Bağlantıya benzemeyen /çal argümanı şarkı
+  // adı sayılır, aramayı arayüz sunucuya yaptırır (istek 5).
   const WATCH_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com']
   const NOCOOKIE_HOSTS = ['youtube-nocookie.com', 'www.youtube-nocookie.com']
 
@@ -317,8 +318,22 @@ var TelsizMusic = (function (root) {
     return typeof id === 'string' && VIDEO_ID_RE.test(id) ? { videoId: id } : null
   }
 
-  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, error? }.
+  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). İlk sözcüğe bakılır: şema (x://) veya www. ile
+  // başlıyorsa, bilinen bir YouTube alan adıysa ya da alan adı ve yol biçimindeyse (example.com/x) bağlantıdır.
+  // "AC/DC", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
+  function looksLikeUrl (text) {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
+    const first = text.split(/\s+/)[0]
+    if (/^www\./i.test(first)) return true
+    const host = first.split(/[/?#]/)[0].toLowerCase()
+    if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)+[/?#]/i.test(first)
+  }
+
+  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, query?, error? }.
   // name: play, skip, pause, resume, queue, stop. play için arg boşsa videoId null olur (ekli dosya beklenir).
+  // play argümanı geçerli bir YouTube bağlantısıysa videoId, bağlantıya benzeyip geçersizse error 'bad_url',
+  // bağlantıya hiç benzemiyorsa query (aranacak şarkı adı, boşlukları sadeleşmiş) olur.
   function parseCommand (input) {
     if (typeof input !== 'string') return null
     let text = input
@@ -346,7 +361,8 @@ var TelsizMusic = (function (root) {
       } else {
         const yt = parseYouTubeUrl(arg)
         if (yt) out.videoId = yt.videoId
-        else out.error = 'bad_url'
+        else if (looksLikeUrl(arg)) out.error = 'bad_url'
+        else out.query = arg.replace(/\s+/g, ' ')
       }
     }
     return out
@@ -1931,6 +1947,8 @@ var TelsizMusic = (function (root) {
 
     // Yazılan metin bir DJ komutuysa uygular. DJ komutu değilse null döner (metin mesaj olarak gider).
     // ctx: { file } /çal ile birlikte gönderilen ses dosyası eki. Sonuç Promise<{ ok, code?, command, queue? }>.
+    // /çal şarkı adı motor tarafından aranmaz: sonuç { ok: false, code: 'needs_search', query } olur, aramayı
+    // arayüz (23-dj.js djCommand) sunucuya yaptırır ve bulunan parçayı addYouTube ile ekler.
     function runCommand (text, ctx) {
       const cmd = parseCommand(text)
       if (!cmd) return null
@@ -1939,6 +1957,7 @@ var TelsizMusic = (function (root) {
       if (cmd.error) return tag(rejected(cmd.error))
       if (cmd.name === 'play') {
         if (cmd.videoId) return tag(addYouTube(cmd.videoId))
+        if (cmd.query) return tag(Promise.resolve({ ok: false, code: 'needs_search', query: cmd.query }))
         if (c.file) return tag(addFile(c.file))
         return tag(rejected('play_needs_source'))
       }

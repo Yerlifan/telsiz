@@ -607,7 +607,45 @@ describe('parseCommand', () => {
     assert.equal(empty.name, 'play')
     assert.equal(empty.videoId, null)
     assert.equal(empty.error, undefined)
+    assert.equal(empty.query, undefined)
     assert.equal(M.parseCommand('/skip   fazladan').arg, 'fazladan')
+  })
+
+  test('bağlantıya benzemeyen /çal argümanı şarkı adıdır (query), bağlantıya benzeyip geçersiz olan bad_url kalır', () => {
+    const songs = [
+      ['/çal lobi şarkısı', 'lobi şarkısı'],
+      ['/play   AC/DC    Thunderstruck  ', 'AC/DC Thunderstruck'],
+      ['/çal Mr. Brightside', 'Mr. Brightside'],
+      ['/çal will.i.am', 'will.i.am'],
+      ['/ÇAL Gece Şarkısı (Resmi Video)', 'Gece Şarkısı (Resmi Video)'],
+      ['/cal 3:33', '3:33']
+    ]
+    for (const [text, query] of songs) {
+      const cmd = M.parseCommand(text)
+      assert.equal(cmd.name, 'play', text)
+      assert.equal(cmd.query, query, text)
+      assert.equal(cmd.error, undefined, text)
+      assert.equal(cmd.videoId, undefined, text)
+    }
+    const links = [
+      '/çal https://vimeo.com/1',
+      '/çal http://example.com',
+      '/çal ftp://youtu.be/' + VID,
+      '/çal https://youtu.be/' + VID + ' fazladan',
+      '/çal youtube.com/playlist?list=PL123',
+      '/çal www.example.com',
+      '/çal youtu.be/kisa',
+      '/çal music.youtube.com/shorts/' + VID,
+      '/çal example.com/x bir şarkı'
+    ]
+    for (const text of links) {
+      const cmd = M.parseCommand(text)
+      assert.equal(cmd.error, 'bad_url', text)
+      assert.equal(cmd.query, undefined, text)
+    }
+    assert.equal(M.parseCommand('/çal https://youtu.be/' + VID).query, undefined)
+    // Yalnızca /çal argüman alır
+    assert.equal(M.parseCommand('/geç lobi şarkısı').query, undefined)
   })
 
   test('komut listesi sözleşmesi', () => {
@@ -1053,6 +1091,11 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     assert.equal(r.code, 'play_needs_source')
     r = await a.engine.runCommand('/play https://vimeo.com/1')
     assert.equal(r.code, 'bad_url')
+    // Şarkı adını motor aramaz, sorgu arayüze bırakılır, kuyruk değişmez
+    const v = a.engine.snapshot().session
+    r = await a.engine.runCommand('/çal lobi şarkısı')
+    same(r, { command: 'play', ok: false, code: 'needs_search', query: 'lobi şarkısı' })
+    assert.deepEqual(a.engine.snapshot().session, v)
   })
 
   test('kuyruktan çıkarma ve sıralama', async () => {
