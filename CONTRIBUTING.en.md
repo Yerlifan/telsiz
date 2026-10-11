@@ -135,6 +135,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
 | `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+| `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
@@ -180,6 +181,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | `public/voice.js` | Encryption and strict format checks of voice, screen sharing, camera and game signals, verification of sender and recipient, replay protection |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | The inner envelope of game messages and its binding fields (`ctx`, `k`, `g`, `ch`, `from`, `to`), counters and replay protection (`ni`, `seq`, `rd`, `r`), strict checks of message formats and the role table, the choice of inner layer keys (`gameKeys` in `36-oyun.js`) |
 | `public/js/35-renk-kural.js` | Unbiased shuffling, validation of the view and hand that come from the dealer, making sure no view or event contains someone else's hand |
+| `public/js/43-hexball-kural.js` | Permission checks of the host only moves (assigning teams, starting a match, goal, time up, stopping), strict validation of the view that comes from the host |
 | `public/music.js`, `public/dj/youtube.js` | Validation of the encrypted DJ state, isolation of the YouTube frame and the consent rule |
 | `src/auth.js`, `src/app.js` | Password hashing, sessions, permissions, rate limits, trusted proxies |
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |

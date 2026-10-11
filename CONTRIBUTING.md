@@ -135,6 +135,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
 | `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+| `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -180,6 +181,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
 | `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |
+| `public/js/43-hexball-kural.js` | Ev sahibine özel hamlelerin (takım atama, maçı başlatma, gol, süre bitti, durdurma) yetki denetimi, ev sahibinden gelen görünümün katı denetimi |
 | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
 | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
