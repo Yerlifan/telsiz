@@ -1,0 +1,275 @@
+From b58ebafff539b982851f28e503b1f4aebc5d0882 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 04:13:16 +0000
+Subject: [PATCH 29/30] =?UTF-8?q?G3:=20inceleme=20d=C3=BCzeltmeleri=20(bek?=
+ =?UTF-8?q?leyen=20duyuru=20sayfa=20kapan=C4=B1rken=20gider,=20d=C3=BCzenl?=
+ =?UTF-8?q?endi=20etiketi=20s=C3=BCreyle=20s=C4=B1n=C4=B1rl=C4=B1,=20Bildi?=
+ =?UTF-8?q?rimler=20payla=C5=9F=C4=B1m=C4=B1=20korur)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Adı beklenen DJ duyurusu yalnızca bellekte duruyordu, sekme 8 saniye dolmadan kapanır veya
+  yenilenirse hiç gitmiyordu. Sayfa gizlenince (visibilitychange) veya kapanırken (pagehide)
+  djFlushTitles duyuruyu hemen adsız gönderir, ad sonradan gelirse duyuru yine düzenlenir.
+- DJ duyurusunun "düzenlendi" etiketi her zaman gizleniyordu, değiştirilmiş bir istemci eski bir
+  duyuruyu iz bırakmadan yeniden yazabiliyordu. showEditedMark etiketi yalnızca gönderimden sonraki
+  ad süresi (DJ_NOTICE_EDIT_MS, bir dakika payla) içindeki düzenlemede gizler.
+- Sık gelen Telsiz DJ, katılma ve ayrılma kayıtları süren ekran paylaşımının İzle düğmeli kaydını
+  Bildirimler listesinden atıyordu. activityAdd liste dolunca önce paylaşım dışındaki en eski kaydı
+  düşürür.
+- Testler: test/social.test.js (etiket süresi, liste sınırı), e2e/06 (pagehide ile hemen giden duyuru).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/06-dj.test.js        | 10 ++++++--
+ public/js/06-messages.js | 21 +++++++++++++++--
+ public/js/23-dj.js       | 23 +++++++++++++++----
+ public/js/28-bildirim.js | 19 ++++++++++++----
+ test/social.test.js      | 49 +++++++++++++++++++++++++++++++++++++---
+ 5 files changed, 106 insertions(+), 16 deletions(-)
+
+diff --git a/e2e/06-dj.test.js b/e2e/06-dj.test.js
+index e7a05e7..45d00d7 100644
+--- a/e2e/06-dj.test.js
++++ b/e2e/06-dj.test.js
+@@ -160,11 +160,16 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
+   await A.fill('#composer-input', '/çal https://youtu.be/D120aaaaaaa')
+   await A.keyboard.press('Enter')
+   await A.waitForFunction(() => window.e2eToasts.indexOf('Parça kuyruğa eklendi.') !== -1)
++  // Kimse oynatıcıyı yüklemediği için parçanın adı bilinmez: duyuru en çok 8 saniye bekler. Sayfa bu sırada
++  // kapanırsa (pagehide) bekleyen duyuru hemen adsız gider, bellekte kalıp kaybolmaz.
++  const waiting = await A.evaluate(() => dj.titleWatch.filter((w) => !w.sent).length)
++  assert.equal(waiting, 1, 'duyuru parçanın adını bekliyor')
++  const hiddenAt = Date.now()
++  await A.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+   assert.equal(await A.inputValue('#composer-input'), '')
+   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
+   assert.equal(sent, false, 'komut metni mesaj olarak gösterilmedi')
+-  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür. Kimse oynatıcıyı yüklemediği için parçanın
+-  // adı bilinmez: duyuru en çok 8 saniye bekler, sonra adsız gider.
++  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür
+   const roomA = await A.evaluate(() => String(state.channelId))
+   const me = await A.evaluate(() => userDisplayName(state.me.id))
+   assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
+@@ -177,6 +182,7 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
+     })
+     assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false })
+   }
++  assert.ok(Date.now() - hiddenAt < 5000, 'duyuru sayfa kapanırken hemen gitti: ' + (Date.now() - hiddenAt) + ' ms')
+   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
+   // Parça gelince kart sağ sütunda İstasyonlar listesinin altına yerleşir, liste görünür kalır, sol sütun
+   // (telsiz kartı) yerinde kalır
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index 9aef3fa..1de98da 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -66,6 +66,24 @@ function cleanDjTitle (value) {
+   return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
+ }
+ 
++// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bu süre
++// içindeki düzenleme "düzenlendi" etiketi almaz, daha sonraki her düzenleme etiketle görünür. Bir dakikalık pay
++// istek gecikmesini karşılar.
++const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
++const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
++
++// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Etiket yalnızca DJ duyurusunun
++// ekleme anından sonraki ad süresi içinde yapılan düzenlemesinde gizlenir, değiştirilmiş bir istemcinin eski bir
++// duyuruyu sonradan iz bırakmadan yeniden yazması etiketle görünür.
++function showEditedMark (m, dj) {
++  if (!m || !m.editedAt) return false
++  if (!dj) return true
++  const created = Number(m.createdAt)
++  const edited = Number(m.editedAt)
++  if (!isFinite(created) || !isFinite(edited) || created <= 0) return true
++  return edited - created > DJ_NOTICE_EDIT_MS + DJ_NOTICE_EDIT_GRACE_MS
++}
++
+ function cleanDjNotice (d) {
+   if (!d || typeof d !== 'object' || d.op !== 'add') return null
+   let out = null
+@@ -286,8 +304,7 @@ function buildMessageNode (m) {
+     text.appendChild(h('span', '', notice))
+     body.appendChild(text)
+   }
+-  // DJ duyurusunun düzenlenmesi (parçanın adı sonradan eklenir) gösterilmez
+-  if (m.editedAt && !(result.state === 'ok' && result.dj)) {
++  if (showEditedMark(m, result.state === 'ok' && Boolean(result.dj))) {
+     const edited = h('span', 'msg-edited', t('msg.edited'))
+     edited.title = t('msg.editedAt', { date: formatLong(m.editedAt) })
+     const target = body.querySelector('.msg-text') || body
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 7c8ccd4..e805859 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -32,10 +32,9 @@
+ // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
+ 
+ const DJ_TICK_MS = 500
+-// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu bu süre içinde
+-// düzenlenir.
++// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu DJ_NOTICE_EDIT_MS
++// (06-messages.js, "düzenlendi" etiketinin gizlendiği süre) içinde düzenlenir.
+ const DJ_TITLE_WAIT_MS = 8000
+-const DJ_TITLE_EDIT_MS = 10 * 60 * 1000
+ // Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
+ const DJ_NOTICE_FRESH_MS = 15000
+ // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
+@@ -1723,7 +1722,8 @@ function djAnnounce (roomId, text, d) {
+ // YouTube parçasının adı ekleme anında bilinmeyebilir, oynatıcısı yüklenen ilk cihaz adı duruma yazar
+ // (music.js annotate). Ad biliniyorsa duyuru hemen gider. Bilinmiyorsa parça en çok DJ_TITLE_WAIT_MS izlenir,
+ // ad gelince duyuru adla gider. Süre dolarsa duyuru adsız gider, ad sonradan gelirse ekleyenin kendi mesajı
+-// düzenlenir (DJ_TITLE_EDIT_MS içinde, parça kuyruktayken).
++// düzenlenir (DJ_NOTICE_EDIT_MS içinde, parça kuyruktayken). Sayfa gizlenir veya kapanırsa bekleyen duyuru hemen
++// adsız gider (djFlushTitles).
+ function djAnnounceTrack (roomId, text, d, trackId) {
+   if (!roomId || isDmChannel(roomId)) return
+   const track = djLiveTrack(trackId)
+@@ -1733,7 +1733,7 @@ function djAnnounceTrack (roomId, text, d, trackId) {
+     return
+   }
+   const at = Date.now()
+-  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_TITLE_EDIT_MS, sent: null })
++  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_NOTICE_EDIT_MS, sent: null })
+   djCheckTitles()
+ }
+ 
+@@ -1763,6 +1763,15 @@ function djCheckTitles () {
+   })
+ }
+ 
++// Sayfa gizlenirken (visibilitychange) veya kapanırken (pagehide) adı beklenen duyurular hemen adsız gider:
++// bekleyen kayıt yalnızca bellektedir, sekme kapanır veya yenilenirse duyuru hiç gitmezdi. Sayfa açık kalırsa ad
++// gelince duyuru yine düzenlenir. Kapanış anında başlayan istek yarıda kalabilir, bu en iyi çabadır.
++function djFlushTitles () {
++  dj.titleWatch.forEach((w) => {
++    if (!w.sent) w.sent = djAnnounce(w.roomId, w.text, w.d)
++  })
++}
++
+ // /çal ve ekli ses dosyası: dosya önce yazı odasına mesaj eki olarak gönderilir (odadakiler indirebilsin),
+ // ardından kuyruğa eklenir
+ function djPlayAttached (att, ctx) {
+@@ -1887,6 +1896,10 @@ function djInit () {
+     }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
+   }
+   window.addEventListener('resize', djOnResize)
++  window.addEventListener('pagehide', djFlushTitles)
++  document.addEventListener('visibilitychange', () => {
++    if (document.visibilityState === 'hidden') djFlushTitles()
++  })
+   if (typeof watchLayers === 'function') watchLayers(djOnLayers)
+   // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor"). Kart
+   // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).
+diff --git a/public/js/28-bildirim.js b/public/js/28-bildirim.js
+index 54ff4a0..b1ae61c 100644
+--- a/public/js/28-bildirim.js
++++ b/public/js/28-bildirim.js
+@@ -9,8 +9,9 @@
+ //   yazılmaz.
+ // - Telsiz DJ'ye başkasının parça eklemesi: aynı ses odasında motorun notice olayından (23-dj.js djOnNotice,
+ //   activityDj). Hangi yazı odasında olunursa olunsun görünür, parçanın adı kuyruktan canlı okunur.
+-// Liste en yeni ACTIVITY_MAX kaydı tutar, en yeni üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda
+-// görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice, activityShown).
++// Liste en çok ACTIVITY_MAX kayıt tutar (süren paylaşımların kaydı korunur), en yeni üsttedir. Kayıt yoksa kart
++// gizlidir. Liste geniş ekranda görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice,
++// activityShown).
+ 
+ const ACTIVITY_MAX = 5
+ const activityState = { items: [], seq: 0, rosters: null }
+@@ -26,10 +27,20 @@ function activityRosters (meta) {
+   return out
+ }
+ 
++// Liste dolunca en eski kayıt düşer. Süren ekran paylaşımının kaydı (İzle düğmesi) diğer kayıtlar varken
++// düşmez: sık gelen Telsiz DJ, katılma ve ayrılma kayıtları onu listeden atmaz (liste görünürken paylaşım
++// bildirimi ayrıca açılmaz). Liste paylaşım kayıtlarıyla doluysa yeni paylaşım en eskisini düşürür, başka türden
++// yeni kayıt yazılmaz.
+ function activityAdd (item) {
+   activityState.seq++
+-  activityState.items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
+-  if (activityState.items.length > ACTIVITY_MAX) activityState.items.length = ACTIVITY_MAX
++  const items = activityState.items
++  items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
++  while (items.length > ACTIVITY_MAX) {
++    let drop = items.length - 1
++    while (drop > 0 && items[drop].kind === 'share') drop--
++    if (items[drop].kind === 'share') drop = items.length - 1
++    items.splice(drop, 1)
++  }
+ }
+ 
+ // Kadro farkından katılma ve ayrılma kayıtları
+diff --git a/test/social.test.js b/test/social.test.js
+index 205da50..18ac709 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -4,8 +4,8 @@
+ // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
+ // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
+ // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
+-// kimliği, sabitlenmiş anahtarlar, eski anahtar) ve Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
+-// doğrulanması sınanır.
++// kimliği, sabitlenmiş anahtarlar, eski anahtar), Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
++// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -18,7 +18,7 @@ const PUB = path.join(__dirname, '..', 'public')
+ const FILES = [
+   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
+   'js/01-core.js', 'js/02-state-dom.js', 'js/06-messages.js',
+-  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js'
++  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/28-bildirim.js'
+ ]
+ const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
+ 
+@@ -253,3 +253,46 @@ test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temi
+   assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
+   assert.strictEqual(clean(null), null)
+ })
++
++test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düzenleme gizlenir', () => {
++  const { run } = load()
++  const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')
++  const at = 1700000000000
++  const min = 60 * 1000
++  // Düzenlenmemiş mesaj etiket almaz
++  assert.strictEqual(mark({ createdAt: at, editedAt: null }, true), false)
++  assert.strictEqual(mark({ createdAt: at }, false), false)
++  // Sıradan mesajın her düzenlemesi görünür
++  assert.strictEqual(mark({ createdAt: at, editedAt: at + 5000 }, false), true)
++  // DJ duyurusuna ad eklemesi (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
++  assert.strictEqual(mark({ createdAt: at, editedAt: at + 9000 }, true), false)
++  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min }, true), false)
++  // Sonraki düzenleme (değiştirilmiş istemcinin eski duyuruyu yeniden yazması) etiketle görünür
++  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min + 1 }, true), true)
++  assert.strictEqual(mark({ createdAt: at, editedAt: at + 3 * 24 * 60 * min }, true), true)
++  // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
++  assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
++})
++
++test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayıtlarla listeden düşmez', () => {
++  const { run } = load()
++  const kinds = () => JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.kind + ":" + x.userId))'))
++  run("activityAdd({ kind: 'share', userId: '2', channelId: null })")
++  run("activityAdd({ kind: 'join', userId: '3', channelId: '9' })")
++  const djAdds = [0, 1, 2, 3, 4, 5]
++  djAdds.forEach((i) => run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 't" + i + "', title: '' })"))
++  const list = kinds()
++  assert.strictEqual(list.length, 5)
++  assert.deepStrictEqual(list, ['dj:4', 'dj:4', 'dj:4', 'dj:4', 'share:2'])
++  // En yeni kayıt üsttedir, kimlikler artar
++  const ids = JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.id))'))
++  assert.deepStrictEqual(ids, [8, 7, 6, 5, 1])
++  // Liste yalnızca paylaşımlarla doluysa en eski paylaşım düşer
++  run('activityState.items = []')
++  const sharers = [10, 11, 12, 13, 14, 15]
++  sharers.forEach((i) => run("activityAdd({ kind: 'share', userId: '" + i + "', channelId: null })"))
++  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
++  // Paylaşımlarla dolu listede yeni bir DJ kaydı paylaşımları düşürmez
++  run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 'x', title: '' })")
++  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
++})
