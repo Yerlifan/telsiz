@@ -5,9 +5,11 @@
 // edilir, konuşma açan işlevler (selectChannel, showDm, showHome) görünümü değiştiren basit taklitlerdir.
 // Sınananlar: kök kayıt, konuşma kayıtlarının sırası, geri ve ileri tuşuyla dönüş, katman kayıtları (sayfa,
 // profil kartı, sayfa değişimi, satıra basınca sayfanın kaydının yeni konuşmayla değişmesi), başka hesabın ve
-// uygulama dışının kayıtlarının yok sayılması, kilitli katmanda geri tuşu ve oturum kapanınca geri sarma. Ayrıca ilk
-// okunmamış mesajın yeri (kendi mesajları atlanır) ve son okunanın çevresiyle yükleme kararı, Özel mesajlar grubunun
-// sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel Mesajlar ve görünümün hatırlanması.
+// uygulama dışının kayıtlarının yok sayılması, kilitli katmanda geri tuşu, kaydı olmayan katmanda (menü, kamera
+// büyütme) geri tuşu ve oturum kapanınca geri sarma (açık katman yokken ve model eskimişken de). Ayrıca ilk okunmamış
+// mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
+// sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
+// Mesajlar ve görünümün hatırlanması.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -424,6 +426,15 @@ test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa
   // En yeni sayfanın ilk mesajı son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir
   assert.deepStrictEqual(json('[navNeedsAround(' + list + ', true, 4), navNeedsAround(' + list + ', true, 5), navNeedsAround(' + list + ', false, 4), navNeedsAround(' + list + ', true, 0), navNeedsAround([], true, 4)]'),
     [true, false, false, false, false])
+  // Okunmamış sayısı: son okunanın çevresi ve en yeni sayfa birleşik sayılır (yinelenen ve kendi mesajlarım hariç).
+  // Sayfalar bitişmiyorsa veya en eski yüklü mesaj son okunandan yeniyse ve daha eskisi varsa sayı alt sınırdır.
+  const tally = (args) => json('(function () { const r = navUnreadTally(' + args + '); return [r.list.map((m) => m.id), r.more] })()')
+  const near = '[{ id: 4, authorId: 2 }, { id: 5, authorId: 2 }, { id: 6, authorId: 1 }, { id: 7, authorId: 2 }]'
+  assert.deepStrictEqual(tally(near + ', [{ id: 7, authorId: 2 }, { id: 8, authorId: 3 }, { id: 9, authorId: 2 }], 4, false, true'), [[5, 7, 8, 9], false])
+  assert.deepStrictEqual(tally(near + ', [{ id: 20, authorId: 2 }, { id: 21, authorId: 2 }], 4, false, true'), [[5, 7, 20, 21], true])
+  assert.deepStrictEqual(tally(near + ', null, 4, false, false'), [[5, 7], false])
+  assert.deepStrictEqual(tally('[{ id: 10, authorId: 2 }, { id: 11, authorId: 2 }], null, 4, true, false'), [[10, 11], true])
+  assert.deepStrictEqual(tally(near + ', null, 0, true, true'), [[], false])
 })
 
 test('özel mesaj grubu: okunmamışlar önce, sonra son mesaja göre, açık konuşma sayılmaz, altıdan fazlası Tüm Özel Mesajlar ile açılır', () => {

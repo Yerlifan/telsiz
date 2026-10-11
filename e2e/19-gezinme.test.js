@@ -30,6 +30,8 @@
 //   Özel mesaj görünümünde Oda bilgisi düğmesi yok
 // - Özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür
 // G9 inceleme düzeltmeleri:
+// - Uygulama açılırken açılan oda (80 okunmamış, son okunanın çevresi ve en yeni sayfa birleşik sayılır) ve sayfa
+//   yenilenince geri gelen özel konuşma (40 okunmamış): şerit sayısı doğru, alta inmeden çıkınca rozet ve sayaç kalır
 // - Açık katman yokken durum menüsünden Çıkış Yap ve oturumun düşmesi geçmişi kök kayda sarar, giriş ekranında tek
 //   geri basış uygulamadan çıkar, yeniden girişte uygulamada kalınır
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
@@ -700,6 +702,78 @@ test('görünüm: özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yen
   await openRoomRow(page, genel)
   await reload()
   await waitConversation(page, 'channel', genel)
+})
+
+// G9 inceleme düzeltmeleri: uygulama açılırken açılan konuşmanın okunmamışları sayılır (scanUnread ve scanDmUnread
+// açık konuşmayı atlar)
+
+test('açılış: uygulama açılırken açılan oda ve özel konuşmanın okunmamışları sayılır, alta inmeden çıkınca rozet kalır', async () => {
+  const page = W.deniz
+  const kalabalik = W.w.room('kalabalik').id
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  // Uygulama kapalıyken gelen mesajlar: olay alımı durur, mesajlar gelir, sayfa yeniden yüklenir (son görünüm
+  // hatırlanır)
+  const away = () => page.evaluate(() => stopPoll())
+  const reopen = async () => {
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+    await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  }
+  const readToEnd = async (id) => {
+    await page.evaluate(() => {
+      el.messages.scrollTop = el.messages.scrollHeight
+    })
+    const last = await page.evaluate(() => Number(state.messages[state.messages.length - 1].id))
+    await page.waitForFunction((a) => Number(state.lastRead[a.id]) === a.last, { id, last })
+    return last
+  }
+
+  // Son açılan oda kalabalık, sonuna kadar okundu. Uygulama kapalıyken 80 mesaj gelir: en yeni sayfa (50) ilk okunmamışı
+  // içermez, konuşma son okunanın çevresiyle açılır, sayı iki sayfanın birleşiminden çıkar
+  await openRoom(page, kalabalik)
+  const roomRead = await readToEnd(kalabalik)
+  await away()
+  const sent = await eceSays('kalabalik', 80, 'kapalıyken')
+  await reopen()
+  await waitConversation(page, 'channel', kalabalik)
+  await page.waitForSelector('#message-list .unread-divider')
+  let v = await unreadView(page, kalabalik)
+  assert.deepEqual([v.firstUnread, v.bar, v.barText, v.unread, v.lastRead, v.atBottom], [String(sent[0].id), true, '80 yeni mesaj', 80, roomRead, false])
+  assert.equal(await page.evaluate(() => state.hasNewer), true, 'son okunanın çevresi yüklendi')
+  // Alta inmeden başka odaya geçilince odanın rozeti ve sayacı kalır, son okunan değişmez
+  await openRoomRow(page, genel)
+  const row = await page.evaluate((id) => {
+    const b = document.querySelector('#inbox-list .room-row[data-station="text-' + id + '"]')
+    const mark = b.querySelector('.station-mark')
+    return { mark: mark ? mark.textContent : '', label: b.getAttribute('aria-label') }
+  }, kalabalik)
+  assert.equal(row.mark, '80')
+  assert.match(row.label, /80/)
+  v = await unreadView(page, kalabalik)
+  assert.deepEqual([v.unread, v.lastRead], [80, roomRead])
+
+  // Sayfa yenilenince geri gelen özel konuşma: 40 okunmamış, alta inmeden Arkadaşlar görünümüne geçilince Özel
+  // mesajlar grubunda ve Özel Mesajlar düğmesinde rozet kalır
+  await openDm(page, W.dmMert)
+  const dmRead = await readToEnd(W.dmMert)
+  await away()
+  let i = 0
+  while (i < 40) {
+    await dmSay('mert', W.dmMert, 'Kapalıyken yazdım ' + (i + 1))
+    i += 1
+  }
+  await reopen()
+  await waitConversation(page, 'dm', W.dmMert)
+  await page.waitForSelector('#message-list .unread-divider')
+  v = await unreadView(page, W.dmMert)
+  assert.deepEqual([v.bar, v.barText, v.unread, v.lastRead, v.atBottom], [true, '40 yeni mesaj', 40, dmRead, false])
+  await openRoomRow(page, genel)
+  const g = await dmGroupIn(page, 'inbox-list')
+  assert.deepEqual(g.rows.filter((r) => r[0] === String(W.dmMert)), [[String(W.dmMert), '40']])
+  assert.equal(await page.evaluate(() => document.getElementById('top-dm-mark').textContent), '40')
+  v = await unreadView(page, W.dmMert)
+  assert.deepEqual([v.unread, v.lastRead], [40, dmRead])
 })
 
 // G9 inceleme düzeltmeleri: oturum kapanınca geçmiş, açık katman olmasa da kök kayda geri sarılır

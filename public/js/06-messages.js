@@ -587,6 +587,8 @@ async function loadChannel () {
   let res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
   let around = false
+  // Son okunanın çevresi yüklenirse en yeni sayfa okunmamış sayısı için saklanır (38-gezinme.js navShowUnread)
+  let newest = null
   if (readMark && res.status === 200 && res.data && Array.isArray(res.data.messages)) {
     const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
     if (navNeedsAround(page, res.data.hasMore, readMark)) {
@@ -595,6 +597,7 @@ async function loadChannel () {
       if (near.status === 200 && near.data && Array.isArray(near.data.messages)) {
         res = near
         around = true
+        newest = page
       }
     }
   }
@@ -627,7 +630,7 @@ async function loadChannel () {
     }
   })
   renderAllMessages()
-  const divider = nav && !jump ? navShowUnread(channelId, readMark, knownUnread) : null
+  const divider = nav && !jump ? navShowUnread(channelId, readMark, knownUnread, newest) : null
   if (jump) {
     if (!highlightMessage(jump.messageId)) {
       scrollNearMessage(jump.messageId)
@@ -638,7 +641,8 @@ async function loadChannel () {
   } else {
     scrollToBottom()
   }
-  markRead()
+  // Kişi alta inmediyse sayılan okunmamışlar sayaçta kalır: başka konuşmaya geçince rozet görünür
+  if (!markRead() && nav && !jump) navKeepUnread(channelId)
   if (nav) navOnScroll()
 }
 

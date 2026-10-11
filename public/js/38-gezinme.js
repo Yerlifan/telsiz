@@ -53,8 +53,9 @@ const navState = {
   waitTimer: 0,
   scheduled: false,
   restoring: false,
-  // Okunmamış ayracı ve şeridi: konuşma, ilk okunmamış mesajın kimliği ve zamanı, sayı, şerit açık mı
-  unread: { channelId: null, id: null, since: 0, count: 0, bar: false },
+  // Okunmamış ayracı ve şeridi: konuşma, ilk okunmamış mesajın kimliği ve zamanı, sayı (more: alt sınır), yüklü
+  // okunmamışlardaki anmalar, şerit açık mı
+  unread: { channelId: null, id: null, since: 0, count: 0, more: false, mentions: 0, bar: false },
   // Kişi yukarıdayken gelen mesaj sayısı (kapsül)
   newBelow: 0,
   divider: null,
@@ -421,6 +422,27 @@ function navCountUnread (messages, readMark) {
   return messages.filter((m) => Number(m.id) > readMark && !navOwn(m)).length
 }
 
+// Yüklü sayfalardaki okunmamış mesajlar: konuşmanın yüklü mesajları (loaded, son okunanın çevresi olabilir) ve
+// ayrıca alınan en yeni sayfa (newest) birleşik, kendi mesajlarım hariç. more: sayı alt sınırdır, çünkü en eski yüklü
+// mesaj son okunandan yeni ve daha eskisi var (hasMore) ya da daha yeni mesajlar var (hasNewer) ve en yeni sayfa
+// yüklü mesajlara bitişmiyor.
+function navUnreadTally (loaded, newest, readMark, hasMore, hasNewer) {
+  if (!(readMark > 0)) return { list: [], more: false }
+  const seen = Object.create(null)
+  const list = []
+  loaded.concat(newest || []).forEach((m) => {
+    const key = String(m.id)
+    if (seen[key] || !(Number(m.id) > readMark) || navOwn(m)) return
+    seen[key] = true
+    list.push(m)
+  })
+  const first = loaded.length ? Number(loaded[0].id) : 0
+  const last = loaded.length ? Number(loaded[loaded.length - 1].id) : 0
+  const below = hasMore === true && first > readMark
+  const gap = hasNewer === true && !(newest && newest.length && Number(newest[0].id) <= last)
+  return { list: list, more: below || gap }
+}
+
 // En yeni sayfanın hepsi son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir,
 // konuşma son okunan mesajın çevresiyle (around) yeniden yüklenir
 function navNeedsAround (messages, hasMore, readMark) {
@@ -429,24 +451,32 @@ function navNeedsAround (messages, hasMore, readMark) {
 
 // Konuşma değişti veya yükleniyor: şerit, ayraç ve kapsül kalkar
 function navUnreadReset (channelId) {
-  navState.unread = { channelId: channelId === undefined ? null : channelId, id: null, since: 0, count: 0, bar: false }
+  navState.unread = { channelId: channelId === undefined ? null : channelId, id: null, since: 0, count: 0, more: false, mentions: 0, bar: false }
   navState.newBelow = 0
   if (navState.divider && navState.divider.parentNode) navState.divider.parentNode.removeChild(navState.divider)
   navRenderBar()
   navRenderBelow()
 }
 
-// Yükleme bitti (06-messages.js loadChannel): ilk okunmamış mesaj yüklüyse ayraç konur ve şerit gösterilir.
-// Ayracın öğesi döner (06-messages.js onu görünür alanın üst kısmına kaydırır), yoksa null.
-function navShowUnread (channelId, readMark, knownUnread) {
+// Yükleme bitti (06-messages.js loadChannel): ilk okunmamış mesaj yüklüyse ayraç konur ve şerit gösterilir. Sayı
+// bilinen sayaç ile yüklü sayfalardan (son okunanın çevresi ve en yeni sayfa, newest) sayılanın büyüğüdür, sayılan
+// alt sınırsa şerit sayının sonuna + koyar. Ayracın öğesi döner (06-messages.js onu görünür alanın üst kısmına
+// kaydırır), yoksa null.
+function navShowUnread (channelId, readMark, knownUnread, newest) {
   const i = navFirstUnread(state.messages, readMark)
   if (i === -1 || !sameId(channelId, state.channelId)) return null
   const first = state.messages[i]
+  const known = Number(knownUnread) || 0
+  const tally = navUnreadTally(state.messages, newest, readMark, state.hasMore, state.hasNewer)
+  const dm = navCurrentConv().view === 'dm'
+  const mentions = dm || typeof messageMentionsMe !== 'function' ? 0 : tally.list.filter((m) => !(typeof isBlocked === 'function' && isBlocked(m.authorId)) && messageMentionsMe(m)).length
   navState.unread = {
     channelId: channelId,
     id: first.id,
     since: Number(first.createdAt) || 0,
-    count: Math.max(Number(knownUnread) || 0, navCountUnread(state.messages, readMark)),
+    count: Math.max(known, tally.list.length),
+    more: tally.more && tally.list.length >= known,
+    mentions: mentions,
     bar: true
   }
   regroup()
@@ -526,10 +556,30 @@ function navRenderBar () {
   if (!bar) return
   bar.hidden = !show
   if (!show) return
-  bar.querySelector('.unread-bar-count').textContent = t('nav.unreadBar', { count: u.count })
+  bar.querySelector('.unread-bar-count').textContent = t(u.more ? 'nav.unreadBarMore' : 'nav.unreadBar', { count: u.count })
   bar.querySelector('.unread-bar-since').textContent = u.since ? t('nav.unreadSince', { time: navSinceText(u.since) }) : ''
   byId('unread-bar-jump').querySelector('.button-text').textContent = t('nav.jumpToUnread')
   byId('unread-bar-read').querySelector('.button-text').textContent = t('nav.markRead')
+}
+
+// Konuşma açılırken okundu sayılmadı (06-messages.js loadChannel, kişi en altta değil): yüklü sayfalardan sayılan
+// okunmamışlar ve anmalar sayaca yazılır. Açılışta açılan veya sayfa yenilenince geri gelen konuşmayı scanUnread ve
+// scanDmUnread saymaz, kişi alta inmeden başka konuşmaya geçerse rozet bu sayıyı gösterir.
+function navKeepUnread (channelId) {
+  const u = navState.unread
+  if (!sameId(u.channelId, channelId) || !(u.count > 0)) return
+  let changed = false
+  if (u.count > (Number(state.unread[channelId]) || 0)) {
+    state.unread[channelId] = u.count
+    changed = true
+  }
+  if (u.mentions > 0 && state.mentions && u.mentions > (Number(state.mentions[channelId]) || 0)) {
+    state.mentions[channelId] = u.mentions
+    changed = true
+  }
+  if (!changed) return
+  if (typeof renderBand === 'function') renderBand()
+  if (typeof renderHomeEntry === 'function') renderHomeEntry()
 }
 
 // Okundu sayıldı (04-meta.js markRead): şerit ve kapsül kalkar, ayraç konuşmadan çıkılana kadar kalır
