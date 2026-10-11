@@ -466,6 +466,37 @@ test('sunucu ekleri tanımazsa (bad_uploads) ekler yeniden yüklenir, metin kal�
   assert.strictEqual(run('el.composerInput.value'), '')
 })
 
+test('yanıtı alınamayan gönderimin ekleri süre dolsa da aynı kimlikle yeniden gönderilir, mesaj iki kez gitmez', async () => {
+  const { run, json } = load()
+  run("testOpen('dm', 50)")
+  run("el.composerInput.value = 'özel metin'")
+  run("testDone(testAdd('ozel.png'), '" + U('a') + "')")
+  run('testProcessed = []')
+  // İstek sunucuya ulaştı ama yanıt alınamadı: mesaj ekleri bağlamış olabilir
+  run('testApiNext = Promise.resolve({ status: 0, data: null })')
+  await run('sendMessage()')
+  const first = run('testApi[0].body.clientMessageId')
+  run('state.attachments[0].uploadedAt = ' + STALE)
+  // Konuşmadan çıkıp dönünce ve gönderirken ek yeniden yüklenmez, istek aynı ek ve istemci kimliğiyle gider
+  run("testOpen('channel', 10)")
+  run("testOpen('dm', 50)")
+  assert.deepStrictEqual(json('testProcessed'), [])
+  assert.strictEqual(run('canSend()'), true)
+  run("testApiNext = Promise.resolve({ status: 400, data: { code: 'bad_uploads' } })")
+  await run('sendMessage()')
+  const again = json('testApi[1].body')
+  assert.deepStrictEqual([again.clientMessageId, again.uploads], [first, [U('a')]])
+  // Mesaj ulaşmamış ve ek silinmiş (bad_uploads): ek ancak şimdi yeniden yüklenir
+  assert.deepStrictEqual(json("state.attachments.map((a) => a.status + ':' + a.uploadId)"), ['processing:'])
+  assert.deepStrictEqual(json('testProcessed'), ['ozel.png'])
+  run("testDone(state.attachments[0], '" + U('b') + "')")
+  await run('sendMessage()')
+  const last = json('testApi[2].body')
+  assert.deepStrictEqual(last.uploads, [U('b')])
+  assert.notStrictEqual(last.clientMessageId, first)
+  assert.strictEqual(run('state.attachments.length'), 0)
+})
+
 test('yükleme hatası aynı konuşmanın sıradaki eklerine geçer, başka konuşmanın eki kendi sırasında denenir', async () => {
   const { run, json } = load()
   run('state.uploadHeld = true')

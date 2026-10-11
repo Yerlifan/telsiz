@@ -97,8 +97,9 @@ function composerRunCommand (raw, text, ready) {
 // Sunucu mesaja bağlanmayan yüklemeyi varsayılan olarak bir saat sonra siler (src/app.js orphanUploadTtlMs,
 // istemciye bildirilmez). Taslakta bekleyen yüklenmiş ek UPLOAD_FRESH_MS dolunca dosyasından yeniden hazırlanıp
 // yüklenir: konuşmaya dönülünce (composerEnter) ve gönderirken (sendMessage). Süre yükleme isteğinin başladığı
-// andan (att.uploadedAt) sayılır ve gönderime pay bırakır. Sunucu gönderilen ekleri yine de tanımazsa (400
-// bad_uploads, ör. süre sunucuda daha kısa ayarlanmış) bu ekler de yeniden yüklenir, metin yazma alanında kalır.
+// andan (att.uploadedAt) sayılır ve gönderime pay bırakır. Yanıtı alınamayan bir gönderim varsa ekler önceden
+// yeniden yüklenmez (composerReuploadStale). Sunucu gönderilen ekleri yine de tanımazsa (400 bad_uploads, ör. süre
+// sunucuda daha kısa ayarlanmış) bu ekler de yeniden yüklenir, metin yazma alanında kalır.
 
 const composerDrafts = new Map()
 const UPLOAD_FRESH_MS = 45 * 60 * 1000
@@ -156,6 +157,16 @@ function attachmentsReupload (list) {
   updateSendState()
 }
 
+// Konuşmaya dönülünce ve gönderirken süresi dolmak üzere olan ekler yeniden yüklenir. Yanıtı alınamayan bir
+// gönderim varsa (state.unsentMessage) yeniden yüklenmez: o mesaj sunucuya ulaşmış ve bu ekleri bağlamış
+// olabilir. Aynı yükleme kimlikleri aynı istemci kimliğini verir ve sunucu yinelemede ilk mesajı döndürür, mesaj
+// iki kez gitmez. Mesaj ulaşmadıysa ve ekler silindiyse sunucu bad_uploads döner, ekler o zaman yeniden yüklenir
+// (sendMessage).
+function composerReuploadStale (key) {
+  if (state.unsentMessage) return
+  attachmentsReupload(composerStaleAttachments(key))
+}
+
 function composerDropDraft (key) {
   composerDrafts.delete(key)
   state.attachments.filter((a) => a.convKey === key).forEach((a) => {
@@ -196,7 +207,7 @@ function composerEnter () {
   el.composerInput.value = draft ? draft.text : ''
   state.unsentMessage = draft ? draft.unsent : null
   // Taslakta uzun süre bekleyen ekler yeniden yüklenir
-  attachmentsReupload(composerStaleAttachments(key))
+  composerReuploadStale(key)
   composerShow(key)
 }
 
@@ -305,7 +316,7 @@ async function sendMessage (opts) {
   // Yalnızca açık konuşmanın ekleri gönderilir, başka konuşmada eklenenler kendi taslağında kalır
   const key = composerKey()
   // Sunucudaki kopyası silinmek üzere olan ekler gönderilmez, yeniden yüklenir
-  attachmentsReupload(composerStaleAttachments(key))
+  composerReuploadStale(key)
   const mine = composerAttachments(key)
   const raw = el.composerInput.value
   const text = raw.trim()
