@@ -49,6 +49,8 @@ window.I18N = (function () {
     'theme.skinHint.lamba': 'Ceviz kasa, fildişi kadran ve pirinç yazılarla 1950\'ler radyosu.',
     'theme.skin.fosfor': 'Fosfor',
     'theme.skinHint.fosfor': 'Yeşil fosforlu tarayıcı ekranı, açık modda LCD.',
+    'theme.skin.kutup': 'Kutup İstasyonu',
+    'theme.skinHint.kutup': 'Buzul mavisi ve parka turuncusu araştırma istasyonu.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2017,6 +2019,8 @@ window.I18N = (function () {
     'theme.skinHint.lamba': 'A 1950s tube radio with a walnut case, ivory dial and brass lettering.',
     'theme.skin.fosfor': 'Phosphor',
     'theme.skinHint.fosfor': 'A green phosphor scanner screen, LCD in light mode.',
+    'theme.skin.kutup': 'Polar Station',
+    'theme.skinHint.kutup': 'A research station in glacier blue and parka orange.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
