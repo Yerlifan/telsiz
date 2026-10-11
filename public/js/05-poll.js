@@ -57,7 +57,7 @@ async function pollLoop (generation) {
         // Beklenmeyen bir çizim hatası döngüyü durdurmamalı
         window.console.error(err)
       }
-      // Düşen bir profil isteği varsa ağ düzelince yeniden denenir (13-profile.js)
+      // Düşen profil isteği ve profil resmi indirmesi ağ düzelince yeniden denenir (13-profile.js)
       if (typeof profilesAfterPoll === 'function') profilesAfterPoll()
       // Müzik haritası (music, muv) ve sunucu saati (now): saat farkı isteğin gönderilme ve alınma
       // zamanlarıyla kestirilir

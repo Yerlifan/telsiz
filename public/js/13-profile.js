@@ -13,9 +13,13 @@ const PROFILE_FETCH_DELAY_MS = 30
 const PROFILE_RETRY_MS = [2000, 5000, 15000, 60000]
 // /api/profiles isteğine giren kullanıcı kimliği biçimi (diğerleri istenmeden kuyruktan düşer)
 const PROFILE_ID_RE = /^[1-9][0-9]{0,15}$/
-// Profil resmi indirmesi en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır
+// Profil resmi indirmesi kendiliğinden en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır.
+// Bunun dışında her başarılı poll (profileImagesAfterPoll) kalıcı olmayan bir hatayla düşmüş resmi, deneme hakkı bitmiş
+// olsa da, son denemeden AVATAR_POLL_RETRY_MS sonra (o an geçtiyse hemen) yeniden ister: ağ düzelince resim en geç 60
+// saniye içinde gelir.
 const AVATAR_TRIES = 4
 const AVATAR_RETRY_MS = [10000, 30000, 120000]
+const AVATAR_POLL_RETRY_MS = 60000
 const PROFILE_NAME_MAX = 32
 const PROFILE_STATUS_MAX = 128
 const PROFILE_BIO_MAX = 190
@@ -275,9 +279,11 @@ function profileRetryLater () {
 // Her başarılı poll'dan sonra (05-poll.js): bir profil isteği düştüyse metadaki pv değerleri önbellekle karşılaştırılır
 // ve eskiyen kişiler kuyruğa alınır. İstek bekleme süresi dolunca gider (scheduleProfileFetch zamanlayıcıyı retryAt'e
 // kurar), sonraki poll'u veya meta değişikliğini beklemez: ağ düzeldikten en geç 60 saniye sonra profiller gelir.
-// Hata yoksa hiçbir şey yapılmaz.
+// Düşen profil resimleri de aynı sürede yeniden istenir (profileImagesAfterPoll). Hata yoksa hiçbir şey yapılmaz.
 function profilesAfterPoll () {
-  if (!profileState.failures || profileState.fetching || !state.token) return
+  if (!state.token) return
+  profileImagesAfterPoll()
+  if (!profileState.failures || profileState.fetching) return
   const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
   users.forEach((u) => {
     if (!u || u.id === undefined) return
@@ -434,9 +440,11 @@ function verifyProfileKey (rec) {
 
 // Profil resimleri ve kapak fotoğrafları: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
 
-// Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer }. Düşen indirme 10 saniye,
-// 30 saniye ve 2 dakika sonra yeniden denenir (en çok AVATAR_TRIES deneme). Sunucu dosyayı bulamazsa (404), dosya
-// çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez. images: profileState.avatars veya covers.
+// Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer, retryAt (zamanlayıcının
+// çalışacağı an), permanent, userId, ref }. Düşen indirme 10 saniye, 30 saniye ve 2 dakika sonra yeniden denenir (en çok
+// AVATAR_TRIES deneme), başarılı poll'dan sonra da son denemenin üzerinden 60 saniye geçince (profileImagesAfterPoll).
+// Sunucu dosyayı bulamazsa (404), dosya çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez. images:
+// profileState.avatars veya covers.
 function loadAvatar (rec) {
   const ref = rec.profile && rec.profile.avatar
   if (ref) loadProfileImage(profileState.avatars, rec.id, ref)
@@ -478,13 +486,15 @@ function coverIdOf (userId) {
 
 function loadProfileImage (images, userId, ref) {
   if (images.get(ref.u)) return
-  const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0 }
+  const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0, retryAt: 0, permanent: false, userId: userId, ref: ref }
   images.set(ref.u, entry)
-  fetchProfileImage(images, userId, ref, entry)
+  fetchProfileImage(images, entry)
 }
 
-function fetchProfileImage (images, userId, ref, entry) {
+function fetchProfileImage (images, entry) {
   const gen = profileState.gen
+  const ref = entry.ref
+  const userId = entry.userId
   entry.state = 'loading'
   entry.tries += 1
   downloadPlain({ u: ref.u, k: ref.k, n: ref.n }, null).then((res) => {
@@ -492,12 +502,12 @@ function fetchProfileImage (images, userId, ref, entry) {
     entry.at = Date.now()
     if (!res.ok) {
       // 200 ile gelip çözülemeyen dosya da kalıcı hatadır
-      profileImageFailed(images, userId, ref, entry, res.status === 404 || res.status === 200)
+      profileImageFailed(images, entry, res.status === 404 || res.status === 200)
       return
     }
     const sniffed = window.E2EE.sniffImage(res.bytes)
     if (!sniffed || AVATAR_TYPES.indexOf(sniffed) === -1 || sniffed !== ref.m) {
-      profileImageFailed(images, userId, ref, entry, true)
+      profileImageFailed(images, entry, true)
       return
     }
     entry.url = URL.createObjectURL(new Blob([res.bytes], { type: sniffed }))
@@ -511,13 +521,45 @@ function fetchProfileImage (images, userId, ref, entry) {
   })
 }
 
-function profileImageFailed (images, userId, ref, entry, permanent) {
+function profileImageFailed (images, entry, permanent) {
   entry.state = 'failed'
+  entry.permanent = permanent
   if (permanent || entry.tries >= AVATAR_TRIES) return
+  retryProfileImageAt(images, entry, entry.at + AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
+}
+
+// Düşen indirmenin yeniden denemesini at anına (Date.now) kurar, kurulu zamanlayıcının yerini alır
+function retryProfileImageAt (images, entry, at) {
+  clearTimeout(entry.timer)
+  entry.retryAt = at
   entry.timer = setTimeout(() => {
     entry.timer = 0
-    if (images.get(ref.u) === entry) fetchProfileImage(images, userId, ref, entry)
-  }, AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
+    if (images.get(entry.ref.u) === entry) fetchProfileImage(images, entry)
+  }, Math.max(0, at - Date.now()))
+}
+
+// Her başarılı poll'dan sonra (profilesAfterPoll): kalıcı olmayan bir hatayla düşmüş profil resimleri ve gösterilen
+// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım) son denemeden AVATAR_POLL_RETRY_MS sonra (o an
+// geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince gelir. Son deneme ağ düzelmeden
+// önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç kurulmuş (2 dakikalık) deneme öne
+// çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra düşmeye devam eden resim sunucudan en
+// çok dakikada bir istenir.
+function profileImagesAfterPoll () {
+  profileState.avatars.forEach((entry) => {
+    retryProfileImageAfterPoll(profileState.avatars, entry)
+  })
+  const shown = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
+  shown.forEach((uploadId) => {
+    const entry = uploadId ? profileState.covers.get(uploadId) : null
+    if (entry) retryProfileImageAfterPoll(profileState.covers, entry)
+  })
+}
+
+function retryProfileImageAfterPoll (images, entry) {
+  if (entry.state !== 'failed' || entry.permanent) return
+  const at = Math.max(Date.now(), entry.at + AVATAR_POLL_RETRY_MS)
+  if (entry.timer && entry.retryAt <= at) return
+  retryProfileImageAt(images, entry, at)
 }
 
 function dropProfileImage (images, uploadId) {

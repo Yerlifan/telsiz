@@ -7,7 +7,8 @@
 // kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır. Profil eşitlemesi (istek 3): düşen profil isteğinin
 // artan beklemeyle yeniden denenmesi, başarılı poll'dan sonra bekleme dolunca yeniden istenmesi (ağ düzelince en geç
 // 60 saniye), ilk kez istenen kişinin ve kendi kaydedilen profilin beklemeye takılmaması, profil resmi indirmesinin
-// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
+// yeniden denenmesi, deneme hakkı bitse de başarılı poll'dan sonra ağ düzelince en geç 60 saniye içinde gelmesi ve
+// kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
 // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
 // bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
 // kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, önbelleğin son kullanılan
@@ -439,15 +440,16 @@ test('profil isteği beklerken gelen meta bekleme süresini kısaltmaz, ilk baş
 const AVATAR_ID = 'a'.repeat(32)
 const PNG_BYTES = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
-function avatarWorld (t, replies) {
+// replies: sıradaki yanıtların dizisi veya her indirmede yanıtı veren işlev. opts load'a geçer.
+function avatarWorld (t, replies, opts) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
-  const ctx = load({ clock: true })
+  const ctx = load(Object.assign({ clock: true }, opts))
   const keys = setupDm(ctx)
   const { E2EE, sandbox, run } = ctx
   const downloads = []
   sandbox.downloadPlain = (f) => {
     downloads.push(f.u)
-    const reply = replies.shift()
+    const reply = typeof replies === 'function' ? replies() : replies.shift()
     return Promise.resolve(reply || { ok: false, status: 0 })
   }
   sandbox.URL = { createObjectURL: () => 'blob:profil-resmi', revokeObjectURL () {} }
@@ -510,6 +512,140 @@ test('profil resmi yeniden denemede gelirse görünür, 404 ve çözülemeyen do
   t.mock.timers.tick(3600000)
   await flush()
   assert.strictEqual(world.downloads.length, 1)
+})
+
+test('deneme hakkı bitmiş profil resmi ağ düzelince başarılı poll ile en geç 60 saniye içinde gelir, istekler dakikada birden sık gitmez', async (t) => {
+  // İndirmeler recover saniyesine kadar düşer. Poll her every saniyede bir döner (phase: dönüş saniyesinin every'ye
+  // göre kalanı), sunucuya ulaşılamazken de başarılı dönen poll en çok isteğe yol açan durumdur. Saat saniye saniye
+  // ilerler. 50: üçüncü denemeden sonraki 2 dakikalık bekleme sürerken, 170: dört deneme de düştükten sonra.
+  for (const [recover, every, phase] of [[50, 25, 17], [50, 1, 0], [170, 25, 3], [170, 1, 0], [100, 25, 24], [300, 25, 0]]) {
+    let up = false
+    const { ctx, downloads } = avatarWorld(t, () => (up ? { ok: true, bytes: new Uint8Array(PNG_BYTES) } : { ok: false, status: 0 }))
+    const { run } = ctx
+    run("state.token = 'oturum'")
+    const t0 = Date.now()
+    const times = []
+    const record = () => {
+      while (times.length < downloads.length) times.push(Date.now() - t0)
+    }
+    await flush()
+    record()
+    let got = null
+    let s = 0
+    while (s < 600 && got === null) {
+      s += 1
+      t.mock.timers.tick(1000)
+      await flush()
+      record()
+      if (s === recover) up = true
+      if (s % every === phase) {
+        run('profilesAfterPoll()')
+        await flush()
+        record()
+      }
+      if (run('avatarUrlOf(2)') !== null) got = s
+    }
+    const label = 'ağ ' + recover + '. saniyede düzeldi, poll ' + every + ' saniyede bir (kalan ' + phase + ')'
+    assert.ok(got !== null && got - recover <= 60, label + ': resim ' + got + '. saniyede geldi, indirmeler ' + times.join(', '))
+    assert.strictEqual(run("profileState.changed.has('2')"), true, label + ': gelen resim çizim kuyruğuna girer')
+    // İlk iki yeniden deneme 10 ve 30 saniye sonradır, sonraki iki indirme arasında en az 60 saniye vardır
+    assert.deepStrictEqual(times.slice(0, 3), [0, 10000, 40000], label)
+    times.slice(3).forEach((at, i) => {
+      assert.ok(at - times[i + 2] >= 60000, label + ': ' + times[i + 2] + ' ve ' + at + ' ms')
+    })
+    t.mock.timers.reset()
+  }
+})
+
+test('başarılı poll kalıcı hatayı yeniden denemez, kısa yeniden denemeyi ertelemez, 2 dakikalık beklemeyi öne çeker', async (t) => {
+  let world = avatarWorld(t, [{ ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(PNG_BYTES) }])
+  let run = world.ctx.run
+  run("state.token = 'oturum'")
+  const tick = async (ms) => {
+    t.mock.timers.tick(ms)
+    await flush()
+  }
+  await flush()
+  assert.strictEqual(world.downloads.length, 1)
+  // İlk deneme düştü: 5. saniyedeki poll 10 saniyelik denemeyi ertelemez, öne de çekmez
+  await tick(5000)
+  run('profilesAfterPoll()')
+  await tick(4999)
+  assert.strictEqual(world.downloads.length, 1)
+  await tick(1)
+  assert.strictEqual(world.downloads.length, 2, '10 saniye sonra')
+  // İkinci deneme düştü: 30 saniyelik deneme poll'a rağmen yerinde kalır
+  await tick(10000)
+  run('profilesAfterPoll()')
+  await tick(20000)
+  assert.strictEqual(world.downloads.length, 3, '40. saniyede')
+  // Üçüncü deneme düştü, sıradaki deneme 2 dakika sonra (160. saniye). 50. saniyedeki poll denemeyi son denemenin
+  // üzerinden 60 saniye geçince (100. saniye) yapar
+  await tick(10000)
+  run('profilesAfterPoll()')
+  await tick(49999)
+  assert.strictEqual(world.downloads.length, 3)
+  await tick(1)
+  assert.strictEqual(world.downloads.length, 4, '100. saniyede')
+  assert.strictEqual(run('avatarUrlOf(2)'), 'blob:profil-resmi')
+  // Resim geldikten sonra poll indirme başlatmaz
+  run('profilesAfterPoll()')
+  await tick(3600000)
+  assert.strictEqual(world.downloads.length, 4)
+  t.mock.timers.reset()
+
+  // Kalıcı hata (404 ve çözülemeyen dosya) başarılı poll'dan sonra da yeniden istenmez
+  for (const reply of [{ ok: false, status: 404 }, { ok: false, status: 200 }]) {
+    world = avatarWorld(t, [reply])
+    run = world.ctx.run
+    run("state.token = 'oturum'")
+    await flush()
+    for (const wait of Array(5).fill(60000)) {
+      await tick(wait)
+      run('profilesAfterPoll()')
+    }
+    await tick(60000)
+    assert.strictEqual(world.downloads.length, 1, 'kalıcı hata (' + reply.status + ')')
+    t.mock.timers.reset()
+  }
+})
+
+test('başarılı poll deneme hakkı bitmiş kapağı yalnızca kart açıkken yeniden ister', async (t) => {
+  const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
+  const { run, sandbox } = ctx
+  let refreshed = 0
+  sandbox.__refresh = () => {
+    refreshed++
+  }
+  run('refreshProfileCardCover = function () { __refresh() }')
+  run("state.token = 'oturum'")
+  const tick = async (ms) => {
+    t.mock.timers.tick(ms)
+    await flush()
+  }
+  run('profileState.cardUserId = 2')
+  run('coverUrlOf(2, true)')
+  await flush()
+  for (const wait of [10000, 30000, 120000]) await tick(wait)
+  assert.strictEqual(downloads.length, 4)
+  assert.strictEqual(run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+  // Kart kapandı: poll kapağı istemez
+  run('profileState.cardUserId = null')
+  run('profilesAfterPoll()')
+  await tick(120000)
+  run('profilesAfterPoll()')
+  await tick(120000)
+  assert.strictEqual(downloads.length, 4, 'kapalı kartın kapağı istenmez')
+  // Kart yeniden açıldı: yeniden çizim indirmeyi yinelemez, sonraki başarılı poll kapağı hemen ister
+  run('profileState.cardUserId = 2')
+  run('coverUrlOf(2, true)')
+  await flush()
+  assert.strictEqual(downloads.length, 4)
+  run('profilesAfterPoll()')
+  await tick(0)
+  assert.strictEqual(downloads.length, 5)
+  assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
+  assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
 })
 
 test('profiller sıfırlanınca bekleyen profil resmi denemesi iptal olur', async (t) => {
