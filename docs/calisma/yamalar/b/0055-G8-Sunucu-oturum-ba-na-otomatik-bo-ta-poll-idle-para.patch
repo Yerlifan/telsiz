@@ -1,7 +1,7 @@
 From f42ff1472ad7b9d7e6570f8348895f3e57bbbff9 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 11 Oct 2026 13:42:54 +0000
-Subject: [PATCH 55/79] =?UTF-8?q?G8:=20Sunucu:=20oturum=20ba=C5=9F=C4=B1na?=
+Subject: [PATCH 55/80] =?UTF-8?q?G8:=20Sunucu:=20oturum=20ba=C5=9F=C4=B1na?=
  =?UTF-8?q?=20otomatik=20bo=C5=9Fta=20(poll=20idle=20parametresi)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

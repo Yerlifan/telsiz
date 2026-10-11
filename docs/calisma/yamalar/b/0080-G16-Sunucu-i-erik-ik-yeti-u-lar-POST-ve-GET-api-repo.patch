@@ -1,0 +1,773 @@
+From 24243d94edda8cda944593cb2aab2c015855ebe9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:21:54 +0000
+Subject: [PATCH 80/80] =?UTF-8?q?G16:=20Sunucu:=20i=C3=A7erik=20=C5=9Fik?=
+ =?UTF-8?q?=C3=A2yeti=20u=C3=A7lar=C4=B1=20(POST=20ve=20GET=20/api/reports?=
+ =?UTF-8?q?,=20=C3=A7=C3=B6zme),=20m=C3=BCh=C3=BCrl=C3=BC=20not,=20saatlik?=
+ =?UTF-8?q?=20s=C4=B1n=C4=B1r=20ve=20testler?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Üye okuyabildiği bir mesajı veya bir kişiyi frekans sahibine ve yöneticilere
+bildirir. Kayıtlar state.json reports listesinde (en çok 500), not yalnızca
+grup anahtarıyla mühürlü zarf olarak kabul edilir. Liste ve çözme yalnızca
+sahip ve yöneticiler içindir, özel görünümlerinde açık şikâyet sayısı vardır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ src/app.js                  | 210 +++++++++++++++++++-
+ src/i18n.js                 |  10 +
+ test/server-sikayet.test.js | 376 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 591 insertions(+), 5 deletions(-)
+ create mode 100644 test/server-sikayet.test.js
+
+diff --git a/src/app.js b/src/app.js
+index 2e0b45b..210db98 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -3,8 +3,8 @@
+ // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
+ // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
+ // özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
+-// YouTube araması, statik beyaz liste ve düzgün kapanış.
+-// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
++// YouTube araması, içerik şikâyetleri, statik beyaz liste ve düzgün kapanış.
++// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını, şikâyet notlarını,
+ // token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
+ // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
+ // Türkçe veya İngilizcedir (src/i18n.js).
+@@ -130,6 +130,9 @@ const DEFAULTS = Object.freeze({
+   callLimit: 10,
+   callWindowMs: 60000,
+   callRingMs: 45000,
++  // İçerik şikâyeti: kullanıcı başına saatte 10
++  reportLimit: 10,
++  reportWindowMs: 3600000,
+   maxFriends: 300,
+   maxPendingRequests: 100,
+   maxDmsPerUser: 500,
+@@ -157,7 +160,7 @@ const POSITIVE_OPTIONS = [
+   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
+   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
+   'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
+-  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs'
++  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs', 'reportLimit', 'reportWindowMs'
+ ]
+ const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
+ 
+@@ -184,6 +187,13 @@ const MAX_ROLES = 20
+ const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
+ const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
+ const MANAGED_TYPES = new Set(['text', 'voice'])
++// İçerik şikâyeti (POST /api/reports): türler, nedenler ve state.json içinde tutulan en çok kayıt. Notun düz metni
++// istemcide en çok 2000 kod noktasıdır ve grup anahtarıyla mühürlenir. Zarf sınırı kod noktası başına en çok 4
++// bayt ile JSON alanlarına pay bırakır: (2000 * 4 + 400) bayt base64url ile yaklaşık 11250 karakter.
++const REPORT_KINDS = new Set(['message', 'user'])
++const REPORT_REASONS = new Set(['spam', 'harassment', 'illegal', 'other'])
++const REPORTS_MAX = 500
++const REPORT_NOTE_MAX_CHARS = 12000
+ const IDENTITY_MAX_CHARS = 2000
+ // Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
+ // (101 parça, en uzun adlar, dolu gone listesi) yaklaşık 105000 karakterdir.
+@@ -463,6 +473,38 @@ function publicRole (role) {
+   return { id: role.id, name: role.name, color: role.color, perms: role.perms.slice() }
+ }
+ 
++function finiteTime (value) {
++  return typeof value === 'number' && Number.isFinite(value) && value >= 0
++}
++
++// Şikâyet kaydı: { id, kind, reporterId, targetUserId, channelId, messageId, dm, reason, note, createdAt, resolvedAt,
++// resolvedBy }. Mesaj şikâyetinde channelId ve messageId vardır, dm mesajın özel konuşmada olduğunu gösterir. Kişi
++// şikâyetinde ikisi de null'dır. note grup anahtarıyla mühürlü zarf veya null. Geçersizse null.
++function cleanReport (value) {
++  if (!value || typeof value !== 'object' || Array.isArray(value) || !isId(value.id)) return null
++  if (!REPORT_KINDS.has(value.kind) || !REPORT_REASONS.has(value.reason)) return null
++  if (!isId(value.reporterId) || !isId(value.targetUserId) || !finiteTime(value.createdAt)) return null
++  const message = value.kind === 'message'
++  if (message ? !(isId(value.channelId) && isId(value.messageId)) : (value.channelId !== null || value.messageId !== null)) return null
++  if (value.note !== null && !validEnvelope(value.note, REPORT_NOTE_MAX_CHARS)) return null
++  const resolved = value.resolvedAt !== null
++  if (resolved ? !(finiteTime(value.resolvedAt) && isId(value.resolvedBy)) : value.resolvedBy !== null) return null
++  return {
++    id: value.id,
++    kind: value.kind,
++    reporterId: value.reporterId,
++    targetUserId: value.targetUserId,
++    channelId: message ? value.channelId : null,
++    messageId: message ? value.messageId : null,
++    dm: message && value.dm === true,
++    reason: value.reason,
++    note: value.note,
++    createdAt: value.createdAt,
++    resolvedAt: value.resolvedAt,
++    resolvedBy: value.resolvedBy
++  }
++}
++
+ // Yüklenen durumun temel kayıtlarını denetler. Bozuksa hiçbir şeyi değiştirmeden hata fırlatır.
+ // Silinmiş hesaplar (deleted: true) adsız ve karmasız kalır, mesaj yazarı olarak tutulur.
+ function checkLoadedState (store, state, lang) {
+@@ -691,6 +733,28 @@ function normalizeLoadedState (state, config, log) {
+     if (state.counters.role !== undefined || maxRole > 0) changed = true
+     state.counters.role = Math.max(maxRole, Number.isSafeInteger(state.counters.role) && state.counters.role > 0 ? state.counters.role : 0)
+   }
++  // Şikâyetler eski durum dosyalarında yoktur, boş listeyle başlar (yazım gerekmez). Liste oluşturulma sırasıyla
++  // tutulur, fazlası en eskiden düşer.
++  if (state.reports === undefined) {
++    state.reports = []
++  } else {
++    const seenReports = new Set()
++    const reports = (Array.isArray(state.reports) ? state.reports : []).map(cleanReport).filter((r) => {
++      if (!r || seenReports.has(r.id)) return false
++      seenReports.add(r.id)
++      return true
++    }).slice(-REPORTS_MAX)
++    if (!sameJson(reports, state.reports)) {
++      log.warn(i18n.t(lang, 'log.invalidReports'))
++      state.reports = reports
++      changed = true
++    }
++  }
++  const maxReport = state.reports.reduce((max, r) => Math.max(max, r.id), 0)
++  if (!Number.isSafeInteger(state.counters.report) || state.counters.report < maxReport) {
++    if (state.counters.report !== undefined || maxReport > 0) changed = true
++    state.counters.report = Math.max(maxReport, Number.isSafeInteger(state.counters.report) && state.counters.report > 0 ? state.counters.report : 0)
++  }
+   // Hesabın özel rolü ve ses susturması eski kayıtlarda yoktur (yazım gerekmez), silinen role bağlı rol kalkar
+   const roleIds = new Set(state.roles.map((r) => r.id))
+   for (const u of state.users) {
+@@ -824,7 +888,7 @@ function prepareState (store, config, log) {
+       serverIcon: null,
+       inviteCode: auth.generateCode(),
+       activeKid: null,
+-      counters: { user: 0, channel: 0, message: 0, role: 0 },
++      counters: { user: 0, channel: 0, message: 0, role: 0, report: 0 },
+       users: [],
+       sessions: [],
+       channels: [],
+@@ -835,6 +899,8 @@ function prepareState (store, config, log) {
+       blocks: [],
+       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
+       roles: [],
++      // İçerik şikâyetleri (sahip ve yöneticiler görür), oluşturulma sırasıyla
++      reports: [],
+       // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
+       music: cleanMusicSettings(null),
+       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
+@@ -1034,12 +1100,15 @@ async function createChatServer (options) {
+   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
+   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
+   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
++  // İçerik şikâyeti (sahip ve yöneticilerin listesini doldurmasın diye ayrıca sınırlanır)
++  const reportLimiter = new auth.RateLimiter(config.reportLimit, config.reportWindowMs)
+   // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
+   // YouTube'a giden her istekte spendSearchBudget ile düşer)
+   const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
+   const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
+   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
+-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily]
++    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily,
++    reportLimiter]
+   const trustsProxy = auth.trustPolicy(config.trustedProxies)
+   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
+   let proxyWarned = false
+@@ -1204,6 +1273,8 @@ async function createChatServer (options) {
+       view = user
+         ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
+         : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
++      // Sahip ve yöneticiler açık şikâyet sayısını görür (liste GET /api/reports ile alınır)
++      if (user && !user.deleted && isStaff(user)) view.reports = openReportCount()
+       privateCache.set(userId, view)
+     }
+     return view
+@@ -2910,6 +2981,8 @@ async function createChatServer (options) {
+       target.role = b.role
+       store.saveState()
+       hub.bumpMeta()
++      // Yöneticinin özel görünümünde açık şikâyet sayısı vardır
++      privateChanged([target.id])
+     }
+     return okDurable(ctx, { ok: true })
+   }
+@@ -2948,6 +3021,130 @@ async function createChatServer (options) {
+     return okDurable(ctx, { ok: true })
+   }
+ 
++  // ---------------------------------------------------------------- uç noktalar: içerik şikâyeti
++
++  function staffIds () {
++    return state.users.filter((u) => !u.deleted && isStaff(u)).map((u) => u.id)
++  }
++
++  function openReportCount () {
++    let n = 0
++    for (const r of state.reports) {
++      if (r.resolvedAt === null) n++
++    }
++    return n
++  }
++
++  function takeReportSlot (ctx) {
++    const wait = reportLimiter.consume('u' + ctx.user.id, ctx.now)
++    if (wait === 0) return true
++    tooMany(ctx, wait, 'detail.reportRate')
++    return false
++  }
++
++  // Silinmiş hesabın adı boş döner
++  function liveNameOf (userId) {
++    const user = userId === null ? null : usersById.get(userId)
++    return user && !user.deleted ? user.name : ''
++  }
++
++  function reportView (r) {
++    return {
++      id: r.id,
++      kind: r.kind,
++      reporterId: r.reporterId,
++      reporterName: liveNameOf(r.reporterId),
++      targetUserId: r.targetUserId,
++      targetName: liveNameOf(r.targetUserId),
++      channelId: r.channelId,
++      messageId: r.messageId,
++      dm: r.dm,
++      reason: r.reason,
++      note: r.note,
++      createdAt: r.createdAt,
++      resolvedAt: r.resolvedAt,
++      resolvedBy: r.resolvedBy,
++      resolverName: liveNameOf(r.resolvedBy)
++    }
++  }
++
++  // POST /api/reports { kind, channelId?, messageId?, targetUserId, reason, note? }: üye bir mesajı (okuyabildiği
++  // yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
++  // Sunucu kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini görür. note grup anahtarıyla mühürlü bir zarftır
++  // (düz metin kabul edilmez), özel mesaj şikâyetinde kişi mesajın çözülmüş metnini isterse bu nota koyar. Aynı
++  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz. Liste doluysa en eski çözülmüş şikâyet
++  // düşer, hepsi açıksa 503 reports_full döner.
++  function handleReportCreate (ctx) {
++    const b = ctx.body
++    if (!REPORT_KINDS.has(b.kind) || !REPORT_REASONS.has(b.reason)) return fail(ctx, 400, 'bad_request')
++    const note = b.note === undefined || b.note === null ? null : b.note
++    if (note !== null && !validEnvelope(note, REPORT_NOTE_MAX_CHARS)) return fail(ctx, 400, 'bad_report_note')
++    let target = null
++    let found = null
++    if (b.kind === 'message') {
++      found = findLiveMessage(b.messageId, ctx.user)
++      if (!found || toId(b.channelId) !== found.message.channelId) return fail(ctx, 404, 'message_not_found')
++      if (toId(b.targetUserId) !== found.message.authorId) return fail(ctx, 400, 'bad_request')
++      target = usersById.get(found.message.authorId) || null
++      if (!target) return fail(ctx, 404, 'user_not_found')
++    } else {
++      if ((b.channelId !== undefined && b.channelId !== null) || (b.messageId !== undefined && b.messageId !== null)) return fail(ctx, 400, 'bad_request')
++      target = findLiveUser(b.targetUserId)
++      if (!target) return fail(ctx, 404, 'user_not_found')
++    }
++    if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
++    const messageId = found ? found.message.id : null
++    const same = state.reports.find((r) => r.resolvedAt === null && r.reporterId === ctx.user.id && r.kind === b.kind &&
++      (found ? r.messageId === messageId : r.targetUserId === target.id))
++    if (same) return ok(ctx, { ok: true, id: same.id, duplicate: true })
++    if (!takeReportSlot(ctx)) return
++    if (state.reports.length >= REPORTS_MAX) {
++      const oldest = state.reports.findIndex((r) => r.resolvedAt !== null)
++      if (oldest === -1) return fail(ctx, 503, 'reports_full')
++      state.reports.splice(oldest, 1)
++    }
++    state.counters.report++
++    const report = {
++      id: state.counters.report,
++      kind: b.kind,
++      reporterId: ctx.user.id,
++      targetUserId: target.id,
++      channelId: found ? found.message.channelId : null,
++      messageId,
++      dm: Boolean(found && found.channel.type === 'dm'),
++      reason: b.reason,
++      note,
++      createdAt: ctx.now,
++      resolvedAt: null,
++      resolvedBy: null
++    }
++    state.reports.push(report)
++    store.saveState()
++    privateChanged(staffIds())
++    return okDurable(ctx, { ok: true, id: report.id })
++  }
++
++  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce
++  function handleReportsList (ctx) {
++    if (!requireStaff(ctx)) return
++    ok(ctx, { reports: state.reports.slice().reverse().map(reportView) })
++  }
++
++  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz.
++  function handleReportResolve (ctx) {
++    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
++    const id = toId(ctx.body.id)
++    const report = id === null ? null : state.reports.find((r) => r.id === id) || null
++    if (!report) return fail(ctx, 404, 'report_not_found')
++    if (report.resolvedAt === null) {
++      report.resolvedAt = ctx.now
++      report.resolvedBy = ctx.user.id
++      store.saveState()
++      privateChanged(staffIds())
++    }
++    return okDurable(ctx, { ok: true, report: reportView(report) })
++  }
++
+   // ---------------------------------------------------------------- uç noktalar: özel roller
+ 
+   // İzin listesi: ROLE_PERMS içinden, tekrarsız ve ROLE_PERMS sırasıyla. Geçersizse null.
+@@ -3630,6 +3827,9 @@ async function createChatServer (options) {
+   route('/api/users/ban', 'POST', handleUserBan)
+   route('/api/users/kick', 'POST', handleUserKick)
+   route('/api/users/custom-role', 'POST', handleUserCustomRole)
++  route('/api/reports', 'GET', handleReportsList)
++  route('/api/reports', 'POST', handleReportCreate)
++  route('/api/reports/resolve', 'POST', handleReportResolve)
+   route('/api/roles/create', 'POST', handleRoleCreate)
+   route('/api/roles/update', 'POST', handleRoleUpdate)
+   route('/api/roles/delete', 'POST', handleRoleDelete)
+diff --git a/src/i18n.js b/src/i18n.js
+index 6d5c69e..765cea4 100644
+--- a/src/i18n.js
++++ b/src/i18n.js
+@@ -97,6 +97,9 @@ const messages = {
+       bad_avatar: 'Profil resmi geçersiz.',
+       avatar_too_large: 'Profil resmi çok büyük.',
+       bad_status: 'Durum geçersiz. Çevrimiçi, boşta, rahatsız etmeyin veya görünmez seçilebilir.',
++      bad_report_note: 'Şikâyet notu geçersiz veya çok uzun.',
++      report_not_found: 'Şikâyet bulunamadı.',
++      reports_full: 'Şikâyet listesi dolu. Frekans sahibi ve yöneticiler açık şikâyetleri çözünce yeniden deneyin.',
+       shutting_down: 'Sunucu kapanıyor.',
+       server_error: 'Sunucuda beklenmeyen bir hata oluştu.'
+     },
+@@ -124,6 +127,7 @@ const messages = {
+       musicSearchFailed: 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.',
+       musicSearchDaily: 'Bu sunucunun son 24 saatlik YouTube arama sınırı doldu. YouTube bağlantısını yapıştırın.',
+       musicSearchQuery: 'Arama metni 1 ile {max} karakter arasında olmalıdır.',
++      reportRate: 'Kısa sürede çok fazla şikâyet gönderildi. Lütfen daha sonra yeniden deneyin.',
+       uploadTooLarge: 'Dosya çok büyük. En fazla {mb} MB yüklenebilir.',
+       fileTooLarge: 'Dosya çok büyük.'
+     },
+@@ -149,6 +153,7 @@ const messages = {
+       invalidUploads: 'Uyarı: veri dosyasındaki {count} geçersiz yükleme kaydı yok sayıldı.',
+       invalidAvatars: 'Uyarı: veri dosyasındaki {count} geçersiz profil resmi bağlantısı kaldırıldı.',
+       invalidRoles: 'Uyarı: veri dosyasındaki geçersiz rol kayıtları düzeltildi.',
++      invalidReports: 'Uyarı: veri dosyasındaki geçersiz şikâyet kayıtları düzeltildi.',
+       serverIconMissing: 'Uyarı: frekans fotoğrafı dosyası eksik veya geçersiz, fotoğraf kaldırıldı.',
+       serverIconRemoveFailed: 'Uyarı: eski frekans fotoğrafı silinemedi: {error}',
+       invalidSocial: 'Uyarı: veri dosyasındaki geçersiz arkadaşlık veya engel kayıtları silindi.',
+@@ -352,6 +357,9 @@ const messages = {
+       bad_avatar: 'The profile picture is invalid.',
+       avatar_too_large: 'The profile picture is too large.',
+       bad_status: 'The status is invalid. Choose online, idle, do not disturb or invisible.',
++      bad_report_note: 'The report note is invalid or too long.',
++      report_not_found: 'Report not found.',
++      reports_full: 'The report list is full. Try again after the frequency owner and admins resolve open reports.',
+       shutting_down: 'The server is shutting down.',
+       server_error: 'An unexpected error occurred on the server.'
+     },
+@@ -379,6 +387,7 @@ const messages = {
+       musicSearchFailed: 'The YouTube search failed. Try again later or paste a link.',
+       musicSearchDaily: 'This server\'s YouTube search limit for the last 24 hours has been reached. Paste a YouTube link.',
+       musicSearchQuery: 'The search text must be between 1 and {max} characters.',
++      reportRate: 'Too many reports were sent in a short time. Please try again later.',
+       uploadTooLarge: 'The file is too large. The maximum size is {mb} MB.',
+       fileTooLarge: 'The file is too large.'
+     },
+@@ -404,6 +413,7 @@ const messages = {
+       invalidUploads: 'Warning: {count} invalid upload records in the data file were ignored.',
+       invalidAvatars: 'Warning: {count} invalid profile picture links in the data file were removed.',
+       invalidRoles: 'Warning: invalid role records in the data file were corrected.',
++      invalidReports: 'Warning: invalid report records in the data file were corrected.',
+       serverIconMissing: 'Warning: the frequency photo file is missing or invalid, the photo was removed.',
+       serverIconRemoveFailed: 'Warning: the old frequency photo could not be deleted: {error}',
+       invalidSocial: 'Warning: invalid friendship or block records in the data file were removed.',
+diff --git a/test/server-sikayet.test.js b/test/server-sikayet.test.js
+new file mode 100644
+index 0000000..3a866e8
+--- /dev/null
++++ b/test/server-sikayet.test.js
+@@ -0,0 +1,376 @@
++'use strict'
++
++// İçerik şikâyeti (POST /api/reports, GET /api/reports, POST /api/reports/resolve): üye okuyabildiği bir mesajı
++// (yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
++// Yetki (listeyi ve çözmeyi yalnızca sahip ve yöneticiler görür), alan denetimleri, aynı şikâyetin yinelenmemesi,
++// kullanıcı başına saatlik hız sınırı, notun yalnızca grup anahtarıyla mühürlü zarf olarak kabul edilmesi ve
++// diskte düz metin bulunmaması, özel görünümdeki açık şikâyet sayısı, kalıcılık ve 500 kayıt sınırı sınanır.
++
++const { describe, it } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const i18n = require('../src/i18n')
++const h = require('./server-yardimci')
++
++const TEXT = 1
++const PLAIN_NOTE = 'DUZ-METIN-SIKAYET-NOTU'
++
++async function group (options) {
++  const ctx = await h.startServer(options)
++  const owner = await h.setupOwner(ctx)
++  const admin = await h.addUser(ctx, owner.token, 'yonetici')
++  const ayse = await h.addUser(ctx, owner.token, 'ayse')
++  const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
++  const ali = await h.addUser(ctx, owner.token, 'ali')
++  await h.makeAdmin(ctx, owner.token, admin.user.id)
++  return { ctx, owner, admin, ayse, mehmet, ali }
++}
++
++function report (ctx, who, body) {
++  return h.post(ctx, '/api/reports', who.token, body)
++}
++
++function messageReport (message, extra) {
++  return Object.assign({ kind: 'message', channelId: message.channelId, messageId: message.id, targetUserId: message.authorId, reason: 'spam' }, extra || {})
++}
++
++function userReport (target, extra) {
++  return Object.assign({ kind: 'user', targetUserId: target.user.id, reason: 'harassment' }, extra || {})
++}
++
++async function list (ctx, who) {
++  const res = await h.get(ctx, '/api/reports', who.token)
++  h.expectStatus(res, 200)
++  return res.data.reports
++}
++
++function resolve (ctx, who, id) {
++  return h.post(ctx, '/api/reports/resolve', who.token, { id })
++}
++
++async function openDm (ctx, from, to) {
++  const res = await h.post(ctx, '/api/dms/open', from.token, { userId: to.user.id })
++  h.expectStatus(res, 200)
++  return res.data.dm.id
++}
++
++function statePath (ctx) {
++  return path.join(ctx.dataDir, 'state.json')
++}
++
++function diskState (ctx) {
++  return JSON.parse(fs.readFileSync(statePath(ctx), 'utf8'))
++}
++
++// Veri klasöründeki bütün dosyalarda aranan metin var mı
++function dataDirHas (dir, text) {
++  const stack = [dir]
++  while (stack.length) {
++    const current = stack.pop()
++    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
++      const full = path.join(current, entry.name)
++      if (entry.isDirectory()) stack.push(full)
++      else if (entry.isFile() && fs.readFileSync(full).includes(text)) return true
++    }
++  }
++  return false
++}
++
++describe('içerik şikâyeti', () => {
++  it('üye yazı odasındaki mesajı bildirir, sahip ve yönetici listede görür, yönetici çözer', async () => {
++    const { ctx, owner, admin, ayse, mehmet } = await group()
++    try {
++      const m = await h.sendMessage(ctx, mehmet.token, TEXT)
++      const note = h.envelope(40)
++      const res = await report(ctx, ayse, messageReport(m, { reason: 'harassment', note }))
++      h.expectStatus(res, 200)
++      assert.deepEqual(Object.keys(res.data).sort(), ['id', 'ok'])
++      const id = res.data.id
++      // Yanıt geldiğinde şikâyet diske yazılmıştır
++      const saved = diskState(ctx).reports
++      assert.equal(saved.length, 1)
++      assert.equal(saved[0].note, note)
++
++      // Aynı kişinin aynı mesaj için açık şikâyeti yinelenmez
++      const again = await report(ctx, ayse, messageReport(m, { reason: 'spam' }))
++      h.expectStatus(again, 200)
++      assert.deepEqual(again.data, { ok: true, id, duplicate: true })
++
++      for (const staff of [owner, admin]) {
++        const reports = await list(ctx, staff)
++        assert.equal(reports.length, 1)
++        const r = reports[0]
++        assert.deepEqual(r, {
++          id,
++          kind: 'message',
++          reporterId: ayse.user.id,
++          reporterName: 'ayse',
++          targetUserId: mehmet.user.id,
++          targetName: 'mehmet',
++          channelId: TEXT,
++          messageId: m.id,
++          dm: false,
++          reason: 'harassment',
++          note,
++          createdAt: r.createdAt,
++          resolvedAt: null,
++          resolvedBy: null,
++          resolverName: ''
++        })
++        assert.equal(typeof r.createdAt, 'number')
++      }
++
++      // Liste ve çözme yalnızca sahip ve yöneticiler içindir
++      for (const who of [ayse, mehmet]) {
++        h.expectStatus(await h.get(ctx, '/api/reports', who.token), 403, 'forbidden')
++        h.expectStatus(await resolve(ctx, who, id), 403, 'forbidden')
++      }
++      h.expectStatus(await h.get(ctx, '/api/reports', null), 401, 'invalid_token')
++      h.expectStatus(await resolve(ctx, admin, 9999), 404, 'report_not_found')
++      h.expectStatus(await resolve(ctx, admin, 'x'), 404, 'report_not_found')
++
++      const done = await resolve(ctx, admin, id)
++      h.expectStatus(done, 200)
++      assert.equal(done.data.report.resolvedBy, admin.user.id)
++      assert.equal(done.data.report.resolverName, 'yonetici')
++      assert.equal(typeof done.data.report.resolvedAt, 'number')
++      assert.equal(diskState(ctx).reports[0].resolvedBy, admin.user.id)
++      // İkinci çözme ilk çözeni değiştirmez
++      const twice = await resolve(ctx, owner, id)
++      h.expectStatus(twice, 200)
++      assert.equal(twice.data.report.resolvedBy, admin.user.id)
++      assert.equal(twice.data.report.resolvedAt, done.data.report.resolvedAt)
++
++      // Çözülen şikâyetten sonra aynı mesaj yeniden bildirilebilir
++      const fresh = await report(ctx, ayse, messageReport(m))
++      h.expectStatus(fresh, 200)
++      assert.notEqual(fresh.data.id, id)
++      const reports = await list(ctx, owner)
++      assert.deepEqual(reports.map((r) => r.id), [fresh.data.id, id])
++      assert.equal(reports[0].note, null)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('kişi şikâyeti ve alan denetimleri', async () => {
++    const { ctx, owner, ayse, mehmet, ali } = await group()
++    try {
++      const m = await h.sendMessage(ctx, mehmet.token, TEXT)
++      const own = await h.sendMessage(ctx, ayse.token, TEXT)
++      h.expectStatus(await report(ctx, ayse, messageReport(m, { kind: 'mesaj' })), 400, 'bad_request')
++      h.expectStatus(await report(ctx, ayse, messageReport(m, { reason: 'kotu' })), 400, 'bad_request')
++      h.expectStatus(await report(ctx, ayse, { kind: 'message', reason: 'spam' }), 404, 'message_not_found')
++      h.expectStatus(await report(ctx, ayse, messageReport(m, { messageId: 99999 })), 404, 'message_not_found')
++      // Oda kimliği mesajın odası olmalı, hedef mesajın yazarı olmalı
++      h.expectStatus(await report(ctx, ayse, messageReport(m, { channelId: TEXT + 1 })), 404, 'message_not_found')
++      h.expectStatus(await report(ctx, ayse, messageReport(m, { targetUserId: ali.user.id })), 400, 'bad_request')
++      // Kendi mesajı ve kendisi bildirilemez
++      h.expectStatus(await report(ctx, ayse, messageReport(own)), 400, 'self')
++      h.expectStatus(await report(ctx, ayse, userReport(ayse)), 400, 'self')
++      // Kişi şikâyetinde mesaj alanları olmaz
++      h.expectStatus(await report(ctx, ayse, userReport(mehmet, { messageId: m.id })), 400, 'bad_request')
++      h.expectStatus(await report(ctx, ayse, userReport(mehmet, { channelId: TEXT })), 400, 'bad_request')
++      h.expectStatus(await report(ctx, ayse, { kind: 'user', targetUserId: 9999, reason: 'spam' }), 404, 'user_not_found')
++      h.expectStatus(await report(ctx, ayse, { kind: 'user', reason: 'spam' }), 404, 'user_not_found')
++
++      const res = await report(ctx, ayse, userReport(mehmet, { channelId: null, messageId: null }))
++      h.expectStatus(res, 200)
++      const dup = await report(ctx, ayse, userReport(mehmet, { reason: 'other' }))
++      assert.deepEqual(dup.data, { ok: true, id: res.data.id, duplicate: true })
++      // Başka biri aynı kişiyi ayrıca bildirebilir
++      const other = await report(ctx, ali, userReport(mehmet))
++      h.expectStatus(other, 200)
++      assert.notEqual(other.data.id, res.data.id)
++      const reports = await list(ctx, owner)
++      assert.deepEqual(reports.map((r) => [r.kind, r.reporterId, r.targetUserId, r.channelId, r.messageId, r.dm, r.reason]), [
++        ['user', ali.user.id, mehmet.user.id, null, null, false, 'harassment'],
++        ['user', ayse.user.id, mehmet.user.id, null, null, false, 'harassment']
++      ])
++
++      // Sahip de bildirilebilir (yöneticiler görür), silinmiş hesap bildirilemez ama eski şikâyette adı boş kalır
++      h.expectStatus(await report(ctx, ali, userReport(owner, { reason: 'other' })), 200)
++      h.expectStatus(await h.post(ctx, '/api/users/kick', owner.token, { userId: mehmet.user.id }), 200)
++      h.expectStatus(await report(ctx, ali, userReport(mehmet)), 404, 'user_not_found')
++      const after = await list(ctx, owner)
++      assert.deepEqual(after.filter((r) => r.targetUserId === mehmet.user.id).map((r) => r.targetName), ['', ''])
++      // Silinmiş yazarın mesajı yine bildirilebilir
++      h.expectStatus(await report(ctx, ali, messageReport(m)), 200)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('not yalnızca mühürlü zarf olarak kabul edilir, diskte düz metin bulunmaz', async () => {
++    const { ctx, owner, ayse, mehmet } = await group()
++    let running = true
++    try {
++      const m = await h.sendMessage(ctx, mehmet.token, TEXT)
++      const bad = [PLAIN_NOTE, '', 42, { t: PLAIN_NOTE }, h.dmEnvelope(10), '1.' + PLAIN_NOTE, h.envelope(12001)]
++      for (const note of bad) {
++        h.expectStatus(await report(ctx, ayse, messageReport(m, { note })), 400, 'bad_report_note')
++      }
++      h.expectStatus(await report(ctx, ayse, userReport(mehmet, { note: PLAIN_NOTE })), 400, 'bad_report_note')
++      assert.deepEqual(await list(ctx, owner), [])
++      // Sınıra kadar büyük zarf kabul edilir (2000 karakterlik notun en kötü durumu sığar)
++      const big = h.envelope(8000)
++      assert.ok(big.length <= 12000 && big.length > 10000, String(big.length))
++      const res = await report(ctx, ayse, messageReport(m, { note: big }))
++      h.expectStatus(res, 200)
++      const lang = await h.request(ctx, 'POST', '/api/reports', { token: ayse.token, body: userReport(mehmet, { note: PLAIN_NOTE }), headers: { 'accept-language': 'en' } })
++      assert.equal(lang.data.error, i18n.t('en', 'errors.bad_report_note'))
++      running = false
++      await ctx.stop()
++      assert.equal(dataDirHas(ctx.dataDir, PLAIN_NOTE), false)
++      assert.equal(diskState(ctx).reports[0].note, big)
++    } finally {
++      if (running) await ctx.cleanup()
++      else h.removeRoot(ctx.root)
++    }
++  })
++
++  it('özel mesaj şikâyeti: yalnızca konuşmanın üyesi bildirir, kayıt özel konuşmayı gösterir', async () => {
++    const { ctx, owner, ayse, mehmet, ali } = await group()
++    try {
++      const dmId = await openDm(ctx, ayse, mehmet)
++      const res = await h.post(ctx, '/api/messages', mehmet.token, { channelId: dmId, body: h.dmEnvelope() })
++      h.expectStatus(res, 200)
++      const dm = res.data.message
++      // Üye olmayan (sahip dahil) mesajı göremez ve bildiremez
++      for (const who of [ali, owner]) {
++        h.expectStatus(await report(ctx, who, messageReport(dm)), 404, 'message_not_found')
++      }
++      h.expectStatus(await report(ctx, mehmet, messageReport(dm)), 400, 'self')
++      // Engel konmuş olsa da bildirilebilir
++      h.expectStatus(await h.post(ctx, '/api/blocks/add', ayse.token, { userId: mehmet.user.id }), 200)
++      const quoteNote = h.envelope(60)
++      h.expectStatus(await report(ctx, ayse, messageReport(dm, { reason: 'illegal', note: quoteNote })), 200)
++      const [r] = await list(ctx, owner)
++      assert.equal(r.dm, true)
++      assert.equal(r.channelId, dmId)
++      assert.equal(r.messageId, dm.id)
++      assert.equal(r.note, quoteNote)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('kullanıcı başına hız sınırı, yinelenen şikâyet sınırı harcamaz', async () => {
++    const { ctx, ayse, mehmet, ali, owner } = await group({ reportLimit: 3 })
++    try {
++      const msgs = []
++      for (const i of h.times(4)) msgs[i] = await h.sendMessage(ctx, mehmet.token, TEXT)
++      for (const i of h.times(3)) h.expectStatus(await report(ctx, ayse, messageReport(msgs[i])), 200)
++      // Yineleme sınırdayken de aynı yanıtı alır
++      const dup = await report(ctx, ayse, messageReport(msgs[0]))
++      h.expectStatus(dup, 200)
++      assert.equal(dup.data.duplicate, true)
++      const limited = await report(ctx, ayse, messageReport(msgs[3]))
++      h.expectStatus(limited, 429, 'rate_limited')
++      assert.ok(Number(limited.headers['retry-after']) >= 1)
++      assert.equal(limited.data.error, i18n.t('en', 'detail.reportRate'))
++      // Sınır kişiye özeldir
++      h.expectStatus(await report(ctx, ali, messageReport(msgs[3])), 200)
++      assert.equal((await list(ctx, owner)).length, 4)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('sahip ve yöneticilerin özel görünümünde açık şikâyet sayısı, üyelerde yok', async () => {
++    const { ctx, owner, admin, ayse, mehmet } = await group()
++    try {
++      const priv = async (who) => (await h.stateOf(ctx, who.token)).private
++      assert.equal((await priv(owner)).reports, 0)
++      assert.equal((await priv(admin)).reports, 0)
++      assert.equal('reports' in (await priv(ayse)), false)
++      const st = await h.stateOf(ctx, owner.token)
++      const p = h.poller(ctx, owner.token, st)
++      const waiting = h.nextRequest(ctx.server, '/api/poll')
++      const pending = p.poll()
++      await waiting
++      const res = await report(ctx, ayse, userReport(mehmet))
++      h.expectStatus(res, 200)
++      const woke = await pending
++      h.expectStatus(woke, 200)
++      assert.equal(woke.data.private.reports, 1)
++      assert.equal((await priv(admin)).reports, 1)
++      assert.equal('reports' in (await priv(ayse)), false)
++      h.expectStatus(await resolve(ctx, admin, res.data.id), 200)
++      assert.equal((await priv(owner)).reports, 0)
++      // Yönetici olan üye sayıyı görür, üyeliğe dönen yönetici görmez
++      h.expectStatus(await report(ctx, ayse, userReport(owner)), 200)
++      await h.makeAdmin(ctx, owner.token, mehmet.user.id)
++      assert.equal((await priv(mehmet)).reports, 1)
++      h.expectStatus(await h.post(ctx, '/api/users/role', owner.token, { userId: mehmet.user.id, role: 'member' }), 200)
++      assert.equal('reports' in (await priv(mehmet)), false)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('kalıcılık, bozuk kayıtların ayıklanması ve 500 kayıt sınırı', async () => {
++    let ctx = await h.startServer()
++    try {
++      const owner = await h.setupOwner(ctx)
++      const ayse = await h.addUser(ctx, owner.token, 'ayse')
++      const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
++      const first = await report(ctx, ayse, userReport(mehmet))
++      h.expectStatus(first, 200)
++      ctx = await ctx.restart()
++      const kept = await list(ctx, owner)
++      assert.deepEqual(kept.map((r) => [r.id, r.kind, r.targetUserId]), [[first.data.id, 'user', mehmet.user.id]])
++
++      // Diskteki listeye bozuk kayıtlar ve sınırı dolduran kayıtlar yazılır
++      await ctx.stop()
++      const disk = diskState(ctx)
++      const base = disk.reports[0]
++      const filler = []
++      for (const i of h.times(499)) {
++        filler.push(Object.assign({}, base, { id: 100 + i, createdAt: base.createdAt + i, resolvedAt: i === 5 ? base.createdAt + 10 : null, resolvedBy: i === 5 ? owner.user.id : null }))
++      }
++      disk.reports = [base].concat([
++        { id: 'x' },
++        Object.assign({}, base, { id: 7, note: PLAIN_NOTE }),
++        Object.assign({}, base, { id: 8, kind: 'message', channelId: null }),
++        Object.assign({}, base, { id: 9, resolvedAt: 5, resolvedBy: null }),
++        Object.assign({}, base, { id: first.data.id })
++      ], filler)
++      disk.counters.report = 1
++      fs.writeFileSync(statePath(ctx), JSON.stringify(disk))
++      ctx = await h.startServer({}, ctx.root)
++      assert.ok(ctx.log.lines.warn.some((line) => line === i18n.t('tr', 'log.invalidReports')), ctx.log.lines.warn.join('\n'))
++      assert.equal((await list(ctx, owner)).length, 500)
++      // Düzeltilen durum kısa bir gecikmeyle diske yazılır
++      const loaded = await h.waitFor(() => {
++        const d = diskState(ctx)
++        return d.reports.length === 500 ? d : null
++      }, { label: 'düzeltilen şikâyet listesi diske yazılmadı' })
++      assert.equal(loaded.counters.report, 598)
++      // Bozuk kayıt yeni durum dosyasında yok (önceki sürüm state.json.bak olarak durur)
++      assert.equal(fs.readFileSync(statePath(ctx), 'utf8').includes(PLAIN_NOTE), false)
++
++      // Liste doluyken en eski çözülmüş şikâyet düşer
++      const ali = await h.addUser(ctx, owner.token, 'ali')
++      const next = await report(ctx, ali, userReport(mehmet))
++      h.expectStatus(next, 200)
++      assert.equal(next.data.id, 599)
++      let reports = await list(ctx, owner)
++      assert.equal(reports.length, 500)
++      assert.equal(reports.some((r) => r.id === 105), false)
++      assert.equal(reports[0].id, 599)
++      // Hepsi açıkken yeni şikâyet reddedilir
++      const full = await report(ctx, ali, userReport(ayse))
++      h.expectStatus(full, 503, 'reports_full')
++      reports = await list(ctx, owner)
++      assert.equal(reports.length, 500)
++      // Çözülen yer açar
++      h.expectStatus(await resolve(ctx, owner, 120), 200)
++      h.expectStatus(await report(ctx, ali, userReport(ayse)), 200)
++      assert.equal((await list(ctx, owner)).some((r) => r.id === 120), false)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++})
