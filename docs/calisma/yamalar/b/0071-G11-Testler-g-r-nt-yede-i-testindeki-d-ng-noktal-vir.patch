@@ -1,0 +1,33 @@
+From 3b2df9fd21708fd07f8a8d418345fd29a55c14ee Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:17:59 +0000
+Subject: [PATCH 71/71] =?UTF-8?q?G11:=20Testler:=20g=C3=B6r=C3=BCnt=C3=BC?=
+ =?UTF-8?q?=20yede=C4=9Fi=20testindeki=20d=C3=B6ng=C3=BC=20noktal=C4=B1=20?=
+ =?UTF-8?q?virg=C3=BCls=C3=BCz=20yaz=C4=B1l=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/20-yuzen.test.js | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/e2e/20-yuzen.test.js b/e2e/20-yuzen.test.js
+index d960fc3..f88413c 100644
+--- a/e2e/20-yuzen.test.js
++++ b/e2e/20-yuzen.test.js
+@@ -191,7 +191,11 @@ test('görüntü yedeği: belge resim içinde resim yokken tuval akışı resim
+       if (!c) return null
+       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+       const colors = new Set()
+-      for (let i = 0; i < d.length; i += 4 * 97) colors.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2])
++      let i = 0
++      while (i < d.length) {
++        colors.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2])
++        i += 4 * 97
++      }
+       return colors.size > 3 ? { w: c.width, h: c.height } : null
+     }, null, { timeout: h.LONG })
+     assert.deepEqual(await drawn.jsonValue(), { w: 480, h: 270 })
