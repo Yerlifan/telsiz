@@ -1,0 +1,544 @@
+'use strict'
+
+// Hexball (public/js/43-hexball-kural.js ile 46-hexball.js) gerçek tarayıcıda, üç kişi aynı ses odasında. Gerçek
+// zamanlı veri ses bağlantısının üstündeki oyun veri kanalıyla (voice.js openGameLink) gider, masa yöneticisinden
+// geçmez. Deniz ev sahibidir. Ece ve Deniz geniş ekranda, Mert telefonda (360 x 740, dokunmatik).
+// - Oyun Seç ekranında Renk ve Hexball, Masa Kur'da Klasik ön ayar seçili, güven notu fiziği ev sahibinin
+//   hesapladığını yazar, Hızlı seçilip masa açılır
+// - Davet: Ece ve Mert'te Oyun düğmesi "Davet" olur, ikisi de katılır
+// - Başlat: Takımlar ekranı. Ece kendi takımını seçer, ev sahibi Mert'i izleyicilere alır, Mert Mavi takıma geçer,
+//   ev sahibi de Mavi takıma geçer. Takımlar üç sayfada aynıdır. Oyun bağları hazır olunca Maçı Başlat etkin olur.
+// - Maç: üç sayfada aynı maç kimliği, skor tablosu, saat ve tuval. Telefonda dokunmatik çubuk ve Vur düğmesi.
+// - Klavye: ev sahibi (Deniz) ve oyuncu (Mert) oklarla kendi diskini hareket ettirir, disk durunca konumu üç sayfada
+//   aynıdır. Ece oklarla ve X ile topu kaleye sürer: gol, skor ve golü atan üç sayfada aynıdır.
+// - Telefonda takımlar ve maç ekranında yatay taşma yoktur. Tam Ekran'da skor tablosu, tuval, çubuk ve Vur düğmesi
+//   kaydırmadan birlikte görünür.
+// - Mert ses odasından ayrılınca maç sürer (Mavi takımda Deniz kalır), iki koltuk kalır
+// - Ev sahibi ses odasından ayrılınca Ece'de bitiş metni görünür, oyun oturumu kapanır, Kapat odağı Oyun düğmesine
+//   verir
+// - Bağlantı Yok: Mert odaya döner, Ece masa kurar ama sayfasında RTCPeerConnection.prototype.createDataChannel
+//   bozuktur. Ev sahibi Mert'i "Bağlantı Yok" görür, Maçı Başlat pasif kalır, Mert de 15 sn sonra aynı durumu görür
+// - Konsol ve sunucu günlüğü temiz (eksik i18n anahtarı konsola uyarı yazar)
+// Gol zamanlamaya bağlı değildir: başlama vuruşunda top ortada, Kırmızı takımdaki tek oyuncu (Ece) top ve kaleyle aynı
+// yatay çizgide, Mavi takımın iki oyuncusu bu çizginin üstünde ve altındadır (44-hexball-fizik.js FORMATIONS). Ece
+// yalnızca sağa giderken top bu çizgide kalır ve kaleye girer.
+
+const { before, after } = require('node:test')
+const assert = require('node:assert/strict')
+const h = require('./yardimci')
+
+const W = { w: null, deniz: null, ece: null, mert: null, lobi: null }
+// Ses odası sahte mikrofon ister (Chromium bayraklarla, Firefox tercihlerle). WebKit'te sahte mikrofon yoktur.
+const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: h.MIC_BROWSERS, reason: 'sahte mikrofon yok' })
+
+const HOST_LEFT = 'Ev sahibi ses odasından ayrıldı, oyun bitti.'
+const TRUST_HOST = 'Fiziği ev sahibi hesaplar, ev sahibi hile yapabilir.'
+const FAILED_PLAYER = 'Ev sahibiyle oyun bağlantısı kurulamadı. Uygulamanız güncel değilse sayfayı yenileyin.'
+// Oyuncu ev sahibinden 15 sn içinde el sıkışma almazsa "Bağlantı Yok" görür (46-hexball.js HEXBALL_WAIT_FAIL_MS)
+const PLAYER_FAIL_MS = 15000
+// Disk durdu sayılır (birim/adım)
+const STILL = 0.02
+// Disk konumu sayfalarda bu kadar yakın (anlık görüntüde konum 1/8 birimdir)
+const NEAR = 0.5
+
+const idOf = (who) => String(W.w.P[who].id)
+const all = () => [W.deniz, W.ece, W.mert]
+const key = (k) => '#cast [data-focus-key="' + k + '"]'
+// Sahne oyun kipinde açık ve içinde bu odak anahtarlı denetim var
+const onStage = (k) => '#cast[data-mode="game"]:not([hidden]) [data-focus-key="' + k + '"]'
+const personSel = (block, who) => '#cast ' + block + ' .game-person[data-user-id="' + idOf(who) + '"]'
+const hexPerson = (who) => '#cast .hex-person[data-user-id="' + idOf(who) + '"]'
+
+// Telefonda ses odaları telsiz kartından değil İstasyonlar sayfasından açılır (10-kamera.test.js gibi)
+async function joinPhone (page, channelId) {
+  await page.click('#btn-rooms')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await page.click('#stations-list .room-row[data-station="voice-' + channelId + '"]')
+  await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on' && document.getElementById('stations-sheet').hidden, null, { timeout: h.LONG })
+}
+
+// Sayfadaki Hexball özeti: masa ve görünüm modelden, oyun bağı ve kare oturumdan, metinler DOM'dan
+function hexOf (page) {
+  return page.evaluate(() => {
+    const m = gameModel()
+    const v = m.view
+    const f = hexballFrameNow()
+    const q = (sel) => document.querySelector('#cast ' + sel)
+    const text = (sel) => (q(sel) ? q(sel).textContent : null)
+    const overlay = q('.hex-overlay')
+    const canvas = q('.hex-canvas')
+    const side = (s) => Array.from(document.querySelectorAll('#cast .hex-team[data-side="' + s + '"] .hex-person')).map((n) => n.getAttribute('data-user-id'))
+    return {
+      app: m.app,
+      stage: m.stage,
+      role: m.role,
+      me: m.me,
+      seats: v ? v.seats.slice() : [],
+      ph: v ? v.ph : null,
+      mt: v ? v.mt : null,
+      epoch: v ? v.epoch : null,
+      kick: v ? v.kick : null,
+      teams: v ? v.teams : null,
+      slots: v ? v.slots : null,
+      score: v ? v.score : null,
+      goals: v ? v.goals : [],
+      links: m.role === 'dealer' ? hexballLinks() : null,
+      link: m.role === 'player' && hexballLive(m) ? hexballPlayerLink(m) : null,
+      frame: f ? {
+        phase: f.phase,
+        score: { red: f.score.red, blue: f.score.blue },
+        me: f.me,
+        ball: { x: f.ball.x, y: f.ball.y },
+        players: f.players.map((p) => ({ slot: p.slot, x: p.x, y: p.y, vx: p.vx, vy: p.vy }))
+      } : null,
+      columns: { red: side('red'), blue: side('blue'), spec: side('spec') },
+      board: Array.from(document.querySelectorAll('#cast .hex-board-score')).map((n) => n.textContent),
+      clock: text('.hex-clock'),
+      overlay: overlay && !overlay.hidden ? overlay.textContent : null,
+      label: canvas ? canvas.getAttribute('aria-label') : null,
+      legend: Array.from(document.querySelectorAll('#cast .hex-legend-item')).map((n) => n.getAttribute('data-user-id')),
+      title: text('.cast-title'),
+      sub: text('.cast-sub')
+    }
+  })
+}
+
+// Sayfalar koşulu sağlayana kadar bekler, son özetleri döndürür
+async function untilAll (pages, fn, label) {
+  let list = []
+  await h.until(async () => {
+    list = await Promise.all(pages.map(hexOf))
+    return list.every(fn)
+  }, h.LONG, label)
+  return list
+}
+
+// Görünümdeki takımlar: red, blue, spec kişi kimlikleri koltuk sırasıyla
+function teamsOf (x) {
+  const out = { red: [], blue: [], spec: [] }
+  x.seats.forEach((id) => {
+    out[x.teams[id]].push(id)
+  })
+  return out
+}
+
+// Takımlar sayfaların hepsinde beklenen kişilerle (want: takım -> kişi adları) hem görünümde hem sütunlarda aynı
+async function sameTeams (pages, want) {
+  const ids = {}
+  Object.keys(want).forEach((side) => {
+    ids[side] = want[side].map(idOf)
+  })
+  const sig = JSON.stringify(ids)
+  return untilAll(pages, (x) => x.ph === 'teams' && JSON.stringify(teamsOf(x)) === sig && JSON.stringify(x.columns) === sig, 'takımlar eşitlenmedi: ' + sig)
+}
+
+// Kişinin diski (maçtaki yuvasıyla)
+function discOf (x, who) {
+  const slot = x.slots[idOf(who)]
+  return x.frame ? x.frame.players.filter((p) => p.slot === slot)[0] : null
+}
+
+// Disk ev sahibinde durdu ve üç sayfada aynı yerde. Dönüş: ev sahibindeki konum
+async function settledDisc (who) {
+  let host = null
+  await h.until(async () => {
+    const now = await Promise.all(all().map(hexOf))
+    const discs = now.map((x) => discOf(x, who))
+    host = discs[0]
+    if (!host || Math.abs(host.vx) > STILL || Math.abs(host.vy) > STILL) return false
+    return discs.every((d) => Boolean(d) && Math.abs(d.x - host.x) <= NEAR && Math.abs(d.y - host.y) <= NEAR)
+  }, h.LONG, who + ' diski durmadı ya da sayfalarda aynı yerde değil')
+  return host
+}
+
+// Tuşu bir süre basılı tutar
+async function hold (page, keyName, ms) {
+  await page.keyboard.down(keyName)
+  await h.sleep(ms)
+  await page.keyboard.up(keyName)
+}
+
+// Telefonda yatay taşma yok, tuval ve verilen öğeler görünür alanın genişliğinde
+async function phoneFits (page, sels) {
+  assert.ok(await h.overflowX(page) <= 0, 'telefonda yatay taşma: ' + await h.overflowX(page))
+  const out = await page.evaluate((list) => {
+    const width = document.documentElement.clientWidth
+    return list.map((s) => {
+      const n = document.querySelector(s)
+      if (!n || !n.getClientRects().length) return s + ': yok'
+      const b = n.getBoundingClientRect()
+      return b.left >= 0 && b.right <= width ? '' : s + ': ' + Math.round(b.left) + '..' + Math.round(b.right) + ' / ' + width
+    }).filter(Boolean)
+  }, sels)
+  assert.deepEqual(out, [], 'görünür alanın dışında')
+}
+
+// Ev sahibi Oyun Seç ekranında Hexball'u seçer, Masa Kur açılır
+async function pickHexball (page) {
+  await page.click('#radio-game')
+  await page.waitForSelector(onStage('game-pick-hexball'), { timeout: h.LONG })
+  const picks = await page.evaluate(() => ({
+    title: document.querySelector('#cast .cast-title').textContent,
+    apps: Array.from(document.querySelectorAll('#cast .game-pick')).map((b) => b.getAttribute('data-app')),
+    name: document.querySelector('#cast [data-focus-key="game-pick-hexball"] .game-pick-name').textContent
+  }))
+  assert.deepEqual(picks, { title: 'Oyun Seç', apps: ['renk', 'hexball'], name: 'Hexball' })
+  await page.click(key('game-pick-hexball'))
+  await page.waitForSelector(onStage('game-open'), { timeout: h.LONG })
+}
+
+// Davet edilen kişi Oyun düğmesinden daveti açıp katılır
+async function acceptInvite (page, host) {
+  await page.waitForSelector('#radio-game.is-invited', { timeout: h.LONG })
+  const r = await page.evaluate(() => {
+    const b = document.getElementById('radio-game')
+    return { label: b.querySelector('.radio-tool-label').textContent, aria: b.getAttribute('aria-label') }
+  })
+  assert.deepEqual(r, { label: 'Davet', aria: 'Davet: ' + host + ' sizi Hexball oyununa davet ediyor' })
+  await page.click('#radio-game.is-invited')
+  await page.waitForSelector(onStage('game-join'), { timeout: h.LONG })
+  assert.equal(await page.textContent('#cast .game-trust .game-note-text'), 'Ev sahibi ' + host + '. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir. ' + TRUST_HOST)
+  await page.click(key('game-join'))
+  await page.waitForSelector('#cast .game-body[data-stage="lobby"] .game-wait', { timeout: h.LONG })
+}
+
+before(async () => {
+  if (test.skipped) return
+  W.w = await h.setupWorld({ slot: 37 })
+  W.lobi = W.w.room('Lobi')
+  W.deniz = await W.w.pageFor('deniz')
+  W.ece = await W.w.pageFor('ece')
+  W.mert = await W.w.pageFor('mert', { viewport: { width: 360, height: 740 }, mobile: true })
+})
+
+after(async () => {
+  if (W.w) await W.w.close()
+})
+
+test('üç kişi ses odasında', async () => {
+  await h.joinVoice(W.deniz, W.lobi.id)
+  await h.joinVoice(W.ece, W.lobi.id)
+  await joinPhone(W.mert, W.lobi.id)
+  for (const page of all()) {
+    await page.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 3, null, { timeout: h.LONG })
+    await page.waitForSelector('#radio-tools #radio-game', { timeout: h.LONG })
+  }
+})
+
+test('ev sahibi Hexball\'u seçer, Masa Kur\'da Klasik seçili, Hızlı seçip masayı açar', async () => {
+  const { deniz } = W
+  await pickHexball(deniz)
+  const r = await deniz.evaluate(() => {
+    const checked = (v) => document.querySelector('#cast [data-focus-key="game-rule-' + v + '"]').getAttribute('aria-checked')
+    return {
+      title: document.querySelector('#cast .cast-title').textContent,
+      name: document.querySelector('#cast .game-intro-name').textContent,
+      intro: document.querySelector('#cast .game-intro-text').textContent,
+      rules: ['quick', 'classic', 'long'].map(checked),
+      trust: document.querySelector('#cast .game-trust .game-note-text').textContent
+    }
+  })
+  assert.deepEqual(r, {
+    title: 'Masa Kur',
+    name: 'Hexball',
+    intro: 'Ses odasındakilerle üstten görünümlü gerçek zamanlı futbol.',
+    rules: ['false', 'true', 'false'],
+    trust: 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır. ' + TRUST_HOST
+  })
+  await deniz.click(key('game-rule-quick'))
+  await deniz.waitForFunction(() => document.querySelector('#cast [data-focus-key="game-rule-quick"]').getAttribute('aria-checked') === 'true', null, { timeout: h.LONG })
+  // Ece ve Mert katılabilir: anahtarları doğrulanınca satırlarında çip kalmaz
+  await deniz.waitForFunction((sels) => sels.every((sel) => {
+    const row = document.querySelector(sel)
+    return Boolean(row) && !row.querySelector('.game-chip')
+  }), [personSel('.game-room', 'ece'), personSel('.game-room', 'mert')], { timeout: h.LONG })
+  await deniz.click(key('game-open'))
+  await deniz.waitForSelector('#cast .game-body[data-stage="lobby"]', { timeout: h.LONG })
+  assert.equal(await deniz.textContent('#cast .cast-title'), 'Hexball Masası')
+  assert.equal(await deniz.textContent('#cast .cast-sub'), 'Ev Sahibi Sizsiniz · 1 Oyuncu')
+})
+
+test('Ece ve Mert daveti görüp katılır', async () => {
+  const { deniz, ece, mert } = W
+  // Gelen davet sahneyi açmaz
+  await ece.waitForSelector('#radio-game.is-invited', { timeout: h.LONG })
+  assert.equal(await ece.isHidden('#cast'), true)
+  await acceptInvite(ece, 'Deniz')
+  await acceptInvite(mert, 'Deniz')
+  await deniz.waitForFunction(() => document.querySelectorAll('#cast .game-seats .game-person').length === 3, null, { timeout: h.LONG })
+  assert.equal(await deniz.textContent('#cast .cast-sub'), 'Ev Sahibi Sizsiniz · 3 Oyuncu')
+  assert.equal(await deniz.getAttribute(key('game-start'), 'aria-disabled'), null)
+})
+
+test('Başlat: takımlar seçilir, üç sayfada aynıdır, oyun bağları hazır olunca Maçı Başlat etkinleşir', async () => {
+  const { deniz, ece, mert } = W
+  await deniz.click(key('game-start'))
+  // Koltuk sırasıyla Kırmızı, Mavi, Kırmızı (43-hexball-kural.js balanceTeams)
+  let list = await sameTeams(all(), { red: ['deniz', 'mert'], blue: ['ece'], spec: [] })
+  list.forEach((x) => {
+    assert.equal(x.title, 'Hexball')
+    assert.equal(x.sub, 'Hızlı Maç · ' + (x.role === 'dealer' ? 'Ev Sahibi Sizsiniz' : 'Ev Sahibi Deniz') + ' · 3 Oyuncu')
+  })
+  // Kişi kendi takımını seçer
+  assert.equal(await ece.textContent(key('hex-join-red')), 'Kırmızıya Geç')
+  await ece.click(key('hex-join-red'))
+  await sameTeams(all(), { red: ['deniz', 'ece', 'mert'], blue: [], spec: [] })
+  assert.equal(await ece.textContent('#cast .hex-mine'), 'Takımınız: Kırmızı')
+  // Ev sahibi başkasını atar: Mert izleyicilere
+  const toSpec = key('hex-set-' + idOf('mert') + '-spec')
+  assert.equal(await deniz.getAttribute(toSpec, 'aria-label'), 'İzleyicilere Al: Mert')
+  await deniz.click(toSpec)
+  await sameTeams(all(), { red: ['deniz', 'ece'], blue: [], spec: ['mert'] })
+  // Bir takım boşken Maçı Başlat pasif
+  assert.equal(await deniz.getAttribute(key('hex-kickoff'), 'aria-disabled'), 'true')
+  assert.equal(await deniz.textContent('#cast .game-hint .game-note-text'), 'Maçı başlatmak için her takımda en az bir kişi olmalı.')
+  assert.equal(await mert.textContent('#cast .hex-mine'), 'Maçı izliyorsunuz.')
+  await mert.click(key('hex-join-blue'))
+  await sameTeams(all(), { red: ['deniz', 'ece'], blue: ['mert'], spec: [] })
+  await deniz.click(key('hex-join-blue'))
+  list = await sameTeams(all(), { red: ['ece'], blue: ['deniz', 'mert'], spec: [] })
+  // Oyun bağları: ev sahibinde iki kişi hazır, oyuncularda bağ notu yok, Maçı Başlat etkin
+  list = await untilAll(all(), (x) => (x.role === 'dealer' ? JSON.stringify(x.links) === JSON.stringify({ [idOf('ece')]: 'ready', [idOf('mert')]: 'ready' }) : x.link === 'ready'), 'oyun bağları hazır değil')
+  await deniz.waitForFunction(() => {
+    const b = document.querySelector('#cast [data-focus-key="hex-kickoff"]')
+    return Boolean(b) && b.getAttribute('aria-disabled') === null && !document.querySelector('#cast .hex-chip')
+  }, null, { timeout: h.LONG })
+  for (const page of [ece, mert]) {
+    await page.waitForSelector('#cast .hex-link', { state: 'detached', timeout: h.LONG })
+    assert.equal(await page.textContent('#cast .game-wait .game-note-text'), 'Ev sahibinin maçı başlatması bekleniyor.')
+  }
+  assert.equal(await deniz.textContent(key('hex-kickoff')), 'Maçı Başlat')
+  await phoneFits(mert, ['#cast .hex-teams', '#cast .hex-team[data-side="blue"]'])
+})
+
+test('Maçı Başlat: üç sayfada aynı maç, skor tablosu ve saha', async (t) => {
+  const { deniz, mert } = W
+  await deniz.click(key('hex-kickoff'))
+  // Bindirme yazısı çizim döngüsünde güncellenir: ilk anlık görüntüden önce "Bağlantı bekleniyor" yazar
+  const list = await untilAll(all(), (x) => x.ph === 'match' && Boolean(x.frame) && x.frame.phase === 'kickoff' && x.overlay === 'Başlama vuruşu: Kırmızı', 'maç ekranı açılmadı')
+  const epoch = list[0].epoch
+  assert.match(epoch, /^[0-9a-f]{16}$/)
+  const slots = { [idOf('deniz')]: 0, [idOf('ece')]: 1, [idOf('mert')]: 2 }
+  list.forEach((x) => {
+    assert.equal(x.epoch, epoch, 'maç kimliği')
+    assert.equal(x.mt, 1)
+    assert.equal(x.kick, 'red', 'ilk maçı Kırmızı başlatır')
+    assert.deepEqual(x.slots, slots)
+    assert.deepEqual(x.score, { red: 0, blue: 0 })
+    assert.deepEqual(x.frame.score, { red: 0, blue: 0 })
+    assert.equal(x.frame.me, slots[x.me], 'kendi yuvası')
+    assert.deepEqual(x.board, ['0', '0'])
+    assert.equal(x.clock, '03:00')
+    assert.equal(x.label, 'Saha. Kırmızı 0, Mavi 0.')
+    assert.equal(x.overlay, 'Başlama vuruşu: Kırmızı')
+    assert.deepEqual(x.legend, [idOf('deniz'), idOf('ece'), idOf('mert')])
+    assert.equal(x.sub, 'Hızlı Maç · ' + (x.role === 'dealer' ? 'Ev Sahibi Sizsiniz' : 'Ev Sahibi Deniz') + ' · 3 Oyuncu')
+  })
+  // Başlama vuruşu dizilişi: top ortada, Ece solda ortada, Deniz ve Mert sağda üstte ve altta
+  const host = list[0].frame
+  assert.deepEqual(host.ball, { x: 0, y: 0 })
+  assert.deepEqual(host.players.map((p) => [p.slot, p.x, p.y]), [[0, 180, -72], [1, -180, 0], [2, 180, 72]])
+  // Dokunmatik denetimler geniş ekranda gizli. Telefonda kaba işaretçi varsa hemen, yoksa sahaya ilk dokunuşta
+  // görünür (dokunmatik öykünmesi her tarayıcıda kaba işaretçi bildirmeyebilir).
+  assert.equal(await deniz.isHidden('#cast .hex-touch'), true)
+  const coarse = await mert.evaluate(() => window.matchMedia('(pointer: coarse)').matches)
+  t.diagnostic('telefonda kaba işaretçi: ' + coarse)
+  if (!coarse) {
+    assert.equal(await mert.isHidden('#cast .hex-touch'), true)
+    await mert.tap('#cast .hex-field')
+  }
+  await mert.waitForSelector('#cast .hex-touch:not([hidden]) .hex-kick', { timeout: h.LONG })
+  assert.equal(await mert.textContent('#cast .hex-kick'), 'Vur')
+  assert.equal(await mert.textContent('#cast .hex-help-keys'), ' Soldaki çubukla hareket edin, Vur düğmesiyle vurun.')
+  // Maçı yalnız ev sahibi durdurabilir
+  assert.equal(await deniz.textContent(key('hex-stop')), 'Maçı Durdur')
+  for (const page of [W.ece, mert]) assert.equal(await page.$(key('hex-stop')), null)
+})
+
+test('klavye: ev sahibi ve oyuncu kendi diskini hareket ettirir, disk üç sayfada aynı yerde durur', async (t) => {
+  const { deniz, mert } = W
+  // Mavi takım savunur, başlama vuruşunda yalnızca kendi yarısında ve orta yuvarlağın dışında kalır: dikey hareket
+  // serbesttir ve topun yolundan uzaklaşır
+  await hold(deniz, 'ArrowUp', 400)
+  const d = await settledDisc('deniz')
+  assert.ok(d.y < -72 - 20, 'Deniz yukarı gitti: ' + d.y)
+  assert.equal(d.x, 180, 'Deniz yalnız dikey gitti')
+  await hold(mert, 'ArrowDown', 400)
+  const m = await settledDisc('mert')
+  assert.ok(m.y > 72 + 20, 'Mert aşağı gitti: ' + m.y)
+  assert.equal(m.x, 180, 'Mert yalnız dikey gitti')
+  t.diagnostic('Deniz y ' + d.y.toFixed(2) + ', Mert y ' + m.y.toFixed(2))
+  // Top yerinde, başlama vuruşu sürüyor
+  const list = await Promise.all(all().map(hexOf))
+  list.forEach((x) => {
+    assert.equal(x.frame.phase, 'kickoff')
+    assert.deepEqual(x.frame.ball, { x: 0, y: 0 })
+  })
+})
+
+test('Ece klavyeyle topu kaleye sürer: gol, skor ve golü atan üç sayfada aynı', async (t) => {
+  const { deniz, ece } = W
+  const started = Date.now()
+  await ece.keyboard.down('ArrowRight')
+  await ece.keyboard.down('KeyX')
+  try {
+    // Topa ilk dokunuşla oyun başlar, vuruş tuşu bırakılır (tutulurken hızlanma azdır)
+    await untilAll([deniz], (x) => Boolean(x.frame) && x.frame.phase !== 'kickoff', 'başlama vuruşu yapılmadı')
+    await ece.keyboard.up('KeyX')
+    await untilAll([deniz], (x) => x.score.red === 1, 'gol olmadı')
+  } finally {
+    await ece.keyboard.up('KeyX')
+    await ece.keyboard.up('ArrowRight')
+  }
+  t.diagnostic('gol ' + (Date.now() - started) + ' ms')
+  const list = await untilAll(all(), (x) => x.score.red === 1 && Boolean(x.frame) && x.frame.score.red === 1 && x.board[0] === '1', 'skor sayfalarda eşitlenmedi')
+  list.forEach((x) => {
+    assert.deepEqual(x.score, { red: 1, blue: 0 })
+    assert.deepEqual(x.frame.score, { red: 1, blue: 0 })
+    assert.equal(x.goals.length, 1)
+    assert.equal(x.goals[0].side, 'red')
+    assert.equal(x.goals[0].by, idOf('ece'), 'golü Ece attı')
+    assert.equal(x.goals[0].own, false)
+    assert.equal(x.kick, 'blue', 'gol yiyen takım başlar')
+    assert.deepEqual(x.board, ['1', '0'])
+    assert.equal(x.label, 'Saha. Kırmızı 1, Mavi 0.')
+    assert.equal(x.ph, 'match')
+  })
+  // Gol sonrası bekleme biter, Mavi takım başlama vuruşunu yapar
+  await untilAll(all(), (x) => Boolean(x.frame) && x.frame.phase === 'kickoff' && x.overlay === 'Başlama vuruşu: Mavi', 'gol sonrası başlama vuruşu')
+})
+
+test('telefonda maç ekranında yatay taşma yok, Tam Ekran\'da tuval ve denetimler birlikte görünür', async (t) => {
+  const { mert } = W
+  await phoneFits(mert, ['#cast .hex-canvas', '#cast .hex-board', '#cast .hex-kick', '#cast .hex-stick'])
+  const r = await mert.evaluate(() => {
+    const c = document.querySelector('#cast .hex-canvas')
+    return { w: c.clientWidth, h: c.clientHeight, touch: getComputedStyle(c).touchAction }
+  })
+  assert.ok(r.w > 200 && r.h > 100, 'tuval boyutu ' + r.w + ' x ' + r.h)
+  assert.equal(r.touch, 'none')
+  // Tam ekranda skor tablosu, tuval, çubuk ve Vur düğmesi kaydırmadan görünür (tuvalin ölçüsü birkaç karede bir
+  // yeniden okunur, 46-hexball.js hexballFit)
+  await mert.click('#cast .cast-full')
+  try {
+    await mert.waitForFunction(() => castState.full, null, { timeout: h.LONG })
+    // Tuval tam ekranın yüksekliğine göre büyüyene ve dört öğe birlikte görünür alana girene kadar
+    await mert.waitForFunction((a) => {
+      const c = document.querySelector('#cast .hex-canvas')
+      if (!c || c.clientHeight <= a.h) return false
+      return a.sels.every((s) => {
+        const n = document.querySelector(s)
+        if (!n || !n.getClientRects().length) return false
+        const b = n.getBoundingClientRect()
+        return b.left >= 0 && b.top >= 0 && b.right <= document.documentElement.clientWidth && b.bottom <= window.innerHeight
+      })
+    }, { h: r.h, sels: ['#cast .hex-board', '#cast .hex-canvas', '#cast .hex-stick', '#cast .hex-kick'] }, { timeout: h.LONG })
+    const full = await mert.evaluate(() => {
+      const c = document.querySelector('#cast .hex-canvas')
+      return { w: c.clientWidth, h: c.clientHeight }
+    })
+    t.diagnostic('telefonda tuval ' + r.w + ' x ' + r.h + ', tam ekranda ' + full.w + ' x ' + full.h)
+    assert.equal(await h.reachable(mert, '#cast .hex-kick'), true, 'Vur düğmesi tam ekranda ulaşılabilir')
+    assert.ok(await h.overflowX(mert) <= 0, 'tam ekranda yatay taşma')
+  } finally {
+    // Sonraki adımlar telsiz kartına ulaşır: tam ekrandan her durumda çıkılır
+    if (await mert.evaluate(() => castState.full)) await mert.click('#cast .cast-full')
+    await mert.waitForFunction(() => !castState.full, null, { timeout: h.LONG })
+  }
+})
+
+test('Mert ses odasından ayrılınca maç sürer, iki koltuk kalır', async () => {
+  const { deniz, ece, mert } = W
+  await mert.click('#voice-leave')
+  await mert.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  await mert.waitForSelector('#cast', { state: 'hidden', timeout: h.LONG })
+  assert.equal(await mert.evaluate(() => hexballFrameNow()), null, 'Mert\'in oyun oturumu kapandı')
+  const list = await untilAll([deniz, ece], (x) => x.seats.length === 2 && x.legend.length === 2, 'Mert koltuktan kalkmadı')
+  list.forEach((x) => {
+    // Mavi takımda Deniz kaldığı için maç sürer, skor korunur
+    assert.equal(x.ph, 'match')
+    assert.equal(x.stage, 'play')
+    assert.deepEqual(x.score, { red: 1, blue: 0 })
+    assert.deepEqual(x.slots, { [idOf('deniz')]: 0, [idOf('ece')]: 1 })
+    assert.deepEqual(x.legend, [idOf('deniz'), idOf('ece')])
+    assert.match(x.sub, / · 2 Oyuncu$/)
+    assert.ok(x.frame, 'kare sürüyor')
+  })
+  assert.deepEqual(list[0].links, { [idOf('ece')]: 'ready' })
+  assert.equal(list[1].link, 'ready')
+})
+
+test('ev sahibi ses odasından ayrılınca oyun biter, oyun oturumu kapanır, Kapat odağı Oyun düğmesine verir', async () => {
+  const { deniz, ece } = W
+  await deniz.click('#voice-leave')
+  await deniz.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  await deniz.waitForSelector('#cast', { state: 'hidden', timeout: h.LONG })
+  await ece.waitForSelector('#cast .game-ended', { timeout: h.LONG })
+  assert.equal(await ece.textContent('#cast .game-ended .game-note-text'), HOST_LEFT)
+  await ece.waitForFunction(() => hexballFrameNow() === null, null, { timeout: h.LONG })
+  assert.equal(await ece.$('#cast .hex-canvas'), null)
+  assert.equal(await ece.textContent(key('game-dismiss')), 'Kapat')
+  await ece.click(key('game-dismiss'))
+  await ece.waitForSelector('#cast', { state: 'hidden', timeout: h.LONG })
+  assert.equal(await ece.evaluate(() => document.activeElement.id), 'radio-game')
+  assert.equal(await ece.textContent('#radio-game .radio-tool-label'), 'Oyun')
+})
+
+test('veri kanalı açılamayınca ev sahibi ve oyuncu Bağlantı Yok görür, Maçı Başlat pasif kalır', async (t) => {
+  const { ece, mert } = W
+  await joinPhone(mert, W.lobi.id)
+  for (const page of [ece, mert]) {
+    await page.waitForFunction(() => document.querySelectorAll('#radio-crew .crew-item[data-user-id]').length === 2, null, { timeout: h.LONG })
+  }
+  // Ece'nin tarayıcısı veri kanalı açamıyor (voice.js openGameLink 'unsupported' döner)
+  await ece.evaluate(() => {
+    const proto = window.RTCPeerConnection.prototype
+    window.e2eCreateDataChannel = proto.createDataChannel
+    proto.createDataChannel = function () {
+      throw new DOMException('e2e: veri kanalı kapalı', 'NotSupportedError')
+    }
+  })
+  try {
+    await pickHexball(ece)
+    await ece.waitForFunction((sel) => {
+      const row = document.querySelector(sel)
+      return Boolean(row) && !row.querySelector('.game-chip')
+    }, personSel('.game-room', 'mert'), { timeout: h.LONG })
+    await ece.click(key('game-open'))
+    await ece.waitForSelector('#cast .game-body[data-stage="lobby"]', { timeout: h.LONG })
+    await acceptInvite(mert, 'Ece')
+    await ece.waitForFunction(() => document.querySelectorAll('#cast .game-seats .game-person').length === 2, null, { timeout: h.LONG })
+    await ece.click(key('game-start'))
+    const started = Date.now()
+    // Ev sahibi Mert'i hemen "Bağlantı Yok" görür, Maçı Başlat pasif kalır
+    await ece.waitForSelector(hexPerson('mert') + ' .hex-chip.is-failed', { timeout: h.LONG })
+    const r = await ece.evaluate(() => ({
+      chip: document.querySelector('#cast .hex-chip.is-failed').textContent,
+      alert: document.querySelector('#cast .hex-failed .game-note-text').textContent,
+      kickoff: document.querySelector('#cast [data-focus-key="hex-kickoff"]').getAttribute('aria-disabled'),
+      links: hexballLinks()
+    }))
+    assert.deepEqual(r, {
+      chip: 'Bağlantı Yok',
+      alert: 'Oyun bağlantısı kurulamadı: Mert. Eski bir sürüm kullanıyor ya da bağlantısı engelleniyor olabilir. İzleyicilere alabilir ya da koltuktan çıkarabilirsiniz.',
+      kickoff: 'true',
+      links: { [idOf('mert')]: 'failed' }
+    })
+    // Oyuncu ev sahibinden el sıkışma alamaz, 15 sn sonra aynı durumu görür
+    await mert.waitForSelector('#cast .hex-link.is-failed', { timeout: PLAYER_FAIL_MS + h.LONG })
+    t.diagnostic('oyuncuda Bağlantı Yok ' + (Date.now() - started) + ' ms')
+    assert.ok(Date.now() - started >= PLAYER_FAIL_MS - 1000, 'oyuncu bekleme süresinden önce Bağlantı Yok görmedi')
+    assert.equal(await mert.textContent('#cast .hex-link.is-failed .game-note-text'), FAILED_PLAYER)
+    assert.equal((await hexOf(mert)).link, 'failed')
+    await phoneFits(mert, ['#cast .hex-link', '#cast .hex-teams'])
+    assert.equal(await ece.getAttribute(key('hex-kickoff'), 'aria-disabled'), 'true')
+  } finally {
+    await ece.evaluate(() => {
+      if (window.e2eCreateDataChannel) window.RTCPeerConnection.prototype.createDataChannel = window.e2eCreateDataChannel
+    })
+  }
+})
+
+test('konsol ve sunucu günlüğü temiz', async () => {
+  h.assertCleanConsole(W.w.logs, W.w.srv.errors)
+})
