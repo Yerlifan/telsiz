@@ -7,7 +7,8 @@
 // etmeyin ve Görünmez durumlarına dokunulmaz, hiçbir geçiş diske yazılmaz.
 // - Karar zamanlayıcının kendisine değil Date.now() farkına dayanır. Tarayıcı gizli sekmedeki zamanlayıcıları
 //   dakikada bire indirebildiği için karar en çok yaklaşık bir dakika gecikebilir.
-// - Ses odasındayken (özel mesaj araması dahil) cihaz boşta sayılmaz.
+// - Ses odasındayken (özel mesaj araması dahil) cihaz boşta sayılmaz. Bu kural o frekans içindir: masaüstünde başka
+//   bir frekansın ses odası arka plan penceresinin kararını etkilemez.
 // - Oyun kolu: basılı düğmeler ve ölü bölgeyi aşan eksenler değişince girdi sayılır (çubuk titremesi sayılmaz).
 //   21-band.js padPoll kol bağlıyken her karede okuduğu kolları idlePadFrame ile verir, böylece iki örnek arasında
 //   basılıp bırakılan düğme de sayılır. Kol döngüsü çalışmıyorsa kollar 2 saniyede bir okunur.

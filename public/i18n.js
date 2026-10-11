@@ -68,7 +68,7 @@ window.I18N = (function () {
     // G8 Otomatik boşta
     'settings.privacy.idleTitle': 'Otomatik Boşta',
     'settings.privacy.autoIdle': 'Hareketsiz kalınca durumumu Boşta göster',
-    'settings.privacy.autoIdleHint': 'Bu cihazda seçilen süre boyunca fare, klavye, dokunma veya oyun kolu kullanılmazsa durumunuz başkalarına Boşta görünür. Bu frekans birden çok cihazda veya sekmede açıksa hepsi hareketsiz kalınca Boşta görünürsünüz. Ses odasındayken boşta sayılmazsınız. Sunucu ve üyeler ne zaman hareketsiz kaldığınızı görebilir. Elle seçtiğiniz durumlar değişmez.',
+    'settings.privacy.autoIdleHint': 'Bu cihazda seçilen süre boyunca fare, klavye, dokunma veya oyun kolu kullanılmazsa durumunuz başkalarına Boşta görünür. Bu frekans birden çok cihazda veya sekmede açıksa hepsi hareketsiz kalınca Boşta görünürsünüz. Bu frekansın bir ses odasındayken burada boşta sayılmazsınız. Sunucu ve üyeler ne zaman hareketsiz kaldığınızı görebilir. Elle seçtiğiniz durumlar değişmez.',
     'settings.privacy.autoIdleAfter': 'Süre',
     'settings.privacy.autoIdleMinutes_one': '{count} dakika',
     'settings.privacy.autoIdleMinutes_other': '{count} dakika',
@@ -2064,7 +2064,7 @@ window.I18N = (function () {
     // G8 Otomatik boşta
     'settings.privacy.idleTitle': 'Automatic Idle',
     'settings.privacy.autoIdle': 'Show me as Idle when I\'m inactive',
-    'settings.privacy.autoIdleHint': 'If you don\'t use the mouse, keyboard, touch or a gamepad on this device for the chosen time, others see you as Idle. If this frequency is open on several devices or tabs, you appear Idle once all of them are inactive. You are never idle while in a voice room. The server and members can see when you went inactive. Statuses you set yourself are not changed.',
+    'settings.privacy.autoIdleHint': 'If you don\'t use the mouse, keyboard, touch or a gamepad on this device for the chosen time, others see you as Idle. If this frequency is open on several devices or tabs, you appear Idle once all of them are inactive. You are never idle here while in a voice room of this frequency. The server and members can see when you went inactive. Statuses you set yourself are not changed.',
     'settings.privacy.autoIdleAfter': 'After',
     'settings.privacy.autoIdleMinutes_one': '{count} minute',
     'settings.privacy.autoIdleMinutes_other': '{count} minutes',

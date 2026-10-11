@@ -26,8 +26,9 @@
 //   kuralı) sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterir. Bildirime basınca ana
 //   süreç o frekansa geçer (telsizArkaPlan.open).
 // - Otomatik boşta (40-bosta.js): long-poll sorgusu idle=0|1 ve pencerenin kimliğini (tab) taşır, karar sistemin
-//   boşta süresine (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Değer
-//   değişince bekleyen poll bırakılıp yeni değerle hemen yeniden gönderilir (bgRestartPoll).
+//   boşta süresine (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Ana
+//   penceredeki ses odası bu kararı etkilemez. Değer değişince bekleyen poll bırakılıp yeni değerle hemen yeniden
+//   gönderilir (bgRestartPoll).
 // Sayılar oturuma özeldir: uygulama yeniden açılınca açılış taraması son okunandan yeniden sayar.
 
 const BG_REPORT_GAP_MS = 1000
