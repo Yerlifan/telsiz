@@ -653,6 +653,41 @@ test('başarılı poll deneme hakkı bitmiş kapağı yalnızca kart açıkken y
   assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
 })
 
+test('başarılı poll deneme hakkı bitmiş kendi kapağımı yalnızca Ayarlar önizlemesi açıkken yeniden ister', async (t) => {
+  const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
+  const { run, sandbox } = ctx
+  // Kapaklı kişi (2) bu kez benim: kapak Ayarlar'daki önizlemede gösterilir, kendi kartım kapalı
+  run("state.me = { id: 2, name: 'ayse', role: 'member', status: 'online' }")
+  run("state.token = 'oturum'")
+  const tick = async (ms) => {
+    t.mock.timers.tick(ms)
+    await flush()
+  }
+  // Ayarlar'da açık sayfa (11-settings.js isSettingsTab), null: Ayarlar kapalı
+  let tab = 'account'
+  sandbox.isSettingsTab = (name) => tab === name
+  run('coverUrlOf(2, true)')
+  await flush()
+  for (const wait of [10000, 30000, 120000]) await tick(wait)
+  assert.strictEqual(downloads.length, 4)
+  assert.strictEqual(run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+  // Ayarlar kapandı veya önizlemesiz bir sayfa açık: poll kapağı istemez
+  for (const shown of [null, 'privacy', 'appearance']) {
+    tab = shown
+    for (const wait of [120000, 120000, 120000]) {
+      run('profilesAfterPoll()')
+      await tick(wait)
+    }
+  }
+  assert.strictEqual(downloads.length, 4, 'görünmeyen kendi kapağım istenmez')
+  // Profil sayfası açıldı: sonraki başarılı poll kapağı hemen ister
+  tab = 'profile'
+  run('profilesAfterPoll()')
+  await tick(0)
+  assert.strictEqual(downloads.length, 5)
+  assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
+})
+
 test('poll döngüsü düşen profil isteğini ve profil resmini başarılı yanıttan sonra yeniden ister, hata yanıtından sonra istemez', async (t) => {
   // Kişi 2'nin profil resmi indirmesi ve kişi 3'ün profil isteği ağ düzelene kadar düşer
   let up = false

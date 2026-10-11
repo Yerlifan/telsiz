@@ -544,20 +544,27 @@ function retryProfileImageAt (images, entry, at) {
 }
 
 // Her başarılı poll'dan sonra (profilesAfterPoll): kalıcı olmayan bir hatayla düşmüş profil resimleri ve gösterilen
-// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım) son denemeden AVATAR_POLL_RETRY_MS sonra (o an
-// geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince gelir. Son deneme ağ düzelmeden
-// önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç kurulmuş (2 dakikalık) deneme öne
-// çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra düşmeye devam eden resim sunucudan en
-// çok dakikada bir istenir.
+// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım, myCoverShown) son denemeden
+// AVATAR_POLL_RETRY_MS sonra (o an geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince
+// gelir. Son deneme ağ düzelmeden önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç
+// kurulmuş (2 dakikalık) deneme öne çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra
+// düşmeye devam eden resim sunucudan en çok dakikada bir istenir. Hiçbir yerde görünmeyen kapak istenmez.
 function profileImagesAfterPoll () {
   profileState.avatars.forEach((entry) => {
     retryProfileImageAfterPoll(profileState.avatars, entry)
   })
-  const shown = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
+  const shown = [coverIdOf(profileState.cardUserId), myCoverShown() ? coverIdOf(state.me.id) : null]
   shown.forEach((uploadId) => {
     const entry = uploadId ? profileState.covers.get(uploadId) : null
     if (entry) retryProfileImageAfterPoll(profileState.covers, entry)
   })
+}
+
+// Kendi kapağım Ayarlar'da yalnızca Hesabım ve Profil sayfalarındaki önizleme kartında görünür (11-settings.js
+// myProfileView ve draftCoverUrl). Kendi kartım açıksa kapak cardUserId yoluyla zaten gösterilen kapaktır.
+function myCoverShown () {
+  if (!state.me || typeof isSettingsTab !== 'function') return false
+  return isSettingsTab('account') || isSettingsTab('profile')
 }
 
 function retryProfileImageAfterPoll (images, entry) {
