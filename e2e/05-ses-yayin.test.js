@@ -317,6 +317,9 @@ test('kendi paylaşımında Yüzen Pencere odayı ve Durdur\'u gösterir, önizl
     }
   }, null, { timeout: h.LONG })
   assert.deepEqual(await view.jsonValue(), { text: 'Ekranınız yayında', stop: 'Durdur', label: 'Paylaşımı Durdur', tiles: 2, kind: 'avatars' })
+  // Önizleme yalnızca bu paylaşım için küçülür: Küçült'le saklanan seçim değişmez, çipte Önizlemeyi Göster çıkar
+  const min = await deniz.evaluate(() => ({ stored: localStorage.getItem('telsiz.castOwnMin'), show: Boolean(document.querySelector('#top-cast .top-cast-show')) }))
+  assert.deepEqual(min, { stored: '0', show: true })
   // Tarayıcıda yüzen pencere tam ekran paylaşımına girebilir: not gösterilir
   await deniz.waitForFunction(() => document.getElementById('toast').textContent.indexOf('Linux\'ta ve tarayıcıda yüzen pencere') === 0)
   await deniz.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())

@@ -448,3 +448,32 @@ test('22-cast: Yüzen Pencere düğmesi kendi paylaşımında ve izlerken, Küç
   stored.run('castInit()')
   assert.equal(stored.run('castState.ownMin'), true)
 })
+
+// Yüzen Pencere önizlemeyi yalnızca o paylaşım için kapatır: saklanan seçim yalnızca Küçült ve Önizlemeyi Göster
+// ile değişir, paylaşım bitince önizleme saklanan seçime döner (sonraki paylaşım önizlemeyle başlar)
+test('22-cast: kendi paylaşımında Yüzen Pencere önizlemeyi saklamadan küçültür, paylaşım bitince seçim geri gelir', async () => {
+  const env = loadCast({ store: { 'telsiz.castOwnMin': '0' } })
+  env.sandbox.toast = () => {}
+  env.run("el.cast.setAttribute('data-mode', 'own')")
+  env.run('var floatOpen = function (reason) { __calls.push("float:" + reason); return Promise.resolve(true) }')
+  env.run('castFloat()')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(env.calls, ['float:share-own', 'sync'])
+  assert.equal(env.run('castState.ownMin'), true, 'bu paylaşımda önizleme küçük')
+  assert.equal(env.store.get('telsiz.castOwnMin'), '0', 'saklanan seçim değişmedi')
+  env.run("castOnScreenEvent({ type: 'local-stop', reason: 'user' })")
+  assert.equal(env.run('castState.ownMin'), false, 'sonraki paylaşım önizlemeyle başlar')
+  // Küçült'le saklanan seçim paylaşım bitince de korunur
+  env.run('castMinimizeOwn()')
+  assert.equal(env.store.get('telsiz.castOwnMin'), '1')
+  env.run("castOnScreenEvent({ type: 'local-stop', reason: 'user' })")
+  assert.equal(env.run('castState.ownMin'), true)
+  // Yüzen pencere açılamazsa önizleme küçülmez
+  const failed = loadCast()
+  failed.run("el.cast.setAttribute('data-mode', 'own')")
+  failed.run('var floatOpen = function () { return Promise.resolve(false) }')
+  failed.run('castFloat()')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(failed.run('castState.ownMin'), false)
+  assert.equal(failed.store.has('telsiz.castOwnMin'), false)
+})

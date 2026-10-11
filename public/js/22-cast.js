@@ -26,8 +26,8 @@
 // Kendi paylaşımının önizlemesi küçültülebilir (istek 16): Küçült sahneyi kapatır, paylaşım sürer, üst çubuktaki
 // çipte Önizlemeyi Göster çıkar. Seçim bu cihazda telsiz.castOwnMin içinde saklanır ('1' küçük), sonraki paylaşım
 // da küçük başlar. Dar ekranda (759 px ve altı) üst çubukta çip olmadığı için önizleme her zaman görünür. Yüzen
-// Pencere düğmesi (39-yuzen.js) kendi paylaşımında odayı yüzen pencerede açıp sahneyi küçültür, izlerken izlenen
-// yayını yüzen pencerede açar.
+// Pencere düğmesi (39-yuzen.js) kendi paylaşımında odayı yüzen pencerede açıp sahneyi yalnızca o paylaşım için
+// küçültür (saklanan seçim değişmez), izlerken izlenen yayını yüzen pencerede açar.
 //
 // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
 // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
@@ -206,6 +206,8 @@ function castOnScreenEvent (evt) {
     }
   } else if (evt.type === 'local-stop') {
     if (evt.reason === 'ended') toast(() => t('screen.stoppedSelf'), '', 6000)
+    // Yüzen Pencere'nin bu paylaşım için kapattığı önizleme sonraki paylaşımda saklanan seçime döner
+    castState.ownMin = storeGet(CAST_OWN_MIN_KEY) === '1'
     const quality = castState.dialog && castState.dialog.mode === 'quality'
     if (quality) castCloseDialog(false)
   } else if (evt.type === 'error') {
@@ -379,10 +381,17 @@ function castOwnMinimized () {
   return castState.ownMin && !isNarrow()
 }
 
+// Küçült düğmesi: seçim bu cihazda saklanır, sonraki paylaşımlar da önizlemesiz başlar
 function castMinimizeOwn () {
+  storeSet(CAST_OWN_MIN_KEY, '1')
+  castHideOwn()
+}
+
+// Önizlemeyi yalnızca bu paylaşım için kapatır (Yüzen Pencere). Saklanan seçim değişmez, paylaşım bitince
+// önizleme saklanan seçime döner (castOnScreenEvent 'local-stop').
+function castHideOwn () {
   const hadFocus = el.cast.contains(document.activeElement)
   castState.ownMin = true
-  storeSet(CAST_OWN_MIN_KEY, '1')
   castSync()
   if (!hadFocus) return
   const show = el.topCast ? el.topCast.querySelector('.top-cast-show') : null
@@ -409,7 +418,7 @@ function castFloat () {
       const d = window.telsizDesktop
       const guarded = Boolean(d && (d.platform === 'win32' || d.platform === 'darwin'))
       if (!guarded) toast(() => t('cast.floatLinuxNote'), '', 8000)
-      if (castVisible() && el.cast.getAttribute('data-mode') === 'own') castMinimizeOwn()
+      if (castVisible() && el.cast.getAttribute('data-mode') === 'own') castHideOwn()
     })
   } else if (mode === 'watch') {
     floatOpen('share')
