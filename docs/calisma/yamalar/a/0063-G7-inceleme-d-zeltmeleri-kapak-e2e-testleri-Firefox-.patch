@@ -1,0 +1,100 @@
+From f86b9c3d293a368a5231a0515e9f79fc0b72d00f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 12:48:00 +0000
+Subject: [PATCH 63/63] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmeleri=20(kap?=
+ =?UTF-8?q?ak=20e2e=20testleri=20Firefox=20ve=20WebKit'te=20de=20=C3=A7al?=
+ =?UTF-8?q?=C4=B1=C5=9F=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+e2e/17-profil dosyasının tamamı sahte kamera yüzünden yalnızca Chromium'da
+çalışıyordu, bu yüzden kamera gerektirmeyen iki kapak testi CI'nın Firefox
+ve WebKit işlerinde atlanıyordu. Tarayıcı kapısı dosyadan teste indi: kamera,
+ekran paylaşımı, düşürülen istekler ve kart düzeni testleri nedeniyle
+yalnızca Chromium'da, kapak testleri ve konsol denetimi üç tarayıcıda
+çalışır. Chromium'daki sıra ve davranış değişmedi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/17-profil.test.js | 24 +++++++++++++++++-------
+ 1 file changed, 17 insertions(+), 7 deletions(-)
+
+diff --git a/e2e/17-profil.test.js b/e2e/17-profil.test.js
+index e1361b4..8c1dea7 100644
+--- a/e2e/17-profil.test.js
++++ b/e2e/17-profil.test.js
+@@ -22,6 +22,8 @@
+ //   vardır, düz JPEG baytları hiçbir dosyada yoktur. Kapağı bilmeyen eski bir istemcinin kaydı kapağı kaldırır ve dosya
+ //   silinir. İngilizce arayüzde kapak seçilir ve Remove Cover ile kaldırılır, Ece'nin açık kartındaki kapak da kalkar.
+ // - Konsol ve sunucu günlüğü temiz (bilerek düşürülen isteklerin ve Telsiz DJ sürüm çakışmasının (409) hataları dışında)
++// Kapak testleri ve konsol denetimi üç tarayıcıda da çalışır. Kamera, ekran paylaşımı, düşürülen istekler ve kart düzeni
++// testleri yalnızca Chromium'da çalışır, diğer tarayıcılarda nedeni yazılarak atlanır.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -31,8 +33,16 @@ const zlib = require('node:zlib')
+ const h = require('./yardimci')
+ 
+ const W = { w: null, deniz: null, ece: null, lobi: null, genel: null }
+-// Sahte kamera ve mikrofon Chromium bayraklarıyla sağlanır (10-kamera.test.js ile aynı gerekçe)
+-const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte kamera yalnızca Chromium bayraklarıyla doğrulandı' })
++const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
++// Yalnızca Chromium'da çalışan testler. Sahte kamera ve ekran yakalama Chromium bayraklarıyla sağlanır (10-kamera.test.js
++// ve 14-bildirim-sesleri.test.js ile aynı gerekçe). Bilerek düşürülen isteğin konsol iletisi Chromium'un ağ hatası
++// metnine göre ayıklanır. Kart düzeni ölçümleri yalnızca Chromium'da doğrulandı.
++const ONLY_CHROMIUM = {
++  camera: { browsers: ['chromium'], reason: 'sahte kamera yalnızca Chromium bayraklarıyla doğrulandı' },
++  aborted: { browsers: ['chromium'], reason: 'düşürülen isteğin konsol iletisi yalnızca Chromium için ayıklanır' },
++  layout: { browsers: ['chromium'], reason: 'kart düzeni ölçümleri yalnızca Chromium\'da doğrulandı' },
++  screen: { browsers: ['chromium'], reason: 'ekran yakalama yalnızca Chromium bayraklarıyla' }
++}
+ 
+ // 1x1 PNG
+ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+@@ -327,7 +337,7 @@ test('profil değişikliği kameralar ızgarasına, Bildirimler listesine, kişi
+   await ece.waitForSelector('#profile-card', { state: 'hidden' })
+   await deniz.click('#btn-camera')
+   await ece.waitForSelector(crewSel(D) + '.has-camera', { state: 'detached', timeout: h.LONG })
+-})
++}, ONLY_CHROMIUM.camera)
+ 
+ test('düşen profil isteği ve profil resmi indirmesi yeniden denenir', async () => {
+   const { ece } = W
+@@ -374,7 +384,7 @@ test('düşen profil isteği ve profil resmi indirmesi yeniden denenir', async (
+   assert.equal(uploadAborts, 1)
+   await ece.waitForFunction((d) => Boolean(document.querySelector('#members .member[data-user-id="' + d + '"] img.avatar-img')), D, { timeout: h.LONG })
+   await ece.unroute('**/api/uploads/' + avatar.u)
+-})
++}, ONLY_CHROMIUM.aborted)
+ 
+ test('kart düzeni üç temada: ad avatarın sağında, rol adın yanında, üyede Üye rozeti, özel rol de görünür', async () => {
+   const { ece } = W
+@@ -438,7 +448,7 @@ test('kart düzeni üç temada: ad avatarın sağında, rol adın yanında, üye
+   await closeCard(ece)
+   await ece.evaluate(() => window.TelsizTheme.set({ fontSize: 'auto' }))
+   await ece.setViewportSize({ width: 1440, height: 900 })
+-})
++}, ONLY_CHROMIUM.layout)
+ 
+ test('kart 18rem\'den darsa ad ve rol avatarın altına kayar, uzun adda rozet adın altındaki satıra geçer', async () => {
+   const { ece } = W
+@@ -488,7 +498,7 @@ test('kart 18rem\'den darsa ad ve rol avatarın altına kayar, uzun adda rozet a
+   assert.ok(g.handleTop >= g.badges[0].bottom - 1, 'uzun ad: @kullanıcı adı rozetin altında')
+   await closeCard(ece)
+   await setMert('Mert')
+-})
++}, ONLY_CHROMIUM.layout)
+ 
+ test('profil değişikliği Telsiz DJ kuyruğuna, paylaşan seçicisine ve izleyici yığınına yansır, Bildirimler odağı korur', async () => {
+   const { deniz, ece } = W
+@@ -558,7 +568,7 @@ test('profil değişikliği Telsiz DJ kuyruğuna, paylaşan seçicisine ve izley
+   // Paylaşımlar durur, iki sahne de kapanır
+   for (const p of [deniz, ece]) await p.evaluate(() => document.getElementById('btn-screen').click())
+   for (const p of [deniz, ece]) await p.waitForFunction(() => document.getElementById('cast').hidden, null, { timeout: h.LONG })
+-})
++}, ONLY_CHROMIUM.screen)
+ 
+ test('kapak fotoğrafı Ayarlar > Profil\'den yüklenir, yalnızca kart açılınca iner, diskte düz baytı yok, eski istemcinin kaydı kapağı kaldırır', async () => {
+   const { deniz, ece } = W
