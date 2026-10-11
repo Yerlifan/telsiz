@@ -140,7 +140,8 @@ function renderActivity () {
       })
       li.appendChild(watch)
     } else if (item.kind === 'game') {
-      const label = t('game.toolInviteLabel', { name: shownName(item.userId), game: activityGameName(item) })
+      // Erişilebilir ad görünen etiketle başlar (WCAG 2.5.3): "Masaya Bak: ..."
+      const label = t('game.viewLabel', { name: shownName(item.userId), game: activityGameName(item) })
       const view = button('button button-small activity-watch', t('game.view'), 'i-gamepad', label)
       view.addEventListener('click', () => {
         if (typeof gameOpenInvite === 'function') gameOpenInvite(item.userId)

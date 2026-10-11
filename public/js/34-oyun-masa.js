@@ -28,6 +28,8 @@ window.TelsizGameDesk = (function (G) {
     BACKOFF_MS: Object.freeze([2000, 4000, 8000, 16000, 30000]),
     INVITE_NOTIFY_MIN_MS: 30000,
     INVITE_RESEND_MS: 15000,
+    OFFER_CONFIRM_MS: 10000,
+    OFFER_PROBE_MS: 60000,
     SELF_DELAY_MS: 300
   })
   const BACKOFF = TIMES.BACKOFF_MS
@@ -57,9 +59,10 @@ window.TelsizGameDesk = (function (G) {
     // Masa kaydı: kurpiyerde role 'dealer', oyuncuda role 'player'. Masa Kur ekranı (yerel) ayrı tutulur.
     let T = null
     let setup = null
-    // Odadaki her kurpiyerin son geçerli daveti ve masa kimliğinin ilk davetteki kurpiyeri
+    // Odadaki her kurpiyerin son geçerli daveti (kurpiyerin kimliğiyle anahtarlanır, g kimseye sabitlenmez: aynı g
+    // ile gelen başka bir kişinin daveti gerçek kurpiyerin davetini gölgeleyemez). Saklı davetin canlılığı
+    // offersTick içinde denetlenir.
     let seen = {}
-    let owners = {}
     // Kurpiyer başına reddedilen davetin (lobi, Oyuna Dön, Oyun Sürüyor) ni değeri: aynı davetin kopyası yeniden
     // gösterilmez
     let declined = {}
@@ -392,14 +395,18 @@ window.TelsizGameDesk = (function (G) {
       return true
     }
 
-    // Çıkarılan oyuncuya son durum: koltuklarda o yok ve eli boş (TelsizGame.isRemovalBody)
+    // Çıkarılan oyuncuya son durum: koltuklarda o yok ve eli boş (TelsizGame.isRemovalBody). Koltuğun ni değeriyle
+    // gider, kişinin yenilenmiş sayfasında bekleyen Oyuna Dön daveti varsa o davetin ni değeriyle de (rec.alt).
     function sendFarewell (uid) {
       const rec = T.removed[uid]
       const keys = keysFor(uid)
       if (!rec || keys.ok !== true) return
       const b = bodyFor(uid, { seq: T.lastSeq[uid] || 0, ok: true }, publicNow(), false)
-      const p = G.sealInner(env.dm, stateMsg(uid, rec.ni, b), keys.pk, keys.sk)
-      if (p) send(rec.peerId, p)
+      const nis = rec.alt && rec.alt !== rec.ni ? [rec.ni, rec.alt] : [rec.ni]
+      nis.forEach((ni) => {
+        const p = G.sealInner(env.dm, stateMsg(uid, ni, b), keys.pk, keys.sk)
+        if (p) send(rec.peerId, p)
+      })
     }
 
     function sendFault (seat) {
@@ -534,7 +541,12 @@ window.TelsizGameDesk = (function (G) {
 
     function dealerJoin (peerId, uid, x) {
       const inv = T.invites[uid]
-      if (!inv || x.ni !== inv.ni || x.app !== T.app) return
+      if (!inv || x.ni !== inv.ni || x.app !== T.app) {
+        // Çıkarılan kişinin yenilenmiş sayfası Oyuna Dön ile geldi: veda (kısmalı) yeniden gider
+        const rec = T.removed[uid]
+        if (!seatOf(uid) && rec && rec.alt === x.ni && rec.peerId === peerId && plainAllowed(uid)) sendFarewell(uid)
+        return
+      }
       let seat = seatOf(uid)
       if (seat) {
         // Geri dönüş (yenilenmiş sayfa): koltuk yeni bağlantıya ve yeni davet değerine geçer
@@ -664,10 +676,13 @@ window.TelsizGameDesk = (function (G) {
       return offer.ph === 'lobby' ? 'invited' : 'busy'
     }
 
+    // Gösterilebilecek en yeni saklı davet. Engellediğim kurpiyerin daveti gösterilmez (1.2), engelleme davet
+    // geldikten sonra yapılmış olsa da.
     function bestOffer () {
       let best = null
       Object.keys(seen).forEach((d) => {
         const o = seen[d]
+        if (blocked(d)) return
         if (!best || o.at > best.at) best = o
       })
       return best
@@ -730,6 +745,56 @@ window.TelsizGameDesk = (function (G) {
       if (next) adopt(next, false)
     }
 
+    // Masasına katılmadığım (davet, Oyuna Dön, Oyun Sürüyor ya da ret ekranındaki) kurpiyer
+    function offerFrom (d) {
+      return playing() && T.dealer === d && T.stage !== 'joining' && T.stage !== 'seated'
+    }
+
+    // Saklı davet geçersiz: silinir, gösteriliyorsa varsa başka bir saklı davete geçilir
+    function dropStored (d) {
+      delete seen[d]
+      if (offerFrom(d)) dropOffer()
+    }
+
+    // Saklı davetin canlılığı (4.12 "saklı ve canlı davet"):
+    // - Canlı kurpiyer her peer-ready olayında yeni davet gönderir. Davetin bağlantısı için peer-ready gelip
+    //   OFFER_CONFIRM_MS içinde yeni davet gelmezse (kurpiyer sayfayı yeniledi, masası yok) kayıt silinir.
+    // - OFFER_PROBE_MS boyunca yenilenmeyen kayıt: beni oturtan davet (Oyuna Dön) canlı kurpiyerce 15 sn'de bir
+    //   yinelendiği için silinir. Diğerleri için kurpiyere yoklama gider: masası yoksa close gone ile yanıt verir
+    //   (kaybolan close), masası varsa yanıt vermez.
+    function offersTick () {
+      const t = now()
+      const me = myId()
+      Object.keys(seen).forEach((d) => {
+        const o = seen[d]
+        if (!o) return
+        if (o.confirmBy !== null && t > o.confirmBy) {
+          dropStored(d)
+          return
+        }
+        // Katıldığım masanın canlılığı durum akışıyla izlenir
+        if (playing() && T.dealer === d && T.g === o.g && !offerFrom(d)) return
+        if (t - o.at < TIMES.OFFER_PROBE_MS || t - o.probeAt < TIMES.OFFER_PROBE_MS) return
+        if (o.seats.indexOf(me) >= 0) {
+          dropStored(d)
+          return
+        }
+        o.probeAt = t
+        probeOffer(o)
+      })
+    }
+
+    // Yoklama: saklı davetin masasına iç sync. Kurpiyer bilinmeyen g için close gone ile yanıt verir, koltuğu
+    // olmayan kişinin sync iletisini ise yok sayar.
+    function probeOffer (o) {
+      const keys = keysFor(o.dealer)
+      const me = myId()
+      if (keys.ok !== true || me === null) return
+      const msg = { v: G.VERSION, ctx: G.CTX, k: 'sync', g: o.g, ch: o.ch, from: me, to: o.dealer, seq: 1 }
+      const p = G.sealInner(env.dm, msg, keys.pk, keys.sk)
+      if (p) send(o.peerId, p)
+    }
+
     function endPlayer (reason) {
       const o = seen[T.dealer]
       if (o && o.g === T.g) delete seen[T.dealer]
@@ -742,8 +807,6 @@ window.TelsizGameDesk = (function (G) {
 
     function onInvite (peerId, uid, x) {
       if (!appOf(x.app) || blocked(uid)) return
-      if (hasOwn(owners, x.g) && owners[x.g] !== uid) return
-      owners[x.g] = uid
       const offer = {
         app: x.app,
         g: x.g,
@@ -756,7 +819,10 @@ window.TelsizGameDesk = (function (G) {
         max: x.max,
         ni: x.ni,
         key: x.key,
-        at: now()
+        at: now(),
+        // Canlılık (offersTick): peer-ready sonrası teyit süresi ve son yoklama
+        confirmBy: null,
+        probeAt: now()
       }
       seen[uid] = offer
       if (T === null && declined[uid] === x.ni) {
@@ -771,14 +837,26 @@ window.TelsizGameDesk = (function (G) {
         return
       }
       if (dealing()) {
-        // 4.12: lobideki kurpiyer oyundaki masaya ya da kimliği küçük olan lobiye yer verir
-        if (T.ph === 'lobby' && (x.ph !== 'lobby' || x.g < T.g)) {
+        if (yieldsTo(x)) {
           closeAll('superseded')
           adopt(offer, true)
         }
         return
       }
-      if (playing() && T.g === x.g && T.dealer === uid) refreshInvite(offer)
+      if (!playing() || T.dealer !== uid) return
+      if (T.g === x.g) refreshInvite(offer)
+      // Aynı kurpiyerin yeni masası: katılmadığım eski masanın teklifi geçersizdir (close kaybolmuş olabilir)
+      else if (offerFrom(uid)) adopt(offer, true)
+    }
+
+    // 4.12: lobideki kurpiyer, masasında kendisinden başka oturan yokken yer verir: oyundaki (play ya da over) en az
+    // iki koltuklu masaya, ya da daha çok koltuklu veya kimliği küçük lobiye. İki taraf aynı veriden aynı sonucu
+    // hesaplar. Oturanı olan lobi kendiliğinden kapanmaz: odadaki bir kişinin kendi adına uydurduğu tek bir düz davet
+    // oturanları masadan atamaz (iki masa aynı odada sürebilir, her biri kendi g değeriyle yalıtılır).
+    function yieldsTo (x) {
+      if (T.ph !== 'lobby' || T.seats.length > 1) return false
+      if (x.ph !== 'lobby') return x.seats.length >= 2
+      return x.seats.length > 1 || x.g < T.g
     }
 
     // Aynı masanın yeni daveti (yeniden bağlanma, aşama değişimi, yeni ni)
@@ -864,10 +942,16 @@ window.TelsizGameDesk = (function (G) {
     }
 
     function onState (peerId, uid, x) {
-      if (!playing() || !stateWanted()) return
-      if (uid !== T.dealer || peerId !== T.dealerPeer || x.g !== T.g || x.ni !== T.ni) return
+      if (!playing() || uid !== T.dealer || peerId !== T.dealerPeer || x.g !== T.g) return
       const me = myId()
       const ctx = { dealer: T.dealer, me: me, r: x.r, app: T.app, rules: T.A.RULES }
+      // Henüz katılmamış yenilenmiş sayfa (Oyuna Dön): kurpiyer koltuğu kaldırınca veda bekleyen davetin ni değerini
+      // taşır. Bu durumda yalnızca çıkarılma bilgisi kabul edilir.
+      if (T.ni === null && T.stage === 'rejoin' && x.ni === T.inv.ni) {
+        if (G.isRemovalBody(x.b, ctx)) endPlayer('removed')
+        return
+      }
+      if (!stateWanted() || x.ni !== T.ni) return
       if (G.isRemovalBody(x.b, ctx)) {
         if (G.acceptState(T.lastR, T.lastAckSeq, x.r, x.b.ack.seq)) endPlayer('removed')
         return
@@ -1065,6 +1149,11 @@ window.TelsizGameDesk = (function (G) {
     }
 
     function onPeerReady (peerId, uid) {
+      // Bu bağlantıdan gelmiş saklı davetler teyit bekler: canlı kurpiyer peer-ready olayında yeni davet gönderir
+      Object.keys(seen).forEach((d) => {
+        const o = seen[d]
+        if (o.peerId === peerId && o.confirmBy === null) o.confirmBy = now() + TIMES.OFFER_CONFIRM_MS
+      })
       if (dealing()) {
         if (blocked(uid)) return
         // Koltuktaki kişiye önce davet (yenilenmiş sayfa için yeni ni), sonra durum gider
@@ -1100,12 +1189,13 @@ window.TelsizGameDesk = (function (G) {
       else dropOffer()
     }
 
+    // Ses odasından çıkış. Bildirim yalnızca açık masası olan kurpiyere, Masa Kur ekranına ve katılan ya da oturan
+    // oyuncuya gider. Katılmadığım teklifler (davet, Oyuna Dön, Oyun Sürüyor) sessizce silinir: o masa sürüyor.
     function onReset () {
-      const had = (T !== null && (T.role === 'dealer' || T.ended === null)) || setup !== null
+      const had = dealing() || (playing() && (T.stage === 'joining' || T.stage === 'seated')) || setup !== null
       T = null
       setup = null
       seen = {}
-      owners = {}
       declined = {}
       left = null
       plainAt = {}
@@ -1132,9 +1222,14 @@ window.TelsizGameDesk = (function (G) {
     function onTick () {
       if (dealing()) dealerTick()
       else if (playing()) playerTick()
+      offersTick()
     }
 
     function onRecheck () {
+      // Engellediğim kurpiyerin saklı davetleri silinir (engelleme davet geldikten sonra da yapılabilir)
+      Object.keys(seen).forEach((d) => {
+        if (blocked(d)) delete seen[d]
+      })
       if (dealing()) {
         if (locked()) {
           lockClose()
@@ -1155,10 +1250,13 @@ window.TelsizGameDesk = (function (G) {
       }
       if (!playing()) return
       const reason = keyProblem(T.dealer)
-      if (reason !== null) {
-        keyTrouble(reason)
+      if (reason !== null) keyTrouble(reason)
+      // Engellenen kurpiyerin teklifi kapanır: rozet ve Bildirimler kaydı da kalkar
+      if (playing() && blocked(T.dealer) && offerFrom(T.dealer)) {
+        dropOffer()
         return
       }
+      if (reason !== null) return
       if (T.joinWanted && (T.stage === 'invited' || T.stage === 'rejoin')) doJoin()
     }
 
@@ -1308,7 +1406,10 @@ window.TelsizGameDesk = (function (G) {
       if (!dealing() || id === T.dealer) return false
       const seat = seatOf(id)
       if (!seat) return false
-      T.removed[id] = { ni: seat.ni, peerId: seat.peerId }
+      // Yenilenmiş sayfanın bekleyen Oyuna Dön daveti kalkar, veda o davetin ni değeriyle de gider (sendFarewell)
+      const pending = T.invites[id]
+      delete T.invites[id]
+      T.removed[id] = { ni: seat.ni, alt: pending && pending.peerId === seat.peerId ? pending.ni : null, peerId: seat.peerId }
       if (!dropSeat(id, 'removed')) return false
       // Son durum hemen gider, kişiden gelen sonraki iletilere yanıt düz yanıt kısmasına tabidir
       plainAt[id] = now()

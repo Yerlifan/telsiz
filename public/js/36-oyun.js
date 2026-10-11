@@ -44,6 +44,7 @@ const gameState = {
   confirm: null,
   focusNext: null,
   trustOpen: false,
+  seatsOpen: false,
   picker: null,
   uiRev: 0,
   turnFocus: false,
@@ -108,17 +109,6 @@ function gameRulesLabel (ui, rules) {
 
 function gameRulesHint (ui, rules) {
   return String(gameUiCall(ui, 'rulesHint', [rules], ''))
-}
-
-// Hareketi azalt: işletim sistemi ayarı veya Ayarlar > Görünüm seçimi
-function gameReducedMotion () {
-  let media = false
-  try {
-    media = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-  } catch (err) {
-    media = false
-  }
-  return media || document.documentElement.getAttribute('data-reduce-motion') === 'true'
 }
 
 // ----- Masa yöneticisi ve ortamı (4.5) -----
@@ -257,11 +247,12 @@ function gameTick () {
   }
 }
 
-// Zamanlayıcı yalnızca masa veya davet varken çalışır
+// Zamanlayıcı yalnızca masa veya saklı davet varken çalışır (saklı davetin canlılığı da tick ile denetlenir)
 function gameSyncTick (m) {
-  if (m.role !== 'none' && !gameState.timer) {
+  const active = m.role !== 'none' || Boolean(m.invite)
+  if (active && !gameState.timer) {
     gameState.timer = setInterval(gameTick, GAME_TICK_MS)
-  } else if (m.role === 'none' && gameState.timer) {
+  } else if (!active && gameState.timer) {
     clearInterval(gameState.timer)
     gameState.timer = 0
   }
@@ -291,7 +282,7 @@ function gameOnDeskChange () {
     gameState.confirm = null
     gameState.picker = null
   }
-  gameStartNote(m)
+  gameStartNote(before, m)
   const turnId = m.stage === 'play' ? gameTurnId(m) : null
   if (turnId && turnId !== gameState.lastTurnId && turnId !== m.me) gameAnnounce(t('game.sr.next', { name: shownName(turnId) }), false)
   gameState.lastTurnId = turnId
@@ -308,10 +299,10 @@ function gameOnDeskChange () {
   gameTurnFocus(m)
 }
 
-// "Oyun başladı" duyurusu elin olaylarından önce gelir: bildirimler onChange'den önce geldiği için önceki model
-// (gameState.model) henüz lobidedir
-function gameStartNote (m) {
-  const before = gameState.model
+// "Oyun başladı" duyurusu: before önceki model, m yeni model. Bildirim alan cihazda (olaylar ya da sıra) onChange'den
+// önce gelir, böylece elin olaylarından önce duyurulur. Bildirim almayan cihazda onChange içinde, gameState.model
+// güncellenmeden önceki modelle karşılaştırılır. Her el bir kez duyurulur.
+function gameStartNote (before, m) {
   if (!before || before.stage !== 'lobby' || m.stage !== 'play' || gameState.startedRd === m.rd) return
   gameState.startedRd = m.rd
   gameAnnounce(t('game.sr.started'), false)
@@ -365,11 +356,14 @@ function gameErrorText (code, app) {
 // Masa yöneticisinin bildirimleri (onChange'den önce gelir)
 function gameOnNotice (kind, data) {
   const m = gameState.desk ? gameState.desk.model() : gameEmptyModel()
-  gameStartNote(m)
+  gameStartNote(gameState.model, m)
   if (kind === 'invite' && data) {
     gameState.activityDealer = data.dealer
     if (typeof activityGame === 'function') activityGame(data.dealer, true, data.app)
-    gameAnnounce(t('game.sr.invited', { name: shownName(data.dealer), game: gameAppName(data.app) }), false)
+    // Bildirimler listesi görünürken (kendisi kibar canlı bölgedir) davet ikinci kez duyurulmaz (22-cast.js
+    // castOnScreenEvent ile aynı kural)
+    const listed = typeof activityShown === 'function' && activityShown()
+    if (!listed) gameAnnounce(t('game.sr.invited', { name: shownName(data.dealer), game: gameAppName(data.app) }), false)
   } else if (kind === 'turn') {
     gameAnnounce(String(gameUiCall(gameUi(m.app), 'turnText', [m], t('game.sr.yourTurn'))), true)
     gameState.turnFocus = true
@@ -484,7 +478,7 @@ function gameToolState (s, m, visible) {
   const inv = m.invite
   const out = (kind, label, aria, badge) => ({ kind: kind, label: label, aria: aria, badge: badge, expanded: kind === 'minimize', disabled: kind === 'busy' })
   if (m.stage !== 'none' && visible) return out('minimize', t('game.minimize'), t('game.minimizeLabel'), '')
-  if (m.stage === 'busy' || (m.stage === 'none' && gameOfferBusy(inv, m.me))) return out('busy', t('game.toolBusy'), t('game.toolBusyLabel'), '')
+  if (m.stage === 'busy' || (m.stage === 'none' && gameOfferBusy(inv, m.me))) return out('busy', t('game.toolBusy'), t('game.toolBusyAria'), '')
   if (m.stage === 'invited' || m.stage === 'rejoin' || (m.stage === 'none' && inv)) {
     return out('invite', t('game.toolInvite'), t('game.toolInviteLabel', { name: shownName(inv.dealer), game: gameAppName(inv.app) }), '1')
   }
@@ -609,6 +603,7 @@ function gameStageClosed () {
   gameState.confirm = null
   gameState.focusNext = null
   gameState.trustOpen = false
+  gameState.seatsOpen = false
   gameState.picker = null
   Object.keys(gameState.uis).forEach((id) => {
     gameUiCall(gameState.uis[id], 'stageClosed', [], null)
@@ -689,23 +684,64 @@ function gameRenderStage (container) {
   const confirm = gameState.confirm ? gameState.confirm.kind + ':' + (gameState.confirm.id || '') : ''
   const lang = window.I18N ? window.I18N.lang : ''
   const key = [m.rev, lang, gameState.minimized ? 1 : 0, gameState.picker || '', confirm, gameState.trustOpen ? 1 : 0,
-    isNarrow() ? 1 : 0, gameState.uiRev, gameSharing() ? 1 : 0, gameNamesKey(m)].join('|')
+    gameState.seatsOpen ? 1 : 0, isNarrow() ? 1 : 0, gameState.uiRev, gameSharing() ? 1 : 0, gameNamesKey(m)].join('|')
   if (key === gameState.stageKey && gameState.body && gameState.body.parentNode === container) return
   gameState.stageKey = key
   gameBindStage(container)
+  const moved = Boolean(gameState.focusNext)
   const focusKey = gameState.focusNext || activeFocusKey(container)
-  const hadFocus = Boolean(gameState.focusNext) || container.contains(document.activeElement)
+  const hadFocus = moved || container.contains(document.activeElement)
   gameState.focusNext = null
+  const prev = gameState.body && gameState.body.parentNode === container ? gameState.body : null
+  // Aynı ekranın yeniden çiziminde kişinin kaydırdığı yer korunur (sahnenin dikey ve elin yatay kaydırması)
+  const scroll = prev && prev.getAttribute('data-stage') === m.stage ? gameScrollSave(container) : null
   const body = h('div', 'game-body')
   body.setAttribute('data-stage', m.stage)
   body.setAttribute('data-role', m.role)
   gameFillStage(body, m)
-  if (gameState.body && gameState.body.parentNode === container) container.replaceChild(body, gameState.body)
+  if (prev) container.replaceChild(body, prev)
   else container.insertBefore(body, container.firstChild)
   gameState.body = body
+  if (scroll) gameScrollRestore(container, scroll)
   if (!hadFocus) return
-  restoreFocusKey(container, focusKey)
+  // Odak aynı denetime geri verilirken sahne kaydırılmaz, başka bir denetime taşınırken görünür alana gelir
+  gameFocusKey(container, focusKey, !moved)
   if (!container.contains(document.activeElement)) focusNode(gameFirstFocus())
+}
+
+// Kaydırma konumları: sahnenin kendisi ve data-scroll-key taşıyan öğeler (uygulamanın yatay kayan eli gibi)
+function gameScrollSave (container) {
+  const items = {}
+  Array.from(container.querySelectorAll('[data-scroll-key]')).forEach((node) => {
+    items[node.getAttribute('data-scroll-key')] = { left: node.scrollLeft, top: node.scrollTop }
+  })
+  return { top: container.scrollTop, items: items }
+}
+
+function gameScrollRestore (container, saved) {
+  Array.from(container.querySelectorAll('[data-scroll-key]')).forEach((node) => {
+    const key = node.getAttribute('data-scroll-key')
+    if (!gameHas(saved.items, key)) return
+    node.scrollLeft = saved.items[key].left
+    node.scrollTop = saved.items[key].top
+  })
+  container.scrollTop = saved.top
+}
+
+// keep: odak verilirken sayfa kaydırılmaz (preventScroll)
+function gameFocusKey (container, key, keep) {
+  if (!key) return
+  const found = Array.from(container.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0]
+  if (!found) return
+  if (!keep) {
+    focusNode(found)
+    return
+  }
+  try {
+    found.focus({ preventScroll: true })
+  } catch (err) {
+    focusNode(found)
+  }
 }
 
 // Kapsayıcı bir kez bağlanır: canlı bölgeler ve onay satırının Esc tuşu
@@ -831,17 +867,29 @@ function gameRulesBlock (m, ui, rules, editable) {
   return sec
 }
 
-// Odadakiler (yalnız kurpiyerde): kişi, durum çipi ve anahtar sorununun nedeni
-function gameRoomBlock (entries) {
+// Odadakiler (yalnız kurpiyerde): kişi, durum çipi ve anahtar sorununun kurpiyerin bakışıyla nedeni
+function gameRoomBlock (m, entries) {
   if (!entries.length) return null
   const sec = gameSection('game-room', t('game.roomTitle'), 'game-room-title')
   const list = h('ul', 'game-people')
   entries.forEach((e) => {
-    const reason = e.status === 'keys' && e.key ? t('game.reason.' + e.key, { name: shownName(e.id) }) : ''
-    list.appendChild(gamePerson(e.id, { chip: e.status, reason: reason }))
+    list.appendChild(gamePerson(e.id, gameRoomEntry(m, e)))
   })
   sec.appendChild(list)
   return sec
+}
+
+// Satırın çipi ve nedeni. Kendi kimliğim kilitliyken her satır 'locked' gelir: sorun kişide değil bende olduğu için
+// satırlarda çip ve neden yoktur, üstteki not (game.setupLocked) söyler. Katılamaz (oyuncunun bildirdiği anahtar
+// sorunu) kurpiyerin bakışıyla yazılır.
+function gameRoomEntry (m, e) {
+  const name = shownName(e.id)
+  if (e.status === 'keys' && e.key === 'locked') return { chip: m.locked ? null : e.status, reason: '' }
+  if (e.status === 'keys' && e.key) return { chip: e.status, reason: t('game.reason.' + e.key, { name: name }) }
+  if (e.status === 'cannot' && e.key && hasText('game.reason.cannot_' + e.key)) {
+    return { chip: e.status, reason: t('game.reason.cannot_' + e.key, { name: name }) }
+  }
+  return { chip: e.status, reason: '' }
 }
 
 function gameSeatChip (seat, index) {
@@ -884,7 +932,7 @@ function gameRenderSetup (body, m, ui) {
   body.appendChild(intro)
   body.appendChild(gameRulesBlock(m, ui, m.rules, true))
   gameEnsureProfiles(m.room.map((r) => r.id))
-  const room = gameRoomBlock(m.room)
+  const room = gameRoomBlock(m, m.room)
   if (room) body.appendChild(room)
   body.appendChild(gameTrustNote(m, m.me))
   if (m.locked) body.appendChild(gameNote('game-locked', 'i-lock', t('game.setupLocked')))
@@ -908,7 +956,7 @@ function gameRenderLobby (body, m, ui) {
   body.appendChild(gameRulesBlock(m, ui, m.rules, dealerView))
   body.appendChild(gameSeatsBlock(m, ids, dealerView))
   if (dealerView) {
-    const room = gameRoomBlock(m.room.filter((r) => ids.indexOf(r.id) < 0))
+    const room = gameRoomBlock(m, m.room.filter((r) => ids.indexOf(r.id) < 0))
     if (room) body.appendChild(room)
   }
   body.appendChild(gameTrustNote(m, m.dealer))
@@ -1083,6 +1131,8 @@ function gameFoot (m, ui) {
   more.setAttribute('aria-expanded', gameState.trustOpen ? 'true' : 'false')
   more.setAttribute('aria-controls', 'game-trust-detail')
   trust.appendChild(more)
+  const dealer = m.role === 'dealer'
+  if (dealer) trust.appendChild(gameSeatsToggle())
   foot.appendChild(trust)
   const detail = h('div', 'game-trust-detail')
   detail.id = 'game-trust-detail'
@@ -1095,6 +1145,7 @@ function gameFoot (m, ui) {
     })
   }
   foot.appendChild(detail)
+  if (dealer) foot.appendChild(gameSeatsDetail(m))
   if (m.stage === 'over' && m.role !== 'dealer') foot.appendChild(gameNote('game-wait', null, t('game.waitNewRound')))
   if (gameState.confirm) {
     foot.appendChild(gameConfirmRow())
@@ -1120,6 +1171,29 @@ function gameFoot (m, ui) {
   }
   foot.appendChild(actions)
   return foot
+}
+
+// Kurpiyerin koltuk listesi (oyun ve sonuç ekranında): durum çipleri ve Koltuktan Çıkar (oyun sürerken onay
+// satırıyla). Uzakta kalan ya da sayfasını yenileyip dönmeyen (hayalet) oyuncu böyle kaldırılır. Varsayılan olarak
+// kapalıdır, telefonda masanın yerini almaz.
+function gameSeatsToggle () {
+  const open = gameState.seatsOpen
+  const b = gameButton('button button-small button-ghost game-seats-more', t(open ? 'game.seatsLess' : 'game.seatsMore'), null, 'game-seats-more', () => {
+    gameState.seatsOpen = !gameState.seatsOpen
+    gameState.focusNext = 'game-seats-more'
+    gameRefreshStage()
+  })
+  b.setAttribute('aria-expanded', open ? 'true' : 'false')
+  b.setAttribute('aria-controls', 'game-seats-detail')
+  return b
+}
+
+function gameSeatsDetail (m) {
+  const box = h('div', 'game-seats-detail')
+  box.id = 'game-seats-detail'
+  box.hidden = !gameState.seatsOpen
+  if (gameState.seatsOpen) box.appendChild(gameSeatsBlock(m, m.seats.map((s) => s.id), true))
+  return box
 }
 
 // ----- Onay satırı (window.confirm yerine, panelin içinde) -----

@@ -488,7 +488,8 @@ window.TelsizRenk = (function (G) {
     const c = m.c
     hand.splice(hand.indexOf(c), 1)
     s.discard.push(c)
-    s.color = isWild(c) ? (m.col || s.color) : cardColor(c)
+    // Son kart olarak renk seçilmeden oynanan Joker: renk seçilmedi (null), el hemen biter (colorOk: over aşaması)
+    s.color = isWild(c) ? (m.col || null) : cardColor(c)
     s.phase = 'play'
     s.drawn = null
     ev.push({ e: 'play', p: id, c: c, col: s.color })
@@ -685,8 +686,9 @@ window.TelsizRenk = (function (G) {
     return r.winner === null && r.total === 0
   }
 
-  // Etkin renk: R Y G B. null yalnızca ilk kart Joker iken renk seçilmeden önce (color aşaması) ya da o aşamada
-  // biten elde olur. color aşamasında renk her zaman null'dır.
+  // Etkin renk: R Y G B. null yalnızca ilk kart Joker iken renk seçilmeden önce (color aşaması), o aşamada biten
+  // elde ya da son kart olarak renk seçilmeden oynanan Jokerle biten elde olur. color aşamasında renk her zaman
+  // null'dır.
   function colorOk (color, phase) {
     if (color === null) return phase === 'color' || phase === 'over'
     return COLORS.indexOf(color) >= 0 && phase !== 'color'

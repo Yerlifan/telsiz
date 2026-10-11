@@ -425,8 +425,18 @@
   color: var(--accent-text);
 }
 
-.game-trust-more {
-  margin: 0 0 0.25rem;
+.game-trust-more,
+.game-seats-more {
+  margin: 0 0.5rem 0.25rem 0;
+}
+
+/* Kurpiyerin oyun sırasındaki koltuk listesi (Koltuklar düğmesiyle açılır) */
+.game-seats-detail {
+  margin: 0.5rem 0 0;
+}
+
+.game-seats-detail .game-section {
+  margin: 0;
 }
 
 .game-trust-detail {
@@ -531,11 +541,14 @@
     margin-right: 0;
   }
 
-  /* cast.css'teki 16:9 sahne yüksekliği masaya kısa gelir: özgüllük eşit, bu dosya sonra yüklenir */
-  body[data-cast="live"][data-cast-mode="game"] .cast-screen {
+  /* Sohbet daraltılmışken (oyunda varsayılan) sahne cast.css'teki 16:9 yükseklik yerine kalan yüksekliği alır, masa
+     .cast-game içinde kayar. Alt sınır küçüktür: büyük bir sabit alt sınır (ör. 20rem) küçük telefonda ve büyük yazı
+     boyutunda paneli taşırır, başlık (Küçült, Tam Ekran) panelin kırpılan üst kısmında kalırdı. Sohbet açıkken
+     cast.css'teki 16:9 yükseklik geçerlidir. Özgüllük cast.css'ten büyüktür, bu dosya sonra yüklenir. */
+  body[data-cast="live"][data-cast-mode="game"][data-cast-chat="closed"] .cast-screen {
     height: auto;
     flex: 1 1 auto;
-    min-height: 20rem;
+    min-height: 8rem;
   }
 
   .cast-game {

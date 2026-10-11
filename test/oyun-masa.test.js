@@ -349,6 +349,11 @@ function plainText (obj) {
   return JSON.stringify(Object.assign({ v: 1, ctx: 'game', ch: CH }, obj))
 }
 
+// Odadaki bir kişinin kendi adına uydurduğu düz davet (çekirdeğin biçim denetiminden geçer)
+function fakeInvite (from, g, ph, seats) {
+  return plainText({ k: 'invite', g, app: 'sayac', dealer: from.uid, ph, rules: 'bir', seats, max: 8, ni: 'ffffffffffffffff', key: null })
+}
+
 // Kurpiyer (ilk kimlik) masayı açar, seat kadar oyuncu sırayla katılır
 function table (opts) {
   const o = opts || {}
@@ -1426,15 +1431,115 @@ describe('tek masa, özel arama ve bildirimler', () => {
     assert.equal(B.notices.length, 0)
   })
 
-  test('bir g ilk davetteki kurpiyere sabitlenir', () => {
+  test('aynı g ile gelen başka bir kişinin daveti gerçek kurpiyerin davetini gölgelemez', () => {
     const { w, K, P } = table({ players: 2, seat: 0 })
     const [B, C] = P
+    const g = K.m().g
     const inv = copy(K.lastTo(B, 'invite').msg)
     inv.dealer = '7'
     inv.seats = ['7']
     inject(B, C, JSON.stringify(inv))
     assert.equal(B.m().invite.dealer, '5')
     w.deliver()
+    // Odaya sonradan gelen M'ye X'in aynı g ile uydurduğu davet K'nın davetinden önce ulaşır
+    const M = w.add('41')
+    const X = C
+    inject(M, X, fakeInvite(X, g, 'lobby', ['7']))
+    assert.equal(M.m().invite.dealer, '7')
+    w.ready(K, M)
+    w.deliver()
+    assert.equal(K.sentTo(M, 'invite').length, 1)
+    // K'nın daveti atılmaz: X'in teklifi kapatılınca ya da X engellenince K'nın daveti gösterilir
+    assert.equal(M.desk.decline(), true)
+    assert.equal(M.m().invite.dealer, '5')
+    M.blocked['7'] = true
+    M.desk.recheck()
+    assert.equal(M.m().invite.dealer, '5')
+    assert.equal(M.desk.openInvite(), true)
+    assert.equal(M.desk.join(), true)
+    w.deliver()
+    assert.equal(M.m().stage, 'lobby')
+    same(K.m().seats.map((s) => s.id), ['5', '41'])
+  })
+
+  test('oturanı olan lobi odadaki birinin uydurduğu tek bir düz davetle kapanmaz', () => {
+    const { w, K, P } = table({ players: 3, seat: 2 })
+    const [B, C, X] = P
+    inject(K, X, fakeInvite(X, 'ffffffffffffffff', 'play', ['30']))
+    inject(K, X, fakeInvite(X, 'fffffffffffffffe', 'play', ['30', '41']))
+    inject(K, X, fakeInvite(X, '0000000000000000', 'lobby', ['30']))
+    inject(K, X, fakeInvite(X, '0000000000000001', 'lobby', ['30', '41']))
+    assert.equal(K.m().role, 'dealer')
+    assert.equal(K.m().stage, 'lobby')
+    same(K.m().seats.map((s) => s.id), ['5', '12', '7'])
+    assert.equal(K.sent.filter((it) => it.msg.k === 'close').length, 0)
+    w.deliver()
+    assert.equal(B.m().stage, 'lobby')
+    assert.equal(C.m().stage, 'lobby')
+    assert.equal(B.m().ended, null)
+  })
+
+  test('boş lobi en az iki koltuklu oyuna, daha çok koltuklu ya da kimliği küçük lobiye yer verir, engelleyince yeniden masa kurulur', () => {
+    const w = makeWorld()
+    const K = w.add('5')
+    const X = w.add('30')
+    K.desk.openSetup('sayac')
+    K.desk.openTable('bir')
+    w.drop()
+    const g = K.m().g
+    inject(K, X, fakeInvite(X, 'ffffffffffffffff', 'play', ['30']))
+    assert.equal(K.m().role, 'dealer', 'tek koltuklu oyun davetine yer verilmez')
+    inject(K, X, fakeInvite(X, g === 'ffffffffffffffff' ? 'fffffffffffffffe' : 'ffffffffffffffff', 'lobby', ['30']))
+    assert.equal(K.m().role, 'dealer', 'kimliği büyük, tek koltuklu lobiye yer verilmez')
+    inject(K, X, fakeInvite(X, 'ffffffffffffffff', 'play', ['30', '41']))
+    assert.equal(K.m().role, 'player')
+    assert.equal(K.m().stage, 'busy')
+    same(K.sent.filter((it) => it.msg.k === 'close').map((it) => [it.to, it.msg.why]), [[X.peerId, 'superseded']])
+    assert.equal(K.desk.openSetup('sayac'), false)
+    // Sahte daveti gönderen engellenince saklı daveti de yok sayılır, Masa Kur yeniden açılır
+    K.blocked['30'] = true
+    K.desk.recheck()
+    assert.equal(K.m().stage, 'none')
+    assert.equal(K.m().invite, null)
+    assert.equal(K.desk.openSetup('sayac'), true)
+    assert.equal(K.desk.openTable('bir'), true)
+    assert.equal(K.m().stage, 'lobby')
+  })
+
+  test('davetten sonra engellenen kurpiyerin teklifi ve saklı daveti kalkar, sonucu önceden engellemekle aynıdır', () => {
+    const { w, K, P } = table({ players: 3, seat: 0 })
+    const [B, C, D] = P
+    assert.equal(B.m().stage, 'invited')
+    assert.equal(C.desk.decline(), true)
+    w.deliver()
+    B.blocked['5'] = true
+    C.blocked['5'] = true
+    // Engelleme denetimi recheck beklemeden de saklı daveti gizler
+    assert.equal(C.m().invite, null)
+    assert.equal(C.desk.openInvite(), false)
+    B.desk.recheck()
+    C.desk.recheck()
+    assert.equal(B.m().stage, 'none')
+    assert.equal(B.m().invite, null)
+    assert.equal(C.m().invite, null)
+    w.advance(TM.INVITE_RESEND_MS + 250, [K])
+    w.deliver()
+    assert.equal(B.m().invite, null)
+    assert.equal(B.desk.openSetup('sayac'), true)
+    assert.equal(C.desk.openSetup('sayac'), true)
+    assert.equal(B.sent.filter((it) => it.msg.k === 'decline').length, 0, 'engelleme kurpiyere bildirilmez')
+    // Oyun sürerken gelen Oyun Sürüyor teklifi de kalkar
+    D.desk.join()
+    w.deliver()
+    const E = w.add('41')
+    K.desk.start()
+    w.ready(K, E)
+    w.deliver()
+    assert.equal(E.m().stage, 'busy')
+    E.blocked['5'] = true
+    E.desk.recheck()
+    assert.equal(E.m().stage, 'none')
+    assert.equal(E.m().invite, null)
   })
 })
 
@@ -1758,6 +1863,183 @@ describe('kayıp onarımı', () => {
   })
 })
 
+describe('saklı davetin canlılığı, çıkarma ve ses odasından çıkış', () => {
+  test('kurpiyer sayfayı yenileyip dönünce oturmayan üyedeki saklı davet teyit süresi sonunda düşer, canlı kurpiyerinki kalır', () => {
+    const { w, K, P } = started({ players: 2, seat: 1 })
+    const [B, C] = P
+    assert.equal(C.m().stage, 'busy')
+    // Canlı kurpiyer: bağlantı yenilenince yeni davet gönderir, saklı davet kalır
+    w.ready(C, K)
+    w.ready(K, C)
+    w.deliver()
+    w.advance(TM.OFFER_CONFIRM_MS + 250, [C])
+    assert.equal(C.m().stage, 'busy')
+    assert.equal(C.desk.decline(), true)
+    assert.equal(C.desk.openSetup('sayac'), false)
+    // Kurpiyer sayfayı yeniler ve sese döner: yeni sayfada masa yok, davet gelmez
+    K.reload()
+    w.ready(C, K)
+    w.ready(K, C)
+    w.ready(B, K)
+    w.ready(K, B)
+    w.deliver()
+    same(B.m().ended, { reason: 'dealer_left' })
+    assert.notEqual(C.m().invite, null)
+    w.advance(TM.OFFER_CONFIRM_MS - 250, [C])
+    assert.notEqual(C.m().invite, null)
+    w.advance(500, [C])
+    assert.equal(C.m().invite, null)
+    assert.equal(C.desk.openSetup('sayac'), true)
+  })
+
+  test('gösterilen teklif de teyit süresinde düşer, varsa başka bir saklı davet gösterilir', () => {
+    const { w, K, P } = started({ players: 2, seat: 1 })
+    const C = P[1]
+    const X = w.add('30')
+    inject(C, X, fakeInvite(X, 'ffffffffffffffff', 'lobby', ['30']))
+    assert.equal(C.m().stage, 'busy')
+    assert.equal(C.m().invite.dealer, '5')
+    K.reload()
+    w.ready(C, K)
+    w.advance(TM.OFFER_CONFIRM_MS + 250, [C])
+    assert.equal(C.m().stage, 'invited')
+    assert.equal(C.m().invite.dealer, '30')
+  })
+
+  test('kaybolan close: yenilenmeyen saklı davet için yoklama gider, masası olmayan kurpiyer close gone ile yanıt verir', () => {
+    const { w, K, P } = started({ players: 2, seat: 1 })
+    const [B, C] = P
+    assert.equal(C.m().stage, 'busy')
+    // Canlı masada yoklama yanıtsız kalır ve masayı değiştirmez
+    w.advance(TM.OFFER_PROBE_MS, [C])
+    assert.equal(C.sentTo(K, 'sync').length, 1)
+    const probe = C.lastTo(K, 'sync').msg
+    same([probe.g, probe.seq, probe.to], [K.m().g, 1, '5'])
+    const before = K.sent.length
+    const rev = K.m().rev
+    w.deliver()
+    assert.equal(K.sent.length, before)
+    assert.equal(K.m().rev, rev)
+    assert.equal(C.m().stage, 'busy')
+    w.advance(TM.OFFER_PROBE_MS - 250, [C])
+    assert.equal(C.sentTo(K, 'sync').length, 1, 'yoklama OFFER_PROBE_MS içinde yinelenmez')
+    // Kurpiyer masayı kapatır, C'ye giden close kaybolur
+    assert.equal(K.desk.closeTable(), true)
+    w.drop((it) => it.to === C.peerId)
+    w.deliver()
+    same(B.m().ended, { reason: 'closed' })
+    assert.equal(C.m().stage, 'busy')
+    w.advance(500, [C])
+    assert.equal(C.sentTo(K, 'sync').length, 2)
+    w.deliver()
+    assert.equal(C.m().stage, 'none')
+    assert.equal(C.m().invite, null)
+    assert.equal(C.desk.openSetup('sayac'), true)
+  })
+
+  test('Oyuna Dön teklifi kurpiyerce yinelenmezse yoklamasız düşer, oturduğum masa yoklanmaz', () => {
+    const { w, K, P } = started({ players: 2 })
+    const [B, C] = P
+    B.reload()
+    w.ready(K, B)
+    w.deliver()
+    assert.equal(B.m().stage, 'rejoin')
+    // Kurpiyer yeniden bağlanma davetini 15 sn'de bir yineler: teklif canlı kalır
+    w.advance(TM.OFFER_PROBE_MS + 1000, [K, B])
+    w.deliver()
+    assert.equal(B.m().stage, 'rejoin')
+    // Kurpiyerin yinelemeleri ulaşmaz (kurpiyer gitti ama peer-leave gelmedi)
+    w.advance(TM.OFFER_PROBE_MS + 1000, [B])
+    assert.equal(B.m().stage, 'none')
+    assert.equal(B.m().invite, null)
+    assert.equal(B.sentTo(K, 'sync').length, 0)
+    // Oturduğum masanın davet kaydı yoklanmaz ve silinmez: canlılık durum akışıyla izlenir
+    const t2 = table({ players: 1 })
+    let i = 0
+    while (i < 14) {
+      t2.w.advance(5000, [t2.K, t2.P[0]])
+      t2.w.deliver()
+      i++
+    }
+    assert.equal(t2.P[0].m().stage, 'lobby')
+    assert.equal(t2.P[0].sentTo(t2.K, 'sync').length, 0)
+    assert.equal(C.m().stage, 'play')
+  })
+
+  test('aynı kurpiyerin yeni masasının daveti katılmadığım eski masanın teklifinin yerine geçer', () => {
+    const { w, K, P } = started({ players: 2, seat: 1 })
+    const C = P[1]
+    const oldG = K.m().g
+    assert.equal(K.desk.closeTable(), true)
+    w.drop((it) => it.to === C.peerId)
+    w.deliver()
+    assert.equal(C.m().stage, 'busy')
+    assert.equal(K.desk.openSetup('sayac'), true)
+    assert.equal(K.desk.openTable('bir'), true)
+    w.deliver()
+    assert.notEqual(K.m().g, oldG)
+    assert.equal(C.m().stage, 'invited')
+    assert.equal(C.noticesOf('invite').length, 1)
+    assert.equal(C.desk.join(), true)
+    w.deliver()
+    assert.equal(C.m().stage, 'lobby')
+  })
+
+  test('yenilenmiş sayfası Oyuna Dön bekleyen kişi koltuktan çıkarılınca removed ile biter, kurpiyerde Bekleniyor görünmez', () => {
+    const { w, K, P } = started({ players: 2 })
+    const [B, C] = P
+    B.reload()
+    w.ready(K, B)
+    w.deliver()
+    assert.equal(B.m().stage, 'rejoin')
+    const ni = K.lastTo(B, 'invite').msg.ni
+    assert.equal(K.desk.removeSeat('12'), true)
+    const bye = K.sentTo(B, 'state').slice(-2).map((it) => it.msg)
+    assert.equal(bye[1].ni, ni, 'veda bekleyen davetin ni değeriyle de gider')
+    assert.notEqual(bye[0].ni, ni)
+    for (const x of bye) assert.ok(G.isRemovalBody(x.b, { dealer: '5', me: '12', r: x.r }))
+    w.deliver()
+    same(B.m().ended, { reason: 'removed' })
+    assert.equal(K.m().room.find((x) => x.id === '12').status, null)
+    // Veda kaybolur ve kişi Oyuna Dön'e basar: join yanıtında veda (kısmalı) yeniden gider
+    C.reload()
+    w.ready(K, C)
+    w.deliver()
+    assert.equal(C.m().stage, 'rejoin')
+    assert.equal(K.desk.removeSeat('7'), true)
+    w.drop((it) => it.to === C.peerId)
+    w.advance(TM.PLAIN_REPLY_MIN_MS, [K])
+    assert.equal(C.desk.join(), true)
+    w.deliver()
+    same(C.m().ended, { reason: 'removed' })
+    assert.equal(K.m().stage, 'over')
+  })
+
+  test('ses odasından çıkışta bildirim yalnızca masası olana gider, katılmadığım teklif sessizce silinir', () => {
+    const { w, K, P } = table({ players: 2, seat: 1 })
+    const [B, C] = P
+    assert.equal(C.m().stage, 'invited')
+    C.desk.onVoiceEvent({ type: 'reset' })
+    assert.equal(C.m().stage, 'none')
+    assert.equal(C.m().invite, null)
+    assert.equal(C.noticesOf('ended').length, 0)
+    assert.equal(K.desk.start(), true)
+    w.deliver()
+    const D = w.add('30')
+    w.ready(K, D)
+    w.deliver()
+    assert.equal(D.m().stage, 'busy')
+    D.desk.onVoiceEvent({ type: 'reset' })
+    assert.equal(D.noticesOf('ended').length, 0)
+    B.desk.onVoiceEvent({ type: 'reset' })
+    same(B.noticesOf('ended').map((x) => x.data), [{ reason: 'reset' }])
+    const E = w.add('41')
+    assert.equal(E.desk.openSetup('sayac'), true)
+    E.desk.onVoiceEvent({ type: 'reset' })
+    same(E.noticesOf('ended').map((x) => x.data), [{ reason: 'reset' }])
+  })
+})
+
 describe('modül', () => {
   test('saf yüklenir, saat, DOM, ağ ve sözlük kullanmaz', () => {
     const code = DESK_SRC.replace(/^\s*\/\/.*$/gm, '')
@@ -1788,6 +2070,8 @@ describe('modül', () => {
       BACKOFF_MS: [2000, 4000, 8000, 16000, 30000],
       INVITE_NOTIFY_MIN_MS: 30000,
       INVITE_RESEND_MS: 15000,
+      OFFER_CONFIRM_MS: 10000,
+      OFFER_PROBE_MS: 60000,
       SELF_DELAY_MS: 300
     })
     same(DESK.DELAYED_MOVES, ['last', 'catch'])

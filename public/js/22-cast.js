@@ -351,14 +351,28 @@ function castUnwatch () {
   castCall('unwatchScreen', [userId])
   castState.watching = null
   castSync()
-  if (hadFocus) castFocusAfterClose()
+  if (hadFocus) castFocusAfterMode()
 }
 
 function castStopShare () {
   const hadFocus = el.cast.contains(document.activeElement) || (el.topCast && el.topCast.contains(document.activeElement))
   castCall('stopScreenShare')
   castSync()
-  if (hadFocus && !castVisible()) castFocusAfterClose()
+  // Odaktaki düğme (üst çubuktaki çip ya da sahnedeki Durdur) silinmiş ya da gizlenmiş olabilir
+  const active = document.activeElement
+  const kept = el.cast.contains(active) && active.getClientRects().length > 0 && !active.closest('[hidden]')
+  if (hadFocus && !kept) castFocusAfterMode()
+}
+
+// Üstteki kip kapandı: sahne oyun masası kipinde açık kaldıysa odak masaya, değilse sahnenin dışına gider
+function castFocusAfterMode () {
+  const n = castState.nodes
+  if (castVisible() && n && el.cast.getAttribute('data-mode') === 'game') {
+    const target = typeof gameFirstFocus === 'function' ? gameFirstFocus() : null
+    focusNode(target || n.gameMin)
+    return
+  }
+  castFocusAfterClose()
 }
 
 // Kameralar ızgarası (telsiz kartındaki Büyüt düğmesi)

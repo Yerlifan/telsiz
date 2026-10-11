@@ -79,13 +79,18 @@ function renkEventText (ev) {
   const count = Number(ev.n) || 0
   if (ev.e === 'play') return t('game.renk.ev.play', { name: name(ev.p), card: renkPlayedLabel(ev.c, ev.col) })
   if (ev.e === 'draw') return t('game.renk.ev.draw', { name: name(ev.p), count: count })
-  if (ev.e === 'nodraw' || ev.e === 'pass' || ev.e === 'skip' || ev.e === 'last' || ev.e === 'caught') {
+  if (ev.e === 'nodraw' || ev.e === 'pass' || ev.e === 'skip' || ev.e === 'last') {
     return t('game.renk.ev.' + ev.e, { name: name(ev.p) })
   }
+  // Yakalanma, ardından gelen cezayla (why 'last') tek cümlede söylenir: destede kart kalmadıysa gerçekten
+  // çekilen sayı 2'den az olabilir
+  if (ev.e === 'caught') return ''
   if (ev.e === 'color') return t('game.renk.ev.color', { name: name(ev.p), color: renkColorName(ev.col) })
   if (ev.e === 'reverse') return t('game.renk.ev.reverse', { dir: renkDirText(ev.dir) })
-  // Yakalanan oyuncunun cezası caught cümlesinde söylenir
-  if (ev.e === 'penalty') return ev.why === 'last' ? '' : t('game.renk.ev.penalty', { name: name(ev.p), count: count })
+  if (ev.e === 'penalty' && ev.why === 'last') {
+    return count > 0 ? t('game.renk.ev.caught', { name: name(ev.p), count: count }) : t('game.renk.ev.caughtNone', { name: name(ev.p) })
+  }
+  if (ev.e === 'penalty') return t('game.renk.ev.penalty', { name: name(ev.p), count: count })
   if (ev.e === 'reshuffle' || ev.e === 'reflip') return t('game.renk.ev.' + ev.e)
   if (ev.e === 'leave') return t('game.renk.ev.leave', { name: name(ev.p), count: count })
   if (ev.e === 'pending_dropped') return t('game.renk.ev.pending_dropped', { count: count })
@@ -593,7 +598,8 @@ function renkActions (m, legal, busy) {
   const text = done ? t('game.renk.lastDone') : armed ? t('game.renk.lastArmed') : t('game.renk.last')
   const last = renkActionButton('renk-last', text, 'game-last', busy || !can, renkLastClick)
   last.setAttribute('aria-pressed', armed || done ? 'true' : 'false')
-  if (can) last.setAttribute('aria-label', t('game.renk.lastLabel'))
+  // Erişilebilir ad görünen etiketle başlar (WCAG 2.5.3): işaretliyken "Tek! Denecek: ..."
+  if (can) last.setAttribute('aria-label', armed ? t('game.renk.lastArmedLabel') : t('game.renk.lastLabel'))
   last.classList.toggle('is-armed', armed)
   last.classList.toggle('is-urgent', Boolean(legal.last))
   row.appendChild(last)
@@ -642,6 +648,8 @@ function renkHandBlock (m, mine, legal, busy, play) {
   const count = mine.cards.length
   wrap.appendChild(h('h3', 'renk-hand-title', t('game.renk.hand', { count: count })))
   const hand = h('div', 'renk-hand')
+  // Yeniden çizimde elin yatay kaydırması korunur (36-oyun.js gameScrollSave)
+  hand.setAttribute('data-scroll-key', 'renk-hand')
   hand.setAttribute('role', 'group')
   hand.setAttribute('aria-label', t('game.renk.handLabel', { count: count }))
   const sorted = renkSorted(mine.cards)

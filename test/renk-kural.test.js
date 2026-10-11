@@ -1210,12 +1210,26 @@ describe('sonuç', () => {
     same(res.state.result.ranks.map((x) => x.id), [A, C, B])
   })
 
-  test('son kart Joker +4 ise renksiz de oynanır ve sıradaki 4 kart çeker', () => {
+  test('son kart Joker +4 ise renksiz de oynanır ve sıradaki 4 kart çeker, renk seçilmediği için etkin renk boştur', () => {
     const s = table({ hands: [['WF'], ['B5'], ['G1']], top: 'R1', deckTop: ['Y1', 'Y2', 'Y3', 'Y4'] })
     const res = apply(s, A, { t: 'play', c: 'WF', step: 0 })
-    assert.equal(res.state.color, 'R')
+    checkAll(res.state, res.events)
+    assert.equal(res.state.color, null)
+    same(res.events[0], { e: 'play', p: A, c: 'WF', col: null })
+    assert.equal(R.publicView(res.state).color, null)
     assert.equal(handOf(res.state, B).length, 5)
     assert.equal(res.state.result.total, 5 + 1 + 2 + 3 + 4 + 1)
+  })
+
+  test('son kart olarak renk seçilmeden oynanan Joker önceki rengi seçilmiş gibi taşımaz, renk seçilirse taşır', () => {
+    const s = table({ hands: [['WW'], ['B5'], ['G1']], top: 'R1' })
+    const res = apply(s, A, { t: 'play', c: 'WW', step: 0 })
+    checkAll(res.state, res.events)
+    same(res.events[0], { e: 'play', p: A, c: 'WW', col: null })
+    assert.equal(res.state.phase, 'over')
+    const chosen = apply(s, A, { t: 'play', c: 'WW', col: 'G', step: 0 })
+    same(chosen.events[0], { e: 'play', p: A, c: 'WW', col: 'G' })
+    assert.equal(chosen.state.color, 'G')
   })
 
   test('endGame: winner null, total 0, puana göre sıralama', () => {
