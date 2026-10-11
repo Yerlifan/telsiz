@@ -28,6 +28,11 @@
 //   odasında bas konuş modundayken çalışır, yerel modül yalnızca gerektiğinde yüklenir. Kanca olayları
 //   yalnızca burada işlenir, sayfaya yalnızca "konuş başla" ve "konuş bitti" gider, tuş kodları sayfaya
 //   veya günlüğe hiç gitmez.
+// - Yüzen pencere (src/lib/float-window.js): yeni pencere kuralının tek istisnası. Uygulama penceresi ana
+//   süreçten tek kullanımlık bir ad alır ve yalnızca window.open('about:blank', ad) ile her zaman üstte kalan,
+//   çerçevesiz, ön yükleme betiği olmayan bir pencere açabilir. Açanın uygulama penceresinin ana çerçevesi olduğu
+//   pencere açıldıktan sonra yeniden denetlenir. Bu pencere hiçbir izin alamaz ve hiçbir yere gidemez, uygulama
+//   penceresi kapanınca veya yeniden yüklenince kapanır.
 
 const path = require('node:path')
 const fs = require('node:fs')
@@ -46,6 +51,7 @@ const {
   dialog,
   desktopCapturer,
   powerMonitor,
+  screen,
   webContents
 } = require('electron')
 
@@ -70,6 +76,7 @@ const serverIcon = require('./lib/server-icon')
 const pttHook = require('./lib/ptt-hook')
 const titleBar = require('./lib/title-bar')
 const windowState = require('./lib/window-state')
+const floatWindow = require('./lib/float-window')
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST, APP_ORIGIN, CONNECT_ORIGIN, PICKER_ORIGIN, CHANNELS, ACTIONS, HOLD_PHASES, VERSION_ARG, BACKGROUND_ARG } = channels
 
@@ -160,7 +167,11 @@ const state = {
   // Uygulama penceresinin durum bildiricisi (src/lib/window-state.js), pencere başına bir tane
   windowStates: new WeakMap(),
   // Sistemin boşta süresi okunamadı mı (hata günlüğe bir kez yazılır)
-  idleErrorLogged: false
+  idleErrorLogged: false,
+  // Yüzen pencere: tek kullanımlık ad kapısı, açık pencere (aynı anda en fazla bir tane) ve onu açan uygulama penceresi
+  floatGate: floatWindow.createGate(),
+  floatWindow: null,
+  floatOwner: null
 }
 
 function t (key, params) {
@@ -592,8 +603,14 @@ function openMainWindow () {
   attachContextMenu(win.webContents)
   showWhenReady(win)
   win.webContents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument && state.mainWindow === win) setPttVoice(false)
+    if (details.isMainFrame && !details.isSameDocument && state.mainWindow === win) {
+      setPttVoice(false)
+      // Sayfa yeniden yüklenince yüzen pencerenin çizeni kalmaz
+      closeFloatWindow(win)
+    }
   })
+  // Yüzen pencere (setWindowOpenHandler içindeki tek istisna) açıldı: açan yeniden denetlenir
+  win.webContents.on('did-create-window', (child, details) => onFloatCreated(win, child, details))
   win.on('close', (event) => {
     if (state.quitting || state.mainWindow !== win) return
     if (state.settings.closeToTray && state.tray) {
@@ -614,12 +631,111 @@ function openMainWindow () {
       backgroundWindows.stop()
     }
     if (state.mainWindow === null) setPttVoice(false)
+    // Yüzen pencereyi bu pencerenin sayfası çizer (frekans geçişinde de kapanır)
+    closeFloatWindow(win)
   })
   win.webContents.on('render-process-gone', (event, details) => {
     logError('renderer', new Error(details.reason))
     if (state.mainWindow === win) setPttVoice(false)
+    closeFloatWindow(win)
   })
   win.loadURL(APP_ORIGIN + '/').catch((err) => logError('load', err))
+}
+
+// ------------------------------------------------------------------ yüzen pencere
+
+// Uygulama penceresinin ekranının çalışma alanı. Simge durumundaki pencerede normal konumu kullanılır.
+function floatWorkArea () {
+  try {
+    const win = state.mainWindow
+    if (!isAlive(win)) return screen.getPrimaryDisplay().workArea
+    const bounds = win.isMinimized() ? win.getNormalBounds() : win.getBounds()
+    return screen.getDisplayMatching(bounds).workArea
+  } catch (err) {
+    return null
+  }
+}
+
+// window.open isteği yüzen pencere için mi: bağlam, açan pencere, adres ve tek kullanımlık ad
+// (src/lib/float-window.js isFloatRequest). Koşullar tutarsa ad harcanır.
+function isFloatOpen (contents, details) {
+  return floatWindow.isFloatRequest({
+    context: contextOf(contents),
+    fromMain: isAlive(state.mainWindow) && state.mainWindow.webContents === contents,
+    url: details.url,
+    frameName: details.frameName,
+    open: isAlive(state.floatWindow)
+  }, state.floatGate)
+}
+
+// Yüzen pencerenin seçenekleri: kayıtlı konum ekrana sığıyorsa o, değilse uygulama penceresinin ekranında sağ alt
+function floatOpenOptions () {
+  const bounds = floatWindow.cleanBounds(state.settings.floatBounds, floatWorkArea())
+  return Object.assign(floatWindow.options(bounds), { title: t('float.windowTitle'), backgroundColor: BACKGROUND })
+}
+
+// Yüzen pencere açıldı. Açan uygulama penceresinin ana çerçevesi değilse (YouTube oynatıcısı gibi bir alt
+// çerçeve), başka bir yüzen pencere zaten açıksa veya ad biçime uymuyorsa pencere hemen yok edilir.
+function onFloatCreated (win, child, details) {
+  let opener = null
+  try {
+    opener = child.webContents.opener
+  } catch (err) {
+    opener = null
+  }
+  const name = details && typeof details.frameName === 'string' ? details.frameName : ''
+  const mainFrame = isAlive(win) ? win.webContents.mainFrame : null
+  if (state.mainWindow !== win || isAlive(state.floatWindow) || !floatWindow.isToken(name) || !floatWindow.sameFrame(opener, mainFrame)) {
+    diag.log('float-rejected', { contents: child.webContents.id })
+    child.destroy()
+    return
+  }
+  const contents = child.webContents
+  const id = contents.id
+  state.contexts.set(id, 'float')
+  state.floatWindow = child
+  state.floatOwner = win
+  diag.log('window', { context: 'float', contents: id })
+  child.setMenu(null)
+  // Oyunların ve tam ekran uygulamaların üstünde, bütün masaüstlerinde görünür. Windows ve macOS'ta ekran
+  // yakalamasına girmez (Linux'ta bu koruma yok, Wayland'de pencere üstte de kalamaz).
+  child.setAlwaysOnTop(true, 'floating')
+  child.setVisibleOnAllWorkspaces(true)
+  child.setContentProtection(true)
+  // Son konum ve boyut bir sonraki açılış için saklanır. Sayfanın window.close() çağrısında Electron close olayını
+  // göndermez (pencere hemen kapanır), bu yüzden değer taşındıkça ve boyutlandıkça tutulur, kapanınca yazılır.
+  let lastBounds = floatWindow.validBounds(child.getBounds())
+  const remember = () => {
+    if (!child.isDestroyed()) lastBounds = floatWindow.validBounds(child.getBounds()) || lastBounds
+  }
+  child.on('move', remember)
+  child.on('resize', remember)
+  child.on('close', remember)
+  child.on('closed', () => {
+    state.contexts.delete(id)
+    if (state.floatWindow === child) {
+      state.floatWindow = null
+      state.floatOwner = null
+    }
+    if (lastBounds && JSON.stringify(lastBounds) !== JSON.stringify(state.settings.floatBounds)) {
+      state.settings.floatBounds = lastBounds
+      persistSettings()
+    }
+  })
+  contents.on('render-process-gone', () => {
+    if (!child.isDestroyed()) child.destroy()
+  })
+  // Odak uygulamada (veya oyunda) kalır
+  child.showInactive()
+}
+
+// Yüzen pencereyi kapatır. owner verilirse yalnızca o uygulama penceresinin açtığı pencere kapanır.
+function closeFloatWindow (owner) {
+  const child = state.floatWindow
+  if (!child || (owner && state.floatOwner !== owner)) return
+  state.floatWindow = null
+  state.floatOwner = null
+  if (isAlive(child)) child.close()
 }
 
 function showMain () {
@@ -1396,6 +1512,16 @@ function registerIpc () {
     requireSender(event, 'app')
     return backgroundWindows.snapshot()
   })
+  // Yüzen pencere: tek kullanımlık pencere adı ve Uygulamaya Dön (yalnızca uygulama penceresinden)
+  ipcMain.handle(CHANNELS.floatArm, (event) => {
+    requireSender(event, 'app')
+    return state.floatGate.arm()
+  })
+  ipcMain.handle(CHANNELS.floatShowMain, (event) => {
+    requireSender(event, 'app')
+    showMain()
+    return true
+  })
 
   ipcMain.handle(CHANNELS.connectInit, (event) => {
     requireSender(event, 'connect')
@@ -1492,6 +1618,8 @@ function installGuards () {
     if (diag.enabled) watchContents(contents)
     contents.on('will-attach-webview', (e) => e.preventDefault())
     contents.setWindowOpenHandler((details) => {
+      // Tek istisna: uygulama penceresinin tek kullanımlık adla açtığı yüzen pencere (src/lib/float-window.js)
+      if (isFloatOpen(contents, details)) return { action: 'allow', overrideBrowserWindowOptions: floatOpenOptions() }
       const referrer = details.referrer && typeof details.referrer.url === 'string' ? details.referrer.url : ''
       if (contextOf(contents) === 'app' && navigation.decideAppWindowOpen(details.url, referrer) === 'external') openExternal(details.url)
       return { action: 'deny' }

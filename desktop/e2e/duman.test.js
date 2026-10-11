@@ -21,6 +21,8 @@
 //   yalnızca izinli değerlerle gelir
 // - sistemin boşta süresi uygulama penceresinden ve gerçek bir arka plan penceresinden tam saniye olarak okunur,
 //   bağlamı olmayan pencere okuyamaz
+// - yüzen pencere yalnızca ana süreçten alınan tek kullanımlık adla ve about:blank adresiyle açılır, her zaman
+//   üsttedir, izin alamaz, gezinemez ve yeni pencere açamaz, kapanınca konumu saklanır, sayfa yeniden yüklenince kapanır
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -1224,4 +1226,85 @@ test('boşta süresi: gerçek arka plan penceresinde okunur, bağlamı olmayan p
   assert.deepEqual(await ctx.page.evaluate((origin) => window.telsizDesktop.removeFrequency(origin, false), second), { ok: true, active: first })
   const list = await ctx.page.evaluate(() => window.telsizDesktop.listFrequencies())
   assert.deepEqual(list.items.map((item) => [item.origin, item.active]), [[first, true]])
+})
+
+// Yüzen pencere (istek 7, src/lib/float-window.js): yeni pencere kuralının tek istisnası. Ad olmadan, uydurma adla,
+// başka adresle veya ikinci kez aynı adla açılmaz. Açılan pencere görünür ve her zaman üsttedir, ön yükleme betiği
+// yoktur, mikrofon ve bildirim izni alamaz, başka bir adrese gidemez ve kendisi pencere açamaz. Kapanınca konumu ayar
+// dosyasına yazılır. Uygulama penceresi yeniden yüklenince yüzen pencere de kapanır.
+test('yüzen pencere: tek kullanımlık adla açılır, üsttedir, izin alamaz, gezinemez, sayfa yenilenince kapanır', { timeout: 60000 }, async () => {
+  const page = ctx.page
+  // Kapanmakta olan pencerenin webContents nesnesi pencereden önce yok olabilir
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  assert.equal(await floats(), 0)
+  const denied = await page.evaluate(() => [
+    window.open('about:blank') === null,
+    window.open('about:blank', 'telsiz-yuzen-' + '0'.repeat(32)) === null,
+    window.open('about:blank', '_blank') === null
+  ])
+  assert.deepEqual(denied, [true, true, true])
+  const name = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.match(name, /^telsiz-yuzen-[0-9a-f]{32}$/)
+  // Başka adres aynı adı harcamaz ve yine reddedilir
+  assert.equal(await page.evaluate((n) => window.open('telsiz://app/', n) === null, name), true)
+  const href = await page.evaluate((n) => {
+    window.__yuzen = window.open('about:blank', n)
+    return window.__yuzen ? window.__yuzen.location.href : null
+  }, name)
+  assert.equal(href, 'about:blank')
+  const info = await waitFor(() => ctx.app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && !x.webContents.isDestroyed() && x.webContents.getURL() === 'about:blank')
+    if (!w || !w.isVisible()) return null
+    return { top: w.isAlwaysOnTop(), resizable: w.isResizable(), minimizable: w.isMinimizable(), protectedKnown: typeof w.isContentProtected === 'function', protected: typeof w.isContentProtected === 'function' ? w.isContentProtected() : null, bounds: w.getBounds() }
+  }), 'floating window shown')
+  assert.equal(info.top, true)
+  assert.equal(info.resizable, true)
+  // minimizable ve içerik koruması Linux'ta uygulanmaz (Electron belgesi), yalnızca Windows ve macOS'ta denetlenir
+  if (process.platform !== 'linux') assert.equal(info.minimizable, false)
+  assert.ok(info.bounds.width >= 200 && info.bounds.height >= 120, JSON.stringify(info.bounds))
+  if (info.protectedKnown && (process.platform === 'win32' || process.platform === 'darwin')) assert.equal(info.protected, true)
+  // Ön yükleme betiği yok, izin yok
+  const inside = await page.evaluate(async () => {
+    const w = window.__yuzen
+    const mic = await w.navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
+      s.getTracks().forEach((track) => track.stop())
+      return 'ok'
+    }, (e) => e.name)
+    return { desktop: typeof w.telsizDesktop, mic, notify: w.Notification.permission }
+  })
+  assert.deepEqual(inside, { desktop: 'undefined', mic: 'NotAllowedError', notify: 'denied' })
+  // Gezinme ve yeni pencere reddedilir, https adresi dış tarayıcıya da verilmez
+  const external = await ctx.app.evaluate(() => (global.__acilanlar || []).length)
+  for (const target of ['telsiz://app/', 'https://ornek.com/yuzen', 'http://127.0.0.1:' + ctx.port + '/']) {
+    await page.evaluate((url) => {
+      window.__yuzen.location.href = url
+    }, target).catch(() => {})
+    await sleep(400)
+    assert.equal(await page.evaluate(() => window.__yuzen.location.href), 'about:blank', target)
+  }
+  const second = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.equal(await page.evaluate((n) => window.__yuzen.open('about:blank', n) === null, second), true)
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, second), true, 'ikinci yüzen pencere açılmaz')
+  assert.equal(await ctx.app.evaluate(() => (global.__acilanlar || []).length), external)
+  assert.equal(await floats(), 1)
+  // Kapanınca konum ayar dosyasına yazılır, kullanılmış ad yeniden açamaz
+  await page.evaluate(() => window.__yuzen.close())
+  await waitFor(async () => (await floats()) === 0, 'floating window closed')
+  const userData = await ctx.app.evaluate(({ app }) => app.getPath('userData'))
+  const saved = await waitFor(() => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(userData, 'ayarlar.json'), 'utf8')).floatBounds
+    } catch (err) {
+      return null
+    }
+  }, 'floatBounds saved')
+  assert.deepEqual(saved, info.bounds)
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, name), true)
+  // Sayfa yeniden yüklenince açık yüzen pencere kapanır
+  const third = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) !== null, third), true)
+  await waitFor(async () => (await floats()) === 1, 'floating window open before reload')
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await waitFor(async () => (await floats()) === 0, 'floating window closed on reload')
 })

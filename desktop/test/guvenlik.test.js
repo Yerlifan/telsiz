@@ -84,3 +84,122 @@ test('açılır pencere: YouTube çerçevesinden yalnızca YouTube adresleri dı
   const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8').replace(/\r\n/g, '\n')
   assert.match(main, /contextOf\(contents\) === 'app' && navigation\.decideAppWindowOpen\(details\.url, referrer\) === 'external'\) openExternal\(details\.url\)/)
 })
+
+// Yüzen pencere (istek 7): yeni pencere kuralının tek istisnası. YouTube çerçevesi kullanıcı hareketi olmadan da
+// window.open çağırabildiği için istisna tek kullanımlık ada, uygulama penceresine ve about:blank adresine bağlıdır,
+// açan pencere açıldıktan sonra yeniden denetlenir (did-create-window içinde webContents.opener).
+
+function functionBody (source, signature) {
+  const start = source.indexOf(signature)
+  assert.ok(start !== -1, signature)
+  return source.slice(start, source.indexOf('\n}\n', start)) + '\n}\n'
+}
+
+test('yeni pencere: tek izin yüzen pencere isteğidir, diğer her istek reddedilir', () => {
+  const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8').replace(/\r\n/g, '\n')
+  const handler = /contents\.setWindowOpenHandler\(\(details\) => \{\n([\s\S]*?)\n {4}\}\)/.exec(main)
+  assert.ok(handler, 'setWindowOpenHandler bulunmalı')
+  const lines = handler[1].split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('//'))
+  assert.equal(lines[0], "if (isFloatOpen(contents, details)) return { action: 'allow', overrideBrowserWindowOptions: floatOpenOptions() }")
+  assert.equal(lines[lines.length - 1], "return { action: 'deny' }")
+  assert.equal((main.match(/action: 'allow'/g) || []).length, 1, 'başka izin yolu yok')
+  const isFloat = functionBody(main, 'function isFloatOpen (contents, details) {')
+  assert.match(isFloat, /context: contextOf\(contents\),\n\s+fromMain: isAlive\(state\.mainWindow\) && state\.mainWindow\.webContents === contents,\n\s+url: details\.url,\n\s+frameName: details\.frameName,\n\s+open: isAlive\(state\.floatWindow\)\n\s+\}, state\.floatGate\)/)
+  // Ad yalnızca uygulama penceresine verilir
+  assert.match(main, /ipcMain\.handle\(CHANNELS\.floatArm, \(event\) => \{\n\s+requireSender\(event, 'app'\)\n\s+return state\.floatGate\.arm\(\)\n\s+\}\)/)
+  assert.match(main, /ipcMain\.handle\(CHANNELS\.floatShowMain, \(event\) => \{\n\s+requireSender\(event, 'app'\)/)
+  // Açan yalnızca uygulama penceresinin sayfasında denetlenir, sayfa yenilenince ve pencere kapanınca yüzen pencere kapanır
+  assert.equal((main.match(/'did-create-window'/g) || []).length, 1)
+  assert.match(main, /win\.webContents\.on\('did-create-window', \(child, details\) => onFloatCreated\(win, child, details\)\)/)
+  assert.ok((main.match(/closeFloatWindow\(win\)/g) || []).length >= 3)
+})
+
+// onFloatCreated gerçek kaynağından sahte pencerelerle çalıştırılır
+function loadFloatCreated () {
+  const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8').replace(/\r\n/g, '\n')
+  const source = functionBody(main, 'function onFloatCreated (win, child, details) {') + functionBody(main, 'function closeFloatWindow (owner) {')
+  const persisted = []
+  const sandbox = {
+    state: { mainWindow: null, floatWindow: null, floatOwner: null, contexts: new Map(), settings: { floatBounds: null } },
+    floatWindow: require('../src/lib/float-window'),
+    isAlive: (win) => Boolean(win) && !win.destroyed,
+    diag: { log () {} },
+    persistSettings: () => persisted.push(JSON.stringify(sandbox.state.settings.floatBounds)),
+    JSON
+  }
+  require('node:vm').runInNewContext(source + 'this.onFloatCreated = onFloatCreated\nthis.closeFloatWindow = closeFloatWindow\n', sandbox)
+  return { sandbox, persisted }
+}
+
+function fakeWindow (id, opener) {
+  const { EventEmitter } = require('node:events')
+  const win = new EventEmitter()
+  win.calls = []
+  win.destroyed = false
+  win.bounds = { x: 10, y: 20, width: 300, height: 200 }
+  win.webContents = new EventEmitter()
+  win.webContents.id = id
+  win.webContents.opener = opener
+  win.webContents.mainFrame = { processId: id, routingId: 1 }
+  for (const name of ['setMenu', 'setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'setContentProtection', 'showInactive']) {
+    win[name] = (...args) => win.calls.push([name].concat(args))
+  }
+  win.isDestroyed = () => win.destroyed
+  win.getBounds = () => win.bounds
+  win.destroy = () => {
+    win.calls.push(['destroy'])
+    win.destroyed = true
+    win.emit('closed')
+  }
+  // Sayfanın window.close() çağrısında olduğu gibi close olayı gelmeden kapanır
+  win.close = () => {
+    win.calls.push(['close'])
+    win.destroyed = true
+    win.emit('closed')
+  }
+  return win
+}
+
+test('yüzen pencere açılınca: açan alt çerçeveyse veya ad yanlışsa yok edilir, doğruysa üstte ve korumalı gösterilir', () => {
+  const { sandbox, persisted } = loadFloatCreated()
+  const main = fakeWindow(1, null)
+  sandbox.state.mainWindow = main
+  const token = require('../src/lib/float-window').createGate().arm()
+  // Açan YouTube oynatıcısının çerçevesi (aynı süreçte başka çerçeve)
+  const fromFrame = fakeWindow(2, { processId: 1, routingId: 7 })
+  sandbox.onFloatCreated(main, fromFrame, { frameName: token })
+  assert.deepEqual(fromFrame.calls, [['destroy']])
+  // Açan bilinmiyor, ad yanlış veya pencere eski uygulama penceresine ait
+  const noOpener = fakeWindow(3, null)
+  sandbox.onFloatCreated(main, noOpener, { frameName: token })
+  assert.deepEqual(noOpener.calls, [['destroy']])
+  const badName = fakeWindow(4, main.webContents.mainFrame)
+  sandbox.onFloatCreated(main, badName, { frameName: '_blank' })
+  assert.deepEqual(badName.calls, [['destroy']])
+  const oldMain = fakeWindow(9, null)
+  const stale = fakeWindow(5, oldMain.webContents.mainFrame)
+  sandbox.onFloatCreated(oldMain, stale, { frameName: token })
+  assert.deepEqual(stale.calls, [['destroy']])
+  assert.equal(sandbox.state.contexts.size, 0)
+  // Doğru açan: bağlam float, her zaman üstte, bütün masaüstlerinde, ekran yakalamasından korunur, odak almadan
+  const child = fakeWindow(6, { processId: 1, routingId: 1 })
+  sandbox.onFloatCreated(main, child, { frameName: token })
+  assert.deepEqual(child.calls, [['setMenu', null], ['setAlwaysOnTop', true, 'floating'], ['setVisibleOnAllWorkspaces', true], ['setContentProtection', true], ['showInactive']])
+  assert.equal(sandbox.state.contexts.get(6), 'float')
+  assert.equal(sandbox.state.floatWindow, child)
+  // İkinci pencere açılamaz
+  const second = fakeWindow(7, { processId: 1, routingId: 1 })
+  sandbox.onFloatCreated(main, second, { frameName: token })
+  assert.deepEqual(second.calls, [['destroy']])
+  // Başka uygulama penceresinin kapanması bu pencereyi kapatmaz, kendi açanı kapatır. Konum saklanır.
+  sandbox.closeFloatWindow(oldMain)
+  assert.equal(sandbox.state.floatWindow, child)
+  // Taşınan pencerenin konumu tutulur
+  child.bounds = { x: 1500, y: 800, width: 360, height: 250 }
+  child.emit('move')
+  sandbox.closeFloatWindow(main)
+  assert.deepEqual(child.calls.slice(-1), [['close']])
+  assert.equal(sandbox.state.floatWindow, null)
+  assert.equal(sandbox.state.contexts.size, 0)
+  assert.deepEqual(persisted, [JSON.stringify({ x: 1500, y: 800, width: 360, height: 250 })])
+})
