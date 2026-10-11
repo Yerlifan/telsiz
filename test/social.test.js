@@ -280,22 +280,50 @@ test('"DJ\'de Çal" duyurusu eki olmayan mesajdır: eski istemci "Bu ses dosyas�
   assert.deepStrictEqual(cleanDjNotice250({ op: 'add', src: 'file', title: 'x.wav' }), { op: 'add', src: 'file' })
 })
 
-test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düzenleme gizlenir', () => {
+test('"düzenlendi" etiketi: DJ duyurusunda yalnızca izlenen, yalnızca ad ekleyen ve ad süresi içindeki düzenleme gizlenir', () => {
   const { run } = load()
   const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')
+  // replaceMessage'in verdiği önceki ve yeni hâl (çözülmüş sonuçlar yalnızca state ve dj alanıyla)
+  const note = (prev, m, a, b) => run('noteDjTitleEdit(' + [prev, m, { state: 'ok', dj: a }, { state: 'ok', dj: b }].map((x) => JSON.stringify(x)).join(', ') + ')')
   const at = 1700000000000
   const min = 60 * 1000
+  const yt = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ' }
+  const titled = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Lobi teması' }
+  const msg = (id, editedAt) => ({ id: id, channelId: 5, createdAt: at, editedAt: editedAt })
   // Düzenlenmemiş mesaj etiket almaz
   assert.strictEqual(mark({ createdAt: at, editedAt: null }, true), false)
   assert.strictEqual(mark({ createdAt: at }, false), false)
   // Sıradan mesajın her düzenlemesi görünür
   assert.strictEqual(mark({ createdAt: at, editedAt: at + 5000 }, false), true)
-  // DJ duyurusuna ad eklemesi (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 9000 }, true), false)
-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min }, true), false)
-  // Sonraki düzenleme (değiştirilmiş istemcinin eski duyuruyu yeniden yazması) etiketle görünür
-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min + 1 }, true), true)
-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 3 * 24 * 60 * min }, true), true)
+  // Önceki hâli bilinmeyen DJ duyurusu düzenlemesi (konuşma sonradan açıldı) görünür
+  assert.strictEqual(mark(msg(1, at + 9000), true), true)
+  // İzlenen ve yalnızca ad ekleyen düzenleme (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
+  note(msg(1, null), msg(1, at + 9000), yt, titled)
+  assert.strictEqual(mark(msg(1, at + 9000), true), false)
+  note(msg(2, null), msg(2, at + 11 * min), yt, titled)
+  assert.strictEqual(mark(msg(2, at + 11 * min), true), false)
+  // Ad süresinden sonraki düzenleme görünür
+  note(msg(3, null), msg(3, at + 11 * min + 1), yt, titled)
+  assert.strictEqual(mark(msg(3, at + 11 * min + 1), true), true)
+  // Kayıt yalnızca o düzenlemeye aittir: aynı mesajın sonraki bir düzenlemesi görünür
+  assert.strictEqual(mark(msg(1, at + 20000), true), true)
+  // Sıradan mesajı duyuruya çeviren düzenleme görünür
+  note(msg(4, null), msg(4, at + 5 * min), null, titled)
+  assert.strictEqual(mark(msg(4, at + 5 * min), true), true)
+  // Duyurunun videosunu veya kaynağını değiştiren düzenleme görünür
+  note(msg(5, null), msg(5, at + 9000), yt, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
+  assert.strictEqual(mark(msg(5, at + 9000), true), true)
+  note(msg(6, null), msg(6, at + 9000), { op: 'add', src: 'file' }, { op: 'add', src: 'fileref', title: 'x.wav' })
+  assert.strictEqual(mark(msg(6, at + 9000), true), true)
+  // Zaten adı olan duyurunun adını değiştiren düzenleme görünür
+  note(msg(7, null), msg(7, at + 9000), titled, { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Başka' })
+  assert.strictEqual(mark(msg(7, at + 9000), true), true)
+  // Önceki hâli zaten düzenlenmiş (sıradan mesajdan çevrilmiş olabilir) duyuruya ad eklemek de görünür
+  note(msg(8, at + 1000), msg(8, at + 9000), yt, titled)
+  assert.strictEqual(mark(msg(8, at + 9000), true), true)
+  // İzlenen geçerli kayıt sonra geçersiz bir düzenlemeyle silinir
+  note(msg(1, at + 9000), msg(1, at + 30000), titled, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
+  assert.strictEqual(mark(msg(1, at + 9000), true), true)
   // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
   assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
 })

@@ -9,7 +9,8 @@
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
 // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
 // oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
-// alanında kalır.
+// alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi almaz, mesajı duyuruya
+// çeviren veya videosunu değiştiren düzenleme etiketle görünür.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -254,6 +255,43 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
     const n = document.querySelector('#activity:not([hidden]) .activity-item.is-dj .activity-text')
     return n && n.textContent === name + ' Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'
   }, me, { timeout: h.LONG })
+})
+
+test('"düzenlendi" etiketi: mesajı DJ duyurusuna çeviren veya duyurunun videosunu değiştiren düzenleme görünür', async () => {
+  const { A, B } = W
+  const room = await A.evaluate(() => state.channelId)
+  // Yalnızca ad ekleyen düzenleme konuşmadan çıkıp dönünce de etiketsiz kalır (bu oturumda izlendi)
+  const other = W.w.room('oyun-gecesi').id
+  assert.equal(await B.evaluate((r) => sameId(state.channelId, r), room), true)
+  await B.evaluate((id) => selectChannel(id, {}), other)
+  await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && !document.querySelector('#message-list .msg-dj'), other, { timeout: h.LONG })
+  await B.evaluate((id) => selectChannel(id, {}), room)
+  await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && document.querySelector('#message-list .msg-dj'), room, { timeout: h.LONG })
+  assert.equal(await B.evaluate(() => Boolean(document.querySelector('#message-list .msg-dj').closest('.msg').querySelector('.msg-edited'))), false)
+  const labelled = async (page, id) => {
+    await page.waitForFunction((x) => {
+      const msg = document.querySelector('#message-list .msg[data-id="' + x + '"]')
+      return Boolean(msg && msg.querySelector('.msg-dj') && msg.querySelector('.msg-edited'))
+    }, id, { timeout: h.LONG })
+  }
+  // Değiştirilmiş istemci benzetimi: sıradan bir mesaj sonradan DJ duyurusuna çevrilir
+  const plain = await A.evaluate((r) => postSideMessage(r, 'merhaba', null), room)
+  await B.waitForFunction((x) => {
+    const n = document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-text')
+    return n && n.textContent === 'merhaba'
+  }, plain, { timeout: h.LONG })
+  await A.evaluate((args) => editSideMessage(args[0], args[1], 'merhaba', { op: 'add', src: 'yt', vid: 'D120ccccccc', title: 'Başka bir şarkı' }), [room, plain])
+  for (const page of [A, B]) await labelled(page, plain)
+  // Gerçek bir duyurunun videosu sonradan değiştirilir
+  const notice = await A.evaluate((r) => postSideMessage(r, '/çal https://youtu.be/D120ddddddd', { op: 'add', src: 'yt', vid: 'D120ddddddd' }), room)
+  await B.waitForFunction((x) => {
+    const msg = document.querySelector('#message-list .msg[data-id="' + x + '"]')
+    return Boolean(msg && msg.querySelector('.msg-dj') && !msg.querySelector('.msg-edited'))
+  }, notice, { timeout: h.LONG })
+  await A.evaluate((args) => editSideMessage(args[0], args[1], '/çal https://youtu.be/D120ddddddd', { op: 'add', src: 'yt', vid: 'D120eeeeeee', title: 'Fake video D120ddddddd' }), [room, notice])
+  for (const page of [A, B]) await labelled(page, notice)
+  const link = await B.evaluate((x) => document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-dj-link').href, notice)
+  assert.equal(link, 'https://www.youtube.com/watch?v=D120eeeeeee')
 })
 
 test('duraklat ve devam iki istemcide eşitlenir', async () => {

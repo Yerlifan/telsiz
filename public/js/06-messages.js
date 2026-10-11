@@ -68,21 +68,42 @@ function cleanDjTitle (value) {
   return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
 }
 
-// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bu süre
-// içindeki düzenleme "düzenlendi" etiketi almaz, daha sonraki her düzenleme etiketle görünür. Bir dakikalık pay
-// istek gecikmesini karşılar.
+// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bir
+// dakikalık pay istek gecikmesini karşılar.
 const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
 const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
 
-// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Etiket yalnızca DJ duyurusunun
-// ekleme anından sonraki ad süresi içinde yapılan düzenlemesinde gizlenir, değiştirilmiş bir istemcinin eski bir
-// duyuruyu sonradan iz bırakmadan yeniden yazması etiketle görünür.
+// Bu oturumda açık konuşmada izlenen, yalnızca ad ekleyen DJ duyurusu düzenlemeleri: kanal ve mesaj kimliği ->
+// düzenleme zamanı (noteDjTitleEdit doldurur)
+const djTitleEdits = new Map()
+
+function djEditKey (m) {
+  return String(m.channelId) + ':' + String(m.id)
+}
+
+// replaceMessage düzenlenen mesajın önceki ve yeni hâlini verir (prev ve m, çözülmüş before ve after). Düzenleme
+// yalnızca önceki hâl hiç düzenlenmemiş, adsız bir DJ duyurusuysa ve yeni hâl aynı kaynak ve videoyla yalnızca
+// ad ekliyorsa kaydedilir. Sıradan mesajı duyuruya çeviren, videoyu veya adı değiştiren düzenleme kaydedilmez.
+function noteDjTitleEdit (prev, m, before, after) {
+  if (!prev || !m) return
+  const a = before && before.state === 'ok' ? before.dj : null
+  const b = after && after.state === 'ok' ? after.dj : null
+  const titleOnly = Boolean(a && b && !prev.editedAt && m.editedAt && a.src === b.src && a.vid === b.vid && !a.title && b.title)
+  if (titleOnly) djTitleEdits.set(djEditKey(m), Number(m.editedAt))
+  else djTitleEdits.delete(djEditKey(m))
+}
+
+// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Sunucu gövdenin önceki hâlini
+// saklamaz ve göremez, bu yüzden etiket yalnızca bu oturumda izlenen ve yalnızca ad ekleyen düzenlemede
+// (noteDjTitleEdit) gizlenir, o da ad süresi içindeyse. Önceki hâli bilinmeyen düzenleme (konuşma sonradan
+// açıldı, sayfa yenilendi) etiketle görünür.
 function showEditedMark (m, dj) {
   if (!m || !m.editedAt) return false
   if (!dj) return true
   const created = Number(m.createdAt)
   const edited = Number(m.editedAt)
   if (!isFinite(created) || !isFinite(edited) || created <= 0) return true
+  if (djTitleEdits.get(djEditKey(m)) !== edited) return true
   return edited - created > DJ_NOTICE_EDIT_MS + DJ_NOTICE_EDIT_GRACE_MS
 }
 
@@ -457,8 +478,12 @@ function replaceMessage (m) {
   const index = indexOfMessage(m.id)
   if (index === -1) return
   if (sameId(state.editingId, m.id)) state.editingId = null
+  const prev = state.messages[index]
+  const before = prev.body !== m.body ? decryptMessage(prev) : null
   state.messages[index] = m
   decryptCache.delete(String(m.id))
+  // Düzenleme: DJ duyurusuna yalnızca ad eklendiyse "düzenlendi" etiketi gizlenir (showEditedMark)
+  if (before) noteDjTitleEdit(prev, m, before, decryptMessage(m))
   const old = state.nodes.get(String(m.id))
   const node = buildMessageNode(m)
   state.nodes.set(String(m.id), node)

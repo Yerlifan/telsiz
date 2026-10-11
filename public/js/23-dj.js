@@ -33,7 +33,7 @@
 
 const DJ_TICK_MS = 500
 // Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu DJ_NOTICE_EDIT_MS
-// (06-messages.js, "düzenlendi" etiketinin gizlendiği süre) içinde düzenlenir.
+// (06-messages.js) içinde düzenlenir, konuşmayı açık tutanlar bu düzenlemeyi "düzenlendi" etiketsiz görür.
 const DJ_TITLE_WAIT_MS = 8000
 // Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
 const DJ_NOTICE_FRESH_MS = 15000
