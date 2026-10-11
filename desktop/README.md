@@ -51,7 +51,7 @@ Sınırlar: geçişte ses bağlantısı kesilir (ses odasındayken önce sorulur
 - Bir frekansa geçince onun arka plan penceresi uygulama penceresi yüklenmeden kapanır (aynı oturumla iki istemci çalışmaz), önceki frekansın penceresi 3 saniye sonra açılır. Uygulama penceresi kapanınca ve uygulamadan çıkınca bütün arka plan pencereleri kapanır. Pencere tepsiye küçültülmüşken arka plan pencereleri çalışmaya devam eder.
 - O frekansta Ayarlar > Bildirimler'den masaüstü bildirimleri açıksa sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterilir (bildirim düzeyi ve Rahatsız etmeyin kuralı geçerlidir). Bildirime basınca o frekansa geçilir.
 
-Gizlilik: her arka plan penceresi o sunucuya oturumunuzla bağlı kalır. Sunucu sizi çevrimiçi görür ve poll isteklerini alır, diğer üyeler de sizi çevrimiçi görür. Arka plan penceresi mesaj göndermez, okundu bilgisi yazmaz.
+Gizlilik: her arka plan penceresi o sunucuya oturumunuzla bağlı kalır. Sunucu sizi çevrimiçi görür ve poll isteklerini alır, diğer üyeler de sizi çevrimiçi görür. Arka plan penceresi mesaj göndermez, okundu bilgisi yazmaz. O frekansta otomatik boşta açıksa (varsayılan, Ayarlar > Gizlilik) poll isteği bilgisayarın boşta olup olmadığını da taşır: karar sistemin boşta süresiyle (`telsizArkaPlan.idleSeconds()`) ve o frekansın bu cihazdaki süre ayarıyla verilir. Bilgisayar seçilen süre boyunca kullanılmazsa bu oturum boşta sayılır, bütün oturumlarınız boştayken diğer üyeler sizi o frekansta Boşta görür.
 
 Sayılar oturuma özeldir: istemci okunmamışları sunucuda değil bu cihazda sayar. Uygulama yeniden açılınca arka plan pencereleri son okunan bilgisinden (oda ve özel konuşma başına son 50 mesaja kadar) yeniden sayar.
 
@@ -152,7 +152,7 @@ Başlık şeridini ayrı bir modül, `public/js/30-pencere.js` çizer (bkz. Baş
 | `titleBar.openMenu(sıra, x, y)` | Uygulama menüsünün o bölümünü sayfadaki konumda (CSS pikseli) açar, menü kapanınca `true` |
 | `titleBar.onFullscreen(cb)` | Pencere tam ekrana girince `cb(true)`, çıkınca `cb(false)`, dönen işlev aboneliği kaldırır |
 | `onWindowState(cb)` | Pencere simge durumuna küçültülünce `cb('minimized')`, simge durumundan dönünce (Windows'ta tam ekrana dönüş dahil) `cb('restored')`, tepsiye gizlenince `cb('hidden')`, gösterilince (tepsiden dönüş dahil) `cb('shown')`. Başka değer sayfaya ulaşmaz, art arda aynı değer bir kez gelir. Birden çok dinleyici olabilir, dönen işlev aboneliği kaldırır. Telsiz DJ bununla YouTube parçasını pencere simge durumundayken veya tepsideyken bu cihazda bekletir, pencere geri gelince odayla eşitleyip sürdürür (dosya parçaları çalmaya devam eder) |
-| `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0` |
+| `idleSeconds()` | Sistemin son kullanıcı girişinden (fare, klavye) bu yana geçen süre, tam saniye (Electron `powerMonitor.getSystemIdleTime`). Okunamazsa `0`. Otomatik boşta (`public/js/40-bosta.js`) bunu 15 saniyede bir okur: başka bir uygulamayı kullanan kişi boşta sayılmaz |
 | `listFrequencies()` | `{ active, items: [{ origin, name, host, active, order }] }`, etkin frekans başta, `order` kayıt sırası (bant bu sırayla dizer) |
 | `switchFrequency(origin)` | Listedeki frekansa geçer, `{ ok }` |
 | `addFrequency()` | Frekans adresi penceresini ekleme kipinde açar |
