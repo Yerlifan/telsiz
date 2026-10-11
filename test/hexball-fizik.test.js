@@ -293,7 +293,7 @@ describe('sözleşme ve başlangıç değerleri', () => {
   })
 
   test('saflık: saat, zamanlayıcı, DOM, rastgelelik ve trigonometri yok, başka bir oyunun adı geçmiyor', () => {
-    const code = PHYS_SRC.split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n')
+    const code = PHYS_SRC.split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n')
     const banned = [/Math\.random/, /\bDate\b/, /performance/, /setTimeout/, /setInterval/, /requestAnimationFrame/,
       /\bdocument\b/, /navigator/, /Math\.(sin|cos|tan|asin|acos|atan|atan2|exp|pow|log|hypot|cbrt|fround)\b/,
       /structuredClone/, /\bfor\s*\(/]

@@ -292,7 +292,7 @@ describe('sözleşme', () => {
   })
 
   test('saflık: saat, zamanlayıcı ve gönderim yalnızca env üzerinden, DOM ve rastgelelik yok, başka bir oyunun adı geçmiyor', () => {
-    const code = NET_SRC.split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n')
+    const code = NET_SRC.split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n')
     const banned = [/Math\.random/, /\bDate\b/, /performance/, /(^|[^.\w'])setTimeout\b/, /(^|[^.\w'])clearTimeout\b/,
       /setInterval/, /requestAnimationFrame/, /\bdocument\b/, /navigator/, /\bvoice\b/, /structuredClone/, /\bfor\s*\(/,
       /\bconsole\b/]
