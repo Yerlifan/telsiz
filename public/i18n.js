@@ -75,6 +75,20 @@ window.I18N = (function () {
     'status.autoIdle': 'Boşta (otomatik)',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
+    'float.open': 'Yüzen Pencere',
+    'float.openLabel': 'Ses odasını yüzen pencerede aç',
+    'float.backToApp': 'Uygulamaya Dön',
+    'float.close': 'Yüzen Pencereyi Kapat',
+    'float.title': '{room} · Telsiz',
+    'float.more_one': '+{count} kişi',
+    'float.more_other': '+{count} kişi',
+    'float.unsupported': 'Bu tarayıcı yüzen pencereyi desteklemiyor.',
+    'float.failed': 'Yüzen pencere açılamadı.',
+    'settings.voice.floatTitle': 'Yüzen Pencere',
+    'settings.voice.floatAuto': 'Uygulama küçültülünce yüzen pencereyi aç',
+    'settings.voice.floatHintDesktop': 'Ses odasındayken pencere küçültülür ya da tepsiye gizlenirse kameralar veya profil fotoğrafları her zaman üstte kalan küçük bir pencerede görünür. Windows ve macOS\'ta bu pencere ekran paylaşımına girmez.',
+    'settings.voice.floatHintBrowser': 'Chrome ve Edge\'de ses odasındayken başka sekmeye geçince açılır. Tarayıcı simge durumuna küçültülünce kendiliğinden açılmaz, Yüzen Pencere düğmesini kullanın.',
+    'settings.voice.floatHintWayland': 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.',
     // G12 Temalar
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
@@ -2071,6 +2085,20 @@ window.I18N = (function () {
     'status.autoIdle': 'Idle (automatic)',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
+    'float.open': 'Floating Window',
+    'float.openLabel': 'Open the voice room in a floating window',
+    'float.backToApp': 'Back to App',
+    'float.close': 'Close Floating Window',
+    'float.title': '{room} · Telsiz',
+    'float.more_one': '+{count} person',
+    'float.more_other': '+{count} people',
+    'float.unsupported': 'This browser doesn\'t support floating windows.',
+    'float.failed': 'The floating window could not be opened.',
+    'settings.voice.floatTitle': 'Floating Window',
+    'settings.voice.floatAuto': 'Open the floating window when the app is minimized',
+    'settings.voice.floatHintDesktop': 'While you\'re in a voice room, minimizing the window or hiding it to the tray shows cameras or profile photos in a small always-on-top window. On Windows and macOS this window is excluded from screen sharing.',
+    'settings.voice.floatHintBrowser': 'In Chrome and Edge it opens when you switch tabs while in a voice room. It doesn\'t open by itself when the browser is minimized. Use the Floating Window button.',
+    'settings.voice.floatHintWayland': 'In a Wayland session the window can\'t stay on top and may appear in screen shares.',
     // G12 Temalar
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
