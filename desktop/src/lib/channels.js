@@ -38,6 +38,10 @@ const CHANNELS = Object.freeze({
   windowState: 'telsiz:window-state',
   // Sistemin boşta süresi (saniye, src/lib/window-state.js): uygulama ve arka plan pencereleri okuyabilir
   idleSeconds: 'telsiz:idle-seconds',
+  // Yüzen pencere (src/lib/float-window.js): tek kullanımlık pencere adı (jeton) ve uygulama penceresini öne
+  // getirme (yüzen penceredeki Uygulamaya Dön düğmesi). İkisi de yalnızca uygulama penceresinden kabul edilir.
+  floatArm: 'telsiz:float-arm',
+  floatShowMain: 'telsiz:float-show-main',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',

@@ -26,6 +26,8 @@ const CHANNELS = {
   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
   windowState: 'telsiz:window-state',
   idleSeconds: 'telsiz:idle-seconds',
+  floatArm: 'telsiz:float-arm',
+  floatShowMain: 'telsiz:float-show-main',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -47,6 +49,8 @@ const HOLD_PHASES = ['start', 'end']
 const PTT_MODES = ['toggle', 'hold']
 // Pencere durumu yalnızca bu değerlerle sayfaya verilir (src/lib/window-state.js ile aynı)
 const WINDOW_STATES = ['minimized', 'restored', 'hidden', 'shown']
+// Yüzen pencerenin tek kullanımlık adı (src/lib/float-window.js TOKEN_RE ile aynı)
+const FLOAT_TOKEN_RE = /^telsiz-yuzen-[0-9a-f]{32}$/
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
@@ -178,6 +182,15 @@ function idleSeconds () {
   return ipcRenderer.invoke(CHANNELS.idleSeconds).then(cleanIdleSeconds)
 }
 
+// Yüzen pencere: ana süreçten gelen ad biçime uymuyorsa boş dizge (sayfa o zaman pencere açmaz)
+function floatArm () {
+  return ipcRenderer.invoke(CHANNELS.floatArm).then((value) => (typeof value === 'string' && FLOAT_TOKEN_RE.test(value) ? value : ''))
+}
+
+function floatShowMain () {
+  return ipcRenderer.invoke(CHANNELS.floatShowMain).then((value) => value === true)
+}
+
 function shortText (value, max) {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
@@ -273,6 +286,13 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   },
   // Sistemin son kullanıcı girişinden bu yana geçen süre: Promise, negatif olmayan tam saniye
   idleSeconds,
+  // Yüzen pencere (public/js/39-yuzen.js): arm() tek kullanımlık pencere adını verir (Promise, geçersizse boş
+  // dizge), sayfa yaklaşık 3 saniye içinde window.open('about:blank', ad) çağırır. Ana süreç yalnızca bu isteğe
+  // her zaman üstte kalan çerçevesiz bir pencere açar. showMain() uygulama penceresini öne getirir (Promise, true).
+  float: {
+    arm: floatArm,
+    showMain: floatShowMain
+  },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
