@@ -3207,8 +3207,8 @@ button.member:hover {
   background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.12));
 }
 
-/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Bant
-   konumlandırılmaz, böylece banda binen avatar kapağın üstünde kalır. */
+/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Banda binen
+   avatar (.avatar-wrap, position: relative) ağaçta banttan sonra geldiği için kapağın üstünde çizilir. */
 .profile-card-cover {
   display: block;
   width: 100%;
