@@ -1,0 +1,256 @@
+From ba3492c6ad210692958fc276825e77a9a1f23026 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 00:02:33 +0000
+Subject: [PATCH 16/16] =?UTF-8?q?G3:=20YouTube=20r=C4=B1zas=C4=B1=20erken?=
+ =?UTF-8?q?=20sorulur,=20telsiz=20kart=C4=B1nda=20kal=C4=B1c=C4=B1=20uyar?=
+ =?UTF-8?q?=C4=B1=20(istek=2013)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Henüz izin vermemiş kişi ses odasındayken odada YouTube parçası çalıyorsa
+(odaya sonradan katılınca da) telsiz kartında music.consent.roomHasYoutube
+metni ile YouTube Oynatıcısını Yükle ve Hayır, Yükleme düğmeleri durur. DJ
+kartı soruyu zaten gösteriyorsa uyarı yinelenmez. Her yeni YouTube
+parçasında kart görünürken de kısa bildirim çıkar. e2e/25 uyarıyı, kısa
+bildirimi ve Yükle düğmesiyle dinlemeyi sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/25-dj-senkron.test.js | 44 ++++++++++++++++++++++-
+ public/css/dj.css         | 32 +++++++++++++++++
+ public/i18n.js            |  2 ++
+ public/js/23-dj.js        | 73 ++++++++++++++++++++++++++++++++++++---
+ 4 files changed, 145 insertions(+), 6 deletions(-)
+
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index 890ea28..47fbeda 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -4,7 +4,8 @@
+ // ekler. YouTube gömmesi page.route ile yerel sahte oynatıcıya (sahte-youtube.js) yönlendirilir, gerçek
+ // YouTube'a erişilmez. Sahte oynatıcının sesinin ilk başladığı an iki istemcide aynı saatle ölçülür ve en çok
+ // 250 ms ayrı olmalıdır. Arka plandaki sekme benzetilir (requestAnimationFrame çalışmaz, visibilityState
+-// hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar.
++// hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar. Rıza
++// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -177,6 +178,47 @@ test('arka plandaki sekme: oynatıcı alanı köşeye çizilir, parça A ile bir
+   await B.setViewportSize({ width: 1440, height: 900 })
+ })
+ 
++test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında kalıcı uyarı çıkar, Yükle ile dinler', async () => {
++  const C = await W.w.pageFor('mert', { route: routeYouTube() })
++  await C.evaluate(() => {
++    window.e2eToasts = []
++    new MutationObserver(() => {
++      if (!el.toast.hidden) window.e2eToasts.push(el.toast.textContent)
++    }).observe(el.toast, { childList: true, characterData: true, subtree: true, attributes: true })
++  })
++  await h.joinVoice(C, W.lobi.id)
++  const warn = 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.'
++  // Geniş ekranda kart sütunda rıza sorusunu gösterir: telsiz kartında uyarı yinelenmez, kısa bildirim yine çıkar
++  await C.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
++  await C.waitForFunction((text) => window.e2eToasts.indexOf(text) !== -1, warn, { timeout: h.LONG })
++  assert.equal(await C.evaluate(() => {
++    const row = document.querySelector('#radio-tuned .radio-dj-consent')
++    return !row || row.hidden
++  }), true, 'kart soruyorken telsiz kartında uyarı yok')
++  // Dar pencerede kart kapalı sayfadadır: uyarı telsiz kartında kalır
++  await C.setViewportSize({ width: 1100, height: 800 })
++  await C.waitForFunction(() => {
++    const row = document.querySelector('#radio-tuned .radio-dj-consent')
++    return row && !row.hidden
++  }, null, { timeout: h.LONG })
++  const row = await C.evaluate(() => ({
++    text: document.querySelector('#radio-tuned .radio-dj-consent-text').textContent,
++    accept: document.querySelector('#radio-tuned .radio-dj-consent-accept').textContent,
++    decline: document.querySelector('#radio-tuned .radio-dj-consent-decline').textContent,
++    frames: document.querySelectorAll('#dj iframe').length
++  }))
++  assert.deepEqual(row, { text: warn, accept: 'YouTube Oynatıcısını Yükle', decline: 'Hayır, Yükleme', frames: 0 })
++  assert.equal(await h.reachable(C, '#radio-tuned .radio-dj-consent-accept'), true, 'Yükle düğmesine ulaşılabilir')
++  assert.ok(await h.overflowX(C) <= 0, 'yatay taşma')
++  await C.click('#radio-tuned .radio-dj-consent-accept')
++  await C.waitForFunction(() => localStorage.getItem('telsiz.djYoutubeConsent') === '1' && document.querySelector('#radio-tuned .radio-dj-consent').hidden, null, { timeout: h.LONG })
++  await h.until(async () => {
++    const frame = fakeFrame(C, 'D120bbbbbbb')
++    return frame && (await frame.evaluate(() => window.FAKE.state === 1 && !window.FAKE.audio.paused))
++  }, h.LONG, 'C dinliyor')
++  await C.evaluate(() => leaveVoice())
++})
++
+ // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
+ // yeniden dener. Bu protokolün parçasıdır, tarayıcı yanıtı "Failed to load resource" olarak yazar.
+ const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state/.test(l.url)
+diff --git a/public/css/dj.css b/public/css/dj.css
+index 1d78dfe..5c303f3 100644
+--- a/public/css/dj.css
++++ b/public/css/dj.css
+@@ -594,6 +594,38 @@
+   color: var(--text-2);
+ }
+ 
++/* Telsiz kartındaki YouTube rıza uyarısı (23-dj.js djSyncConsentWarn): odada YouTube parçası çalarken henüz
++   izin vermemiş kişide kadronun altında durur. Telefonda kartın kendi satırını kaplar. */
++.radio-dj-consent {
++  flex: 1 1 100%;
++  margin: 0.5rem 0 0;
++  padding: 0.5rem 0.625rem 0.125rem;
++  border: 1px solid var(--warn-line);
++  border-radius: var(--radius-control);
++  background-color: var(--warn-bg);
++}
++
++.radio-dj-consent[hidden] {
++  display: none;
++}
++
++.radio-dj-consent-text {
++  margin: 0 0 0.375rem;
++  color: var(--text);
++  font-size: var(--text-xs);
++  line-height: 1.4;
++}
++
++.radio-dj-consent-actions {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++}
++
++.radio-dj-consent-actions .button {
++  margin: 0 0.375rem 0.375rem 0;
++}
++
+ /* ===== 8. Mesajdaki ses dosyası kartının "DJ'de çal" düğmesi ===== */
+ 
+ .dj-file-actions {
+diff --git a/public/i18n.js b/public/i18n.js
+index 18bcabf..37d6041 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -25,6 +25,7 @@ window.I18N = (function () {
+     // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
+     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+     // G3 Telsiz DJ çekirdeği
++    'music.consent.roomHasYoutube': 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+@@ -1976,6 +1977,7 @@ window.I18N = (function () {
+     // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
+     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+     // G3 Telsiz DJ çekirdeği
++    'music.consent.roomHasYoutube': 'Telsiz DJ is playing a YouTube track in this voice room. Load the player to listen.',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 3558af8..2cc3e71 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -60,7 +60,9 @@ const dj = {
+   docked: false,
+   dockSticky: null,
+   layoutBusy: false,
+-  dockBottom: null
++  dockBottom: null,
++  consentRow: null,
++  consentWarnFor: null
+ }
+ 
+ function djMusic () {
+@@ -122,9 +124,8 @@ function djEngine () {
+     djRenderNow()
+   })
+   engine.on('notice', djOnNotice)
+-  engine.on('consentneeded', () => {
+-    if (!djCardShown()) toast(() => t('music.consent.needed'), '', 8000)
+-  })
++  // Rıza sorusu: telsiz kartındaki uyarı ve kısa bildirim (djSyncConsentWarn)
++  engine.on('consentneeded', djRenderNow)
+   engine.on('tapneeded', () => {
+     // Köşedeki oynatıcının çubuğunda dokunarak başlatma düğmesi zaten vardır
+     if (!djCardShown() && !dj.docked) toast(() => t('dj.tapViaCrew'), '', 8000)
+@@ -584,7 +585,10 @@ function djRender () {
+   djApplyLayout(show)
+   djAttr(el.appView, 'data-dj', s && s.supported && s.enabled ? 'on' : 'off')
+   djEnsureCrewItem(show)
+-  if (!show || !dj.ui || !s) return
++  if (!show || !dj.ui || !s) {
++    djSyncConsentWarn(null)
++    return
++  }
+   const ui = dj.ui
+   const session = s.session
+   const current = session ? session.current : null
+@@ -682,6 +686,65 @@ function djRender () {
+   const vad = Boolean(vs && !(vs.ptt && vs.ptt.enabled))
+   ui.speakerHint.hidden = !(current && vad)
+   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
++  djSyncConsentWarn(s)
++}
++
++// ------------------------------------------------------------------ erken YouTube rızası
++
++// Rıza sorusu daha erken: YouTube oynatıcısına henüz izin vermemiş (sorulmamış) kişi ses odasındayken odada
++// YouTube parçası çalıyorsa (odaya sonradan katılınca da) telsiz kartında kalıcı bir uyarı ve Yükle düğmesi
++// durur. Her yeni YouTube parçasında bir kez kısa bildirim de çıkar, DJ kartı görünürken de (arka plandayken
++// kaçmasın). Rıza yine yalnızca bu cihazda ve kişinin düğmesiyle verilir, ayrıntılı açıklama DJ kartındadır.
++function djConsentWarnTrack (s) {
++  if (!s || !s.supported || !s.enabled || !s.youtubeEnabled || s.consent !== 'unset' || dj.voiceRoom === null) return null
++  if (!sameId(s.room, dj.voiceRoom) || !s.session || !s.session.current || s.session.current.type !== 'youtube') return null
++  return s.session.current.id
++}
++
++function djConsentWarnRow () {
++  if (dj.consentRow) return dj.consentRow
++  const row = h('div', 'radio-dj-consent')
++  row.setAttribute('role', 'group')
++  row.hidden = true
++  const text = h('p', 'radio-dj-consent-text')
++  text.id = 'radio-dj-consent-text'
++  row.setAttribute('aria-labelledby', text.id)
++  row.appendChild(text)
++  const actions = h('div', 'radio-dj-consent-actions')
++  const accept = button('button button-small radio-dj-consent-accept', ' ')
++  accept.addEventListener('click', () => {
++    const engine = djEngine()
++    if (engine) engine.setConsent(true)
++  })
++  actions.appendChild(accept)
++  const decline = button('button button-small button-ghost radio-dj-consent-decline', ' ')
++  decline.addEventListener('click', () => {
++    const engine = djEngine()
++    if (engine) engine.setConsent(false)
++  })
++  actions.appendChild(decline)
++  row.appendChild(actions)
++  dj.consentRow = { row: row, text: text, accept: accept, decline: decline }
++  return dj.consentRow
++}
++
++function djSyncConsentWarn (s) {
++  const trackId = djConsentWarnTrack(s)
++  if (trackId && trackId !== dj.consentWarnFor) toast(() => t('music.consent.roomHasYoutube'), '', 8000)
++  dj.consentWarnFor = trackId
++  // DJ kartı rıza sorusunu zaten gösteriyorsa uyarı yinelenmez
++  const cardAsks = Boolean(trackId && djCardShown() && dj.ui && !dj.ui.consent.hidden)
++  const want = Boolean(trackId) && !cardAsks
++  const host = el.radioTuned || byId('radio-tuned')
++  if (!want && !dj.consentRow) return
++  const c = djConsentWarnRow()
++  if (want && host && c.row.parentNode !== host) host.appendChild(c.row)
++  if (want) {
++    djSetText(c.text, t('music.consent.roomHasYoutube'))
++    djSetText(c.accept.lastChild, t('music.consent.accept'))
++    djSetText(c.decline.lastChild, t('music.consent.decline'))
++  }
++  if (c.row.hidden !== !want) c.row.hidden = !want
+ }
+ 
+ // Oynatıcı alanının altındaki tek uyarı satırı. Öncelik: oturum hatası, dokunarak başlat, oynatıcı hatası,
