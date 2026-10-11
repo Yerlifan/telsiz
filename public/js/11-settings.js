@@ -860,7 +860,7 @@ function myProfileSignature () {
   return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, ''), safeCall(() => coverUrlOf(id), '')].join('|')
 }
 
-// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
+// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, kurtarma kodu, çıkış ve hesabı silme
 
 function buildAccountPage (page) {
   const cardHost = h('div', 'settings-card-host')
@@ -960,6 +960,16 @@ function buildAccountPage (page) {
   newPass2.autocomplete = 'new-password'
   newPass2.maxLength = 256
   sField(passForm, 'set-new-password2', t('settings.account.newPassword2'), newPass2, null)
+  // Kurtarma kodu parola değişince geçerli kalır, istenirse aynı istekle yenilenir (yalnızca kod varken görünür)
+  const renewRow = h('label', 'check settings-check')
+  const renewBox = h('input')
+  renewBox.type = 'checkbox'
+  renewBox.id = 'set-password-renew-recovery'
+  renewRow.setAttribute('for', renewBox.id)
+  renewRow.appendChild(renewBox)
+  renewRow.appendChild(h('span', '', t('settings.account.recoveryRenewWithPassword')))
+  renewRow.hidden = true
+  passForm.appendChild(renewRow)
   const passProgress = progressNode('set-password-progress')
   passForm.appendChild(passProgress)
   const passMsg = sMsg('set-password-msg')
@@ -975,8 +985,11 @@ function buildAccountPage (page) {
   })
   passForm.addEventListener('submit', (e) => {
     e.preventDefault()
-    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength })
+    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength, renew: renewBox, renewRow: renewRow })
   })
+
+  // Kurtarma kodu (41-kurtarma.js)
+  const recovery = typeof recoverySettingsSection === 'function' ? recoverySettingsSection(page) : null
 
   // Oturum
   const sessSec = sSection(page, t('settings.account.session'), 'set-session-section')
@@ -1040,9 +1053,15 @@ function buildAccountPage (page) {
     Array.from(page.querySelectorAll('input[autocomplete="username"]')).forEach((input) => {
       input.value = state.me.name
     })
+    renewRow.hidden = !identityState.recovery
+    if (renewRow.hidden) renewBox.checked = false
+    if (recovery) recovery.update()
   }
   update()
-  return { update: update, signature: myProfileSignature }
+  return {
+    update: update,
+    signature: () => myProfileSignature() + '|' + (recovery ? recovery.signature() : '')
+  }
 }
 
 async function submitUsernameChange (ui) {
@@ -1112,18 +1131,22 @@ async function submitPasswordChange (ui) {
   }
   setMsg(ui.msg, '')
   setFormBusy(ui.form, true)
+  const renew = Boolean(ui.renew && ui.renew.checked && !ui.renewRow.hidden)
   const result = await changePasswordRequest(oldPassword, newPassword, (pct) => {
     showProgress(ui.progress, pct)
-  })
+  }, { renewRecovery: renew })
   showProgress(ui.progress, null)
   setFormBusy(ui.form, false)
   if (result.ok) {
     ui.oldPass.value = ''
     ui.newPass.value = ''
     ui.newPass2.value = ''
+    if (ui.renew) ui.renew.checked = false
     updateStrengthMeter(ui.strength, '')
     setMsg(ui.msg, () => t('settings.password.changed'), 'ok')
     settingsUi.sessions = null
+    updateSettingsPage()
+    if (result.recoveryCode && typeof openRecoveryCodeDialog === 'function') openRecoveryCodeDialog(result.recoveryCode, { trigger: byId('set-password-submit'), rotated: true })
     return
   }
   setMsg(ui.msg, result.error, 'error')

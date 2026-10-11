@@ -68,6 +68,8 @@ test('davet koduyla kayıt, anahtar girmeden devam: uygulama açılır ve anahta
   await page.fill('#register-password2', 'parola-ece-123')
   await page.fill('#register-invite', W.invite)
   await page.click('#register-submit')
+  // Kayıttan sonra önce kurtarma kodu kartı (istek 14)
+  await h.passRecoveryCard(page)
   await skipAndStay(page)
 })
 

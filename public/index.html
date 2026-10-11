@@ -78,6 +78,7 @@
   <script src="/js/30-pencere.js" defer></script>
   <script src="/js/31-sesler.js" defer></script>
   <script src="/js/32-arama.js" defer></script>
+  <script src="/js/41-kurtarma.js" defer></script>
 </head>
 <body>
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
@@ -207,7 +208,7 @@
     </div>
   </main>
 
-  <!-- Kurulum, davet, giriş ve anahtar ekranları -->
+  <!-- Kurulum, davet, giriş, Parolamı Unuttum, kurtarma kodu ve anahtar ekranları -->
   <main id="auth-view" class="auth-view" hidden>
     <header class="auth-top">
       <div class="wordmark">
@@ -389,6 +390,7 @@
             <input id="login-password" class="input" type="password" autocomplete="current-password" maxlength="256" required>
             <p id="login-error" class="form-error" role="alert" hidden></p>
             <button id="login-submit" class="button button-wide" type="submit" data-i18n="auth.login">Giriş Yap</button>
+            <button id="login-forgot" class="button button-ghost button-wide login-forgot" type="button" data-i18n="auth.forgot">Parolamı Unuttum</button>
           </form>
           <form id="register-form" class="form" role="tabpanel" aria-labelledby="auth-tab-register" autocomplete="on" novalidate hidden>
             <label class="label" for="register-name" data-i18n="auth.username">Kullanıcı adı</label>
@@ -405,6 +407,10 @@
             <button id="register-submit" class="button button-wide" type="submit" data-i18n="auth.register">Kayıt Ol</button>
           </form>
         </section>
+
+        <!-- Parolamı Unuttum ve kurtarma kodu kartlarının içeriği 41-kurtarma.js tarafından kurulur -->
+        <section id="forgot-card" class="auth-section" aria-labelledby="forgot-title" hidden></section>
+        <section id="recovery-card" class="auth-section" aria-labelledby="recovery-title" hidden></section>
 
         <section id="key-card" class="auth-section" aria-labelledby="key-title" hidden>
           <h2 id="key-title" class="section-heading"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="invite.keyLabel">Şifreleme anahtarı</span></h2>

@@ -3,7 +3,8 @@
 // Kişisel güvenlik anahtarı: paroladan anahtar türetme (ilerleme yüzdesiyle), kimlik anahtarı çiftinin
 // üretilmesi, sarılması ve açılması, cihazda saklanan kimliğin yüklenmesi, kayıtlı oturumla açılışta
 // parola isteyen kimlik açma penceresi, kimlik bağlamasının grup anahtarıyla mühürlenip yüklenmesi,
-// parola değiştirme, kullanıcı adı değiştirme ve hesap silme yardımcıları.
+// parola değiştirme, kullanıcı adı değiştirme, hesap silme ve kurtarma kodu yardımcıları (kodun üretilmesi,
+// Ayarlar'dan kurulması ve kodla yeni parola belirleme). Kurtarma kodunun arayüzü 41-kurtarma.js içindedir.
 // Parola sunucuya hiç gönderilmez: sunucuya yalnızca paroladan türetilen kimlik doğrulama anahtarı
 // (authKey) gider. Özel anahtar yalnızca bellekte ve bu cihazın depolamasında tutulur.
 
@@ -15,6 +16,10 @@ const identityState = {
   keys: null,
   // Parola sıfırlandı: yeni anahtar çifti yalnızca yeni parolayla birlikte kurulur (sunucu /api/me/keys'i reddeder)
   resetPending: false,
+  // Kurtarma kodunun /api/state bilgisi ({ createdAt, label } veya kod yoksa null). recoveryKnown sunucudan
+  // gelip gelmediğini gösterir (bilinmezken hatırlatma gösterilmez).
+  recovery: null,
+  recoveryKnown: false,
   pair: null,
   pairUser: null,
   bindingKey: '',
@@ -149,14 +154,38 @@ async function fetchKdf (name) {
   return res.data.kdf
 }
 
-// Yeni hesap için türetme ayarları, authKey ve sarılmış yeni kimlik anahtarı
+// Yeni kurtarma kodu: kod (kişiye bir kez gösterilir) ve sunucuya giden kurulum { authKey, wrappedKey }. Kimlik
+// anahtarı koddan türetilen sarma anahtarıyla sarılır. Sır ve sarma anahtarı kullanıldıktan sonra silinir.
+function makeRecoverySetup (secretKey) {
+  const code = window.E2EE.recovery.generate()
+  const parsed = window.E2EE.recovery.parse(code)
+  let keys = null
+  try {
+    keys = window.E2EE.recovery.derive(parsed.secret)
+    return { code: code, setup: { authKey: keys.authKey, wrappedKey: window.E2EE.identity.wrap(secretKey, keys.wrapKey) } }
+  } finally {
+    parsed.secret.fill(0)
+    if (keys) keys.wrapKey.fill(0)
+  }
+}
+
+// Yeni hesap için türetme ayarları, authKey, sarılmış yeni kimlik anahtarı ve kurtarma kodu
 async function buildAccountKeys (password, onPercent) {
   const kdf = window.E2EE.kdf.newParams()
   const derived = await deriveKeys(password, kdf, onPercent)
   try {
     const pair = window.E2EE.identity.generate()
     const wrappedKey = window.E2EE.identity.wrap(pair.secretKey, derived.wrapKey)
-    return { kdf: kdf, authKey: derived.authKey, publicKey: pair.publicKey, secretKey: pair.secretKey, wrappedKey: wrappedKey }
+    const recovery = makeRecoverySetup(pair.secretKey)
+    return {
+      kdf: kdf,
+      authKey: derived.authKey,
+      publicKey: pair.publicKey,
+      secretKey: pair.secretKey,
+      wrappedKey: wrappedKey,
+      recoveryCode: recovery.code,
+      recovery: recovery.setup
+    }
   } finally {
     derived.wrapKey.fill(0)
   }
@@ -186,9 +215,11 @@ function forgetIdentity (userId) {
   }
 }
 
-// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }) ve parola sıfırlaması bekleniyor mu /api/state yanıtından gelir
-function setServerKeys (keys, resetPending) {
+// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }), parola sıfırlaması bekleniyor mu ve kurtarma kodu bilgisi
+// /api/state yanıtından gelir. recovery verilmezse (undefined) kurtarma kodu bilgisi değişmez.
+function setServerKeys (keys, resetPending, recovery) {
   identityState.resetPending = resetPending === true
+  if (recovery !== undefined) setServerRecovery(recovery)
   if (keys && typeof keys === 'object') {
     identityState.keys = {
       publicKey: typeof keys.publicKey === 'string' ? keys.publicKey : null,
@@ -196,6 +227,16 @@ function setServerKeys (keys, resetPending) {
     }
   } else {
     identityState.keys = { publicKey: null, wrappedKey: null }
+  }
+}
+
+// Kurtarma kodunun sunucudaki bilgisi: { createdAt, label } veya null
+function setServerRecovery (value) {
+  identityState.recoveryKnown = true
+  if (value && typeof value === 'object' && typeof value.createdAt === 'number' && isFinite(value.createdAt)) {
+    identityState.recovery = { createdAt: value.createdAt, label: typeof value.label === 'string' && value.label ? value.label : null }
+  } else {
+    identityState.recovery = null
   }
 }
 
@@ -355,7 +396,7 @@ async function uploadNewKeys (token, wrapKey) {
   return { ok: true, publicKey: pair.publicKey, secretKey: pair.secretKey, wrappedKey: wrapped }
 }
 
-// Kayıt (kurulum veya davet). Sonuç { ok: true, token, user } veya { ok: false, res | error }.
+// Kayıt (kurulum veya davet). Sonuç { ok: true, token, user, recoveryCode } veya { ok: false, res | error }.
 async function registerAccount (name, password, codeField, code, onPercent) {
   let keys = null
   try {
@@ -363,7 +404,8 @@ async function registerAccount (name, password, codeField, code, onPercent) {
   } catch (err) {
     return { ok: false, error: identityErrorProducer(err) }
   }
-  const body = { name: name, authKey: keys.authKey, kdf: keys.kdf, publicKey: keys.publicKey, wrappedKey: keys.wrappedKey }
+  // Kurtarma kodu hesapla birlikte kurulur, kayıttan sonra kişiye bir kez gösterilir (41-kurtarma.js)
+  const body = { name: name, authKey: keys.authKey, kdf: keys.kdf, publicKey: keys.publicKey, wrappedKey: keys.wrappedKey, recovery: keys.recovery }
   body[codeField] = code
   const res = await request('POST', '/api/register', { token: '', body: body })
   if (res.status !== 200 || !res.data || typeof res.data.token !== 'string' || !res.data.user) {
@@ -371,7 +413,7 @@ async function registerAccount (name, password, codeField, code, onPercent) {
   }
   rememberIdentity(res.data.user.id, keys.publicKey, keys.secretKey)
   rememberLoginDevice(name, res.data.device)
-  return { ok: true, token: res.data.token, user: res.data.user }
+  return { ok: true, token: res.data.token, user: res.data.user, recoveryCode: keys.recoveryCode }
 }
 
 // Kullanıcı adı uygunluğu (davet veya kurulum kodu gerekir). Sonuç { state, text } biçiminde gösterilir.
@@ -709,9 +751,10 @@ function openResetPassword (trigger) {
         }
         setMsg(msg, '')
         setFormBusy(form, true)
+        // Yeni anahtar çiftiyle birlikte yeni kurtarma kodu da kurulur (sıfırlama eski kodu silmişti)
         const result = await changePasswordRequest(oldInput.value, newInput.value, (pct) => {
           showProgress(progress, pct)
-        })
+        }, { renewRecovery: true })
         setFormBusy(form, false)
         showProgress(progress, null)
         if (!result.ok) {
@@ -724,6 +767,7 @@ function openResetPassword (trigger) {
         newInput2.value = ''
         close('done')
         toast(() => t('identity.keysReset'), 'ok', 10000)
+        if (result.recoveryCode && typeof openRecoveryCodeDialog === 'function') openRecoveryCodeDialog(result.recoveryCode, { trigger: trigger })
       })
       body.appendChild(form)
       return oldInput
@@ -740,7 +784,7 @@ async function unlockIdentity (password, onPercent) {
     derived = await deriveKeys(password, kdf, onPercent)
     const st = await api('GET', '/api/state')
     if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
-    setServerKeys(st.data.keys, st.data.resetPending)
+    setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
     const keys = identityState.keys
     if (!keys.wrappedKey) {
       const made = await uploadNewKeys(state.token, derived.wrapKey)
@@ -770,7 +814,10 @@ function afterIdentityChange () {
 // Parola değiştirme: mevcut ayarlarla eski authKey, yeni ayarlarla yeni authKey ve aynı özel
 // anahtarın yeni sarma anahtarıyla sarılması. Diğer oturumlar sunucuda kapanır. Hesabın anahtar çifti yoksa
 // (parola sıfırlaması sonrası) yeni çift üretilir, yeni parolayla sarılır ve aynı istekle kurulur.
-async function changePasswordRequest (oldPassword, newPassword, onPercent) {
+// opts.renewRecovery: kurtarma kodu da aynı istekle yenilenir, sonuçta recoveryCode döner. Verilmezse var olan kod
+// geçerli kalır.
+async function changePasswordRequest (oldPassword, newPassword, onPercent, opts) {
+  const renew = Boolean(opts && opts.renewRecovery)
   if (!state.me) return { ok: false, error: () => t('settings.password.failed') }
   let oldKeys = null
   let newKeys = null
@@ -786,41 +833,47 @@ async function changePasswordRequest (oldPassword, newPassword, onPercent) {
     // Başka bir sekme sıfırlamadan sonra anahtar çiftini kurmuş olabilir: seçim sunucudaki güncel anahtarlarla yapılır
     const st = await api('GET', '/api/state')
     if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
-    setServerKeys(st.data.keys, st.data.resetPending)
+    setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
     const keys = identityState.keys
     let wrappedKey = null
     let fresh = null
+    let recovery = null
     if (!keys.publicKey) {
       fresh = window.E2EE.identity.generate()
       wrappedKey = window.E2EE.identity.wrap(fresh.secretKey, newKeys.wrapKey)
+      if (renew) recovery = makeRecoverySetup(fresh.secretKey)
     } else {
       const pair = myIdentity()
       let secretKey = pair ? pair.secretKey : null
       if (!secretKey && keys.wrappedKey) secretKey = window.E2EE.identity.unwrap(keys.wrappedKey, oldKeys.wrapKey, keys.publicKey)
       if (!secretKey) return { ok: false, error: () => t('settings.password.oldWrong') }
       wrappedKey = window.E2EE.identity.wrap(secretKey, newKeys.wrapKey)
+      if (renew) recovery = makeRecoverySetup(secretKey)
       if (!pair) rememberIdentity(state.me.id, keys.publicKey, secretKey)
     }
     const body = { oldAuthKey: oldKeys.authKey, newAuthKey: newKeys.authKey, kdf: newKdf, wrappedKey: wrappedKey }
     if (fresh) body.publicKey = fresh.publicKey
+    if (recovery) body.recovery = recovery.setup
     const res = await api('POST', '/api/me/password', body)
     if (res.status === 200) {
       identityState.resetPending = false
       // Parola değişince önceki giriş cihazı işareti geçersizdir, sunucu yenisini verir
       if (res.data) rememberLoginDevice(state.me.name, res.data.device)
+      if (res.data && res.data.recovery !== undefined) setServerRecovery(res.data.recovery)
+      const code = recovery ? recovery.code : undefined
       if (fresh) {
         identityState.keys = { publicKey: fresh.publicKey, wrappedKey: wrappedKey }
         rememberIdentity(state.me.id, fresh.publicKey, fresh.secretKey)
         afterIdentityChange()
-        return { ok: true, keysReset: true }
+        return { ok: true, keysReset: true, recoveryCode: code }
       }
       identityState.keys = { publicKey: keys.publicKey, wrappedKey: wrappedKey }
-      return { ok: true }
+      return { ok: true, recoveryCode: code }
     }
     // Anahtar durumu bu arada değişmiştir, sunucudaki güncel anahtarlar yeniden yüklenir ve yeni deneme ona göre seçer
     if (res.data && res.data.code === 'bad_keys') {
       const again = await api('GET', '/api/state')
-      if (again.status === 200 && again.data) setServerKeys(again.data.keys, again.data.resetPending)
+      if (again.status === 200 && again.data) setServerKeys(again.data.keys, again.data.resetPending, again.data.recovery)
     }
     return { ok: false, error: () => errorText(res, t('settings.password.failed'), { bad_credentials: t('settings.password.oldWrong'), rate_limited: t('auth.rateLimited') }) }
   } catch (err) {
@@ -890,6 +943,139 @@ function finishDeletedAccount () {
   clearToken()
   resetAppState()
   showLogin(() => t('identity.accountDeleted'))
+}
+
+// ----- Kurtarma kodu (istek 14) -----
+
+const RECOVERY_CODE_ERRORS = ['empty', 'bad_length', 'bad_char', 'bad_padding', 'bad_checksum']
+
+// Kurtarma kodu ayrıştırma hatasının metni. Grup anahtarı kodu girildiyse ayrı uyarı verilir.
+function recoveryCodeErrorText (err) {
+  const code = err && typeof err.code === 'string' ? err.code : ''
+  if (code === 'group_key_code') return t('auth.recoveryGroupKey')
+  if (RECOVERY_CODE_ERRORS.indexOf(code) !== -1) return t('identity.error.recovery_' + code)
+  return identityErrorText(err)
+}
+
+// Sunucudaki anahtar ve kurtarma kodu bilgisini yeniden yükler (başka bir cihaz değiştirmiş olabilir)
+async function reloadServerKeys () {
+  const st = await api('GET', '/api/state')
+  if (st.status === 200 && st.data) setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
+}
+
+// Ayarlar > Hesabım: kurtarma kodunu şu anki parolayla oluşturur veya yeniler (create true), ya da kaldırır.
+// Sonuç { ok: true, code } (oluşturmada yeni kod) veya { ok: false, error: metin üretici }.
+async function recoveryChangeRequest (password, create, onPercent) {
+  const failed = () => t('settings.account.recoveryFailed')
+  if (!state.me) return { ok: false, error: failed }
+  let derived = null
+  let opened = null
+  try {
+    const kdf = await fetchKdf(state.me.name)
+    derived = await deriveKeys(password, kdf, onPercent)
+    let recovery = null
+    let pair = null
+    const keys = identityState.keys
+    if (create) {
+      if (!keys || !keys.publicKey) return { ok: false, error: () => t('errors.no_keys') }
+      pair = myIdentity()
+      let secretKey = pair ? pair.secretKey : null
+      if (!secretKey && keys.wrappedKey) {
+        opened = window.E2EE.identity.unwrap(keys.wrappedKey, derived.wrapKey, keys.publicKey)
+        secretKey = opened
+      }
+      if (!secretKey) return { ok: false, error: () => t('identity.wrongPassword') }
+      recovery = makeRecoverySetup(secretKey)
+    }
+    const res = await api('POST', '/api/me/recovery', { authKey: derived.authKey, recovery: recovery ? recovery.setup : null })
+    if (res.status === 200 && res.data) {
+      setServerRecovery(res.data.recovery)
+      // Parolayla açılan kimlik bu cihazda yoksa saklanır (parola değiştirmedeki gibi)
+      if (opened) {
+        rememberIdentity(state.me.id, keys.publicKey, opened)
+        opened = null
+      }
+      return { ok: true, code: recovery ? recovery.code : null }
+    }
+    if (res.data && res.data.code === 'keys_changed') await reloadServerKeys()
+    return { ok: false, error: () => errorText(res, failed(), { bad_credentials: t('identity.wrongPassword'), rate_limited: t('auth.rateLimited') }) }
+  } catch (err) {
+    return { ok: false, error: identityErrorProducer(err) }
+  } finally {
+    if (derived) derived.wrapKey.fill(0)
+    if (opened) opened.fill(0)
+  }
+}
+
+// Parolamı Unuttum: kurtarma koduyla yeni parola. Kod ayrıştırılır, koddan türetilen authKey ile sarılmış özel
+// anahtar istenir (/api/recover/keys), kodla açılır, yeni parolayla ve yeni kurtarma koduyla yeniden sarılıp
+// /api/recover ile gönderilir. Açık anahtar değişmez, eski özel mesajlar okunur, konuşulan kişilerde anahtar uyarısı
+// çıkmaz. Hesabın anahtarları bu arada değiştiyse (409 keys_changed) anahtarlar bir kez yeniden istenir.
+// Sonuç { ok: true, token, user, code } (code yeni kurtarma kodudur, eskisi geçersizdir) veya
+// { ok: false, field: 'code' | null, error: metin üretici }.
+async function recoverAccount (name, code, newPassword, onPercent) {
+  let parsed = null
+  try {
+    parsed = window.E2EE.recovery.parse(code)
+  } catch (err) {
+    return { ok: false, field: 'code', error: () => recoveryCodeErrorText(err) }
+  }
+  let rk = null
+  let newKeys = null
+  let newKdf = null
+  let secretKey = null
+  try {
+    rk = window.E2EE.recovery.derive(parsed.secret)
+    const device = loginDeviceOf(name)
+    let last = null
+    let rounds = 2
+    while (rounds > 0) {
+      rounds -= 1
+      const keysBody = { name: name, recoveryAuthKey: rk.authKey }
+      if (device) keysBody.device = device
+      const kres = await request('POST', '/api/recover/keys', { token: '', body: keysBody })
+      const data = kres.data
+      if (kres.status !== 200 || !data || typeof data.publicKey !== 'string' || typeof data.wrappedKey !== 'string') {
+        return { ok: false, field: kres.status === 401 ? 'code' : null, error: () => errorText(kres, t('identity.error.generic'), authOverrides()) }
+      }
+      secretKey = window.E2EE.identity.unwrap(data.wrappedKey, rk.wrapKey, data.publicKey)
+      if (!secretKey) return { ok: false, field: null, error: () => t('identity.error.generic') }
+      if (!newKeys) {
+        newKdf = window.E2EE.kdf.newParams()
+        newKeys = await deriveKeys(newPassword, newKdf, onPercent)
+      }
+      const recovery = makeRecoverySetup(secretKey)
+      const body = {
+        name: name,
+        recoveryAuthKey: rk.authKey,
+        publicKey: data.publicKey,
+        newAuthKey: newKeys.authKey,
+        kdf: newKdf,
+        wrappedKey: window.E2EE.identity.wrap(secretKey, newKeys.wrapKey),
+        recovery: recovery.setup
+      }
+      if (device) body.device = device
+      const res = await request('POST', '/api/recover', { token: '', body: body })
+      if (res.status === 200 && res.data && typeof res.data.token === 'string' && res.data.user) {
+        rememberLoginDevice(name, res.data.device)
+        rememberIdentity(res.data.user.id, data.publicKey, secretKey)
+        secretKey = null
+        return { ok: true, token: res.data.token, user: res.data.user, code: recovery.code }
+      }
+      secretKey.fill(0)
+      secretKey = null
+      last = res
+      if (res.status !== 409 || !res.data || res.data.code !== 'keys_changed') break
+    }
+    return { ok: false, field: last && last.status === 401 ? 'code' : null, error: () => errorText(last, t('identity.error.generic'), authOverrides()) }
+  } catch (err) {
+    return { ok: false, field: null, error: identityErrorProducer(err) }
+  } finally {
+    parsed.secret.fill(0)
+    if (rk) rk.wrapKey.fill(0)
+    if (newKeys) newKeys.wrapKey.fill(0)
+    if (secretKey) secretKey.fill(0)
+  }
 }
 
 // Ayarlarda gösterilecek kendi güvenlik anahtarı parmak izi
