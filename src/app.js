@@ -108,6 +108,9 @@ const DEFAULTS = Object.freeze({
   typingLimit: 30,
   typingWindowMs: 10000,
   typingTtlMs: 6000,
+  // Otomatik boşta (src/hub.js): bir oturumun boşa geçişleri arasındaki en kısa süre. Daha erken gelen boşa geçiş
+  // yok sayılır, boştan dönüş hemen işlenir. Her geçiş herkese meta yayını tetiklediği için sınırlanır.
+  idleGapMs: 5000,
   // Telsiz DJ durum yazımları: kullanıcı başına 30 / 10 sn. Boşalan ses odasının müzik durumu 30 dk sonra
   // bellekten silinir.
   musicLimit: 30,
@@ -154,7 +157,7 @@ const POSITIVE_OPTIONS = [
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
   'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
-  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax'
+  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
@@ -1078,12 +1081,18 @@ async function createChatServer (options) {
     eventBufferSize: config.eventBufferSize,
     maxWaitersPerSession: config.maxWaitersPerSession,
     typingTtlMs: config.typingTtlMs,
+    idleGapMs: config.idleGapMs,
     getBase: metaBase,
     getPrivate: privateOf,
     music: { version: music.version, map: music.map },
     isHidden: (userId) => {
       const user = usersById.get(userId)
       return Boolean(user) && user.status === 'invisible'
+    },
+    // Otomatik boşta yalnızca elle seçilen durum Çevrimiçi iken görünür (Boşta, Rahatsız etmeyin ve Görünmez değişmez)
+    showsAutoIdle: (userId) => {
+      const user = usersById.get(userId)
+      return Boolean(user) && user.status === 'online'
     },
     // Engel ilişkisi olan iki kullanıcı (hangi yönde olursa olsun) birbirinin yazıyor bilgisini görmez
     canSeeTyping: (viewerId, typerId) => !social.isBlockedEither(viewerId, typerId),
@@ -1904,9 +1913,10 @@ async function createChatServer (options) {
     return state.users.filter((u) => u.banned && !u.deleted).sort((a, b) => a.id - b.id)
   }
 
+  // idle: otomatik boşta ('1' bu oturum boşta, '0' değil). Yalnızca hub'ın belleğinde tutulur, diske yazılmaz.
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot'), idle: q.get('idle') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır. Anahtar çifti yoksa (parola
