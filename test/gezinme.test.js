@@ -5,7 +5,9 @@
 // edilir, konuşma açan işlevler (selectChannel, showDm, showHome) görünümü değiştiren basit taklitlerdir.
 // Sınananlar: kök kayıt, konuşma kayıtlarının sırası, geri ve ileri tuşuyla dönüş, katman kayıtları (sayfa,
 // profil kartı, sayfa değişimi, satıra basınca sayfanın kaydının yeni konuşmayla değişmesi), başka hesabın ve
-// uygulama dışının kayıtlarının yok sayılması, kilitli katmanda geri tuşu ve oturum kapanınca geri sarma.
+// uygulama dışının kayıtlarının yok sayılması, kilitli katmanda geri tuşu ve oturum kapanınca geri sarma. Ayrıca ilk
+// okunmamış mesajın yeri (kendi mesajları atlanır) ve son okunanın çevresiyle yükleme kararı, Özel mesajlar grubunun
+// sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel Mesajlar ve görünümün hatırlanması.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -323,4 +325,69 @@ test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa
   // En yeni sayfanın ilk mesajı son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir
   assert.deepStrictEqual(json('[navNeedsAround(' + list + ', true, 4), navNeedsAround(' + list + ', true, 5), navNeedsAround(' + list + ', false, 4), navNeedsAround(' + list + ', true, 0), navNeedsAround([], true, 4)]'),
     [true, false, false, false, false])
+})
+
+test('özel mesaj grubu: okunmamışlar önce, sonra son mesaja göre, açık konuşma sayılmaz, altıdan fazlası Tüm Özel Mesajlar ile açılır', () => {
+  const { run, json } = load()
+  run(`
+    var testEntries = [
+      { id: 50, userId: 2, lastMessageAt: 100 },
+      { id: 51, userId: 3, lastMessageAt: 300 },
+      { id: 52, userId: 4, lastMessageAt: 200 },
+      { id: 53, userId: 5, lastMessageAt: 50 }
+    ]
+    function bandDmEntries () { return testEntries.slice().sort((a, b) => b.lastMessageAt - a.lastMessageAt) }
+    state.users.set('2', { id: 2, name: 'ece' })
+    state.unread[50] = 2
+    state.unread[53] = 1
+  `)
+  const unreadOf = '(id) => Number(state.unread[id]) || 0'
+  assert.deepStrictEqual(json('navDmOrder(testEntries, ' + unreadOf + ').map((d) => d.id)'), [50, 53, 51, 52])
+  // Geniş ekranda Özel düğmesi okunmamışı olan en yeni konuşmayı, yoksa son açılanı, o da yoksa en yenisini açar
+  assert.strictEqual(json('navDmPick(testEntries, ' + unreadOf + ', 52).id'), 50)
+  assert.strictEqual(json('navDmPick(testEntries, () => 0, 52).id'), 52)
+  assert.strictEqual(json('navDmPick(testEntries, () => 0, 99).id'), 51)
+  assert.strictEqual(json('navDmPick([], () => 0, null)'), null)
+  let g = json('navDmGroup()')
+  assert.strictEqual(g.label, 'Özel mesajlar')
+  assert.deepStrictEqual(g.stations.map((s) => [s.id, s.mention, s.tuned]), [[50, 2, false], [53, 1, false], [51, 0, false], [52, 0, false]])
+  assert.strictEqual(g.stations[0].label, 'ece ile özel mesajlar, 2 okunmamış')
+  // Açık özel konuşmanın okunmamışı sayılmaz, satır işaretlidir
+  run("testView = 'dm'; state.channelId = 50")
+  g = json('navDmGroup()')
+  assert.deepStrictEqual(g.stations.map((s) => [s.id, s.mention, s.tuned]), [[53, 1, false], [51, 0, false], [52, 0, false], [50, 0, true]])
+  // Yedi konuşma: altı satır ve Tüm Özel Mesajlar, basınca hepsi ve Daha Az Göster
+  run(`
+    testView = 'channel'; state.channelId = 10
+    testEntries.push({ id: 54, userId: 6, lastMessageAt: 40 }, { id: 55, userId: 7, lastMessageAt: 30 }, { id: 56, userId: 8, lastMessageAt: 20 })
+  `)
+  g = json('navDmGroup()')
+  assert.deepStrictEqual(g.stations.map((s) => s.key), ['dm-50', 'dm-53', 'dm-51', 'dm-52', 'dm-54', 'dm-55', 'dm-all'])
+  assert.deepStrictEqual([g.stations[6].name, g.stations[6].count, g.stations[6].expanded], ['Tüm Özel Mesajlar', 7, false])
+  run('navToggleDmAll()')
+  g = json('navDmGroup()')
+  assert.strictEqual(g.stations.length, 8)
+  assert.deepStrictEqual([g.stations[7].name, g.stations[7].expanded], ['Daha Az Göster', true])
+  // Özel konuşma yoksa grup yoktur
+  run('testEntries.length = 0')
+  assert.strictEqual(json('navDmGroup()'), null)
+})
+
+test('görünüm: açık görünüm kişiye özel anahtarda saklanır, açılışta özel konuşma ve Arkadaşlar geri yüklenir', async () => {
+  const { run, json } = load()
+  run('selectChannel(11, {})')
+  assert.deepStrictEqual(json("JSON.parse(localStorage.getItem('telsiz.view.1'))"), { mode: 'channel', id: '11' })
+  assert.strictEqual(json('navSavedView()'), null, 'yazı odası 04-meta.js openApp ile açılır')
+  run('showDm(50, {})')
+  assert.deepStrictEqual(json("JSON.parse(localStorage.getItem('telsiz.view.1'))"), { mode: 'dm', id: '50' })
+  assert.deepStrictEqual(json('navSavedView()'), { mode: 'dm', id: 50 })
+  // Geri tuşuyla gelinen görünüm de saklanır
+  await settle()
+  run('showHome(null, { fromHistory: true })')
+  assert.deepStrictEqual(json('navSavedView()'), { mode: 'home', id: null })
+  // Listeden kalkan özel konuşma geri yüklenmez, başka hesabın kaydı okunmaz
+  run('showDm(50, {}); delete testDms[50]')
+  assert.strictEqual(json('navSavedView()'), null)
+  run("state.me = { id: 2, name: 'ece', role: 'member' }")
+  assert.strictEqual(json('navSavedView()'), null)
 })

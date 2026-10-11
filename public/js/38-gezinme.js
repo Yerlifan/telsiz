@@ -1,7 +1,7 @@
 'use strict'
 
 // Yazı kanallarında ve sohbetlerde gezinme (istek 17): tarayıcı geçmişi, okunmamış ayracı ve şeridi, yeni mesaj
-// kapsülü.
+// kapsülü, İstasyonlar listesindeki Özel Mesajlar grubu ve açık görünümün hatırlanması.
 //
 // Geçmiş (S2). Açılışta o anki kayıt kök kayda çevrilir: { telsiz: { v: 1, u, d: 0, view, id } }. Kişi başka bir
 // konuşmaya geçince (oda, özel mesaj, Arkadaşlar) yeni kayıt eklenir. Adres ve # bölümü hiç değişmez, çünkü #
@@ -22,11 +22,21 @@
 // Git, Okundu İşaretle) görünür. İlk okunmamış en yeni sayfada değilse konuşma son okunanın çevresiyle (around)
 // yüklenir. Konuşma yalnızca kişi en alttayken okundu sayılır (04-meta.js markRead). Kişi yukarıdayken gelen mesaj
 // kaydırma yapmaz, alttaki kapsül sayar.
+//
+// Özel Mesajlar grubu (S5). İstasyonlar kartında ve sayfasında yazı odalarının altında özel konuşmalar: okunmamışı
+// olanlar önce, en çok NAV_DM_ROWS satır, fazlası Tüm Özel Mesajlar ile açılır. 1280 px altında sol sütun yoktur,
+// üst çubuktaki Özel düğmesi İstasyonlar sayfasını bu grupta açar. Geniş ekranda okunmamışı olan en yeni
+// konuşmayı açar.
+//
+// Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
+// sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
 
 const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
 const NAV_POP_WAIT_MS = 2000
 // Kişi bu kadar ekran yukarıdaysa yeni mesaj olmasa da En Alta Git kapsülü görünür
 const NAV_FAR_SCREENS = 2
+// Özel Mesajlar grubunda Tüm Özel Mesajlar açılmadan gösterilen en çok satır
+const NAV_DM_ROWS = 6
 
 const navState = {
   bound: false,
@@ -45,7 +55,9 @@ const navState = {
   unread: { channelId: null, id: null, since: 0, count: 0, bar: false },
   // Kişi yukarıdayken gelen mesaj sayısı (kapsül)
   newBelow: 0,
-  divider: null
+  divider: null,
+  // Özel Mesajlar grubunda bütün konuşmalar açık mı (İstasyonlar kartı ve sayfası ortak)
+  dmAll: false
 }
 
 // ------------------------------------------------------------------ geçmiş
@@ -173,6 +185,7 @@ function navStop () {
   navState.on = false
   navState.stack = []
   navState.convMode = ''
+  navState.dmAll = false
   navUnreadReset(null)
   if (extra > 0) {
     navState.ops.push({ kind: 'go', delta: -extra })
@@ -185,6 +198,7 @@ function navStop () {
 function navOnConversation (opts) {
   const o = opts || {}
   if (navCurrentConv().view === 'home') navUnreadReset(null)
+  navRememberView()
   if (!navState.on || o.fromHistory || navState.restoring) return
   if (!o.force) navState.convMode = 'push'
   else if (!navState.convMode) navState.convMode = 'replace'
@@ -580,4 +594,103 @@ function navOnLanguage () {
   if (navState.divider && navState.divider.parentNode) navDividerEl()
   navRenderBar()
   navRenderBelow()
+}
+
+// ------------------------------------------------------------------ Özel Mesajlar grubu (S5)
+
+function navUnreadOf (id) {
+  const n = Number(state.unread[id])
+  return isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+function navOpenDmId () {
+  return navCurrentConv().view === 'dm' ? state.channelId : null
+}
+
+// Özel konuşmaların grup sırası: okunmamışı olanlar önce, iki bölümde de son mesaja göre yeniden eskiye. Açık
+// konuşmanın okunmamışı sayılmaz (kişi onu zaten görüyor).
+function navDmOrder (entries, unreadOf) {
+  return entries.map((d, i) => ({ d: d, i: i, n: unreadOf(d.id) > 0 ? 1 : 0, at: Number(d.lastMessageAt) || 0 }))
+    .sort((a, b) => (b.n - a.n) || (b.at - a.at) || (a.i - b.i))
+    .map((x) => x.d)
+}
+
+// Geniş ekranda Özel düğmesinin açtığı konuşma: okunmamışı olan en yeni konuşma, yoksa son açılan, o da yoksa en
+// yeni konuşma
+function navDmPick (entries, unreadOf, lastId) {
+  const sorted = navDmOrder(entries, () => 0)
+  const unread = sorted.filter((d) => unreadOf(d.id) > 0)[0]
+  if (unread) return unread
+  const last = lastId === null || lastId === undefined ? null : sorted.filter((d) => sameId(d.id, lastId))[0]
+  return last || sorted[0] || null
+}
+
+// 04-meta.js fillRoomList grubu çizer: satırlar data-dm-id taşır (21-band.js onStationRowClick açar), son satır
+// konuşma sayısı NAV_DM_ROWS'u aşınca Tüm Özel Mesajlar düğmesidir. Hiç özel konuşma yoksa grup gösterilmez.
+function navDmGroup () {
+  const entries = typeof bandDmEntries === 'function' && state.me ? bandDmEntries() : []
+  if (!entries.length) return null
+  const open = navOpenDmId()
+  const unreadOf = (id) => (open !== null && sameId(id, open) ? 0 : navUnreadOf(id))
+  const ordered = navDmOrder(entries, unreadOf)
+  const shown = navState.dmAll ? ordered : ordered.slice(0, NAV_DM_ROWS)
+  const stations = shown.map((d) => {
+    const n = unreadOf(d.id)
+    const name = shownName(d.userId)
+    return {
+      key: 'dm-' + d.id,
+      kind: 'conv',
+      type: 'dm',
+      id: d.id,
+      userId: d.userId,
+      name: name,
+      sub: '',
+      unread: 0,
+      // Özel mesajın okunmamışı Özel düğmesindeki gibi anma rengindedir
+      mention: n,
+      tuned: open !== null && sameId(d.id, open),
+      blocked: typeof isBlocked === 'function' && isBlocked(d.userId),
+      status: shownStatus(d.userId),
+      people: [d.userId],
+      label: n ? t('dm.itemUnreadLabel', { name: name, count: n }) : t('dm.itemLabel', { name: name })
+    }
+  })
+  if (ordered.length > NAV_DM_ROWS) {
+    const label = navState.dmAll ? t('rooms.dmFewer') : t('rooms.dmAll')
+    stations.push({ key: 'dm-all', kind: 'more', type: 'more', name: label, sub: '', unread: 0, mention: 0, tuned: false, expanded: navState.dmAll, count: ordered.length, label: label + ', ' + ordered.length })
+  }
+  return { key: 'dm', label: t('rooms.dmGroup'), stations: stations, empty: '' }
+}
+
+// Tüm Özel Mesajlar: grup bütün konuşmaları gösterir veya ilk satırlara döner, odak düğmede kalır
+function navToggleDmAll () {
+  navState.dmAll = !navState.dmAll
+  if (typeof renderBand === 'function') renderBand()
+}
+
+// Özel düğmesi 1280 px altında İstasyonlar sayfasını açınca ilk odak gruptaki ilk konuşmadır
+function navDmSheetFocus (panel) {
+  return panel ? panel.querySelector('.room-row-dm') : null
+}
+
+// ------------------------------------------------------------------ görünümün hatırlanması (S12)
+
+function navRememberView () {
+  if (!state.me || typeof storeSetJson !== 'function') return
+  const cur = navCurrentConv()
+  if (cur.view !== 'home' && cur.id === null) return
+  storeSetJson(userKey('view'), { mode: cur.view, id: cur.view === 'home' ? null : cur.id })
+}
+
+// Açılışta geri yüklenecek görünüm: özel konuşma hâlâ listedeyse { mode: 'dm', id }, Arkadaşlar görünümü
+// { mode: 'home' }, yoksa null (04-meta.js openApp hatırlanan yazı odasını açar)
+function navSavedView () {
+  if (!state.me || typeof storeGetJson !== 'function') return null
+  const v = storeGetJson(userKey('view'), null)
+  if (!v || typeof v !== 'object') return null
+  if (v.mode === 'home') return { mode: 'home', id: null }
+  if (v.mode === 'dm' && v.id !== null && v.id !== undefined && typeof dmEntry === 'function' && dmEntry(v.id)) {
+    return { mode: 'dm', id: dmEntry(v.id).id }
+  }
+  return null
 }

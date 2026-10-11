@@ -176,7 +176,8 @@ function socialReset () {
 // Uygulama ekranı açıldıktan sonra
 function socialAfterOpen () {
   bindSocialUi()
-  setConversationMode('channel')
+  // openApp son görünümü (özel konuşma veya Arkadaşlar) geri yüklediyse o görünüm korunur (38-gezinme.js)
+  setConversationMode(socialState.view === 'dm' || socialState.view === 'home' ? socialState.view : 'channel')
   profilesOnMeta()
   profilesEnsure(privateIds(priv()))
   socialRender()

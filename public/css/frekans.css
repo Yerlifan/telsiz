@@ -1847,6 +1847,27 @@
   }
 }
 
+/* Özel mesajlar grubu (istek 17, 38-gezinme.js navDmGroup): satırda küçük avatar ve ad, okunmamış rozeti Özel
+   düğmesindeki gibi anma renginde. Son satır Tüm Özel Mesajlar: grubu açar ve kapar, konuşma sayısını gösterir. */
+.room-row-avatar {
+  flex: none;
+  margin-right: 0.625rem;
+}
+
+.room-row-dm.is-blocked .room-row-name {
+  text-decoration: line-through;
+}
+
+.room-row-more {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.room-row-more .room-row-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
 /* Ses odasındaki kişiler (04-meta.js buildRoomPeople): oda satırının altında girintili liste, küçük avatar,
    ad ve susturma ile kamera simgeleri. Konuşan kişinin avatarında canlı renkli halka. */
 .room-people {
@@ -2436,6 +2457,18 @@
 
   .side-left.is-open {
     display: flex;
+  }
+
+  /* Oda bilgisi sayfasında özel mesaj listesi yoktur: özel konuşmalar İstasyonlar sayfasındaki Özel mesajlar
+     grubundadır, üst çubuktaki Özel düğmesi sayfayı o grupta açar (istek 17) */
+  .app-view[data-view="dm"] .dm-section,
+  .app-view[data-view="home"] .dm-section {
+    display: none;
+  }
+
+  /* Özel mesaj görünümünde sayfada gösterilecek oda bilgisi yoktur, Oda bilgisi düğmesi gizlenir */
+  .app-view[data-view="dm"] .convo-head .room-info-button {
+    display: none;
   }
 
   .side-left.is-open .side-sheet-head {

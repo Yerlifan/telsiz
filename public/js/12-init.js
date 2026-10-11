@@ -179,6 +179,8 @@ function onResize () {
   placeRadio()
   if (state.inApp) renderChannelHeader()
   closeSheets()
+  // Özel düğmesi 1280 px altında sayfa açar, üstünde konuşma (04-meta.js renderTopPersonal)
+  if (state.inApp && typeof renderTopPersonal === 'function') renderTopPersonal()
   const picker = findLayer('emoji')
   if (picker) closeLayer(picker, false)
   closeMessageMenu()

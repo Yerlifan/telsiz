@@ -23,6 +23,11 @@
 //   basınca en alta inilir ve okundu sayılır
 // - Telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle (around) yüklenir, Okundu İşaretle hepsini okur, En
 //   Yeni Mesajlara Dön son okunanın çevresine geri dönmez
+// G9, Özel mesajlar grubu ve görünümün hatırlanması (S5, S12):
+// - 1440, 1024, 768 ve 360 genişlikte grup İstasyonlar listesinde, okunmamış konuşma önce. 1280 px altında Özel
+//   düğmesi İstasyonlar sayfasını okunmamış konuşmada açar, geniş ekranda okunmamışı olan en yeni konuşmayı açar.
+//   Özel mesaj görünümünde Oda bilgisi düğmesi yok
+// - Özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -559,6 +564,108 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
   assert.deepEqual(await page.evaluate((id) => [Boolean(document.querySelector('#message-list .unread-divider')), document.getElementById('unread-bar').hidden, Number(state.lastRead[id])], kalabalik),
     [false, true, more[59].id])
   await setWidth(page, 1440)
+})
+
+// G9 (S5, S12): Özel mesajlar grubu, Özel düğmesi ve görünümün hatırlanması
+
+// Kişi Deniz'e özel mesaj gönderir
+async function dmSay (who, dmId, text) {
+  const w = W.w
+  const p = w.P[who]
+  const body = w.E.dm.seal({ v: 1, a: p.id, c: dmId, t: text, f: [] }, w.P.deniz.publicKey, p.secretKey)
+  const res = await w.call('POST', '/api/messages', { channelId: dmId, body, uploads: [] }, p.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  return res.data.message
+}
+
+// Listedeki Özel mesajlar grubu: başlık ve satırlar (konuşma kimliği, rozet)
+function dmGroupIn (page, listId) {
+  return page.evaluate((id) => {
+    const list = document.getElementById(id)
+    const title = list.querySelector('#' + (id === 'inbox-list' ? 'rooms-title-dm' : 'sheet-rooms-title-dm'))
+    const rows = Array.from(list.querySelectorAll('.room-row-dm')).map((b) => {
+      const mark = b.querySelector('.station-mark')
+      return [b.getAttribute('data-dm-id'), mark ? mark.textContent : '']
+    })
+    return { title: title ? title.textContent : null, shown: Boolean(title && title.getClientRects().length), rows }
+  }, listId)
+}
+
+test('özel mesajlar grubu: İstasyonlar listesinde okunmamış önce, 1280 px altında Özel düğmesi sayfayı grupta açar', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  // Son açılan özel konuşma Ece, okunmamış olan Mert
+  await openDm(page, W.dmEce)
+  await openRoom(page, genel)
+  await dmSay('mert', W.dmMert, 'Deniz, akşam görüşelim mi?')
+  await page.waitForFunction((id) => state.unread[id] === 1, W.dmMert, { timeout: h.LONG })
+  await page.waitForFunction(() => document.querySelectorAll('#inbox-list .room-row-dm').length === 2)
+  assert.deepEqual(await dmGroupIn(page, 'inbox-list'), { title: 'Özel mesajlar', shown: true, rows: [[String(W.dmMert), '1'], [String(W.dmEce), '']] })
+  assert.equal(await page.getAttribute('#top-dm', 'aria-haspopup'), null, 'geniş ekranda Özel düğmesi konuşma açar')
+
+  for (const width of [1024, 768, 360]) {
+    await setWidth(page, width, width < 760 ? 780 : 768)
+    assert.equal(await page.getAttribute('#top-dm', 'aria-haspopup'), 'dialog', width + ' genişlikte Özel düğmesi sayfa açar')
+    await page.click('#top-dm')
+    await page.waitForSelector('#stations-sheet:not([hidden])')
+    await page.waitForFunction((id) => document.activeElement && document.activeElement.getAttribute('data-dm-id') === String(id), W.dmMert)
+    const g = await dmGroupIn(page, 'stations-list')
+    assert.deepEqual(g, { title: 'Özel mesajlar', shown: true, rows: [[String(W.dmMert), '1'], [String(W.dmEce), '']] }, width + ' genişlikte grup')
+    assert.equal(await page.getAttribute('#top-dm', 'aria-expanded'), 'true')
+    assert.ok(await h.overflowX(page) <= 0, width + ' genişlikte sayfa açıkken yatay taşma')
+    assert.equal(await page.evaluate(() => currentViewMode()), 'channel', 'Özel düğmesi konuşma açmadı')
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'top-dm')
+  }
+  // Telefonda satıra basmak konuşmayı açar, sayfa kapanır, Oda bilgisi düğmesi özel mesajda yoktur
+  await page.click('#top-dm')
+  await page.waitForSelector('#stations-sheet:not([hidden])')
+  await page.keyboard.press('Enter')
+  await waitConversation(page, 'dm', W.dmMert)
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
+  assert.equal(await page.evaluate(() => document.getElementById('btn-room-info').getClientRects().length), 0, 'özel mesajda Oda bilgisi düğmesi yok')
+  await page.evaluate(() => {
+    el.messages.scrollTop = el.messages.scrollHeight
+  })
+  await page.waitForFunction((id) => !state.unread[id], W.dmMert)
+
+  // Geniş ekranda Özel düğmesi okunmamışı olan en yeni konuşmayı açar (son açılan Ece olsa da)
+  await setWidth(page, 1440)
+  await openDm(page, W.dmEce)
+  await openRoom(page, genel)
+  await dmSay('mert', W.dmMert, 'Cevap bekliyorum')
+  await page.waitForFunction((id) => state.unread[id] === 1, W.dmMert, { timeout: h.LONG })
+  await page.click('#top-dm')
+  await waitConversation(page, 'dm', W.dmMert)
+  assert.equal(await page.evaluate(() => document.getElementById('stations-sheet').hidden), true)
+})
+
+test('görünüm: özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  await setWidth(page, 1440)
+  await openDm(page, W.dmMert)
+  const reload = async () => {
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+    await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  }
+  await reload()
+  await waitConversation(page, 'dm', W.dmMert)
+  await navIdle(page)
+  assert.deepEqual(await page.evaluate(() => [window.history.state.telsiz.view, window.history.state.telsiz.d, document.getElementById('dm-header').hidden]), ['dm', 0, false])
+
+  await page.click('#top-friends')
+  await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden)
+  await reload()
+  await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden && document.getElementById('composer').hidden, null, { timeout: h.LONG })
+  assert.equal(await page.getAttribute('#top-friends', 'aria-current'), 'page')
+
+  await openRoomRow(page, genel)
+  await reload()
+  await waitConversation(page, 'channel', genel)
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

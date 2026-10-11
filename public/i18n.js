@@ -51,6 +51,9 @@ window.I18N = (function () {
     'nav.newBelow_other': 'Aşağıda {count} yeni mesaj',
     'nav.newBelowLabel': 'Yeni mesajlara in',
     'nav.jumpToBottom': 'En Alta Git',
+    'rooms.dmGroup': 'Özel mesajlar',
+    'rooms.dmAll': 'Tüm Özel Mesajlar',
+    'rooms.dmFewer': 'Daha Az Göster',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Saha Telsizi',
@@ -2081,6 +2084,9 @@ window.I18N = (function () {
     'nav.newBelow_other': '{count} new messages below',
     'nav.newBelowLabel': 'Go down to new messages',
     'nav.jumpToBottom': 'Jump to Bottom',
+    'rooms.dmGroup': 'Direct messages',
+    'rooms.dmAll': 'All Direct Messages',
+    'rooms.dmFewer': 'Show Fewer',
     // G11 Yüzen pencereler
     // G12 Temalar
     'theme.skin.saha': 'Field Radio',

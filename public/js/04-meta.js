@@ -23,7 +23,13 @@ function openApp () {
   const remembered = storeGet(userKey('channel'))
   const channels = textChannels()
   const pick = channels.filter((c) => sameId(c.id, remembered))[0] || channels[0]
-  if (pick) {
+  // Sayfa yenilenince son görünüm geri gelir: özel konuşma veya Arkadaşlar (38-gezinme.js), yoksa son yazı odası
+  const saved = typeof navSavedView === 'function' ? navSavedView() : null
+  if (saved && saved.mode === 'dm') {
+    showDm(saved.id, { force: true, focus: isWide() })
+  } else if (saved && saved.mode === 'home') {
+    showHome(null, { force: true })
+  } else if (pick) {
     selectChannel(pick.id, { force: true, focus: isWide() })
   } else {
     renderChannelHeader()
@@ -404,7 +410,7 @@ function bandGroups (model) {
 }
 
 function stationKeyOf (st) {
-  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, (st.people || []).map((id) => {
+  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
     const info = avatarInfoFor(id)
     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
   }).join(','), (st.members || []).map((m) => [m.id, shownName(m.id), memberVoiceIcon(m), m.camera ? 1 : 0].join('.')).join(','), st.label].join(':')
@@ -484,6 +490,8 @@ function renderBand () {
   }
   const all = bandModel()
   const rooms = bandGroups(all)
+  // İstasyonlar kartı ve sayfası: yazı odaları, özel mesajlar (38-gezinme.js) ve ses odaları
+  const lists = roomListGroups(rooms)
   if (currentViewMode() === 'dm' && state.channelId !== null && state.channelId !== undefined) bandLastDm = state.channelId
   const stations = typeof frekansStations === 'function' ? frekansStations() : []
   const tunedStation = stations.filter((st) => st.tuned)[0]
@@ -514,15 +522,30 @@ function renderBand () {
   }
   if (typeof bandAfterRender === 'function') bandAfterRender(tuned)
   if (typeof frekansRenderSheet === 'function') frekansRenderSheet(stations)
-  renderStationsSheet(rooms)
-  renderInbox(rooms)
+  renderStationsSheet(lists)
+  renderInbox(lists)
   renderRoomsButton(rooms)
   renderTopPersonal(all)
   renderRoomCard()
 }
 
+// İstasyonlar listesindeki gruplar: yazı odalarından sonra Özel Mesajlar grubu (istek 17 S5, 38-gezinme.js
+// navDmGroup, özel konuşma yoksa grup yoktur), sonra ses odaları. İstasyonlar düğmesinin rozeti yalnızca odaları sayar.
+function roomListGroups (rooms) {
+  const dm = typeof navDmGroup === 'function' ? navDmGroup() : null
+  if (!dm) return rooms
+  const out = []
+  rooms.forEach((g) => {
+    out.push(g)
+    if (g.key === 'text') out.push(dm)
+  })
+  if (out.indexOf(dm) === -1) out.push(dm)
+  return out
+}
+
 // Üst çubuğun ortasındaki kişisel düğmeler (#top-dm, #top-friends): okunmamış özel mesaj ve bekleyen
-// arkadaşlık isteği rozetleri, açık görünümde aria-current
+// arkadaşlık isteği rozetleri, açık görünümde aria-current. 1280 px altında Özel düğmesi İstasyonlar sayfasını
+// açar (21-band.js bandOpenDm), o zaman açılır pencere düğmesi olarak duyurulur.
 function renderTopPersonal (model) {
   const personal = (model || bandModel()).filter((g) => g.key === 'personal')[0]
   if (!personal) return
@@ -535,6 +558,15 @@ function renderTopPersonal (model) {
     if (st.tuned) b.setAttribute('aria-current', 'page')
     else b.removeAttribute('aria-current')
     b.classList.toggle('is-current', st.tuned)
+    if (st.key === 'dm' && typeof isInfoInline === 'function') {
+      if (isInfoInline()) {
+        b.removeAttribute('aria-haspopup')
+        b.removeAttribute('aria-expanded')
+      } else {
+        b.setAttribute('aria-haspopup', 'dialog')
+        if (!b.hasAttribute('aria-expanded')) b.setAttribute('aria-expanded', 'false')
+      }
+    }
     const count = st.key === 'dm' ? st.mention : st.unread
     if (mark) {
       mark.hidden = !count
@@ -574,7 +606,50 @@ function updateBandLive () {
 let inboxRenderKey = ''
 let stationsRenderKey = ''
 
+// Özel Mesajlar grubunun satırları (38-gezinme.js navDmGroup): konuşma satırı avatar ve adla, son satır Tüm Özel
+// Mesajlar düğmesi (grubu açar ve kapar)
+function buildRoomDmRow (st, prefix) {
+  const li = h('li', 'room-li')
+  const b = h('button', 'room-row room-row-' + st.type)
+  b.type = 'button'
+  b.setAttribute('data-focus-key', prefix + st.key)
+  if (st.type === 'more') {
+    b.setAttribute('data-dm-more', '')
+    b.setAttribute('aria-expanded', st.expanded ? 'true' : 'false')
+    b.setAttribute('aria-label', st.label)
+    b.appendChild(icon(st.expanded ? 'i-up' : 'i-down', 'room-row-icon'))
+    const body = h('span', 'room-row-body')
+    body.appendChild(h('span', 'room-row-name', st.name))
+    b.appendChild(body)
+    if (!st.expanded) {
+      const count = h('span', 'room-row-count', String(st.count))
+      count.setAttribute('aria-hidden', 'true')
+      b.appendChild(count)
+    }
+    li.appendChild(b)
+    return li
+  }
+  b.setAttribute('data-dm-id', String(st.id))
+  b.setAttribute('data-user-id', String(st.userId))
+  b.setAttribute('aria-label', st.label)
+  if (st.tuned) {
+    b.classList.add('is-current')
+    b.setAttribute('aria-current', 'page')
+  }
+  if (st.mention > 0) b.classList.add('is-unread')
+  if (st.blocked) b.classList.add('is-blocked')
+  b.appendChild(avatar(st.userId, 'xs', 'room-row-avatar'))
+  const body = h('span', 'room-row-body')
+  body.appendChild(h('span', 'room-row-name', st.name))
+  b.appendChild(body)
+  const mark = buildStationMark(st)
+  if (mark) b.appendChild(mark)
+  li.appendChild(b)
+  return li
+}
+
 function buildRoomRow (st, prefix) {
+  if (st.type === 'dm' || st.type === 'more') return buildRoomDmRow(st, prefix)
   const li = h('li', 'room-li')
   const b = h('button', 'room-row room-row-' + st.type)
   b.type = 'button'
