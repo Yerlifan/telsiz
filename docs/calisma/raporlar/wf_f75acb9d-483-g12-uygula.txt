@@ -1,0 +1,40 @@
+{
+ "tamam": true,
+ "baslangic": "f5dc38c0a95fbf4c31c4b805ba23a29b04174ec7",
+ "commitler": [
+  "c103afb G12: Tema listesi tek kaynaktan, Ayarlar theme-init.js listesini kullanır",
+  "1fe65dd G12: Ton belirteçleri ve kontrast ölçer, eşik altında kalan renkler düzeltilir",
+  "723d08d G12: Yedi yeni temanın belirteçleri",
+  "030a5f9 G12: Saha Telsizi teması",
+  "1bafc4b G12: Lambalı Radyo teması",
+  "6395937 G12: Fosfor teması",
+  "df998d5 G12: Kutup İstasyonu teması",
+  "7ed238c G12: Plak teması",
+  "871ba28 G12: Kokpit teması",
+  "77086ec G12: Yüksek Kontrast teması",
+  "ec8888e G12: Ayarlar'da tema kartları gruplu ve sıkışık",
+  "b3b2e65 G12: Sistem yüksek karşıtlık istiyorsa ilk açılışta Yüksek Kontrast",
+  "abc0685 G12: e2e 04-ayarlar: on tema, gruplar, taşma, Gönder simgesi ve yüksek karşıtlık öykünmesi",
+  "ab21e19 G12: Belgeler: on tema, kontrast tablosu, ton belirteçleri ve CHANGELOG"
+ ],
+ "testler": "Her commit'ten önce /home/user/wt/a içinde \"npm run denetle\" (ihlal yok, 262 dosya) ve \"npm test\" çalıştırıldı. Son durumda 942 test geçti, 0 düştü. 1 test atlandı, o atlama G12'den önce de vardı. Yeni ve genişletilen birim testleri: test/tema.test.js (13 test) ve test/settings.test.js (41 test, 4'ü yeni). tema.test.js şunları denetler: 10 temanın her birinde üç blok var. Arcade'in her belirteci her temanın kendi bloğunda yazılı. WCAG eşikleri her yerde tutuyor: metin 4.5, Yüksek Kontrast metni 7, bileşen 3, 20 görünümün hepsinde, dokuz yüzeyde. Kenar ve ton belirteçleri tanımlı. Her tema index.html, sw.js, i18n ve önizleme renkleriyle kayıtlı. Süs dosyalarının seçicileri kendi temasıyla başlıyor, yasaklı CSS yok. Yüksek Kontrast ilk açılışta doğru seçiliyor ve base.css'te forced-colors bölümü var. Yeni e2e testleri e2e/04-ayarlar.test.js içine eklendi, dosyada 8 test var, hepsi geçti. Bu testler on kartı tek tek tıklar, grupları, açıklamanın yalnızca seçili kartta görünmesini ve yeniden yüklemede seçimin korunmasını denetler. Her tema ve modda 1440 ve 390 pikselde yatay taşma olmadığını ve Gönder düğmesinde tek simge göründüğünü denetler. Playwright'ın contrast ve forcedColors öykünmesiyle ilk açılışı denetler, konsolun temiz olduğuna bakar. Alanın var olan e2e dosyaları da çalıştırıldı, ilk denemede hepsi geçti: 01-kurulum, 02-frekans, 03-sosyal (kenar testi artık 10 temayı geziyor), 05-ses-yayin, 06-dj, 08-tanitim ve 17-profil (toplam 76 e2e testi). scripts/kontrast.js çıktısı: eşik altında çift 0.",
+ "sapmalar": [
+  "Plan yeni-temalar.css dosyasının depoya alınmasını istiyordu. Dosya ayrıca kopyalanmadı, içeriği doğrudan public/css/tokens.css'e taşındı (ana dalda docs/calisma/tasarim/yeni-temalar.css.txt olarak duruyor). Raporda verilen ölçülmüş rol renkleri Fosfor açık, Kontrast koyu ve Kontrast açık bloklarına eklendi.",
+  "Katı ölçüm (dokuz yüzey, üzerine gelme ve seçili zeminler dahil) var olan temalarda eşik altında beş değer buldu. Kabul ölçütü 20 görünümün hepsinin geçmesi olduğu için bunlar en az değişiklikle düzeltildi: Gece açıkta --ok #17904f->#178e4e ve --idle #b86e00->#b36b00, Turkuaz koyuda --danger #f2826b->#f2856f ve --edge #5f858d->#658a92, Turkuaz açıkta --live #1d6633->#1c6332. Ortak açık mod rol renkleri de biraz koyulaştırıldı (Bulgu C: Gece, Turkuaz, Saha ve Lamba açıkta 4.5'in altındaydı): #b22318, #964500, #755900, #146a39, #0b6860, #1f56c0 (aynı), #683ece, #aa226b.",
+  "Kontrast hesabı testin içine yazılmadı, yeniden kullanılabilir bir modül olarak scripts/kontrast.js'e taşındı. G0'ın tema.test.js yardımcıları da bu modüle geçti. Modülün komut satırı belgelerdeki tabloyu iki dilde üretir. Bu yüzden CONTRIBUTING.md ve CONTRIBUTING.en.md'deki scripts satırı da güncellendi, planın belge listesinde bu dosyalar yoktu.",
+  "Kutup'un --surface-1-glass belirteci yarı saydam yapıldı (rgba). Araştırmadaki değer opaktı ve öyle kalsaydı planlanan buzlu cam görünmezdi.",
+  "Yeni temalarda Gönder simgesi yoktu: telefonda etiket gizlenince düğme boş kalıyordu. Her yeni tema, süs dosyasında var olan üç simgeden birini (.skin-arcade, .skin-gece veya .skin-turkuaz) gösterir. e2e testi bunu her tema ve modda denetler.",
+  "'Yalnızca ilk açılışta' şöyle uygulandı: geçerli bir saklı tema tercihi yokken her açılışta sistem ayarına bakılır, otomatik seçim saklanmaz. Kişi bir tema seçince seçimi saklanır ve sistem ayarının önüne geçer.",
+  "Grup başlıkları planın tablosundaki biçimde yazıldı: 'Telsiz Temaları' / 'Radio Themes'. Raporda 'Telsiz temaları' geçiyordu. Erişilebilirlik grubunun hangi temayı alacağı theme-init.js'teki yeni TelsizTheme.contrastSkin alanından okunur.",
+  "Belgelerde yazı ve köşe tablosu satırları tema olacak biçimde çevrildi. Plan bunu kontrast tablosu için istiyordu. Ölü belirteçler olan --layout-pad ve --column-gap (Bulgu B) tablodan çıkarıldı, belirteçler tokens.css'te duruyor. Belgedeki stil dosyası yükleme sırasında eksik olan arama ve tanitim da eklendi.",
+  "Mimari içeriği değişmediği için ve G6/G7'nin dosyası olduğu için e2e/17-profil.test.js'teki üç temalık liste değiştirilmedi. Dosya çalıştırıldı ve geçti."
+ ],
+ "kullaniciya": [
+  "Yeni temaların görünümü yalnızca başsız Chromium ekran görüntüleriyle denetlendi: ana görünüm 1440 ve 390 pikselde, iki modda, ayrıca Ayarlar > Görünüm. Planın elle denetim listesi yapılmadı: 5 boyut, TV yazı boyutu, oyun kolu, giriş ve tanıtım ekranları, ekran paylaşımı ve gerçek Windows Yüksek Karşıtlık. Zorlanmış renkler yalnızca Playwright öykünmesiyle denendi.",
+  "Var olan temalarda küçük renk değişiklikleri var: Gece açıkta çevrimiçi ve boşta, Turkuaz koyuda tehlike metni ve girdi kenarı, Turkuaz açıkta canlı rengi biraz değişti. Bütün açık modlarda sekiz özel rol rengi biraz koyulaştı.",
+  "Toplam CSS 389.733 bayttan 457.390 bayta çıktı (yaklaşık yüzde 17). Bunun yaklaşık 36 KB'ı tokens.css'e eklenen belirteçler, yaklaşık 28 KB'ı yedi süs dosyası.",
+  "Sistem yüksek karşıtlık istiyorsa ve henüz tema seçilmemişse ilk açılışta Yüksek Kontrast seçilir. Bu seçim saklanmaz, kişi Ayarlar'dan bir tema seçince o tema kalıcı olur.",
+  "Yeni geliştirici aracı: 'node scripts/kontrast.js' (İngilizcesi için --en) tema kontrast tablosunu yazar, eşik altında çift varsa çıkış kodu 1 olur."
+ ],
+ "kalan": []
+}
