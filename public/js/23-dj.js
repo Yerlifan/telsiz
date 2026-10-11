@@ -98,8 +98,8 @@ const dj = {
   consentRow: null,
   consentWarnFor: null,
   titleWatch: [],
-  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada artan sıra numarası ve
-  // arama yapılamayınca kartta gösterilen { query, code, room }
+  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada ve ses odası her
+  // değiştiğinde artan sıra numarası ve arama yapılamayınca kartta gösterilen { query, code, room }
   searching: null,
   searchSeq: 0,
   searchMiss: null
@@ -238,6 +238,10 @@ function djSyncVoice () {
   if (room === dj.voiceRoom) return
   dj.voiceRoom = room
   dj.searchMiss = null
+  // Önceki odada süren aramanın "aranıyor" satırı yeni odada görünmez, yanıtı kartı değiştirmez ve bulunan parça
+  // hiçbir odaya eklenmez (djPlaySearch)
+  dj.searching = null
+  dj.searchSeq += 1
   // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
   // da önceki odada kalır (yerel bekletme 'media')
   dj.minimized = false
@@ -1862,6 +1866,8 @@ function djPlaySearch (query, text) {
   djRenderSoon()
   // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
   return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
+    // Ses odası saniyelik denetimden önce yeniden okunur: yanıt gelmeden oda değiştiyse arama eskimiştir
+    djSyncVoice()
     const stale = seq !== dj.searchSeq
     if (!stale) {
       dj.searching = null
@@ -1878,6 +1884,12 @@ function djPlaySearch (query, text) {
     if (!first) {
       djSearchMissed(query, 'search_no_results', stale)
       return fail('search_no_results')
+    }
+    // Arama komutun verildiği ses odası içindir. Yanıt gelmeden bu cihaz başka bir ses odasına geçtiyse veya
+    // odadan çıktıysa parça eklenmez: motor artık yeni odanın kuyruğunu yazar
+    if (!sameId(dj.voiceRoom, voiceRoom)) {
+      toast(() => t('music.errors.search_room_changed', { query: query }), 'error', 7000)
+      return fail('search_room_changed')
     }
     const title = cleanDjTitle(first.title)
     return engine.addYouTube(first.videoId, { title: title }).then((r) => {

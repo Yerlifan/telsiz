@@ -15,6 +15,7 @@
 // bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
 // isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa kartta bağlantı çıkar, kişi
 // başı sınır ve ağ hatası yalnızca açık metinle bildirilir, önce başlatılan aramanın yanıtı kartı değiştirmez.
+// Arama sürerken başka bir ses odasına geçilirse bulunan parça hiçbir odaya eklenmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -1083,6 +1084,54 @@ test('ses odasından ayrılınca müzik durur ve köşedeki oynatıcı kalkar', 
   }, h.LONG, 'ayrılınca durdu')
   assert.equal(await A.evaluate(() => document.querySelectorAll('#dj .dj-yt iframe').length), 0, 'oynatıcı kaldırıldı')
   await A.evaluate(() => closeSettings())
+})
+
+test('/çal şarkı adı: arama sürerken başka bir ses odasına geçilirse parça hiçbir odaya eklenmez, "aranıyor" satırı yeni odada görünmez', async () => {
+  const { A, B } = W
+  const oyun = W.w.room('Oyun')
+  assert.equal(await A.evaluate(() => state.meta.music.search), true, 'arama önceki testte açıldı')
+  await h.joinVoice(A, W.lobi.id)
+  await A.waitForFunction((id) => String(dj.voiceRoom) === String(id), W.lobi.id, { timeout: h.LONG })
+  await A.evaluate(() => {
+    window.e2eToasts = []
+  })
+  const searchesBefore = W.searches.length
+  // Sunucunun yanıtı A kişisi oda değiştirene kadar bekletilir, sonra bir sonuçla verilir
+  let release = null
+  let sentRoom = null
+  await A.route('**/api/music/search', async (route) => {
+    sentRoom = JSON.parse(route.request().postData()).channelId
+    await new Promise((resolve) => {
+      release = resolve
+    })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ videoId: 'D120oda0001', title: 'Oda Şarkısı', channel: 'Telsiz Kayıtları', durationS: 180 }] }) })
+  })
+  try {
+    await A.fill('#composer-input', '/çal oda şarkısı')
+    await A.keyboard.press('Enter')
+    await h.until(() => release, h.LONG, 'arama sunucuya gitti')
+    assert.equal(String(sentRoom), String(W.lobi.id), 'arama komutun verildiği odayla gitti')
+    await A.waitForFunction(() => document.querySelector('#dj .dj-search-text').textContent === 'YouTube\'da aranıyor: oda şarkısı' && !document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
+    // A kişisi Oyun odasına geçer: yeni odanın kartında önceki odanın araması görünmez
+    await h.joinVoice(A, oyun.id)
+    await A.waitForFunction((id) => String(dj.voiceRoom) === String(id), oyun.id, { timeout: h.LONG })
+    await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
+    release()
+    await A.waitForFunction(() => window.e2eToasts.indexOf('Arama sürerken ses odası değişti. "oda şarkısı" kuyruğa eklenmedi.') !== -1, null, { timeout: h.LONG })
+    await h.sleep(500)
+  } finally {
+    if (release) release()
+    await A.unroute('**/api/music/search')
+  }
+  const has = () => dj.engine.queue().queue.concat(dj.engine.queue().current ? [dj.engine.queue().current] : []).some((t) => t.videoId === 'D120oda0001')
+  assert.equal(await A.evaluate(has), false, 'Oyun odasının kuyruğuna eklenmedi')
+  assert.equal(await B.evaluate(has), false, 'Lobi odasının kuyruğuna eklenmedi')
+  assert.equal(await A.evaluate(() => window.e2eToasts.some((x) => x.indexOf('Oda Şarkısı') !== -1)), false, 'eklendi bildirimi yok')
+  assert.equal(await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent.indexOf('Oda Şarkısı') !== -1)), false, 'duyuru gitmedi')
+  assert.deepEqual(await searchCard(A), { shown: false, text: '', href: null, owner: false })
+  assert.deepEqual(W.searches.slice(searchesBefore), [], 'taklit edilen yanıt sunucuya gitmedi')
+  await A.evaluate(() => leaveVoice())
+  await A.waitForFunction(() => dj.voiceRoom === null, null, { timeout: h.LONG })
 })
 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
