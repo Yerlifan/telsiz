@@ -98,8 +98,10 @@ const dj = {
   consentRow: null,
   consentWarnFor: null,
   titleWatch: [],
-  // Şarkı adıyla arama: süren aramanın sorgusu ve arama yapılamayınca kartta gösterilen { query, code, room }
+  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada artan sıra numarası ve
+  // arama yapılamayınca kartta gösterilen { query, code, room }
   searching: null,
+  searchSeq: 0,
   searchMiss: null
 }
 
@@ -1798,11 +1800,12 @@ function djSearchPage (query) {
 }
 
 // Arama yapılamadı: hata bildirimi ve kartta YouTube'da arama bağlantısı. Sayfa kipinde DJ sayfası açılır ki
-// bağlantı görünsün (/kuyruk komutundaki gibi).
-function djSearchMissed (query, code) {
+// bağlantı görünsün (/kuyruk komutundaki gibi). Arkasından yeni bir arama başlatılmışsa (stale) yalnızca
+// bildirim gösterilir, kart son aramayı gösterir.
+function djSearchMissed (query, code, stale) {
   const text = code === 'search_no_results' ? () => t('music.errors.search_no_results', { query: query }) : () => djErrorText(code)
   toast(text, 'error', 7000)
-  if (DJ_SEARCH_MISS.indexOf(code) === -1) return
+  if (stale || DJ_SEARCH_MISS.indexOf(code) === -1) return
   dj.searchMiss = { query: query, code: code, room: dj.voiceRoom }
   djRenderSoon()
   if (djIsSheetMode()) djReveal(document.activeElement)
@@ -1844,28 +1847,36 @@ function djPlaySearch (query, text) {
     djReport('play', { ok: false, code: 'youtube_disabled' })
     return fail('youtube_disabled')
   }
+  // Aynı anda birden çok arama sürebilir: "aranıyor" satırı ve karttaki bağlantı yalnızca son yazılan /çal
+  // komutuyla değişir, daha önce başlatılan aramanın yanıtı yalnızca bildirim gösterir
+  dj.searchSeq += 1
   if (!djSearchOn()) {
+    dj.searching = null
     djSearchMissed(query, 'search_unavailable')
     return fail('search_unavailable')
   }
+  const seq = dj.searchSeq
   dj.searching = query
   dj.searchMiss = null
   toast(() => t('music.searching', { query: query }), 'ok', 8000)
   djRenderSoon()
   // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
   return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
-    dj.searching = null
-    djRenderSoon()
+    const stale = seq !== dj.searchSeq
+    if (!stale) {
+      dj.searching = null
+      djRenderSoon()
+    }
     if (!res || res.status !== 200) {
       const serverCode = res && res.data && typeof res.data.code === 'string' ? res.data.code : ''
       const code = !res || res.status === 0 ? 'network' : DJ_SEARCH_ERRORS[serverCode] || 'server'
-      djSearchMissed(query, code)
+      djSearchMissed(query, code, stale)
       return fail(code)
     }
     const results = res.data && Array.isArray(res.data.results) ? res.data.results : []
     const first = results.filter((r) => r && typeof r.videoId === 'string')[0]
     if (!first) {
-      djSearchMissed(query, 'search_no_results')
+      djSearchMissed(query, 'search_no_results', stale)
       return fail('search_no_results')
     }
     const title = cleanDjTitle(first.title)

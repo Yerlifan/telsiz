@@ -13,7 +13,8 @@
 // çeviren veya videosunu değiştiren düzenleme etiketle görünür. Şarkı adıyla arama (istek 5): sunucuya sahte
 // arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı açık bir hata ve kartta YouTube arama
 // bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
-// isteği gitmez.
+// isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa kartta bağlantı çıkar, kişi
+// başı sınır ve ağ hatası yalnızca açık metinle bildirilir, önce başlatılan aramanın yanıtı kartı değiştirmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -27,9 +28,11 @@ const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><bod
 
 const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] }, searches: [] }
 
-// Sunucunun YouTube araması yerine geçen sahte arayıcı: yalnızca "lobi şarkısı" için iki sonuç verir
+// Sunucunun YouTube araması yerine geçen sahte arayıcı: "lobi şarkısı" için iki sonuç verir, "arıza şarkısı"
+// aramasında YouTube'a ulaşılamamış gibi hata verir (sunucu 502 search_failed döner), gerisinde sonuç yoktur
 function fakeYouTubeSearch (query) {
   W.searches.push(query)
+  if (query === 'arıza şarkısı') return Promise.reject(Object.assign(new Error('sahte arama hatası'), { code: 'search_failed' }))
   if (query !== 'lobi şarkısı') return Promise.resolve([])
   return Promise.resolve([
     { videoId: 'D120lobi001', title: 'Lobi Şarkısı (Resmi Video)', channel: 'Telsiz Kayıtları', durationS: 213 },
@@ -423,6 +426,136 @@ test('/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı,
     return dj.engine.remove(t.id)
   })
   for (const page of [A, B]) await page.waitForFunction((n) => dj.engine.queue().queue.length === n, queueBefore, { timeout: h.LONG })
+})
+
+// DJ kartındaki arama satırı: görünür mü, metni, YouTube'da Ara bağlantısı ve sahip açıklaması
+function searchCard (page) {
+  return page.evaluate(() => {
+    const box = document.querySelector('#dj .dj-search')
+    const row = document.querySelector('#dj .dj-search-link-row')
+    return {
+      shown: !box.hidden,
+      text: box.hidden ? '' : document.querySelector('#dj .dj-search-text').textContent,
+      href: box.hidden || row.hidden ? null : document.querySelector('#dj .dj-search-link').getAttribute('href'),
+      owner: !box.hidden && !document.querySelector('#dj .dj-search-owner').hidden
+    }
+  })
+}
+
+// /çal ile arama yazılır ve verilen bildirim beklenir
+async function searchAndToast (page, query, toastText) {
+  await page.fill('#composer-input', '/çal ' + query)
+  await page.keyboard.press('Enter')
+  await page.waitForFunction((text) => window.e2eToasts.indexOf(text) !== -1, toastText, { timeout: h.LONG })
+}
+
+function searchPage (query) {
+  return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(query)
+}
+
+test('/çal şarkı adı hataları: arama yapılamazsa ve sonuç yoksa kartta bağlantı, sınır ve ağ hataları açık metinle, eski aramanın yanıtı kartı değiştirmez', async () => {
+  const { A } = W
+  assert.equal(await A.evaluate(() => state.meta.music.search), true, 'arama önceki testte açıldı')
+  await A.evaluate(() => {
+    window.e2eToasts = []
+  })
+  const queueBefore = await A.evaluate(() => dj.engine.queue().queue.length)
+  const searchesBefore = W.searches.length
+
+  // Sunucu YouTube'a ulaşamadı (502 search_failed): hata metni ve kartta YouTube'da Ara bağlantısı
+  await searchAndToast(A, 'arıza şarkısı', 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.')
+  await A.waitForFunction(() => !document.querySelector('#dj .dj-search-link-row').hidden, null, { timeout: h.LONG })
+  assert.deepEqual(await searchCard(A), {
+    shown: true,
+    text: 'Parçayı YouTube\'da "arıza şarkısı" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
+    href: searchPage('arıza şarkısı'),
+    owner: false
+  })
+
+  // Çalınabilir sonuç yok: sorguyu anan metin ve yeni sorgunun bağlantısı
+  await searchAndToast(A, 'olmayan şarkı', '"olmayan şarkı" için çalınabilir bir sonuç bulunamadı.')
+  await A.waitForFunction((href) => document.querySelector('#dj .dj-search-link').getAttribute('href') === href, searchPage('olmayan şarkı'), { timeout: h.LONG })
+  assert.deepEqual(await searchCard(A), {
+    shown: true,
+    text: 'Parçayı YouTube\'da "olmayan şarkı" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
+    href: searchPage('olmayan şarkı'),
+    owner: false
+  })
+  assert.deepEqual(W.searches.slice(searchesBefore), ['arıza şarkısı', 'olmayan şarkı'])
+
+  // Sunucunun sınır yanıtları ve ağ hatası (yanıtlar bu sayfada taklit edilir)
+  const fakeReplies = {
+    'çok sık': { status: 429, body: { code: 'rate_limited', error: 'x' } },
+    'günlük sınır': { status: 429, body: { code: 'search_daily_limit', error: 'x' } }
+  }
+  const held = {}
+  await A.route('**/api/music/search', async (route) => {
+    const q = JSON.parse(route.request().postData()).q
+    if (q === 'kopuk bağlantı') {
+      await route.abort()
+      return
+    }
+    if (q === 'yavaş bir' || q === 'yavaş iki') {
+      await new Promise((resolve) => {
+        held[q] = resolve
+      })
+      const reply = held[q + ':reply']
+      await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+      return
+    }
+    const fake = fakeReplies[q]
+    await route.fulfill({ status: fake.status, contentType: 'application/json', body: JSON.stringify(fake.body) })
+  })
+  try {
+    // Kullanıcı başına sınır: bağlantı gösterilmez (bir dakika sonra yeniden denenebilir)
+    await searchAndToast(A, 'çok sık', 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.')
+    await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
+    // Sunucu geneli 24 saatlik sınır: bağlantı gösterilir
+    await searchAndToast(A, 'günlük sınır', 'Bu sunucunun son 24 saatlik arama sınırı doldu. YouTube bağlantısını yapıştırın.')
+    await A.waitForFunction(() => !document.querySelector('#dj .dj-search-link-row').hidden, null, { timeout: h.LONG })
+    assert.equal((await searchCard(A)).href, searchPage('günlük sınır'))
+    // Sunucuya ulaşılamadı
+    await searchAndToast(A, 'kopuk bağlantı', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edin.')
+    await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
+
+    // Aynı anda iki arama: ilkinin yanıtı ikincinin "aranıyor" satırını kaldırmaz, kart son aramayı gösterir
+    held['yavaş bir:reply'] = { status: 502, body: { code: 'search_failed', error: 'x' } }
+    held['yavaş iki:reply'] = { status: 200, body: { results: [] } }
+    await A.fill('#composer-input', '/çal yavaş bir')
+    await A.keyboard.press('Enter')
+    await A.fill('#composer-input', '/çal yavaş iki')
+    await A.keyboard.press('Enter')
+    await h.until(() => held['yavaş bir'] && held['yavaş iki'], h.LONG, 'iki arama da sunucuya gitti')
+    await A.waitForFunction(() => document.querySelector('#dj .dj-search-text').textContent === 'YouTube\'da aranıyor: yavaş iki', null, { timeout: h.LONG })
+    await A.evaluate(() => {
+      window.e2eToasts = []
+    })
+    held['yavaş bir']()
+    await A.waitForFunction(() => window.e2eToasts.indexOf('YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.') !== -1, null, { timeout: h.LONG })
+    await h.sleep(200)
+    assert.deepEqual(await searchCard(A), { shown: true, text: 'YouTube\'da aranıyor: yavaş iki', href: null, owner: false }, 'ilk aramanın hatası kartı değiştirmedi')
+    held['yavaş iki']()
+    await A.waitForFunction(() => window.e2eToasts.indexOf('"yavaş iki" için çalınabilir bir sonuç bulunamadı.') !== -1, null, { timeout: h.LONG })
+    await A.waitForFunction(() => !document.querySelector('#dj .dj-search-link-row').hidden, null, { timeout: h.LONG })
+    assert.deepEqual(await searchCard(A), {
+      shown: true,
+      text: 'Parçayı YouTube\'da "yavaş iki" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
+      href: searchPage('yavaş iki'),
+      owner: false
+    })
+  } finally {
+    await A.unroute('**/api/music/search')
+  }
+  assert.equal(await A.evaluate(() => dj.engine.queue().queue.length), queueBefore, 'kuyruk değişmedi')
+  assert.deepEqual(W.searches.slice(searchesBefore), ['arıza şarkısı', 'olmayan şarkı'], 'taklit edilen yanıtlar sunucuya gitmedi')
+  // Sonraki testler için kart temizlenir: başarılı arama satırı kaldırır (sonuç önbellekten gelir)
+  await searchAndToast(A, 'lobi şarkısı', 'Kuyruğa eklendi: Lobi Şarkısı (Resmi Video)')
+  await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
+  await A.evaluate(() => {
+    const t = dj.engine.queue().queue.filter((x) => x.videoId === 'D120lobi001')[0]
+    return dj.engine.remove(t.id)
+  })
+  for (const page of [A, W.B]) await page.waitForFunction((n) => dj.engine.queue().queue.length === n, queueBefore, { timeout: h.LONG })
 })
 
 test('Ayarlar açılınca YouTube oynatıcısı köşeye alınır, çalmaya devam eder, kapanınca yerine döner', async () => {
@@ -955,7 +1088,9 @@ test('ses odasından ayrılınca müzik durur ve köşedeki oynatıcı kalkar', 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla
 // yeniden dener. Bu protokolün parçasıdır, tarayıcı yanıtı "Failed to load resource" olarak yazar.
 const casConflict = (l) => l.type === 'error' && /status of 409/.test(l.text) && /\/api\/music\/state/.test(l.url)
+// Arama hataları testi sunucunun 502 ve 429 yanıtlarını ve kopan bağlantıyı bilerek oluşturur
+const searchErrors = (l) => l.type === 'error' && /\/api\/music\/search$/.test(l.url || '') && /status of (429|502)|net::ERR_FAILED/.test(l.text)
 
 test('konsol ve sunucu günlüğü temiz', async () => {
-  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [casConflict])
+  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [casConflict, searchErrors])
 })
