@@ -1,0 +1,736 @@
+From d221ce781cfaa699ed9520355908ba85a159b3b2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:57:58 +0000
+Subject: [PATCH 81/81] =?UTF-8?q?G10:=20k=C4=B1sayollar=20ve=20Ctrl+K=20pa?=
+ =?UTF-8?q?nelinde=20Odalar=20ve=20Ki=C5=9Filer?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Alt+Yukarı ve Alt+Aşağı İstasyonlar listesinin sırasıyla (yazı odaları, Özel mesajlar grubu) önceki ve sonraki
+konuşmayı, Alt+Shift+Yukarı ve Alt+Shift+Aşağı sıradaki okunmamış konuşmayı (anmalar ve özel mesajlar önce)
+açar, uçlarda başa döner. Esc açık katman yokken konuşmayı okundu sayar ve en alta iner. Bas konuş veya başka
+bir ses tuşu Alt, Shift ya da oklara atanmışsa kısayollar çalışmaz (38-gezinme.js). Ctrl+K panelinde adı
+sorguyla eşleşen yazı odaları ve özel konuşmalar mesaj sonuçlarının üstünde listelenir, oklarla gezilir ve açılır
+(17-search.js, chat-plus.css). Rehber kartına üç kısayol satırı eklendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js   | 122 ++++++++++++++++++++++++++++++++
+ public/css/chat-plus.css |  88 +++++++++++++++++++++++
+ public/i18n.js           |  12 ++++
+ public/index.html        |   4 ++
+ public/js/17-search.js   |  97 ++++++++++++++++++++++++-
+ public/js/38-gezinme.js  | 148 +++++++++++++++++++++++++++++++++++++++
+ test/chatplus.test.js    |  26 ++++++-
+ test/gezinme.test.js     |  41 ++++++++++-
+ 8 files changed, 533 insertions(+), 5 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index e8a3b66..5ecf232 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -48,6 +48,12 @@
+ //   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
+ //   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
+ //   başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
++// G10, kısayollar (S10): Alt+Aşağı ve Alt+Yukarı İstasyonlar listesinin sırasıyla (yazı odaları, özel konuşmalar)
++//   konuşma değiştirir ve uçlarda başa döner, odak yazma alanında kalır. Alt+Shift+Aşağı önce anması olan odaya, sonra
++//   okunmamış odaya gider, okunmamış kalmayınca konuşma değişmez. Bas konuş Alt tuşuna atanınca kısayol çalışmaz. Esc
++//   açık katmanı (emoji seçici) kapatırken kaydırmaz, katman yokken okundu sayıp en alta iner. Ctrl+K panelinde Odalar
++//   ve Kişiler bölümü oda adını (Türkçe harfler ve büyük harf duyarsız) ve özel konuşmanın görünen adını bulur, aşağı
++//   ok ve Enter konuşmayı açar, eşleşme yoksa bölüm gizlidir. Rehber kartında üç kısayol satırı var.
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -1112,6 +1118,122 @@ test('dar özel mesaj başlığı: 1024 ile 1280 px arasında ad en az 80 piksel
+   await setWidth(page, 1440)
+ })
+ 
++// G10 (S10): kısayollar ve Ctrl+K'de odalar ve kişiler
++
++test('kısayollar: Alt+ok önceki ve sonraki konuşma, Alt+Shift+ok sıradaki okunmamış (anma önce), Esc okundu sayıp en alta iner', async () => {
++  const page = W.deniz
++  const genel = W.w.room('genel').id
++  await setWidth(page, 1440)
++  await openRoomRow(page, genel)
++  const order = await page.evaluate(() => navConvList().map((c) => c.key))
++  assert.equal(order[0], 'c:' + genel)
++  assert.ok(order.indexOf('d:' + W.dmEce) !== -1 && order.indexOf('d:' + W.dmMert) !== -1, 'özel konuşmalar sırada')
++  await page.focus('#composer-input')
++  await page.keyboard.press('Alt+ArrowDown')
++  await waitConversation(page, 'channel', order[1].slice(2))
++  assert.equal(await page.evaluate(() => document.activeElement.id), 'composer-input')
++  await page.keyboard.press('Alt+ArrowUp')
++  await waitConversation(page, 'channel', genel)
++  // Yukarı en baştan sona döner (son konuşma bir özel konuşma)
++  await page.keyboard.press('Alt+ArrowUp')
++  await waitConversation(page, 'dm', order[order.length - 1].slice(2))
++  await page.keyboard.press('Alt+ArrowDown')
++  await waitConversation(page, 'channel', genel)
++
++  // Okunmamış: önceki testlerden kalan sayaçlar sıfırlanır, sonra oyun-gecesi'nde düz mesaj, sohbet'te anma gelir.
++  // Alt+Shift+Aşağı önce anmaya, sonra okunmamışa gider
++  await page.evaluate(() => {
++    Object.keys(state.unread).forEach((id) => {
++      state.unread[id] = 0
++    })
++    state.mentions = Object.create(null)
++    renderBand()
++  })
++  const oyun = W.w.room('oyun-gecesi').id
++  const sohbet = W.w.room('sohbet').id
++  await W.w.say('ece', W.w.room('oyun-gecesi'), 'akşam oyun var mı')
++  await W.w.say('ece', W.w.room('sohbet'), '@deniz bakar mısın')
++  await page.waitForFunction((a) => state.unread[a.oyun] === 1 && mentionCount(a.sohbet) === 1, { oyun, sohbet }, { timeout: h.LONG })
++  await page.keyboard.press('Alt+Shift+ArrowDown')
++  await waitConversation(page, 'channel', sohbet)
++  await page.waitForFunction((id) => !state.unread[id], sohbet)
++  await page.keyboard.press('Alt+Shift+ArrowDown')
++  await waitConversation(page, 'channel', oyun)
++  await page.waitForFunction((id) => !state.unread[id], oyun)
++  // Okunmamış kalmayınca konuşma değişmez
++  await page.keyboard.press('Alt+Shift+ArrowDown')
++  await h.sleep(300)
++  await waitConversation(page, 'channel', oyun)
++
++  // Bas konuş Alt tuşuna atanmışsa kısayol çalışmaz
++  await page.evaluate(() => voice.setSettings({ bindings: { ptt: { type: 'key', code: 'AltLeft' } } }))
++  await page.keyboard.press('Alt+ArrowDown')
++  await h.sleep(300)
++  await waitConversation(page, 'channel', oyun)
++  await page.evaluate(() => voice.setSettings({ bindings: { ptt: { type: 'key', code: 'KeyV' } } }))
++
++  // Esc: açık katman varken yalnızca katman kapanır, yokken okundu sayılır ve en alta inilir
++  const arsiv = W.w.room('arsiv').id
++  await openRoomRow(page, arsiv)
++  await page.evaluate(() => {
++    el.messages.scrollTop = 0
++  })
++  await page.waitForFunction(() => !isNearBottom())
++  await page.focus('#composer-input')
++  await page.click('#btn-emoji')
++  await page.waitForSelector('#emoji-picker:not([hidden])')
++  await page.keyboard.press('Escape')
++  await page.waitForSelector('#emoji-picker', { state: 'hidden' })
++  assert.equal(await page.evaluate(() => isNearBottom()), false, 'katman kapanırken kaydırılmadı')
++  await page.keyboard.press('Escape')
++  await page.waitForFunction(() => isNearBottom())
++  assert.equal(await page.evaluate((id) => Number(state.lastRead[id]) === Number(state.messages[state.messages.length - 1].id), arsiv), true)
++})
++
++test('Ctrl+K: Odalar ve Kişiler bölümünde oda ve özel konuşma adı eşleşir, seçilen konuşma açılır, rehberde kısayollar', async () => {
++  const page = W.deniz
++  const foto = W.w.room('fotograflar').id
++  await setWidth(page, 1440)
++  await page.focus('#messages')
++  await page.keyboard.press('Control+k')
++  await page.waitForSelector('#search-panel:not([hidden])')
++  await page.fill('#search-input', 'FOTOĞ')
++  await page.waitForSelector('#search-quick:not([hidden])')
++  const quick = await page.evaluate(() => ({
++    title: document.getElementById('search-quick-title').textContent,
++    items: Array.from(document.querySelectorAll('#search-quick-list .search-quick-item')).map((b) => [b.getAttribute('data-quick-kind'), b.querySelector('.search-quick-name').textContent, b.getAttribute('aria-label')])
++  }))
++  assert.deepEqual(quick, { title: 'Odalar ve Kişiler', items: [['channel', 'fotograflar', 'fotograflar aç']] })
++  // Kişi: özel konuşmanın görünen adı
++  await page.fill('#search-input', 'ece')
++  await page.waitForFunction(() => Array.from(document.querySelectorAll('#search-quick-list .search-quick-item')).some((b) => b.getAttribute('data-quick-kind') === 'dm'))
++  assert.equal(await page.evaluate(() => document.querySelector('#search-quick-list .search-quick-item[data-quick-kind="dm"]').getAttribute('aria-label')), 'Ece ile özel mesaj aç')
++  // Klavyeyle: aşağı ok ilk sonuca, Enter açar
++  await page.fill('#search-input', 'fotog')
++  await page.waitForSelector('#search-quick-list .search-quick-item[data-quick-id="' + foto + '"]')
++  await page.focus('#search-input')
++  await page.keyboard.press('ArrowDown')
++  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-quick-id')), String(foto))
++  await page.keyboard.press('Enter')
++  await waitConversation(page, 'channel', foto)
++  await page.waitForSelector('#search-panel', { state: 'hidden' })
++  // Eşleşme yoksa bölüm gizli
++  await page.focus('#messages')
++  await page.keyboard.press('Control+k')
++  await page.waitForSelector('#search-panel:not([hidden])')
++  await page.fill('#search-input', 'xyzq')
++  await page.waitForFunction(() => document.getElementById('search-quick').hidden)
++  await page.keyboard.press('Escape')
++  await page.waitForSelector('#search-panel', { state: 'hidden' })
++  // Rehber kartında kısayol satırları
++  await page.click('#band-help')
++  await page.waitForSelector('#hints-card:not([hidden])')
++  const hints = await page.evaluate(() => Array.from(document.querySelectorAll('#hints-card .hints-conv')).map((n) => n.textContent))
++  assert.deepEqual(hints, ['Alt + Yukarı/Aşağı: önceki veya sonraki konuşma', 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış', 'Esc: okundu işaretle ve en alta in'])
++  await page.keyboard.press('Escape')
++  await page.waitForSelector('#hints-card', { state: 'hidden' })
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/css/chat-plus.css b/public/css/chat-plus.css
+index 0308e1e..9190785 100644
+--- a/public/css/chat-plus.css
++++ b/public/css/chat-plus.css
+@@ -210,6 +210,94 @@
+   to { opacity: 1; }
+ }
+ 
++/* Odalar ve Kişiler (istek 17): adı sorguyla eşleşen yazı odaları ve özel konuşmalar, mesaj sonuçlarının üstünde */
++.search-quick {
++  flex: none;
++  max-height: 40%;
++  overflow-y: auto;
++  padding: 0.25rem 0.5rem 0.375rem;
++  border-bottom: var(--border-width) solid var(--line);
++}
++
++.search-quick-title {
++  margin: 0.375rem 0.5rem 0.25rem;
++  color: var(--text-3);
++  font-family: var(--font-label);
++  font-size: var(--label-size);
++  font-weight: 700;
++  letter-spacing: var(--label-spacing);
++  line-height: 1.3;
++  text-transform: uppercase;
++}
++
++:root[data-skin="turkuaz"] .search-quick-title {
++  text-transform: none;
++}
++
++.search-quick-list {
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++
++.search-quick-item {
++  display: flex;
++  align-items: center;
++  width: 100%;
++  min-height: var(--target);
++  padding: 0.375rem 0.625rem;
++  border: var(--border-width) solid transparent;
++  border-radius: var(--radius-control);
++  background: transparent;
++  color: var(--text);
++  font: inherit;
++  text-align: left;
++  cursor: pointer;
++}
++
++.search-quick-item:hover {
++  background-color: var(--surface-hover);
++}
++
++.search-quick-item:focus-visible {
++  border-color: var(--focus);
++  outline: 3px solid var(--focus);
++  outline-offset: -1px;
++}
++
++.search-quick-item > .avatar {
++  flex: none;
++  margin-right: 0.75rem;
++}
++
++.search-quick-icon {
++  flex: none;
++  width: 1.25rem;
++  height: 1.25rem;
++  margin: 0 1rem 0 0.25rem;
++  color: var(--accent-text);
++}
++
++.search-quick-body {
++  display: flex;
++  flex-direction: column;
++  flex: 1 1 auto;
++  min-width: 0;
++}
++
++.search-quick-name {
++  overflow: hidden;
++  color: var(--text-strong);
++  font-weight: var(--weight-strong);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.search-quick-kind {
++  color: var(--text-3);
++  font-size: var(--text-xs);
++}
++
+ /* Sonuçlar */
+ .search-results {
+   padding-top: 0.5rem;
+diff --git a/public/i18n.js b/public/i18n.js
+index b8557aa..1d8233b 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -55,6 +55,12 @@ window.I18N = (function () {
+     'rooms.dmGroup': 'Özel mesajlar',
+     'rooms.dmAll': 'Tüm Özel Mesajlar',
+     'rooms.dmFewer': 'Daha Az Göster',
++    'search.quickTitle': 'Odalar ve Kişiler',
++    'search.quickOpen': '{name} aç',
++    'search.quickRoom': 'Yazı Odası',
++    'hints.altArrows': 'Alt + Yukarı/Aşağı: önceki veya sonraki konuşma',
++    'hints.altShiftArrows': 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış',
++    'hints.esc': 'Esc: okundu işaretle ve en alta in',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Saha Telsizi',
+@@ -2089,6 +2095,12 @@ window.I18N = (function () {
+     'rooms.dmGroup': 'Direct messages',
+     'rooms.dmAll': 'All Direct Messages',
+     'rooms.dmFewer': 'Show Fewer',
++    'search.quickTitle': 'Rooms and People',
++    'search.quickOpen': 'Open {name}',
++    'search.quickRoom': 'Text Room',
++    'hints.altArrows': 'Alt + Up/Down: previous or next conversation',
++    'hints.altShiftArrows': 'Alt + Shift + Up/Down: next unread',
++    'hints.esc': 'Esc: mark as read and jump to bottom',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Field Radio',
+diff --git a/public/index.html b/public/index.html
+index 7109f58..ebfbce4 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -782,6 +782,10 @@
+       <li><svg class="icon" aria-hidden="true"><use href="#i-dial" xlink:href="#i-dial"></use></svg><span><b data-i18n="band.hintWheelLabel">Tekerlek:</b> <span data-i18n="band.hintWheel">bandı kaydırır, oda değişmez</span></span></li>
+       <li><svg class="icon" aria-hidden="true"><use href="#i-keyboard" xlink:href="#i-keyboard"></use></svg><span><b data-i18n="band.hintKeysLabel">Klavye:</b> <kbd class="kbd">←</kbd> <kbd class="kbd">→</kbd> <span data-i18n="band.hintKeysAnd">ve</span> <kbd class="kbd">Enter</kbd></span></li>
+       <li class="gamepad-only"><svg class="icon" aria-hidden="true"><use href="#i-gamepad" xlink:href="#i-gamepad"></use></svg><span><b data-i18n="band.hintPadLabel">Kol:</b> <span data-i18n="band.hintPad">yön tuşları,</span> <kbd class="kbd">L1</kbd> <kbd class="kbd">R1</kbd></span></li>
++      <!-- Konuşmalar arasında kısayollar (38-gezinme.js, istek 17) -->
++      <li class="hints-conv"><svg class="icon" aria-hidden="true"><use href="#i-keyboard" xlink:href="#i-keyboard"></use></svg><span data-i18n="hints.altArrows">Alt + Yukarı/Aşağı: önceki veya sonraki konuşma</span></li>
++      <li class="hints-conv"><svg class="icon" aria-hidden="true"><use href="#i-keyboard" xlink:href="#i-keyboard"></use></svg><span data-i18n="hints.altShiftArrows">Alt + Shift + Yukarı/Aşağı: sonraki okunmamış</span></li>
++      <li class="hints-conv"><svg class="icon" aria-hidden="true"><use href="#i-keyboard" xlink:href="#i-keyboard"></use></svg><span data-i18n="hints.esc">Esc: okundu işaretle ve en alta in</span></li>
+     </ul>
+   </section>
+ 
+diff --git a/public/js/17-search.js b/public/js/17-search.js
+index 5c57d78..a1065f1 100644
+--- a/public/js/17-search.js
++++ b/public/js/17-search.js
+@@ -7,7 +7,8 @@
+ // fazla 20000 mesaj taranır. Çözülemeyen mesajlar dizine girmez (anahtar sonradan eklenirse yeniden
+ // denenir). Eşleşme büyük/küçük harf ve aksan duyarsızdır: seçili dile göre küçük harf, ı/i ve İ/i
+ // eşlemesi, NFD ile aksan kaldırma, kelime parçası eşleşir. Sonuca tıklayınca konuşmaya geçilir,
+-// mesaj bağlamıyla (around) yüklenip vurgulanır.
++// mesaj bağlamıyla (around) yüklenip vurgulanır. Sonuçların üstünde adı sorguyla eşleşen yazı odaları ve özel
++// konuşmalar (Odalar ve Kişiler) listelenir.
+ 
+ const SEARCH_PAGE = 100
+ const SEARCH_CHANNEL_MAX = 20000
+@@ -696,6 +697,7 @@ function buildSearchPanel () {
+   input.setAttribute('maxlength', '200')
+   input.addEventListener('input', () => {
+     searchState.query = input.value
++    renderSearchQuick()
+     scheduleSearch()
+   })
+   input.addEventListener('keydown', onSearchInputKey)
+@@ -781,6 +783,20 @@ function buildSearchPanel () {
+   filters.appendChild(searchChip('search-mentions-me', 'search.mentionsMe', 'mentionsMe', 'i-at'))
+   panel.appendChild(filters)
+ 
++  // Odalar ve Kişiler: adı sorguyla eşleşen yazı odaları ve özel konuşmalar mesaj sonuçlarının üstünde
++  const quick = h('section', 'search-quick')
++  quick.id = 'search-quick'
++  quick.hidden = true
++  const quickTitle = h('h3', 'search-quick-title', t('search.quickTitle'))
++  quickTitle.id = 'search-quick-title'
++  quick.appendChild(quickTitle)
++  const quickList = h('ul', 'search-quick-list')
++  quickList.id = 'search-quick-list'
++  quickList.setAttribute('aria-labelledby', 'search-quick-title')
++  quickList.addEventListener('keydown', onSearchResultsKey)
++  quick.appendChild(quickList)
++  panel.appendChild(quick)
++
+   const status = h('div', 'search-status')
+   status.id = 'search-status'
+   const statusText = h('span', 'search-status-text')
+@@ -871,7 +887,10 @@ function searchApplyLanguage () {
+   if (more) more.textContent = t('search.more')
+   const note = byId('search-note')
+   if (note) note.textContent = t('search.note')
++  const quickTitle = byId('search-quick-title')
++  if (quickTitle) quickTitle.textContent = t('search.quickTitle')
+   renderSearchFilters()
++  renderSearchQuick()
+   renderSearchStatus()
+   renderSearchResults()
+ }
+@@ -1022,7 +1041,7 @@ function onSearchInputKey (e) {
+     searchState.query = e.target.value
+     executeSearch()
+   } else if (e.key === 'ArrowDown' || e.key === 'Down') {
+-    const first = document.querySelector('#search-results .search-result')
++    const first = document.querySelector(SEARCH_ITEMS)
+     if (first) {
+       e.preventDefault()
+       focusNode(first)
+@@ -1030,9 +1049,12 @@ function onSearchInputKey (e) {
+   }
+ }
+ 
++// Odalar ve Kişiler ile mesaj sonuçları tek liste gibi oklarla gezilir
++const SEARCH_ITEMS = '#search-quick-list .search-quick-item, #search-results .search-result'
++
+ function onSearchResultsKey (e) {
+   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Down' && e.key !== 'Up' && e.key !== 'Home' && e.key !== 'End') return
+-  const items = Array.from(document.querySelectorAll('#search-results .search-result'))
++  const items = Array.from(document.querySelectorAll(SEARCH_ITEMS))
+   const i = items.indexOf(document.activeElement)
+   if (i === -1 || !items.length) return
+   e.preventDefault()
+@@ -1115,6 +1137,75 @@ function renderSearchResults () {
+   if (focusKey && typeof restoreFocusKey === 'function') restoreFocusKey(list, focusKey)
+ }
+ 
++// Odalar ve Kişiler (istek 17 S10): sorgu yazı odalarının ve özel konuşmaların adlarıyla da eşleştirilir. Eşleşme
++// mesaj aramasıyla aynı katlamayla yapılır (Türkçe harfler, büyük/küçük harf, aksan): bütün terimler adda (özel
++// konuşmada görünen adda veya kullanıcı adında) geçer, adı veya adın bir kelimesi ilk terimle başlayanlar önce gelir.
++// En çok SEARCH_QUICK_MAX sonuç gösterilir, seçilen oda veya özel konuşma açılır.
++const SEARCH_QUICK_MAX = 6
++
++function searchQuickItems (query) {
++  const terms = parseSearchQuery(query).terms
++  if (!terms.length || !state.me) return []
++  const items = textChannels().map((c) => ({ kind: 'channel', id: c.id, name: c.name, names: [c.name] }))
++  const dms = typeof dmEntries === 'function' ? dmEntries() : []
++  dms.forEach((d) => {
++    const name = typeof userDisplayName === 'function' ? userDisplayName(d.userId) : shownName(d.userId)
++    const handle = typeof userHandle === 'function' ? String(userHandle(d.userId) || '').replace(/^@/, '') : ''
++    items.push({ kind: 'dm', id: d.id, userId: d.userId, name: name, names: [name, handle] })
++  })
++  const scored = []
++  items.forEach((item, i) => {
++    const folded = item.names.filter(Boolean).map((n) => foldSearchText(n))
++    if (!folded.some((f) => terms.every((term) => f.indexOf(term) !== -1))) return
++    const starts = folded.some((f) => f.indexOf(terms[0]) === 0 || f.indexOf(' ' + terms[0]) !== -1)
++    scored.push({ item: item, rank: starts ? 0 : 1, i: i })
++  })
++  scored.sort((a, b) => (a.rank - b.rank) || (a.i - b.i))
++  return scored.slice(0, SEARCH_QUICK_MAX).map((x) => x.item)
++}
++
++function renderSearchQuick () {
++  if (!searchState.built) return
++  const box = byId('search-quick')
++  const list = byId('search-quick-list')
++  if (!box || !list) return
++  const focusKey = typeof activeFocusKey === 'function' ? activeFocusKey(list) : null
++  clear(list)
++  const items = searchQuickItems(searchState.query)
++  items.forEach((item) => {
++    const li = h('li', 'search-quick-row')
++    const b = h('button', 'search-quick-item')
++    b.type = 'button'
++    b.setAttribute('data-focus-key', 'quick-' + item.kind + '-' + item.id)
++    b.setAttribute('data-quick-kind', item.kind)
++    b.setAttribute('data-quick-id', String(item.id))
++    if (item.kind === 'dm') b.appendChild(personAvatar(item.userId, 'sm'))
++    else b.appendChild(icon('i-text', 'search-quick-icon'))
++    const body = h('span', 'search-quick-body')
++    body.appendChild(h('span', 'search-quick-name', item.name))
++    body.appendChild(h('span', 'search-quick-kind', t(item.kind === 'dm' ? 'people.dmKind' : 'search.quickRoom')))
++    b.appendChild(body)
++    b.setAttribute('aria-label', t('search.quickOpen', { name: item.kind === 'dm' ? t('search.dmLabel', { name: item.name }) : item.name }))
++    b.addEventListener('click', () => {
++      searchOpenQuick(item)
++    })
++    li.appendChild(b)
++    list.appendChild(li)
++  })
++  box.hidden = items.length === 0
++  if (focusKey && typeof restoreFocusKey === 'function') restoreFocusKey(list, focusKey)
++}
++
++function searchOpenQuick (item) {
++  closeSearch(false)
++  if (item.kind === 'dm') {
++    if (typeof showDm === 'function') showDm(item.id, { focus: true })
++  } else {
++    selectChannel(item.id, { focus: true })
++  }
++  if (document.activeElement === document.body && el.messages) focusNode(el.messages)
++}
++
+ // Durum satırı: taranan mesaj sayısı, sonuç sayısı, durdurma ve sürdürme. final true ise ekran
+ // okuyucuya özet duyurulur.
+ function renderSearchStatus (final) {
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 268e7c1..fadf354 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -34,6 +34,10 @@
+ // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
+ // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
+ //
++// Kısayollar (S10). Alt+Yukarı/Aşağı önceki ve sonraki konuşma, Alt+Shift+Yukarı/Aşağı sıradaki okunmamış (anmalar
++// önce), Esc (açık katman yokken) okundu say ve en alta in. Ctrl+K paneli adı eşleşen odaları ve kişileri de
++// gösterir (17-search.js).
++//
+ // Orta genişlik (S8, frekans.css) ve dar özel mesaj başlığı (S9). 760 ile 1279 px arasında İstasyonlar kartı sağ
+ // sütunda telsiz kartının üstündedir. Özel mesaj başlığı sığmazsa düğmeler yalnızca simgeye döner (navFitDmHeader).
+ //
+@@ -413,6 +417,12 @@ function navInit () {
+   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
+   navWatchInfoCards()
+   navWatchDmHeader()
++  // Alt ile oklar yazma alanının kendi tuşlarından önce yakalanır, Esc diğer modüllerden (öneri listesi, düzenleme,
++  // katmanlar) sonra işlenir
++  if (typeof document.addEventListener === 'function') {
++    document.addEventListener('keydown', navOnShortcut, true)
++    document.addEventListener('keydown', navOnEscape)
++  }
+ }
+ 
+ // ------------------------------------------------------------------ okunmamış ayracı, şerit ve kapsül (S3, S4)
+@@ -827,6 +837,144 @@ function navWatchInfoCards () {
+   navSyncInfoCards()
+ }
+ 
++// ------------------------------------------------------------------ kısayollar (S10)
++
++// Alt+Yukarı ve Alt+Aşağı önceki ve sonraki konuşmayı, Alt+Shift+Yukarı ve Alt+Shift+Aşağı sıradaki okunmamış
++// konuşmayı (anmalar ve özel mesajlar önce) açar. Sıra İstasyonlar listesindeki gibidir: yazı odaları, sonra Özel
++// mesajlar grubu. Uçlarda başa dönülür. Açık katman varken, yazma alanı dışındaki bir metin alanında ve bas konuş veya
++// başka bir ses tuşu Alt, Shift ya da oklara atanmışsa (12-init.js commaBound kalıbı) kısayol çalışmaz. Esc (açık
++// katman yokken) konuşmayı okundu sayar ve en alta iner. Alt+Sol ve Alt+Sağ (tarayıcının geri ve ileri tuşu) ile
++// Ctrl+PageUp ve Ctrl+PageDown (sekme değiştirme) kullanılmaz.
++const NAV_ALT_CODES = ['AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown']
++const NAV_SHIFT_CODES = ['ShiftLeft', 'ShiftRight']
++
++// Konuşma listesi: { key ('c:<oda>' veya 'd:<özel konuşma>'), view, id, unread, mention }. Özel mesajın okunmamışı
++// anma sayılır (Özel düğmesindeki gibi anma rengindedir).
++function navConvList () {
++  const out = []
++  const rooms = typeof textChannels === 'function' ? textChannels() : []
++  rooms.forEach((c) => {
++    out.push({ key: 'c:' + c.id, view: 'channel', id: c.id, unread: navUnreadOf(c.id), mention: typeof mentionCount === 'function' ? mentionCount(c.id) : 0 })
++  })
++  const entries = typeof bandDmEntries === 'function' && state.me ? bandDmEntries() : []
++  const open = navOpenDmId()
++  const unreadOf = (id) => (open !== null && sameId(id, open) ? 0 : navUnreadOf(id))
++  navDmOrder(entries, unreadOf).forEach((d) => {
++    const n = unreadOf(d.id)
++    out.push({ key: 'd:' + d.id, view: 'dm', id: d.id, unread: n, mention: n })
++  })
++  return out
++}
++
++function navConvKey () {
++  const cur = navCurrentConv()
++  if (cur.view === 'home' || cur.id === null) return ''
++  return (cur.view === 'dm' ? 'd:' : 'c:') + cur.id
++}
++
++function navKeyIndex (list, key) {
++  let i = 0
++  while (i < list.length) {
++    if (list[i].key === key) return i
++    i += 1
++  }
++  return -1
++}
++
++// Açık konuşmadan dir yönünde (1 aşağı, -1 yukarı) k adım ötedeki sıra, uçlarda başa döner. Açık konuşma listede
++// yoksa (Arkadaşlar görünümü) aşağı ilk, yukarı son konuşmadan başlanır.
++function navStepIndex (n, i, dir, k) {
++  const start = i === -1 ? (dir > 0 ? -1 : n) : i
++  return (((start + dir * k) % n) + n) % n
++}
++
++// Önceki veya sonraki konuşma, başka konuşma yoksa null
++function navStepConv (list, key, dir) {
++  const i = navKeyIndex(list, key)
++  if (!list.length || (i !== -1 && list.length < 2)) return null
++  return list[navStepIndex(list.length, i, dir, 1)]
++}
++
++// Sıradaki okunmamış konuşma: anması olan (özel mesajda okunmamışı olan) konuşmalar önce, yoksa okunmamışı olanlar.
++// Açık konuşma sayılmaz. Yoksa null.
++function navNextUnread (list, key, dir) {
++  const others = list.filter((c) => c.key !== key)
++  let pool = others.filter((c) => c.mention > 0)
++  if (!pool.length) pool = others.filter((c) => c.unread > 0)
++  if (!pool.length) return null
++  const i = navKeyIndex(list, key)
++  let k = 1
++  while (k <= list.length) {
++    const c = list[navStepIndex(list.length, i, dir, k)]
++    if (pool.indexOf(c) !== -1) return c
++    k += 1
++  }
++  return null
++}
++
++function navOpenConv (c) {
++  if (!c) return
++  if (c.view === 'dm') {
++    if (typeof showDm === 'function') showDm(c.id, { focus: true })
++  } else {
++    selectChannel(c.id, { focus: true })
++  }
++}
++
++// Ses tuşlarından biri verilen tuşlardan birine atanmış mı
++function navKeyBound (codes) {
++  if (!voice || typeof voice.settings !== 'function') return false
++  try {
++    const bindings = voice.settings().bindings || {}
++    return Object.keys(bindings).some((name) => {
++      const b = bindings[name]
++      return Boolean(b && b.type === 'key' && codes.indexOf(b.code) !== -1)
++    })
++  } catch (err) {
++    return false
++  }
++}
++
++function navShortcutReady () {
++  return Boolean(state.inApp && el.appView && !el.appView.hidden && !topLayer())
++}
++
++function navOnShortcut (e) {
++  if (!e || !e.altKey || e.ctrlKey || e.metaKey) return
++  const down = e.key === 'ArrowDown' || e.key === 'Down'
++  const up = e.key === 'ArrowUp' || e.key === 'Up'
++  if ((!down && !up) || !navShortcutReady()) return
++  const target = e.target
++  if (target && target !== el.composerInput && typeof isTypingTarget === 'function' && isTypingTarget(target)) return
++  if (navKeyBound(e.shiftKey ? NAV_ALT_CODES.concat(NAV_SHIFT_CODES) : NAV_ALT_CODES)) return
++  e.preventDefault()
++  e.stopPropagation()
++  if (e.repeat) return
++  const list = navConvList()
++  const key = navConvKey()
++  navOpenConv(e.shiftKey ? navNextUnread(list, key, down ? 1 : -1) : navStepConv(list, key, down ? 1 : -1))
++}
++
++function navOnEscape (e) {
++  if (!e || (e.key !== 'Escape' && e.key !== 'Esc') || e.defaultPrevented) return
++  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !navShortcutReady()) return
++  navReadToBottom()
++}
++
++// Okundu say ve en alta in: daha yeni mesajlar yüklü değilse en yeni sayfa açılır (06-messages.js jumpToLatest)
++function navReadToBottom () {
++  if (!state.channelId || state.loading || navCurrentConv().view === 'home' || !el.messages) return false
++  if (state.hasNewer) {
++    if (typeof jumpToLatest === 'function') jumpToLatest()
++    return true
++  }
++  scrollToBottom()
++  markRead({ force: true })
++  navState.newBelow = 0
++  navRenderBelow()
++  return true
++}
++
+ // ------------------------------------------------------------------ dar özel mesaj başlığı (S9)
+ 
+ // Özel mesaj başlığı (#dm-header) sığmazsa Sesli Ara, Görüntülü Ara, güvenlik rozeti ve Profil yalnızca simge olarak
+diff --git a/test/chatplus.test.js b/test/chatplus.test.js
+index 81722b7..e40bd63 100644
+--- a/test/chatplus.test.js
++++ b/test/chatplus.test.js
+@@ -4,7 +4,7 @@
+ // 19-typing.js) testleri. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir.
+ // Arama eşleştirme normalleştirmesi (Türkçe ve İngilizce, ı/i, İ/i, aksanlar), vurgu aralıkları ve kısa
+ // alıntı, anma ayrıştırma ve kelime sınırları, @herkes kuralı (yazarın rolü), öneri kelimesi, yazıyor
+-// metninin çoğul kuralları ve yazanların süzülmesi sınanır.
++// metninin çoğul kuralları ve yazanların süzülmesi sınanır. G10: arama panelindeki Odalar ve Kişiler eşleşmesi.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -281,3 +281,27 @@ test('bildirim düzeyi: varsayılan anmalar, tanınmayan değer anmalar sayılı
+   run("localStorage.setItem('telsiz.notifyLevel', 'bozuk')")
+   assert.strictEqual(run('mentionNotifyLevel()'), 'mentions')
+ })
++
++test('Odalar ve Kişiler: oda ve özel konuşma adları aramayla aynı katlamayla eşleşir, adı terimle başlayanlar önce, en çok altı sonuç', () => {
++  const { run, json } = load('tr')
++  run(`
++    state.meta.channels.push({ id: 12, name: 'Yazılım', type: 'text', position: 2 }, { id: 13, name: 'genel-yazı', type: 'text', position: 3 }, { id: 14, name: 'Sesli', type: 'voice', position: 4 })
++    function dmEntries () { return [{ id: 50, userId: 2 }, { id: 51, userId: 3 }] }
++    function userHandle (id) { return id === 3 ? '@mert.kaya' : '@kisi' + id }
++  `)
++  const names = (query) => json('searchQuickItems(' + q(query) + ').map((i) => [i.kind, i.name, i.id].join(String.fromCharCode(58)))')
++  assert.deepStrictEqual(names('yazilim'), ['channel:Yazılım:12'])
++  assert.deepStrictEqual(names('YAZI'), ['channel:Yazılım:12', 'channel:genel-yazı:13'])
++  // Özel konuşmada görünen ad (kelime başı önce) ve kullanıcı adı
++  assert.deepStrictEqual(names('yılmaz'), ['dm:Ece Yılmaz:50'])
++  assert.deepStrictEqual(names('kaya'), ['dm:Mert:51'])
++  // Adı terimle başlayan önce, sonra liste sırası (yazı odaları, özel konuşmalar)
++  assert.deepStrictEqual(names('e'), ['dm:Ece Yılmaz:50', 'channel:genel:10', 'channel:genel-yazı:13', 'dm:Mert:51'])
++  // Bütün terimler aynı adda geçmeli, ses odaları ve yalnızca kimden: belirteci sonuç vermez
++  assert.deepStrictEqual([names('genel yazı'), names('sesli'), names(''), names('kimden:ece')], [['channel:genel-yazı:13'], [], [], []])
++  run("let k = 20; while (k < 30) { state.meta.channels.push({ id: k, name: 'oda' + k, type: 'text', position: k }); k += 1 }")
++  assert.strictEqual(json("searchQuickItems('oda').length"), 6)
++  // Oturum yoksa sonuç yok
++  run('state.me = null')
++  assert.deepStrictEqual(names('genel'), [])
++})
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index b6acee3..5bb85c8 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -10,7 +10,8 @@
+ // mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
+ // sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
+ // Mesajlar ve görünümün hatırlanması. G10: konuşma önbelleği (son sekiz konuşma, aynı konuşmanın yeniden yüklenmesi,
+-// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı).
++// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı), kısayolların konuşma sırası ve sıradaki
++// okunmamış konuşma.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -592,3 +593,41 @@ test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yuk
+   run('let k = 100; while (k < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(k, 30) }); k += 1 }')
+   assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id]'), [json('TRIM_TO') + 4, true, 699])
+ })
++
++test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş, sıradaki okunmamış (anmalar ve özel mesajlar önce)', () => {
++  const { run, json } = load()
++  run(`
++    var testEntries = [{ id: 50, userId: 2, lastMessageAt: 300 }, { id: 51, userId: 3, lastMessageAt: 200 }]
++    var testMentions = {}
++    function bandDmEntries () { return testEntries.slice() }
++    function textChannels () { return [{ id: 10, name: 'a' }, { id: 11, name: 'b' }, { id: 12, name: 'c' }] }
++    function mentionCount (id) { return testMentions[id] || 0 }
++  `)
++  const step = (key, dir) => json('(function () { const c = navStepConv(navConvList(), ' + JSON.stringify(key) + ', ' + dir + '); return c ? c.key : null })()')
++  const unread = (key, dir) => json('(function () { const c = navNextUnread(navConvList(), ' + JSON.stringify(key) + ', ' + dir + '); return c ? c.key : null })()')
++  // İstasyonlar listesindeki sıra: yazı odaları, sonra özel konuşmalar
++  assert.deepStrictEqual(json('navConvList().map((c) => c.key)'), ['c:10', 'c:11', 'c:12', 'd:50', 'd:51'])
++  assert.strictEqual(json('navConvKey()'), 'c:10')
++  assert.deepStrictEqual([step('c:10', 1), step('c:10', -1), step('d:51', 1), step('c:12', 1)], ['c:11', 'd:51', 'c:10', 'd:50'])
++  // Arkadaşlar görünümünde aşağı ilk, yukarı son konuşma
++  run("testView = 'home'; state.channelId = null")
++  assert.deepStrictEqual([json('navConvKey()'), step('', 1), step('', -1)], ['', 'c:10', 'd:51'])
++  run("testView = 'channel'; state.channelId = 10")
++  // Okunmamış yoksa gidilmez, okunmamışlar sırayla, yukarı yönde geriye doğru
++  assert.strictEqual(unread('c:10', 1), null)
++  run('state.unread[11] = 3; state.unread[12] = 1')
++  assert.deepStrictEqual([unread('c:10', 1), unread('c:10', -1), unread('c:11', 1)], ['c:11', 'c:12', 'c:12'])
++  // Anması olan oda önce
++  run('testMentions[12] = 1')
++  assert.deepStrictEqual([unread('c:10', 1), unread('c:12', 1)], ['c:12', 'c:11'])
++  // Özel mesajın okunmamışı anma sayılır, okunmamış özel konuşma grubun başına geçer
++  run('state.unread[51] = 2')
++  assert.deepStrictEqual(json('navConvList().map((c) => c.key)'), ['c:10', 'c:11', 'c:12', 'd:51', 'd:50'])
++  assert.deepStrictEqual([unread('c:12', 1), unread('c:10', -1)], ['d:51', 'd:51'])
++  // Açık konuşmanın okunmamışı sayılmaz
++  run("testView = 'dm'; state.channelId = 51")
++  assert.deepStrictEqual([json('navConvKey()'), unread('d:51', 1)], ['d:51', 'c:12'])
++  // Tek konuşma varken önceki ve sonraki yoktur
++  run("testEntries.length = 0; textChannels = function () { return [{ id: 10, name: 'a' }] }; testView = 'channel'; state.channelId = 10")
++  assert.strictEqual(step('c:10', 1), null)
++})
