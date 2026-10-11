@@ -28,6 +28,13 @@ window.I18N = (function () {
     'music.consent.roomHasYoutube': 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.',
     'dj.notice.youtubeTitle': 'Telsiz DJ kuyruğuna ekledi: {title}',
     'dj.notice.fileTitle': 'Telsiz DJ kuyruğuna dosya ekledi: {title}',
+    'music.player.waitingVisible': 'YouTube parçası pencere görünür olunca başlar.',
+    'music.player.minimizedYoutube': 'YouTube küçültülünce duraklar. Açınca odayla eşitlenip devam eder.',
+    'dj.dock.move': 'Taşı',
+    'dj.dock.moveLabel': 'Oynatıcıyı sonraki köşeye taşı',
+    'dj.dock.minimize': 'Küçült',
+    'dj.dock.restore': 'Göster',
+    'dj.dock.float': 'Yüzen Oynatıcı',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
@@ -1982,6 +1989,13 @@ window.I18N = (function () {
     'music.consent.roomHasYoutube': 'Telsiz DJ is playing a YouTube track in this voice room. Load the player to listen.',
     'dj.notice.youtubeTitle': 'Added to the Telsiz DJ queue: {title}',
     'dj.notice.fileTitle': 'Added a file to the Telsiz DJ queue: {title}',
+    'music.player.waitingVisible': 'The YouTube track starts when the window is visible.',
+    'music.player.minimizedYoutube': 'YouTube pauses while minimized. It resumes in sync with the room when you restore it.',
+    'dj.dock.move': 'Move',
+    'dj.dock.moveLabel': 'Move the player to the next corner',
+    'dj.dock.minimize': 'Minimize',
+    'dj.dock.restore': 'Show',
+    'dj.dock.float': 'Floating Player',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta

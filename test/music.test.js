@@ -3088,7 +3088,8 @@ describe('inceleme bulguları: YouTube bağdaştırıcısı', () => {
 })
 
 // dj.css: köşedeki oynatıcı kutusu en az 202 piksel (kenarlık dahil, çerçeve 200x200 kalır) ve her katmanın,
-// Ayarlar'ın ve kısa bildirimlerin üstündedir. Atalarında position: fixed kutuyu hapseden özellik yoktur.
+// Ayarlar'ın ve kısa bildirimlerin üstündedir. Atalarında position: fixed kutuyu hapseden özellik yoktur,
+// çubuk sürükleme tutamağıdır.
 test('dj.css: köşedeki oynatıcı en az 200x200 ve bütün katmanların üstünde', () => {
   const cssDir = path.join(ROOT, 'public', 'css')
   const files = fs.readdirSync(cssDir).filter((n) => n.endsWith('.css')).map((n) => path.join(cssDir, n))
@@ -3115,11 +3116,77 @@ test('dj.css: köşedeki oynatıcı en az 200x200 ve bütün katmanların üstü
   assert.match(dock, /overflow: visible/)
   const box = rule(dj, '.side-dj.is-docked .dj-yt')
   assert.match(box, /height: 202px/)
-  assert.match(rule(dj, '.side-dj.is-docked .dj-yt,\n.side-dj.is-docked .dj-dock'), /min-width: 202px[\s\S]*visibility: visible/)
+  // Yüzen kutu (oynatıcı alanı ve çubuk) köşeye sabitlenir, sürükleme satır içi left ve top ile yapılır
+  assert.match(rule(dj, '.side-dj.is-docked .dj-float'), /position: fixed[\s\S]*min-width: 202px[\s\S]*visibility: visible/)
+  assert.match(rule(dj, '.side-dj.is-docked .dj-dock'), /touch-action: none/)
   assert.match(rule(dj, '.side-dj.is-docked .dj-scroll'), /overflow: visible/)
   assert.match(rule(dj, ':root .side-dj.is-docked .dj-card.side-card'), /backdrop-filter: none/)
   assert.match(rule(dj, 'body.has-dj-dock .app-view'), /z-index: auto/)
   // Kartın ve sayfanın kurallarında kutuyu hapseden özellik yok (açılış canlandırması köşedeyken kapalı)
   assert.doesNotMatch(dj, /(^|\s)(transform|filter|contain|will-change|perspective):/m)
   assert.match(dock, /animation: none/)
+})
+
+// ------------------------------------------------------------------ yerel bekletme
+
+describe('motor: yerel bekletme (setLocalHold)', () => {
+  test('YouTube bekletmesi oynatıcıyı yalnızca bu cihazda durdurur, kalkınca ortak konuma atlayıp sürer', async () => {
+    const { timers, server, clients: [a, b] } = await setup()
+    b.storage.set(CONSENT_KEY, '1')
+    b.engine.attachPlayer({ appendChild () {} })
+    await a.engine.addYouTube(VID, { durationMs: 300000 })
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
+    assert.equal(p.state.playing, true)
+    const posts = server.stats.posts
+    b.engine.setLocalHold('minimized', true, 'youtube')
+    assert.equal(p.state.playing, false)
+    same(b.engine.snapshot().player.localHold, ['minimized'])
+    assert.equal(b.engine.snapshot().player.status, 'paused')
+    // Bekletme ortak durumu değiştirmez, oynatıcının kendi duraklaması da "siz duraklattınız" sayılmaz
+    p.emit({ type: 'paused' })
+    await timers.advance(5000)
+    assert.equal(server.stats.posts, posts)
+    assert.equal(b.engine.snapshot().session.playing, true)
+    assert.equal(b.engine.snapshot().player.hold, false)
+    assert.equal(p.state.playing, false)
+    // Aynı bekletmenin yinelenmesi ve geçersiz ad etkisizdir
+    b.engine.setLocalHold('minimized', true, 'youtube')
+    b.engine.setLocalHold('Geçersiz Ad', true)
+    same(b.engine.snapshot().player.localHold, ['minimized'])
+    b.engine.setLocalHold('minimized', false)
+    await timers.advance(600)
+    assert.equal(p.state.playing, true)
+    same(b.engine.snapshot().player.localHold, [])
+    const target = b.engine.snapshot().session.positionMs
+    assert.ok(Math.abs(p.impl.position() - target) <= 700, p.impl.position() + ' ~ ' + target)
+  })
+
+  test('YouTube kapsamlı bekletme dosya parçasını etkilemez, genel bekletme dosyayı da durdurur', async () => {
+    const { timers, server, clients: [a, b] } = await setup()
+    await a.engine.addFile(encryptedWav(a.device, server, 10, 'f.wav'), { durationMs: 10000 })
+    b.sync()
+    await flush()
+    const audio = b.audios[0]
+    audio.duration = 10
+    audio.fire('loadedmetadata')
+    audio.fire('canplay')
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+    assert.equal(audio.paused, false)
+    b.engine.setLocalHold('minimized', true, 'youtube')
+    await timers.advance(600)
+    assert.equal(audio.paused, false)
+    same(b.engine.snapshot().player.localHold, [])
+    b.engine.setLocalHold('media', true)
+    assert.equal(audio.paused, true)
+    same(b.engine.snapshot().player.localHold, ['media'])
+    await timers.advance(2000)
+    assert.equal(b.engine.snapshot().player.hold, false)
+    b.engine.setLocalHold('media', false)
+    await timers.advance(600)
+    assert.equal(audio.paused, false)
+    b.engine.setLocalHold('minimized', false)
+  })
 })

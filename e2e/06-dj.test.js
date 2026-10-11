@@ -362,6 +362,145 @@ test('telefon 390: DJ sayfası kapalıyken oynatıcı köşede çalar, DJ\'yi a�
   await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
 })
 
+const VOICE_BUTTONS = ['#btn-camera', '#btn-mute', '#btn-deafen', '#btn-screen', '#voice-leave', '#radio-tools .dj-crew-button']
+
+// Köşedeki oynatıcının köşesi ve çerçevenin her köşeye yakınlığı
+function dockCorner (page) {
+  return page.evaluate(() => {
+    const d = document.getElementById('dj')
+    const r = document.querySelector('#dj .dj-float').getBoundingClientRect()
+    const vw = document.documentElement.clientWidth
+    const vh = window.innerHeight
+    return { attr: d.getAttribute('data-dock'), left: r.left < vw / 2, top: r.top + r.height / 2 < vh / 2, stored: localStorage.getItem('telsiz.djDock') }
+  })
+}
+
+test('1100x800: oynatıcı sağ üstte durur, Taşı köşeleri dolaşır, hiçbir köşede ses düğmelerini örtmez', async () => {
+  const { A } = W
+  await A.setViewportSize({ width: 1100, height: 800 })
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-dock-only') && d.getAttribute('data-dock') === 'tr'
+  })
+  await fakePlaying(A, '1100 sağ üstte çalıyor')
+  assert.deepEqual(await dockCorner(A), { attr: 'tr', left: false, top: true, stored: null })
+  const seen = []
+  for (const expected of ['tr', 'br', 'bl', 'tl']) {
+    if (expected !== 'tr') {
+      await A.click('#dj .dj-dock-move')
+      await A.waitForFunction((c) => document.getElementById('dj').getAttribute('data-dock') === c, expected)
+      await h.sleep(300)
+    }
+    seen.push(expected)
+    assertDocked(await dockInfo(A))
+    for (const sel of VOICE_BUTTONS) assert.equal(await h.reachable(A, sel), true, expected + ' köşesinde ulaşılabilir: ' + sel)
+    assert.equal(await h.reachable(A, '#composer-input'), true, expected + ' köşesinde yazma alanı ulaşılabilir')
+  }
+  assert.deepEqual(seen, ['tr', 'br', 'bl', 'tl'])
+  // Taşı düğmesinin erişilebilir adı ve son köşe cihazda saklanır
+  assert.equal(await A.getAttribute('#dj .dj-dock-move', 'aria-label'), 'Oynatıcıyı sonraki köşeye taşı')
+  assert.equal(await A.evaluate(() => localStorage.getItem('telsiz.djDock')), 'tl')
+  await fakePlaying(A, 'köşeler dolaşılınca çalıyor')
+  assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
+  await A.click('#dj .dj-dock-move')
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+})
+
+test('fareyle sürüklenen oynatıcı en yakın köşeye oturur, köşe yeniden yüklemeden sonra korunur', async () => {
+  const { B } = W
+  await B.setViewportSize({ width: 1100, height: 800 })
+  await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
+  const title = await B.evaluate(() => {
+    const r = document.querySelector('#dj .dj-dock-title').getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  })
+  await B.mouse.move(title.x, title.y)
+  await B.mouse.down()
+  await B.mouse.move(title.x - 300, title.y + 150, { steps: 6 })
+  // Sürüklenirken kutu imleci izler ve görünüm alanında kalır
+  const during = await B.evaluate(() => {
+    const r = document.querySelector('#dj .dj-float').getBoundingClientRect()
+    return { dragging: document.querySelector('#dj .dj-float').classList.contains('is-dragging'), inView: r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight }
+  })
+  assert.deepEqual(during, { dragging: true, inView: true })
+  await B.mouse.move(80, 700, { steps: 6 })
+  await B.mouse.up()
+  await B.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'bl')
+  assert.deepEqual(await dockCorner(B), { attr: 'bl', left: true, top: false, stored: 'bl' })
+  assertDocked(await dockInfo(B))
+  await B.reload({ waitUntil: 'domcontentloaded' })
+  await B.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await h.joinVoice(B, W.lobi.id)
+  await B.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-docked') && d.getAttribute('data-dock') === 'bl'
+  }, null, { timeout: h.LONG })
+  await fakePlaying(B, 'yeniden yüklemeden sonra sol altta çalıyor')
+  assertDocked(await dockInfo(B))
+  await B.evaluate(() => localStorage.removeItem('telsiz.djDock'))
+  await B.setViewportSize({ width: 1440, height: 900 })
+  await B.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
+})
+
+test('Küçült: YouTube yalnızca bu cihazda duraklar ve yalnızca çubuk kalır, Göster ile odayla eşitlenip sürer', async () => {
+  const { A, B } = W
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
+  await A.click('#dj .dj-dock-min')
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-min'))
+  await h.until(async () => {
+    const st = await fakeState(A)
+    return st && st.paused
+  }, h.LONG, 'A küçültülünce duraklar')
+  const min = await A.evaluate(() => ({
+    yt: document.querySelector('#dj .dj-yt').getClientRects().length,
+    bar: document.querySelector('#dj .dj-dock').getBoundingClientRect().height > 0,
+    label: document.querySelector('#dj .dj-dock-min').getAttribute('aria-label'),
+    holds: dj.engine.snapshot().player.localHold,
+    playing: dj.engine.snapshot().session.playing
+  }))
+  assert.deepEqual(min, { yt: 0, bar: true, label: 'Göster', holds: ['minimized'], playing: true })
+  // Odadaki diğer kişi dinlemeye devam eder
+  await fakePlaying(B, 'B çalmaya devam ediyor')
+  for (const sel of VOICE_BUTTONS) assert.equal(await h.reachable(A, sel), true, 'küçükken ulaşılabilir: ' + sel)
+  await A.click('#dj .dj-dock-min')
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-dock-min') && dj.engine.snapshot().player.localHold.length === 0)
+  await fakePlaying(A, 'Göster ile yeniden çalıyor')
+  const drift = await A.evaluate(() => {
+    const s = dj.engine.snapshot()
+    return Math.abs(s.player.positionMs - s.session.positionMs)
+  })
+  assert.ok(drift <= 2500, 'odayla eşitlendi: ' + drift + ' ms')
+  assertDocked(await dockInfo(A))
+  await A.setViewportSize({ width: 1440, height: 900 })
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
+})
+
+test('Yüzen Oynatıcı: kart sütundayken de oynatıcı köşede, kart görünür kalır, kapatınca yerine döner', async () => {
+  const { A } = W
+  await A.waitForFunction(() => document.getElementById('app-view').getAttribute('data-dj-col') === 'on')
+  assert.equal(await A.textContent('#dj .dj-float-switch .dj-mute-label'), 'Yüzen Oynatıcı')
+  assert.equal(await A.getAttribute('#dj .dj-float-switch', 'aria-checked'), 'false')
+  await A.click('#dj .dj-float-switch')
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-docked') && d.classList.contains('is-dock-float')
+  })
+  const info = await A.evaluate(() => ({
+    checked: document.querySelector('#dj .dj-float-switch').getAttribute('aria-checked'),
+    stored: localStorage.getItem('telsiz.djFloat'),
+    cardVisible: getComputedStyle(document.getElementById('dj-card')).visibility,
+    title: document.querySelector('#dj .dj-title').getClientRects().length > 0
+  }))
+  assert.deepEqual(info, { checked: 'true', stored: '1', cardVisible: 'visible', title: true })
+  assertDocked(await dockInfo(A))
+  await fakePlaying(A, 'yüzen oynatıcı çalıyor')
+  await A.click('#dj .dj-float-switch')
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
+  assert.equal(await A.evaluate(() => localStorage.getItem('telsiz.djFloat')), '0')
+  await fakePlaying(A, 'kart içinde çalıyor')
+  assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
+})
+
 test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki istemcide dosya çalar', async () => {
   const { A, B } = W
   const E = W.w.E
@@ -422,6 +561,35 @@ test('ses dosyası Ayarlar açıkken ve telefonda DJ sayfası kapalıyken çalma
   await h.sleep(1000)
   await advancing('390 sayfa kapalıyken dosya')
   await A.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('Yüzen Oynatıcı açıkken dosya parçası köşede dalga biçimi ve çubukla görünür, küçültünce yalnızca çubuk kalır ve çalmaya devam eder', async () => {
+  const { A } = W
+  const filePos = () => A.evaluate(() => {
+    const s = dj.engine.snapshot()
+    return s.player.kind === 'file' && s.player.status === 'playing' && typeof s.player.positionMs === 'number' ? s.player.positionMs : -1
+  })
+  const advancing = async (label) => {
+    const p0 = await filePos()
+    assert.ok(p0 >= 0, label + ': dosya çalıyor')
+    await h.until(async () => (await filePos()) > p0 + 500, h.SHORT, label)
+  }
+  await A.click('#dj .dj-float-switch')
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-docked'))
+  const view = await A.evaluate(() => {
+    const wave = document.querySelector('#dj .dj-wave').getBoundingClientRect()
+    const bar = document.querySelector('#dj .dj-dock').getBoundingClientRect()
+    return { wave: wave.height > 0, bar: bar.height > 0 && bar.top >= wave.bottom - 0.5, yt: document.querySelector('#dj .dj-yt').getClientRects().length, title: document.querySelector('#dj .dj-dock-title').textContent }
+  })
+  assert.deepEqual(view, { wave: true, bar: true, yt: 0, title: 'lobi-temasi.wav' })
+  await A.click('#dj .dj-dock-min')
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-min'))
+  assert.equal(await A.evaluate(() => document.querySelector('#dj .dj-wave').getClientRects().length), 0)
+  assert.deepEqual(await A.evaluate(() => dj.engine.snapshot().player.localHold), [])
+  await advancing('küçültülmüş dosya')
+  await A.click('#dj .dj-dock-min')
+  await A.click('#dj .dj-float-switch')
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
 })
 
 test('telefon 390: DJ alt sayfası tam genişlik, yatay taşma yok', async () => {

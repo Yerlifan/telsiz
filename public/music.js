@@ -1101,6 +1101,9 @@ var TelsizMusic = (function (root) {
     let pending = 0
     let destroyed = false
     let consentAskedFor = null
+    // Arayüzün istediği yerel bekletmeler (setLocalHold): neden -> kapsam ('all' her parça, 'youtube' yalnızca
+    // YouTube parçası). Bekletme yalnızca bu cihazdaki oynatıcıyı durdurur, ortak durumu değiştirmez.
+    const localHolds = new Map()
     let lastSignature = ''
     let lastTrackKey = ''
     let lastConsent = null
@@ -1249,6 +1252,7 @@ var TelsizMusic = (function (root) {
           needsTap: local.needsTap,
           hold: local.hold,
           holdReason: local.hold ? local.holdReason : null,
+          localHold: activeLocalHolds(),
           hidden: local.hidden,
           error: local.error,
           positionMs: local.positionMs,
@@ -1285,7 +1289,7 @@ var TelsizMusic = (function (root) {
       const room = controlRoom()
       const rec = room === null ? null : rooms.get(room)
       return [settings.supported, settings.enabled, settings.youtube, room, deviceRoom, rec ? rec.v : 0, rec ? rec.status : '',
-        player ? player.trackId : '', local.status, local.blocked, local.needsTap, local.hold, local.holdReason, local.hidden, local.error,
+        player ? player.trackId : '', local.status, local.blocked, local.needsTap, local.hold, local.holdReason, activeLocalHolds().join(','), local.hidden, local.error,
         consentValue(), volumeValue(), mutedValue(), pending > 0].join('|')
     }
 
@@ -1958,6 +1962,42 @@ var TelsizMusic = (function (root) {
       local.holdHidden = false
     }
 
+    // Çalan oynatıcıya uygulanan yerel bekletmelerin nedenleri (sıralı)
+    function activeLocalHolds () {
+      const kind = player ? player.kind : null
+      const out = []
+      localHolds.forEach((scope, reason) => {
+        if (scope === 'all' || (kind !== null && scope === kind)) out.push(reason)
+      })
+      return out.sort()
+    }
+
+    // Yerel bekletme: reason [a-z0-9_] biçiminde bir ad, scope 'youtube' ise yalnızca YouTube parçası
+    // bekletilir. Bekletme kalkınca oynatıcı ortak konuma atlayıp çalmaya devam eder (oturum çalıyorsa).
+    function setLocalHold (reason, on, scope) {
+      if (destroyed || typeof reason !== 'string' || !CODE_RE.test(reason)) return
+      const sc = scope === 'youtube' ? 'youtube' : 'all'
+      const before = activeLocalHolds().length > 0
+      if (on === true) {
+        if (localHolds.get(reason) === sc) return
+        localHolds.set(reason, sc)
+      } else {
+        if (!localHolds.has(reason)) return
+        localHolds.delete(reason)
+      }
+      const after = activeLocalHolds().length > 0
+      if (before && !after) {
+        // Ortak konumdan hemen yeniden eşitlenir
+        clearHold()
+        local.lastPlayAttempt = -Infinity
+        local.lastSeek = -Infinity
+        local.playPendingSince = null
+        local.bufferingSince = null
+      }
+      syncPlayer()
+      changed()
+    }
+
     function cancelRecovery () {
       if (recovery.handle !== null) timers.clearTimeout(recovery.handle)
       recovery.handle = null
@@ -2528,6 +2568,16 @@ var TelsizMusic = (function (root) {
       }
       if (started) {
         if (local.ended) return
+        if (activeLocalHolds().length > 0) {
+          // Arayüzün yerel bekletmesi (küçültülmüş oynatıcı, arka plandaki pencere, medya tuşları)
+          if (player.playing()) {
+            local.ownPauseUntil = local0 + OWN_PAUSE_MS
+            player.pause()
+          }
+          local.settleSince = null
+          setStatus('paused')
+          return
+        }
         if (local.hold) {
           setStatus('paused')
           return
@@ -2735,7 +2785,7 @@ var TelsizMusic = (function (root) {
       local.needsTap = false
       clearHold()
       local.lastPlayAttempt = -Infinity
-      if (player && !player.loading && player.ready() && !local.failed) {
+      if (player && !player.loading && player.ready() && !local.failed && activeLocalHolds().length === 0) {
         const st = listenState()
         if (st && st.current && st.current.id === player.trackId && st.playing && clock.serverNow() >= st.anchorAt) {
           const at = now()
@@ -2840,6 +2890,7 @@ var TelsizMusic = (function (root) {
       setMuted: setMuted,
       unlock: unlock,
       resync: resync,
+      setLocalHold: setLocalHold,
       rekey: retryNoKey,
       serverNow: () => clock.serverNow(),
       destroy: destroy
