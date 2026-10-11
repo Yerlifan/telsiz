@@ -1366,3 +1366,44 @@ test('Profil sayfasında kapak fotoğrafı: seçilen kapak iki önizlemede gör�
   assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
 })
 
+test('Profil sayfası kaldırılan kapağı kayıttan sonra, sunucu kaydı yenilenene kadar yeniden indirmeye kalkmaz', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  // Sunucudaki kendi kaydımda kapak var. coverUrlOf indirme isteğini (load) kaydeder.
+  sandbox.__cover = 'c'.repeat(32)
+  sandbox.__loads = []
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) && __cover ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: { u: __cover } } } : null }")
+  run("coverUrlOf = function (id, load) { __loads.push(Boolean(load)); return __cover ? 'blob:sunucu-kapak' : null }")
+  run("openSettings('profile', null)")
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:sunucu-kapak')
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
+  root.querySelector('#set-cover-remove').click()
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak kaydedince kaldırılır.')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
+  sandbox.__saved = []
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  sandbox.__loads.length = 0
+  root.querySelector('#set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual(sandbox.__saved[0].coverFile, null)
+  // Kayıt yenilenene kadar eski kapak (sunucuda silindi) istenmez ve gösterilmez
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(sandbox.__loads.filter(Boolean), [], 'silinen kapak indirilmez')
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(coverImg('set-profile-card'), null)
+  // Sunucu kaydı kapaksız gelince bekleme biter
+  sandbox.__cover = null
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
+})
+

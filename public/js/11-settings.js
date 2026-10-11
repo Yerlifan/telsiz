@@ -804,8 +804,9 @@ function statusDotNode (status) {
   return dot
 }
 
-// Kendi profilimin şu anki görünümü (sunucudan çözülen profil)
-function myProfileView () {
+// Kendi profilimin şu anki görünümü (sunucudan çözülen profil). textOnly: yalnızca metin alanları ve renk gerekiyor,
+// kapak indirilmez (Profil sayfasının taslağı kapağı draftCoverUrl ile kendisi yönetir).
+function myProfileView (textOnly) {
   const id = state.me.id
   const profile = safeCall(() => activeProfile(id), null)
   return {
@@ -815,7 +816,7 @@ function myProfileView () {
     color: profile && profile.color !== null && profile.color !== undefined ? profile.color : defaultColorIndex(id),
     avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null),
     // Kendi kapağım önizlemede gösterileceği için indirilir (13-profile.js coverUrlOf)
-    coverUrl: safeCall(() => coverUrlOf(id, true), null)
+    coverUrl: textOnly ? null : safeCall(() => coverUrlOf(id, true), null)
   }
 }
 
@@ -1160,7 +1161,7 @@ function profileDraft () {
   const existing = settingsUi.draft
   if (existing && sameId(existing.userId, me.id)) return existing
   dropProfileDraft()
-  const view = myProfileView()
+  const view = myProfileView(true)
   settingsUi.draft = {
     userId: me.id,
     base: { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color },
@@ -1235,14 +1236,15 @@ function myCoverUploadId () {
   return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
 }
 
-// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir.
+// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir. Kayıt
+// yenilenene kadar profil kaydında görünen eski kapak indirilmez: değiştirilen veya kaldırılan kapak sunucuda silinmiştir.
 function draftCoverUrl (d) {
   if (d.coverMode === 'new') return d.coverUrl
   if (d.coverMode === 'removed') return ''
-  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
   const p = d.coverPending
+  const stillOld = Boolean(p) && myCoverUploadId() === p.from
+  const serverUrl = stillOld ? null : safeCall(() => coverUrlOf(state.me.id, true), null)
   if (p) {
-    const stillOld = myCoverUploadId() === p.from
     const waiting = p.url && !serverUrl
     if ((stillOld || waiting) && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
     d.coverPending = null
@@ -1588,7 +1590,7 @@ function buildProfilePage (page) {
   const update = () => {
     // Taslakta değişiklik yoksa sunucudaki profil (ör. başka cihazdan) taslağa yansır
     if (!draftDirty(d) && !isBusy(form)) {
-      const view = myProfileView()
+      const view = myProfileView(true)
       d.base = { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color }
       d.displayName = view.displayName
       d.statusText = view.statusText
