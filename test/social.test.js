@@ -14,7 +14,7 @@
 // bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
 // kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, önbelleğin son kullanılan
 // kapaklarla sınırlı kalması, kaydetmede korunması ve kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7,
-// 0.55).
+// 0.55). Kendi profil kaydım yenilenmeden yapılan kaydın profil resmini ve kapağı son başarılı kayıttan alması da sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -986,6 +986,93 @@ test('kendi profili kaydedilirken kapak korunur, null ile kaldırılır, yeni ka
   assert.strictEqual(result.ok, true)
   assert.strictEqual(posts[2].body.coverUploadId, null)
   assert.strictEqual(opened(posts[2]).cover, null)
+})
+
+test('kendi profil kaydım yenilenmeden yapılan kayıt profil resmini ve kapağı son başarılı kayıttan alır, eski kayıt onları ezemez', async () => {
+  const ctx = load()
+  const keys = setupDm(ctx)
+  const { E2EE, sandbox, run } = ctx
+  run('loadAvatar = function () {}')
+  const own = (pv, avatar, cover) => ({ id: 1, pv: pv, profile: E2EE.sealJson(keys.kid, { v: 1, u: 1, displayName: 'Deniz', statusText: '', bio: '', color: 3, avatar: avatar, cover: cover }), avatarUploadId: avatar ? avatar.u : null, coverUploadId: cover ? cover.u : null, publicKey: keys.mine.publicKey, identity: null })
+  const oldAvatar = { u: AVATAR_ID, k: 'eski', n: 'tek', m: 'image/png', w: 256, h: 256 }
+  const oldCover = { u: COVER_ID, k: 'eski', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
+  sandbox.__entry = own(1, oldAvatar, oldCover)
+  run('storeProfileEntry(__entry)')
+  // Kayıtlar sunucuya ulaşır, kendi profil kaydımı yenileme istekleri düşer (status 0)
+  let serverPv = 1
+  const posts = []
+  sandbox.__api = (method, url, body) => {
+    if (method !== 'POST') return Promise.resolve({ status: 0, data: null })
+    posts.push(body)
+    serverPv += 1
+    return Promise.resolve({ status: 200, data: { ok: true, pv: serverPv } })
+  }
+  run('api = function (method, url, body) { return __api(method, url, body) }')
+  run('activeKid = function () { return state.meta.activeKid }')
+  run('hasActiveKey = function () { return true }')
+  const newAvatar = { u: 'b'.repeat(32), k: 'yeni', n: 'tek2', m: 'image/png' }
+  const newCover = { u: 'e'.repeat(32), k: 'yeni', n: 'tek3', m: 'image/jpeg' }
+  sandbox.__newAvatar = newAvatar
+  sandbox.__newCover = newCover
+  run('uploadAvatar = function () { return Promise.resolve({ ok: true, ref: __newAvatar }) }')
+  run('uploadCover = function () { return Promise.resolve({ ok: true, ref: __newCover }) }')
+  const opened = (body) => JSON.parse(JSON.stringify(E2EE.openJson(body.profile).value))
+  const textOnly = "saveProfile({ displayName: 'Deniz', statusText: '', bio: 'Yeni metin', color: 3 })"
+  // Profil resmi ve kapak değişir, kendi kaydım eski resimleri göstermeye devam eder
+  let result = await run("saveProfile({ displayName: 'Deniz', statusText: '', bio: '', color: 3, avatarFile: {}, coverFile: {} })")
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(posts[0].avatarUploadId, newAvatar.u)
+  assert.strictEqual(posts[0].coverUploadId, newCover.u)
+  assert.strictEqual(run('profileRecord(1).profile.cover.u'), COVER_ID)
+  // Yalnızca metin değişir: sunucuda silinen eski resimler değil (bad_avatar, bad_cover), yeni resimler gider
+  result = await run(textOnly)
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(posts[1].avatarUploadId, newAvatar.u)
+  assert.strictEqual(posts[1].coverUploadId, newCover.u)
+  assert.deepStrictEqual(opened(posts[1]).avatar, Object.assign({}, newAvatar, { w: 256, h: 256 }))
+  assert.deepStrictEqual(opened(posts[1]).cover, Object.assign({}, newCover, { w: 1200, h: 400 }))
+  assert.strictEqual(opened(posts[1]).bio, 'Yeni metin')
+  // Oturum veya frekans değişince son kayıt unutulur
+  run('profilesReset()')
+  assert.strictEqual(run('profileState.ownSaved'), null)
+  // Resmi olmayan kayıt da yeni yüklenen resimleri kaldıramaz
+  sandbox.__entry = own(serverPv, null, null)
+  run('storeProfileEntry(__entry)')
+  result = await run("saveProfile({ displayName: 'Deniz', statusText: '', bio: '', color: 3, avatarFile: {}, coverFile: {} })")
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(run('profileRecord(1).profile.cover'), null)
+  result = await run(textOnly)
+  assert.strictEqual(posts[3].avatarUploadId, newAvatar.u)
+  assert.strictEqual(posts[3].coverUploadId, newCover.u)
+  // Bilerek kaldırılan resim yine kalkar
+  result = await run("saveProfile({ displayName: 'Deniz', statusText: '', bio: '', color: 3, coverFile: null })")
+  assert.strictEqual(posts[4].avatarUploadId, newAvatar.u)
+  assert.strictEqual(posts[4].coverUploadId, null)
+  result = await run(textOnly)
+  assert.strictEqual(posts[5].coverUploadId, null)
+  // Kayıt son kayıt kadar yeni veya daha yeniyse (başka cihazdan kaydedilen kapak) kayıttaki resimler geçerlidir
+  const otherCover = { u: 'f'.repeat(32), k: 'baska', n: 'tek4', m: 'image/jpeg', w: 1200, h: 400 }
+  sandbox.__entry = own(serverPv + 1, null, otherCover)
+  run('storeProfileEntry(__entry)')
+  serverPv += 1
+  result = await run(textOnly)
+  assert.strictEqual(posts[6].avatarUploadId, null)
+  assert.strictEqual(posts[6].coverUploadId, otherCover.u)
+  assert.deepStrictEqual(opened(posts[6]).cover, otherCover)
+  // Kayıt sürerken profiller sıfırlanırsa (çıkış, frekans değişimi) yanıt son kayıt olarak saklanmaz
+  let release = null
+  sandbox.__api = (method, url, body) => {
+    posts.push(body)
+    return new Promise((resolve) => {
+      release = () => resolve({ status: 200, data: { ok: true, pv: 99 } })
+    })
+  }
+  const late = run(textOnly)
+  run('profilesReset()')
+  release()
+  result = await late
+  assert.strictEqual(result.ok, true)
+  assert.strictEqual(run('profileState.ownSaved'), null)
 })
 
 test('kapak kırpması kaynağın ortasından en büyük 3:1 dikdörtgeni alır', () => {

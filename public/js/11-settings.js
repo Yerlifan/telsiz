@@ -1016,14 +1016,19 @@ function buildAccountPage (page) {
     submitAccountDelete({ form: delForm, pass: delPass, progress: delProgress, msg: delMsg })
   })
 
+  // Profili Düzenle düğmesi bir kez kurulur. Profil veya kapak değişince (ör. kapak indikten sonra) yalnızca önizleme kartı
+  // değiştirilir, düğme yerinde kaldığı için klavye ve kumanda odağı kaybolmaz.
+  const edit = sButton('button button-secondary settings-card-action', t('profile.edit'), 'set-account-edit-profile', () => {
+    showSettingsCat('profile', 'title')
+  }, 'i-edit')
+  cardHost.appendChild(edit)
+  let preview = null
   const update = () => {
     if (!state.me) return
-    clear(cardHost)
-    cardHost.appendChild(buildPreviewCard(myProfileView(), 'set-account-preview'))
-    const edit = sButton('button button-secondary settings-card-action', t('profile.edit'), 'set-account-edit-profile', () => {
-      showSettingsCat('profile', 'title')
-    }, 'i-edit')
-    cardHost.appendChild(edit)
+    const card = buildPreviewCard(myProfileView(), 'set-account-preview')
+    if (preview && preview.parentNode === cardHost) cardHost.replaceChild(card, preview)
+    else cardHost.insertBefore(card, edit)
+    preview = card
     nameValue.textContent = '@' + state.me.name
     const owner = isOwner()
     ownerNote.hidden = !owner
@@ -1627,7 +1632,9 @@ async function saveProfileDraft (d, ui) {
   }
   setFormBusy(ui.form, true)
   setMsg(ui.msg, () => t('settings.profile.saving'))
-  // Önceki kaydın profil resmi ve kapağı sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
+  // Önceki kaydın profil resmi ve kapağı kendi profil kaydıma yansıyana kadar beklenir (en fazla birkaç saniye), yeni
+  // bekleyen önizlemenin başlangıcı (from) güncel kayda göre belirlenir. Süre dolarsa kayıt yine gider: saveProfile
+  // değişmeyen resimleri eski kayıttan değil son başarılı kayıttan alır (13-profile.js ownImageBase).
   let waited = 0
   while (((d.pending && myAvatarUploadId() === d.pending.from) || (d.coverPending && myCoverUploadId() === d.coverPending.from)) && waited < 3000) {
     await wait(100)
@@ -1675,12 +1682,11 @@ async function saveProfileDraft (d, ui) {
   d.displayName = saved.displayName
   d.statusText = saved.statusText
   d.bio = saved.bio
-  if (d.pending) revokeBlobLater(d.pending.url)
-  d.pending = null
-  if (mode === 'new') {
-    d.pending = { from: before, url: avatarUrl, at: Date.now() }
-  } else if (mode === 'removed') {
-    d.pending = { from: before, url: '', at: Date.now() }
+  // Bu kayıt resme dokunmadıysa önceki kaydın bekleyen önizlemesi kalır: kendi profil kaydım hâlâ eskiyse yerel önizleme
+  // gösterilmeye devam eder, sunucuda silinmiş eski resim istenmez. Bekleme draftAvatarUrl ve draftCoverUrl içinde biter.
+  if (mode !== 'server') {
+    if (d.pending) revokeBlobLater(d.pending.url)
+    d.pending = { from: before, url: mode === 'new' ? avatarUrl : '', at: Date.now() }
   }
   if (!avatarKept) {
     d.avatarMode = 'server'
@@ -1688,12 +1694,9 @@ async function saveProfileDraft (d, ui) {
     d.avatarUrl = ''
     setMsg(ui.avatarMsg, '')
   }
-  if (d.coverPending) revokeBlobLater(d.coverPending.url)
-  d.coverPending = null
-  if (coverMode === 'new') {
-    d.coverPending = { from: coverBefore, url: coverUrl, at: Date.now() }
-  } else if (coverMode === 'removed') {
-    d.coverPending = { from: coverBefore, url: '', at: Date.now() }
+  if (coverMode !== 'server') {
+    if (d.coverPending) revokeBlobLater(d.coverPending.url)
+    d.coverPending = { from: coverBefore, url: coverMode === 'new' ? coverUrl : '', at: Date.now() }
   }
   if (!coverKept) {
     d.coverMode = 'server'

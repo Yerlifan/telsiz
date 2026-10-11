@@ -9,7 +9,8 @@
 // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
 // Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma, kayıt sürerken hazırlanması
-// biten kapak ve kapak inince profil kartında yalnızca bandın yenilenmesi de sınanır.
+// biten kapak, önceki kaydın kapağı kayda yansımadan yapılan kayıtta bekleyen önizlemenin kalması, kapak inince profil
+// kartında yalnızca bandın, Hesabım'da yalnızca önizleme kartının yenilenmesi de sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -1538,6 +1539,89 @@ test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizl
   assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:b')
   assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
   assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+})
+
+test('kendi profil kaydım yenilenmeden yapılan ikinci kayıt kapağa dokunmazsa yeni kapağın önizlemesi kalır, silinen eski kapak istenmez', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  // Kendi kaydımda eski kapak X var. Kayıttan sonraki yenileme düşer, kayıt X'i göstermeye devam eder.
+  const oldCover = 'c'.repeat(32)
+  sandbox.__cover = oldCover
+  sandbox.__loads = []
+  sandbox.__saved = []
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: __cover ? { u: __cover } : null } } : null }")
+  run("coverUrlOf = function (id, load) { if (load) __loads.push(__cover); return __cover === 'e'.repeat(32) ? 'blob:sunucu-kapak' : null }")
+  // Önceki kaydın yansımasını bekleme süresi hemen dolar
+  run('wait = function () { return Promise.resolve() }')
+  run('makeCoverPreview = function () { return Promise.resolve({ url: "blob:yeni-kapak" }) }')
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  run("openSettings('profile', null)")
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  assert.strictEqual(run('settingsUi.draft.coverPending.from'), oldCover)
+  // Yalnızca hakkımda metni değiştirilip yeniden kaydedilir: kapak kayda girmez (saveProfile son kayıttaki kapağı
+  // kullanır), yeni kapağın bekleyen önizlemesi kalır
+  const bio = byId('set-bio')
+  bio.value = 'Yeni metin'
+  bio.dispatchEvent(fakeEvent('input'))
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 2)
+  assert.strictEqual('coverFile' in sandbox.__saved[1], false)
+  assert.strictEqual(byId('set-profile-msg').textContent, 'Profil kaydedildi.')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:yeni-kapak')
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:yeni-kapak')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:yeni-kapak')
+  assert.deepStrictEqual(sandbox.__loads, [], 'sunucuda silinen eski kapak indirilmez')
+  assert.strictEqual(byId('set-cover-remove').disabled, false)
+  // Kayıt yeni kapakla gelince bekleme biter
+  sandbox.__cover = 'e'.repeat(32)
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:sunucu-kapak')
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+})
+
+test('Hesabım: kapak inince yalnızca önizleme kartı yenilenir, Profili Düzenle düğmesi ve odağı yerinde kalır', () => {
+  const { run, root, doc, sandbox } = load({ role: 'member' })
+  sandbox.__coverUrl = null
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: 'Burak', statusText: '', bio: '', color: null, avatar: null, cover: { u: 'c'.repeat(32) } } } : null }")
+  run('coverUrlOf = function () { return __coverUrl }')
+  run("openSettings('account', null)")
+  const host = root.querySelector('#set-account-card')
+  const edit = root.querySelector('#set-account-edit-profile')
+  const card = root.querySelector('#set-account-preview')
+  // Düğümler karşılaştırılırken assert.ok kullanılır: DOM taklidinin döngülü ağacı hata iletisine dökülmez
+  assert.ok(host.childNodes.length === 2 && host.childNodes[0] === card && host.childNodes[1] === edit, 'önce kart, sonra düğme')
+  assert.strictEqual(card.querySelector('.profile-card-band').classList.contains('has-cover'), false)
+  edit.focus()
+  // Kapak iner: ayar izleyicisi imzanın değiştiğini görür ve sayfayı yeniler
+  sandbox.__coverUrl = 'blob:kapak'
+  run('settingsWatchTick()')
+  const fresh = root.querySelector('#set-account-preview')
+  assert.ok(fresh !== card, 'kart yenilenir')
+  assert.strictEqual(fresh.querySelector('img.profile-card-cover').src, 'blob:kapak')
+  assert.ok(root.querySelector('#set-account-edit-profile') === edit, 'düğme yeniden kurulmaz')
+  assert.ok(host.childNodes.length === 2 && host.childNodes[0] === fresh && host.childNodes[1] === edit, 'kart düğmenin önünde kalır')
+  assert.ok(doc.activeElement === edit, 'odak düğmede kalır')
+  assert.strictEqual(root.querySelectorAll('#set-account-preview').length, 1)
+  // Düğme çalışmaya devam eder
+  edit.click()
+  assert.strictEqual(run('settingsUi.cat'), 'profile')
 })
 
 test('kapak inince açık profil kartında yalnızca bant değişir, kartın geri kalanı yeniden kurulmaz', () => {

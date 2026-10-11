@@ -63,7 +63,11 @@ const profileState = {
   // Metadaki kullanıcı adları (kimlik -> ad), ad değişikliğini bulmak için
   metaNames: null,
   // Profil sürümü: görünen ad, profil resmi veya kullanıcı adı değişince artar (profileEpoch)
-  epoch: 0
+  epoch: 0,
+  // Son başarılı kendi profil kaydım: { userId, pv, avatar, cover }. pv sunucunun döndürdüğü sürüm, avatar ve cover zarfa
+  // giren resim başvurularıdır ({ u, k, n, m } veya null). Kendi profil kaydım yenilenene kadar sonraki kayıt değişmeyen
+  // resimleri buradan alır (ownImageBase).
+  ownSaved: null
 }
 
 // Ad ve avatar çizen, kendi önbellek anahtarıyla yeniden çizimi atlayan yüzeyler (kameralar ızgarası, paylaşan
@@ -86,6 +90,7 @@ function profilesReset () {
   profileState.metaIds = null
   profileState.metaNames = null
   profileState.epoch += 1
+  profileState.ownSaved = null
   profileState.fetching = false
   profileState.failures = 0
   profileState.retryAt = 0
@@ -1472,8 +1477,10 @@ async function saveProfile (input) {
   if (cpLength(statusText) > PROFILE_STATUS_MAX) return { ok: false, error: () => t('profile.statusTooLong', { max: PROFILE_STATUS_MAX }) }
   if (cpLength(String(data.bio || '').trim()) > PROFILE_BIO_MAX) return { ok: false, error: () => t('profile.bioTooLong', { max: PROFILE_BIO_MAX }) }
   const color = cleanColor(typeof data.color === 'number' ? data.color : null)
-  const rec = profileRecord(state.me.id)
-  let avatarRef = rec && rec.profile && rec.profile.avatar ? rec.profile.avatar : null
+  const gen = profileState.gen
+  const userId = String(state.me.id)
+  const base = ownImageBase(profileRecord(userId))
+  let avatarRef = base.avatar
   let avatarUploadId = avatarRef ? avatarRef.u : null
   if (data.avatarFile === null) {
     avatarRef = null
@@ -1484,7 +1491,7 @@ async function saveProfile (input) {
     avatarRef = made.ref
     avatarUploadId = made.ref.u
   }
-  let coverRef = rec && rec.profile && rec.profile.cover ? rec.profile.cover : null
+  let coverRef = base.cover
   if (data.coverFile === null) {
     coverRef = null
   } else if (data.coverFile) {
@@ -1514,8 +1521,33 @@ async function saveProfile (input) {
   if (res.status !== 200) {
     return { ok: false, error: () => errorText(res, t('profile.saveFailed'), { rate_limited: t('profile.rateLimited') }) }
   }
-  profilesRefetch([state.me.id])
+  rememberOwnSave(gen, userId, res.data, avatarRef, coverRef)
+  profilesRefetch([userId])
   return { ok: true }
+}
+
+// Kaydın değişmeyen profil resmi ve kapağı. Önceki kayıttan sonra kendi profil kaydım henüz yenilenmediyse (yenileme
+// isteği düşebilir, sürümü son kaydınkinden eskidir) resimler son başarılı kayıttan alınır. Eski kayıttaki başvuru
+// gönderilseydi sunucuda silinmiş resim kaydı bad_avatar veya bad_cover ile düşürür, eski kayıtta resim yoksa da yeni
+// yüklenen resim kaldırılırdı. Kayıt son kayıt kadar yeniyse (veya başka cihazdan gelen daha yeni bir kayıtsa) kayıttaki
+// resimler geçerlidir.
+function ownImageBase (rec) {
+  const saved = profileState.ownSaved
+  if (saved && state.me && saved.userId === String(state.me.id) && (!rec || rec.missing || rec.pv < saved.pv)) {
+    return { avatar: saved.avatar, cover: saved.cover }
+  }
+  const profile = rec && rec.profile ? rec.profile : null
+  return { avatar: profile && profile.avatar ? profile.avatar : null, cover: profile && profile.cover ? profile.cover : null }
+}
+
+// Başarılı kaydın sürümü ve resimleri saklanır. Kayıt sürerken oturum veya frekans değiştiyse (profilesReset) ya da
+// aynı anda giden başka bir kayıt daha yeni bir sürüm aldıysa saklanan değer değişmez.
+function rememberOwnSave (gen, userId, data, avatarRef, coverRef) {
+  if (gen !== profileState.gen || !data || typeof data.pv !== 'number') return
+  const prev = profileState.ownSaved
+  if (prev && prev.userId === userId && prev.pv > data.pv) return
+  const pick = (ref) => (ref ? { u: ref.u, k: ref.k, n: ref.n, m: ref.m } : null)
+  profileState.ownSaved = { userId: userId, pv: data.pv, avatar: pick(avatarRef), cover: pick(coverRef) }
 }
 
 // Profil resmi: kare kırpma, 256x256, PNG kaynak PNG, diğerleri JPEG olarak yeniden kodlanır
