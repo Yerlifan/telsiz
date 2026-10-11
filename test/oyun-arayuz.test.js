@@ -688,10 +688,12 @@ describe('bağlantılar ve stiller', () => {
     }
   })
 
-  test('telefonda oyun sahnesinin yüksekliği cast.css 16:9 kuralını eşit özgüllükle ezer', () => {
+  test('telefonda sohbet daraltılmışken oyun sahnesi cast.css 16:9 yüksekliği yerine kalan yüksekliği alır, alt sınırı küçüktür', () => {
     const css = stripComments(read(PUB, 'css', 'oyun.css')).replace(/\r\n/g, '\n')
     const phone = css.slice(css.indexOf('@media (max-width: 759px)'))
-    assert.match(phone, /body\[data-cast="live"\]\[data-cast-mode="game"\] \.cast-screen \{\s*height: auto;\s*flex: 1 1 auto;\s*min-height: 20rem;/)
+    assert.match(phone, /body\[data-cast="live"\]\[data-cast-mode="game"\]\[data-cast-chat="closed"\] \.cast-screen \{\s*height: auto;\s*flex: 1 1 auto;\s*min-height: 8rem;/)
+    // Büyük sabit alt sınır küçük telefonda ve büyük yazıda paneli taşırır, sahnenin başlığı kırpılırdı
+    assert.ok(!/min-height: (1[0-9]|[2-9][0-9])rem/.test(phone), 'telefonda büyük sabit alt sınır yok')
     assert.ok(HTML.indexOf('href="/css/cast.css"') < HTML.indexOf('href="/css/oyun.css"'), 'oyun.css cast.css dosyasından sonra yüklenir')
   })
 
@@ -803,6 +805,31 @@ describe('i18n ve marka adı', () => {
     }
   })
 
+  test('erişilebilir ad görünen etiketle başlar (WCAG 2.5.3, Label in Name)', () => {
+    const I = loadI18n().I18N
+    // [görünen etiket, erişilebilir ad]: Oyun düğmesinin durumları, Masaya Bak, Deste, Tek! ve Yakala
+    const pairs = [
+      ['game.tool', 'game.toolLabel'],
+      ['game.toolInvite', 'game.toolInviteLabel'],
+      ['game.toolBusy', 'game.toolBusyAria'],
+      ['game.minimize', 'game.minimizeLabel'],
+      ['game.view', 'game.viewLabel'],
+      ['game.renk.draw', 'game.renk.drawLabel'],
+      ['game.renk.last', 'game.renk.lastLabel'],
+      ['game.renk.lastArmed', 'game.renk.lastArmedLabel'],
+      ['game.renk.catch', 'game.renk.catchLabel']
+    ]
+    for (const lang of ['tr', 'en']) {
+      I.setLang(lang)
+      const norm = (s) => s.toLocaleLowerCase(lang).replace(/[!:,.]/g, ' ').replace(/\s+/g, ' ').trim()
+      for (const [shown, name] of pairs) {
+        const label = norm(I.t(shown))
+        const full = norm(I.t(name, { name: 'Ece', game: 'Renk', left: I.t('game.renk.deckLeft', { count: 3 }) }))
+        assert.equal(full.indexOf(label), 0, lang + ': "' + I.t(shown) + '" / "' + I.t(name) + '"')
+      }
+    }
+  })
+
   test('marka adı oyun dosyalarında, i18n değerlerinde, testlerde ve belgelerde geçmez', () => {
     const brand = new RegExp('\\b' + String.fromCharCode(117, 110, 111) + '\\b', 'i')
     const files = []
@@ -849,7 +876,9 @@ describe('Oyun düğmesi', () => {
     assert.equal(state(Object.assign({}, room, { private: true }), {}), null, 'özel arama')
     const invite = { dealer: '12', app: 'renk', ph: 'lobby', rules: 'official', seats: ['12'], key: null, myKey: null }
     same(pick(state(room, { role: 'player', stage: 'invited', invite })), ['invite', 'Davet', '1', false, false])
-    assert.equal(state(room, { role: 'player', stage: 'invited', invite }).aria, 'Ece sizi Renk oyununa davet ediyor, masaya bakın')
+    // Erişilebilir ad görünen etiketle başlar (WCAG 2.5.3)
+    assert.equal(state(room, { role: 'player', stage: 'invited', invite }).aria, 'Davet: Ece sizi Renk oyununa davet ediyor')
+    assert.equal(state(room, { stage: 'none', invite: Object.assign({}, invite, { ph: 'play' }) }).aria, 'Oyun Sürüyor: bu odadaki oyuna sonraki elde katılabilirsiniz')
     same(pick(state(room, { role: 'player', stage: 'rejoin', invite: Object.assign({}, invite, { ph: 'play', seats: ['12', '5'] }) })), ['invite', 'Davet', '1', false, false])
     same(pick(state(room, { stage: 'none', invite })), ['invite', 'Davet', '1', false, false], 'reddedilen ama süren lobi')
     same(pick(state(room, { stage: 'none', invite: Object.assign({}, invite, { ph: 'play' }) })), ['busy', 'Oyun Sürüyor', '', false, true])
@@ -857,7 +886,7 @@ describe('Oyun düğmesi', () => {
     same(pick(state(room, { role: 'player', stage: 'play', invite, legal: { turn: false } })), ['back', 'Masaya Dön', '', false, false])
     same(pick(state(room, { role: 'player', stage: 'play', invite, legal: { turn: true } })), ['turn', 'Sıra Sizde', '!', false, false])
     same(pick(state(room, { role: 'dealer', stage: 'lobby' }, true)), ['minimize', 'Küçült', '', true, false])
-    assert.equal(state(room, { role: 'dealer', stage: 'lobby' }, true).aria, 'Masayı küçültün, oyun sürer')
+    assert.equal(state(room, { role: 'dealer', stage: 'lobby' }, true).aria, 'Küçült: masa kapanır, oyun sürer')
     page.run('voice = {}')
     assert.equal(state(room, {}), null, 'sendGame yok')
     const bare = makePage('5', makeNet(), { ui: false })
@@ -997,8 +1026,10 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
     assert.equal(ece.qa('#activity .activity-item.is-game').length, 1)
     assert.equal(ece.text('#activity .activity-text'), 'Deniz, Renk masası açtı')
     assert.equal(ece.q('#activity').hidden, false)
+    // Bildirimler listesi görünürken (kendisi kibar canlı bölgedir) davet ikinci kez duyurulmaz
+    assert.equal(ece.run('activityShown()'), true)
     net.clock.advance(400)
-    assert.equal(ece.text('#game-live .game-live-polite'), 'Deniz sizi Renk oyununa davet ediyor.')
+    assert.equal(ece.text('#game-live .game-live-polite'), null)
 
     // Bildirimler listesindeki Masaya Bak: davet, kurallar, güven notu Katıl'ın hemen üstünde
     ece.click('#activity .activity-watch')
@@ -1185,6 +1216,175 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
     assert.equal(deniz.tool(), null, 'seste değilken düğme yok')
   })
 
+  test('"Oyun başladı" her cihazda bir kez duyurulur, ilk kart olaysız ve ilk sıra başkasındayken de', () => {
+    // Bildirim (olaylar ya da sıra) almayan cihazda duyuru onChange içinde, önceki modelle karşılaştırılarak yapılır
+    let quiet = 0
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { net, pages } = makeWorld(['5', '12', '7'], { renk: true, seed })
+      const [deniz, ece, mert] = pages
+      deniz.press('tool-game')
+      deniz.press('game-open')
+      net.flush()
+      for (const page of [ece, mert]) {
+        page.press('tool-game')
+        page.press('game-join')
+        net.flush()
+      }
+      net.clock.advance(1000)
+      deniz.press('game-start')
+      net.flush()
+      const m = deniz.model()
+      const turn = m.view.turn
+      if (!m.events.length) quiet++
+      net.clock.advance(400)
+      for (const page of pages) {
+        const said = page.text('#cast .game-live-polite') || ''
+        assert.equal(said.split('Oyun başladı.').length - 1, 1, 'tohum ' + seed + ', ' + NAMES[page.me] + ' (sıra ' + NAMES[turn] + '): ' + said)
+      }
+      assert.equal(net.errors.length, 0, String(net.errors[0]))
+    }
+    assert.ok(quiet > 0, 'en az bir tohumda ilk kart olay üretmedi')
+  })
+
+  test('kurpiyer oyun sürerken Koltuklar listesinden onayla koltuk çıkarır, lobide onay istenmez', () => {
+    const { net, pages } = makeWorld(['5', '12', '7'])
+    const [deniz, ece, mert] = pages
+    deniz.press('tool-game')
+    deniz.press('game-open')
+    net.flush()
+    for (const page of [ece, mert]) {
+      page.press('tool-game')
+      page.press('game-join')
+      net.flush()
+    }
+    deniz.press('game-start')
+    net.flush()
+    assert.equal(deniz.model().stage, 'play')
+    // Varsayılan olarak kapalı: masanın yerini almaz
+    const more = deniz.key('game-seats-more')
+    assert.equal(more.textContent, 'Koltuklar')
+    assert.equal(more.getAttribute('aria-expanded'), 'false')
+    assert.equal(more.getAttribute('aria-controls'), 'game-seats-detail')
+    assert.equal(deniz.q('#game-seats-detail').hidden, true)
+    assert.equal(deniz.key('game-remove-7'), null)
+    assert.equal(ece.key('game-seats-more'), null, 'oyuncuda yok')
+    deniz.press('game-seats-more')
+    assert.equal(deniz.q('#game-seats-detail').hidden, false)
+    assert.equal(deniz.key('game-seats-more').getAttribute('aria-expanded'), 'true')
+    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-seats-more')
+    same(deniz.qa('#game-seats-detail .game-chip').map((c) => c.textContent), ['Kurpiyer', 'Katıldı', 'Katıldı'])
+    assert.equal(deniz.key('game-remove-5'), null, 'kurpiyerin kendi koltuğu çıkarılmaz')
+    // Oyun sürerken onay satırı
+    deniz.press('game-remove-7')
+    assert.equal(deniz.text('.game-confirm-text'), 'Mert masadan çıkarılır, kartları desteye döner.')
+    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-confirm-no')
+    assert.equal(deniz.model().seats.length, 3)
+    deniz.press('game-confirm-yes')
+    assert.equal(deniz.model().seats.length, 2)
+    assert.equal(deniz.model().stage, 'play')
+    assert.equal(deniz.key('game-remove-7'), null)
+    net.flush()
+    same(mert.model().ended, { reason: 'removed' })
+    assert.equal(mert.text('.game-ended'), 'Kurpiyer sizi masadan çıkardı.')
+    // Sonuç ekranında ve lobide onaysız
+    deniz.press('game-end')
+    deniz.press('game-confirm-yes')
+    net.flush()
+    assert.equal(deniz.model().stage, 'over')
+    assert.ok(deniz.key('game-seats-more'), 'sonuç ekranında da var')
+    deniz.press('game-new-round')
+    net.flush()
+    assert.equal(deniz.model().stage, 'lobby')
+    deniz.press('game-remove-12')
+    assert.equal(deniz.q('.game-confirm'), null)
+    assert.equal(deniz.model().seats.length, 1)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('yenilenmiş sayfa Oyuna Dön ekranını görür ve Oyuna Dön ile koltuğuna döner', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    deniz.press('tool-game')
+    deniz.press('game-open')
+    net.flush()
+    ece.press('tool-game')
+    ece.press('game-join')
+    net.flush()
+    deniz.press('game-start')
+    net.flush()
+    assert.equal(ece.model().stage, 'play')
+    // Ece sayfayı yeniler (aynı eş kimliği) ve sese döner: kurpiyer peer-ready olayında yeni değerli davet gönderir
+    const fresh = makePage('12', net)
+    fresh.fake.roster = deniz.fake.roster
+    fresh.fake.snap.peers['5'] = { peerId: deniz.peerId, status: 'connected' }
+    fresh.run('gameRender()')
+    deniz.run("gameOnVoiceEvent({ type: 'peer-ready', peerId: 'p12', userId: '12' })")
+    fresh.run("gameOnVoiceEvent({ type: 'peer-ready', peerId: 'p5', userId: '5' })")
+    net.flush()
+    assert.equal(fresh.model().stage, 'rejoin')
+    assert.equal(fresh.stage(), null, 'teklif sahneyi açmaz')
+    assert.equal(fresh.tool().getAttribute('data-state'), 'invite')
+    fresh.press('tool-game')
+    assert.equal(fresh.stage(), 'game')
+    assert.equal(fresh.text('.game-lead'), 'Bu masada koltuğunuz duruyor. Oyuna dönmek ister misiniz?')
+    assert.equal(fresh.doc.activeElement.getAttribute('data-focus-key'), 'game-rejoin')
+    assert.equal(fresh.key('game-rejoin').textContent, 'Oyuna Dön')
+    assert.ok(fresh.key('game-dismiss'), 'Kapat')
+    fresh.press('game-rejoin')
+    assert.equal(fresh.model().stage, 'joining')
+    net.flush()
+    assert.equal(fresh.model().stage, 'play')
+    assert.equal(fresh.text('.game-app .fake-table'), 'play')
+    same(fresh.model().seats.map((s) => s.id), ['5', '12'])
+    assert.equal(deniz.model().seats.length, 2)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('katılmadığı davetle ses odasından çıkan kişi bildirim görmez, davet sessizce kalkar', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    deniz.press('tool-game')
+    deniz.press('game-open')
+    net.flush()
+    assert.equal(ece.model().stage, 'invited')
+    assert.equal(ece.qa('#activity .activity-item.is-game').length, 1)
+    ece.fake.snap = { channelId: null, private: false, joining: false, peers: {} }
+    ece.run("gameOnVoiceEvent({ type: 'reset' })")
+    assert.equal(ece.model().stage, 'none')
+    assert.equal(ece.model().invite, null)
+    assert.equal(ece.q('.toast').hidden, true, 'masa kapandı denmez: kurpiyerin masası sürüyor')
+    assert.equal(ece.qa('#activity .activity-item.is-game').length, 0, 'Bildirimler kaydı kalkar')
+    net.clock.advance(400)
+    assert.equal(ece.text('#game-live .game-live-polite'), null)
+  })
+
+  test('davetten sonra kurpiyeri engelleyen oyuncuda davet, rozet ve Bildirimler kaydı kalkar', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    deniz.press('tool-game')
+    deniz.press('game-open')
+    net.flush()
+    assert.equal(ece.tool().getAttribute('data-state'), 'invite')
+    assert.equal(ece.qa('#activity .activity-item.is-game').length, 1)
+    // 14-social.js engelleme değişince socialBlockedGame ile gameRender çağırır
+    ece.fake.blocked.push('5')
+    ece.run('gameRender()')
+    assert.equal(ece.model().stage, 'none')
+    assert.equal(ece.model().invite, null)
+    assert.equal(ece.tool().getAttribute('data-state'), 'tool')
+    assert.equal(ece.text('#radio-game .radio-tool-count'), '')
+    assert.equal(ece.qa('#activity .activity-item.is-game').length, 0)
+    // Kurpiyerin yinelediği davet de gösterilmez, kişi kendi masasını kurabilir
+    net.clock.advance(16000)
+    net.flush()
+    assert.equal(ece.model().invite, null)
+    ece.press('tool-game')
+    assert.equal(ece.model().stage, 'setup')
+    const social = read(PUB, 'js', '14-social.js')
+    assert.equal(social.split('socialBlockedGame()').length - 1, 3, 'blockUser, unblockUser ve socialApplyPrivate')
+    assert.match(social, /function socialBlockedGame \(\) \{\s*if \(typeof gameRender === 'function'\) gameRender\(\)/)
+  })
+
   test('özel aramada gelen oyun olayları atılır, kilitli kimlikte Masa Aç pasif', () => {
     const { net, pages } = makeWorld(['5', '12'])
     const [deniz, ece] = pages
@@ -1200,6 +1400,11 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
     locked.press('tool-game')
     assert.equal(locked.key('game-open').getAttribute('aria-disabled'), 'true')
     assert.ok(locked.text('.game-locked').indexOf('güvenlik anahtarınızın') !== -1)
+    // Sorun kurpiyerin kendi kimliğinde: odadakilerin satırlarında çip ve neden yok, üstteki not söyler
+    same(locked.model().room.map((r) => [r.status, r.key]), [['keys', 'locked']])
+    assert.equal(locked.text('.game-room .game-person-name'), 'Aylin')
+    assert.equal(locked.q('.game-room .game-chip'), null)
+    assert.equal(locked.q('.game-room .game-person-reason'), null)
     locked.press('game-open')
     assert.equal(locked.model().stage, 'setup', 'pasif Masa Aç masa açmaz')
   })
@@ -1219,6 +1424,16 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
     net.flush()
     same(deniz.model().room.map((r) => r.status), ['cannot'])
     assert.equal(deniz.text('.game-room .game-chip'), 'Katılamaz')
+    // Neden kurpiyerin bakışıyla yazılır
+    assert.equal(deniz.text('.game-room .game-person-reason'), 'Ece cihazı güvenlik anahtarınızı doğrulayamadı.')
+    for (const key of ['locked', 'unverified', 'changed', 'loading', 'gone']) {
+      for (const lang of ['tr', 'en']) {
+        deniz.run(`I18N.setLang('${lang}')`)
+        assert.ok(deniz.run(`hasText('game.reason.cannot_${key}')`), lang + ': ' + key)
+        assert.ok(deniz.run(`t('game.reason.cannot_${key}', { name: 'Ece' })`).indexOf('Ece') !== -1, lang + ': ' + key)
+      }
+    }
+    deniz.run("I18N.setLang('tr')")
   })
 })
 
@@ -1350,7 +1565,15 @@ describe('Renk: bağlantılar, i18n ve kart adları', () => {
       { e: 'caught', p: '7', by: '12' },
       { e: 'penalty', p: '7', n: 2, want: 2, why: 'last' },
       { e: 'end', winner: null, total: 0, reason: 'ended' },
-      { e: 'end', winner: '12', total: 30, reason: 'out' }
+      { e: 'end', winner: '12', total: 30, reason: 'out' },
+      // Destede kart kalmadıysa yakalanan oyuncu 2'den az kart çeker: cümle gerçekten çekilen sayıyı söyler
+      { e: 'caught', p: '12', by: '5' },
+      { e: 'reshuffle', n: 1 },
+      { e: 'penalty', p: '12', n: 1, want: 2, why: 'last' },
+      { e: 'caught', p: '7', by: '5' },
+      { e: 'penalty', p: '7', n: 0, want: 2, why: 'last' },
+      // Son kart olarak renk seçilmeden oynanan Joker: renk seçildi denmez
+      { e: 'play', p: '12', c: 'WW', col: null }
     ]
     same(page.run('tEv.map((ev) => renkEventText(ev))'), [
       'Ece Joker +4, Yeşil seçildi oynadı.',
@@ -1358,11 +1581,25 @@ describe('Renk: bağlantılar, i18n ve kart adları', () => {
       'Deniz sırasını kaybetti.',
       'Ece 1 kart çekti.',
       'Yön değişti: Ters Yön.',
+      '',
       'Mert yakalandı ve 2 kart çekti.',
       '',
+      'Ece kazandı.',
       '',
-      'Ece kazandı.'
+      'Atılan kartlar karıştırılıp desteye kondu.',
+      'Ece yakalandı ve 1 kart çekti.',
+      '',
+      'Mert yakalandı ama destede çekecek kart kalmadı.',
+      'Ece Joker oynadı.'
     ])
+    page.run("I18N.setLang('en')")
+    same(page.run('tEv.slice(5, 7).concat(tEv.slice(11, 15)).map((ev) => renkEventText(ev)).filter(Boolean)'), [
+      'Mert was caught and drew 2 cards.',
+      'Ece was caught and drew 1 card.',
+      'Mert was caught, but the deck had no cards left to draw.',
+      'Ece played Wild.'
+    ])
+    page.run("I18N.setLang('tr')")
     const state = renkDeal(page, ['R5', 'R2', 'G5', 'B1', 'Y3', 'WW', 'G9'], ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'], 'R9')
     const m = renkShow(page, state)
     assert.equal(page.run('renkTurnText(tM)'), 'Sıra sizde. Atılan kart Kırmızı 9. 4 kartınız oynanabilir.')
@@ -1391,7 +1628,9 @@ describe('Renk: masa çizimi ve hamleler', () => {
     assert.equal(page.q('.renk-pile').getAttribute('aria-label'), 'Atılan kart: Kırmızı 9')
     assert.equal(page.q('.renk-pile .renk-card').getAttribute('data-color'), 'R')
     assert.equal(page.text('.renk-color-name'), 'Kırmızı')
-    assert.equal(page.key('game-draw').getAttribute('aria-label'), 'Desteden kart çekin, 93 kart kaldı')
+    // Erişilebilir ad görünen etiketle başlar (WCAG 2.5.3)
+    assert.equal(page.key('game-draw').getAttribute('aria-label'), 'Kart Çek, 93 kart kaldı')
+    assert.equal(page.text('.renk-deck-label'), 'Kart Çek')
     assert.equal(page.key('game-draw').getAttribute('aria-disabled'), null)
     assert.equal(page.text('.renk-hand-title'), 'Eliniz · 7 Kart')
     assert.equal(page.q('.renk-hand').getAttribute('aria-label'), 'Eliniz, 7 kart')
@@ -1526,6 +1765,8 @@ describe('Renk: masa çizimi ve hamleler', () => {
     page.press('game-last')
     assert.equal(page.key('game-last').getAttribute('aria-pressed'), 'true')
     assert.equal(page.text('[data-focus-key="game-last"]'), 'Tek! Denecek')
+    // Erişilebilir ad görünen etiketle başlar (WCAG 2.5.3)
+    assert.equal(page.key('game-last').getAttribute('aria-label'), 'Tek! Denecek: kartınızı oynarken Tek! denir')
     assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'game-last')
     page.press('game-last')
     assert.equal(page.key('game-last').getAttribute('aria-pressed'), 'false', 'ikinci basış kaldırır')
@@ -1551,7 +1792,7 @@ describe('Renk: masa çizimi ve hamleler', () => {
     assert.ok(page.q('.renk-opp').classList.contains('is-catchable'))
     const grab = page.key('game-catch')
     assert.equal(grab.getAttribute('aria-disabled'), null)
-    assert.equal(grab.getAttribute('aria-label'), 'Ece Tek! demedi, yakalayın')
+    assert.equal(grab.getAttribute('aria-label'), 'Yakala: Ece Tek! demedi')
     page.press('game-catch')
     same(calls(page)[2], ['act', { t: 'catch', p: '12' }])
     // Masa değişene kadar ikinci basış gitmez (kurpiyerin sıra dışı hamlesi gecikmeli işlenir)

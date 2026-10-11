@@ -1,12 +1,14 @@
 'use strict'
 
 // Oyun masası yöneticisi (window.TelsizGameDesk). DOM, saat ve sözlük kullanmaz: zaman env.now(), ağ env.send,
-// anahtarlar env.keys ile gelir. 36-oyun.js ortamı kurar, ses olaylarını onVoiceEvent ile iletir ve masa etkinken
-// tick() çağrısını 250 ms'de bir yapar. Yıldız düzeni: kurpiyer tek otoritedir, oyuncular yalnızca kurpiyerle konuşur.
+// anahtarlar env.keys ile gelir. 36-oyun.js ortamı kurar, ses olaylarını onVoiceEvent ile iletir ve masa ya da saklı
+// davet varken tick() çağrısını 250 ms'de bir yapar. Yıldız düzeni: kurpiyer tek otoritedir, oyuncular yalnızca
+// kurpiyerle konuşur.
 // - Kurpiyer: masa, koltuklar, davetler, uygulamanın tam durumu ve gönderim kuyruğu. Koltuk başına en çok bir ileti
 //   uçuştadır, arada gelen değişiklikler koltuğu yalnızca kirli işaretler ve sonraki gönderim en yeni durumu taşır.
 //   Koltuğa özel yanıtlar ve sync yanıtları kısılır, 429 sonrası geri çekilir, boştaki koltuğa tazeleme gider.
-// - Oyuncu: davet, katılım, bekleyen hamle (aynı seq ile yeniden gönderim), sürüm kuralı ve canlılık.
+// - Oyuncu: davet, katılım, bekleyen hamle (aynı seq ile yeniden gönderim), sürüm kuralı ve canlılık. Kurpiyer
+//   başına saklanan son davet de canlı tutulur (offersTick).
 // Oyun kuralları uygulamadadır (env.apps, ör. TelsizRenk) ve genel sözleşmeyle çağrılır. İleti biçimleri, bağ
 // denetimi ve sayaç kuralları TelsizGame (33-oyun-protokol.js) içindedir. Her yöntem eşzamanlıdır, değişiklikten
 // sonra gönderim kuyruğu boşaltılır, bildirimler (env.onNotice) ve env.onChange en dışta bir kez çağrılır.

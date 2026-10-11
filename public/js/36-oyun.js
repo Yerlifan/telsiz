@@ -728,15 +728,14 @@ function gameScrollRestore (container, saved) {
   container.scrollTop = saved.top
 }
 
-// keep: odak verilirken sayfa kaydırılmaz (preventScroll)
+// keep: odak verilirken sahne kaydırılmaz (preventScroll), değilse odaklanan denetim görünür alana gelir
 function gameFocusKey (container, key, keep) {
-  if (!key) return
-  const found = Array.from(container.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0]
-  if (!found) return
   if (!keep) {
-    focusNode(found)
+    restoreFocusKey(container, key)
     return
   }
+  const found = key ? Array.from(container.querySelectorAll('[data-focus-key]')).filter((node) => node.getAttribute('data-focus-key') === key)[0] : null
+  if (!found) return
   try {
     found.focus({ preventScroll: true })
   } catch (err) {

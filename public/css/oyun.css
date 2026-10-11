@@ -541,6 +541,12 @@
     margin-right: 0;
   }
 
+  /* Etiketsiz düğme büyümez, yalnızca simgesi ve rozeti kadar yer alır: kalan genişlik etiketli araçlara (Büyüt,
+     Telsiz DJ) kalır (radio.css .radio-tools) */
+  .radio-tools > .game-tool {
+    flex: 0 0 auto;
+  }
+
   /* Sohbet daraltılmışken (oyunda varsayılan) sahne cast.css'teki 16:9 yükseklik yerine kalan yüksekliği alır, masa
      .cast-game içinde kayar. Alt sınır küçüktür: büyük bir sabit alt sınır (ör. 20rem) küçük telefonda ve büyük yazı
      boyutunda paneli taşırır, başlık (Küçült, Tam Ekran) panelin kırpılan üst kısmında kalırdı. Sohbet açıkken

@@ -9,6 +9,11 @@
 //   yeniden açıp katılır
 // - Başlat: her elde 7 kart (ilk kart +2 ise atlanan oyuncuda 9), sayfada el dışında yalnız atılan kart çizilir
 // - Altı tur oynanır (oynatıcı kural ayrıntısını sınamaz), her turdan sonra üç sayfada atılan kart ve sıra aynıdır
+// - Küçült masayı kapatır ama oyun sürer, Oyun düğmesi masayı yeniden açar (22-cast.js castMinimizeGame)
+// - Ece sayfasını yenileyip ses odasına döner, Oyuna Dön ile koltuğuna ve eline döner
+// - Telefonda sahnenin başlığı 375 x 667 ve 360 x 640 ekranda ve büyük yazıda ulaşılabilir, masa sahnenin içinde kayar
+// - Telefonda masa yeniden çizilince sahnenin dikey ve elin yatay kaydırması korunur, odak sahneyi kaydırmaz
+// - Masa açıkken paylaşım izlenip bırakılınca ve üst çubuktan durdurulunca odak masada kalır (yalnız Chromium)
 // - Telefonda yatay taşma yoktur, el kendi içinde yatay kayar
 // - Mert ses odasından ayrılınca iki koltuk kalır, kartları desteye döner
 // - Kurpiyer ses odasından ayrılınca oyuncuda bitiş metni görünür, Kapat odağı Oyun düğmesine verir
@@ -192,6 +197,11 @@ test('dört kişi ses odasında, Oyun düğmesi araç satırında Telsiz DJ\'den
       }
     })
     assert.deepEqual(r, { label: 'Oyun', aria: 'Oyun masası kurun', focusKey: 'tool-game', controls: 'cast', expanded: 'false', placed: true })
+    // Araç satırındaki görünen etiketler kesilmez (telefonda Oyun düğmesinin etiketi görsel olarak gizlidir)
+    const cut = await page.evaluate(() => Array.from(document.querySelectorAll('#radio-tools .radio-tool-label'))
+      .filter((l) => getComputedStyle(l).position !== 'absolute' && l.scrollWidth > l.clientWidth + 1)
+      .map((l) => l.textContent))
+    assert.deepEqual(cut, [], 'kesilen etiket')
   }
 })
 
@@ -227,7 +237,7 @@ test('davet: Ece ve Mert davet görür, engellenen Aylin görmez', async () => {
     const b = document.getElementById('radio-game')
     return { label: b.querySelector('.radio-tool-label').textContent, badge: b.querySelector('.radio-tool-count').textContent, aria: b.getAttribute('aria-label') }
   })
-  assert.deepEqual(r, { label: 'Davet', badge: '1', aria: 'Deniz sizi Renk oyununa davet ediyor, masaya bakın' })
+  assert.deepEqual(r, { label: 'Davet', badge: '1', aria: 'Davet: Deniz sizi Renk oyununa davet ediyor' })
   assert.equal(await ece.textContent('#activity .activity-item.is-game .activity-watch'), 'Masaya Bak')
   // Gelen davet sahneyi açmaz
   for (const page of [ece, mert]) assert.equal(await page.isHidden('#cast'), true)
@@ -315,6 +325,129 @@ test('altı tur oynanır, her turdan sonra üç sayfada atılan kart ve sıra ay
   }
   t.diagnostic(done.join(', '))
 })
+
+test('Küçült masayı kapatır ama oyun sürer, Oyun düğmesi masayı yeniden açar', async () => {
+  const { ece } = W
+  const before = await settle(players())
+  await ece.click('#cast .cast-game-min')
+  await ece.waitForSelector('#cast', { state: 'hidden', timeout: h.LONG })
+  const r = await ece.evaluate(() => {
+    const b = document.getElementById('radio-game')
+    return { stage: gameModel().stage, state: b.getAttribute('data-state'), expanded: b.getAttribute('aria-expanded'), active: document.activeElement.id }
+  })
+  const mine = before[1].mine
+  assert.deepEqual(r, { stage: 'play', state: mine ? 'turn' : 'back', expanded: 'false', active: 'radio-game' })
+  await ece.click('#radio-game')
+  await ece.waitForSelector('#cast[data-mode="game"]:not([hidden]) .renk-table', { timeout: h.LONG })
+  const after = await settle(players())
+  assert.equal(after[1].cards, before[1].cards)
+  assert.equal(after[1].step, before[1].step)
+})
+
+test('Ece sayfasını yenileyip ses odasına döner, Oyuna Dön ile koltuğuna ve eline döner', async () => {
+  const { ece } = W
+  const before = await settle(players())
+  await ece.reload({ waitUntil: 'domcontentloaded', timeout: h.LONG })
+  await ece.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await ece.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  await h.joinVoice(ece, W.lobi.id)
+  // Kurpiyer yeni bağlantıda yeni değerli davet gönderir: teklif sahneyi açmaz, düğme Davet olur
+  await ece.waitForSelector('#radio-game.is-invited', { timeout: h.LONG })
+  assert.equal(await ece.textContent('#radio-game .radio-tool-label'), 'Davet')
+  assert.equal(await ece.isHidden('#cast'), true)
+  await ece.click('#radio-game')
+  await ece.waitForSelector(onStage('game-rejoin'), { timeout: h.LONG })
+  assert.equal(await ece.textContent('#cast .game-lead'), 'Bu masada koltuğunuz duruyor. Oyuna dönmek ister misiniz?')
+  assert.equal(await ece.evaluate(() => document.activeElement.getAttribute('data-focus-key')), 'game-rejoin')
+  await ece.click(key('game-rejoin'))
+  await ece.waitForSelector('#cast .renk-table', { timeout: h.LONG })
+  const after = await settle(players())
+  assert.equal(after[1].cards, before[1].cards, 'el aynı')
+  assert.equal(after[1].step, before[1].step)
+  assert.equal(after[1].seats, 3)
+})
+
+test('telefonda sahnenin başlığı küçük ekranda ve büyük yazıda ulaşılabilir, masa sahnenin içinde kayar', async () => {
+  const { mert } = W
+  const check = async (label) => {
+    await h.sleep(300)
+    for (const sel of ['#cast .cast-title', '#cast .cast-game-min', '#cast .cast-full']) {
+      assert.equal(await h.reachable(mert, sel), true, label + ': ' + sel)
+    }
+    // Sahneyi kırpan panel kaymaz, masa .cast-game içinde kayar: en üstte durum satırı görünür
+    const panel = await mert.evaluate(() => {
+      document.querySelector('#cast .cast-game').scrollTop = 0
+      return document.querySelector('#cast .cast-panel').scrollTop
+    })
+    assert.equal(panel, 0, label + ': panel kaymış')
+    assert.equal(await h.reachable(mert, '#cast .game-status-turn'), true, label + ': durum satırı')
+  }
+  await check('360 x 740')
+  await mert.setViewportSize({ width: 375, height: 667 })
+  await check('375 x 667')
+  await mert.setViewportSize({ width: 360, height: 640 })
+  await check('360 x 640')
+  await mert.setViewportSize({ width: 360, height: 740 })
+  await mert.evaluate(() => window.TelsizTheme.set({ fontSize: 'large' }))
+  await check('360 x 740, büyük yazı')
+  await mert.evaluate(() => window.TelsizTheme.set({ fontSize: 'normal' }))
+  assert.ok(await h.overflowX(mert) <= 0, 'telefonda yatay taşma')
+})
+
+test('telefonda masa yeniden çizilince sahnenin ve elin kaydırması korunur, odak sahneyi kaydırmaz', async () => {
+  const { mert } = W
+  await settle(players())
+  const r = await mert.evaluate(() => {
+    const game = document.querySelector('#cast .cast-game')
+    const card = document.querySelector('#cast .renk-hand .renk-card')
+    const hand = document.querySelector('#cast .renk-hand')
+    const focusKey = card.getAttribute('data-focus-key')
+    card.focus({ preventScroll: true })
+    game.scrollTop = 0
+    hand.scrollLeft = hand.scrollWidth
+    const left = hand.scrollLeft
+    // Odaktaki kart sahnenin görünen alanının dışında (en üstte durum satırı ve atılan kart görünür)
+    const hidden = card.getBoundingClientRect().top >= game.getBoundingClientRect().bottom
+    const body = document.querySelector('#cast .game-body')
+    gameRefreshStage()
+    const hand2 = document.querySelector('#cast .renk-hand')
+    return {
+      rebuilt: document.querySelector('#cast .game-body') !== body,
+      hidden: hidden,
+      top: game.scrollTop,
+      left: hand2.scrollLeft === left,
+      focus: document.activeElement.getAttribute('data-focus-key') === focusKey
+    }
+  })
+  assert.deepEqual(r, { rebuilt: true, hidden: true, top: 0, left: true, focus: true })
+})
+
+test('masa açıkken paylaşım izlenip bırakılınca ve üst çubuktan durdurulunca odak masada kalır', async () => {
+  const { deniz, ece } = W
+  const focusIn = (page) => page.evaluate(() => {
+    const c = document.getElementById('cast')
+    return { mode: c.getAttribute('data-mode'), hidden: c.hidden, inStage: c.querySelector('.cast-game').contains(document.activeElement) }
+  })
+  await deniz.click('#btn-screen')
+  await deniz.waitForSelector('#cast-dialog:not([hidden]) .cast-dialog-panel', { timeout: h.LONG })
+  await deniz.click('#cast-dialog .cast-primary')
+  await deniz.waitForSelector('#top-cast:not([hidden]) .top-cast-stop', { timeout: h.LONG })
+  // Kendi paylaşımının önizlemesi masadan sonra gelir: sahne oyun kipinde kalır
+  assert.equal(await deniz.getAttribute('#cast', 'data-mode'), 'game')
+  await ece.waitForSelector('#activity:not([hidden]) .activity-item.is-share .activity-watch', { timeout: h.LONG })
+  await ece.focus('#activity .activity-item.is-share .activity-watch')
+  await ece.keyboard.press('Enter')
+  await ece.waitForSelector('#cast[data-mode="watch"]:not([hidden]) .cast-unwatch', { timeout: h.LONG })
+  await ece.focus('#cast .cast-unwatch')
+  await ece.keyboard.press('Enter')
+  await ece.waitForSelector('#cast[data-mode="game"]:not([hidden])', { timeout: h.LONG })
+  assert.deepEqual(await focusIn(ece), { mode: 'game', hidden: false, inStage: true })
+  await deniz.focus('#top-cast .top-cast-stop')
+  await deniz.keyboard.press('Enter')
+  await deniz.waitForFunction(() => document.getElementById('top-cast').hidden, null, { timeout: h.LONG })
+  assert.deepEqual(await focusIn(deniz), { mode: 'game', hidden: false, inStage: true })
+  await settle(players())
+}, { browsers: ['chromium'], reason: 'sahte ekran paylaşımı yalnızca Chromium bayraklarıyla' })
 
 test('telefonda oyun ortasında yatay taşma yok, el kendi içinde yatay kayar', async (t) => {
   const { mert } = W

@@ -4,7 +4,9 @@
 // Hatalar err.code ile, olaylar kodla verilir, arayüz game.renk.* anahtarlarıyla çevirir.
 // Tam durum yalnızca kurpiyerin cihazında tutulur. Oyunculara publicView (herkese açık) ve privateView (kişinin
 // kendi eli) gider, oyuncunun cihazı bunları validateView ve validatePrivate ile denetler. 34-oyun-masa.js motoru
-// genel uygulama sözleşmesiyle (newGame, validateMove, applyMove, removePlayer, endGame, görünümler) çağırır.
+// genel uygulama sözleşmesiyle çağırır: id, RULES, DEFAULT_RULES, MIN_PLAYERS, MAX_PLAYERS, newGame, validateMove,
+// applyMove, removePlayer, endGame, isOver, turnOf, publicView, privateView, legalMoves, validateView,
+// validatePrivate. Motor 36-oyun.js içindeki GAME_ENGINES tablosuna kayıtlıdır.
 // Kart kodu iki karakterdir: renk R Y G B, değer 0-9, S (Engel), V (Yön), D (+2). Jokerler WW ve WF (Joker +4).
 // Değer harfleri benzersizdir, eşleştirme ve puan yalnızca kart kodundan çıkar.
 // Rastgelelik yalnızca rng(n) ile gelir (kurpiyerde nacl.randomBytes), karıştırma TelsizGame.shuffle ile yapılır.

@@ -363,6 +363,16 @@ test('telefon 360: beş kişilik ses odasında kamera açıkken telsiz kartı ya
     assert.ok(over <= 0, 'telefonda yatay taşma: ' + over)
     assert.equal(await h.reachable(ali, '#radio-tools .dj-crew-button'), true, 'Telsiz DJ görünür alanda')
     assert.equal(await h.reachable(ali, '#radio-cams'), true, 'Büyüt görünür alanda')
+    // Büyüt, Oyun ve Telsiz DJ birlikteyken görünen etiketler kesilmez (sığmazsa satır sarılır), telefonda ve geniş
+    // ekranda. Telefonda Oyun düğmesinin etiketi görsel olarak gizlidir.
+    const cut = (page) => page.evaluate(() => Array.from(document.querySelectorAll('#radio-tools .radio-tool-label'))
+      .filter((l) => getComputedStyle(l).position !== 'absolute' && l.scrollWidth > l.clientWidth + 1)
+      .map((l) => l.textContent))
+    for (const page of [ali, deniz]) {
+      await page.waitForSelector('#radio-tools #radio-cams', { timeout: h.LONG })
+      await page.waitForSelector('#radio-tools #radio-game', { timeout: h.LONG })
+      assert.deepEqual(await cut(page), [], 'kesilen etiket')
+    }
   } finally {
     // Sınama düşse de sonraki sınamalar için oda iki kişiye döner
     for (const page of extra) {
