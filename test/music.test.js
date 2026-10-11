@@ -3598,6 +3598,64 @@ describe('motor: yerel bekletme (setLocalHold)', () => {
     assert.equal(audio.paused, false)
     b.engine.setLocalHold('minimized', false)
   })
+
+  test('/devam medya tuşuyla verilen bekletmeyi kaldırır ve "zaten yapılmış" demez, odaya yazmaz', async () => {
+    const { timers, server, clients: [a, b] } = await setup()
+    await a.engine.addFile(encryptedWav(a.device, server, 10, 'f.wav'), { durationMs: 10000 })
+    b.sync()
+    await flush()
+    const audio = b.audios[0]
+    audio.duration = 10
+    audio.fire('loadedmetadata')
+    audio.fire('canplay')
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+    assert.equal(audio.paused, false)
+    // Medya tuşu veya kilit ekranındaki Duraklat (23-dj.js djMediaSession)
+    b.engine.setLocalHold('media', true)
+    assert.equal(audio.paused, true)
+    await timers.advance(1000)
+    const posts = server.stats.posts
+    const r = await b.engine.runCommand('/devam')
+    same(r, { command: 'resume', ok: true, local: true })
+    same(b.engine.snapshot().player.localHold, [])
+    assert.equal(b.engine.snapshot().player.hold, false)
+    await timers.advance(600)
+    assert.equal(audio.paused, false)
+    assert.equal(server.stats.posts, posts, 'oda zaten çalıyor, ortak duruma yazılmaz')
+    const target = b.engine.snapshot().session.positionMs
+    assert.ok(Math.abs(audio.currentTime * 1000 - target) <= 700, audio.currentTime * 1000 + ' ~ ' + target)
+    // Bekletme yokken ve oda çalarken etkisizdir
+    const again = await b.engine.runCommand('/resume')
+    assert.equal(again.noop, true)
+  })
+
+  test('/devam küçültme bekletmesine dokunmaz, medya bekletmesiyle birlikteyse yalnızca onu kaldırır', async () => {
+    const { timers, clients: [a, b] } = await setup()
+    b.storage.set(CONSENT_KEY, '1')
+    b.engine.attachPlayer({ appendChild () {} })
+    await a.engine.addYouTube(VID, { durationMs: 300000 })
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 500)
+    assert.equal(p.state.playing, true)
+    // Küçültülmüş oynatıcı: YouTube görünür olmadan çalınmaz, /devam bunu kaldırmaz
+    b.engine.setLocalHold('minimized', true, 'youtube')
+    let r = await b.engine.runCommand('/devam')
+    assert.equal(r.noop, true)
+    same(b.engine.snapshot().player.localHold, ['minimized'])
+    // İkisi birlikte: medya bekletmesi kalkar, küçültme kalır ve oynatıcı durmaya devam eder
+    b.engine.setLocalHold('media', true)
+    same(b.engine.snapshot().player.localHold, ['media', 'minimized'])
+    r = await b.engine.runCommand('/devam')
+    same(r, { command: 'resume', ok: true, local: true })
+    same(b.engine.snapshot().player.localHold, ['minimized'])
+    await timers.advance(600)
+    assert.equal(p.state.playing, false)
+    b.engine.setLocalHold('minimized', false)
+    await timers.advance(600)
+    assert.equal(p.state.playing, true)
+  })
 })
 
 describe('motor: tek <audio> öğesi', () => {

@@ -56,6 +56,9 @@ var TelsizMusic = (function (root) {
   const NETWORK_RETRIES = 2
   const PLAY_RETRY_MS = 3000
   const OWN_PAUSE_MS = 2000
+  // Kişinin medya tuşuyla veya kilit ekranından verdiği yerel bekletmenin adı (23-dj.js djMediaSession, setLocalHold).
+  // /devam (resume) bu bekletmeyi de kaldırır.
+  const MEDIA_HOLD = 'media'
   const REQUEST_DEDUPE_MS = 5000
   const CLOCK_WINDOW_MS = 600000
   const CLOCK_MAX_SAMPLES = 32
@@ -1921,12 +1924,16 @@ var TelsizMusic = (function (root) {
       return simple('pause', true)
     }
 
-    // Ortak oturumu sürdürür. Bu cihazda yerel duraklatma (hold) varsa o da kaldırılır ve oynatıcı yeniden
-    // eşitlenir. Ortak oturum zaten çalıyorsa sonuç noop yerine { ok: true, local: true } olur (müzik bu
-    // cihazda devam etti, "zaten yapılmış" denmez).
+    // Ortak oturumu sürdürür. Bu cihazda yerel duraklatma (hold) veya kişinin medya tuşuyla ya da kilit ekranından
+    // verdiği yerel bekletme (setLocalHold MEDIA_HOLD) varsa o da kaldırılır ve oynatıcı yeniden eşitlenir. Diğer
+    // yerel bekletmeler (küçültülmüş oynatıcı, pencere) kendi koşullarıyla kalkar. Ortak oturum zaten çalıyorsa
+    // sonuç noop yerine { ok: true, local: true } olur (müzik bu cihazda devam etti, "zaten yapılmış" denmez).
     function resume () {
-      const hadHold = local.hold && precheck(false) === null && Boolean(currentState() && currentState().current)
-      if (hadHold) {
+      const ready = precheck(false) === null && Boolean(currentState() && currentState().current)
+      const hadHold = ready && (local.hold || localHolds.has(MEDIA_HOLD))
+      // Son yerel bekletme buysa setLocalHold yerel duraklatmayı da kaldırıp ortak konumdan eşitler
+      if (ready && localHolds.has(MEDIA_HOLD)) setLocalHold(MEDIA_HOLD, false)
+      if (ready && local.hold) {
         clearHold()
         local.lastPlayAttempt = -Infinity
         local.lastSeek = -Infinity
