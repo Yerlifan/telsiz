@@ -562,6 +562,59 @@ test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5
   }
 })
 
+test('yüzen pencere ayarı: varsayılan açık, anahtar telsiz.floatAuto yazar, açıklama platforma göre değişir', () => {
+  const { run, root, storage, sandbox } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.floatAuto'), 'telsiz.floatAuto')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'off')
+  assert.strictEqual(run('floatAutoEnabled()'), false)
+  storage.setItem('telsiz.floatAuto', 'on')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'bozuk')
+  assert.strictEqual(run('floatAutoEnabled()'), true, 'yalnızca off kapatır')
+  // Yüzen pencere modülü yokken (desteklenmiyor) anahtar devre dışı, nedeni yazılı
+  run("openSettings('voice', null)")
+  const sw = () => root.querySelector('#set-float-auto')
+  const hint = () => root.querySelector('#set-float-auto-hint').textContent
+  assert.strictEqual(root.querySelector('#set-float-section-title').textContent, 'Yüzen Pencere')
+  assert.strictEqual(root.querySelector('label[for="set-float-auto"] .settings-switch-text').textContent, 'Uygulama küçültülünce yüzen pencereyi aç')
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.strictEqual(sw().disabled, true)
+  assert.strictEqual(hint(), 'Bu tarayıcı yüzen pencereyi desteklemiyor.')
+  // Yüzen pencere bölümü Çıkış bölümünden sonra, ekran paylaşımı bölümünden önce
+  const ids = root.querySelectorAll('.settings-section').map((n) => n.id)
+  assert.ok(ids.indexOf('set-float-section') === ids.indexOf('set-output-section') + 1, ids.join())
+  assert.ok(ids.indexOf('set-float-section') < ids.indexOf('set-screen-section'))
+  run('closeSettings(false)')
+  // Tarayıcı: sekme değişimi açıklaması, anahtar yazar ve modüle bildirir
+  sandbox.__floatChanged = 0
+  run("var floatMode = function () { return 'document' }")
+  run('var floatSettingsChanged = function () { __floatChanged++ }')
+  run("openSettings('voice', null)")
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().checked, true)
+  assert.ok(hint().indexOf('Chrome ve Edge') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'off')
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'on')
+  assert.strictEqual(sandbox.__floatChanged, 2)
+  run('closeSettings(false)')
+  // Linux masaüstü: simge durumu açıklaması ve Wayland notu
+  run("var floatMode = function () { return 'desktop' }")
+  run("window.telsizDesktop = { platform: 'linux' }")
+  run("openSettings('voice', null)")
+  assert.ok(hint().indexOf('Ses odasındayken pencere küçültülür') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland').textContent, 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.')
+  run('closeSettings(false)')
+  run("window.telsizDesktop = { platform: 'win32' }")
+  run("openSettings('voice', null)")
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  run('closeSettings(false)')
+  run('delete window.telsizDesktop')
+})
+
 test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
   const { run, storage, audio } = load()
   assert.strictEqual(run('playMessageSound()'), true)
@@ -610,7 +663,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
     privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-float-auto', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
     appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],

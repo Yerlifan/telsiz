@@ -42,7 +42,8 @@ const SETTINGS_ICONS = {
 // başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
 // denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
 // Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
-// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır.
+// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır. Yüzen pencerenin kendiliğinden açılması
+// (39-yuzen.js) telsiz.floatAuto içinde ('off' kapalı, 'on' veya anahtarın olmaması açık) saklanır.
 const SETTINGS_KEYS = {
   typing: 'telsiz.typing',
   notifyLevel: 'telsiz.notifyLevel',
@@ -51,7 +52,8 @@ const SETTINGS_KEYS = {
   youtubeConsent: 'telsiz.djYoutubeConsent',
   djMediaSession: 'telsiz.djMediaSession',
   autoIdle: 'telsiz.autoIdle',
-  autoIdleMinutes: 'telsiz.autoIdleMinutes'
+  autoIdleMinutes: 'telsiz.autoIdleMinutes',
+  floatAuto: 'telsiz.floatAuto'
 }
 const NOTIFY_LEVELS = ['all', 'mentions', 'none']
 const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
@@ -1565,6 +1567,12 @@ function autoIdleEnabled () {
   return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
 }
 
+// Yüzen pencere (39-yuzen.js): ses odasındayken uygulama küçültülünce (masaüstü) veya sekme değişince (Chrome, Edge)
+// kendiliğinden açılsın mı, varsayılan açık
+function floatAutoEnabled () {
+  return storeGet(SETTINGS_KEYS.floatAuto) !== 'off'
+}
+
 function autoIdleMinutes () {
   const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
   return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
@@ -2328,6 +2336,7 @@ function buildVoicePage (page) {
   }, t('settings.voice.soundsHint'))
   outSec.appendChild(sounds.row)
 
+  buildFloatSection(page)
   buildScreenQualitySection(page)
 
   fillMicList()
@@ -2342,6 +2351,23 @@ function buildVoicePage (page) {
       return (s ? JSON.stringify(s) : '') + '|' + JSON.stringify(screenQuality())
     }
   }
+}
+
+// Yüzen pencere (istek 7, 39-yuzen.js): kendiliğinden açılma anahtarı. Açıklama platforma göre değişir: masaüstünde
+// simge durumu ve tepsi, tarayıcıda sekme değişimi. Linux masaüstünde Wayland notu da görünür. Bu cihazda yüzen
+// pencere yoksa anahtar devre dışıdır ve nedeni yazılır.
+function buildFloatSection (page) {
+  const sec = sSection(page, t('settings.voice.floatTitle'), 'set-float-section')
+  const mode = typeof floatMode === 'function' ? floatMode() : null
+  const hint = mode === null ? t('float.unsupported') : mode === 'desktop' ? t('settings.voice.floatHintDesktop') : t('settings.voice.floatHintBrowser')
+  const sw = sSwitch('set-float-auto', t('settings.voice.floatAuto'), floatAutoEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.floatAuto, checked ? 'on' : 'off')
+    if (typeof floatSettingsChanged === 'function') floatSettingsChanged()
+  }, hint)
+  sw.input.disabled = mode === null
+  sec.appendChild(sw.row)
+  const desktop = window.telsizDesktop
+  if (mode === 'desktop' && desktop && desktop.platform === 'linux') sec.appendChild(sHint(t('settings.voice.floatHintWayland'), 'set-float-wayland'))
 }
 
 // Ekran paylaşımı kalitesi (Ek L1.4): içerik önceliği ve çözünürlük/kare hızı ön ayarı. Tercih bu
