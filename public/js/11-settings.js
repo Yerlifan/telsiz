@@ -4314,6 +4314,16 @@ function openReportNote (r) {
   return { state: 'ok', note: typeof v.n === 'string' ? v.n : '', quote: typeof v.q === 'string' ? v.q : '' }
 }
 
+// Alıntıyı bildiren kişi yazar, sunucu ve liste doğrulayamaz. Yazı odasındaki mesaj bu cihazda yüklüyse ve
+// çözülebiliyorsa şu anki metni alıntıyla aynı biçimde döner (karşılaştırmak için), yoksa null.
+function reportLiveQuote (r) {
+  if (r.kind !== 'message' || r.dm || typeof reportQuoteOf !== 'function' || typeof indexOfMessage !== 'function') return null
+  const i = indexOfMessage(r.messageId)
+  const m = i === -1 ? null : state.messages[i]
+  if (!m || !sameId(m.channelId, r.channelId)) return null
+  return reportQuoteOf(m) || null
+}
+
 // Sunucunun verdiği ad boşsa hesap silinmiştir, listedeki kişi için görünen ad kullanılır
 function reportPersonName (userId, name) {
   if (!name) return t('profile.deletedUser')
@@ -4337,7 +4347,11 @@ function buildReportRow (r) {
   }
   const opened = openReportNote(r)
   if (opened.state === 'ok') {
-    if (opened.quote) text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
+    if (opened.quote) {
+      text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
+      const live = reportLiveQuote(r)
+      if (live !== null && live !== opened.quote) text.appendChild(h('span', 'list-sub report-quote-changed', t('settings.reports.quoteChanged')))
+    }
     if (opened.note) text.appendChild(h('span', 'report-text report-note-line', t('settings.reports.note', { text: opened.note })))
   } else if (opened.state === 'locked') {
     text.appendChild(h('span', 'list-sub report-locked', t('settings.reports.noteLocked')))

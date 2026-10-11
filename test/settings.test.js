@@ -948,6 +948,14 @@ test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, eng
   run('updateSettingsPage()')
   await new Promise((r) => setImmediate(r))
   assert.strictEqual(gets(), before + 1)
+  // Sayı aynı kalsa da en yeni şikâyetin kimliği değişince (dolu listede yer değiştirme) yeniden alınır
+  run('socialState.priv.reportsLast = 99')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
   // Kapanınca liste unutulur
   run('closeSettings(false)')
   assert.strictEqual(run('settingsUi.reports'), null)
@@ -961,6 +969,132 @@ test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, eng
   assert.strictEqual(mod.root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
   assert.strictEqual(mod.root.querySelector('#set-reports-section').hidden, true)
   assert.strictEqual(mod.sandbox.__requests.filter((r) => r.path === '/api/reports').length, 0)
+})
+
+test('şikâyetler (Üyeler): mühürlü not çözülür, kimliği başka kayda bağlı zarf kilitli kalır, alıntı bildirenin metni olarak gösterilir', async () => {
+  const { run, root, sandbox } = load({ role: 'owner' })
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  sandbox.__kid = kid
+  const seal = (obj) => run('E2EE.sealJson(__kid, ' + JSON.stringify(obj) + ')')
+  const base = { kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, dm: false, reason: 'spam', createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' }
+  const row = (id, messageId, value) => Object.assign({}, base, { id: id, messageId: messageId, note: seal(value) })
+  sandbox.__reports = [
+    // Doğru zarf: not ve alıntı görünür, mesaj bu cihazda yüklü ve metni farklı
+    row(9, 40, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Sürekli reklam', q: 'Uydurulmuş metin' }),
+    // Doğru zarf: alıntı yüklü mesajın metniyle aynı
+    row(8, 41, { v: 1, a: 3, k: 'message', u: 2, m: 41, n: '', q: 'Gerçek metin' }),
+    // Geçerli ama başka bir mesaja bağlı zarf
+    row(7, 42, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Başka mesajın notu', q: 'Başka mesajın metni' }),
+    // Geçerli ama başka bir bildirene ve başka bir hedefe bağlı zarflar
+    row(6, 43, { v: 1, a: 2, k: 'message', u: 2, m: 43, n: 'Yanlış bildiren', q: '' }),
+    row(5, 44, { v: 1, a: 3, k: 'message', u: 3, m: 44, n: 'Yanlış hedef', q: '' })
+  ]
+  // Yazı odasında yüklü iki mesaj (ece, genel)
+  sandbox.__bodies = [seal({ v: 1, a: 2, c: 1, t: 'Mesajın gerçek metni' }), seal({ v: 1, a: 2, c: 1, t: 'Gerçek metin' })]
+  run('state.messages = [{ id: 40, channelId: 1, authorId: 2, body: __bodies[0], createdAt: 1 }, { id: 41, channelId: 1, authorId: 2, body: __bodies[1], createdAt: 2 }]')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  const rowOf = (id) => root.querySelector('#set-reports-list .report-row[data-report-id="' + id + '"]')
+  assert.strictEqual(rowOf(9).querySelector('.report-note-line').textContent, 'Not: Sürekli reklam')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Uydurulmuş metin')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-changed').textContent, 'Mesajın şu anki metni bundan farklı. Mesaj sonradan düzenlenmiş ya da bildiren metni değiştirmiş olabilir.')
+  assert.strictEqual(rowOf(9).querySelector('.report-locked'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Gerçek metin')
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-changed'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-note-line'), null)
+  for (const id of [7, 6, 5]) {
+    assert.strictEqual(rowOf(id).querySelector('.report-locked').textContent, 'Not bu cihazda açılamadı. Grup anahtarı yok veya not doğrulanamadı.', 'kayıt ' + id)
+    assert.strictEqual(rowOf(id).querySelector('.report-note-line'), null)
+    assert.strictEqual(rowOf(id).querySelector('.report-quote-line'), null)
+  }
+  // İngilizce etiket de doğrulanmamış metni bildirene bağlar
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.reports.quote', { text: 'x' })"), 'Message text added by the reporter: x')
+  run("I18N.setLang('tr')")
+})
+
+test('şikâyet penceresi: etkin anahtar yoksa not ve alıntı eklenmez, şikâyet nedenle gönderilir', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  // Eski anahtar cihazda, sahibin yenilediği etkin anahtar yok: eski mesaj çözülür
+  const oldKid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  const newKid = run('(function () { const k = E2EE.keyring.add(E2EE.generateKeyCode()); E2EE.keyring.remove(k); return k })()')
+  sandbox.__oldKid = oldKid
+  run('state.meta.activeKid = ' + JSON.stringify(newKid))
+  assert.strictEqual(run('hasActiveKey()'), false)
+  sandbox.__body = run("E2EE.sealJson(__oldKid, { v: 1, a: 3, c: 1, t: 'Eski anahtarla yazılmış mesaj' })")
+  run('__msg = { id: 40, channelId: 1, authorId: 3, body: __body, createdAt: 1 }')
+  assert.strictEqual(run('reportQuoteOf(__msg)'), 'Eski anahtarla yazılmış mesaj')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openReportDialog({ kind: 'message', message: __msg })")
+  assert.ok(doc.querySelector('#report-dialog #report-form'), 'pencere açıldı')
+  assert.strictEqual(doc.querySelector('#report-quote'), null)
+  assert.strictEqual(doc.querySelector('#report-note'), null)
+  assert.strictEqual(doc.querySelector('#report-nokey').textContent, 'Bu cihazda frekansın etkin grup anahtarı yok. Not ve mesaj metni şikâyete eklenemez, şikâyet yalnızca seçtiğiniz nedenle gönderilir.')
+  doc.querySelector('#report-reason').value = 'spam'
+  doc.querySelector('#report-send').click()
+  await new Promise((r) => setImmediate(r))
+  const posts = sandbox.__requests.filter((r) => r.path === '/api/reports')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(posts.map((r) => r.body))), [{ kind: 'message', targetUserId: 3, reason: 'spam', channelId: 1, messageId: 40 }])
+  assert.strictEqual(doc.querySelector('#report-dialog'), null)
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekans sahibine ve yöneticilere iletildi.')
+})
+
+test('şikâyet penceresi: sahip bildirilince şikâyeti yalnızca yöneticiler görür, yönetici yoksa kimse görmez', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  run('state.meta.activeKid = ' + JSON.stringify(kid))
+  assert.strictEqual(run('hasActiveKey()'), true)
+  run("state.meta.users[2].role = 'owner'")
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  const send = async () => {
+    doc.querySelector('#report-reason').value = 'harassment'
+    doc.querySelector('#report-send').click()
+    await new Promise((r) => setImmediate(r))
+  }
+  // Yönetici (ece) var: pencere şikâyetin yöneticilere gittiğini söyler
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'mert adlı kişiyi frekansın yöneticilerine bildiriyorsunuz. mert frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
+  assert.ok(doc.querySelector('#report-note'), 'anahtar varken not yazılabilir')
+  doc.querySelector('#report-note').value = 'Kuralları kendisi çiğniyor'
+  await send()
+  const posts = () => sandbox.__requests.filter((r) => r.path === '/api/reports').map((r) => r.body)
+  assert.strictEqual(posts().length, 1)
+  assert.ok(/^1\./.test(posts()[0].note), 'not mühürlü')
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekansın yöneticilerine iletildi.')
+  // Yönetici yok: şikâyet kaydedilir ama kimse göremez
+  run("state.meta.users[1].role = 'member'")
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-audience').textContent, 'Bu frekansta yönetici yok. Şikâyet kaydedilir ama bir yönetici atanana kadar kimse göremez.')
+  await send()
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz kaydedildi. Bu frekansta yönetici olmadığı için şu anda kimse göremez.')
+  // Sahip olmayan kişi için metin değişmez
+  run("openReportDialog({ kind: 'user', userId: 2 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'ece adlı kişiyi frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
 })
 
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {

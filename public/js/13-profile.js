@@ -1244,9 +1244,11 @@ async function squareAvatar (image, type) {
 // İçerik şikâyeti (POST /api/reports): mesaj veya kişi frekans sahibine ve yöneticilere bildirilir. Not ve mesajın
 // metni (alıntı) grup anahtarıyla mühürlenir, sunucu yalnızca kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini
 // görür. Yazı odasındaki mesajın metni alıntıya kendiliğinden girer (odadaki herkes zaten okuyabilir), özel mesajın
-// metni yalnızca kişi kutuyu işaretlerse girer. Mühürlü içerik şikâyet edeni, hedefi ve mesajı da taşır, listeyi
-// açan istemci bunları sunucunun kaydıyla karşılaştırır (11-settings.js). Not ve alıntı birlikte en çok 2000 kod
-// noktasıdır (sunucunun zarf sınırı buna göre).
+// metni yalnızca kişi kutuyu işaretlerse girer. Bu cihazda frekansın etkin grup anahtarı yoksa alıntı ve not
+// eklenemez, şikâyet yalnızca nedenle gider. Mühürlü içerik şikâyet edeni, hedefi ve mesajı da taşır, listeyi açan
+// istemci bunları sunucunun kaydıyla karşılaştırır (11-settings.js). Not ve alıntı birlikte en çok 2000 kod
+// noktasıdır (sunucunun zarf sınırı buna göre). Şikâyet edilen sahip veya yönetici kendisi hakkındaki şikâyeti
+// görmez: sahip bildirilince şikâyeti yalnızca yöneticiler görür, frekansta yönetici yoksa kimse görmez.
 const REPORT_REASON_KEYS = ['spam', 'harassment', 'illegal', 'other']
 const REPORT_NOTE_MAX = 1000
 const REPORT_QUOTE_MAX = 1000
@@ -1280,6 +1282,15 @@ function reportQuoteOf (message) {
   return cleanReportText(result.text || '', REPORT_QUOTE_MAX)
 }
 
+// Şikâyeti kimin göreceği: 'staff' (sahip ve yöneticiler, şikâyet edilen hariç), 'admins' (sahip bildirildi) veya
+// 'nobody' (sahip bildirildi ve frekansta yönetici yok)
+function reportAudience (targetId) {
+  const target = metaUser(targetId)
+  if (!target || target.role !== 'owner') return 'staff'
+  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+  return users.some((u) => u && u.role === 'admin' && !sameId(u.id, targetId)) ? 'admins' : 'nobody'
+}
+
 function reportReasonSelect () {
   const select = h('select', 'input select')
   select.id = 'report-reason'
@@ -1304,7 +1315,13 @@ function openReportDialog (opts) {
   const targetId = message ? message.authorId : opts.userId
   if (targetId === undefined || targetId === null || sameId(targetId, state.me.id)) return
   const dm = Boolean(message && isDmChannel(message.channelId))
-  const quote = message ? reportQuoteOf(message) : ''
+  // Etkin grup anahtarı bu cihazda yoksa (ör. sahip anahtarı yeniledi, yenisi girilmedi) alıntı ve not mühürlenemez:
+  // eski anahtarla çözülebilen mesajın metni gösterilmez, not alanı yerine açıklama çıkar
+  const sealable = hasActiveKey()
+  const quote = message && sealable ? reportQuoteOf(message) : ''
+  const audience = reportAudience(targetId)
+  const name = shownName(targetId)
+  const leadKey = message ? (audience === 'staff' ? 'report.leadMessage' : 'report.leadMessageOwner') : (audience === 'staff' ? 'report.leadUser' : 'report.leadUserOwner')
   openAppDialog({
     name: 'report',
     titleKey: message ? 'report.message' : 'report.user',
@@ -1313,7 +1330,12 @@ function openReportDialog (opts) {
       const form = h('form', 'form report-form')
       form.id = 'report-form'
       form.noValidate = true
-      form.appendChild(h('p', 'lead', t(message ? 'report.leadMessage' : 'report.leadUser', { name: shownName(targetId) })))
+      form.appendChild(h('p', 'lead', t(leadKey, { name: name })))
+      if (audience === 'nobody') {
+        const nobody = h('p', 'hint report-audience', t('report.ownerNobody'))
+        nobody.id = 'report-audience'
+        form.appendChild(nobody)
+      }
       let attach = null
       if (quote) {
         const box = h('div', 'report-quote-box')
@@ -1344,18 +1366,25 @@ function openReportDialog (opts) {
       form.appendChild(reasonLabel)
       const reason = reportReasonSelect()
       form.appendChild(reason)
-      const noteLabel = h('label', 'label', t('report.note'))
-      noteLabel.setAttribute('for', 'report-note')
-      form.appendChild(noteLabel)
-      const note = h('textarea', 'input report-note')
-      note.id = 'report-note'
-      note.rows = 3
-      note.maxLength = REPORT_NOTE_MAX
-      note.setAttribute('aria-describedby', 'report-note-hint')
-      form.appendChild(note)
-      const noteHint = h('p', 'hint', t('report.noteHint', { max: REPORT_NOTE_MAX }))
-      noteHint.id = 'report-note-hint'
-      form.appendChild(noteHint)
+      let note = null
+      if (sealable) {
+        const noteLabel = h('label', 'label', t('report.note'))
+        noteLabel.setAttribute('for', 'report-note')
+        form.appendChild(noteLabel)
+        note = h('textarea', 'input report-note')
+        note.id = 'report-note'
+        note.rows = 3
+        note.maxLength = REPORT_NOTE_MAX
+        note.setAttribute('aria-describedby', 'report-note-hint')
+        form.appendChild(note)
+        const noteHint = h('p', 'hint', t('report.noteHint', { max: REPORT_NOTE_MAX }))
+        noteHint.id = 'report-note-hint'
+        form.appendChild(noteHint)
+      } else {
+        const noKey = h('p', 'hint report-nokey', t('report.noKey'))
+        noKey.id = 'report-nokey'
+        form.appendChild(noKey)
+      }
       form.appendChild(h('p', 'hint report-privacy', t('report.privacy')))
       const msg = h('p', 'form-error')
       msg.id = 'report-error'
@@ -1374,7 +1403,7 @@ function openReportDialog (opts) {
       const busy = (on) => {
         setFormBusy(form, on)
         reason.disabled = on
-        note.disabled = on
+        if (note) note.disabled = on
       }
       const submit = async () => {
         if (form.classList.contains('is-busy')) return
@@ -1383,7 +1412,7 @@ function openReportDialog (opts) {
           focusNode(reason)
           return
         }
-        const noteText = cleanReportText(note.value, REPORT_NOTE_MAX)
+        const noteText = note ? cleanReportText(note.value, REPORT_NOTE_MAX) : ''
         const quoteText = quote && (!dm || (attach && attach.checked)) ? quote : ''
         const payload = { kind: message ? 'message' : 'user', targetUserId: targetId, reason: reason.value }
         if (message) {
@@ -1391,6 +1420,7 @@ function openReportDialog (opts) {
           payload.messageId = message.id
         }
         if (noteText || quoteText) {
+          // Anahtar pencere açıkken kaldırıldıysa pencere yeniden açılınca notsuz gönderilebilir
           const kid = activeKid()
           if (!kid || !hasActiveKey()) {
             setMsg(msg, () => t('report.needKey'), 'error')
@@ -1412,7 +1442,8 @@ function openReportDialog (opts) {
           return
         }
         close('done')
-        toast(() => t(res.data.duplicate ? 'report.alreadySent' : 'report.sent'), 'ok')
+        const sentKey = res.data.duplicate ? 'report.alreadySent' : audience === 'admins' ? 'report.sentAdmins' : audience === 'nobody' ? 'report.sentNobody' : 'report.sent'
+        toast(() => t(sentKey), 'ok')
       }
       form.addEventListener('submit', (e) => {
         e.preventDefault()

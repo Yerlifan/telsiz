@@ -195,7 +195,7 @@ test('üye mesajı bildirir, sahibin açık Şikâyetler listesine gelir, not ç
   assert.equal(await deniz.textContent(row + ' .list-name'), 'Ece adlı kişinin mesajı')
   assert.match(await deniz.textContent(row + ' .list-sub'), /^İstenmeyen içerik · Bildiren: Mert · /)
   assert.equal(await deniz.textContent(row + ' .report-note-line'), 'Not: ' + REPORT_NOTE)
-  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Mesaj: ' + REPORTED_TEXT)
+  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Bildirenin eklediği mesaj metni: ' + REPORTED_TEXT)
   assert.equal(await deniz.textContent(row + ' .act-report-go'), 'Mesaja Git')
   assert.equal(await deniz.textContent(row + ' .act-report-resolve'), 'Çözüldü İşaretle')
   await deniz.click(row + ' .act-report-resolve')
@@ -270,7 +270,7 @@ test('kişi profil kartından, özel mesaj ise metin yalnızca kutu işaretlenin
   const row = '#set-reports-list .report-row[data-report-id="' + reports[0].id + '"]'
   await deniz.waitForSelector(row, { timeout: h.LONG })
   assert.equal(await deniz.textContent(row + ' .list-name'), 'Ece adlı kişinin özel mesajı')
-  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Mesaj: ' + DM_SECOND)
+  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Bildirenin eklediği mesaj metni: ' + DM_SECOND)
   assert.equal(await deniz.$(row + ' .act-report-go'), null)
   const firstRow = '#set-reports-list .report-row[data-report-id="' + reports[1].id + '"]'
   assert.equal(await deniz.$(firstRow + ' .report-quote-line'), null)
