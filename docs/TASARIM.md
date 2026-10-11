@@ -22,7 +22,7 @@ Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç gör
 | `public/css/dj.css` | Telsiz DJ kartı, köşedeki oynatıcı, telsiz kartının araç satırındaki Telsiz DJ düğmesi, mesajdaki "DJ'de çal" düğmesi. |
 | `public/css/arama.css` | Özel mesaj araması: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum satırı, denetimler), gelen arama kartı. |
 | `public/css/tanitim.css` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası. |
-| `public/css/oyun.css` | Oyun masası: telsiz kartındaki Oyun düğmesi ve durumları, yayın sahnesinin `game` kipinde Masa Kur, lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı, telefonda sahne yüksekliği. |
+| `public/css/oyun.css` | Oyun masası: telsiz kartındaki Oyun düğmesi ve durumları, yayın sahnesinin `game` kipinde Masa Kur, lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı, telefonda sahne yüksekliği, birden çok oyun kayıtlıyken Oyun Seç listesi. |
 | `public/css/renk.css` | Renk masası: rakip şeridi, deste ve kart arkası, atılan kart, aktif renk, eylem satırı, el, kart yüzleri, Joker renk seçici. |
 | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Temaya özgü biçimler. |
 | `public/fonts/` | Yerel woff2 yazı tipleri ve OFL lisans metinleri. |

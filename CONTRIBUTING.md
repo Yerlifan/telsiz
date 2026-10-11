@@ -133,7 +133,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `33-oyun-protokol.js` | Oyun protokolü çekirdeği (`window.TelsizGame`): ileti biçimleri ve doğrulayıcıları, iç zarf (mühürleme, açma, bağ denetimi), sayaç kuralları, durum gövdesinin denetimi, yansız rastgele seçim ve karıştırma. Saftır, DOM, saat ve ağ kullanmaz |
 | `34-oyun-masa.js` | Oyun masası yöneticisi (`window.TelsizGameDesk`): kurpiyer ve oyuncu durum makineleri, davetler, koltuklar, tek uçuşlu gönderim, kısma, canlılık ve yeniden bağlanma. Saftır, zaman ve ağ dışarıdan verilir |
 | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
-| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
+| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.

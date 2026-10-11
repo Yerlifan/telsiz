@@ -22,7 +22,7 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
 | `public/css/dj.css` | The Telsiz DJ card, the docked player, the Telsiz DJ button in the tools row of the radio card, the "Play in DJ" button in messages. |
 | `public/css/arama.css` | Direct message calls: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status line, controls), the incoming call card. |
 | `public/css/tanitim.css` | The frequency introduction page that visitors who are not signed in see. |
-| `public/css/oyun.css` | The game table: the Game button on the radio card and its states, and in the `game` mode of the broadcast stage the Set Up a Table, lobby and invite screens, people lists and status chips, the trust note, the confirmation row, results, the status line and the stage height on phones. |
+| `public/css/oyun.css` | The game table: the Game button on the radio card and its states, and in the `game` mode of the broadcast stage the Set Up a Table, lobby and invite screens, people lists and status chips, the trust note, the confirmation row, results, the status line, the stage height on phones and the Choose a Game list when more than one game is registered. |
 | `public/css/renk.css` | The Renk table: the opponent strip, the draw pile and card back, the discard, the active color, the action row, the hand, card faces and the Wild color picker. |
 | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Theme specific styles. |
 | `public/fonts/` | Local woff2 fonts and OFL license texts. |

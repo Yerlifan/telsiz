@@ -501,6 +501,23 @@ const fakeUi = {
 }
 `
 
+// İkinci oyun: Renk motorunun "hexball" kimlikli kopyası (masa yöneticisi için motorun kendisi önemsizdir) ve
+// testte tanımlı küçük bir arayüz. Sonuç bölümünü kendisi çizer (renderResults). Kayıt sonucu döner.
+const SECOND_APP = `
+window.TelsizHexball = Object.assign({}, TelsizRenk, { id: 'hexball' })
+const fakeUi2 = {
+  name: () => 'Saha',
+  tagline: () => 'Takım oyunu',
+  render: (box, m) => {
+    box.appendChild(h('p', 'fake-table', m.stage))
+  },
+  renderResults: (box, m) => {
+    box.appendChild(h('p', 'fake-results', 'sonuç ' + m.stage))
+  }
+}
+gameUiRegister('hexball', fakeUi2)
+`
+
 // Bir cihaz: kendi vm bağlamı, DOM'u, ses motoru taklidi ve oyun modülleri
 function makePage (me, net, opts) {
   const o = opts || {}
@@ -812,6 +829,7 @@ describe('i18n ve marka adı', () => {
       ['game.tool', 'game.toolLabel'],
       ['game.toolInvite', 'game.toolInviteLabel'],
       ['game.toolBusy', 'game.toolBusyAria'],
+      ['game.toolBusy', 'game.renk.toolBusyAria'],
       ['game.minimize', 'game.minimizeLabel'],
       ['game.view', 'game.viewLabel'],
       ['game.renk.draw', 'game.renk.drawLabel'],
@@ -854,6 +872,62 @@ describe('i18n ve marka adı', () => {
     for (const lang of ['tr', 'en']) {
       for (const [key, value] of Object.entries(I.messages[lang])) assert.ok(!brand.test(value), lang + ': ' + key)
     }
+  })
+
+  test('genel game.* metinleri oyundan bağımsız, uygulamaya özel yazılabilen anahtarları Renk kendi sözcükleriyle verir', () => {
+    const page = makePage('5', makeNet())
+    const I = loadI18n().I18N
+    const list = page.run('GAME_APP_TEXTS')
+    const apps = Object.keys(page.run('GAME_ENGINES'))
+    assert.ok(apps.indexOf('renk') >= 0 && apps.length > 1, apps.join(','))
+    const generic = (key) => key.indexOf('game.') === 0 && !apps.some((a) => key.indexOf('game.' + a + '.') === 0)
+    // Varsayılan sonuç listesi kart ve puan sayan oyunlar içindir (renderResults vermeyen uygulama)
+    const resultList = ['game.cards_one', 'game.cards_other', 'game.resultLabel']
+    const words = { tr: /kurpiyer|deste|kart|\bel(i|in|im|iniz|ler|de|den)?\b/i, en: /dealer|deck|\bhands?\b|\bcards?\b/i }
+    for (const lang of ['tr', 'en']) {
+      I.setLang(lang)
+      let checked = 0
+      for (const [key, value] of Object.entries(I.messages[lang])) {
+        if (!generic(key) || resultList.indexOf(key) >= 0) continue
+        assert.ok(!words[lang].test(value), lang + ': ' + key + ' = ' + value)
+        checked++
+      }
+      assert.ok(checked >= 100, String(checked))
+      for (const key of list) {
+        assert.ok(I.has('game.' + key), lang + ': game.' + key)
+        assert.ok(I.has('game.renk.' + key), lang + ': game.renk.' + key)
+      }
+    }
+    // Renk masasında kurpiyer, el ve deste sözcükleri kalır
+    I.setLang('tr')
+    assert.equal(I.t('game.renk.dealerYou'), 'Kurpiyer Sizsiniz')
+    assert.equal(I.t('game.renk.newRound'), 'Yeni El')
+    assert.equal(I.t('game.renk.leaveAsk'), 'Ayrılırsanız kartlarınız desteye döner.')
+    assert.equal(I.t('game.renk.trustChip'), 'Kurpiyer Elleri Bilir')
+    I.setLang('en')
+    assert.equal(I.t('game.renk.dealerYou'), 'You Are the Dealer')
+    assert.equal(I.t('game.dealerYou'), 'You Are the Host')
+  })
+
+  test('gameText: listedeki anahtarda oyunun kendi metni, yoksa genel metin, listede olmayan anahtarda hep genel metin', () => {
+    const page = makePage('5', makeNet())
+    const g = (app, key, params) => page.run('gameText(' + JSON.stringify(app) + ', ' + JSON.stringify(key) + ', ' + JSON.stringify(params || {}) + ')')
+    assert.equal(g('renk', 'dealerYou'), 'Kurpiyer Sizsiniz')
+    assert.equal(g('hexball', 'dealerYou'), 'Ev Sahibi Sizsiniz', 'kendi metni olmayan oyun')
+    assert.equal(g(null, 'dealerLine', { name: 'Ece' }), 'Ev Sahibi Ece')
+    assert.equal(g('renk', 'dealerLine', { name: 'Ece' }), 'Kurpiyer Ece')
+    assert.equal(g('renk', 'newRound'), 'Yeni El')
+    assert.equal(g('hexball', 'newRound'), 'Yeni Tur')
+    assert.equal(g('renk', 'ended.closed'), 'Kurpiyer masayı kapattı.')
+    assert.equal(g('hexball', 'ended.closed'), 'Ev sahibi masayı kapattı.')
+    // Listede olmayan anahtar oyunun aynı adlı metnine bakmaz (Renk'in sr.yourTurn metni kendi sıra duyurusudur)
+    assert.equal(g('renk', 'sr.yourTurn'), 'Sıra sizde.')
+    assert.equal(g('Renk', 'dealerYou'), 'Ev Sahibi Sizsiniz', 'geçersiz kimlik')
+    page.run("I18N.setLang('en')")
+    assert.equal(g('renk', 'dealerYou'), 'You Are the Dealer')
+    assert.equal(g('hexball', 'dealerYou'), 'You Are the Host')
+    assert.equal(g('hexball', 'trustChip'), 'Host Runs the Game')
+    assert.equal(g('renk', 'trustChip'), 'Dealer Knows All Hands')
   })
 })
 
@@ -1434,6 +1508,143 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
       }
     }
     deniz.run("I18N.setLang('tr')")
+  })
+})
+
+// ------------------------------------------------------------------ birden çok oyun
+
+describe('birden çok oyun: Oyun Seç ve tarafsız metinler', () => {
+  test('iki oyun kayıtlıyken Oyun düğmesi yerel Oyun Seç ekranını açar, seçilen oyunun Masa Kur ekranı gelir', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    for (const page of pages) assert.equal(page.run(SECOND_APP), true)
+    same(deniz.run('gameAppIds()'), ['renk', 'hexball'])
+    deniz.press('tool-game')
+    assert.equal(deniz.stage(), 'game')
+    assert.equal(deniz.model().stage, 'none')
+    assert.equal(net.queue.length, 0, 'Oyun Seç ekranı ileti göndermez')
+    assert.equal(deniz.text('#cast .cast-title'), 'Oyun Seç')
+    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
+    assert.equal(deniz.text('.game-lead'), 'Odadakilerle hangi oyunu oynamak istersiniz?')
+    same(deniz.qa('.game-pick').map((b) => [b.getAttribute('data-focus-key'), b.getAttribute('aria-label'), b.textContent]),
+      [['game-pick-renk', 'Renk', 'RenkKart oyunu'], ['game-pick-hexball', 'Saha', 'SahaTakım oyunu']])
+    // Erişilebilir ad oyunun adı, kısa açıklama düğmenin açıklaması
+    const hintId = deniz.key('game-pick-hexball').getAttribute('aria-describedby')
+    assert.equal(deniz.text('#' + hintId), 'Takım oyunu')
+    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-pick-renk')
+    assert.equal(deniz.tool().getAttribute('data-state'), 'minimize')
+    assert.equal(deniz.tool().getAttribute('aria-expanded'), 'true')
+    // Seçim: Masa Kur ekranı seçilen oyunla
+    deniz.press('game-pick-hexball')
+    assert.equal(deniz.model().stage, 'setup')
+    assert.equal(deniz.model().app, 'hexball')
+    assert.equal(deniz.text('#cast .cast-title'), 'Masa Kur')
+    assert.equal(deniz.text('.game-intro-name'), 'Saha')
+    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-open')
+    // Masa Kur'un İptal'i sahneyi kapatır, düğme yeniden Oyun Seç'i açar
+    deniz.press('game-setup-cancel')
+    assert.equal(deniz.stage(), null)
+    deniz.press('tool-game')
+    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
+    // Oyun Seç'in İptal'i sahneyi kapatır, odak Oyun düğmesine gider
+    deniz.press('game-choose-cancel')
+    assert.equal(deniz.stage(), null)
+    assert.equal(deniz.doc.activeElement, deniz.tool())
+    assert.equal(deniz.tool().getAttribute('data-state'), 'tool')
+    // Küçült (düğme) Oyun Seç ekranını kapatır, saklanmaz, düğme yeniden açar
+    deniz.press('tool-game')
+    deniz.press('tool-game')
+    assert.equal(deniz.stage(), null)
+    assert.equal(deniz.run('gameState.choosing'), false)
+    deniz.press('tool-game')
+    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
+    // Oyun Seç açıkken gelen davet aynı sahnede onun yerini alır (Masa Kur ekranındaki gibi)
+    ece.run("gameCall('openSetup', 'renk')")
+    ece.run("gameCall('openTable', 'official')")
+    net.flush()
+    assert.equal(deniz.model().stage, 'invited')
+    assert.equal(deniz.stage(), 'game', 'sahne açık kalır')
+    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'invited')
+    assert.equal(deniz.text('.game-lead'), 'Ece sizi Renk oyununa davet ediyor.')
+    assert.equal(deniz.run('gameState.choosing'), false)
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('Oyun Seç ekranı ses odasından çıkınca kapanır, tek oyun kayıtlıyken hiç açılmaz', () => {
+    const net = makeNet()
+    const page = makePage('5', net)
+    page.run('gameRender()')
+    page.press('tool-game')
+    assert.equal(page.text('#cast .cast-title'), 'Masa Kur', 'tek oyunda Oyun Seç atlanır')
+    page.press('game-setup-cancel')
+    assert.equal(page.run(SECOND_APP), true)
+    page.run('gameRender()')
+    page.press('tool-game')
+    assert.equal(page.text('#cast .cast-title'), 'Oyun Seç')
+    page.fake.snap.channelId = null
+    page.run('gameRender()')
+    assert.equal(page.stage(), null)
+    assert.equal(page.run('gameState.choosing'), false)
+    assert.equal(page.tool(), null)
+    page.fake.snap.channelId = 3
+    page.run('gameRender()')
+    page.press('tool-game')
+    assert.equal(page.q('.game-body').getAttribute('data-stage'), 'choose', 'yeniden açılır')
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
+  })
+
+  test('kendi metni olmayan oyunda genel metinler ev sahibi der, sonucu uygulama çizer', () => {
+    const { net, pages } = makeWorld(['5', '12'])
+    const [deniz, ece] = pages
+    for (const page of pages) page.run(SECOND_APP)
+    deniz.press('tool-game')
+    deniz.press('game-pick-hexball')
+    assert.equal(deniz.text('.game-trust'), 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır.')
+    deniz.press('game-open')
+    assert.equal(deniz.text('#cast .cast-title'), 'Saha Masası')
+    assert.equal(deniz.text('#cast .cast-sub'), 'Ev Sahibi Sizsiniz · 1 Oyuncu')
+    net.flush()
+    assert.equal(ece.model().invite.app, 'hexball')
+    ece.press('tool-game')
+    assert.equal(ece.text('.game-lead'), 'Deniz sizi Saha oyununa davet ediyor.')
+    assert.equal(ece.text('.game-trust'), 'Ev sahibi Deniz. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir.')
+    assert.equal(ece.text('#cast .cast-sub'), 'Ev Sahibi Deniz · 1 Oyuncu')
+    ece.press('game-join')
+    net.flush()
+    assert.ok(ece.text('.game-body').indexOf('Ev sahibinin başlatması bekleniyor.') !== -1)
+    same(deniz.qa('.game-seats .game-chip').map((c) => c.textContent), ['Ev Sahibi', 'Katıldı'])
+    deniz.press('game-start')
+    net.flush()
+    assert.equal(ece.model().stage, 'play')
+    assert.equal(ece.text('.game-trust-chip'), 'Oyunu Ev Sahibi Yürütür')
+    // Onay satırları: ayrılma (oyuncu) ve koltuktan çıkarma (ev sahibi)
+    ece.press('game-leave')
+    assert.equal(ece.text('.game-confirm-text'), 'Ayrılırsanız masadaki koltuğunuz boşalır.')
+    ece.press('game-confirm-no')
+    deniz.press('game-seats-more')
+    deniz.press('game-remove-12')
+    assert.equal(deniz.text('.game-confirm-text'), 'Ece masadan çıkarılır.')
+    deniz.press('game-confirm-no')
+    // Oyunu Bitir: sonuç bölümünü uygulama çizer, varsayılan kart ve puan listesi yok
+    deniz.press('game-end')
+    deniz.press('game-confirm-yes')
+    net.flush()
+    for (const page of [deniz, ece]) {
+      assert.equal(page.model().stage, 'over')
+      assert.equal(page.text('.game-results .game-h'), 'Sonuçlar')
+      assert.equal(page.text('.game-results .game-results-app .fake-results'), 'sonuç over')
+      assert.equal(page.q('.game-results-list'), null)
+      assert.equal(page.q('.game-winner'), null)
+    }
+    assert.equal(deniz.text('[data-focus-key="game-new-round"]'), 'Yeni Tur')
+    assert.ok(ece.text('.game-foot').indexOf('Ev sahibi yeni tur açarsa masada kalırsınız.') !== -1)
+    // Masa kapanınca oyuncuda genel bitiş metni
+    deniz.press('game-close-table')
+    deniz.press('game-confirm-yes')
+    net.flush()
+    assert.equal(ece.model().stage, 'ended')
+    assert.equal(ece.text('.game-ended'), 'Ev sahibi masayı kapattı.')
+    assert.equal(net.errors.length, 0, String(net.errors[0]))
   })
 })
 
