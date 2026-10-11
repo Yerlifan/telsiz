@@ -358,8 +358,10 @@ function djBuild () {
   ui.dockToggle.addEventListener('click', () => {
     const engine = djEngine()
     const s = djSnapshot()
-    // Dokunarak başlatma bu dokunuşla yapılır (kullanıcı hareketi), değilse kart düğmesi gibi herkes için
+    // Dokunarak başlatma bu dokunuşla yapılır (kullanıcı hareketi). Bu cihazda yerel bekletme varsa düğme yalnızca
+    // bekletmeyi kaldırır (oda durumu değişmez), değilse kart düğmesi gibi herkes için duraklatır veya sürdürür.
     if (engine && s && s.player && s.player.needsTap) engine.unlock()
+    else if (engine && djDockHold(s)) djReleaseHolds()
     else djOnToggle()
   })
   ui.dock.appendChild(ui.dockToggle)
@@ -643,9 +645,11 @@ function djSyncMarks () {
 function djRender () {
   if (!dj.ready || !el.dj) return
   djSyncMarks()
-  const s = djSnapshot()
   const show = djShouldShow()
   djApplyLayout(show)
+  // Anlık görüntü yerleşimden sonra okunur: yerleşim yerel bekletmeyi değiştirebilir (küçültülmüş köşe), motorun
+  // o sıradaki değişiklik olayı çizim yapmaz (djRenderNow), çubuk ve uyarı satırı yeni durumla çizilir
+  const s = djSnapshot()
   djAttr(el.appView, 'data-dj', s && s.supported && s.enabled ? 'on' : 'off')
   djEnsureCrewItem(show)
   if (!show || !dj.ui || !s) {
@@ -953,18 +957,39 @@ function djRenderAlert (s, current, ytVisible) {
   }
 }
 
-// Köşedeki oynatıcının çubuğu: parça adı, duraklat veya devam (dokunarak başlatma gerekiyorsa o) ve DJ'yi aç
+// Bu cihazda kişinin kaldırabileceği yerel bekletme: medya tuşu veya kilit ekranı ('media'), küçültülmüş YouTube
+// ('minimized'). Pencere bekletmesi ('window') pencere görünür olunca kendiliğinden kalkar.
+function djDockHold (s) {
+  const holds = s && s.player && Array.isArray(s.player.localHold) ? s.player.localHold : []
+  if (holds.indexOf('media') !== -1) return 'media'
+  if (holds.indexOf('minimized') !== -1) return 'minimized'
+  return ''
+}
+
+// "Bu Cihazda Devam Et": medya bekletmesi kalkar, küçültülmüş oynatıcı açılır. Oynatıcı odanın konumuna atlayıp
+// sürer, odanın durumu değişmez.
+function djReleaseHolds () {
+  const engine = djEngine()
+  dj.minimized = false
+  if (engine && typeof engine.setLocalHold === 'function') engine.setLocalHold('media', false)
+  djRenderNow()
+}
+
+// Köşedeki oynatıcının çubuğu: parça adı, duraklat veya devam (dokunarak başlatma gerekiyorsa o) ve DJ'yi aç. Kartın
+// uyarı satırı köşedeyken görünmez: bu cihazda yerel bekletme varsa çubuk bunu söner lamba ve "Bu Cihazda Devam
+// Et" düğmesiyle gösterir, düğme odayı duraklatmaz.
 function djRenderDock (s, current) {
   const ui = dj.ui
   if (!dj.docked || !current) return
   const session = s.session
   const tap = Boolean(s.player && s.player.needsTap)
+  const hold = tap ? '' : djDockHold(s)
   const playing = Boolean(session && session.playing)
   djAttr(ui.dock, 'aria-label', t('dj.dock.label'))
   djSetText(ui.dockTitle, djTrackTitle(current))
   djAttr(ui.dockTitle, 'title', djTrackTitle(current))
-  setIcon(ui.dockToggle, playing && !tap ? 'i-pause' : 'i-play')
-  const toggleLabel = t(tap ? 'music.tapToListen' : playing ? 'music.actions.pause' : 'music.actions.resume')
+  setIcon(ui.dockToggle, playing && !tap && !hold ? 'i-pause' : 'i-play')
+  const toggleLabel = t(tap ? 'music.tapToListen' : hold ? 'dj.dock.resumeHere' : playing ? 'music.actions.pause' : 'music.actions.resume')
   djAttr(ui.dockToggle, 'aria-label', toggleLabel)
   djAttr(ui.dockToggle, 'title', toggleLabel)
   djAttr(ui.dockOpen, 'aria-label', t('dj.dock.open'))
@@ -976,6 +1001,7 @@ function djRenderDock (s, current) {
   djAttr(ui.dockMin, 'aria-label', minLabel)
   djAttr(ui.dockMin, 'title', minLabel)
   ui.dock.classList.toggle('needs-tap', tap)
+  ui.dock.classList.toggle('is-held', Boolean(hold))
 }
 
 // "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir

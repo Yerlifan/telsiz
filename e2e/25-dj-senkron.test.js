@@ -8,7 +8,8 @@
 // vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür. Arka
 // plandaki sekmede iki dosya parçası art arda aynı ses öğesinde çalar, kilit ekranının başlığı (Media Session)
 // parçayı izler ve gizlilik ayarı kapalıyken boşalır. Kilit ekranının ve medya tuşlarının Duraklat ve Oynat
-// işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), bekletme ses odasından çıkınca kalkar.
+// işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), köşedeki oynatıcının çubuğu bekletmeyi
+// gösterir ve düğmesi odayı duraklatmadan bekletmeyi kaldırır, bekletme ses odasından çıkınca kalkar.
 // Kendiliğinden biten parçanın adı karttaki son işlem satırında ve Bildirimler kaydında kalır.
 
 const { before, after } = require('node:test')
@@ -209,6 +210,28 @@ test('kilit ekranı ve medya tuşları yalnızca bu cihazı bekletir, uyarıdan 
   await B.evaluate(() => window.e2eMedia.play())
   await B.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
   await fakePaused(B, VID, false, 'Oynat ile çalıyor')
+  // Köşedeki oynatıcıda (Ayarlar açık) kartın uyarı satırı görünmez: çubuk bekletmeyi söner lamba ve Bu Cihazda
+  // Devam Et düğmesiyle gösterir, düğme odayı duraklatmadan yalnızca bekletmeyi kaldırır
+  await B.evaluate(() => openSettings())
+  await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-docked'), null, { timeout: h.LONG })
+  const dockToggle = () => B.evaluate(() => ({
+    label: document.querySelector('#dj .dj-dock-toggle').getAttribute('aria-label'),
+    held: document.querySelector('#dj .dj-dock').classList.contains('is-held')
+  }))
+  assert.deepEqual(await dockToggle(), { label: 'Duraklat', held: false })
+  await B.evaluate(() => window.e2eMedia.pause())
+  await fakePaused(B, VID, true, 'köşedeyken B duraklatıldı')
+  await B.waitForFunction(() => document.querySelector('#dj .dj-dock').classList.contains('is-held'))
+  assert.deepEqual(await dockToggle(), { label: 'Bu Cihazda Devam Et', held: true })
+  await B.click('#dj .dj-dock-toggle')
+  await B.waitForFunction(() => dj.engine.snapshot().player.localHold.length === 0)
+  await fakePaused(B, VID, false, 'çubuğun düğmesiyle çalıyor')
+  await h.sleep(1500)
+  assert.equal(await A.evaluate(() => dj.engine.snapshot().session.playing), true, 'oda duraklatılmadı')
+  await fakePaused(A, VID, false, 'A çalmaya devam ediyor')
+  assert.deepEqual(await dockToggle(), { label: 'Duraklat', held: false })
+  await B.evaluate(() => closeSettings())
+  await B.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'), null, { timeout: h.LONG })
   // Bekletme ses odasında kalır: odadan çıkınca kalkar, yeniden katılınca müzik bu cihazda da çalar
   await B.evaluate(() => window.e2eMedia.pause())
   await B.waitForFunction(() => dj.engine.snapshot().player.localHold.indexOf('media') !== -1)

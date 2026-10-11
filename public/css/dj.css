@@ -837,6 +837,18 @@ body.has-dj-dock-lift .side-dj.is-docked .dj-float {
   animation: band-pulse 1.6s var(--ease) infinite;
 }
 
+/* Bu cihazda yerel bekletme var (medya tuşu, kilit ekranı veya küçültülmüş YouTube): lamba söner, düğme "Bu
+   Cihazda Devam Et" olur ve öne çıkar (23-dj.js djRenderDock) */
+.dj-dock.is-held .dj-led {
+  background-color: var(--text-3);
+  box-shadow: none;
+}
+
+.dj-dock.is-held .dj-dock-toggle {
+  background-color: var(--accent-fill-a);
+  color: var(--on-accent);
+}
+
 /* Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (oynatıcının üstüne binmez, onun altında
    da kalmaz) */
 body.has-dj-dock-bottom .toast,

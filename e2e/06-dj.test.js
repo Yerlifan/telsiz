@@ -601,10 +601,12 @@ test('Küçült: YouTube yalnızca bu cihazda duraklar ve yalnızca çubuk kalı
     yt: document.querySelector('#dj .dj-yt').getClientRects().length,
     bar: document.querySelector('#dj .dj-dock').getBoundingClientRect().height > 0,
     label: document.querySelector('#dj .dj-dock-min').getAttribute('aria-label'),
+    toggle: document.querySelector('#dj .dj-dock-toggle').getAttribute('aria-label'),
+    held: document.querySelector('#dj .dj-dock').classList.contains('is-held'),
     holds: dj.engine.snapshot().player.localHold,
     playing: dj.engine.snapshot().session.playing
   }))
-  assert.deepEqual(min, { yt: 0, bar: true, label: 'Göster', holds: ['minimized'], playing: true })
+  assert.deepEqual(min, { yt: 0, bar: true, label: 'Göster', toggle: 'Bu Cihazda Devam Et', held: true, holds: ['minimized'], playing: true })
   // Odadaki diğer kişi dinlemeye devam eder
   await fakePlaying(B, 'B çalmaya devam ediyor')
   for (const sel of VOICE_BUTTONS) assert.equal(await h.reachable(A, sel), true, 'küçükken ulaşılabilir: ' + sel)
@@ -617,6 +619,18 @@ test('Küçült: YouTube yalnızca bu cihazda duraklar ve yalnızca çubuk kalı
   })
   assert.ok(drift <= 2500, 'odayla eşitlendi: ' + drift + ' ms')
   assertDocked(await dockInfo(A))
+  // Küçükken çubuğun Bu Cihazda Devam Et düğmesi odayı duraklatmaz: oynatıcıyı açar ve bu cihazda sürdürür
+  await A.click('#dj .dj-dock-min')
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-min') && dj.engine.snapshot().player.localHold.indexOf('minimized') !== -1)
+  await A.click('#dj .dj-dock-toggle')
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-dock-min') && dj.engine.snapshot().player.localHold.length === 0)
+  await fakePlaying(A, 'çubuğun düğmesiyle yeniden çalıyor')
+  await h.sleep(1500)
+  assert.equal(await B.evaluate(() => dj.engine.snapshot().session.playing), true, 'oda duraklatılmadı')
+  await fakePlaying(B, 'B çalmaya devam ediyor')
+  const back = await dockInfo(A)
+  assertDocked(back)
+  assert.equal(back.toggleLabel, 'Duraklat')
   await A.setViewportSize({ width: 1440, height: 900 })
   await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
 })
