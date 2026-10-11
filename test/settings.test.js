@@ -8,7 +8,8 @@
 // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
 // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
-// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma ve geri alma da sınanır.
+// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma ve kayıt sürerken
+// hazırlanması biten kapak da sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -1407,3 +1408,134 @@ test('Profil sayfası kaldırılan kapağı kayıttan sonra, sunucu kaydı yenil
   assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
 })
 
+
+test('Profil kaydı sürerken hazırlanması biten kapak taslakta kalır, Kaldır düğmeleri kayıt bitene kadar kapalı kalır', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  // Kapak hazırlığı ve kayıt, testin bitirdiği sözlerle sürer
+  sandbox.__finishPreview = null
+  sandbox.__finishSave = null
+  sandbox.__saved = []
+  run('hasActiveKey = function () { return true }')
+  run('makeCoverPreview = function () { return new Promise(function (resolve) { __finishPreview = resolve }) }')
+  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
+  run("openSettings('profile', null)")
+  // Görünen ad değişir, Kaydet açılır
+  const name = byId('set-display-name')
+  name.value = 'Burak Yeni'
+  name.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(byId('set-profile-save').disabled, false)
+  // Büyük bir kapak seçilir, kapak hazırlanırken Kaydet'e basılır: kayıt kapaksız gider
+  const chosen = { name: 'buyuk-kapak.jpg', size: 9 * 1024 * 1024 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazırlanıyor...')
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual('coverFile' in sandbox.__saved[0], false)
+  // Kayıt sürerken kapak hazır olur: önizlemede görünür, düğmeler kayıt bitene kadar kapalı kalır
+  sandbox.__finishPreview({ url: 'blob:gec-kapak' })
+  await settle()
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
+  for (const id of ['set-profile-save', 'set-profile-reset', 'set-cover-pick', 'set-cover-remove', 'set-avatar-pick', 'set-avatar-remove']) {
+    assert.strictEqual(byId(id).disabled, true, id + ' kayıt sürerken kapalı')
+  }
+  // Ayar izleyicisinin yenilemesi de Kaldır düğmelerini açmaz, kapalı düğmeye basılsa da taslak değişmez
+  run('updateSettingsPage()')
+  assert.strictEqual(byId('set-cover-remove').disabled, true)
+  assert.strictEqual(byId('set-avatar-remove').disabled, true)
+  byId('set-cover-remove').dispatchEvent(fakeEvent('click'))
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  // Kayıt biter: görünen ad kaydedilir, kayda girmeyen kapak taslakta kalır ve kaydedilmemiş değişiklik olarak görünür
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.strictEqual(byId('set-profile-msg').textContent, 'Profil kaydedildi.')
+  assert.strictEqual(run('settingsUi.draft.base.displayName'), 'Burak Yeni')
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  assert.strictEqual(run('settingsUi.draft.coverFile === __saved[0].coverFile'), false)
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:gec-kapak')
+  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
+  assert.strictEqual(byId('set-profile-dirty').hidden, false)
+  assert.strictEqual(byId('set-profile-save').disabled, false)
+  assert.strictEqual(byId('set-cover-remove').disabled, false)
+  // İkinci kayıt kapağı yükler
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 2)
+  assert.strictEqual(sandbox.__saved[1].coverFile, chosen)
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'server')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:gec-kapak')
+  assert.strictEqual(byId('set-profile-dirty').hidden, true)
+})
+
+test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizlemesi bırakılmaz, kayıt düşerse bırakılır', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const byId = (id) => root.querySelector('#' + id)
+  sandbox.__previews = []
+  sandbox.__finishSave = null
+  sandbox.__saved = []
+  sandbox.__revoked = []
+  run('hasActiveKey = function () { return true }')
+  run('revokeBlobLater = function (url) { if (url) __revoked.push(url) }')
+  run('makeCoverPreview = function () { return new Promise(function (resolve) { __previews.push(resolve) }) }')
+  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
+  run("openSettings('profile', null)")
+  const file = byId('set-cover-file')
+  const choose = async (picked) => {
+    file.files = [picked]
+    file.dispatchEvent(fakeEvent('change'))
+    await settle()
+  }
+  // A kapağı hazır, B kapağı hazırlanırken Kaydet: kayda A girer
+  const first = { name: 'a.jpg', size: 5000 }
+  const second = { name: 'b.jpg', size: 5000 }
+  await choose(first)
+  sandbox.__previews.shift()({ url: 'blob:a' })
+  await settle()
+  await choose(second)
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, first)
+  // B kayıt sürerken hazır olur: taslağa girer, kayda giren A bırakılmaz
+  sandbox.__previews.shift()({ url: 'blob:b' })
+  await settle()
+  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:b')
+  assert.deepStrictEqual(sandbox.__revoked, [])
+  // Kayıt düşer: A artık taslakta olmadığı için bırakılır, B taslakta kalır
+  sandbox.__finishSave({ ok: false, error: () => 'Profil kaydedilemedi.' })
+  await settle()
+  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  assert.strictEqual(run('settingsUi.draft.coverFile.name'), 'b.jpg')
+  // C kapağı hazırlanırken yeniden kaydedilir: kayda B girer, kayıt başarılı olunca B bekleyen önizleme olur, kayıt
+  // sürerken hazır olan C taslakta kalır
+  await choose({ name: 'c.jpg', size: 5000 })
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[1].coverFile, second)
+  sandbox.__previews.shift()({ url: 'blob:c' })
+  await settle()
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:b')
+  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+})
