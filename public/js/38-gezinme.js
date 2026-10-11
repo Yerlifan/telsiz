@@ -133,6 +133,20 @@ function navQueueGo (delta) {
   navState.ops.push({ kind: 'go', delta: delta })
 }
 
+// Tarayıcının o anki kaydının kökten uzaklığı (d). Kayıt bize ait değilse null. Hesap denetlenmez: oturum kapanırken
+// geri sarılan kayıtlar kapanan oturumundur.
+function navDepthNow (hist) {
+  let raw = null
+  try {
+    raw = hist.state
+  } catch (err) {
+    raw = null
+  }
+  const s = raw && typeof raw === 'object' ? raw.telsiz : null
+  if (!s || typeof s !== 'object' || s.v !== 1 || typeof s.d !== 'number' || !isFinite(s.d) || s.d < 0) return null
+  return Math.floor(s.d)
+}
+
 function navRun () {
   const hist = navHistory()
   while (!navState.waiting && navState.ops.length) {
@@ -144,10 +158,15 @@ function navRun () {
       } else if (op.kind === 'replace') {
         hist.replaceState(op.state, '')
       } else {
+        // Kök kayda geri sarma (navStop): miktar sıra gelince tarayıcının o anki kaydından okunur, model eskimiş
+        // olsa da kökün ötesine geçilmez
+        const depth = op.kind === 'rewind' ? navDepthNow(hist) : null
+        const delta = op.kind === 'rewind' ? -(depth === null ? op.fallback : depth) : op.delta
+        if (!delta) continue
         navState.waiting = true
         clearTimeout(navState.waitTimer)
         navState.waitTimer = setTimeout(navPopTimeout, NAV_POP_WAIT_MS)
-        hist.go(op.delta)
+        hist.go(delta)
       }
     } catch (err) {
       navState.waiting = false
@@ -179,16 +198,19 @@ function navStart () {
   navRun()
 }
 
-// Uygulamadan çıkıldı (oturum kapandı): geçmiş kök kayda geri sarılır, bundan sonraki popstate yok sayılır
+// Uygulamadan çıkıldı (oturum kapandı, 03-auth.js resetAppState): geçmiş kök kayda geri sarılır, bundan sonraki
+// popstate yok sayılır. Geri sarma miktarı tarayıcının o anki kaydındaki d'dir (navRun), model yalnızca kayıt bize
+// ait değilse kullanılır. Böylece giriş ekranında geri basıldıktan sonra da kökün ötesine geçilmez.
 function navStop () {
-  const extra = navState.stack.length - 1
+  const was = navState.on
+  const extra = Math.max(0, navState.stack.length - 1)
   navState.on = false
   navState.stack = []
   navState.convMode = ''
   navState.dmAll = false
   navUnreadReset(null)
-  if (extra > 0) {
-    navState.ops.push({ kind: 'go', delta: -extra })
+  if (was) {
+    navState.ops.push({ kind: 'rewind', fallback: extra })
     navRun()
   }
 }

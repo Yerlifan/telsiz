@@ -783,6 +783,9 @@ async function logout () {
 }
 
 function resetAppState () {
+  // Tarayıcı geçmişi kök kayda geri sarılır (38-gezinme.js). Açık katman olmasa da çağrılır, katmanların
+  // kapanması geçmişe ayrıca yazılmaz.
+  if (typeof navStop === 'function') navStop()
   closeAllLayers()
   socialReset()
   if (typeof activityReset === 'function') activityReset()

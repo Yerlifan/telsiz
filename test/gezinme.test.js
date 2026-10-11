@@ -306,7 +306,8 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
   run("testOpen('settings', 1)")
   await settle()
   assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:settings'])
-  // 03-auth.js resetAppState: katmanlar kapanır, uygulamadan çıkılır
+  // Katmanlar kapanırken uygulamadan çıkılmışsa navReconcile de geri sarar (03-auth.js resetAppState ayrıca navStop
+  // çağırır, aşağıdaki test)
   run('closeAllLayers(); state.inApp = false')
   await settle()
   assert.strictEqual(hist.index, 0)
@@ -314,6 +315,54 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
   run('state.inApp = true; state.channelId = 12; navStart()')
   await settle()
   assert.deepStrictEqual(hist.list(), ['0:channel-12'])
+})
+
+test('geçmiş: açık katman yokken oturum kapanınca da geri sarılır, eskimiş model kökün ötesine geri sarmaz', async () => {
+  const { run, hist, json } = load()
+  run('selectChannel(11, {})')
+  await settle()
+  run('selectChannel(12, {})')
+  await settle()
+  run('showDm(50, {})')
+  await settle()
+  assert.strictEqual(hist.index, 3)
+  // 03-auth.js resetAppState: katman açık değil, navStop doğrudan çağrılır (katmanların kapanması bir şey bildirmez)
+  run('navStop(); closeAllLayers(); state.inApp = false')
+  await settle()
+  assert.strictEqual(hist.index, 0)
+  assert.deepStrictEqual(json('[navState.on, navState.stack.length]'), [false, 0])
+  // Uygulama dışında ileri tuşu bir şey açmaz, yeniden girişte geri sarılacak kayıt yoktur
+  run('testCalls.length = 0')
+  hist.user(1)
+  await settle()
+  assert.deepStrictEqual(json('testCalls'), [], 'uygulama dışında geçmiş olayı yok sayılır')
+  hist.user(-1)
+  await settle()
+  hist.calls.length = 0
+  run("state.inApp = true; testView = 'channel'; state.channelId = 10; navStart()")
+  await settle()
+  assert.deepStrictEqual(hist.calls, ['replace'])
+  assert.deepStrictEqual(hist.list(), ['0:channel-10'])
+
+  // Model eskidiyse (uygulama dışındayken geri basıldı, navStop çağrılmadı) geri sarma tarayıcının o anki kaydındaki
+  // d kadardır: modelin uzunluğu kadar geri gidilseydi kökün ötesindeki sayfaya çıkılırdı
+  run('selectChannel(11, {})')
+  await settle()
+  run('selectChannel(12, {})')
+  await settle()
+  run('showDm(50, {})')
+  await settle()
+  run('state.inApp = false')
+  hist.user(-1)
+  await settle()
+  assert.deepStrictEqual(json('[navState.on, navState.stack.length]'), [true, 4])
+  assert.strictEqual(hist.index, 2)
+  hist.calls.length = 0
+  run('state.inApp = true; navStart()')
+  await settle()
+  assert.deepStrictEqual(hist.calls, ['go-2', 'replace'])
+  assert.strictEqual(hist.index, 0)
+  assert.deepStrictEqual(hist.list(), ['0:dm-50'])
 })
 
 test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa ayraç yok, sayfanın hepsi yeniyse çevresi yüklenir', () => {

@@ -28,6 +28,9 @@
 //   düğmesi İstasyonlar sayfasını okunmamış konuşmada açar, geniş ekranda okunmamışı olan en yeni konuşmayı açar.
 //   Özel mesaj görünümünde Oda bilgisi düğmesi yok
 // - Özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür
+// G9 inceleme düzeltmeleri:
+// - Açık katman yokken durum menüsünden Çıkış Yap ve oturumun düşmesi geçmişi kök kayda sarar, giriş ekranında tek
+//   geri basış uygulamadan çıkar, yeniden girişte uygulamada kalınır
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -668,6 +671,66 @@ test('görünüm: özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yen
   await openRoomRow(page, genel)
   await reload()
   await waitConversation(page, 'channel', genel)
+})
+
+// G9 inceleme düzeltmeleri: oturum kapanınca geçmiş, açık katman olmasa da kök kayda geri sarılır
+
+// Giriş ekranından arayüzle giriş, uygulama ve bant beklenir
+async function uiLogin (page, name, password) {
+  await page.fill('#login-name', name)
+  await page.fill('#login-password', password)
+  await page.click('#login-submit')
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+}
+
+test('çıkış: açık katman yokken Çıkış Yap ve oturum düşmesi geçmişi köke sarar, giriş ekranında geri tuşu uygulamadan çıkar', async () => {
+  // Sekmede uygulamadan önce başka bir belge vardır (sorgulu adres), uygulamadan çıkmak o belgeye dönmektir
+  const page = await W.w.tb.newPage('mert', { person: W.w.P.mert, extra: { 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' } })
+  const before = W.w.base + '/?onceki=1'
+  await page.goto(before, { timeout: h.LONG })
+  await page.goto(W.w.base + '/#anahtar=' + encodeURIComponent(W.w.keyCode), { timeout: h.LONG })
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  const rooms = ['oyun-gecesi', 'fotograflar', 'genel'].map((name) => W.w.room(name).id)
+  const walk = async () => {
+    await navIdle(page)
+    const start = await historyNow(page)
+    for (const id of rooms) await openRoomRow(page, id)
+    await navIdle(page)
+    assert.equal((await historyNow(page)).d, start.d + 3)
+    return start
+  }
+  const loggedOut = async () => {
+    await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
+    await navIdle(page)
+    return page.evaluate(() => ({ on: navState.on, d: window.history.state && window.history.state.telsiz ? window.history.state.telsiz.d : null }))
+  }
+  // Durum menüsünden Çıkış Yap: menü kapanırken kişi henüz uygulamadadır, çıkışta açık katman yoktur
+  await walk()
+  await page.click('#me-button')
+  await page.click('#menu-logout')
+  assert.deepEqual(await loggedOut(), { on: false, d: 0 }, 'çıkışta kök kayda sarıldı')
+  // Giriş ekranında tek geri basış uygulamadan çıkar
+  await page.goBack({ waitUntil: 'commit' })
+  await page.waitForURL(before)
+  await page.goForward({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
+  await uiLogin(page, 'mert', 'parola-mert-1')
+  await navIdle(page)
+  assert.equal((await historyNow(page)).d, 0)
+
+  // Oturum düşmesi (ör. başka cihazdan kapatıldı): yeniden girişte uygulamada kalınır, geçmiş kökten başlar
+  await walk()
+  await page.evaluate(() => handleSessionLost('sessionEnded'))
+  assert.deepEqual(await loggedOut(), { on: false, d: 0 }, 'oturum düşünce kök kayda sarıldı')
+  await uiLogin(page, 'mert', 'parola-mert-1')
+  await navIdle(page)
+  const now = await historyNow(page)
+  assert.equal(now.d, 0)
+  assert.ok(now.href.indexOf(W.w.base + '/') === 0 && now.href !== before, 'uygulamadan çıkılmadı')
+  await page.goBack({ waitUntil: 'commit' })
+  await page.waitForURL(before)
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {
