@@ -4,9 +4,9 @@
 // Kriptografik ilkel olarak yalnızca TweetNaCl-js kullanılır: nacl.secretbox (XSalsa20-Poly1305),
 // nacl.hash (SHA-512), nacl.randomBytes ve özel mesajlar için nacl.box (X25519 ile ortak anahtar).
 // Paroladan anahtar türetme scrypt-js ile yapılır (global scrypt). Bu dosyada kodlama, biçim,
-// anahtarlık, kimlik anahtarı ve sabitleme işleri vardır.
+// anahtarlık, kimlik anahtarı, kurtarma kodu ve sabitleme işleri vardır.
 // Anahtarlar ve düz metinler hiçbir zaman loglanmaz. Ağa yalnızca sarılmış (şifreli) özel anahtar,
-// açık anahtar ve paroladan türetilen kimlik doğrulama anahtarı (authKey) gider.
+// açık anahtar ve paroladan veya kurtarma kodundan türetilen kimlik doğrulama anahtarı (authKey) gider.
 // Bu dosyada kullanıcıya görünen metin yoktur. Hatalar Error.code ile (ör. 'bad_checksum'),
 // openJson sonuçları reason ile bildirilir, arayüz bunları seçili dile çevirir.
 // Error.message yalnızca geliştiriciler için İngilizce teknik açıklamadır ve girdiyi içermez.
@@ -40,6 +40,10 @@ var E2EE = (function (root) {
   const KDF_LABEL_WRAP = 'telsiz-wrap-v1'
   const SAFETY_LABEL = 'telsiz-safety-v1'
   const DM_CACHE_LABEL = 'telsiz-dm-cache-v1'
+  // Kurtarma kodu: grup anahtarı koduyla aynı 28 karakterlik biçim, ayrı sağlama ve türetme etiketleri
+  const RECOVERY_LABEL_CHECK = 'telsiz-recovery-v1/check'
+  const RECOVERY_LABEL_AUTH = 'telsiz-recovery-v1/auth'
+  const RECOVERY_LABEL_WRAP = 'telsiz-recovery-v1/wrap'
   const IDENTITY_PREFIX = 'telsiz.identity.'
   const PINS_PREFIX = 'telsiz.pins.'
   const KDF_N_VALUES = [16384, 32768, 65536]
@@ -408,8 +412,9 @@ var E2EE = (function (root) {
   }
 
   // Sağlama: SHA-512(utf8('telsiz-e2ee-v1/check') || sır) çıktısının ilk 10 biti, iki base32 karakteri.
-  function checksumChars (secret) {
-    const h = labeledHash(LABEL_CHECK, secret)
+  // Kurtarma kodu aynı biçimi 'telsiz-recovery-v1/check' etiketiyle kullanır (label).
+  function checksumChars (secret, label) {
+    const h = labeledHash(label || LABEL_CHECK, secret)
     const v = (h[0] << 2) | (h[1] >>> 6)
     h.fill(0)
     return CODE_ALPHABET[v >>> 5] + CODE_ALPHABET[v & 31]
@@ -459,8 +464,8 @@ var E2EE = (function (root) {
     return out
   }
 
-  function formatCode (secret) {
-    const raw = base32Encode(secret) + checksumChars(secret)
+  function formatCode (secret, label) {
+    const raw = base32Encode(secret) + checksumChars(secret, label)
     const groups = []
     let i = 0
     while (i < raw.length) {
@@ -476,12 +481,15 @@ var E2EE = (function (root) {
     return fail(code, 'Invalid key code: ' + detail)
   }
 
-  function parseKeyCode (str) {
-    if (typeof str !== 'string') throw keyError('empty', 'no key code was given.')
-    if (str.length > MAX_CODE_INPUT) throw keyError('bad_length', 'the key code must have 28 characters.')
+  // 28 karakterlik kodu çözer ve sağlamasını verilen etiketle denetler. Sonuç 16 baytlık sır.
+  // makeError(kod, açıklama) hata nesnesini üretir. Davet bağlantısı yalnızca allowLink ile ayıklanır.
+  // onBadChecksum(sır) verilirse sağlama tutmadığında çağrılır, fırlattığı hata bad_checksum yerine geçer.
+  function decodeCode (str, label, makeError, allowLink, onBadChecksum) {
+    if (typeof str !== 'string') throw makeError('empty', 'no code was given.')
+    if (str.length > MAX_CODE_INPUT) throw makeError('bad_length', 'the code must have 28 characters.')
     let text = str
     // Davet bağlantısının tamamı yapıştırılırsa yalnızca anahtar kısmı alınır.
-    const linkIndex = text.indexOf('anahtar=')
+    const linkIndex = allowLink ? text.indexOf('anahtar=') : -1
     if (linkIndex !== -1) {
       text = text.slice(linkIndex + 8)
       const amp = text.indexOf('&')
@@ -494,26 +502,35 @@ var E2EE = (function (root) {
       i++
       if (SEPARATOR_RE.test(ch)) continue
       const v = CODE_LOOKUP[ch]
-      if (v === undefined) throw keyError('bad_char', 'the key code contains an invalid character.')
+      if (v === undefined) throw makeError('bad_char', 'the code contains an invalid character.')
       vals.push(v)
-      if (vals.length > CODE_CHARS) throw keyError('bad_length', 'the key code must have 28 characters.')
+      if (vals.length > CODE_CHARS) throw makeError('bad_length', 'the code must have 28 characters.')
     }
-    if (vals.length === 0) throw keyError('empty', 'no key code was given.')
-    if (vals.length !== CODE_CHARS) throw keyError('bad_length', 'the key code must have 28 characters.')
+    if (vals.length === 0) throw makeError('empty', 'no code was given.')
+    if (vals.length !== CODE_CHARS) throw makeError('bad_length', 'the code must have 28 characters.')
     const secret = base32DecodeSecret(vals)
-    if (!secret) throw keyError('bad_padding', 'the padding bits of the last data character are not zero.')
+    if (!secret) throw makeError('bad_padding', 'the padding bits of the last data character are not zero.')
     const given = CODE_ALPHABET[vals[CODE_DATA_CHARS]] + CODE_ALPHABET[vals[CODE_DATA_CHARS + 1]]
     let expected
     try {
-      expected = checksumChars(secret)
+      expected = checksumChars(secret, label)
     } catch (e) {
       secret.fill(0)
       throw e
     }
     if (!sameString(expected, given)) {
-      secret.fill(0)
-      throw keyError('bad_checksum', 'the checksum does not match.')
+      try {
+        if (onBadChecksum) onBadChecksum(secret, given)
+      } finally {
+        secret.fill(0)
+      }
+      throw makeError('bad_checksum', 'the checksum does not match.')
     }
+    return secret
+  }
+
+  function parseKeyCode (str) {
+    const secret = decodeCode(str, LABEL_CHECK, keyError, true, null)
     return { secret: secret, code: formatCode(secret), kid: deriveKid(secret) }
   }
 
@@ -542,6 +559,53 @@ var E2EE = (function (root) {
     const code = formatCode(secret)
     secret.fill(0)
     return code
+  }
+
+  // ----- Kurtarma kodu -----
+  // 16 baytlık rastgele sır, grup anahtarı koduyla aynı 28 karakterlik Crockford biçimi, sağlama etiketi
+  // 'telsiz-recovery-v1/check'. Sırdan istemcide scrypt kullanılmadan iki anahtar türetilir (sır 128 bit olduğu
+  // için gerekmez):
+  // authKey = hex(SHA-512(utf8('telsiz-recovery-v1/auth') || sır) ilk 32 bayt), sunucuya gider, sunucu karmasını saklar
+  // wrapKey = SHA-512(utf8('telsiz-recovery-v1/wrap') || sır) ilk 32 bayt, kimlik anahtarını sarar (identity.wrap)
+
+  // Kurtarma kodu hata kodları: empty, bad_length, bad_char, bad_padding, bad_checksum ve girilen kod bir grup
+  // anahtarı koduysa group_key_code. Mesaj sabittir, girdiden hiçbir parça içermez.
+  function recoveryError (code, detail) {
+    return fail(code, 'Invalid recovery code: ' + detail)
+  }
+
+  function recoveryGenerate () {
+    lib()
+    if (!available()) throw fail('no_random', 'No working secure random number generator is available.')
+    const secret = random(SECRET_BYTES)
+    const code = formatCode(secret, RECOVERY_LABEL_CHECK)
+    secret.fill(0)
+    return code
+  }
+
+  function recoveryParse (str) {
+    const secret = decodeCode(str, RECOVERY_LABEL_CHECK, recoveryError, false, function (bad, given) {
+      if (sameString(checksumChars(bad, LABEL_CHECK), given)) {
+        throw recoveryError('group_key_code', 'this is a group key code, not a recovery code.')
+      }
+    })
+    return { secret: secret, code: formatCode(secret, RECOVERY_LABEL_CHECK) }
+  }
+
+  function recoveryDerive (secret) {
+    let bytes
+    try {
+      bytes = asBytes(secret)
+    } catch (e) {
+      bytes = null
+    }
+    if (!bytes || bytes.length !== SECRET_BYTES) throw fail('bad_key', 'The recovery secret must have 16 bytes.')
+    const auth = labeledHash(RECOVERY_LABEL_AUTH, bytes)
+    const wrap = labeledHash(RECOVERY_LABEL_WRAP, bytes)
+    const result = { authKey: hex(auth.subarray(0, BOX_KEY_BYTES)), wrapKey: wrap.slice(0, BOX_KEY_BYTES) }
+    auth.fill(0)
+    wrap.fill(0)
+    return result
   }
 
   // Anahtarlık: localStorage['telsiz.keys']. Depolama yoksa veya yazılamıyorsa bellekte tutulur.
@@ -1441,6 +1505,7 @@ var E2EE = (function (root) {
     b64url: Object.freeze({ encode: b64encode, decode: b64decode }),
     utf8: Object.freeze({ encode: utf8Encode, decode: utf8Decode }),
     kdf: Object.freeze({ newParams: kdfNewParams, derive: kdfDerive, needsUpgrade: kdfNeedsUpgrade }),
+    recovery: Object.freeze({ generate: recoveryGenerate, parse: recoveryParse, derive: recoveryDerive }),
     identity: Object.freeze({
       generate: identityGenerate,
       wrap: identityWrap,

@@ -42,6 +42,10 @@ const LABEL_KID = 'telsiz-e2ee-v1/kid'
 const LABEL_AUTH = 'telsiz-auth-v1'
 const LABEL_WRAP = 'telsiz-wrap-v1'
 const LABEL_SAFETY = 'telsiz-safety-v1'
+// Kurtarma kodu etiketleri (istek 14)
+const LABEL_RECOVERY_CHECK = 'telsiz-recovery-v1/check'
+const LABEL_RECOVERY_AUTH = 'telsiz-recovery-v1/auth'
+const LABEL_RECOVERY_WRAP = 'telsiz-recovery-v1/wrap'
 const IDENTITY_PREFIX = 'telsiz.identity.'
 const PINS_PREFIX = 'telsiz.pins.'
 const WRAPPED_RE = /^1w\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{60,70}$/
@@ -110,6 +114,39 @@ const VECTORS = [
     code: 'HWX0-R4EJ-WJTT-D5W8-F5N5-PK1X-5R08',
     kid: 'aa5a7807b8681f8e',
     enc: 'fd105e28c131439e689da36485bfd9929ceb3caca08536e46cc83bcfe610e8fb'
+  }
+]
+
+// Kurtarma kodu vektörleri: aynı sırlar, Python hashlib.sha512 ve int tabanlı base32 ile bağımsız hesaplandı
+// (telsiz-recovery-v1 etiketleri). group, aynı sırrın grup anahtarı kodudur.
+const RECOVERY_VECTORS = [
+  {
+    secret: '000102030405060708090a0b0c0d0e0f',
+    code: '000G-40R4-0M30-E209-185G-R38E-1WGM',
+    group: '000G-40R4-0M30-E209-185G-R38E-1W6C',
+    authKey: 'd808b294370401ea0a2af4176b548548af6623e754356278c872861dd66d68a9',
+    wrapKey: '521c28cda8f4a1f80b26a109f87e061a99e9ea2baecb52653251e0859911f0d3'
+  },
+  {
+    secret: '00000000000000000000000000000000',
+    code: '0000-0000-0000-0000-0000-0000-00JM',
+    group: '0000-0000-0000-0000-0000-0000-00KD',
+    authKey: 'c26b2bbbb12a3d46604bd87bd7f8e5f1e131a3e31b629c111d7280c3bd3fa161',
+    wrapKey: '0644aae48fe65cfb39da8481bc20261bf44183449d71a7ad3f5ab3f384932d18'
+  },
+  {
+    secret: 'ffffffffffffffffffffffffffffffff',
+    code: 'ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZWET',
+    group: 'ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZWC0',
+    authKey: 'dd13d1a05d29e3c31e82588aca34d97afce8ca1a3e464c377913ce0dd0b8a0d4',
+    wrapKey: 'cd2b9c0f8ccf434e219bd5fe2c5af59239866df50430eb2f420239bcac0e6208'
+  },
+  {
+    secret: '8f3a0c11d2e4b5a69788796a5b4c3d2e',
+    code: 'HWX0-R4EJ-WJTT-D5W8-F5N5-PK1X-5R04',
+    group: 'HWX0-R4EJ-WJTT-D5W8-F5N5-PK1X-5R08',
+    authKey: 'a9996e48603c091e6b07d2ca80eb9c42dc3041d67534897d7b9c276c28511f3c',
+    wrapKey: '13c2b1f64fb04ad463cc01a821a36ac2d46a1c902d40b6bb949ac6533ec223a3'
   }
 ]
 
@@ -316,20 +353,21 @@ describe('E2EE: yükleme ve arayüz', () => {
     assert.equal(ctx.window.E2EE, ctx.E2EE)
     assert.deepEqual(Object.keys(ctx.E2EE).sort(), [
       'available', 'b64url', 'decryptFile', 'dm', 'encryptFile', 'fingerprint', 'generateKeyCode', 'identity',
-      'kdf', 'keyring', 'openJson', 'parseKeyCode', 'pins', 'safetyNumber', 'sanitizeFileName', 'sealJson',
+      'kdf', 'keyring', 'openJson', 'parseKeyCode', 'pins', 'recovery', 'safetyNumber', 'sanitizeFileName', 'sealJson',
       'sniffImage', 'utf8'
     ])
     assert.deepEqual(Object.keys(ctx.E2EE.keyring).sort(), ['add', 'has', 'list', 'remove'])
     assert.deepEqual(Object.keys(ctx.E2EE.b64url).sort(), ['decode', 'encode'])
     assert.deepEqual(Object.keys(ctx.E2EE.utf8).sort(), ['decode', 'encode'])
     assert.deepEqual(Object.keys(ctx.E2EE.kdf).sort(), ['derive', 'needsUpgrade', 'newParams'])
+    assert.deepEqual(Object.keys(ctx.E2EE.recovery).sort(), ['derive', 'generate', 'parse'])
     assert.deepEqual(Object.keys(ctx.E2EE.identity).sort(), [
       'clear', 'generate', 'load', 'save', 'sealBinding', 'unwrap', 'verifyBinding', 'wrap'
     ])
     assert.deepEqual(Object.keys(ctx.E2EE.dm).sort(), ['open', 'seal'])
     assert.deepEqual(Object.keys(ctx.E2EE.pins).sort(), ['accept', 'get', 'knownKeys', 'observe', 'setVerified'])
     const E = ctx.E2EE
-    for (const obj of [E, E.keyring, E.b64url, E.utf8, E.kdf, E.identity, E.dm, E.pins]) assert.ok(Object.isFrozen(obj))
+    for (const obj of [E, E.keyring, E.b64url, E.utf8, E.kdf, E.recovery, E.identity, E.dm, E.pins]) assert.ok(Object.isFrozen(obj))
   })
 
   it('available(): nacl ve rastgele sayı üreteci varsa true', () => {
@@ -393,7 +431,8 @@ describe('E2EE: yükleme ve arayüz', () => {
   it('alan ayrımı etiketleri ve depolama anahtarı Telsiz adını taşır', () => {
     // Satır sonu varsayımı yok (Windows'ta dosya CRLF ile çekilebilir).
     const lines = E2EE_SRC.split(/\r?\n/)
-    const extra = [LABEL_AUTH, LABEL_WRAP, LABEL_SAFETY, 'telsiz-dm-cache-v1', IDENTITY_PREFIX, PINS_PREFIX]
+    const extra = [LABEL_AUTH, LABEL_WRAP, LABEL_SAFETY, 'telsiz-dm-cache-v1', IDENTITY_PREFIX, PINS_PREFIX,
+      LABEL_RECOVERY_CHECK, LABEL_RECOVERY_AUTH, LABEL_RECOVERY_WRAP]
     for (const label of [LABEL_CHECK, LABEL_ENC, LABEL_KID, RING_KEY].concat(extra)) {
       assert.equal(lines.filter((line) => line.endsWith(" = '" + label + "'")).length, 1, label)
     }
@@ -432,7 +471,10 @@ describe('E2EE: yükleme ve arayüz', () => {
       [() => E.b64url.encode('metin'), 'bad_type'],
       [() => E.utf8.encode(5), 'bad_type'],
       [() => E.utf8.decode('metin'), 'bad_type'],
-      [() => E.encryptFile([1, 2]), 'bad_type']
+      [() => E.encryptFile([1, 2]), 'bad_type'],
+      [() => E.recovery.parse(''), 'empty'],
+      [() => E.recovery.parse(v.code), 'group_key_code'],
+      [() => E.recovery.derive('metin'), 'bad_key']
     ]
     for (const [fn, code] of cases) assert.throws(fn, codeIs(code))
   })
@@ -1917,6 +1959,156 @@ describe('E2EE: kimlik anahtarı (X25519) ve sarma', () => {
     const rewrapped = device2.E2EE.identity.wrap(device2.E2EE.identity.unwrap(wrapped, k2.wrapKey), k3.wrapKey)
     assert.equal(hexOf(device1.E2EE.identity.unwrap(rewrapped, k3.wrapKey, id.publicKey)), hexOf(id.secretKey))
     assert.equal(device1.E2EE.identity.unwrap(rewrapped, k1.wrapKey), null)
+  })
+})
+
+// Kurtarma kodunun bağımsız çözümü: grup kodu çözücüsüyle aynı, sağlama etiketi farklı
+function refRecoveryCode (secret) {
+  const n = BigInt('0x' + Buffer.from(secret).toString('hex')) << 2n
+  let data = ''
+  for (const i of times(26)) data += ALPHABET[Number((n >> BigInt(5 * (25 - i))) & 31n)]
+  const h = sha512(LABEL_RECOVERY_CHECK, secret)
+  const v = (h[0] << 2) | (h[1] >> 6)
+  return (data + ALPHABET[v >> 5] + ALPHABET[v & 31]).match(/.{4}/g).join('-')
+}
+
+// Bağımsız kurtarma kodu çözümü: { secret } veya { reason } (grup kodu çözücüsünün kalıbı)
+function refRecoveryDetail (code) {
+  const chars = code.replace(/-/g, '')
+  if (chars.length !== 28) return { reason: 'bad_length' }
+  for (const c of chars) {
+    if (ALPHABET.indexOf(c) < 0) return { reason: 'bad_char' }
+  }
+  let n = 0n
+  for (const c of chars.slice(0, 26)) n = (n << 5n) | BigInt(ALPHABET.indexOf(c))
+  if ((n & 3n) !== 0n) return { reason: 'bad_padding' }
+  const secret = Buffer.from((n >> 2n).toString(16).padStart(32, '0'), 'hex')
+  if (refRecoveryCode(secret).replace(/-/g, '').slice(26) === chars.slice(26)) return { secret }
+  return { reason: refChecksum(secret) === chars.slice(26) ? 'group_key_code' : 'bad_checksum' }
+}
+
+describe('E2EE: kurtarma kodu (istek 14)', () => {
+  it('parse: bilinen vektörler, kanonik biçim ve 16 baytlık sır', () => {
+    const ctx = load()
+    for (const v of RECOVERY_VECTORS) {
+      assert.equal(refRecoveryCode(Buffer.from(v.secret, 'hex')), v.code)
+      const out = ctx.E2EE.recovery.parse(v.code)
+      assert.deepEqual(Object.keys(out).sort(), ['code', 'secret'])
+      assert.equal(out.code, v.code)
+      assert.ok(isU8(out.secret))
+      assert.equal(hexOf(out.secret), v.secret)
+      assert.match(out.code, CODE_FORMAT_RE)
+      // Küçük harf, boşluk ve tire farkı, O ve I/L eşlemeleri grup koduyla aynı kurallarla
+      const loose = ' ' + v.code.toLowerCase().replace(/-/g, ' ').replace(/0/g, 'o').replace(/1/g, 'l') + ' '
+      assert.equal(ctx.E2EE.recovery.parse(loose).code, v.code)
+      assert.equal(ctx.E2EE.recovery.parse(v.code.replace(/-/g, '')).code, v.code)
+    }
+  })
+
+  it('derive: authKey ve wrapKey Python hashlib vektörleriyle aynı, etiketler grup ve parola etiketlerinden ayrı', () => {
+    const ctx = load()
+    for (const v of RECOVERY_VECTORS) {
+      const secret = new Uint8Array(Buffer.from(v.secret, 'hex'))
+      const out = ctx.E2EE.recovery.derive(secret)
+      assert.deepEqual(Object.keys(out).sort(), ['authKey', 'wrapKey'])
+      assert.equal(out.authKey, v.authKey)
+      assert.match(out.authKey, /^[0-9a-f]{64}$/)
+      assert.ok(isU8(out.wrapKey))
+      assert.ok(isTight(out.wrapKey))
+      assert.equal(hexOf(out.wrapKey), v.wrapKey)
+      assert.equal(out.authKey, sha512(LABEL_RECOVERY_AUTH, secret).subarray(0, 32).toString('hex'))
+      assert.equal(hexOf(out.wrapKey), sha512(LABEL_RECOVERY_WRAP, secret).subarray(0, 32).toString('hex'))
+      assert.notEqual(out.authKey, hexOf(out.wrapKey))
+      assert.notEqual(hexOf(out.wrapKey), refEncKey(secret).toString('hex'))
+      // Girdi sırrı değişmez, ArrayBuffer da kabul edilir
+      assert.equal(hexOf(secret), v.secret)
+      assert.equal(ctx.E2EE.recovery.derive(secret.buffer).authKey, v.authKey)
+    }
+    for (const bad of [null, undefined, 'gizli', new Uint8Array(15), new Uint8Array(17), new Uint8Array(32), [1, 2], {}]) {
+      assert.throws(() => ctx.E2EE.recovery.derive(bad), codeIs('bad_key'))
+    }
+  })
+
+  it('generate: rastgele 16 bayt, kurtarma etiketli sağlama, grup anahtarı olarak kabul edilmez', () => {
+    const ctx = load()
+    const seen = new Set()
+    for (const i of times(50)) {
+      const code = ctx.E2EE.recovery.generate()
+      assert.match(code, CODE_FORMAT_RE, 'deneme ' + i)
+      const secret = ctx.E2EE.recovery.parse(code).secret
+      assert.equal(refRecoveryCode(secret), code)
+      seen.add(code)
+    }
+    assert.equal(seen.size, 50)
+    const v = RECOVERY_VECTORS[3]
+    const queue = [nodeCrypto.randomBytes(16), nodeCrypto.randomBytes(16), Buffer.from(v.secret, 'hex')]
+    const stub = load({ crypto: queuedCrypto(queue) })
+    assert.equal(stub.E2EE.recovery.generate(), v.code)
+    assert.equal(queue.length, 0)
+    assert.throws(() => load({ crypto: null }).E2EE.recovery.generate(), codeIs('no_random'))
+    assert.throws(() => load({ crypto: { getRandomValues: (a) => a.fill(0) } }).E2EE.recovery.generate(), codeIs('no_random'))
+    assert.throws(() => load({ nacl: false }).E2EE.recovery.generate(), codeIs('no_library'))
+    // Kurtarma kodu grup anahtarı alanına yazılırsa sağlama tutmaz (vektörlerin hiçbirinde etiketler çakışmıyor)
+    for (const w of RECOVERY_VECTORS) assert.throws(() => ctx.E2EE.parseKeyCode(w.code), codeIs('bad_checksum'))
+  })
+
+  it('parse hata kodları: empty, bad_length, bad_char, bad_padding, bad_checksum ve grup anahtarı için group_key_code', () => {
+    const ctx = load()
+    const v = RECOVERY_VECTORS[0]
+    const parse = (x) => ctx.E2EE.recovery.parse(x)
+    for (const x of [null, undefined, 5, '', '   ', '- -']) assert.throws(() => parse(x), codeIs('empty', x))
+    for (const x of ['ABCD', v.code.slice(0, -1), v.code + '0', 'A'.repeat(2049)]) assert.throws(() => parse(x), codeIs('bad_length', x))
+    for (const x of ['U'.repeat(28), v.code.slice(0, -1) + '!', v.code.replace('G', 'U')]) assert.throws(() => parse(x), codeIs('bad_char', x))
+    // Son veri karakterinin dolgu bitleri sıfır değil
+    const padded = v.code.slice(0, 31) + ALPHABET[ALPHABET.indexOf(v.code[31]) | 1] + v.code.slice(32)
+    assert.throws(() => parse(padded), codeIs('bad_padding', padded))
+    // Grup anahtarı kodu: aynı sırrın grup kodu tanınır
+    for (const w of RECOVERY_VECTORS) assert.throws(() => parse(w.group), codeIs('group_key_code', w.group))
+    for (const w of VECTORS) assert.throws(() => parse(w.code), codeIs('group_key_code', w.code))
+    // Davet bağlantısı kurtarma alanında ayıklanmaz
+    assert.throws(() => parse('https://ornek/#anahtar=' + VECTORS[0].code), codeIs('bad_char'))
+    // Tek karakter değişince sonuç bağımsız çözücüyle aynıdır: dolgu hatası, sağlama hatası (grup koduna denk
+    // geliyorsa group_key_code) veya 10 bitlik sağlama tesadüfen tutuyorsa yeni sırrın kanonik kodu
+    let checked = 0
+    let accepted = 0
+    const raw = v.code.replace(/-/g, '')
+    for (const i of times(28)) {
+      for (const ch of ALPHABET) {
+        if (ch === raw[i]) continue
+        const changed = raw.slice(0, i) + ch + raw.slice(i + 1)
+        const ref = refRecoveryDetail(changed)
+        if (ref.secret) {
+          assert.equal(parse(changed).code, refRecoveryCode(ref.secret))
+          accepted++
+        } else {
+          assert.throws(() => parse(changed), codeIs(ref.reason, changed))
+        }
+        checked++
+      }
+    }
+    assert.equal(checked, 28 * 31)
+    assert.ok(accepted < 8, String(accepted))
+  })
+
+  it('kurtarma akışı: kodla sarılan kimlik anahtarı başka cihazda aynı kodla açılır, yanlış kod ve grup türetmesi açamaz', () => {
+    const device1 = load()
+    const id = device1.E2EE.identity.generate()
+    const code = device1.E2EE.recovery.generate()
+    const keys1 = device1.E2EE.recovery.derive(device1.E2EE.recovery.parse(code).secret)
+    const wrapped = device1.E2EE.identity.wrap(id.secretKey, keys1.wrapKey)
+    assert.match(wrapped, WRAPPED_RE)
+    const device2 = loadNative()
+    const keys2 = device2.E2EE.recovery.derive(device2.E2EE.recovery.parse(code.toLowerCase()).secret)
+    assert.equal(keys2.authKey, keys1.authKey)
+    assert.equal(hexOf(device2.E2EE.identity.unwrap(wrapped, keys2.wrapKey, id.publicKey)), hexOf(id.secretKey))
+    const other = device2.E2EE.recovery.derive(device2.E2EE.recovery.parse(device2.E2EE.recovery.generate()).secret)
+    assert.equal(device2.E2EE.identity.unwrap(wrapped, other.wrapKey, id.publicKey), null)
+    // Aynı sırdan grup şifreleme anahtarı veya kimlik doğrulama anahtarı kimliği açamaz (alan ayrımı)
+    const secret = device2.E2EE.recovery.parse(code).secret
+    assert.equal(device2.E2EE.identity.unwrap(wrapped, new Uint8Array(refEncKey(secret)), id.publicKey), null)
+    assert.equal(device2.E2EE.identity.unwrap(wrapped, new Uint8Array(Buffer.from(keys2.authKey, 'hex')), id.publicKey), null)
+    // Başka bir kişinin açık anahtarıyla eşleşme denetimi de geçmez
+    assert.equal(device2.E2EE.identity.unwrap(wrapped, keys2.wrapKey, device2.E2EE.identity.generate().publicKey), null)
   })
 })
 
