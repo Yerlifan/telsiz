@@ -26,10 +26,15 @@
 // Kalıcı çerçeve: ses odasındaki oturum boyunca tek çerçeve kullanılır. Parça değişince çerçeve yeniden
 // kurulmaz, load() aynı çerçevede yeni videoyu cueVideoById komutuyla hazırlar (video yüklenir ama oynamaz,
 // motor onu ortak çapada seekTo ve playVideo ile başlatır). Böylece çerçevenin yükleme süresi her parçada
-// yeniden ödenmez ve çerçevenin belgesi korunur. Amaç kişinin çerçevede dokunarak verdiği oynatma iznini de
-// sonraki parçalara taşımaktır, bu telefonda gerçek YouTube ile denenmedi. cueVideoById resmi IFrame Player API
-// başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference), başvuru bu geliştirme
-// ortamından açılamadığı için davranışı yalnızca sahte oynatıcıyla sınandı.
+// yeniden ödenmez ve çerçevenin belgesi korunur. Videonun bilgilerinin YouTube'dan çekilme süresi ise her
+// parçada yine ödenir. Amaç kişinin çerçevede dokunarak verdiği oynatma iznini de sonraki parçalara taşımaktır.
+// loadVideoById kullanılmaz: video komut anında değil, bütün cihazlarda ortak çapada başlamalıdır. Sıradaki
+// parça önceden hazırlanmaz: çerçevedeki oynatıcı bir anda tek video tutar, sıradaki video aynı çerçevede
+// hazırlanırsa çalan videonun yerini alır. Çerçeve belgesi yeniden yüklenirse src adresindeki ilk videoyu açar,
+// bu durumda çerçeve şu anki videonun adresine yönlendirilir (onLoad). cueVideoById resmi IFrame Player API
+// başvurusunda tanımlıdır (https://developers.google.com/youtube/iframe_api_reference). Başvuru ve YouTube bu
+// geliştirme ortamından açılamadığı için davranış ve çerçevenin komuttan sonra gönderdiği iletilerin sırası
+// yalnızca sahte oynatıcıyla sınandı, gerçek YouTube ile (masaüstünde ve telefonda) denenmedi.
 
 var TelsizYouTube = (function (root) {
   const VERSION = 1
@@ -134,8 +139,15 @@ var TelsizYouTube = (function (root) {
     const frame = doc.createElement('iframe')
     // Çerçevede şu an hazırlanmış videonun kimliği (load() ile değişir, çerçevenin src adresi değişmez)
     let currentId = opts.videoId
-    // Parça değişimi sürüyor: { from, to, at } (switchSettled)
+    // Çerçevenin src adresindeki video. Belge yeniden yüklenirse bu video açılır (onLoad).
+    let srcId = opts.videoId
+    let loadedOnce = false
+    // Çerçeve şu anki videonun adresine yönlendiriliyor, sonraki load olayına kadar iletiler yok sayılır
+    let redirecting = false
+    // Parça değişimi sürüyor: { from, to, at, error, blocked } (switchSettled). error ve blocked: değişim
+    // penceresinde gelen ve bekletilen hata kodu ve engellenen oynatma bildirimi (holdAlert).
     let switching = null
+    let switchHandle = null
     let destroyed = false
     let connected = false
     let ready = false
@@ -223,14 +235,57 @@ var TelsizYouTube = (function (root) {
     // load() sonrasında gelen ileti yeni videoya mı ait? Çerçeve komutları sırayla işler, load() anında yolda
     // olan iletiler eski videonundur (konum, süre, ad, çalıyor veya bitti durumu). Yeni komutun etkisi
     // sayılanlar: video hazırlandı (5) veya başlamadı (-1) durumu ve yeni kimliği taşıyan videoData.video_id
-    // (bu alan belgelenmemiştir, yalnızca varsa ve kimlik önceki videodan farklıysa kullanılır). Pencere en çok
-    // SWITCH_SETTLE_MS sürer, sonra gelen her ileti yeni videonun sayılır.
+    // (bu alan belgelenmemiştir, yalnızca varsa ve kimlik önceki videodan farklıysa kullanılır). Başka bir
+    // videonun kimliğini taşıyan ileti, durumu ne olursa olsun yeni videonun sayılmaz ve pencereyi kapatmaz.
+    // Bir anda yalnızca bir değişim bekler (load() pencere açıkken reddeder), bu yüzden pencereyi kapatan
+    // durum iletisi önceki bir değişime ait olamaz. Pencere en çok SWITCH_SETTLE_MS sürer, sonra gelen her
+    // ileti yeni videonun sayılır.
     function switchSettled (playerState, videoData) {
       if (switching === null) return true
-      const fresh = playerState === STATE.CUED || playerState === STATE.UNSTARTED ||
-        (switching.from !== switching.to && isObj(videoData) && videoData.video_id === switching.to)
-      if (fresh || now() - switching.at >= SWITCH_SETTLE_MS) switching = null
-      return switching === null
+      const vid = isObj(videoData) && typeof videoData.video_id === 'string' && VIDEO_ID_RE.test(videoData.video_id) ? videoData.video_id : null
+      const other = vid !== null && vid !== switching.to
+      const fresh = !other && (playerState === STATE.CUED || playerState === STATE.UNSTARTED || (vid !== null && switching.from !== switching.to))
+      if (fresh) endSwitch(true)
+      else if (now() - switching.at >= SWITCH_SETTLE_MS) endSwitch(false)
+      return switching === null && !other
+    }
+
+    // Değişim penceresini kapatır. fresh: yeni video kendini bildirdi. Pencerede bekletilen hata ve engel
+    // bildirimleri ondan önce gönderilmiştir, eski videonundur ve atılır. Pencere süre dolduğu için kapandıysa
+    // yeni video kendini bildirmemiştir, bekletilen bildirimler onun olabilir ve şimdi uygulanır.
+    function endSwitch (fresh) {
+      if (switching === null) return
+      const held = switching
+      switching = null
+      if (switchHandle !== null) timers.clearTimeout(switchHandle)
+      switchHandle = null
+      if (fresh) return
+      if (held.blocked) applyAlert('blocked', null)
+      if (held.error !== null) applyAlert('error', held.error)
+    }
+
+    // Hata ve engellenen oynatma bildirimleri. Parça değişimi sürerken bekletilir: eski videonun yolda kalmış
+    // hatası yeni parçaya yazılırsa motor sağlam parçayı odadaki herkes için geçirir.
+    function holdAlert (kind, code) {
+      if (switching !== null && now() - switching.at >= SWITCH_SETTLE_MS) endSwitch(false)
+      if (switching === null) {
+        applyAlert(kind, code)
+      } else if (kind === 'blocked') {
+        switching.blocked = true
+      } else {
+        switching.error = code
+      }
+    }
+
+    function applyAlert (kind, code) {
+      if (kind === 'blocked') {
+        // Bekleyen oynatma sözü hemen 'blocked' ile çözülür, motor "Dinlemek için dokunun" gösterir
+        settleWaiters('blocked')
+        emit({ type: 'blocked' })
+      } else {
+        settleWaiters('error')
+        emit({ type: 'error', code: code })
+      }
     }
 
     function applyInfo (info) {
@@ -287,6 +342,7 @@ var TelsizYouTube = (function (root) {
 
     function onMessage (event) {
       if (destroyed || !event || event.origin !== ORIGIN || event.source !== frame.contentWindow) return
+      if (redirecting) return
       const msg = parseMessage(event.data)
       if (!msg) return
       if (msg.id !== undefined && msg.id !== null && String(msg.id) !== String(widgetId)) return
@@ -303,21 +359,29 @@ var TelsizYouTube = (function (root) {
         const next = typeof msg.info === 'number' ? msg.info : (isObj(msg.info) && typeof msg.info.playerState === 'number' ? msg.info.playerState : null)
         if (next !== null && switchSettled(next, null)) setState(next)
       } else if (msg.event === 'onAutoplayBlocked') {
-        // Bekleyen oynatma sözü hemen 'blocked' ile çözülür, motor "Dinlemek için dokunun" gösterir
-        settleWaiters('blocked')
-        emit({ type: 'blocked' })
+        holdAlert('blocked', null)
       } else if (msg.event === 'onError') {
         const code = typeof msg.info === 'number' ? msg.info : (isObj(msg.info) && typeof msg.info.errorCode === 'number' ? msg.info.errorCode : null)
-        if (code !== null && Number.isSafeInteger(code)) {
-          settleWaiters('error')
-          emit({ type: 'error', code: code })
-        }
+        if (code !== null && Number.isSafeInteger(code)) holdAlert('error', code)
       }
     }
 
     function onLoad () {
       if (destroyed) return
       connected = false
+      if (loadedOnce && currentId !== srcId) {
+        // Belge yeniden yüklendi ve src adresindeki eski videoyu açtı: çerçeve şu anki videonun adresine
+        // yönlendirilir. Bu belgeyle el sıkışılmaz ve iletileri yok sayılır. Yeni belge yüklenince el sıkışma
+        // yeniden başlar ve gelen bilgiler şu anki videonundur.
+        endSwitch(true)
+        srcId = currentId
+        redirecting = true
+        stopListening()
+        frame.src = buildEmbedUrl(currentId, { pageOrigin: opts.pageOrigin, lang: opts.lang, widgetId: widgetId })
+        return
+      }
+      loadedOnce = true
+      redirecting = false
       startListening()
     }
 
@@ -496,12 +560,19 @@ var TelsizYouTube = (function (root) {
 
     // Aynı çerçevede başka bir video hazırlar (cueVideoById). Videoya ait bilgiler (konum, süre, ad, durum)
     // sıfırlanır, bekleyen oynatma sözü 'aborted' ile çözülür. Sonuç true: komut gönderildi. Kimlik geçersizse,
-    // oynatıcı henüz hazır değilse veya kapatıldıysa false (çağıran yeni çerçeve kurar).
+    // oynatıcı henüz hazır değilse, belgesiyle bağlantı yoksa (yeniden yükleniyor), önceki videonun hazırlanması
+    // bitmediyse (çerçeve onu bildirmedi ve SWITCH_SETTLE_MS dolmadı) veya kapatıldıysa false (çağıran yeni
+    // çerçeve kurar). Hazırlanması bitmemiş çerçeve yeniden kullanılsaydı önceki videonun yoldaki iletileri
+    // (hazırlandı durumu, süre, ad) yeni videonun sayılabilirdi.
     function load (videoId) {
-      if (destroyed || !ready || typeof videoId !== 'string' || !VIDEO_ID_RE.test(videoId)) return false
+      if (destroyed || !ready || !connected || switching !== null || typeof videoId !== 'string' || !VIDEO_ID_RE.test(videoId)) return false
       if (!command('cueVideoById', [videoId])) return false
       settleWaiters('aborted')
-      switching = { from: currentId, to: videoId, at: now() }
+      switching = { from: currentId, to: videoId, at: now(), error: null, blocked: false }
+      switchHandle = timers.setTimeout(() => {
+        switchHandle = null
+        endSwitch(false)
+      }, SWITCH_SETTLE_MS)
       currentId = videoId
       state = STATE.UNSTARTED
       lastTimeMs = null
@@ -519,6 +590,9 @@ var TelsizYouTube = (function (root) {
       stopListening()
       if (readyHandle !== null) timers.clearTimeout(readyHandle)
       readyHandle = null
+      if (switchHandle !== null) timers.clearTimeout(switchHandle)
+      switchHandle = null
+      switching = null
       root.removeEventListener('message', onMessage)
       frame.removeEventListener('load', onLoad)
       if (frame.parentNode) frame.parentNode.removeChild(frame)

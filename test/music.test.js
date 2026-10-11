@@ -403,6 +403,8 @@ function makeStore () {
 
 // Belgelenmiş durum kodları: -1 başlamadı, 5 hazırlandı, 1 çalıyor, 2 duraklatıldı. behaviour.persistent: aynı
 // çerçevede yeni video hazırlayabilen (load) bağdaştırıcı, yoksa motor her parçada yeni çerçeve kurar.
+// behaviour.persistent 'slow' ise gerçek bağdaştırıcı gibi önceki videonun hazırlanması bitene kadar (settle)
+// yeni load reddedilir.
 function fakeYouTubePlayer (cfg, behaviour) {
   const state = { ready: false, playing: false, pos: 0, posAt: 0, commands: [], destroyed: false, visible: behaviour.visible !== false, yt: -1, durationMs: behaviour.durationMs || 0, videoId: cfg.videoId }
   const emit = (ev) => cfg.onEvent(ev)
@@ -441,7 +443,8 @@ function fakeYouTubePlayer (cfg, behaviour) {
   }
   if (behaviour.persistent) {
     impl.load = (videoId) => {
-      if (!state.ready || state.destroyed) return false
+      if (!state.ready || state.destroyed || state.cueing) return false
+      state.cueing = behaviour.persistent === 'slow'
       state.commands.push('load:' + videoId)
       state.videoId = videoId
       state.playing = false
@@ -460,6 +463,9 @@ function fakeYouTubePlayer (cfg, behaviour) {
       state.ready = true
       state.yt = 5
       emit({ type: 'ready' })
+    },
+    settle: () => {
+      state.cueing = false
     },
     emit
   }
@@ -2033,6 +2039,44 @@ describe('motor: kalıcı YouTube çerçevesi (istek 13, ikinci aşama)', () => 
     assert.equal(w.clients[1].ytPlayers.length, 2)
     assert.equal(w.clients[1].ytPlayers[0].state.destroyed, true)
   })
+
+  // İnceleme bulgusu: önceki videosunu hazırlamakta olan çerçeve ikinci geçişte yeniden kullanılıyordu
+  test('çerçeve önceki videoyu hazırlarken parça yine değişirse yeni çerçeve kurulur, eski çerçevenin olayları yeni parçaya gitmez', async () => {
+    const { timers, server, clients } = await setup({ client: [{ yt: { persistent: 'slow' } }, { yt: { persistent: 'slow' } }] })
+    const [a, b] = clients
+    allowYouTube(clients)
+    const VID3 = 'xvFZjo5PgG0'
+    await a.engine.addYouTube(VID, { durationMs: 200000 })
+    await a.engine.addYouTube(VID2)
+    await a.engine.addYouTube(VID3)
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    assert.equal(p.state.playing, true)
+    await a.engine.skip()
+    b.sync()
+    assert.equal(b.ytPlayers.length, 1)
+    assert.equal(p.state.videoId, VID2)
+    // Çerçeve ikinci videoyu bildirmeden parça yine değişir
+    a.sync()
+    await a.engine.skip()
+    b.sync()
+    assert.equal(b.engine.snapshot().session.current.videoId, VID3)
+    assert.equal(b.ytPlayers.length, 2)
+    assert.equal(p.state.destroyed, true)
+    assert.equal(b.ytPlayers[1].cfg.videoId, VID3)
+    // Kapatılan çerçevenin geç gelen olayları (ikinci videonun adı ve süresi) yeni parçaya yazılmaz
+    const v = server.rooms.get(ROOM).v
+    p.emit({ type: 'title', text: 'Video B' })
+    p.emit({ type: 'duration', ms: 90000 })
+    await timers.advance(500)
+    assert.equal(server.rooms.get(ROOM).v, v)
+    b.ytPlayers[1].becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    assert.equal(b.ytPlayers[1].state.playing, true)
+    assert.equal(b.engine.snapshot().player.status, 'playing')
+  })
 })
 
 // ------------------------------------------------------------------ YouTube bağdaştırıcısı
@@ -2281,6 +2325,143 @@ describe('YouTube bağdaştırıcısı (yol ii)', () => {
     assert.equal(p.position(), 3000)
     p.destroy()
     assert.equal(p.load(VID2), false)
+  })
+
+  // İnceleme bulgusu: arka arkaya iki load() çağrısında ilk videonun hazırlandı iletisi ikinci değişimin
+  // penceresini kapatıyor, önceki videonun süresi ve adı yeni parçaya yazılıyordu
+  test('load: önceki videonun hazırlanması bitmeden ikinci load reddedilir, başka videonun kimliği pencereyi kapatmaz', async () => {
+    const { YT, frames, deliver } = loadYouTube()
+    const timers = makeTimers()
+    const events = []
+    const p = YT.create({ container: { appendChild () {} }, videoId: VID, now: timers.now, timers, onEvent: (e) => events.push(e) })
+    const f = frames[0]
+    const VID3 = 'xvFZjo5PgG0'
+    const cues = () => f.sent.filter((m) => m.data.event === 'command' && m.data.func === 'cueVideoById').map((m) => m.data.args[0])
+    const of = (type) => events.filter((e) => e.type === type)
+    f.fire('load')
+    deliver(f, { event: 'onReady', id: p.widgetId })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 200, videoData: { title: 'Video A', video_id: VID }, currentTime: 50, playerState: 1 } })
+    assert.equal(p.load(VID2), true)
+    // B hazırlandığını bildirmeden parça yine değişir: çerçeve yeniden kullanılmaz, çağıran yeni çerçeve kurar
+    await timers.advance(100)
+    assert.equal(p.load(VID3), false)
+    same(cues(), [VID2])
+    assert.equal(p.videoId(), VID2)
+    // Başka videonun kimliğini taşıyan ileti hazırlandı durumunda olsa bile yeni videonun sayılmaz
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 5, duration: 200, currentTime: 0, videoData: { title: 'Video A', video_id: VID } } })
+    same(of('duration'), [{ type: 'duration', ms: 200000 }])
+    same(of('title'), [{ type: 'title', text: 'Video A' }])
+    assert.equal(p.state(), -1)
+    assert.equal(p.load(VID3), false)
+    // B'nin kendi iletileri B'ye yazılır
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 5 })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { playerState: 5, duration: 90, currentTime: 0, videoData: { title: 'Video B', video_id: VID2 } } })
+    same(of('duration'), [{ type: 'duration', ms: 200000 }, { type: 'duration', ms: 90000 }])
+    same(of('title'), [{ type: 'title', text: 'Video A' }, { type: 'title', text: 'Video B' }])
+    assert.equal(p.durationMs(), 90000)
+    // Hazırlanması biten çerçevede sonraki video hazırlanabilir
+    assert.equal(p.load(VID3), true)
+    same(cues(), [VID2, VID3])
+    // Çerçeve yeni videoyu hiç bildirmezse pencere süre dolunca kendiliğinden kapanır
+    assert.equal(p.load(VID), false)
+    await timers.advance(1500)
+    assert.equal(p.load(VID), true)
+    same(cues(), [VID2, VID3, VID])
+    p.destroy()
+    assert.equal(timers.pending(), 0)
+  })
+
+  test('load: değişim sırasında gelen eski hata ve engel bildirimleri yeni videoya yazılmaz, yeni video kendini bildirmezse süre dolunca uygulanır', async () => {
+    const { YT, frames, deliver } = loadYouTube()
+    const timers = makeTimers()
+    const events = []
+    const p = YT.create({ container: { appendChild () {} }, videoId: VID, now: timers.now, timers, onEvent: (e) => events.push(e) })
+    const f = frames[0]
+    const alerts = () => events.filter((e) => e.type === 'error' || e.type === 'blocked')
+    f.fire('load')
+    deliver(f, { event: 'onReady', id: p.widgetId })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 200, videoData: { title: 'Video A', video_id: VID }, currentTime: 0, playerState: 5 } })
+    const pr = p.play()
+    assert.equal(p.load(VID2), true)
+    assert.equal(await pr, 'aborted')
+    // Eski videonun yolda kalan hatası ve engellenen oynatması bekletilir
+    deliver(f, { event: 'onError', id: p.widgetId, info: 150 })
+    deliver(f, { event: 'onAutoplayBlocked', id: p.widgetId })
+    same(alerts(), [])
+    let settled = null
+    const pr2 = p.play()
+    pr2.then((r) => {
+      settled = r
+    })
+    await flush()
+    assert.equal(settled, null)
+    // Yeni video hazırlandığını bildirince bekletilenler eski videonundur ve atılır
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 5 })
+    await timers.advance(2000)
+    same(alerts(), [])
+    assert.equal(settled, null)
+    // Sonra gelen hata yeni videonundur
+    deliver(f, { event: 'onError', id: p.widgetId, info: 100 })
+    same(alerts(), [{ type: 'error', code: 100 }])
+    assert.equal(await pr2, 'error')
+    // Yeni video kendini hiç bildirmezse bekletilen bildirimler ona ait olabilir: süre dolunca uygulanır
+    assert.equal(p.load(VID), true)
+    deliver(f, { event: 'onError', id: p.widgetId, info: 150 })
+    const pr3 = p.play()
+    deliver(f, { event: 'onAutoplayBlocked', id: p.widgetId })
+    same(alerts(), [{ type: 'error', code: 100 }])
+    await timers.advance(1500)
+    same(alerts(), [{ type: 'error', code: 100 }, { type: 'blocked' }, { type: 'error', code: 150 }])
+    assert.equal(await pr3, 'blocked')
+    // Değişim yokken bildirimler hemen uygulanır
+    deliver(f, { event: 'onAutoplayBlocked', id: p.widgetId })
+    assert.equal(alerts().length, 4)
+    p.destroy()
+  })
+
+  test('çerçeve belgesi yeniden yüklenirse şu anki videonun adresine yönlendirilir', async () => {
+    const { YT, frames, deliver } = loadYouTube()
+    const timers = makeTimers()
+    const events = []
+    const p = YT.create({ container: { appendChild () {} }, videoId: VID, pageOrigin: 'http://127.0.0.1:4450', lang: 'tr', now: timers.now, timers, onEvent: (e) => events.push(e) })
+    const f = frames[0]
+    const src = f.src
+    const listens = () => f.sent.filter((m) => m.data.event === 'listening').length
+    const subs = () => f.sent.filter((m) => m.data.event === 'command' && m.data.func === 'addEventListener').length
+    f.fire('load')
+    deliver(f, { event: 'onReady', id: p.widgetId })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 200, videoData: { title: 'Video A', video_id: VID }, currentTime: 0, playerState: 5 } })
+    // Aynı videonun belgesi yeniden yüklenirse adres değişmez, el sıkışma yeniden başlar (önceki davranış)
+    f.fire('load')
+    assert.equal(f.src, src)
+    assert.equal(listens(), 2)
+    deliver(f, { event: 'initialDelivery', id: p.widgetId, info: { playerState: 5, currentTime: 0 } })
+    assert.equal(subs(), 8)
+    assert.equal(p.load(VID2), true)
+    deliver(f, { event: 'onStateChange', id: p.widgetId, info: 5 })
+    deliver(f, { event: 'infoDelivery', id: p.widgetId, info: { duration: 90, videoData: { title: 'Video B', video_id: VID2 }, currentTime: 0 } })
+    assert.equal(f.src, src)
+    // Belge yeniden yüklenince src adresindeki ilk video açılır: çerçeve şu anki videonun adresine yönlendirilir
+    const before = events.length
+    f.fire('load')
+    assert.equal(f.src, YT.buildEmbedUrl(VID2, { pageOrigin: 'http://127.0.0.1:4450', lang: 'tr', widgetId: p.widgetId }))
+    assert.equal(listens(), 2)
+    // Arada açılan belgenin iletileri yok sayılır, bu sırada video değiştirilemez
+    deliver(f, { event: 'initialDelivery', id: p.widgetId, info: { playerState: 1, duration: 200, currentTime: 30, videoData: { title: 'Video A', video_id: VID } } })
+    deliver(f, { event: 'onError', id: p.widgetId, info: 150 })
+    same(events.slice(before), [])
+    assert.equal(subs(), 8)
+    assert.equal(p.durationMs(), 90000)
+    assert.equal(p.load(VID), false)
+    // Yeni belge yüklenince el sıkışma yeniden başlar, bilgiler şu anki videonundur
+    f.fire('load')
+    assert.equal(listens(), 3)
+    deliver(f, { event: 'initialDelivery', id: p.widgetId, info: { playerState: 5, duration: 90, currentTime: 0, videoData: { title: 'Video B', video_id: VID2 } } })
+    assert.equal(subs(), 12)
+    assert.equal(p.state(), 5)
+    assert.equal(p.videoId(), VID2)
+    assert.equal(p.load(VID), true)
+    p.destroy()
   })
 
   test('yanıt vermeyen oynatıcı bildirilir', async () => {

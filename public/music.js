@@ -2156,6 +2156,8 @@ var TelsizMusic = (function (root) {
 
     // Bu oda için bekleyen, hazır ve hata bildirmemiş çerçevede yeni parçanın videosu hazırlanır. Sonuç true:
     // oynatıcı kuruldu. Çerçeve olayları yeni parçaya yönlendirilir, hazır olduğu için ready olayı beklenmez.
+    // Bağdaştırıcı videoyu hazırlayamazsa (ör. önceki videonun hazırlanması bitmedi) sonuç false olur, çağıran
+    // çerçeveyi kapatıp yenisini kurar.
     function reuseFrame (room, track) {
       const f = ytFrame
       if (!f || f.room !== room || f.broken || typeof f.impl.load !== 'function') return false
