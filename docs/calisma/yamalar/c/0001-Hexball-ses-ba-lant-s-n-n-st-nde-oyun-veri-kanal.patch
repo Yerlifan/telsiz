@@ -1,0 +1,2290 @@
+From 904efe50e958547ee513885767a305bd9c1185ab Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:14:09 +0000
+Subject: [PATCH] =?UTF-8?q?Hexball:=20ses=20ba=C4=9Flant=C4=B1s=C4=B1n?=
+ =?UTF-8?q?=C4=B1n=20=C3=BCst=C3=BCnde=20oyun=20veri=20kanal=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+voice.js'e eşten eşe oyun bağı eklendi (Yerlifan/telsiz#44): openGameLink,
+closeGameLink, gameLinkState, sendGameData, link-open, link-close ve
+link-failed olayları, opts.onGameData. Kanal sırasız ve yeniden
+göndermesizdir (telsiz-game), veri bölümü bağlantıda yoksa mevcut yeniden
+anlaşma yolu kullanılır. Karşı tarafın kanalı yalnız etiketi ve ayarları
+uyuyorsa, eş başına tek kanal olarak ve özel arama dışında kabul edilir.
+İleti en çok 512 bayt, eş başına saniyede en çok 240 gelen ileti, tampon
+16384 baytı aşınca gönderim atlanır.
+
+m satırı sayımı yalnız ses ve görüntüyü sayar. Yalnız veri bölümünü ekleyen
+anlaşma başarısız olursa ekran ve kamera hatası verilmez, bu eşle bağ ses
+oturumu boyunca engellenir ve yeniden kurulum döngüsü olmaz. 10-voice.js
+veriyi gameOnData işleyicisine iletir. Birim testi test/oyun-veri-kanali.test.js.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/10-voice.js         |    7 +-
+ public/voice.js               |  275 ++++-
+ test/oyun-veri-kanali.test.js | 1781 +++++++++++++++++++++++++++++++++
+ 3 files changed, 2051 insertions(+), 12 deletions(-)
+ create mode 100644 test/oyun-veri-kanali.test.js
+
+diff --git a/public/js/10-voice.js b/public/js/10-voice.js
+index 04ea77a..0a636e3 100644
+--- a/public/js/10-voice.js
++++ b/public/js/10-voice.js
+@@ -37,10 +37,15 @@ function createVoice () {
+         const name = evt.userId !== null && evt.userId !== undefined ? shownName(evt.userId) : ''
+         toast(() => (name ? t('camera.errors.negotiationUser', { name: name }) : cameraErrorText(evt.code, '')), '', 8000)
+       },
+-      // Oyun olayları (ileti, eş hazır, eş ayrıldı, oturum sıfırlandı) 36-oyun.js masa yöneticisine gider
++      // Oyun olayları (ileti, eş hazır, eş ayrıldı, oturum sıfırlandı, oyun bağı açıldı, kapandı veya açılamadı)
++      // 36-oyun.js masa yöneticisine gider
+       onGameEvent: (evt) => {
+         if (typeof gameOnVoiceEvent === 'function') gameOnVoiceEvent(evt)
+       },
++      // Oyun bağının gerçek zamanlı verisi (ikili) masa yöneticisinden geçmeden 36-oyun.js'e, oradan etkin oyuna gider
++      onGameData: (peerId, userId, data) => {
++        if (typeof gameOnData === 'function') gameOnData(peerId, userId, data)
++      },
+       storage: {
+         get: (key) => storeGet(key),
+         set: (key, value) => {
+diff --git a/public/voice.js b/public/voice.js
+index 0cdcc44..d6ac8f5 100644
+--- a/public/voice.js
++++ b/public/voice.js
+@@ -1,7 +1,8 @@
+ // Sesli sohbet istemcisi (window.VoiceClient)
+ // WebRTC tam örgü: ses, ekran paylaşımı ve kamera. Oyun iletileri aynı sinyal yolundan anlamı bilinmeyen yük (p) olarak
+-// taşınır. Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır, böylece sunucu bağlantı
+-// kurulumuna müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
++// taşınır, gerçek zamanlı oyun verisi ise istenince ses bağlantısının üstünde açılan veri kanalından (oyun bağı).
++// Sinyaller grup anahtarıyla şifrelenir ve gönderen ile alıcı kimliğine bağlanır, böylece sunucu bağlantı kurulumuna
++// müdahale edemez. Ağ erişimi yalnızca dışarıdan verilen api fonksiyonuyla yapılır.
+ // Mikrofon sesi WebAudio hattından geçer: algılama kolu (gecikmesiz analizör) ve ses kolu (ileri bakış gecikmesi,
+ // kapı kazancı, eşlere giden hedef iz). Bu dosya kullanıcıya görünen metin üretmez, hata ve durumlar kod olarak bildirilir.
+ window.VoiceClient = (function () {
+@@ -125,6 +126,15 @@ window.VoiceClient = (function () {
+   var GAME_KEYS = ['type', 'sid', 'n', 'p']
+   var GAME_TEXT_RE = /^[ -~]+$/
+   var MAX_GAME_CHARS = 11000
++  // Oyun bağı (gerçek zamanlı oyun verisi): ses bağlantısının üstünde, sırasız ve yeniden göndermesiz eşten eşe
++  // veri kanalı (DTLS içinde SCTP). voice.js verinin anlamını bilmez, yalnızca kanalı kurar, boyutu ve hızı
++  // sınırlar. İleti başına en çok MAX_GAME_DATA bayt (fazlası atılır), eş başına saniyede en çok GAME_DATA_RATE
++  // gelen ileti (fazlası atılır). Kanalın gönderim tamponu GAME_LINK_BUFFER baytı aşınca gönderim atlanır, bayat
++  // veri kuyruğa alınmaz.
++  var GAME_LINK_LABEL = 'telsiz-game'
++  var MAX_GAME_DATA = 512
++  var GAME_DATA_RATE = 240
++  var GAME_LINK_BUFFER = 16384
+   var UPLINK_MAX_KBPS = 10000000
+   var ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
+   var MIC_FLAGS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
+@@ -851,6 +861,7 @@ window.VoiceClient = (function () {
+     var onScreenEvent = typeof opts.onScreenEvent === 'function' ? opts.onScreenEvent : null
+     var onCameraEvent = typeof opts.onCameraEvent === 'function' ? opts.onCameraEvent : null
+     var onGameEvent = typeof opts.onGameEvent === 'function' ? opts.onGameEvent : null
++    var onGameData = typeof opts.onGameData === 'function' ? opts.onGameData : null
+     var storage = opts.storage && typeof opts.storage === 'object' ? opts.storage : null
+     var ctx = null
+     var rnModule = null
+@@ -987,7 +998,9 @@ window.VoiceClient = (function () {
+       cameraError: null,
+       cameraPost: Promise.resolve(),
+       cameraSeen: false,
+-      camBlocked: Object.create(null)
++      camBlocked: Object.create(null),
++      // Oyun bağı: veri kanalının anlaşmaya eklenemediği eşler (bu ses oturumunda yeniden açılmaz, 'blocked')
++      linkBlocked: Object.create(null)
+     }
+ 
+     loadSettings()
+@@ -2698,6 +2711,8 @@ window.VoiceClient = (function () {
+     // Bağlantı kapanınca bu bağlantıya bağlı ekran paylaşımı durumu da biter: karşı tarafın paylaşımı
+     // (izleyici tarafı) silinir, karşı taraf bizim paylaşımımızın izleyicisiyse izleyicilerden çıkar.
+     // Yeni bir bağlantı kurulursa paylaşan taraf durumunu yeniden duyurur, izlemek yeniden istenir.
++    // Oyun bağı da biter (link-close): kanal yeni bağlantıda yoktur, gerekiyorsa peer-ready olayından sonra
++    // yeniden açılır.
+     function closePeer (peer, reason) {
+       if (!peer || peer.closed) return
+       peer.closed = true
+@@ -2708,6 +2723,8 @@ window.VoiceClient = (function () {
+       pc.ontrack = null
+       pc.onconnectionstatechange = null
+       pc.oniceconnectionstatechange = null
++      pc.ondatachannel = null
++      detachGameLink(peer, 'link-close')
+       try {
+         pc.close()
+       } catch (e) {}
+@@ -2808,7 +2825,14 @@ window.VoiceClient = (function () {
+         camMid: null,
+         camOn: false,
+         camStream: null,
+-        camRejected: false
++        camRejected: false,
++        // Oyun bağı: gameDc = bu eşle tek veri kanalı, gameMine = kanalı bu taraf açtı, gameOpen = link-open
++        // bildirildi, gameWin ve gameN = gelen ileti hız penceresinin başlangıcı ve içindeki ileti sayısı
++        gameDc: null,
++        gameMine: false,
++        gameOpen: false,
++        gameWin: 0,
++        gameN: 0
+       }
+       st.peers[pid] = peer
+       st.roster[pid].noOffer = false
+@@ -2832,6 +2856,7 @@ window.VoiceClient = (function () {
+       pc.ontrack = function (e) { onRemoteTrack(peer, e) }
+       pc.onconnectionstatechange = function () { onConnState(peer) }
+       pc.oniceconnectionstatechange = function () { onConnState(peer) }
++      pc.ondatachannel = function (e) { acceptGameLink(peer, e ? e.channel : null) }
+       armTimer(peer)
+       emit()
+       return peer
+@@ -3085,21 +3110,25 @@ window.VoiceClient = (function () {
+     // Kurulu bağlantıda karşı tarafın teklifi uygulanamadı (ör. tarayıcı görüntü m satırını işleyemiyor). İki
+     // tarafın anlaşma durumu ayrıştığı için tutarlı tek yol bağlantıyı yeniden kurmaktır (bu taraf yeni sid ile
+     // başlatır, mikrofon yeni bağlantıda sürer). Teklif yeni m satırı ekliyorsa izleme yeniden istenmez (aynı
+-    // teklif yeniden gelip bağlantı tekrar tekrar kurulmasın), izleme başarısız bildirilir.
+-    function offerFailed (peer, grew) {
++    // teklif yeniden gelip bağlantı tekrar tekrar kurulmasın), izleme başarısız bildirilir. Teklif ses ve görüntü
++    // eklemeden yalnız oyun bağının veri bölümünü ekliyorsa (added) bu eşle oyun bağı engellenir (link-failed).
++    function offerFailed (peer, grew, added) {
+       var pid = peer.peerId
+       var rs = st.remote[pid]
+       if (grew && rs && st.watchWant[pid] === rs.id) {
+         delete st.watchWant[pid]
+         screenEvent({ type: 'error', code: 'screen_watch_failed', userId: rs.userId, peerId: pid })
+       }
++      if (added && !grew) blockGameLink(peer, true)
+       rebuildPeer(peer)
+     }
+ 
+     // Kurulu bağlantıda karşı tarafın yanıtı uygulanamadı. Teklif beklemede kalsa yeniden gönderilen aynı teklif
+     // aynı yanıtı getirir ve anlaşma hiç tamamlanmaz. Bağlantı yalnız mikrofonla yeniden kurulur (mikrofon yeni
+     // bağlantıda sürer). Teklif yeni m satırı ekliyorsa bu eşe ekran gönderilmez, yeniden kurulan bağlantıda
+-    // aynı hata tekrarlanıp bağlantı tekrar tekrar kurulmaz (screen_negotiation_failed).
++    // aynı hata tekrarlanıp bağlantı tekrar tekrar kurulmaz (screen_negotiation_failed). Teklif ses ve görüntü
++    // eklemeden yalnız oyun bağının veri bölümünü ekliyorsa ekran ve kamera hatası verilmez, bu eşle oyun bağı
++    // engellenir (link-failed, openGameLink 'blocked').
+     function answerFailed (peer, pend) {
+       var pid = peer.peerId
+       var rd = peer.pc.remoteDescription
+@@ -3114,12 +3143,28 @@ window.VoiceClient = (function () {
+         if (r) cameraEvent('camera_negotiation_failed', r.userId)
+       } else if (grew) {
+         st.screenLimit[pid] = 2
++      } else if (pend && addsOnlyData(peer, pend.sdp)) {
++        blockGameLink(peer, false)
+       }
+       rebuildPeer(peer)
+     }
+ 
++    // Ses ve görüntü m satırları. Oyun bağının veri bölümü (m=application) sayılmaz: veri kanalı ekleyen bir
++    // anlaşmanın başarısızlığı ekran veya kamera hatası sayılmaz.
+     function mlineCount (sdp) {
+-      return (String(sdp).match(/\r\nm=/g) || []).length
++      return (String(sdp).match(/\r\nm=(?:audio|video) /g) || []).length
++    }
++
++    // Tanımda oyun bağının veri bölümü var ve reddedilmemiş (kapı 0 değil)
++    function dataLive (sdp) {
++      return typeof sdp === 'string' && /\r\nm=application [1-9]/.test(sdp)
++    }
++
++    // Teklif (bu tarafın yerel tanımı) ses ve görüntü eklemeden yalnız veri bölümünü ekliyor
++    function addsOnlyData (peer, sdp) {
++      var rd = peer.pc.remoteDescription
++      var rsdp = rd && rd.sdp ? rd.sdp : ''
++      return dataLive(sdp) && !dataLive(rsdp) && mlineCount(sdp) <= mlineCount(rsdp)
+     }
+ 
+     // Teklif sunucunun zarf sınırını aştı (karşı tarafa ulaşmadı). Teklif geri alınsa da eklediği aktarıcılar
+@@ -3146,6 +3191,11 @@ window.VoiceClient = (function () {
+         if (r) cameraEvent('camera_negotiation_failed', r.userId)
+       } else if (mlines > 1) {
+         st.screenLimit[pid] = 2
++      } else if (addsOnlyData(peer, sdp)) {
++        // Veri bölümünü ilk kez ekleyen teklif sığmadı: bu eşle oyun bağı bu oturumda yeniden açılmaz (yeniden
++        // kurulan bağlantıda kanal yeniden açılıp aynı teklif tekrarlanmasın). Veri bölümü zaten anlaşılmışsa
++        // (ör. ICE yeniden başlatma) engellenmez, kanal yeni bağlantıda yeniden açılabilir.
++        blockGameLink(peer, false)
+       }
+       rebuildPeer(peer)
+     }
+@@ -3219,6 +3269,10 @@ window.VoiceClient = (function () {
+           // İki taraf aynı anda yeni bağlantı başlattıysa (ikisi de yanıt beklerken) eş kimliği küçük olanın
+           // teklifi geçerlidir, öbür taraf kendi teklifini bırakıp yanıtlar
+           if (peer.initiator && !peer.ready && peer.pc.signalingState === 'have-local-offer' && st.myPeerId < from) return
++          // Karşı taraf yalnız oyun bağının veri bölümünü ekleyen teklifimizi yanıtlamadan yeni bağlantı başlattı:
++          // teklif orada uygulanamadı (bkz. offerFailed). Kanal yeni bağlantıda yeniden açılıp bağlantı tekrar
++          // tekrar kurulmasın diye bu eşle oyun bağı engellenir.
++          if (peer.ready && peer.pc.signalingState === 'have-local-offer' && peer.pending && addsOnlyData(peer, peer.pending.sdp)) blockGameLink(peer, false)
+           // Karşı taraf yeni bir bağlantı başlattı: eskisini kapat, bu kez yanıtlayan ol. İzlenen paylaşım
+           // yeni bağlantıda yeniden istenir.
+           if (st.watchWant[from]) st.rewatch[from] = st.watchWant[from]
+@@ -3231,6 +3285,7 @@ window.VoiceClient = (function () {
+         // Aynı teklif yeniden gelebilir (yanıtı kaybolduysa), kararlı durumda yeniden uygulanır ve yanıtlanır.
+         var established = peer.ready
+         var before = established && peer.pc.remoteDescription ? mlineCount(peer.pc.remoteDescription.sdp) : 0
++        var dataBefore = established && peer.pc.remoteDescription ? dataLive(peer.pc.remoteDescription.sdp) : false
+         peer.localReady = false
+         try {
+           await peer.pc.setRemoteDescription({ type: 'offer', sdp: d.sdp })
+@@ -3242,7 +3297,7 @@ window.VoiceClient = (function () {
+           if (peer.closed) return
+           await peer.pc.setLocalDescription(answer)
+         } catch (e) {
+-          if (established && !peer.closed) offerFailed(peer, mlineCount(d.sdp) > before)
++          if (established && !peer.closed) offerFailed(peer, mlineCount(d.sdp) > before, !dataBefore && dataLive(d.sdp))
+           return
+         }
+         if (peer.closed) return
+@@ -3269,6 +3324,8 @@ window.VoiceClient = (function () {
+         if (peer.closed) return
+         peer.pending = null
+         clearNegoTimer(peer)
++        // Karşı taraf oyun bağının veri bölümünü reddetti (kapı 0): kanal açılamaz, yeniden teklif edilmez
++        if (pend && dataLive(pend.sdp) && !dataLive(d.sdp)) blockGameLink(peer, false)
+         await addQueuedCandidates(peer)
+         if (peer.closed) return
+         await refreshSenders(peer)
+@@ -3479,6 +3536,7 @@ window.VoiceClient = (function () {
+     // Oyun taşıması: voice.js p yükünün anlamını bilmez, yalnızca biçimini denetler ve tek eşe iletir.
+     // Olaylar: message { peerId, userId, p }, peer-ready { peerId, userId } (her bağlantı için bir kez),
+     // peer-leave { peerId, userId } (kişi bu peerId ile kadrodan çıktı), reset (ses oturumu bitti veya değişti).
++    // Oyun bağı olayları (bkz. openGameLink): link-open, link-close, link-failed { peerId, userId }.
+     // Oyun olayları mikro görevde ve sırayla bildirilir, dinleyici hatası motoru bozmaz
+     function gameEvent (evt) {
+       if (!onGameEvent) return
+@@ -3515,6 +3573,184 @@ window.VoiceClient = (function () {
+       return sendSignal(peer, d, null, onDone) ? 'ok' : 'no_key'
+     }
+ 
++    // Oyun bağı: bir eşle ses bağlantısının üstünde tek veri kanalı (etiket GAME_LINK_LABEL, sırasız, yeniden
++    // göndermesiz). Kanalı açan taraf openGameLink çağırır, karşı taraf kuralına uyan kanalı kendiliğinden kabul
++    // eder (acceptGameLink). Veri kanalı bağlantıda henüz anlaşılmamışsa mevcut yeniden anlaşma yolu kullanılır
++    // (needsNegotiation, sendOffer, kibar ve kaba eş kuralı). Özel aramada oyun bağı yoktur.
++    // Olaylar (onGameEvent): link-open kanal açıldı. link-close kanal kapandı (karşı taraf kapattı, bağlantı
++    // kapandı veya yeniden kuruldu, ses oturumu bitti), yeniden kurulan bağlantıda gerekiyorsa peer-ready olayından
++    // sonra yeniden açılır. link-failed kanal açılamadı: karşı taraf kanalı açılmadan kapattı veya veri bölümü
++    // anlaşmaya eklenemedi (bu durumda bu eşle bu ses oturumunda yeniden açılmaz, openGameLink 'blocked').
++    // closeGameLink ile kapatılan kanal için olay yoktur. "Açık" kanal karşı tarafın oyun modülünün dinlediğini
++    // göstermez (eski istemcide tarayıcı kanalı yine açar), bunu oyun modülü kendi el sıkışmasıyla anlar.
++    // Gelen veri opts.onGameData(peerId, userId, ArrayBuffer) ile eşzamanlı verilir, dinleyici hatası motoru bozmaz.
++    function linkEvent (peer, type) {
++      var r = st.roster[peer.peerId]
++      if (r) gameEvent({ type: type, peerId: peer.peerId, userId: r.userId })
++    }
++
++    // Kanal işleyicileri bırakılır ve kanal kapatılır, type verilirse (link-close, link-failed) olay bildirilir
++    function detachGameLink (peer, type) {
++      var dc = peer.gameDc
++      if (!dc) return
++      peer.gameDc = null
++      peer.gameMine = false
++      peer.gameOpen = false
++      dc.onopen = null
++      dc.onclose = null
++      dc.onmessage = null
++      try {
++        dc.close()
++      } catch (e) {}
++      if (type) linkEvent(peer, type)
++    }
++
++    // Veri bölümü bu eşle anlaşmaya eklenemedi: bu ses oturumunda yeniden açılmaz, açılmakta olan kanal kapanır
++    // (link-failed). Kanal yoksa (ör. teklifi karşı taraf açtı) olay yalnız announce verilmişse ve ilk kez
++    // bildirilir. Kanal tarayıcı tarafından zaten kapatıldıysa link-failed onclose ile bildirilmiştir.
++    function blockGameLink (peer, announce) {
++      var first = !st.linkBlocked[peer.peerId]
++      st.linkBlocked[peer.peerId] = true
++      if (peer.gameDc) detachGameLink(peer, 'link-failed')
++      else if (announce && first) linkEvent(peer, 'link-failed')
++    }
++
++    // wasOpen: aynı anda iki taraf kanal açtığında yerine geçilen kanal açıktı (link-open yeniden bildirilmez)
++    function attachGameLink (peer, dc, mine, wasOpen) {
++      peer.gameDc = dc
++      peer.gameMine = mine
++      peer.gameOpen = !!wasOpen
++      try {
++        dc.binaryType = 'arraybuffer'
++      } catch (e) {}
++      dc.onopen = function () {
++        if (peer.gameDc === dc) gameLinkOpened(peer)
++      }
++      dc.onclose = function () {
++        if (peer.gameDc === dc) detachGameLink(peer, peer.gameOpen ? 'link-close' : 'link-failed')
++      }
++      dc.onmessage = function (e) {
++        if (peer.gameDc === dc) gameDataIn(peer, e)
++      }
++      if (dc.readyState === 'open') gameLinkOpened(peer)
++    }
++
++    function gameLinkOpened (peer) {
++      if (peer.closed || peer.gameOpen) return
++      peer.gameOpen = true
++      linkEvent(peer, 'link-open')
++    }
++
++    // Karşı tarafın açtığı kanal yalnızca etiketi ve ayarları (sırasız, yeniden göndermesiz) uyuyorsa, özel
++    // aramada değilken, bu eşle oyun bağı engelli değilken ve eşle başka kanal yokken kabul edilir, uymayan kanal
++    // hemen kapatılır. İki taraf aynı anda açtıysa eş kimliği küçük olanın kanalı kalır.
++    function acceptGameLink (peer, ch) {
++      if (!ch) return
++      var ok = !peer.closed && st.inVoice && !st.privateCall && !st.linkBlocked[peer.peerId] &&
++        ch.label === GAME_LINK_LABEL && ch.ordered === false && ch.maxRetransmits === 0
++      var wasOpen = false
++      if (ok && peer.gameDc) {
++        ok = peer.gameMine && peer.peerId < st.myPeerId
++        if (ok) {
++          wasOpen = peer.gameOpen
++          detachGameLink(peer, null)
++        }
++      }
++      if (!ok) {
++        try {
++          ch.close()
++        } catch (e) {}
++        return
++      }
++      attachGameLink(peer, ch, false, wasOpen)
++    }
++
++    // Gelen ileti: yalnızca ikili (ArrayBuffer) ve 1 ile MAX_GAME_DATA bayt arası, eş başına saniyede en çok
++    // GAME_DATA_RATE ileti. Fazlası ve uymayanı atılır.
++    function gameDataIn (peer, e) {
++      if (!onGameData || peer.closed || !peer.gameOpen || !st.inVoice) return
++      var now = Date.now()
++      if (now - peer.gameWin >= 1000 || now < peer.gameWin) {
++        peer.gameWin = now
++        peer.gameN = 0
++      }
++      peer.gameN++
++      if (peer.gameN > GAME_DATA_RATE) return
++      var data = e ? e.data : null
++      if (Object.prototype.toString.call(data) !== '[object ArrayBuffer]') return
++      if (data.byteLength < 1 || data.byteLength > MAX_GAME_DATA) return
++      var r = st.roster[peer.peerId]
++      if (!r) return
++      try {
++        onGameData(peer.peerId, r.userId, data)
++      } catch (err) {
++        setTimeout(function () { throw err }, 0)
++      }
++    }
++
++    // Dönüş: 'ok' kanal açılıyor (veya zaten açılıyordu), 'open' kanal zaten açık, 'not_in_voice', 'private'
++    // (özel arama), 'no_peer', 'not_ready' (ilk anlaşma bitmedi), 'blocked' (veri bölümü bu eşle anlaşmaya
++    // eklenemedi), 'unsupported' (tarayıcı veri kanalı açamıyor)
++    function openGameLink (peerId) {
++      if (!st.inVoice || !st.myPeerId) return 'not_in_voice'
++      if (st.privateCall) return 'private'
++      if (!isPeerId(peerId) || !st.roster[peerId]) return 'no_peer'
++      var peer = st.peers[peerId]
++      if (!peer || peer.closed) return 'no_peer'
++      if (!peer.ready) return 'not_ready'
++      if (st.linkBlocked[peerId]) return 'blocked'
++      if (peer.gameDc) return peer.gameOpen ? 'open' : 'ok'
++      if (typeof peer.pc.createDataChannel !== 'function') return 'unsupported'
++      var dc = null
++      try {
++        dc = peer.pc.createDataChannel(GAME_LINK_LABEL, { ordered: false, maxRetransmits: 0 })
++      } catch (e) {
++        dc = null
++      }
++      if (!dc) return 'unsupported'
++      attachGameLink(peer, dc, true, false)
++      // Veri bölümü henüz anlaşılmamışsa yeniden teklif edilir (needsNegotiation)
++      syncScreenSenders(peer)
++      return 'ok'
++    }
++
++    // Kanal kapatılır, olay bildirilmez. Dönüş: kapatılacak kanal vardı
++    function closeGameLink (peerId) {
++      if (!isPeerId(peerId)) return false
++      var peer = st.peers[peerId]
++      if (!peer || !peer.gameDc) return false
++      detachGameLink(peer, null)
++      return true
++    }
++
++    // Dönüş: 'none', 'connecting', 'open'
++    function gameLinkState (peerId) {
++      if (!isPeerId(peerId)) return 'none'
++      var peer = st.peers[peerId]
++      if (!peer || peer.closed || !peer.gameDc) return 'none'
++      return peer.gameOpen ? 'open' : 'connecting'
++    }
++
++    // data: ArrayBuffer veya ArrayBuffer görünümü, 1 ile MAX_GAME_DATA bayt arası. Kanal açık değilse veya
++    // gönderim tamponu GAME_LINK_BUFFER baytı aşmışsa gönderilmez. Dönüş: gönderildi
++    function sendGameData (peerId, data) {
++      if (!st.inVoice || !isPeerId(peerId)) return false
++      var peer = st.peers[peerId]
++      if (!peer || peer.closed || !peer.gameDc || !peer.gameOpen) return false
++      var size = -1
++      if (Object.prototype.toString.call(data) === '[object ArrayBuffer]' || ArrayBuffer.isView(data)) size = data.byteLength
++      if (size < 1 || size > MAX_GAME_DATA) return false
++      var dc = peer.gameDc
++      if (dc.readyState !== 'open') return false
++      if (typeof dc.bufferedAmount === 'number' && dc.bufferedAmount > GAME_LINK_BUFFER) return false
++      try {
++        dc.send(data)
++      } catch (e) {
++        return false
++      }
++      return true
++    }
++
+     function transceiversOf (pc) {
+       try {
+         return pc && typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : []
+@@ -3546,8 +3782,10 @@ window.VoiceClient = (function () {
+       return t.receiver && t.receiver.track ? t.receiver.track.kind : null
+     }
+ 
+-    // İz taşıyan ama henüz anlaşılmamış (mid'i olmayan) aktarıcı varsa yeniden anlaşma gerekir
++    // İz taşıyan ama henüz anlaşılmamış (mid'i olmayan) aktarıcı varsa yeniden anlaşma gerekir. Oyun bağı kanalı
++    // varken karşı tarafın tanımında kullanılabilir veri bölümü (m=application) yoksa da gerekir.
+     function needsNegotiation (peer) {
++      if (peer.gameDc && !dataLive(peer.pc.remoteDescription ? peer.pc.remoteDescription.sdp : null)) return true
+       return transceiversOf(peer.pc).some(function (t) {
+         return !isStopped(t) && t.mid === null && !!t.sender && !!t.sender.track
+       })
+@@ -5274,6 +5512,7 @@ window.VoiceClient = (function () {
+         delete st.rewatch[pid]
+         delete st.screenLimit[pid]
+         delete st.camBlocked[pid]
++        delete st.linkBlocked[pid]
+         gameEvent({ type: 'peer-leave', peerId: pid, userId: st.roster[pid].userId })
+       })
+       st.roster = next
+@@ -5371,6 +5610,7 @@ window.VoiceClient = (function () {
+       stopShare('left', true)
+       stopCamera('left', true)
+       st.camBlocked = Object.create(null)
++      st.linkBlocked = Object.create(null)
+       Object.keys(st.peers).forEach(function (pid) { closePeer(st.peers[pid]) })
+       Object.keys(st.remote).forEach(function (pid) { dropRemote(pid, 'left') })
+       st.remote = Object.create(null)
+@@ -5772,7 +6012,12 @@ window.VoiceClient = (function () {
+       stopCamera: function () { stopCamera('user', false) },
+       uplinkEstimate: uplinkEstimate,
+       // Oyun taşıması (yükün anlamı oyun modülündedir)
+-      sendGame: sendGame
++      sendGame: sendGame,
++      // Oyun bağı (eşten eşe veri kanalı, gerçek zamanlı oyun verisi)
++      openGameLink: openGameLink,
++      closeGameLink: closeGameLink,
++      gameLinkState: gameLinkState,
++      sendGameData: sendGameData
+     }
+   }
+ 
+@@ -5815,6 +6060,14 @@ window.VoiceClient = (function () {
+     gameUtils: {
+       validateSignal: validGameSignal,
+       maxChars: MAX_GAME_CHARS
++    },
++    // Oyun bağının sabitleri: kanal etiketi, ileti başına en çok bayt, eş başına saniyede en çok gelen ileti,
++    // gönderimin atlandığı tampon eşiği (bayt)
++    gameLinkUtils: {
++      label: GAME_LINK_LABEL,
++      maxBytes: MAX_GAME_DATA,
++      rate: GAME_DATA_RATE,
++      buffer: GAME_LINK_BUFFER
+     }
+   }
+ })()
+diff --git a/test/oyun-veri-kanali.test.js b/test/oyun-veri-kanali.test.js
+new file mode 100644
+index 0000000..68860ce
+--- /dev/null
++++ b/test/oyun-veri-kanali.test.js
+@@ -0,0 +1,1781 @@
++'use strict'
++
++// Oyun bağı: public/voice.js içindeki eşten eşe oyun veri kanalı (openGameLink, closeGameLink, gameLinkState,
++// sendGameData, link-open, link-close ve link-failed olayları, opts.onGameData). Kanal ses bağlantısının üstünde
++// açılır (etiket telsiz-game, sırasız, yeniden göndermesiz), veri bölümü (m=application) bağlantıda henüz yoksa
++// mevcut yeniden anlaşma yolu kullanılır. Sınananlar: açma ve tek yeniden anlaşma, iki yönde veri, boyut, tür, hız
++// ve tampon sınırları, kabul kuralları (etiket, ayarlar, eş başına tek kanal, özel arama), aynı anda iki taraf
++// açınca tek kanal kalması, kapatma ve bağlantı kapanınca link-close, veri bölümü anlaşmaya eklenemeyince
++// (yanıt veya teklif uygulanamadı, karşı taraf reddetti, teklif zarf sınırını aştı) ekran ve kamera hatası
++// verilmeden bağın engellenmesi ve yeniden kurulum döngüsü olmaması, m satırı sayımının yalnız ses ve görüntüyü
++// sayması, bağ açıkken ve açılırken ekran paylaşımı yeniden anlaşmasının ve mikrofonun sürmesi. Her istemci ayrı
++// vm bağlamında gerçek voice.js çalıştırır, sahte WebRTC SDP, aktarıcı, veri kanalı ve paket akışını taklit eder
++// (test/screenshare.test.js düzeneğine veri kanalı eklenmiş biçimi), saat belirlenimcidir.
++
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const PUB = path.join(__dirname, '..', 'public')
++const VOICE = fs.readFileSync(path.join(PUB, 'voice.js'), 'utf8')
++const VOICE_UI = fs.readFileSync(path.join(PUB, 'js', '10-voice.js'), 'utf8')
++const KID = '0123456789abcdef'
++const CH = '7'
++const LABEL = 'telsiz-game'
++
++function noop () {}
++
++function plain (v) {
++  return JSON.parse(JSON.stringify(v))
++}
++
++function bytes (n, seed) {
++  const b = new Uint8Array(n)
++  let i = 0
++  while (i < n) {
++    b[i] = (seed + i * 7) % 256
++    i++
++  }
++  return b
++}
++
++function loadStatic () {
++  const win = {
++    isSecureContext: true,
++    addEventListener: noop,
++    removeEventListener: noop,
++    setTimeout,
++    clearTimeout,
++    console: { log: noop, warn: noop, error: noop }
++  }
++  win.window = win
++  win.navigator = { mediaDevices: { getUserMedia: () => Promise.reject(new Error('yok')) } }
++  win.document = { visibilityState: 'visible', documentElement: { lang: 'tr' } }
++  vm.createContext(win)
++  vm.runInContext(VOICE, win, { filename: 'voice.js' })
++  return win.VoiceClient
++}
++
++// ---------------------------------------------------------------- Statik denetimler
++
++test('genel API: gameLinkUtils sabitleri ve oyun bağı yöntemleri, seste değilken hiçbir şey açılmaz', () => {
++  const VC = loadStatic()
++  assert.deepEqual(plain(VC.gameLinkUtils), { label: LABEL, maxBytes: 512, rate: 240, buffer: 16384 })
++  const v = VC.create({ api: () => Promise.resolve({ status: 200, data: {} }), seal: () => '', open: () => null, storage: null })
++  for (const name of ['openGameLink', 'closeGameLink', 'gameLinkState', 'sendGameData']) assert.equal(typeof v[name], 'function', name)
++  assert.equal(v.openGameLink('peerB1'), 'not_in_voice')
++  assert.equal(v.gameLinkState('peerB1'), 'none')
++  assert.equal(v.sendGameData('peerB1', new ArrayBuffer(4)), false)
++  assert.equal(v.closeGameLink('peerB1'), false)
++})
++
++test('10-voice.js oyun bağı verisini korumalı olarak gameOnData işleyicisine iletir, voice.js oyun modülünü bilmez', () => {
++  assert.match(VOICE_UI, /onGameData: \(peerId, userId, data\) => \{\s*if \(typeof gameOnData === 'function'\) gameOnData\(peerId, userId, data\)\s*\}/)
++  assert.match(VOICE_UI, /onGameEvent: \(evt\) => \{\s*if \(typeof gameOnVoiceEvent === 'function'\) gameOnVoiceEvent\(evt\)\s*\}/)
++  assert.ok(!/gameOnData|gameOnVoiceEvent|TelsizHexball|hexball/i.test(VOICE))
++  // Kanal kabul kuralı ve gönderim ayarları tek yerde, sabitlerle yazılır
++  assert.match(VOICE, /createDataChannel\(GAME_LINK_LABEL, \{ ordered: false, maxRetransmits: 0 \}\)/)
++  assert.match(VOICE, /ch\.label === GAME_LINK_LABEL && ch\.ordered === false && ch\.maxRetransmits === 0/)
++})
++
++// ---------------------------------------------------------------- Sahte ses odası
++// Sahte WebRTC: aktarıcılar, m satırları ve yön anlaşması test/screenshare.test.js düzeneğindeki gibidir. Veri
++// kanalı eklendi: createDataChannel veri bölümünü (m=application) teklife ekler, iki tarafın kararlı tanımında veri
++// bölümü varsa ve bağlantı kuruluysa SCTP açılır. Açan tarafın kanalı karşıya ondatachannel ile duyurulur (kanal
++// açık gelir), açan tarafta 'open' karşı tarafın onayından sonra gelir (Chromium'daki DCEP sırası). Kapatma ve
++// iletiler karşıya 5 ms sonra ulaşır. Seçenekler: failOffer ve failAnswer(p, pc) tanım uygulanamaz, rejectData
++// yanıtta veri bölümü reddedilir (kapı 0), oldClient ondatachannel işleyicisi kurulamaz (oyun bağını bilmeyen eski
++// istemci, tarayıcı kanalı yine açar), noDataChannel createDataChannel yok, throwData veri dinleyicisi hata fırlatır.
++
++const VIDEO_CAPS = [
++  { mimeType: 'video/VP8', clockRate: 90000 },
++  { mimeType: 'video/rtx', clockRate: 90000 }
++]
++const AUDIO_CAPS = [
++  { mimeType: 'audio/opus', clockRate: 48000, channels: 2, sdpFmtpLine: 'minptime=10;useinbandfec=1' }
++]
++const DATA_CODEC = 'webrtc-datachannel'
++
++function codecKey (c) {
++  return c.mimeType.split('/')[1] + (c.sdpFmtpLine ? ':' + c.sdpFmtpLine.replace(/\s/g, '') : '')
++}
++
++function isMediaKey (k) {
++  return !/^(rtx|red|ulpfec|flexfec|CN|telephone-event)/.test(k)
++}
++
++function sendsDir (d) {
++  return d === 'sendrecv' || d === 'sendonly'
++}
++
++function recvsDir (d) {
++  return d === 'sendrecv' || d === 'recvonly'
++}
++
++function answerDir (offerDir, localDir) {
++  const send = recvsDir(offerDir) && sendsDir(localDir)
++  const recv = sendsDir(offerDir) && recvsDir(localDir)
++  if (send && recv) return 'sendrecv'
++  if (send) return 'sendonly'
++  return recv ? 'recvonly' : 'inactive'
++}
++
++function reverseDir (d) {
++  if (d === 'sendonly') return 'recvonly'
++  if (d === 'recvonly') return 'sendonly'
++  return d
++}
++
++function domErr (name, message) {
++  const e = new Error(message)
++  e.name = name
++  return e
++}
++
++function parseSdp (sdp) {
++  const parts = String(sdp).split('\r\nm=')
++  const head = parts[0]
++  return {
++    pcid: Number((head.match(/a=pcid:(\d+)/) || [])[1]),
++    ufrag: (head.match(/a=ice-ufrag:(\S+)/) || [])[1],
++    secs: parts.slice(1).map((p) => {
++      const f = p.split('\r\n')[0].split(' ')
++      return {
++        kind: f[0],
++        port: Number(f[1]),
++        codecs: f.slice(3).filter(Boolean),
++        mid: (p.match(/\r\na=mid:(\S+)/) || [])[1],
++        dir: (p.match(/\r\na=(sendrecv|sendonly|recvonly|inactive)/) || [])[1]
++      }
++    })
++  }
++}
++
++// Teklif veya yanıtta kullanılabilir veri bölümü var mı
++function hasData (p) {
++  return p.secs.some((s) => s.kind === 'application' && s.port !== 0)
++}
++
++function pcHasData (pc) {
++  return pc.ml.some((t) => t.kind === 'application' && !t.stopped)
++}
++
++// İletinin bu bağlamda kopyası (vm bağlamları arasında ArrayBuffer ve görünüm)
++function copyData (data) {
++  if (typeof data === 'string') return data
++  if (ArrayBuffer.isView(data)) return Uint8Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)).buffer
++  if (Object.prototype.toString.call(data) === '[object ArrayBuffer]') return Uint8Array.from(new Uint8Array(data)).buffer
++  return data
++}
++
++function makeClock () {
++  let now = 1700000000000
++  let seq = 0
++  const timers = new Map()
++  const errors = []
++  function add (fn, ms, every) {
++    seq++
++    const d = Math.max(0, Number(ms) || 0)
++    timers.set(seq, { id: seq, fn, at: now + d, every: every ? Math.max(1, d) : 0 })
++    return seq
++  }
++  class FakeDate extends Date {
++    constructor (...a) {
++      if (a.length) super(...a)
++      else super(now)
++    }
++
++    static now () {
++      return now
++    }
++  }
++  async function flush (turns) {
++    let i = 0
++    while (i < turns) {
++      await new Promise((resolve) => setImmediate(resolve))
++      i++
++    }
++  }
++  return {
++    Date: FakeDate,
++    errors,
++    now: () => now,
++    setTimeout: (fn, ms) => add(fn, ms, false),
++    clearTimeout: (id) => { timers.delete(id) },
++    setInterval: (fn, ms) => add(fn, ms, true),
++    clearInterval: (id) => { timers.delete(id) },
++    flush,
++    async advance (ms) {
++      const end = now + ms
++      await flush(30)
++      while (true) {
++        let next = null
++        timers.forEach((t) => {
++          if (t.at <= end && (!next || t.at < next.at || (t.at === next.at && t.id < next.id))) next = t
++        })
++        if (!next) break
++        now = next.at
++        if (next.every) next.at += next.every
++        else timers.delete(next.id)
++        try {
++          next.fn()
++        } catch (e) {
++          errors.push(e)
++        }
++        await flush(next.every && next.every <= 50 ? 1 : 30)
++      }
++      now = end
++      await flush(30)
++    }
++  }
++}
++
++function makeRoom () {
++  const clock = makeClock()
++  const net = { pcs: new Map(), pcSeq: 0, ufragSeq: 0, trackSeq: 0 }
++  const engines = {}
++  const roster = []
++  let sigSeq = 0
++  let rnd = 12345
++  const room = { clock, net, engines, rule: null, signals: 0, lastAt: {} }
++
++  class FTrack {
++    constructor (kind, opts) {
++      const o = opts || {}
++      net.trackSeq++
++      this.id = 'track-' + net.trackSeq
++      this.kind = kind
++      this.readyState = 'live'
++      this.muted = !!o.muted
++      this.enabled = true
++      this.contentHint = ''
++      this.produces = o.produces !== false
++      this.unmutedAt = 0
++      this.ls = {}
++    }
++
++    addEventListener (type, fn) {
++      if (!this.ls[type]) this.ls[type] = []
++      this.ls[type].push(fn)
++    }
++
++    removeEventListener (type, fn) {
++      const list = this.ls[type] || []
++      const i = list.indexOf(fn)
++      if (i >= 0) list.splice(i, 1)
++    }
++
++    dispatch (type) {
++      if (type === 'mute') this.muted = true
++      if (type === 'unmute') {
++        this.muted = false
++        this.unmutedAt = clock.now()
++      }
++      if (type === 'ended') this.readyState = 'ended'
++      const ev = { type, target: this }
++      const list = (this.ls[type] || []).slice()
++      list.forEach((fn) => fn.call(this, ev))
++      if (typeof this['on' + type] === 'function') this['on' + type](ev)
++    }
++
++    stop () {
++      this.readyState = 'ended'
++    }
++
++    clone () {
++      return new FTrack(this.kind, { produces: this.produces })
++    }
++
++    applyConstraints () {
++      return Promise.resolve()
++    }
++  }
++
++  class FStream {
++    constructor (tracks) {
++      this.tracks = Array.isArray(tracks) ? tracks.slice() : []
++    }
++
++    getTracks () {
++      return this.tracks.slice()
++    }
++
++    getAudioTracks () {
++      return this.tracks.filter((t) => t.kind === 'audio')
++    }
++
++    getVideoTracks () {
++      return this.tracks.filter((t) => t.kind === 'video')
++    }
++
++    addTrack (t) {
++      if (this.tracks.indexOf(t) < 0) this.tracks.push(t)
++    }
++
++    removeTrack (t) {
++      const i = this.tracks.indexOf(t)
++      if (i >= 0) this.tracks.splice(i, 1)
++    }
++  }
++
++  function element (tag) {
++    return {
++      tagName: String(tag).toUpperCase(),
++      nodeType: 1,
++      children: [],
++      parentNode: null,
++      attrs: {},
++      paused: true,
++      volume: 1,
++      muted: false,
++      srcObject: null,
++      appendChild (c) {
++        c.parentNode = this
++        this.children.push(c)
++        return c
++      },
++      removeChild (c) {
++        const i = this.children.indexOf(c)
++        if (i >= 0) this.children.splice(i, 1)
++        c.parentNode = null
++        return c
++      },
++      setAttribute (k, v) {
++        this.attrs[k] = String(v)
++      },
++      play () {
++        this.paused = false
++        return Promise.resolve()
++      },
++      pause () {
++        this.paused = true
++      }
++    }
++  }
++
++  // Veri kanalı taklidi. pair: karşı taraftaki eşi. sent: bu kanaldan gönderilen iletiler.
++  class FChannel {
++    constructor (pc, label, init, mine) {
++      const o = init || {}
++      this.pc = pc
++      this.label = String(label)
++      this.ordered = o.ordered !== false
++      this.maxRetransmits = typeof o.maxRetransmits === 'number' ? o.maxRetransmits : null
++      this.maxPacketLifeTime = typeof o.maxPacketLifeTime === 'number' ? o.maxPacketLifeTime : null
++      this.mine = mine
++      this.announced = false
++      this.readyState = 'connecting'
++      this.bufferedAmount = 0
++      this.binaryType = 'blob'
++      this.pair = null
++      this.sent = []
++      this.onopen = null
++      this.onclose = null
++      this.onmessage = null
++      pc.channels.push(this)
++    }
++
++    send (data) {
++      if (this.readyState !== 'open') throw domErr('InvalidStateError', 'not open')
++      const copy = copyData(data)
++      this.sent.push(copy)
++      const pair = this.pair
++      clock.setTimeout(() => {
++        if (!pair || pair.readyState !== 'open' || !pair.onmessage) return
++        const binary = typeof copy !== 'string'
++        // binaryType 'arraybuffer' değilse ikili veri Blob gibi gelir
++        const out = binary && pair.binaryType !== 'arraybuffer' ? { size: copy.byteLength, type: '' } : copyData(copy)
++        pair.onmessage({ data: out })
++      }, 5)
++    }
++
++    close () {
++      if (this.readyState === 'closing' || this.readyState === 'closed') return
++      this.readyState = 'closing'
++      clock.setTimeout(() => this.ended(), 1)
++      const pair = this.pair
++      if (pair) clock.setTimeout(() => pair.ended(), 5)
++    }
++
++    ended () {
++      if (this.readyState === 'closed') return
++      this.readyState = 'closed'
++      if (this.onclose) this.onclose({})
++    }
++  }
++
++  function engineRtc (owner, eo) {
++    class FSender {
++      constructor (pc, track) {
++        this.pc = pc
++        this.track = track || null
++        this.broken = false
++        this.enc = { active: true }
++      }
++
++      replaceTrack (t) {
++        if (this.pc.closed) return Promise.reject(domErr('InvalidStateError', 'closed'))
++        this.track = t || null
++        if (this.pc.signalingState === 'stable' && this.pc.negotiated) this.broken = false
++        return Promise.resolve()
++      }
++
++      getParameters () {
++        return { encodings: [Object.assign({}, this.enc)] }
++      }
++
++      setParameters (p) {
++        this.enc = Object.assign({}, p.encodings[0])
++        return Promise.resolve()
++      }
++    }
++
++    class FReceiver {
++      constructor (pc, kind) {
++        this.pc = pc
++        this.track = new FTrack(kind, { muted: true })
++        this.stats = { packets: 0, frames: 0 }
++        this.lastPkt = 0
++      }
++
++      getStats () {
++        return Promise.resolve(this.pc.report(this))
++      }
++
++      static getCapabilities (kind) {
++        if (kind === 'video') return { codecs: VIDEO_CAPS.slice(), headerExtensions: [] }
++        return { codecs: AUDIO_CAPS.slice(), headerExtensions: [] }
++      }
++    }
++
++    class FTransceiver {
++      constructor (pc, kind, dir, sender) {
++        this.pc = pc
++        this.kind = kind
++        this.mid = null
++        this.dir = dir
++        this.currentDirection = null
++        this.stopped = false
++        this.recyclable = false
++        this.byAddTrack = false
++        this.receiving = false
++        this.prefs = null
++        this.sender = sender || new FSender(pc, null)
++        this.receiver = new FReceiver(pc, kind)
++      }
++
++      get direction () {
++        return this.dir
++      }
++
++      set direction (d) {
++        if (this.stopped) throw domErr('InvalidStateError', 'stopped')
++        this.dir = d
++      }
++
++      setCodecPreferences (list) {
++        this.prefs = list.map(codecKey)
++      }
++    }
++
++    // Veri bölümü (m=application): aktarıcı listesinde görünmez, m satırı sırasında yer alır
++    class FDataSection {
++      constructor () {
++        this.kind = 'application'
++        this.mid = null
++        this.dir = 'sendrecv'
++        this.currentDirection = null
++        this.stopped = false
++        this.recyclable = false
++        this.receiving = false
++      }
++    }
++
++    class FakePC {
++      constructor () {
++        net.pcSeq++
++        this.id = net.pcSeq
++        this.owner = owner
++        net.pcs.set(this.id, this)
++        this.signalingState = 'stable'
++        this.connectionState = 'new'
++        this.iceConnectionState = 'new'
++        this.closed = false
++        this.trs = []
++        this.ml = []
++        this.dataT = null
++        this.channels = []
++        this.usedMids = new Set()
++        this.midSeq = 0
++        this.plans = new Map()
++        this.pendingLocal = null
++        this.pendingRemote = null
++        this.localUfrag = null
++        this.remoteUfrag = null
++        this.localSdp = null
++        this.localType = null
++        this.stableLocal = null
++        this.remoteSdp = null
++        this.remoteType = null
++        this.stableRemote = null
++        this.remotePcId = null
++        this.curPlan = null
++        this.negotiated = false
++        this.calls = []
++        this.onicecandidate = null
++        this.ontrack = null
++        this.onconnectionstatechange = null
++        this.oniceconnectionstatechange = null
++        if (eo.oldClient) Object.defineProperty(this, 'ondatachannel', { get: () => null, set: noop })
++        else this.ondatachannel = null
++        if (eo.noDataChannel) this.createDataChannel = undefined
++      }
++
++      get localDescription () {
++        return this.localSdp === null ? null : { type: this.localType, sdp: this.localSdp }
++      }
++
++      get remoteDescription () {
++        return this.remoteSdp === null ? null : { type: this.remoteType, sdp: this.remoteSdp }
++      }
++
++      log (call, err) {
++        this.calls.push({ t: clock.now(), call, state: this.signalingState, err: err ? err.name + ': ' + err.message : null })
++      }
++
++      fail (call, name, message) {
++        const e = domErr(name, message)
++        this.log(call, e)
++        return Promise.reject(e)
++      }
++
++      newMid () {
++        while (this.usedMids.has(String(this.midSeq))) this.midSeq++
++        const m = String(this.midSeq)
++        this.midSeq++
++        this.usedMids.add(m)
++        return m
++      }
++
++      allTs () {
++        return this.dataT ? this.trs.concat([this.dataT]) : this.trs.slice()
++      }
++
++      codecsFor (t) {
++        if (t.kind === 'application') return [DATA_CODEC]
++        const caps = t.kind === 'video' ? VIDEO_CAPS : AUDIO_CAPS
++        const list = t.prefs ? caps.filter((c) => t.prefs.indexOf(codecKey(c)) >= 0) : caps
++        return list.map(codecKey)
++      }
++
++      sdpOf (secs, ufrag) {
++        let s = 'v=0\r\no=- ' + this.id + ' 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=pcid:' + this.id + '\r\na=ice-ufrag:' + ufrag
++        secs.forEach((m) => {
++          const proto = m.kind === 'application' ? 'UDP/DTLS/SCTP' : 'UDP/TLS/RTP/SAVPF'
++          s += '\r\nm=' + m.kind + ' ' + m.port + ' ' + proto + ' ' + m.codecs.join(' ') + '\r\na=mid:' + m.mid + '\r\na=' + m.dir
++        })
++        return s + '\r\n'
++      }
++
++      addTrack (track) {
++        if (this.closed) throw domErr('InvalidStateError', 'closed')
++        const t = new FTransceiver(this, track.kind, 'sendrecv', new FSender(this, track))
++        t.byAddTrack = true
++        this.trs.push(t)
++        return t.sender
++      }
++
++      getTransceivers () {
++        return this.trs.slice()
++      }
++
++      getSenders () {
++        return this.trs.map((t) => t.sender)
++      }
++
++      getReceivers () {
++        return this.trs.map((t) => t.receiver)
++      }
++
++      createDataChannel (label, init) {
++        if (this.closed) throw domErr('InvalidStateError', 'closed')
++        const ch = new FChannel(this, label, init, true)
++        if (!this.dataT || this.dataT.stopped) this.dataT = new FDataSection()
++        clock.setTimeout(() => this.pump(), 0)
++        return ch
++      }
++
++      createOffer (o) {
++        if (this.closed) return this.fail('createOffer', 'InvalidStateError', 'closed')
++        this.log('createOffer')
++        const restart = !!(o && o.iceRestart) || this.localUfrag === null
++        net.ufragSeq++
++        const ufrag = restart ? 'u' + net.ufragSeq : this.localUfrag
++        const list = this.ml.slice()
++        const assign = []
++        this.allTs().forEach((t) => {
++          if (t.mid !== null || t.stopped || list.indexOf(t) >= 0) return
++          const mid = this.newMid()
++          assign.push([t, mid])
++          const slot = list.findIndex((x) => x.stopped && x.recyclable && !x.taken)
++          if (slot >= 0) {
++            list[slot].taken = true
++            list[slot] = t
++          } else {
++            list.push(t)
++          }
++        })
++        list.forEach((x) => { delete x.taken })
++        const secs = list.map((t) => {
++          const a = assign.find((x) => x[0] === t)
++          const mid = a ? a[1] : t.mid
++          return { kind: t.kind, port: t.stopped ? 0 : 9, codecs: t.stopped ? [] : this.codecsFor(t), mid, dir: t.stopped ? 'inactive' : t.dir }
++        })
++        const sdp = this.sdpOf(secs, ufrag)
++        this.plans.set(sdp, { type: 'offer', list, assign, ufrag, secs, adds: assign.length > 0 })
++        return Promise.resolve({ type: 'offer', sdp })
++      }
++
++      createAnswer () {
++        if (this.closed || this.signalingState !== 'have-remote-offer') return this.fail('createAnswer', 'InvalidStateError', 'no remote offer')
++        this.log('createAnswer')
++        const pr = this.pendingRemote
++        net.ufragSeq++
++        const ufrag = pr.ufrag !== this.remoteUfrag || this.localUfrag === null ? 'u' + net.ufragSeq : this.localUfrag
++        const secs = pr.secs.map((s, i) => {
++          const t = pr.list[i]
++          const reject = { kind: s.kind, port: 0, codecs: [], mid: s.mid, dir: 'inactive' }
++          if (s.port === 0) return reject
++          if (s.kind === 'application' && eo.rejectData) return reject
++          const common = this.codecsFor(t).filter((c) => s.codecs.indexOf(c) >= 0)
++          if (!common.some(isMediaKey)) return reject
++          return { kind: s.kind, port: 9, codecs: common, mid: s.mid, dir: answerDir(s.dir, t.dir) }
++        })
++        const sdp = this.sdpOf(secs, ufrag)
++        this.plans.set(sdp, { type: 'answer', secs, ufrag })
++        return Promise.resolve({ type: 'answer', sdp })
++      }
++
++      stopT (t) {
++        t.stopped = true
++        t.dir = 'stopped'
++        t.currentDirection = 'stopped'
++        t.receiving = false
++        t.recyclable = true
++        // Reddedilen veri bölümünde açılmakta olan kanallar kapanır
++        if (t === this.dataT) {
++          this.channels.forEach((ch) => {
++            if (ch.readyState === 'connecting') clock.setTimeout(() => ch.ended(), 1)
++          })
++        }
++      }
++
++      finishStable () {
++        this.signalingState = 'stable'
++        this.negotiated = true
++        this.stableLocal = [this.localType, this.localSdp]
++        this.stableRemote = [this.remoteType, this.remoteSdp]
++        this.trs = this.trs.filter((t) => !t.stopped)
++        this.checkIce()
++        this.pump()
++      }
++
++      setConn (s) {
++        if (this.closed || this.connectionState === s) return
++        this.connectionState = s
++        this.iceConnectionState = s
++        if (this.onconnectionstatechange) this.onconnectionstatechange()
++        if (s === 'connected') this.pump()
++      }
++
++      checkIce () {
++        const r = net.pcs.get(this.remotePcId)
++        if (!r || r.closed || r.remotePcId !== this.id) return
++        if (this.signalingState !== 'stable' || r.signalingState !== 'stable') return
++        const ok = this.localUfrag && this.remoteUfrag && r.localUfrag === this.remoteUfrag && r.remoteUfrag === this.localUfrag
++        if (ok) {
++          this.setConn('connected')
++          r.setConn('connected')
++          return
++        }
++        clock.setTimeout(() => {
++          const ok2 = this.localUfrag && r.localUfrag === this.remoteUfrag && r.remoteUfrag === this.localUfrag
++          if (!ok2 && this.signalingState === 'stable' && r.signalingState === 'stable') {
++            this.setConn('failed')
++            r.setConn('failed')
++          }
++        }, 1000)
++      }
++
++      // SCTP: iki tarafın da anlaşılmış veri bölümü (aynı mid) varsa ve bağlantı kuruluysa açılmamış kanallar
++      // karşıya duyurulur
++      dataReady () {
++        const d = this.dataT
++        return !this.closed && !!d && d.mid !== null && !d.stopped && this.ml.indexOf(d) >= 0 && this.connectionState === 'connected'
++      }
++
++      pump () {
++        const r = net.pcs.get(this.remotePcId)
++        if (!r || r.remotePcId !== this.id) return
++        if (!this.dataReady() || !r.dataReady() || r.dataT.mid !== this.dataT.mid) return
++        const pending = []
++        const both = [this, r]
++        both.forEach((pc) => pc.channels.forEach((ch) => {
++          if (ch.mine && !ch.announced && ch.readyState === 'connecting') pending.push([pc, ch])
++        }))
++        pending.forEach((x) => {
++          x[1].announced = true
++          this.announce(x[1], x[0] === this ? r : this)
++        })
++      }
++
++      announce (ch, r) {
++        clock.setTimeout(() => {
++          if (ch.readyState !== 'connecting' || r.closed) return
++          const twin = new FChannel(r, ch.label, { ordered: ch.ordered, maxRetransmits: ch.maxRetransmits, maxPacketLifeTime: ch.maxPacketLifeTime }, false)
++          twin.pair = ch
++          ch.pair = twin
++          twin.readyState = 'open'
++          // Açan taraf onayı alınca açılır (karşı tarafın kanalı hemen kapatması bundan sonra ulaşır)
++          clock.setTimeout(() => {
++            if (ch.readyState !== 'connecting') return
++            ch.readyState = 'open'
++            if (ch.onopen) ch.onopen({})
++          }, 5)
++          if (r.ondatachannel) r.ondatachannel({ channel: twin })
++        }, 5)
++      }
++
++      fireTrack (t) {
++        if (t.receiving || t.kind === 'application') return
++        t.receiving = true
++        const track = t.receiver.track
++        if (this.ontrack) this.ontrack({ track, transceiver: t, receiver: t.receiver, streams: [new FStream([track])] })
++      }
++
++      setLocalDescription (desc) {
++        const type = desc && desc.type
++        if (this.closed) return this.fail('sLD:' + type, 'InvalidStateError', 'closed')
++        if (type === 'rollback') {
++          if (this.signalingState === 'have-local-offer') {
++            const p = this.pendingLocal
++            p.assign.forEach((a) => {
++              if (a[0].mid === a[1]) a[0].mid = null
++            })
++            if (p.adds) {
++              this.trs.forEach((t) => { t.sender.broken = true })
++              this.negotiated = false
++            }
++            this.pendingLocal = null
++            this.localType = this.stableLocal ? this.stableLocal[0] : null
++            this.localSdp = this.stableLocal ? this.stableLocal[1] : null
++          } else if (this.signalingState === 'have-remote-offer') {
++            const p = this.pendingRemote
++            p.created.forEach((t) => {
++              const i = this.trs.indexOf(t)
++              if (i >= 0) this.trs.splice(i, 1)
++              else if (t === this.dataT) this.dataT = null
++            })
++            p.assoc.forEach((t) => { t.mid = null })
++            this.pendingRemote = null
++            this.remoteType = this.stableRemote ? this.stableRemote[0] : null
++            this.remoteSdp = this.stableRemote ? this.stableRemote[1] : null
++          } else {
++            return this.fail('sLD:rollback', 'InvalidStateError', 'nothing to roll back')
++          }
++          this.log('sLD:rollback')
++          this.signalingState = 'stable'
++          return Promise.resolve()
++        }
++        const plan = this.plans.get(desc.sdp)
++        if (!plan || plan.type !== type) return this.fail('sLD:' + type, 'InvalidModificationError', 'unknown description')
++        if (type === 'offer') {
++          if (this.signalingState !== 'stable' && this.signalingState !== 'have-local-offer') return this.fail('sLD:offer', 'InvalidStateError', 'bad state')
++          this.log('sLD:offer')
++          if (this.pendingLocal) {
++            this.pendingLocal.assign.forEach((a) => {
++              if (a[0].mid === a[1]) a[0].mid = null
++            })
++          }
++          plan.assign.forEach((a) => { a[0].mid = a[1] })
++          this.pendingLocal = plan
++          this.localType = 'offer'
++          this.localSdp = desc.sdp
++          this.curPlan = plan
++          this.signalingState = 'have-local-offer'
++          return Promise.resolve()
++        }
++        if (this.signalingState !== 'have-remote-offer') return this.fail('sLD:answer', 'InvalidStateError', 'bad state')
++        this.log('sLD:answer')
++        const pr = this.pendingRemote
++        plan.secs.forEach((s, i) => {
++          const t = pr.list[i]
++          if (s.port === 0) this.stopT(t)
++          else t.currentDirection = s.dir
++        })
++        this.ml = pr.list.slice()
++        this.localUfrag = plan.ufrag
++        this.remoteUfrag = pr.ufrag
++        this.localType = 'answer'
++        this.localSdp = desc.sdp
++        this.curPlan = plan
++        this.pendingRemote = null
++        this.finishStable()
++        return Promise.resolve()
++      }
++
++      setRemoteDescription (desc) {
++        const type = desc && desc.type
++        if (this.closed) return this.fail('sRD:' + type, 'InvalidStateError', 'closed')
++        const p = parseSdp(desc.sdp)
++        if (type === 'offer') {
++          if (this.signalingState !== 'stable') return this.fail('sRD:offer', 'InvalidStateError', 'bad state')
++          if (eo.failOffer && eo.failOffer(p, this)) return this.fail('sRD:offer', 'OperationError', 'cannot apply this offer')
++          let i = 0
++          while (i < this.ml.length) {
++            const cur = this.ml[i]
++            const s = p.secs[i]
++            if (!s) return this.fail('sRD:offer', 'InvalidAccessError', 'The number of m-lines in subsequent offer is smaller')
++            if (s.mid !== cur.mid && !(cur.stopped && cur.recyclable)) {
++              return this.fail('sRD:offer', 'InvalidAccessError', "The order of m-lines in subsequent offer doesn't match order from previous offer/answer.")
++            }
++            i++
++          }
++          this.log('sRD:offer')
++          const list = []
++          const created = []
++          const assoc = []
++          p.secs.forEach((s, k) => {
++            let t = k < this.ml.length && this.ml[k].mid === s.mid ? this.ml[k] : null
++            if (!t && s.kind === 'application') {
++              // Bu tarafta da kanal açılmış ama veri bölümü henüz teklif edilmemişse aynı bölüme bağlanır
++              if (this.dataT && this.dataT.mid === null && !this.dataT.stopped) {
++                t = this.dataT
++                assoc.push(t)
++              } else {
++                t = new FDataSection()
++                this.dataT = t
++                created.push(t)
++              }
++              t.mid = s.mid
++            } else if (!t) {
++              t = this.trs.find((x) => x.mid === null && !x.stopped && x.byAddTrack && x.kind === s.kind) || null
++              if (t) {
++                assoc.push(t)
++              } else {
++                t = new FTransceiver(this, s.kind, 'recvonly')
++                this.trs.push(t)
++                created.push(t)
++              }
++              t.mid = s.mid
++            }
++            this.usedMids.add(s.mid)
++            list.push(t)
++          })
++          this.pendingRemote = { list, created, assoc, ufrag: p.ufrag, secs: p.secs }
++          this.remoteType = 'offer'
++          this.remoteSdp = desc.sdp
++          this.remotePcId = p.pcid
++          this.signalingState = 'have-remote-offer'
++          p.secs.forEach((s, k) => {
++            if (s.port !== 0 && sendsDir(s.dir) && recvsDir(list[k].dir)) this.fireTrack(list[k])
++          })
++          return Promise.resolve()
++        }
++        if (this.signalingState !== 'have-local-offer') return this.fail('sRD:answer', 'InvalidStateError', 'bad state')
++        const pl = this.pendingLocal
++        if (p.secs.length !== pl.secs.length || p.secs.some((s, k) => s.mid !== pl.secs[k].mid)) {
++          return this.fail('sRD:answer', 'InvalidAccessError', 'answer does not match the offer')
++        }
++        if (eo.failAnswer && eo.failAnswer(p, this)) return this.fail('sRD:answer', 'OperationError', 'cannot apply this answer')
++        this.log('sRD:answer')
++        p.secs.forEach((s, k) => {
++          const t = pl.list[k]
++          if (s.port === 0) {
++            this.stopT(t)
++            return
++          }
++          t.currentDirection = reverseDir(s.dir)
++          if (sendsDir(s.dir) && recvsDir(t.dir)) this.fireTrack(t)
++        })
++        this.ml = pl.list.slice()
++        this.pendingLocal = null
++        this.remoteType = 'answer'
++        this.remoteSdp = desc.sdp
++        this.remotePcId = p.pcid
++        this.localUfrag = pl.ufrag
++        this.remoteUfrag = p.ufrag
++        this.finishStable()
++        return Promise.resolve()
++      }
++
++      addIceCandidate () {
++        if (this.closed || !this.remoteSdp) return Promise.reject(domErr('InvalidStateError', 'no remote description'))
++        return Promise.resolve()
++      }
++
++      report (rc) {
++        const m = new Map()
++        this.trs.forEach((t) => {
++          if (rc && t.receiver !== rc) return
++          const s = t.receiver.stats
++          if (!s.packets) return
++          m.set('in-' + t.mid, { id: 'in-' + t.mid, type: 'inbound-rtp', kind: t.kind, mid: t.mid, packetsReceived: s.packets, framesDecoded: t.kind === 'video' ? s.frames : undefined, trackIdentifier: t.receiver.track.id })
++        })
++        return m
++      }
++
++      getStats () {
++        return Promise.resolve(this.report(null))
++      }
++
++      close () {
++        if (this.closed) return
++        this.closed = true
++        this.signalingState = 'closed'
++        this.connectionState = 'closed'
++        this.trs.forEach((t) => {
++          t.stopped = true
++          t.dir = 'stopped'
++          t.currentDirection = 'stopped'
++        })
++        // Yerel kanallar olay olmadan kapanır, karşı taraftaki eşleri kapanma olayı alır
++        this.channels.forEach((ch) => {
++          if (ch.readyState === 'closed') return
++          ch.readyState = 'closed'
++          const pair = ch.pair
++          if (pair) clock.setTimeout(() => pair.ended(), 5)
++        })
++      }
++    }
++
++    return { FakePC, FSender, FReceiver }
++  }
++
++  // Paket sayımı (250 ms)
++  function flowTick () {
++    net.pcs.forEach((pc) => {
++      if (pc.closed) return
++      const r = net.pcs.get(pc.remotePcId)
++      const linked = !!(r && !r.closed && r.connectionState === 'connected' && pc.connectionState === 'connected')
++      pc.trs.forEach((t) => {
++        if (t.stopped || t.mid === null) return
++        const rt = linked ? r.trs.find((x) => x.mid === t.mid && !x.stopped) : null
++        const tr = rt ? rt.sender.track : null
++        const flowing = !!(tr && tr.readyState === 'live' && tr.produces && sendsDir(rt.currentDirection) && recvsDir(t.currentDirection) && !rt.sender.broken && rt.sender.enc.active !== false)
++        const rx = t.receiver
++        if (flowing) {
++          rx.stats.packets++
++          if (t.kind === 'video') rx.stats.frames++
++          rx.lastPkt = clock.now()
++          if (rx.track.muted) rx.track.dispatch('unmute')
++        } else if (!rx.track.muted && clock.now() - Math.max(rx.lastPkt, rx.track.unmutedAt) > 2000) {
++          rx.track.dispatch('mute')
++        }
++      })
++    })
++  }
++  clock.setInterval(flowTick, 250)
++
++  function seal (obj) {
++    return '1.' + KID + '.nonce.' + Buffer.from(JSON.stringify(obj)).toString('base64')
++  }
++
++  function open (env) {
++    const parts = String(env).split('.')
++    if (parts[0] !== '1' || parts[1] !== KID) return { ok: false }
++    return { ok: true, kid: KID, value: JSON.parse(Buffer.from(parts[3], 'base64').toString()) }
++  }
++
++  function pushMeta () {
++    const list = roster.map((m) => ({ peerId: m.peerId, userId: m.userId, muted: false, deafened: false }))
++    Object.keys(engines).forEach((name) => {
++      const e = engines[name]
++      clock.setTimeout(() => e.voice.handleMeta({ voice: { [CH]: list } }, { id: e.userId }), 20)
++    })
++  }
++
++  async function serverApi (e, method, url, body) {
++    if (url === '/api/voice/join') {
++      e.peerId = 'peer' + e.name + e.joins
++      e.joins++
++      const members = roster.map((m) => ({ peerId: m.peerId, userId: m.userId, muted: false, deafened: false }))
++      roster.push({ peerId: e.peerId, userId: e.userId })
++      pushMeta()
++      return { status: 200, data: { ok: true, peerId: e.peerId, members, iceServers: [] } }
++    }
++    if (url === '/api/voice/leave') {
++      const i = roster.findIndex((m) => m.peerId === e.peerId)
++      if (i >= 0) roster.splice(i, 1)
++      pushMeta()
++      return { status: 200, data: { ok: true } }
++    }
++    if (url === '/api/voice/state') return { status: 200, data: { ok: true } }
++    if (url === '/api/voice/signal') {
++      const d = open(body.data).value.d
++      const target = Object.keys(engines).map((k) => engines[k]).find((x) => x.peerId === body.to)
++      const entry = { t: clock.now(), from: e.name, to: target ? target.name : null, type: d.type, n: d.n, o: d.o, sid: d.sid, sdp: d.sdp || null }
++      e.sent.push(entry)
++      room.signals++
++      if (room.signals > 2000) return { status: 429, data: null }
++      const rule = room.rule ? room.rule(entry) : null
++      if (rule && typeof rule.status === 'number') return { status: rule.status, data: null }
++      if (!target) return { status: 200, data: { ok: true } }
++      const key = e.name + '>' + target.name
++      const at = Math.max(clock.now() + 20, (room.lastAt[key] || 0) + 1)
++      room.lastAt[key] = at
++      sigSeq++
++      const sig = { seq: sigSeq, from: e.peerId, data: body.data }
++      clock.setTimeout(() => target.voice.handleSignals([sig]), at - clock.now())
++      return { status: 200, data: { ok: true } }
++    }
++    return { status: 200, data: { ok: true } }
++  }
++
++  room.add = function (name, opts) {
++    const eo = opts || {}
++    const rtc = engineRtc(name, eo)
++    const win = {
++      isSecureContext: true,
++      setTimeout: clock.setTimeout,
++      clearTimeout: clock.clearTimeout,
++      setInterval: clock.setInterval,
++      clearInterval: clock.clearInterval,
++      Date: clock.Date,
++      console: { log: noop, warn: noop, error: noop },
++      addEventListener: noop,
++      removeEventListener: noop,
++      crypto: {
++        getRandomValues (b) {
++          let i = 0
++          while (i < b.length) {
++            rnd = (rnd * 1103515245 + 12345) % 2147483648
++            b[i] = rnd % 256
++            i++
++          }
++          return b
++        }
++      }
++    }
++    win.window = win
++    win.document = { visibilityState: 'visible', documentElement: element('html'), body: element('body'), createElement: element, addEventListener: noop, removeEventListener: noop }
++    const md = {
++      getUserMedia: () => Promise.resolve(new FStream([new FTrack('audio')])),
++      enumerateDevices: () => Promise.resolve([]),
++      getDisplayMedia: (c) => Promise.resolve(new FStream(c && c.audio ? [new FTrack('video'), new FTrack('audio')] : [new FTrack('video')]))
++    }
++    win.navigator = { mediaDevices: md }
++    win.MediaStream = FStream
++    win.RTCPeerConnection = rtc.FakePC
++    win.RTCRtpSender = rtc.FSender
++    win.RTCRtpReceiver = rtc.FReceiver
++    vm.createContext(win)
++    vm.runInContext(VOICE, win, { filename: 'voice.js' })
++    const e = { name, userId: String(Object.keys(engines).length + 1), peerId: null, joins: 1, screen: [], camera: [], game: [], data: [], sent: [] }
++    e.voice = win.VoiceClient.create({
++      api: (m, p, b) => serverApi(e, m, p, b),
++      seal,
++      open,
++      onScreenEvent: (ev) => e.screen.push(Object.assign({ t: clock.now() }, plain(ev))),
++      onCameraEvent: (ev) => e.camera.push(Object.assign({ t: clock.now() }, plain(ev))),
++      onGameEvent: (ev) => e.game.push(Object.assign({ t: clock.now() }, plain(ev))),
++      onGameData: (peerId, userId, data) => {
++        e.data.push({
++          t: clock.now(),
++          peerId,
++          userId,
++          isBuffer: Object.prototype.toString.call(data) === '[object ArrayBuffer]',
++          bytes: Array.from(new Uint8Array(data))
++        })
++        if (eo.throwData) throw new Error('veri dinleyicisi hatası')
++      },
++      storage: null
++    })
++    engines[name] = e
++    return e
++  }
++
++  // priv: özel arama kipinde katılır (sinyaller aynı biçimde mühürlenir, kimlik denetimi özel kipe göredir)
++  room.join = async function (name, priv) {
++    const e = engines[name]
++    e.voice.handleMeta({ voice: {} }, { id: e.userId })
++    const p = e.voice.join(CH, priv ? { private: { seal, open } } : undefined)
++    await clock.advance(100)
++    await p
++    await clock.advance(400)
++  }
++
++  room.serverDrop = function (name) {
++    const e = engines[name]
++    const i = roster.findIndex((m) => m.peerId === e.peerId)
++    if (i >= 0) roster.splice(i, 1)
++    pushMeta()
++  }
++
++  room.advance = (ms) => clock.advance(ms)
++
++  room.pc = function (name, other) {
++    let found = null
++    net.pcs.forEach((pc) => {
++      const r = net.pcs.get(pc.remotePcId)
++      if (pc.owner === name && !pc.closed && r && r.owner === other) found = pc
++    })
++    return found
++  }
++  room.pcsOf = (name) => Array.from(net.pcs.values()).filter((pc) => pc.owner === name)
++
++  room.micIn = function (name, other) {
++    const pc = room.pc(name, other)
++    return pc && pc.ml[0] ? pc.ml[0].receiver.stats.packets : 0
++  }
++  room.framesIn = function (name, other) {
++    const pc = room.pc(name, other)
++    if (!pc) return 0
++    return pc.trs.filter((t) => t.kind === 'video').reduce((n, t) => n + t.receiver.stats.frames, 0)
++  }
++  room.remote = function (name, other) {
++    const r = engines[name].voice.snapshot().screen.remote[engines[other].userId]
++    return r ? { status: r.status, watching: r.watching } : null
++  }
++  room.offers = (name, other) => engines[name].sent.filter((s) => s.type === 'offer' && s.to === other)
++  room.answers = (name, other) => engines[name].sent.filter((s) => s.type === 'answer' && s.to === other)
++  room.sidOf = function (from, to) {
++    const list = engines[from].sent.filter((s) => s.to === to)
++    return list.length ? list[list.length - 1].sid : null
++  }
++  // Oyun bağı olayları (link-*) ve isteğe bağlı başka türler, yalnız tür ve kimlik
++  room.links = (name) => engines[name].game.filter((ev) => /^link-/.test(ev.type)).map((ev) => [ev.type, ev.peerId, ev.userId])
++  room.game = (name, types) => engines[name].game.filter((ev) => types.indexOf(ev.type) >= 0).map((ev) => [ev.type, ev.peerId])
++  // name'in other ile bağlantısındaki açık veya açılmakta olan kanallar
++  room.channels = function (name, other) {
++    const pc = room.pc(name, other)
++    return pc ? pc.channels.filter((ch) => ch.readyState !== 'closed') : []
++  }
++
++  room.micGaps = async function (name, other, totalMs, stepMs) {
++    const out = []
++    let prev = room.micIn(name, other)
++    let t = 0
++    while (t < totalMs) {
++      await clock.advance(stepMs)
++      t += stepMs
++      const cur = room.micIn(name, other)
++      out.push(cur - prev)
++      prev = cur
++    }
++    return out
++  }
++
++  room.leaveAll = async function () {
++    Object.keys(engines).forEach((k) => {
++      try {
++        engines[k].voice.teardown()
++      } catch (e) {}
++    })
++    await clock.advance(2000)
++  }
++  return room
++}
++
++// İki kişilik oda: A önce katılır (yanıtlayan, kibar eş), B sonra katılır (başlatıcı, kaba eş). Eş kimlikleri
++// peerA1 ve peerB1, A'nınki küçüktür.
++async function twoRoom (optsA, optsB, priv) {
++  const room = makeRoom()
++  room.add('A', optsA)
++  room.add('B', optsB)
++  await room.join('A', priv)
++  await room.join('B', priv)
++  await room.advance(1500)
++  return room
++}
++
++function consistent (room, a, b) {
++  const pa = room.pc(a, b)
++  const pb = room.pc(b, a)
++  if (!pa || !pb) return { ok: false, why: 'bağlantı yok' }
++  const ma = pa.ml.map((t) => t.kind + ':' + t.mid).join(',')
++  const mb = pb.ml.map((t) => t.kind + ':' + t.mid).join(',')
++  const ok = pa.signalingState === 'stable' && pb.signalingState === 'stable' && ma === mb && pa.connectionState === 'connected' && pb.connectionState === 'connected'
++  return { ok, a: [pa.signalingState, pa.connectionState, ma], b: [pb.signalingState, pb.connectionState, mb] }
++}
++
++// B'nin A ile oyun bağını açar ve iki tarafta açılmasını bekler
++async function openLink (room) {
++  const A = room.engines.A
++  const B = room.engines.B
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(500)
++  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++}
++
++function noNegotiationErrors (room, name) {
++  const e = room.engines[name]
++  assert.deepEqual(e.screen.filter((ev) => ev.type === 'error').map((ev) => ev.code), [], name + ' ekran hatası')
++  assert.deepEqual(e.camera.map((ev) => ev.code), [], name + ' kamera hatası')
++}
++
++// ---------------------------------------------------------------- Açma ve veri
++
++test('openGameLink: tek yeniden anlaşmayla veri bölümü eklenir, iki tarafta bir kez link-open gelir, mikrofon sürer', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  const offersB = room.offers('B', 'A').length
++  const offersA = room.offers('A', 'B').length
++  const sid = room.sidOf('B', 'A')
++  assert.ok(!/m=application/.test(room.offers('B', 'A')[0].sdp), 'ilk teklifte veri bölümü yok')
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  assert.equal(B.voice.gameLinkState(A.peerId), 'connecting')
++  // Açılırken yeniden çağrı aynı kanalı kullanır
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(500)
++  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
++  assert.deepEqual(room.links('A'), [['link-open', B.peerId, B.userId]])
++  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++  assert.equal(B.voice.openGameLink(A.peerId), 'open')
++  assert.equal(A.voice.openGameLink(B.peerId), 'open')
++  // Tam bir yeni teklif (veri bölümüyle), aynı bağlantıda, karşı taraf teklif etmedi
++  const newOffers = room.offers('B', 'A').slice(offersB)
++  assert.equal(newOffers.length, 1)
++  assert.match(newOffers[0].sdp, /\r\nm=application 9 /)
++  assert.equal(newOffers[0].sid, sid)
++  assert.equal(room.offers('A', 'B').length, offersA)
++  assert.match(room.answers('A', 'B').slice(-1)[0].sdp, /\r\nm=application 9 /)
++  // Kanal ayarları: etiket, sırasız, yeniden göndermesiz, her iki tarafta tek kanal
++  const chB = room.channels('B', 'A')
++  const chA = room.channels('A', 'B')
++  assert.equal(chB.length, 1)
++  assert.equal(chA.length, 1)
++  assert.deepEqual([chB[0].label, chB[0].ordered, chB[0].maxRetransmits], [LABEL, false, 0])
++  assert.deepEqual([chA[0].label, chA[0].ordered, chA[0].maxRetransmits], [LABEL, false, 0])
++  assert.equal(chA[0].binaryType, 'arraybuffer')
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
++  noNegotiationErrors(room, 'A')
++  noNegotiationErrors(room, 'B')
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('openGameLink dönüş kodları: not_in_voice, no_peer, not_ready, unsupported', async () => {
++  const room = makeRoom()
++  const A = room.add('A')
++  const B = room.add('B', { noDataChannel: true })
++  assert.equal(A.voice.openGameLink('peerB1'), 'not_in_voice')
++  await room.join('A')
++  B.voice.handleMeta({ voice: {} }, { id: B.userId })
++  const joining = B.voice.join(CH)
++  await room.clock.advance(1)
++  await joining
++  assert.equal(B.voice.openGameLink(A.peerId), 'not_ready')
++  await room.advance(1500)
++  for (const id of ['peerZ9', '__proto__', 'constructor', '', 5, null, undefined, 'a b']) {
++    assert.equal(A.voice.openGameLink(id), 'no_peer', String(id))
++    assert.equal(A.voice.gameLinkState(id), 'none', String(id))
++    assert.equal(A.voice.sendGameData(id, new ArrayBuffer(1)), false, String(id))
++    assert.equal(A.voice.closeGameLink(id), false, String(id))
++  }
++  assert.equal(B.voice.openGameLink(A.peerId), 'unsupported')
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  await room.advance(1000)
++  assert.deepEqual(room.links('A'), [])
++  assert.deepEqual(room.links('B'), [])
++  await room.leaveAll()
++})
++
++test('sendGameData: iki yönde ikili veri, görünüm de gönderilir, onGameData eşzamanlı ArrayBuffer alır', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  const one = bytes(13, 1)
++  assert.equal(B.voice.sendGameData(A.peerId, one.buffer), true)
++  // Görünüm: yalnız görünen baytlar gider
++  const big = bytes(40, 3)
++  assert.equal(B.voice.sendGameData(A.peerId, big.subarray(10, 21)), true)
++  assert.equal(A.voice.sendGameData(B.peerId, bytes(102, 9)), true)
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => [d.peerId, d.userId, d.isBuffer, d.bytes]), [
++    [B.peerId, B.userId, true, Array.from(one)],
++    [B.peerId, B.userId, true, Array.from(big.subarray(10, 21))]
++  ])
++  assert.deepEqual(B.data.map((d) => [d.peerId, d.userId, d.isBuffer, d.bytes]), [[A.peerId, A.userId, true, Array.from(bytes(102, 9))]])
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('sendGameData sınırları: 1 ile 512 bayt arası ikili veri, tampon 16384 baytı aşınca atlanır, kanal yoksa gönderilmez', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(4)), false, 'kanal yok')
++  B.voice.openGameLink(A.peerId)
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(4)), false, 'kanal açılıyor')
++  await room.advance(500)
++  for (const bad of [new ArrayBuffer(0), new ArrayBuffer(513), new Uint8Array(513), 'metin', [1, 2], null, undefined, 7, {}, { byteLength: 4 }]) {
++    assert.equal(B.voice.sendGameData(A.peerId, bad), false, String(bad))
++  }
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(512)), true)
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(1)), true)
++  const ch = room.channels('B', 'A')[0]
++  ch.bufferedAmount = 16385
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(8)), false, 'tampon dolu')
++  ch.bufferedAmount = 16384
++  assert.equal(B.voice.sendGameData(A.peerId, new ArrayBuffer(8)), true)
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => d.bytes.length), [512, 1, 8])
++  assert.equal(ch.sent.length, 3)
++  await room.leaveAll()
++})
++
++test('gelen veri: ikili olmayan ve 512 bayttan büyük ileti atılır, eş başına saniyede en çok 240 ileti işlenir', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  // B tarafının kanalından doğrudan (voice.js sınırları dışından) gönderim
++  const raw = room.channels('B', 'A')[0]
++  raw.send('{"metin":1}')
++  raw.send(new Uint8Array(513))
++  raw.send(new Uint8Array(1))
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => d.bytes.length), [1])
++  // Hız: bir saniyelik pencerede ilk 240 ileti, pencereden sonra yeniden
++  await room.advance(1000)
++  A.data.length = 0
++  let i = 0
++  while (i < 300) {
++    assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([i % 256])), true)
++    i++
++  }
++  await room.advance(100)
++  assert.equal(A.data.length, 240)
++  assert.deepEqual(A.data.slice(0, 3).map((d) => d.bytes[0]), [0, 1, 2])
++  await room.advance(1000)
++  B.voice.sendGameData(A.peerId, new Uint8Array([7]))
++  await room.advance(50)
++  assert.equal(A.data.length, 241)
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('veri dinleyicisi hata fırlatırsa motor ve kanal çalışmayı sürdürür', async () => {
++  const room = await twoRoom({ throwData: true })
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  B.voice.sendGameData(A.peerId, new Uint8Array([1]))
++  B.voice.sendGameData(A.peerId, new Uint8Array([2]))
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => d.bytes[0]), [1, 2])
++  assert.equal(room.clock.errors.length, 2)
++  assert.ok(room.clock.errors.every((e) => /veri dinleyicisi hatası/.test(String(e))))
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++  assert.equal(A.voice.sendGameData(B.peerId, new Uint8Array([3])), true)
++  await room.advance(50)
++  assert.deepEqual(B.data.map((d) => d.bytes[0]), [3])
++  await room.leaveAll()
++})
++
++// ---------------------------------------------------------------- Kabul kuralları
++
++test('kabul kuralı: etiketi veya ayarları uymayan kanal ve eşle ikinci kanal hemen kapatılır, açık bağ sürer', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  const pcB = room.pc('B', 'A')
++  const tries = [
++    ['baska', { ordered: false, maxRetransmits: 0 }],
++    [LABEL, {}],
++    [LABEL, { ordered: false }],
++    [LABEL, { ordered: false, maxRetransmits: 1 }],
++    [LABEL, { ordered: false, maxPacketLifeTime: 100 }],
++    [LABEL, { ordered: true, maxRetransmits: 0 }],
++    // Kurallara uyan ama ikinci kanal
++    [LABEL, { ordered: false, maxRetransmits: 0 }]
++  ]
++  const raws = tries.map((x) => pcB.createDataChannel(x[0], x[1]))
++  await room.advance(200)
++  raws.forEach((ch, i) => assert.equal(ch.readyState, 'closed', 'kanal ' + i))
++  assert.deepEqual(room.links('A'), [['link-open', B.peerId, B.userId]])
++  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
++  assert.equal(room.channels('A', 'B').length, 1)
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([5])), true)
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => d.bytes), [[5]])
++  await room.leaveAll()
++})
++
++test('özel aramada oyun bağı yoktur: openGameLink private döner, karşı tarafın açtığı kanal kapatılır', async () => {
++  const room = await twoRoom(null, null, true)
++  const A = room.engines.A
++  const B = room.engines.B
++  assert.equal(A.voice.snapshot().private, true)
++  assert.equal(B.voice.openGameLink(A.peerId), 'private')
++  assert.equal(A.voice.openGameLink(B.peerId), 'private')
++  // B'nin bağlantısına voice.js dışından kanal eklenir, ICE yeniden başlatma teklifi veri bölümünü taşır
++  const raw = room.pc('B', 'A').createDataChannel(LABEL, { ordered: false, maxRetransmits: 0 })
++  room.pc('B', 'A').setConn('failed')
++  room.pc('A', 'B').setConn('failed')
++  await room.advance(3000)
++  assert.ok(room.offers('B', 'A').slice(-1)[0].sdp.indexOf('m=application 9') > 0, 'veri bölümü teklif edildi')
++  assert.ok(room.pc('A', 'B').dataReady(), 'SCTP açıldı')
++  assert.equal(raw.readyState, 'closed')
++  assert.equal(room.channels('A', 'B').length, 0)
++  assert.deepEqual(room.links('A'), [])
++  assert.equal(A.voice.gameLinkState(B.peerId), 'none')
++  await room.leaveAll()
++})
++
++test('iki taraf aynı anda açarsa eş kimliği küçük olanın kanalı kalır, iki tarafta bir kez link-open gelir', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(1000)
++  assert.deepEqual(room.links('A'), [['link-open', B.peerId, B.userId]])
++  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
++  const chA = room.channels('A', 'B')
++  const chB = room.channels('B', 'A')
++  assert.equal(chA.length, 1)
++  assert.equal(chB.length, 1)
++  // Kalan kanalı A (peerA1) açtı
++  assert.equal(chA[0].mine, true)
++  assert.equal(chB[0].mine, false)
++  assert.equal(chA[0].pair, chB[0])
++  assert.equal(A.voice.sendGameData(B.peerId, new Uint8Array([1])), true)
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([2])), true)
++  await room.advance(50)
++  assert.deepEqual(B.data.map((d) => d.bytes), [[1]])
++  assert.deepEqual(A.data.map((d) => d.bytes), [[2]])
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('oyun bağını bilmeyen eski istemcide kanal yine açılır ama veri dinlenmez (el sıkışma oyun modülünündür)', async () => {
++  const room = await twoRoom({ oldClient: true })
++  const A = room.engines.A
++  const B = room.engines.B
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(500)
++  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([1])), true)
++  await room.advance(50)
++  assert.deepEqual(room.links('A'), [])
++  assert.deepEqual(A.data, [])
++  assert.equal(A.voice.gameLinkState(B.peerId), 'none')
++  await room.leaveAll()
++})
++
++// ---------------------------------------------------------------- Kapatma
++
++test('closeGameLink olay üretmez, karşı tarafa link-close gelir, yeniden açmak yeni teklif gerektirmez', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  assert.equal(B.voice.closeGameLink(A.peerId), true)
++  assert.equal(B.voice.closeGameLink(A.peerId), false)
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([1])), false)
++  await room.advance(100)
++  assert.deepEqual(room.links('B'), [['link-open', A.peerId, A.userId]])
++  assert.deepEqual(room.links('A'), [['link-open', B.peerId, B.userId], ['link-close', B.peerId, B.userId]])
++  assert.equal(A.voice.gameLinkState(B.peerId), 'none')
++  // Veri bölümü bağlantıda kaldı: yeni kanal yeniden anlaşmasız açılır. Bu kez kabul eden taraf kapatır.
++  const offers = room.offers('B', 'A').length
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(200)
++  assert.equal(room.offers('B', 'A').length, offers)
++  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++  assert.equal(A.voice.closeGameLink(B.peerId), true)
++  await room.advance(100)
++  assert.deepEqual(room.links('B').map((x) => x[0]), ['link-open', 'link-open', 'link-close'])
++  assert.deepEqual(room.links('A').map((x) => x[0]), ['link-open', 'link-close', 'link-open'])
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  await room.leaveAll()
++})
++
++test('bağlantı yeniden kurulunca iki tarafta link-close gelir, yeni peer-ready sonrası bağ yeniden açılır', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  const oldSid = room.sidOf('B', 'A')
++  // Kurulu bağlantıda ICE düşer, B'nin yeniden başlatma teklifini sunucu bir kez 400 ile reddeder: B bağlantıyı
++  // yeni sid ile yeniden kurar. Teklifte veri bölümü zaten anlaşılmış olduğundan oyun bağı engellenmez.
++  let refused = 0
++  room.rule = (en) => {
++    if (en.from === 'B' && en.type === 'offer' && refused === 0) {
++      refused++
++      return { status: 400 }
++    }
++    return null
++  }
++  room.pc('A', 'B').setConn('failed')
++  room.pc('B', 'A').setConn('failed')
++  await room.advance(3000)
++  room.rule = null
++  assert.equal(refused, 1)
++  assert.notEqual(room.sidOf('B', 'A'), oldSid)
++  assert.deepEqual(room.game('A', ['link-open', 'link-close', 'link-failed', 'peer-ready']), [
++    ['peer-ready', B.peerId], ['link-open', B.peerId], ['link-close', B.peerId], ['peer-ready', B.peerId]
++  ])
++  assert.deepEqual(room.game('B', ['link-open', 'link-close', 'link-failed', 'peer-ready']), [
++    ['peer-ready', A.peerId], ['link-open', A.peerId], ['link-close', A.peerId], ['peer-ready', A.peerId]
++  ])
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  assert.equal(A.voice.gameLinkState(B.peerId), 'none')
++  // Yeni bağlantıda veri bölümü yoktur, açmak yeniden anlaşma ister
++  assert.ok(!/m=application/.test(room.offers('B', 'A').slice(-1)[0].sdp))
++  await openLink(room)
++  assert.match(room.offers('B', 'A').slice(-1)[0].sdp, /\r\nm=application 9 /)
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([9])), true)
++  await room.advance(50)
++  assert.deepEqual(A.data.map((d) => d.bytes), [[9]])
++  noNegotiationErrors(room, 'A')
++  noNegotiationErrors(room, 'B')
++  await room.leaveAll()
++})
++
++test('kişi odadan çıkınca link-close peer-leave olayından önce gelir, ayrılan tarafta link-close sonra reset gelir', async () => {
++  const room = makeRoom()
++  room.add('A')
++  room.add('B')
++  room.add('C')
++  await room.join('A')
++  await room.join('B')
++  await room.join('C')
++  await room.advance(1500)
++  const A = room.engines.A
++  const B = room.engines.B
++  const C = room.engines.C
++  // A ev sahibi gibi B ve C ile bağ açar
++  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
++  assert.equal(A.voice.openGameLink(C.peerId), 'ok')
++  await room.advance(1000)
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++  assert.equal(A.voice.gameLinkState(C.peerId), 'open')
++  // Sunucu B'yi çıkarır
++  room.serverDrop('B')
++  await room.advance(500)
++  const forB = A.game.filter((ev) => ev.peerId === B.peerId).map((ev) => ev.type)
++  assert.deepEqual(forB.slice(-2), ['link-close', 'peer-leave'])
++  assert.equal(forB.filter((x) => x === 'link-close').length, 1)
++  const bTypes = B.game.map((ev) => ev.type)
++  assert.deepEqual(bTypes.slice(-2), ['link-close', 'reset'])
++  // C ayrılır
++  await C.voice.leave()
++  await room.advance(500)
++  const forC = A.game.filter((ev) => ev.peerId === C.peerId).map((ev) => ev.type)
++  assert.deepEqual(forC.slice(-2), ['link-close', 'peer-leave'])
++  assert.equal(forC.filter((x) => x === 'link-close').length, 1)
++  assert.deepEqual(C.game.map((ev) => ev.type).slice(-2), ['link-close', 'reset'])
++  assert.equal(A.voice.gameLinkState(C.peerId), 'none')
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++// ---------------------------------------------------------------- Anlaşma hataları
++
++test('yalnız veri bölümünü ekleyen yanıt uygulanamazsa ekran hatası verilmez, bağ engellenir, paylaşım izlenebilir kalır', async () => {
++  // B ekran paylaşıyor (izleyen yok). B, veri bölümünü ilk kez ekleyen yanıtı uygulayamaz. m satırı sayımı veri
++  // bölümünü sayaydı bu, ekran m satırı ekleyen bir anlaşmanın başarısızlığı sayılıp A'ya ekran gönderimi kapanır
++  // ve screen_negotiation_failed bildirilirdi.
++  let failing = true
++  const room = await twoRoom(null, { failAnswer: (p, pc) => failing && hasData(p) && !pcHasData(pc) })
++  const A = room.engines.A
++  const B = room.engines.B
++  const shared = B.voice.startScreenShare({ audio: false })
++  await room.advance(100)
++  await shared
++  await room.advance(500)
++  assert.ok(room.remote('A', 'B'), 'A paylaşımı görür')
++  const t0 = room.clock.now()
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(5000)
++  assert.deepEqual(room.links('B'), [['link-failed', A.peerId, A.userId]])
++  assert.deepEqual(room.links('A'), [])
++  assert.equal(B.voice.openGameLink(A.peerId), 'blocked')
++  assert.equal(B.voice.gameLinkState(A.peerId), 'none')
++  noNegotiationErrors(room, 'B')
++  noNegotiationErrors(room, 'A')
++  // Bağlantı bir kez yeniden kuruldu, yeniden kurulum döngüsü yok, sonraki tekliflerde veri bölümü yok
++  await room.advance(60000)
++  assert.ok(room.pcsOf('B').length <= 2 && room.pcsOf('A').length <= 2, room.pcsOf('B').length + ' ' + room.pcsOf('A').length)
++  const later = room.offers('B', 'A').filter((s) => s.t > t0 + 1000).concat(room.offers('A', 'B').filter((s) => s.t > t0 + 1000))
++  assert.ok(later.every((s) => !/m=application/.test(s.sdp)), JSON.stringify(later.map((s) => s.sdp)))
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
++  // Paylaşım bu eşe kısıtlanmadı: A izleyince görüntü gelir
++  assert.equal(A.voice.watchScreen(B.userId), null)
++  await room.advance(4000)
++  assert.equal(room.remote('A', 'B').status, 'live')
++  assert.ok(room.framesIn('A', 'B') > 0)
++  // Ses oturumu yenilenince engel kalkar
++  failing = false
++  await B.voice.leave()
++  await room.advance(1000)
++  await room.join('B')
++  await room.advance(1500)
++  await openLink(room)
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('yalnız veri bölümünü ekleyen teklif uygulanamazsa iki tarafta link-failed gelir, bağ engellenir, yeniden kurulum döngüsü olmaz', async () => {
++  const room = await twoRoom({ failOffer: (p, pc) => hasData(p) && !pcHasData(pc) })
++  const A = room.engines.A
++  const B = room.engines.B
++  const oldSid = room.sidOf('B', 'A')
++  const t0 = room.clock.now()
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(5000)
++  // A teklifi uygulayamadı ve bağlantıyı yeniden kurdu, B yalnız veri ekleyen teklifinin yanıtlanmadığını anladı
++  assert.notEqual(room.sidOf('A', 'B'), oldSid)
++  assert.deepEqual(room.links('A'), [['link-failed', B.peerId, B.userId]])
++  assert.deepEqual(room.links('B'), [['link-failed', A.peerId, A.userId]])
++  assert.equal(A.voice.openGameLink(B.peerId), 'blocked')
++  assert.equal(B.voice.openGameLink(A.peerId), 'blocked')
++  noNegotiationErrors(room, 'A')
++  noNegotiationErrors(room, 'B')
++  await room.advance(60000)
++  assert.ok(room.pcsOf('B').length <= 2 && room.pcsOf('A').length <= 2, room.pcsOf('B').length + ' ' + room.pcsOf('A').length)
++  const later = room.offers('B', 'A').filter((s) => s.t > t0 + 1000).concat(room.offers('A', 'B').filter((s) => s.t > t0 + 1000))
++  assert.ok(later.every((s) => !/m=application/.test(s.sdp)))
++  assert.deepEqual(room.links('A').length, 1)
++  assert.deepEqual(room.links('B').length, 1)
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('karşı taraf veri bölümünü reddederse (kapı 0) bağ engellenir, bağlantı yeniden kurulmaz, yeniden teklif edilmez', async () => {
++  const room = await twoRoom({ rejectData: true })
++  const A = room.engines.A
++  const B = room.engines.B
++  const sid = room.sidOf('B', 'A')
++  const offers = room.offers('B', 'A').length
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(60000)
++  assert.deepEqual(room.links('B'), [['link-failed', A.peerId, A.userId]])
++  assert.deepEqual(room.links('A'), [])
++  assert.equal(B.voice.openGameLink(A.peerId), 'blocked')
++  assert.equal(room.sidOf('B', 'A'), sid)
++  assert.equal(room.pcsOf('B').length, 1)
++  assert.equal(room.offers('B', 'A').length, offers + 1)
++  assert.match(room.answers('A', 'B').slice(-1)[0].sdp, /\r\nm=application 0 /)
++  noNegotiationErrors(room, 'B')
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('veri bölümlü teklif zarf sınırını aşarsa (400) bağ engellenir, bağlantı bir kez yeniden kurulur', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  room.rule = (en) => (en.from === 'B' && en.type === 'offer' && /m=application/.test(en.sdp) ? { status: 400 } : null)
++  const t0 = room.clock.now()
++  assert.equal(B.voice.openGameLink(A.peerId), 'ok')
++  await room.advance(60000)
++  assert.deepEqual(room.links('B'), [['link-failed', A.peerId, A.userId]])
++  assert.equal(B.voice.openGameLink(A.peerId), 'blocked')
++  assert.ok(room.pcsOf('B').length <= 2, String(room.pcsOf('B').length))
++  assert.equal(room.offers('B', 'A').filter((s) => s.t >= t0 && /m=application/.test(s.sdp)).length, 1)
++  noNegotiationErrors(room, 'B')
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++// ---------------------------------------------------------------- Ekran paylaşımıyla birlikte
++
++test('bağ açıkken ekran paylaşımı yeniden anlaşması çalışır, görüntü, mikrofon ve oyun verisi birlikte akar', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  await openLink(room)
++  const shared = A.voice.startScreenShare({ audio: true })
++  await room.advance(100)
++  await shared
++  await room.advance(500)
++  assert.equal(B.voice.watchScreen(A.userId), null)
++  await room.advance(4000)
++  assert.equal(room.remote('B', 'A').status, 'live')
++  const f0 = room.framesIn('B', 'A')
++  assert.ok(f0 > 0)
++  assert.deepEqual(room.pc('B', 'A').ml.map((t) => t.kind), ['audio', 'application', 'video', 'audio'])
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
++  assert.equal(A.voice.sendGameData(B.peerId, new Uint8Array([1])), true)
++  assert.equal(B.voice.sendGameData(A.peerId, new Uint8Array([2])), true)
++  await room.advance(1000)
++  assert.deepEqual(B.data.map((d) => d.bytes), [[1]])
++  assert.deepEqual(A.data.map((d) => d.bytes), [[2]])
++  assert.ok(room.framesIn('B', 'A') > f0)
++  assert.ok((await room.micGaps('B', 'A', 2000, 500)).every((d) => d > 0))
++  assert.ok((await room.micGaps('A', 'B', 2000, 500)).every((d) => d > 0))
++  assert.deepEqual(room.links('A').map((x) => x[0]), ['link-open'])
++  assert.deepEqual(room.links('B').map((x) => x[0]), ['link-open'])
++  noNegotiationErrors(room, 'A')
++  noNegotiationErrors(room, 'B')
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
++
++test('izlenen paylaşım sürerken bağ açılır, görüntü kesilmeden akmaya devam eder', async () => {
++  const room = await twoRoom()
++  const A = room.engines.A
++  const B = room.engines.B
++  const shared = A.voice.startScreenShare({ audio: false })
++  await room.advance(100)
++  await shared
++  await room.advance(500)
++  B.voice.watchScreen(A.userId)
++  await room.advance(4000)
++  assert.equal(room.remote('B', 'A').status, 'live')
++  // Paylaşan taraf (yanıtlayan, kibar eş) bağı açar
++  assert.equal(A.voice.openGameLink(B.peerId), 'ok')
++  const f0 = room.framesIn('B', 'A')
++  const gaps = []
++  let i = 0
++  while (i < 8) {
++    await room.advance(500)
++    gaps.push(room.framesIn('B', 'A'))
++    i++
++  }
++  assert.ok(gaps.every((n, k) => n > (k ? gaps[k - 1] : f0)), 'görüntü her aralıkta akmalı: ' + JSON.stringify([f0].concat(gaps)))
++  assert.equal(A.voice.gameLinkState(B.peerId), 'open')
++  assert.equal(B.voice.gameLinkState(A.peerId), 'open')
++  assert.equal(room.remote('B', 'A').status, 'live')
++  assert.deepEqual(room.pc('A', 'B').ml.map((t) => t.kind), ['audio', 'video', 'application'])
++  const c = consistent(room, 'A', 'B')
++  assert.ok(c.ok, JSON.stringify(c))
++  noNegotiationErrors(room, 'A')
++  noNegotiationErrors(room, 'B')
++  assert.deepEqual(room.clock.errors.map(String), [])
++  await room.leaveAll()
++})
