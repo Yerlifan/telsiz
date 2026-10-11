@@ -1608,6 +1608,26 @@ function buildPrivacyPage (page) {
   typingSec.appendChild(typing.row)
   typingSec.appendChild(typingMsg)
 
+  // Otomatik boşta (40-bosta.js): cihaza özel anahtar ve süre, değişiklik hemen uygulanır
+  const idleSec = sSection(page, t('settings.privacy.idleTitle'), 'set-idle-section')
+  const idleMinutes = h('select', 'input select select-small')
+  const autoIdle = sSwitch('set-auto-idle', t('settings.privacy.autoIdle'), autoIdleEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.autoIdle, checked ? '1' : '0')
+    idleMinutes.disabled = !checked
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  }, t('settings.privacy.autoIdleHint'))
+  idleSec.appendChild(autoIdle.row)
+  sField(idleSec, 'set-auto-idle-minutes', t('settings.privacy.autoIdleAfter'), idleMinutes)
+  AUTO_IDLE_MINUTES.forEach((n) => {
+    const opt = h('option', '', t('settings.privacy.autoIdleMinutes', { count: n }))
+    opt.value = String(n)
+    idleMinutes.appendChild(opt)
+  })
+  idleMinutes.addEventListener('change', () => {
+    storeSet(SETTINGS_KEYS.autoIdleMinutes, idleMinutes.value)
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  })
+
   // YouTube oynatıcısı izni (Ek L2.5): izin Telsiz DJ'de ilk YouTube parçasında istenir, burada
   // durumu görünür ve geri alınabilir
   const ytSec = sSection(page, t('settings.youtube.title'), 'set-youtube-section')
@@ -1688,6 +1708,9 @@ function buildPrivacyPage (page) {
   const update = () => {
     if (!allow.input.disabled) allow.input.checked = priv().allowMemberDms !== false
     typing.input.checked = typingEnabled()
+    autoIdle.input.checked = autoIdleEnabled()
+    idleMinutes.value = String(autoIdleMinutes())
+    idleMinutes.disabled = !autoIdleEnabled()
     const consent = youtubeConsentState()
     ytState.textContent = t(consent === 'granted' ? 'settings.youtube.granted' : consent === 'denied' ? 'settings.youtube.denied' : 'settings.youtube.notGranted')
     ytState.setAttribute('data-state', consent === 'granted' ? 'granted' : consent === 'denied' ? 'denied' : 'default')
@@ -1713,7 +1736,7 @@ function buildPrivacyPage (page) {
     signature: () => {
       const p = priv()
       const blocked = p.blocked.map((id) => id + ':' + safeCall(() => userDisplayName(id), '') + ':' + safeCall(() => avatarInfoFor(id).blobUrl, '')).join(',')
-      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
+      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), autoIdleEnabled(), autoIdleMinutes(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
     }
   }
 }

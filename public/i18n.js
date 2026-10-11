@@ -66,6 +66,12 @@ window.I18N = (function () {
     'dj.settings.searchOff': 'Şarkı adıyla YouTube araması kapatıldı. Parçalar yalnızca bağlantıyla eklenir.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
+    'settings.privacy.idleTitle': 'Otomatik Boşta',
+    'settings.privacy.autoIdle': 'Hareketsiz kalınca durumumu Boşta göster',
+    'settings.privacy.autoIdleHint': 'Bu cihazda seçilen süre boyunca fare, klavye, dokunma veya oyun kolu kullanılmazsa durumunuz başkalarına Boşta görünür. Birden çok cihazda oturumunuz açıksa hepsi hareketsiz kalınca Boşta görünürsünüz. Ses odasındayken boşta sayılmazsınız. Sunucu ve üyeler ne zaman hareketsiz kaldığınızı görebilir. Elle seçtiğiniz durumlar değişmez.',
+    'settings.privacy.autoIdleAfter': 'Süre',
+    'settings.privacy.autoIdleMinutes_one': '{count} dakika',
+    'settings.privacy.autoIdleMinutes_other': '{count} dakika',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar
@@ -2055,6 +2061,12 @@ window.I18N = (function () {
     'dj.settings.searchOff': 'YouTube search by song name is off. Tracks are added by link only.',
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
+    'settings.privacy.idleTitle': 'Automatic Idle',
+    'settings.privacy.autoIdle': 'Show me as Idle when I\'m inactive',
+    'settings.privacy.autoIdleHint': 'If you don\'t use the mouse, keyboard, touch or a gamepad on this device for the chosen time, others see you as Idle. If you are signed in on several devices, you appear Idle once all of them are inactive. You are never idle while in a voice room. The server and members can see when you went inactive. Statuses you set yourself are not changed.',
+    'settings.privacy.autoIdleAfter': 'After',
+    'settings.privacy.autoIdleMinutes_one': '{count} minute',
+    'settings.privacy.autoIdleMinutes_other': '{count} minutes',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar

@@ -609,7 +609,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+    privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
@@ -972,6 +972,44 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
   assert.strictEqual(storage.getItem('telsiz.notifyLevel'), 'all')
   root.querySelector('#set-message-sound').click()
   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
+})
+
+test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişiklik hemen bildirilir', () => {
+  const { run, root, storage } = load()
+  run('var __idleChanges = 0; function idleSettingsChanged () { __idleChanges += 1 }')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-auto-idle')
+  const minutes = root.querySelector('#set-auto-idle-minutes')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Ses odasındayken boşta sayılmazsınız') !== -1)
+  assert.strictEqual(root.querySelector('#set-idle-section-title').textContent, 'Otomatik Boşta')
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.value), ['5', '10', '15', '30', '60'])
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.textContent), ['5 dakika', '10 dakika', '15 dakika', '30 dakika', '60 dakika'])
+  assert.strictEqual(minutes.value, '10')
+  assert.strictEqual(minutes.disabled, false)
+  const label = root.querySelectorAll('label').filter((l) => l.getAttribute('for') === 'set-auto-idle-minutes')[0]
+  assert.strictEqual(label.textContent, 'Süre')
+  minutes.value = '30'
+  minutes.dispatchEvent(fakeEvent('change'))
+  assert.strictEqual(storage.getItem('telsiz.autoIdleMinutes'), '30')
+  assert.strictEqual(run('__idleChanges'), 1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.autoIdle'), '0')
+  assert.strictEqual(minutes.disabled, true)
+  assert.strictEqual(run('__idleChanges'), 2)
+  // Başka sekmede değişen ayar sayfa yenilenince görünür
+  storage.setItem('telsiz.autoIdle', '1')
+  storage.setItem('telsiz.autoIdleMinutes', '5')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-auto-idle').checked, true)
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').value, '5')
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').disabled, false)
+  // İngilizce tekil ve çoğul
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 1 })"), '1 minute')
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 5 })"), '5 minutes')
 })
 
 test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
