@@ -1253,7 +1253,9 @@ function navCacheIndex (list, id) {
 
 // Önbellekteki konuşmaya gelen olay (05-poll.js applyEvent): yeni mesaj sıraya eklenir (kişi yukarıdaysa kapsülün
 // sayısı artar, daha yeni mesajları yüklü olmayan eski bir bölümde eklenmez, şerit uyarır), düzenlenen mesaj
-// değişir, silinen mesaj çıkar. Liste MAX_RENDERED'ı aşınca en eskiler düşer.
+// değişir, silinen mesaj çıkar. Canlı listedeki kural geçerlidir (06-messages.js insertMessage): kişi en alttan
+// ayrıldıysa liste MAX_RENDERED'ı aşınca en eskiler düşer. Yukarıdan ayrıldıysa kırpılmaz, kişinin yüklediği eski
+// sayfalar ve döneceği mesaj (çapa) kalır.
 function navCacheApply (ev) {
   if (!ev || ev.channelId === null || ev.channelId === undefined) return
   const entry = navCache.map.get(String(ev.channelId))
@@ -1274,7 +1276,7 @@ function navCacheApply (ev) {
     while (at > 0 && Number(list[at - 1].id) > Number(ev.message.id)) at -= 1
     list.splice(at, 0, ev.message)
     if (!entry.stick && !navOwn(ev.message)) entry.newBelow += 1
-    if (list.length > MAX_RENDERED) {
+    if (entry.stick && list.length > MAX_RENDERED) {
       list.splice(0, list.length - TRIM_TO)
       entry.hasMore = true
     }

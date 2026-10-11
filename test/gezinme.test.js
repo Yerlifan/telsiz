@@ -10,7 +10,7 @@
 // mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
 // sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
 // Mesajlar ve görünümün hatırlanması. G10: konuşma önbelleği (son sekiz konuşma, aynı konuşmanın yeniden yüklenmesi,
-// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı), kısayolların konuşma sırası ve sıradaki
+// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar, kapsül sayısı ve kırpma), kısayolların konuşma sırası ve sıradaki
 // okunmamış konuşma.
 
 const test = require('node:test')
@@ -588,10 +588,15 @@ test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yuk
   run("navCache.map.get('30').hasNewer = true")
   run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(10, 30) })')
   assert.deepStrictEqual(entry('[e.messages.length, e.newWhileOlder]'), [5, true])
-  // Liste MAX_RENDERED'ı aşınca en eskiler düşer, daha eskisi yüklenebilir
-  run("navCache.map.get('30').hasNewer = false")
+  // Yukarıdan ayrılan konuşma MAX_RENDERED'ı aşsa da kırpılmaz (canlı listedeki gibi): yüklenen eski mesajlar ve
+  // dönülecek mesaj (çapa) kalır
+  run("navCache.map.get('30').hasNewer = false; navCache.map.get('30').anchor = { id: 3, offset: 12 }")
   run('let k = 100; while (k < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(k, 30) }); k += 1 }')
-  assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id]'), [json('TRIM_TO') + 4, true, 699])
+  assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[0].id, e.messages.some((m) => m.id === e.anchor.id)]'), [json('MAX_RENDERED') + 5, false, 2, true])
+  // En alttan ayrılan konuşmada liste MAX_RENDERED'ı aşınca en eskiler düşer, daha eskisi yüklenebilir (liste
+  // MAX_RENDERED + 1 mesaja ulaşınca TRIM_TO'ya iner, ardından son mesaj eklenir)
+  run('let j = 100; while (j < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 31, message: testMsg(j, 31) }); j += 1 }')
+  assert.deepStrictEqual(json("(function () { const e = navCache.map.get('31'); return [e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id] })()"), [json('TRIM_TO') + 1, true, 699])
 })
 
 test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş, sıradaki okunmamış (anmalar ve özel mesajlar önce)', () => {
