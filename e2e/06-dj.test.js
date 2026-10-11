@@ -392,6 +392,8 @@ test('/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı,
   await A.click('#music-search-confirm')
   for (const page of [A, B]) await page.waitForFunction(() => state.meta.music.search === true, null, { timeout: h.LONG })
   assert.equal(await A.evaluate(() => document.getElementById('set-music-search').checked), true)
+  // Arama açılınca karttaki "arama kapalı" satırı kalkar
+  await A.waitForFunction(() => document.querySelector('#dj .dj-search').hidden, null, { timeout: h.LONG })
   await A.evaluate(() => closeSettings())
   await A.waitForFunction(() => !isSettingsOpen())
   // İlk sonuç başlığıyla kuyruğa eklenir, duyuru başlıkla hemen gider

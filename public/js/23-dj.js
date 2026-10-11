@@ -1809,7 +1809,9 @@ function djSearchMissed (query, code) {
 }
 
 function djRenderSearch (ui) {
-  const miss = dj.searchMiss && sameId(dj.searchMiss.room, dj.voiceRoom) ? dj.searchMiss : null
+  // Sahip aramayı sonradan açtıysa "arama kapalı" satırı artık gösterilmez
+  const stale = Boolean(dj.searchMiss && dj.searchMiss.code === 'search_unavailable' && djSearchOn())
+  const miss = dj.searchMiss && !stale && sameId(dj.searchMiss.room, dj.voiceRoom) ? dj.searchMiss : null
   ui.search.hidden = !dj.searching && !miss
   ui.searchLinkRow.hidden = !miss
   ui.searchOwner.hidden = !(miss && miss.code === 'search_unavailable' && isOwner())
