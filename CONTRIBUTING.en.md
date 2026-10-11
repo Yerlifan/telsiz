@@ -104,14 +104,14 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
 | `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
-| `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
+| `06-messages.js` | Message decryption, message nodes, paging, editing, deleting and Report Message |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
 | `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
 | `11-settings.js` | Full screen settings view |
 | `12-init.js` | Sheets, window size, PWA, event binding and startup |
-| `13-profile.js` | Profiles, the profile card, the status menu |
+| `13-profile.js` | Profiles, the profile card, the status menu, the report dialog (Report Message and Report User) |
 | `14-social.js` | Friends, blocking, the view mode |
 | `15-dm.js` | Direct messages and the safety number |
 | `16-identity.js` | Key derivation from the password and the personal identity key |

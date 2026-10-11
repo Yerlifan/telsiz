@@ -104,14 +104,14 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
 | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
-| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
+| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme, silme ve Mesajı Bildir |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
 | `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
 | `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
-| `13-profile.js` | Profiller, profil kartı, durum menüsü |
+| `13-profile.js` | Profiller, profil kartı, durum menüsü, şikâyet penceresi (Mesajı Bildir ve Kişiyi Bildir) |
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
 | `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
