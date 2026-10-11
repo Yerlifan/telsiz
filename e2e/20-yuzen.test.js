@@ -191,7 +191,11 @@ test('görüntü yedeği: belge resim içinde resim yokken tuval akışı resim 
       if (!c) return null
       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
       const colors = new Set()
-      for (let i = 0; i < d.length; i += 4 * 97) colors.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2])
+      let i = 0
+      while (i < d.length) {
+        colors.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2])
+        i += 4 * 97
+      }
       return colors.size > 3 ? { w: c.width, h: c.height } : null
     }, null, { timeout: h.LONG })
     assert.deepEqual(await drawn.jsonValue(), { w: 480, h: 270 })
