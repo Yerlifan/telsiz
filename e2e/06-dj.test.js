@@ -191,14 +191,16 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
   const roomA = await A.evaluate(() => String(state.channelId))
   const me = await A.evaluate(() => userDisplayName(state.me.id))
   assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
+  // Duyuru düzenlenemez. Mesajı Bildir (G16) yalnızca başkasının duyurusunda durur: araç çubuğunun düzenlenebilirlik
+  // denetimi bu düğmeyi saymaz, varlığı ayrıca denetlenir
   for (const page of [A, B]) {
     await page.waitForFunction(() => document.querySelector('#message-list .msg-dj'), null, { timeout: h.LONG })
     const notice = await page.evaluate(() => {
       const n = document.querySelector('#message-list .msg-dj')
       const msg = n.closest('.msg')
-      return { text: n.querySelector('.msg-dj-text').textContent, href: n.querySelector('.msg-dj-link').href, rel: n.querySelector('.msg-dj-link').rel, author: msg.querySelector('.msg-author').textContent, editable: Boolean(msg.querySelector('.msg-quick:not(.msg-action-danger)')) }
+      return { text: n.querySelector('.msg-dj-text').textContent, href: n.querySelector('.msg-dj-link').href, rel: n.querySelector('.msg-dj-link').rel, author: msg.querySelector('.msg-author').textContent, editable: Boolean(msg.querySelector('.msg-quick:not(.msg-action-danger):not(.msg-report)')), report: Boolean(msg.querySelector('.msg-quick.msg-report')) }
     })
-    assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false })
+    assert.deepEqual(notice, { text: 'Telsiz DJ kuyruğuna bir YouTube parçası ekledi.', href: 'https://www.youtube.com/watch?v=D120aaaaaaa', rel: 'noopener noreferrer', author: me, editable: false, report: page === B })
   }
   assert.ok(Date.now() - hiddenAt < 5000, 'duyuru sayfa kapanırken hemen gitti: ' + (Date.now() - hiddenAt) + ' ms')
   for (const page of [A, B]) await page.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
