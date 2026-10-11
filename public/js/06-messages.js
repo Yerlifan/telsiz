@@ -1,7 +1,8 @@
 'use strict'
 
 // Mesaj çözme (yazı kanalında grup anahtarı, özel mesajda kişisel anahtarlar), yalnızca emoji algılama,
-// mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme ve silme.
+// mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme, silme ve başkasının
+// mesajını bildirme (pencere 13-profile.js openReportDialog).
 
 // Mesaj çözme. Sonuçlar mesaj gövdesine göre önbelleğe alınır (arama dizini önbelleksiz sürümü kullanır).
 
@@ -252,6 +253,18 @@ function canDelete (m) {
   return canEdit(m) || (hasPerm('messages') && !isDmChannel(m.channelId))
 }
 
+// Başkasının mesajı frekans sahibine ve yöneticilere bildirilebilir (yazı odasında ve özel mesajda)
+function canReport (m) {
+  return Boolean(state.me && m && !sameId(m.authorId, state.me.id) && typeof openReportDialog === 'function')
+}
+
+function reportMessage (id, trigger) {
+  closeMessageMenu()
+  const m = state.messages[indexOfMessage(id)]
+  if (!m || !canReport(m)) return
+  openReportDialog({ kind: 'message', message: m, trigger: trigger || null })
+}
+
 function messageNoticeText (stateName) {
   if (stateName === 'no_key') return t('msg.noKey')
   if (stateName === 'bad_format') return t('msg.badFormat')
@@ -339,7 +352,7 @@ function buildMessageNode (m) {
   content.appendChild(body)
   node.appendChild(content)
 
-  if (canEdit(m) || canDelete(m)) {
+  if (canEdit(m) || canDelete(m) || canReport(m)) {
     const actions = h('div', 'msg-actions')
     if (canEdit(m) && result.state === 'ok' && !result.dj) {
       const edit = button('msg-action msg-quick', '', 'i-edit', t('msg.edit'))
@@ -348,6 +361,14 @@ function buildMessageNode (m) {
         startEdit(m.id)
       })
       actions.appendChild(edit)
+    }
+    if (canReport(m)) {
+      const report = button('msg-action msg-quick msg-report', '', 'i-alert', t('report.message'))
+      report.tabIndex = -1
+      report.addEventListener('click', () => {
+        reportMessage(m.id, node.querySelector('.msg-more'))
+      })
+      actions.appendChild(report)
     }
     if (canDelete(m)) {
       const del = button('msg-action msg-quick msg-action-danger', '', 'i-trash', t('msg.delete'))
@@ -880,6 +901,7 @@ function openMessageMenu (id, trigger) {
   const result = decryptMessage(m)
   el.msgMenuEdit.hidden = !(canEdit(m) && result.state === 'ok' && !result.dj)
   el.msgMenuDelete.hidden = !canDelete(m)
+  reportMenuItem().hidden = !canReport(m)
   state.menuMessageId = m.id
   el.msgMenu.hidden = false
   trigger.setAttribute('aria-expanded', 'true')
@@ -897,6 +919,29 @@ function openMessageMenu (id, trigger) {
       state.menuMessageId = null
     }
   })
+}
+
+// Menüdeki Mesajı Bildir öğesi index.html'de değil, ilk açılışta Sil öğesinin önüne eklenir. Metni her açılışta
+// seçili dilde yazılır.
+function reportMenuItem () {
+  let item = byId('msg-menu-report')
+  if (!item) {
+    item = h('button', 'menu-item')
+    item.id = 'msg-menu-report'
+    item.type = 'button'
+    item.setAttribute('role', 'menuitem')
+    item.appendChild(icon('i-alert'))
+    item.appendChild(h('span', 'menu-item-text'))
+    item.addEventListener('click', () => {
+      const id = state.menuMessageId
+      if (id === null) return
+      const node = state.nodes.get(String(id))
+      reportMessage(id, node ? node.querySelector('.msg-more') : null)
+    })
+    el.msgMenu.insertBefore(item, el.msgMenuDelete)
+  }
+  item.lastChild.textContent = t('report.message')
+  return item
 }
 
 function closeMessageMenu () {

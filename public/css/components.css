@@ -3378,6 +3378,33 @@ button.member:hover {
   margin-top: 0;
 }
 
+/* Şikâyet penceresi: bildirilen mesajın metni (13-profile.js openReportDialog) */
+.report-quote-box {
+  margin-top: 0.75rem;
+}
+
+.report-quote-box .label {
+  margin-top: 0;
+}
+
+.report-quote {
+  max-height: 8rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  overflow-y: auto;
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.report-note {
+  min-height: 5rem;
+  resize: vertical;
+}
+
 .dialog-actions {
   display: flex;
   flex-wrap: wrap;

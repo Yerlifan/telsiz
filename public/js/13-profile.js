@@ -4,7 +4,7 @@
 // zarfının çözülüp doğrulanması, profil resimleri (indirme, çözme, blob URL önbelleği), kişisel
 // anahtarın kimlik bağlamasıyla doğrulanması ve ilk görüşte sabitlenmesi, görsel yardımcılar
 // (görünen ad, @kullanıcı adı, avatar bilgisi, durum), ortak pencere yardımcısı, profil kartı,
-// durum menüsü ve kendi profilini kaydetme.
+// durum menüsü, kendi profilini kaydetme ve içerik şikâyeti penceresi (Mesajı Bildir, Kişiyi Bildir).
 
 const PROFILE_BATCH = 100
 const PROFILE_FETCH_DELAY_MS = 30
@@ -813,6 +813,12 @@ function buildCardActions (userId, self) {
     if (blocked) unblockUser(userId)
     else blockUser(userId)
   }))
+  // Kişiyi frekans sahibine ve yöneticilere bildirme (engellenmiş kişi de bildirilebilir)
+  actions.appendChild(cardButton('button-ghost card-report', 'report.user', 'card-report', () => {
+    const trigger = profileState.cardTrigger
+    closeProfileCard()
+    openReportDialog({ kind: 'user', userId: userId, trigger: trigger })
+  }))
   return actions
 }
 
@@ -1233,4 +1239,190 @@ async function squareAvatar (image, type) {
   const actual = window.E2EE.sniffImage(bytes)
   if (!actual || AVATAR_TYPES.indexOf(actual) === -1) return null
   return { bytes: bytes, mime: actual }
+}
+
+// İçerik şikâyeti (POST /api/reports): mesaj veya kişi frekans sahibine ve yöneticilere bildirilir. Not ve mesajın
+// metni (alıntı) grup anahtarıyla mühürlenir, sunucu yalnızca kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini
+// görür. Yazı odasındaki mesajın metni alıntıya kendiliğinden girer (odadaki herkes zaten okuyabilir), özel mesajın
+// metni yalnızca kişi kutuyu işaretlerse girer. Mühürlü içerik şikâyet edeni, hedefi ve mesajı da taşır, listeyi
+// açan istemci bunları sunucunun kaydıyla karşılaştırır (11-settings.js). Not ve alıntı birlikte en çok 2000 kod
+// noktasıdır (sunucunun zarf sınırı buna göre).
+const REPORT_REASON_KEYS = ['spam', 'harassment', 'illegal', 'other']
+const REPORT_NOTE_MAX = 1000
+const REPORT_QUOTE_MAX = 1000
+const REPORT_UNSAFE_G = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
+
+// Not ve alıntı metni: NFC, satır sonları \n, denetim ve yön karakterleri silinir (sekme boşluk olur), en çok iki
+// boş satır, baştaki ve sondaki boşluklar kırpılır
+function cleanReportText (value, max) {
+  if (typeof value !== 'string') return ''
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    // normalize yoksa olduğu gibi
+  }
+  text = text.replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(REPORT_UNSAFE_G, '').replace(/\n{3,}/g, '\n\n').trim()
+  // Eşi olmayan vekil yarımları JSON içinde altı bayt tutar, atılır
+  text = codePoints(text).filter((c) => !(c.length === 1 && c.charCodeAt(0) >= 0xd800 && c.charCodeAt(0) <= 0xdfff)).join('')
+  return cpLength(text) > max ? cpSlice(text, max - 3) : text
+}
+
+// Mesajın şikâyete eklenebilecek çözülmüş metni (çözülemezse veya yalnızca ek varsa boş)
+function reportQuoteOf (message) {
+  let result = null
+  try {
+    result = decryptMessage(message)
+  } catch (err) {
+    result = null
+  }
+  if (!result || result.state !== 'ok' || result.dj) return ''
+  return cleanReportText(result.text || '', REPORT_QUOTE_MAX)
+}
+
+function reportReasonSelect () {
+  const select = h('select', 'input select')
+  select.id = 'report-reason'
+  const pick = h('option', '', t('report.reason.pick'))
+  pick.value = ''
+  pick.disabled = true
+  pick.selected = true
+  select.appendChild(pick)
+  REPORT_REASON_KEYS.forEach((key) => {
+    const option = h('option', '', t('report.reason.' + key))
+    option.value = key
+    select.appendChild(option)
+  })
+  return select
+}
+
+// opts: { kind: 'message', message, trigger } veya { kind: 'user', userId, trigger }
+function openReportDialog (opts) {
+  if (!state.me || !opts) return
+  const message = opts.kind === 'message' ? opts.message : null
+  if (opts.kind === 'message' && !message) return
+  const targetId = message ? message.authorId : opts.userId
+  if (targetId === undefined || targetId === null || sameId(targetId, state.me.id)) return
+  const dm = Boolean(message && isDmChannel(message.channelId))
+  const quote = message ? reportQuoteOf(message) : ''
+  openAppDialog({
+    name: 'report',
+    titleKey: message ? 'report.message' : 'report.user',
+    trigger: opts.trigger || null,
+    build: (body, close) => {
+      const form = h('form', 'form report-form')
+      form.id = 'report-form'
+      form.noValidate = true
+      form.appendChild(h('p', 'lead', t(message ? 'report.leadMessage' : 'report.leadUser', { name: shownName(targetId) })))
+      let attach = null
+      if (quote) {
+        const box = h('div', 'report-quote-box')
+        box.appendChild(h('p', 'label', t('report.quoteLabel')))
+        const text = h('blockquote', 'report-quote', quote)
+        text.id = 'report-quote'
+        box.appendChild(text)
+        if (dm) {
+          const check = h('label', 'check report-attach')
+          attach = h('input')
+          attach.type = 'checkbox'
+          attach.id = 'report-attach'
+          attach.checked = false
+          attach.setAttribute('aria-describedby', 'report-attach-hint')
+          check.appendChild(attach)
+          check.appendChild(h('span', '', t('report.quoteDm')))
+          box.appendChild(check)
+          const hint = h('p', 'hint', t('report.quoteDmHint'))
+          hint.id = 'report-attach-hint'
+          box.appendChild(hint)
+        } else {
+          box.appendChild(h('p', 'hint', t('report.quoteAuto')))
+        }
+        form.appendChild(box)
+      }
+      const reasonLabel = h('label', 'label', t('report.reason'))
+      reasonLabel.setAttribute('for', 'report-reason')
+      form.appendChild(reasonLabel)
+      const reason = reportReasonSelect()
+      form.appendChild(reason)
+      const noteLabel = h('label', 'label', t('report.note'))
+      noteLabel.setAttribute('for', 'report-note')
+      form.appendChild(noteLabel)
+      const note = h('textarea', 'input report-note')
+      note.id = 'report-note'
+      note.rows = 3
+      note.maxLength = REPORT_NOTE_MAX
+      note.setAttribute('aria-describedby', 'report-note-hint')
+      form.appendChild(note)
+      const noteHint = h('p', 'hint', t('report.noteHint', { max: REPORT_NOTE_MAX }))
+      noteHint.id = 'report-note-hint'
+      form.appendChild(noteHint)
+      form.appendChild(h('p', 'hint report-privacy', t('report.privacy')))
+      const msg = h('p', 'form-error')
+      msg.id = 'report-error'
+      msg.setAttribute('role', 'alert')
+      msg.hidden = true
+      form.appendChild(msg)
+      const row = h('div', 'row dialog-actions')
+      const send = button('button button-danger', t('report.send'))
+      send.type = 'submit'
+      send.id = 'report-send'
+      const cancel = button('button button-secondary', t('common.cancel'))
+      cancel.id = 'report-cancel'
+      row.appendChild(send)
+      row.appendChild(cancel)
+      form.appendChild(row)
+      const busy = (on) => {
+        setFormBusy(form, on)
+        reason.disabled = on
+        note.disabled = on
+      }
+      const submit = async () => {
+        if (form.classList.contains('is-busy')) return
+        if (REPORT_REASON_KEYS.indexOf(reason.value) === -1) {
+          setMsg(msg, () => t('report.reasonNeeded'), 'error')
+          focusNode(reason)
+          return
+        }
+        const noteText = cleanReportText(note.value, REPORT_NOTE_MAX)
+        const quoteText = quote && (!dm || (attach && attach.checked)) ? quote : ''
+        const payload = { kind: message ? 'message' : 'user', targetUserId: targetId, reason: reason.value }
+        if (message) {
+          payload.channelId = message.channelId
+          payload.messageId = message.id
+        }
+        if (noteText || quoteText) {
+          const kid = activeKid()
+          if (!kid || !hasActiveKey()) {
+            setMsg(msg, () => t('report.needKey'), 'error')
+            return
+          }
+          try {
+            payload.note = window.E2EE.sealJson(kid, { v: 1, a: Number(state.me.id), k: payload.kind, u: Number(targetId), m: message ? Number(message.id) : null, n: noteText, q: quoteText })
+          } catch (err) {
+            setMsg(msg, () => t('report.failed'), 'error')
+            return
+          }
+        }
+        setMsg(msg, '')
+        busy(true)
+        const res = await api('POST', '/api/reports', payload)
+        busy(false)
+        if (res.status !== 200 || !res.data || res.data.ok !== true) {
+          setMsg(msg, () => errorText(res, t('report.failed')), 'error')
+          return
+        }
+        close('done')
+        toast(() => t(res.data.duplicate ? 'report.alreadySent' : 'report.sent'), 'ok')
+      }
+      form.addEventListener('submit', (e) => {
+        e.preventDefault()
+        submit()
+      })
+      cancel.addEventListener('click', () => {
+        close('dismiss')
+      })
+      body.appendChild(form)
+      return reason
+    }
+  })
 }
