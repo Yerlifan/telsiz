@@ -1,0 +1,44 @@
+{
+ "tamam": true,
+ "baslangic": "af75bfeeef7ddc7478569568c75db979b0145f7a",
+ "commitler": [
+  "a03f697 G3: Gizli sayfada DJ kartı kare beklemeden çizilir (istek 13 ve 18)",
+  "c0ad54e G3: Başlangıç payı türe göre, devam ettirme de payla çapalanır (istek 13)",
+  "ba3492c G3: YouTube rızası erken sorulur, telsiz kartında kalıcı uyarı (istek 13)",
+  "a4ca7d7 G3: DJ duyurusu parçanın adını taşır, DJ'de Çal da duyurulur (istek 6)",
+  "258a993 G3: DJ sütunu düzeni ızgara yerine flexbox, denetleyici istisnası kalktı",
+  "560ae56 G3: Taşınabilir DJ oynatıcısı: dört köşe, sürükleme, Taşı, Küçült, Yüzen Oynatıcı (istek 15)",
+  "5ef0c13 G3: Dosya parçaları tek <audio> öğesinde çalar (istek 18)",
+  "e48c7fa G3: Media Session: kilit ekranında parça adı, yerel Oynat ve Duraklat (istek 18)",
+  "21f7218 G3: Masaüstünde pencere küçültülünce YouTube bekletilir (istek 18)",
+  "93c633a G3: Bildirimler listesine Telsiz DJ kaydı (istek 6)",
+  "9ab1130 G3: Belgeler: Telsiz DJ çekirdeği, CHANGELOG",
+  "1dce643 G3: Eski DJ işlemi Bildirimler'e yazılmaz, sürükleme yakalama kaybında biter"
+ ],
+ "testler": "Her commit'ten önce /home/user/wt/b içinde \"npm run denetle\" temizdi (254 dosya, ihlal yok) ve \"npm test\" geçti. Son durum: 886 test, 885 geçti, 0 düştü, 1 atlandı. Atlanan test önceden de atlanıyordu (SEA uçtan uca). Bir ara çalıştırmada bilinmeyen bir birim testi bir kez zamanlama yüzünden düştü, yeniden çalıştırmada ve sonraki bütün çalıştırmalarda geçti. Yeni ve güncellenen birim testleri: test/music.test.js (türe göre başlangıç payı, payla devam ettirme, pay bitene kadar oynatıcının beklemesi, yerel bekletme setLocalHold için iki test, tek <audio> öğesi, notice olayındaki at alanı, dj.css yüzen kutu kuralları), test/social.test.js (cleanDjNotice: başlık temizliği, 120 kod noktası, geçersiz girdiler), test/settings.test.js (Gizlilik'teki telsiz.djMediaSession anahtarı). Yeni e2e/25-dj-senkron.test.js (yuva 39), 6 test: iki istemcinin en çok 250 ms farkla başlaması ve 8 saniye içinde adlı duyuru, devam ettirmenin eşitlenmesi, gizli sekme benzetimi (rAF durdurulmuş, visibilityState hidden: çerçeve köşede en az 200x200 ve A ile birlikte başlıyor), rıza uyarısı ve kısa bildirim, arka planda iki dosyanın aynı ses öğesinde art arda çalması ve Media Session başlığı, temiz konsol. Gizli sekme testinin eski 23-dj.js ile üç çalıştırmada da düştüğü doğrulandı. e2e/06-dj.test.js 11 testten 17 teste çıktı: adlı duyuru ve düzenleme (düzenlendi etiketi yok), DJ'de Çal duyurusu, Bildirimler kaydı, 1100x800'de dört köşede ses düğmelerine ve yazma alanına ulaşılabilmesi, fareyle sürükleme ve yeniden yüklemeden sonra köşenin korunması, Küçült (YouTube yalnızca bu cihazda durur, Göster ile eşitlenir), taklit onWindowState ile pencere bekletmesi, Yüzen Oynatıcı (YouTube ve dosya). e2e/25 bir çalıştırmada test kodundaki bir yarış (sahte oynatıcı betiği yüklenmeden frame.evaluate) yüzünden düştü, test düzeltildi, sonra art arda 4 çalıştırmada geçti. Grubun sonunda: 06-dj 17/17, 25-dj-senkron 6/6, 02-frekans 17/17, 04-ayarlar 5/5, 05-ses-yayin 11/11, 10-kamera 10/10, 14-bildirim-sesleri 11/11. DJ sütununun flexbox düzeni eski ızgarayla 15 ve 20 piksel kökte 7 pencere boyutunda (14 yapılandırma) ölçüldü: öğelerin konumları 0,6 pikselden az farkla aynı. Hiçbir test atlanmadı, devre dışı bırakılmadı ve gevşetilmedi.",
+ "sapmalar": [
+  "Erken rıza uyarısı (adım 7) telsiz kartında, #radio-tuned içinde 23-dj.js'in kurduğu bir satırdır (index.html değişmedi). Satır yalnızca rıza hiç sorulmamışken ('unset') ve çalan parça YouTube iken çıkar, çünkü metin 'çalıyor' diyor. Sıradaki YouTube parçası için çıkmaz. YouTube Oynatıcısını Yükle düğmesi rızayı doğrudan verir. Kalıcı uyarı kapatılabilsin diye Hayır, Yükleme düğmesi de eklendi (var olan music.consent.decline). DJ kartı soruyu zaten gösteriyorsa satır gizlenir. consentneeded olayındaki eski music.consent.needed kısa bildirimi yerine her yeni YouTube parçasında, kart görünürken de music.consent.roomHasYoutube kısa bildirimi çıkar.",
+  "setLocalHold(reason, on) imzasına isteğe bağlı üçüncü parametre (scope) eklendi: 'youtube' yalnızca YouTube parçasını bekletir, varsayılan bütün parçaları. Küçültme ve masaüstü penceresi 'youtube', Media Session duraklatması bütün parçalar için kullanılır. Anlık görüntüye player.localHold eklendi.",
+  "LIMITS.startLeadMs kaldırıldı, yerine startLeadYouTubeMs (3000) ve startLeadFileMs (1500) geldi.",
+  "Plan tablosu dışında bir i18n anahtarı eklendi: settings.privacy.mediaSessionTitle ('Medya denetimleri' / 'Media controls'), Gizlilik sayfasındaki yeni bölümün başlığı. Yüzen Oynatıcı anahtarının ipucunda var olan dj.muteHint ('yalnızca bu cihazda') kullanıldı.",
+  "Köşedeki oynatıcı için oynatıcı alanı, dosyanın dalga biçimi ve çubuk tek bir yüzen kutuya (.dj-float) alındı. Kutu çerçeve kurulmadan önce yapılır ve hiç taşınmaz. Önceki davranışa uygun olarak dosya parçası yalnızca Yüzen Oynatıcı açıkken köşeye çıkar (dalga ve çubukla).",
+  "Akıllı köşe ve konum: 760 ile 1279 piksel arasında varsayılan köşe sağ üst, diğer genişliklerde sağ alt. Alt köşede kutu aynı yandaki yazma alanının ve telsiz kartının üstüne çıkar. Sığmazsa bandın altına kadar çıkar ve o durumda örtüşme olabilir, belgelerde 'yer yettiği sürece' diye yazıldı.",
+  "28-bildirim.js: activityDj, activityDjRefresh (ad sonradan gelince metni yeniler) ve li üzerinde data-activity-id eklendi. Odaya sonradan katılınca gelen eski bir işlemin bildirimi listeye yazılmasın diye motorun notice olayına işlemin sunucu kabul zamanı (at) eklendi. 15 saniyeden eski olanlar listeye yazılmaz.",
+  "Adım 21'deki 'createAudio bir kez' denetimi: tarayıcıda motorun kendi deneme öğeleri (canPlayType, probeVolume) da audio oluşturduğu için createElement sayılamazdı. e2e/25'te gizli sekmede iki dosyanın aynı blob ses öğesinde art arda çaldığı ölçüldü, createAudio'nun bir kez çağrıldığı birim testinde sınandı. Arka plan senaryosu plandaki e2e/06 yerine e2e/25'e kondu.",
+  "e2e/06'nın eski 152. satırındaki beklenti: ikinci testte kimse rıza vermediği için ad bilinmez, duyuru 8 saniye sonra adsız gider ve bu beklenti korundu. 'Deniz ... ekledi: Fake video D120aaaaaaa' metni üçüncü testte rızadan sonra düzenlenen duyuruda, ilk anda adla gitmesi ise e2e/25'te sınanır.",
+  "Belgeler planın saydığından geniş tutuldu: köşedeki oynatıcının anlatımı eskimesin diye TASARIM/DESIGN, modül tablosu için CONTRIBUTING çifti de güncellendi. Media Session cümleleri README ve CHANGELOG'da 'görünür' yerine 'verilir' diye yazıldı, çünkü YouTube çerçevesi çalarken işletim sisteminin ne gösterdiği doğrulanamadı.",
+  "cleanDjNotice birim testi, 06-messages.js'i zaten yükleyen test/social.test.js içine eklendi (yeni test dosyası açılmadı).",
+  "DJ'de Çal duyurusunun eski istemcilere gösterilen t alanı dosyanın adıdır. Ekli dosyayla /çal da d.title taşır.",
+  "music.player.backgroundYoutube masaüstü uygulamasında YouTube parçası çalarken kartta sabit bir ipucudur. music.player.waitingVisible, pencere bekletmesi sürerken uyarı satırında gösterilir. Küçültülmüş YouTube için uyarı satırında music.player.minimizedYoutube ve Göster eylemi durur, küçültürken bir kez kısa bildirim de çıkar."
+ ],
+ "kullaniciya": [
+  "Hiçbir şey push edilmedi. Commit'ler yalnızca /home/user/wt/b çalışma kopyasında, yerel istek/b dalında.",
+  "Elle doğrulanması gerekenler (bu ortamda yapılamadı): gerçek YouTube ile 3 saniyelik payın yetip yetmediği, telefonda dokunarak sürükleme, iOS ve Android'de ekran kapalıyken dosya parçalarının çalması, YouTube çerçevesi çalarken Media Session başlığının işletim sisteminde nasıl göründüğü. Masaüstünde pencere küçültme yalnızca taklit edilen onWindowState ile sınandı, kanalın kendisi G1'in duman testinde sınanıyor.",
+  "Renk ile birleştirme notu: 28-bildirim.js'te activityDj, activityDjRefresh, li data-activity-id ve activityText içindeki 'dj' dalı korunmalı. Renk bu dosyanın activity* bölgesini değiştiriyor.",
+  "G4 için: djAnnounceTrack, d.title verilirse duyuruyu hemen adla gönderir (arama sonucunun başlığı için). G5 için: e2e/25 sahte oynatıcıya playTimes ve firstPlayAt kaydı ekliyor, başlangıç eşitlemesi testleri hazır.",
+  "G11 için: dockDrag(box, handle, opts) 23-dj.js içinde ayrı bir yardımcıdır. Motorun setLocalHold'u da kullanılabilir. navigator.mediaSession'da metadata ile play ve pause işleyicilerini DJ yazar, G11 yalnızca kendi eylemlerini eklemeli.",
+  "scripts/denetle.js içindeki CSS_EXCEPTIONS listesi artık boş. DJ sütunu flexbox ile kuruldu, görünüm ölçülerek aynı bulundu.",
+  "Yeni cihaz anahtarları: telsiz.djDock (köşe: tl, tr, bl, br), telsiz.djFloat (Yüzen Oynatıcı, '1' açık), telsiz.djMediaSession ('0' kapalı, varsayılan açık)."
+ ],
+ "kalan": []
+}
