@@ -1,0 +1,150 @@
+From af75bfeeef7ddc7478569568c75db979b0145f7a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:28:23 +0000
+Subject: [PATCH 13/30] =?UTF-8?q?G1:=20inceleme=20d=C3=BCzeltmeleri=20(bo?=
+ =?UTF-8?q?=C5=9Fta=20s=C3=BCresi=20ger=C3=A7ek=20arka=20plan=20penceresin?=
+ =?UTF-8?q?de=20s=C4=B1nan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Duman testi ikinci bir frekans ekler, ilk frekansın gizli arka plan
+penceresinin açılmasını bekler ve o pencerede telsizArkaPlan.idleSeconds()
+çağrısının 'background' bağlamından tam saniye döndürdüğünü denetler. Aynı
+pencereden uygulama penceresine açık bir kanal ve aynı ön yükleme betiğiyle
+açılan ama hiçbir bağlama kaydedilmemiş bir pencereden telsiz:idle-seconds
+reddedilir. Sonunda ilk frekansa dönülür ve ikinci frekans çıkarılır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/e2e/duman.test.js | 98 ++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 96 insertions(+), 2 deletions(-)
+
+diff --git a/desktop/e2e/duman.test.js b/desktop/e2e/duman.test.js
+index 4e71675..67e639b 100644
+--- a/desktop/e2e/duman.test.js
++++ b/desktop/e2e/duman.test.js
+@@ -19,7 +19,8 @@
+ //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
+ // - pencere durumu: küçültme, geri yükleme (tam ekrana dönüş dahil), tepsiye gizleme ve tepsiden dönüş sayfaya
+ //   yalnızca izinli değerlerle gelir
+-// - sistemin boşta süresi sayfadan tam saniye olarak okunur
++// - sistemin boşta süresi uygulama penceresinden ve gerçek bir arka plan penceresinden tam saniye olarak okunur,
++//   bağlamı olmayan pencere okuyamaz
+ //
+ // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
+ // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
+@@ -62,7 +63,7 @@ const { createChatServer } = require('../../src/app')
+ const yardimci = require('../../test/server-yardimci')
+ const { listenInRange, sleep } = require('../test/yardimci')
+ 
+-const ctx = { server: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null, failed: false, launchError: null, diagFile: null, output: [], outputChars: 0, snapshot: null }
++const ctx = { server: null, server2: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null, failed: false, launchError: null, diagFile: null, output: [], outputChars: 0, snapshot: null }
+ 
+ // node:test sonucu after() içinde okunamaz: düşen testler burada işaretlenir
+ function test (name, options, fn) {
+@@ -374,6 +375,7 @@ after(async () => {
+   if (ctx.failed) await writeResults()
+   if (ctx.app) await ctx.app.close().catch(() => {})
+   if (ctx.server) await new Promise((resolve) => ctx.server.close(() => resolve()))
++  if (ctx.server2) await new Promise((resolve) => ctx.server2.close(() => resolve()))
+   if (ctx.root) fs.rmSync(ctx.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+ })
+ 
+@@ -1131,3 +1133,95 @@ test('boşta süresi: uygulama penceresinde tam saniye olarak okunur', async ()
+     assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
+   }
+ })
++
++// Boşta süresi arka plan penceresinden ('background' bağlamı): ikinci bir frekans eklenip açılınca ilk frekansın
++// gizli arka plan penceresi açılır (src/lib/background.js, createBackgroundWindow). Bu pencerede
++// telsizArkaPlan.idleSeconds() gerçek kanaldan tam saniye döndürür: gönderen denetimi (senderIs) kayıtlı arka plan
++// penceresini ve kökenini tanır. Aynı ön yükleme betiğiyle açılan ama ana süreçte hiçbir bağlama kaydedilmemiş bir
++// pencere aynı kanalı çağıramaz. Arka plan istemcisi ilk frekansın kayıtlı oturumuyla açılır (oturum yoksa 'login'
++// bildirir ve pencere kapanır). Sonunda ilk frekansa dönülür ve ikinci frekans listeden çıkarılır.
++test('boşta süresi: gerçek arka plan penceresinde okunur, bağlamı olmayan pencere okuyamaz', { timeout: 90000 }, async () => {
++  const first = 'http://127.0.0.1:' + ctx.port
++  ctx.server2 = await createChatServer({
++    dataDir: path.join(ctx.root, 'veri-2'),
++    setupCode: yardimci.SETUP_CODE,
++    scryptN: 1024,
++    pollTimeoutMs: 8000,
++    log: null
++  })
++  const second = 'http://127.0.0.1:' + await listenInRange(ctx.server2)
++  const appPages = () => ctx.app.windows().filter((p) => !p.isClosed() && p.url().startsWith('telsiz://app/'))
++  // Sayfanın kipi: 'background' (kökeniyle), 'app' veya henüz yüklenmediyse null
++  const modeOf = (p) => p.evaluate(() => {
++    const d = window.telsizArkaPlan
++    if (!d || typeof d !== 'object') return null
++    return d.background === true ? 'background ' + d.origin : 'app'
++  }).catch(() => null)
++  const findPage = (wanted, except, label) => waitFor(async () => {
++    for (const p of appPages()) {
++      if (p !== except && await modeOf(p) === wanted) return p
++    }
++    return null
++  }, label)
++
++  await ctx.page.evaluate((token) => window.localStorage.setItem('telsiz.token', token), ctx.token)
++  const firstPage = ctx.page
++  const opened = ctx.app.waitForEvent('window', { predicate: (p) => p.url().startsWith('telsiz://baglan/'), timeout: TIMEOUT })
++  await firstPage.evaluate(() => window.telsizDesktop.addFrequency())
++  const connect = await opened
++  await connect.waitForSelector('#cancel:not([hidden])')
++  await connect.fill('#address', second)
++  const firstClosed = firstPage.waitForEvent('close', { timeout: TIMEOUT })
++  await connect.click('#submit')
++  await firstClosed
++  const secondPage = await findPage('app', firstPage, 'app window of the second frequency')
++  assert.equal(await secondPage.evaluate(() => window.telsizDesktop.getServer()), second)
++
++  // İlk frekans artık açık değil: arka plan penceresi biraz sonra açılır ve oturumla çalışır
++  const bgPage = await findPage('background ' + first, null, 'background window of the first frequency')
++  const before = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
++  const value = await bgPage.evaluate(() => window.telsizArkaPlan.idleSeconds())
++  const after = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
++  assert.ok(Number.isInteger(value) && value >= 0, String(value))
++  assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
++  // Arka plan penceresi uygulama penceresi değildir: uygulama penceresine açık bir kanal ondan reddedilir
++  assert.match(await bgPage.evaluate(() => window.telsizDesktop.getSettings().then(() => 'ok', (err) => String(err && err.message))), /forbidden/)
++  const bgState = await waitFor(async () => {
++    const got = await secondPage.evaluate(() => window.telsizArkaPlan.getState())
++    const item = got.items.find((entry) => entry.origin === first)
++    return item && item.state === 'ok' ? item : null
++  }, 'background state ok')
++  assert.equal(bgState.active, false)
++
++  // Bağlamı olmayan pencere: aynı ön yükleme betiği, kayıtsız pencere ve ayrı oturum bölümü
++  await ctx.app.evaluate(({ app, BrowserWindow }) => {
++    const win = new BrowserWindow({
++      show: false,
++      webPreferences: { preload: app.getAppPath() + '/src/preload.js', partition: 'duman-baglamsiz', contextIsolation: true, sandbox: true, nodeIntegration: false }
++    })
++    return win.loadURL('data:text/html;charset=utf-8,<title>baglamsiz</title>')
++  })
++  const stray = await waitFor(() => ctx.app.windows().find((p) => !p.isClosed() && p.url().startsWith('data:text/html')), 'window without a context')
++  await waitFor(() => stray.evaluate(() => Boolean(window.telsizDesktop && window.telsizArkaPlan)).catch(() => false), 'preload in the window without a context')
++  const denied = await stray.evaluate(() => Promise.all([window.telsizDesktop.idleSeconds(), window.telsizArkaPlan.idleSeconds()].map((call) => call.then((v) => 'ok ' + v, (err) => String(err && err.message)))))
++  assert.equal(denied.length, 2)
++  for (const text of denied) assert.match(text, /forbidden/)
++  await ctx.app.evaluate(({ BrowserWindow }) => {
++    for (const win of BrowserWindow.getAllWindows()) {
++      if (win.webContents.getURL().startsWith('data:text/html')) win.destroy()
++    }
++  })
++
++  // İlk frekansa dönülür: oturum bilgisi silinir (yeni uygulama penceresi giriş ekranıyla açılır), ikinci frekans
++  // listeden çıkarılır
++  await bgPage.evaluate(() => window.localStorage.removeItem('telsiz.token'))
++  const secondClosed = secondPage.waitForEvent('close', { timeout: TIMEOUT })
++  await secondPage.evaluate((origin) => window.telsizDesktop.switchFrequency(origin), first).catch(() => null)
++  await secondClosed
++  ctx.page = await findPage('app', secondPage, 'app window of the first frequency again')
++  await ctx.page.waitForLoadState('domcontentloaded')
++  assert.equal(await ctx.page.evaluate(() => window.telsizDesktop.getServer()), first)
++  assert.deepEqual(await ctx.page.evaluate((origin) => window.telsizDesktop.removeFrequency(origin, false), second), { ok: true, active: first })
++  const list = await ctx.page.evaluate(() => window.telsizDesktop.listFrequencies())
++  assert.deepEqual(list.items.map((item) => [item.origin, item.active]), [[first, true]])
++})

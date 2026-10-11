@@ -1,0 +1,328 @@
+# Profil ve çevrimiçi durumu: araştırma raporu (istek 2, 3, 8, 9, 12)
+
+Hiçbir depo dosyasını değiştirmedim, `git status` temiz. Betikler ve çıktılar `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/` altında (`profil-senkron*.js`, `profil-duzen.js`, `cikti/`).
+
+Dış kaynaklar hakkında bir not: WebFetch alan adını çözemedi (ENOTFOUND). Bu yüzden dış iddiaları WebSearch sonuç özetlerinden aldım ve kaynak bağlantısını her iddianın yanına yazdım. Proxy durumunu okuma denemem izin sisteminde reddedildi.
+
+---
+
+## İstek (2): Otomatik boşta
+
+**1. Kullanıcının isteği:** "Belli bir süre sonra çevrimiçi pozisyonundan boşa geçsin"
+
+**2. Mevcut durum**
+- Durumlar yalnızca elle seçiliyor:
+  - İstemcide: `STATUS_CHOICES = ['online','idle','dnd','invisible']` (`public/js/13-profile.js:18`), `setMyStatus` (`13-profile.js:967`).
+  - Sunucuda: `POST /api/me/status` → `handleMyStatus` (`src/app.js:2132-2144`). Seçim `state.json` dosyasına yazılıyor ve `bumpMeta` çağrılıyor.
+- Çevrimiçi bilgisi `src/hub.js:99-101` içindeki `isActive` ile belirleniyor: bekleyen bir poll varsa veya son istek `pollTimeoutMs + graceMs` süresinden yeniyse kişi çevrimiçi sayılıyor.
+- Başkalarına giden durum `presenceView` ile üretiliyor (`hub.js:263-275`): `status: online ? u.status : 'offline'`.
+- Kendi durumunun gösterimi: `userStatus` (`13-profile.js:416`) ve `myStatusLine` (`public/js/10-voice.js:969`).
+- Hareketsizliği algılayan hiçbir kod yok. `visibilitychange` (`12-init.js:490` → `05-poll.js:260`) yalnızca okunmamış sayısını sıfırlıyor.
+
+**3. Yapılabilirlik ve kısıtlar**
+- **Idle Detection API kullanılamaz.** Deneysel, yalnızca güvenli bağlamda çalışıyor, izin ve kullanıcı hareketi istiyor, en küçük eşiği 60 saniye. Yalnızca Chrome 94 ve sonrası ile Edge'de var, Firefox ve Safari'de yok.
+  - Kaynaklar: [MDN](https://developer.mozilla.org/docs/Web/API/Idle_Detection_API), [Chrome belgesi](https://developer.chrome.com/docs/capabilities/web-apis/idle-detection?hl=nl).
+  - Mozilla ve Apple'ın gözetim gerekçesiyle reddettiğini yalnızca ikincil bir kaynakta gördüm: [alternativeto](https://alternativeto.net/news/2021/9/google-chrome-94-s-idle-detection-api-rejected-by-mozilla-and-apple-citing-user-surveillance-concerns-).
+  - PS5 ve eski WebKit tarayıcılarında da olmadığı için geriye tek yol kalıyor: girdi olaylarını (fare, klavye, dokunma, tekerlek, oyun kolu) dinleyen bir zamanlayıcı.
+- **Gizli sekmede zamanlayıcılar gecikebilir.** Chrome, 5 dakikadan uzun gizli kalan sayfalarda zincirli zamanlayıcıları dakikada bire indirir. WebRTC kullanılırken bu kısma uygulanmaz ([Chrome 88](https://developer.chrome.com/blog/timer-throttling-in-chrome-88)). Bu yüzden karar, zamanlayıcının kendisine değil `Date.now()` farkına dayanmalı. Gecikme en çok yaklaşık 1 dakika olur.
+- **Masaüstü uygulamasında sistem geneli boşta süresi alınabilir.** Electron `powerMonitor.getSystemIdleTime()` (saniye) ve `getSystemIdleState(eşik)` (`active`, `idle`, `locked`, `unknown`) sağlıyor ([Electron belgesi](https://electronjs.org/docs/latest/api/power-monitor)).
+- **Discord'un yaklaşık 5 dakikada boşta göstermesi: doğrulanamadı.** Yalnızca üçüncü taraf kaynaklarda geçiyor ([businessinsider.nl](https://businessinsider.nl/what-does-idle-mean-in-discord-how-to-tell-if-a-discord-user-has-been-inactive-for-a-period-of-time-or-set-your-status-as-idle)).
+- **Basit yol, yani boşta olunca istemcinin `POST /api/me/status {idle}` göndermesi, sorunlu:**
+  - Her geçiş diske yazılıyor.
+  - Çok cihazda cihazlar birbirinin durumunu ezer.
+  - Tarayıcı boştayken kapanırsa "Boşta" kalıcı olur.
+  - Kişinin elle seçtiği Boşta ile karışır.
+
+**4. Önerilen çözüm**
+- **Sunucu (değişiklik gerekiyor), bellekte ve oturum başına çalışır:**
+  - `src/hub.js`: `rt.idle` alanı eklenir. `poll()` içinde `params.idle === '1'` okunur ve `setIdle(rt, bool)` çağrılır.
+  - `userAutoIdle(userId)`: kişinin etkin oturumlarının hepsi boştaysa `true` döner.
+  - `presenceView` değişir: `status: online ? (u.status === 'online' && userAutoIdle(u.id) ? 'idle' : u.status) : 'offline'`.
+  - Toplu durum değişince `bumpMeta` çağrılır. `touch` ve `deactivate` toplu durumu değiştirirse onlar da çağırır, görünmez kişide hiç çağrılmaz.
+  - `src/app.js:1839-1842` `handlePoll`: `idle: q.get('idle')` hub'a geçirilir.
+  - Yeni API ucu yok, poll sorgusuna `&idle=0|1` parametresi ekleniyor. Böylece sunucu yeniden başlasa da sonraki poll durumu yeniden bildirir. Diske hiçbir şey yazılmaz.
+  - Kötüye kullanım sınırı: oturum başına geçiş en sık 5 saniyede bir kabul edilir. Daha sık gelen değişiklik yok sayılır ya da ertelenir.
+- **İstemci:**
+  - Yeni modül `public/js/38-bosta.js`, oyun dosyalarıyla (33-37) çakışmasın diye 38 numarası. İçeriği:
+    - Girdi olaylarını yakalayan dinleyiciler (`pointerdown`, `pointermove` zaman damgasıyla kısılmış, `keydown`, `wheel`, `touchstart`, görünür olma).
+    - `21-band.js` `padPoll` içine bir kancayla oyun kolu girdisi.
+    - Masaüstünde `telsizDesktop.idleSeconds()`.
+    - Durum değişince `startPoll()` ile poll'un yeniden başlatılması.
+  - `public/js/05-poll.js:36-44` ve `public/js/25-arka-plan.js:282`: `&idle=` parametresi eklenir.
+  - `13-profile.js` `userStatus` ve `10-voice.js` `myStatusLine`: elle seçilen durum `online` iken meta `idle` diyorsa kendi tarafta "Boşta (otomatik)" gösterilir.
+  - `11-settings.js` Gizlilik sayfası (Yazıyor göstergesinin yanına): bir anahtar ve bir süre seçimi. Ayar cihaza özel, `SETTINGS_KEYS` içine `autoIdle` ve `autoIdleMinutes` eklenir (`11-settings.js:43`).
+- **Masaüstü:** `desktop/src/lib/channels.js`, `preload.js` (hem `telsizDesktop` hem `telsizArkaPlan`) ve `main.js` içine `powerMonitor.getSystemIdleTime()` çağrısı.
+- **i18n anahtarları** (TR ve EN):
+  - `settings.privacy.idleTitle`
+  - `settings.privacy.autoIdle`
+  - `settings.privacy.autoIdleHint`
+  - `settings.privacy.autoIdleAfter`
+  - `settings.privacy.autoIdleMinutes_one` ve `_other`
+  - `status.autoIdle`
+- **Belgeler:**
+  - README ve README.en: durumlar.
+  - `docs/MIMARI.md` ve `ARCHITECTURE.md`: hub ve poll parametresi, ayrıca "Sunucunun gördüğü üst veri" bölümüne "hareketsiz kalma zamanı".
+  - `desktop/README` iki dilde.
+  - CHANGELOG iki dilde.
+
+**5. Testler**
+- **Birim (sunucu), yeni `test/server-bosta.test.js`:**
+  - İki oturumdan biri boşta → kişi `online` görünür, ikisi de boşta → `idle` görünür.
+  - Elle seçilmiş `dnd` ve `invisible` değişmez.
+  - Oturum düşünce toplu durum yeniden hesaplanır.
+  - Geçerli olmayan `idle` değeri yok sayılır.
+  - Sık geçiş sınırı uygulanır.
+- **e2e, yeni `e2e/16-otomatik-bosta.test.js`:** Playwright saatiyle (`page.clock.fastForward`; repodaki 1.63 sürümünde var, `node_modules/playwright-core/types/types.d.ts:20465`, [belge](https://playwright.dev/docs/api/class-clock)):
+  - 10 dakika ileri alınınca diğer kişide durum noktası "idle" olur.
+  - Tıklayınca durum geri döner.
+  - Ses odasındayken boşta olunmaz.
+  - Ayar kapalıyken hiç boşta olunmaz.
+- **Elle deneme:** PS5 tarayıcısında kolla, masaüstünde pencere küçültülmüşken ve iki cihazla.
+
+**6. Riskler ve güvenlik**
+- **Gizlilik:** üyeler ve sunucu kişinin ne zaman hareketsiz kaldığını öğrenir. Bunun karşılığı ayarın kapatılabilmesi ve belgede açıkça yazılması.
+- Görünmez kişide hiçbir bilgi sızmaz.
+- Şifrelemeye etkisi yok.
+- Her geçiş herkese tam meta gönderdiği için yayın fırtınası mümkün. Önlemi yukarıdaki geçiş sınırı.
+
+**7. Büyüklük:** L, yaklaşık 12 adım. Masaüstü `powerMonitor` desteği çıkarılırsa M.
+
+**8. Kararlar ve varsayılanlarım**
+- **Süre ve açık/kapalı:** varsayılan açık, 10 dakika. Seçenekler 5, 10, 15, 30 ve 60 dakika.
+- **Ses odasındayken:** o cihaz hiç boşta sayılmaz. Telsiz ses odaklı bir uygulama ve kadroda "Boşta" görünmesi kafa karıştırır.
+- **Masaüstünün arka plan frekansları:** sistem boşta süresini izler. Hep çevrimiçi kalırlarsa özellik işe yaramaz, hep boşta kalırlarsa yanlış bilgi verir.
+- **Elle seçilen Boşta, Rahatsız etmeyin ve Görünmez:** otomatik durum bunlara hiç dokunmaz.
+
+**9. Paylaşılan dosyalar:** `src/hub.js`, `src/app.js` (yalnızca `handlePoll`), `public/js/05-poll.js`, `25-arka-plan.js`, `13-profile.js`, `10-voice.js` (oyun iş akışı da bu dosyaya dokunuyor olabilir), `11-settings.js`, `21-band.js`, `public/i18n.js`, `index.html`, `sw.js`, `desktop/src/preload.js`, `main.js`, `lib/channels.js`, docs, CHANGELOG.
+
+---
+
+## İstek (3): Profil değişikliği her yere anında yansımıyor
+
+**1. Kullanıcının isteği:** "profilden değiştirince frekansta ses odasında falan senkronize değişmiyor"
+
+**2. Mevcut durum: akış**
+1. `saveProfile` (`13-profile.js:1124`) → `POST /api/me/profile` → `handleMyProfile` (`src/app.js:2104-2129`) `pv` değerini artırır ve `hub.bumpMeta()` çağırır.
+2. Diğer istemcide meta gelir → `socialAfterMeta` → `profilesOnMeta` (`13-profile.js:96`) `pv` değişen kişiyi kuyruğa alır.
+3. `fetchProfiles` (`13-profile.js:136`) profili çeker → `queueProfileRender` (requestAnimationFrame) → `profilesChanged` (`13-profile.js:355-369`).
+4. `profilesChanged` şunları yeniden çizer: `renderMembers`, `renderUserPanel`, `renderVoiceAll` (bu da bandı ve İstasyonlar'ı, kadroyu, `castSync` ve `aramaRender` çağrılarını içerir), yazarı değişen kişi olan mesajlar, `socialRender`, açık profil kartı ve özel mesaj.
+
+**3. Kök neden (gerçek Chromium'da iki kullanıcıyla yeniden ürettim)**
+
+*Deney 1* (`profil-senkron.js`, çıktı `cikti/run1.txt` ve `sonuc.json`): deniz ile ece Lobi'de, deniz'in kamerası açık, ece kameraları büyütmüş. Deniz Ayarlar > Profil'den görünen adı "Deniz Yeni" yapıp profil resmi yüklüyor.
+
+| Yüzey | 300 ms sonra |
+|---|---|
+| Çevrimiçi listesi, İstasyonlar'daki oda kişileri (kart ve sayfa), telsiz kadrosu, mesaj yazarı ve avatarı, Çevrimiçi şeridi, deniz'in kendi üst çubuğu | Güncel |
+| **Kameralar ızgarası** (ad ve avatar) | 8 saniye sonra bile hâlâ "Deniz", resimsiz |
+| **Bildirimler listesi** | "Deniz, Lobi odasına katıldı", eski "D" avatarıyla |
+
+Ekran görüntüsü: `cikti/ece-sonra.png` (kadroda "Deniz Yeni", aynı anda ızgarada "Deniz").
+
+- **Kök neden A, ad ve avatar içermeyen önbellek anahtarları:**
+  - Kameralar ızgarası `castState.camsKey` (`public/js/22-cast.js:670-672`): yalnızca kimlik ve akış kimliği var.
+  - Paylaşan seçicisi `pickKey` (`22-cast.js:784-787`) ve izleyici yığını `viewersKey` (`22-cast.js:703-705`): aynı durum.
+  - Telsiz DJ kuyruğu (`23-dj.js:771`): anahtarda `addedBy` kimliği var, ad yok.
+  - Kodla doğrulandı, tarayıcıda denenmedi: `djRender` ve `renderActivity` (`28-bildirim.js:96`) `profilesChanged` içinden hiç çağrılmıyor. Kişi ses kartı başlığı `#peer-name` yalnızca açılışta yazılıyor (`10-voice.js:1197`).
+- **Kök neden B, başarısız profil isteği yeniden denenmiyor:** `fetchProfiles` önce grubu kuyruktan siliyor (`13-profile.js:141-145`), hata alınca `break` ile çıkıyor (`:150`). Kayıttaki `pv` eski kaldığı için yeniden deneme ancak bir sonraki ilgisiz meta değişikliğinde oluyor.
+  - *Deney* (`profil-senkron-4.js`, `cikti/run4.txt`): sessiz bir frekansta tek bir `/api/profiles` isteği bağlantı sıfırlamasıyla düşürüldü. Ad 2, 10, 30 ve 60 saniyede hâlâ "Deniz" (`pv: 2`, `metaPv: 3`).
+  - Mobil bağlantı, tünel veya PS5 gibi kararsız ağlarda kullanıcının gördüğü "değişmiyor" davranışını bu açıklıyor.
+- **Kök neden C, başarısız avatar indirmesi kalıcı:** `loadAvatar` başarısız kaydı `state: 'failed'` olarak saklıyor ve `if (existing) return` (`13-profile.js:305`) yüzünden bir daha denemiyor.
+  - *Deney* (`profil-senkron-5.js`, `cikti/run5.txt`): ilk `/api/uploads` GET isteği düşürüldü. Resim 3, 15 ve 40 saniyede hâlâ yok, sayfa yenilenene kadar gelmiyor.
+- **D, birden çok frekans (tasarım gereği):** masaüstündeki her frekans ayrı bir hesap ve ayrı bir grup anahtarı. Bir frekanstaki profil değişikliği ötekine geçemez. "frekansta" sözü bu anlama da gelebilir.
+- **Güncellenen yüzeyler:** açık profil kartı (`profil-senkron-2.js`, B adımı: "Deniz B") ve özel mesaj başlığı güncelleniyor.
+
+**4. Önerilen çözüm** (sunucu değişikliği yok)
+- **`13-profile.js`:**
+  - `fetchProfiles` hata alınca grubu kuyruğa geri koyar ve artan bekleme süreleriyle (2, 5, 15, 60 saniye) yeniden dener.
+  - Ayrıca her poll başarısında `pv` farklarını ucuz bir yolla yeniden denetler.
+  - `loadAvatar`: `{state:'failed', at, tries}` tutulur, 10 saniye, 30 saniye ve 2 dakika aralıklarla en çok 4 deneme yapılır. 404 kalıcı sayılır.
+  - `profileState.epoch` sayacı eklenir ve her profil değişikliğinde artar. Ad değişikliği metayla gelirse `applyMeta` da artırır.
+  - `profilesChanged` ek olarak `castSync`, `djRenderSoon` (bkz. `23-dj.js:493`), `renderActivity` ve `#peer-name` güncellemesini çağırır.
+- **`22-cast.js`:** `camsKey`, `pickKey` ve `viewersKey` içine epoch eklenir.
+- **`23-dj.js`:** kuyruk anahtarına epoch eklenir.
+- **i18n:** anahtar yok.
+- **Belgeler:** yalnızca CHANGELOG (hata düzeltmesi).
+
+**5. Testler**
+- **Birim:** `test/social.test.js` vm düzeneğiyle, sahte `api` ve `t.mock.timers` kullanarak:
+  - Başarısız istekten sonra yeniden deneme.
+  - Avatar indirmesinin yeniden denenmesi.
+  - 404'te durma.
+- **e2e, yeni `e2e/16-profil-senkron.test.js`:** deney 1'in onaylı biçimi. Kameralar ızgarası ve Bildirimler dahil bütün yüzeyler `SHORT` süresi içinde güncel olmalı. `/api/profiles` ve `/api/uploads` için `route.abort` ile toparlanma da sınanır.
+- **Elle deneme:** telefonda zayıf ağla ad ve resim değiştirme.
+
+**6. Riskler ve güvenlik:** şifrelemeye ve yetkiye etkisi yok. Yeniden denemeler üst sınırlı olmalı ki sunucuya yük bindirmesin.
+
+**7. Büyüklük:** M, yaklaşık 8 adım.
+
+**8. Kararlar**
+- Bildirimler listesi geçmiş adı değil güncel adı gösterir (mesajlarla tutarlı olsun diye).
+- Frekanslar arası profil eşitleme yapılmaz. Hesaplar ve anahtarlar ayrı, ileride "diğer frekanslara da uygula" seçeneği ayrı bir istek olarak düşünülebilir.
+
+**9. Paylaşılan dosyalar:** `13-profile.js`, `22-cast.js` (yüzen pencereler, #81, de buraya dokunacak), `23-dj.js` (DJ "ekleyen bilgisi", #79, aynı kuyruk anahtarına dokunacak, birlikte ele alınmalı), `28-bildirim.js`, `10-voice.js`.
+
+---
+
+## İstek (8): Kapak fotoğrafı
+
+**1. Kullanıcının isteği:** "Profilde kapak fotoğrafı da yüklenebilsin"
+
+**2. Mevcut durum**
+- **Profil resmi akışı:**
+  - `uploadAvatar` ve `squareAvatar` (`13-profile.js:1166`, `:1191`): 256x256, PNG ya da JPEG 0.9 kalitede, kendi dosya anahtarıyla şifreleniyor.
+  - Referans `{u,k,n,m}` olarak grup anahtarıyla şifreli profil zarfına giriyor (`13-profile.js:1150-1152`).
+- **Sunucu tarafı:**
+  - `avatarUploadId` (`src/app.js:2104-2129`), en büyük boyut `avatarMaxBytes` = 1 MB + 16 (`app.js:123`).
+  - Bağlama alanı `rec.profileUserId`: `normalizeAvatars` (`app.js:523`), `isAvatarRecord` ve `canDownload` (`app.js:2685-2702`), sahipsiz yükleme taraması (`app.js:3680`), mesaja ekleme yasağı (`app.js:2333`), hesap silmede temizlik (`app.js:2014-2020`).
+- **Kartta kapak yok:** yalnızca renkli bant `profile-card-band` (`13-profile.js:622-624`, `public/css/components.css:3151-3164`).
+
+**3. Yapılabilirlik ve kısıtlar**
+- Profil resmi deseni aynen uygulanabilir.
+- **Proje kuralı:** CONTRIBUTING, şifreli düz metin biçimini değiştiren öneriler için kod yazmadan önce bir issue'da tartışılmasını istiyor. İsteğe bağlı bir `cover` alanı eklemek eski istemcilerle uyumlu, çünkü `decodeProfile` bilinmeyen alanları yok sayıyor (`13-profile.js:247-265`). Yine de bu bir biçim değişikliği.
+
+**4. Önerilen çözüm**
+- **Sunucu (`src/app.js`):**
+  - `coverUploadId` alanı (`normalizeUserFields` `:490-497`, kayıt varsayılanı `:1719-1723`, `handleProfiles` `:2082-2089`).
+  - `handleMyProfile` `coverUploadId` kabul eder. Alan yoksa `null` sayılır: eski bir istemci kaydederse kapak kalkar, zarf ile kayıt tutarlı kalır.
+  - `normalizeAvatars` yerine `normalizeProfileImages`, `isAvatarRecord` yerine `isProfileImageRecord` (avatar ya da kapak).
+  - Boyut sınırı aynı `avatarMaxBytes` (frekans fotoğrafı gibi). Yeni ayar yok.
+  - Hata kodları `bad_cover` ve `cover_too_large`, `src/i18n.js` içinde TR ve EN.
+- **İstemci (`13-profile.js`):**
+  - `storeProfileEntry` `coverUploadId` okur, `cleanCoverRef` yazılır.
+  - `decodeProfile` içinde `cover: {u,k,n,m,w,h}` alanı.
+  - `uploadCover`: ortadan 3:1 kırpma, 1200x400, JPEG. Kalite önce 0.85, sınır aşılırsa 0.7 ve 0.55 denenir.
+  - `loadCover` tembel çalışır, kapak yalnızca kart açılınca indirilir ve (3)'teki yeniden deneme yolunu kullanır.
+  - `saveProfile` `coverFile` parametresi alır.
+- **`11-settings.js` Profil sayfası:** Kapak bölümü (seçme ve kaldırma, önizleme), taslakta `coverMode`, `buildPreviewCard` bant içinde `<img>` gösterir.
+- **CSS:** `.profile-card-band` için `position: relative` ve `overflow: hidden`, içine `object-fit: cover` resim (`object-fit` projede zaten kullanılıyor, `components.css:609`). Turkuaz temanın kemer biçimi korunmalı (`skins/turkuaz.css:191-205`).
+- **i18n anahtarları:**
+  - `settings.profile.coverTitle`, `coverPick` ("Kapak Seç"), `coverRemove`, `coverHint`, `coverReading`, `coverReady`, `coverRemoved`, `coverTooBig`
+  - `profile.coverInvalid`, `profile.coverUploadFailed`
+  - `errors.bad_cover`, `errors.cover_too_large`
+- **Belgeler:**
+  - README iki dilde: profil.
+  - MIMARI ve ARCHITECTURE: `uploads` ve profil resimleri, üst veri listesi.
+  - CHANGELOG iki dilde.
+
+**5. Testler**
+- **`test/server-profile.test.js`:**
+  - Kapak bağlama, başkasının yüklemesini reddetme, mesaja bağlı yüklemeyi reddetme.
+  - Boyut sınırı, indirme yetkisi.
+  - Silme ve değiştirmede eski dosyanın kaldırılması, kotaya sayılması.
+  - `coverUploadId` gönderilmezse kapağın kalkması.
+- **Birim:** kırpma ve kalite merdiveni.
+- **e2e:**
+  - Ayarlar'dan kapak yüklenir, diğer kullanıcının kartında görünür.
+  - Diskteki veride düz resim baytları bulunmaz (`h.readDataDir` ile).
+- **Elle deneme:** PS5'te büyük bir JPEG ile.
+
+**6. Riskler ve güvenlik**
+- Kapak, profil resmi gibi uçtan uca şifreli. Üst veri canvas ile yeniden kodlanınca siliniyor. Tür, bayt imzasından denetleniyor (`sniffImage`).
+- **Yeni bir üst veri sızıntısı var:** tembel indirme, sunucuya kimin kimin kartını açtığını gösterir. Profil resimleri herkes tarafından indirildiği için böyle bir sızıntı yok.
+- Kota tüketimi artar.
+
+**7. Büyüklük:** L, yaklaşık 14 adım (issue tartışmasından sonra).
+
+**8. Kararlar**
+- **Oran ve boyut:** 3:1, 1200x400. Kart bandının oranı yaklaşık 3,8:1.
+- **İndirme biçimi:** tembel indirme, yukarıdaki sızıntı MIMARI'ye yazılarak. Alternatifi herkesin kapağını önceden indirmek, bu bant genişliği açısından çok pahalı.
+- **Sınır:** 1 MB'lık sınır paylaşılır.
+
+**9. Paylaşılan dosyalar:** `src/app.js`, `src/i18n.js`, `13-profile.js`, `11-settings.js`, `public/i18n.js`, `public/css/components.css`, `settings.css`, `skins/*.css` (#83 temalar ile çakışabilir), docs, CHANGELOG.
+
+---
+
+## İstek (9): Profil kartı düzeni
+
+**1. Kullanıcının isteği:** "Profil fotoğrafının sağına görünen ad ve kullanıcı adı gelsin. Görünen adın hemen yanına rolü yazsın."
+
+**2. Mevcut durum** (ekran görüntüleri: `cikti/profil-karti-sahip.png`, `profil-karti-uye.png`, `ayarlar-onizleme.png`, `avatar-menu-bas.png`)
+- **Profil kartı:** avatar bandın üstüne biniyor (`components.css:3166-3171`, `margin-top: -2.75rem`). Ad, @kullanıcı adı ve rozetler avatarın **altında**, alt alta (`13-profile.js:625-645`).
+- **Rol gösterimi:** `roleBadge` üye için `null` döndürüyor (`02-state-dom.js`), bu yüzden üyenin kartında hiç rol görünmüyor. Ölçümde ece'nin kartında `badges: null`.
+- **Ayarlar önizlemesi (Hesabım ve Profil):** `buildPreviewCard` (`11-settings.js:821-855`) aynı dikey düzende. Yalnızca temel rolü gösteriyor, özel rolü göstermiyor (kartla tutarsız).
+- **Avatar menüsü başı:** ad zaten avatarın sağında. Rol ise alt satırda "@kullanıcı · Rol" biçiminde ve özel rolü içermiyor (`13-profile.js:858`, `radio.css:1014-1047`).
+
+**3. Yapılabilirlik:** yalnızca istemci ve CSS değişikliği. Flexbox ve margin ile yapılabilir (grid ve gap kullanılmadan).
+
+**4. Önerilen çözüm**
+- **`13-profile.js`:** yeni ortak yardımcı `buildProfileIdentity(avatarNode, name, handle, badges)` yazılır.
+  - Baş satırı: avatar, sağında bir sütun. Sütunun üst satırında görünen ad ve hemen yanında rol rozetleri (`flex-wrap`), alt satırında @kullanıcı adı.
+  - `buildProfileCard` bu yardımcıyı kullanır.
+  - Avatar menüsünde rol adın yanına taşınır, özel rol de eklenir.
+- **`11-settings.js` `buildPreviewCard`:** aynı yardımcı, özel rol rozeti eklenir.
+- **CSS:**
+  - `components.css`: `.profile-card-head` içine metin sütunu. Uzun ad sarılır. 18 rem'in altında ad ve rol alt satıra kayar.
+  - `settings.css`, `radio.css` ve `skins/turkuaz.css` uyumu.
+- **i18n:** var olan `roles.member` kullanılır, yeni anahtar yok.
+- **Belgeler:** TASARIM ve DESIGN profil kartı satırı, CHANGELOG.
+
+**5. Testler**
+- e2e, öğe konumlarıyla:
+  - Adın sol kenarı avatarın sağ kenarından büyük.
+  - Rozet adla aynı satırda (dikey merkezler arasında küçük tolerans).
+  - Üye kartında "Üye" yazıyor.
+  - 360 piksel genişlikte taşma yok (`h.overflowX`).
+- Üç temada ekran görüntüsü.
+
+**6. Riskler:** güvenlik etkisi yok. Ad `textContent` ile yazılıyor.
+
+**7. Büyüklük:** M, yaklaşık 6 adım. Aynı kart üzerinde çalıştığı için (8) ile birlikte yapılmalı.
+
+**8. Kararlar**
+- **Üye rozeti:** düz üyede de soluk bir "Üye" rozeti gösterilir, çünkü istek "rolü yazsın" diyor ve düzen tutarlı kalır.
+- **Hem temel hem özel rolü olan kişi:** iki rozet de gösterilir.
+- **Kapsam:** kart, iki ayarlar önizlemesi ve avatar menüsü. Çevrimiçi listesindeki satırlar değişmez.
+
+**9. Paylaşılan dosyalar:** `13-profile.js`, `11-settings.js`, `components.css`, `settings.css`, `radio.css`, `skins/turkuaz.css` (#83 ile çakışabilir).
+
+---
+
+## İstek (12): Arkadaş ekle yer tutucusu
+
+**1. Kullanıcının isteği:** Arkadaş ekle kutusunda yer tutucu "kullanici_adi" yerine "Kullanıcı adı giriniz" yazsın.
+
+**2. Mevcut durum**
+- `14-social.js:622`: `placeholder = t('social.addPlaceholder')`.
+- `public/i18n.js:449`: `'kullanici_adi'`, EN `:2386`: `'username'`.
+- Etiket yalnızca ekran okuyucuya görünüyor (`14-social.js:612-614`). Görünen tek ipucu yer tutucu.
+- Tarayıcıda doğruladım: yer tutucu "kullanici_adi".
+
+**3. Yapılabilirlik:** sözlükte iki satırlık değişiklik. Bu metne bağlı test yok.
+
+**4. Önerilen çözüm**
+- `'social.addPlaceholder': 'Kullanıcı adı giriniz'`
+- EN: `'Enter a username'`
+- Yalnızca CHANGELOG güncellenir.
+
+**5. Testler:** `npm run denetle` (i18n eşliği). `e2e/03-sosyal.test.js` içine yer tutucu doğrulaması eklenebilir.
+
+**6. Riskler:** yok.
+
+**7. Büyüklük:** S, 2 adım.
+
+**8. Karar:** arayüzün geri kalanı "girin" diyor (`i18n.js:302-341`). Kullanıcının istediği metni olduğu gibi ("giriniz") öneriyorum.
+
+**9. Paylaşılan dosyalar:** `public/i18n.js`.
+
+---
+
+## Çakışma haritası ve önerilen sıra
+
+| Dosya | Hangi istekler |
+|---|---|
+| `public/js/13-profile.js` | 2, 3, 8, 9 |
+| `public/js/11-settings.js` | 2, 8, 9 |
+| `public/i18n.js` | 2, 8, 12 |
+| `src/app.js` | 2 (yalnızca `handlePoll`), 8 |
+| `src/hub.js` | 2 |
+| `src/i18n.js` | 8 |
+| `components.css`, `settings.css`, `skins/*.css` | 8, 9 (dışarıda #83 ile) |
+| `22-cast.js` | 3 (dışarıda #81 ile) |
+| `23-dj.js` | 3 (dışarıda #79 ile) |
+| `10-voice.js` | 2, 3 (oyun iş akışı da dokunuyor olabilir) |
+| `05-poll.js`, `25-arka-plan.js`, `index.html`, `sw.js`, `desktop/src/*` | 2 |
+
+`voice.js`'e ve 33-37 numaralı dosyalara hiçbir istek dokunmuyor.
+
+**Önerilen sıra:** 12 → 3 → 9 → 8 (issue tartışmasından sonra) → 2.

@@ -1,0 +1,43 @@
+{
+ "tamam": true,
+ "baslangic": "af75bfeeef7ddc7478569568c75db979b0145f7a",
+ "commitler": [
+  "a03f697 G3: Gizli sayfada DJ kartı kare beklemeden çizilir (istek 13 ve 18)",
+  "c0ad54e G3: Başlangıç payı türe göre, devam ettirme de payla çapalanır (istek 13)",
+  "ba3492c G3: YouTube rızası erken sorulur, telsiz kartında kalıcı uyarı (istek 13)",
+  "a4ca7d7 G3: DJ duyurusu parçanın adını taşır, DJ'de Çal da duyurulur (istek 6)",
+  "258a993 G3: DJ sütunu düzeni ızgara yerine flexbox, denetleyici istisnası kalktı",
+  "560ae56 G3: Taşınabilir DJ oynatıcısı: dört köşe, sürükleme, Taşı, Küçült, Yüzen Oynatıcı (istek 15)",
+  "5ef0c13 G3: Dosya parçaları tek <audio> öğesinde çalar (istek 18)",
+  "e48c7fa G3: Media Session: kilit ekranında parça adı, yerel Oynat ve Duraklat (istek 18)",
+  "21f7218 G3: Masaüstünde pencere küçültülünce YouTube bekletilir (istek 18)",
+  "93c633a G3: Bildirimler listesine Telsiz DJ kaydı (istek 6)",
+  "9ab1130 G3: Belgeler: Telsiz DJ çekirdeği, CHANGELOG",
+  "1dce643 G3: Eski DJ işlemi Bildirimler'e yazılmaz, sürükleme yakalama kaybında biter",
+  "d0b2582 G3: inceleme düzeltmeleri (köşedeki oynatıcı Ayarlar'ı, Oda bilgisi düğmesini ve kısa pencereyi gözetir)",
+  "05c323d G3: inceleme düzeltmeleri (önceki commit'te yanlış satıra düşen test bloğu ve yorum yerine konur)",
+  "3c11997 G3: inceleme düzeltmeleri (medya tuşuyla verilen duraklatma ses odasından çıkınca kalkar)",
+  "b58ebaf G3: inceleme düzeltmeleri (bekleyen duyuru sayfa kapanırken gider, düzenlendi etiketi süreyle sınırlı, Bildirimler paylaşımı korur)",
+  "16e7edc G3: Belgeler: inceleme düzeltmeleri (varsayılan köşe, Ayarlar açıkken köşe, medya bekletmesi, duyuru ve Bildirimler)"
+ ],
+ "testler": "Son çalışma kopyasında (HEAD 16e7edc, temiz ağaç): \"npm run denetle\" geçti (254 dosya, ihlal yok). \"npm test\" geçti: 888 testin 887'si başarılı, 0 başarısız. Atlanan 1 test önceden de atlanan, ortama bağlı SEA derleme testi (TELSIZ_SEA_TEST=1 verilmedi). Grubun kendi e2e dosyaları: e2e/25-dj-senkron.test.js 7/7 geçti (iki istemci ±250 ms, devam ettirme payı, yeni medya tuşu bekletmesi testi, gizli sayfa benzetimi, rıza uyarısı, arka planda iki dosya parçası ve Media Session), e2e/06-dj.test.js 19/19 geçti (pagehide ile hemen giden duyuru testi dahil). Dokunulan alanın var olan e2e dosyaları: 02-frekans 17/17, 03-sosyal 9/9, 04-ayarlar 5/5, 05-ses-yayin 11/11, 14-bildirim-sesleri 11/11, 15-ozel-arama 8/8. Zamanlama yüzünden yeniden çalıştırma gerekmedi.",
+ "sapmalar": [
+  "Önceki denemede 22 adımın hepsi commit'lenmişti (a03f697 ile 05c323d arası). Bu oturumda yalnızca yarım kalan inceleme düzeltmeleri gözden geçirildi, testlerden geçirildi ve üç commit'e bölündü (3c11997, b58ebaf, 16e7edc). Belgelerdeki uzun paragraflar tek satır olduğu için belge değişiklikleri kod commit'lerinden ayrı, tek bir belge commit'inde toplandı.",
+  "Adım 10: Plan ad sonradan gelince duyurunun düzenlenmesini istiyordu. Uygulamada \"düzenlendi\" etiketi her DJ duyurusunda gizlenirse değiştirilmiş bir istemci eski bir duyuruyu iz bırakmadan yeniden yazabilirdi. Etiket artık yalnızca gönderimden sonraki 10 dakika (artı bir dakika pay) içindeki düzenlemede gizleniyor (06-messages.js showEditedMark, DJ_NOTICE_EDIT_MS).",
+  "Adım 10'a ek: Adı beklenen duyuru yalnızca bellekte durduğu için sekme 8 saniye dolmadan kapanırsa ya da yenilenirse duyuru hiç gitmiyordu. Sayfa gizlenince (visibilitychange) ya da kapanırken (pagehide) duyuru hemen adsız gönderiliyor (djFlushTitles). Sayfa açık kalırsa ad gelince duyuru yine düzenleniyor.",
+  "Adım 13 (28-bildirim.js): Plan bu adımı Renk'in 28-bildirim adımından sonraya bırakmayı öneriyordu. Adım ve bir inceleme düzeltmesi (activityAdd, liste dolunca süren ekran paylaşımının kaydı düşürülmüyor, sık gelen DJ kayıtları onu listeden atmasın diye) bu dalda yapıldı. Renk birleşince bu dosyada çakışma çıkabilir, numara ve bölge sırası korunarak çözülmeli.",
+  "Adım 16: Varsayılan köşe sabit \"sağ üst\" yerine telsiz kartının düğmelerini, yazma alanını ve sohbet başlığındaki Oda bilgisi düğmesini örtmeyen ilk köşe olarak hesaplanıyor. 760 ile 1279 piksel arasında önce sağ üst deneniyor ve kutu bandın ve sohbet başlığının altına iniyor. Ayarlar gibi ana görünümü örten bir katman açıkken oynatıcı seçilen yandaki alt köşede duruyor.",
+  "Adım 19: Media Session'daki Oynat ve Duraklat için motora ayrı bir 'media' yerel bekletme nedeni eklendi. Bu bekletme ses odası değişince (çıkışta) kalkıyor, kartın uyarı satırında Yeniden Eşitle düğmesiyle de kaldırılabiliyor.",
+  "Adım 4: music.js LIMITS içindeki startLeadMs yerine startLeadYouTubeMs (3000) ve startLeadFileMs (1500) geldi. Bu alanı okuyan sonraki gruplar (G4, G5) yeni adları kullanmalı.",
+  "Belgeler: Plandaki belge listesine ek olarak CONTRIBUTING×2 (dosya tablosundaki 23-dj.js ve 28-bildirim.js satırları) ve TASARIM/DESIGN (Telsiz DJ sınıfları ve köşedeki oynatıcı) da güncellendi (9ab1130)."
+ ],
+ "kullaniciya": [
+  "YouTube parçası görünmezken, uygulama tepsideyken ya da ekran kapalıyken çalmaz (YouTube kuralı, plan 2.1/1). Ses dosyaları arka planda art arda çalar. Masaüstünde pencere küçültülünce ya da tepsiye gizlenince YouTube yalnızca o cihazda duraklar, pencere geri gelince odayla eşitlenip sürer.",
+  "Media Session açıkken çalan parçanın adı ve \"Telsiz DJ · oda\" bilgisi işletim sisteminin medya denetimlerine ve kilit ekranına gider. Yani ad uçtan uca şifreli DJ durumundan çıkıp uygulamanın dışına geçer. Bu, Ayarlar > Gizlilik'te kapatılabilir (varsayılan açık). Oradaki Oynat ve Duraklat yalnızca o cihazı etkiler, odanın müziğini durdurmaz.",
+  "DJ duyurusuna ad sonradan eklenirse \"düzenlendi\" etiketi yalnızca gönderimden sonraki 10 dakika içinde gizlenir, daha geç yapılan düzenleme etiketli görünür.",
+  "28-bildirim.js bu dalda değişti (DJ kaydı ve liste sınırı). Renk iş akışının aynı dosyadaki activity bölgesi birleşince çakışma beklenir, birleştirme sırasında elle çözülmeli.",
+  "G4 ve G5 bu dalın üstüne kurulmalı: djCommand, duyuru biçimi (d.title), postSideMessage'ın kimlik döndürmesi ve LIMITS içindeki yeni startLeadYouTubeMs ve startLeadFileMs alanları bu gruplarla değişti.",
+  "Dal istek/b push edilmedi, PR açılmadı."
+ ],
+ "kalan": []
+}

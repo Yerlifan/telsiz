@@ -1,0 +1,460 @@
+From 47681aeaba32b4b05ca0d90d3a1d3c8e8c75c9f8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:42:36 +0000
+Subject: [PATCH 15/36] =?UTF-8?q?G6:=20D=C3=BC=C5=9Fen=20profil=20iste?=
+ =?UTF-8?q?=C4=9Fi=20ve=20profil=20resmi=20indirmesi=20yeniden=20denenir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+fetchProfiles hata alınca grubu kuyruğa geri koyar ve 2, 5, 15 ve 60 saniye
+sonra yeniden dener. Sonraki istekler en az 60 saniye arayla, bir sonraki
+başarılı poll (profilesAfterPoll) veya meta değişikliğiyle gider. loadAvatar
+düşen indirmeyi 10 saniye, 30 saniye ve 2 dakika sonra yeniden dener (en çok
+dört deneme), 404 ve çözülemeyen dosya kalıcı hatadır. downloadPlain hata
+yanıtında HTTP durumunu da döner. Birim testleri sahte saatle (istek 3).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/05-poll.js        |   2 +
+ public/js/07-attachments.js |   7 +-
+ public/js/13-profile.js     |  88 +++++++++++++++--
+ test/social.test.js         | 186 +++++++++++++++++++++++++++++++++++-
+ 4 files changed, 270 insertions(+), 13 deletions(-)
+
+diff --git a/public/js/05-poll.js b/public/js/05-poll.js
+index a345b29..3a0c80a 100644
+--- a/public/js/05-poll.js
++++ b/public/js/05-poll.js
+@@ -57,6 +57,8 @@ async function pollLoop (generation) {
+         // Beklenmeyen bir çizim hatası döngüyü durdurmamalı
+         window.console.error(err)
+       }
++      // Düşen bir profil isteği varsa ağ düzelince yeniden denenir (13-profile.js)
++      if (typeof profilesAfterPoll === 'function') profilesAfterPoll()
+       // Müzik haritası (music, muv) ve sunucu saati (now): saat farkı isteğin gönderilme ve alınma
+       // zamanlarıyla kestirilir
+       if (typeof djIngest === 'function') djIngest(res.data, t0, djClockNow())
+diff --git a/public/js/07-attachments.js b/public/js/07-attachments.js
+index e62314b..06d9f4a 100644
+--- a/public/js/07-attachments.js
++++ b/public/js/07-attachments.js
+@@ -161,7 +161,8 @@ function showImage (f, box, entry) {
+   box.disabled = false
+ }
+ 
+-// Şifreli dosyayı indirip çözer. Yanıt { ok, bytes } veya { ok: false, error }.
++// Şifreli dosyayı indirip çözer. Yanıt { ok, bytes } veya { ok: false, status, error }. status sunucunun HTTP durumudur
++// (bağlantı hatasında 0, indirilip çözülemeyen dosyada 200), çağıran kalıcı hatayı geçiciden ayırmak için okur.
+ async function downloadPlain (f, onProgress) {
+   const res = await api('GET', '/api/uploads/' + f.u, null, {
+     responseType: 'arraybuffer',
+@@ -169,7 +170,7 @@ async function downloadPlain (f, onProgress) {
+     onProgress: onProgress
+   })
+   if (res.status !== 200 || !(res.data instanceof ArrayBuffer)) {
+-    return { ok: false, error: () => (res.status === 404 ? t('file.notFound') : errorText(res, t('file.downloadFailed'))) }
++    return { ok: false, status: res.status, error: () => (res.status === 404 ? t('file.notFound') : errorText(res, t('file.downloadFailed'))) }
+   }
+   let plain = null
+   try {
+@@ -177,7 +178,7 @@ async function downloadPlain (f, onProgress) {
+   } catch (err) {
+     plain = null
+   }
+-  if (!plain) return { ok: false, error: () => t('file.decryptFailed') }
++  if (!plain) return { ok: false, status: res.status, error: () => t('file.decryptFailed') }
+   return { ok: true, bytes: plain }
+ }
+ 
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index cfe3ecc..3716097 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -8,6 +8,12 @@
+ 
+ const PROFILE_BATCH = 100
+ const PROFILE_FETCH_DELAY_MS = 30
++// Başarısız profil isteğinin yeniden deneme beklemeleri. Dört denemenin sonuncusu da düşerse grup kuyrukta kalır,
++// bir sonraki başarılı poll (profilesAfterPoll) veya meta değişikliği en erken son bekleme dolunca yeniden dener.
++const PROFILE_RETRY_MS = [2000, 5000, 15000, 60000]
++// Profil resmi indirmesi en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır
++const AVATAR_TRIES = 4
++const AVATAR_RETRY_MS = [10000, 30000, 120000]
+ const PROFILE_NAME_MAX = 32
+ const PROFILE_STATUS_MAX = 128
+ const PROFILE_BIO_MAX = 190
+@@ -25,6 +31,9 @@ const profileState = {
+   queue: new Set(),
+   timer: 0,
+   fetching: false,
++  // Art arda başarısız profil isteği sayısı ve bir sonraki isteğin en erken zamanı (Date.now)
++  failures: 0,
++  retryAt: 0,
+   gen: 0,
+   renderQueued: false,
+   changed: new Set(),
+@@ -45,7 +54,10 @@ function profilesReset () {
+   profileState.formerUsers = new Map()
+   profileState.metaIds = null
+   profileState.fetching = false
++  profileState.failures = 0
++  profileState.retryAt = 0
+   profileState.avatars.forEach((entry) => {
++    clearTimeout(entry.timer)
+     revokeLater(entry.url)
+   })
+   profileState.avatars = new Map()
+@@ -127,16 +139,18 @@ function profilesRefetch (ids) {
+   scheduleProfileFetch()
+ }
+ 
++// Başarısız bir istekten sonra bekleme süresi dolmadan yeni istek gönderilmez
+ function scheduleProfileFetch () {
+   if (!profileState.queue.size || profileState.fetching || !state.token) return
+   clearTimeout(profileState.timer)
+-  profileState.timer = setTimeout(fetchProfiles, PROFILE_FETCH_DELAY_MS)
++  profileState.timer = setTimeout(fetchProfiles, Math.max(PROFILE_FETCH_DELAY_MS, profileState.retryAt - Date.now()))
+ }
+ 
+ async function fetchProfiles () {
+   if (profileState.fetching || !profileState.queue.size || !state.token) return
+   profileState.fetching = true
+   const gen = profileState.gen
++  let failed = false
+   try {
+     while (profileState.queue.size && gen === profileState.gen) {
+       const batch = Array.from(profileState.queue).slice(0, PROFILE_BATCH)
+@@ -147,7 +161,16 @@ async function fetchProfiles () {
+       if (!ids.length) continue
+       const res = await api('GET', '/api/profiles?ids=' + ids.join(','))
+       if (gen !== profileState.gen) return
+-      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) break
++      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) {
++        // Grup kuyruğa geri konur, artan beklemeyle yeniden istenir (profileRetryLater)
++        ids.forEach((id) => {
++          profileState.queue.add(id)
++        })
++        failed = true
++        break
++      }
++      profileState.failures = 0
++      profileState.retryAt = 0
+       const seen = new Set()
+       res.data.profiles.forEach((entry) => {
+         if (!entry || entry.id === undefined) return
+@@ -167,7 +190,37 @@ async function fetchProfiles () {
+   } finally {
+     if (gen === profileState.gen) profileState.fetching = false
+   }
+-  if (gen === profileState.gen && profileState.queue.size) scheduleProfileFetch()
++  if (gen !== profileState.gen) return
++  if (failed) profileRetryLater()
++  else if (profileState.queue.size) scheduleProfileFetch()
++}
++
++// Başarısız istekten sonra 2, 5, 15 ve 60 saniye beklenerek yeniden denenir. Sonra zamanlayıcı kurulmaz, kuyruktaki
++// grubu bir sonraki başarılı poll veya meta değişikliği en az 60 saniye arayla yeniden ister (sunucuya yük binmez).
++function profileRetryLater () {
++  profileState.failures += 1
++  const n = profileState.failures
++  const delay = PROFILE_RETRY_MS[Math.min(n, PROFILE_RETRY_MS.length) - 1]
++  profileState.retryAt = Date.now() + delay
++  clearTimeout(profileState.timer)
++  profileState.timer = 0
++  if (n <= PROFILE_RETRY_MS.length) profileState.timer = setTimeout(fetchProfiles, delay)
++}
++
++// Her başarılı poll'dan sonra (05-poll.js): bir profil isteği düştüyse metadaki pv değerleri önbellekle karşılaştırılır
++// ve eskiyen kişiler yeniden istenir. Ağ düzelince sonraki meta değişikliği beklenmez. Hata yoksa hiçbir şey yapılmaz.
++function profilesAfterPoll () {
++  if (!profileState.failures || profileState.fetching || !state.token) return
++  if (profileState.retryAt > Date.now()) return
++  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
++  users.forEach((u) => {
++    if (!u || u.id === undefined) return
++    const rec = profileRecord(u.id)
++    if (rec && rec.missing) return
++    const pv = typeof u.pv === 'number' ? u.pv : 0
++    if (!rec || rec.pv !== pv) profileState.queue.add(String(u.id))
++  })
++  scheduleProfileFetch()
+ }
+ 
+ function storeProfileEntry (entry) {
+@@ -298,36 +351,57 @@ function verifyProfileKey (rec) {
+ 
+ // Profil resimleri: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
+ 
++// Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer }. Düşen indirme 10 saniye,
++// 30 saniye ve 2 dakika sonra yeniden denenir (en çok AVATAR_TRIES deneme). Sunucu dosyayı bulamazsa (404), dosya
++// çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez.
+ function loadAvatar (rec) {
+   const ref = rec.profile && rec.profile.avatar
+   if (!ref) return
+   const existing = profileState.avatars.get(ref.u)
+   if (existing) return
+-  const entry = { url: '', state: 'loading' }
++  const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0 }
+   profileState.avatars.set(ref.u, entry)
++  fetchAvatar(rec.id, ref, entry)
++}
++
++function fetchAvatar (userId, ref, entry) {
+   const gen = profileState.gen
++  entry.state = 'loading'
++  entry.tries += 1
+   downloadPlain({ u: ref.u, k: ref.k, n: ref.n }, null).then((res) => {
+     if (gen !== profileState.gen || profileState.avatars.get(ref.u) !== entry) return
++    entry.at = Date.now()
+     if (!res.ok) {
+-      entry.state = 'failed'
++      // 200 ile gelip çözülemeyen dosya da kalıcı hatadır
++      avatarFailed(userId, ref, entry, res.status === 404 || res.status === 200)
+       return
+     }
+     const sniffed = window.E2EE.sniffImage(res.bytes)
+     if (!sniffed || AVATAR_TYPES.indexOf(sniffed) === -1 || sniffed !== ref.m) {
+-      entry.state = 'failed'
++      avatarFailed(userId, ref, entry, true)
+       return
+     }
+     entry.url = URL.createObjectURL(new Blob([res.bytes], { type: sniffed }))
+     entry.state = 'ok'
+-    profileState.changed.add(rec.id)
++    profileState.changed.add(String(userId))
+     queueProfileRender()
+   })
+ }
+ 
++function avatarFailed (userId, ref, entry, permanent) {
++  entry.state = 'failed'
++  if (permanent || entry.tries >= AVATAR_TRIES) return
++  entry.timer = setTimeout(() => {
++    entry.timer = 0
++    if (profileState.avatars.get(ref.u) === entry) fetchAvatar(userId, ref, entry)
++  }, AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
++}
++
+ function dropAvatar (uploadId) {
+   const entry = profileState.avatars.get(uploadId)
+   if (!entry) return
+   profileState.avatars.delete(uploadId)
++  clearTimeout(entry.timer)
+   revokeLater(entry.url)
+ }
+ 
+diff --git a/test/social.test.js b/test/social.test.js
+index 837611b..5e2b9d3 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -4,7 +4,9 @@
+ // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
+ // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
+ // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
+-// kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır.
++// kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır. Profil eşitlemesi (istek 3): düşen profil isteğinin
++// artan beklemeyle yeniden denenmesi ve başarılı poll'dan sonra yeniden istenmesi, profil resmi indirmesinin
++// yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers) sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -34,13 +36,16 @@ function makeStorage () {
+   }
+ }
+ 
+-// Yeni bir bağlamda istemci modüllerini yükler, modüllerin genel adlarına erişim için run(ifade) döner
+-function load () {
++// Yeni bir bağlamda istemci modüllerini yükler, modüllerin genel adlarına erişim için run(ifade) döner.
++// opts.clock: sahte saat açıkken bağlam testin (sahte) Date ve zamanlayıcılarını kullanır.
++function load (opts) {
++  const options = opts || {}
+   const sandbox = vm.createContext({})
+   sandbox.self = sandbox
+   sandbox.window = sandbox
+   sandbox.setTimeout = setTimeout
+   sandbox.clearTimeout = clearTimeout
++  if (options.clock) sandbox.Date = Date
+   sandbox.setImmediate = setImmediate
+   sandbox.crypto = nodeCrypto.webcrypto
+   sandbox.localStorage = makeStorage()
+@@ -225,3 +230,178 @@ test('durum: görünmez kendime çevrimdışı görünür, diğerleri meta durum
+   assert.strictEqual(run('userStatus(2)'), 'dnd')
+   assert.strictEqual(run('userStatus(77)'), 'offline')
+ })
++
++// Bekleyen söz zincirlerinin ilerlemesi için olay döngüsüne birkaç tur verir (setImmediate sahte saate bağlı değil)
++async function flush (rounds = 5) {
++  if (rounds === 0) return
++  await new Promise((resolve) => setImmediate(resolve))
++  return flush(rounds - 1)
++}
++
++// Sahte /api/profiles: her çağrı kaydedilir, yanıt sıradaki işlevden (yoksa bağlantı hatası) gelir
++function fakeProfiles (ctx) {
++  const calls = []
++  const replies = []
++  ctx.sandbox.__api = (method, url) => {
++    calls.push(url)
++    const reply = replies.shift()
++    return Promise.resolve(reply ? reply(url) : { status: 0, data: null })
++  }
++  ctx.run('api = function (method, url) { return __api(method, url) }')
++  return { calls, replies }
++}
++
++test('profil isteği düşerse grup kuyruğa geri konur, 2, 5, 15 ve 60 saniye sonra yeniden denenir, sonra başarılı poll ister', async (t) => {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
++  const ctx = load({ clock: true })
++  const { run } = ctx
++  const net = fakeProfiles(ctx)
++  run("state.token = 'oturum'")
++  run("state.meta = { channels: [], users: [{ id: 1, name: 'burak', role: 'owner', pv: 0 }, { id: 2, name: 'ayse', role: 'member', pv: 3 }] }")
++  run("storeProfileEntry({ id: 1, pv: 0, profile: null, avatarUploadId: null, publicKey: null, identity: null })")
++  run('profilesOnMeta()')
++  t.mock.timers.tick(30)
++  await flush()
++  assert.deepStrictEqual(net.calls, ['/api/profiles?ids=2'])
++  assert.strictEqual(run("profileState.queue.has('2')"), true, 'düşen grup kuyruğa geri konur')
++  // Yeniden denemeler 2, 5, 15 ve 60 saniye sonra
++  for (const wait of [2000, 5000, 15000, 60000]) {
++    const before = net.calls.length
++    t.mock.timers.tick(wait - 1)
++    await flush()
++    assert.strictEqual(net.calls.length, before, wait + ' ms dolmadan istenmez')
++    t.mock.timers.tick(1)
++    await flush()
++    assert.strictEqual(net.calls.length, before + 1, wait + ' ms sonra yeniden istenir')
++  }
++  // Dördüncü yeniden deneme de düştü: zamanlayıcı kurulmaz, başarılı poll en erken 60 saniye sonra yeniden ister
++  run('profilesAfterPoll()')
++  t.mock.timers.tick(600000)
++  await flush()
++  assert.strictEqual(net.calls.length, 5)
++  assert.strictEqual(run('profileRecord(2)'), null)
++  net.replies.push(() => ({ status: 200, data: { profiles: [{ id: 2, pv: 3, profile: null, avatarUploadId: null, publicKey: null, identity: null }] } }))
++  run('profilesAfterPoll()')
++  t.mock.timers.tick(30)
++  await flush()
++  assert.strictEqual(net.calls.length, 6)
++  assert.strictEqual(run('profileRecord(2).pv'), 3)
++  assert.strictEqual(run('profileState.failures'), 0)
++  // Hata yokken başarılı poll istek göndermez
++  run('profilesAfterPoll()')
++  t.mock.timers.tick(60000)
++  await flush()
++  assert.strictEqual(net.calls.length, 6)
++})
++
++test('profil isteği beklerken gelen meta bekleme süresini kısaltmaz, ilk başarılı yanıt beklemeyi sıfırlar', async (t) => {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
++  const ctx = load({ clock: true })
++  const { run } = ctx
++  const net = fakeProfiles(ctx)
++  run("state.token = 'oturum'")
++  run("state.meta = { channels: [], users: [{ id: 2, name: 'ayse', role: 'member', pv: 1 }, { id: 3, name: 'mert', role: 'member', pv: 1 }] }")
++  run("storeProfileEntry({ id: 3, pv: 1, profile: null, avatarUploadId: null, publicKey: null, identity: null })")
++  run('profilesOnMeta()')
++  t.mock.timers.tick(30)
++  await flush()
++  assert.strictEqual(net.calls.length, 1)
++  // Mert'in profili değişti (yeni meta): istek ilk yeniden denemeye (2 saniye) kadar bekler, iki kişi birlikte istenir
++  run('state.meta.users[1].pv = 2')
++  run('profilesOnMeta()')
++  t.mock.timers.tick(1999)
++  await flush()
++  assert.strictEqual(net.calls.length, 1)
++  net.replies.push(() => ({ status: 200, data: { profiles: [{ id: 2, pv: 1, profile: null }, { id: 3, pv: 2, profile: null }] } }))
++  t.mock.timers.tick(1)
++  await flush()
++  assert.deepStrictEqual(net.calls, ['/api/profiles?ids=2', '/api/profiles?ids=2,3'])
++  assert.strictEqual(run('profileRecord(3).pv'), 2)
++  assert.strictEqual(run('profileState.retryAt'), 0)
++})
++
++// Profil resmi olan bir kişi (2) ve sahte indirme: her çağrı kaydedilir, yanıt sıradaki değerden gelir
++const AVATAR_ID = 'a'.repeat(32)
++const PNG_BYTES = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
++
++function avatarWorld (t, replies) {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
++  const ctx = load({ clock: true })
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  const downloads = []
++  sandbox.downloadPlain = (f) => {
++    downloads.push(f.u)
++    const reply = replies.shift()
++    return Promise.resolve(reply || { ok: false, status: 0 })
++  }
++  sandbox.URL = { createObjectURL: () => 'blob:profil-resmi', revokeObjectURL () {} }
++  sandbox.Blob = Blob
++  const avatarRef = { u: AVATAR_ID, k: 'anahtar', n: 'tek', m: 'image/png', w: 256, h: 256 }
++  sandbox.__entry = { id: 2, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: 2, displayName: 'Ayşe', statusText: '', bio: '', color: 1, avatar: avatarRef }), avatarUploadId: AVATAR_ID, publicKey: keys.theirs.publicKey, identity: E2EE.identity.sealBinding(keys.kid, 2, keys.theirs.publicKey) }
++  run('storeProfileEntry(__entry)')
++  return { ctx, downloads }
++}
++
++test('düşen profil resmi indirmesi 10 saniye, 30 saniye ve 2 dakika sonra yeniden denenir, en çok dört deneme', async (t) => {
++  const { ctx, downloads } = avatarWorld(t, [{ ok: false, status: 0 }, { ok: false, status: 503 }, { ok: false, status: 0 }, { ok: false, status: 0 }])
++  const { run } = ctx
++  await flush()
++  assert.strictEqual(downloads.length, 1)
++  assert.strictEqual(run("profileState.avatars.get('" + AVATAR_ID + "').state"), 'failed')
++  for (const wait of [10000, 30000, 120000]) {
++    const before = downloads.length
++    t.mock.timers.tick(wait - 1)
++    await flush()
++    assert.strictEqual(downloads.length, before, wait + ' ms dolmadan indirilmez')
++    t.mock.timers.tick(1)
++    await flush()
++    assert.strictEqual(downloads.length, before + 1, wait + ' ms sonra yeniden indirilir')
++  }
++  t.mock.timers.tick(3600000)
++  await flush()
++  assert.strictEqual(downloads.length, 4, 'en çok dört deneme')
++  const entry = run("profileState.avatars.get('" + AVATAR_ID + "')")
++  assert.strictEqual(entry.state, 'failed')
++  assert.strictEqual(entry.tries, 4)
++  assert.strictEqual(typeof entry.at, 'number')
++  assert.strictEqual(run('avatarUrlOf(2)'), null)
++})
++
++test('profil resmi yeniden denemede gelirse görünür, 404 ve çözülemeyen dosyada yeniden denenmez', async (t) => {
++  let world = avatarWorld(t, [{ ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(PNG_BYTES) }])
++  await flush()
++  assert.strictEqual(world.ctx.run('avatarUrlOf(2)'), null)
++  t.mock.timers.tick(10000)
++  await flush()
++  assert.strictEqual(world.downloads.length, 2)
++  assert.strictEqual(world.ctx.run('avatarUrlOf(2)'), 'blob:profil-resmi')
++  assert.strictEqual(world.ctx.run("profileState.changed.has('2')"), true, 'gelen resim çizim kuyruğuna girer')
++  t.mock.timers.reset()
++
++  for (const reply of [{ ok: false, status: 404 }, { ok: false, status: 200 }]) {
++    world = avatarWorld(t, [reply])
++    await flush()
++    t.mock.timers.tick(3600000)
++    await flush()
++    assert.strictEqual(world.downloads.length, 1, 'kalıcı hata (' + reply.status + ') yeniden denenmez')
++    assert.strictEqual(world.ctx.run("profileState.avatars.get('" + AVATAR_ID + "').state"), 'failed')
++    t.mock.timers.reset()
++  }
++
++  // Türü tutmayan dosya (PNG beklenirken başka bayt) da kalıcıdır
++  world = avatarWorld(t, [{ ok: true, bytes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) }])
++  await flush()
++  t.mock.timers.tick(3600000)
++  await flush()
++  assert.strictEqual(world.downloads.length, 1)
++})
++
++test('profiller sıfırlanınca bekleyen profil resmi denemesi iptal olur', async (t) => {
++  const { ctx, downloads } = avatarWorld(t, [{ ok: false, status: 0 }])
++  await flush()
++  ctx.run('profilesReset()')
++  t.mock.timers.tick(3600000)
++  await flush()
++  assert.strictEqual(downloads.length, 1)
++})

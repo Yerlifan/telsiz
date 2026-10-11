@@ -1,0 +1,74 @@
+RAPOR: 2. adım, protokol çekirdeği (commit yok)
+
+**Sonuç:** `public/js/33-oyun-protokol.js` (`window.TelsizGame`) ve testi `test/oyun-protokol.test.js` yazıldı. Testler geçiyor ve denetimde ihlal yok. Belgeden beş sapma var, en önemlisi kod deseninin rakam alacak biçimde genişletilmesi (aşağıda).
+
+**Eklenen dosyalar (yalnız bunlar, ikisi de yeni):**
+- /home/user/ps5-pc-communication/public/js/33-oyun-protokol.js
+- /home/user/ps5-pc-communication/test/oyun-protokol.test.js
+
+`git status` ayrıca `public/voice.js`, `public/js/10-voice.js` ve `test/oyun-tasima.test.js` gösteriyor. Bunlar diğer ajanın dosyaları, dokunmadım. index.html, sw.js ve i18n.js değişmedi.
+
+**Koşturulan komutlar:**
+- `node --test test/oyun-protokol.test.js`: 31 test, 8 grup, 31 geçti, 0 kaldı.
+- `npm run denetle`: 253 dosya, ihlal yok. İlk çalıştırmada kendi dosyalarımda 8 noktalı virgül ihlali çıktı (`for(;;)` döngüleri). Döngüler `while`, `map` ve `Array.from` ile yeniden yazıldı.
+- `npm test`: 916 test, 915 geçti, 1 atlandı, 0 kaldı. Diğer ajanların yarım değişiklikleri de çalışma ağacındaydı.
+- Ölçümler (yerelde, testin dışında): en kötü durum `state` iletisi (8 koltuk, 16 haneli kimlikler, 60 kartlık el, 8 olay, 64 karakterlik `ch`) düz metinde 3052 karakter, mühürlü `p` olarak 4126 karakter. Ki-kare (tohum 42, 60000 deneme) 1,73 çıktı, sınır 25.
+
+**Kod gerçeğinin doğrulanması:**
+- `E2EE.dm.seal(obj, theirPk, mySk)`: `obj` nesne olmazsa ya da anahtar bozuksa hata fırlatır. `dm.open(env, adaylar, sk)` şunu döner: `{ok:true, value, pk}` ya da `{ok:false, reason}` (crypto.js:1170-1229). Belgedeki 1169-1183 aralığı yaklaşık doğru.
+- 15-dm.js:184-200 (`dmSendState` nedenleri) ve 15-dm.js:263 (`v.a` ve `v.c` denetimi) doğru.
+- voice.js:133 `ID_RE` ve 416-421 `normId` doğru.
+- Kendi testimde voice.js `MAX_GAME_CHARS` değeriyle eşitlik denetimi yok, çünkü voice.js aynı anda değişiyor.
+
+**Belgeden sapmalar ve gerekçeleri:**
+1. **Kod deseni genişletildi.** Belge 4.4 `code` için `/^[a-z_]{1,32}$/` diyor, ben `/^[a-z][a-z0-9_]{0,31}$/` kullandım. Renk'in kendi hata kodu `wild4_has_color` rakam içeriyor ve belgedeki desen onu reddediyordu. Boyut testi bunu yakaladı. Aynı desen `rules`, `ev[].e` ve `ack.code` için geçerli.
+2. **Belgedeki `checkInner` kodu düzeltildi.**
+   - `INNER_KEYS[x.k]` aramasında `x.k = 'constructor'` gibi bir değer kodu çökertiyordu. Arama artık `hasOwnProperty` ile yapılıyor.
+   - `x` null olduğunda da çökme vardı, önce o denetleniyor.
+   - Ek olarak `v`, `ctx`, `from` ve `to` biçimleri yeniden denetleniyor. `act` ve `state` için `b` alanının JSON nesnesi olması gerekiyor.
+   - `rd` sınırı 1e9 değil 1e6 (`MAX_ROUND`).
+3. **`validStateBody` belgede yazmayan kurallar da uyguluyor:**
+   - `ph` lobi değilse `rd >= 1` olmalı.
+   - `ack` iki biçimden biri olmalı: `{seq, ok:true}` (kod yok) ya da `{seq, ok:false, code}` (kod zorunlu).
+   - `ev` en çok 8 öğe. Her öğe `{r, e, ...}` biçiminde, `e` kod deseninde, `r` 1 ile zarfın `r` değeri arasında ve azalmıyor.
+   - `away` benzersiz ve `seats` alt kümesi.
+   - `view` lobide null, oyunda JSON nesnesi. `mine` null ya da JSON nesnesi, `view` null iken null.
+   - İsteğe bağlı `ctx.app` eşitliği ve `ctx.rules` listesi.
+   - Belge 4.7 "çıkarıldım" bilgisini ayrı ele alıyor ama nasıl tanınacağını söylemiyor. Bunun için `isRemovalBody(b, ctx)` ekledim (yeni API).
+4. **`decline` için kural:** `why:'keys'` ise `key` dolu olmalı (`DECLINE_KEYS` içinden), `why:'user'` ise `key` null olmalı.
+5. **Yeni yardımcılar:**
+   - `randomHex16(rng)`: `g` ve `ni` için, `rng(8)` ile.
+   - `validPlain` ve `checkPlain`: `parsePlain` bunları birleştirir.
+   - Dışa açılan kod listeleri (i18n kapsam testi için).
+   - `randomBelow` aralık dışı `m` için `bad_random` fırlatır. Bu, `ERRORS` dışında yeni bir kod (`bad_range`) çıkmasın diye.
+
+**Sonraki adımın bilmesi gereken API (hepsi saf, nesne dondurulmuş):**
+- **Sabitler:** `VERSION` 1, `CTX` `'game'`, `MAX_SEATS` 8, `MAX_P` 11000, `MAX_EVENTS` 8, `MAX_ROUND` 1e6.
+- **Kod listeleri** (dondurulmuş diziler): `PHASES`, `KEY_REASONS`, `INVITE_KEYS`, `DECLINE_KEYS`, `DECLINE_WHY`, `REJECT_WHY`, `CLOSE_WHY`, `END_REASONS`, `STATUSES`, `DESK_ERRORS`, `BODY_KEYS`.
+- **Alan ve rol tabloları:** `RECEIVES` `{dealer:[...], player:[...]}`, `PLAIN_KEYS`, `INNER_KEYS`.
+- **Hata:** `fail(code)` hata nesnesini döner, fırlatmaz. Kullanım: `throw G.fail('kod')`.
+- **Denetleyiciler:** `isPlain`, `onlyKeys(obj, keys)`, `exactKeys(obj, keys)`, `isId`, `isHex16`, `isChannel`, `isApp`, `isCode`, `isCount`.
+- **Düz ileti:**
+  - `validPlain(x)`: ileti ya da null.
+  - `checkPlain(x, {ch, from})`: `ch` eşitliğini ve davette `dealer === from` bağını denetler. `decline`, `reject` ve `close` için gönderen bağını masa yöneticisi kendisi denetler.
+  - `parsePlain(p, expect?)`: ileti ya da null.
+  - `encodePlain(obj)`: dize ya da null.
+- **İç zarf:**
+  - `sealInner(dm, obj, pk, sk)`: dize ya da null.
+  - `openInner(dm, p, pk, sk)`: ileti ya da null.
+  - `checkInner(x, {ch, from, to, g?})`: ileti ya da null.
+- **Sayaçlar:** `seqOrder(last, seq)` şunlardan birini döner: `'new'`, `'repeat'`, `'old'`. `acceptState(lastR, lastAckSeq, r, ackSeq)` boolean döner.
+- **Durum gövdesi:**
+  - `validStateBody(b, {dealer, me, r, app?, rules?})`: `b` ya da null. Burada `r` zarfın `x.r` değeridir.
+  - `isRemovalBody(b, ctx)`: boolean. Doğru dönmesi için ben koltuklarda olmamalıyım ve `mine` null olmalı.
+- **Rastgelelik:**
+  - `byteSource(rng)` bir `next()` işlevi döner, `rng`'den 64 baytlık parçalar ister.
+  - `randomBelow(next, m)`: `m` 256'yı aşarsa iki bayt büyük uçlu okunur.
+  - `shuffle(list, rng)` girdiyi değiştirmez, yeni dizi döner.
+  - `ring(n, from, dir, steps)`.
+  - Hata kodları: `no_random`, `bad_random`.
+
+**Açık kalanlar:**
+- Bağlantı denetimi eklenecek. index.html ve sw.js satırları sonraki adımda eklenince aynı test dosyasına yazılmalı, 6. adımda `oyun-arayuz` testine taşınmalı.
+- `MAX_P` ve metin deseninin voice.js'teki `MAX_GAME_CHARS` ve `GAME_TEXT_RE` ile eşitlik testi, voice.js değişikliği tamamlanınca eklenebilir.
+- Belge 4.10.4'e göre çıkarılan koltuğa artık durum gönderilmiyor. Oyuncu `removed` nedenini ancak kurpiyer ona son bir durum yollarsa öğrenir. 3. adım bunu tasarlamalı (`isRemovalBody` bunun için hazır).

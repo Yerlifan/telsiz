@@ -1,0 +1,498 @@
+From a4ca7d72dcf15487946c4299d78f7875348ecb01 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 00:08:04 +0000
+Subject: [PATCH 17/30] =?UTF-8?q?G3:=20DJ=20duyurusu=20par=C3=A7an=C4=B1n?=
+ =?UTF-8?q?=20ad=C4=B1n=C4=B1=20ta=C5=9F=C4=B1r,=20DJ'de=20=C3=87al=20da?=
+ =?UTF-8?q?=20duyurulur=20(istek=206)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Duyuru verisi d isteğe bağlı title alanıyla genişler (denetim ve yön
+karakterleri temizlenir, en çok 120 kod noktası), eski istemciler alanı yok
+sayar. /çal ile eklenen YouTube parçasının adı en çok 8 saniye beklenir, ad
+gelince duyuru adla gider. Süre dolarsa duyuru adsız gider ve ad gelince
+ekleyenin kendi mesajı /api/messages/edit ile düzenlenir, DJ duyurusunda
+"düzenlendi" etiketi gösterilmez. postSideMessage mesaj kimliğini döndürür,
+editSideMessage eklendi. DJ'de Çal dosyanın yazı odasına adıyla duyurulur,
+ekli dosyayla /çal da adı taşır. Karttaki son işlem satırı adı kuyruktan
+canlı okur. cleanDjNotice için birim testi, e2e/06 ve e2e/25 güncellendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/06-dj.test.js         |  29 ++++++++++-
+ e2e/25-dj-senkron.test.js |  16 +++++-
+ public/i18n.js            |   4 ++
+ public/js/06-messages.js  |  42 +++++++++++++---
+ public/js/08-composer.js  |  29 ++++++++---
+ public/js/23-dj.js        | 103 ++++++++++++++++++++++++++++++++++----
+ test/social.test.js       |  30 ++++++++++-
+ 7 files changed, 224 insertions(+), 29 deletions(-)
+
+diff --git a/e2e/06-dj.test.js b/e2e/06-dj.test.js
+index d1cfe7d..8ae24d7 100644
+--- a/e2e/06-dj.test.js
++++ b/e2e/06-dj.test.js
+@@ -1,7 +1,8 @@
+ 'use strict'
+ 
+ // Telsiz DJ: iki kullanıcı ses odasında. /çal ile YouTube parçası eklenir, rıza kartı iki istemcide görünür ve
+-// rızadan önce YouTube alan adlarına hiçbir istek gitmez. YouTube gömmesi page.route ile yerel sahte oynatıcıya
++// rızadan önce YouTube alan adlarına hiçbir istek gitmez. Parça duyurusu parçanın adını taşır (ad sonradan
++// gelirse ekleyenin duyurusu düzenlenir), "DJ'de çal" da dosyanın yazı odasına adıyla duyurulur. YouTube gömmesi page.route ile yerel sahte oynatıcıya
+ // (sahte-youtube.js) yönlendirilir, gerçek YouTube'a erişilmez. Duraklat ve devam iki istemcide eşitlenir,
+ // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
+ // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
+@@ -159,7 +160,8 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
+   assert.equal(await A.inputValue('#composer-input'), '')
+   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
+   assert.equal(sent, false, 'komut metni mesaj olarak gösterilmedi')
+-  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür
++  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür. Kimse oynatıcıyı yüklemediği için parçanın
++  // adı bilinmez: duyuru en çok 8 saniye bekler, sonra adsız gider.
+   const roomA = await A.evaluate(() => String(state.channelId))
+   const me = await A.evaluate(() => userDisplayName(state.me.id))
+   assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
+@@ -223,6 +225,21 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
+     const line = document.getElementById('radio-dj')
+     return !line.hidden && /^DJ çalıyor: /.test(document.getElementById('radio-dj-text').textContent)
+   }, null, { timeout: h.LONG })
++  // Oynatıcı parçanın adını bildirdi: ekleyenin adsız giden duyurusu adla düzenlenir, DJ duyurusunda
++  // "düzenlendi" etiketi yoktur. Karttaki son işlem satırı da adı kuyruktan canlı okur.
++  const me = await A.evaluate(() => userDisplayName(state.me.id))
++  for (const page of [A, B]) {
++    await page.waitForFunction(() => {
++      const n = document.querySelector('#message-list .msg-dj .msg-dj-text')
++      return n && n.textContent === 'Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'
++    }, null, { timeout: h.LONG })
++    const notice = await page.evaluate(() => {
++      const msg = document.querySelector('#message-list .msg-dj').closest('.msg')
++      return { author: msg.querySelector('.msg-author').textContent, edited: Boolean(msg.querySelector('.msg-edited')), link: msg.querySelector('.msg-dj-link').href }
++    })
++    assert.deepEqual(notice, { author: me, edited: false, link: 'https://www.youtube.com/watch?v=D120aaaaaaa' })
++  }
++  assert.equal(await B.textContent('#dj .dj-last'), me + ' kuyruğa ekledi: Fake video D120aaaaaaa')
+ })
+ 
+ test('duraklat ve devam iki istemcide eşitlenir', async () => {
+@@ -358,6 +375,14 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
+   assert.equal(await B.textContent('#message-list .dj-play-file'), 'DJ\'de Çal')
+   await B.click('#message-list .dj-play-file')
+   await A.waitForFunction(() => document.querySelectorAll('#dj .dj-queue .dj-queue-item').length === 1 && /lobi-temasi/.test(document.querySelector('#dj .dj-queue-name').textContent), null, { timeout: h.LONG })
++  // "DJ'de çal" dosyanın bulunduğu yazı odasına adıyla duyurulur
++  await B.waitForFunction(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav'), null, { timeout: h.LONG })
++  const fileNotice = await B.evaluate(() => {
++    const n = Array.from(document.querySelectorAll('#message-list .msg-dj-text')).filter((x) => x.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')[0]
++    const msg = n.closest('.msg')
++    return { author: msg.querySelector('.msg-author').textContent, link: Boolean(msg.querySelector('.msg-dj-link')) }
++  })
++  assert.deepEqual(fileNotice, { author: 'Ece', link: false })
+   await A.click('#dj .dj-skip')
+   for (const page of [A, B]) {
+     await page.waitForFunction(() => {
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index 47fbeda..593d0a9 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -95,13 +95,27 @@ after(async () => {
+   if (W.w) await W.w.close()
+ })
+ 
+-test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır', async () => {
++test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır, duyuru 8 saniye içinde parçanın adını taşır', async () => {
+   const { A, B } = W
+   for (const page of [A, B]) await h.joinVoice(page, W.lobi.id)
++  // B'nin gördüğü bütün DJ duyuru metinleri kaydedilir
++  await B.evaluate(() => {
++    window.e2eNotices = []
++    new MutationObserver(() => {
++      document.querySelectorAll('#message-list .msg-dj-text').forEach((n) => {
++        if (window.e2eNotices.indexOf(n.textContent) === -1) window.e2eNotices.push(n.textContent)
++      })
++    }).observe(document.getElementById('message-list'), { childList: true, subtree: true, characterData: true })
++  })
++  const t0 = Date.now()
+   await addTrack(A, 'D120aaaaaaa')
+   const a = await firstPlay(A, 'D120aaaaaaa', 'A başladı')
+   const b = await firstPlay(B, 'D120aaaaaaa', 'B başladı')
+   assert.ok(Math.abs(a - b) <= SYNC_MS, 'başlangıç farkı ' + (b - a) + ' ms')
++  // Oynatıcılar adı hemen bildirir: duyuru adsız gitmez, adla gider
++  await B.waitForFunction(() => window.e2eNotices.indexOf('Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa') !== -1, null, { timeout: h.LONG })
++  assert.ok(Date.now() - t0 < 8000 + 2000, 'duyuru ' + (Date.now() - t0) + ' ms sonra geldi')
++  assert.deepEqual(await B.evaluate(() => window.e2eNotices), ['Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'])
+ })
+ 
+ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte sürdürür', async () => {
+diff --git a/public/i18n.js b/public/i18n.js
+index 37d6041..765bc8c 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -26,6 +26,8 @@ window.I18N = (function () {
+     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+     // G3 Telsiz DJ çekirdeği
+     'music.consent.roomHasYoutube': 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.',
++    'dj.notice.youtubeTitle': 'Telsiz DJ kuyruğuna ekledi: {title}',
++    'dj.notice.fileTitle': 'Telsiz DJ kuyruğuna dosya ekledi: {title}',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+@@ -1978,6 +1980,8 @@ window.I18N = (function () {
+     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
+     // G3 Telsiz DJ çekirdeği
+     'music.consent.roomHasYoutube': 'Telsiz DJ is playing a YouTube track in this voice room. Load the player to listen.',
++    'dj.notice.youtubeTitle': 'Added to the Telsiz DJ queue: {title}',
++    'dj.notice.fileTitle': 'Added a file to the Telsiz DJ queue: {title}',
+     // G4 Telsiz DJ araması
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index 9bd4a66..9aef3fa 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -47,20 +47,45 @@ function decryptMessageRaw (m) {
+   return result
+ }
+ 
+-// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid } veya ekli ses dosyası için { op: 'add', src: 'file' }.
+-// Eski istemciler bu alanı bilmez ve t alanındaki komut metnini gösterir.
++// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid, title? } veya ses dosyası için
++// { op: 'add', src: 'file', title? }. title isteğe bağlıdır: parçanın adı, denetim ve yön karakterleri
++// boşluğa çevrilmiş, en çok 120 kod noktası. Eski istemciler bu alanı bilmez ve t alanındaki metni gösterir,
++// title alanını bilmeyen istemciler başlıksız duyuruyu gösterir.
++const DJ_NOTICE_TITLE_MAX = 120
++const DJ_NOTICE_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
++
++function cleanDjTitle (value) {
++  if (typeof value !== 'string') return ''
++  let text = value
++  try {
++    text = text.normalize('NFC')
++  } catch (err) {
++    // normalize yoksa olduğu gibi
++  }
++  text = text.replace(DJ_NOTICE_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
++  return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
++}
++
+ function cleanDjNotice (d) {
+   if (!d || typeof d !== 'object' || d.op !== 'add') return null
+-  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
+-  if (d.src === 'file') return { op: 'add', src: 'file' }
+-  return null
++  let out = null
++  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) out = { op: 'add', src: 'yt', vid: d.vid }
++  else if (d.src === 'file') out = { op: 'add', src: 'file' }
++  if (!out) return null
++  const title = cleanDjTitle(d.title)
++  if (title) out.title = title
++  return out
+ }
+ 
+-// Duyuru satırı: nota simgesi, sabit metin ve YouTube parçasında kimlikten kurulan bağlantı
++// Duyuru satırı: nota simgesi, metin (parçanın adı biliniyorsa onunla) ve YouTube parçasında kimlikten kurulan
++// bağlantı. Ad yalnızca metin olarak yazılır.
+ function buildDjNotice (d) {
+   const line = h('div', 'msg-text msg-dj')
+   line.appendChild(icon('i-music'))
+-  line.appendChild(h('span', 'msg-dj-text', t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')))
++  let text = ''
++  if (d.title) text = t(d.src === 'yt' ? 'dj.notice.youtubeTitle' : 'dj.notice.fileTitle', { title: d.title })
++  else text = t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')
++  line.appendChild(h('span', 'msg-dj-text', text))
+   if (d.src === 'yt') {
+     const a = h('a', 'msg-dj-link', t('dj.notice.openYoutube'))
+     a.href = 'https://www.youtube.com/watch?v=' + d.vid
+@@ -261,7 +286,8 @@ function buildMessageNode (m) {
+     text.appendChild(h('span', '', notice))
+     body.appendChild(text)
+   }
+-  if (m.editedAt) {
++  // DJ duyurusunun düzenlenmesi (parçanın adı sonradan eklenir) gösterilmez
++  if (m.editedAt && !(result.state === 'ok' && result.dj)) {
+     const edited = h('span', 'msg-edited', t('msg.edited'))
+     edited.title = t('msg.editedAt', { date: formatLong(m.editedAt) })
+     const target = body.querySelector('.msg-text') || body
+diff --git a/public/js/08-composer.js b/public/js/08-composer.js
+index 5c3799f..e96094f 100644
+--- a/public/js/08-composer.js
++++ b/public/js/08-composer.js
+@@ -222,22 +222,39 @@ async function sendMessage (opts) {
+ }
+ 
+ // Yazma alanına ve gönderilmemiş mesaj durumuna dokunmadan yazı odasına kısa mesaj gönderir (Telsiz DJ
+-// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Başarıda true döner.
+-async function postSideMessage (channelId, text, d) {
+-  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return false
++// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Sonuç mesajın kimliği, başarısızsa null.
++function sealSideBody (channelId, text, d) {
++  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return ''
+   let body = ''
+   try {
+     body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: channelId, t: text, f: [], d: d })
+   } catch (err) {
+-    return false
++    return ''
+   }
+-  if (body.length > state.limits.maxBodyChars) return false
++  return body.length > state.limits.maxBodyChars ? '' : body
++}
++
++async function postSideMessage (channelId, text, d) {
++  const body = sealSideBody(channelId, text, d)
++  if (!body) return null
+   const res = await api('POST', '/api/messages', { channelId: channelId, body: body, clientMessageId: newClientMessageId() })
+-  if (res.status !== 200 || !res.data || !res.data.message) return false
++  if (res.status !== 200 || !res.data || !res.data.message) return null
+   if (sameId(channelId, state.channelId) && !state.hasNewer) {
+     insertMessage(res.data.message, { own: true })
+     markRead()
+   }
++  return res.data.message.id
++}
++
++// postSideMessage ile gönderilen kendi mesajını yeni metin ve d ile değiştirir (Telsiz DJ duyurusuna parçanın
++// adı sonradan eklenir). Başarıda true döner.
++async function editSideMessage (channelId, id, text, d) {
++  const body = sealSideBody(channelId, text, d)
++  if (!body || id === null || id === undefined) return false
++  const res = await api('POST', '/api/messages/edit', { id: id, body: body })
++  if (res.status !== 200 || !res.data || !res.data.message) return false
++  // Açık konuşmadaki mesaj hemen yenilenir (yoksa replaceMessage bir şey yapmaz)
++  replaceMessage(res.data.message)
+   return true
+ }
+ 
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 2cc3e71..cbe3b82 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -27,6 +27,10 @@
+ // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
+ 
+ const DJ_TICK_MS = 500
++// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu bu süre içinde
++// düzenlenir.
++const DJ_TITLE_WAIT_MS = 8000
++const DJ_TITLE_EDIT_MS = 10 * 60 * 1000
+ // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
+ // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
+ const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
+@@ -62,7 +66,8 @@ const dj = {
+   layoutBusy: false,
+   dockBottom: null,
+   consentRow: null,
+-  consentWarnFor: null
++  consentWarnFor: null,
++  titleWatch: []
+ }
+ 
+ function djMusic () {
+@@ -117,6 +122,7 @@ function djEngine () {
+   engine.on('change', (snapshot) => {
+     dj.snap = snapshot
+     djRenderNow()
++    djCheckTitles()
+   })
+   // Parça değişti: olay oynatıcı kurulmadan önce gelir, oynatıcı alanı önceden görünür olur
+   engine.on('track', () => {
+@@ -916,13 +922,31 @@ function djAction (command, fn, announceOk) {
+   })
+ }
+ 
++// Kuyruktaki parça (motorun bildiği oturumda yoksa null). Başlık sonradan dolabildiği için duyurular ve
++// bildirimler adı buradan canlı okur.
++function djLiveTrack (trackId) {
++  const engine = djEngine()
++  if (!engine || !trackId) return null
++  const q = engine.queue()
++  const all = (q.current ? [q.current] : []).concat(q.queue || [])
++  return all.filter((tr) => tr && tr.id === trackId)[0] || null
++}
++
++// Parçanın gösterilecek adı: kuyruktaysa güncel adı, değilse bildirimin taşıdığı ad
++function djLiveTitle (trackId, fallback) {
++  const track = djLiveTrack(trackId)
++  if (track) return djTrackTitle(track)
++  return fallback || t('music.untitledYouTube')
++}
++
+ function djOnNotice (n) {
+   if (!n || typeof n.op !== 'string') return
+   const key = 'music.notice.' + n.op
+   if (!hasText(key)) return
+   const by = n.by
++  const trackId = n.trackId || null
+   const title = n.title || ''
+-  dj.notice = () => t('music.notice.' + n.op, { name: by !== null && by !== undefined ? shownName(by) : '', title: title || t('music.untitledYouTube') })
++  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
+   djRenderSoon()
+ }
+ 
+@@ -1212,18 +1236,63 @@ function djCommand (text, ctx) {
+   if (!pending) return null
+   return pending.then((r) => {
+     djReport(r && r.command ? r.command : cmd.name, r)
+-    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounce(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId })
++    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounceTrack(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId }, r.trackId)
+     return r
+   })
+ }
+ 
+-// Kuyruğa eklenen parça komutun yazıldığı yazı odasında herkese duyurulur. Duyuru başarısız olursa parça
+-// yine kuyruktadır, yalnızca bildirim gösterilir.
++// Kuyruğa eklenen parça yazı odasında herkese duyurulur. Sonuç duyuru mesajının kimliği, gönderilemezse null.
++// Duyuru başarısız olursa parça yine kuyruktadır, yalnızca bildirim gösterilir.
+ function djAnnounce (roomId, text, d) {
++  if (!roomId || isDmChannel(roomId)) return Promise.resolve(null)
++  const failed = () => {
++    toast(() => t('dj.notice.failed'), 'error')
++    return null
++  }
++  return postSideMessage(roomId, text, d).then((id) => (id === null || id === undefined ? failed() : id), failed)
++}
++
++// YouTube parçasının adı ekleme anında bilinmeyebilir, oynatıcısı yüklenen ilk cihaz adı duruma yazar
++// (music.js annotate). Ad biliniyorsa duyuru hemen gider. Bilinmiyorsa parça en çok DJ_TITLE_WAIT_MS izlenir,
++// ad gelince duyuru adla gider. Süre dolarsa duyuru adsız gider, ad sonradan gelirse ekleyenin kendi mesajı
++// düzenlenir (DJ_TITLE_EDIT_MS içinde, parça kuyruktayken).
++function djAnnounceTrack (roomId, text, d, trackId) {
+   if (!roomId || isDmChannel(roomId)) return
+-  postSideMessage(roomId, text, d).then((sent) => {
+-    if (!sent) toast(() => t('dj.notice.failed'), 'error')
+-  }).catch(() => toast(() => t('dj.notice.failed'), 'error'))
++  const track = djLiveTrack(trackId)
++  const title = d.title || (track ? track.title : '')
++  if (title || !trackId) {
++    djAnnounce(roomId, text, title ? Object.assign({}, d, { title: title }) : d)
++    return
++  }
++  const at = Date.now()
++  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_TITLE_EDIT_MS, sent: null })
++  djCheckTitles()
++}
++
++// Motorun her durum değişikliğinde ve saniyelik denetimde bekleyen duyurular denetlenir
++function djCheckTitles () {
++  if (!dj.titleWatch.length) return
++  const now = Date.now()
++  dj.titleWatch = dj.titleWatch.filter((w) => {
++    const track = djLiveTrack(w.trackId)
++    const title = track ? track.title : ''
++    if (title) {
++      const d = Object.assign({}, w.d, { title: title })
++      if (!w.sent) {
++        djAnnounce(w.roomId, w.text, d)
++      } else {
++        w.sent.then((id) => {
++          if (id !== null) return editSideMessage(w.roomId, id, w.text, d)
++          return false
++        }).catch((err) => {
++          window.console.error(err)
++        })
++      }
++      return false
++    }
++    if (!w.sent && (now >= w.deadline || !track)) w.sent = djAnnounce(w.roomId, w.text, w.d)
++    return Boolean(track) && now < w.until
++  })
+ }
+ 
+ // /çal ve ekli ses dosyası: dosya önce yazı odasına mesaj eki olarak gönderilir (odadakiler indirebilsin),
+@@ -1245,7 +1314,10 @@ function djPlayAttached (att, ctx) {
+     return Promise.resolve({ ok: false, code: 'file_unavailable' })
+   }
+   const ref = { u: att.uploadId, k: att.key, n: att.nonce, m: att.mime, s: att.size, name: att.name }
+-  return Promise.resolve().then(() => sendMessage({ dj: { op: 'add', src: 'file' } })).then(() => {
++  const notice = { op: 'add', src: 'file' }
++  const title = cleanDjTitle(att.name)
++  if (title) notice.title = title
++  return Promise.resolve().then(() => sendMessage({ dj: notice })).then(() => {
+     if (state.attachments.indexOf(att) !== -1) {
+       toast(() => t('dj.fileSendFailed'), 'error', 7000)
+       return { ok: false, code: 'send_failed' }
+@@ -1270,7 +1342,7 @@ function djDecorateAttachments (wrap, files, m) {
+     const b = djButton('button button-small button-secondary dj-play-file', t('music.playInDj'), 'i-music')
+     b.setAttribute('aria-label', t('dj.playFileLabel', { name: f.name || t('music.untitledFile') }))
+     b.addEventListener('click', () => {
+-      djPlayFile(f, b)
++      djPlayFile(f, b, m)
+     })
+     row.appendChild(b)
+     if (card.nextSibling) wrap.insertBefore(row, card.nextSibling)
+@@ -1278,13 +1350,21 @@ function djDecorateAttachments (wrap, files, m) {
+   })
+ }
+ 
+-function djPlayFile (f, b) {
++// "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur
++function djPlayFile (f, b, m) {
+   const engine = djEngine()
+   if (!engine || b.getAttribute('aria-busy') === 'true') return
+   b.setAttribute('aria-busy', 'true')
+   engine.addFile({ u: f.u, k: f.k, n: f.n, m: f.m, s: f.s, name: f.name }).then((r) => {
+     b.removeAttribute('aria-busy')
+     djReport('play', r)
++    if (r && r.ok && !r.noop && m) {
++      const track = djLiveTrack(r.trackId)
++      const title = cleanDjTitle(track ? track.title : f.name)
++      const notice = { op: 'add', src: 'file' }
++      if (title) notice.title = title
++      djAnnounce(m.channelId, title, notice)
++    }
+   }, (err) => {
+     b.removeAttribute('aria-busy')
+     window.console.error(err)
+@@ -1326,6 +1406,7 @@ function djInit () {
+   // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).
+   setInterval(() => {
+     djSyncVoice()
++    djCheckTitles()
+     if (djShouldShow()) {
+       dj.snap = engine.snapshot()
+       if (!dj.layoutBusy) djRender()
+diff --git a/test/social.test.js b/test/social.test.js
+index 837611b..205da50 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -4,7 +4,8 @@
+ // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
+ // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
+ // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
+-// kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır.
++// kimliği, sabitlenmiş anahtarlar, eski anahtar) ve Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
++// doğrulanması sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -225,3 +226,30 @@ test('durum: görünmez kendime çevrimdışı görünür, diğerleri meta durum
+   assert.strictEqual(run('userStatus(2)'), 'dnd')
+   assert.strictEqual(run('userStatus(77)'), 'offline')
+ })
++
++test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temizlenir ve 120 kod noktasıyla sınırlanır', () => {
++  const { run } = load()
++  const clean = (d) => {
++    const out = run('cleanDjNotice(' + JSON.stringify(d) + ')')
++    return out === null ? null : JSON.parse(JSON.stringify(out))
++  }
++  const vid = 'dQw4w9WgXcQ'
++  // Adsız eski biçim aynen kalır
++  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid }), { op: 'add', src: 'yt', vid: vid })
++  assert.deepStrictEqual(clean({ op: 'add', src: 'file' }), { op: 'add', src: 'file' })
++  // Denetim ve yön karakterleri boşluğa döner, boşluklar teke iner, kenarlar kırpılır
++  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: '  Lobi\u202e  teması\u0007 ' }), { op: 'add', src: 'yt', vid: vid, title: 'Lobi teması' })
++  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: 'lobi-temasi.wav' }), { op: 'add', src: 'file', title: 'lobi-temasi.wav' })
++  // En çok 120 kod noktası (dört baytlık karakterler bölünmez)
++  const long = clean({ op: 'add', src: 'yt', vid: vid, title: '🎵'.repeat(130) })
++  assert.strictEqual(Array.from(long.title).length, 120)
++  assert.strictEqual(long.title, '🎵'.repeat(120))
++  // Dize olmayan veya temizlenince boş kalan ad yazılmaz, bilinmeyen alanlar atılır
++  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: 42, extra: 'x' }), { op: 'add', src: 'yt', vid: vid })
++  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: '\u200b\u0000 \u2066' }), { op: 'add', src: 'file' })
++  // Geçersiz işlem, kaynak veya video kimliği
++  assert.strictEqual(clean({ op: 'remove', src: 'file', title: 'a' }), null)
++  assert.strictEqual(clean({ op: 'add', src: 'yt', vid: 'kisa', title: 'a' }), null)
++  assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
++  assert.strictEqual(clean(null), null)
++})

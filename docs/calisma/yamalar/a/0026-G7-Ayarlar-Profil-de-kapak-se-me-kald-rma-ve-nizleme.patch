@@ -1,0 +1,501 @@
+From 6be6cbe11e76f9e097e8da3182f35f8023061e68 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:10:27 +0000
+Subject: [PATCH 26/36] =?UTF-8?q?G7:=20Ayarlar=20>=20Profil'de=20kapak=20s?=
+ =?UTF-8?q?e=C3=A7me,=20kald=C4=B1rma=20ve=20=C3=B6nizleme?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Profil sayfasına bant biçiminde kapak önizlemesi, Kapak Seç ve Kapağı Kaldır
+düğmeleri eklendi. Taslakta coverMode (server, new, removed) tutulur,
+önizleme yüklemeyle aynı kodlamayı kullanır (prepareCover). Hesabım ve Profil
+önizleme kartları kapağı bandın içinde gösterir, kayıttan sonra sunucudaki
+kapak çözülene kadar yerel önizleme kalır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/settings.css  |  13 ++++
+ public/i18n.js           |  14 ++++
+ public/js/11-settings.js | 159 +++++++++++++++++++++++++++++++++++----
+ test/settings.test.js    |  86 ++++++++++++++++++++-
+ 4 files changed, 255 insertions(+), 17 deletions(-)
+
+diff --git a/public/css/settings.css b/public/css/settings.css
+index a6b0f74..8c05588 100644
+--- a/public/css/settings.css
++++ b/public/css/settings.css
+@@ -666,6 +666,19 @@
+   margin: 0 0.5rem 0.5rem 0;
+ }
+ 
++/* Kapak fotoğrafı önizlemesi: profil kartının bandı (kapak yoksa profil rengi), altında düğmeler */
++.settings-cover-host {
++  max-width: 24rem;
++  margin: 0 0 0.5rem;
++  overflow: hidden;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-card);
++}
++
++.settings-cover-host .profile-card-band {
++  border-radius: 0;
++}
++
+ /* Frekans fotoğrafı önizlemesi: büyük frekans amblemi (fotoğraf yoksa baş harf), dar ekranda düğmeler
+    önizlemenin yanında alt alta durur */
+ .settings-photo-row {
+diff --git a/public/i18n.js b/public/i18n.js
+index aa5f9f8..d24ae3e 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -29,6 +29,13 @@ window.I18N = (function () {
+     // G7 Kapak fotoğrafı
+     'profile.coverInvalid': 'Kapak resmi okunamadı.',
+     'profile.coverUploadFailed': 'Kapak yüklenemedi.',
++    'settings.profile.coverTitle': 'Kapak fotoğrafı',
++    'settings.profile.coverPick': 'Kapak Seç',
++    'settings.profile.coverRemove': 'Kapağı Kaldır',
++    'settings.profile.coverHint': 'Kapak ortasından 3:1 oranında kırpılır ve 1200x400 boyutuna getirilir. Konum gibi üst veriler silinir. Kapak uçtan uca şifrelenir, yalnızca bu frekansın üyeleri görebilir. Kapak yalnızca profil kartınız açılınca indirildiği için sunucu kartınızı kimin açtığını görebilir.',
++    'settings.profile.coverReading': 'Kapak hazırlanıyor...',
++    'settings.profile.coverReady': 'Kapak hazır, kaydedince yüklenir.',
++    'settings.profile.coverRemoved': 'Kapak kaydedince kaldırılır.',
+     'settings.profile.coverTooBig': 'Kapak {size} sınırına sığdırılamadı. Başka bir resim seçin.',
+     'errors.bad_cover': 'Kapak fotoğrafı geçersiz.',
+     'errors.cover_too_large': 'Kapak fotoğrafı çok büyük.',
+@@ -1984,6 +1991,13 @@ window.I18N = (function () {
+     // G7 Kapak fotoğrafı
+     'profile.coverInvalid': 'The cover image could not be read.',
+     'profile.coverUploadFailed': 'The cover could not be uploaded.',
++    'settings.profile.coverTitle': 'Cover photo',
++    'settings.profile.coverPick': 'Choose Cover',
++    'settings.profile.coverRemove': 'Remove Cover',
++    'settings.profile.coverHint': 'The cover is center-cropped to 3:1 and resized to 1200x400. Metadata such as location is removed. The cover is end-to-end encrypted and only members of this frequency can see it. Because the cover is downloaded only when your profile card is opened, the server can see who opens your card.',
++    'settings.profile.coverReading': 'Preparing the cover...',
++    'settings.profile.coverReady': 'Cover ready. It uploads when you save.',
++    'settings.profile.coverRemoved': 'The cover is removed when you save.',
+     'settings.profile.coverTooBig': 'The cover could not be made to fit the {size} limit. Choose another image.',
+     'errors.bad_cover': 'The cover photo is invalid.',
+     'errors.cover_too_large': 'The cover photo is too large.',
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index e5d6eee..df044de 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -813,11 +813,13 @@ function myProfileView () {
+     statusText: profile && profile.statusText ? profile.statusText : '',
+     bio: profile && profile.bio ? profile.bio : '',
+     color: profile && profile.color !== null && profile.color !== undefined ? profile.color : defaultColorIndex(id),
+-    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null)
++    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null),
++    // Kendi kapağım önizlemede gösterileceği için indirilir (13-profile.js coverUrlOf)
++    coverUrl: safeCall(() => coverUrlOf(id, true), null)
+   }
+ }
+ 
+-// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl }
++// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl, coverUrl }
+ function buildPreviewCard (view, id) {
+   const me = state.me
+   const status = shownStatusOf(me.id)
+@@ -825,9 +827,8 @@ function buildPreviewCard (view, id) {
+   if (id) card.id = id
+   card.setAttribute('aria-label', t('settings.profile.previewLabel'))
+   card.setAttribute('role', 'group')
+-  const band = h('div', 'profile-card-band')
+-  band.setAttribute('data-color', String(view.color))
+-  card.appendChild(band)
++  // Kartla aynı bant: kapak fotoğrafı varsa bandın içinde (13-profile.js profileCoverBand)
++  card.appendChild(profileCoverBand(view.coverUrl, view.color))
+   const av = h('span', 'avatar-wrap profile-card-avatar')
+   av.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || me.name), view.color, status))
+   // Kartla aynı düzen ve rozetler (13-profile.js): ad avatarın sağında, rol ve özel rol adın yanında
+@@ -856,7 +857,7 @@ function myProfileSignature () {
+   if (!state.me) return ''
+   const id = state.me.id
+   const rec = safeCall(() => profileRecord(id), null)
+-  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
++  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, ''), safeCall(() => coverUrlOf(id), '')].join('|')
+ }
+ 
+ // 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
+@@ -1150,8 +1151,9 @@ async function submitAccountDelete (ui) {
+   focusNode(ui.pass)
+ }
+ 
+-// 2. Profil: profil resmi (kare kırpma önizlemesi), görünen ad, özel durum, hakkımda, renk ve canlı
+-// önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip sunucuya gider.
++// 2. Profil: profil resmi (kare kırpma önizlemesi), kapak fotoğrafı (3:1 kırpma önizlemesi), görünen ad, özel
++// durum, hakkımda, renk ve canlı önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip
++// sunucuya gider.
+ 
+ function profileDraft () {
+   const me = state.me
+@@ -1169,7 +1171,12 @@ function profileDraft () {
+     avatarMode: 'server',
+     avatarFile: null,
+     avatarUrl: '',
+-    pending: null
++    pending: null,
++    // Kapak fotoğrafı: avatar alanlarıyla aynı anlam (server, new, removed), coverPending kayıttan sonraki yerel önizleme
++    coverMode: 'server',
++    coverFile: null,
++    coverUrl: '',
++    coverPending: null
+   }
+   return settingsUi.draft
+ }
+@@ -1191,10 +1198,12 @@ function dropProfileDraft () {
+   if (!d) return
+   revokeBlobLater(d.avatarUrl)
+   if (d.pending) revokeBlobLater(d.pending.url)
++  revokeBlobLater(d.coverUrl)
++  if (d.coverPending) revokeBlobLater(d.coverPending.url)
+ }
+ 
+ function draftDirty (d) {
+-  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server'
++  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server' || d.coverMode !== 'server'
+ }
+ 
+ function myAvatarUploadId () {
+@@ -1220,13 +1229,48 @@ function draftAvatarUrl (d) {
+   return serverUrl || ''
+ }
+ 
++function myCoverUploadId () {
++  if (!state.me) return null
++  const rec = safeCall(() => profileRecord(state.me.id), null)
++  return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
++}
++
++// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir.
++function draftCoverUrl (d) {
++  if (d.coverMode === 'new') return d.coverUrl
++  if (d.coverMode === 'removed') return ''
++  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
++  const p = d.coverPending
++  if (p) {
++    const stillOld = myCoverUploadId() === p.from
++    const waiting = p.url && !serverUrl
++    if ((stillOld || waiting) && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
++    d.coverPending = null
++    revokeBlobLater(p.url)
++  }
++  return serverUrl || ''
++}
++
+ function draftView (d) {
+   return {
+     displayName: d.displayName.trim(),
+     statusText: d.statusText.trim(),
+     bio: d.bio.trim(),
+     color: d.color,
+-    avatarUrl: draftAvatarUrl(d)
++    avatarUrl: draftAvatarUrl(d),
++    coverUrl: draftCoverUrl(d)
++  }
++}
++
++// Kapak önizlemesi: kayıtta yüklenecek kodlamanın aynısı (13-profile.js prepareCover, ortadan 3:1, 1200x400 JPEG).
++// Sonuç { url } veya { error }.
++async function makeCoverPreview (file) {
++  const prepared = await prepareCover(file)
++  if (!prepared.ok) return { error: prepared.error }
++  try {
++    return { url: URL.createObjectURL(new Blob([prepared.bytes], { type: prepared.mime })) }
++  } catch (err) {
++    return { error: () => t('profile.coverInvalid') }
+   }
+ }
+ 
+@@ -1310,6 +1354,28 @@ function buildProfilePage (page) {
+   const avatarMsg = sMsg('set-avatar-msg')
+   form.appendChild(avatarMsg)
+ 
++  // Kapak fotoğrafı: bant biçiminde önizleme, seçme ve kaldırma
++  sSub(form, t('settings.profile.coverTitle'), 'set-cover-title')
++  const coverHost = h('div', 'settings-cover-host')
++  coverHost.id = 'set-cover-preview'
++  form.appendChild(coverHost)
++  const coverButtons = h('div', 'settings-avatar-buttons')
++  const coverPick = sButton('button button-secondary', t('settings.profile.coverPick'), 'set-cover-pick', null, 'i-image')
++  const coverRemove = sButton('button button-ghost', t('settings.profile.coverRemove'), 'set-cover-remove', null, 'i-trash')
++  coverButtons.appendChild(coverPick)
++  coverButtons.appendChild(coverRemove)
++  form.appendChild(coverButtons)
++  const coverFile = h('input', 'file-input')
++  coverFile.type = 'file'
++  coverFile.accept = 'image/*'
++  coverFile.id = 'set-cover-file'
++  coverFile.tabIndex = -1
++  coverFile.setAttribute('aria-hidden', 'true')
++  form.appendChild(coverFile)
++  form.appendChild(sHint(t('settings.profile.coverHint'), 'set-cover-hint'))
++  const coverMsg = sMsg('set-cover-msg')
++  form.appendChild(coverMsg)
++
+   // Metin alanları ve karakter sayaçları
+   const counters = []
+   const addText = (id, labelKey, value, max, multiline, placeholder, field) => {
+@@ -1391,9 +1457,12 @@ function buildProfilePage (page) {
+     const view = draftView(d)
+     clear(avatarHost)
+     avatarHost.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || state.me.name), view.color, ''))
++    clear(coverHost)
++    coverHost.appendChild(profileCoverBand(view.coverUrl, view.color))
+     clear(previewHost)
+     previewHost.appendChild(buildPreviewCard(view, 'set-profile-card'))
+     remove.disabled = !view.avatarUrl
++    coverRemove.disabled = !view.coverUrl && !(d.coverMode === 'server' && myCoverUploadId())
+     counters.forEach((c) => {
+       const len = cpLength(c.control.value.trim())
+       c.counter.textContent = t('settings.profile.counter', { count: formatNumber(len), max: formatNumber(c.max) })
+@@ -1406,6 +1475,7 @@ function buildProfilePage (page) {
+       save.disabled = !dirty || !keyOk
+       reset.disabled = !dirty
+       pick.disabled = !keyOk
++      coverPick.disabled = !keyOk
+     }
+     dirtyNote.hidden = !dirty
+   }
+@@ -1449,8 +1519,48 @@ function buildProfilePage (page) {
+     refresh()
+     focusNode(pick)
+   })
++  coverPick.addEventListener('click', () => {
++    coverFile.value = ''
++    coverFile.click()
++  })
++  coverFile.addEventListener('change', async () => {
++    const chosen = coverFile.files && coverFile.files[0] ? coverFile.files[0] : null
++    coverFile.value = ''
++    if (!chosen) return
++    if (chosen.size > AVATAR_SOURCE_MAX) {
++      setMsg(coverMsg, () => t('settings.profile.avatarTooBig', { size: formatSize(AVATAR_SOURCE_MAX) }), 'error')
++      return
++    }
++    setMsg(coverMsg, () => t('settings.profile.coverReading'))
++    const preview = await makeCoverPreview(chosen)
++    if (!preview.url) {
++      setMsg(coverMsg, preview.error, 'error')
++      return
++    }
++    if (settingsUi.draft !== d) {
++      revokeBlobLater(preview.url)
++      return
++    }
++    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
++    d.coverMode = 'new'
++    d.coverFile = chosen
++    d.coverUrl = preview.url
++    setMsg(coverMsg, () => t('settings.profile.coverReady'), 'ok')
++    refresh()
++    if (isConnected(coverPick)) focusNode(coverPick)
++  })
++  coverRemove.addEventListener('click', () => {
++    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
++    d.coverFile = null
++    d.coverUrl = ''
++    d.coverMode = myCoverUploadId() || d.coverPending ? 'removed' : 'server'
++    setMsg(coverMsg, () => t('settings.profile.coverRemoved'))
++    refresh()
++    focusNode(coverPick)
++  })
+   reset.addEventListener('click', () => {
+     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
++    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+     d.displayName = d.base.displayName
+     d.statusText = d.base.statusText
+     d.bio = d.base.bio
+@@ -1458,15 +1568,19 @@ function buildProfilePage (page) {
+     d.avatarMode = 'server'
+     d.avatarFile = null
+     d.avatarUrl = ''
++    d.coverMode = 'server'
++    d.coverFile = null
++    d.coverUrl = ''
+     fillInputs()
+     setMsg(avatarMsg, '')
++    setMsg(coverMsg, '')
+     setMsg(msg, () => t('settings.profile.resetDone'))
+     refresh()
+     focusNode(nameInput)
+   })
+   form.addEventListener('submit', (e) => {
+     e.preventDefault()
+-    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg })
++    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg, coverMsg: coverMsg })
+   })
+ 
+   fillInputs()
+@@ -1484,7 +1598,7 @@ function buildProfilePage (page) {
+     }
+     refresh()
+   }
+-  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') }
++  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') + (d.coverPending ? 'c' : '') }
+ }
+ 
+ async function saveProfileDraft (d, ui) {
+@@ -1495,17 +1609,21 @@ async function saveProfileDraft (d, ui) {
+   }
+   setFormBusy(ui.form, true)
+   setMsg(ui.msg, () => t('settings.profile.saving'))
+-  // Önceki kaydın profil resmi sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
++  // Önceki kaydın profil resmi ve kapağı sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
+   let waited = 0
+-  while (d.pending && myAvatarUploadId() === d.pending.from && waited < 3000) {
++  while (((d.pending && myAvatarUploadId() === d.pending.from) || (d.coverPending && myCoverUploadId() === d.coverPending.from)) && waited < 3000) {
+     await wait(100)
+     waited += 100
+   }
+   const input = { displayName: d.displayName, statusText: d.statusText, bio: d.bio, color: d.color }
+   if (d.avatarMode === 'new') input.avatarFile = d.avatarFile
+   else if (d.avatarMode === 'removed') input.avatarFile = null
++  if (d.coverMode === 'new') input.coverFile = d.coverFile
++  else if (d.coverMode === 'removed') input.coverFile = null
+   const before = myAvatarUploadId()
+   const mode = d.avatarMode
++  const coverBefore = myCoverUploadId()
++  const coverMode = d.coverMode
+   const result = await saveProfile(input)
+   setFormBusy(ui.form, false)
+   if (!result.ok) {
+@@ -1533,7 +1651,18 @@ async function saveProfileDraft (d, ui) {
+   d.avatarMode = 'server'
+   d.avatarFile = null
+   d.avatarUrl = ''
++  if (d.coverPending) revokeBlobLater(d.coverPending.url)
++  d.coverPending = null
++  if (coverMode === 'new') {
++    d.coverPending = { from: coverBefore, url: d.coverUrl, at: Date.now() }
++  } else if (coverMode === 'removed') {
++    d.coverPending = { from: coverBefore, url: '', at: Date.now() }
++  }
++  d.coverMode = 'server'
++  d.coverFile = null
++  d.coverUrl = ''
+   setMsg(ui.avatarMsg, '')
++  setMsg(ui.coverMsg, '')
+   setMsg(ui.msg, () => t('settings.profile.saved'), 'ok')
+   if (isConnected(ui.form)) {
+     ui.fill()
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 40fec27..89c8f94 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -8,6 +8,7 @@
+ // CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
+ // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
+ // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
++// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma ve geri alma da sınanır.
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -571,10 +572,12 @@ test('yardımcılar: atama karşılaştırma, seviye yüzdesi, kaydırıcı sın
+   assert.strictEqual(run("sliderValue({ value: '-140' }, -100, 0)"), -100)
+   assert.strictEqual(run("sliderValue({ value: '12.6' }, 0, 1000)"), 13)
+   assert.strictEqual(run("sliderValue({ value: 'x' }, 0, 1000)"), 0)
+-  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server' }"
++  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server', coverMode: 'server' }"
+   assert.strictEqual(run('draftDirty(' + base + ')'), false)
+   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { color: 3 }))"), true)
+   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { avatarMode: 'removed' }))"), true)
++  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'new' }))"), true)
++  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'removed' }))"), true)
+ })
+ 
+ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', () => {
+@@ -588,7 +591,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
+   assert.deepStrictEqual(cats, ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app', 'general', 'channels', 'members', 'roles', 'invite'])
+   const expected = {
+     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
+-    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
++    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-cover-preview', 'set-cover-pick', 'set-cover-file', 'set-cover-remove', 'set-cover-hint', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+     privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
+     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
+@@ -1284,3 +1287,82 @@ test('önizleme kartında ad avatarın yanında, rol rozetleri adın yanında: 
+   ctx.run("openSettings('account', null)")
+   assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-owner', 'Sahip']])
+ })
++
++test('Profil sayfasında kapak fotoğrafı: seçilen kapak iki önizlemede görünür, kaydedince saveProfile kapağı alır, kaldırma ve geri alma', async () => {
++  const { run, root, sandbox } = load({ role: 'member' })
++  // Bekleyen söz zincirlerinin ilerlemesi için olay döngüsüne birkaç tur verilir
++  const settle = async (rounds = 6) => {
++    if (rounds === 0) return
++    await new Promise((resolve) => setImmediate(resolve))
++    return settle(rounds - 1)
++  }
++  const band = (id) => root.querySelector('#' + id + ' .profile-card-band')
++  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
++  run('hasActiveKey = function () { return true }')
++  run("openSettings('profile', null)")
++  assert.strictEqual(root.querySelector('#set-cover-title').textContent, 'Kapak fotoğrafı')
++  assert.strictEqual(root.querySelector('#set-cover-pick .button-text').textContent, 'Kapak Seç')
++  assert.strictEqual(root.querySelector('#set-cover-remove .button-text').textContent, 'Kapağı Kaldır')
++  assert.ok(root.querySelector('#set-cover-hint').textContent.indexOf('1200x400') !== -1)
++  // Kapak yokken iki önizlemede de yalnızca profil rengi
++  for (const id of ['set-cover-preview', 'set-profile-card']) {
++    assert.ok(band(id), id + ' bandı')
++    assert.strictEqual(band(id).classList.contains('has-cover'), false)
++    assert.strictEqual(coverImg(id), null)
++  }
++  assert.strictEqual(root.querySelector('#set-cover-pick').disabled, false)
++  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
++  const file = root.querySelector('#set-cover-file')
++  const choose = async (picked) => {
++    file.files = [picked]
++    file.dispatchEvent(fakeEvent('change'))
++    await settle()
++  }
++  // Kaynak dosya 20 MB'tan büyükse okunmaz
++  await choose({ name: 'buyuk.jpg', size: 21 * 1024 * 1024 })
++  assert.match(root.querySelector('#set-cover-msg').textContent, /^Resim en fazla /)
++  // Kodlanamayan veya sınıra sığmayan kapak: hata metni, taslak değişmez
++  sandbox.__preview = { error: () => 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.' }
++  run('makeCoverPreview = function () { return Promise.resolve(__preview) }')
++  await choose({ name: 'gurultu.png', size: 1000 })
++  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.')
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
++  // Kırpılmış kapak önizlemesi: bant önizlemesinde ve profil kartı önizlemesinde görünür
++  sandbox.__preview = { url: 'blob:kapak-onizleme' }
++  const chosen = { name: 'kapak.jpg', size: 5000 }
++  await choose(chosen)
++  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
++  for (const id of ['set-cover-preview', 'set-profile-card']) {
++    assert.strictEqual(band(id).classList.contains('has-cover'), true, id)
++    assert.strictEqual(coverImg(id).src, 'blob:kapak-onizleme', id)
++    assert.strictEqual(coverImg(id).alt, '')
++  }
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
++  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
++  // Geri al: kapak taslaktan çıkar
++  root.querySelector('#set-profile-reset').click()
++  assert.strictEqual(coverImg('set-cover-preview'), null)
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
++  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
++  // Yeniden seçip kaldırınca da kapak düşer, sunucuda kapak olmadığı için taslak temiz kalır
++  await choose(chosen)
++  root.querySelector('#set-cover-remove').click()
++  assert.strictEqual(coverImg('set-profile-card'), null)
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
++  // Kaydet: seçilen dosya saveProfile'a coverFile olarak gider, profil resmi alanı gönderilmez
++  sandbox.__saved = []
++  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
++  await choose(chosen)
++  root.querySelector('#set-profile-save').click()
++  await settle()
++  assert.strictEqual(sandbox.__saved.length, 1)
++  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
++  assert.strictEqual('avatarFile' in sandbox.__saved[0], false)
++  assert.strictEqual(root.querySelector('#set-profile-msg').textContent, 'Profil kaydedildi.')
++  // Sunucudaki kapak çözülene kadar yerel önizleme kalır, taslak temizdir
++  assert.strictEqual(coverImg('set-profile-card').src, 'blob:kapak-onizleme')
++  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
++  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
++})
++

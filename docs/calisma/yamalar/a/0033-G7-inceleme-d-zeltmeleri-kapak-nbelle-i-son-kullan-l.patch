@@ -1,0 +1,216 @@
+From 90209b954ffa1ca8efd673d4eb4610975df66478 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:46:07 +0000
+Subject: [PATCH 33/36] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmeleri=20(kap?=
+ =?UTF-8?q?ak=20=C3=B6nbelle=C4=9Fi=20son=20kullan=C4=B1lan=2020=20kapakla?=
+ =?UTF-8?q?=20s=C4=B1n=C4=B1rl=C4=B1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Açılan her kartın kapağı oturum boyunca bellekte kalıyordu. Kapak
+önbelleği artık son kullanılan 20 kapakla sınırlıdır, en uzun süredir
+gösterilmeyen kapak bırakılır. Açık kartın ve kendi profilimin kapağı
+tutulur. Silinen veya sunucudan engellenen kişinin kapağı da bırakılır.
+MIMARI ve ARCHITECTURE bu sınırı anlatır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/ARCHITECTURE.md    |  2 +-
+ docs/MIMARI.md          |  2 +-
+ public/js/13-profile.js | 35 ++++++++++++++++--
+ test/social.test.js     | 80 +++++++++++++++++++++++++++++++++++++++--
+ 4 files changed, 113 insertions(+), 6 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 6008440..d1d7b2f 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -85,7 +85,7 @@ Text room messages, profiles, identity bindings, voice signals and the Telsiz DJ
+ 
+ Files and images are each encrypted with their own random key and nonce. The file key, name, type and dimensions travel inside the encrypted plaintext of the message, and the server sees only the size of the encrypted file. Photos other than GIFs are re-encoded with a canvas before upload, which removes metadata including the location.
+ 
+-The profile picture and the cover photo are also uploads encrypted with their own keys. The profile picture is center-cropped to a square and re-encoded at 256x256, the cover is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG. If the cover exceeds the same size limit as the profile picture (`avatarMaxBytes`), the qualities 0.85, 0.7 and 0.55 are tried in turn. The references to both images (`avatar` and `cover`: upload id, file key, nonce, type and dimensions) travel in the profile envelope encrypted with the group key. The server keeps only the upload ids (`avatarUploadId`, `coverUploadId`) in the user record and serves both images to everyone who is signed in. An upload can be linked only to the uploader's own profile and to a single field, cannot be attached to a message and is not removed by the sweep of unlinked uploads. A changed or removed image is deleted, and both are deleted when the account is deleted. A save from an older client that does not send the `coverUploadId` field removes the cover, so the envelope and the server record stay consistent. The client uses a reference from the envelope only if it matches the upload id on the server. Profile pictures are downloaded when the profile arrives, while the cover is downloaded only when it is about to be shown on the profile card or in the Settings preview.
++The profile picture and the cover photo are also uploads encrypted with their own keys. The profile picture is center-cropped to a square and re-encoded at 256x256, the cover is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG. If the cover exceeds the same size limit as the profile picture (`avatarMaxBytes`), the qualities 0.85, 0.7 and 0.55 are tried in turn. The references to both images (`avatar` and `cover`: upload id, file key, nonce, type and dimensions) travel in the profile envelope encrypted with the group key. The server keeps only the upload ids (`avatarUploadId`, `coverUploadId`) in the user record and serves both images to everyone who is signed in. An upload can be linked only to the uploader's own profile and to a single field, cannot be attached to a message and is not removed by the sweep of unlinked uploads. A changed or removed image is deleted, and both are deleted when the account is deleted. A save from an older client that does not send the `coverUploadId` field removes the cover, so the envelope and the server record stay consistent. The client uses a reference from the envelope only if it matches the upload id on the server. Profile pictures are downloaded when the profile arrives, while the cover is downloaded only when it is about to be shown on the profile card or in the Settings preview. At most 20 covers are kept in memory, the cover that has gone unshown the longest is released and downloaded again when it is about to be shown again.
+ 
+ A new group key can be created. The new key becomes the active key and protects the content that follows, while older keys stay in the keyring on the device to read older messages. The active key only moves forward on a device: a key that a newer key replaced on that device is retired (`telsiz.keys.retired`) and the client never encrypts anything with it again. Only a newer key that the device holds in its keyring, and whose code really yields that key id, replaces the previous one. An unknown key id from the server retires nothing, so the server or an admin cannot retire the real key by announcing a made-up key id first. If the server or an admin switches the active key back to such an older key, sending stays off and a warning appears until a new key is created. So a key known to a removed member or an old invite link cannot be brought back for new content. The group key travels in the part of the invite link after the `#` sign, which browsers do not send to the server.
+ 
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index 847f6bb..3c60327 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -85,7 +85,7 @@ Yazı odası mesajları, profiller, kimlik bağlamaları, ses sinyalleri ve Tels
+ 
+ Dosyalar ve resimler her biri kendi rastgele anahtarı ve nonce'u ile şifrelenir. Dosya anahtarı, adı, türü ve boyutları mesajın şifreli düz metninde taşınır, sunucu yalnızca şifreli dosyanın boyutunu görür. GIF dışındaki fotoğraflar yüklenmeden önce canvas ile yeniden kodlanır, bu da konum dahil üst verileri siler.
+ 
+-Profil resmi ve kapak fotoğrafı da kendi anahtarlarıyla şifreli yüklemelerdir. Profil resmi ortasından kare kırpılıp 256x256, kapak ortasından 3:1 kırpılıp 1200x400 JPEG olarak yeniden kodlanır. Kapak profil resmiyle aynı boyut sınırını (`avatarMaxBytes`) aşarsa kalite 0.85, 0.7 ve 0.55 sırasıyla denenir. İki resmin başvurusu (`avatar` ve `cover`: yükleme kimliği, dosya anahtarı, nonce, tür ve boyutlar) grup anahtarıyla şifreli profil zarfında taşınır. Sunucu kullanıcı kaydında yalnızca yükleme kimliklerini (`avatarUploadId`, `coverUploadId`) tutar ve iki resmi oturum açmış herkese indirir. Bir yükleme yalnızca yükleyenin profiline, tek bir alana bağlanabilir, mesaja eklenemez ve bağlanmamış yükleme taramasında silinmez. Değişen veya kaldırılan resim, hesap silinince de ikisi birden silinir. `coverUploadId` alanını göndermeyen eski bir istemcinin kaydı kapağı kaldırır, böylece zarfla sunucudaki kayıt tutarlı kalır. İstemci zarftaki başvuruyu yalnızca sunucudaki yükleme kimliğiyle eşleşirse kullanır. Profil resimleri profil gelince indirilir, kapak ise yalnızca profil kartında veya Ayarlar önizlemesinde gösterileceği zaman indirilir.
++Profil resmi ve kapak fotoğrafı da kendi anahtarlarıyla şifreli yüklemelerdir. Profil resmi ortasından kare kırpılıp 256x256, kapak ortasından 3:1 kırpılıp 1200x400 JPEG olarak yeniden kodlanır. Kapak profil resmiyle aynı boyut sınırını (`avatarMaxBytes`) aşarsa kalite 0.85, 0.7 ve 0.55 sırasıyla denenir. İki resmin başvurusu (`avatar` ve `cover`: yükleme kimliği, dosya anahtarı, nonce, tür ve boyutlar) grup anahtarıyla şifreli profil zarfında taşınır. Sunucu kullanıcı kaydında yalnızca yükleme kimliklerini (`avatarUploadId`, `coverUploadId`) tutar ve iki resmi oturum açmış herkese indirir. Bir yükleme yalnızca yükleyenin profiline, tek bir alana bağlanabilir, mesaja eklenemez ve bağlanmamış yükleme taramasında silinmez. Değişen veya kaldırılan resim, hesap silinince de ikisi birden silinir. `coverUploadId` alanını göndermeyen eski bir istemcinin kaydı kapağı kaldırır, böylece zarfla sunucudaki kayıt tutarlı kalır. İstemci zarftaki başvuruyu yalnızca sunucudaki yükleme kimliğiyle eşleşirse kullanır. Profil resimleri profil gelince indirilir, kapak ise yalnızca profil kartında veya Ayarlar önizlemesinde gösterileceği zaman indirilir. Bellekte en çok 20 kapak tutulur, en uzun süredir gösterilmeyen kapak bırakılır ve yeniden gösterilecekse yeniden indirilir.
+ 
+ Yeni bir grup anahtarı oluşturulabilir. Yeni anahtar etkin anahtar olur ve sonraki içerikleri korur, eski anahtarlar eski mesajları okumak için cihazdaki anahtarlıkta kalır. Etkin anahtar bir cihazda yalnızca ileri gider: cihazda yerine yenisi geçmiş bir anahtar emekliye ayrılır (`telsiz.keys.retired`) ve istemci onunla bir daha hiçbir şey şifrelemez. Yalnızca cihazın anahtarlığında bulunan ve kodu gerçekten o anahtar kimliğini veren yeni bir anahtar öncekinin yerine geçer. Sunucunun bildirdiği bilinmeyen bir anahtar kimliği hiçbir anahtarı emekliye ayırmaz, böylece sunucu veya bir yönetici önce uydurma bir anahtar kimliği bildirerek gerçek anahtarı emekliye ayıramaz. Sunucu veya bir yönetici etkin anahtarı böyle eski bir anahtara geri çevirirse gönderme kapanır ve uyarı görünür, yeni bir anahtar oluşturulunca düzelir. Böylece atılan bir üyenin veya eski bir davet bağlantısının bildiği anahtar yeni içerik için geri getirilemez. Grup anahtarı davet bağlantısının `#` işaretinden sonraki bölümünde taşınır, tarayıcılar bu bölümü sunucuya göndermez.
+ 
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index 6474f64..a0fc8b7 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -28,6 +28,9 @@ const AVATAR_TYPES = ['image/png', 'image/jpeg']
+ const COVER_W = 1200
+ const COVER_H = 400
+ const COVER_QUALITIES = [0.85, 0.7, 0.55]
++// Bellekte tutulan en çok kapak sayısı. Kapak 1 MB'a kadar olabildiği için önbellek son kullanılan kapaklarla sınırlıdır,
++// açık kartın ve kendi profilimin kapağı atılmaz (trimCovers).
++const COVER_CACHE_MAX = 20
+ const STATUS_CHOICES = ['online', 'idle', 'dnd', 'invisible']
+ const SHOWN_STATUSES = ['online', 'idle', 'dnd', 'offline']
+ 
+@@ -35,7 +38,7 @@ const profileState = {
+   entries: new Map(),
+   avatars: new Map(),
+   // Kapak fotoğrafları (yükleme kimliği -> kayıt, avatars ile aynı biçim). Kapak yalnızca profil kartında ve Ayarlar
+-  // önizlemesinde gösterileceği zaman indirilir (loadCover).
++  // önizlemesinde gösterileceği zaman indirilir (loadCover). Sıra son kullanıma göredir, en eskisi baştadır.
+   covers: new Map(),
+   formerUsers: new Map(),
+   queue: new Set(),
+@@ -243,6 +246,7 @@ async function fetchProfiles () {
+         // Silinmiş veya sunucudan engellenmiş: yeniden istenmesin
+         const old = profileRecord(id)
+         if (old && old.missing) return
++        if (old && old.profile && old.profile.cover) dropProfileImage(profileState.covers, old.profile.cover.u)
+         profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, coverUploadId: null, keyState: 'none' })
+         profileState.changed.add(id)
+       })
+@@ -442,7 +446,34 @@ function loadAvatar (rec) {
+ // hangi kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
+ function loadCover (rec) {
+   const ref = rec && rec.profile && rec.profile.cover
+-  if (ref) loadProfileImage(profileState.covers, rec.id, ref)
++  if (!ref) return
++  const covers = profileState.covers
++  const entry = covers.get(ref.u)
++  if (entry) {
++    // Son kullanılan sona alınır (Map ekleme sırasını korur)
++    covers.delete(ref.u)
++    covers.set(ref.u, entry)
++    return
++  }
++  loadProfileImage(covers, rec.id, ref)
++  trimCovers()
++}
++
++// Kapak önbelleği COVER_CACHE_MAX kaydı aşarsa en uzun süredir kullanılmayan kapaklar bırakılır. Açık kartın ve kendi
++// profilimin (Ayarlar önizlemesi) kapağı tutulur.
++function trimCovers () {
++  const covers = profileState.covers
++  if (covers.size <= COVER_CACHE_MAX) return
++  const keep = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
++  Array.from(covers.keys()).forEach((uploadId) => {
++    if (covers.size > COVER_CACHE_MAX && keep.indexOf(uploadId) === -1) dropProfileImage(covers, uploadId)
++  })
++}
++
++function coverIdOf (userId) {
++  if (userId === null || userId === undefined) return null
++  const profile = activeProfile(userId)
++  return profile && profile.cover ? profile.cover.u : null
+ }
+ 
+ function loadProfileImage (images, userId, ref) {
+diff --git a/test/social.test.js b/test/social.test.js
+index d627692..2aa8994 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -10,8 +10,9 @@
+ // yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
+ // yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
+ // bir kişi değişince yeniden çizilmesi de ayrıca sınanır. Kapak fotoğrafı (istek 8): zarftaki başvurunun sunucudaki
+-// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, kaydetmede korunması ve
+-// kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7, 0.55).
++// kayıtla eşleşmesi, kapağın yalnızca gösterileceği zaman indirilmesi ve yeniden denenmesi, önbelleğin son kullanılan
++// kapaklarla sınırlı kalması, kaydetmede korunması ve kaldırılması, ortadan 3:1 kırpma ve JPEG kalite sırası (0.85, 0.7,
++// 0.55).
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -661,6 +662,81 @@ test('kapağı kaldırılan kişinin eski kapağı bırakılır, türü tutmayan
+   assert.strictEqual(world.ctx.run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
+ })
+ 
++test('kapak önbelleği son kullanılan 20 kapakla sınırlıdır, açık kartın ve kendi kapağım atılmaz, silinen kişinin kapağı bırakılır', async (t) => {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
++  const ctx = load({ clock: true })
++  const keys = setupDm(ctx)
++  const { E2EE, sandbox, run } = ctx
++  // Her kapak sırayla gösterilir, blob adresi son indirilen kapağın kimliğini taşır
++  let last = ''
++  const revoked = []
++  sandbox.URL = {
++    createObjectURL: () => 'blob:' + last,
++    revokeObjectURL (url) {
++      revoked.push(url)
++    }
++  }
++  sandbox.Blob = Blob
++  sandbox.downloadPlain = (f) => {
++    last = f.u
++    return Promise.resolve({ ok: true, bytes: new Uint8Array(JPEG_HEAD) })
++  }
++  const coverOf = (id) => id.toString(16).padStart(32, '0')
++  // a..b (ikisi de dahil) kimlikleri
++  const range = (a, b) => Array.from({ length: b - a + 1 }, (x, i) => a + i)
++  const users = []
++  for (const id of range(1, 30)) users.push({ id: id, name: 'kisi' + id, role: 'member', online: true, status: 'online', pv: 2 })
++  sandbox.__users = users
++  run('state.meta.users = __users')
++  for (const id of range(1, 30)) {
++    const cover = { u: coverOf(id), k: 'anahtar', n: 'tek', m: 'image/jpeg', w: 1200, h: 400 }
++    sandbox.__entry = { id: id, pv: 2, profile: E2EE.sealJson(keys.kid, { v: 1, u: id, displayName: 'Kişi ' + id, statusText: '', bio: '', color: 1, avatar: null, cover: cover }), avatarUploadId: null, coverUploadId: cover.u, publicKey: null, identity: null }
++    run('storeProfileEntry(__entry)')
++  }
++  const show = async (id) => {
++    run('coverUrlOf(' + id + ', true)')
++    await flush()
++  }
++  // Bağlamdaki dizi başka bir realm'den gelir, karşılaştırma için düz JSON'a çevrilir
++  const cached = () => JSON.parse(run('JSON.stringify(Array.from(profileState.covers.keys()))'))
++  // Önce kendi kapağım (Ayarlar önizlemesi) ve açık kart, sonra 18 kişinin kartı: sınır dolar, hiçbiri atılmaz
++  await show(1)
++  run('refreshProfileCardCover = function () {}')
++  run('profileState.cardUserId = 2')
++  await show(2)
++  for (const id of range(3, 20)) await show(id)
++  assert.strictEqual(cached().length, 20)
++  // Yeniden gösterilen kapak sona alınır, sınırı aşan ilk kapakta en uzun süredir kullanılmayan (4) bırakılır
++  await show(3)
++  await show(21)
++  assert.strictEqual(cached().length, 20)
++  assert.strictEqual(cached().indexOf(coverOf(3)) !== -1, true, 'yeniden gösterilen kapak tutulur')
++  assert.strictEqual(cached().indexOf(coverOf(4)), -1, 'en eski kapak bırakılır')
++  for (const id of range(22, 30)) await show(id)
++  const expected = [1, 2, 3]
++  for (const id of range(14, 30)) expected.push(id)
++  assert.deepStrictEqual(cached().slice().sort(), expected.map(coverOf).sort())
++  assert.strictEqual(run('profileState.covers.size'), 20)
++  // Bırakılan kapakların blob adresleri süre dolunca serbest kalır
++  t.mock.timers.tick(60000)
++  const dropped = []
++  for (const id of range(4, 13)) dropped.push('blob:' + coverOf(id))
++  assert.deepStrictEqual(revoked.slice().sort(), dropped.sort())
++  assert.strictEqual(run('coverUrlOf(1)'), 'blob:' + coverOf(1), 'kendi kapağım bellekte kalır')
++  assert.strictEqual(run('coverUrlOf(2)'), 'blob:' + coverOf(2), 'açık kartın kapağı bellekte kalır')
++  // Silinen veya sunucudan engellenen kişinin (profil yanıtında yok) kapağı bırakılır
++  const net = fakeProfiles(ctx)
++  net.replies.push(() => ({ status: 200, data: { profiles: [] } }))
++  run("state.token = 'oturum'")
++  run("profileState.queue.add('30')")
++  await run('fetchProfiles()')
++  assert.deepStrictEqual(net.calls, ['/api/profiles?ids=30'])
++  assert.strictEqual(run('profileRecord(30).missing'), true)
++  assert.strictEqual(run("profileState.covers.has('" + coverOf(30) + "')"), false)
++  t.mock.timers.tick(60000)
++  assert.strictEqual(revoked.indexOf('blob:' + coverOf(30)) !== -1, true)
++})
++
+ test('kendi profili kaydedilirken kapak korunur, null ile kaldırılır, yeni kapak zarfa ve isteğe girer', async () => {
+   const ctx = load()
+   const keys = setupDm(ctx)

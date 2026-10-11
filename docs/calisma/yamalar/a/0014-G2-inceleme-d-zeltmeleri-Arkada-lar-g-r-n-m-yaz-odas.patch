@@ -1,0 +1,185 @@
+From 88b516f2707910ef5dfb031da3dd6f28e77dcfe4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:25:40 +0000
+Subject: [PATCH 14/36] =?UTF-8?q?G2:=20inceleme=20d=C3=BCzeltmeleri=20(Ark?=
+ =?UTF-8?q?ada=C5=9Flar=20g=C3=B6r=C3=BCn=C3=BCm=C3=BC,=20yaz=C4=B1=20odas?=
+ =?UTF-8?q?=C4=B1=20kalmamas=C4=B1=20ve=20frekans=20ge=C3=A7i=C5=9Fi=20tes?=
+ =?UTF-8?q?tleri)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- e2e 19-gezinme: özel konuşmada metin ve ek bırakılıp Arkadaşlar'a
+  geçilince (showHome) yazma alanı gizli ve boş, taslak özel konuşmanın
+  anahtarında. Özel konuşmaya dönünce taslak ve ek yerinde.
+- test/taslak.test.js: yazı odası kalmayınca applyMeta açık odanın
+  taslağını ve eklerini bırakır, başka konuşmanın taslağı kalır.
+  frekansSwitch tarayıcıda sayfadan çıkmadan önce, masaüstünde geçiş
+  başarılı olunca taslakları siler, başarısız geçişte silmez.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js | 21 +++++++++++
+ test/taslak.test.js    | 84 +++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 103 insertions(+), 2 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 180e39e..794a9b5 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -8,6 +8,7 @@
+ //   düşmez
+ // - İki yazı odası arasında aynı kural
+ // - Beş genişlikte (360, 412, 768, 1024, 1440) özel mesaj ile oda arasında taslak sızmaz, yatay taşma 0
++// - Arkadaşlar görünümünde yazma alanı gizli ve boş, özel konuşmaya dönünce taslak ve ek yerinde (showHome)
+ // - Taslakta süresi dolmak üzere olan ek konuşmaya dönülünce yeniden yüklenir, sunucunun tanımadığı ek
+ //   (bad_uploads) gönderimde yeniden yüklenir ve mesaj yeni ekle gider
+ // - Kişi engellenince o kişiyle özel konuşmanın bekleyen taslağı ve eki silinir
+@@ -186,6 +187,26 @@ test('beş genişlikte özel mesaj ile oda arasında taslak sızmaz, yatay taşm
+   assert.equal((await messagesIn(genel)).length, 0, 'genel odasına mesaj gitmedi')
+ })
+ 
++test('Arkadaşlar görünümünde yazma alanı gizli ve boş, özel konuşmaya dönünce taslak ve ek yerinde', async () => {
++  const page = W.deniz
++  const text = 'OZEL: Arkadaşlar görünümüne taşınmamalı'
++  const key = 'd:' + W.dmEce
++  await page.click('#top-dm')
++  await waitConversation(page, 'dm', W.dmEce)
++  await page.fill('#composer-input', text)
++  await attachPhoto(page, 'arkadaslar.png')
++  await page.click('#top-friends')
++  await page.waitForFunction(() => currentViewMode() === 'home' && !document.getElementById('home-view').hidden, null, { timeout: h.LONG })
++  assert.equal(await page.evaluate(() => document.getElementById('composer').hidden), true, 'yazma alanı gizli')
++  assert.deepEqual(await composerView(page), { text: '', chips: [], send: false })
++  assert.deepEqual(await page.evaluate((k) => [composerKey(), composerDrafts.get(k).text, state.attachments.map((a) => a.convKey)], key),
++    ['', text, [key]], 'taslak ve ek özel konuşmanın anahtarında')
++  await page.click('#top-dm')
++  await waitConversation(page, 'dm', W.dmEce)
++  assert.deepEqual(await composerView(page), { text, chips: ['arkadaslar.png'], send: true })
++  await clearComposer(page)
++})
++
+ test('taslakta süresi dolan ek yeniden yüklenir, sunucunun tanımadığı ek gönderimde yeniden yüklenir', async () => {
+   const page = W.deniz
+   const genel = W.w.room('genel').id
+diff --git a/test/taslak.test.js b/test/taslak.test.js
+index b1a1c5b..cf77b73 100644
+--- a/test/taslak.test.js
++++ b/test/taslak.test.js
+@@ -6,7 +6,8 @@
+ // konuşmadan çıkınca metnin ve eklerin kendi taslağında kalması, yüklemesi süren ekin kendi taslağında
+ // tamamlanması, gönderim süzgeci (yalnızca açık konuşmanın ekleri ve doğru şifreleme), yanıt gelmeden konuşma
+ // değişince taslağın düşmesi, gönderilemeyen mesajın istemci kimliğinin korunması, silinen konuşmada ve
+-// engellenen kişide taslağın bırakılması, oturum kapanınca taslakların silinmesi ve diske yazılmaması. Ayrıca taslakta bekleyen ekin sunucudaki kopyası silinmeden
++// engellenen kişide taslağın bırakılması, oturum kapanınca, yazı odası kalmayınca ve frekans değişince
++// taslakların silinmesi ve diske yazılmaması. Ayrıca taslakta bekleyen ekin sunucudaki kopyası silinmeden
+ // yeniden yüklenmesi (ve sunucu ekleri tanımazsa gönderimde yeniden yüklenmesi), yükleme hatasının başka
+ // konuşmaların eklerine geçmemesi ve yükleme kuyruğunda açık konuşmanın eklerinin öne alınması.
+ 
+@@ -18,7 +19,7 @@ const vm = require('node:vm')
+ const nodeCrypto = require('node:crypto')
+ 
+ const PUB = path.join(__dirname, '..', 'public')
+-const FILES = ['i18n.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/04-meta.js', 'js/08-composer.js']
++const FILES = ['i18n.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/04-meta.js', 'js/08-composer.js', 'js/24-frekans.js']
+ const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
+ 
+ function makeStorage () {
+@@ -43,6 +44,13 @@ function load () {
+   sandbox.setTimeout = setTimeout
+   sandbox.clearTimeout = clearTimeout
+   sandbox.crypto = nodeCrypto.webcrypto
++  sandbox.URL = URL
++  sandbox.TextEncoder = TextEncoder
++  sandbox.TextDecoder = TextDecoder
++  sandbox.btoa = btoa
++  sandbox.atob = atob
++  sandbox.location = { origin: SELF, hash: '', pathname: '/', search: '', assign: (url) => sandbox.testAssigned.push(url) }
++  sandbox.testAssigned = []
+   sandbox.localStorage = makeStorage()
+   sandbox.sessionStorage = makeStorage()
+   sandbox.localStorage.setItem('telsiz.lang', 'tr')
+@@ -153,6 +161,7 @@ function load () {
+ }
+ 
+ const U = (c) => c.repeat(32)
++const SELF = 'https://kankalar.ornek.com'
+ 
+ test('taslak anahtarı: yazı odası c:, özel konuşma d:, Arkadaşlar görünümünde boş', () => {
+   const { run } = load()
+@@ -499,3 +508,74 @@ test('yükleme sırasında açık konuşmanın ekleri öne alınır, süren yük
+   // Sıra kalan özel konuşma eklerine geçer
+   assert.deepStrictEqual(statuses(), ['b1.png=uploading', 'b2.png=uploading', 'b3.png=queued', 'oda.png=done'])
+ })
++
++test('yazı odası kalmayınca (applyMeta) açık odanın taslağı ve ekleri bırakılır, yazma alanı boşalır', () => {
++  const { run, json } = load()
++  run(`
++    state.inApp = true
++    function voiceHandleMeta () {}
++    function myPermsKey () { return '' }
++    function renderServerName () {}
++    function renderBand () {}
++    function renderMembers () {}
++    function renderUserPanel () {}
++    function renderVoiceAll () {}
++    function renderChannelHeader () {}
++    function refreshConversationChrome () {}
++    function refreshSettings () {}
++    function renderComposerState () {}
++    function refreshAllMessages () {}
++    function refreshMentionMessages () {}
++  `)
++  run("testOpen('dm', 50)")
++  run("el.composerInput.value = 'özel taslak'")
++  run("testAdd('ozel.png')")
++  run("testOpen('channel', 10)")
++  run("el.composerInput.value = 'silinecek oda'")
++  run("testAdd('genel.png')")
++  run("applyMeta({ channels: [{ id: 20, name: 'Lobi', type: 'voice', position: 0 }], users: [] }, false)")
++  assert.strictEqual(run('state.channelId'), null)
++  assert.strictEqual(run('composerKey()'), '')
++  assert.strictEqual(run('el.composerInput.value'), '')
++  assert.deepStrictEqual(json('testShown'), [])
++  assert.strictEqual(run("composerDrafts.has('c:10')"), false)
++  // Özel konuşmanın taslağı ve eki yerinde durur
++  assert.deepStrictEqual(json("state.attachments.map((a) => a.name + '@' + a.convKey)"), ['ozel.png@d:50'])
++  assert.strictEqual(run("composerDrafts.get('d:50').text"), 'özel taslak')
++})
++
++test('frekans değişince taslaklar silinir: tarayıcıda sayfadan çıkmadan önce, masaüstünde geçiş başarılı olunca', async () => {
++  const { run, json, sandbox } = load()
++  const fill = () => {
++    run("testOpen('dm', 50)")
++    run("el.composerInput.value = 'özel taslak'")
++    run("testAdd('ozel.png')")
++    run("testOpen('channel', 10)")
++    run("el.composerInput.value = 'açık oda'")
++  }
++  fill()
++  // Açık frekansa geçiş bir şey yapmaz
++  run("frekansSwitch('" + SELF + "')")
++  assert.strictEqual(run('composerDrafts.size'), 1)
++  run("frekansSwitch('https://diger.ornek.com')")
++  assert.strictEqual(sandbox.testAssigned.length, 1)
++  assert.match(sandbox.testAssigned[0], /^https:\/\/diger\.ornek\.com\/#frekanslar=/)
++  assert.strictEqual(run('composerDrafts.size'), 0)
++  assert.deepStrictEqual(json('state.attachments'), [])
++  assert.strictEqual(run('el.composerInput.value'), 'açık oda')
++
++  // Masaüstü: başarısız geçişte taslaklar kalır
++  run('var testSwitch = { ok: false }')
++  run('window.telsizDesktop = { listFrequencies () { return [] }, switchFrequency () { return Promise.resolve(testSwitch) } }')
++  fill()
++  run("frekansSwitch('https://diger.ornek.com')")
++  await new Promise((resolve) => setImmediate(resolve))
++  assert.strictEqual(run('composerDrafts.size'), 1)
++  assert.deepStrictEqual(json('testToasts'), [run("t('frekans.failed')")])
++  run('testSwitch = { ok: true }')
++  run("frekansSwitch('https://diger.ornek.com')")
++  await new Promise((resolve) => setImmediate(resolve))
++  assert.strictEqual(run('composerDrafts.size'), 0)
++  assert.deepStrictEqual(json('state.attachments'), [])
++  assert.strictEqual(sandbox.testAssigned.length, 1, 'masaüstünde sayfa adresi değişmez')
++})
