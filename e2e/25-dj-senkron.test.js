@@ -4,7 +4,8 @@
 // ekler. YouTube gömmesi page.route ile yerel sahte oynatıcıya (sahte-youtube.js) yönlendirilir, gerçek
 // YouTube'a erişilmez. Sahte oynatıcının sesinin ilk başladığı an iki istemcide aynı saatle ölçülür ve en çok
 // 250 ms ayrı olmalıdır. Arka plandaki sekme benzetilir (requestAnimationFrame çalışmaz, visibilityState
-// hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar.
+// hidden): oynatıcı alanı yine de en az 200x200 çizilir, köşeye alınır ve parça A ile birlikte başlar. Rıza
+// vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında Yükle düğmeli kalıcı bir uyarı görür.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -175,6 +176,47 @@ test('arka plandaki sekme: oynatıcı alanı köşeye çizilir, parça A ile bir
     document.dispatchEvent(new Event('visibilitychange'))
   })
   await B.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında kalıcı uyarı çıkar, Yükle ile dinler', async () => {
+  const C = await W.w.pageFor('mert', { route: routeYouTube() })
+  await C.evaluate(() => {
+    window.e2eToasts = []
+    new MutationObserver(() => {
+      if (!el.toast.hidden) window.e2eToasts.push(el.toast.textContent)
+    }).observe(el.toast, { childList: true, characterData: true, subtree: true, attributes: true })
+  })
+  await h.joinVoice(C, W.lobi.id)
+  const warn = 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.'
+  // Geniş ekranda kart sütunda rıza sorusunu gösterir: telsiz kartında uyarı yinelenmez, kısa bildirim yine çıkar
+  await C.waitForFunction(() => !document.querySelector('#dj .dj-consent').hidden, null, { timeout: h.LONG })
+  await C.waitForFunction((text) => window.e2eToasts.indexOf(text) !== -1, warn, { timeout: h.LONG })
+  assert.equal(await C.evaluate(() => {
+    const row = document.querySelector('#radio-tuned .radio-dj-consent')
+    return !row || row.hidden
+  }), true, 'kart soruyorken telsiz kartında uyarı yok')
+  // Dar pencerede kart kapalı sayfadadır: uyarı telsiz kartında kalır
+  await C.setViewportSize({ width: 1100, height: 800 })
+  await C.waitForFunction(() => {
+    const row = document.querySelector('#radio-tuned .radio-dj-consent')
+    return row && !row.hidden
+  }, null, { timeout: h.LONG })
+  const row = await C.evaluate(() => ({
+    text: document.querySelector('#radio-tuned .radio-dj-consent-text').textContent,
+    accept: document.querySelector('#radio-tuned .radio-dj-consent-accept').textContent,
+    decline: document.querySelector('#radio-tuned .radio-dj-consent-decline').textContent,
+    frames: document.querySelectorAll('#dj iframe').length
+  }))
+  assert.deepEqual(row, { text: warn, accept: 'YouTube Oynatıcısını Yükle', decline: 'Hayır, Yükleme', frames: 0 })
+  assert.equal(await h.reachable(C, '#radio-tuned .radio-dj-consent-accept'), true, 'Yükle düğmesine ulaşılabilir')
+  assert.ok(await h.overflowX(C) <= 0, 'yatay taşma')
+  await C.click('#radio-tuned .radio-dj-consent-accept')
+  await C.waitForFunction(() => localStorage.getItem('telsiz.djYoutubeConsent') === '1' && document.querySelector('#radio-tuned .radio-dj-consent').hidden, null, { timeout: h.LONG })
+  await h.until(async () => {
+    const frame = fakeFrame(C, 'D120bbbbbbb')
+    return frame && (await frame.evaluate(() => window.FAKE.state === 1 && !window.FAKE.audio.paused))
+  }, h.LONG, 'C dinliyor')
+  await C.evaluate(() => leaveVoice())
 })
 
 // İki istemci aynı anda yazınca sunucu sürüm denetimi (CAS) birini 409 ile reddeder, motor yeni durumla

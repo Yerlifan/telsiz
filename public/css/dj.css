@@ -594,6 +594,38 @@
   color: var(--text-2);
 }
 
+/* Telsiz kartındaki YouTube rıza uyarısı (23-dj.js djSyncConsentWarn): odada YouTube parçası çalarken henüz
+   izin vermemiş kişide kadronun altında durur. Telefonda kartın kendi satırını kaplar. */
+.radio-dj-consent {
+  flex: 1 1 100%;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.625rem 0.125rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-control);
+  background-color: var(--warn-bg);
+}
+
+.radio-dj-consent[hidden] {
+  display: none;
+}
+
+.radio-dj-consent-text {
+  margin: 0 0 0.375rem;
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.radio-dj-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.radio-dj-consent-actions .button {
+  margin: 0 0.375rem 0.375rem 0;
+}
+
 /* ===== 8. Mesajdaki ses dosyası kartının "DJ'de çal" düğmesi ===== */
 
 .dj-file-actions {

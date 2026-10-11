@@ -25,6 +25,7 @@ window.I18N = (function () {
     // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
     // G3 Telsiz DJ çekirdeği
+    'music.consent.roomHasYoutube': 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
@@ -1976,6 +1977,7 @@ window.I18N = (function () {
     // İş grubu işaretleri: paralel geliştirmede her grup yeni anahtarlarını kendi işaretinin altına,
     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
     // G3 Telsiz DJ çekirdeği
+    'music.consent.roomHasYoutube': 'Telsiz DJ is playing a YouTube track in this voice room. Load the player to listen.',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta

@@ -60,7 +60,9 @@ const dj = {
   docked: false,
   dockSticky: null,
   layoutBusy: false,
-  dockBottom: null
+  dockBottom: null,
+  consentRow: null,
+  consentWarnFor: null
 }
 
 function djMusic () {
@@ -122,9 +124,8 @@ function djEngine () {
     djRenderNow()
   })
   engine.on('notice', djOnNotice)
-  engine.on('consentneeded', () => {
-    if (!djCardShown()) toast(() => t('music.consent.needed'), '', 8000)
-  })
+  // Rıza sorusu: telsiz kartındaki uyarı ve kısa bildirim (djSyncConsentWarn)
+  engine.on('consentneeded', djRenderNow)
   engine.on('tapneeded', () => {
     // Köşedeki oynatıcının çubuğunda dokunarak başlatma düğmesi zaten vardır
     if (!djCardShown() && !dj.docked) toast(() => t('dj.tapViaCrew'), '', 8000)
@@ -584,7 +585,10 @@ function djRender () {
   djApplyLayout(show)
   djAttr(el.appView, 'data-dj', s && s.supported && s.enabled ? 'on' : 'off')
   djEnsureCrewItem(show)
-  if (!show || !dj.ui || !s) return
+  if (!show || !dj.ui || !s) {
+    djSyncConsentWarn(null)
+    return
+  }
   const ui = dj.ui
   const session = s.session
   const current = session ? session.current : null
@@ -682,6 +686,65 @@ function djRender () {
   const vad = Boolean(vs && !(vs.ptt && vs.ptt.enabled))
   ui.speakerHint.hidden = !(current && vad)
   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
+  djSyncConsentWarn(s)
+}
+
+// ------------------------------------------------------------------ erken YouTube rızası
+
+// Rıza sorusu daha erken: YouTube oynatıcısına henüz izin vermemiş (sorulmamış) kişi ses odasındayken odada
+// YouTube parçası çalıyorsa (odaya sonradan katılınca da) telsiz kartında kalıcı bir uyarı ve Yükle düğmesi
+// durur. Her yeni YouTube parçasında bir kez kısa bildirim de çıkar, DJ kartı görünürken de (arka plandayken
+// kaçmasın). Rıza yine yalnızca bu cihazda ve kişinin düğmesiyle verilir, ayrıntılı açıklama DJ kartındadır.
+function djConsentWarnTrack (s) {
+  if (!s || !s.supported || !s.enabled || !s.youtubeEnabled || s.consent !== 'unset' || dj.voiceRoom === null) return null
+  if (!sameId(s.room, dj.voiceRoom) || !s.session || !s.session.current || s.session.current.type !== 'youtube') return null
+  return s.session.current.id
+}
+
+function djConsentWarnRow () {
+  if (dj.consentRow) return dj.consentRow
+  const row = h('div', 'radio-dj-consent')
+  row.setAttribute('role', 'group')
+  row.hidden = true
+  const text = h('p', 'radio-dj-consent-text')
+  text.id = 'radio-dj-consent-text'
+  row.setAttribute('aria-labelledby', text.id)
+  row.appendChild(text)
+  const actions = h('div', 'radio-dj-consent-actions')
+  const accept = button('button button-small radio-dj-consent-accept', ' ')
+  accept.addEventListener('click', () => {
+    const engine = djEngine()
+    if (engine) engine.setConsent(true)
+  })
+  actions.appendChild(accept)
+  const decline = button('button button-small button-ghost radio-dj-consent-decline', ' ')
+  decline.addEventListener('click', () => {
+    const engine = djEngine()
+    if (engine) engine.setConsent(false)
+  })
+  actions.appendChild(decline)
+  row.appendChild(actions)
+  dj.consentRow = { row: row, text: text, accept: accept, decline: decline }
+  return dj.consentRow
+}
+
+function djSyncConsentWarn (s) {
+  const trackId = djConsentWarnTrack(s)
+  if (trackId && trackId !== dj.consentWarnFor) toast(() => t('music.consent.roomHasYoutube'), '', 8000)
+  dj.consentWarnFor = trackId
+  // DJ kartı rıza sorusunu zaten gösteriyorsa uyarı yinelenmez
+  const cardAsks = Boolean(trackId && djCardShown() && dj.ui && !dj.ui.consent.hidden)
+  const want = Boolean(trackId) && !cardAsks
+  const host = el.radioTuned || byId('radio-tuned')
+  if (!want && !dj.consentRow) return
+  const c = djConsentWarnRow()
+  if (want && host && c.row.parentNode !== host) host.appendChild(c.row)
+  if (want) {
+    djSetText(c.text, t('music.consent.roomHasYoutube'))
+    djSetText(c.accept.lastChild, t('music.consent.accept'))
+    djSetText(c.decline.lastChild, t('music.consent.decline'))
+  }
+  if (c.row.hidden !== !want) c.row.hidden = !want
 }
 
 // Oynatıcı alanının altındaki tek uyarı satırı. Öncelik: oturum hatası, dokunarak başlat, oynatıcı hatası,
