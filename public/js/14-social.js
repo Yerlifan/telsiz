@@ -23,7 +23,7 @@ const socialState = {
 }
 
 function emptyPrivate () {
-  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null, call: null }
+  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null, call: null, reports: 0 }
 }
 
 function validId (id) {
@@ -79,6 +79,8 @@ function normalizePrivate (p) {
   out.allowMemberDms = p.allowMemberDms !== false
   out.status = STATUS_CHOICES.indexOf(p.status) !== -1 ? p.status : null
   out.call = normalizeCall(p.call)
+  // Sahip ve yöneticilerin açık şikâyet sayısı (üyelerde alan yoktur), Ayarlar > Üyeler listesi buna göre yenilenir
+  out.reports = typeof p.reports === 'number' && p.reports >= 0 && Math.floor(p.reports) === p.reports ? p.reports : 0
   return out
 }
 

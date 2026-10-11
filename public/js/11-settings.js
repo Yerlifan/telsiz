@@ -107,7 +107,14 @@ const settingsUi = {
   keyVisible: false,
   membersFilter: '',
   metaUserKey: '',
-  adminRefreshAt: 0
+  adminRefreshAt: 0,
+  // Şikâyetler (yalnızca sahip ve yöneticiler): GET /api/reports listesi, yüklenirken true, hata metni üreticisi,
+  // son yüklemede görülen açık şikâyet sayısı (özel görünüm) ve yükleme kuşağı
+  reports: null,
+  reportsLoading: false,
+  reportsError: null,
+  reportsSeen: -1,
+  reportsGen: 0
 }
 
 const SETTINGS_PAGES = {
@@ -232,6 +239,7 @@ function onSettingsClosed () {
   settingsUi.temp = null
   settingsUi.newInvite = ''
   settingsUi.sessions = null
+  resetReports()
   document.body.classList.remove('modal-open')
 }
 
@@ -4144,7 +4152,7 @@ async function deleteChannel (c) {
 }
 
 // 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme, engeli kaldırma ve frekanstan atma
-// (engelleme izni), parola sıfırlama (sahip)
+// (engelleme izni), parola sıfırlama (sahip), şikâyetler (sahip ve yöneticiler)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4172,6 +4180,7 @@ function buildMembersPage (page) {
   page.appendChild(temp)
   const msg = sMsg('set-members-msg')
   page.appendChild(msg)
+  const reports = buildReportsSection(page)
 
   const listSec = sSection(page, t('settings.members.listTitle'), 'set-members-section')
   const filterLabel = h('label', 'sr-only', t('settings.members.filter'))
@@ -4226,13 +4235,214 @@ function buildMembersPage (page) {
       bannedList.appendChild(buildMemberAdminRow({ id: u.id, name: String(u.name || ''), role: u.role || 'member' }, true))
     })
     restoreFocusKey(bannedList, bFocus)
+    reports.update()
   }
   update()
   return {
     update: update,
     signature: () => {
       const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
-      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '')
+      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '') + '|' + reports.signature()
+    }
+  }
+}
+
+// Şikâyetler: üyelerin bildirdiği mesajlar ve kişiler (GET /api/reports, yalnızca sahip ve yöneticiler). Liste sayfa
+// açılınca, Yenile ile ve özel görünümdeki açık şikâyet sayısı değişince yeniden alınır. Not ve mesaj metni grup
+// anahtarıyla çözülür, mühürlü içerikteki şikâyet eden, hedef ve mesaj sunucunun kaydıyla tutmazsa gösterilmez.
+
+function resetReports () {
+  settingsUi.reportsGen += 1
+  settingsUi.reports = null
+  settingsUi.reportsLoading = false
+  settingsUi.reportsError = null
+  settingsUi.reportsSeen = -1
+}
+
+function reportsOpenCount () {
+  if (typeof priv !== 'function') return 0
+  const p = priv()
+  return p && typeof p.reports === 'number' ? p.reports : 0
+}
+
+function validReport (r) {
+  return Boolean(r && typeof r === 'object' && typeof r.id === 'number' && (r.kind === 'message' || r.kind === 'user') && typeof r.createdAt === 'number')
+}
+
+async function loadReports () {
+  if (!isAdmin()) return
+  settingsUi.reportsGen += 1
+  const gen = settingsUi.reportsGen
+  settingsUi.reportsLoading = true
+  settingsUi.reportsSeen = reportsOpenCount()
+  const res = await api('GET', '/api/reports')
+  if (gen !== settingsUi.reportsGen) return
+  settingsUi.reportsLoading = false
+  if (res.status === 200 && res.data && Array.isArray(res.data.reports)) {
+    settingsUi.reports = res.data.reports.filter(validReport)
+    settingsUi.reportsError = null
+  } else {
+    if (settingsUi.reports === null) settingsUi.reports = []
+    settingsUi.reportsError = () => errorText(res, t('settings.reports.loadFailed'))
+  }
+  if (isSettingsTab('members')) updateSettingsPage()
+}
+
+// Mühürlü not: { state: 'none' } (not yok), { state: 'locked' } (anahtar yok veya kayıtla tutmuyor) veya
+// { state: 'ok', note, quote }
+function openReportNote (r) {
+  if (typeof r.note !== 'string' || !r.note) return { state: 'none' }
+  let opened = null
+  try {
+    opened = window.E2EE.openJson(r.note)
+  } catch (err) {
+    opened = null
+  }
+  if (!opened || opened.ok !== true) return { state: 'locked' }
+  const v = opened.value
+  if (!v || typeof v !== 'object' || v.v !== 1 || v.k !== r.kind || !sameId(v.a, r.reporterId) || !sameId(v.u, r.targetUserId)) return { state: 'locked' }
+  const sameMessage = r.messageId === null || r.messageId === undefined ? v.m === null : sameId(v.m, r.messageId)
+  if (!sameMessage) return { state: 'locked' }
+  return { state: 'ok', note: typeof v.n === 'string' ? v.n : '', quote: typeof v.q === 'string' ? v.q : '' }
+}
+
+// Sunucunun verdiği ad boşsa hesap silinmiştir, listedeki kişi için görünen ad kullanılır
+function reportPersonName (userId, name) {
+  if (!name) return t('profile.deletedUser')
+  const listed = state.meta && Array.isArray(state.meta.users) && state.meta.users.some((u) => u && sameId(u.id, userId))
+  return listed ? shownName(userId) : String(name)
+}
+
+function buildReportRow (r) {
+  const li = h('li', 'list-row report-row')
+  li.setAttribute('data-report-id', String(r.id))
+  const main = h('span', 'list-main')
+  main.appendChild(avatar(r.targetUserId, 'sm'))
+  const text = h('span', 'list-text')
+  const target = reportPersonName(r.targetUserId, r.targetName)
+  const kindKey = r.kind === 'user' ? 'settings.reports.kindUser' : r.dm ? 'settings.reports.kindDm' : 'settings.reports.kindMessage'
+  text.appendChild(h('span', 'list-name', t(kindKey, { name: target })))
+  const reason = REPORT_REASON_KEYS.indexOf(r.reason) !== -1 ? t('report.reason.' + r.reason) : String(r.reason || '')
+  text.appendChild(h('span', 'list-sub', t('settings.reports.sub', { reason: reason, reporter: reportPersonName(r.reporterId, r.reporterName), time: formatShort(r.createdAt) })))
+  if (r.resolvedAt !== null && r.resolvedAt !== undefined) {
+    text.appendChild(h('span', 'list-sub', t('settings.reports.resolvedSub', { name: reportPersonName(r.resolvedBy, r.resolverName), time: formatShort(r.resolvedAt) })))
+  }
+  const opened = openReportNote(r)
+  if (opened.state === 'ok') {
+    if (opened.quote) text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
+    if (opened.note) text.appendChild(h('span', 'report-text report-note-line', t('settings.reports.note', { text: opened.note })))
+  } else if (opened.state === 'locked') {
+    text.appendChild(h('span', 'list-sub report-locked', t('settings.reports.noteLocked')))
+  }
+  main.appendChild(text)
+  li.appendChild(main)
+  const actions = h('span', 'row-actions')
+  if (r.kind === 'message' && !r.dm && typeof goToMessage === 'function') {
+    const go = button('button button-small button-secondary act-report-go', t('settings.reports.goTo'))
+    go.setAttribute('data-focus-key', 'report-go-' + r.id)
+    go.addEventListener('click', () => {
+      closeSettings(false)
+      goToMessage(r.channelId, r.messageId)
+    })
+    actions.appendChild(go)
+  }
+  if (r.resolvedAt === null) {
+    const resolve = button('button button-small act-report-resolve', t('settings.reports.resolve'))
+    resolve.setAttribute('data-focus-key', 'report-resolve-' + r.id)
+    resolve.setAttribute('aria-label', t('settings.reports.resolveLabel', { name: target }))
+    resolve.addEventListener('click', () => {
+      resolveReport(r, resolve)
+    })
+    actions.appendChild(resolve)
+  }
+  li.appendChild(actions)
+  return li
+}
+
+async function resolveReport (r, btn) {
+  const list = byId('set-reports-list')
+  const index = list ? Array.from(list.querySelectorAll('.act-report-resolve')).indexOf(btn) : -1
+  btn.disabled = true
+  const res = await api('POST', '/api/reports/resolve', { id: r.id })
+  btn.disabled = false
+  const msg = byId('set-reports-msg')
+  if (msg) msg.removeAttribute('data-load-error')
+  if (res.status !== 200 || !res.data || !validReport(res.data.report)) {
+    setMsg(msg, () => errorText(res, t('settings.reports.resolveFailed')), 'error')
+    return
+  }
+  const done = res.data.report
+  settingsUi.reports = (settingsUi.reports || []).map((x) => (x.id === done.id ? done : x))
+  setMsg(msg, () => t('settings.reports.resolved'), 'ok')
+  if (!isSettingsTab('members')) return
+  updateSettingsPage()
+  if (list && index !== -1) focusListAfterRemoval(list, index, 'set-reports-section-title')
+}
+
+function buildReportsSection (page) {
+  const sec = sSection(page, t('settings.reports.title'), 'set-reports-section')
+  sec.appendChild(sHint(t('settings.reports.hint'), 'set-reports-hint'))
+  const head = h('div', 'settings-inline-form')
+  const count = h('p', 'list-sub settings-reports-count')
+  count.id = 'set-reports-count'
+  count.setAttribute('role', 'status')
+  head.appendChild(count)
+  head.appendChild(sButton('button button-small button-secondary', t('settings.reports.refresh'), 'set-reports-refresh', () => {
+    loadReports()
+  }))
+  sec.appendChild(head)
+  const msg = sMsg('set-reports-msg')
+  sec.appendChild(msg)
+  const list = h('ul', 'plain-list settings-list')
+  list.id = 'set-reports-list'
+  list.setAttribute('aria-labelledby', 'set-reports-section-title')
+  sec.appendChild(list)
+  const doneWrap = h('div', 'settings-block')
+  doneWrap.id = 'set-reports-done-wrap'
+  sSub(doneWrap, t('settings.reports.resolvedTitle'), 'set-reports-done-title')
+  const doneList = h('ul', 'plain-list settings-list')
+  doneList.id = 'set-reports-done-list'
+  doneList.setAttribute('aria-labelledby', 'set-reports-done-title')
+  doneWrap.appendChild(doneList)
+  sec.appendChild(doneWrap)
+  const update = () => {
+    const staff = isAdmin()
+    sec.hidden = !staff
+    if (!staff) return
+    if (!settingsUi.reportsLoading && (settingsUi.reports === null || reportsOpenCount() !== settingsUi.reportsSeen)) loadReports()
+    const all = settingsUi.reports || []
+    const open = all.filter((r) => r.resolvedAt === null)
+    const done = all.filter((r) => r.resolvedAt !== null)
+    count.textContent = settingsUi.reports === null ? t('settings.reports.loading') : t('settings.reports.open', { count: open.length })
+    // Yükleme hatası yalnızca kendi gösterdiğini kaldırır (çözme hatası kalır)
+    if (settingsUi.reportsError) {
+      setMsg(msg, settingsUi.reportsError, 'error')
+      msg.setAttribute('data-load-error', '1')
+    } else if (msg.getAttribute('data-load-error') === '1') {
+      msg.removeAttribute('data-load-error')
+      setMsg(msg, '')
+    }
+    const focusKey = activeFocusKey(list)
+    clear(list)
+    if (settingsUi.reports !== null && !open.length) list.appendChild(h('li', 'empty-row', t('settings.reports.none')))
+    open.forEach((r) => {
+      list.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(list, focusKey)
+    doneWrap.hidden = !done.length
+    const doneFocus = activeFocusKey(doneList)
+    clear(doneList)
+    done.forEach((r) => {
+      doneList.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(doneList, doneFocus)
+  }
+  return {
+    update: update,
+    signature: () => {
+      if (!isAdmin()) return 'x'
+      const rows = (settingsUi.reports || []).map((r) => [r.id, r.resolvedAt, r.resolvedBy, r.reporterName, r.targetName].join(':')).join(',')
+      return [reportsOpenCount(), settingsUi.reports === null ? 'n' : rows, settingsUi.reportsLoading ? 'l' : '', settingsUi.reportsError ? 'e' : '', activeKid() || ''].join('|')
     }
   }
 }

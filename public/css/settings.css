@@ -790,6 +790,28 @@
   margin-right: 0.75rem;
 }
 
+/* Şikâyet satırı: çözülmüş not ve mesaj metni satırlarıyla görünür (11-settings.js buildReportRow) */
+.report-row .list-main {
+  align-items: flex-start;
+  flex-basis: 18rem;
+}
+
+.report-row .list-text {
+  flex: 1 1 auto;
+}
+
+.report-row .list-name {
+  white-space: normal;
+}
+
+.report-text {
+  margin-top: 0.25rem;
+  color: var(--text-2);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 .settings-fingerprint {
   display: inline-block;
   margin: 0.5rem 0;

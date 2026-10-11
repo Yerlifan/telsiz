@@ -895,6 +895,74 @@ test('frekanstan atma: onay istenir, iptalde istek gitmez, onayda istek gider, e
   assert.strictEqual(root.querySelector('#set-members-msg').textContent, 'mert frekanstan atıldı.')
 })
 
+test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, engelleme izinli üye görmez', async () => {
+  const reports = (sandbox) => {
+    sandbox.__reports = [
+      { id: 5, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, messageId: 40, dm: false, reason: 'spam', note: null, createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 4, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 9, messageId: 41, dm: true, reason: 'harassment', note: '1.0011223344556677.' + 'A'.repeat(32) + '.' + 'B'.repeat(40), createdAt: 900, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 3, kind: 'user', reporterId: 2, reporterName: '', targetUserId: 3, targetName: 'mert', channelId: null, messageId: null, dm: false, reason: 'other', note: null, createdAt: 800, resolvedAt: 850, resolvedBy: 1, resolverName: 'burak' }
+    ]
+  }
+  const owner = load({ role: 'owner' })
+  const { run, root, sandbox } = owner
+  reports(sandbox)
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    if (path === '/api/reports/resolve') return Promise.resolve({ status: 200, data: { ok: true, report: Object.assign({}, __reports[0], { resolvedAt: 2000, resolvedBy: 1, resolverName: 'burak' }) } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  assert.strictEqual(root.querySelector('#set-reports-section').hidden, false)
+  assert.strictEqual(root.querySelector('#set-reports-section-title').textContent, 'Şikâyetler')
+  await new Promise((r) => setImmediate(r))
+  const rows = root.querySelectorAll('#set-reports-list .report-row')
+  assert.deepStrictEqual(rows.map((n) => n.getAttribute('data-report-id')), ['5', '4'])
+  assert.strictEqual(root.querySelector('#set-reports-count').textContent, '2 açık şikâyet')
+  assert.strictEqual(rows[0].querySelector('.list-name').textContent, 'ece adlı kişinin mesajı')
+  assert.ok(rows[0].querySelector('.list-sub').textContent.indexOf('İstenmeyen içerik · Bildiren: mert · ') === 0)
+  assert.ok(rows[0].querySelector('.act-report-go'), 'yazı odasındaki mesaja gidilebilir')
+  assert.strictEqual(rows[0].querySelector('.act-report-resolve').getAttribute('aria-label'), 'ece hakkındaki şikâyeti çözüldü işaretle')
+  // Özel mesaj: Mesaja Git yok, anahtarı olmayan not kilitli görünür
+  assert.strictEqual(rows[1].querySelector('.list-name').textContent, 'ece adlı kişinin özel mesajı')
+  assert.strictEqual(rows[1].querySelector('.act-report-go'), null)
+  assert.ok(rows[1].querySelector('.report-locked'))
+  // Çözülenler: silinmiş bildiren ve çözen
+  const done = root.querySelectorAll('#set-reports-done-list .report-row')
+  assert.strictEqual(done.length, 1)
+  assert.strictEqual(done[0].querySelector('.list-name').textContent, 'Kişi: mert')
+  assert.ok(done[0].textContent.indexOf('Bildiren: Silinmiş kullanıcı') !== -1)
+  assert.ok(done[0].textContent.indexOf('Çözen: burak') !== -1)
+  assert.strictEqual(done[0].querySelector('.act-report-resolve'), null)
+  rows[0].querySelector('.act-report-resolve').click()
+  await new Promise((r) => setImmediate(r))
+  const resolves = sandbox.__requests.filter((r) => r.path === '/api/reports/resolve')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(resolves[0].body)), { id: 5 })
+  assert.strictEqual(root.querySelector('#set-reports-msg').textContent, 'Şikâyet çözüldü olarak işaretlendi.')
+  assert.deepStrictEqual(root.querySelectorAll('#set-reports-list .report-row').map((n) => n.getAttribute('data-report-id')), ['4'])
+  assert.strictEqual(root.querySelectorAll('#set-reports-done-list .report-row').length, 2)
+  // Özel görünümdeki açık şikâyet sayısı değişince liste yeniden alınır
+  const gets = () => sandbox.__requests.filter((r) => r.method === 'GET' && r.path === '/api/reports').length
+  const before = gets()
+  run('socialState.priv.reports = 7')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 1)
+  // Kapanınca liste unutulur
+  run('closeSettings(false)')
+  assert.strictEqual(run('settingsUi.reports'), null)
+
+  // Engelleme izinli üye Üyeler sayfasını görür ama şikâyetleri görmez ve istemez
+  const mod = load({ role: 'member' })
+  mod.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'blue', perms: ['ban'] }]")
+  mod.run('state.meta.users[0].roleId = 7')
+  mod.run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(mod.root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
+  assert.strictEqual(mod.root.querySelector('#set-reports-section').hidden, true)
+  assert.strictEqual(mod.sandbox.__requests.filter((r) => r.path === '/api/reports').length, 0)
+})
+
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
   const owner = load({ role: 'owner' })
   const { run, root, sandbox } = owner
