@@ -37,9 +37,14 @@ function createVoice () {
         const name = evt.userId !== null && evt.userId !== undefined ? shownName(evt.userId) : ''
         toast(() => (name ? t('camera.errors.negotiationUser', { name: name }) : cameraErrorText(evt.code, '')), '', 8000)
       },
-      // Oyun olayları (ileti, eş hazır, eş ayrıldı, oturum sıfırlandı) 36-oyun.js masa yöneticisine gider
+      // Oyun olayları (ileti, eş hazır, eş ayrıldı, oturum sıfırlandı, oyun bağı açıldı, kapandı veya açılamadı)
+      // 36-oyun.js masa yöneticisine gider
       onGameEvent: (evt) => {
         if (typeof gameOnVoiceEvent === 'function') gameOnVoiceEvent(evt)
+      },
+      // Oyun bağının gerçek zamanlı verisi (ikili) masa yöneticisinden geçmeden 36-oyun.js'e, oradan etkin oyuna gider
+      onGameData: (peerId, userId, data) => {
+        if (typeof gameOnData === 'function') gameOnData(peerId, userId, data)
       },
       storage: {
         get: (key) => storeGet(key),

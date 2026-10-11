@@ -66,7 +66,7 @@ CI also checks the shell scripts with ShellCheck and POSIX syntax checks, builds
 
 ## Project layout
 
-The server is a Node.js application with no runtime dependencies that keeps its data in JSON and JSONL files. Real time communication uses only HTTP long polling. The client is made of plain script files without a build step and is written with at most ES2017 syntax for compatibility with older WebKit based console browsers. The detailed architecture is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The server is a Node.js application with no runtime dependencies that keeps its data in JSON and JSONL files. Real time communication between the client and the server uses only HTTP long polling. The client is made of plain script files without a build step and is written with at most ES2017 syntax for compatibility with older WebKit based console browsers. The detailed architecture is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | Path | Purpose |
 | --- | --- |
@@ -82,7 +82,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `src/system-info.js` | Server information: processor, memory and cgroup limit, disk space (`GET /api/server-info`) |
 | `public/index.html` | Single page markup and the SVG icon sprite |
 | `public/crypto.js` | `window.E2EE`: key code, envelopes, file encryption, personal keys, pinning |
-| `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine, and the transport for game messages in voice rooms |
+| `public/voice.js` | `window.VoiceClient`: the WebRTC voice, screen sharing and camera engine, the transport for game messages in voice rooms, and the peer to peer data channel for real time game data (the game link) |
 | `public/rnnoise-worklet.js` | Advanced noise suppression: the AudioWorklet processor that runs the RNNoise wasm module |
 | `public/music.js`, `public/dj/youtube.js` | The Telsiz DJ engine and the YouTube player adapter |
 | `public/i18n.js` | The Turkish and English dictionaries of the client |
@@ -133,8 +133,12 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `33-oyun-protokol.js` | The game protocol core (`window.TelsizGame`): message formats and their validators, the inner envelope (sealing, opening, binding checks), counter rules, validation of the state body, unbiased random choice and shuffling. Pure, uses no DOM, clock or network |
 | `34-oyun-masa.js` | The game table manager (`window.TelsizGameDesk`): the dealer and player state machines, invites, seats, single flight sending, throttling, liveness and reconnection. Pure, time and network are passed in from outside |
 | `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
-| `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
+| `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+| `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
+| `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
+| `45-hexball-ag.js` | Hexball networking (`window.TelsizHexballNet`): the binary messages on the game data channel (HELLO, HELLO_ACK, INPUT, SNAP) and their strict decoders, the handshake, the host's authoritative physics loop, pausing when two loop runs are more than 250 ms apart, holding back the host's own input, input limits, and the snapshot buffer and interpolation on players. Clock, timers and sending are passed in |
+| `46-hexball.js` | The Hexball interface: the Teams and result screen, the match screen's scoreboard and field canvas (colors from the `--hex-*` tokens in `tokens.css`), keyboard (arrows or WASD, X or Space), gamepad, the touch stick and Kick button on phones, the 'No Connection' state, and the trust note saying that the host could cheat. On the host it sets up the network session and sends the goal and time up events of the physics to the rule engine as moves. During a match L1 and R1 do not change the frequency (`ownsPad`). Its styles are in `hexball.css` |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
@@ -152,7 +156,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
 8. `.bat` files are saved without a BOM and with CRLF line endings, and none of their lines contains a semicolon. `.sh` files are saved without a BOM and with LF line endings only, and are stored in git with the executable mode (100755).
 9. JSON files must be valid JSON.
 10. Markdown documents use no semicolons in prose. Code examples go into code blocks or inline code.
-11. Real time communication uses only long polling. WebSocket or Server-Sent Events are not added.
+11. Real time communication between the client and the server uses only long polling. WebSocket or Server-Sent Events are not added. This rule does not cover the WebRTC connections set up directly between people (voice, video, screen sharing and the game data channel). The setup messages of these connections still go through the signal path of the server.
 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
 14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
@@ -177,9 +181,11 @@ Changes that touch the following areas need extra review. In these pull requests
 | Area | Why it is sensitive |
 | --- | --- |
 | `public/crypto.js`, `public/js/16-identity.js` | Key code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
-| `public/voice.js` | Encryption and strict format checks of voice, screen sharing, camera and game signals, verification of sender and recipient, replay protection |
+| `public/voice.js` | Encryption and strict format checks of voice, screen sharing, camera and game signals, verification of sender and recipient, replay protection, the acceptance rules of the game data channel (label, settings, one channel per peer, none in private calls), its size and rate limits |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | The inner envelope of game messages and its binding fields (`ctx`, `k`, `g`, `ch`, `from`, `to`), counters and replay protection (`ni`, `seq`, `rd`, `r`), strict checks of message formats and the role table, the choice of inner layer keys (`gameKeys` in `36-oyun.js`) |
 | `public/js/35-renk-kural.js` | Unbiased shuffling, validation of the view and hand that come from the dealer, making sure no view or event contains someone else's hand |
+| `public/js/43-hexball-kural.js` | Permission checks of the host only moves (assigning teams, starting a match, goal, time up, stopping), strict validation of the view that comes from the host |
+| `public/js/45-hexball-ag.js` | Strict validation of binary messages from peers (version, type, length, fields), processing input only from the seated person's own peer and only when that person has a slot in the match, the per peer input limit, players accepting messages only from the host's peer |
 | `public/music.js`, `public/dj/youtube.js` | Validation of the encrypted DJ state, isolation of the YouTube frame and the consent rule |
 | `src/auth.js`, `src/app.js` | Password hashing, sessions, permissions, rate limits, trusted proxies |
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
@@ -188,7 +194,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, update checks (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | The whitelist of files that go into a release, the auto update info files, the authentication of the npm publish |
 
-Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code. Adding a new voice signal type and changing the types or field sets of game messages are plaintext format changes too.
+Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code. Adding a new voice signal type and changing the types or field sets of game messages are plaintext format changes too. Changing the rules of the game data channel (label, settings, limits) or the binary message formats of Hexball also needs an issue first, because it affects compatibility with older clients and the limits against denial of service.
 
 ## Branches and pull requests
 

@@ -3,6 +3,7 @@
 // Renk kart oyunu (public/js/33-oyun-protokol.js ile 37-renk.js) gerçek tarayıcıda, dört kişi aynı ses odasında.
 // Deniz kurpiyerdir ve Aylin'i engellemiştir. Ece ve Deniz geniş ekranda, Mert telefonda (360 x 740).
 // - Oyun düğmesi telsiz kartının araç satırında Telsiz DJ'den hemen önce durur
+// - Oyun Seç: iki oyun kayıtlı olduğu için Oyun düğmesi önce oyun seçimini açar, Renk seçilir
 // - Masa Kur: Resmî kural seçili, engellenen Aylin "Engellediniz" çipiyle görünür, Masa Aç lobiyi açar
 // - Davet: Ece ve Mert'te Oyun düğmesi "Davet" olur, Ece'nin Bildirimler listesine kayıt düşer, Aylin davet görmez
 // - Ece Masaya Bak ile güven notunu görüp katılır. Mert reddeder, kurpiyerde "Reddetti" görünür, düğmeden
@@ -208,6 +209,14 @@ test('dört kişi ses odasında, Oyun düğmesi araç satırında Telsiz DJ\'den
 test('kurpiyer Masa Kur ekranında Resmî kuralı ve engellediği kişiyi görür, masayı açar', async () => {
   const { deniz } = W
   await deniz.click('#radio-game')
+  // İki oyun kayıtlı (Renk ve Hexball): önce Oyun Seç ekranı açılır
+  await deniz.waitForSelector(onStage('game-pick-renk'), { timeout: h.LONG })
+  const picks = await deniz.evaluate(() => ({
+    title: document.querySelector('#cast .cast-title').textContent,
+    apps: Array.from(document.querySelectorAll('#cast .game-pick')).map((b) => b.getAttribute('data-app'))
+  }))
+  assert.deepEqual(picks, { title: 'Oyun Seç', apps: ['renk', 'hexball'] })
+  await deniz.click(key('game-pick-renk'))
   await deniz.waitForSelector(onStage('game-open'), { timeout: h.LONG })
   const r = await deniz.evaluate(() => ({
     title: document.querySelector('#cast .cast-title').textContent,

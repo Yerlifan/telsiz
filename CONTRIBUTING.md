@@ -66,7 +66,7 @@ CI ayrıca kabuk betiklerini ShellCheck ve POSIX sözdizimi denetimiyle sınar, 
 
 ## Proje yapısı
 
-Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulamasıdır ve verileri JSON ve JSONL dosyalarında saklar. Gerçek zamanlı iletişim yalnızca HTTP long-polling ile yapılır. İstemci derleme adımı olmayan düz betik dosyalarından oluşur ve eski WebKit tabanlı konsol tarayıcılarıyla uyum için en fazla ES2017 sözdizimiyle yazılır. Ayrıntılı mimari [docs/MIMARI.md](docs/MIMARI.md) dosyasındadır.
+Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulamasıdır ve verileri JSON ve JSONL dosyalarında saklar. İstemci ile sunucu arasındaki gerçek zamanlı iletişim yalnızca HTTP long-polling ile yapılır. İstemci derleme adımı olmayan düz betik dosyalarından oluşur ve eski WebKit tabanlı konsol tarayıcılarıyla uyum için en fazla ES2017 sözdizimiyle yazılır. Ayrıntılı mimari [docs/MIMARI.md](docs/MIMARI.md) dosyasındadır.
 
 | Yol | Görevi |
 | --- | --- |
@@ -82,7 +82,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `src/system-info.js` | Sunucu bilgileri: işlemci, bellek ve cgroup sınırı, disk alanı (`GET /api/server-info`) |
 | `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
 | `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
-| `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru, ses odasındaki oyun iletilerinin taşınması |
+| `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru, ses odasındaki oyun iletilerinin taşınması, gerçek zamanlı oyun verisi için eşten eşe veri kanalı (oyun bağı) |
 | `public/rnnoise-worklet.js` | Gelişmiş gürültü engelleme: RNNoise wasm modülünü çalıştıran AudioWorklet işlemcisi |
 | `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
 | `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
@@ -133,8 +133,12 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `33-oyun-protokol.js` | Oyun protokolü çekirdeği (`window.TelsizGame`): ileti biçimleri ve doğrulayıcıları, iç zarf (mühürleme, açma, bağ denetimi), sayaç kuralları, durum gövdesinin denetimi, yansız rastgele seçim ve karıştırma. Saftır, DOM, saat ve ağ kullanmaz |
 | `34-oyun-masa.js` | Oyun masası yöneticisi (`window.TelsizGameDesk`): kurpiyer ve oyuncu durum makineleri, davetler, koltuklar, tek uçuşlu gönderim, kısma, canlılık ve yeniden bağlanma. Saftır, zaman ve ağ dışarıdan verilir |
 | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
-| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
+| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+| `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
+| `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
+| `45-hexball-ag.js` | Hexball ağı (`window.TelsizHexballNet`): oyun veri kanalındaki ikili iletiler (HELLO, HELLO_ACK, INPUT, SNAP) ve katı çözücüleri, el sıkışma, ev sahibinin otoriter fizik döngüsü, iki döngü arası 250 ms'yi aşınca duraklama, ev sahibinin kendi girdisinin bekletilmesi, girdi kısıtları, oyuncuda anlık görüntü tamponu ve ara değerleme. Saat, zamanlayıcı ve gönderim dışarıdan verilir |
+| `46-hexball.js` | Hexball arayüzü: Takımlar ve sonuç ekranı, maç ekranının skor tablosu ve saha tuvali (renkler `tokens.css` `--hex-*` belirteçlerinden), klavye (oklar veya WASD, X veya Boşluk), oyun kolu, telefonda dokunmatik çubuk ve Vur düğmesi, 'Bağlantı Yok' durumu, ev sahibinin hile yapabileceğini yazan güven notu. Ev sahibinde ağ oturumunu kurar, fiziğin gol ve süre olaylarını kural motoruna hamle olarak gönderir. Maç sürerken L1 ve R1 frekans değiştirmez (`ownsPad`). Stilleri `hexball.css` |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -152,7 +156,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
 8. `.bat` dosyaları BOM'suz ve CRLF satır sonlarıyla kaydedilir, hiçbir satırında noktalı virgül bulunmaz. `.sh` dosyaları BOM'suz ve yalnızca LF satır sonlarıyla kaydedilir ve git'te çalıştırılabilir kipte (100755) saklanır.
 9. JSON dosyaları geçerli JSON olmalıdır.
 10. Markdown belgelerinde düzyazıda noktalı virgül kullanılmaz. Kod örnekleri kod bloğuna veya satır içi koda yazılır.
-11. Gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez.
+11. İstemci ile sunucu arasındaki gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez. Bu kural kişiler arasında doğrudan kurulan WebRTC bağlantılarını (ses, görüntü, ekran paylaşımı ve oyun veri kanalı) kapsamaz. Bu bağlantıların kurulum iletileri yine sunucunun sinyal yolundan gider.
 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
 14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
@@ -177,9 +181,11 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | Alan | Neden hassas |
 | --- | --- |
 | `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
-| `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
+| `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması, oyun veri kanalının kabul kuralları (etiket, ayarlar, eş başına tek kanal, özel aramada yok), boyut ve hız sınırları |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
 | `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |
+| `public/js/43-hexball-kural.js` | Ev sahibine özel hamlelerin (takım atama, maçı başlatma, gol, süre bitti, durdurma) yetki denetimi, ev sahibinden gelen görünümün katı denetimi |
+| `public/js/45-hexball-ag.js` | Eşlerden gelen ikili iletilerin katı denetimi (sürüm, tür, boy, alanlar), girdinin yalnızca masadaki kişinin kendi eşinden ve maçta yuvası varken işlenmesi, eş başına girdi sınırı, oyuncuda yalnızca ev sahibinin eşinden gelen iletilerin kabulü |
 | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
 | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
@@ -188,7 +194,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, güncelleme denetimi (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | Yayına giren dosyaların beyaz listesi, otomatik güncelleme bilgi dosyaları, npm yayınının kimlik doğrulaması |
 
-Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın. Ses sinyaline yeni bir tür eklemek ve oyun iletilerinin türlerini veya alan kümelerini değiştirmek de düz metin biçimi değişikliğidir.
+Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın. Ses sinyaline yeni bir tür eklemek ve oyun iletilerinin türlerini veya alan kümelerini değiştirmek de düz metin biçimi değişikliğidir. Oyun veri kanalının kurallarını (etiket, ayarlar, sınırlar) ve Hexball'un ikili ileti biçimlerini değiştirmek de önce issue ister, çünkü eski istemcilerle uyumu ve hizmet engeline karşı sınırları etkiler.
 
 ## Dal ve PR süreci
 

@@ -37,8 +37,6 @@ window.TelsizGameDesk = (function (G) {
   const BACKOFF = TIMES.BACKOFF_MS
   // Kurpiyere gelen iç ileti türleri. Oyuncuya gelen tek iç tür state'tir.
   const DEALER_KINDS = ['join', 'act', 'sync', 'leave']
-  // Kurpiyerin kendi sıra dışı hamleleri ağdan gelen hamlelerle eşit yarışsın diye gecikmeli işlenir
-  const DELAYED_MOVES = ['last', 'catch']
   // Masa yöneticisinin kendi hata kodları (uygulama kodlarına ek): send, locked, join_timeout
   const ERRORS = ['send', 'locked', 'join_timeout']
 
@@ -101,6 +99,14 @@ window.TelsizGameDesk = (function (G) {
     function appOf (id) {
       const apps = env.apps || {}
       return G.isApp(id) && hasOwn(apps, id) && apps[id] ? apps[id] : null
+    }
+
+    // Kurpiyerin kendi sıra dışı hamleleri ağdan gelen hamlelerle eşit yarışsın diye SELF_DELAY_MS sonra işlenir.
+    // Hangi hamle türlerinin böyle olduğunu uygulama söyler (A.DELAYED_MOVES, ör. Renk'te last ve catch). Liste
+    // vermeyen uygulamanın hamleleri hemen işlenir.
+    function delayedMove (A, move) {
+      const list = A && Array.isArray(A.DELAYED_MOVES) ? A.DELAYED_MOVES : null
+      return list !== null && G.isPlain(move) && typeof move.t === 'string' && list.indexOf(move.t) >= 0
     }
 
     function keysFor (uid) {
@@ -364,11 +370,13 @@ window.TelsizGameDesk = (function (G) {
       Object.keys(T.invites).forEach((uid) => to(T.invites[uid].peerId))
     }
 
-    // Kimlik kilitlendi: masa yerelde kapanır, hâlâ seste isem oyunculara düz close gider
+    // Kimlik kilitlendi: masa yerelde kapanır, hâlâ seste isem oyunculara düz close gider. Masa silindiği için
+    // bildirim uygulamayı da taşır (bitiş metni uygulamanın kendi sözcükleriyle yazılır).
     function lockClose () {
+      const app = T.app
       if (chan()) closeAll('dealer')
       T = null
-      notice('ended', { reason: 'keys' })
+      notice('ended', { reason: 'keys', app: app })
     }
 
     // Koltuk kaldırma (leave, peer-leave, removeSeat). Kurpiyerin koltuğu (seats[0]) kaldırılmaz. Oyun durumu
@@ -1472,7 +1480,7 @@ window.TelsizGameDesk = (function (G) {
     function doAct (move) {
       if (dealing()) {
         if (T.ph !== 'play') return false
-        if (G.isPlain(move) && DELAYED_MOVES.indexOf(move.t) >= 0) {
+        if (delayedMove(T.A, move)) {
           T.selfQueue.push({ move: move, due: now() + TIMES.SELF_DELAY_MS })
           return true
         }
@@ -1727,7 +1735,6 @@ window.TelsizGameDesk = (function (G) {
 
   return Object.freeze({
     TIMES: TIMES,
-    DELAYED_MOVES: Object.freeze(DELAYED_MOVES.slice()),
     ERRORS: Object.freeze(ERRORS.slice()),
     create: create
   })
