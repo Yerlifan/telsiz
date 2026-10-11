@@ -72,6 +72,7 @@ window.I18N = (function () {
     'settings.privacy.autoIdleAfter': 'Süre',
     'settings.privacy.autoIdleMinutes_one': '{count} dakika',
     'settings.privacy.autoIdleMinutes_other': '{count} dakika',
+    'status.autoIdle': 'Boşta (otomatik)',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar
@@ -2067,6 +2068,7 @@ window.I18N = (function () {
     'settings.privacy.autoIdleAfter': 'After',
     'settings.privacy.autoIdleMinutes_one': '{count} minute',
     'settings.privacy.autoIdleMinutes_other': '{count} minutes',
+    'status.autoIdle': 'Idle (automatic)',
     // G9 ve G10 Gezinme
     // G11 Yüzen pencereler
     // G12 Temalar

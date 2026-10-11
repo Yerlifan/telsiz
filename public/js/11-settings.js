@@ -782,7 +782,9 @@ function shownStatusOf (userId) {
   return safeCall(() => shownStatus(userId), 'offline')
 }
 
+// Kendi durumumun metni (13-profile.js myStatusLabel): otomatik boştaysam "Boşta (otomatik)"
 function chosenStatusLabel () {
+  if (typeof myStatusLabel === 'function') return safeCall(() => myStatusLabel(), '')
   const status = safeCall(() => myChosenStatus(), 'online')
   return safeCall(() => statusLabel(status), '')
 }
@@ -866,7 +868,7 @@ function myProfileSignature () {
   if (!state.me) return ''
   const id = state.me.id
   const rec = safeCall(() => profileRecord(id), null)
-  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
+  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), safeCall(() => myAutoIdle(), false), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
 }
 
 // 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme

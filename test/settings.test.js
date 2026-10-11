@@ -1012,6 +1012,39 @@ test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişi
   assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 5 })"), '5 minutes')
 })
 
+test('otomatik boşta: kendi durumum "Boşta (otomatik)" görünür, elle seçilen durum değişmez', () => {
+  const { run } = load()
+  const me = () => ({
+    auto: run('myAutoIdle()'),
+    status: run('userStatus(1)'),
+    label: run('myStatusLabel()'),
+    line: run('myStatusLine(snap())'),
+    settings: run('chosenStatusLabel()')
+  })
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  // Sunucu beni boşta gösteriyor (bütün oturumlarım boşta), bu cihaz da boşta bildiriyor
+  run("state.meta.users[0].status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: true, status: 'idle', label: 'Boşta (otomatik)', line: 'Boşta (otomatik)', settings: 'Boşta (otomatik)' })
+  assert.strictEqual(run('myChosenStatus()'), 'online')
+  // Bu cihaz etkinse sunucunun eski metası "otomatik" sayılmaz (ör. elle Boşta'dan Çevrimiçi'ne dönerken)
+  run('var __deviceIdle = false; function idleThisDevice () { return __deviceIdle }')
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  run('__deviceIdle = true')
+  assert.strictEqual(run('myAutoIdle()'), true)
+  // Elle seçilen durumlar otomatik sayılmaz
+  run("state.me.status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: false, status: 'idle', label: 'Boşta', line: 'Boşta', settings: 'Boşta' })
+  run("state.me.status = 'dnd'; state.meta.users[0].status = 'dnd'")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'dnd')
+  run("state.me.status = 'invisible'; state.meta.users[0].status = 'offline'; state.meta.users[0].online = false")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'offline')
+  run("I18N.setLang('en')")
+  run("state.me.status = 'online'; state.meta.users[0].status = 'idle'; state.meta.users[0].online = true")
+  assert.strictEqual(run('myStatusLabel()'), 'Idle (automatic)')
+})
+
 test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
   const { run, root, storage } = load()
   assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')

@@ -998,6 +998,8 @@ function myStatusLine (s) {
   if (chosen === 'idle') return t('layout.status.idle')
   if (chosen === 'dnd') return t('layout.status.dnd')
   if (chosen === 'invisible') return t('layout.status.invisible')
+  // Otomatik boşta (13-profile.js myAutoIdle): elle seçilen durum Çevrimiçi, başkaları Boşta görüyor
+  if (typeof myAutoIdle === 'function' && myAutoIdle()) return t('status.autoIdle')
   return t('user.online')
 }
 

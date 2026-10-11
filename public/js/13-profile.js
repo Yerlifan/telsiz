@@ -413,10 +413,26 @@ function myChosenStatus () {
   return STATUS_CHOICES.indexOf(status) !== -1 ? status : 'online'
 }
 
+// Otomatik boşta (40-bosta.js, src/hub.js): elle seçtiğim durum Çevrimiçi, bu cihaz boşta bildiriyor ve sunucu beni
+// metada boşta gösteriyor. Bu cihaz etkinken sunucu beni boşta gösteremez, böylece meta henüz gelmeden de (ör. Boşta
+// seçiminden Çevrimiçi'ne dönerken) yanlış "Boşta (otomatik)" görünmez.
+function myAutoIdle () {
+  if (!state.me || myChosenStatus() !== 'online') return false
+  if (typeof idleThisDevice === 'function' && !idleThisDevice()) return false
+  const user = metaUser(state.me.id)
+  return Boolean(user && user.online === true && user.status === 'idle')
+}
+
+// Kendi durumumun metni: otomatik boştaysam "Boşta (otomatik)", değilse elle seçtiğim durum
+function myStatusLabel () {
+  return myAutoIdle() ? t('status.autoIdle') : statusLabel(myChosenStatus())
+}
+
 function userStatus (userId) {
   if (state.me && sameId(userId, state.me.id)) {
     const mine = myChosenStatus()
-    return mine === 'invisible' ? 'offline' : mine
+    if (mine === 'invisible') return 'offline'
+    return myAutoIdle() ? 'idle' : mine
   }
   const user = metaUser(userId)
   if (!user) return 'offline'
@@ -646,7 +662,7 @@ function buildProfileCard (card, userId) {
   const statusRow = h('p', 'profile-card-status')
   statusRow.setAttribute('data-status', status)
   statusRow.appendChild(statusDot(status))
-  statusRow.appendChild(h('span', 'profile-card-status-label', statusLabel(self ? myChosenStatus() : status)))
+  statusRow.appendChild(h('span', 'profile-card-status-label', self ? myStatusLabel() : statusLabel(status)))
   if (profile && profile.statusText) {
     statusRow.appendChild(h('span', 'profile-card-status-text', profile.statusText))
   }
