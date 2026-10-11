@@ -3,8 +3,8 @@
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
 // özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
-// YouTube araması, statik beyaz liste ve düzgün kapanış.
-// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
+// YouTube araması, içerik şikâyetleri, statik beyaz liste ve düzgün kapanış.
+// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını, şikâyet notlarını,
 // token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
 // Türkçe veya İngilizcedir (src/i18n.js).
@@ -130,6 +130,9 @@ const DEFAULTS = Object.freeze({
   callLimit: 10,
   callWindowMs: 60000,
   callRingMs: 45000,
+  // İçerik şikâyeti: kullanıcı başına saatte 10
+  reportLimit: 10,
+  reportWindowMs: 3600000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -157,7 +160,7 @@ const POSITIVE_OPTIONS = [
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
   'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
-  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs'
+  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs', 'reportLimit', 'reportWindowMs'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
@@ -184,6 +187,13 @@ const MAX_ROLES = 20
 const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
+// İçerik şikâyeti (POST /api/reports): türler, nedenler ve state.json içinde tutulan en çok kayıt. Notun düz metni
+// istemcide en çok 2000 kod noktasıdır ve grup anahtarıyla mühürlenir. Zarf sınırı kod noktası başına en çok 4
+// bayt ile JSON alanlarına pay bırakır: (2000 * 4 + 400) bayt base64url ile yaklaşık 11250 karakter.
+const REPORT_KINDS = new Set(['message', 'user'])
+const REPORT_REASONS = new Set(['spam', 'harassment', 'illegal', 'other'])
+const REPORTS_MAX = 500
+const REPORT_NOTE_MAX_CHARS = 12000
 const IDENTITY_MAX_CHARS = 2000
 // Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
 // (101 parça, en uzun adlar, dolu gone listesi) yaklaşık 105000 karakterdir.
@@ -463,6 +473,38 @@ function publicRole (role) {
   return { id: role.id, name: role.name, color: role.color, perms: role.perms.slice() }
 }
 
+function finiteTime (value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+// Şikâyet kaydı: { id, kind, reporterId, targetUserId, channelId, messageId, dm, reason, note, createdAt, resolvedAt,
+// resolvedBy }. Mesaj şikâyetinde channelId ve messageId vardır, dm mesajın özel konuşmada olduğunu gösterir. Kişi
+// şikâyetinde ikisi de null'dır. note grup anahtarıyla mühürlü zarf veya null. Geçersizse null.
+function cleanReport (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !isId(value.id)) return null
+  if (!REPORT_KINDS.has(value.kind) || !REPORT_REASONS.has(value.reason)) return null
+  if (!isId(value.reporterId) || !isId(value.targetUserId) || !finiteTime(value.createdAt)) return null
+  const message = value.kind === 'message'
+  if (message ? !(isId(value.channelId) && isId(value.messageId)) : (value.channelId !== null || value.messageId !== null)) return null
+  if (value.note !== null && !validEnvelope(value.note, REPORT_NOTE_MAX_CHARS)) return null
+  const resolved = value.resolvedAt !== null
+  if (resolved ? !(finiteTime(value.resolvedAt) && isId(value.resolvedBy)) : value.resolvedBy !== null) return null
+  return {
+    id: value.id,
+    kind: value.kind,
+    reporterId: value.reporterId,
+    targetUserId: value.targetUserId,
+    channelId: message ? value.channelId : null,
+    messageId: message ? value.messageId : null,
+    dm: message && value.dm === true,
+    reason: value.reason,
+    note: value.note,
+    createdAt: value.createdAt,
+    resolvedAt: value.resolvedAt,
+    resolvedBy: value.resolvedBy
+  }
+}
+
 // Yüklenen durumun temel kayıtlarını denetler. Bozuksa hiçbir şeyi değiştirmeden hata fırlatır.
 // Silinmiş hesaplar (deleted: true) adsız ve karmasız kalır, mesaj yazarı olarak tutulur.
 function checkLoadedState (store, state, lang) {
@@ -691,6 +733,28 @@ function normalizeLoadedState (state, config, log) {
     if (state.counters.role !== undefined || maxRole > 0) changed = true
     state.counters.role = Math.max(maxRole, Number.isSafeInteger(state.counters.role) && state.counters.role > 0 ? state.counters.role : 0)
   }
+  // Şikâyetler eski durum dosyalarında yoktur, boş listeyle başlar (yazım gerekmez). Liste oluşturulma sırasıyla
+  // tutulur, fazlası en eskiden düşer.
+  if (state.reports === undefined) {
+    state.reports = []
+  } else {
+    const seenReports = new Set()
+    const reports = (Array.isArray(state.reports) ? state.reports : []).map(cleanReport).filter((r) => {
+      if (!r || seenReports.has(r.id)) return false
+      seenReports.add(r.id)
+      return true
+    }).slice(-REPORTS_MAX)
+    if (!sameJson(reports, state.reports)) {
+      log.warn(i18n.t(lang, 'log.invalidReports'))
+      state.reports = reports
+      changed = true
+    }
+  }
+  const maxReport = state.reports.reduce((max, r) => Math.max(max, r.id), 0)
+  if (!Number.isSafeInteger(state.counters.report) || state.counters.report < maxReport) {
+    if (state.counters.report !== undefined || maxReport > 0) changed = true
+    state.counters.report = Math.max(maxReport, Number.isSafeInteger(state.counters.report) && state.counters.report > 0 ? state.counters.report : 0)
+  }
   // Hesabın özel rolü ve ses susturması eski kayıtlarda yoktur (yazım gerekmez), silinen role bağlı rol kalkar
   const roleIds = new Set(state.roles.map((r) => r.id))
   for (const u of state.users) {
@@ -824,7 +888,7 @@ function prepareState (store, config, log) {
       serverIcon: null,
       inviteCode: auth.generateCode(),
       activeKid: null,
-      counters: { user: 0, channel: 0, message: 0, role: 0 },
+      counters: { user: 0, channel: 0, message: 0, role: 0, report: 0 },
       users: [],
       sessions: [],
       channels: [],
@@ -835,6 +899,8 @@ function prepareState (store, config, log) {
       blocks: [],
       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
       roles: [],
+      // İçerik şikâyetleri (sahip ve yöneticiler görür), oluşturulma sırasıyla
+      reports: [],
       // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
       music: cleanMusicSettings(null),
       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
@@ -1034,12 +1100,15 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
+  // İçerik şikâyeti (sahip ve yöneticilerin listesini doldurmasın diye ayrıca sınırlanır)
+  const reportLimiter = new auth.RateLimiter(config.reportLimit, config.reportWindowMs)
   // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
   // YouTube'a giden her istekte spendSearchBudget ile düşer)
   const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
   const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily,
+    reportLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
   let proxyWarned = false
@@ -1204,6 +1273,8 @@ async function createChatServer (options) {
       view = user
         ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
         : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
+      // Sahip ve yöneticiler açık şikâyet sayısını görür (liste GET /api/reports ile alınır)
+      if (user && !user.deleted && isStaff(user)) view.reports = openReportCount()
       privateCache.set(userId, view)
     }
     return view
@@ -2910,6 +2981,8 @@ async function createChatServer (options) {
       target.role = b.role
       store.saveState()
       hub.bumpMeta()
+      // Yöneticinin özel görünümünde açık şikâyet sayısı vardır
+      privateChanged([target.id])
     }
     return okDurable(ctx, { ok: true })
   }
@@ -2946,6 +3019,130 @@ async function createChatServer (options) {
     if (target.id === ctx.user.id || target.role === 'owner' || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     deleteAccount(target, 'kicked')
     return okDurable(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: içerik şikâyeti
+
+  function staffIds () {
+    return state.users.filter((u) => !u.deleted && isStaff(u)).map((u) => u.id)
+  }
+
+  function openReportCount () {
+    let n = 0
+    for (const r of state.reports) {
+      if (r.resolvedAt === null) n++
+    }
+    return n
+  }
+
+  function takeReportSlot (ctx) {
+    const wait = reportLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait === 0) return true
+    tooMany(ctx, wait, 'detail.reportRate')
+    return false
+  }
+
+  // Silinmiş hesabın adı boş döner
+  function liveNameOf (userId) {
+    const user = userId === null ? null : usersById.get(userId)
+    return user && !user.deleted ? user.name : ''
+  }
+
+  function reportView (r) {
+    return {
+      id: r.id,
+      kind: r.kind,
+      reporterId: r.reporterId,
+      reporterName: liveNameOf(r.reporterId),
+      targetUserId: r.targetUserId,
+      targetName: liveNameOf(r.targetUserId),
+      channelId: r.channelId,
+      messageId: r.messageId,
+      dm: r.dm,
+      reason: r.reason,
+      note: r.note,
+      createdAt: r.createdAt,
+      resolvedAt: r.resolvedAt,
+      resolvedBy: r.resolvedBy,
+      resolverName: liveNameOf(r.resolvedBy)
+    }
+  }
+
+  // POST /api/reports { kind, channelId?, messageId?, targetUserId, reason, note? }: üye bir mesajı (okuyabildiği
+  // yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
+  // Sunucu kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini görür. note grup anahtarıyla mühürlü bir zarftır
+  // (düz metin kabul edilmez), özel mesaj şikâyetinde kişi mesajın çözülmüş metnini isterse bu nota koyar. Aynı
+  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz. Liste doluysa en eski çözülmüş şikâyet
+  // düşer, hepsi açıksa 503 reports_full döner.
+  function handleReportCreate (ctx) {
+    const b = ctx.body
+    if (!REPORT_KINDS.has(b.kind) || !REPORT_REASONS.has(b.reason)) return fail(ctx, 400, 'bad_request')
+    const note = b.note === undefined || b.note === null ? null : b.note
+    if (note !== null && !validEnvelope(note, REPORT_NOTE_MAX_CHARS)) return fail(ctx, 400, 'bad_report_note')
+    let target = null
+    let found = null
+    if (b.kind === 'message') {
+      found = findLiveMessage(b.messageId, ctx.user)
+      if (!found || toId(b.channelId) !== found.message.channelId) return fail(ctx, 404, 'message_not_found')
+      if (toId(b.targetUserId) !== found.message.authorId) return fail(ctx, 400, 'bad_request')
+      target = usersById.get(found.message.authorId) || null
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    } else {
+      if ((b.channelId !== undefined && b.channelId !== null) || (b.messageId !== undefined && b.messageId !== null)) return fail(ctx, 400, 'bad_request')
+      target = findLiveUser(b.targetUserId)
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    }
+    if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
+    const messageId = found ? found.message.id : null
+    const same = state.reports.find((r) => r.resolvedAt === null && r.reporterId === ctx.user.id && r.kind === b.kind &&
+      (found ? r.messageId === messageId : r.targetUserId === target.id))
+    if (same) return ok(ctx, { ok: true, id: same.id, duplicate: true })
+    if (!takeReportSlot(ctx)) return
+    if (state.reports.length >= REPORTS_MAX) {
+      const oldest = state.reports.findIndex((r) => r.resolvedAt !== null)
+      if (oldest === -1) return fail(ctx, 503, 'reports_full')
+      state.reports.splice(oldest, 1)
+    }
+    state.counters.report++
+    const report = {
+      id: state.counters.report,
+      kind: b.kind,
+      reporterId: ctx.user.id,
+      targetUserId: target.id,
+      channelId: found ? found.message.channelId : null,
+      messageId,
+      dm: Boolean(found && found.channel.type === 'dm'),
+      reason: b.reason,
+      note,
+      createdAt: ctx.now,
+      resolvedAt: null,
+      resolvedBy: null
+    }
+    state.reports.push(report)
+    store.saveState()
+    privateChanged(staffIds())
+    return okDurable(ctx, { ok: true, id: report.id })
+  }
+
+  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce
+  function handleReportsList (ctx) {
+    if (!requireStaff(ctx)) return
+    ok(ctx, { reports: state.reports.slice().reverse().map(reportView) })
+  }
+
+  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz.
+  function handleReportResolve (ctx) {
+    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    const id = toId(ctx.body.id)
+    const report = id === null ? null : state.reports.find((r) => r.id === id) || null
+    if (!report) return fail(ctx, 404, 'report_not_found')
+    if (report.resolvedAt === null) {
+      report.resolvedAt = ctx.now
+      report.resolvedBy = ctx.user.id
+      store.saveState()
+      privateChanged(staffIds())
+    }
+    return okDurable(ctx, { ok: true, report: reportView(report) })
   }
 
   // ---------------------------------------------------------------- uç noktalar: özel roller
@@ -3630,6 +3827,9 @@ async function createChatServer (options) {
   route('/api/users/ban', 'POST', handleUserBan)
   route('/api/users/kick', 'POST', handleUserKick)
   route('/api/users/custom-role', 'POST', handleUserCustomRole)
+  route('/api/reports', 'GET', handleReportsList)
+  route('/api/reports', 'POST', handleReportCreate)
+  route('/api/reports/resolve', 'POST', handleReportResolve)
   route('/api/roles/create', 'POST', handleRoleCreate)
   route('/api/roles/update', 'POST', handleRoleUpdate)
   route('/api/roles/delete', 'POST', handleRoleDelete)

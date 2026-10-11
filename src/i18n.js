@@ -97,6 +97,9 @@ const messages = {
       bad_avatar: 'Profil resmi geçersiz.',
       avatar_too_large: 'Profil resmi çok büyük.',
       bad_status: 'Durum geçersiz. Çevrimiçi, boşta, rahatsız etmeyin veya görünmez seçilebilir.',
+      bad_report_note: 'Şikâyet notu geçersiz veya çok uzun.',
+      report_not_found: 'Şikâyet bulunamadı.',
+      reports_full: 'Şikâyet listesi dolu. Frekans sahibi ve yöneticiler açık şikâyetleri çözünce yeniden deneyin.',
       shutting_down: 'Sunucu kapanıyor.',
       server_error: 'Sunucuda beklenmeyen bir hata oluştu.'
     },
@@ -124,6 +127,7 @@ const messages = {
       musicSearchFailed: 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.',
       musicSearchDaily: 'Bu sunucunun son 24 saatlik YouTube arama sınırı doldu. YouTube bağlantısını yapıştırın.',
       musicSearchQuery: 'Arama metni 1 ile {max} karakter arasında olmalıdır.',
+      reportRate: 'Kısa sürede çok fazla şikâyet gönderildi. Lütfen daha sonra yeniden deneyin.',
       uploadTooLarge: 'Dosya çok büyük. En fazla {mb} MB yüklenebilir.',
       fileTooLarge: 'Dosya çok büyük.'
     },
@@ -149,6 +153,7 @@ const messages = {
       invalidUploads: 'Uyarı: veri dosyasındaki {count} geçersiz yükleme kaydı yok sayıldı.',
       invalidAvatars: 'Uyarı: veri dosyasındaki {count} geçersiz profil resmi bağlantısı kaldırıldı.',
       invalidRoles: 'Uyarı: veri dosyasındaki geçersiz rol kayıtları düzeltildi.',
+      invalidReports: 'Uyarı: veri dosyasındaki geçersiz şikâyet kayıtları düzeltildi.',
       serverIconMissing: 'Uyarı: frekans fotoğrafı dosyası eksik veya geçersiz, fotoğraf kaldırıldı.',
       serverIconRemoveFailed: 'Uyarı: eski frekans fotoğrafı silinemedi: {error}',
       invalidSocial: 'Uyarı: veri dosyasındaki geçersiz arkadaşlık veya engel kayıtları silindi.',
@@ -352,6 +357,9 @@ const messages = {
       bad_avatar: 'The profile picture is invalid.',
       avatar_too_large: 'The profile picture is too large.',
       bad_status: 'The status is invalid. Choose online, idle, do not disturb or invisible.',
+      bad_report_note: 'The report note is invalid or too long.',
+      report_not_found: 'Report not found.',
+      reports_full: 'The report list is full. Try again after the frequency owner and admins resolve open reports.',
       shutting_down: 'The server is shutting down.',
       server_error: 'An unexpected error occurred on the server.'
     },
@@ -379,6 +387,7 @@ const messages = {
       musicSearchFailed: 'The YouTube search failed. Try again later or paste a link.',
       musicSearchDaily: 'This server\'s YouTube search limit for the last 24 hours has been reached. Paste a YouTube link.',
       musicSearchQuery: 'The search text must be between 1 and {max} characters.',
+      reportRate: 'Too many reports were sent in a short time. Please try again later.',
       uploadTooLarge: 'The file is too large. The maximum size is {mb} MB.',
       fileTooLarge: 'The file is too large.'
     },
@@ -404,6 +413,7 @@ const messages = {
       invalidUploads: 'Warning: {count} invalid upload records in the data file were ignored.',
       invalidAvatars: 'Warning: {count} invalid profile picture links in the data file were removed.',
       invalidRoles: 'Warning: invalid role records in the data file were corrected.',
+      invalidReports: 'Warning: invalid report records in the data file were corrected.',
       serverIconMissing: 'Warning: the frequency photo file is missing or invalid, the photo was removed.',
       serverIconRemoveFailed: 'Warning: the old frequency photo could not be deleted: {error}',
       invalidSocial: 'Warning: invalid friendship or block records in the data file were removed.',
