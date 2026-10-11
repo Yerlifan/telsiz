@@ -22,7 +22,8 @@
 // - sistemin boşta süresi uygulama penceresinden ve gerçek bir arka plan penceresinden tam saniye olarak okunur,
 //   bağlamı olmayan pencere okuyamaz
 // - yüzen pencere yalnızca ana süreçten alınan tek kullanımlık adla ve about:blank adresiyle açılır, her zaman
-//   üsttedir, izin alamaz, gezinemez ve yeni pencere açamaz, kapanınca konumu saklanır, sayfa yeniden yüklenince kapanır
+//   üsttedir, izin alamaz, gezinemez ve yeni pencere açamaz, kapanınca konumu saklanır, sayfa yeniden yüklenince kapanır,
+//   alt çerçeveden jetonsuz açılamaz, alt çerçevenin jetonla açtığı pencere hemen yok edilir
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -1377,6 +1378,58 @@ test('yüzen pencere: ses odasında simge durumuna küçültülünce açılır, 
   } finally {
     await page.evaluate(() => {
       if (window.__snapAsil) snap = window.__snapAsil
+    })
+  }
+})
+
+// Kabul ölçütü: alt çerçeveden (Telsiz DJ'nin YouTube oynatıcısı gibi) gelen window.open reddedilir. Jetonsuz istek
+// yeni pencere kuralına takılır ve null döner. Jeton alt çerçeveye bir yolla geçse bile ana süreç pencere açıldıktan
+// sonra açanın uygulama penceresinin ana çerçevesi olmadığını görür ve pencereyi yok eder (did-create-window,
+// tanı günlüğünde float-rejected). Duman testinde ağ olmadığı için gerçek YouTube çerçevesi yüklenmez: sayfaya boş bir
+// iframe eklenir. Denetim çerçevenin kimliğine bakar (kökene değil), bu yüzden aynı yol sınanmış olur.
+test('yüzen pencere: alt çerçeveden jetonsuz açılamaz, jetonla açılan pencere açan denetiminde yok edilir', { timeout: 60000 }, async () => {
+  const page = ctx.page
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  const rejected = () => fs.readFileSync(ctx.diagFile, 'utf8').split('\n').filter((line) => line.includes('float-rejected')).length
+  assert.equal(await floats(), 0)
+  await page.evaluate(() => {
+    const frame = document.createElement('iframe')
+    frame.name = 'duman-alt-cerceve'
+    document.body.appendChild(frame)
+  })
+  try {
+    const sub = await waitFor(() => page.frame({ name: 'duman-alt-cerceve' }), 'subframe')
+    assert.notEqual(sub, page.mainFrame())
+    assert.deepEqual(await sub.evaluate(() => ({ sub: window.parent !== window, desktop: typeof window.telsizDesktop })), { sub: true, desktop: 'undefined' })
+    const denied = await sub.evaluate(() => [
+      window.open('about:blank') === null,
+      window.open('about:blank', 'telsiz-yuzen-' + '0'.repeat(32)) === null,
+      window.open('about:blank', '_blank') === null
+    ])
+    assert.deepEqual(denied, [true, true, true])
+    // Ana çerçevenin aldığı jeton alt çerçeveden kullanılır: ana süreç pencereyi açanı denetleyip yok eder
+    const before = rejected()
+    const name = await page.evaluate(() => window.telsizDesktop.float.arm())
+    await sub.evaluate((n) => {
+      window.open('about:blank', n)
+    }, name)
+    await waitFor(() => rejected() === before + 1, 'float-rejected logged')
+    await waitFor(async () => (await floats()) === 0, 'subframe window destroyed')
+    // Jeton harcandı, ana çerçeve de onunla açamaz. Yeni jetonla ana çerçeve hâlâ açabilir.
+    assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, name), true)
+    const fresh = await page.evaluate(() => window.telsizDesktop.float.arm())
+    assert.equal(await page.evaluate((n) => {
+      window.__yuzen = window.open('about:blank', n)
+      return window.__yuzen !== null
+    }, fresh), true)
+    await waitFor(async () => (await floats()) === 1, 'main frame window opened')
+    assert.equal(rejected(), before + 1)
+    await page.evaluate(() => window.__yuzen.close())
+    await waitFor(async () => (await floats()) === 0, 'main frame window closed')
+  } finally {
+    await page.evaluate(() => {
+      const frame = document.querySelector('iframe[name="duman-alt-cerceve"]')
+      if (frame) frame.remove()
     })
   }
 })
