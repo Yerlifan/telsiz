@@ -1,0 +1,111 @@
+From e934486464600b5e4f64dbee86596763b86952ce Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 12:19:25 +0000
+Subject: [PATCH 60/61] =?UTF-8?q?G6:=20inceleme=20d=C3=BCzeltmeleri=20(ken?=
+ =?UTF-8?q?di=20kapa=C4=9F=C4=B1m=20yaln=C4=B1zca=20Ayarlar=20=C3=B6nizlem?=
+ =?UTF-8?q?esi=20a=C3=A7=C4=B1kken=20yeniden=20istenir)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+profileImagesAfterPoll kendi kapağımı Ayarlar kapalıyken de her başarılı
+poll'da yeniden denemeye alıyordu. Deneme hakkı bitmiş ve hiçbir yerde
+görünmeyen kapak sayfa açık kaldıkça dakikada bir isteniyordu. Kendi kapağım
+artık yalnızca Ayarlar'da Hesabım veya Profil sayfası açıkken (myCoverShown)
+gösterilen kapak sayılır. Kendi kartım açıksa kapak cardUserId yoluyla zaten
+kapsanır. Ayarlar kapalıyken ve önizlemesiz sayfalarda kapağın istenmediği,
+Profil sayfası açılınca sonraki poll'un hemen istediği birim testiyle sınanır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/13-profile.js | 19 +++++++++++++------
+ test/social.test.js     | 35 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 48 insertions(+), 6 deletions(-)
+
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index b785ada..cc07d97 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -544,22 +544,29 @@ function retryProfileImageAt (images, entry, at) {
+ }
+ 
+ // Her başarılı poll'dan sonra (profilesAfterPoll): kalıcı olmayan bir hatayla düşmüş profil resimleri ve gösterilen
+-// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım) son denemeden AVATAR_POLL_RETRY_MS sonra (o an
+-// geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince gelir. Son deneme ağ düzelmeden
+-// önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç kurulmuş (2 dakikalık) deneme öne
+-// çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra düşmeye devam eden resim sunucudan en
+-// çok dakikada bir istenir.
++// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım, myCoverShown) son denemeden
++// AVATAR_POLL_RETRY_MS sonra (o an geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince
++// gelir. Son deneme ağ düzelmeden önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç
++// kurulmuş (2 dakikalık) deneme öne çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra
++// düşmeye devam eden resim sunucudan en çok dakikada bir istenir. Hiçbir yerde görünmeyen kapak istenmez.
+ function profileImagesAfterPoll () {
+   profileState.avatars.forEach((entry) => {
+     retryProfileImageAfterPoll(profileState.avatars, entry)
+   })
+-  const shown = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
++  const shown = [coverIdOf(profileState.cardUserId), myCoverShown() ? coverIdOf(state.me.id) : null]
+   shown.forEach((uploadId) => {
+     const entry = uploadId ? profileState.covers.get(uploadId) : null
+     if (entry) retryProfileImageAfterPoll(profileState.covers, entry)
+   })
+ }
+ 
++// Kendi kapağım Ayarlar'da yalnızca Hesabım ve Profil sayfalarındaki önizleme kartında görünür (11-settings.js
++// myProfileView ve draftCoverUrl). Kendi kartım açıksa kapak cardUserId yoluyla zaten gösterilen kapaktır.
++function myCoverShown () {
++  if (!state.me || typeof isSettingsTab !== 'function') return false
++  return isSettingsTab('account') || isSettingsTab('profile')
++}
++
+ function retryProfileImageAfterPoll (images, entry) {
+   if (entry.state !== 'failed' || entry.permanent) return
+   const at = Math.max(Date.now(), entry.at + AVATAR_POLL_RETRY_MS)
+diff --git a/test/social.test.js b/test/social.test.js
+index 9a578f2..e44edc6 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -653,6 +653,41 @@ test('başarılı poll deneme hakkı bitmiş kapağı yalnızca kart açıkken y
+   assert.strictEqual(refreshed, 1, 'açık kartın bandı yenilenir')
+ })
+ 
++test('başarılı poll deneme hakkı bitmiş kendi kapağımı yalnızca Ayarlar önizlemesi açıkken yeniden ister', async (t) => {
++  const { ctx, downloads } = coverWorld(t, [{ ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: false, status: 0 }, { ok: true, bytes: new Uint8Array(JPEG_HEAD.concat([1, 2, 3])) }])
++  const { run, sandbox } = ctx
++  // Kapaklı kişi (2) bu kez benim: kapak Ayarlar'daki önizlemede gösterilir, kendi kartım kapalı
++  run("state.me = { id: 2, name: 'ayse', role: 'member', status: 'online' }")
++  run("state.token = 'oturum'")
++  const tick = async (ms) => {
++    t.mock.timers.tick(ms)
++    await flush()
++  }
++  // Ayarlar'da açık sayfa (11-settings.js isSettingsTab), null: Ayarlar kapalı
++  let tab = 'account'
++  sandbox.isSettingsTab = (name) => tab === name
++  run('coverUrlOf(2, true)')
++  await flush()
++  for (const wait of [10000, 30000, 120000]) await tick(wait)
++  assert.strictEqual(downloads.length, 4)
++  assert.strictEqual(run("profileState.covers.get('" + COVER_ID + "').state"), 'failed')
++  // Ayarlar kapandı veya önizlemesiz bir sayfa açık: poll kapağı istemez
++  for (const shown of [null, 'privacy', 'appearance']) {
++    tab = shown
++    for (const wait of [120000, 120000, 120000]) {
++      run('profilesAfterPoll()')
++      await tick(wait)
++    }
++  }
++  assert.strictEqual(downloads.length, 4, 'görünmeyen kendi kapağım istenmez')
++  // Profil sayfası açıldı: sonraki başarılı poll kapağı hemen ister
++  tab = 'profile'
++  run('profilesAfterPoll()')
++  await tick(0)
++  assert.strictEqual(downloads.length, 5)
++  assert.strictEqual(run('coverUrlOf(2)'), 'blob:kapak')
++})
++
+ test('poll döngüsü düşen profil isteğini ve profil resmini başarılı yanıttan sonra yeniden ister, hata yanıtından sonra istemez', async (t) => {
+   // Kişi 2'nin profil resmi indirmesi ve kişi 3'ün profil isteği ağ düzelene kadar düşer
+   let up = false
