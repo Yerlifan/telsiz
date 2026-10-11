@@ -47,8 +47,9 @@
 //   dener ve başarılı olunca kendiliğinden yükleme sürer (inceleme düzeltmesi).
 // G10, orta genişlik ve dar başlık (S8, S9): 768x1024, 900x800, 1024x768 ve 1200x900 boyutlarında İstasyonlar kartı
 //   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
-//   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
-//   başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
+//   gizli ve düğme görünür. Ses odasında uzayan telsiz kartı listeye iki satırlık yer bırakmayınca kart gizlenir ve düğme
+//   görünür, yer açılınca kart en az iki satırla geri gelir (inceleme düzeltmesi). Özel mesaj başlığında 1024 ile 1280
+//   px arasında ad en az 80 piksel, düğmeler çakışmaz ve başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
 // G10, kısayollar (S10): Alt+Aşağı ve Alt+Yukarı İstasyonlar listesinin sırasıyla (yazı odaları, özel konuşmalar)
 //   konuşma değiştirir ve uçlarda başa döner, odak yazma alanında kalır. Alt+Shift+Aşağı önce anması olan odaya, sonra
 //   okunmamış odaya gider, okunmamış kalmayınca konuşma değişmez. Bas konuş Alt tuşuna atanınca kısayol çalışmaz. Esc
@@ -1113,7 +1114,7 @@ test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, ha
 
 // G10 (S8, S9): orta genişlikte İstasyonlar kartı ve dar özel mesaj başlığı
 
-test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, yalnızca çok alçak ekranda gizli', async () => {
+test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, çok alçak ekranda ve telsiz kartı yer bırakmayınca gizli', async () => {
   const page = W.deniz
   const layout = () => page.evaluate(() => {
     const inbox = document.getElementById('inbox').getBoundingClientRect()
@@ -1135,6 +1136,40 @@ test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mes
   await setWidth(page, 1024, 700)
   const low = await layout()
   assert.deepEqual([low.inbox, low.button], [false, true])
+  // Ses odasında telsiz kartı uzar: kartta başlık ve iki satırlık liste yeri (13rem) kalmayınca kart gizlenir ve
+  // İstasyonlar düğmesi görünür, yer açılınca kart geri gelir. Yükseklikler telsiz kartının ölçüsünden hesaplanır ve
+  // 720 pikselden alçak ekran kuralının dışında kalır (inceleme düzeltmesi).
+  if (h.FAKE_MIC) {
+    await page.bringToFront()
+    await setWidth(page, 1024, 900)
+    await h.joinVoice(page, W.w.room('Lobi').id)
+    const cramped = () => page.evaluate(() => {
+      const list = document.getElementById('inbox-list')
+      const row = list.querySelector('.room-row')
+      return {
+        inbox: document.getElementById('inbox').getClientRects().length > 0,
+        button: document.getElementById('btn-rooms').getClientRects().length > 0,
+        list: list.clientHeight,
+        row: row ? row.offsetHeight : 0
+      }
+    })
+    const sizes = await page.evaluate(() => {
+      const rem = parseFloat(window.getComputedStyle(document.documentElement).fontSize)
+      const extra = window.innerHeight - el.sideRight.clientHeight
+      return { tight: Math.round(el.radio.offsetHeight + extra + 13 * rem - 25), roomy: Math.round(el.radio.offsetHeight + extra + 13 * rem + 40) }
+    })
+    assert.ok(sizes.tight > 730, 'telsiz kartı yeterince uzun: ' + JSON.stringify(sizes))
+    await setWidth(page, 1024, sizes.tight)
+    await page.waitForFunction(() => el.appView.classList.contains('is-inbox-cramped'))
+    assert.deepEqual(await cramped().then((v) => [v.inbox, v.button]), [false, true], '1024x' + sizes.tight + ' ses odasında')
+    await setWidth(page, 1024, sizes.roomy)
+    await page.waitForFunction(() => !el.appView.classList.contains('is-inbox-cramped'))
+    const roomy = await cramped()
+    assert.deepEqual([roomy.inbox, roomy.button], [true, false], '1024x' + sizes.roomy + ' ses odasında')
+    assert.ok(roomy.list >= 2 * roomy.row, 'listede en az iki satır görünür: ' + JSON.stringify(roomy))
+    await page.click('#voice-leave')
+    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
+  }
   await setWidth(page, 1440)
 })
 

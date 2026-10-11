@@ -2515,14 +2515,25 @@
 }
 
 /* 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar
-   (istek 17). Yalnızca çok alçak ekranda gizlenir (telsiz kartıyla aynı sütundadır), odalar üst çubuktaki
-   İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
+   (istek 17). Çok alçak ekranda ve telsiz kartı uzayıp listeye iki satırlık yer kalmayınca (ses odasında kalabalık
+   kadro, 38-gezinme.js navFitInbox, .is-inbox-cramped) gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
+   çubuktaki İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
 @media (max-height: 720px) and (max-width: 1279px) {
   .inbox {
     display: none;
   }
 
   .top-rooms {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1279px) {
+  .app-view.is-inbox-cramped .inbox {
+    display: none;
+  }
+
+  .app-view.is-inbox-cramped .top-rooms {
     display: inline-flex;
   }
 }

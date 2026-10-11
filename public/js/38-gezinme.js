@@ -425,6 +425,7 @@ function navInit () {
   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
   navWatchInfoCards()
   navWatchDmHeader()
+  navWatchInbox()
   navBindSheetDrag()
   const pick = byId('radio-pick-button')
   if (pick) pick.addEventListener('click', navOpenVoiceRooms)
@@ -1123,13 +1124,7 @@ function navFitDmHeader () {
   if (!header || header.hidden || !header.clientWidth) return
   header.classList.remove('is-tight')
   const text = header.querySelector('.dm-header-text')
-  let rem = 15
-  try {
-    rem = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 15
-  } catch (err) {
-    rem = 15
-  }
-  const narrow = text ? text.getBoundingClientRect().width < NAV_DM_NAME_REM * rem - 1 : false
+  const narrow = text ? text.getBoundingClientRect().width < NAV_DM_NAME_REM * navRootRem() - 1 : false
   header.classList.toggle('is-tight', narrow || header.scrollWidth > header.clientWidth + 1)
 }
 
@@ -1144,6 +1139,58 @@ function navWatchDmHeader () {
     }
   }
   if (typeof window.MutationObserver === 'function') new window.MutationObserver(navFitDmHeader).observe(header, { childList: true })
+}
+
+// Kök yazı boyutu (piksel, kişi Ayarlar'da değiştirebilir)
+function navRootRem () {
+  try {
+    return parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 15
+  } catch (err) {
+    return 15
+  }
+}
+
+// ------------------------------------------------------------------ orta genişlikte İstasyonlar kartı (S8)
+
+// 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir. Telsiz kartı uzayınca (ses
+// odasında kalabalık kadro) kartta NAV_INBOX_MIN_REM yer kalmazsa (başlık ve iki satırlık liste) kart gizlenir, odalar
+// üst çubuktaki İstasyonlar düğmesiyle açılır (#app-view.is-inbox-cramped, frekans.css). Yer kartın görünürlüğünden
+// bağımsız ölçülür (sağ sütunun yüksekliğinden telsiz kartının yüksekliği düşülür), böylece kart gizlenip görünürken
+// gidip gelmez. Sağ sütunun ve telsiz kartının boyutu izlenir (ResizeObserver, yoksa pencere boyutu ve telsiz kartının
+// içeriği). Telsiz kartı sol sütundaysa (1280 px ve üstü, 12-init.js placeRadio) sınıf kalkar.
+const NAV_INBOX_MIN_REM = 13
+
+function navFitInbox () {
+  const side = el.sideRight
+  const radio = el.radio
+  const view = el.appView
+  if (!side || !radio || !view || !view.classList) return
+  const holds = radio.parentNode === side
+  const cramped = holds && side.clientHeight - radio.offsetHeight < NAV_INBOX_MIN_REM * navRootRem()
+  if (cramped === view.classList.contains('is-inbox-cramped')) return
+  // Odak gizlenen kartın içindeyse üst çubuktaki İstasyonlar düğmesine geçer
+  const inbox = el.inbox
+  const active = document.activeElement
+  view.classList.toggle('is-inbox-cramped', cramped)
+  const rooms = byId('btn-rooms')
+  if (cramped && inbox && active && inbox.contains(active) && rooms) focusNode(rooms)
+}
+
+function navWatchInbox () {
+  if (!el.sideRight || !el.radio) return
+  if (typeof window.ResizeObserver === 'function') {
+    try {
+      const observer = new window.ResizeObserver(navFitInbox)
+      observer.observe(el.sideRight)
+      observer.observe(el.radio)
+      return
+    } catch (err) {
+      // Gözlemci kurulamadı: pencere boyutu ve telsiz kartının içeriği izlenir
+    }
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', navFitInbox)
+  if (typeof window.MutationObserver === 'function') new window.MutationObserver(navFitInbox).observe(el.radio, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'data-state'] })
+  navFitInbox()
 }
 
 // ------------------------------------------------------------------ görünümün hatırlanması (S12)
