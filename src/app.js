@@ -2,10 +2,10 @@
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
-// liste ve düzgün kapanış.
+// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
+// YouTube araması, statik beyaz liste ve düzgün kapanış.
 // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
-// token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
+// token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
 // Türkçe veya İngilizcedir (src/i18n.js).
 
@@ -21,6 +21,7 @@ const { createHub } = require('./hub')
 const { createSocial } = require('./social')
 const { createMusic } = require('./music')
 const { createCalls } = require('./calls')
+const youtubeSearch = require('./youtube-search')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
@@ -112,6 +113,15 @@ const DEFAULTS = Object.freeze({
   musicLimit: 30,
   musicWindowMs: 10000,
   musicIdleMs: 30 * 60 * 1000,
+  // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
+  // en çok 300 YouTube isteği (önbellekten verilen yanıtlar sayılmaz). Tavan kota için değil, sunucunun adresinin
+  // YouTube tarafından engellenmesine karşıdır.
+  musicSearchLimit: 10,
+  musicSearchWindowMs: 60000,
+  musicSearchDailyMax: 300,
+  // Testler için arama yerine geçen işlev (query) => Promise<[{ videoId, title, channel, durationS }]> veya
+  // { request } (gerçek ayrıştırıcıya sahte istek işlevi). null ise src/youtube-search.js YouTube'a gider.
+  youtubeSearch: null,
   // Özel mesaj aramaları: başlatma ve reddetme kullanıcı başına 10 / 60 sn, cevaplanmayan arama 45 sn sonra düşer
   callLimit: 10,
   callWindowMs: 60000,
@@ -142,7 +152,8 @@ const POSITIVE_OPTIONS = [
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
-  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs'
+  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
+  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
@@ -195,7 +206,15 @@ const DEFAULT_MAX_CAMERAS = 4
 const CALL_CAPACITY = 2
 const CALL_MAX_CAMERAS = 2
 const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
-const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
+const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted', 'search']
+// Şarkı adıyla arama: sorgu en çok bu kadar kod noktası, yanıtta en çok bu kadar sonuç, aynı sorgunun sonucu bu
+// süre bellekte tutulur (en çok MUSIC_SEARCH_CACHE_MAX sorgu)
+const MUSIC_SEARCH_QUERY_MAX = 200
+const MUSIC_SEARCH_RESULTS = 5
+const MUSIC_SEARCH_CACHE_MS = 10 * 60 * 1000
+const MUSIC_SEARCH_CACHE_MAX = 500
+// Sorgudaki denetim ve yön karakterleri boşluk olur (satır sonları dahil)
+const SEARCH_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
 const USER_RECORDS_FACTOR = 4
@@ -413,6 +432,10 @@ function resolveOptions (options) {
   if (config.publicDir !== null) config.publicDir = path.resolve(config.publicDir)
   if (config.staticSource === null) config.staticSource = staticSource.defaultSource(config.publicDir)
   else if (!staticSource.isSource(config.staticSource)) throw new TypeError('createChatServer: invalid staticSource.')
+  const ys = config.youtubeSearch
+  if (ys !== null && typeof ys !== 'function' && !(ys && typeof ys === 'object' && typeof ys.request === 'function')) {
+    throw new TypeError('createChatServer: youtubeSearch must be a function or { request }.')
+  }
   if (config.setupCode !== null && auth.normalizeCode(config.setupCode) === null) {
     throw new TypeError('createChatServer: setupCode may contain only Crockford base32 characters.')
   }
@@ -737,15 +760,32 @@ function normalizeLoadedState (state, config, log) {
   return changed
 }
 
-// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted }. enabled ve youtube eksikse açık, restricted (kuyruğu
-// odada DJ izni olan biri varken yalnızca o yönetir) eksikse kapalıdır.
+// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted, search }. enabled ve youtube eksikse açık, restricted
+// (kuyruğu odada DJ izni olan biri varken yalnızca o yönetir) ve search (şarkı adıyla YouTube araması, Hizmet
+// Şartları riski yüzünden sahip açıkça açar) eksikse kapalıdır.
 function cleanMusicSettings (value) {
   const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
     youtube: typeof src.youtube === 'boolean' ? src.youtube : true,
-    restricted: typeof src.restricted === 'boolean' ? src.restricted : false
+    restricted: typeof src.restricted === 'boolean' ? src.restricted : false,
+    search: typeof src.search === 'boolean' ? src.search : false
   }
+}
+
+// Arama metni: NFC, denetim karakterleri ve satır sonları boşluk olur, boşluklar sadeleşir. 1 ile
+// MUSIC_SEARCH_QUERY_MAX kod noktası arasında değilse null.
+function cleanSearchQuery (value) {
+  if (typeof value !== 'string' || value.length > MUSIC_SEARCH_QUERY_MAX * 4) return null
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    return null
+  }
+  text = text.replace(SEARCH_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
+  const length = Array.from(text).length
+  return length >= 1 && length <= MUSIC_SEARCH_QUERY_MAX ? text : null
 }
 
 function intInRange (value, min, max) {
@@ -791,8 +831,8 @@ function prepareState (store, config, log) {
       blocks: [],
       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
       roles: [],
-      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
-      music: { enabled: true, youtube: true, restricted: false },
+      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
+      music: cleanMusicSettings(null),
       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
       voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
     })
@@ -990,8 +1030,11 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
+  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar)
+  const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
+  const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
   let proxyWarned = false
@@ -1004,6 +1047,19 @@ async function createChatServer (options) {
 
   // Telsiz DJ müzik durumları: yalnızca bellekte, ses odası başına (src/music.js)
   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
+
+  // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
+  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz.
+  const searchEngine = typeof config.youtubeSearch === 'function'
+    ? null
+    : youtubeSearch.createYouTubeSearch({
+      request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
+      onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
+    })
+  const runYouTubeSearch = searchEngine ? searchEngine.search : config.youtubeSearch
+  // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
+  const musicSearchCache = new Map()
+  const musicSearchPending = new Map()
 
   const hub = createHub({
     pollTimeoutMs: config.pollTimeoutMs,
@@ -1107,7 +1163,8 @@ async function createChatServer (options) {
       channels,
       users,
       roles: state.roles.map(publicRole),
-      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted },
+      // search: arama gerçekten kullanılabilir mi (DJ ve YouTube kaynağı da açık olmalı)
+      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted, search: state.music.enabled && state.music.youtube && state.music.search },
       voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
     }
   }
@@ -2994,7 +3051,8 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true, tempPassword: creds.tempPassword })
   }
 
-  // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
+  // Telsiz DJ ayar değişikliği: { enabled?, youtube?, restricted?, search? } (en az biri, yalnızca boolean).
+  // Geçersizse null.
   function musicSettingsPatch (value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null
     const keys = Object.keys(value)
@@ -3462,6 +3520,56 @@ async function createChatServer (options) {
     ok(ctx, { v: result.v, at: result.at, now })
   }
 
+  // POST /api/music/search { channelId, q } (istek 5): şarkı adıyla YouTube araması. Sahip açar (music.search), DJ ve
+  // YouTube kaynağı da açık olmalıdır. Denetimler /api/music/state ile aynıdır: kişi o ses odasında olmalı, kısıtlı
+  // kipte DJ izni gerekir. Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin gelir ve sunucunun
+  // adresiyle YouTube'a gider. Metin günlüğe yazılmaz. Aynı sorgu MUSIC_SEARCH_CACHE_MS boyunca önbellekten verilir.
+  // Yanıt { results: [{ videoId, title, channel, durationS }] } (en çok MUSIC_SEARCH_RESULTS, çalınabilir sonuçlar).
+  async function handleMusicSearch (ctx) {
+    const b = ctx.body
+    if (!state.music.enabled) return fail(ctx, 403, 'dj_disabled')
+    if (!state.music.youtube || !state.music.search) return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+    const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
+    if (!channel) return fail(ctx, 404, 'channel_not_found')
+    if (!hub.userInVoice(ctx.user.id, channel.id)) return fail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
+    if (state.music.restricted && !hasPerm(ctx.user, 'dj') && djInRoom(channel.id)) {
+      return fail(ctx, 403, 'dj_restricted', 'detail.musicRestricted')
+    }
+    const query = cleanSearchQuery(b.q)
+    if (query === null) return fail(ctx, 400, 'bad_query', 'detail.musicSearchQuery', null, { max: MUSIC_SEARCH_QUERY_MAX })
+    const wait = musicSearchLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait > 0) return tooMany(ctx, wait, 'detail.musicSearchRate')
+    const key = query.toLowerCase()
+    const cached = musicSearchCache.get(key)
+    if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
+    let pending = musicSearchPending.get(key)
+    if (!pending) {
+      const dailyWait = musicSearchDaily.consume('all', ctx.now)
+      if (dailyWait > 0) {
+        return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(dailyWait / 1000))) })
+      }
+      pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
+      musicSearchPending.set(key, pending)
+      pending.then((results) => {
+        musicSearchPending.delete(key)
+        if (musicSearchCache.size >= MUSIC_SEARCH_CACHE_MAX) musicSearchCache.delete(musicSearchCache.keys().next().value)
+        musicSearchCache.set(key, { at: Date.now(), results })
+      }, () => {
+        musicSearchPending.delete(key)
+      })
+    }
+    let results = null
+    try {
+      results = await pending
+    } catch (err) {
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+      return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
+    }
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    ok(ctx, { results })
+  }
+
   // ---------------------------------------------------------------- yönlendirme
 
   const routes = new Map()
@@ -3534,6 +3642,7 @@ async function createChatServer (options) {
   route('/api/calls/decline', 'POST', handleCallDecline)
   route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
+  route('/api/music/search', 'POST', handleMusicSearch)
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 
   // Kimlik isteyen yollarda oturum, gövde okunmadan önce (yalnızca X-Token başlığıyla) doğrulanır.
@@ -3684,6 +3793,9 @@ async function createChatServer (options) {
       for (const [userId, rec] of musicFanout) {
         if (now - rec.start >= config.musicWindowMs) musicFanout.delete(userId)
       }
+      for (const [key, rec] of musicSearchCache) {
+        if (now - rec.at >= MUSIC_SEARCH_CACHE_MS) musicSearchCache.delete(key)
+      }
     } catch (err) {
       log.error(i18n.t(config.lang, 'log.sweepError', { error: describeError(err, config.lang) }))
     }
@@ -3705,6 +3817,7 @@ async function createChatServer (options) {
     closing = true
     clearInterval(sweepTimer)
     hub.close()
+    if (searchEngine) searchEngine.close()
     for (const job of Array.from(uploadJobs)) {
       if (job.finish) job.finish('aborted')
       job.req.destroy()

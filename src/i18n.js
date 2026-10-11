@@ -77,6 +77,10 @@ const messages = {
       target_not_in_voice: 'Bu kişi şu an bir ses odasında değil.',
       target_camera_off: 'Bu kişinin kamerası açık değil.',
       bad_envelope: 'Müzik durumu geçersiz.',
+      search_unavailable: 'Şarkı adıyla arama bu sunucuda kapalı.',
+      search_failed: 'YouTube araması şu anda yapılamadı.',
+      search_daily_limit: 'Bu sunucunun son 24 saatlik arama sınırı doldu.',
+      bad_query: 'Arama metni geçersiz.',
       owner_cannot_delete: 'Frekans sahibi hesabını silemez.',
       self: 'Bu işlem kendi hesabınıza uygulanamaz.',
       already_friends: 'Bu kişiyle zaten arkadaşsınız.',
@@ -115,6 +119,11 @@ const messages = {
       musicNotInRoom: 'Müziği yalnızca o ses odasında bulunanlar değiştirebilir.',
       musicRestricted: 'Bu odada DJ izni olan biri var, kuyruğu yalnızca DJ izni olanlar yönetebilir.',
       musicRate: 'Müzik komutları çok sık gönderiliyor, lütfen biraz bekleyin.',
+      musicSearchOff: 'Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.',
+      musicSearchRate: 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.',
+      musicSearchFailed: 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.',
+      musicSearchDaily: 'Bu sunucunun son 24 saatlik YouTube arama sınırı doldu. YouTube bağlantısını yapıştırın.',
+      musicSearchQuery: 'Arama metni 1 ile {max} karakter arasında olmalıdır.',
       uploadTooLarge: 'Dosya çok büyük. En fazla {mb} MB yüklenebilir.',
       fileTooLarge: 'Dosya çok büyük.'
     },
@@ -149,6 +158,7 @@ const messages = {
       ownerCreated: 'Sahip hesabı oluşturuldu. Kurulum kodu artık geçersiz.',
       requestError: 'İstek işlenirken beklenmeyen hata ({label}): {error}',
       sweepError: 'Tarama sırasında beklenmeyen hata: {error}',
+      musicSearchPaused: 'Uyarı: şarkı adıyla YouTube araması art arda başarısız olduğu için {minutes} dakika kapatıldı (neden: {reason}). YouTube yanıt biçimini değiştirmiş ya da bu sunucunun adresini engellemiş olabilir. Bağlantıyla ekleme çalışmaya devam eder.',
       untrustedForwarder: 'Uyarı: X-Forwarded-For veya CF-Connecting-IP başlığı taşıyan bir istek, GUVENILIR_VEKIL listesinde olmayan yerel {address} adresinden geldi. Başlık yok sayıldı ve bütün istemciler bu adresten geliyormuş gibi hız sınırına tabi. Ters vekiliniz bu adresten bağlanıyorsa (ör. Docker ağ geçidi) adresi GUVENILIR_VEKIL ayarına ekleyin.'
     },
     store: {
@@ -322,6 +332,10 @@ const messages = {
       target_not_in_voice: 'This person is not in a voice room right now.',
       target_camera_off: 'This person\'s camera is not on.',
       bad_envelope: 'The music state is invalid.',
+      search_unavailable: 'Search by song name is off on this server.',
+      search_failed: 'The YouTube search failed.',
+      search_daily_limit: 'This server\'s search limit for the last 24 hours has been reached.',
+      bad_query: 'The search text is invalid.',
       owner_cannot_delete: 'The frequency owner cannot delete their account.',
       self: 'This action cannot be applied to your own account.',
       already_friends: 'You are already friends with this person.',
@@ -360,6 +374,11 @@ const messages = {
       musicNotInRoom: 'Only people in that voice room can change its music.',
       musicRestricted: 'Someone with the DJ permission is in this room, only people with the DJ permission can manage the queue.',
       musicRate: 'Music commands are being sent too often, please wait a moment.',
+      musicSearchOff: 'Search by song name is off on this server. Paste a YouTube link.',
+      musicSearchRate: 'Too many searches. Try again in a minute.',
+      musicSearchFailed: 'The YouTube search failed. Try again later or paste a link.',
+      musicSearchDaily: 'This server\'s YouTube search limit for the last 24 hours has been reached. Paste a YouTube link.',
+      musicSearchQuery: 'The search text must be between 1 and {max} characters.',
       uploadTooLarge: 'The file is too large. The maximum size is {mb} MB.',
       fileTooLarge: 'The file is too large.'
     },
@@ -394,6 +413,7 @@ const messages = {
       ownerCreated: 'The owner account was created. The setup code is no longer valid.',
       requestError: 'Unexpected error while handling a request ({label}): {error}',
       sweepError: 'Unexpected error during cleanup: {error}',
+      musicSearchPaused: 'Warning: YouTube search by song name was turned off for {minutes} minutes after repeated failures (reason: {reason}). YouTube may have changed its response format or blocked this server\'s address. Adding by link still works.',
       untrustedForwarder: 'Warning: a request carrying an X-Forwarded-For or CF-Connecting-IP header came from the local address {address}, which is not in the GUVENILIR_VEKIL list. The header was ignored, so every client is rate limited as if it came from this address. If your reverse proxy connects from this address (for example a Docker gateway), add it to the GUVENILIR_VEKIL setting.'
     },
     store: {

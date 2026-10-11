@@ -516,7 +516,8 @@ function createYouTubeSearch (options) {
         fails = 0
         return results
       } catch (err) {
-        if (!failure.counts || err.counts) failure = err
+        // Gelen yanıtla ilgili ilk hata korunur (günlükteki neden InnerTube'unki olur)
+        if (!failure.counts && err.counts) failure = err
       }
     }
     if (failure && failure.counts) {

@@ -288,7 +288,7 @@ describe('arama akışı (enjekte edilen istek işlevi)', () => {
     }
     // Her aramada InnerTube ve sonuç sayfası denendi
     assert.equal(request.calls.length, 6)
-    assert.deepEqual(breaks, [['no_initial_data', 60]])
+    assert.deepEqual(breaks, [['json', 60]])
     await assert.rejects(engine.search('dördüncü'), (err) => err.code === 'search_failed' && err.reason === 'paused')
     assert.equal(request.calls.length, 6, 'kesici açıkken istek atılmadı')
     clock += ys.LIMITS.breakerMs

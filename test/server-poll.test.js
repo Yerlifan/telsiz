@@ -61,7 +61,7 @@ describe('long-poll', () => {
       assert.deepEqual(res.data.events, [])
       assert.ok(res.data.meta.channels.some((c) => c.name === 'muhabbet'))
       assert.deepEqual(Object.keys(res.data.meta).sort(), ['activeKid', 'channels', 'music', 'roles', 'serverIcon', 'serverName', 'users', 'voice', 'voiceSettings'])
-      assert.deepEqual(res.data.meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(res.data.meta.music, { enabled: true, youtube: true, restricted: false, search: false })
       assert.deepEqual(res.data.meta.users, [{ id: 1, name: 'sahip', role: 'owner', roleId: null, voiceMuted: false, online: true, status: 'online', pv: 0 }])
 
       // Güncel sürümle sorulunca meta gönderilmez
