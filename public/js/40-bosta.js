@@ -8,8 +8,9 @@
 // - Karar zamanlayıcının kendisine değil Date.now() farkına dayanır. Tarayıcı gizli sekmedeki zamanlayıcıları
 //   dakikada bire indirebildiği için karar en çok yaklaşık bir dakika gecikebilir.
 // - Ses odasındayken (özel mesaj araması dahil) cihaz boşta sayılmaz.
-// - Oyun kolu 2 saniyede bir okunur: basılı düğmeler ve ölü bölgeyi aşan eksenler değişince girdi sayılır
-//   (çubuk titremesi sayılmaz). 21-band.js değişmez.
+// - Oyun kolu: basılı düğmeler ve ölü bölgeyi aşan eksenler değişince girdi sayılır (çubuk titremesi sayılmaz).
+//   21-band.js padPoll kol bağlıyken her karede okuduğu kolları idlePadFrame ile verir, böylece iki örnek arasında
+//   basılıp bırakılan düğme de sayılır. Kol döngüsü çalışmıyorsa kollar 2 saniyede bir okunur.
 // - Masaüstü uygulamasında sistemin boşta süresi de okunur (telsizDesktop.idleSeconds, arka plan penceresinde
 //   telsizArkaPlan.idleSeconds): kişi başka bir uygulamayı kullanıyorsa boşta sayılmaz. Arka plan penceresinde
 //   girdi dinlenmez, karar yalnızca sistemin boşta süresine dayanır.
@@ -137,13 +138,9 @@ function idlePadSignature (gp) {
   return buttons.join('') + '|' + axes.join('')
 }
 
-function idlePadTick () {
-  let pads = []
-  try {
-    pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : []
-  } catch (err) {
-    pads = []
-  }
+// Kolların imzası son okumayla karşılaştırılır, değişen imza girdi sayılır. Yeni bağlanan kolun ilk okuması girdi
+// sayılmaz.
+function idlePadCompare (pads) {
   const seen = Object.create(null)
   let changed = false
   pads.forEach((gp) => {
@@ -155,6 +152,24 @@ function idlePadTick () {
   })
   idleState.pads = seen
   if (changed) idleNoteInput(Date.now())
+}
+
+// 2 saniyelik okuma: kol döngüsü (21-band.js padPoll) çalışmıyorsa da kollar izlenir
+function idlePadTick () {
+  let pads = []
+  try {
+    pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : []
+  } catch (err) {
+    pads = []
+  }
+  idlePadCompare(pads)
+}
+
+// 21-band.js padPoll kol bağlıyken her karede okuduğu kolları verir: iki 2 saniyelik okuma arasında basılıp
+// bırakılan düğme de girdi sayılır
+function idlePadFrame (pads) {
+  if (!idleState.started || idleBgMode() || !Array.isArray(pads)) return
+  idlePadCompare(pads)
 }
 
 // Masaüstünde sistemin boşta süresi okunur, ardından karar verilir

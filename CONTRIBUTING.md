@@ -131,7 +131,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
-| `40-bosta.js` | Otomatik boşta: fare, klavye, dokunma, tekerlek ve oyun kolu girdisinden (masaüstünde sistemin boşta süresinden) hareketsizliği ölçer, long-poll sorgusuna `idle` ve sayfa kimliği `tab` ekler, ses odasındayken boşta saymaz |
+| `40-bosta.js` | Otomatik boşta: fare, klavye, dokunma, tekerlek ve oyun kolu girdisinden (masaüstünde sistemin boşta süresinden) hareketsizliği ölçer, long-poll sorgusuna `idle` ve sayfa kimliği `tab` ekler, ses odasındayken boşta saymaz, oyun kolunu `21-band.js` kol döngüsünün her karesinde de okur |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 

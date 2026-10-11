@@ -2,8 +2,8 @@
 
 // Otomatik boşta istemcisi (public/js/40-bosta.js): süre dolunca poll'un idle=1 taşıması ve yeniden başlaması,
 // girdiyle hemen dönüş, fare hareketinin kısılması, ayar, uygulama dışı ve ses odası kuralları, oyun kolunun ölü
-// bölgesi, sayfa kimliği (tab), masaüstünde sistemin boşta süresi, arka plan penceresi (25-arka-plan.js
-// bgRestartPoll) ve index.html, sw.js, poll sorgusu bağlantıları.
+// bölgesi ve kol döngüsündeki (21-band.js padPoll) kısa dokunuşlar, sayfa kimliği (tab), masaüstünde sistemin boşta
+// süresi, arka plan penceresi (25-arka-plan.js bgRestartPoll) ve index.html, sw.js, poll sorgusu bağlantıları.
 // Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında, gerekli yardımcılar taklit edilerek yüklenir.
 // Saat ve zamanlayıcılar elle ilerletilir.
 
@@ -17,6 +17,7 @@ const PUB = path.join(__dirname, '..', 'public')
 const BOSTA = fs.readFileSync(path.join(PUB, 'js', '40-bosta.js'), 'utf8')
 const ARKA = fs.readFileSync(path.join(PUB, 'js', '25-arka-plan.js'), 'utf8')
 const POLL = fs.readFileSync(path.join(PUB, 'js', '05-poll.js'), 'utf8')
+const BAND = fs.readFileSync(path.join(PUB, 'js', '21-band.js'), 'utf8')
 const HTML = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8')
 const SW = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8')
 const MIN = 60000
@@ -65,7 +66,20 @@ function load (opts) {
   if (o.desktop) sandbox.telsizDesktop = o.desktop
   if (o.bgDesktop) sandbox.telsizArkaPlan = o.bgDesktop
   if (o.crypto) sandbox.crypto = o.crypto
+  // Kol döngüsü (21-band.js padPoll): bir sonraki kare elle çağrılır, uygulama dışında frekans değiştirilmez
+  const frames = []
+  if (o.band) {
+    Object.assign(sandbox, {
+      el: { appView: null },
+      voice: null,
+      nextFrame: (fn) => frames.push(fn),
+      topLayer: () => null
+    })
+    sandbox.document.body = null
+    sandbox.document.hasFocus = () => true
+  }
   vm.createContext(sandbox)
+  if (o.band) vm.runInContext(BAND, sandbox, { filename: '21-band.js' })
   vm.runInContext(BOSTA, sandbox, { filename: '40-bosta.js' })
   const run = (code) => vm.runInContext(code, sandbox)
   // Denetim zamanlayıcısı (15 sn) ve oyun kolu zamanlayıcısı (2 sn)
@@ -76,7 +90,7 @@ function load (opts) {
     clock.now += ms
   }
   const fire = (type, extra) => listeners[type](Object.assign({ type }, extra || {}))
-  return { sandbox, run, clock, intervals, listeners, polls, hooks, tick, advance, fire }
+  return { sandbox, run, clock, intervals, listeners, polls, hooks, frames, tick, advance, fire }
 }
 
 // Bekleyen söz zincirleri (masaüstü okuması) bitsin
@@ -207,6 +221,57 @@ test('oyun kolu: düğme ve ölü bölgeyi aşan eksen girdi sayılır, çubuk t
   env.tick(2000)
   env.tick(15000)
   assert.equal(env.run('idlePollParam()'), '1')
+})
+
+test('oyun kolu: iki okuma arasında basılıp bırakılan düğme kol döngüsünün karelerinde girdi sayılır', () => {
+  const button = () => ({ pressed: false, value: 0 })
+  const pad = { index: 0, connected: true, buttons: [button(), button(), button(), button(), button(), button()], axes: [0, 0] }
+  const pads = { list: [pad] }
+  const env = load({ pads, band: true })
+  // R1 frekansı değiştirir: adımlar kaydedilir
+  env.run('var bandSteps = []')
+  env.run('bandStep = (d) => { bandSteps.push(d) }')
+  env.tick(2000)
+  env.advance(10 * MIN)
+  env.tick(15000)
+  assert.equal(env.run('idlePollParam()'), '1')
+  // Yalnızca 2 saniyelik okuma: iki okuma arasındaki 150 ms'lik R1 dokunuşu görülmez
+  env.advance(925)
+  pad.buttons[5] = { pressed: true, value: 1 }
+  env.advance(150)
+  pad.buttons[5] = button()
+  env.advance(925)
+  env.tick(2000)
+  assert.equal(env.run('idlePollParam()'), '1', '2 saniyelik okuma dokunuşu kaçırır')
+  // Kol döngüsü her karede okur: aynı dokunuş girdi sayılır ve boştan hemen dönülür
+  env.run('padPoll()')
+  env.advance(925)
+  pad.buttons[5] = { pressed: true, value: 1 }
+  env.run('padPoll()')
+  const pressedAt = env.clock.now
+  assert.equal(env.run('idlePollParam()'), '0', 'basılan düğme')
+  assert.equal(env.run('idleState.lastInput'), pressedAt)
+  assert.equal(env.polls.main, 2)
+  env.advance(150)
+  pad.buttons[5] = button()
+  env.run('padPoll()')
+  assert.equal(env.run('idleState.lastInput'), pressedAt + 150, 'bırakılan düğme')
+  assert.ok(env.frames.length > 0, 'döngü sonraki kareyi ister')
+  assert.deepEqual(Array.from(env.run('bandSteps')), [1], 'R1 frekansı yine bir kez değiştirir')
+  env.advance(925)
+  env.tick(2000)
+  assert.equal(env.run('idleState.lastInput'), pressedAt + 150, 'okuma aynı imzayı yeniden saymaz')
+  // Kare içinde sabit tutulan düğme ve ölü bölgedeki eksen girdi sayılmaz
+  env.advance(10 * MIN)
+  pad.axes = [0.2, -0.1]
+  env.run('padPoll()')
+  env.run('padPoll()')
+  env.tick(15000)
+  assert.equal(env.run('idlePollParam()'), '1')
+  // Kol döngüsü olmayan arka plan penceresinde kare okuması yok sayılır
+  const bg = load({ bg: true, pads: { list: [] } })
+  bg.run('idlePadFrame([{ index: 0, connected: true, buttons: [{ pressed: true, value: 1 }], axes: [] }])')
+  assert.equal(bg.run('Object.keys(idleState.pads).length'), 0)
 })
 
 test('sayfa kimliği: her sayfa açılışta bir kez üretilir ve sunucunun kabul ettiği biçimdedir', () => {
