@@ -5,8 +5,8 @@
 // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
 // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
 // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
-// CSS kuralları ve index.html ile sw.js bağlantıları sınanır. Gerçek sunucu ve tarayıcıyla yapılan
-// doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+// CSS kuralları, index.html ile sw.js bağlantıları ve ses kancaları (10-voice.js voiceHook) sınanır. Gerçek
+// sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -541,6 +541,80 @@ test('cihaz ayarı anahtarları ve varsayılanlar (yazıyor, bildirim düzeyi, m
   assert.strictEqual(run('messageSoundEnabled()'), false)
 })
 
+test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5, 10, 15, 30 veya 60', () => {
+  const { run, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdle'), 'telsiz.autoIdle')
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdleMinutes'), 'telsiz.autoIdleMinutes')
+  assert.deepStrictEqual(Array.from(run('AUTO_IDLE_MINUTES')), [5, 10, 15, 30, 60])
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  storage.setItem('telsiz.autoIdle', '0')
+  assert.strictEqual(run('autoIdleEnabled()'), false)
+  storage.setItem('telsiz.autoIdle', '1')
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  assert.strictEqual(run('autoIdleMinutes()'), 10)
+  for (const n of [5, 15, 30, 60]) {
+    storage.setItem('telsiz.autoIdleMinutes', String(n))
+    assert.strictEqual(run('autoIdleMinutes()'), n)
+  }
+  for (const bad of ['0', '7', '-5', 'on', '']) {
+    storage.setItem('telsiz.autoIdleMinutes', bad)
+    assert.strictEqual(run('autoIdleMinutes()'), 10, JSON.stringify(bad))
+  }
+})
+
+test('yüzen pencere ayarı: varsayılan açık, anahtar telsiz.floatAuto yazar, açıklama platforma göre değişir', () => {
+  const { run, root, storage, sandbox } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.floatAuto'), 'telsiz.floatAuto')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'off')
+  assert.strictEqual(run('floatAutoEnabled()'), false)
+  storage.setItem('telsiz.floatAuto', 'on')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'bozuk')
+  assert.strictEqual(run('floatAutoEnabled()'), true, 'yalnızca off kapatır')
+  // Yüzen pencere modülü yokken (desteklenmiyor) anahtar devre dışı, nedeni yazılı
+  run("openSettings('voice', null)")
+  const sw = () => root.querySelector('#set-float-auto')
+  const hint = () => root.querySelector('#set-float-auto-hint').textContent
+  assert.strictEqual(root.querySelector('#set-float-section-title').textContent, 'Yüzen Pencere')
+  assert.strictEqual(root.querySelector('label[for="set-float-auto"] .settings-switch-text').textContent, 'Uygulama küçültülünce yüzen pencereyi aç')
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.strictEqual(sw().disabled, true)
+  assert.strictEqual(hint(), 'Bu tarayıcı yüzen pencereyi desteklemiyor.')
+  // Yüzen pencere bölümü Çıkış bölümünden sonra, ekran paylaşımı bölümünden önce
+  const ids = root.querySelectorAll('.settings-section').map((n) => n.id)
+  assert.ok(ids.indexOf('set-float-section') === ids.indexOf('set-output-section') + 1, ids.join())
+  assert.ok(ids.indexOf('set-float-section') < ids.indexOf('set-screen-section'))
+  run('closeSettings(false)')
+  // Tarayıcı: sekme değişimi açıklaması, anahtar yazar ve modüle bildirir
+  sandbox.__floatChanged = 0
+  run("var floatMode = function () { return 'document' }")
+  run('var floatSettingsChanged = function () { __floatChanged++ }')
+  run("openSettings('voice', null)")
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().checked, true)
+  assert.ok(hint().indexOf('Chrome ve Edge') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'off')
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'on')
+  assert.strictEqual(sandbox.__floatChanged, 2)
+  run('closeSettings(false)')
+  // Linux masaüstü: simge durumu açıklaması ve Wayland notu
+  run("var floatMode = function () { return 'desktop' }")
+  run("window.telsizDesktop = { platform: 'linux' }")
+  run("openSettings('voice', null)")
+  assert.ok(hint().indexOf('Ses odasındayken pencere küçültülür') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland').textContent, 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.')
+  run('closeSettings(false)')
+  run("window.telsizDesktop = { platform: 'win32' }")
+  run("openSettings('voice', null)")
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  run('closeSettings(false)')
+  run('delete window.telsizDesktop')
+})
+
 test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
   const { run, storage, audio } = load()
   assert.strictEqual(run('playMessageSound()'), true)
@@ -588,8 +662,8 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+    privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-float-auto', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
     appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
@@ -821,6 +895,208 @@ test('frekanstan atma: onay istenir, iptalde istek gitmez, onayda istek gider, e
   assert.strictEqual(root.querySelector('#set-members-msg').textContent, 'mert frekanstan atıldı.')
 })
 
+test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, engelleme izinli üye görmez', async () => {
+  const reports = (sandbox) => {
+    sandbox.__reports = [
+      { id: 5, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, messageId: 40, dm: false, reason: 'spam', note: null, createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 4, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 9, messageId: 41, dm: true, reason: 'harassment', note: '1.0011223344556677.' + 'A'.repeat(32) + '.' + 'B'.repeat(40), createdAt: 900, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 3, kind: 'user', reporterId: 2, reporterName: '', targetUserId: 3, targetName: 'mert', channelId: null, messageId: null, dm: false, reason: 'other', note: null, createdAt: 800, resolvedAt: 850, resolvedBy: 1, resolverName: 'burak' }
+    ]
+  }
+  const owner = load({ role: 'owner' })
+  const { run, root, sandbox } = owner
+  reports(sandbox)
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    if (path === '/api/reports/resolve') return Promise.resolve({ status: 200, data: { ok: true, report: Object.assign({}, __reports[0], { resolvedAt: 2000, resolvedBy: 1, resolverName: 'burak' }) } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  assert.strictEqual(root.querySelector('#set-reports-section').hidden, false)
+  assert.strictEqual(root.querySelector('#set-reports-section-title').textContent, 'Şikâyetler')
+  await new Promise((r) => setImmediate(r))
+  const rows = root.querySelectorAll('#set-reports-list .report-row')
+  assert.deepStrictEqual(rows.map((n) => n.getAttribute('data-report-id')), ['5', '4'])
+  assert.strictEqual(root.querySelector('#set-reports-count').textContent, '2 açık şikâyet')
+  assert.strictEqual(rows[0].querySelector('.list-name').textContent, 'ece adlı kişinin mesajı')
+  assert.ok(rows[0].querySelector('.list-sub').textContent.indexOf('İstenmeyen içerik · Bildiren: mert · ') === 0)
+  assert.ok(rows[0].querySelector('.act-report-go'), 'yazı odasındaki mesaja gidilebilir')
+  assert.strictEqual(rows[0].querySelector('.act-report-resolve').getAttribute('aria-label'), 'ece hakkındaki şikâyeti çözüldü işaretle')
+  // Özel mesaj: Mesaja Git yok, anahtarı olmayan not kilitli görünür
+  assert.strictEqual(rows[1].querySelector('.list-name').textContent, 'ece adlı kişinin özel mesajı')
+  assert.strictEqual(rows[1].querySelector('.act-report-go'), null)
+  assert.ok(rows[1].querySelector('.report-locked'))
+  // Çözülenler: silinmiş bildiren ve çözen
+  const done = root.querySelectorAll('#set-reports-done-list .report-row')
+  assert.strictEqual(done.length, 1)
+  assert.strictEqual(done[0].querySelector('.list-name').textContent, 'Kişi: mert')
+  assert.ok(done[0].textContent.indexOf('Bildiren: Silinmiş kullanıcı') !== -1)
+  assert.ok(done[0].textContent.indexOf('Çözen: burak') !== -1)
+  assert.strictEqual(done[0].querySelector('.act-report-resolve'), null)
+  rows[0].querySelector('.act-report-resolve').click()
+  await new Promise((r) => setImmediate(r))
+  const resolves = sandbox.__requests.filter((r) => r.path === '/api/reports/resolve')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(resolves[0].body)), { id: 5 })
+  assert.strictEqual(root.querySelector('#set-reports-msg').textContent, 'Şikâyet çözüldü olarak işaretlendi.')
+  assert.deepStrictEqual(root.querySelectorAll('#set-reports-list .report-row').map((n) => n.getAttribute('data-report-id')), ['4'])
+  assert.strictEqual(root.querySelectorAll('#set-reports-done-list .report-row').length, 2)
+  // Özel görünümdeki açık şikâyet sayısı değişince liste yeniden alınır
+  const gets = () => sandbox.__requests.filter((r) => r.method === 'GET' && r.path === '/api/reports').length
+  const before = gets()
+  run('socialState.priv.reports = 7')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 1)
+  // Sayı aynı kalsa da en yeni şikâyetin kimliği değişince (dolu listede yer değiştirme) yeniden alınır
+  run('socialState.priv.reportsLast = 99')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
+  // Kapanınca liste unutulur
+  run('closeSettings(false)')
+  assert.strictEqual(run('settingsUi.reports'), null)
+
+  // Engelleme izinli üye Üyeler sayfasını görür ama şikâyetleri görmez ve istemez
+  const mod = load({ role: 'member' })
+  mod.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'blue', perms: ['ban'] }]")
+  mod.run('state.meta.users[0].roleId = 7')
+  mod.run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(mod.root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
+  assert.strictEqual(mod.root.querySelector('#set-reports-section').hidden, true)
+  assert.strictEqual(mod.sandbox.__requests.filter((r) => r.path === '/api/reports').length, 0)
+})
+
+test('şikâyetler (Üyeler): mühürlü not çözülür, kimliği başka kayda bağlı zarf kilitli kalır, alıntı bildirenin metni olarak gösterilir', async () => {
+  const { run, root, sandbox } = load({ role: 'owner' })
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  sandbox.__kid = kid
+  const seal = (obj) => run('E2EE.sealJson(__kid, ' + JSON.stringify(obj) + ')')
+  const base = { kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, dm: false, reason: 'spam', createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' }
+  const row = (id, messageId, value) => Object.assign({}, base, { id: id, messageId: messageId, note: seal(value) })
+  sandbox.__reports = [
+    // Doğru zarf: not ve alıntı görünür, mesaj bu cihazda yüklü ve metni farklı
+    row(9, 40, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Sürekli reklam', q: 'Uydurulmuş metin' }),
+    // Doğru zarf: alıntı yüklü mesajın metniyle aynı
+    row(8, 41, { v: 1, a: 3, k: 'message', u: 2, m: 41, n: '', q: 'Gerçek metin' }),
+    // Geçerli ama başka bir mesaja bağlı zarf
+    row(7, 42, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Başka mesajın notu', q: 'Başka mesajın metni' }),
+    // Geçerli ama başka bir bildirene ve başka bir hedefe bağlı zarflar
+    row(6, 43, { v: 1, a: 2, k: 'message', u: 2, m: 43, n: 'Yanlış bildiren', q: '' }),
+    row(5, 44, { v: 1, a: 3, k: 'message', u: 3, m: 44, n: 'Yanlış hedef', q: '' })
+  ]
+  // Yazı odasında yüklü iki mesaj (ece, genel)
+  sandbox.__bodies = [seal({ v: 1, a: 2, c: 1, t: 'Mesajın gerçek metni' }), seal({ v: 1, a: 2, c: 1, t: 'Gerçek metin' })]
+  run('state.messages = [{ id: 40, channelId: 1, authorId: 2, body: __bodies[0], createdAt: 1 }, { id: 41, channelId: 1, authorId: 2, body: __bodies[1], createdAt: 2 }]')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  const rowOf = (id) => root.querySelector('#set-reports-list .report-row[data-report-id="' + id + '"]')
+  assert.strictEqual(rowOf(9).querySelector('.report-note-line').textContent, 'Not: Sürekli reklam')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Uydurulmuş metin')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-changed').textContent, 'Mesajın şu anki metni bundan farklı. Mesaj sonradan düzenlenmiş ya da bildiren metni değiştirmiş olabilir.')
+  assert.strictEqual(rowOf(9).querySelector('.report-locked'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Gerçek metin')
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-changed'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-note-line'), null)
+  for (const id of [7, 6, 5]) {
+    assert.strictEqual(rowOf(id).querySelector('.report-locked').textContent, 'Not bu cihazda açılamadı. Grup anahtarı yok veya not doğrulanamadı.', 'kayıt ' + id)
+    assert.strictEqual(rowOf(id).querySelector('.report-note-line'), null)
+    assert.strictEqual(rowOf(id).querySelector('.report-quote-line'), null)
+  }
+  // İngilizce etiket de doğrulanmamış metni bildirene bağlar
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.reports.quote', { text: 'x' })"), 'Message text added by the reporter: x')
+  run("I18N.setLang('tr')")
+})
+
+test('şikâyet penceresi: etkin anahtar yoksa not ve alıntı eklenmez, şikâyet nedenle gönderilir', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  // Eski anahtar cihazda, sahibin yenilediği etkin anahtar yok: eski mesaj çözülür
+  const oldKid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  const newKid = run('(function () { const k = E2EE.keyring.add(E2EE.generateKeyCode()); E2EE.keyring.remove(k); return k })()')
+  sandbox.__oldKid = oldKid
+  run('state.meta.activeKid = ' + JSON.stringify(newKid))
+  assert.strictEqual(run('hasActiveKey()'), false)
+  sandbox.__body = run("E2EE.sealJson(__oldKid, { v: 1, a: 3, c: 1, t: 'Eski anahtarla yazılmış mesaj' })")
+  run('__msg = { id: 40, channelId: 1, authorId: 3, body: __body, createdAt: 1 }')
+  assert.strictEqual(run('reportQuoteOf(__msg)'), 'Eski anahtarla yazılmış mesaj')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openReportDialog({ kind: 'message', message: __msg })")
+  assert.ok(doc.querySelector('#report-dialog #report-form'), 'pencere açıldı')
+  assert.strictEqual(doc.querySelector('#report-quote'), null)
+  assert.strictEqual(doc.querySelector('#report-note'), null)
+  assert.strictEqual(doc.querySelector('#report-nokey').textContent, 'Bu cihazda frekansın etkin grup anahtarı yok. Not ve mesaj metni şikâyete eklenemez, şikâyet yalnızca seçtiğiniz nedenle gönderilir.')
+  doc.querySelector('#report-reason').value = 'spam'
+  doc.querySelector('#report-send').click()
+  await new Promise((r) => setImmediate(r))
+  const posts = sandbox.__requests.filter((r) => r.path === '/api/reports')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(posts.map((r) => r.body))), [{ kind: 'message', targetUserId: 3, reason: 'spam', channelId: 1, messageId: 40 }])
+  assert.strictEqual(doc.querySelector('#report-dialog'), null)
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekans sahibine ve yöneticilere iletildi.')
+})
+
+test('şikâyet penceresi: sahip bildirilince şikâyeti yalnızca yöneticiler görür, yönetici yoksa kimse görmez', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  run('state.meta.activeKid = ' + JSON.stringify(kid))
+  assert.strictEqual(run('hasActiveKey()'), true)
+  run("state.meta.users[2].role = 'owner'")
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  const send = async () => {
+    doc.querySelector('#report-reason').value = 'harassment'
+    doc.querySelector('#report-send').click()
+    await new Promise((r) => setImmediate(r))
+  }
+  // Yönetici (ece) var: pencere şikâyetin yöneticilere gittiğini söyler
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'mert adlı kişiyi frekansın yöneticilerine bildiriyorsunuz. mert frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
+  assert.ok(doc.querySelector('#report-note'), 'anahtar varken not yazılabilir')
+  doc.querySelector('#report-note').value = 'Kuralları kendisi çiğniyor'
+  await send()
+  const posts = () => sandbox.__requests.filter((r) => r.path === '/api/reports').map((r) => r.body)
+  assert.strictEqual(posts().length, 1)
+  assert.ok(/^1\./.test(posts()[0].note), 'not mühürlü')
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekansın yöneticilerine iletildi.')
+  // Yönetici yok: şikâyet kaydedilir ama kimse göremez
+  run("state.meta.users[1].role = 'member'")
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-audience').textContent, 'Bu frekansta yönetici yok. Şikâyet kaydedilir ama bir yönetici atanana kadar kimse göremez.')
+  await send()
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz kaydedildi. Bu frekansta yönetici olmadığı için şu anda kimse göremez.')
+  // Sahip olmayan kişi için metin değişmez
+  run("openReportDialog({ kind: 'user', userId: 2 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'ece adlı kişiyi frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
+})
+
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
   const owner = load({ role: 'owner' })
   const { run, root, sandbox } = owner
@@ -953,6 +1229,97 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
 })
 
+test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişiklik hemen bildirilir', () => {
+  const { run, root, storage } = load()
+  run('var __idleChanges = 0; function idleSettingsChanged () { __idleChanges += 1 }')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-auto-idle')
+  const minutes = root.querySelector('#set-auto-idle-minutes')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  // Ses odası kuralı bu frekans içindir (masaüstünde başka frekansın ses odası arka plan penceresini etkilemez)
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Bu frekansın bir ses odasındayken burada boşta sayılmazsınız') !== -1)
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Bu frekans birden çok cihazda veya sekmede açıksa') !== -1)
+  assert.strictEqual(root.querySelector('#set-idle-section-title').textContent, 'Otomatik Boşta')
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.value), ['5', '10', '15', '30', '60'])
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.textContent), ['5 dakika', '10 dakika', '15 dakika', '30 dakika', '60 dakika'])
+  assert.strictEqual(minutes.value, '10')
+  assert.strictEqual(minutes.disabled, false)
+  const label = root.querySelectorAll('label').filter((l) => l.getAttribute('for') === 'set-auto-idle-minutes')[0]
+  assert.strictEqual(label.textContent, 'Süre')
+  minutes.value = '30'
+  minutes.dispatchEvent(fakeEvent('change'))
+  assert.strictEqual(storage.getItem('telsiz.autoIdleMinutes'), '30')
+  assert.strictEqual(run('__idleChanges'), 1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.autoIdle'), '0')
+  assert.strictEqual(minutes.disabled, true)
+  assert.strictEqual(run('__idleChanges'), 2)
+  // Başka sekmede değişen ayar sayfa yenilenince görünür
+  storage.setItem('telsiz.autoIdle', '1')
+  storage.setItem('telsiz.autoIdleMinutes', '5')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-auto-idle').checked, true)
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').value, '5')
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').disabled, false)
+  // İngilizce tekil ve çoğul
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 1 })"), '1 minute')
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 5 })"), '5 minutes')
+})
+
+test('otomatik boşta: kendi durumum "Boşta (otomatik)" görünür, elle seçilen durum değişmez', () => {
+  const { run } = load()
+  const me = () => ({
+    auto: run('myAutoIdle()'),
+    status: run('userStatus(1)'),
+    label: run('myStatusLabel()'),
+    line: run('myStatusLine(snap())'),
+    settings: run('chosenStatusLabel()')
+  })
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  // Sunucu beni boşta gösteriyor (bütün oturumlarım boşta), bu cihaz da boşta bildiriyor
+  run("state.meta.users[0].status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: true, status: 'idle', label: 'Boşta (otomatik)', line: 'Boşta (otomatik)', settings: 'Boşta (otomatik)' })
+  assert.strictEqual(run('myChosenStatus()'), 'online')
+  // Bu cihaz etkinse sunucunun eski metası "otomatik" sayılmaz (ör. elle Boşta'dan Çevrimiçi'ne dönerken)
+  run('var __deviceIdle = false; function idleThisDevice () { return __deviceIdle }')
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  run('__deviceIdle = true')
+  assert.strictEqual(run('myAutoIdle()'), true)
+  // Elle seçilen durumlar otomatik sayılmaz
+  run("state.me.status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: false, status: 'idle', label: 'Boşta', line: 'Boşta', settings: 'Boşta' })
+  run("state.me.status = 'dnd'; state.meta.users[0].status = 'dnd'")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'dnd')
+  run("state.me.status = 'invisible'; state.meta.users[0].status = 'offline'; state.meta.users[0].online = false")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'offline')
+  run("I18N.setLang('en')")
+  run("state.me.status = 'online'; state.meta.users[0].status = 'idle'; state.meta.users[0].online = true")
+  assert.strictEqual(run('myStatusLabel()'), 'Idle (automatic)')
+})
+
+test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
+  const { run, root, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-dj-media-session')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.ok(root.querySelector('#set-dj-media-session-hint').textContent.indexOf('kilit ekranında') !== -1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '0')
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '1')
+  storage.setItem('telsiz.djMediaSession', '0')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-dj-media-session').checked, false)
+})
+
 test('settings.css yalnızca belirteçlerle yazılır ve eski WebKit kurallarına uyar', () => {
   const css = fs.readFileSync(path.join(PUB, 'css', 'settings.css'), 'utf8')
   const body = css.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -1075,6 +1442,53 @@ test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür ve sahipte etk
   const admin = load({ role: 'admin' })
   admin.run("openSettings('general', null)")
   assert.strictEqual(admin.root.querySelector('#set-music-section').hidden, true, 'yönetici görmez')
+})
+
+test('şarkı adıyla YouTube araması anahtarı: varsayılan kapalı, YouTube kapalıyken devre dışı, açarken onay penceresi', async () => {
+  const owner = load({ role: 'owner' })
+  const dialogRoot = owner.doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  owner.doc.body.appendChild(dialogRoot)
+  owner.run("openSettings('general', null)")
+  const sw = () => owner.root.querySelector('#set-music-search')
+  assert.strictEqual(sw().checked, false, 'varsayılan kapalı')
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.ok(owner.root.querySelector('#set-music-search-hint').textContent.indexOf('Hizmet Şartları') !== -1, 'risk açıklaması')
+  const settingsPosts = () => owner.sandbox.__requests.filter((r) => r.path === '/api/settings')
+  // Açmak onay ister: İptal anahtarı kapalı bırakır ve istek göndermez
+  sw().click()
+  assert.strictEqual(sw().checked, false)
+  const dialog = () => owner.doc.querySelector('#music-search-dialog')
+  assert.ok(dialog(), 'onay penceresi açıldı')
+  assert.strictEqual(owner.doc.querySelector('#music-search-confirm').textContent, 'Riskleri Okudum, Aramayı Aç')
+  owner.doc.querySelector('#music-search-cancel').click()
+  assert.strictEqual(dialog(), null)
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(settingsPosts().length, 0)
+  // Onay: POST /api/settings { music: { search: true } }
+  sw().click()
+  owner.doc.querySelector('#music-search-confirm').click()
+  await new Promise((resolve) => setImmediate(resolve))
+  owner.run('0')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }])
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(owner.root.querySelector('#set-music-msg').textContent, 'Şarkı adıyla YouTube araması açıldı.')
+  // Kapatmak onay istemez
+  sw().click()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(dialog(), null)
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }, { music: { search: false } }])
+  // YouTube kaynağı kapalıyken anahtar kapalı görünür ve devre dışıdır
+  owner.run('state.meta.music = { enabled: true, youtube: false, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(sw().disabled, true)
+  owner.run('state.meta.music = { enabled: true, youtube: true, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(sw().disabled, false)
 })
 
 test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam çizilir', () => {
@@ -1234,4 +1648,30 @@ test('Frekans fotoğrafı: sahip seçer ve kaldırır (POST /api/server-icon/del
   assert.strictEqual(admin.root.querySelector('#set-photo-owner-only').hidden, false)
   admin.root.querySelector('#set-photo-pick').click()
   assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path.indexOf('/api/server-icon') === 0).length, 0)
+})
+
+test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, hatalı kanca ötekileri durdurmaz', () => {
+  const { run, sandbox } = load()
+  const errors = []
+  sandbox.console = { warn () {}, log () {}, error (err) { errors.push(err && err.message) } }
+  assert.strictEqual(run('typeof voiceHook'), 'function')
+  assert.strictEqual(run('typeof runVoiceHooks'), 'function')
+  // Telsiz kartının ve bandın DOM çizimi taklit ortamda boşa çıkarılır, çağrı sırası ve kancalar değişmez
+  run('renderBand = renderVoiceChannels = renderVoicePanel = renderUserPanel = updateVoiceLive = aramaRender = function () {}')
+  run(`__hooks = []
+    voiceHook('change', function (snap) { __hooks.push('change:' + (snap ? snap.channelId : 'yok')) })
+    voiceHook('change', function () { throw new Error('bozuk kanca') })
+    voiceHook('change', function () { __hooks.push('change2') })
+    voiceHook('render', function (arg) { __hooks.push('render:' + typeof arg) })
+    voiceHook('bilinmeyen', function () { __hooks.push('bilinmeyen') })
+    voiceHook('change', 'işlev değil')`)
+  const hooks = () => JSON.parse(run('JSON.stringify(__hooks)'))
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks(), ['change:3', 'change2', 'render:undefined'])
+  assert.deepStrictEqual(errors, ['bozuk kanca'])
+  // Yapı değişmeyince kart yeniden çizilmez: change kancaları çalışır, render kancası çalışmaz
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks().slice(3), ['change:3', 'change2'])
+  run('onVoiceChange(null)')
+  assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
 })

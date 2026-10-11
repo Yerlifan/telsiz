@@ -459,6 +459,8 @@ function padPoll () {
     }
     bandState.pads[gp.index] = now
   })
+  // Otomatik boşta (40-bosta.js): her karedeki okuma kısa düğme dokunuşlarını da girdi sayar
+  if (typeof idlePadFrame === 'function') idlePadFrame(pads)
   nextFrame(padPoll)
 }
 

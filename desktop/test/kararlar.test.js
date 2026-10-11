@@ -99,6 +99,15 @@ test('arka plan penceresi yalnızca bildirim alabilir: mikrofon ve kamera redded
   assert.deepEqual(Array.from(perm.MEDIA_TYPES).sort(), ['audio', 'video'])
 })
 
+test('yüzen pencere hiçbir izin alamaz, hiçbir yere gidemez', () => {
+  for (const p of ['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen', 'geolocation', 'display-capture', 'unknown', '']) {
+    assert.equal(perm.deniedFor('float', p), true, p)
+  }
+  for (const url of ['telsiz://app/', 'telsiz://app/index.html', 'https://ornek.com/', 'https://www.youtube.com/watch?v=abcdefghijk', 'about:blank', 'javascript:alert(1)']) {
+    assert.equal(nav.decideNavigation(url, 'float'), 'deny', url)
+  }
+})
+
 test('ekran paylaşımı: kullanıcı girişi, istek ve bekleyen seçim', () => {
   const now = 100000
   assert.equal(share.hasRecentActivation(now - 1000, now), true)

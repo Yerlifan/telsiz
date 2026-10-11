@@ -53,7 +53,7 @@ describe('Telsiz DJ: durum alanları ve yazım', () => {
       assert.equal(typeof st.muv, 'number')
       assert.deepEqual(st.music, {})
       assert.ok(Math.abs(st.now - Date.now()) < 5000)
-      assert.deepEqual(st.meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(st.meta.music, { enabled: true, youtube: true, restricted: false, search: false })
       // muv sorgusu sunucununkinden farklıysa poll hemen müzik haritasıyla döner
       const stale = await h.get(ctx, '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&pmv=' + st.pmv + '&muv=0&sig=0&boot=' + st.boot, owner.token)
       h.expectStatus(stale, 200)
@@ -519,7 +519,7 @@ describe('Telsiz DJ: sunucu ayarı', () => {
         h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music }), 400, 'bad_request')
       }
       let meta = (await h.stateOf(ctx, owner.token)).meta
-      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false, search: false })
 
       // YouTube kapalı: yalnızca meta (içerik sunucuya görünmez, istemciler uygular), yazım sürer
       h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
@@ -530,14 +530,14 @@ describe('Telsiz DJ: sunucu ayarı', () => {
       await waiting
       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { youtube: false } }), 200)
       const woke = await pending
-      assert.deepEqual(woke.data.meta.music, { enabled: true, youtube: false, restricted: false })
+      assert.deepEqual(woke.data.meta.music, { enabled: true, youtube: false, restricted: false, search: false })
       const w1 = await write(ctx, ayse.token, VOICE, 0)
       h.expectStatus(w1, 200)
 
       // DJ kapalı: yazım 403, mevcut durum haritada kalır
       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { enabled: false } }), 200)
       meta = (await h.stateOf(ctx, owner.token)).meta
-      assert.deepEqual(meta.music, { enabled: false, youtube: false, restricted: false })
+      assert.deepEqual(meta.music, { enabled: false, youtube: false, restricted: false, search: false })
       const off = await write(ctx, ayse.token, VOICE, w1.data.v)
       h.expectStatus(off, 403, 'dj_disabled')
       expectNow(off)
@@ -546,14 +546,14 @@ describe('Telsiz DJ: sunucu ayarı', () => {
       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { serverName: 'Yeni ad', music: { youtube: true } }), 200)
       await ctx.server.flush()
       const disk = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'))
-      assert.deepEqual(disk.music, { enabled: false, youtube: true, restricted: false })
+      assert.deepEqual(disk.music, { enabled: false, youtube: true, restricted: false, search: false })
       next = await ctx.restart()
       meta = (await h.stateOf(next, owner.token)).meta
-      assert.deepEqual(meta.music, { enabled: false, youtube: true, restricted: false })
+      assert.deepEqual(meta.music, { enabled: false, youtube: true, restricted: false, search: false })
       assert.equal(meta.serverName, 'Yeni ad')
       h.expectStatus(await h.post(next, '/api/settings', owner.token, { music: { enabled: true } }), 200)
       meta = (await h.stateOf(next, owner.token)).meta
-      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false, search: false })
     } finally {
       if (next) await next.cleanup()
       else await ctx.cleanup()
@@ -569,18 +569,18 @@ describe('Telsiz DJ: sunucu ayarı', () => {
       await ctx.stop()
       const file = path.join(ctx.dataDir, 'state.json')
       const disk = JSON.parse(fs.readFileSync(file, 'utf8'))
-      assert.deepEqual(disk.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(disk.music, { enabled: true, youtube: true, restricted: false, search: false })
       disk.music = { enabled: 'evet' }
       fs.writeFileSync(file, JSON.stringify(disk))
       next = await h.startServer({}, ctx.root)
-      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false, search: false })
       await next.stop()
       delete disk.music
       fs.writeFileSync(file, JSON.stringify(disk))
       next = await h.startServer({}, ctx.root)
-      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false, search: false })
       await next.server.flush()
-      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).music, { enabled: true, youtube: true, restricted: false })
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).music, { enabled: true, youtube: true, restricted: false, search: false })
     } finally {
       if (next) await next.cleanup()
       else h.removeRoot(ctx.root)

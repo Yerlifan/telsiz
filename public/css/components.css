@@ -1999,13 +1999,21 @@ button.msg-author:hover {
   color: var(--accent-text);
 }
 
-/* Telsiz DJ duyurusu (06-messages.js buildDjNotice) */
+/* Telsiz DJ duyurusu (06-messages.js buildDjNotice). Eski WebKit flex gap desteklemez: öğeler arasındaki 0.5rem
+   ve satırlar arasındaki 0.25rem çocukların sağ ve alt boşluğudur. Kapsayıcının eksi sağ ve alt boşluğu her satırın
+   sonundaki ve son satırın altındaki boşluğu geri alır, böylece satır kırılması gap ile aynı olur (#radio-cam-bar
+   kalıbı). Eksi sağ boşluk .convo .msg satırının 0.75rem sağ iç boşluğunda kalır, yatay taşma yaratmaz. */
 .msg-dj {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.5rem;
+  margin: 0 -0.5rem -0.25rem 0;
   color: var(--text-2);
+}
+
+.msg-dj > * {
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .msg-dj .icon {
@@ -3368,6 +3376,33 @@ button.member:hover {
 
 .app-dialog-body .lead {
   margin-top: 0;
+}
+
+/* Şikâyet penceresi: bildirilen mesajın metni (13-profile.js openReportDialog) */
+.report-quote-box {
+  margin-top: 0.75rem;
+}
+
+.report-quote-box .label {
+  margin-top: 0;
+}
+
+.report-quote {
+  max-height: 8rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  overflow-y: auto;
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.report-note {
+  min-height: 5rem;
+  resize: vertical;
 }
 
 .dialog-actions {

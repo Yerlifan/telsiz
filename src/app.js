@@ -2,10 +2,10 @@
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
 // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
-// liste ve düzgün kapanış.
-// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
-// token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
+// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
+// YouTube araması, içerik şikâyetleri, statik beyaz liste ve düzgün kapanış.
+// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını, şikâyet notlarını,
+// token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
 // Türkçe veya İngilizcedir (src/i18n.js).
 
@@ -21,6 +21,7 @@ const { createHub } = require('./hub')
 const { createSocial } = require('./social')
 const { createMusic } = require('./music')
 const { createCalls } = require('./calls')
+const youtubeSearch = require('./youtube-search')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
@@ -107,15 +108,31 @@ const DEFAULTS = Object.freeze({
   typingLimit: 30,
   typingWindowMs: 10000,
   typingTtlMs: 6000,
+  // Otomatik boşta (src/hub.js): bir oturumun boşa geçişleri arasındaki en kısa süre. Daha erken gelen boşa geçiş
+  // yok sayılır, boştan dönüş hemen işlenir. Her geçiş herkese meta yayını tetiklediği için sınırlanır.
+  idleGapMs: 5000,
   // Telsiz DJ durum yazımları: kullanıcı başına 30 / 10 sn. Boşalan ses odasının müzik durumu 30 dk sonra
   // bellekten silinir.
   musicLimit: 30,
   musicWindowMs: 10000,
   musicIdleMs: 30 * 60 * 1000,
+  // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
+  // en çok 300 YouTube isteği. Bir arama en çok iki istek yapar (InnerTube ve sonuç sayfası), önbellekten verilen
+  // yanıtlar ve devre kesici açıkken istek atmadan reddedilen aramalar sayılmaz. Tavan kota için değil, sunucunun
+  // adresinin YouTube tarafından engellenmesine karşıdır.
+  musicSearchLimit: 10,
+  musicSearchWindowMs: 60000,
+  musicSearchDailyMax: 300,
+  // Testler için arama yerine geçen işlev (query) => Promise<[{ videoId, title, channel, durationS }]> veya
+  // { request } (gerçek ayrıştırıcıya sahte istek işlevi). null ise src/youtube-search.js YouTube'a gider.
+  youtubeSearch: null,
   // Özel mesaj aramaları: başlatma ve reddetme kullanıcı başına 10 / 60 sn, cevaplanmayan arama 45 sn sonra düşer
   callLimit: 10,
   callWindowMs: 60000,
   callRingMs: 45000,
+  // İçerik şikâyeti: kullanıcı başına saatte 10
+  reportLimit: 10,
+  reportWindowMs: 3600000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -142,7 +159,8 @@ const POSITIVE_OPTIONS = [
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
-  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs'
+  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
+  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs', 'reportLimit', 'reportWindowMs'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
@@ -169,6 +187,15 @@ const MAX_ROLES = 20
 const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
+// İçerik şikâyeti (POST /api/reports): türler, nedenler ve state.json içinde tutulan en çok kayıt. Notun düz metni
+// istemcide en çok 2000 kod noktasıdır ve grup anahtarıyla mühürlenir. Zarf sınırı kod noktası başına en çok 4
+// bayt ile JSON alanlarına pay bırakır: (2000 * 4 + 400) bayt base64url ile yaklaşık 11250 karakter.
+const REPORT_KINDS = new Set(['message', 'user'])
+const REPORT_REASONS = new Set(['spam', 'harassment', 'illegal', 'other'])
+const REPORTS_MAX = 500
+// Bir kişinin aynı anda açık tutabileceği en çok şikâyet (tek kişi listeyi dolduramasın)
+const REPORTS_OPEN_PER_USER = 20
+const REPORT_NOTE_MAX_CHARS = 12000
 const IDENTITY_MAX_CHARS = 2000
 // Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
 // (101 parça, en uzun adlar, dolu gone listesi) yaklaşık 105000 karakterdir.
@@ -195,7 +222,15 @@ const DEFAULT_MAX_CAMERAS = 4
 const CALL_CAPACITY = 2
 const CALL_MAX_CAMERAS = 2
 const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
-const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
+const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted', 'search']
+// Şarkı adıyla arama: sorgu en çok bu kadar kod noktası, yanıtta en çok bu kadar sonuç, aynı sorgunun sonucu bu
+// süre bellekte tutulur (en çok MUSIC_SEARCH_CACHE_MAX sorgu)
+const MUSIC_SEARCH_QUERY_MAX = 200
+const MUSIC_SEARCH_RESULTS = 5
+const MUSIC_SEARCH_CACHE_MS = 10 * 60 * 1000
+const MUSIC_SEARCH_CACHE_MAX = 500
+// Sorgudaki denetim ve yön karakterleri boşluk olur (satır sonları dahil)
+const SEARCH_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
 const USER_RECORDS_FACTOR = 4
@@ -413,6 +448,10 @@ function resolveOptions (options) {
   if (config.publicDir !== null) config.publicDir = path.resolve(config.publicDir)
   if (config.staticSource === null) config.staticSource = staticSource.defaultSource(config.publicDir)
   else if (!staticSource.isSource(config.staticSource)) throw new TypeError('createChatServer: invalid staticSource.')
+  const ys = config.youtubeSearch
+  if (ys !== null && typeof ys !== 'function' && !(ys && typeof ys === 'object' && typeof ys.request === 'function')) {
+    throw new TypeError('createChatServer: youtubeSearch must be a function or { request }.')
+  }
   if (config.setupCode !== null && auth.normalizeCode(config.setupCode) === null) {
     throw new TypeError('createChatServer: setupCode may contain only Crockford base32 characters.')
   }
@@ -434,6 +473,38 @@ function cleanRole (value) {
 
 function publicRole (role) {
   return { id: role.id, name: role.name, color: role.color, perms: role.perms.slice() }
+}
+
+function finiteTime (value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+// Şikâyet kaydı: { id, kind, reporterId, targetUserId, channelId, messageId, dm, reason, note, createdAt, resolvedAt,
+// resolvedBy }. Mesaj şikâyetinde channelId ve messageId vardır, dm mesajın özel konuşmada olduğunu gösterir. Kişi
+// şikâyetinde ikisi de null'dır. note grup anahtarıyla mühürlü zarf veya null. Geçersizse null.
+function cleanReport (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !isId(value.id)) return null
+  if (!REPORT_KINDS.has(value.kind) || !REPORT_REASONS.has(value.reason)) return null
+  if (!isId(value.reporterId) || !isId(value.targetUserId) || !finiteTime(value.createdAt)) return null
+  const message = value.kind === 'message'
+  if (message ? !(isId(value.channelId) && isId(value.messageId)) : (value.channelId !== null || value.messageId !== null)) return null
+  if (value.note !== null && !validEnvelope(value.note, REPORT_NOTE_MAX_CHARS)) return null
+  const resolved = value.resolvedAt !== null
+  if (resolved ? !(finiteTime(value.resolvedAt) && isId(value.resolvedBy)) : value.resolvedBy !== null) return null
+  return {
+    id: value.id,
+    kind: value.kind,
+    reporterId: value.reporterId,
+    targetUserId: value.targetUserId,
+    channelId: message ? value.channelId : null,
+    messageId: message ? value.messageId : null,
+    dm: message && value.dm === true,
+    reason: value.reason,
+    note: value.note,
+    createdAt: value.createdAt,
+    resolvedAt: value.resolvedAt,
+    resolvedBy: value.resolvedBy
+  }
 }
 
 // Yüklenen durumun temel kayıtlarını denetler. Bozuksa hiçbir şeyi değiştirmeden hata fırlatır.
@@ -664,6 +735,28 @@ function normalizeLoadedState (state, config, log) {
     if (state.counters.role !== undefined || maxRole > 0) changed = true
     state.counters.role = Math.max(maxRole, Number.isSafeInteger(state.counters.role) && state.counters.role > 0 ? state.counters.role : 0)
   }
+  // Şikâyetler eski durum dosyalarında yoktur, boş listeyle başlar (yazım gerekmez). Liste oluşturulma sırasıyla
+  // tutulur, fazlası en eskiden düşer.
+  if (state.reports === undefined) {
+    state.reports = []
+  } else {
+    const seenReports = new Set()
+    const reports = (Array.isArray(state.reports) ? state.reports : []).map(cleanReport).filter((r) => {
+      if (!r || seenReports.has(r.id)) return false
+      seenReports.add(r.id)
+      return true
+    }).slice(-REPORTS_MAX)
+    if (!sameJson(reports, state.reports)) {
+      log.warn(i18n.t(lang, 'log.invalidReports'))
+      state.reports = reports
+      changed = true
+    }
+  }
+  const maxReport = state.reports.reduce((max, r) => Math.max(max, r.id), 0)
+  if (!Number.isSafeInteger(state.counters.report) || state.counters.report < maxReport) {
+    if (state.counters.report !== undefined || maxReport > 0) changed = true
+    state.counters.report = Math.max(maxReport, Number.isSafeInteger(state.counters.report) && state.counters.report > 0 ? state.counters.report : 0)
+  }
   // Hesabın özel rolü ve ses susturması eski kayıtlarda yoktur (yazım gerekmez), silinen role bağlı rol kalkar
   const roleIds = new Set(state.roles.map((r) => r.id))
   for (const u of state.users) {
@@ -737,15 +830,32 @@ function normalizeLoadedState (state, config, log) {
   return changed
 }
 
-// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted }. enabled ve youtube eksikse açık, restricted (kuyruğu
-// odada DJ izni olan biri varken yalnızca o yönetir) eksikse kapalıdır.
+// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted, search }. enabled ve youtube eksikse açık, restricted
+// (kuyruğu odada DJ izni olan biri varken yalnızca o yönetir) ve search (şarkı adıyla YouTube araması, Hizmet
+// Şartları riski yüzünden sahip açıkça açar) eksikse kapalıdır.
 function cleanMusicSettings (value) {
   const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
     youtube: typeof src.youtube === 'boolean' ? src.youtube : true,
-    restricted: typeof src.restricted === 'boolean' ? src.restricted : false
+    restricted: typeof src.restricted === 'boolean' ? src.restricted : false,
+    search: typeof src.search === 'boolean' ? src.search : false
   }
+}
+
+// Arama metni: NFC, denetim karakterleri ve satır sonları boşluk olur, boşluklar sadeleşir. 1 ile
+// MUSIC_SEARCH_QUERY_MAX kod noktası arasında değilse null.
+function cleanSearchQuery (value) {
+  if (typeof value !== 'string' || value.length > MUSIC_SEARCH_QUERY_MAX * 4) return null
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    return null
+  }
+  text = text.replace(SEARCH_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
+  const length = Array.from(text).length
+  return length >= 1 && length <= MUSIC_SEARCH_QUERY_MAX ? text : null
 }
 
 function intInRange (value, min, max) {
@@ -780,7 +890,7 @@ function prepareState (store, config, log) {
       serverIcon: null,
       inviteCode: auth.generateCode(),
       activeKid: null,
-      counters: { user: 0, channel: 0, message: 0, role: 0 },
+      counters: { user: 0, channel: 0, message: 0, role: 0, report: 0 },
       users: [],
       sessions: [],
       channels: [],
@@ -791,8 +901,10 @@ function prepareState (store, config, log) {
       blocks: [],
       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
       roles: [],
-      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
-      music: { enabled: true, youtube: true, restricted: false },
+      // İçerik şikâyetleri (sahip ve yöneticiler görür), oluşturulma sırasıyla
+      reports: [],
+      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
+      music: cleanMusicSettings(null),
       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
       voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
     })
@@ -990,8 +1102,15 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
+  // İçerik şikâyeti (sahip ve yöneticilerin listesini doldurmasın diye ayrıca sınırlanır)
+  const reportLimiter = new auth.RateLimiter(config.reportLimit, config.reportWindowMs)
+  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
+  // YouTube'a giden her istekte spendSearchBudget ile düşer)
+  const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
+  const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily,
+    reportLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
   let proxyWarned = false
@@ -1005,18 +1124,46 @@ async function createChatServer (options) {
   // Telsiz DJ müzik durumları: yalnızca bellekte, ses odası başına (src/music.js)
   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
 
+  // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
+  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz. Sunucu
+  // geneli tavan YouTube'a giden her istekten hemen önce düşer (budget). Enjekte edilen arayıcı arama başına tek
+  // istek sayılır.
+  function spendSearchBudget () {
+    return musicSearchDaily.consume('all', Date.now()) === 0
+  }
+  const searchEngine = typeof config.youtubeSearch === 'function'
+    ? null
+    : youtubeSearch.createYouTubeSearch({
+      request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
+      budget: spendSearchBudget,
+      onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
+    })
+  const runYouTubeSearch = searchEngine ? searchEngine.search : (query) => {
+    if (!spendSearchBudget()) throw youtubeSearch.searchError('search_daily_limit', 'daily_limit', false)
+    return config.youtubeSearch(query)
+  }
+  // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
+  const musicSearchCache = new Map()
+  const musicSearchPending = new Map()
+
   const hub = createHub({
     pollTimeoutMs: config.pollTimeoutMs,
     graceMs: config.graceMs,
     eventBufferSize: config.eventBufferSize,
     maxWaitersPerSession: config.maxWaitersPerSession,
     typingTtlMs: config.typingTtlMs,
+    idleGapMs: config.idleGapMs,
     getBase: metaBase,
     getPrivate: privateOf,
     music: { version: music.version, map: music.map },
     isHidden: (userId) => {
       const user = usersById.get(userId)
       return Boolean(user) && user.status === 'invisible'
+    },
+    // Otomatik boşta yalnızca elle seçilen durum Çevrimiçi iken görünür (Boşta, Rahatsız etmeyin ve Görünmez değişmez)
+    showsAutoIdle: (userId) => {
+      const user = usersById.get(userId)
+      return Boolean(user) && user.status === 'online'
     },
     // Engel ilişkisi olan iki kullanıcı (hangi yönde olursa olsun) birbirinin yazıyor bilgisini görmez
     canSeeTyping: (viewerId, typerId) => !social.isBlockedEither(viewerId, typerId),
@@ -1107,7 +1254,8 @@ async function createChatServer (options) {
       channels,
       users,
       roles: state.roles.map(publicRole),
-      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted },
+      // search: arama gerçekten kullanılabilir mi (DJ ve YouTube kaynağı da açık olmalı)
+      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted, search: state.music.enabled && state.music.youtube && state.music.search },
       voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
     }
   }
@@ -1127,6 +1275,13 @@ async function createChatServer (options) {
       view = user
         ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
         : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
+      // Sahip ve yöneticiler kendileri hakkında olmayan açık şikâyetlerin sayısını ve gördükleri en yeni şikâyetin
+      // kimliğini alır (liste GET /api/reports ile alınır)
+      if (user && !user.deleted && isStaff(user)) {
+        const seen = reportSummaryFor(user.id)
+        view.reports = seen.open
+        view.reportsLast = seen.last
+      }
       privateCache.set(userId, view)
     }
     return view
@@ -1836,9 +1991,11 @@ async function createChatServer (options) {
     return state.users.filter((u) => u.banned && !u.deleted).sort((a, b) => a.id - b.id)
   }
 
+  // idle: otomatik boşta ('1' bu sayfa boşta, '0' değil), tab: bildiren sayfanın kimliği (aynı oturumu paylaşan
+  // sekmeler ayrı tutulur). Yalnızca hub'ın belleğinde tutulur, diske yazılmaz.
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot'), idle: q.get('idle'), tab: q.get('tab') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır. Anahtar çifti yoksa (parola
@@ -2831,6 +2988,8 @@ async function createChatServer (options) {
       target.role = b.role
       store.saveState()
       hub.bumpMeta()
+      // Yöneticinin özel görünümünde açık şikâyet sayısı vardır
+      privateChanged([target.id])
     }
     return okDurable(ctx, { ok: true })
   }
@@ -2867,6 +3026,189 @@ async function createChatServer (options) {
     if (target.id === ctx.user.id || target.role === 'owner' || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     deleteAccount(target, 'kicked')
     return okDurable(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: içerik şikâyeti
+
+  function staffIds () {
+    return state.users.filter((u) => !u.deleted && isStaff(u)).map((u) => u.id)
+  }
+
+  // Şikâyet edilen kişi kendisi hakkındaki şikâyeti görmez ve çözemez (sahip veya yönetici olsa da)
+  function reportVisibleTo (r, userId) {
+    return r.targetUserId !== userId
+  }
+
+  // Görevlinin görebildiği açık şikâyet sayısı ve görebildiği en yeni şikâyetin kimliği (yoksa 0). Liste
+  // oluşturulma sırasıyla tutulduğu için en yeni kayıt en sondadır.
+  function reportSummaryFor (userId) {
+    let open = 0
+    let last = 0
+    for (const r of state.reports) {
+      if (!reportVisibleTo(r, userId)) continue
+      if (r.resolvedAt === null) open++
+      last = r.id
+    }
+    return { open, last }
+  }
+
+  // Şikâyet listesi değişmeden önce görevlilerin özetleri alınır, değişiklikten sonra yalnızca özeti değişenlerin
+  // özel görünümü yenilenir (şikâyet edilen görevlinin poll'u kendisi hakkındaki şikâyetle uyanmaz)
+  function reportSummaries () {
+    return new Map(staffIds().map((id) => [id, reportSummaryFor(id)]))
+  }
+
+  function reportsChanged (before) {
+    const changed = []
+    for (const [id, was] of before) {
+      const now = reportSummaryFor(id)
+      if (now.open !== was.open || now.last !== was.last) changed.push(id)
+    }
+    privateChanged(changed)
+  }
+
+  function openReportsBy (userId) {
+    let n = 0
+    for (const r of state.reports) {
+      if (r.resolvedAt === null && r.reporterId === userId) n++
+    }
+    return n
+  }
+
+  // Liste doluysa yer açılacak kaydın sırası, yer açılamıyorsa -1. Önce en eski çözülmüş şikâyet düşer. Hepsi
+  // açıksa en çok açık şikâyeti olan kişinin en eski açık şikâyeti düşer, ama yalnızca yeni şikâyetle birlikte
+  // bildirenin açık şikâyeti o kişininkinden az kalacaksa. Böylece birkaç hesap listeyi doldurup herkesin
+  // şikâyetini engelleyemez, eşit sayıda şikâyeti olan iki kişi de birbirinin kaydını düşüremez.
+  function reportSlotToFree (reporterId) {
+    const resolved = state.reports.findIndex((r) => r.resolvedAt !== null)
+    if (resolved !== -1) return resolved
+    const counts = new Map()
+    for (const r of state.reports) counts.set(r.reporterId, (counts.get(r.reporterId) || 0) + 1)
+    let top = null
+    let topCount = 0
+    for (const [id, n] of counts) {
+      if (n > topCount) {
+        top = id
+        topCount = n
+      }
+    }
+    if (top === null || top === reporterId || (counts.get(reporterId) || 0) + 1 >= topCount) return -1
+    return state.reports.findIndex((r) => r.reporterId === top)
+  }
+
+  function takeReportSlot (ctx) {
+    const wait = reportLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait === 0) return true
+    tooMany(ctx, wait, 'detail.reportRate')
+    return false
+  }
+
+  // Silinmiş hesabın adı boş döner
+  function liveNameOf (userId) {
+    const user = userId === null ? null : usersById.get(userId)
+    return user && !user.deleted ? user.name : ''
+  }
+
+  function reportView (r) {
+    return {
+      id: r.id,
+      kind: r.kind,
+      reporterId: r.reporterId,
+      reporterName: liveNameOf(r.reporterId),
+      targetUserId: r.targetUserId,
+      targetName: liveNameOf(r.targetUserId),
+      channelId: r.channelId,
+      messageId: r.messageId,
+      dm: r.dm,
+      reason: r.reason,
+      note: r.note,
+      createdAt: r.createdAt,
+      resolvedAt: r.resolvedAt,
+      resolvedBy: r.resolvedBy,
+      resolverName: liveNameOf(r.resolvedBy)
+    }
+  }
+
+  // POST /api/reports { kind, channelId?, messageId?, targetUserId, reason, note? }: üye bir mesajı (okuyabildiği
+  // yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
+  // Sunucu kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini görür. note grup anahtarıyla mühürlü bir zarftır
+  // (düz metin kabul edilmez), özel mesaj şikâyetinde kişi mesajın çözülmüş metnini isterse bu nota koyar. Aynı
+  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz, yanıt eski kaydın kimliğini döner. Bir
+  // kişinin en çok REPORTS_OPEN_PER_USER açık şikâyeti olabilir (409). Liste doluysa reportSlotToFree bir kayıt
+  // düşürür, düşüremezse 503 reports_full döner. Bu iki ret saatlik hakkı harcamaz. Şikâyet edilen sahip veya
+  // yöneticinin poll'u bu şikâyetle uyanmaz (kendisi hakkındaki şikâyeti görmez).
+  function handleReportCreate (ctx) {
+    const b = ctx.body
+    if (!REPORT_KINDS.has(b.kind) || !REPORT_REASONS.has(b.reason)) return fail(ctx, 400, 'bad_request')
+    const note = b.note === undefined || b.note === null ? null : b.note
+    if (note !== null && !validEnvelope(note, REPORT_NOTE_MAX_CHARS)) return fail(ctx, 400, 'bad_report_note')
+    let target = null
+    let found = null
+    if (b.kind === 'message') {
+      found = findLiveMessage(b.messageId, ctx.user)
+      if (!found || toId(b.channelId) !== found.message.channelId) return fail(ctx, 404, 'message_not_found')
+      if (toId(b.targetUserId) !== found.message.authorId) return fail(ctx, 400, 'bad_request')
+      target = usersById.get(found.message.authorId) || null
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    } else {
+      if ((b.channelId !== undefined && b.channelId !== null) || (b.messageId !== undefined && b.messageId !== null)) return fail(ctx, 400, 'bad_request')
+      target = findLiveUser(b.targetUserId)
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    }
+    if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
+    const messageId = found ? found.message.id : null
+    const same = state.reports.find((r) => r.resolvedAt === null && r.reporterId === ctx.user.id && r.kind === b.kind &&
+      (found ? r.messageId === messageId : r.targetUserId === target.id))
+    if (same) return ok(ctx, { ok: true, id: same.id, duplicate: true })
+    if (openReportsBy(ctx.user.id) >= REPORTS_OPEN_PER_USER) return fail(ctx, 409, 'too_many_open_reports', null, null, { max: REPORTS_OPEN_PER_USER })
+    const free = state.reports.length >= REPORTS_MAX ? reportSlotToFree(ctx.user.id) : null
+    if (free === -1) return fail(ctx, 503, 'reports_full')
+    if (!takeReportSlot(ctx)) return
+    const before = reportSummaries()
+    if (free !== null) state.reports.splice(free, 1)
+    state.counters.report++
+    const report = {
+      id: state.counters.report,
+      kind: b.kind,
+      reporterId: ctx.user.id,
+      targetUserId: target.id,
+      channelId: found ? found.message.channelId : null,
+      messageId,
+      dm: Boolean(found && found.channel.type === 'dm'),
+      reason: b.reason,
+      note,
+      createdAt: ctx.now,
+      resolvedAt: null,
+      resolvedBy: null
+    }
+    state.reports.push(report)
+    store.saveState()
+    reportsChanged(before)
+    return okDurable(ctx, { ok: true, id: report.id })
+  }
+
+  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce. Kişi kendisi hakkındaki şikâyetleri görmez.
+  function handleReportsList (ctx) {
+    if (!requireStaff(ctx)) return
+    const reports = state.reports.filter((r) => reportVisibleTo(r, ctx.user.id))
+    ok(ctx, { reports: reports.reverse().map(reportView) })
+  }
+
+  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz. Kişinin
+  // kendisi hakkındaki şikâyet ona yokmuş gibi 404 döner (liste de onu göstermez).
+  function handleReportResolve (ctx) {
+    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    const id = toId(ctx.body.id)
+    const report = id === null ? null : state.reports.find((r) => r.id === id) || null
+    if (!report || !reportVisibleTo(report, ctx.user.id)) return fail(ctx, 404, 'report_not_found')
+    if (report.resolvedAt === null) {
+      const before = reportSummaries()
+      report.resolvedAt = ctx.now
+      report.resolvedBy = ctx.user.id
+      store.saveState()
+      reportsChanged(before)
+    }
+    return okDurable(ctx, { ok: true, report: reportView(report) })
   }
 
   // ---------------------------------------------------------------- uç noktalar: özel roller
@@ -2994,7 +3336,8 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true, tempPassword: creds.tempPassword })
   }
 
-  // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
+  // Telsiz DJ ayar değişikliği: { enabled?, youtube?, restricted?, search? } (en az biri, yalnızca boolean).
+  // Geçersizse null.
   function musicSettingsPatch (value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null
     const keys = Object.keys(value)
@@ -3462,6 +3805,61 @@ async function createChatServer (options) {
     ok(ctx, { v: result.v, at: result.at, now })
   }
 
+  // POST /api/music/search { channelId, q } (istek 5): şarkı adıyla YouTube araması. Sahip açar (music.search), DJ ve
+  // YouTube kaynağı da açık olmalıdır. Denetimler /api/music/state ile aynıdır: kişi o ses odasında olmalı, kısıtlı
+  // kipte DJ izni gerekir. Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin gelir ve sunucunun
+  // adresiyle YouTube'a gider. Metin günlüğe yazılmaz. Aynı sorgu MUSIC_SEARCH_CACHE_MS boyunca önbellekten verilir.
+  // Yanıt { results: [{ videoId, title, channel, durationS }] } (en çok MUSIC_SEARCH_RESULTS, çalınabilir sonuçlar).
+  async function handleMusicSearch (ctx) {
+    const b = ctx.body
+    if (!state.music.enabled) return fail(ctx, 403, 'dj_disabled')
+    if (!state.music.youtube || !state.music.search) return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+    const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
+    if (!channel) return fail(ctx, 404, 'channel_not_found')
+    if (!hub.userInVoice(ctx.user.id, channel.id)) return fail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
+    if (state.music.restricted && !hasPerm(ctx.user, 'dj') && djInRoom(channel.id)) {
+      return fail(ctx, 403, 'dj_restricted', 'detail.musicRestricted')
+    }
+    const query = cleanSearchQuery(b.q)
+    if (query === null) return fail(ctx, 400, 'bad_query', 'detail.musicSearchQuery', null, { max: MUSIC_SEARCH_QUERY_MAX })
+    const wait = musicSearchLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait > 0) return tooMany(ctx, wait, 'detail.musicSearchRate')
+    const key = query.toLowerCase()
+    const cached = musicSearchCache.get(key)
+    if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
+    let pending = musicSearchPending.get(key)
+    if (!pending) {
+      // Tavan burada yalnızca okunur, YouTube'a giden her istekte düşer (spendSearchBudget)
+      const dailyWait = musicSearchDaily.blocked('all', ctx.now)
+      if (dailyWait > 0) return searchDailyLimited(ctx, dailyWait)
+      pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
+      musicSearchPending.set(key, pending)
+      pending.then((results) => {
+        musicSearchPending.delete(key)
+        if (musicSearchCache.size >= MUSIC_SEARCH_CACHE_MAX) musicSearchCache.delete(musicSearchCache.keys().next().value)
+        musicSearchCache.set(key, { at: Date.now(), results })
+      }, () => {
+        musicSearchPending.delete(key)
+      })
+    }
+    let results = null
+    try {
+      results = await pending
+    } catch (err) {
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+      // Tavan bu arama başlarken doluydu (aynı anda başlayan başka aramalar doldurmuş olabilir)
+      if (err && err.code === 'search_daily_limit') return searchDailyLimited(ctx, musicSearchDaily.blocked('all', Date.now()))
+      return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
+    }
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    ok(ctx, { results })
+  }
+
+  function searchDailyLimited (ctx, waitMs) {
+    return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(waitMs / 1000))) })
+  }
+
   // ---------------------------------------------------------------- yönlendirme
 
   const routes = new Map()
@@ -3495,6 +3893,9 @@ async function createChatServer (options) {
   route('/api/users/ban', 'POST', handleUserBan)
   route('/api/users/kick', 'POST', handleUserKick)
   route('/api/users/custom-role', 'POST', handleUserCustomRole)
+  route('/api/reports', 'GET', handleReportsList)
+  route('/api/reports', 'POST', handleReportCreate)
+  route('/api/reports/resolve', 'POST', handleReportResolve)
   route('/api/roles/create', 'POST', handleRoleCreate)
   route('/api/roles/update', 'POST', handleRoleUpdate)
   route('/api/roles/delete', 'POST', handleRoleDelete)
@@ -3534,6 +3935,7 @@ async function createChatServer (options) {
   route('/api/calls/decline', 'POST', handleCallDecline)
   route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
+  route('/api/music/search', 'POST', handleMusicSearch)
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 
   // Kimlik isteyen yollarda oturum, gövde okunmadan önce (yalnızca X-Token başlığıyla) doğrulanır.
@@ -3684,6 +4086,9 @@ async function createChatServer (options) {
       for (const [userId, rec] of musicFanout) {
         if (now - rec.start >= config.musicWindowMs) musicFanout.delete(userId)
       }
+      for (const [key, rec] of musicSearchCache) {
+        if (now - rec.at >= MUSIC_SEARCH_CACHE_MS) musicSearchCache.delete(key)
+      }
     } catch (err) {
       log.error(i18n.t(config.lang, 'log.sweepError', { error: describeError(err, config.lang) }))
     }
@@ -3705,6 +4110,7 @@ async function createChatServer (options) {
     closing = true
     clearInterval(sweepTimer)
     hub.close()
+    if (searchEngine) searchEngine.close()
     for (const job of Array.from(uploadJobs)) {
       if (job.finish) job.finish('aborted')
       job.req.destroy()

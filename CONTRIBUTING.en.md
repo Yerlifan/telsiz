@@ -49,7 +49,7 @@ To try several users on the same computer, open `http://localhost:3000` in diffe
 | Command | Purpose |
 | --- | --- |
 | `npm start` | Starts the server (`node server.js`) |
-| `npm run denetle` | Checks writing, syntax, security, i18n and document parity rules (`scripts/denetle.js`) |
+| `npm run denetle` | Checks writing, syntax, security, stylesheet, i18n and document parity rules (`scripts/denetle.js`) |
 | `npm run lint` | Same as `npm run denetle` |
 | `npm test` | Runs the unit and server tests in the `test/` folder |
 | `npm run test:e2e` | Runs the end-to-end tests in the `e2e/` folder with Chromium, one after another |
@@ -77,6 +77,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `src/hub.js` | Presence, the event ring, long poll waiters, voice rosters and signal queues, typing status |
 | `src/social.js` | Friendships, blocks and direct message rules |
 | `src/music.js` | The encrypted in-memory room states of Telsiz DJ |
+| `src/youtube-search.js` | Telsiz DJ's YouTube search by song name (if the owner turns it on): the request, the result parser, limits and the circuit breaker |
 | `src/http-util.js`, `src/static-source.js` | Security headers, CSP, body reading, the static file allowlist |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Server texts, version and single file information, the `telsiz.env` reader |
 | `src/system-info.js` | Server information: processor, memory and cgroup limit, disk space (`GET /api/server-info`) |
@@ -103,14 +104,14 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
 | `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
-| `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
+| `06-messages.js` | Message decryption, message nodes, paging, editing, deleting and Report Message |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
-| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button) |
+| `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
 | `11-settings.js` | Full screen settings view |
 | `12-init.js` | Sheets, window size, PWA, event binding and startup |
-| `13-profile.js` | Profiles, the profile card, the status menu |
+| `13-profile.js` | Profiles, the profile card, the status menu, the report dialog (Report Message and Report User) |
 | `14-social.js` | Friends, blocking, the view mode |
 | `15-dm.js` | Direct messages and the safety number |
 | `16-identity.js` | Key derivation from the password and the personal identity key |
@@ -119,13 +120,13 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
 | `21-band.js` | Frequency band interaction (switching between frequencies: click, needle, keyboard, wheel, gamepad) |
-| `22-cast.js` | Screen sharing interface, the camera grid and the game table mode of the broadcast stage |
-| `23-dj.js` | Telsiz DJ interface |
+| `22-cast.js` | Screen sharing interface, the camera grid, the game table mode of the broadcast stage and minimizing the preview of your own share |
+| `23-dj.js` | Telsiz DJ interface: the card, the corner player (four corners, the `dockDrag` drag helper, minimizing, Floating Player), track announcements, Media Session, the YouTube consent notice on the radio card |
 | `24-frekans.js` | Frequencies: the frequency stations of the band (status, unread and mention counts), the Frequencies sheet, the frequency menu, add and remove, carrying the list and its order in the address fragment in the browser, main process calls and background status on the desktop, showing the frequency photo in emblems, on the sign-in screen and on the introduction page |
 | `25-arka-plan.js` | The client mode in the background windows of the desktop app: long-poll without an interface, counting unread messages and mentions, reporting to the main process |
 | `26-tanitim.js` | The frequency introduction page that visitors who are not signed in see |
 | `27-kapasite.js` | The server information section in Settings > General, the voice room capacity and camera limit recommendation, server hints |
-| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), a game invite (with a View Table button), joining and leaving voice rooms |
+| `28-bildirim.js` | The Notifications list above the radio card in the left column: a screen share started in the same voice room (with a Watch button), a game invite (with a View Table button), joining and leaving voice rooms, a track added to Telsiz DJ in the same voice room |
 | `29-mikrofon.js` | The context menu of the Microphone button (right click, Shift+F10 or the Menu key): choosing between Push to talk and Voice activity |
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
@@ -135,6 +136,8 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
 | `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+| `39-yuzen.js` | Floating window: the cameras or avatars of the voice room and the speaking ring in a small always-on-top window. In the desktop app a window opened with a single-use name from the main process, in the browser document picture-in-picture, and as a fallback video picture-in-picture with a canvas stream. The Floating Window button on the radio card |
+| `40-bosta.js` | Automatic idle: measures inactivity from mouse, keyboard, touch, wheel and gamepad input (and from the system idle time in the desktop app), adds `idle` and the page id `tab` to the long-poll query, never counts a device in a voice room as idle, and also reads the gamepad on every frame of the `21-band.js` gamepad loop |
 | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
 | `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
 | `45-hexball-ag.js` | Hexball networking (`window.TelsizHexballNet`): the binary messages on the game data channel (HELLO, HELLO_ACK, INPUT, SNAP) and their strict decoders, the handshake, the host's authoritative physics loop, pausing when two loop runs are more than 250 ms apart, holding back the host's own input, input limits, and the snapshot buffer and interpolation on players. Clock, timers and sending are passed in |
@@ -159,7 +162,7 @@ Most of the following rules are checked automatically by `npm run denetle` and a
 11. Real time communication between the client and the server uses only long polling. WebSocket or Server-Sent Events are not added. This rule does not cover the WebRTC connections set up directly between people (voice, video, screen sharing and the game data channel). The setup messages of these connections still go through the signal path of the server.
 12. No runtime dependency is added, and `package.json` has no `dependencies` field. If a new development dependency is needed, discuss it in an issue first. Versions are pinned exactly, without range operators.
 13. Comments are written in Turkish and kept sparse. Identifiers, JSON fields and API paths are in English. Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are used directly.
-14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
+14. Stylesheets are written to work in older WebKit based browsers too: layout uses flexbox and margins, and `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` and `inset` are not used. The checker enforces these bans in the stylesheets under `public/css/`, outside comments. Known exceptions that are planned to be removed are in the `CSS_EXCEPTIONS` list in `scripts/denetle.js`, and an entry whose file is missing or that no longer covers any violation is also reported as a violation. Sizes are given in `rem`, so the interface grows with the font size. The default root font size is 15 pixels and can be changed in Settings > Appearance (Custom size is set between 12 and 28 pixels). The smallest touch and pointer target is the `--target` token (2.75rem, 41.25 pixels at the default 15 pixel root). Details are in [docs/DESIGN.md](docs/DESIGN.md).
 15. Tests must also pass on Windows. Paths are joined with `path.join`, temporary folders are created under `os.tmpdir()`, nothing is assumed about line endings and tests do not rely on process signals such as SIGINT.
 
 ## Bilingual rules
@@ -191,7 +194,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
 | `src/http-util.js`, `src/static-source.js` | Security headers, Content Security Policy, the static file allowlist |
 | `public/sw.js` | Cached content, and making sure `/api/` requests are never cached |
-| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, update checks (`desktop/src/lib/updates.js`) |
+| `desktop/src/` | Integrity verification, the proxy, permissions, IPC and navigation rules, the floating window as the only exception to the new window rule (`desktop/src/lib/float-window.js`), update checks (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | The whitelist of files that go into a release, the auto update info files, the authentication of the npm publish |
 
 Discuss a proposal that changes the encryption protocol (key code, key derivation, envelope or plaintext format) in an issue before writing code. Adding a new voice signal type and changing the types or field sets of game messages are plaintext format changes too. Changing the rules of the game data channel (label, settings, limits) or the binary message formats of Hexball also needs an issue first, because it affects compatibility with older clients and the limits against denial of service.

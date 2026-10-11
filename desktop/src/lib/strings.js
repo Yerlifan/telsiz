@@ -1,7 +1,7 @@
 'use strict'
 
 // Masaüstü uygulamasının kendi metinleri (menü, tepsi, frekans adresi ekranı, ekran paylaşımı
-// seçicisi, iletişim kutuları).
+// seçicisi, yüzen pencerenin ilk başlığı, iletişim kutuları).
 // Web uygulamasının metinleri public/i18n.js içindedir, bu küçük sözlük yalnızca uygulama
 // penceresinin dışındaki arayüz içindir. Dil sistem dilinden seçilir: Türkçe ise tr, değilse en.
 // İki sözlüğün anahtarları ve parametreleri birebir aynıdır (desktop/test/strings.test.js).
@@ -83,6 +83,7 @@ const MESSAGES = {
     'connect.error.unknown': 'Bağlanılamadı. Yeniden deneyin.',
     'connect.version.mismatch': '{name} sunucusunun sürümü ({server}) bu uygulamanın sürümüyle ({app}) uyumlu olmayabilir, ana sürümler farklı. Sunucuyu veya uygulamayı güncelleyin ya da yine de bağlanın.',
     'connect.version.unknown': '{name} sunucusu sürümünü bildirmiyor, uyumluluk doğrulanamadı. Yine de bağlanabilirsiniz.',
+    'float.windowTitle': 'Telsiz: yüzen pencere',
     'picker.windowTitle': 'Telsiz: ekran paylaş',
     'picker.title': 'Neyi paylaşmak istiyorsunuz?',
     'picker.lead': 'Seçtiğiniz ekran veya pencere ses odasında izlemek isteyenlere gönderilir. Paylaşımı istediğiniz an durdurabilirsiniz.',
@@ -175,6 +176,7 @@ const MESSAGES = {
     'connect.error.unknown': 'Could not connect. Try again.',
     'connect.version.mismatch': 'The version of {name} ({server}) may not be compatible with this app ({app}), the major versions differ. Update the server or the app, or connect anyway.',
     'connect.version.unknown': '{name} does not report its version, compatibility could not be verified. You can still connect.',
+    'float.windowTitle': 'Telsiz: floating window',
     'picker.windowTitle': 'Telsiz: share your screen',
     'picker.title': 'What do you want to share?',
     'picker.lead': 'The screen or window you choose is sent to those in the voice room who want to watch. You can stop sharing at any time.',

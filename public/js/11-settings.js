@@ -39,15 +39,25 @@ const SETTINGS_ICONS = {
 // varsayılan, 'none'), telsiz.messageSound ('0' kapalı). Ekran paylaşımı kalitesi
 // telsiz.screenQuality içinde JSON olarak ({ hint: 'motion' | 'detail', preset: '720p15' | '720p30' |
 // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
-// başka her değer veya anahtarın olmaması verilmedi) saklanır.
+// başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
+// denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
+// Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
+// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır. Yüzen pencerenin kendiliğinden açılması
+// (39-yuzen.js) telsiz.floatAuto içinde ('off' kapalı, 'on' veya anahtarın olmaması açık) saklanır.
 const SETTINGS_KEYS = {
   typing: 'telsiz.typing',
   notifyLevel: 'telsiz.notifyLevel',
   messageSound: 'telsiz.messageSound',
   screenQuality: 'telsiz.screenQuality',
-  youtubeConsent: 'telsiz.djYoutubeConsent'
+  youtubeConsent: 'telsiz.djYoutubeConsent',
+  djMediaSession: 'telsiz.djMediaSession',
+  autoIdle: 'telsiz.autoIdle',
+  autoIdleMinutes: 'telsiz.autoIdleMinutes',
+  floatAuto: 'telsiz.floatAuto'
 }
 const NOTIFY_LEVELS = ['all', 'mentions', 'none']
+const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
+const AUTO_IDLE_DEFAULT = 10
 const SCREEN_HINT_CHOICES = ['motion', 'detail']
 const SCREEN_PRESET_CHOICES = ['720p15', '720p30', '1080p15', '1080p30']
 const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
@@ -97,7 +107,14 @@ const settingsUi = {
   keyVisible: false,
   membersFilter: '',
   metaUserKey: '',
-  adminRefreshAt: 0
+  adminRefreshAt: 0,
+  // Şikâyetler (yalnızca sahip ve yöneticiler): GET /api/reports listesi, yüklenirken true, hata metni üreticisi,
+  // son yüklemede görülen özel görünüm işareti (açık şikâyet sayısı ve en yeni şikâyetin kimliği) ve yükleme kuşağı
+  reports: null,
+  reportsLoading: false,
+  reportsError: null,
+  reportsSeen: '',
+  reportsGen: 0
 }
 
 const SETTINGS_PAGES = {
@@ -222,6 +239,7 @@ function onSettingsClosed () {
   settingsUi.temp = null
   settingsUi.newInvite = ''
   settingsUi.sessions = null
+  resetReports()
   document.body.classList.remove('modal-open')
 }
 
@@ -774,7 +792,9 @@ function shownStatusOf (userId) {
   return safeCall(() => shownStatus(userId), 'offline')
 }
 
+// Kendi durumumun metni (13-profile.js myStatusLabel): otomatik boştaysam "Boşta (otomatik)"
 function chosenStatusLabel () {
+  if (typeof myStatusLabel === 'function') return safeCall(() => myStatusLabel(), '')
   const status = safeCall(() => myChosenStatus(), 'online')
   return safeCall(() => statusLabel(status), '')
 }
@@ -858,7 +878,7 @@ function myProfileSignature () {
   if (!state.me) return ''
   const id = state.me.id
   const rec = safeCall(() => profileRecord(id), null)
-  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
+  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), safeCall(() => myAutoIdle(), false), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
 }
 
 // 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
@@ -1550,6 +1570,22 @@ function typingEnabled () {
   return storeGet(SETTINGS_KEYS.typing) !== '0'
 }
 
+// Otomatik boşta (40-bosta.js): varsayılan açık, süre AUTO_IDLE_MINUTES dışındaysa varsayılan 10 dakika
+function autoIdleEnabled () {
+  return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
+}
+
+// Yüzen pencere (39-yuzen.js): ses odasındayken uygulama küçültülünce (masaüstü) veya sekme değişince (Chrome, Edge)
+// kendiliğinden açılsın mı, varsayılan açık
+function floatAutoEnabled () {
+  return storeGet(SETTINGS_KEYS.floatAuto) !== 'off'
+}
+
+function autoIdleMinutes () {
+  const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
+  return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
+}
+
 // YouTube oynatıcısı izni (music.js ile aynı anlam): '1' verildi, '0' reddedildi (yeniden sorulmaz),
 // anahtar yoksa sorulmadı (ilk YouTube parçasında sorulur)
 function youtubeConsentState () {
@@ -1590,6 +1626,26 @@ function buildPrivacyPage (page) {
   typingSec.appendChild(typing.row)
   typingSec.appendChild(typingMsg)
 
+  // Otomatik boşta (40-bosta.js): cihaza özel anahtar ve süre, değişiklik hemen uygulanır
+  const idleSec = sSection(page, t('settings.privacy.idleTitle'), 'set-idle-section')
+  const idleMinutes = h('select', 'input select select-small')
+  const autoIdle = sSwitch('set-auto-idle', t('settings.privacy.autoIdle'), autoIdleEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.autoIdle, checked ? '1' : '0')
+    idleMinutes.disabled = !checked
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  }, t('settings.privacy.autoIdleHint'))
+  idleSec.appendChild(autoIdle.row)
+  sField(idleSec, 'set-auto-idle-minutes', t('settings.privacy.autoIdleAfter'), idleMinutes)
+  AUTO_IDLE_MINUTES.forEach((n) => {
+    const opt = h('option', '', t('settings.privacy.autoIdleMinutes', { count: n }))
+    opt.value = String(n)
+    idleMinutes.appendChild(opt)
+  })
+  idleMinutes.addEventListener('change', () => {
+    storeSet(SETTINGS_KEYS.autoIdleMinutes, idleMinutes.value)
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  })
+
   // YouTube oynatıcısı izni (Ek L2.5): izin Telsiz DJ'de ilk YouTube parçasında istenir, burada
   // durumu görünür ve geri alınabilir
   const ytSec = sSection(page, t('settings.youtube.title'), 'set-youtube-section')
@@ -1613,6 +1669,14 @@ function buildPrivacyPage (page) {
   }, 'i-close')
   ytRow.appendChild(ytRevoke)
   ytSec.appendChild(ytMsg)
+
+  // Telsiz DJ'nin medya denetimleri (Media Session): çalan parçanın adı kilit ekranında ve işletim sisteminin
+  // medya denetimlerinde görünür. Ad uçtan uca şifreli DJ durumundan gelir, kapatılabilir.
+  const mediaSec = sSection(page, t('settings.privacy.mediaSessionTitle'), 'set-media-session-section')
+  const media = sSwitch('set-dj-media-session', t('settings.privacy.mediaSession'), storeGet(SETTINGS_KEYS.djMediaSession) !== '0', (checked) => {
+    storeSet(SETTINGS_KEYS.djMediaSession, checked ? '1' : '0')
+  }, t('settings.privacy.mediaSessionHint'))
+  mediaSec.appendChild(media.row)
 
   // Engellenen kullanıcılar
   const blockSec = sSection(page, t('settings.privacy.blockedTitle'), 'set-blocked-section')
@@ -1662,6 +1726,9 @@ function buildPrivacyPage (page) {
   const update = () => {
     if (!allow.input.disabled) allow.input.checked = priv().allowMemberDms !== false
     typing.input.checked = typingEnabled()
+    autoIdle.input.checked = autoIdleEnabled()
+    idleMinutes.value = String(autoIdleMinutes())
+    idleMinutes.disabled = !autoIdleEnabled()
     const consent = youtubeConsentState()
     ytState.textContent = t(consent === 'granted' ? 'settings.youtube.granted' : consent === 'denied' ? 'settings.youtube.denied' : 'settings.youtube.notGranted')
     ytState.setAttribute('data-state', consent === 'granted' ? 'granted' : consent === 'denied' ? 'denied' : 'default')
@@ -1687,7 +1754,7 @@ function buildPrivacyPage (page) {
     signature: () => {
       const p = priv()
       const blocked = p.blocked.map((id) => id + ':' + safeCall(() => userDisplayName(id), '') + ':' + safeCall(() => avatarInfoFor(id).blobUrl, '')).join(',')
-      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
+      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), autoIdleEnabled(), autoIdleMinutes(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
     }
   }
 }
@@ -2277,6 +2344,7 @@ function buildVoicePage (page) {
   }, t('settings.voice.soundsHint'))
   outSec.appendChild(sounds.row)
 
+  buildFloatSection(page)
   buildScreenQualitySection(page)
 
   fillMicList()
@@ -2291,6 +2359,23 @@ function buildVoicePage (page) {
       return (s ? JSON.stringify(s) : '') + '|' + JSON.stringify(screenQuality())
     }
   }
+}
+
+// Yüzen pencere (istek 7, 39-yuzen.js): kendiliğinden açılma anahtarı. Açıklama platforma göre değişir: masaüstünde
+// simge durumu ve tepsi, tarayıcıda sekme değişimi. Linux masaüstünde Wayland notu da görünür. Bu cihazda yüzen
+// pencere yoksa anahtar devre dışıdır ve nedeni yazılır.
+function buildFloatSection (page) {
+  const sec = sSection(page, t('settings.voice.floatTitle'), 'set-float-section')
+  const mode = typeof floatMode === 'function' ? floatMode() : null
+  const hint = mode === null ? t('float.unsupported') : mode === 'desktop' ? t('settings.voice.floatHintDesktop') : t('settings.voice.floatHintBrowser')
+  const sw = sSwitch('set-float-auto', t('settings.voice.floatAuto'), floatAutoEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.floatAuto, checked ? 'on' : 'off')
+    if (typeof floatSettingsChanged === 'function') floatSettingsChanged()
+  }, hint)
+  sw.input.disabled = mode === null
+  sec.appendChild(sw.row)
+  const desktop = window.telsizDesktop
+  if (mode === 'desktop' && desktop && desktop.platform === 'linux') sec.appendChild(sHint(t('settings.voice.floatHintWayland'), 'set-float-wayland'))
 }
 
 // Ekran paylaşımı kalitesi (Ek L1.4): içerik önceliği ve çözünürlük/kare hızı ön ayarı. Tercih bu
@@ -3277,6 +3362,17 @@ function buildGeneralPage (page) {
     musicSwitchChange('restricted', checked, input)
   }, t('settings.music.restrictedHint'))
   musicSec.appendChild(musicRestricted.row)
+  // Şarkı adıyla YouTube araması (istek 5): resmî API'yi kullanmaz ve YouTube Hizmet Şartları otomatik erişimi
+  // yasakladığı için varsayılan kapalıdır, açarken riskler onay penceresinde yeniden gösterilir
+  const musicSearch = sSwitch('set-music-search', t('settings.dj.search'), false, (checked, input) => {
+    if (!checked) {
+      musicSwitchChange('search', false, input)
+      return
+    }
+    input.checked = false
+    musicSearchConfirm(input)
+  }, t('settings.dj.searchHint'))
+  musicSec.appendChild(musicSearch.row)
   musicSec.appendChild(sMsg('set-music-msg'))
 
   // Ses odaları ve kameralar (yalnızca sahip değiştirir, yönetici salt okunur görür)
@@ -3304,9 +3400,11 @@ function buildGeneralPage (page) {
     musicOn.input.checked = music.enabled
     musicYt.input.checked = music.youtube
     musicRestricted.input.checked = music.restricted
+    musicSearch.input.checked = music.search
     musicOn.input.disabled = !MUSIC_SETTINGS_READY || !owner
     musicYt.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
     musicRestricted.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
+    musicSearch.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.youtube
     voiceLimits.update(owner)
     if (serverInfo) serverInfo.update(owner)
     clear(summary)
@@ -3749,18 +3847,50 @@ function buildAboutSection (page) {
   return { update: update }
 }
 
-// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted }, varsayılan ilk ikisi açık,
-// kısıtlı kip kapalı)
+// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted, search }, varsayılan ilk ikisi açık,
+// kısıtlı kip ve şarkı adıyla arama kapalı). Sunucu search alanını yalnızca DJ ve YouTube kaynağı açıkken doğru
+// verir, burada da aynı kural uygulanır.
 function musicServerSettings () {
   const m = state.meta && state.meta.music && typeof state.meta.music === 'object' ? state.meta.music : null
   const enabled = !m || m.enabled !== false
-  return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false), restricted: Boolean(m && m.restricted === true) }
+  const youtube = enabled && (!m || m.youtube !== false)
+  return { enabled: enabled, youtube: youtube, restricted: Boolean(m && m.restricted === true), search: youtube && Boolean(m && m.search === true) }
 }
 
 function musicSwitchOkKey (field, checked) {
   if (field === 'enabled') return checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff'
   if (field === 'restricted') return checked ? 'dj.settings.restrictedOn' : 'dj.settings.restrictedOff'
+  if (field === 'search') return checked ? 'dj.settings.searchOn' : 'dj.settings.searchOff'
   return checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff'
+}
+
+// Şarkı adıyla aramayı açmadan önce onay penceresi: riskler yeniden gösterilir, ilk odak İptal'dedir. Yalnızca
+// "Riskleri Okudum, Aramayı Aç" ile istek gönderilir, kapatılırsa anahtar kapalı kalır.
+function musicSearchConfirm (input) {
+  openAppDialog({
+    name: 'music-search',
+    titleKey: 'settings.dj.searchConfirmTitle',
+    trigger: input,
+    build: (body, close) => {
+      body.appendChild(h('p', 'lead', t('settings.dj.searchHint')))
+      body.appendChild(h('p', 'hint', t('settings.dj.searchConfirmNote')))
+      const row = h('div', 'row dialog-actions')
+      const confirm = button('button', t('settings.dj.searchConfirm'))
+      confirm.id = 'music-search-confirm'
+      const cancel = button('button button-secondary', t('common.cancel'))
+      cancel.id = 'music-search-cancel'
+      row.appendChild(confirm)
+      row.appendChild(cancel)
+      body.appendChild(row)
+      cancel.addEventListener('click', () => close('dismiss'))
+      confirm.addEventListener('click', () => {
+        close('done')
+        input.checked = true
+        musicSwitchChange('search', true, input)
+      })
+      return cancel
+    }
+  })
 }
 
 // Anahtar değişince POST /api/settings { music: { <alan>: değer } } gönderilir. Başarısızlıkta anahtar
@@ -4022,7 +4152,7 @@ async function deleteChannel (c) {
 }
 
 // 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme, engeli kaldırma ve frekanstan atma
-// (engelleme izni), parola sıfırlama (sahip)
+// (engelleme izni), parola sıfırlama (sahip), şikâyetler (sahip ve yöneticiler)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4050,6 +4180,7 @@ function buildMembersPage (page) {
   page.appendChild(temp)
   const msg = sMsg('set-members-msg')
   page.appendChild(msg)
+  const reports = buildReportsSection(page)
 
   const listSec = sSection(page, t('settings.members.listTitle'), 'set-members-section')
   const filterLabel = h('label', 'sr-only', t('settings.members.filter'))
@@ -4104,13 +4235,236 @@ function buildMembersPage (page) {
       bannedList.appendChild(buildMemberAdminRow({ id: u.id, name: String(u.name || ''), role: u.role || 'member' }, true))
     })
     restoreFocusKey(bannedList, bFocus)
+    reports.update()
   }
   update()
   return {
     update: update,
     signature: () => {
       const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
-      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '')
+      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '') + '|' + reports.signature()
+    }
+  }
+}
+
+// Şikâyetler: üyelerin bildirdiği mesajlar ve kişiler (GET /api/reports, yalnızca sahip ve yöneticiler). Liste sayfa
+// açılınca, Yenile ile ve özel görünümdeki açık şikâyet sayısı değişince yeniden alınır. Not ve mesaj metni grup
+// anahtarıyla çözülür, mühürlü içerikteki şikâyet eden, hedef ve mesaj sunucunun kaydıyla tutmazsa gösterilmez.
+
+function resetReports () {
+  settingsUi.reportsGen += 1
+  settingsUi.reports = null
+  settingsUi.reportsLoading = false
+  settingsUi.reportsError = null
+  settingsUi.reportsSeen = ''
+}
+
+function reportsOpenCount () {
+  if (typeof priv !== 'function') return 0
+  const p = priv()
+  return p && typeof p.reports === 'number' ? p.reports : 0
+}
+
+// Özel görünümdeki açık şikâyet sayısı ve görülebilen en yeni şikâyetin kimliği. Biri değişince liste yeniden
+// alınır (liste doluyken yeni şikâyet eski bir açık şikâyetin yerini aldığında sayı aynı kalır, kimlik değişir).
+function reportsMark () {
+  const p = typeof priv === 'function' ? priv() : null
+  const last = p && typeof p.reportsLast === 'number' ? p.reportsLast : 0
+  return reportsOpenCount() + ':' + last
+}
+
+function validReport (r) {
+  return Boolean(r && typeof r === 'object' && typeof r.id === 'number' && (r.kind === 'message' || r.kind === 'user') && typeof r.createdAt === 'number')
+}
+
+async function loadReports () {
+  if (!isAdmin()) return
+  settingsUi.reportsGen += 1
+  const gen = settingsUi.reportsGen
+  settingsUi.reportsLoading = true
+  settingsUi.reportsSeen = reportsMark()
+  const res = await api('GET', '/api/reports')
+  if (gen !== settingsUi.reportsGen) return
+  settingsUi.reportsLoading = false
+  if (res.status === 200 && res.data && Array.isArray(res.data.reports)) {
+    settingsUi.reports = res.data.reports.filter(validReport)
+    settingsUi.reportsError = null
+  } else {
+    if (settingsUi.reports === null) settingsUi.reports = []
+    settingsUi.reportsError = () => errorText(res, t('settings.reports.loadFailed'))
+  }
+  if (isSettingsTab('members')) updateSettingsPage()
+}
+
+// Mühürlü not: { state: 'none' } (not yok), { state: 'locked' } (anahtar yok veya kayıtla tutmuyor) veya
+// { state: 'ok', note, quote }
+function openReportNote (r) {
+  if (typeof r.note !== 'string' || !r.note) return { state: 'none' }
+  let opened = null
+  try {
+    opened = window.E2EE.openJson(r.note)
+  } catch (err) {
+    opened = null
+  }
+  if (!opened || opened.ok !== true) return { state: 'locked' }
+  const v = opened.value
+  if (!v || typeof v !== 'object' || v.v !== 1 || v.k !== r.kind || !sameId(v.a, r.reporterId) || !sameId(v.u, r.targetUserId)) return { state: 'locked' }
+  const sameMessage = r.messageId === null || r.messageId === undefined ? v.m === null : sameId(v.m, r.messageId)
+  if (!sameMessage) return { state: 'locked' }
+  return { state: 'ok', note: typeof v.n === 'string' ? v.n : '', quote: typeof v.q === 'string' ? v.q : '' }
+}
+
+// Alıntıyı bildiren kişi yazar, sunucu ve liste doğrulayamaz. Yazı odasındaki mesaj bu cihazda yüklüyse ve
+// çözülebiliyorsa şu anki metni alıntıyla aynı biçimde döner (karşılaştırmak için), yoksa null.
+function reportLiveQuote (r) {
+  if (r.kind !== 'message' || r.dm || typeof reportQuoteOf !== 'function' || typeof indexOfMessage !== 'function') return null
+  const i = indexOfMessage(r.messageId)
+  const m = i === -1 ? null : state.messages[i]
+  if (!m || !sameId(m.channelId, r.channelId)) return null
+  return reportQuoteOf(m) || null
+}
+
+// Sunucunun verdiği ad boşsa hesap silinmiştir, listedeki kişi için görünen ad kullanılır
+function reportPersonName (userId, name) {
+  if (!name) return t('profile.deletedUser')
+  const listed = state.meta && Array.isArray(state.meta.users) && state.meta.users.some((u) => u && sameId(u.id, userId))
+  return listed ? shownName(userId) : String(name)
+}
+
+function buildReportRow (r) {
+  const li = h('li', 'list-row report-row')
+  li.setAttribute('data-report-id', String(r.id))
+  const main = h('span', 'list-main')
+  main.appendChild(avatar(r.targetUserId, 'sm'))
+  const text = h('span', 'list-text')
+  const target = reportPersonName(r.targetUserId, r.targetName)
+  const kindKey = r.kind === 'user' ? 'settings.reports.kindUser' : r.dm ? 'settings.reports.kindDm' : 'settings.reports.kindMessage'
+  text.appendChild(h('span', 'list-name', t(kindKey, { name: target })))
+  const reason = REPORT_REASON_KEYS.indexOf(r.reason) !== -1 ? t('report.reason.' + r.reason) : String(r.reason || '')
+  text.appendChild(h('span', 'list-sub', t('settings.reports.sub', { reason: reason, reporter: reportPersonName(r.reporterId, r.reporterName), time: formatShort(r.createdAt) })))
+  if (r.resolvedAt !== null && r.resolvedAt !== undefined) {
+    text.appendChild(h('span', 'list-sub', t('settings.reports.resolvedSub', { name: reportPersonName(r.resolvedBy, r.resolverName), time: formatShort(r.resolvedAt) })))
+  }
+  const opened = openReportNote(r)
+  if (opened.state === 'ok') {
+    if (opened.quote) {
+      text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
+      const live = reportLiveQuote(r)
+      if (live !== null && live !== opened.quote) text.appendChild(h('span', 'list-sub report-quote-changed', t('settings.reports.quoteChanged')))
+    }
+    if (opened.note) text.appendChild(h('span', 'report-text report-note-line', t('settings.reports.note', { text: opened.note })))
+  } else if (opened.state === 'locked') {
+    text.appendChild(h('span', 'list-sub report-locked', t('settings.reports.noteLocked')))
+  }
+  main.appendChild(text)
+  li.appendChild(main)
+  const actions = h('span', 'row-actions')
+  if (r.kind === 'message' && !r.dm && typeof goToMessage === 'function') {
+    const go = button('button button-small button-secondary act-report-go', t('settings.reports.goTo'))
+    go.setAttribute('data-focus-key', 'report-go-' + r.id)
+    go.addEventListener('click', () => {
+      closeSettings(false)
+      goToMessage(r.channelId, r.messageId)
+    })
+    actions.appendChild(go)
+  }
+  if (r.resolvedAt === null) {
+    const resolve = button('button button-small act-report-resolve', t('settings.reports.resolve'))
+    resolve.setAttribute('data-focus-key', 'report-resolve-' + r.id)
+    resolve.setAttribute('aria-label', t('settings.reports.resolveLabel', { name: target }))
+    resolve.addEventListener('click', () => {
+      resolveReport(r, resolve)
+    })
+    actions.appendChild(resolve)
+  }
+  li.appendChild(actions)
+  return li
+}
+
+async function resolveReport (r, btn) {
+  const list = byId('set-reports-list')
+  const index = list ? Array.from(list.querySelectorAll('.act-report-resolve')).indexOf(btn) : -1
+  btn.disabled = true
+  const res = await api('POST', '/api/reports/resolve', { id: r.id })
+  btn.disabled = false
+  const msg = byId('set-reports-msg')
+  if (msg) msg.removeAttribute('data-load-error')
+  if (res.status !== 200 || !res.data || !validReport(res.data.report)) {
+    setMsg(msg, () => errorText(res, t('settings.reports.resolveFailed')), 'error')
+    return
+  }
+  const done = res.data.report
+  settingsUi.reports = (settingsUi.reports || []).map((x) => (x.id === done.id ? done : x))
+  setMsg(msg, () => t('settings.reports.resolved'), 'ok')
+  if (!isSettingsTab('members')) return
+  updateSettingsPage()
+  if (list && index !== -1) focusListAfterRemoval(list, index, 'set-reports-section-title')
+}
+
+function buildReportsSection (page) {
+  const sec = sSection(page, t('settings.reports.title'), 'set-reports-section')
+  sec.appendChild(sHint(t('settings.reports.hint'), 'set-reports-hint'))
+  const head = h('div', 'settings-inline-form')
+  const count = h('p', 'list-sub settings-reports-count')
+  count.id = 'set-reports-count'
+  count.setAttribute('role', 'status')
+  head.appendChild(count)
+  head.appendChild(sButton('button button-small button-secondary', t('settings.reports.refresh'), 'set-reports-refresh', () => {
+    loadReports()
+  }))
+  sec.appendChild(head)
+  const msg = sMsg('set-reports-msg')
+  sec.appendChild(msg)
+  const list = h('ul', 'plain-list settings-list')
+  list.id = 'set-reports-list'
+  list.setAttribute('aria-labelledby', 'set-reports-section-title')
+  sec.appendChild(list)
+  const doneWrap = h('div', 'settings-block')
+  doneWrap.id = 'set-reports-done-wrap'
+  sSub(doneWrap, t('settings.reports.resolvedTitle'), 'set-reports-done-title')
+  const doneList = h('ul', 'plain-list settings-list')
+  doneList.id = 'set-reports-done-list'
+  doneList.setAttribute('aria-labelledby', 'set-reports-done-title')
+  doneWrap.appendChild(doneList)
+  sec.appendChild(doneWrap)
+  const update = () => {
+    const staff = isAdmin()
+    sec.hidden = !staff
+    if (!staff) return
+    if (!settingsUi.reportsLoading && (settingsUi.reports === null || reportsMark() !== settingsUi.reportsSeen)) loadReports()
+    const all = settingsUi.reports || []
+    const open = all.filter((r) => r.resolvedAt === null)
+    const done = all.filter((r) => r.resolvedAt !== null)
+    count.textContent = settingsUi.reports === null ? t('settings.reports.loading') : t('settings.reports.open', { count: open.length })
+    // Yükleme hatası yalnızca kendi gösterdiğini kaldırır (çözme hatası kalır)
+    if (settingsUi.reportsError) {
+      setMsg(msg, settingsUi.reportsError, 'error')
+      msg.setAttribute('data-load-error', '1')
+    } else if (msg.getAttribute('data-load-error') === '1') {
+      msg.removeAttribute('data-load-error')
+      setMsg(msg, '')
+    }
+    const focusKey = activeFocusKey(list)
+    clear(list)
+    if (settingsUi.reports !== null && !open.length) list.appendChild(h('li', 'empty-row', t('settings.reports.none')))
+    open.forEach((r) => {
+      list.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(list, focusKey)
+    doneWrap.hidden = !done.length
+    const doneFocus = activeFocusKey(doneList)
+    clear(doneList)
+    done.forEach((r) => {
+      doneList.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(doneList, doneFocus)
+  }
+  return {
+    update: update,
+    signature: () => {
+      if (!isAdmin()) return 'x'
+      const rows = (settingsUi.reports || []).map((r) => [r.id, r.resolvedAt, r.resolvedBy, r.reporterName, r.targetName].join(':')).join(',')
+      return [reportsMark(), settingsUi.reports === null ? 'n' : rows, settingsUi.reportsLoading ? 'l' : '', settingsUi.reportsError ? 'e' : '', activeKid() || ''].join('|')
     }
   }
 }

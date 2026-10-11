@@ -5,7 +5,9 @@
 // telsiz://baglan/ belgesinde, ekran paylaşımı seçicisi yalnızca telsiz://secici/ belgesinde.
 // Diğer her gezinme engellenir. Uygulama penceresindeki https:// bağlantılar (ör. mesajdaki bir
 // bağlantı) kullanıcının varsayılan tarayıcısında açılır, başka hiçbir şema dışarı verilmez.
-// Yeni pencere hiçbir zaman açılmaz. Alt çerçevelerde yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir.
+// Yeni pencere açılmaz. Tek istisna uygulama penceresinin yüzen penceresidir (src/lib/float-window.js): tek
+// kullanımlık jetonla açılan about:blank penceresi. Yüzen pencerede (bağlam 'float') her gezinme reddedilir.
+// Alt çerçevelerde yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir.
 
 const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST } = require('./channels')
 
@@ -50,9 +52,11 @@ function isExternalUrl (value) {
   return url.protocol === 'https:' && url.hostname !== '' && url.username === '' && url.password === ''
 }
 
-// context: 'app', 'connect' veya 'picker' (bilinmeyen içerik için başka herhangi bir değer)
-// Sonuç: 'allow' (aynı belgede kal), 'external' (tarayıcıda aç) veya 'deny'
+// context: 'app', 'connect', 'picker' veya 'float' (bilinmeyen içerik için başka herhangi bir değer)
+// Sonuç: 'allow' (aynı belgede kal), 'external' (tarayıcıda aç) veya 'deny'. Yüzen pencere hiçbir yere gidemez,
+// bağlantıları da dış tarayıcıya verilmez.
 function decideNavigation (value, context) {
+  if (context === 'float') return 'deny'
   const paths = DOCUMENT_PATHS[context]
   if (paths && typeof value === 'string') {
     let url = null

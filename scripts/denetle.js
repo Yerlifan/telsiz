@@ -69,7 +69,8 @@ const RULE_LABELS = {
   'i18n-hardcoded': 'i18n dışı sabit metin',
   'i18n-keys': 'i18n anahtarı',
   'doc-parity': 'belge eşliği',
-  duplicate: 'yinelenen işlev'
+  duplicate: 'yinelenen işlev',
+  css: 'eski WebKit stil kuralı'
 }
 
 const DASH_NAMES = {
@@ -102,6 +103,27 @@ const LANGS = ['tr', 'en']
 const TURKISH_LETTERS = /[çğıİöşüÇĞÖŞÜ]/
 const PARAM_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 const MAX_DICTIONARY_DEPTH = 8
+
+// Stil dosyaları (CONTRIBUTING kural 14): istemcinin stilleri eski WebKit tabanlı tarayıcılarda (konsol
+// tarayıcıları) da çalışır. Düzen flexbox ve margin ile kurulur, aşağıdakiler kullanılmaz. Desenler yorumlar
+// çıkarıldıktan sonra aranır. group verilen desende ihlalin yeri o yakalama grubudur (önündeki ayırıcı sayılmaz,
+// grup eşleşmenin sonudur). aspect-ratio yalnızca bildirimin başında (`{`, `;` veya `}` ve boşluklardan sonra)
+// aranır: aynı ad parantez içinde medya özelliği olarak da yazılır, (aspect-ratio: 16/9), (min-aspect-ratio: 16/9)
+// ve (max-aspect-ratio: 1/1) eski WebKit'te de çalışır, yasak olan yalnızca özelliktir.
+const CSS_DIR = 'public/css/'
+const CSS_BANNED = [
+  { pattern: /display\s*:\s*(?:inline-)?grid/g, name: 'grid düzeni (display: grid)' },
+  { pattern: /(^|[\x3b{\s])((?:row-|column-)?gap\s*:)/g, name: 'gap', group: 2 },
+  { pattern: /clamp\(/g, name: 'clamp()' },
+  { pattern: /:is\(/g, name: ':is()' },
+  { pattern: /:where\(/g, name: ':where()' },
+  { pattern: /(^|[\x3b{}])(\s*)(aspect-ratio\s*:)/g, name: 'aspect-ratio', group: 3 },
+  { pattern: /(^|[\x3b{\s])(inset\s*:)/g, name: 'inset', group: 2 }
+]
+// Kaldırılması planlanmış bilinen ihlaller. Her kayıt bir dosyadaki tek bir kural bloğunu seçicisiyle kapsar.
+// Kayıt artık hiçbir ihlali kapsamıyorsa veya dosyası bulunamıyorsa (silinmiş, yeniden adlandırılmış) denetleyici
+// bunu da bildirir, böylece istisna listede unutulmaz.
+const CSS_EXCEPTIONS = []
 
 // Türkçe ve İngilizce eş belgeler. Biri varsa diğeri de bulunur ve "## " başlık sayıları eşittir.
 const DOC_PAIRS = [
@@ -696,6 +718,65 @@ function checkMarkdown (ctx) {
   flush()
 }
 
+// Kural 14 (CONTRIBUTING): eski WebKit tabanlı tarayıcılarla uyumlu stil dosyaları
+
+// Yorumları aynı uzunlukta boşlukla değiştirir, satır sonları korunur (satır numaraları değişmez)
+function blankCssComments (text) {
+  return text.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, (comment) => comment.replace(/[^\r\n]/g, ' '))
+}
+
+// Blokları { start, end, selector } olarak döndürür. selector bloğun önündeki seçici veya @ kuralıdır,
+// boşlukları teke indirilmiştir. Kapanmamış blok dosya sonuna kadar sürer.
+function cssBlocks (text) {
+  const blocks = []
+  const open = []
+  let preludeStart = 0
+  for (const match of text.matchAll(/[{}\x3b]/g)) {
+    const i = match.index
+    if (match[0] === '{') {
+      open.push({ start: i, selector: text.slice(preludeStart, i).replace(/\s+/g, ' ').trim() })
+    } else if (match[0] === '}') {
+      const block = open.pop()
+      if (block) blocks.push({ start: block.start, end: i, selector: block.selector })
+    }
+    preludeStart = i + 1
+  }
+  while (open.length > 0) {
+    const block = open.pop()
+    blocks.push({ start: block.start, end: text.length, selector: block.selector })
+  }
+  return blocks
+}
+
+// Konumu içeren en içteki bloğun seçicisi, blok dışındaysa boş dize
+function enclosingSelector (blocks, offset) {
+  let best = null
+  for (const block of blocks) {
+    if (block.start < offset && offset < block.end && (!best || block.start > best.start)) best = block
+  }
+  return best ? best.selector : ''
+}
+
+// exceptions: CSS_EXCEPTIONS biçimindeki liste, ihlal kapsayan kayıtlar usedExceptions kümesine eklenir
+function checkCss (ctx, exceptions, usedExceptions) {
+  const text = blankCssComments(ctx.text)
+  const starts = lineStarts(text)
+  const blocks = cssBlocks(text)
+  for (const rule of CSS_BANNED) {
+    for (const match of text.matchAll(rule.pattern)) {
+      const offset = match.index + (rule.group ? match[0].length - match[rule.group].length : 0)
+      const selector = enclosingSelector(blocks, offset)
+      const exception = exceptions.find((item) => item.file === ctx.rel && item.selector === selector)
+      if (exception) {
+        usedExceptions.add(exception)
+        continue
+      }
+      const where = selector ? ' (' + snippet(selector) + ')' : ''
+      ctx.report(lineAt(starts, offset), 'css', rule.name + ' kullanılmış' + where + '. Eski WebKit tabanlı tarayıcılar desteklemez, düzen flexbox ve margin ile kurulur (CONTRIBUTING kural 14).')
+    }
+  }
+}
+
 // Kural 7: HTML içinde satır içi betik, stil ve olay öznitelikleri
 
 function parseAttributes (text, start) {
@@ -1124,7 +1205,9 @@ function checkDocParity (markdown, report) {
   }
 }
 
-// Ana denetim. options.files verilirse dosya listesi yerine o liste kullanılır (testler için).
+// Ana denetim. options.files verilirse dosya listesi yerine o liste, options.cssExceptions verilirse
+// CSS_EXCEPTIONS yerine o liste kullanılır (testler için). Dosya listesi verilen kısmi taramada istisna
+// kaydının dosyası listede yoksa bulunamadı sayılmaz.
 
 function runChecks (rootDir, options) {
   const acorn = loadAcorn()
@@ -1140,6 +1223,9 @@ function runChecks (rootDir, options) {
     violations.push({ file, line, rule, message })
   }
   const project = { scripts: new Map(), markdown: new Map(), htmlKeys: [] }
+  const cssExceptions = Array.isArray(opts.cssExceptions) ? opts.cssExceptions : CSS_EXCEPTIONS
+  const cssFiles = new Set()
+  const usedExceptions = new Set()
   const listing = Array.isArray(opts.files) ? { files: opts.files.filter(isScannable).sort(), modes: null } : listFiles(root)
   let scanned = 0
   for (const rel of listing.files) {
@@ -1177,6 +1263,16 @@ function runChecks (rootDir, options) {
       if (rel.startsWith('public/')) {
         for (const attr of attrs) project.htmlKeys.push(Object.assign({ file: rel }, attr))
       }
+    } else if (ext === '.css' && rel.startsWith(CSS_DIR)) {
+      checkCss(ctx, cssExceptions, usedExceptions)
+      cssFiles.add(rel)
+    }
+  }
+  for (const item of cssExceptions) {
+    if (!cssFiles.has(item.file)) {
+      if (!Array.isArray(opts.files)) report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydının (' + item.selector + ') dosyası bulunamadı. Dosya silindiyse veya yeniden adlandırıldıysa kaydı scripts/denetle.js içinde güncelleyin ya da silin.')
+    } else if (!usedExceptions.has(item)) {
+      report(item.file, 1, 'css', 'CSS_EXCEPTIONS kaydı (' + item.selector + ') artık hiçbir ihlali kapsamıyor. Kaydı scripts/denetle.js içinden silin.')
     }
   }
   checkVendor(root, report)
@@ -1205,8 +1301,9 @@ const USAGE = [
   'virgül (sunucu, betikler, testler ve masaüstü uygulaması dahil), istemci kodunda ES2017',
   've yasak kullanımlar, üçüncü taraf dosyaların sha256 değeri, Windows betikleri, kabuk',
   'betikleri (BOM, LF satır sonu, çalıştırılabilir kip), JSON sözdizimi, Markdown düzyazısı,',
-  'HTML içinde satır içi betik ve stil, i18n sözlük eşliği, sabit metin ve anahtarlar,',
-  'Türkçe ve İngilizce belge eşliği.',
+  'HTML içinde satır içi betik ve stil, public/css altındaki stil dosyalarında eski WebKit',
+  'kuralları (grid, gap, clamp, :is, :where, aspect-ratio ve inset yok), i18n sözlük eşliği,',
+  'sabit metin ve anahtarlar, Türkçe ve İngilizce belge eşliği.',
   'İhlal varsa çıkış kodu 1, kullanım veya ortam hatasında 2 olur.'
 ].join('\n')
 
@@ -1260,5 +1357,6 @@ module.exports = {
   SCRYPT_SHA256,
   VENDOR_FILES,
   DOC_PAIRS,
-  RULE_LABELS
+  RULE_LABELS,
+  CSS_EXCEPTIONS
 }

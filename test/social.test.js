@@ -4,7 +4,9 @@
 // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
 // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
-// kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır.
+// kimliği, sabitlenmiş anahtarlar, eski anahtar), Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
+// doğrulanması ve "düzenlendi" etiketi, Bildirimler listesinin (28-bildirim.js) kayıt sınırı ve Telsiz DJ
+// kaydının parça adı belleği (23-dj.js djLiveTitle, motor taklit edilir) sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -17,7 +19,7 @@ const PUB = path.join(__dirname, '..', 'public')
 const FILES = [
   'vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js',
   'js/01-core.js', 'js/02-state-dom.js', 'js/06-messages.js',
-  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js'
+  'js/13-profile.js', 'js/14-social.js', 'js/15-dm.js', 'js/16-identity.js', 'js/23-dj.js', 'js/28-bildirim.js'
 ]
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 
@@ -224,4 +226,174 @@ test('durum: görünmez kendime çevrimdışı görünür, diğerleri meta durum
   run("state.meta.users[1].status = 'dnd'")
   assert.strictEqual(run('userStatus(2)'), 'dnd')
   assert.strictEqual(run('userStatus(77)'), 'offline')
+})
+
+test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temizlenir ve 120 kod noktasıyla sınırlanır', () => {
+  const { run } = load()
+  const clean = (d) => {
+    const out = run('cleanDjNotice(' + JSON.stringify(d) + ')')
+    return out === null ? null : JSON.parse(JSON.stringify(out))
+  }
+  const vid = 'dQw4w9WgXcQ'
+  // Adsız eski biçim aynen kalır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid }), { op: 'add', src: 'yt', vid: vid })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file' }), { op: 'add', src: 'file' })
+  // Denetim ve yön karakterleri boşluğa döner, boşluklar teke iner, kenarlar kırpılır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: '  Lobi\u202e  teması\u0007 ' }), { op: 'add', src: 'yt', vid: vid, title: 'Lobi teması' })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: 'lobi-temasi.wav' }), { op: 'add', src: 'file', title: 'lobi-temasi.wav' })
+  // En çok 120 kod noktası (dört baytlık karakterler bölünmez)
+  const long = clean({ op: 'add', src: 'yt', vid: vid, title: '🎵'.repeat(130) })
+  assert.strictEqual(Array.from(long.title).length, 120)
+  assert.strictEqual(long.title, '🎵'.repeat(120))
+  // Dize olmayan veya temizlenince boş kalan ad yazılmaz, bilinmeyen alanlar atılır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: 42, extra: 'x' }), { op: 'add', src: 'yt', vid: vid })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: '\u200b\u0000 \u2066' }), { op: 'add', src: 'file' })
+  // Başka bir mesajdaki dosya ("DJ'de Çal", mesajda ek yok) kendi kaynağıyla gelir
+  assert.deepStrictEqual(clean({ op: 'add', src: 'fileref', title: 'lobi-temasi.wav' }), { op: 'add', src: 'fileref', title: 'lobi-temasi.wav' })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'fileref', vid: vid }), { op: 'add', src: 'fileref' })
+  // Geçersiz işlem, kaynak veya video kimliği
+  assert.strictEqual(clean({ op: 'remove', src: 'file', title: 'a' }), null)
+  assert.strictEqual(clean({ op: 'add', src: 'yt', vid: 'kisa', title: 'a' }), null)
+  assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
+  assert.strictEqual(clean(null), null)
+})
+
+// 2.5.0 istemcisinin cleanDjNotice işlevi (yayımlanmış sürümden aynen): bilmediği kaynağı yok sayar, mesajın t
+// alanı düz metin olarak gösterilir
+function cleanDjNotice250 (d) {
+  if (!d || typeof d !== 'object' || d.op !== 'add') return null
+  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
+  if (d.src === 'file') return { op: 'add', src: 'file' }
+  return null
+}
+
+test('"DJ\'de Çal" duyurusu eki olmayan mesajdır: eski istemci "Bu ses dosyası" demez, çevrilmiş tam metni gösterir', () => {
+  const { run } = load()
+  // Yeni istemcinin gönderdiği gövde (23-dj.js djPlayFile): kaynak 'fileref', t çevrilmiş tam duyuru
+  const titled = { op: 'add', src: 'fileref', title: 'lobi-temasi.wav' }
+  const untitled = { op: 'add', src: 'fileref' }
+  assert.strictEqual(cleanDjNotice250(titled), null)
+  assert.strictEqual(cleanDjNotice250(untitled), null)
+  assert.strictEqual(run("t('dj.notice.fileTitle', { title: 'lobi-temasi.wav' })"), 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')
+  assert.strictEqual(run("t('dj.notice.fileRef')"), 'Telsiz DJ kuyruğuna bir ses dosyası ekledi.')
+  // /çal ve ek yolu (dosya aynı mesajda) eski biçimde kalır, eski istemci onu duyuru olarak çizer
+  assert.deepStrictEqual(cleanDjNotice250({ op: 'add', src: 'file', title: 'x.wav' }), { op: 'add', src: 'file' })
+})
+
+test('"DJ\'de Çal" duyurusunun metni dosya adındaki @ işaretini anmaya çevirmez (23-dj.js djFileRefText)', () => {
+  const { run } = load()
+  // Dosyanın adını yükleyen kişi seçer: eski istemci metni düz metin olarak gösterip anma arar, @ tam genişlikli
+  // at işaretiyle yazılır
+  assert.strictEqual(run("djFileRefText('@herkes yeni parca.mp3')"), 'Telsiz DJ kuyruğuna dosya ekledi: \uff20herkes yeni parca.mp3')
+  assert.strictEqual(run("djFileRefText('@ece icin @@mert.mp3')"), 'Telsiz DJ kuyruğuna dosya ekledi: \uff20ece icin \uff20\uff20mert.mp3')
+  assert.doesNotMatch(run("djFileRefText('a @everyone b')"), /@/)
+  // @ içermeyen ad ve adsız duyuru değişmez
+  assert.strictEqual(run("djFileRefText('lobi-temasi.wav')"), 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')
+  assert.strictEqual(run("djFileRefText('')"), 'Telsiz DJ kuyruğuna bir ses dosyası ekledi.')
+})
+
+test('"düzenlendi" etiketi: DJ duyurusunda yalnızca izlenen, yalnızca ad ekleyen ve ad süresi içindeki düzenleme gizlenir', () => {
+  const { run } = load()
+  const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')
+  // replaceMessage'in verdiği önceki ve yeni hâl (çözülmüş sonuçlar yalnızca state ve dj alanıyla)
+  const note = (prev, m, a, b) => run('noteDjTitleEdit(' + [prev, m, { state: 'ok', dj: a }, { state: 'ok', dj: b }].map((x) => JSON.stringify(x)).join(', ') + ')')
+  const at = 1700000000000
+  const min = 60 * 1000
+  const yt = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ' }
+  const titled = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Lobi teması' }
+  const msg = (id, editedAt) => ({ id: id, channelId: 5, createdAt: at, editedAt: editedAt })
+  // Düzenlenmemiş mesaj etiket almaz
+  assert.strictEqual(mark({ createdAt: at, editedAt: null }, true), false)
+  assert.strictEqual(mark({ createdAt: at }, false), false)
+  // Sıradan mesajın her düzenlemesi görünür
+  assert.strictEqual(mark({ createdAt: at, editedAt: at + 5000 }, false), true)
+  // Önceki hâli bilinmeyen DJ duyurusu düzenlemesi (konuşma sonradan açıldı) görünür
+  assert.strictEqual(mark(msg(1, at + 9000), true), true)
+  // İzlenen ve yalnızca ad ekleyen düzenleme (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
+  note(msg(1, null), msg(1, at + 9000), yt, titled)
+  assert.strictEqual(mark(msg(1, at + 9000), true), false)
+  note(msg(2, null), msg(2, at + 11 * min), yt, titled)
+  assert.strictEqual(mark(msg(2, at + 11 * min), true), false)
+  // Ad süresinden sonraki düzenleme görünür
+  note(msg(3, null), msg(3, at + 11 * min + 1), yt, titled)
+  assert.strictEqual(mark(msg(3, at + 11 * min + 1), true), true)
+  // Kayıt yalnızca o düzenlemeye aittir: aynı mesajın sonraki bir düzenlemesi görünür
+  assert.strictEqual(mark(msg(1, at + 20000), true), true)
+  // Sıradan mesajı duyuruya çeviren düzenleme görünür
+  note(msg(4, null), msg(4, at + 5 * min), null, titled)
+  assert.strictEqual(mark(msg(4, at + 5 * min), true), true)
+  // Duyurunun videosunu veya kaynağını değiştiren düzenleme görünür
+  note(msg(5, null), msg(5, at + 9000), yt, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
+  assert.strictEqual(mark(msg(5, at + 9000), true), true)
+  note(msg(6, null), msg(6, at + 9000), { op: 'add', src: 'file' }, { op: 'add', src: 'fileref', title: 'x.wav' })
+  assert.strictEqual(mark(msg(6, at + 9000), true), true)
+  // Zaten adı olan duyurunun adını değiştiren düzenleme görünür
+  note(msg(7, null), msg(7, at + 9000), titled, { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Başka' })
+  assert.strictEqual(mark(msg(7, at + 9000), true), true)
+  // Önceki hâli zaten düzenlenmiş (sıradan mesajdan çevrilmiş olabilir) duyuruya ad eklemek de görünür
+  note(msg(8, at + 1000), msg(8, at + 9000), yt, titled)
+  assert.strictEqual(mark(msg(8, at + 9000), true), true)
+  // İzlenen geçerli kayıt sonra geçersiz bir düzenlemeyle silinir
+  note(msg(1, at + 9000), msg(1, at + 30000), titled, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
+  assert.strictEqual(mark(msg(1, at + 9000), true), true)
+  // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
+  assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
+})
+
+test('Telsiz DJ kaydı ve son işlem satırı: parçanın adı kuyruktan çıkınca korunur, adsız parça türüyle yazılır', () => {
+  const { run } = load()
+  // Motor taklidi: djEngine kurulu motoru döndürür, kuyruk window.djq'dan okunur
+  run("window.djq = { current: { id: 'y1', type: 'youtube', title: '' }, queue: [] }")
+  run('dj.engine = { queue: () => window.djq, serverNow: () => Date.now() }')
+  const title = (expr) => {
+    const text = run(expr)
+    return text.slice(text.lastIndexOf(': ') + 2)
+  }
+  // YouTube parçasının adı ekleme anında bilinmez, oynatıcı bildirince gelir, parça bitince kayıtta kalır
+  run("activityDj(2, '9', 'y1', '', null)")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'YouTube videosu')
+  run("window.djq.current.title = 'Lobi teması'")
+  run('activityDjRefresh()')
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Lobi teması')
+  // Adı boş dosya parçası kuyruktan çıkınca da "Ses dosyası" olarak kalır (tür bildirim anında kayda yazılır)
+  run("window.djq = { current: null, queue: [{ id: 'f1', type: 'file', title: '' }] }")
+  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'f1', title: '', at: 0 })")
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Ses dosyası')
+  assert.strictEqual(title('dj.notice()'), 'Ses dosyası')
+  // Karttaki son işlem satırı: kendiliğinden biten parçanın bildirimi yoktur, satır ekleme bildiriminde kalır
+  run("window.djq = { current: { id: 'y2', type: 'youtube', title: '' }, queue: [] }")
+  run("djOnNotice({ op: 'add', by: 2, room: '9', trackId: 'y2', title: '', at: 0 })")
+  assert.strictEqual(title('dj.notice()'), 'YouTube videosu')
+  // Ad gelince motor değişiklik olayı verir: kart çizilir, Bildirimler kayıtları yenilenir
+  run("window.djq.current.title = 'Gece yayını'")
+  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
+  run('activityDjRefresh()')
+  run("window.djq = { current: null, queue: [] }")
+  assert.strictEqual(title('dj.notice()'), 'Gece yayını')
+  assert.strictEqual(title('activityText(activityState.items[0])'), 'Gece yayını')
+})
+
+test('Bildirimler listesi: süren ekran paylaşımının kaydı sık gelen kayıtlarla listeden düşmez', () => {
+  const { run } = load()
+  const kinds = () => JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.kind + ":" + x.userId))'))
+  run("activityAdd({ kind: 'share', userId: '2', channelId: null })")
+  run("activityAdd({ kind: 'join', userId: '3', channelId: '9' })")
+  const djAdds = [0, 1, 2, 3, 4, 5]
+  djAdds.forEach((i) => run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 't" + i + "', title: '' })"))
+  const list = kinds()
+  assert.strictEqual(list.length, 5)
+  assert.deepStrictEqual(list, ['dj:4', 'dj:4', 'dj:4', 'dj:4', 'share:2'])
+  // En yeni kayıt üsttedir, kimlikler artar
+  const ids = JSON.parse(run('JSON.stringify(activityState.items.map((x) => x.id))'))
+  assert.deepStrictEqual(ids, [8, 7, 6, 5, 1])
+  // Liste yalnızca paylaşımlarla doluysa en eski paylaşım düşer
+  run('activityState.items = []')
+  const sharers = [10, 11, 12, 13, 14, 15]
+  sharers.forEach((i) => run("activityAdd({ kind: 'share', userId: '" + i + "', channelId: null })"))
+  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
+  // Paylaşımlarla dolu listede yeni bir DJ kaydı paylaşımları düşürmez
+  run("activityAdd({ kind: 'dj', userId: '4', channelId: '9', trackId: 'x', title: '' })")
+  assert.deepStrictEqual(kinds(), ['share:15', 'share:14', 'share:13', 'share:12', 'share:11'])
 })

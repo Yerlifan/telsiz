@@ -24,6 +24,10 @@ const CHANNELS = {
   titleBarColors: 'telsiz:title-bar-colors',
   titleBarMenu: 'telsiz:title-bar-menu',
   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
+  windowState: 'telsiz:window-state',
+  idleSeconds: 'telsiz:idle-seconds',
+  floatArm: 'telsiz:float-arm',
+  floatShowMain: 'telsiz:float-show-main',
   listFrequencies: 'telsiz:list-frequencies',
   switchFrequency: 'telsiz:switch-frequency',
   addFrequency: 'telsiz:add-frequency',
@@ -43,6 +47,10 @@ const CHANNELS = {
 const ACTIONS = ['toggleMute', 'toggleDeafen', 'pttToggle']
 const HOLD_PHASES = ['start', 'end']
 const PTT_MODES = ['toggle', 'hold']
+// Pencere durumu yalnızca bu değerlerle sayfaya verilir (src/lib/window-state.js ile aynı)
+const WINDOW_STATES = ['minimized', 'restored', 'hidden', 'shown']
+// Yüzen pencerenin tek kullanımlık adı (src/lib/float-window.js TOKEN_RE ile aynı)
+const FLOAT_TOKEN_RE = /^telsiz-yuzen-[0-9a-f]{32}$/
 const VERSION_ARG = '--telsiz-version='
 const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
 const ACTIVATION_INTERVAL_MS = 1000
@@ -148,6 +156,41 @@ ipcRenderer.on(CHANNELS.titleBarFullscreen, (event, value) => {
   }
 })
 
+// Uygulama penceresinin durumu: 'minimized', 'restored', 'hidden' veya 'shown'. Olay nesnesi verilmez,
+// beyaz listede olmayan değer sayfaya hiç ulaşmaz.
+const windowStateListeners = new Set()
+ipcRenderer.on(CHANNELS.windowState, (event, value) => {
+  if (!WINDOW_STATES.includes(value)) return
+  for (const callback of Array.from(windowStateListeners)) {
+    try {
+      callback(value)
+    } catch (err) {
+      // Sayfanın işleyicisindeki hata diğer işleyicileri etkilemez
+    }
+  }
+})
+
+// Sistemin boşta süresi: ana süreçten gelen değer negatif olmayan tam saniyeye getirilir, geçersizse 0
+// (src/lib/window-state.js cleanIdleSeconds ile aynı kural)
+function cleanIdleSeconds (raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return 0
+  const value = Math.floor(raw)
+  return Number.isSafeInteger(value) ? value : 0
+}
+
+function idleSeconds () {
+  return ipcRenderer.invoke(CHANNELS.idleSeconds).then(cleanIdleSeconds)
+}
+
+// Yüzen pencere: ana süreçten gelen ad biçime uymuyorsa boş dizge (sayfa o zaman pencere açmaz)
+function floatArm () {
+  return ipcRenderer.invoke(CHANNELS.floatArm).then((value) => (typeof value === 'string' && FLOAT_TOKEN_RE.test(value) ? value : ''))
+}
+
+function floatShowMain () {
+  return ipcRenderer.invoke(CHANNELS.floatShowMain).then((value) => value === true)
+}
+
 function shortText (value, max) {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
@@ -231,6 +274,25 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
       }
     }
   },
+  // callback(state): pencere simge durumuna küçültülünce 'minimized', simge durumundan dönünce 'restored',
+  // tepsiye gizlenince 'hidden', gösterilince (tepsiden dönüş dahil) 'shown'. Birden çok dinleyici olabilir,
+  // dönen işlev aboneliği kaldırır.
+  onWindowState: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    windowStateListeners.add(callback)
+    return () => {
+      windowStateListeners.delete(callback)
+    }
+  },
+  // Sistemin son kullanıcı girişinden bu yana geçen süre: Promise, negatif olmayan tam saniye
+  idleSeconds,
+  // Yüzen pencere (public/js/39-yuzen.js): arm() tek kullanımlık pencere adını verir (Promise, geçersizse boş
+  // dizge), sayfa yaklaşık 3 saniye içinde window.open('about:blank', ad) çağırır. Ana süreç yalnızca bu isteğe
+  // her zaman üstte kalan çerçevesiz bir pencere açar. showMain() uygulama penceresini öne getirir (Promise, true).
+  float: {
+    arm: floatArm,
+    showMain: floatShowMain
+  },
   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
@@ -262,10 +324,11 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
 
 // Arka plan sayımı (src/lib/background.js, public/js/25-arka-plan.js). Ayrı bir nesnedir:
 // - Ana sürecin --telsiz-background=<köken> argümanıyla açtığı gizli pencerede { background: true, origin,
-//   report(rapor), open() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç göndereni ve her
-//   alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
-// - Uygulama penceresinde { background: false, getState(), onState(callback) }: açık olmayan frekansların
-//   durumu. Olay nesnesi verilmez, durum burada da süzülür.
+//   report(rapor), open(), idleSeconds() }: rapor bilinen alanlarla kopyalanarak gönderilir, ana süreç
+//   göndereni ve her alanı yeniden doğrular. open() bildirime basınca o frekansa geçer.
+// - Uygulama penceresinde { background: false, getState(), onState(callback), idleSeconds() }: açık olmayan
+//   frekansların durumu. Olay nesnesi verilmez, durum burada da süzülür.
+// - idleSeconds() iki kipte de sistemin boşta süresini verir (tam saniye), otomatik boşta için.
 const BACKGROUND_ARG = '--telsiz-background='
 const BG_ORIGIN_RE = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
 const BG_STATES = ['ok', 'login', 'offline', 'error', 'starting']
@@ -325,7 +388,8 @@ if (backgroundOrigin !== null) {
     background: true,
     origin: backgroundOrigin,
     report: (report) => ipcRenderer.send(CHANNELS.bgReport, bgCopyReport(report)),
-    open: () => ipcRenderer.invoke(CHANNELS.bgOpen)
+    open: () => ipcRenderer.invoke(CHANNELS.bgOpen),
+    idleSeconds
   })
 } else {
   const stateListeners = new Set()
@@ -348,6 +412,7 @@ if (backgroundOrigin !== null) {
       return () => {
         stateListeners.delete(callback)
       }
-    }
+    },
+    idleSeconds
   })
 }

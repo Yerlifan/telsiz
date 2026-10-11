@@ -1,7 +1,8 @@
 'use strict'
 
 // Mesaj çözme (yazı kanalında grup anahtarı, özel mesajda kişisel anahtarlar), yalnızca emoji algılama,
-// mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme ve silme.
+// mesaj düğümleri (engellenen kişinin mesajı katlanır), sayfalama, mesaj menüsü, düzenleme, silme ve başkasının
+// mesajını bildirme (pencere 13-profile.js openReportDialog).
 
 // Mesaj çözme. Sonuçlar mesaj gövdesine göre önbelleğe alınır (arama dizini önbelleksiz sürümü kullanır).
 
@@ -47,20 +48,88 @@ function decryptMessageRaw (m) {
   return result
 }
 
-// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid } veya ekli ses dosyası için { op: 'add', src: 'file' }.
-// Eski istemciler bu alanı bilmez ve t alanındaki komut metnini gösterir.
-function cleanDjNotice (d) {
-  if (!d || typeof d !== 'object' || d.op !== 'add') return null
-  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
-  if (d.src === 'file') return { op: 'add', src: 'file' }
-  return null
+// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid, title? }, aynı mesajdaki ses dosyası için
+// { op: 'add', src: 'file', title? } (/çal ve ek) veya başka bir mesajdaki ses dosyası için
+// { op: 'add', src: 'fileref', title? } ("DJ'de Çal", mesajda ek yoktur). title isteğe bağlıdır: parçanın adı,
+// denetim ve yön karakterleri boşluğa çevrilmiş, en çok 120 kod noktası. title alanını bilmeyen istemciler
+// başlıksız duyuruyu gösterir. 'fileref' kaynağını bilmeyen eski istemciler (2.5.0) d alanını yok sayar ve t
+// alanını düz metin olarak gösterir, bu yüzden o duyurunun t alanı çevrilmiş tam duyuru metnidir.
+const DJ_NOTICE_TITLE_MAX = 120
+const DJ_NOTICE_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
+
+function cleanDjTitle (value) {
+  if (typeof value !== 'string') return ''
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    // normalize yoksa olduğu gibi
+  }
+  text = text.replace(DJ_NOTICE_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
+  return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
 }
 
-// Duyuru satırı: nota simgesi, sabit metin ve YouTube parçasında kimlikten kurulan bağlantı
+// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bir
+// dakikalık pay istek gecikmesini karşılar.
+const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
+const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
+
+// Bu oturumda açık konuşmada izlenen, yalnızca ad ekleyen DJ duyurusu düzenlemeleri: kanal ve mesaj kimliği ->
+// düzenleme zamanı (noteDjTitleEdit doldurur)
+const djTitleEdits = new Map()
+
+function djEditKey (m) {
+  return String(m.channelId) + ':' + String(m.id)
+}
+
+// replaceMessage düzenlenen mesajın önceki ve yeni hâlini verir (prev ve m, çözülmüş before ve after). Düzenleme
+// yalnızca önceki hâl hiç düzenlenmemiş, adsız bir DJ duyurusuysa ve yeni hâl aynı kaynak ve videoyla yalnızca
+// ad ekliyorsa kaydedilir. Sıradan mesajı duyuruya çeviren, videoyu veya adı değiştiren düzenleme kaydedilmez.
+function noteDjTitleEdit (prev, m, before, after) {
+  if (!prev || !m) return
+  const a = before && before.state === 'ok' ? before.dj : null
+  const b = after && after.state === 'ok' ? after.dj : null
+  const titleOnly = Boolean(a && b && !prev.editedAt && m.editedAt && a.src === b.src && a.vid === b.vid && !a.title && b.title)
+  if (titleOnly) djTitleEdits.set(djEditKey(m), Number(m.editedAt))
+  else djTitleEdits.delete(djEditKey(m))
+}
+
+// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Sunucu gövdenin önceki hâlini
+// saklamaz ve göremez, bu yüzden etiket yalnızca bu oturumda izlenen ve yalnızca ad ekleyen düzenlemede
+// (noteDjTitleEdit) gizlenir, o da ad süresi içindeyse. Önceki hâli bilinmeyen düzenleme (konuşma sonradan
+// açıldı, sayfa yenilendi) etiketle görünür.
+function showEditedMark (m, dj) {
+  if (!m || !m.editedAt) return false
+  if (!dj) return true
+  const created = Number(m.createdAt)
+  const edited = Number(m.editedAt)
+  if (!isFinite(created) || !isFinite(edited) || created <= 0) return true
+  if (djTitleEdits.get(djEditKey(m)) !== edited) return true
+  return edited - created > DJ_NOTICE_EDIT_MS + DJ_NOTICE_EDIT_GRACE_MS
+}
+
+function cleanDjNotice (d) {
+  if (!d || typeof d !== 'object' || d.op !== 'add') return null
+  let out = null
+  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) out = { op: 'add', src: 'yt', vid: d.vid }
+  else if (d.src === 'file' || d.src === 'fileref') out = { op: 'add', src: d.src }
+  if (!out) return null
+  const title = cleanDjTitle(d.title)
+  if (title) out.title = title
+  return out
+}
+
+// Duyuru satırı: nota simgesi, metin (parçanın adı biliniyorsa onunla) ve YouTube parçasında kimlikten kurulan
+// bağlantı. Ad yalnızca metin olarak yazılır. "Bu ses dosyası" yalnızca dosya aynı mesajdayken (src 'file')
+// yazılır.
 function buildDjNotice (d) {
   const line = h('div', 'msg-text msg-dj')
   line.appendChild(icon('i-music'))
-  line.appendChild(h('span', 'msg-dj-text', t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')))
+  let text = ''
+  if (d.title) text = t(d.src === 'yt' ? 'dj.notice.youtubeTitle' : 'dj.notice.fileTitle', { title: d.title })
+  else if (d.src === 'yt') text = t('dj.notice.youtube')
+  else text = t(d.src === 'fileref' ? 'dj.notice.fileRef' : 'dj.notice.file')
+  line.appendChild(h('span', 'msg-dj-text', text))
   if (d.src === 'yt') {
     const a = h('a', 'msg-dj-link', t('dj.notice.openYoutube'))
     a.href = 'https://www.youtube.com/watch?v=' + d.vid
@@ -184,6 +253,18 @@ function canDelete (m) {
   return canEdit(m) || (hasPerm('messages') && !isDmChannel(m.channelId))
 }
 
+// Başkasının mesajı frekans sahibine ve yöneticilere bildirilebilir (yazı odasında ve özel mesajda)
+function canReport (m) {
+  return Boolean(state.me && m && !sameId(m.authorId, state.me.id) && typeof openReportDialog === 'function')
+}
+
+function reportMessage (id, trigger) {
+  closeMessageMenu()
+  const m = state.messages[indexOfMessage(id)]
+  if (!m || !canReport(m)) return
+  openReportDialog({ kind: 'message', message: m, trigger: trigger || null })
+}
+
 function messageNoticeText (stateName) {
   if (stateName === 'no_key') return t('msg.noKey')
   if (stateName === 'bad_format') return t('msg.badFormat')
@@ -261,7 +342,7 @@ function buildMessageNode (m) {
     text.appendChild(h('span', '', notice))
     body.appendChild(text)
   }
-  if (m.editedAt) {
+  if (showEditedMark(m, result.state === 'ok' && Boolean(result.dj))) {
     const edited = h('span', 'msg-edited', t('msg.edited'))
     edited.title = t('msg.editedAt', { date: formatLong(m.editedAt) })
     const target = body.querySelector('.msg-text') || body
@@ -271,7 +352,7 @@ function buildMessageNode (m) {
   content.appendChild(body)
   node.appendChild(content)
 
-  if (canEdit(m) || canDelete(m)) {
+  if (canEdit(m) || canDelete(m) || canReport(m)) {
     const actions = h('div', 'msg-actions')
     if (canEdit(m) && result.state === 'ok' && !result.dj) {
       const edit = button('msg-action msg-quick', '', 'i-edit', t('msg.edit'))
@@ -280,6 +361,14 @@ function buildMessageNode (m) {
         startEdit(m.id)
       })
       actions.appendChild(edit)
+    }
+    if (canReport(m)) {
+      const report = button('msg-action msg-quick msg-report', '', 'i-alert', t('report.message'))
+      report.tabIndex = -1
+      report.addEventListener('click', () => {
+        reportMessage(m.id, node.querySelector('.msg-more'))
+      })
+      actions.appendChild(report)
     }
     if (canDelete(m)) {
       const del = button('msg-action msg-quick msg-action-danger', '', 'i-trash', t('msg.delete'))
@@ -410,8 +499,12 @@ function replaceMessage (m) {
   const index = indexOfMessage(m.id)
   if (index === -1) return
   if (sameId(state.editingId, m.id)) state.editingId = null
+  const prev = state.messages[index]
+  const before = prev.body !== m.body ? decryptMessage(prev) : null
   state.messages[index] = m
   decryptCache.delete(String(m.id))
+  // Düzenleme: DJ duyurusuna yalnızca ad eklendiyse "düzenlendi" etiketi gizlenir (showEditedMark)
+  if (before) noteDjTitleEdit(prev, m, before, decryptMessage(m))
   const old = state.nodes.get(String(m.id))
   const node = buildMessageNode(m)
   state.nodes.set(String(m.id), node)
@@ -808,6 +901,7 @@ function openMessageMenu (id, trigger) {
   const result = decryptMessage(m)
   el.msgMenuEdit.hidden = !(canEdit(m) && result.state === 'ok' && !result.dj)
   el.msgMenuDelete.hidden = !canDelete(m)
+  reportMenuItem().hidden = !canReport(m)
   state.menuMessageId = m.id
   el.msgMenu.hidden = false
   trigger.setAttribute('aria-expanded', 'true')
@@ -825,6 +919,29 @@ function openMessageMenu (id, trigger) {
       state.menuMessageId = null
     }
   })
+}
+
+// Menüdeki Mesajı Bildir öğesi index.html'de değil, ilk açılışta Sil öğesinin önüne eklenir. Metni her açılışta
+// seçili dilde yazılır.
+function reportMenuItem () {
+  let item = byId('msg-menu-report')
+  if (!item) {
+    item = h('button', 'menu-item')
+    item.id = 'msg-menu-report'
+    item.type = 'button'
+    item.setAttribute('role', 'menuitem')
+    item.appendChild(icon('i-alert'))
+    item.appendChild(h('span', 'menu-item-text'))
+    item.addEventListener('click', () => {
+      const id = state.menuMessageId
+      if (id === null) return
+      const node = state.nodes.get(String(id))
+      reportMessage(id, node ? node.querySelector('.msg-more') : null)
+    })
+    el.msgMenu.insertBefore(item, el.msgMenuDelete)
+  }
+  item.lastChild.textContent = t('report.message')
+  return item
 }
 
 function closeMessageMenu () {

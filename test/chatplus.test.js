@@ -203,6 +203,38 @@ test('@herkes ve @everyone: yalnızca sahip ve yönetici yazınca, yazı kanalı
   assert.strictEqual(me(2, 10, '@herkes yarın toplantı'), false)
 })
 
+test('Telsiz DJ duyurusu anma sayılmaz: sayaç, bildirim ve "Beni anan" süzgeci duyurunun metnine bakmaz', () => {
+  const { run } = load('tr')
+  // 06-messages.js bu bağlamda yüklenmez: çözme taklidi mesajın plain alanını döner
+  run('function decryptMessage (m) { return m.plain }')
+  const msg = (author, text, dj) => ({ id: 70, channelId: 10, authorId: author, plain: { state: 'ok', text: text, files: [], dj: dj || null } })
+  const mentions = (m) => run('messageMentionsMe(' + JSON.stringify(m) + ')')
+  const alert = (m) => run('messageAlertAllowed(' + JSON.stringify(m) + ')')
+  // "DJ'de Çal": metinde dosyayı yükleyen kişinin seçtiği ad var, düğmeye basan yönetici (2) gönderir
+  const fileRef = { op: 'add', src: 'fileref', title: '@herkes yeni parca.mp3' }
+  const everyone = 'Telsiz DJ kuyruğuna dosya ekledi: @herkes yeni parca.mp3'
+  assert.strictEqual(mentions(msg(2, everyone)), true, 'aynı metin sıradan mesajda anmadır')
+  assert.strictEqual(mentions(msg(2, everyone, fileRef)), false)
+  assert.strictEqual(mentions(msg(3, 'Telsiz DJ kuyruğuna dosya ekledi: @burak icin.mp3', { op: 'add', src: 'fileref', title: '@burak icin.mp3' })), false)
+  // /çal duyurusunun metni komutun kendisidir, duyuruda görünmez
+  assert.strictEqual(mentions(msg(3, '/çal https://youtu.be/dQw4w9WgXcQ @burak', { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ' })), false)
+  assert.strictEqual(mentions(msg(3, '/çal @burak', { op: 'add', src: 'file' })), false)
+  // Varsayılan bildirim düzeyinde (yalnızca anmalar) duyuru bildirim ve ses vermez, sayaç artmaz
+  assert.strictEqual(alert(msg(2, everyone)), true)
+  assert.strictEqual(alert(msg(2, everyone, fileRef)), false)
+  run('state.mentions = Object.create(null)')
+  assert.strictEqual(run('mentionOnIncoming(' + JSON.stringify(msg(2, everyone, fileRef)) + ')'), false)
+  assert.strictEqual(run('state.mentions[10]'), undefined)
+  // Arama dizinindeki duyuru "Beni anan" süzgecine girmez
+  run(`
+    var base = { terms: [], fromId: null, fromMissing: false, hasImage: false, hasFile: false, mentionsMe: true }
+    var plainEntry = { id: 7, channelId: 10, authorId: 2, text: ${JSON.stringify(everyone)}, names: '', fold: '', foldNames: '', hasImage: false, hasFile: false, dj: false }
+    var djEntry = Object.assign({}, plainEntry, { id: 8, dj: true })
+  `)
+  assert.strictEqual(run('entryMatches(plainEntry, base)'), true)
+  assert.strictEqual(run('entryMatches(djEntry, base)'), false)
+})
+
 test('öneri kelimesi: imlecin önündeki @ kelimesi, kelime sınırı ve kelimenin sonu', () => {
   const { json } = load('tr')
   const at = (text, caret) => json('mentionQueryAt(' + q(text) + ', ' + caret + ')')
