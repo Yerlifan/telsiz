@@ -2,7 +2,7 @@
 
 [Türkçe](TASARIM.md) | [English](DESIGN.md)
 
-Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç görsel tema üzerine kuruludur. Düzen uygulamayı bir radyo kadranı gibi kurar: katıldığınız frekanslar (her biri bir Telsiz sunucusu) yatay bir frekans bandında istasyon olarak dizilir, açık frekansın yazı ve ses odaları sağdaki İstasyonlar listesindedir, ortada tek bir konuşma sütunu durur, ses odasına bağlanınca bir el telsizini andıran telsiz kartı açılır. Temalar yalnızca CSS belirteçlerini ve temaya özgü süsleri değiştirir, işaretleme hiçbir temada değişmez. Varsayılan tema Arcade'dir, ilk açılışta mod sistem tercihini izler (bilinmiyorsa koyu). Bu belge dosyaları, düzeni, kesme noktalarını, belirteçleri, temaları, bileşenleri, kontrast ölçümlerini ve yeni bir tema eklemenin adımlarını anlatır.
+Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç görsel tema üzerine kuruludur. Düzen uygulamayı bir radyo kadranı gibi kurar: katıldığınız frekanslar (her biri bir Telsiz sunucusu) yatay bir frekans bandında istasyon olarak dizilir, açık frekansın yazı ve ses odaları sağdaki İstasyonlar listesindedir, ortada tek bir konuşma sütunu durur, ses odasına bağlanınca bir el telsizini andıran telsiz kartı açılır. Temalar yalnızca CSS belirteçlerini ve temaya özgü süsleri değiştirir, işaretleme hiçbir temada değişmez. Varsayılan tema Arcade'dir, ilk açılışta mod sistem tercihini izler (bilinmiyorsa koyu). Bu belge dosyaları, düzeni, kesme noktalarını, belirteçleri, temaları, kamerayı ve oyun masasını, bileşenleri, kontrast ölçümlerini ve yeni bir tema eklemenin adımlarını anlatır.
 
 ## Dosyalar ve yükleme sırası
 
@@ -20,10 +20,14 @@ Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç gör
 | `public/css/people.css` | Giriş kartı, Çevrimiçi sayfası ve şeridi, özel mesaj listesi ve kişisel kartlar, özel mesaj başlığı, Arkadaşlar istasyonu. |
 | `public/css/cast.css` | Ekran paylaşımı: yayında çipi, paylaşım bildirimi, yayın sahnesi, kameralar ızgarası, daraltılmış sohbet şeridi, paylaşım başlatma penceresi. |
 | `public/css/dj.css` | Telsiz DJ kartı, köşedeki oynatıcı, telsiz kartının araç satırındaki Telsiz DJ düğmesi, mesajdaki "DJ'de çal" düğmesi. |
+| `public/css/arama.css` | Özel mesaj araması: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum satırı, denetimler), gelen arama kartı. |
+| `public/css/tanitim.css` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası. |
+| `public/css/oyun.css` | Oyun masası: telsiz kartındaki Oyun düğmesi ve durumları, yayın sahnesinin `game` kipinde Masa Kur, lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı, telefonda sahne yüksekliği. |
+| `public/css/renk.css` | Renk masası: rakip şeridi, deste ve kart arkası, atılan kart, aktif renk, eylem satırı, el, kart yüzleri, Joker renk seçici. |
 | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Temaya özgü biçimler. |
 | `public/fonts/` | Yerel woff2 yazı tipleri ve OFL lisans metinleri. |
 
-`index.html` stil dosyalarını şu sırayla bağlar: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, ardından üç tema dosyası. Tema dosyalarındaki her kural `:root[data-skin="..."]` ile başladığı için yalnızca etkin temanın kuralları uygulanır. Üç dosyanın birlikte yüklenmesi tema değişimini sayfa yenilemeden anında yapar.
+`index.html` stil dosyalarını şu sırayla bağlar: tokens, base, frekans, components, settings, chat-plus, convo, radio, people, cast, dj, arama, tanitim, oyun, renk, ardından üç tema dosyası. Tema dosyalarındaki her kural `:root[data-skin="..."]` ile başladığı için yalnızca etkin temanın kuralları uygulanır. Üç dosyanın birlikte yüklenmesi tema değişimini sayfa yenilemeden anında yapar.
 
 ## Tema arayüzü
 
@@ -176,6 +180,46 @@ Kamerası açık kişinin kadro öğesi aynı yumuşak kare avatar biçiminde (`
 
 Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar bölümü (`#set-voice-limits-section`) sayı alanlarıyla (`.settings-number`) ses odası kapasitesini ve kamera sınırını, bir anahtarla kameraları gösterir. Yönetici alanları devre dışı görür. Sunucu bilgileri bölümü (`#set-server-info-section`) etiket ve değer satırlarını (`.settings-facts`, `.settings-fact`), altında öneriyi (`.settings-rec`: yükleme hızı alanı, sonuç satırları `.settings-rec-item`, formül açıklaması, ipuçları `.settings-rec-hint` ve Öneriyi uygula düğmesi) gösterir. Uyarılar `--warn`, `--warn-bg` ve `--warn-line` belirteçleriyle, olumlu ipucu `--live` kenarıyla çizilir. Telefonda etiket değerin üstüne iner.
 
+## Oyun masası
+
+Telsiz kartının araç satırında Büyüt ile Telsiz DJ arasında Oyun düğmesi (`#radio-game`, `.game-tool`, durumu `data-state` özniteliğinde) durur. Seste değilken, bağlanırken ve özel aramada görünmez. Etiketi duruma göre Oyun, Davet (`.is-invited`, "1" rozeti), Oyun Sürüyor (`.is-busy`), Masaya Dön ve Sıra Sizde (`.is-turn`, "!" rozeti) olur, sahne açıkken Küçült olur ve `aria-expanded="true"` alır. Oyun Sürüyor `disabled` yerine `aria-disabled="true"` taşır, odaklanabilir kalır ve basınca bilgi ekranını açar. 759 piksel ve altında etiket görsel olarak gizlenir, simge ve rozet kalır ve düğme büyümez, yalnızca simgesi kadar yer alır. Araç satırının düğmeleri içerikleri kadar yer alıp kalan genişliği paylaşır, satıra sığmazlarsa satır sarılır, görünen etiketler kesilmez. Oyun düğmesinin, Masaya Bak'ın ve masadaki Deste, Tek! ve Yakala düğmelerinin erişilebilir adı görünen etiketle başlar, böylece sesle kumanda görünen adı bulur (WCAG 2.5.3). Örnekler: "Davet: Deniz sizi Renk oyununa davet ediyor", "Kart Çek, 93 kart kaldı". Gelen davet sahneyi açmaz, Bildirimler listesinde Masaya Bak düğmeli bir kayıt (`.activity-item.is-game`) çıkar. Liste görünürken davet ayrıca duyurulmaz, çünkü liste kendisi kibar canlı bölgedir.
+
+Masa yayın sahnesinin `game` kipinde açılır (`#cast[data-mode="game"]`, `.cast-game`). Kip önceliği izlenen paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesidir (`22-cast.js castModeFor`). Oyunu açmak izlemeyi bırakır ve ızgarayı kapatır. Oyun hiçbir zaman kendiliğinden kapanmaz, üstteki kip kapanınca masa geri gelir. Başlıkta Tam Ekran ve Küçült durur, Küçült sahneyi kapatır ama oyun sürer. Oyunda paylaşan seçicisi gizlidir, sohbet şeridi varsayılan olarak daraltılmıştır ve geniş ekranda sağ sütun gizlenir. Telefonda (759 piksel ve altı) sohbet daraltılmışken sahne 16:9 yüksekliği yerine kalan yüksekliği alır (en az 8rem) ve masa `.cast-game` içinde kayar. Böylece başlık (Tam Ekran, Küçült) 375 x 667 gibi küçük ekranlarda ve büyük yazıda da görünür kalır. Sahne yeniden çizilince kişinin kaydırdığı yer korunur: sahnenin dikey kaydırması ve `data-scroll-key` taşıyan öğelerin (elin yatay kaydırması) konumu geri yazılır, aynı denetime geri verilen odak sahneyi kaydırmaz. Masa Kur, lobi, davet, bitiş ve sonuç ekranları, durum satırı, güven notu ve onay satırı `oyun.css`, masanın ortası `renk.css` içindedir. Masanın alt satırında (`.game-trust-row`) her zaman "Kurpiyer Elleri Bilir" güven çipi (`.game-trust-chip`) ve tam metni açan Ayrıntı düğmesi bulunur. Kurpiyerde yanlarında Koltuklar düğmesi (`.game-seats-more`) durur, koltuk listesini (`#game-seats-detail`, varsayılan olarak kapalı) açar: uzakta kalan ya da sayfasını yenileyip dönmeyen oyuncu oyun sürerken buradan Koltuktan Çıkar ile kaldırılır. Masa Kur, lobi ve davet ekranlarında güven notu (`.game-trust`) Katıl düğmesinin hemen üstündedir. Oyunu bitirme ve masayı kapatma her zaman, masadan ayrılma ve koltuktan çıkarma oyun sürerken `window.confirm` yerine panelin içinde bir onay satırı (`.game-confirm`) açar, odak Vazgeç'e gider ve Esc satırı kapatır. Lobide ve sonuç ekranında ayrılma ve koltuktan çıkarma onaysız uygulanır.
+
+Kart bir düğmedir (`button.renk-card[data-color][data-value]`): köşede rengin şekli ve değer, ortada büyük değer (sayı, Engel için `i-block`, Yön için `i-reverse`, +2), altta dile göre rengin harfi. Joker ve Joker +4 yüzünün ortasında dört küçük renk karesi her biri kendi şekliyle durur ve renk harfi yoktur: Joker +4'ün köşesinde ve altında +4 yazar, Joker'in köşesi ve altı boştur. Yüzler düz renktir, ortada eğik oval veya logo yoktur. Kart arkası (`.renk-back`) çizgili desenlidir ve destede ve rakiplerin kart sayısında görünür. Sıra kişideyken oynanabilir kart `.is-playable` alır (0.375rem yukarı kalkar, alt kenarında `--accent` çizgisi belirir), oynanamayan kart `.is-blocked` ile çizgili örtü alır. O an oynanamayan her kart `disabled` yerine `aria-disabled="true"` taşır ve odaklanabilir kalır. Yeni çekilen kart (`.is-new`) "Yeni" işareti taşır. El (`.renk-hand`) renk sırasına (Kırmızı, Sarı, Yeşil, Mavi, Joker) ve değere göre dizilir, sığmazsa kendi içinde yatay kayar. Kurpiyerin ekranında başkalarının elleri hiç çizilmez.
+
+Renk hiçbir yerde tek başına anlam taşımaz. Her rengin bir şekli, bir harfi ve adı vardır:
+
+| Renk | Şekil | Türkçe harf | İngilizce harf |
+| --- | --- | --- | --- |
+| Kırmızı | daire (`i-suit-circle`) | K | R |
+| Sarı | üçgen (`i-suit-triangle`) | S | Y |
+| Yeşil | kare (`i-suit-square`) | Y | G |
+| Mavi | karo (`i-suit-diamond`) | M | B |
+
+Aktif renk göstergesi (`.renk-color`) ve Joker renk seçicinin (`.renk-picker`) dört düğmesi şekli, harfi ve adı birlikte gösterir. Sırası gelen rakipte halka ve "Sırada" yazısı, Tek! diyen oyuncuda çip vardır. Kartın erişilebilir adı tam addır (ör. "Kırmızı 7", "Joker +4"), ardından oynanıp oynanamayacağı ve yeni çekildiyse bu bilgi gelir. Başkasının çektiği kartın içeriği okunmaz. Duyurular panelin içindeki kibar bölgeye, "Sıra sizde" ısrarlı bölgeye gider, 400 ms içinde gelen olaylar tek cümlede birleşir.
+
+Kart belirteçleri `tokens.css` sonundadır. Kenar, gölge, kart arkası ve örtü (`--card-edge`, `--card-shadow`, `--card-back-a`, `--card-back-b`, `--card-hatch`) moda göre değişir. Yüz renkleri (`--renk-red`, `--renk-yellow`, `--renk-green`, `--renk-blue`, `--renk-wild`) ve yazı renkleri (`--renk-ink`, `--renk-ink-yellow`) iki modda aynıdır. Joker yüzü koyu temalarda, sarı yüz açık temalarda zeminden ayrışmadığı için kenar zorunludur. Kart yazısının yüzle kontrastı:
+
+| Yüz | Yazı | Oran |
+| --- | --- | --- |
+| Kırmızı `#c8322f` | beyaz | 5.31:1 |
+| Sarı `#f2c12e` | koyu `#221800` | 10.38:1 |
+| Yeşil `#16804a` | beyaz | 4.98:1 |
+| Mavi `#2563d8` | beyaz | 5.45:1 |
+| Joker `#24252c` | beyaz | 15.26:1 |
+
+`test/oyun-arayuz.test.js` oranları yeniden hesaplar ve her birinin 4.5:1'in üstünde kaldığını denetler. `oyun.css` ve `renk.css` içinde renkler yalnızca `var(--...)` ile verilir, z-index en çok 3'tür (renk seçici).
+
+DOM sırası odak sırasıdır: Tam Ekran, Küçült, Deste, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Ayrıntı, ayrılma ve bitirme düğmeleri. Elde ve eylem satırında Sol ve Sağ ok komşuya, Home ve End uçlara gider, Yukarı ok elden Deste'ye, Aşağı ok Deste'den ve eylem satırından ele iner. Gezici `tabindex` ve kısayol tuşu yoktur, böylece bas konuş atamalarıyla çakışma olmaz. Sıra gelince odak, kişi yazma alanında değilse ilk oynanabilir karta taşınır. Masa yalnızca kendi anahtarı değişince yeniden çizilir ve odak `data-focus-key` ile korunur. Joker renk seçici panelin içinde bir katmandır, böylece tam ekranda da görünür: odak içinde kalır, Esc ve kolun daire düğmesi yalnızca seçiciyi kapatır, kart oynanmaz. Ölçüler:
+
+| Düzen | El kartı | Atılan kart ve deste |
+| --- | --- | --- |
+| Telefon (759 piksel ve altı) | 3.25 x 4.75rem | 3.75 x 5.5rem |
+| 760 piksel ve üstü | 3.5 x 5rem | 4.5 x 6.5rem |
+
+Dokunma hedefleri en az `--target` boyutundadır, renk seçicinin düğmeleri en az 3.5rem yüksekliktedir ve seçici telefonda iki sütun olur. Hareketi azalt açıkken kart geçişleri ve eşitleme noktası durur: `renk.css` ve `oyun.css` içindeki `prefers-reduced-motion` kuralları sistem ayarına, `base.css` içindeki `:root[data-reduce-motion="true"]` kuralı Ayarlar > Görünüm seçimine bakar.
+
 ## Bileşenler
 
 | Bileşen | Sınıflar | Not |
@@ -198,6 +242,7 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl�
 | Kişiler | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | Çevrimiçi sayfası, Arkadaşlar istasyonu, özel mesaj başlığı. |
 | Giriş kartı | `.auth-card`, `.auth-dial`, `.auth-needle` | Telsiz gövdesi biçiminde kart. |
 | Ekran paylaşımı ve kameralar ızgarası | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | Sahne açıkken `body[data-cast="live"]`, ızgarada `#cast[data-mode="cams"]`. |
+| Oyun masası | `.game-tool`, `.cast-game`, `.game-body`, `.game-app`, `.game-status`, `.game-trust`, `.game-trust-row`, `.game-trust-chip`, `.game-seats-more`, `.game-seats-detail`, `.game-confirm`, `.renk-table`, `.renk-opp`, `.renk-deck`, `.renk-pile`, `.renk-color`, `.renk-actions`, `.renk-hand`, `.renk-card`, `.renk-back`, `.renk-picker` | Sahnede `#cast[data-mode="game"]`, Oyun düğmesinde `.is-invited`, `.is-busy`, `.is-turn`, masada `data-turn`, kartta `.is-playable`, `.is-blocked`, `.is-new`. |
 | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | YouTube oynatıcı alanı (`.dj-yt`) yazı boyutundan bağımsız olarak her zaman en az 200x200 CSS pikselidir ve üstüne hiçbir şey bindirilmez. Kart görünmezken veya örtülürken oynatıcı köşeye sabitlenir, altında `.dj-dock` çubuğu durur. |
 | Ayarlar | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | Seçili kategori ibre renginde sol çizgiyle işaretlenir. |
 | Katmanlar | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | Dar ekranda katmanlar alttan açılır. |

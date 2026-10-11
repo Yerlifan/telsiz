@@ -82,7 +82,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `src/system-info.js` | Sunucu bilgileri: işlemci, bellek ve cgroup sınırı, disk alanı (`GET /api/server-info`) |
 | `public/index.html` | Tek sayfa işaretleme ve SVG simge kümesi |
 | `public/crypto.js` | `window.E2EE`: anahtar kodu, zarflar, dosya şifreleme, kişisel anahtarlar, sabitleme |
-| `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru |
+| `public/voice.js` | `window.VoiceClient`: WebRTC ses, ekran paylaşımı ve kamera motoru, ses odasındaki oyun iletilerinin taşınması |
 | `public/rnnoise-worklet.js` | Gelişmiş gürültü engelleme: RNNoise wasm modülünü çalıştıran AudioWorklet işlemcisi |
 | `public/music.js`, `public/dj/youtube.js` | Telsiz DJ motoru ve YouTube oynatıcı bağdaştırıcısı |
 | `public/i18n.js` | İstemcinin Türkçe ve İngilizce sözlükleri |
@@ -119,17 +119,22 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
-| `22-cast.js` | Ekran paylaşımı arayüzü ve kameralar ızgarası |
+| `22-cast.js` | Ekran paylaşımı arayüzü, kameralar ızgarası ve yayın sahnesinin oyun masası kipi |
 | `23-dj.js` | Telsiz DJ arayüzü |
 | `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 | `26-tanitim.js` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası |
 | `27-kapasite.js` | Ayarlar > Genel içindeki sunucu bilgileri bölümü, ses odası kapasitesi ve kamera sınırı önerisi, sunucu ipuçları |
-| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), ses odasına katılma ve ayrılma |
+| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), oyun daveti (Masaya Bak düğmesiyle), ses odasına katılma ve ayrılma |
 | `29-mikrofon.js` | Mikrofon düğmesinin bağlam menüsü (sağ tık, Shift+F10 veya Menü tuşu): Bas konuş ve Ses etkinliği seçimi |
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
+| `33-oyun-protokol.js` | Oyun protokolü çekirdeği (`window.TelsizGame`): ileti biçimleri ve doğrulayıcıları, iç zarf (mühürleme, açma, bağ denetimi), sayaç kuralları, durum gövdesinin denetimi, yansız rastgele seçim ve karıştırma. Saftır, DOM, saat ve ağ kullanmaz |
+| `34-oyun-masa.js` | Oyun masası yöneticisi (`window.TelsizGameDesk`): kurpiyer ve oyuncu durum makineleri, davetler, koltuklar, tek uçuşlu gönderim, kısma, canlılık ve yeniden bağlanma. Saftır, zaman ve ağ dışarıdan verilir |
+| `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
+| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
+| `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -172,7 +177,9 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | Alan | Neden hassas |
 | --- | --- |
 | `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
-| `public/voice.js` | Ses ve ekran paylaşımı sinyallerinin şifrelenmesi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
+| `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
+| `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
+| `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |
 | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
 | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
@@ -181,7 +188,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, güncelleme denetimi (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | Yayına giren dosyaların beyaz listesi, otomatik güncelleme bilgi dosyaları, npm yayınının kimlik doğrulaması |
 
-Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın.
+Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın. Ses sinyaline yeni bir tür eklemek ve oyun iletilerinin türlerini veya alan kümelerini değiştirmek de düz metin biçimi değişikliğidir.
 
 ## Dal ve PR süreci
 

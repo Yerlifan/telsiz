@@ -144,6 +144,7 @@ function socialApplyPrivate (p, pmv) {
   if (blockedChanged) {
     autoMuteBlocked()
     if (!isDmChannel(state.channelId)) refreshAllMessages()
+    socialBlockedGame()
   }
   socialRender()
   refreshProfileCard()
@@ -944,6 +945,7 @@ async function blockUser (userId) {
     })
     autoMuteBlocked()
     if (!isDmChannel(state.channelId)) refreshAllMessages()
+    socialBlockedGame()
     toast(() => t('social.blocked', { name: userDisplayName(userId) }), 'ok')
     return true
   }
@@ -959,6 +961,7 @@ async function unblockUser (userId) {
     })
     autoMuteBlocked()
     if (!isDmChannel(state.channelId)) refreshAllMessages()
+    socialBlockedGame()
     toast(() => t('social.unblocked', { name: userDisplayName(userId) }), 'ok')
     return true
   }
@@ -1004,6 +1007,11 @@ function notifyNewRequests (incoming) {
   } else {
     toast(() => t('social.requestNotifyBody', { name: userDisplayName(id) }))
   }
+}
+
+// Engelleme değişince oyun katmanı haberdar edilir: engellenen kurpiyerin daveti ve rozeti kalkar (36-oyun.js)
+function socialBlockedGame () {
+  if (typeof gameRender === 'function') gameRender()
 }
 
 // Engellenen kişiler seste yerelde otomatik susturulur, engel kalkınca yalnızca otomatik

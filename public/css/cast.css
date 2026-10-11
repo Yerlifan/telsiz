@@ -3,8 +3,10 @@
   (.cast-notice), yayın sahnesi (#cast: .cast-panel ve sohbet şeridi .cast-dock), sahne açıkken
   konuşma sütununun daraltılması ve paylaşım başlatma penceresi (#cast-dialog). Davranış 22-cast.js.
   Durum öznitelikleri: body[data-cast="live"] (sahne açık), body[data-cast-chat="open" | "closed"],
-  #cast[data-mode="watch" | "own" | "cams"]. DJ kartı body[data-cast="live"] iken sayfaya iner (23-dj.js, K7.2).
-  cams kipinde görüntü alanında odadaki kameraların ızgarası (.cast-cams, .cam-tile) durur.
+  #cast[data-mode="watch" | "own" | "cams" | "game"]. DJ kartı body[data-cast="live"] iken sayfaya iner (23-dj.js, K7.2).
+  cams kipinde görüntü alanında odadaki kameraların ızgarası (.cast-cams, .cam-tile) durur. game kipinde görüntü
+  alanında oyun masası (.cast-game) durur, içi ve telefondaki sahne yüksekliği oyun.css'tedir. Kip önceliği:
+  izlenen paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesi (22-cast.js castModeFor).
   Kurallar: renkler yalnızca var(--...), grid, flex gap, clamp, :is, :where, aspect-ratio ve inset yok.
 */
 

@@ -739,3 +739,32 @@ html[data-font-size="custom"] {
   --role-purple: #6a3fd2;
   --role-pink: #ad236d;
 }
+
+/*
+  Kart oyunları (Renk, ileride Pişti): yüzler iki modda aynı, kenar, gölge ve kart arkası moda göre.
+  Joker yüzü koyu temalarda, sarı yüz açık temalarda zeminden ayrışmadığı için kenar zorunludur.
+  Yazı ve yüz kontrastı (en az 4.5:1): beyaz ve kırmızı 5.31, beyaz ve yeşil 4.98, beyaz ve mavi 5.45,
+  beyaz ve Joker 15.26, koyu yazı ve sarı 10.38 (test/oyun-arayuz.test.js yeniden hesaplar).
+*/
+:root {
+  --card-edge: #f2f2f7;
+  --card-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.45);
+  --card-back-a: #2b2d6e;
+  --card-back-b: #15163d;
+  --card-hatch: rgba(0, 0, 0, 0.35);
+  --renk-red: #c8322f;
+  --renk-yellow: #f2c12e;
+  --renk-green: #16804a;
+  --renk-blue: #2563d8;
+  --renk-wild: #24252c;
+  --renk-ink: #ffffff;
+  --renk-ink-yellow: #221800;
+}
+
+:root[data-scheme="light"] {
+  --card-edge: #2a2b33;
+  --card-shadow: 0 0.25rem 0.75rem rgba(20, 20, 40, 0.2);
+  --card-back-a: #3b3fa8;
+  --card-back-b: #1e2160;
+  --card-hatch: rgba(255, 255, 255, 0.45);
+}

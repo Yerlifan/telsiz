@@ -32,6 +32,8 @@ Mesajlar, dosyalar, profiller ve ses bağlantısının kurulum mesajları cihazd
 
 **Telsiz DJ.** Ses odalarında yerleşik bir müzik botu vardır. Yazma alanına `/çal` ve bir YouTube bağlantısı yazmak veya mesajdaki bir ses dosyasında "DJ'de çal" düğmesine basmak parçayı kuyruğa ekler. Herkes parçayı aynı anda kendi cihazında dinler. YouTube parçaları YouTube'un resmi gömülü oynatıcısıyla ve yalnızca kişi bu cihazda onay verdikten sonra yüklenir. Paylaşılan ses dosyaları onaysız çalar. Frekansın sahibi Telsiz DJ'yi veya yalnızca YouTube kaynağını kapatabilir.
 
+**Oyunlar.** Ses odasındakiler telsiz kartındaki Oyun düğmesiyle birlikte Renk oynayabilir: 2 ile 8 kişilik, renk ve sayı eşleştirmeli bir kart oyunu. Masayı kuran kişi kurpiyerdir, kendisi de oynar ve kural setini seçer: Resmî veya +2 ile +4'ün üst üste konabildiği Üst Üste Ekleme. Son kartına düşerken Tek! demeyen oyuncu yakalanırsa iki sette de 2 kart çeker. Odadakilere (kurpiyerin engellediği kişiler hariç) davet gider. Davet ekranı kendiliğinden açmaz, Oyun düğmesini Davet yapar ve Bildirimler listesinde Masaya Bak düğmesiyle görünür. Desteyi kurpiyerin cihazı karıştırır ve bu cihaz bütün elleri teknik olarak bilir, bu durum masaya katılmadan önce açıkça yazar. Her oyuncunun eli yalnızca ona, iki kişinin kişisel anahtarlarıyla şifreli gider, sunucu ve diğer oyuncular göremez. El bitince kalan eller açılmaz, yalnızca kart sayıları ve puanlar görünür. Kurpiyer ses odasından ayrılırsa oyun biter, bir oyuncu ayrılırsa kartları desteye döner ve oyun sürer. Sayfasını yenileyen oyuncu ses odasına dönünce Oyuna Dön ile koltuğuna geri oturur. Masa fare, klavye, dokunmatik ekran ve oyun koluyla oynanır, renkler şekil ve harfle de ayrılır. Özel aramada oyun yoktur, sunucuda ayrı bir ayar veya kurulum gerekmez.
+
 **Cihazda arama.** Mesajlarda arama tamamen cihazda yapılır. Sunucu aranan metni ve mesaj içeriğini görmez.
 
 **Frekans tanıtımı.** Oturum açmamış biri frekansın adresini açınca önce tanıtım sayfasını görür: frekans adı, sahibin Ayarlar > Genel bölümünden yazdığı herkese açık tanıtım metni, Telsiz'in kısa anlatımı, masaüstü uygulamasını indirme bağlantısı ve kendi frekansını kurmak için adım adım rehber. Davet bağlantısıyla gelenler doğrudan kayıt formuna geçer.
@@ -140,7 +142,7 @@ Tarayıcılar mikrofona ve ekran yakalamaya yalnızca güvenli adreslerde izin v
 
 Parola sunucuya hiç gönderilmez. Tarayıcı paroladan scrypt ile bir kimlik doğrulama anahtarı ve ayrı bir sarma anahtarı türetir. Grup içeriği TweetNaCl-js ile XSalsa20-Poly1305 kullanılarak, özel mesajlar X25519 ile kurulan ortak anahtarla şifrelenir. Sunucu her istekte yetkiyi denetler, girdileri doğrular, hız sınırları ve katı bir içerik güvenliği politikası uygular.
 
-Uçtan uca şifreleme her şeyi gizlemez. Sunucu kimin çevrimiçi olduğunu, kimin hangi odada ve ses odasında bulunduğunu, mesajların zamanını ve boyutunu, oda adlarını, kullanıcı adlarını ve yazıyor bilgisini görür. Web sürümünde uygulama kodu sunucudan geldiği için sunucuyu ele geçiren etkin bir saldırgan değiştirilmiş kod sunabilir. Grup anahtarında ileriye dönük gizlilik yoktur. Sesli ve görüntülü sohbette kişiler birbirinin IP adresini görebilir. Proje bağımsız bir güvenlik denetiminden geçmemiştir. Sınırların tam listesi [docs/MIMARI.md](docs/MIMARI.md#sınırlar) dosyasında, güvenlik açığı bildirme yolu [SECURITY.md](SECURITY.md) dosyasındadır.
+Uçtan uca şifreleme her şeyi gizlemez. Sunucu kimin çevrimiçi olduğunu, kimin hangi odada ve ses odasında bulunduğunu, mesajların zamanını ve boyutunu, oda adlarını, kullanıcı adlarını ve yazıyor bilgisini görür. Web sürümünde uygulama kodu sunucudan geldiği için sunucuyu ele geçiren etkin bir saldırgan değiştirilmiş kod sunabilir. Grup anahtarında ileriye dönük gizlilik yoktur. Sesli ve görüntülü sohbette kişiler birbirinin IP adresini görebilir. Oyunlarda kurpiyerin cihazı bütün elleri bilir. Proje bağımsız bir güvenlik denetiminden geçmemiştir. Sınırların tam listesi [docs/MIMARI.md](docs/MIMARI.md#sınırlar) dosyasında, güvenlik açığı bildirme yolu [SECURITY.md](SECURITY.md) dosyasındadır.
 
 ## Ayarlar
 
@@ -170,8 +172,8 @@ Sahip parolasını unutursa sunucu durdurulduktan sonra `sifre-sifirla <kullanı
 | Belge | İçerik |
 | --- | --- |
 | [docs/KURULUM.md](docs/KURULUM.md) | Kendi sunucunuzda kurulum: npm, tek dosya, Docker, ters vekil, tünel, TURN, yedekleme ve güncelleme |
-| [docs/MIMARI.md](docs/MIMARI.md) | Sunucu, istemci, şifreleme, ses, ekran paylaşımı, Telsiz DJ, masaüstü uygulaması ve sınırlar |
-| [docs/TASARIM.md](docs/TASARIM.md) | Frekans düzeni, tasarım belirteçleri, temalar ve erişilebilirlik |
+| [docs/MIMARI.md](docs/MIMARI.md) | Sunucu, istemci, şifreleme, ses, ekran paylaşımı, Telsiz DJ, oyunlar, masaüstü uygulaması ve sınırlar |
+| [docs/TASARIM.md](docs/TASARIM.md) | Frekans düzeni, tasarım belirteçleri, temalar, oyun masası ve erişilebilirlik |
 | [desktop/README.md](desktop/README.md) | Masaüstü uygulamasının güvenlik mimarisi ve geliştirme komutları |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Katkıda bulunma rehberi ve kod kuralları |
 | [SECURITY.md](SECURITY.md) | Güvenlik politikası ve açık bildirme |
