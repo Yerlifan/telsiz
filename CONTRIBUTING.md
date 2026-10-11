@@ -103,7 +103,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları, kayıttan sonra kurtarma kodu kartına geçiş |
 | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
-| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
+| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama (en üste yaklaşınca eski mesajların kendiliğinden yüklenmesi, önbellekteki konuşmanın çizimi ve arka planda yenilenmesi), düzenleme ve silme |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
@@ -114,7 +114,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
 | `16-identity.js` | Paroladan anahtar türetme, kişisel kimlik anahtarı ve kurtarma kodu istekleri (kayıtta kod, Ayarlar'dan kod, kodla yeni parola) |
-| `17-search.js` | Cihazda arama |
+| `17-search.js` | Cihazda arama, adı sorguyla eşleşen odalar ve özel konuşmalar (Odalar ve Kişiler) |
 | `18-mentions.js` | @ ile anma ve öneri listesi |
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
@@ -130,7 +130,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
-| `38-gezinme.js` | Konuşmalarda gezinme: tarayıcı geçmişi (adres değişmeden oda, özel mesaj ve Arkadaşlar geçişleri ile sayfalar, arama, ayarlar, resim görüntüleyici ve profil kartı için kayıt, geri tuşu), Yeni mesajlar ayracı, okunmamış şeridi (Okunmamışa Git, Okundu İşaretle), yeni mesaj kapsülü, İstasyonlar listesindeki Özel mesajlar grubu, açık görünümün hatırlanması |
+| `38-gezinme.js` | Konuşmalarda gezinme: tarayıcı geçmişi (adres değişmeden oda, özel mesaj ve Arkadaşlar geçişleri ile sayfalar, arama, ayarlar, resim görüntüleyici ve profil kartı için kayıt, geri tuşu), Yeni mesajlar ayracı, okunmamış şeridi (Okunmamışa Git, Okundu İşaretle), yeni mesaj kapsülü, İstasyonlar listesindeki Özel mesajlar grubu, açık görünümün hatırlanması, son sekiz konuşmanın bellekteki önbelleği (dönüşte konum), konuşmalar arası kısayollar (Alt ve Alt+Shift ile yukarı ve aşağı ok, Esc), dar özel mesaj başlığı, okunmamış sayısının alt sınırı ("50+"), telefonda Ses Odaları düğmesi ve alttan açılan sayfanın sürüklenerek kapanması |
 | `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü, kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma ve kaydedildiği onaylanmayan kod için uyarı |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.

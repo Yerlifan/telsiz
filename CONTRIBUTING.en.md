@@ -103,7 +103,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `03-auth.js` | Startup, setup, invite, sign in, registration and key screens, moving to the recovery code card after registration |
 | `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
-| `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
+| `06-messages.js` | Message decryption, message nodes, paging (older messages load on their own near the top, a cached conversation is drawn and refreshed in the background), editing and deleting |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
@@ -114,7 +114,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `14-social.js` | Friends, blocking, the view mode |
 | `15-dm.js` | Direct messages and the safety number |
 | `16-identity.js` | Key derivation from the password, the personal identity key and recovery code requests (code at registration, code from Settings, new password with the code) |
-| `17-search.js` | Search on the device |
+| `17-search.js` | Search on the device, rooms and direct conversations whose name matches the query (Rooms and People) |
 | `18-mentions.js` | @ mentions and the suggestion list |
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
@@ -130,7 +130,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
 | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
 | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
-| `38-gezinme.js` | Moving between conversations: browser history (entries for room, direct message and Friends switches without changing the address, and for sheets, search, settings, the image viewer and the profile card, the back button), the New messages divider, the unread bar (Jump to Unread, Mark as Read), the new message pill, the Direct messages group in the Stations list, remembering the open view |
+| `38-gezinme.js` | Moving between conversations: browser history (entries for room, direct message and Friends switches without changing the address, and for sheets, search, settings, the image viewer and the profile card, the back button), the New messages divider, the unread bar (Jump to Unread, Mark as Read), the new message pill, the Direct messages group in the Stations list, remembering the open view, the in-memory cache of the last eight conversations (position on return), shortcuts between conversations (the up and down arrows with Alt and Alt+Shift, Esc), the narrow direct message header, the lower bound of the unread count ("50+"), the Voice Rooms button on phones and closing a bottom sheet by dragging |
 | `41-kurtarma.js` | Recovery code interface: the Forgot My Password card on the sign in screen (new password with the code, pointing people without a code to the owner), the code card shown after setup, registration and recovery, the code dialog inside the app (Copy, Download as File, saved confirmation), the Recovery Code section in Settings > My Account, the one time reminder after signing in to an account without a code and the warning for a code that was not confirmed as saved |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
