@@ -1,0 +1,421 @@
+From a873d70a550ee3460b321e8c73e7e0d224ead19e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:26:20 +0000
+Subject: [PATCH 72/73] =?UTF-8?q?G11:=20Ekran=20yay=C4=B1n=C4=B1:=20=C3=B6?=
+ =?UTF-8?q?nizlemeyi=20K=C3=BC=C3=A7=C3=BClt=20ve=20=C3=96nizlemeyi=20G?=
+ =?UTF-8?q?=C3=B6ster,=20yay=C4=B1n=20ba=C5=9Fl=C4=B1=C4=9F=C4=B1nda=20Y?=
+ =?UTF-8?q?=C3=BCzen=20Pencere=20(istek=2016)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/cast.css   | 72 +++++++++++++++++++++++++++++++++
+ public/i18n.js        | 12 ++++++
+ public/js/22-cast.js  | 94 ++++++++++++++++++++++++++++++++++++++++++-
+ public/js/39-yuzen.js |  9 +++++
+ test/yuzen.test.js    | 84 ++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 270 insertions(+), 1 deletion(-)
+
+diff --git a/public/css/cast.css b/public/css/cast.css
+index 8c94db5..ebdf126 100644
+--- a/public/css/cast.css
++++ b/public/css/cast.css
+@@ -1322,3 +1322,75 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
+     animation: none;
+   }
+ }
++
++/* =========================================================
++   9. Önizlemeyi küçültme ve yüzen pencere (istek 16)
++   Kendi paylaşımında başlıkta Yüzen Pencere ve Küçült, izlerken Yüzen Pencere (22-cast.js). Küçültülen
++   önizlemenin sahnesini üst çubuk çipindeki Önizlemeyi Göster geri getirir.
++   ========================================================= */
++
++.top-cast-show {
++  display: inline-flex;
++  align-items: center;
++  min-height: 2.25rem;
++  margin-right: 0.25rem;
++  padding: 0 0.75rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-pill);
++  background-color: var(--surface-1);
++  color: var(--text);
++  font-size: var(--text-sm);
++  font-weight: 700;
++  cursor: pointer;
++}
++
++.top-cast-show:hover {
++  background-color: var(--surface-hover);
++}
++
++.top-cast-show .icon {
++  width: 0.875rem;
++  height: 0.875rem;
++  margin-right: 0.375rem;
++}
++
++/* 1439 px ve altı: çipin yazısı gizlidir, Önizlemeyi Göster de yalnızca simgedir (erişilebilir adı korunur) */
++@media (max-width: 1439px) {
++  .top-cast-show-text {
++    display: none;
++  }
++
++  .top-cast-show .icon {
++    margin-right: 0;
++  }
++}
++
++/* 999 px ve altı: başlıktaki Yüzen Pencere ve Küçült yalnızca simgedir (ipucu görünür etiketle aynıdır) */
++@media (max-width: 999px) {
++  .cast-head > .cast-float,
++  .cast-head > .cast-own-min {
++    padding: 0 0.5rem;
++  }
++
++  .cast-head > .cast-float .icon,
++  .cast-head > .cast-own-min .icon {
++    margin-right: 0;
++  }
++
++  .cast-head > .cast-float .cast-button-label,
++  .cast-head > .cast-own-min .cast-button-label {
++    position: absolute;
++    width: 1px;
++    height: 1px;
++    overflow: hidden;
++    clip: rect(0 0 0 0);
++    white-space: nowrap;
++  }
++}
++
++/* 759 px ve altı: üst çubukta çip olmadığı için önizleme küçültülmez */
++@media (max-width: 759px) {
++  .cast-head > .cast-own-min {
++    display: none;
++  }
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 4e01bf2..4fd6b27 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -89,6 +89,12 @@ window.I18N = (function () {
+     'settings.voice.floatHintDesktop': 'Ses odasındayken pencere küçültülür ya da tepsiye gizlenirse kameralar veya profil fotoğrafları her zaman üstte kalan küçük bir pencerede görünür. Windows ve macOS\'ta bu pencere ekran paylaşımına girmez.',
+     'settings.voice.floatHintBrowser': 'Chrome ve Edge\'de ses odasındayken başka sekmeye geçince açılır. Tarayıcı simge durumuna küçültülünce kendiliğinden açılmaz, Yüzen Pencere düğmesini kullanın.',
+     'settings.voice.floatHintWayland': 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.',
++    'cast.minimize': 'Küçült',
++    'cast.minimizeLabel': 'Önizlemeyi küçült, paylaşım sürer',
++    'cast.showPreview': 'Önizlemeyi Göster',
++    'cast.float': 'Yüzen Pencere',
++    'cast.floatLabel': 'Yayını yüzen pencerede izle',
++    'cast.floatLinuxNote': 'Linux\'ta ve tarayıcıda yüzen pencere tam ekran paylaşımında görünür, izleyenler arkadaşlarınızın görüntüsünü de görebilir.',
+     // G12 Temalar
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+@@ -2099,6 +2105,12 @@ window.I18N = (function () {
+     'settings.voice.floatHintDesktop': 'While you\'re in a voice room, minimizing the window or hiding it to the tray shows cameras or profile photos in a small always-on-top window. On Windows and macOS this window is excluded from screen sharing.',
+     'settings.voice.floatHintBrowser': 'In Chrome and Edge it opens when you switch tabs while in a voice room. It doesn\'t open by itself when the browser is minimized. Use the Floating Window button.',
+     'settings.voice.floatHintWayland': 'In a Wayland session the window can\'t stay on top and may appear in screen shares.',
++    'cast.minimize': 'Minimize',
++    'cast.minimizeLabel': 'Minimize the preview, sharing continues',
++    'cast.showPreview': 'Show Preview',
++    'cast.float': 'Floating Window',
++    'cast.floatLabel': 'Watch the stream in a floating window',
++    'cast.floatLinuxNote': 'On Linux and in the browser the floating window shows up in full-screen shares, so viewers may see your friends\' video too.',
+     // G12 Temalar
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+diff --git a/public/js/22-cast.js b/public/js/22-cast.js
+index d556920..0b49c06 100644
+--- a/public/js/22-cast.js
++++ b/public/js/22-cast.js
+@@ -23,12 +23,19 @@
+ // - .cast-screen[data-fit="contain" | "cover"]: Sığdır ve Doldur seçimi. İzlenen paylaşım ve kamera ızgarası
+ //   ayrı seçim tutar (paylaşımda varsayılan Sığdır, kameralarda Doldur).
+ //
++// Kendi paylaşımının önizlemesi küçültülebilir (istek 16): Küçült sahneyi kapatır, paylaşım sürer, üst çubuktaki
++// çipte Önizlemeyi Göster çıkar. Seçim bu cihazda telsiz.castOwnMin içinde saklanır ('1' küçük), sonraki paylaşım
++// da küçük başlar. Dar ekranda (759 px ve altı) üst çubukta çip olmadığı için önizleme her zaman görünür. Yüzen
++// Pencere düğmesi (39-yuzen.js) kendi paylaşımında odayı yüzen pencerede açıp sahneyi küçültür, izlerken izlenen
++// yayını yüzen pencerede açar.
++//
+ // Konsol ve televizyon: bütün denetimler odaklanabilir düğmedir, İzle denince odak Tam ekran düğmesine
+ // gider. Tam ekran katman yığınına 'cast-full' adıyla girer, kolun daire düğmesi (21-band.js padPoll) ve
+ // Esc tam ekrandan çıkar.
+ 
+ const CAST_FIT_KEY = 'telsiz.castFit'
+ const CAM_FIT_KEY = 'telsiz.camFit'
++const CAST_OWN_MIN_KEY = 'telsiz.castOwnMin'
+ const CAST_QUALITY_KEY = 'telsiz.screenQuality'
+ const CAST_NOTICE_MS = 20000
+ const CAST_REWATCH_MS = 20000
+@@ -57,6 +64,8 @@ const castState = {
+   // Kameralar ızgarası açık mı ve son çizilen ızgaranın anahtarı
+   cams: false,
+   camsKey: '',
++  // Kendi paylaşımının önizlemesi küçültüldü mü (telsiz.castOwnMin)
++  ownMin: false,
+   bound: false
+ }
+ 
+@@ -252,7 +261,8 @@ function castRemoteIds (remote) {
+ function castRenderTop (sc, remote, sharing) {
+   const box = el.topCast
+   if (!box) return
+-  const key = [sharing ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
++  const minimized = sharing && castOwnMinimized()
++  const key = [sharing ? 1 : 0, minimized ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
+   if (key === castState.topKey) return
+   castState.topKey = key
+   const hadFocus = box.contains(document.activeElement)
+@@ -263,6 +273,19 @@ function castRenderTop (sc, remote, sharing) {
+     led.setAttribute('aria-hidden', 'true')
+     own.appendChild(led)
+     setLive(own.appendChild(h('span', 'top-cast-text')), () => t('cast.ownChip'))
++    // Önizleme küçültüldüyse sahneyi geri getiren düğme
++    if (minimized) {
++      const show = h('button', 'top-cast-show')
++      show.type = 'button'
++      show.setAttribute('data-focus-key', 'cast-top-show')
++      show.setAttribute('aria-controls', 'cast')
++      show.appendChild(icon('i-screen'))
++      setLive(show.appendChild(h('span', 'top-cast-show-text')), () => t('cast.showPreview'))
++      show.setAttribute('aria-label', t('cast.showPreview'))
++      show.title = t('cast.showPreview')
++      show.addEventListener('click', castShowOwn)
++      own.appendChild(show)
++    }
+     const stop = h('button', 'top-cast-stop')
+     stop.type = 'button'
+     stop.setAttribute('data-focus-key', 'cast-top-stop')
+@@ -351,6 +374,48 @@ function castStopShare () {
+   if (hadFocus && !castVisible()) castFocusAfterClose()
+ }
+ 
++// Kendi paylaşımının önizlemesi: Küçült ve Önizlemeyi Göster. Dar ekranda önizleme küçültülmez.
++function castOwnMinimized () {
++  return castState.ownMin && !isNarrow()
++}
++
++function castMinimizeOwn () {
++  const hadFocus = el.cast.contains(document.activeElement)
++  castState.ownMin = true
++  storeSet(CAST_OWN_MIN_KEY, '1')
++  castSync()
++  if (!hadFocus) return
++  const show = el.topCast ? el.topCast.querySelector('.top-cast-show') : null
++  if (show && show.getClientRects().length) focusNode(show)
++  else castFocusAfterClose()
++}
++
++function castShowOwn () {
++  castState.ownMin = false
++  storeSet(CAST_OWN_MIN_KEY, '0')
++  castSync()
++  if (castState.nodes && castVisible() && el.cast.getAttribute('data-mode') === 'own') focusNode(castState.nodes.ownMin)
++}
++
++// Yüzen Pencere (sahne başlığı, 39-yuzen.js): kendi paylaşımında oda yüzen pencerede açılır ve önizleme küçülür,
++// izlerken izlenen yayın yüzen pencerede açılır. Linux masaüstünde ve tarayıcıda yüzen pencere tam ekran paylaşımına
++// girebildiği için paylaşan kişiye bir kez not gösterilir.
++function castFloat () {
++  if (typeof floatOpen !== 'function') return
++  const mode = el.cast.getAttribute('data-mode')
++  if (mode === 'own') {
++    floatOpen('share-own').then((ok) => {
++      if (!ok) return
++      const d = window.telsizDesktop
++      const guarded = Boolean(d && (d.platform === 'win32' || d.platform === 'darwin'))
++      if (!guarded) toast(() => t('cast.floatLinuxNote'), '', 8000)
++      if (castVisible() && el.cast.getAttribute('data-mode') === 'own') castMinimizeOwn()
++    })
++  } else if (mode === 'watch') {
++    floatOpen('share')
++  }
++}
++
+ // Kameralar ızgarası (telsiz kartındaki Büyüt düğmesi)
+ function castCamsOpen () {
+   return castState.cams && castVisible() && el.cast.getAttribute('data-mode') === 'cams'
+@@ -448,6 +513,16 @@ function castBuildStage () {
+     openCastDialog(n.quality, 'quality')
+   })
+   head.appendChild(n.quality)
++  // Yüzen Pencere (kendi paylaşımında ve izlerken) ve Küçült (yalnızca kendi paylaşımında)
++  n.float = castHeadButton('cast-float', 'i-pip', () => t('cast.float'))
++  n.float.setAttribute('data-focus-key', 'cast-float')
++  n.float.addEventListener('click', castFloat)
++  head.appendChild(n.float)
++  n.ownMin = castHeadButton('cast-own-min', 'i-minimize', () => t('cast.minimize'))
++  n.ownMin.setAttribute('data-focus-key', 'cast-own-min')
++  n.ownMin.setAttribute('aria-controls', 'cast')
++  n.ownMin.addEventListener('click', castMinimizeOwn)
++  head.appendChild(n.ownMin)
+   n.unwatch = castHeadButton('cast-unwatch is-danger', 'i-screen-off', () => t('screen.unwatch'))
+   n.unwatch.addEventListener('click', castUnwatch)
+   head.appendChild(n.unwatch)
+@@ -598,6 +673,8 @@ function castHeadButton (className, iconName, producer) {
+ 
+ function castRenderStage (mode, sc, remote) {
+   const root = el.cast
++  // Küçültülen önizleme: sahne kapanır, paylaşım sürer
++  if (mode === 'own' && castOwnMinimized()) mode = null
+   if (!mode) {
+     if (!root.hidden) castCloseStage()
+     return
+@@ -611,6 +688,7 @@ function castRenderStage (mode, sc, remote) {
+   castApplyChat()
+   castRefreshAttrs(root)
+   castRenderPick(sc, remote, mode)
++  castRenderFloatTools(castState.nodes, mode)
+   const own = mode === 'own'
+   const cams = mode === 'cams'
+   const fit = cams ? castState.camFit : castState.fit
+@@ -651,6 +729,17 @@ function castRenderStage (mode, sc, remote) {
+   }
+ }
+ 
++// Başlıktaki Yüzen Pencere ve Küçült: Yüzen Pencere kendi paylaşımında ve izlerken (bu cihazda yüzen pencere
++// varsa), Küçült yalnızca kendi paylaşımında. Görünür ad kısadır, erişilebilir ad ne olacağını söyler.
++function castRenderFloatTools (n, mode) {
++  const own = mode === 'own'
++  const can = typeof floatMode === 'function' && floatMode() !== null
++  n.float.hidden = !can || !(own || mode === 'watch')
++  n.float.setAttribute('aria-label', t(own ? 'float.openLabel' : 'cast.floatLabel'))
++  n.ownMin.hidden = !own
++  n.ownMin.setAttribute('aria-label', t('cast.minimizeLabel'))
++}
++
+ // Kameralar ızgarası: kadro sırasıyla, sütun ve satır sayısı kamera sayısından (1, 2x1, 2x2, 3x2, 3x3, 4x3)
+ function castRenderCams (n) {
+   const s = castSnapshot() || snap()
+@@ -1367,10 +1456,13 @@ function castInit () {
+   document.addEventListener('fullscreenchange', castOnFullChange)
+   document.addEventListener('webkitfullscreenchange', castOnFullChange)
+   // Telefon ve geniş düzen arasında geçince sohbet yeniden düzenin varsayılanına döner
++  castState.ownMin = storeGet(CAST_OWN_MIN_KEY) === '1'
+   let narrow = isNarrow()
+   window.addEventListener('resize', () => {
+     const now = isNarrow()
+     if (now !== narrow) castState.chatOpen = null
++    // Küçültülen önizleme dar ekranda görünür, geniş ekrana dönünce yeniden küçülür
++    if (now !== narrow && castState.ownMin && state.inApp) castSync()
+     narrow = now
+     if (castVisible()) castApplyChat()
+   })
+diff --git a/public/js/39-yuzen.js b/public/js/39-yuzen.js
+index fded2ea..8a4b93e 100644
+--- a/public/js/39-yuzen.js
++++ b/public/js/39-yuzen.js
+@@ -466,6 +466,15 @@ function floatBuild (doc, plan, s) {
+   if (plan.kind === 'share') {
+     floatBuildShare(stage, plan, s)
+   } else {
++    // İzlenen yayın bitti veya bırakıldı: yayının görüntü öğesi bırakılır
++    if (floatState.shareVideo) {
++      try {
++        floatState.shareVideo.srcObject = null
++      } catch (err) {
++        // Öğe zaten bırakıldı
++      }
++      floatState.shareVideo = null
++    }
+     const streams = typeof cameraStreams === 'function' ? cameraStreams(s) : {}
+     const big = h('div', 'float-cams')
+     const strip = h('div', plan.kind === 'cams' ? 'float-strip' : 'float-avatars')
+diff --git a/test/yuzen.test.js b/test/yuzen.test.js
+index c98ed31..94e12f4 100644
+--- a/test/yuzen.test.js
++++ b/test/yuzen.test.js
+@@ -267,3 +267,87 @@ test('index.html ve sw.js: modül 32 ile 40 arasında, stil dosyası ve simgeler
+   assert.ok(SW.indexOf("'/js/39-yuzen.js'") < SW.indexOf("'/js/40-bosta.js'"))
+   assert.ok(SW.includes("'/css/yuzen.css'"))
+ })
++
++// Ekran paylaşımı (public/js/22-cast.js, istek 16): kendi paylaşımının önizlemesini küçültme ve Yüzen Pencere
++// düğmeleri. Modül vm bağlamında, sahne çizimi taklit edilerek yüklenir.
++function loadCast (opts) {
++  const o = opts || {}
++  const store = new Map(Object.entries(o.store || {}))
++  const calls = []
++  const attr = () => {
++    const a = {}
++    return {
++      hidden: false,
++      setAttribute: (k, v) => {
++        a[k] = String(v)
++      },
++      getAttribute: (k) => (k in a ? a[k] : null),
++      attrs: a
++    }
++  }
++  const sandbox = {
++    console,
++    window: null,
++    document: { readyState: 'loading', addEventListener () {}, activeElement: null },
++    innerWidth: o.width || 1440,
++    isNarrow: () => sandbox.innerWidth < 760,
++    storeGet: (k) => (store.has(k) ? store.get(k) : null),
++    storeSet: (k, v) => store.set(k, String(v)),
++    t: (key) => key,
++    el: { cast: Object.assign(attr(), { hidden: o.stageHidden === true, contains: () => false }), topCast: null },
++    state: { inApp: true },
++    voice: null
++  }
++  sandbox.window = sandbox
++  sandbox.addEventListener = () => {}
++  vm.createContext(sandbox)
++  vm.runInContext(fs.readFileSync(path.join(PUB, 'js', '22-cast.js'), 'utf8'), sandbox, { filename: '22-cast.js' })
++  vm.runInContext('castSync = function () { __calls.push("sync") }\ncastCloseStage = function () { __calls.push("close") }\ncastFocusAfterClose = function () {}', Object.assign(sandbox, { __calls: calls }))
++  return { sandbox, run: (code) => vm.runInContext(code, sandbox), store, calls, attr }
++}
++
++test('22-cast: Küçült önizlemeyi kapatır ve seçimi saklar, Önizlemeyi Göster geri getirir, dar ekranda küçültme yok', () => {
++  const env = loadCast()
++  assert.equal(env.run('CAST_OWN_MIN_KEY'), 'telsiz.castOwnMin')
++  assert.equal(env.run('castOwnMinimized()'), false)
++  env.run('castMinimizeOwn()')
++  assert.equal(env.store.get('telsiz.castOwnMin'), '1')
++  assert.equal(env.run('castState.ownMin'), true)
++  assert.equal(env.run('castOwnMinimized()'), true)
++  assert.deepEqual(env.calls, ['sync'])
++  // Kendi paylaşımının kipi küçükken sahne kapanır (paylaşım sürer, motor çağrılmaz)
++  env.run("castRenderStage('own', { state: 'live' }, {})")
++  assert.deepEqual(env.calls, ['sync', 'close'])
++  // Dar ekranda üst çubukta çip yoktur: önizleme küçük sayılmaz
++  env.sandbox.innerWidth = 600
++  assert.equal(env.run('castOwnMinimized()'), false)
++  env.sandbox.innerWidth = 1440
++  env.run('castShowOwn()')
++  assert.equal(env.store.get('telsiz.castOwnMin'), '0')
++  assert.equal(env.run('castOwnMinimized()'), false)
++  const stage = loadCast({ stageHidden: true })
++  stage.run('castState.ownMin = true')
++  stage.run("castRenderStage('own', { state: 'live' }, {})")
++  assert.deepEqual(stage.calls, [], 'sahne zaten kapalıysa bir şey yapılmaz')
++})
++
++test('22-cast: Yüzen Pencere düğmesi kendi paylaşımında ve izlerken, Küçült yalnızca kendi paylaşımında', () => {
++  const env = loadCast()
++  const n = { float: env.attr(), ownMin: env.attr() }
++  env.sandbox.__n = n
++  // Yüzen pencere modülü yokken düğme gizli
++  env.run("castRenderFloatTools(__n, 'own')")
++  assert.equal(n.float.hidden, true)
++  assert.equal(n.ownMin.hidden, false)
++  assert.equal(n.ownMin.attrs['aria-label'], 'cast.minimizeLabel')
++  env.run("var floatMode = function () { return 'document' }")
++  const cases = [['own', false, false, 'float.openLabel'], ['watch', false, true, 'cast.floatLabel'], ['cams', true, true, 'cast.floatLabel']]
++  for (const [mode, floatHidden, minHidden, label] of cases) {
++    env.run('castRenderFloatTools(__n, ' + JSON.stringify(mode) + ')')
++    assert.deepEqual([n.float.hidden, n.ownMin.hidden, n.float.attrs['aria-label']], [floatHidden, minHidden, label], mode)
++  }
++  // Saklanan seçim açılışta okunur
++  const stored = loadCast({ store: { 'telsiz.castOwnMin': '1' } })
++  stored.run('castInit()')
++  assert.equal(stored.run('castState.ownMin'), true)
++})
