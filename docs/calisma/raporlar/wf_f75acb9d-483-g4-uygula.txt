@@ -1,0 +1,37 @@
+{
+ "tamam": true,
+ "baslangic": "0b3f5ce0bc7dc484f47cb9b017fe6ba86fe21889",
+ "commitler": [
+  "c9cae0d G4: Anahtarsız YouTube arama modülü, örnek yanıtlar ve birim testleri",
+  "fabde51 G4: POST /api/music/search ucu, sahip ayarı music.search ve sunucu metinleri",
+  "673d91b G4: /çal komutunda bağlantıya benzemeyen argüman şarkı adı sayılır",
+  "b632a90 G4: /çal şarkı adı sunucuda aranır, ilk sonuç başlığıyla eklenir",
+  "6316568 G4: Sahip ayarı: şarkı adıyla YouTube araması anahtarı ve onay penceresi",
+  "f65e130 G4: Belgeler: şarkı adıyla YouTube araması, Hizmet Şartları riski, CHANGELOG",
+  "1148d30 G4: Arama sonradan açılınca karttaki \"arama kapalı\" satırı kalkar"
+ ],
+ "testler": "Her commit'ten önce /home/user/wt/b içinde çalıştırıldı. npm run denetle: 259 dosya, ihlal yok. npm test: 924 test, 923 geçti, 0 düştü, 1 atlandı (o test daha önce de atlanıyordu, bu grupla ilgisi yok). Yeni ve değişen birim testleri: test/youtube-search.test.js (24 test), test/server-music-search.test.js (8 test), test/music.test.js, test/settings.test.js, ayrıca meta.music biçimi değiştiği için test/server-music.test.js ve test/server-poll.test.js. Canlı istek yok: ayrıştırıcı test/fixtures/yt-arama örnekleriyle, arama akışı enjekte edilen istek işleviyle, ağ katmanı yerel sahte HTTP sunucusuyla sınandı. e2e testlerinin son çalıştırmaları: e2e/06-dj.test.js 21/21 geçti (yeni arama testi dahil: arama kapalıyken hata ve bağlantı, Ayarlar onay penceresi, açıkken parça başlığıyla ekleniyor ve duyuruluyor, istemciden YouTube'a arama isteği gitmiyor). e2e/25-dj-senkron.test.js 8/8, e2e/04-ayarlar.test.js 5/5, e2e/11-roller.test.js 3/3 geçti. Geliştirme sırasında 06-dj'de görülen düşmeler zamanlama kaynaklı değildi, gerçek hatalardı ve kodda düzeltildi: kanal kimliği dize gidiyordu, onay penceresinde odak bekleniyordu.",
+ "sapmalar": [
+  "Devre kesici: plandaki gibi art arda 3 hatadan sonra arama 1 saat kapanıyor ve kapalıyken search_failed dönüyor (notlardaki 15 dakika ve search_unavailable uygulanmadı). Sayılan hatalar: YouTube'un yanıt verdiği ama yanıtın kullanılamadığı durumlar (beklenmeyen durum kodu, yönlendirme, boyut aşımı, sıkıştırma, tanınmayan biçim). Ağ hatası ve zaman aşımı geçici olabileceği için sayılmıyor.",
+  "Sunucu geneli tavan için ayrı bir kod eklendi: 429 search_daily_limit. Kullanıcıya doğru metni göstermek için gerekti, planda yalnızca rate_limited vardı. Tavan takvim günü değil, kayan 24 saatlik pencere. Kullanıcı başına sınır, günlük tavan ve 10 dakikalık önbellek planda yazanlar.",
+  "server-i18n testi her fail() kodu için errors.<kod> istiyor. Bu yüzden sunucuya planda olmayan şu anahtarlar da eklendi: errors.search_unavailable, errors.search_failed, errors.search_daily_limit, errors.bad_query. Ayrıca detail.musicSearchQuery, detail.musicSearchDaily ve log.musicSearchPaused.",
+  "Plandaki 'runCommand sorguyu arayüze bırakır' adımı şöyle uygulandı: runCommand { ok: false, code: 'needs_search', query } döner ve music.errors.needs_search metni eklendi. Aramayı 23-dj.js djCommand yapar.",
+  "createChatServer'ın youtubeSearch seçeneği iki biçim kabul ediyor: arayıcının yerine geçen bir işlev ya da gerçek ayrıştırıcıya sahte istek işlevi veren { request }. makeRequester testler için transport, host ve port alıyor. Ağ katmanı testi HTTPS değil yerel HTTP sunucusuyla yapıldı, yani TLS'nin kendisi sınanmadı. Nedeni: deponun Windows CI'da da geçmesi gerekiyor, sertifika dosyası ve openssl bağımlılığı eklemek istemedim.",
+  "Metin farkları: music.errors.bad_url desteklenen biçimlerin listesini korudu ve 'şarkı adı da yazabilirsiniz' ekledi. dj.cmdDesc.play ekli dosya seçeneğini korudu ('YouTube bağlantısı, şarkı adı veya ekli ses dosyası'). dj.addHint tam cümle olarak güncellendi. Yeni anahtarlar eklendi: search_daily, search_bad_query, dj.searchMiss, dj.searchOwnerHint, settings.dj.searchConfirmTitle, settings.dj.searchConfirmNote, dj.settings.searchOn ve searchOff. Onay düğmesi kural gereği her kelimesi büyük harfle başlıyor: 'Riskleri Okudum, Aramayı Aç' / 'I Have Read the Risks, Turn On Search'.",
+  "İstemci isteği channelId: Number(voiceRoom) olarak gönderiyor, çünkü anlık görüntüde kimlik dize olabiliyor (motorun postState'i de sayı gönderiyor). addYouTube'a plandaki gibi yalnızca title veriliyor, süre verilmiyor. Böylece aramadaki süre parça sonu mantığını etkilemiyor, süreyi oynatıcı dolduruyor.",
+  "Örnek yanıtlar taşınmadı, kopyalandı (ana kopyada değişiklik yasak). Kopyalardaki _aciklama alanı depoda olmayan docs/calisma dosyasına işaret ediyordu, src/youtube-search.js ve docs/MIMARI.md olarak düzeltildi. taslak.js.txt kopyalanmadı: test verisi değil, plan 7. adım da yalnızca JSON dosyalarını anıyor.",
+  "Plandaki belge listesinin dışında iki küçük güncelleme yapıldı: CONTRIBUTING çiftinin proje yapısı tablosuna src/youtube-search.js satırı ve SECURITY.md kabul edilmiş sınırlar 7. maddeye arama metninin düz metin gittiği bilgisi.",
+  "Planda belirtilmeyen birkaç davranış: /çal ile şarkı adının yanında ses dosyası da ekliyse ekli dosya kullanılıyor. Önbellek anahtarı NFC ve küçük harfin yanında boşlukları sadeleştirilmiş sorgu. Sahip ayarı YouTube kaynağı kapalıyken devre dışı. Sabit User-Agent ve varsayılan clientVersion youtubei.js 18.1.0 ve youtubei 1.8.17 değerlerinden alındı."
+ ],
+ "kullaniciya": [
+  "Şarkı adıyla arama varsayılan olarak kapalı. Sahip Ayarlar > Genel > Müzik botu > 'Şarkı adıyla YouTube araması' anahtarından açıyor ve açarken onay penceresi riskleri yeniden gösteriyor. Arama resmî API'yi kullanmıyor, YouTube Hizmet Şartlarına aykırı ve riski sunucu sahibi üstleniyor. Bu README, MIMARI, KURULUM çiftlerinde ve CHANGELOG'da açıkça yazıyor.",
+  "Arama gerçek YouTube'a karşı hiç denenmedi, çünkü bu makine youtube.com'a erişemiyor. İlk canlı deneme sunucuda yapılmalı. Sahip için kontrol listesi docs/KURULUM.md 'Şarkı adıyla YouTube araması' bölümünde, geliştirici için ayrıntılı deneme listesi docs/MIMARI.md Telsiz DJ bölümünde.",
+  "Arama açıkken sunucu www.youtube.com:443 adresine HTTPS isteği atıyor. Telsiz sunucusunun dışarıya bağlandığı tek durum bu, giden bağlantılar kısıtlıysa bu adrese izin verilmeli. node:https varsayılan olarak HTTPS_PROXY'yi kullanmıyor. Bu makinedeki Node 22.22'de NODE_USE_ENV_PROXY=1 ile genel istemcinin vekil ortam değişkenlerini okuduğunu gördüm. Arama modülü genel istemciyi kullandığı için bu yolla vekilden çıkabilir, ama aramayla denenmedi ve belgeye yazmadım.",
+  "YouTube biçimini değiştirir ya da sunucunun adresini engellerse art arda 3 başarısız yanıttan sonra arama 1 saat kapanır. Sunucu günlüğüne arama metni içermeyen tek bir uyarı satırı düşer. Neden belirteçleri: format, json, no_initial_data, consent_redirect, status_NNN. Bu sürede bağlantıyla ekleme çalışmaya devam eder.",
+  "Arama metni DJ durumunun aksine şifreli değil: sunucuya ve sunucunun IP adresiyle YouTube'a gidiyor. Metin günlüğe yazılmıyor, sonuçlar 10 dakika bellekte kalıyor.",
+  "Commit'ler yalnızca yerel istek/b dalında, push edilmedi. Ana kopyada hiçbir dosya değiştirilmedi."
+ ],
+ "kalan": [
+  "Plan 10. adım yapılamadı: gerçek YouTube ile elle canlı doğrulama, ölçülen yanıt boyutlarına göre 4 MB, 6 MB ve 200000 düğüm sınırlarının daraltılması ve kimlikleri silinmiş gerçek yanıt kesitlerinin test verisine eklenmesi. Bu makine youtube.com'a erişemiyor ve plan bu adımı sunucu sahibine bırakıyor."
+ ]
+}
