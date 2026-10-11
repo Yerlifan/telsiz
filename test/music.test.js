@@ -401,9 +401,10 @@ function makeStore () {
   }
 }
 
-// Belgelenmiş durum kodları: -1 başlamadı, 5 hazırlandı, 1 çalıyor, 2 duraklatıldı
+// Belgelenmiş durum kodları: -1 başlamadı, 5 hazırlandı, 1 çalıyor, 2 duraklatıldı. behaviour.persistent: aynı
+// çerçevede yeni video hazırlayabilen (load) bağdaştırıcı, yoksa motor her parçada yeni çerçeve kurar.
 function fakeYouTubePlayer (cfg, behaviour) {
-  const state = { ready: false, playing: false, pos: 0, posAt: 0, commands: [], destroyed: false, visible: behaviour.visible !== false, yt: -1, durationMs: behaviour.durationMs || 0 }
+  const state = { ready: false, playing: false, pos: 0, posAt: 0, commands: [], destroyed: false, visible: behaviour.visible !== false, yt: -1, durationMs: behaviour.durationMs || 0, videoId: cfg.videoId }
   const emit = (ev) => cfg.onEvent(ev)
   const impl = {
     ready: () => state.ready,
@@ -436,6 +437,19 @@ function fakeYouTubePlayer (cfg, behaviour) {
     element: () => null,
     destroy: () => {
       state.destroyed = true
+    }
+  }
+  if (behaviour.persistent) {
+    impl.load = (videoId) => {
+      if (!state.ready || state.destroyed) return false
+      state.commands.push('load:' + videoId)
+      state.videoId = videoId
+      state.playing = false
+      state.pos = 0
+      state.posAt = cfg.now()
+      state.yt = 5
+      state.durationMs = 0
+      return true
     }
   }
   return {
@@ -1789,6 +1803,210 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     await timers.advance(3000)
     assert.equal(a.events.length, after)
     assert.equal((await a.engine.skip()).code, 'destroyed')
+  })
+})
+
+describe('motor: kalıcı YouTube çerçevesi (istek 13, ikinci aşama)', () => {
+  const persistent = { client: [{ yt: { persistent: true } }, { yt: { persistent: true } }] }
+
+  function allowYouTube (clients) {
+    for (const c of clients) {
+      c.storage.set(CONSENT_KEY, '1')
+      c.engine.attachPlayer({ appendChild () {} })
+    }
+  }
+
+  async function addWav (a, server, name) {
+    const wav = makeWav(2)
+    const enc = a.device.E2EE.encryptFile(new Uint8Array(wav))
+    const id = server.upload(enc.box)
+    assert.equal((await a.engine.addFile({ u: id, k: enc.key, n: enc.nonce, m: 'audio/wav', s: wav.length, name: name }, { durationMs: 60000 })).ok, true)
+  }
+
+  test('YouTube parçası değişince aynı çerçevede yeni video hazırlanır, iki istemci yine birlikte başlar', async () => {
+    const { timers, clients } = await setup(persistent)
+    const [a, b] = clients
+    allowYouTube(clients)
+    await a.engine.addYouTube(VID, { title: 'Bir', durationMs: 200000 })
+    await a.engine.addYouTube(VID2)
+    for (const c of clients) c.sync()
+    for (const c of clients) c.ytPlayers[0].becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    for (const c of clients) assert.equal(c.ytPlayers[0].state.playing, true)
+    // b'nin çerçevesi bu cihazın ses düzeyini bildirdi: eşitlendi
+    b.ytPlayers[0].emit({ type: 'volume', volume: 50, muted: false })
+    assert.equal((await a.engine.skip()).ok, true)
+    for (const c of clients) c.sync()
+    for (const c of clients) {
+      assert.equal(c.ytPlayers.length, 1, 'yeni çerçeve kurulmadı')
+      const p = c.ytPlayers[0]
+      assert.equal(p.state.destroyed, false)
+      assert.equal(p.state.videoId, VID2)
+      // Eski video duraklatılır, yeni video aynı çerçevede hazırlanır ve başlangıç payı bitene kadar beklenir
+      const cmds = p.state.commands
+      const at = cmds.indexOf('load:' + VID2)
+      same(cmds.slice(at - 1, at + 1), ['pause', 'load:' + VID2])
+      assert.equal(p.state.playing, false)
+      const snap = c.engine.snapshot()
+      assert.equal(snap.session.current.videoId, VID2)
+      assert.equal(snap.player.trackId, snap.session.current.id)
+      assert.equal(snap.player.kind, 'youtube')
+    }
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    for (const c of clients) {
+      assert.equal(c.ytPlayers[0].state.playing, true)
+      assert.equal(c.engine.snapshot().player.status, 'playing')
+    }
+    assert.ok(Math.abs(a.ytPlayers[0].impl.position() - b.ytPlayers[0].impl.position()) <= 250)
+    // Çerçevenin olayları yeni parçaya gider: oynatıcının bildirdiği ad yeni parçaya yazılır
+    b.ytPlayers[0].emit({ type: 'title', text: 'İkinci Parça' })
+    await timers.advance(500)
+    a.sync()
+    assert.equal(a.engine.snapshot().session.current.title, 'İkinci Parça')
+    // Eşitlenmiş ses düzeyi çerçeveye aittir: oynatıcının kendi denetimiyle yapılan değişiklik benimsenir
+    b.ytPlayers[0].emit({ type: 'volume', volume: 30, muted: false })
+    assert.equal(b.engine.snapshot().volume, 0.3)
+  })
+
+  test('dosya parçası çalarken çerçeve duraklatılmış bekler, sonraki YouTube parçasında yeniden kullanılır', async () => {
+    const { timers, server, clients } = await setup(persistent)
+    const [a, b] = clients
+    allowYouTube(clients)
+    await a.engine.addYouTube(VID, { durationMs: 200000 })
+    await addWav(a, server, 'ton.wav')
+    await a.engine.addYouTube(VID2, { durationMs: 200000 })
+    b.sync()
+    b.ytPlayers[0].becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    assert.equal(b.ytPlayers[0].state.playing, true)
+    await a.engine.skip()
+    b.sync()
+    await flush()
+    const p = b.ytPlayers[0]
+    assert.equal(b.engine.snapshot().player.kind, 'file')
+    assert.equal(p.state.destroyed, false)
+    assert.equal(p.state.playing, false)
+    assert.equal(p.state.commands[p.state.commands.length - 1], 'pause')
+    const audio = b.audios[0]
+    audio.duration = 2
+    audio.fire('loadedmetadata')
+    audio.fire('canplay')
+    await timers.advance(M.LIMITS.startLeadFileMs + 200)
+    assert.equal(b.engine.snapshot().player.status, 'playing')
+    // Çerçeve beklerken olayları hiçbir parçaya gitmez
+    const v = server.rooms.get(ROOM).v
+    p.emit({ type: 'ended' })
+    p.emit({ type: 'title', text: 'Eski' })
+    await timers.advance(500)
+    assert.equal(server.rooms.get(ROOM).v, v)
+    a.sync()
+    await a.engine.skip()
+    b.sync()
+    assert.equal(b.ytPlayers.length, 1)
+    assert.equal(p.state.videoId, VID2)
+    assert.equal(b.engine.snapshot().player.kind, 'youtube')
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    assert.equal(p.state.playing, true)
+    assert.equal(audio.paused, true)
+  })
+
+  test('çerçeve oturum bitince, rıza geri alınınca, YouTube kaynağı kapanınca, ses odasından çıkınca ve oynatıcı alanı değişince kapanır', async () => {
+    const { timers, server, clients } = await setup(persistent)
+    const [a, b] = clients
+    allowYouTube(clients)
+    const playYouTube = async (videoId) => {
+      a.sync()
+      await a.engine.addYouTube(videoId, { durationMs: 200000 })
+      b.sync()
+      const p = b.ytPlayers[b.ytPlayers.length - 1]
+      if (!p.state.ready) p.becomeReady()
+      return p
+    }
+    // Oturum biter (çalan parça kalmadı)
+    let p = await playYouTube(VID)
+    await a.engine.stop()
+    b.sync()
+    assert.equal(p.state.destroyed, true)
+    // Dosya parçası çalarken bekleyen çerçeve rıza geri alınınca kapanır, dosya çalmaya devam eder
+    p = await playYouTube(VID)
+    await addWav(a, server, 'bir.wav')
+    a.sync()
+    await a.engine.skip()
+    b.sync()
+    assert.equal(b.engine.snapshot().player.kind, 'file')
+    assert.equal(p.state.destroyed, false)
+    b.engine.setConsent(false)
+    assert.equal(p.state.destroyed, true)
+    assert.equal(b.engine.snapshot().player.kind, 'file')
+    b.engine.setConsent(true)
+    a.sync()
+    await a.engine.stop()
+    b.sync()
+    // YouTube kaynağı kapanınca
+    p = await playYouTube(VID)
+    server.youtube = false
+    b.sync()
+    assert.equal(p.state.destroyed, true)
+    // Kaynak kapalıyken YouTube parçaları kuyruktan temizlenir (yazım bitene kadar beklenir)
+    await timers.advance(500)
+    server.youtube = true
+    a.sync()
+    b.sync()
+    assert.equal(b.engine.snapshot().session.current, null)
+    // Ses odasından çıkınca
+    p = await playYouTube(VID)
+    b.engine.setVoiceRoom(null)
+    assert.equal(p.state.destroyed, true)
+    b.engine.setVoiceRoom(ROOM)
+    b.sync()
+    // Oynatıcı alanı değişince çerçeve eski alanla birlikte kapanır, yenisi yeni alanda kurulur
+    p = b.ytPlayers[b.ytPlayers.length - 1]
+    assert.equal(p.state.destroyed, false)
+    const host2 = { appendChild () {} }
+    b.engine.attachPlayer(host2)
+    assert.equal(p.state.destroyed, true)
+    assert.equal(b.ytPlayers[b.ytPlayers.length - 1].cfg.container, host2)
+    await timers.advance(100)
+  })
+
+  test('hata bildiren veya henüz hazır olmayan çerçeve yeniden kullanılmaz, load desteklemeyen bağdaştırıcıda her parça yeni çerçeve kurar', async () => {
+    const { timers, clients } = await setup(persistent)
+    const [a, b] = clients
+    allowYouTube(clients)
+    await a.engine.addYouTube(VID, { durationMs: 200000 })
+    await a.engine.addYouTube(VID2, { durationMs: 200000 })
+    await a.engine.addYouTube('xvFZjo5PgG0', { durationMs: 200000 })
+    for (const c of clients) c.sync()
+    for (const c of clients) c.ytPlayers[0].becomeReady()
+    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
+    // Gömmeye kapalı video: parça herkes için geçilir, hata bildiren çerçeve kapanır
+    for (const c of clients) c.ytPlayers[0].emit({ type: 'error', code: 150 })
+    await timers.advance(3000)
+    for (const c of clients) c.sync()
+    assert.equal(b.engine.snapshot().session.current.videoId, VID2)
+    for (const c of clients) {
+      assert.equal(c.ytPlayers.length, 2)
+      assert.equal(c.ytPlayers[0].state.destroyed, true)
+      assert.ok(!c.ytPlayers[0].state.commands.some((x) => x.startsWith('load:')))
+    }
+    // Yeni çerçeve henüz hazır değilken parça değişirse çerçeve baştan kurulur
+    a.sync()
+    await a.engine.skip()
+    b.sync()
+    assert.equal(b.ytPlayers.length, 3)
+    assert.equal(b.ytPlayers[1].state.destroyed, true)
+    assert.equal(b.ytPlayers[2].cfg.videoId, 'xvFZjo5PgG0')
+    // load desteklemeyen bağdaştırıcı (eski sürüm): her parça yeni çerçeve
+    const w = await setup()
+    allowYouTube(w.clients)
+    await w.clients[0].engine.addYouTube(VID, { durationMs: 200000 })
+    await w.clients[0].engine.addYouTube(VID2, { durationMs: 200000 })
+    w.clients[1].sync()
+    w.clients[1].ytPlayers[0].becomeReady()
+    await w.clients[0].engine.skip()
+    w.clients[1].sync()
+    assert.equal(w.clients[1].ytPlayers.length, 2)
+    assert.equal(w.clients[1].ytPlayers[0].state.destroyed, true)
   })
 })
 

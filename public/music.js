@@ -1138,6 +1138,13 @@ var TelsizMusic = (function (root) {
     let decryptRetried = null
     let host = null
     let player = null
+    // Kalıcı YouTube çerçevesi (istek 13, ikinci aşama): ses odasındaki oturum boyunca tek çerçeve kullanılır,
+    // parça değişince aynı çerçevede yeni video hazırlanır (bağdaştırıcının load işlevi). Kayıt { impl, room,
+    // hooks, broken, soundSynced }: hooks çerçevenin olaylarını alan parçanın kancaları (dosya parçası çalarken
+    // null), broken çerçeve bir oynatıcı hatası bildirdi (yeniden kullanılmaz). Çerçeve oturum bitince (çalan
+    // parça kalmadı), YouTube'a izin kalmayınca (rıza geri alındı, kaynak veya DJ kapandı), ses odasından
+    // çıkınca, başka odaya geçince, oynatıcı alanı değişince ve hatalı oynatıcı baştan kurulurken kapatılır.
+    let ytFrame = null
     // Dosya parçalarının tek <audio> öğesi (ilk dosya parçasında kurulur)
     let sharedAudio = null
     let tickHandle = null
@@ -2071,20 +2078,27 @@ var TelsizMusic = (function (root) {
       return true
     }
 
-    function stopPlayer () {
+    // keepFrame: oturum aynı odada sürüyor, YouTube çerçevesi kapatılmaz (sonraki YouTube parçasında yeniden
+    // kullanılır). Çerçevedeki video duraklatılır ve olayları hiçbir parçaya gitmez.
+    function stopPlayer (keepFrame) {
       timers.clearTimeout(leadHandle)
       leadHandle = null
       cancelRecovery()
       if (player) {
         const p = player
         player = null
-        try {
-          p.destroy()
-        } catch (e) {
-          // Yoksa sessiz
+        if (keepFrame === true && p.kind === 'youtube' && ytFrame && p.impl === ytFrame.impl) {
+          parkFrame()
+        } else {
+          try {
+            p.destroy()
+          } catch (e) {
+            // Yoksa sessiz
+          }
         }
         if (p.url) releaseUrl(p.url)
       }
+      if (keepFrame !== true) dropFrame()
       local.loadingTrack = null
       local.needsTap = false
       clearHold()
@@ -2105,6 +2119,58 @@ var TelsizMusic = (function (root) {
       if (local.status !== 'blocked') setStatus('idle')
     }
 
+    function parkFrame () {
+      ytFrame.hooks = null
+      try {
+        ytFrame.impl.pause()
+      } catch (e) {
+        // Çerçeve kapanmış
+      }
+    }
+
+    function dropFrame () {
+      if (!ytFrame) return
+      const f = ytFrame
+      ytFrame = null
+      try {
+        f.impl.destroy()
+      } catch (e) {
+        // Yoksa sessiz
+      }
+    }
+
+    // Çerçevenin olayları yalnızca o an çerçevede çalan parçanın kancalarına gider
+    function routeYouTubeEvent (impl, ev) {
+      if (!ytFrame || ytFrame.impl !== impl) return
+      // Oynatıcı hatası bildiren çerçeve sonraki parçada yeniden kullanılmaz, yeni çerçeve kurulur
+      if (isObj(ev) && ev.type === 'error') ytFrame.broken = true
+      if (ytFrame.hooks) onYouTubeEvent(ev, ytFrame.hooks)
+    }
+
+    // Bu oda için bekleyen, hazır ve hata bildirmemiş çerçevede yeni parçanın videosu hazırlanır. Sonuç true:
+    // oynatıcı kuruldu. Çerçeve olayları yeni parçaya yönlendirilir, hazır olduğu için ready olayı beklenmez.
+    function reuseFrame (room, track) {
+      const f = ytFrame
+      if (!f || f.room !== room || f.broken || typeof f.impl.load !== 'function') return false
+      let ok = false
+      try {
+        ok = f.impl.ready() === true && f.impl.load(track.videoId) === true
+      } catch (e) {
+        ok = false
+      }
+      if (!ok) return false
+      f.hooks = hooksFor(room, track, f)
+      player = wrapYouTube(track, f.impl)
+      setStatus('ready')
+      applyAudioSettings()
+      return true
+    }
+
+    // YouTube çerçevesi bu cihazda bekleyebilir mi (rıza, kaynak ve oynatıcı alanı)
+    function youtubeAllowed () {
+      return settings.supported && settings.enabled && settings.youtube && consentValue() === 'granted' && Boolean(host)
+    }
+
     // Yanıt vermeyen YouTube oynatıcısı hâlâ hazır değilse baştan kurulur
     function rebuildIfStuck (trackId) {
       if (!player || player.trackId !== trackId || player.kind !== 'youtube' || player.ready() || local.error !== 'yt_unresponsive') return
@@ -2113,20 +2179,22 @@ var TelsizMusic = (function (root) {
       changed()
     }
 
-    function hooksFor (room, track) {
+    // frameRec: YouTube parçasında çerçevenin kaydı. Eşitlenmiş ses düzeyi bilgisi çerçeveye aittir, aynı
+    // çerçevede çalan sonraki parçalara da geçer.
+    function hooksFor (room, track, frameRec) {
       const alive = () => player && player.trackId === track.id
       // Oynatıcı bu cihazın ses düzeyini bir kez bildirdikten sonra (o zamana kadar YouTube'un hatırladığı eski
       // değer gelebilir) oynatıcının kendi denetimleriyle yapılan değişiklik "Sizin için" ayarına yansıtılır
-      let soundSynced = false
+      const sound = frameRec || { soundSynced: false }
       return {
         volume: (v, m) => {
           // Kaydırıcı sürüklenirken gecikmeli gelen eski değerler kendi komutumuzun yankısıdır
           if (!alive() || now() - soundCommandAt < SOUND_ECHO_MS) return
           const ours = Math.round(volumeValue() * 100)
           const v100 = Math.max(0, Math.min(100, Math.round(v)))
-          if (!soundSynced) {
+          if (!sound.soundSynced) {
             if (Math.abs(v100 - ours) > 1 || m !== mutedValue()) return
-            soundSynced = true
+            sound.soundSynced = true
             return
           }
           let adopted = false
@@ -2242,6 +2310,8 @@ var TelsizMusic = (function (root) {
       local.failed = false
       local.corrections = 0
       if (track.type === 'youtube') {
+        if (reuseFrame(room, track)) return
+        dropFrame()
         const YT = youtubeApi()
         if (!YT || typeof YT.create !== 'function') {
           local.error = 'yt_unavailable'
@@ -2249,7 +2319,8 @@ var TelsizMusic = (function (root) {
           emitError('yt_unavailable', track.id, true)
           return
         }
-        const hooks = hooksFor(room, track)
+        const rec = { impl: null, room: room, hooks: null, broken: false, soundSynced: false }
+        rec.hooks = hooksFor(room, track, rec)
         let impl
         try {
           impl = YT.create({
@@ -2260,7 +2331,7 @@ var TelsizMusic = (function (root) {
             title: typeof opts.t === 'function' ? opts.t('music.playerFrameTitle') : '',
             now: now,
             timers: timers,
-            onEvent: (ev) => onYouTubeEvent(ev, hooks)
+            onEvent: (ev) => routeYouTubeEvent(impl, ev)
           })
         } catch (e) {
           local.error = 'yt_unavailable'
@@ -2268,6 +2339,8 @@ var TelsizMusic = (function (root) {
           emitError('yt_unavailable', track.id, true)
           return
         }
+        rec.impl = impl
+        ytFrame = rec
         player = wrapYouTube(track, impl)
         setStatus('loading')
         return
@@ -2367,6 +2440,7 @@ var TelsizMusic = (function (root) {
       return {
         kind: 'youtube',
         trackId: track.id,
+        impl: impl,
         ready: () => impl.ready(),
         playing: () => impl.playing(),
         buffering: () => ytState() === YT_BUFFERING,
@@ -2382,7 +2456,10 @@ var TelsizMusic = (function (root) {
         setMuted: (m) => impl.setMuted(m === true),
         visible: () => impl.visible(),
         element: () => impl.element(),
-        destroy: () => impl.destroy()
+        destroy: () => {
+          if (ytFrame && ytFrame.impl === impl) dropFrame()
+          else impl.destroy()
+        }
       }
     }
 
@@ -2538,8 +2615,11 @@ var TelsizMusic = (function (root) {
         pruneLoads()
         return
       }
+      // Dosya parçası çalarken bekleyen çerçeve de yalnızca kendi odasının oturumunda ve YouTube'a izin varken
+      // kalır
+      if (ytFrame && (ytFrame.room !== room || !youtubeAllowed())) dropFrame()
       if (!player || player.trackId !== want.id || player.kind !== want.type) {
-        stopPlayer()
+        stopPlayer(true)
         startPlayer(room, want)
       }
       pruneLoads()
@@ -2824,6 +2904,7 @@ var TelsizMusic = (function (root) {
       if (host === container) return
       host = container
       if (player && player.kind === 'youtube') stopPlayer()
+      dropFrame()
       reconcile()
       changed()
     }
@@ -2831,6 +2912,7 @@ var TelsizMusic = (function (root) {
     function detachPlayer () {
       host = null
       if (player && player.kind === 'youtube') stopPlayer()
+      dropFrame()
       reconcile()
       changed()
     }
