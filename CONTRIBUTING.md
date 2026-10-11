@@ -137,6 +137,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
 | `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
 | `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
+| `45-hexball-ag.js` | Hexball ağı (`window.TelsizHexballNet`): oyun veri kanalındaki ikili iletiler (HELLO, HELLO_ACK, INPUT, SNAP) ve katı çözücüleri, el sıkışma, ev sahibinin otoriter fizik döngüsü, iki döngü arası 250 ms'yi aşınca duraklama, ev sahibinin kendi girdisinin bekletilmesi, girdi kısıtları, oyuncuda anlık görüntü tamponu ve ara değerleme. Saat, zamanlayıcı ve gönderim dışarıdan verilir |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -183,6 +184,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
 | `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |
 | `public/js/43-hexball-kural.js` | Ev sahibine özel hamlelerin (takım atama, maçı başlatma, gol, süre bitti, durdurma) yetki denetimi, ev sahibinden gelen görünümün katı denetimi |
+| `public/js/45-hexball-ag.js` | Eşlerden gelen ikili iletilerin katı denetimi (sürüm, tür, boy, alanlar), girdinin yalnızca masadaki kişinin kendi eşinden ve maçta yuvası varken işlenmesi, eş başına girdi sınırı, oyuncuda yalnızca ev sahibinin eşinden gelen iletilerin kabulü |
 | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
 | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |

@@ -137,6 +137,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
 | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
 | `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
+| `45-hexball-ag.js` | Hexball networking (`window.TelsizHexballNet`): the binary messages on the game data channel (HELLO, HELLO_ACK, INPUT, SNAP) and their strict decoders, the handshake, the host's authoritative physics loop, pausing when two loop runs are more than 250 ms apart, holding back the host's own input, input limits, and the snapshot buffer and interpolation on players. Clock, timers and sending are passed in |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
@@ -183,6 +184,7 @@ Changes that touch the following areas need extra review. In these pull requests
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | The inner envelope of game messages and its binding fields (`ctx`, `k`, `g`, `ch`, `from`, `to`), counters and replay protection (`ni`, `seq`, `rd`, `r`), strict checks of message formats and the role table, the choice of inner layer keys (`gameKeys` in `36-oyun.js`) |
 | `public/js/35-renk-kural.js` | Unbiased shuffling, validation of the view and hand that come from the dealer, making sure no view or event contains someone else's hand |
 | `public/js/43-hexball-kural.js` | Permission checks of the host only moves (assigning teams, starting a match, goal, time up, stopping), strict validation of the view that comes from the host |
+| `public/js/45-hexball-ag.js` | Strict validation of binary messages from peers (version, type, length, fields), processing input only from the seated person's own peer and only when that person has a slot in the match, the per peer input limit, players accepting messages only from the host's peer |
 | `public/music.js`, `public/dj/youtube.js` | Validation of the encrypted DJ state, isolation of the YouTube frame and the consent rule |
 | `src/auth.js`, `src/app.js` | Password hashing, sessions, permissions, rate limits, trusted proxies |
 | Uploads (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Size and quota limits, download permissions, file name cleanup, removal of photo metadata |
