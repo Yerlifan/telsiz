@@ -4,6 +4,10 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 
 ## [Unreleased]
 
+### New features
+
+- Cover photo: a cover photo can be added to the profile in Settings > Profile (Choose Cover, Remove Cover). The chosen image is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG, and metadata such as the location is removed. Like the profile picture, the cover is end-to-end encrypted with its own file key and follows the same size limit as the profile picture (1 MB by default), the quality is lowered in two steps if it does not fit. The cover appears in the color band of the profile card and in the My Account and Profile previews in Settings. Unlike profile pictures, covers are not downloaded in advance, only when the card is opened. Because of this the server can see who opens whose card. If an older client that does not know about covers saves the profile, the cover is removed. When the cover changes, is removed or the account is deleted, the old file is deleted from the server, and the cover counts toward the user's upload quota. An optional `cover` field was added to the profile envelope and a `coverUploadId` field to the `POST /api/me/profile` request and the `GET /api/profiles` response, with the new error codes `bad_cover` and `cover_too_large`.
+
 ### Changes
 
 - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.

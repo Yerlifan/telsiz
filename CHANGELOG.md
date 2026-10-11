@@ -4,6 +4,10 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 
 ## [Yayımlanmamış]
 
+### Yeni özellikler
+
+- Kapak fotoğrafı: Ayarlar > Profil bölümünden profile bir kapak fotoğrafı eklenebilir (Kapak Seç, Kapağı Kaldır). Seçilen resim ortasından 3:1 oranında kırpılıp 1200x400 boyutunda JPEG olarak yeniden kodlanır, konum gibi üst veriler silinir. Kapak profil resmi gibi kendi dosya anahtarıyla uçtan uca şifrelenir ve profil resmiyle aynı boyut sınırına (varsayılan 1 MB) uyar, sığmazsa kalite iki adımda düşürülür. Kapak profil kartının renk bandında, Ayarlar'daki Hesabım ve Profil önizlemelerinde görünür. Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca indirilir. Bu yüzden sunucu kimin hangi kişinin kartını açtığını görebilir. Kapağı bilmeyen eski bir istemci profili kaydederse kapak kalkar. Kapak değişince, kaldırılınca ve hesap silinince eski dosya sunucudan silinir, kapak kullanıcının yükleme kotasına sayılır. Profil zarfına isteğe bağlı `cover` alanı, `POST /api/me/profile` isteğine ve `GET /api/profiles` yanıtına `coverUploadId` alanı eklendi, yeni hata kodları `bad_cover` ve `cover_too_large`.
+
 ### Değişiklikler
 
 - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
