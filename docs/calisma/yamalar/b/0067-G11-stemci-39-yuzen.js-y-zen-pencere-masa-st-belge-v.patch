@@ -1,0 +1,1778 @@
+From 36d15400c394d1e2cbf96fcf89e2b16f9f11b3c2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:10:35 +0000
+Subject: [PATCH 67/68] =?UTF-8?q?G11:=20=C4=B0stemci:=2039-yuzen.js=20y?=
+ =?UTF-8?q?=C3=BCzen=20pencere=20(masa=C3=BCst=C3=BC,=20belge=20ve=20g?=
+ =?UTF-8?q?=C3=B6r=C3=BCnt=C3=BC=20resim=20i=C3=A7inde=20resim),=20yuzen.c?=
+ =?UTF-8?q?ss,=20kay=C4=B1t=20ve=20metinler?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/yuzen.css  | 404 ++++++++++++++++++
+ public/i18n.js        |  28 ++
+ public/index.html     |   4 +
+ public/js/39-yuzen.js | 967 ++++++++++++++++++++++++++++++++++++++++++
+ public/sw.js          |   2 +
+ test/yuzen.test.js    | 269 ++++++++++++
+ 6 files changed, 1674 insertions(+)
+ create mode 100644 public/css/yuzen.css
+ create mode 100644 public/js/39-yuzen.js
+ create mode 100644 test/yuzen.test.js
+
+diff --git a/public/css/yuzen.css b/public/css/yuzen.css
+new file mode 100644
+index 0000000..ccc2343
+--- /dev/null
++++ b/public/css/yuzen.css
+@@ -0,0 +1,404 @@
++/*
++  Yüzen pencere (istek 7 ve 16, davranış 39-yuzen.js): telsiz kartının araç satırındaki Yüzen Pencere düğmesi
++  (.float-tool), görüntü yedeğinin görünmeyen kaynak öğeleri (.float-pip-source) ve yüzen belgenin kendisi
++  (body.float-body: başlık, kendi paylaşımının satırı, kameralar veya avatarlar, kontroller).
++  Yüzen belge açan sayfanın bütün stil dosyalarını yükler, bu yüzden avatar, konuşma halesi (.is-speaking > .avatar)
++  ve kamera görüntüsü (.cam-video) kuralları components.css ve radio.css'ten gelir. Konuşan kişinin halkası
++  --live belirteciyle çizilir. Masaüstünde pencere çerçevesizdir, başlık sürükleme alanıdır (-webkit-app-region).
++  Durum öznitelikleri: body[data-mode="desktop" | "document"], body[data-kind="cams" | "avatars" | "share"],
++  .float-cams[data-count="1" ... "4"], .float-tile.is-speaking, .float-mic.is-off.
++  Kurallar: renkler yalnızca var(--...), grid, flex gap, clamp, :is, :where, aspect-ratio ve inset yok.
++*/
++
++/* =========================================================
++   1. Telsiz kartındaki düğme
++   ========================================================= */
++
++/* Yalnızca simge (adı aria-label ve title'da): araç satırında Büyüt ve Telsiz DJ'nin yanında dar kalır. Düğme
++   varken satır sarılabilir, düğmeler içerikleri kadar yer alıp kalan genişliği paylaşır: üç düğme kartın genişliğine
++   sığmazsa Telsiz DJ alt satıra iner, adlar kesilmez. Eksi sol boşluk her düğmenin sol boşluğunu karşılar. */
++.radio-tools.has-float {
++  flex-wrap: wrap;
++  margin: 0.25rem 0 0.25rem -0.375rem;
++}
++
++.radio-tools.has-float > * {
++  flex: 1 1 auto;
++  margin: 0.375rem 0 0 0.375rem;
++}
++
++.radio-tools.has-float > .radio-tool {
++  width: auto;
++}
++
++.radio-tools > .radio-tool.float-tool {
++  flex: none;
++  width: 2.75rem;
++  padding: 0;
++}
++
++.radio-tool.float-tool > .radio-tool-icon {
++  margin-right: 0;
++}
++
++.float-tool[aria-pressed="true"] {
++  border-style: solid;
++  border-color: var(--live);
++  background-color: var(--live-bg);
++  color: var(--live);
++}
++
++/* Görüntü yedeği: tuval ve kaynak görüntü öğeleri belgede durur ama görünmez */
++.float-pip-source {
++  position: fixed;
++  top: 0;
++  left: 0;
++  width: 1px;
++  height: 1px;
++  overflow: hidden;
++  opacity: 0;
++  pointer-events: none;
++}
++
++/* =========================================================
++   2. Yüzen belge
++   ========================================================= */
++
++.float-body {
++  display: flex;
++  flex-direction: column;
++  font-size: var(--text-sm);
++}
++
++/* Uygulamanın arka plan parıltısı yüzen pencerede çizilmez */
++.float-body::before {
++  display: none;
++}
++
++.float-head {
++  display: flex;
++  align-items: center;
++  flex: none;
++  min-height: 2rem;
++  padding: 0.25rem 0.625rem;
++  border-bottom: var(--border-width) solid var(--line);
++  background-color: var(--surface-1);
++  -webkit-user-select: none;
++  user-select: none;
++}
++
++.float-body[data-mode="desktop"] .float-head {
++  -webkit-app-region: drag;
++}
++
++.float-body[data-mode="desktop"] button {
++  -webkit-app-region: no-drag;
++}
++
++.float-head .cast-led {
++  width: 0.5rem;
++  height: 0.5rem;
++  margin-right: 0.5rem;
++}
++
++.float-title {
++  min-width: 0;
++  overflow: hidden;
++  color: var(--text-strong);
++  font-weight: var(--weight-strong);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++/* Kendi ekranını paylaşan kişi: "Ekranınız yayında" ve Durdur */
++.float-share-bar {
++  display: flex;
++  align-items: center;
++  flex: none;
++  padding: 0.25rem 0.625rem;
++  border-bottom: var(--border-width) solid var(--line);
++  background-color: var(--danger-bg);
++}
++
++.float-share-bar .cast-led {
++  margin-right: 0.5rem;
++}
++
++.float-share-text {
++  flex: 1 1 auto;
++  min-width: 0;
++  overflow: hidden;
++  font-weight: var(--weight-strong);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.float-share-stop {
++  display: inline-flex;
++  align-items: center;
++  flex: none;
++  margin-left: 0.5rem;
++  padding: 0.125rem 0.625rem;
++  border: var(--border-width) solid var(--danger);
++  border-radius: var(--radius-pill);
++  background-color: var(--surface-1);
++  color: var(--danger);
++  font: inherit;
++  font-weight: var(--weight-strong);
++  cursor: pointer;
++}
++
++.float-share-stop .icon {
++  width: 0.875rem;
++  height: 0.875rem;
++  margin-right: 0.25rem;
++}
++
++/* Görüntü alanı: kameralar üstte, avatar şeridi altta. Kamera yoksa avatarlar ortada. */
++.float-stage {
++  position: relative;
++  display: flex;
++  flex-direction: column;
++  flex: 1 1 auto;
++  min-height: 0;
++  padding: 0.25rem;
++  overflow: hidden;
++}
++
++.float-cams {
++  display: flex;
++  flex-wrap: wrap;
++  flex: 1 1 auto;
++  min-height: 0;
++}
++
++.float-tile.is-cam {
++  position: relative;
++  flex: none;
++  width: 100%;
++  height: 100%;
++  padding: 0.1875rem;
++}
++
++.float-cams[data-count="2"] .float-tile.is-cam {
++  width: 50%;
++}
++
++.float-cams[data-count="3"] .float-tile.is-cam,
++.float-cams[data-count="4"] .float-tile.is-cam {
++  width: 50%;
++  height: 50%;
++}
++
++.float-frame {
++  position: relative;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  width: 100%;
++  height: 100%;
++  overflow: hidden;
++  border: var(--border-width) solid var(--line);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-2);
++}
++
++.float-tile.is-cam.is-speaking .float-frame {
++  border-color: var(--live);
++  box-shadow: 0 0 0 2px var(--live);
++}
++
++.float-frame .cam-video {
++  border-radius: 0;
++}
++
++.float-frame .float-avatar.avatar {
++  width: 2.75rem;
++  height: 2.75rem;
++  font-size: 1.125rem;
++}
++
++.float-tile.is-cam .float-name,
++.float-share .float-name {
++  position: absolute;
++  left: 0.5rem;
++  bottom: 0.5rem;
++  z-index: 3;
++  max-width: calc(100% - 1rem);
++  overflow: hidden;
++  padding: 0.125rem 0.5rem;
++  border-radius: var(--radius-pill);
++  background-color: var(--viewer-bg);
++  color: var(--on-viewer);
++  font-size: var(--text-xs);
++  font-weight: 700;
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++/* Kameraların altındaki küçük avatar şeridi: adlar yalnızca ekran okuyucuda */
++.float-strip {
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  flex: none;
++  padding: 0.375rem 0 0.125rem;
++  overflow: hidden;
++}
++
++.float-strip .float-tile {
++  position: relative;
++  flex: none;
++  margin: 0 0.3125rem;
++}
++
++.float-strip .float-name {
++  position: absolute;
++  width: 1px;
++  height: 1px;
++  overflow: hidden;
++  clip: rect(0 0 0 0);
++  white-space: nowrap;
++}
++
++/* Kamera yokken avatarlar ve adları */
++.float-avatars {
++  display: flex;
++  flex-wrap: wrap;
++  align-content: center;
++  align-items: flex-start;
++  justify-content: center;
++  flex: 1 1 auto;
++  min-height: 0;
++  overflow: hidden;
++}
++
++.float-avatars .float-tile {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  flex: none;
++  width: 4.75rem;
++  margin: 0.375rem 0.125rem;
++}
++
++.float-avatars .float-avatar.avatar {
++  width: 3.25rem;
++  height: 3.25rem;
++  font-size: 1.25rem;
++}
++
++.float-avatars .float-name {
++  max-width: 100%;
++  margin-top: 0.375rem;
++  overflow: hidden;
++  color: var(--text-2);
++  font-size: var(--text-xs);
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++/* Konuşan kişinin halkası her temada canlı renkte (istek 7: "konuşunca etrafında yeşil işaret"). Temaların kendi
++   halesi (ör. Arcade'in degrade parıltısı) yüzen pencerede çizilmez. */
++body.float-body .float-tile.is-speaking > .avatar.has-face .avatar-face {
++  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--live), 0 0 6px 4px var(--halo-1);
++}
++
++body.float-body .float-tile.is-speaking > .avatar.has-face::before {
++  content: none;
++}
++
++.float-tile.is-speaking .float-name {
++  color: var(--live);
++}
++
++.float-more {
++  align-self: center;
++  flex: none;
++  margin: 0 0.375rem;
++  padding: 0.125rem 0.5rem;
++  border-radius: var(--radius-pill);
++  background-color: var(--surface-2);
++  color: var(--text-2);
++  font-size: var(--text-xs);
++  white-space: nowrap;
++}
++
++/* İzlenen ekran paylaşımı */
++.float-share {
++  position: relative;
++  flex: 1 1 auto;
++  min-height: 0;
++  overflow: hidden;
++  border-radius: var(--radius-card);
++  background-color: var(--viewer-bg);
++}
++
++.float-share-video {
++  display: block;
++  width: 100%;
++  height: 100%;
++  object-fit: contain;
++}
++
++/* Kontroller: Mikrofon, Uygulamaya Dön, Kapat */
++.float-controls {
++  display: flex;
++  align-items: center;
++  flex: none;
++  padding: 0.375rem 0.5rem;
++  border-top: var(--border-width) solid var(--line);
++  background-color: var(--surface-1);
++}
++
++.float-button {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  flex: none;
++  min-width: 2.25rem;
++  height: 2.25rem;
++  padding: 0 0.5rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-control);
++  background-color: var(--surface-2);
++  color: var(--text);
++  font: inherit;
++  font-weight: var(--weight-strong);
++  cursor: pointer;
++}
++
++.float-button + .float-button {
++  margin-left: 0.375rem;
++}
++
++.float-button:hover {
++  background-color: var(--surface-hover);
++}
++
++.float-button .icon {
++  flex: none;
++  width: 1.125rem;
++  height: 1.125rem;
++}
++
++.float-back {
++  flex: 1 1 auto;
++  min-width: 0;
++}
++
++.float-back .icon {
++  margin-right: 0.375rem;
++}
++
++.float-button-text {
++  min-width: 0;
++  overflow: hidden;
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.float-mic.is-off {
++  border-color: var(--danger);
++  color: var(--danger);
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 3e87e92..4e01bf2 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -75,6 +75,20 @@ window.I18N = (function () {
+     'status.autoIdle': 'Boşta (otomatik)',
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
++    'float.open': 'Yüzen Pencere',
++    'float.openLabel': 'Ses odasını yüzen pencerede aç',
++    'float.backToApp': 'Uygulamaya Dön',
++    'float.close': 'Yüzen Pencereyi Kapat',
++    'float.title': '{room} · Telsiz',
++    'float.more_one': '+{count} kişi',
++    'float.more_other': '+{count} kişi',
++    'float.unsupported': 'Bu tarayıcı yüzen pencereyi desteklemiyor.',
++    'float.failed': 'Yüzen pencere açılamadı.',
++    'settings.voice.floatTitle': 'Yüzen Pencere',
++    'settings.voice.floatAuto': 'Uygulama küçültülünce yüzen pencereyi aç',
++    'settings.voice.floatHintDesktop': 'Ses odasındayken pencere küçültülür ya da tepsiye gizlenirse kameralar veya profil fotoğrafları her zaman üstte kalan küçük bir pencerede görünür. Windows ve macOS\'ta bu pencere ekran paylaşımına girmez.',
++    'settings.voice.floatHintBrowser': 'Chrome ve Edge\'de ses odasındayken başka sekmeye geçince açılır. Tarayıcı simge durumuna küçültülünce kendiliğinden açılmaz, Yüzen Pencere düğmesini kullanın.',
++    'settings.voice.floatHintWayland': 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.',
+     // G12 Temalar
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+@@ -2071,6 +2085,20 @@ window.I18N = (function () {
+     'status.autoIdle': 'Idle (automatic)',
+     // G9 ve G10 Gezinme
+     // G11 Yüzen pencereler
++    'float.open': 'Floating Window',
++    'float.openLabel': 'Open the voice room in a floating window',
++    'float.backToApp': 'Back to App',
++    'float.close': 'Close Floating Window',
++    'float.title': '{room} · Telsiz',
++    'float.more_one': '+{count} person',
++    'float.more_other': '+{count} people',
++    'float.unsupported': 'This browser doesn\'t support floating windows.',
++    'float.failed': 'The floating window could not be opened.',
++    'settings.voice.floatTitle': 'Floating Window',
++    'settings.voice.floatAuto': 'Open the floating window when the app is minimized',
++    'settings.voice.floatHintDesktop': 'While you\'re in a voice room, minimizing the window or hiding it to the tray shows cameras or profile photos in a small always-on-top window. On Windows and macOS this window is excluded from screen sharing.',
++    'settings.voice.floatHintBrowser': 'In Chrome and Edge it opens when you switch tabs while in a voice room. It doesn\'t open by itself when the browser is minimized. Use the Floating Window button.',
++    'settings.voice.floatHintWayland': 'In a Wayland session the window can\'t stay on top and may appear in screen shares.',
+     // G12 Temalar
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+diff --git a/public/index.html b/public/index.html
+index e2228ff..35e71ad 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -28,6 +28,7 @@
+   <link rel="stylesheet" href="/css/dj.css">
+   <link rel="stylesheet" href="/css/arama.css">
+   <link rel="stylesheet" href="/css/tanitim.css">
++  <link rel="stylesheet" href="/css/yuzen.css">
+   <link rel="stylesheet" href="/css/skins/arcade.css">
+   <link rel="stylesheet" href="/css/skins/gece.css">
+   <link rel="stylesheet" href="/css/skins/turkuaz.css">
+@@ -71,6 +72,7 @@
+   <script src="/js/30-pencere.js" defer></script>
+   <script src="/js/31-sesler.js" defer></script>
+   <script src="/js/32-arama.js" defer></script>
++  <script src="/js/39-yuzen.js" defer></script>
+   <script src="/js/40-bosta.js" defer></script>
+ </head>
+ <body>
+@@ -168,6 +170,8 @@
+     <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5.5 6.2v11.6a.9.9 0 0 0 1.4.75L15 13v4.5h2.5v-11H15V11L6.9 5.45a.9.9 0 0 0-1.4.75z" fill="currentColor"/></symbol>
+     <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></symbol>
+     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></symbol>
++    <symbol id="i-pip" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11.5" width="6.5" height="5" rx="1.25" fill="currentColor"/></symbol>
++    <symbol id="i-minimize" viewBox="0 0 24 24"><path d="M5 19h14"/><path d="M12 5v9"/><path d="M8.5 10.5L12 14l3.5-3.5"/></symbol>
+   </svg>
+ 
+   <noscript>
+diff --git a/public/js/39-yuzen.js b/public/js/39-yuzen.js
+new file mode 100644
+index 0000000..fded2ea
+--- /dev/null
++++ b/public/js/39-yuzen.js
+@@ -0,0 +1,967 @@
++'use strict'
++
++// Yüzen pencere (istek 7 ve 16): ses odasındayken (özel mesaj araması dahil) uygulama görünmüyorsa odadaki
++// kameralar ya da profil fotoğrafları her zaman üstte kalan küçük bir pencerede görünür. Kamerası açık kişiler
++// büyük kutularda, kamerası kapalı olanlar altta küçük avatar şeridinde durur, konuşan kişinin çevresinde canlı
++// renkli halka yanar. Kamera yoksa yalnızca avatarlar görünür. İzlenen bir ekran paylaşımı varsa pencere o
++// yayını gösterir. Kendi ekranını paylaşan kişinin penceresi odayı ve "Ekranınız yayında · Durdur" satırını
++// gösterir (kendi ekranının önizlemesi ayna etkisi yaratırdı).
++//
++// Pencerenin yolu (floatMode, sırayla denenir):
++// - 'desktop': masaüstü uygulaması (window.telsizDesktop.float). Electron 44'te belge resim içinde resim var
++//   görünür ama açtığı pencere görünmez, bu yüzden önce denetlenir. Sayfa ana süreçten tek kullanımlık bir ad alır
++//   ve window.open('about:blank', ad) çağırır, ana süreç her zaman üstte kalan çerçevesiz bir pencere verir
++//   (desktop/src/lib/float-window.js). Pencere simge durumuna küçültülünce veya tepsiye gizlenince kendiliğinden
++//   açılır, pencere geri gelince kapanır (telsizDesktop.onWindowState, ayar telsiz.floatAuto).
++// - 'document': belge resim içinde resim (documentPictureInPicture, Chrome ve Edge 116, Firefox masaüstü 151).
++//   Yüzen Pencere düğmesiyle açılır. Chrome ve Edge ses odasındaki sekmeden başka sekmeye geçilince de
++//   kendiliğinden açar (navigator.mediaSession 'enterpictureinpicture' eylemi, ayar telsiz.floatAuto). Tarayıcı
++//   simge durumuna küçültülünce kendiliğinden açılmaz.
++// - 'video': görüntü resim içinde resim yedeği (Safari, Android Chrome). Kutular 480x270 bir tuvale saniyede 15
++//   kare çizilir, tuvalin akışı bir görüntü öğesinde resim içinde resim olarak açılır. Pencerede düğme yoktur,
++//   mikrofon işletim sisteminin medya denetimlerinden açılıp kapanabilir (togglemicrophone). İzlenen ekran
++//   paylaşımında yayının kendi görüntü öğesi açılır.
++//
++// Pencerenin içeriğini bu sayfanın betiği çizer: düğümler bu sayfada üretilir ve yüzen belgeye eklenir, akışlar
++// aynı süreçte paylaşılır. Uygulama penceresi gizliyken onun çizim döngüsü (requestAnimationFrame) durur, bu
++// yüzden çizim yüzen belgenin kendi döngüsüyle yapılır. Ses kancaları (10-voice.js voiceHook): 'change' her ses
++// anlık görüntüsünde çizimi zamanlar, 'render' telsiz kartı yeniden çizilince araç satırındaki Yüzen Pencere
++// düğmesini günceller. Görüntü öğeleri 'float-' önekiyle tutulur (cameraVideoFor), kapanınca bırakılır.
++// Biçem: açan sayfanın stil dosyaları ve kök öznitelikleri (tema, renk düzeni, yazı boyutu) kopyalanır. Satır içi
++// stil yoktur (CSP), görünüm public/css/yuzen.css içindedir.
++//
++// Kontroller: Mikrofon, Uygulamaya Dön, Kapat. Ayrıl düğmesi bilerek yoktur (kazara basılabilir).
++// Sunucuya hiçbir şey gitmez. Ayar yalnızca bu cihazda: telsiz.floatAuto ('off' kapalı, varsayılan açık).
++
++const FLOAT_MAX_CAMS = 4
++const FLOAT_MAX_AVATARS = 8
++const FLOAT_DOC_SIZE = { width: 340, height: 240 }
++const FLOAT_VIDEO_W = 480
++const FLOAT_VIDEO_H = 270
++const FLOAT_VIDEO_FPS = 15
++// Yüzen belgenin çizim döngüsü çalışmazsa (pencere henüz gösterilmedi) çizim bu süre sonra yapılır
++const FLOAT_FALLBACK_MS = 250
++// Masaüstü penceresinin kapanması pagehide ile gelmezse açık olup olmadığı bu aralıkla denetlenir
++const FLOAT_WATCH_MS = 1000
++// Kök öğeden yüzen belgeye kopyalanan öznitelikler (theme-init.js)
++const FLOAT_ROOT_ATTRS = ['lang', 'dir', 'data-skin', 'data-scheme', 'data-font-size', 'data-compact', 'data-reduce-motion']
++
++const floatState = {
++  started: false,
++  // Açık pencere: yol ('desktop' | 'document' | 'video'), açılış nedeni ('auto' | 'button' | 'share-own' |
++  // 'share'), pencere ve belgesi (desktop ve document yollarında)
++  mode: null,
++  reason: null,
++  win: null,
++  doc: null,
++  nodes: null,
++  key: '',
++  queued: false,
++  opening: false,
++  watchTimer: 0,
++  // Görüntü yedeği: tuval, çizim bağlamı, kaynak görüntü öğesi ve zamanlayıcı
++  video: null,
++  // İzlenen yayın için yüzen belgedeki görüntü öğesi
++  shareVideo: null,
++  // Masaüstünde pencerenin son durumu ('minimized' | 'restored' | 'hidden' | 'shown')
++  windowState: null,
++  // Tarayıcıda otomatik açılış işleyicisi kayıtlı mı, eylem desteklenmiyor mu
++  msBound: false,
++  msUnsupported: false,
++  // Video yedeğinde mikrofon eylemi kayıtlı mı
++  msMic: false,
++  // Avatar resimleri (tuvale çizim için), adres başına
++  images: Object.create(null)
++}
++
++// ------------------------------------------------------------------ yol ve ayar
++
++function floatBgMode () {
++  return typeof bgModeActive === 'function' && bgModeActive()
++}
++
++// Bu cihazda yüzen pencerenin yolu: 'desktop', 'document', 'video' veya null (desteklenmiyor)
++function floatMode () {
++  const d = window.telsizDesktop
++  if (d && d.float && typeof d.float.arm === 'function') return 'desktop'
++  const dpip = window.documentPictureInPicture
++  if (dpip && typeof dpip.requestWindow === 'function') return 'document'
++  const V = window.HTMLVideoElement
++  const C = window.HTMLCanvasElement
++  if (document.pictureInPictureEnabled === true && V && C && typeof V.prototype.requestPictureInPicture === 'function' && typeof C.prototype.captureStream === 'function') return 'video'
++  return null
++}
++
++// Ayar (11-settings.js floatAutoEnabled): simge durumunda, tepsiye gizlenince veya sekme değişince açılsın mı
++function floatAutoOn () {
++  return typeof floatAutoEnabled === 'function' ? floatAutoEnabled() : true
++}
++
++function floatInRoom (s) {
++  return Boolean(s && s.channelId !== null && s.channelId !== undefined && s.channelId !== '')
++}
++
++function floatIsOpen () {
++  return floatState.mode !== null
++}
++
++// ------------------------------------------------------------------ plan (saf)
++
++// floatPlan girdisi: o anki ses durumundan toplanır
++function floatInput () {
++  const s = snap()
++  const room = floatInRoom(s)
++  const me = state.me ? String(state.me.id) : null
++  const roster = room ? voiceRoster(s.channelId).map((entry) => String(entry.userId)) : []
++  const streams = room && typeof cameraStreams === 'function' ? cameraStreams(s) : {}
++  const cams = {}
++  Object.keys(streams).forEach((id) => {
++    cams[id] = streams[id].stream && streams[id].stream.id ? String(streams[id].stream.id) : '1'
++  })
++  const sc = room && typeof radioScreen === 'function' ? radioScreen(s) : null
++  const remote = sc && sc.remote && typeof sc.remote === 'object' ? sc.remote : {}
++  const watched = typeof castState === 'object' && castState && castState.watching ? String(castState.watching) : null
++  return {
++    room,
++    me,
++    roster,
++    cams,
++    speaking: roster.filter((id) => typeof speakingIn === 'function' && speakingIn(s, id)),
++    watching: watched && remote[watched] ? watched : null,
++    sharing: Boolean(sc && sc.state === 'live')
++  }
++}
++
++// Yüzen pencerede ne görünür. Girdi: { room, me, roster: [kimlik], cams: { kimlik: akış kimliği }, speaking:
++// [kimlik], watching: izlenen paylaşımın sahibi veya null, sharing: kendi paylaşımım sürüyor mu }.
++// Çıktı: { kind: 'share' | 'cams' | 'avatars', tiles: [{ id, cam, self, speaking }], more, sharing, watching }.
++// Kural: izlenen paylaşım varsa yalnızca o (share). Kamera varsa en fazla 4 kamera kutusu, kamerası kapalı kişiler
++// en fazla 8 avatarlık şeritte (cams). Kamera yoksa en fazla 8 avatar (avatars). Kendiniz her zaman sondasınız.
++// Gösterilemeyen kişi sayısı more'dadır ("+N kişi").
++function floatPlan (s) {
++  const o = s || {}
++  const roster = Array.isArray(o.roster) ? o.roster.map(String) : []
++  const cams = o.cams && typeof o.cams === 'object' ? o.cams : {}
++  const speaking = Array.isArray(o.speaking) ? o.speaking.map(String) : []
++  const me = o.me === null || o.me === undefined ? null : String(o.me)
++  const tile = (id) => ({ id, cam: Object.prototype.hasOwnProperty.call(cams, id), self: id === me, speaking: speaking.indexOf(id) !== -1 })
++  const plan = { kind: 'avatars', tiles: [], more: 0, sharing: o.room === true && o.sharing === true, watching: null }
++  if (o.room !== true) return plan
++  if (o.watching && roster.indexOf(String(o.watching)) !== -1) {
++    plan.kind = 'share'
++    plan.watching = String(o.watching)
++    plan.tiles = [tile(plan.watching)]
++    return plan
++  }
++  const unique = roster.filter((id, i) => roster.indexOf(id) === i)
++  const ordered = unique.filter((id) => id !== me).concat(unique.filter((id) => id === me))
++  const camIds = ordered.filter((id) => Object.prototype.hasOwnProperty.call(cams, id))
++  if (camIds.length) {
++    const shownCams = camIds.slice(0, FLOAT_MAX_CAMS)
++    const rest = ordered.filter((id) => camIds.indexOf(id) === -1)
++    const shownAvatars = rest.slice(0, FLOAT_MAX_AVATARS)
++    plan.kind = 'cams'
++    plan.tiles = shownCams.concat(shownAvatars).map(tile)
++    plan.more = camIds.length - shownCams.length + rest.length - shownAvatars.length
++    return plan
++  }
++  const shown = ordered.slice(0, FLOAT_MAX_AVATARS)
++  plan.tiles = shown.map(tile)
++  plan.more = ordered.length - shown.length
++  return plan
++}
++
++// ------------------------------------------------------------------ açma ve kapama
++
++// reason: 'auto' (simge durumu, tepsi, sekme değişimi), 'button' (Yüzen Pencere düğmesi), 'share-own' (kendi
++// yayınının başlığı), 'share' (izlenen yayının başlığı). Dönen Promise pencere açılınca true, açılamazsa false.
++function floatOpen (reason) {
++  const why = typeof reason === 'string' ? reason : 'button'
++  const manual = why !== 'auto'
++  if (floatIsOpen()) {
++    floatState.reason = manual ? why : floatState.reason
++    floatSchedule()
++    return Promise.resolve(true)
++  }
++  if (floatState.opening || floatBgMode()) return Promise.resolve(false)
++  if (!floatInRoom(snap())) return Promise.resolve(false)
++  const mode = floatMode()
++  if (!mode) {
++    if (manual) toast(() => t('float.unsupported'), 'error', 6000)
++    return Promise.resolve(false)
++  }
++  floatState.opening = true
++  let pending
++  try {
++    if (mode === 'desktop') pending = floatOpenDesktop()
++    else if (mode === 'document') pending = window.documentPictureInPicture.requestWindow({ width: FLOAT_DOC_SIZE.width, height: FLOAT_DOC_SIZE.height })
++    else pending = floatOpenVideo(why)
++  } catch (err) {
++    pending = Promise.reject(err)
++  }
++  return Promise.resolve(pending).then((win) => {
++    floatState.opening = false
++    if (mode === 'video') return Boolean(win)
++    if (!win) throw new Error('float_failed')
++    floatAttach(win, mode, why)
++    return true
++  }).catch(() => {
++    floatState.opening = false
++    if (manual) toast(() => t('float.failed'), 'error', 6000)
++    floatRenderTool()
++    return false
++  })
++}
++
++function floatOpenDesktop () {
++  return window.telsizDesktop.float.arm().then((name) => {
++    if (!name) return null
++    return window.open('about:blank', name)
++  })
++}
++
++function floatClose (reason) {
++  if (!floatIsOpen()) return
++  const mode = floatState.mode
++  const win = floatState.win
++  floatCleanup(reason || 'button')
++  if (mode === 'video') {
++    try {
++      if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {})
++    } catch (err) {
++      // Pencere zaten kapandı
++    }
++    return
++  }
++  try {
++    if (win && !win.closed) win.close()
++  } catch (err) {
++    // Pencere zaten kapandı
++  }
++}
++
++function floatToggle (reason) {
++  if (floatIsOpen()) floatClose('button')
++  else floatOpen(reason || 'button')
++}
++
++// Pencere kapandı (Kapat düğmesi, tarayıcının kendi düğmesi, odadan ayrılma, uygulamaya dönüş): görüntü öğeleri
++// ve zamanlayıcılar bırakılır
++function floatCleanup () {
++  if (!floatIsOpen()) return
++  const v = floatState.video
++  floatState.mode = null
++  floatState.reason = null
++  floatState.win = null
++  floatState.doc = null
++  floatState.nodes = null
++  floatState.key = ''
++  floatState.queued = false
++  if (floatState.watchTimer) clearInterval(floatState.watchTimer)
++  floatState.watchTimer = 0
++  if (floatState.shareVideo) {
++    try {
++      floatState.shareVideo.srcObject = null
++    } catch (err) {
++      // Öğe zaten bırakıldı
++    }
++    floatState.shareVideo = null
++  }
++  if (v) {
++    floatState.video = null
++    clearInterval(v.timer)
++    if (v.own) {
++      // İzlenen yayının görüntü öğesi sahnede kalır, resim içinde resim izni geri kapanır
++      v.video.setAttribute('disablepictureinpicture', '')
++    } else {
++      try {
++        v.video.srcObject = null
++      } catch (err) {
++        // Öğe zaten bırakıldı
++      }
++      if (v.holder.parentNode) v.holder.parentNode.removeChild(v.holder)
++    }
++  }
++  floatMediaMic(false)
++  if (typeof pruneCameraVideos === 'function') pruneCameraVideos('float-', {})
++  floatRenderTool()
++}
++
++// ------------------------------------------------------------------ yüzen belge (desktop ve document)
++
++function floatAttach (win, mode, reason) {
++  floatState.mode = mode
++  floatState.reason = reason
++  floatState.win = win
++  floatState.doc = win.document
++  floatState.key = ''
++  floatPrepareDoc(win.document, mode)
++  win.addEventListener('pagehide', () => {
++    if (floatState.win === win) floatCleanup('closed')
++  })
++  win.document.addEventListener('keydown', (event) => {
++    if (event.key === 'Escape') floatClose('key')
++  })
++  // Masaüstünde pencereyi ana süreç de kapatabilir (uygulama penceresi kapanınca), kapanış yedek olarak izlenir
++  floatState.watchTimer = setInterval(() => {
++    if (floatState.win === win && win.closed) floatCleanup('closed')
++  }, FLOAT_WATCH_MS)
++  floatRenderNow()
++  floatRenderTool()
++}
++
++// Belgeye açan sayfanın stil dosyaları, kök öznitelikleri ve simge kümesi kopyalanır
++function floatPrepareDoc (doc, mode) {
++  const root = doc.documentElement
++  floatCopyRoot(root)
++  const head = doc.head || root.appendChild(doc.createElement('head'))
++  Array.from(document.querySelectorAll('link[rel="stylesheet"]')).forEach((link) => {
++    const copy = doc.createElement('link')
++    copy.rel = 'stylesheet'
++    copy.href = link.href
++    head.appendChild(copy)
++  })
++  const body = doc.body || root.appendChild(doc.createElement('body'))
++  body.className = 'float-body'
++  body.setAttribute('data-mode', mode)
++  const sprite = floatSprite()
++  if (sprite) body.appendChild(doc.importNode(sprite, true))
++}
++
++function floatCopyRoot (root) {
++  const src = document.documentElement
++  FLOAT_ROOT_ATTRS.forEach((name) => {
++    const value = src.getAttribute(name)
++    if (value === null) root.removeAttribute(name)
++    else root.setAttribute(name, value)
++  })
++  // Elle ayarlanan yazı boyutu (theme-init.js --font-px): satır içi stil özniteliği değil CSSOM ile yazılır
++  const px = src.style ? src.style.getPropertyValue('--font-px') : ''
++  if (root.style) {
++    if (px) root.style.setProperty('--font-px', px)
++    else root.style.removeProperty('--font-px')
++  }
++}
++
++// Simge kümesi (index.html başındaki gizli svg): yüzen belgedeki <use href="#..."> bunlara bakar
++function floatSprite () {
++  const symbol = document.querySelector('svg symbol[id^="i-"]')
++  return symbol ? symbol.closest('svg') : null
++}
++
++// Çizim yüzen belgenin kendi döngüsüyle zamanlanır, döngü çalışmazsa kısa bir gecikmeyle yapılır
++function floatSchedule () {
++  if (!floatState.win || floatState.queued) return
++  floatState.queued = true
++  const run = () => {
++    if (!floatState.queued) return
++    floatState.queued = false
++    floatRenderNow()
++  }
++  try {
++    floatState.win.requestAnimationFrame(run)
++  } catch (err) {
++    // Pencere kapanıyor
++  }
++  setTimeout(run, FLOAT_FALLBACK_MS)
++}
++
++function floatRoomName (s) {
++  if (s.private) {
++    const me = state.me ? String(state.me.id) : null
++    const other = voiceRoster(s.channelId).map((entry) => String(entry.userId)).filter((id) => id !== me)[0]
++    return other ? shownName(other) : ''
++  }
++  return typeof castRoomName === 'function' ? castRoomName(s.channelId) : ''
++}
++
++// Yapı anahtarı: değişince pencerenin içi yeniden kurulur, değişmezse yalnızca konuşma halkası ve mikrofon güncellenir
++function floatKey (plan, s, input) {
++  const root = document.documentElement
++  const avatars = plan.tiles.map((tile) => {
++    const info = typeof avatarInfoFor === 'function' ? avatarInfoFor(tile.id) : null
++    return tile.id + ':' + (tile.cam ? 1 : 0) + ':' + shownName(tile.id) + ':' + (info && info.blobUrl ? info.blobUrl : '')
++  })
++  const camKey = Object.keys(input.cams).sort().map((id) => id + '=' + input.cams[id]).join(',')
++  return [plan.kind, avatars.join(','), plan.more, plan.sharing ? 1 : 0, plan.watching || '', camKey, floatRoomName(s), window.I18N ? window.I18N.lang : '', root.getAttribute('data-skin'), root.getAttribute('data-scheme'), root.getAttribute('data-font-size')].join('|')
++}
++
++function floatRenderNow () {
++  const doc = floatState.doc
++  if (!doc || floatState.mode === 'video') return
++  const s = snap()
++  if (!floatInRoom(s)) {
++    floatClose('left')
++    return
++  }
++  const input = floatInput()
++  const plan = floatPlan(input)
++  const key = floatKey(plan, s, input)
++  if (key !== floatState.key || !floatState.nodes) {
++    floatState.key = key
++    floatBuild(doc, plan, s)
++  }
++  floatLive(plan, s)
++}
++
++function floatButton (className, iconName, label) {
++  const b = h('button', 'float-button ' + className)
++  b.type = 'button'
++  b.appendChild(icon(iconName))
++  b.setAttribute('aria-label', label)
++  b.title = label
++  return b
++}
++
++function floatPlay (v) {
++  if (!v || !v.paused) return
++  try {
++    const p = v.play()
++    if (p && typeof p.catch === 'function') p.catch(() => {})
++  } catch (err) {
++    // Oynatılamayan öğe ilk karesini bekler
++  }
++}
++
++function floatBuild (doc, plan, s) {
++  floatCopyRoot(doc.documentElement)
++  const body = doc.body
++  const keepSprite = body.querySelector('svg')
++  Array.from(body.childNodes).forEach((node) => {
++    if (node !== keepSprite) body.removeChild(node)
++  })
++  body.setAttribute('data-kind', plan.kind)
++  const n = {}
++  doc.title = t('float.title', { room: floatRoomName(s) || 'Telsiz' })
++
++  const head = h('header', 'float-head')
++  const led = h('span', 'cast-led is-live')
++  led.setAttribute('aria-hidden', 'true')
++  head.appendChild(led)
++  n.title = h('span', 'float-title', floatRoomName(s))
++  head.appendChild(n.title)
++  body.appendChild(head)
++
++  if (plan.sharing) {
++    const bar = h('div', 'float-share-bar')
++    bar.setAttribute('role', 'status')
++    const rec = h('span', 'cast-led is-rec')
++    rec.setAttribute('aria-hidden', 'true')
++    bar.appendChild(rec)
++    bar.appendChild(h('span', 'float-share-text', t('cast.ownChip')))
++    const stop = h('button', 'float-share-stop')
++    stop.type = 'button'
++    stop.appendChild(icon('i-stop'))
++    stop.appendChild(h('span', 'float-share-stop-text', t('cast.stopShort')))
++    stop.setAttribute('aria-label', t('screen.stop'))
++    stop.addEventListener('click', () => {
++      if (typeof castStopShare === 'function') castStopShare()
++    })
++    bar.appendChild(stop)
++    body.appendChild(bar)
++  }
++
++  const stage = h('div', 'float-stage')
++  const keep = {}
++  if (plan.kind === 'share') {
++    floatBuildShare(stage, plan, s)
++  } else {
++    const streams = typeof cameraStreams === 'function' ? cameraStreams(s) : {}
++    const big = h('div', 'float-cams')
++    const strip = h('div', plan.kind === 'cams' ? 'float-strip' : 'float-avatars')
++    plan.tiles.forEach((tile) => {
++      if (tile.cam && streams[tile.id]) {
++        const node = h('div', 'float-tile is-cam' + (tile.self ? ' is-self' : ''))
++        node.setAttribute('data-user-id', tile.id)
++        const frame = h('div', 'float-frame')
++        const av = avatar(tile.id, 'lg', 'float-avatar')
++        av.removeAttribute('data-status')
++        frame.appendChild(av)
++        const v = cameraVideoFor('float-' + tile.id, streams[tile.id].stream, streams[tile.id].self)
++        frame.appendChild(v)
++        keep['float-' + tile.id] = true
++        node.appendChild(frame)
++        node.appendChild(h('span', 'float-name', tile.self ? t('cast.you') : shownName(tile.id)))
++        big.appendChild(node)
++      } else {
++        const node = h('div', 'float-tile' + (tile.self ? ' is-self' : ''))
++        node.setAttribute('data-user-id', tile.id)
++        const av = avatar(tile.id, plan.kind === 'cams' ? 'sm' : 'lg', 'float-avatar')
++        av.removeAttribute('data-status')
++        node.appendChild(av)
++        node.appendChild(h('span', 'float-name', tile.self ? t('cast.you') : shownName(tile.id)))
++        strip.appendChild(node)
++      }
++    })
++    big.setAttribute('data-count', String(big.childNodes.length))
++    if (big.firstChild) stage.appendChild(big)
++    if (plan.more > 0) strip.appendChild(h('span', 'float-more', t('float.more', { count: plan.more })))
++    if (strip.firstChild) stage.appendChild(strip)
++  }
++  body.appendChild(stage)
++  if (typeof pruneCameraVideos === 'function') pruneCameraVideos('float-', keep)
++  Array.from(stage.querySelectorAll('video')).forEach(floatPlay)
++
++  const controls = h('div', 'float-controls')
++  n.mic = floatButton('float-mic', 'i-mic', t('user.mute'))
++  n.mic.addEventListener('click', () => {
++    if (typeof toggleMute === 'function') toggleMute()
++  })
++  controls.appendChild(n.mic)
++  const back = h('button', 'float-button float-back')
++  back.type = 'button'
++  back.appendChild(icon('i-back'))
++  back.appendChild(h('span', 'float-button-text', t('float.backToApp')))
++  back.addEventListener('click', floatBackToApp)
++  controls.appendChild(back)
++  const close = floatButton('float-close', 'i-close', t('float.close'))
++  close.addEventListener('click', () => {
++    floatClose('button')
++  })
++  controls.appendChild(close)
++  body.appendChild(controls)
++  floatState.nodes = n
++}
++
++// İzlenen yayın: yayının akışı yüzen belgedeki kendi görüntü öğesinde oynar
++function floatBuildShare (stage, plan, s) {
++  const box = h('div', 'float-share')
++  let v = floatState.shareVideo
++  if (!v) {
++    v = h('video', 'float-share-video')
++    v.muted = true
++    v.autoplay = true
++    v.playsInline = true
++    v.setAttribute('muted', '')
++    v.setAttribute('playsinline', '')
++    floatState.shareVideo = v
++  }
++  v.setAttribute('aria-label', t('screen.sharingUser', { name: shownName(plan.watching) }))
++  const stream = floatShareStream(s, plan.watching)
++  if (v.srcObject !== stream) {
++    try {
++      v.srcObject = stream
++    } catch (err) {
++      v.srcObject = null
++    }
++  }
++  box.appendChild(v)
++  box.appendChild(h('span', 'float-name', t('screen.sharingUser', { name: shownName(plan.watching) })))
++  stage.appendChild(box)
++}
++
++function floatShareStream (s, userId) {
++  const sc = typeof radioScreen === 'function' ? radioScreen(s) : null
++  const rs = sc && sc.remote ? sc.remote[userId] : null
++  if (rs && rs.stream) return rs.stream
++  if (typeof castCall === 'function') {
++    const got = castCall('getScreenStream', [userId])
++    if (got && typeof got === 'object') return got
++  }
++  return null
++}
++
++// Sık değişenler: konuşma halkası, mikrofon düğmesi, oda adı
++function floatLive (plan, s) {
++  const doc = floatState.doc
++  const n = floatState.nodes
++  if (!doc || !n) return
++  const speaking = {}
++  plan.tiles.forEach((tile) => {
++    speaking[tile.id] = tile.speaking
++  })
++  Array.from(doc.querySelectorAll('.float-tile[data-user-id]')).forEach((node) => {
++    node.classList.toggle('is-speaking', Boolean(speaking[node.getAttribute('data-user-id')]))
++  })
++  const muted = Boolean(s.muted)
++  n.mic.setAttribute('aria-pressed', muted ? 'true' : 'false')
++  n.mic.classList.toggle('is-off', muted)
++  setIcon(n.mic, muted ? 'i-mic-off' : 'i-mic')
++  const room = floatRoomName(s)
++  if (n.title.textContent !== room) n.title.textContent = room
++}
++
++// Uygulamaya Dön: masaüstünde uygulama penceresi öne gelir, tarayıcıda sekmeye dönülmeye çalışılır. Pencere kapanır.
++function floatBackToApp () {
++  const d = window.telsizDesktop
++  if (d && d.float && typeof d.float.showMain === 'function') {
++    d.float.showMain().catch(() => false)
++  } else {
++    try {
++      window.focus()
++    } catch (err) {
++      // Tarayıcı izin vermedi
++    }
++  }
++  floatClose('back')
++}
++
++// ------------------------------------------------------------------ görüntü yedeği (video)
++
++// Tuvalden üretilen akış bir görüntü öğesinde resim içinde resim olarak açılır. İzlenen yayında yayının kendi
++// görüntü öğesi açılır, sahnede duran öğenin disablePictureInPicture özniteliği istekten hemen önce kaldırılır.
++function floatOpenVideo (reason) {
++  const plan = floatPlan(floatInput())
++  if (plan.kind === 'share') {
++    const stageVideo = typeof castState === 'object' && castState && castState.nodes ? castState.nodes.video : null
++    if (stageVideo && stageVideo.srcObject) return floatRequestVideo(stageVideo, true, reason)
++  }
++  const holder = h('div', 'float-pip-source')
++  holder.setAttribute('aria-hidden', 'true')
++  const canvas = h('canvas', 'float-pip-canvas')
++  canvas.width = FLOAT_VIDEO_W
++  canvas.height = FLOAT_VIDEO_H
++  const video = h('video', 'float-pip-video')
++  video.muted = true
++  video.playsInline = true
++  video.setAttribute('muted', '')
++  video.setAttribute('playsinline', '')
++  holder.appendChild(canvas)
++  holder.appendChild(video)
++  document.body.appendChild(holder)
++  const g = canvas.getContext('2d')
++  const v = { canvas, g, video, holder, timer: 0, own: false, tiles: [] }
++  floatState.video = v
++  floatDrawCanvas()
++  video.srcObject = canvas.captureStream(FLOAT_VIDEO_FPS)
++  v.timer = setInterval(floatDrawCanvas, Math.round(1000 / FLOAT_VIDEO_FPS))
++  return floatRequestVideo(video, false, reason).catch((err) => {
++    // İstek reddedildi (kullanıcı hareketi yok, tarayıcı izin vermedi): tuval ve zamanlayıcı bırakılır
++    if (floatState.video === v) floatState.video = null
++    clearInterval(v.timer)
++    try {
++      video.srcObject = null
++    } catch (err2) {
++      // Öğe zaten bırakıldı
++    }
++    if (holder.parentNode) holder.parentNode.removeChild(holder)
++    if (typeof pruneCameraVideos === 'function') pruneCameraVideos('float-', {})
++    throw err
++  })
++}
++
++function floatRequestVideo (video, own, reason) {
++  if (own) {
++    video.removeAttribute('disablepictureinpicture')
++    video.disablePictureInPicture = false
++    floatState.video = { video, holder: null, timer: 0, own: true }
++  }
++  const p = video.play()
++  return Promise.resolve(p).catch(() => {}).then(() => video.requestPictureInPicture()).then(() => {
++    floatState.mode = 'video'
++    floatState.reason = reason
++    const onLeave = () => {
++      video.removeEventListener('leavepictureinpicture', onLeave)
++      if (floatState.mode === 'video') floatCleanup('closed')
++    }
++    video.addEventListener('leavepictureinpicture', onLeave)
++    floatMediaMic(true)
++    floatRenderTool()
++    return true
++  }, (err) => {
++    if (own) {
++      video.setAttribute('disablepictureinpicture', '')
++      floatState.video = null
++    }
++    throw err
++  })
++}
++
++// Video yedeğinde pencerede düğme yoktur: mikrofon işletim sisteminin medya denetimlerinden açılıp kapanır
++function floatMediaMic (on) {
++  const ms = navigator.mediaSession
++  if (!ms || typeof ms.setActionHandler !== 'function' || floatState.msMic === on) return
++  try {
++    ms.setActionHandler('togglemicrophone', on ? () => {
++      if (typeof toggleMute === 'function') toggleMute()
++    } : null)
++    floatState.msMic = on
++    if (on) floatMediaMicState()
++  } catch (err) {
++    floatState.msMic = false
++  }
++}
++
++function floatMediaMicState () {
++  const ms = navigator.mediaSession
++  if (!floatState.msMic || !ms || typeof ms.setMicrophoneActive !== 'function') return
++  try {
++    ms.setMicrophoneActive(!snap().muted)
++  } catch (err) {
++    // Desteklenmiyor
++  }
++}
++
++function floatCss (name, fallback) {
++  const value = getComputedStyle(document.documentElement).getPropertyValue(name)
++  return value && value.trim() ? value.trim() : fallback
++}
++
++function floatRoundRect (g, x, y, w, h2, r) {
++  const rad = Math.max(0, Math.min(r, w / 2, h2 / 2))
++  g.beginPath()
++  g.moveTo(x + rad, y)
++  g.arcTo(x + w, y, x + w, y + h2, rad)
++  g.arcTo(x + w, y + h2, x, y + h2, rad)
++  g.arcTo(x, y + h2, x, y, rad)
++  g.arcTo(x, y, x + w, y, rad)
++  g.closePath()
++}
++
++function floatImage (url) {
++  let img = floatState.images[url]
++  if (!img) {
++    img = new Image()
++    img.src = url
++    floatState.images[url] = img
++  }
++  return img.complete && img.naturalWidth > 0 ? img : null
++}
++
++function floatDrawAvatar (g, id, x, y, size, colors) {
++  const info = avatarInfoFor(id)
++  floatRoundRect(g, x, y, size, size, size * 0.28)
++  g.save()
++  g.clip()
++  const img = info.blobUrl ? floatImage(info.blobUrl) : null
++  if (img) {
++    g.drawImage(img, x, y, size, size)
++  } else {
++    g.fillStyle = floatCss('--av-' + info.colorIndex, colors.surface)
++    g.fillRect(x, y, size, size)
++    g.fillStyle = floatCss('--av-fg-' + info.colorIndex, floatCss('--av-fg', colors.text))
++    g.font = '700 ' + Math.round(size * 0.42) + 'px sans-serif'
++    g.textAlign = 'center'
++    g.textBaseline = 'middle'
++    g.fillText(info.initial || '', x + size / 2, y + size / 2)
++  }
++  g.restore()
++}
++
++function floatDrawName (g, text, x, y, w, colors) {
++  g.font = '600 13px sans-serif'
++  g.textAlign = 'center'
++  g.textBaseline = 'top'
++  g.fillStyle = colors.text
++  let label = String(text)
++  while (label.length > 1 && g.measureText(label).width > w) label = label.slice(0, -2) + '…'
++  g.fillText(label, x + w / 2, y)
++}
++
++// Tuvale bir kare: kamera kutuları üstte, avatarlar altta veya ortada, konuşanın çevresinde halka
++function floatDrawCanvas () {
++  const v = floatState.video
++  if (!v || v.own) return
++  const g = v.g
++  const W = FLOAT_VIDEO_W
++  const H = FLOAT_VIDEO_H
++  const s = snap()
++  const plan = floatPlan(floatInput())
++  const colors = { bg: floatCss('--bg', '#0f1015'), surface: floatCss('--surface-2', '#1d1e27'), text: floatCss('--text', '#f2f1f8'), live: floatCss('--live', '#45db9c'), danger: floatCss('--danger', '#ff8796') }
++  g.fillStyle = colors.bg
++  g.fillRect(0, 0, W, H)
++  let top = 0
++  if (plan.sharing) {
++    g.fillStyle = colors.danger
++    g.beginPath()
++    g.arc(16, 16, 5, 0, Math.PI * 2)
++    g.fill()
++    g.font = '600 14px sans-serif'
++    g.textAlign = 'left'
++    g.textBaseline = 'middle'
++    g.fillStyle = colors.text
++    g.fillText(t('cast.ownChip'), 28, 16)
++    top = 32
++  }
++  const streams = typeof cameraStreams === 'function' ? cameraStreams(s) : {}
++  const camTiles = plan.tiles.filter((tile) => tile.cam && streams[tile.id])
++  const avatars = plan.tiles.filter((tile) => !(tile.cam && streams[tile.id]))
++  const keep = {}
++  if (camTiles.length) {
++    const stripH = avatars.length || plan.more ? 64 : 0
++    const areaH = H - top - stripH
++    const cols = camTiles.length === 1 ? 1 : 2
++    const rows = Math.ceil(camTiles.length / cols)
++    const cw = W / cols
++    const ch = areaH / rows
++    camTiles.forEach((tile, i) => {
++      const x = (i % cols) * cw + 4
++      const y = top + Math.floor(i / cols) * ch + 4
++      const w = cw - 8
++      const hh = ch - 8
++      const el2 = cameraVideoFor('float-' + tile.id, streams[tile.id].stream, streams[tile.id].self)
++      keep['float-' + tile.id] = true
++      if (el2.parentNode !== v.holder) v.holder.appendChild(el2)
++      floatPlay(el2)
++      floatRoundRect(g, x, y, w, hh, 10)
++      g.save()
++      g.clip()
++      g.fillStyle = colors.surface
++      g.fillRect(x, y, w, hh)
++      if (el2.readyState >= 2 && el2.videoWidth > 0) {
++        const scale = Math.max(w / el2.videoWidth, hh / el2.videoHeight)
++        const dw = el2.videoWidth * scale
++        const dh = el2.videoHeight * scale
++        g.drawImage(el2, x + (w - dw) / 2, y + (hh - dh) / 2, dw, dh)
++      } else {
++        const size = Math.min(w, hh) * 0.5
++        floatDrawAvatar(g, tile.id, x + (w - size) / 2, y + (hh - size) / 2, size, colors)
++      }
++      g.restore()
++      if (tile.speaking) {
++        g.lineWidth = 4
++        g.strokeStyle = colors.live
++        floatRoundRect(g, x, y, w, hh, 10)
++        g.stroke()
++      }
++    })
++    top += areaH
++  }
++  if (avatars.length || plan.more) {
++    const size = camTiles.length ? 36 : 56
++    const gapX = camTiles.length ? 10 : 14
++    const per = avatars.length + (plan.more ? 1 : 0)
++    const rowW = Math.min(W, per * (size + gapX))
++    let x = (W - rowW) / 2 + gapX / 2
++    const rowsAvail = camTiles.length ? 1 : 2
++    const perRow = Math.max(1, Math.ceil(per / rowsAvail))
++    const lineH = size + 22
++    const startY = camTiles.length ? top + 6 : top + Math.max(6, (H - top - rowsAvail * lineH) / 2)
++    avatars.forEach((tile, i) => {
++      const row = Math.floor(i / perRow)
++      const col = i % perRow
++      const rowCount = Math.min(perRow, per - row * perRow)
++      const rowWidth = rowCount * (size + gapX)
++      x = (W - rowWidth) / 2 + gapX / 2 + col * (size + gapX)
++      const y = startY + row * lineH
++      if (tile.speaking) {
++        g.lineWidth = 4
++        g.strokeStyle = colors.live
++        floatRoundRect(g, x - 4, y - 4, size + 8, size + 8, (size + 8) * 0.28)
++        g.stroke()
++      }
++      floatDrawAvatar(g, tile.id, x, y, size, colors)
++      if (!camTiles.length) floatDrawName(g, tile.self ? t('cast.you') : shownName(tile.id), x - gapX / 2, y + size + 4, size + gapX, colors)
++    })
++    if (plan.more) {
++      g.font = '600 14px sans-serif'
++      g.textAlign = 'right'
++      g.textBaseline = 'bottom'
++      g.fillStyle = colors.text
++      g.fillText(t('float.more', { count: plan.more }), W - 10, H - 8)
++    }
++  }
++  if (typeof pruneCameraVideos === 'function') pruneCameraVideos('float-', keep)
++  floatMediaMicState()
++  if (!floatInRoom(s) && floatState.mode === 'video') floatClose('left')
++}
++
++// ------------------------------------------------------------------ araç satırındaki düğme
++
++// Yüzen Pencere düğmesi telsiz kartının araç satırında (#radio-tools) Telsiz DJ düğmesinden önce durur. Ses
++// odasında değilken veya bu cihazda yüzen pencere yokken kaldırılır. Basınca açar, açıksa kapatır.
++function floatRenderTool () {
++  const box = el.radioTools
++  if (!box) return
++  let b = byId('radio-float')
++  const show = floatInRoom(snap()) && floatMode() !== null && !floatBgMode()
++  // Satır düğmeyle birlikte sarılabilir (yuzen.css .radio-tools.has-float): Büyüt ve Telsiz DJ'nin adı kesilmez
++  box.classList.toggle('has-float', show)
++  if (!show) {
++    if (b && b.parentNode) b.parentNode.removeChild(b)
++    return
++  }
++  if (!b) {
++    b = h('button', 'radio-tool float-tool')
++    b.type = 'button'
++    b.id = 'radio-float'
++    b.setAttribute('data-focus-key', 'tool-float')
++    b.appendChild(icon('i-pip', 'radio-tool-icon'))
++    b.addEventListener('click', () => {
++      floatToggle('button')
++    })
++  }
++  const dj = box.querySelector('.crew-dj')
++  if (b.parentNode !== box || (dj && b.nextElementSibling !== dj)) box.insertBefore(b, dj || null)
++  const open = floatIsOpen()
++  const label = open ? t('float.close') : t('float.openLabel')
++  b.setAttribute('aria-pressed', open ? 'true' : 'false')
++  b.setAttribute('aria-label', label)
++  b.title = open ? t('float.close') : t('float.open')
++}
++
++// ------------------------------------------------------------------ olaylar
++
++// Ses kancası 'change': her ses anlık görüntüsünde (uygulama gizliyken de) yüzen belge yeniden çizilir, odadan
++// çıkınca pencere kapanır, tarayıcıdaki otomatik açılış işleyicisi güncellenir
++function floatOnVoice (snapshot) {
++  floatSyncMediaSession(snapshot)
++  if (!floatIsOpen()) return
++  if (!floatInRoom(snapshot)) {
++    floatClose('left')
++    return
++  }
++  if (floatState.mode === 'video') floatMediaMicState()
++  else floatSchedule()
++}
++
++// Ses kancası 'render': telsiz kartı yeniden çizildi (kadro, kameralar, adlar)
++function floatRender () {
++  floatRenderTool()
++  if (floatIsOpen() && floatState.mode !== 'video') floatSchedule()
++}
++
++// Masaüstü: pencere simge durumuna küçültülünce veya tepsiye gizlenince açılır, geri gelince kendiliğinden
++// açılmış pencere kapanır (elle açılan pencere açık kalır)
++function floatOnWindowState (value) {
++  floatState.windowState = value
++  if (value === 'minimized' || value === 'hidden') {
++    if (floatAutoOn() && floatInRoom(snap()) && !floatIsOpen()) floatOpen('auto')
++  } else if (value === 'restored' || value === 'shown') {
++    if (floatIsOpen() && floatState.reason === 'auto') floatClose('restore')
++  }
++}
++
++// Tarayıcı (Chrome, Edge): ses odasındayken ve ayar açıkken başka sekmeye geçilince yüzen pencere kendiliğinden
++// açılır. Tarayıcı bu eylemi kullanıcı hareketi olmadan çağırır, sekme yeniden görünür olunca pencereyi kapatır.
++function floatSyncMediaSession (snapshot) {
++  const ms = navigator.mediaSession
++  if (floatState.msUnsupported || !ms || typeof ms.setActionHandler !== 'function') return
++  const want = floatMode() === 'document' && floatAutoOn() && floatInRoom(snapshot || snap())
++  if (want === floatState.msBound) return
++  try {
++    ms.setActionHandler('enterpictureinpicture', want ? () => {
++      floatOpen('auto')
++    } : null)
++    floatState.msBound = want
++  } catch (err) {
++    // Bu tarayıcıda eylem yok
++    floatState.msUnsupported = true
++    floatState.msBound = false
++  }
++}
++
++// Ayar değişti (11-settings.js)
++function floatSettingsChanged () {
++  floatSyncMediaSession(snap())
++}
++
++function floatStart () {
++  if (floatState.started || floatBgMode()) return
++  floatState.started = true
++  if (typeof voiceHook === 'function') {
++    voiceHook('change', floatOnVoice)
++    voiceHook('render', floatRender)
++  }
++  const d = window.telsizDesktop
++  if (d && typeof d.onWindowState === 'function') d.onWindowState(floatOnWindowState)
++  // Sekme yeniden görünür olunca kendiliğinden açılmış belge penceresi kapanır (tarayıcı da kapatır)
++  document.addEventListener('visibilitychange', () => {
++    if (!document.hidden && floatIsOpen() && floatState.reason === 'auto' && floatState.mode === 'document') floatClose('visible')
++  })
++  window.addEventListener('pagehide', () => {
++    floatClose('unload')
++  })
++}
++
++floatStart()
+diff --git a/public/sw.js b/public/sw.js
+index 10a95e7..a578c35 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -26,6 +26,7 @@ const SHELL = [
+   '/css/dj.css',
+   '/css/arama.css',
+   '/css/tanitim.css',
++  '/css/yuzen.css',
+   '/css/skins/arcade.css',
+   '/css/skins/gece.css',
+   '/css/skins/turkuaz.css',
+@@ -67,6 +68,7 @@ const SHELL = [
+   '/js/30-pencere.js',
+   '/js/31-sesler.js',
+   '/js/32-arama.js',
++  '/js/39-yuzen.js',
+   '/js/40-bosta.js',
+   '/fonts/figtree-latin-ext-wght-normal.woff2',
+   '/fonts/figtree-latin-wght-normal.woff2',
+diff --git a/test/yuzen.test.js b/test/yuzen.test.js
+new file mode 100644
+index 0000000..c98ed31
+--- /dev/null
++++ b/test/yuzen.test.js
+@@ -0,0 +1,269 @@
++'use strict'
++
++// Yüzen pencere istemcisi (public/js/39-yuzen.js): floatPlan durumları (kamera yok, kamera ve avatar şeridi, konuşma,
++// izlenen yayın, kendi yayını, özel arama kadrosu, sınırı aşınca "+N"), floatMode önceliği (masaüstünde belge resim
++// içinde resim de var görünür ama masaüstü yolu seçilir), masaüstünde simge durumu ve tepsi kuralları, tarayıcıda
++// otomatik açılış işleyicisi, i18n anahtarları ve index.html, sw.js bağlantıları. Modül tarayıcıdaki gibi ortak bir
++// genel ortamda Node vm bağlamında, gerekli yardımcılar taklit edilerek yüklenir. Gerçek pencere e2e/20-yuzen.test.js
++// içinde açılır.
++
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const PUB = path.join(__dirname, '..', 'public')
++const YUZEN = fs.readFileSync(path.join(PUB, 'js', '39-yuzen.js'), 'utf8')
++const HTML = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8')
++const SW = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8')
++
++function load (opts) {
++  const o = opts || {}
++  const hooks = []
++  const listeners = {}
++  const toasts = []
++  const handlers = {}
++  const sandbox = {
++    console,
++    Promise,
++    setTimeout,
++    clearTimeout,
++    setInterval: () => 0,
++    clearInterval: () => {},
++    window: null,
++    document: {
++      pictureInPictureEnabled: o.videoPip === true,
++      hidden: false,
++      addEventListener: (type, fn) => {
++        listeners['document:' + type] = fn
++      },
++      querySelector: () => null,
++      documentElement: { getAttribute: () => null, style: null }
++    },
++    navigator: o.mediaSession === false ? {} : {
++      mediaSession: {
++        setActionHandler: (name, fn) => {
++          if (o.noPipAction && name === 'enterpictureinpicture') throw new TypeError('unsupported action')
++          handlers[name] = fn
++        }
++      }
++    },
++    state: { me: { id: 1 } },
++    voiceSnap: { channelId: null },
++    snap: () => sandbox.voiceSnap,
++    voiceRoster: () => [],
++    voiceHook: (kind, fn) => hooks.push({ kind, fn }),
++    el: { radioTools: null },
++    toast: (fn) => toasts.push(typeof fn === 'function' ? fn() : fn),
++    t: (key, params) => key + (params ? JSON.stringify(params) : ''),
++    floatAutoEnabled: () => sandbox.auto,
++    auto: true
++  }
++  sandbox.window = sandbox
++  sandbox.addEventListener = (type, fn) => {
++    listeners['window:' + type] = fn
++  }
++  if (o.desktop) sandbox.telsizDesktop = o.desktop
++  if (o.documentPip) sandbox.documentPictureInPicture = { requestWindow: () => Promise.reject(new Error('test')) }
++  if (o.videoPip) {
++    sandbox.HTMLVideoElement = function () {}
++    sandbox.HTMLVideoElement.prototype.requestPictureInPicture = function () {}
++    sandbox.HTMLCanvasElement = function () {}
++    sandbox.HTMLCanvasElement.prototype.captureStream = function () {}
++  }
++  if (o.bg) sandbox.bgModeActive = () => true
++  vm.createContext(sandbox)
++  vm.runInContext(YUZEN, sandbox, { filename: '39-yuzen.js' })
++  const run = (code) => vm.runInContext(code, sandbox)
++  // vm içindeki nesnelerin prototipi farklıdır, karşılaştırma JSON kopyasıyla yapılır
++  const plan = (input) => JSON.parse(JSON.stringify(sandbox.floatPlan(input)))
++  return { sandbox, run, hooks, listeners, toasts, handlers, plan }
++}
++
++const ids = (plan) => plan.tiles.map((tile) => tile.id + (tile.cam ? '*' : '') + (tile.speaking ? '!' : '') + (tile.self ? '@' : ''))
++
++test('floatPlan: odada değilken boş, kamera yokken avatarlar, siz sonda, konuşanlar işaretli', () => {
++  const env = load()
++  assert.deepEqual(env.plan({ room: false, roster: ['2', '3'], me: '1' }), { kind: 'avatars', tiles: [], more: 0, sharing: false, watching: null })
++  assert.deepEqual(env.plan(null), { kind: 'avatars', tiles: [], more: 0, sharing: false, watching: null })
++  const p = env.plan({ room: true, me: '1', roster: ['1', '2', '3'], cams: {}, speaking: ['3', '1'] })
++  assert.equal(p.kind, 'avatars')
++  assert.deepEqual(ids(p), ['2', '3!', '1!@'])
++  assert.equal(p.more, 0)
++  // Kadroda yinelenen kimlik bir kez görünür, sayılar dizgeye çevrilir
++  assert.deepEqual(ids(env.plan({ room: true, me: 1, roster: [2, 2, 1, 3] })), ['2', '3', '1@'])
++})
++
++test('floatPlan: en fazla 8 avatar, kalanlar "+N"', () => {
++  const env = load()
++  const roster = ['1'].concat(Array.from({ length: 10 }, (_, i) => String(i + 2)))
++  const p = env.plan({ room: true, me: '1', roster })
++  assert.equal(p.kind, 'avatars')
++  assert.deepEqual(ids(p), ['2', '3', '4', '5', '6', '7', '8', '9'])
++  assert.equal(p.more, 3, 'kendiniz dahil üç kişi gösterilmedi')
++})
++
++test('floatPlan: kamera varken en fazla 4 kamera kutusu, kamerasızlar en fazla 8 avatarlık şeritte', () => {
++  const env = load()
++  const p = env.plan({ room: true, me: '1', roster: ['1', '2', '3', '4'], cams: { 1: 's1', 3: 's3' }, speaking: ['2'] })
++  assert.equal(p.kind, 'cams')
++  // Önce kameralar (siz sonda), sonra kamerasız kişiler
++  assert.deepEqual(ids(p), ['3*', '1*@', '2!', '4'])
++  assert.equal(p.more, 0)
++  const many = ['1'].concat(Array.from({ length: 14 }, (_, i) => String(i + 2)))
++  const cams = {}
++  for (const id of ['2', '3', '4', '5', '6', '1']) cams[id] = 'akış-' + id
++  const big = env.plan({ room: true, me: '1', roster: many, cams })
++  assert.deepEqual(ids(big), ['2*', '3*', '4*', '5*', '7', '8', '9', '10', '11', '12', '13', '14'])
++  // 6 ve sizin kameranız (2) ile 15 kamerasızdan gösterilmeyen 1 kişi
++  assert.equal(big.more, 3)
++})
++
++test('floatPlan: izlenen yayın varsa yalnızca o, kendi yayınınız sürerken oda ve yayın satırı', () => {
++  const env = load()
++  const share = env.plan({ room: true, me: '1', roster: ['1', '2', '3'], cams: { 3: 's' }, watching: '2', speaking: ['2'] })
++  assert.deepEqual(share, { kind: 'share', tiles: [{ id: '2', cam: false, self: false, speaking: true }], more: 0, sharing: false, watching: '2' })
++  // Odada olmayan kişinin yayını gösterilmez
++  assert.equal(env.plan({ room: true, me: '1', roster: ['1', '3'], watching: '2' }).kind, 'avatars')
++  const own = env.plan({ room: true, me: '1', roster: ['1', '2'], sharing: true })
++  assert.equal(own.kind, 'avatars')
++  assert.equal(own.sharing, true)
++  assert.equal(env.plan({ room: false, sharing: true }).sharing, false)
++})
++
++test('floatPlan: özel arama kadrosu (iki kişi) ses odası gibi gösterilir', () => {
++  const env = load()
++  const p = env.plan({ room: true, me: '1', roster: ['1', '9'], cams: { 9: 'kamera' } })
++  assert.equal(p.kind, 'cams')
++  assert.deepEqual(ids(p), ['9*', '1@'])
++})
++
++test('floatMode: masaüstü önce gelir (belge resim içinde resim de var görünse), sonra belge, sonra görüntü', () => {
++  const desktop = { float: { arm: () => Promise.resolve(''), showMain: () => Promise.resolve(true) }, onWindowState: () => () => {} }
++  assert.equal(load({ desktop, documentPip: true, videoPip: true }).sandbox.floatMode(), 'desktop')
++  assert.equal(load({ documentPip: true, videoPip: true }).sandbox.floatMode(), 'document')
++  assert.equal(load({ videoPip: true }).sandbox.floatMode(), 'video')
++  assert.equal(load().sandbox.floatMode(), null)
++  // float nesnesi olmayan eski masaüstü sürümü masaüstü yolu sayılmaz
++  assert.equal(load({ desktop: { onWindowState: () => () => {} }, documentPip: true }).sandbox.floatMode(), 'document')
++})
++
++test('masaüstü: simge durumunda ve tepsiye gizlenince yalnızca ses odasındayken ve ayar açıkken açılır', async () => {
++  const calls = []
++  let onState = null
++  const desktop = {
++    float: {
++      arm: () => {
++        calls.push('arm')
++        return Promise.resolve('')
++      },
++      showMain: () => Promise.resolve(true)
++    },
++    onWindowState: (fn) => {
++      onState = fn
++      return () => {}
++    }
++  }
++  const env = load({ desktop })
++  assert.equal(typeof onState, 'function')
++  assert.deepEqual(env.hooks.map((hk) => hk.kind), ['change', 'render'])
++  // Odada değil
++  onState('minimized')
++  assert.deepEqual(calls, [])
++  // Odada ama ayar kapalı
++  env.sandbox.voiceSnap = { channelId: 5 }
++  env.sandbox.auto = false
++  onState('hidden')
++  assert.deepEqual(calls, [])
++  // Odada ve ayar açık: simge durumu ve tepsi açar. Ana süreç ad vermezse pencere açılmaz, hata gösterilmez.
++  env.sandbox.auto = true
++  onState('restored')
++  assert.deepEqual(calls, [])
++  onState('minimized')
++  await new Promise((resolve) => setImmediate(resolve))
++  onState('hidden')
++  await new Promise((resolve) => setImmediate(resolve))
++  assert.deepEqual(calls, ['arm', 'arm'])
++  assert.deepEqual(env.toasts, [])
++  assert.equal(env.run('floatIsOpen()'), false)
++})
++
++test('tarayıcı: otomatik açılış işleyicisi yalnızca belge yolunda, odadayken ve ayar açıkken kayıtlıdır', () => {
++  const env = load({ documentPip: true })
++  const change = env.hooks.find((hk) => hk.kind === 'change').fn
++  change({ channelId: null })
++  assert.equal(env.handlers.enterpictureinpicture, undefined)
++  change({ channelId: 7 })
++  assert.equal(typeof env.handlers.enterpictureinpicture, 'function')
++  env.sandbox.auto = false
++  env.run('floatSettingsChanged()')
++  // Ayar kapanınca işleyici kaldırılır (setActionHandler null ile)
++  assert.equal(env.handlers.enterpictureinpicture, null)
++  env.sandbox.auto = true
++  change({ channelId: 7 })
++  assert.equal(typeof env.handlers.enterpictureinpicture, 'function')
++  change({ channelId: null })
++  assert.equal(env.handlers.enterpictureinpicture, null)
++  // Görüntü yolunda (belge resim içinde resim yok) işleyici kaydedilmez
++  const video = load({ videoPip: true })
++  video.hooks.find((hk) => hk.kind === 'change').fn({ channelId: 7 })
++  assert.equal(video.handlers.enterpictureinpicture, undefined)
++  // Eylemi tanımayan tarayıcı bir kez hata verir, yeniden denenmez
++  const old = load({ documentPip: true, noPipAction: true })
++  const oldChange = old.hooks.find((hk) => hk.kind === 'change').fn
++  oldChange({ channelId: 7 })
++  oldChange({ channelId: 7 })
++  assert.equal(old.run('floatState.msUnsupported'), true)
++})
++
++test('arka plan penceresinde modül çalışmaz', () => {
++  const env = load({ bg: true, documentPip: true })
++  assert.deepEqual(env.hooks, [])
++  assert.equal(env.run('floatState.started'), false)
++})
++
++test('desteklenmeyen tarayıcıda düğmeyle açma bildirim gösterir', async () => {
++  const env = load()
++  env.sandbox.voiceSnap = { channelId: 5 }
++  assert.equal(await env.sandbox.floatOpen('button'), false)
++  assert.deepEqual(env.toasts, ['float.unsupported'])
++  // Kendiliğinden açılış sessizdir
++  assert.equal(await env.sandbox.floatOpen('auto'), false)
++  assert.equal(env.toasts.length, 1)
++})
++
++test('i18n: yüzen pencere anahtarları iki dilde', () => {
++  const sandbox = { console, navigator: { languages: [] }, document: { documentElement: {} }, localStorage: { getItem: () => null, setItem () {} } }
++  sandbox.window = sandbox
++  vm.createContext(sandbox)
++  vm.runInContext(fs.readFileSync(path.join(PUB, 'i18n.js'), 'utf8'), sandbox)
++  const I18N = sandbox.window.I18N
++  const keys = ['float.open', 'float.openLabel', 'float.backToApp', 'float.close', 'float.title', 'float.unsupported', 'float.failed', 'settings.voice.floatTitle', 'settings.voice.floatAuto', 'settings.voice.floatHintDesktop', 'settings.voice.floatHintBrowser', 'settings.voice.floatHintWayland']
++  for (const lang of ['tr', 'en']) {
++    I18N.setLang(lang)
++    for (const key of keys) assert.notEqual(I18N.t(key, { room: 'Lobi' }), key, lang + ' ' + key)
++  }
++  I18N.setLang('tr')
++  assert.equal(I18N.t('float.open'), 'Yüzen Pencere')
++  assert.equal(I18N.t('float.title', { room: 'Lobi' }), 'Lobi · Telsiz')
++  assert.equal(I18N.t('float.more', { count: 3 }), '+3 kişi')
++  I18N.setLang('en')
++  assert.equal(I18N.t('float.backToApp'), 'Back to App')
++  assert.equal(I18N.t('float.more', { count: 1 }), '+1 person')
++  assert.equal(I18N.t('float.more', { count: 2 }), '+2 people')
++})
++
++test('index.html ve sw.js: modül 32 ile 40 arasında, stil dosyası ve simgeler kayıtlı', () => {
++  const script = '<script src="/js/39-yuzen.js" defer></script>'
++  assert.ok(HTML.indexOf(script) > HTML.indexOf('<script src="/js/32-arama.js" defer></script>'))
++  assert.ok(HTML.indexOf(script) < HTML.indexOf('<script src="/js/40-bosta.js" defer></script>'))
++  assert.ok(HTML.includes('<link rel="stylesheet" href="/css/yuzen.css">'))
++  // Temaların stil dosyaları en sonda kalır
++  assert.ok(HTML.indexOf('/css/yuzen.css') < HTML.indexOf('/css/skins/arcade.css'))
++  assert.ok(HTML.includes('<symbol id="i-pip"'))
++  assert.ok(HTML.includes('<symbol id="i-minimize"'))
++  assert.ok(SW.indexOf("'/js/39-yuzen.js'") > SW.indexOf("'/js/32-arama.js'"))
++  assert.ok(SW.indexOf("'/js/39-yuzen.js'") < SW.indexOf("'/js/40-bosta.js'"))
++  assert.ok(SW.includes("'/css/yuzen.css'"))
++})

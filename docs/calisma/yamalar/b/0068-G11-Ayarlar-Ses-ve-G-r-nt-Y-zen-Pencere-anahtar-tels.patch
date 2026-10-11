@@ -1,0 +1,159 @@
+From 2c29d0d99561b98a865c613aa251c0919edc5e2c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:10:35 +0000
+Subject: [PATCH 68/68] =?UTF-8?q?G11:=20Ayarlar=20>=20Ses=20ve=20G=C3=B6r?=
+ =?UTF-8?q?=C3=BCnt=C3=BC:=20Y=C3=BCzen=20Pencere=20anahtar=C4=B1=20(telsi?=
+ =?UTF-8?q?z.floatAuto)=20ve=20platforma=20g=C3=B6re=20a=C3=A7=C4=B1klama?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/11-settings.js | 30 ++++++++++++++++++++--
+ test/settings.test.js    | 55 +++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 82 insertions(+), 3 deletions(-)
+
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 59f3a13..c10a56c 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -42,7 +42,8 @@ const SETTINGS_ICONS = {
+ // başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
+ // denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
+ // Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
+-// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır.
++// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır. Yüzen pencerenin kendiliğinden açılması
++// (39-yuzen.js) telsiz.floatAuto içinde ('off' kapalı, 'on' veya anahtarın olmaması açık) saklanır.
+ const SETTINGS_KEYS = {
+   typing: 'telsiz.typing',
+   notifyLevel: 'telsiz.notifyLevel',
+@@ -51,7 +52,8 @@ const SETTINGS_KEYS = {
+   youtubeConsent: 'telsiz.djYoutubeConsent',
+   djMediaSession: 'telsiz.djMediaSession',
+   autoIdle: 'telsiz.autoIdle',
+-  autoIdleMinutes: 'telsiz.autoIdleMinutes'
++  autoIdleMinutes: 'telsiz.autoIdleMinutes',
++  floatAuto: 'telsiz.floatAuto'
+ }
+ const NOTIFY_LEVELS = ['all', 'mentions', 'none']
+ const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
+@@ -1565,6 +1567,12 @@ function autoIdleEnabled () {
+   return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
+ }
+ 
++// Yüzen pencere (39-yuzen.js): ses odasındayken uygulama küçültülünce (masaüstü) veya sekme değişince (Chrome, Edge)
++// kendiliğinden açılsın mı, varsayılan açık
++function floatAutoEnabled () {
++  return storeGet(SETTINGS_KEYS.floatAuto) !== 'off'
++}
++
+ function autoIdleMinutes () {
+   const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
+   return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
+@@ -2328,6 +2336,7 @@ function buildVoicePage (page) {
+   }, t('settings.voice.soundsHint'))
+   outSec.appendChild(sounds.row)
+ 
++  buildFloatSection(page)
+   buildScreenQualitySection(page)
+ 
+   fillMicList()
+@@ -2344,6 +2353,23 @@ function buildVoicePage (page) {
+   }
+ }
+ 
++// Yüzen pencere (istek 7, 39-yuzen.js): kendiliğinden açılma anahtarı. Açıklama platforma göre değişir: masaüstünde
++// simge durumu ve tepsi, tarayıcıda sekme değişimi. Linux masaüstünde Wayland notu da görünür. Bu cihazda yüzen
++// pencere yoksa anahtar devre dışıdır ve nedeni yazılır.
++function buildFloatSection (page) {
++  const sec = sSection(page, t('settings.voice.floatTitle'), 'set-float-section')
++  const mode = typeof floatMode === 'function' ? floatMode() : null
++  const hint = mode === null ? t('float.unsupported') : mode === 'desktop' ? t('settings.voice.floatHintDesktop') : t('settings.voice.floatHintBrowser')
++  const sw = sSwitch('set-float-auto', t('settings.voice.floatAuto'), floatAutoEnabled(), (checked) => {
++    storeSet(SETTINGS_KEYS.floatAuto, checked ? 'on' : 'off')
++    if (typeof floatSettingsChanged === 'function') floatSettingsChanged()
++  }, hint)
++  sw.input.disabled = mode === null
++  sec.appendChild(sw.row)
++  const desktop = window.telsizDesktop
++  if (mode === 'desktop' && desktop && desktop.platform === 'linux') sec.appendChild(sHint(t('settings.voice.floatHintWayland'), 'set-float-wayland'))
++}
++
+ // Ekran paylaşımı kalitesi (Ek L1.4): içerik önceliği ve çözünürlük/kare hızı ön ayarı. Tercih bu
+ // cihazda telsiz.screenQuality olarak saklanır, voice.js'e paylaşım varsayılanı olarak verilir ve
+ // paylaşım sürüyorsa hemen uygulanır.
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 4565e6f..ece55f1 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -562,6 +562,59 @@ test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5
+   }
+ })
+ 
++test('yüzen pencere ayarı: varsayılan açık, anahtar telsiz.floatAuto yazar, açıklama platforma göre değişir', () => {
++  const { run, root, storage, sandbox } = load()
++  assert.strictEqual(run('SETTINGS_KEYS.floatAuto'), 'telsiz.floatAuto')
++  assert.strictEqual(run('floatAutoEnabled()'), true)
++  storage.setItem('telsiz.floatAuto', 'off')
++  assert.strictEqual(run('floatAutoEnabled()'), false)
++  storage.setItem('telsiz.floatAuto', 'on')
++  assert.strictEqual(run('floatAutoEnabled()'), true)
++  storage.setItem('telsiz.floatAuto', 'bozuk')
++  assert.strictEqual(run('floatAutoEnabled()'), true, 'yalnızca off kapatır')
++  // Yüzen pencere modülü yokken (desteklenmiyor) anahtar devre dışı, nedeni yazılı
++  run("openSettings('voice', null)")
++  const sw = () => root.querySelector('#set-float-auto')
++  const hint = () => root.querySelector('#set-float-auto-hint').textContent
++  assert.strictEqual(root.querySelector('#set-float-section-title').textContent, 'Yüzen Pencere')
++  assert.strictEqual(root.querySelector('label[for="set-float-auto"] .settings-switch-text').textContent, 'Uygulama küçültülünce yüzen pencereyi aç')
++  assert.strictEqual(sw().getAttribute('role'), 'switch')
++  assert.strictEqual(sw().disabled, true)
++  assert.strictEqual(hint(), 'Bu tarayıcı yüzen pencereyi desteklemiyor.')
++  // Yüzen pencere bölümü Çıkış bölümünden sonra, ekran paylaşımı bölümünden önce
++  const ids = root.querySelectorAll('.settings-section').map((n) => n.id)
++  assert.ok(ids.indexOf('set-float-section') === ids.indexOf('set-output-section') + 1, ids.join())
++  assert.ok(ids.indexOf('set-float-section') < ids.indexOf('set-screen-section'))
++  run('closeSettings(false)')
++  // Tarayıcı: sekme değişimi açıklaması, anahtar yazar ve modüle bildirir
++  sandbox.__floatChanged = 0
++  run("var floatMode = function () { return 'document' }")
++  run('var floatSettingsChanged = function () { __floatChanged++ }')
++  run("openSettings('voice', null)")
++  assert.strictEqual(sw().disabled, false)
++  assert.strictEqual(sw().checked, true)
++  assert.ok(hint().indexOf('Chrome ve Edge') === 0, hint())
++  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
++  sw().click()
++  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'off')
++  sw().click()
++  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'on')
++  assert.strictEqual(sandbox.__floatChanged, 2)
++  run('closeSettings(false)')
++  // Linux masaüstü: simge durumu açıklaması ve Wayland notu
++  run("var floatMode = function () { return 'desktop' }")
++  run("window.telsizDesktop = { platform: 'linux' }")
++  run("openSettings('voice', null)")
++  assert.ok(hint().indexOf('Ses odasındayken pencere küçültülür') === 0, hint())
++  assert.strictEqual(root.querySelector('#set-float-wayland').textContent, 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.')
++  run('closeSettings(false)')
++  run("window.telsizDesktop = { platform: 'win32' }")
++  run("openSettings('voice', null)")
++  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
++  run('closeSettings(false)')
++  run('delete window.telsizDesktop')
++})
++
+ test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
+   const { run, storage, audio } = load()
+   assert.strictEqual(run('playMessageSound()'), true)
+@@ -610,7 +663,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
+     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
+     profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+     privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
++    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-float-auto', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
+     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
+     appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
