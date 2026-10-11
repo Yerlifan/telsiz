@@ -9,8 +9,10 @@
 const PROFILE_BATCH = 100
 const PROFILE_FETCH_DELAY_MS = 30
 // Başarısız profil isteğinin yeniden deneme beklemeleri. Dört denemenin sonuncusu da düşerse grup kuyrukta kalır,
-// bir sonraki başarılı poll (profilesAfterPoll) veya meta değişikliği en erken son bekleme dolunca yeniden dener.
+// bir sonraki başarılı poll (profilesAfterPoll) son bekleme dolunca yeniden istemek için zamanlayıcı kurar.
 const PROFILE_RETRY_MS = [2000, 5000, 15000, 60000]
+// /api/profiles isteğine giren kullanıcı kimliği biçimi (diğerleri istenmeden kuyruktan düşer)
+const PROFILE_ID_RE = /^[1-9][0-9]{0,15}$/
 // Profil resmi indirmesi en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır
 const AVATAR_TRIES = 4
 const AVATAR_RETRY_MS = [10000, 30000, 120000]
@@ -29,7 +31,9 @@ const profileState = {
   avatars: new Map(),
   formerUsers: new Map(),
   queue: new Set(),
+  // Bekleyen profil isteği zamanlayıcısı ve çalışacağı an (Date.now)
   timer: 0,
+  timerAt: 0,
   fetching: false,
   // Art arda başarısız profil isteği sayısı ve bir sonraki isteğin en erken zamanı (Date.now)
   failures: 0,
@@ -59,6 +63,7 @@ function profileEpoch () {
 function profilesReset () {
   profileState.gen += 1
   clearTimeout(profileState.timer)
+  profileState.timer = 0
   profileState.queue.clear()
   profileState.changed.clear()
   profileState.entries = new Map()
@@ -152,31 +157,44 @@ function profilesOnMeta () {
   scheduleProfileFetch()
 }
 
-// Meta dışında kalabilecek kişiler (özel mesaj, arkadaşlık listeleri) için de profil istenir
+// Meta dışında kalabilecek kişiler (özel mesaj, arkadaşlık listeleri) için de profil istenir. Kuyruğa ilk kez giren
+// kişi (yeni açılan profil kartı veya özel mesaj kişisi) düşen bir isteğin beklemesine takılmaz. Kuyrukta bekleyen
+// kişi yeniden istenince bekleme kısalmaz, düşmeye devam eden grup sunucuyu sık sık yormaz.
 function profilesEnsure (ids) {
   if (!Array.isArray(ids)) return
+  let fresh = false
   ids.forEach((id) => {
     if (id === null || id === undefined) return
-    if (!profileRecord(id)) profileState.queue.add(String(id))
+    const key = String(id)
+    if (profileRecord(key) || profileState.queue.has(key)) return
+    profileState.queue.add(key)
+    if (PROFILE_ID_RE.test(key)) fresh = true
   })
-  scheduleProfileFetch()
+  scheduleProfileFetch(fresh)
 }
 
+// Kendi profili kaydedilince (saveProfile) beklemeden yeniden istenir: sunucuya ulaşıldığı az önce görüldü
 function profilesRefetch (ids) {
   ids.forEach((id) => {
     profileState.queue.add(String(id))
   })
-  scheduleProfileFetch()
+  scheduleProfileFetch(true)
 }
 
-// Başarısız bir istekten sonra bekleme süresi dolmadan yeni istek gönderilmez
-function scheduleProfileFetch () {
+// Başarısız bir istekten sonra bekleme süresi (retryAt) dolmadan yeni istek gönderilmez. now: açık bir istek
+// (profilesEnsure, profilesRefetch) beklemeyi atlar, kuyrukta bekleyen grup da aynı istekle gider. Zamanlayıcı
+// yalnızca öne çekilir, daha erken kurulmuş bir istek ertelenmez.
+function scheduleProfileFetch (now) {
   if (!profileState.queue.size || profileState.fetching || !state.token) return
+  const at = Date.now() + Math.max(PROFILE_FETCH_DELAY_MS, now ? 0 : profileState.retryAt - Date.now())
+  if (profileState.timer && profileState.timerAt <= at) return
   clearTimeout(profileState.timer)
-  profileState.timer = setTimeout(fetchProfiles, Math.max(PROFILE_FETCH_DELAY_MS, profileState.retryAt - Date.now()))
+  profileState.timerAt = at
+  profileState.timer = setTimeout(fetchProfiles, at - Date.now())
 }
 
 async function fetchProfiles () {
+  profileState.timer = 0
   if (profileState.fetching || !profileState.queue.size || !state.token) return
   profileState.fetching = true
   const gen = profileState.gen
@@ -187,7 +205,7 @@ async function fetchProfiles () {
       batch.forEach((id) => {
         profileState.queue.delete(id)
       })
-      const ids = batch.filter((id) => /^[1-9][0-9]{0,15}$/.test(id))
+      const ids = batch.filter((id) => PROFILE_ID_RE.test(id))
       if (!ids.length) continue
       const res = await api('GET', '/api/profiles?ids=' + ids.join(','))
       if (gen !== profileState.gen) return
@@ -225,23 +243,24 @@ async function fetchProfiles () {
   else if (profileState.queue.size) scheduleProfileFetch()
 }
 
-// Başarısız istekten sonra 2, 5, 15 ve 60 saniye beklenerek yeniden denenir. Sonra zamanlayıcı kurulmaz, kuyruktaki
-// grubu bir sonraki başarılı poll veya meta değişikliği en az 60 saniye arayla yeniden ister (sunucuya yük binmez).
+// Başarısız istekten sonra 2, 5, 15 ve 60 saniye beklenerek yeniden denenir. Sonra kendiliğinden zamanlayıcı kurulmaz:
+// kuyruktaki grubu bir sonraki başarılı poll (profilesAfterPoll) en az 60 saniye arayla yeniden ister, böylece
+// sunucuya ulaşılamazken boşuna istek gönderilmez.
 function profileRetryLater () {
   profileState.failures += 1
   const n = profileState.failures
-  const delay = PROFILE_RETRY_MS[Math.min(n, PROFILE_RETRY_MS.length) - 1]
-  profileState.retryAt = Date.now() + delay
+  profileState.retryAt = Date.now() + PROFILE_RETRY_MS[Math.min(n, PROFILE_RETRY_MS.length) - 1]
   clearTimeout(profileState.timer)
   profileState.timer = 0
-  if (n <= PROFILE_RETRY_MS.length) profileState.timer = setTimeout(fetchProfiles, delay)
+  if (n <= PROFILE_RETRY_MS.length) scheduleProfileFetch()
 }
 
 // Her başarılı poll'dan sonra (05-poll.js): bir profil isteği düştüyse metadaki pv değerleri önbellekle karşılaştırılır
-// ve eskiyen kişiler yeniden istenir. Ağ düzelince sonraki meta değişikliği beklenmez. Hata yoksa hiçbir şey yapılmaz.
+// ve eskiyen kişiler kuyruğa alınır. İstek bekleme süresi dolunca gider (scheduleProfileFetch zamanlayıcıyı retryAt'e
+// kurar), sonraki poll'u veya meta değişikliğini beklemez: ağ düzeldikten en geç 60 saniye sonra profiller gelir.
+// Hata yoksa hiçbir şey yapılmaz.
 function profilesAfterPoll () {
   if (!profileState.failures || profileState.fetching || !state.token) return
-  if (profileState.retryAt > Date.now()) return
   const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
   users.forEach((u) => {
     if (!u || u.id === undefined) return
@@ -466,7 +485,7 @@ function profilesChanged (changed) {
   renderUserPanel()
   renderVoiceAll()
   if (typeof djRenderSoon === 'function') djRenderSoon()
-  if (typeof renderActivity === 'function') renderActivity()
+  profileActivityRefresh(changed)
   if (state.messages.some((m) => changed.has(String(m.authorId)))) refreshAllMessages()
   socialRender()
   if (profileState.cardUserId !== null && changed.has(String(profileState.cardUserId))) refreshProfileCard()
@@ -477,6 +496,21 @@ function profilesChanged (changed) {
       refreshAllMessages()
     }
   }
+}
+
+// Bildirimler listesi (28-bildirim.js renderActivity) baştan kurulur, bu yüzden yalnızca kayıtlarından birinin kişisi
+// değiştiyse yeniden çizilir. Odak listedeki bir İzle düğmesindeyse yeni listede aynı satırın düğmesine geri verilir
+// (profil değişikliği klavyeyle gezen kişinin yerini kaybettirmez). Kayıtların sırası profil değişikliğiyle değişmez.
+function profileActivityRefresh (changed) {
+  if (typeof renderActivity !== 'function' || typeof activityState === 'undefined') return
+  if (!activityState.items.some((item) => changed.has(String(item.userId)))) return
+  const list = el.activityList
+  const active = document.activeElement
+  const row = list && active && list.contains(active) ? Array.from(list.children).findIndex((li) => li.contains(active)) : -1
+  renderActivity()
+  const again = row === -1 ? null : list.children[row]
+  const watch = again ? again.querySelector('.activity-watch') : null
+  if (watch) focusNode(watch)
 }
 
 // Ses odasındaki kişinin açık ses kartının başlığı (#peer-name) yalnızca açılırken yazılır (10-voice.js

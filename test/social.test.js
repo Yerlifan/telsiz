@@ -5,9 +5,11 @@
 // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
 // kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır. Profil eşitlemesi (istek 3): düşen profil isteğinin
-// artan beklemeyle yeniden denenmesi ve başarılı poll'dan sonra yeniden istenmesi, profil resmi indirmesinin
+// artan beklemeyle yeniden denenmesi, başarılı poll'dan sonra bekleme dolunca yeniden istenmesi (ağ düzelince en geç
+// 60 saniye), ilk kez istenen kişinin ve kendi kaydedilen profilin beklemeye takılmaması, profil resmi indirmesinin
 // yeniden denenmesi ve kalıcı hatada (404, çözülemeyen dosya) durması sahte saatle (t.mock.timers), önbellekli
-// yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması da ayrıca sınanır.
+// yüzeylerin anahtarına giren profil sürümünün (profileEpoch) artması ve Bildirimler listesinin yalnızca listedeki
+// bir kişi değişince yeniden çizilmesi de ayrıca sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -275,24 +277,133 @@ test('profil isteği düşerse grup kuyruğa geri konur, 2, 5, 15 ve 60 saniye s
     await flush()
     assert.strictEqual(net.calls.length, before + 1, wait + ' ms sonra yeniden istenir')
   }
-  // Dördüncü yeniden deneme de düştü: zamanlayıcı kurulmaz, başarılı poll en erken 60 saniye sonra yeniden ister
-  run('profilesAfterPoll()')
+  // Dördüncü yeniden deneme de düştü: kendiliğinden zamanlayıcı kurulmaz, poll gelmezse yeniden istenmez
   t.mock.timers.tick(600000)
   await flush()
   assert.strictEqual(net.calls.length, 5)
   assert.strictEqual(run('profileRecord(2)'), null)
-  net.replies.push(() => ({ status: 200, data: { profiles: [{ id: 2, pv: 3, profile: null, avatarUploadId: null, publicKey: null, identity: null }] } }))
+  // Son beklemesi dolmuşken gelen başarılı poll hemen yeniden ister, bu istek de düşer
   run('profilesAfterPoll()')
   t.mock.timers.tick(30)
   await flush()
   assert.strictEqual(net.calls.length, 6)
+  // Bekleme sürerken gelen poll istemeyi bekleme dolana kadar erteler, sonraki poll'u beklemez. İkinci poll da
+  // beklemeyi uzatmaz
+  t.mock.timers.tick(1000)
+  run('profilesAfterPoll()')
+  t.mock.timers.tick(25000)
+  run('profilesAfterPoll()')
+  net.replies.push(() => ({ status: 200, data: { profiles: [{ id: 2, pv: 3, profile: null, avatarUploadId: null, publicKey: null, identity: null }] } }))
+  t.mock.timers.tick(33999)
+  await flush()
+  assert.strictEqual(net.calls.length, 6, '60 saniye dolmadan istenmez')
+  t.mock.timers.tick(1)
+  await flush()
+  assert.strictEqual(net.calls.length, 7, '60 saniye dolunca poll beklenmeden istenir')
   assert.strictEqual(run('profileRecord(2).pv'), 3)
   assert.strictEqual(run('profileState.failures'), 0)
   // Hata yokken başarılı poll istek göndermez
   run('profilesAfterPoll()')
   t.mock.timers.tick(60000)
   await flush()
-  assert.strictEqual(net.calls.length, 6)
+  assert.strictEqual(net.calls.length, 7)
+})
+
+test('profil isteği beşten çok kez düşse de ağ düzelince en geç 60 saniye içinde gelir, istekler 60 saniyeden sık gitmez', async (t) => {
+  // Boş frekansta sunucu poll'u 25 saniye bekletir: poll her 25 saniyede bir döner (phase: dönüş saniyesinin 25'e
+  // göre kalanı). Profil istekleri recover saniyesine kadar düşer. Saat saniye saniye ilerler.
+  for (const [recover, phase] of [[83, 17], [83, 3], [100, 10], [143, 24], [200, 0]]) {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 })
+    const ctx = load({ clock: true })
+    const { run } = ctx
+    const times = []
+    let up = false
+    ctx.sandbox.__api = () => {
+      times.push(Date.now())
+      return Promise.resolve(up ? { status: 200, data: { profiles: [{ id: 2, pv: 3, profile: null }] } } : { status: 0, data: null })
+    }
+    run('api = function (method, url) { return __api(method, url) }')
+    run("state.token = 'oturum'")
+    run("state.meta = { channels: [], users: [{ id: 1, name: 'burak', role: 'owner', pv: 0 }, { id: 2, name: 'ayse', role: 'member', pv: 3 }] }")
+    run('storeProfileEntry({ id: 1, pv: 0, profile: null })')
+    run('profilesOnMeta()')
+    let got = null
+    let s = 0
+    while (s < 400 && got === null) {
+      s += 1
+      t.mock.timers.tick(1000)
+      await flush()
+      if (s === recover) up = true
+      if (s % 25 === phase) {
+        run('profilesAfterPoll()')
+        await flush()
+      }
+      if (run('profileRecord(2) !== null')) got = s
+    }
+    const label = 'ağ ' + recover + '. saniyede düzeldi, poll kalanı ' + phase
+    assert.ok(got !== null && got - recover <= 60, label + ': profil ' + got + '. saniyede geldi')
+    // Dördüncü yeniden denemeden sonra iki istek arasında en az 60 saniye vardır
+    times.slice(4).forEach((at, i) => {
+      assert.ok(at - times[i + 3] >= 60000, label + ': ' + times[i + 3] + ' ve ' + at + ' ms')
+    })
+    t.mock.timers.reset()
+  }
+})
+
+test('bekleme sürerken ilk kez istenen kişi ve kişinin kendi kaydettiği profili beklemeden istenir', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000000 })
+  const ctx = load({ clock: true })
+  const { run } = ctx
+  const net = fakeProfiles(ctx)
+  run("state.token = 'oturum'")
+  run("state.meta = { channels: [], users: [{ id: 1, name: 'burak', role: 'owner', pv: 0 }, { id: 2, name: 'ayse', role: 'member', pv: 3 }] }")
+  run('storeProfileEntry({ id: 1, pv: 0, profile: null })')
+  run('profilesOnMeta()')
+  // İlk istek ve 2, 5 ve 15 saniye sonraki yeniden denemeler düşer, sıradaki deneme 60 saniye sonra
+  for (const wait of [30, 2000, 5000, 15000]) {
+    t.mock.timers.tick(wait)
+    await flush()
+  }
+  assert.strictEqual(net.calls.length, 4)
+  // Kuyrukta bekleyen kişinin yeniden istenmesi beklemeyi kısaltmaz
+  run('profilesEnsure([2])')
+  t.mock.timers.tick(1000)
+  await flush()
+  assert.strictEqual(net.calls.length, 4)
+  // İlk kez istenen kişi (yeni açılan profil kartı veya özel mesaj kişisi) beklemez, kuyruktaki grup da aynı istekle
+  // gider. Bu istek de düşer: kişi kuyrukta kalır ve yeniden istenince bekleme kısalmaz
+  run('profilesEnsure([5])')
+  t.mock.timers.tick(30)
+  await flush()
+  assert.deepStrictEqual(net.calls.slice(4), ['/api/profiles?ids=2,5'])
+  run("profilesEnsure([5, 2, 'gecersiz'])")
+  t.mock.timers.tick(10000)
+  await flush()
+  assert.strictEqual(net.calls.length, 5)
+  // Kişi kendi profilini kaydetti (POST /api/me/profile 200): kendi kaydı beklemeden yeniden istenir
+  net.replies.push(() => ({ status: 200, data: { profiles: [{ id: 2, pv: 3, profile: null }, { id: 5, pv: 1, profile: null }, { id: 1, pv: 1, profile: null }] } }))
+  run('profilesRefetch([1])')
+  t.mock.timers.tick(30)
+  await flush()
+  assert.deepStrictEqual(net.calls.slice(5), ['/api/profiles?ids=2,5,1'])
+  assert.strictEqual(run('profileRecord(1).pv'), 1)
+  assert.strictEqual(run('profileRecord(5).pv'), 1)
+  assert.strictEqual(run('profileState.failures'), 0)
+  assert.strictEqual(run('profileState.retryAt'), 0)
+})
+
+test('Bildirimler listesi yalnızca kayıtlarındaki bir kişinin profili değişince yeniden çizilir', () => {
+  const { run } = load()
+  run('globalThis.__renders = 0')
+  run('globalThis.renderActivity = function () { __renders += 1 }')
+  run("globalThis.activityState = { items: [{ id: 2, kind: 'share', userId: '3', channelId: null }, { id: 1, kind: 'join', userId: '2', channelId: '9' }] }")
+  run("profileActivityRefresh(new Set(['4', '5']))")
+  assert.strictEqual(run('__renders'), 0, 'listede olmayan kişiler')
+  run("profileActivityRefresh(new Set(['5', '2']))")
+  assert.strictEqual(run('__renders'), 1, 'listedeki kişi')
+  run('activityState.items = []')
+  run("profileActivityRefresh(new Set(['2']))")
+  assert.strictEqual(run('__renders'), 1, 'boş liste')
 })
 
 test('profil isteği beklerken gelen meta bekleme süresini kısaltmaz, ilk başarılı yanıt beklemeyi sıfırlar', async (t) => {
