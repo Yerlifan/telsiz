@@ -1,8 +1,12 @@
 'use strict'
 
-// Ayarlar: avatar menüsünden Görünüm, tema (arcade, gece, turkuaz) ve mod (koyu, açık) değişimi ve
-// yeniden yüklemede korunması, dilin Türkçeden İngilizceye geçmesi (arayüz metinleri değişir, eksik
-// anahtar uyarısı ve ekranda anahtar adı görünmez).
+// Ayarlar: avatar menüsünden Görünüm, tema ve mod (koyu, açık) değişimi ve yeniden yüklemede korunması, dilin
+// Türkçeden İngilizceye geçmesi (arayüz metinleri değişir, eksik anahtar uyarısı ve ekranda anahtar adı görünmez).
+// Temalar (istek 11): on tema kartının her biri tıklanınca tema ve zemin değişir, kartlar Telsiz Temaları ve
+// Erişilebilirlik gruplarındadır, açıklama yalnızca seçili kartta görünür, seçim yeniden yüklemede korunur. Her tema
+// ve modda 1440 ve 390 piksel genişlikte yatay taşma yoktur ve Gönder düğmesinde tek bir simge görünür (telefonda
+// etiket gizlenince düğmenin tek işareti). Sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
+// forced-colors: active öykünmesi) saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, saklı tema önce gelir.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -62,6 +66,99 @@ test('tema ve mod yeniden yüklemede korunur', async () => {
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
   const r = await page.evaluate(() => [document.documentElement.getAttribute('data-skin'), document.documentElement.getAttribute('data-scheme')])
   assert.deepEqual(r, ['turkuaz', 'light'])
+})
+
+test('her tema kartı tıklanınca tema ve zemin değişir, kartlar gruplu, seçim yeniden yüklemede korunur', async () => {
+  const page = W.page
+  const skins = await page.evaluate(() => window.TelsizTheme.skins.slice())
+  assert.equal(skins.length, 10, 'on tema')
+  await openAppearance(page)
+  const groups = await page.evaluate(() => Array.from(document.querySelectorAll('#set-skin-section .settings-theme-group')).map((g) => ({
+    id: g.getAttribute('data-skin-group'),
+    title: document.getElementById(g.getAttribute('aria-labelledby')).textContent,
+    skins: Array.from(g.querySelectorAll('label[data-skin-choice]')).map((n) => n.getAttribute('data-skin-choice'))
+  })))
+  assert.deepEqual(groups.map((g) => [g.id, g.title]), [['radio', 'Telsiz Temaları'], ['access', 'Erişilebilirlik']])
+  assert.deepEqual(groups[1].skins, ['kontrast'])
+  assert.deepEqual(groups[0].skins.concat(groups[1].skins).sort(), skins.slice().sort())
+  const backgrounds = {}
+  for (const skin of skins) {
+    await page.click('label[for="set-skin-' + skin + '"]')
+    await page.waitForFunction((s) => document.documentElement.getAttribute('data-skin') === s, skin)
+    const r = await page.evaluate((s) => {
+      const visibleHints = Array.from(document.querySelectorAll('#set-skin-section .settings-theme-hint')).filter((n) => n.getClientRects().length > 0).map((n) => n.id)
+      return {
+        bg: getComputedStyle(document.body).backgroundColor,
+        checked: document.getElementById('set-skin-' + s).checked,
+        selected: document.querySelector('label[data-skin-choice="' + s + '"]').classList.contains('is-selected'),
+        hints: visibleHints,
+        describedBy: Array.from(document.querySelectorAll('input[name="set-skin"]')).every((n) => document.getElementById(n.getAttribute('aria-describedby')))
+      }
+    }, skin)
+    assert.equal(r.checked, true, skin + ' seçili')
+    assert.equal(r.selected, true, skin + ' kartı işaretli')
+    assert.deepEqual(r.hints, ['set-skin-' + skin + '-hint'], skin + ': açıklama yalnızca seçili kartta görünür')
+    assert.equal(r.describedBy, true, 'her kartın açıklaması aria-describedby ile bağlı')
+    backgrounds[skin] = r.bg
+  }
+  assert.equal(new Set(Object.values(backgrounds)).size, skins.length, 'her temanın zemini farklı: ' + JSON.stringify(backgrounds))
+  await page.click('label[for="set-skin-saha"]')
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-skin') === 'saha')
+  await closeSettings(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-skin')), 'saha', 'seçim yeniden yüklemede korunur')
+})
+
+test('her tema ve modda 1440 ve 390 piksel genişlikte yatay taşma yok, Gönder düğmesinde tek simge görünür', async () => {
+  const page = W.page
+  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
+  const skins = await page.evaluate(() => window.TelsizTheme.skins.slice())
+  const problems = []
+  for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size)
+    for (const skin of skins) {
+      for (const scheme of ['dark', 'light']) {
+        await page.evaluate((a) => window.TelsizTheme.set({ skin: a[0], scheme: a[1] }), [skin, scheme])
+        await page.waitForFunction((a) => document.documentElement.getAttribute('data-skin') === a[0] && document.documentElement.getAttribute('data-scheme') === a[1], [skin, scheme])
+        const overflow = await h.overflowX(page)
+        if (overflow > 0) problems.push(size.width + ' ' + skin + ' ' + scheme + ': yatay taşma ' + overflow)
+        const icons = await page.evaluate(() => Array.from(document.querySelectorAll('#btn-send .icon')).filter((n) => n.getClientRects().length > 0 && n.getBoundingClientRect().width > 0).length)
+        if (icons !== 1) problems.push(size.width + ' ' + skin + ' ' + scheme + ': Gönder düğmesinde görünen simge ' + icons)
+      }
+    }
+    // Görünüm sayfası da taşmaz
+    await openAppearance(page)
+    const settingsOverflow = await h.overflowX(page)
+    if (settingsOverflow > 0) problems.push(size.width + ' ayarlar: yatay taşma ' + settingsOverflow)
+    await closeSettings(page)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  assert.deepEqual(problems, [])
+})
+
+test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta Yüksek Kontrast seçilir', async () => {
+  const page = W.page
+  const reload = async () => {
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+    return page.evaluate(() => document.documentElement.getAttribute('data-skin'))
+  }
+  // Öykünme olmadan saklı tema yoksa varsayılan Arcade
+  await page.evaluate(() => localStorage.removeItem('telsiz.skin'))
+  assert.equal(await reload(), 'arcade')
+  await page.emulateMedia({ contrast: 'more' })
+  assert.equal(await page.evaluate(() => matchMedia('(prefers-contrast: more)').matches), true, 'prefers-contrast öykünmesi çalışır')
+  assert.equal(await reload(), 'kontrast', 'prefers-contrast: more')
+  assert.equal(await page.evaluate(() => localStorage.getItem('telsiz.skin')), null, 'otomatik seçim saklanmaz')
+  await page.emulateMedia({ contrast: null, forcedColors: 'active' })
+  assert.equal(await reload(), 'kontrast', 'forced-colors: active')
+  // Saklı tema sistem ayarının önüne geçer
+  await page.emulateMedia({ contrast: 'more', forcedColors: null })
+  await page.evaluate(() => localStorage.setItem('telsiz.skin', 'gece'))
+  assert.equal(await reload(), 'gece')
+  await page.emulateMedia({ contrast: null, forcedColors: null })
+  await page.evaluate(() => window.TelsizTheme.set({ skin: 'turkuaz', scheme: 'light' }))
 })
 
 test('dil Türkçeden İngilizceye geçer, arayüz metinleri değişir', async () => {
