@@ -1,0 +1,1861 @@
+From cfa3565145a56dede1c9826bf7037723c6d77190 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 07:07:06 +0000
+Subject: [PATCH 58/59] =?UTF-8?q?G14:=20=C4=B0stemci:=20Parolam=C4=B1=20Un?=
+ =?UTF-8?q?uttum,=20kurtarma=20kodu=20kart=C4=B1=20ve=20Ayarlar'da=20Kurta?=
+ =?UTF-8?q?rma=20Kodu?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+16-identity.js kayıtta kurtarma kodunu üretir, Ayarlar'dan kodu
+parolayla kurar ve kaldırır, kodla yeni parola belirler (açık anahtar
+aynı kalır, kod yenilenir) ve parola değişikliğinde kodu isteğe bağlı
+yeniler. Yeni 41-kurtarma.js giriş ekranındaki Parolamı Unuttum kartını,
+kod kartını (Kopyala, Dosya Olarak İndir, kaydettim onayı), uygulama
+içindeki kod penceresini, Ayarlar > Hesabım bölümünü ve kodu olmayan
+hesaba girişten sonra bir kez gösterilen hatırlatmayı kurar. Sıralar:
+kurulum, kod kartı, davet ve kayıt, kod kartı, profil. Sahibin
+sıfırlamasından sonra yeni parolayla birlikte yeni kod da gösterilir.
+01-kurulum ve 12-anahtarsiz-kayit e2e testleri kod kartından geçer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/01-kurulum.test.js          |   7 +-
+ e2e/12-anahtarsiz-kayit.test.js |   2 +
+ e2e/yardimci.js                 |  16 +
+ public/css/people.css           |  87 ++++++
+ public/css/settings.css         |  10 +
+ public/i18n.js                  |  86 +++++-
+ public/index.html               |   8 +-
+ public/js/02-state-dom.js       |   3 +-
+ public/js/03-auth.js            |  49 ++-
+ public/js/11-settings.js        |  31 +-
+ public/js/16-identity.js        | 216 +++++++++++++-
+ public/js/41-kurtarma.js        | 508 ++++++++++++++++++++++++++++++++
+ public/sw.js                    |   1 +
+ test/kurtarma-istemci.test.js   | 334 +++++++++++++++++++++
+ 14 files changed, 1319 insertions(+), 39 deletions(-)
+ create mode 100644 public/js/41-kurtarma.js
+ create mode 100644 test/kurtarma-istemci.test.js
+
+diff --git a/e2e/01-kurulum.test.js b/e2e/01-kurulum.test.js
+index a7b25f1..a807ef9 100644
+--- a/e2e/01-kurulum.test.js
++++ b/e2e/01-kurulum.test.js
+@@ -7,7 +7,7 @@ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+ const h = require('./yardimci')
+ 
+-const W = { srv: null, tb: null, owner: null, ece: null, link: '', keyCode: '' }
++const W = { srv: null, tb: null, owner: null, ece: null, link: '', keyCode: '', ownerCode: '' }
+ const test = h.makeTest(__filename, () => (W.tb ? W.tb.pages : []))
+ 
+ const OWNER_TEXT = 'Merhaba Ece, bu şifreli ilk mesaj ÇĞİÖŞÜ 7319'
+@@ -40,6 +40,8 @@ test('sahip kurulum formuyla hesabı açar, davet ekranı bağlantı ve anahtar
+   await page.fill('#setup-password', 'Deniz-Parola-2026')
+   await page.fill('#setup-password2', 'Deniz-Parola-2026')
+   await page.click('#setup-submit')
++  // Sıra: kurtarma kodu kartı, davet kartı (istek 14)
++  W.ownerCode = await h.passRecoveryCard(page)
+   await page.waitForSelector('#invite-card:not([hidden])', { timeout: h.LONG })
+   W.link = await page.inputValue('#invite-link')
+   W.keyCode = await page.inputValue('#invite-key')
+@@ -60,6 +62,9 @@ test('ikinci kullanıcı davet bağlantısıyla kayıt olur ve görünen adını
+   await page.fill('#register-password', 'Ece-Parola-2026')
+   await page.fill('#register-password2', 'Ece-Parola-2026')
+   await page.click('#register-submit')
++  // Sıra: kurtarma kodu kartı, profil adımı (istek 14)
++  const code = await h.passRecoveryCard(page)
++  assert.notEqual(code, W.ownerCode, 'her hesabın kodu ayrı')
+   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+   await page.waitForSelector('#profile-step-name', { timeout: h.LONG })
+   await page.fill('#profile-step-name', 'Ece')
+diff --git a/e2e/12-anahtarsiz-kayit.test.js b/e2e/12-anahtarsiz-kayit.test.js
+index 8be77e3..c5775cf 100644
+--- a/e2e/12-anahtarsiz-kayit.test.js
++++ b/e2e/12-anahtarsiz-kayit.test.js
+@@ -68,6 +68,8 @@ test('davet koduyla kayıt, anahtar girmeden devam: uygulama açılır ve anahta
+   await page.fill('#register-password2', 'parola-ece-123')
+   await page.fill('#register-invite', W.invite)
+   await page.click('#register-submit')
++  // Kayıttan sonra önce kurtarma kodu kartı (istek 14)
++  await h.passRecoveryCard(page)
+   await skipAndStay(page)
+ })
+ 
+diff --git a/e2e/yardimci.js b/e2e/yardimci.js
+index 08c4d71..634b3a6 100644
+--- a/e2e/yardimci.js
++++ b/e2e/yardimci.js
+@@ -520,6 +520,20 @@ function reachable (page, sel) {
+   }, sel)
+ }
+ 
++// Kayıttan, kurulumdan ve kurtarmadan sonra gösterilen kurtarma kodu kartı (istek 14): kod biçimi doğrulanır, Devam
++// "kaydettim" onayına kadar kapalıdır. Onaylanıp Devam'a basılır, kod döner.
++const RECOVERY_CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/
++async function passRecoveryCard (page) {
++  await page.waitForSelector('#recovery-card:not([hidden]) #recovery-card-code', { timeout: LONG })
++  const code = await page.textContent('#recovery-card-code')
++  assert.match(code, RECOVERY_CODE_RE)
++  assert.equal(await page.isDisabled('#recovery-card-continue'), true, 'onaydan önce Devam kapalı')
++  await page.check('#recovery-card-saved')
++  await page.click('#recovery-card-continue')
++  await page.waitForSelector('#recovery-card', { state: 'hidden', timeout: LONG })
++  return code
++}
++
+ // İstasyonu görünür alana getirip tıklar (taşan bantta)
+ async function clickStation (page, key) {
+   await page.evaluate((k) => {
+@@ -591,6 +605,8 @@ module.exports = {
+   until,
+   overflowX,
+   reachable,
++  passRecoveryCard,
++  RECOVERY_CODE_RE,
+   clickStation,
+   joinVoice,
+   makeWav
+diff --git a/public/css/people.css b/public/css/people.css
+index 1c32808..d6e781f 100644
+--- a/public/css/people.css
++++ b/public/css/people.css
+@@ -230,6 +230,93 @@
+   display: none;
+ }
+ 
++/* Kurtarma kodu (41-kurtarma.js): Parolamı Unuttum kartı, giriş ekranındaki kod kartı ve uygulama içindeki kod
++   penceresi aynı kod görünümünü kullanır. Kod dörderli gruplar hâlinde satır sonunda bölünür, telefonda taşmaz. */
++.login-forgot {
++  margin-top: 0.5rem;
++}
++
++.forgot-back {
++  margin-top: 0.5rem;
++}
++
++.forgot-nocode {
++  margin-top: 1rem;
++  padding-top: 0.5rem;
++  border-top: var(--border-width) solid var(--line);
++}
++
++.forgot-nocode-title {
++  padding: 0.6rem 0;
++  color: var(--text);
++  font-weight: var(--weight-strong);
++  cursor: pointer;
++}
++
++.forgot-owner {
++  overflow-wrap: break-word;
++  word-wrap: break-word;
++}
++
++.forgot-command {
++  padding: 0.05rem 0.3rem;
++  border-radius: var(--radius-small);
++  background-color: var(--surface-3);
++  color: var(--text);
++  font-family: var(--font-mono);
++  word-break: break-all;
++}
++
++.recovery-rotated {
++  margin: 0.5rem 0;
++  color: var(--live);
++  font-weight: var(--weight-strong);
++}
++
++.recovery-code {
++  margin: 0.75rem 0 0;
++  padding: 0.875rem 0.75rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-small);
++  background-color: var(--screen-bg);
++  color: var(--text-strong);
++  font-size: 1.25rem;
++  font-weight: 700;
++  letter-spacing: 0.04em;
++  line-height: 1.7;
++  text-align: center;
++  -webkit-user-select: all;
++  user-select: all;
++}
++
++.recovery-code-group {
++  display: inline-block;
++}
++
++.recovery-actions {
++  display: flex;
++  flex-wrap: wrap;
++  margin: 0 -0.25rem;
++}
++
++.recovery-actions .button {
++  flex: 1 1 auto;
++  margin: 0.25rem;
++}
++
++.recovery-saved {
++  margin-top: 0.5rem;
++}
++
++.recovery-continue {
++  margin-top: 0.75rem;
++}
++
++.recovery-continue:disabled {
++  opacity: 0.55;
++  cursor: not-allowed;
++}
++
+ /* =========================================================
+    2. Çevrimiçi sayfası ve şeridi
+    ========================================================= */
+diff --git a/public/css/settings.css b/public/css/settings.css
+index a0923f3..af9ac48 100644
+--- a/public/css/settings.css
++++ b/public/css/settings.css
+@@ -302,6 +302,16 @@
+   max-width: 44rem;
+ }
+ 
++/* Kurtarma kodu yoksa durum satırı uyarı olarak vurgulanır (41-kurtarma.js) */
++.recovery-status.is-missing {
++  padding: 0.6rem 0.85rem;
++  border-left: 3px solid var(--warn);
++  border-radius: var(--radius-small);
++  background-color: var(--warn-bg);
++  color: var(--text);
++  font-weight: var(--weight-strong);
++}
++
+ .settings-note {
+   margin: 0.5rem 0 0.75rem;
+   padding: 0.6rem 0.85rem;
+diff --git a/public/i18n.js b/public/i18n.js
+index a213a97..fd69d21 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -61,6 +61,45 @@ window.I18N = (function () {
+     'theme.groupAccess': 'Erişilebilirlik',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
++    'auth.forgot': 'Parolamı Unuttum',
++    'auth.forgotTitle': 'Kurtarma Koduyla Parolayı Sıfırla',
++    'auth.forgotLead': 'Kayıt olurken ya da Ayarlar > Hesabım\'dan aldığınız kurtarma koduyla yeni parola belirleyin. Özel mesajlarınız korunur.',
++    'auth.forgotSubmit': 'Parolayı Sıfırla',
++    'auth.forgotBack': 'Girişe Dön',
++    'auth.recoveryCode': 'Kurtarma kodu',
++    'auth.recoveryCodeHint': 'Dörderli gruplar hâlinde 28 karakter. Büyük küçük harf fark etmez.',
++    'auth.recoveryGroupKey': 'Bu bir frekans anahtarı, kurtarma kodu değil.',
++    'auth.forgotNoCodeTitle': 'Kurtarma kodum yok',
++    'auth.forgotNoCodeText': 'Frekansın sahibine uygulama dışından ulaşın. Sahip Ayarlar > Üyeler > Parola Sıfırla ile size geçici parola verebilir. Bu yolla eski özel mesajlarınız okunamaz.',
++    'auth.forgotOwnerText': 'Sahip sizseniz sunucuda şu komutu çalıştırın: {command}',
++    'recovery.title': 'Kurtarma Kodunuz',
++    'recovery.lead': 'Parolanızı unutursanız bu kodla yeni parola belirleyebilirsiniz. Kod yalnızca bir kez gösterilir.',
++    'recovery.warning': 'Kodu bilen herkes parolanızı değiştirip özel mesajlarınızı okuyabilir. Güvenli bir yere yazın, panoda veya bulutta bırakmayın.',
++    'recovery.copy': 'Kopyala',
++    'recovery.download': 'Dosya Olarak İndir',
++    'recovery.fileName': 'telsiz-kurtarma-kodu.txt',
++    'recovery.fileText': 'Telsiz kurtarma kodu\nSunucu: {server}\nKullanıcı: {name}\nKod: {code}\nTarih: {date}\nBu kodu kimseyle paylaşmayın.',
++    'recovery.saved': 'Kodu güvenli bir yere kaydettim',
++    'recovery.continue': 'Devam',
++    'recovery.rotated': 'Parolanız değişti. Eski kurtarma kodu artık geçersiz, yenisi aşağıda.',
++    'recovery.remind': 'Hesabınızın kurtarma kodu yok. Parolanızı unutursanız özel mesajlarınızı kaybedersiniz.',
++    'settings.account.recoveryTitle': 'Kurtarma Kodu',
++    'settings.account.recoveryNone': 'Kurtarma kodu yok.',
++    'settings.account.recoveryCreated': '{date} tarihinde {device} cihazında oluşturuldu.',
++    'settings.account.recoveryCreate': 'Kod Oluştur',
++    'settings.account.recoveryRenew': 'Yeni Kod Oluştur',
++    'settings.account.recoveryRemove': 'Kodu Kaldır',
++    'settings.account.recoveryRemoveConfirm': 'Kurtarma kodu silinsin mi? Parolanızı unutursanız özel mesajlarınızı kurtaramazsınız.',
++    'settings.account.recoveryFailed': 'Kurtarma kodu kaydedilemedi.',
++    'settings.account.recoveryRemoved': 'Kurtarma kodu kaldırıldı.',
++    'settings.account.recoveryRenewWithPassword': 'Kurtarma kodunu da yenile',
++    'identity.error.recovery_empty': 'Kurtarma kodunu yazın.',
++    'identity.error.recovery_bad_length': 'Kod 28 karakter olmalı.',
++    'identity.error.recovery_bad_char': 'Kodda geçersiz karakter var.',
++    'identity.error.recovery_bad_padding': 'Kod hatalı yazılmış.',
++    'identity.error.recovery_bad_checksum': 'Kod hatalı yazılmış, denetim tutmadı.',
++    'errors.bad_recovery': 'Kullanıcı adı veya kurtarma kodu hatalı.',
++    'errors.keys_changed': 'Hesabın anahtarları değişti, yeniden deneyin.',
+     // G15 Android
+     // G16 Şikâyet
+     // G17 Hexball
+@@ -1284,7 +1323,7 @@ window.I18N = (function () {
+     'settings.server.rotateConfirm': 'Davet kodu yenilensin mi? Eski davet bağlantılarıyla artık kayıt olunamaz.',
+     'settings.server.rotateFailed': 'Davet kodu yenilenemedi.',
+ 
+-    'settings.members.tempHint': 'Geçici parola yalnızca bir kez gösterilir. Kişiye güvenli bir yoldan iletin.',
++    'settings.members.tempHint': 'Geçici parola yalnızca bir kez gösterilir. Kişiye güvenli bir yoldan iletin. Kişinin kurtarma kodu da silindi.',
+     'settings.members.tempLabel': '{name} için geçici parola:',
+     'settings.members.banned': 'Engellenenler',
+     'settings.members.bannedState': 'engellendi',
+@@ -1304,7 +1343,7 @@ window.I18N = (function () {
+     'settings.members.kickConfirm': '{name} frekanstan atılsın mı? Hesabı silinir ve tüm oturumları kapanır. Mesajları kalır, yazarı silinmiş görünür. Geri dönmek için davet koduyla yeniden kayıt olması gerekir. Atılan kişi şifreleme anahtarını bilmeye devam eder, yeni mesajları korumak için Ayarlar > Gizlilik ve güvenlik > Şifreleme anahtarları bölümünden Yeni anahtar oluştur düğmesini kullanın.',
+     'settings.members.kickedOk': '{name} frekanstan atıldı.',
+     'settings.members.actionFailed': 'İşlem yapılamadı.',
+-    'settings.members.resetConfirm': '{name} için parola sıfırlansın mı? Kişinin tüm oturumları kapanır.',
++    'settings.members.resetConfirm': '{name} için parola sıfırlansın mı? Kişinin tüm oturumları kapanır, kurtarma kodu da silinir.',
+     'settings.members.resetFailed': 'Parola sıfırlanamadı.',
+ 
+     // Ayarlar görünümü: gezinme ve kategoriler
+@@ -2039,6 +2078,45 @@ window.I18N = (function () {
+     'theme.groupAccess': 'Accessibility',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
++    'auth.forgot': 'Forgot My Password',
++    'auth.forgotTitle': 'Reset Your Password with a Recovery Code',
++    'auth.forgotLead': 'Set a new password with the recovery code you got at sign-up or from Settings > My Account. Your direct messages are kept.',
++    'auth.forgotSubmit': 'Reset Password',
++    'auth.forgotBack': 'Back to Sign In',
++    'auth.recoveryCode': 'Recovery code',
++    'auth.recoveryCodeHint': '28 characters in groups of four. Case doesn\'t matter.',
++    'auth.recoveryGroupKey': 'This is a frequency key, not a recovery code.',
++    'auth.forgotNoCodeTitle': 'I don\'t have a recovery code',
++    'auth.forgotNoCodeText': 'Contact the frequency owner outside the app. The owner can give you a temporary password in Settings > Members > Reset Password. Your old direct messages can\'t be read after that.',
++    'auth.forgotOwnerText': 'If you are the owner, run this on the server: {command}',
++    'recovery.title': 'Your Recovery Code',
++    'recovery.lead': 'If you forget your password, you can set a new one with this code. It is shown only once.',
++    'recovery.warning': 'Anyone with this code can change your password and read your direct messages. Write it down somewhere safe and don\'t leave it in the clipboard or the cloud.',
++    'recovery.copy': 'Copy',
++    'recovery.download': 'Download as File',
++    'recovery.fileName': 'telsiz-recovery-code.txt',
++    'recovery.fileText': 'Telsiz recovery code\nServer: {server}\nUser: {name}\nCode: {code}\nDate: {date}\nDon\'t share this code with anyone.',
++    'recovery.saved': 'I saved the code somewhere safe',
++    'recovery.continue': 'Continue',
++    'recovery.rotated': 'Your password changed. The old recovery code no longer works, the new one is below.',
++    'recovery.remind': 'Your account has no recovery code. If you forget your password, you lose your direct messages.',
++    'settings.account.recoveryTitle': 'Recovery Code',
++    'settings.account.recoveryNone': 'No recovery code.',
++    'settings.account.recoveryCreated': 'Created on {date} on {device}.',
++    'settings.account.recoveryCreate': 'Create Code',
++    'settings.account.recoveryRenew': 'Create New Code',
++    'settings.account.recoveryRemove': 'Remove Code',
++    'settings.account.recoveryRemoveConfirm': 'Delete the recovery code? If you forget your password you can\'t recover your direct messages.',
++    'settings.account.recoveryFailed': 'The recovery code could not be saved.',
++    'settings.account.recoveryRemoved': 'The recovery code was removed.',
++    'settings.account.recoveryRenewWithPassword': 'Also renew the recovery code',
++    'identity.error.recovery_empty': 'Enter the recovery code.',
++    'identity.error.recovery_bad_length': 'The code must be 28 characters.',
++    'identity.error.recovery_bad_char': 'The code has an invalid character.',
++    'identity.error.recovery_bad_padding': 'The code is mistyped.',
++    'identity.error.recovery_bad_checksum': 'The code is mistyped, the check failed.',
++    'errors.bad_recovery': 'Wrong username or recovery code.',
++    'errors.keys_changed': 'The account\'s keys changed. Try again.',
+     // G15 Android
+     // G16 Şikâyet
+     // G17 Hexball
+@@ -3262,7 +3340,7 @@ window.I18N = (function () {
+     'settings.server.rotateConfirm': 'Renew the invite code? Old invite links will no longer work for signing up.',
+     'settings.server.rotateFailed': 'Could not renew the invite code.',
+ 
+-    'settings.members.tempHint': 'The temporary password is shown only once. Pass it on to the person through a secure channel.',
++    'settings.members.tempHint': 'The temporary password is shown only once. Pass it on to the person through a secure channel. Their recovery code was deleted too.',
+     'settings.members.tempLabel': 'Temporary password for {name}:',
+     'settings.members.banned': 'Banned',
+     'settings.members.bannedState': 'banned',
+@@ -3282,7 +3360,7 @@ window.I18N = (function () {
+     'settings.members.kickConfirm': 'Kick {name} from the frequency? Their account will be deleted and all of their sessions will be signed out. Their messages stay and show a deleted author. To come back, they need to register again with an invite code. The kicked person still knows the encryption key. To protect new messages, use Create new key in Settings > Privacy and security > Encryption keys.',
+     'settings.members.kickedOk': '{name} has been kicked from the frequency.',
+     'settings.members.actionFailed': 'The action could not be completed.',
+-    'settings.members.resetConfirm': 'Reset the password for {name}? All of their sessions will be signed out.',
++    'settings.members.resetConfirm': 'Reset the password for {name}? All of their sessions will be signed out and their recovery code is deleted too.',
+     'settings.members.resetFailed': 'Could not reset the password.',
+ 
+     // Ayarlar görünümü: gezinme ve kategoriler
+diff --git a/public/index.html b/public/index.html
+index 7988a5d..324803f 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -78,6 +78,7 @@
+   <script src="/js/30-pencere.js" defer></script>
+   <script src="/js/31-sesler.js" defer></script>
+   <script src="/js/32-arama.js" defer></script>
++  <script src="/js/41-kurtarma.js" defer></script>
+ </head>
+ <body>
+   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
+@@ -207,7 +208,7 @@
+     </div>
+   </main>
+ 
+-  <!-- Kurulum, davet, giriş ve anahtar ekranları -->
++  <!-- Kurulum, davet, giriş, Parolamı Unuttum, kurtarma kodu ve anahtar ekranları -->
+   <main id="auth-view" class="auth-view" hidden>
+     <header class="auth-top">
+       <div class="wordmark">
+@@ -389,6 +390,7 @@
+             <input id="login-password" class="input" type="password" autocomplete="current-password" maxlength="256" required>
+             <p id="login-error" class="form-error" role="alert" hidden></p>
+             <button id="login-submit" class="button button-wide" type="submit" data-i18n="auth.login">Giriş Yap</button>
++            <button id="login-forgot" class="button button-ghost button-wide login-forgot" type="button" data-i18n="auth.forgot">Parolamı Unuttum</button>
+           </form>
+           <form id="register-form" class="form" role="tabpanel" aria-labelledby="auth-tab-register" autocomplete="on" novalidate hidden>
+             <label class="label" for="register-name" data-i18n="auth.username">Kullanıcı adı</label>
+@@ -406,6 +408,10 @@
+           </form>
+         </section>
+ 
++        <!-- Parolamı Unuttum ve kurtarma kodu kartlarının içeriği 41-kurtarma.js tarafından kurulur -->
++        <section id="forgot-card" class="auth-section" aria-labelledby="forgot-title" hidden></section>
++        <section id="recovery-card" class="auth-section" aria-labelledby="recovery-title" hidden></section>
++
+         <section id="key-card" class="auth-section" aria-labelledby="key-title" hidden>
+           <h2 id="key-title" class="section-heading"><svg class="icon" aria-hidden="true"><use href="#i-lock" xlink:href="#i-lock"></use></svg><span data-i18n="invite.keyLabel">Şifreleme anahtarı</span></h2>
+           <p id="key-intro" class="lead"></p>
+diff --git a/public/js/02-state-dom.js b/public/js/02-state-dom.js
+index 3ec3e92..c9cbf79 100644
+--- a/public/js/02-state-dom.js
++++ b/public/js/02-state-dom.js
+@@ -83,7 +83,8 @@ const ELEMENT_IDS = [
+   'auth-view', 'auth-server-name', 'auth-notice', 'auth-lang',
+   'setup-card', 'setup-form', 'setup-name', 'setup-password', 'setup-password2', 'setup-code', 'setup-error', 'setup-submit',
+   'invite-card', 'invite-link', 'invite-key', 'invite-copy-link', 'invite-copy-key', 'invite-continue',
+-  'login-card', 'auth-tab-login', 'auth-tab-register', 'login-form', 'login-name', 'login-password', 'login-error', 'login-submit',
++  'login-card', 'auth-tab-login', 'auth-tab-register', 'login-form', 'login-name', 'login-password', 'login-error', 'login-submit', 'login-forgot',
++  'forgot-card', 'recovery-card',
+   'register-form', 'register-name', 'register-password', 'register-password2', 'register-invite', 'register-error', 'register-submit',
+   'key-card', 'key-intro', 'key-form', 'key-input', 'key-error', 'key-add', 'key-generate-wrap', 'key-generate', 'key-skip', 'key-logout',
+   'auth-scheme',
+diff --git a/public/js/03-auth.js b/public/js/03-auth.js
+index d91c067..a2a76d1 100644
+--- a/public/js/03-auth.js
++++ b/public/js/03-auth.js
+@@ -1,7 +1,8 @@
+ 'use strict'
+ 
+ // Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları ile oturum yaşam döngüsü. Giriş ve kayıtta
+-// parola istemcide türetilir (16-identity.js), sunucuya yalnızca kimlik doğrulama anahtarı gider.
++// parola istemcide türetilir (16-identity.js), sunucuya yalnızca kimlik doğrulama anahtarı gider. Parolamı Unuttum
++// ve kurtarma kodu kartlarının içeriği 41-kurtarma.js tarafından kurulur.
+ 
+ // Görünümler
+ 
+@@ -19,7 +20,7 @@ function showBoot (text, canRetry) {
+   el.bootRetry.hidden = !canRetry
+ }
+ 
+-const AUTH_CARDS = ['setup', 'invite', 'login', 'key']
++const AUTH_CARDS = ['setup', 'invite', 'login', 'key', 'forgot', 'recovery']
+ 
+ function showAuthCard (name, notice) {
+   showView('auth')
+@@ -239,6 +240,10 @@ function prepareAuthForms () {
+   el.loginName.addEventListener('input', () => {
+     lowercaseInput(el.loginName)
+   })
++  // Parolamı Unuttum: kurtarma koduyla yeni parola (41-kurtarma.js)
++  el.loginForgot.addEventListener('click', () => {
++    if (typeof showForgotCard === 'function') showForgotCard()
++  })
+   el.setupName.addEventListener('input', () => {
+     lowercaseInput(el.setupName)
+     authHelpers.setupCheck.run()
+@@ -306,16 +311,25 @@ async function submitSetup (e) {
+     setMsg(el.setupError, () => errorText(st, t('auth.stateFailed')), 'error')
+     return
+   }
+-  if (!created.ok) {
+-    startSession(st.data)
+-    toast(created.error, 'error', 10000)
+-    return
+-  }
+-  showInvite(st.data.inviteCode, created.code, () => {
+-    startSession(st.data)
++  // Sıra: kurtarma kodu kartı, davet kartı, uygulama
++  withRecoveryCode(result.recoveryCode, name, () => {
++    if (!created.ok) {
++      startSession(st.data)
++      toast(created.error, 'error', 10000)
++      return
++    }
++    showInvite(st.data.inviteCode, created.code, () => {
++      startSession(st.data)
++    })
+   })
+ }
+ 
++// Kayıttan sonra kurtarma kodu varsa önce kod kartı gösterilir (41-kurtarma.js), Devam ile next çalışır
++function withRecoveryCode (code, name, next) {
++  if (code && typeof showRecoveryCard === 'function') showRecoveryCard(code, name, false, next)
++  else next()
++}
++
+ // Yeni grup anahtarı üretir, anahtarlığa ekler ve sunucuda etkin anahtar kimliğini ayarlar.
+ async function createGroupKey () {
+   let code = ''
+@@ -422,6 +436,8 @@ async function submitLogin (e) {
+   el.loginPassword.value = ''
+   setToken(result.token)
+   if (result.keysReset) state.fragmentNotice = { kind: 'ok', text: () => t('identity.keysReset') }
++  // Kurtarma kodu olmayan hesaba girişten sonra bir kez hatırlatma (41-kurtarma.js)
++  if (typeof recoveryNoteLogin === 'function') recoveryNoteLogin()
+   await resumeSession()
+ }
+ 
+@@ -452,9 +468,11 @@ async function submitRegister (e) {
+     clearPasswordFields([el.registerPassword, el.registerPassword2])
+     storeRemove(KEYS.invite, 'session')
+     setToken(result.token)
+-    // Kayıttan sonra isteğe bağlı profil adımı (görünen ad)
+-    identityState.profileStep = true
+-    await resumeSession()
++    // Sıra: kurtarma kodu kartı, ardından isteğe bağlı profil adımı (görünen ad)
++    withRecoveryCode(result.recoveryCode, name, () => {
++      identityState.profileStep = true
++      resumeSession()
++    })
+     return
+   }
+   const res = result.res
+@@ -675,7 +693,7 @@ function applyStateData (data) {
+   state.sigSeq = Number(data.sigSeq) || 0
+   state.inviteCode = typeof data.inviteCode === 'string' ? data.inviteCode : null
+   state.bannedUsers = Array.isArray(data.bannedUsers) ? data.bannedUsers : state.bannedUsers
+-  setServerKeys(data.keys, data.resetPending)
++  setServerKeys(data.keys, data.resetPending, data.recovery)
+   setFormerUsers(data.formerUsers)
+   if (data.meta) applyMeta(data.meta, true)
+   socialApplyState(data)
+@@ -710,6 +728,7 @@ function startSession (data) {
+ function enterApp () {
+   openApp()
+   socialAfterOpen()
++  if (typeof recoveryAfterEnter === 'function') recoveryAfterEnter()
+   // Anahtar ekranında eklenen anahtarla, girişte açılamayan müzik durumları da açılır
+   if (typeof djRekey === 'function') djRekey()
+ }
+@@ -768,6 +787,8 @@ function resetAppState () {
+   if (typeof activityReset === 'function') activityReset()
+   // Zil, gelen arama kartı ve arama bölümü kapanır (32-arama.js)
+   if (typeof aramaReset === 'function') aramaReset()
++  // Bekleyen kurtarma kodu hatırlatması ve Parolamı Unuttum alanları (41-kurtarma.js)
++  if (typeof recoveryReset === 'function') recoveryReset()
+   state.inApp = false
+   state.me = null
+   state.meta = null
+@@ -784,6 +805,8 @@ function resetAppState () {
+   state.editingId = null
+   state.voiceKey = ''
+   identityState.keys = null
++  identityState.recovery = null
++  identityState.recoveryKnown = false
+   // Konuşma taslakları ve ekleri yalnızca bellekteydi, oturumla birlikte silinir (08-composer.js)
+   composerDraftsClear()
+   clearAttachments()
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 80134e5..425b41c 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -860,7 +860,7 @@ function myProfileSignature () {
+   return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, ''), safeCall(() => coverUrlOf(id), '')].join('|')
+ }
+ 
+-// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
++// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, kurtarma kodu, çıkış ve hesabı silme
+ 
+ function buildAccountPage (page) {
+   const cardHost = h('div', 'settings-card-host')
+@@ -960,6 +960,16 @@ function buildAccountPage (page) {
+   newPass2.autocomplete = 'new-password'
+   newPass2.maxLength = 256
+   sField(passForm, 'set-new-password2', t('settings.account.newPassword2'), newPass2, null)
++  // Kurtarma kodu parola değişince geçerli kalır, istenirse aynı istekle yenilenir (yalnızca kod varken görünür)
++  const renewRow = h('label', 'check settings-check')
++  const renewBox = h('input')
++  renewBox.type = 'checkbox'
++  renewBox.id = 'set-password-renew-recovery'
++  renewRow.setAttribute('for', renewBox.id)
++  renewRow.appendChild(renewBox)
++  renewRow.appendChild(h('span', '', t('settings.account.recoveryRenewWithPassword')))
++  renewRow.hidden = true
++  passForm.appendChild(renewRow)
+   const passProgress = progressNode('set-password-progress')
+   passForm.appendChild(passProgress)
+   const passMsg = sMsg('set-password-msg')
+@@ -975,9 +985,12 @@ function buildAccountPage (page) {
+   })
+   passForm.addEventListener('submit', (e) => {
+     e.preventDefault()
+-    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength })
++    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength, renew: renewBox, renewRow: renewRow })
+   })
+ 
++  // Kurtarma kodu (41-kurtarma.js)
++  const recovery = typeof recoverySettingsSection === 'function' ? recoverySettingsSection(page) : null
++
+   // Oturum
+   const sessSec = sSection(page, t('settings.account.session'), 'set-session-section')
+   sessSec.appendChild(sHint(t('settings.account.logoutHint')))
+@@ -1040,9 +1053,15 @@ function buildAccountPage (page) {
+     Array.from(page.querySelectorAll('input[autocomplete="username"]')).forEach((input) => {
+       input.value = state.me.name
+     })
++    renewRow.hidden = !identityState.recovery
++    if (renewRow.hidden) renewBox.checked = false
++    if (recovery) recovery.update()
+   }
+   update()
+-  return { update: update, signature: myProfileSignature }
++  return {
++    update: update,
++    signature: () => myProfileSignature() + '|' + (recovery ? recovery.signature() : '')
++  }
+ }
+ 
+ async function submitUsernameChange (ui) {
+@@ -1112,18 +1131,22 @@ async function submitPasswordChange (ui) {
+   }
+   setMsg(ui.msg, '')
+   setFormBusy(ui.form, true)
++  const renew = Boolean(ui.renew && ui.renew.checked && !ui.renewRow.hidden)
+   const result = await changePasswordRequest(oldPassword, newPassword, (pct) => {
+     showProgress(ui.progress, pct)
+-  })
++  }, { renewRecovery: renew })
+   showProgress(ui.progress, null)
+   setFormBusy(ui.form, false)
+   if (result.ok) {
+     ui.oldPass.value = ''
+     ui.newPass.value = ''
+     ui.newPass2.value = ''
++    if (ui.renew) ui.renew.checked = false
+     updateStrengthMeter(ui.strength, '')
+     setMsg(ui.msg, () => t('settings.password.changed'), 'ok')
+     settingsUi.sessions = null
++    updateSettingsPage()
++    if (result.recoveryCode && typeof openRecoveryCodeDialog === 'function') openRecoveryCodeDialog(result.recoveryCode, { trigger: byId('set-password-submit'), rotated: true })
+     return
+   }
+   setMsg(ui.msg, result.error, 'error')
+diff --git a/public/js/16-identity.js b/public/js/16-identity.js
+index bd3fa3f..0214f25 100644
+--- a/public/js/16-identity.js
++++ b/public/js/16-identity.js
+@@ -3,7 +3,8 @@
+ // Kişisel güvenlik anahtarı: paroladan anahtar türetme (ilerleme yüzdesiyle), kimlik anahtarı çiftinin
+ // üretilmesi, sarılması ve açılması, cihazda saklanan kimliğin yüklenmesi, kayıtlı oturumla açılışta
+ // parola isteyen kimlik açma penceresi, kimlik bağlamasının grup anahtarıyla mühürlenip yüklenmesi,
+-// parola değiştirme, kullanıcı adı değiştirme ve hesap silme yardımcıları.
++// parola değiştirme, kullanıcı adı değiştirme, hesap silme ve kurtarma kodu yardımcıları (kodun üretilmesi,
++// Ayarlar'dan kurulması ve kodla yeni parola belirleme). Kurtarma kodunun arayüzü 41-kurtarma.js içindedir.
+ // Parola sunucuya hiç gönderilmez: sunucuya yalnızca paroladan türetilen kimlik doğrulama anahtarı
+ // (authKey) gider. Özel anahtar yalnızca bellekte ve bu cihazın depolamasında tutulur.
+ 
+@@ -15,6 +16,10 @@ const identityState = {
+   keys: null,
+   // Parola sıfırlandı: yeni anahtar çifti yalnızca yeni parolayla birlikte kurulur (sunucu /api/me/keys'i reddeder)
+   resetPending: false,
++  // Kurtarma kodunun /api/state bilgisi ({ createdAt, label } veya kod yoksa null). recoveryKnown sunucudan
++  // gelip gelmediğini gösterir (bilinmezken hatırlatma gösterilmez).
++  recovery: null,
++  recoveryKnown: false,
+   pair: null,
+   pairUser: null,
+   bindingKey: '',
+@@ -149,14 +154,38 @@ async function fetchKdf (name) {
+   return res.data.kdf
+ }
+ 
+-// Yeni hesap için türetme ayarları, authKey ve sarılmış yeni kimlik anahtarı
++// Yeni kurtarma kodu: kod (kişiye bir kez gösterilir) ve sunucuya giden kurulum { authKey, wrappedKey }. Kimlik
++// anahtarı koddan türetilen sarma anahtarıyla sarılır. Sır ve sarma anahtarı kullanıldıktan sonra silinir.
++function makeRecoverySetup (secretKey) {
++  const code = window.E2EE.recovery.generate()
++  const parsed = window.E2EE.recovery.parse(code)
++  let keys = null
++  try {
++    keys = window.E2EE.recovery.derive(parsed.secret)
++    return { code: code, setup: { authKey: keys.authKey, wrappedKey: window.E2EE.identity.wrap(secretKey, keys.wrapKey) } }
++  } finally {
++    parsed.secret.fill(0)
++    if (keys) keys.wrapKey.fill(0)
++  }
++}
++
++// Yeni hesap için türetme ayarları, authKey, sarılmış yeni kimlik anahtarı ve kurtarma kodu
+ async function buildAccountKeys (password, onPercent) {
+   const kdf = window.E2EE.kdf.newParams()
+   const derived = await deriveKeys(password, kdf, onPercent)
+   try {
+     const pair = window.E2EE.identity.generate()
+     const wrappedKey = window.E2EE.identity.wrap(pair.secretKey, derived.wrapKey)
+-    return { kdf: kdf, authKey: derived.authKey, publicKey: pair.publicKey, secretKey: pair.secretKey, wrappedKey: wrappedKey }
++    const recovery = makeRecoverySetup(pair.secretKey)
++    return {
++      kdf: kdf,
++      authKey: derived.authKey,
++      publicKey: pair.publicKey,
++      secretKey: pair.secretKey,
++      wrappedKey: wrappedKey,
++      recoveryCode: recovery.code,
++      recovery: recovery.setup
++    }
+   } finally {
+     derived.wrapKey.fill(0)
+   }
+@@ -186,9 +215,11 @@ function forgetIdentity (userId) {
+   }
+ }
+ 
+-// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }) ve parola sıfırlaması bekleniyor mu /api/state yanıtından gelir
+-function setServerKeys (keys, resetPending) {
++// Sunucudaki anahtar kaydı ({ publicKey, wrappedKey }), parola sıfırlaması bekleniyor mu ve kurtarma kodu bilgisi
++// /api/state yanıtından gelir. recovery verilmezse (undefined) kurtarma kodu bilgisi değişmez.
++function setServerKeys (keys, resetPending, recovery) {
+   identityState.resetPending = resetPending === true
++  if (recovery !== undefined) setServerRecovery(recovery)
+   if (keys && typeof keys === 'object') {
+     identityState.keys = {
+       publicKey: typeof keys.publicKey === 'string' ? keys.publicKey : null,
+@@ -199,6 +230,16 @@ function setServerKeys (keys, resetPending) {
+   }
+ }
+ 
++// Kurtarma kodunun sunucudaki bilgisi: { createdAt, label } veya null
++function setServerRecovery (value) {
++  identityState.recoveryKnown = true
++  if (value && typeof value === 'object' && typeof value.createdAt === 'number' && isFinite(value.createdAt)) {
++    identityState.recovery = { createdAt: value.createdAt, label: typeof value.label === 'string' && value.label ? value.label : null }
++  } else {
++    identityState.recovery = null
++  }
++}
++
+ function serverPublicKey () {
+   return identityState.keys && identityState.keys.publicKey ? identityState.keys.publicKey : null
+ }
+@@ -355,7 +396,7 @@ async function uploadNewKeys (token, wrapKey) {
+   return { ok: true, publicKey: pair.publicKey, secretKey: pair.secretKey, wrappedKey: wrapped }
+ }
+ 
+-// Kayıt (kurulum veya davet). Sonuç { ok: true, token, user } veya { ok: false, res | error }.
++// Kayıt (kurulum veya davet). Sonuç { ok: true, token, user, recoveryCode } veya { ok: false, res | error }.
+ async function registerAccount (name, password, codeField, code, onPercent) {
+   let keys = null
+   try {
+@@ -363,7 +404,8 @@ async function registerAccount (name, password, codeField, code, onPercent) {
+   } catch (err) {
+     return { ok: false, error: identityErrorProducer(err) }
+   }
+-  const body = { name: name, authKey: keys.authKey, kdf: keys.kdf, publicKey: keys.publicKey, wrappedKey: keys.wrappedKey }
++  // Kurtarma kodu hesapla birlikte kurulur, kayıttan sonra kişiye bir kez gösterilir (41-kurtarma.js)
++  const body = { name: name, authKey: keys.authKey, kdf: keys.kdf, publicKey: keys.publicKey, wrappedKey: keys.wrappedKey, recovery: keys.recovery }
+   body[codeField] = code
+   const res = await request('POST', '/api/register', { token: '', body: body })
+   if (res.status !== 200 || !res.data || typeof res.data.token !== 'string' || !res.data.user) {
+@@ -371,7 +413,7 @@ async function registerAccount (name, password, codeField, code, onPercent) {
+   }
+   rememberIdentity(res.data.user.id, keys.publicKey, keys.secretKey)
+   rememberLoginDevice(name, res.data.device)
+-  return { ok: true, token: res.data.token, user: res.data.user }
++  return { ok: true, token: res.data.token, user: res.data.user, recoveryCode: keys.recoveryCode }
+ }
+ 
+ // Kullanıcı adı uygunluğu (davet veya kurulum kodu gerekir). Sonuç { state, text } biçiminde gösterilir.
+@@ -709,9 +751,10 @@ function openResetPassword (trigger) {
+         }
+         setMsg(msg, '')
+         setFormBusy(form, true)
++        // Yeni anahtar çiftiyle birlikte yeni kurtarma kodu da kurulur (sıfırlama eski kodu silmişti)
+         const result = await changePasswordRequest(oldInput.value, newInput.value, (pct) => {
+           showProgress(progress, pct)
+-        })
++        }, { renewRecovery: true })
+         setFormBusy(form, false)
+         showProgress(progress, null)
+         if (!result.ok) {
+@@ -724,6 +767,7 @@ function openResetPassword (trigger) {
+         newInput2.value = ''
+         close('done')
+         toast(() => t('identity.keysReset'), 'ok', 10000)
++        if (result.recoveryCode && typeof openRecoveryCodeDialog === 'function') openRecoveryCodeDialog(result.recoveryCode, { trigger: trigger })
+       })
+       body.appendChild(form)
+       return oldInput
+@@ -740,7 +784,7 @@ async function unlockIdentity (password, onPercent) {
+     derived = await deriveKeys(password, kdf, onPercent)
+     const st = await api('GET', '/api/state')
+     if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
+-    setServerKeys(st.data.keys, st.data.resetPending)
++    setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
+     const keys = identityState.keys
+     if (!keys.wrappedKey) {
+       const made = await uploadNewKeys(state.token, derived.wrapKey)
+@@ -770,7 +814,10 @@ function afterIdentityChange () {
+ // Parola değiştirme: mevcut ayarlarla eski authKey, yeni ayarlarla yeni authKey ve aynı özel
+ // anahtarın yeni sarma anahtarıyla sarılması. Diğer oturumlar sunucuda kapanır. Hesabın anahtar çifti yoksa
+ // (parola sıfırlaması sonrası) yeni çift üretilir, yeni parolayla sarılır ve aynı istekle kurulur.
+-async function changePasswordRequest (oldPassword, newPassword, onPercent) {
++// opts.renewRecovery: kurtarma kodu da aynı istekle yenilenir, sonuçta recoveryCode döner. Verilmezse var olan kod
++// geçerli kalır.
++async function changePasswordRequest (oldPassword, newPassword, onPercent, opts) {
++  const renew = Boolean(opts && opts.renewRecovery)
+   if (!state.me) return { ok: false, error: () => t('settings.password.failed') }
+   let oldKeys = null
+   let newKeys = null
+@@ -786,41 +833,47 @@ async function changePasswordRequest (oldPassword, newPassword, onPercent) {
+     // Başka bir sekme sıfırlamadan sonra anahtar çiftini kurmuş olabilir: seçim sunucudaki güncel anahtarlarla yapılır
+     const st = await api('GET', '/api/state')
+     if (st.status !== 200 || !st.data) return { ok: false, error: () => errorText(st, t('auth.stateFailed')) }
+-    setServerKeys(st.data.keys, st.data.resetPending)
++    setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
+     const keys = identityState.keys
+     let wrappedKey = null
+     let fresh = null
++    let recovery = null
+     if (!keys.publicKey) {
+       fresh = window.E2EE.identity.generate()
+       wrappedKey = window.E2EE.identity.wrap(fresh.secretKey, newKeys.wrapKey)
++      if (renew) recovery = makeRecoverySetup(fresh.secretKey)
+     } else {
+       const pair = myIdentity()
+       let secretKey = pair ? pair.secretKey : null
+       if (!secretKey && keys.wrappedKey) secretKey = window.E2EE.identity.unwrap(keys.wrappedKey, oldKeys.wrapKey, keys.publicKey)
+       if (!secretKey) return { ok: false, error: () => t('settings.password.oldWrong') }
+       wrappedKey = window.E2EE.identity.wrap(secretKey, newKeys.wrapKey)
++      if (renew) recovery = makeRecoverySetup(secretKey)
+       if (!pair) rememberIdentity(state.me.id, keys.publicKey, secretKey)
+     }
+     const body = { oldAuthKey: oldKeys.authKey, newAuthKey: newKeys.authKey, kdf: newKdf, wrappedKey: wrappedKey }
+     if (fresh) body.publicKey = fresh.publicKey
++    if (recovery) body.recovery = recovery.setup
+     const res = await api('POST', '/api/me/password', body)
+     if (res.status === 200) {
+       identityState.resetPending = false
+       // Parola değişince önceki giriş cihazı işareti geçersizdir, sunucu yenisini verir
+       if (res.data) rememberLoginDevice(state.me.name, res.data.device)
++      if (res.data && res.data.recovery !== undefined) setServerRecovery(res.data.recovery)
++      const code = recovery ? recovery.code : undefined
+       if (fresh) {
+         identityState.keys = { publicKey: fresh.publicKey, wrappedKey: wrappedKey }
+         rememberIdentity(state.me.id, fresh.publicKey, fresh.secretKey)
+         afterIdentityChange()
+-        return { ok: true, keysReset: true }
++        return { ok: true, keysReset: true, recoveryCode: code }
+       }
+       identityState.keys = { publicKey: keys.publicKey, wrappedKey: wrappedKey }
+-      return { ok: true }
++      return { ok: true, recoveryCode: code }
+     }
+     // Anahtar durumu bu arada değişmiştir, sunucudaki güncel anahtarlar yeniden yüklenir ve yeni deneme ona göre seçer
+     if (res.data && res.data.code === 'bad_keys') {
+       const again = await api('GET', '/api/state')
+-      if (again.status === 200 && again.data) setServerKeys(again.data.keys, again.data.resetPending)
++      if (again.status === 200 && again.data) setServerKeys(again.data.keys, again.data.resetPending, again.data.recovery)
+     }
+     return { ok: false, error: () => errorText(res, t('settings.password.failed'), { bad_credentials: t('settings.password.oldWrong'), rate_limited: t('auth.rateLimited') }) }
+   } catch (err) {
+@@ -892,6 +945,139 @@ function finishDeletedAccount () {
+   showLogin(() => t('identity.accountDeleted'))
+ }
+ 
++// ----- Kurtarma kodu (istek 14) -----
++
++const RECOVERY_CODE_ERRORS = ['empty', 'bad_length', 'bad_char', 'bad_padding', 'bad_checksum']
++
++// Kurtarma kodu ayrıştırma hatasının metni. Grup anahtarı kodu girildiyse ayrı uyarı verilir.
++function recoveryCodeErrorText (err) {
++  const code = err && typeof err.code === 'string' ? err.code : ''
++  if (code === 'group_key_code') return t('auth.recoveryGroupKey')
++  if (RECOVERY_CODE_ERRORS.indexOf(code) !== -1) return t('identity.error.recovery_' + code)
++  return identityErrorText(err)
++}
++
++// Sunucudaki anahtar ve kurtarma kodu bilgisini yeniden yükler (başka bir cihaz değiştirmiş olabilir)
++async function reloadServerKeys () {
++  const st = await api('GET', '/api/state')
++  if (st.status === 200 && st.data) setServerKeys(st.data.keys, st.data.resetPending, st.data.recovery)
++}
++
++// Ayarlar > Hesabım: kurtarma kodunu şu anki parolayla oluşturur veya yeniler (create true), ya da kaldırır.
++// Sonuç { ok: true, code } (oluşturmada yeni kod) veya { ok: false, error: metin üretici }.
++async function recoveryChangeRequest (password, create, onPercent) {
++  const failed = () => t('settings.account.recoveryFailed')
++  if (!state.me) return { ok: false, error: failed }
++  let derived = null
++  let opened = null
++  try {
++    const kdf = await fetchKdf(state.me.name)
++    derived = await deriveKeys(password, kdf, onPercent)
++    let recovery = null
++    let pair = null
++    const keys = identityState.keys
++    if (create) {
++      if (!keys || !keys.publicKey) return { ok: false, error: () => t('errors.no_keys') }
++      pair = myIdentity()
++      let secretKey = pair ? pair.secretKey : null
++      if (!secretKey && keys.wrappedKey) {
++        opened = window.E2EE.identity.unwrap(keys.wrappedKey, derived.wrapKey, keys.publicKey)
++        secretKey = opened
++      }
++      if (!secretKey) return { ok: false, error: () => t('identity.wrongPassword') }
++      recovery = makeRecoverySetup(secretKey)
++    }
++    const res = await api('POST', '/api/me/recovery', { authKey: derived.authKey, recovery: recovery ? recovery.setup : null })
++    if (res.status === 200 && res.data) {
++      setServerRecovery(res.data.recovery)
++      // Parolayla açılan kimlik bu cihazda yoksa saklanır (parola değiştirmedeki gibi)
++      if (opened) {
++        rememberIdentity(state.me.id, keys.publicKey, opened)
++        opened = null
++      }
++      return { ok: true, code: recovery ? recovery.code : null }
++    }
++    if (res.data && res.data.code === 'keys_changed') await reloadServerKeys()
++    return { ok: false, error: () => errorText(res, failed(), { bad_credentials: t('identity.wrongPassword'), rate_limited: t('auth.rateLimited') }) }
++  } catch (err) {
++    return { ok: false, error: identityErrorProducer(err) }
++  } finally {
++    if (derived) derived.wrapKey.fill(0)
++    if (opened) opened.fill(0)
++  }
++}
++
++// Parolamı Unuttum: kurtarma koduyla yeni parola. Kod ayrıştırılır, koddan türetilen authKey ile sarılmış özel
++// anahtar istenir (/api/recover/keys), kodla açılır, yeni parolayla ve yeni kurtarma koduyla yeniden sarılıp
++// /api/recover ile gönderilir. Açık anahtar değişmez, eski özel mesajlar okunur, konuşulan kişilerde anahtar uyarısı
++// çıkmaz. Hesabın anahtarları bu arada değiştiyse (409 keys_changed) anahtarlar bir kez yeniden istenir.
++// Sonuç { ok: true, token, user, code } (code yeni kurtarma kodudur, eskisi geçersizdir) veya
++// { ok: false, field: 'code' | null, error: metin üretici }.
++async function recoverAccount (name, code, newPassword, onPercent) {
++  let parsed = null
++  try {
++    parsed = window.E2EE.recovery.parse(code)
++  } catch (err) {
++    return { ok: false, field: 'code', error: () => recoveryCodeErrorText(err) }
++  }
++  let rk = null
++  let newKeys = null
++  let newKdf = null
++  let secretKey = null
++  try {
++    rk = window.E2EE.recovery.derive(parsed.secret)
++    const device = loginDeviceOf(name)
++    let last = null
++    let rounds = 2
++    while (rounds > 0) {
++      rounds -= 1
++      const keysBody = { name: name, recoveryAuthKey: rk.authKey }
++      if (device) keysBody.device = device
++      const kres = await request('POST', '/api/recover/keys', { token: '', body: keysBody })
++      const data = kres.data
++      if (kres.status !== 200 || !data || typeof data.publicKey !== 'string' || typeof data.wrappedKey !== 'string') {
++        return { ok: false, field: kres.status === 401 ? 'code' : null, error: () => errorText(kres, t('identity.error.generic'), authOverrides()) }
++      }
++      secretKey = window.E2EE.identity.unwrap(data.wrappedKey, rk.wrapKey, data.publicKey)
++      if (!secretKey) return { ok: false, field: null, error: () => t('identity.error.generic') }
++      if (!newKeys) {
++        newKdf = window.E2EE.kdf.newParams()
++        newKeys = await deriveKeys(newPassword, newKdf, onPercent)
++      }
++      const recovery = makeRecoverySetup(secretKey)
++      const body = {
++        name: name,
++        recoveryAuthKey: rk.authKey,
++        publicKey: data.publicKey,
++        newAuthKey: newKeys.authKey,
++        kdf: newKdf,
++        wrappedKey: window.E2EE.identity.wrap(secretKey, newKeys.wrapKey),
++        recovery: recovery.setup
++      }
++      if (device) body.device = device
++      const res = await request('POST', '/api/recover', { token: '', body: body })
++      if (res.status === 200 && res.data && typeof res.data.token === 'string' && res.data.user) {
++        rememberLoginDevice(name, res.data.device)
++        rememberIdentity(res.data.user.id, data.publicKey, secretKey)
++        secretKey = null
++        return { ok: true, token: res.data.token, user: res.data.user, code: recovery.code }
++      }
++      secretKey.fill(0)
++      secretKey = null
++      last = res
++      if (res.status !== 409 || !res.data || res.data.code !== 'keys_changed') break
++    }
++    return { ok: false, field: last && last.status === 401 ? 'code' : null, error: () => errorText(last, t('identity.error.generic'), authOverrides()) }
++  } catch (err) {
++    return { ok: false, field: null, error: identityErrorProducer(err) }
++  } finally {
++    parsed.secret.fill(0)
++    if (rk) rk.wrapKey.fill(0)
++    if (newKeys) newKeys.wrapKey.fill(0)
++    if (secretKey) secretKey.fill(0)
++  }
++}
++
+ // Ayarlarda gösterilecek kendi güvenlik anahtarı parmak izi
+ function myFingerprint () {
+   const pk = serverPublicKey()
+diff --git a/public/js/41-kurtarma.js b/public/js/41-kurtarma.js
+new file mode 100644
+index 0000000..d9bb0ad
+--- /dev/null
++++ b/public/js/41-kurtarma.js
+@@ -0,0 +1,508 @@
++'use strict'
++
++// Kurtarma kodu arayüzü (istek 14): giriş ekranındaki Parolamı Unuttum kartı (kurtarma koduyla yeni parola, kodu
++// olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kurtarma kodu kartı,
++// uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, "kaydettim" onayı), Ayarlar > Hesabım içindeki
++// Kurtarma Kodu bölümü ve kodu olmayan hesaba parolayla girişten sonra bir kez gösterilen hatırlatma.
++// Şifreleme ve sunucu istekleri 16-identity.js içindedir (recoverAccount, recoveryChangeRequest).
++
++const RECOVERY_REMIND_KEY = 'telsiz.recoveryReminded'
++const RECOVERY_REMIND_DELAY_MS = 1500
++const RECOVERY_REMIND_TRIES = 40
++
++const recoveryUi = {
++  forgotReady: false,
++  forgot: null,
++  remindPending: false,
++  remindTimer: 0,
++  refreshing: false
++}
++
++// Dil değişince yeniden çevrilen metinli öğe
++function recoveryText (tag, className, producer) {
++  const node = h(tag, className)
++  setLive(node, producer)
++  return node
++}
++
++function recoveryServerText () {
++  const origin = window.location.origin || (window.location.protocol + '//' + window.location.host)
++  return state.serverName + ' (' + origin + ')'
++}
++
++function downloadRecoveryCode (code, name) {
++  const text = t('recovery.fileText', { server: recoveryServerText(), name: name, code: code, date: formatLong(Date.now()) })
++  saveBytes(window.E2EE.utf8.encode(text + '\n'), t('recovery.fileName'))
++}
++
++// Kod görünümü: açıklama, kod (dörderli gruplar satır sonunda bölünebilir), uyarı, Kopyala, Dosya Olarak İndir,
++// "kaydettim" onayı ve onaydan sonra açılan Devam düğmesi. opts: { code, name, rotated, idPrefix, onContinue }.
++// İlk odaklanacak öğeyi döndürür.
++function buildRecoveryCodeView (parent, opts) {
++  const prefix = opts.idPrefix
++  const wrap = h('div', 'recovery-view')
++  wrap.id = prefix + '-view'
++  if (opts.rotated) wrap.appendChild(recoveryText('p', 'recovery-rotated', () => t('recovery.rotated')))
++  wrap.appendChild(recoveryText('p', 'lead', () => t('recovery.lead')))
++  const codeBox = h('p', 'recovery-code mono')
++  codeBox.id = prefix + '-code'
++  opts.code.split('-').forEach((group, i) => {
++    if (i > 0) codeBox.appendChild(document.createTextNode('-'))
++    codeBox.appendChild(h('span', 'recovery-code-group', group))
++  })
++  wrap.appendChild(codeBox)
++  wrap.appendChild(recoveryText('p', 'warning', () => t('recovery.warning')))
++  const actions = h('div', 'recovery-actions')
++  const copy = button('button button-secondary', '', 'i-copy')
++  copy.id = prefix + '-copy'
++  setLive(copy.appendChild(h('span', 'button-text')), () => t('recovery.copy'))
++  copy.addEventListener('click', () => {
++    copyWithToast(opts.code)
++  })
++  const download = button('button button-secondary', '', 'i-download')
++  download.id = prefix + '-download'
++  setLive(download.appendChild(h('span', 'button-text')), () => t('recovery.download'))
++  download.addEventListener('click', () => {
++    downloadRecoveryCode(opts.code, opts.name)
++  })
++  actions.appendChild(copy)
++  actions.appendChild(download)
++  wrap.appendChild(actions)
++  const check = h('label', 'check recovery-saved')
++  const box = h('input')
++  box.type = 'checkbox'
++  box.id = prefix + '-saved'
++  check.setAttribute('for', box.id)
++  check.appendChild(box)
++  check.appendChild(recoveryText('span', '', () => t('recovery.saved')))
++  wrap.appendChild(check)
++  const next = button('button button-wide recovery-continue', '')
++  next.id = prefix + '-continue'
++  setLive(next.appendChild(h('span', 'button-text')), () => t('recovery.continue'))
++  next.disabled = true
++  box.addEventListener('change', () => {
++    next.disabled = !box.checked
++  })
++  next.addEventListener('click', () => {
++    if (!box.checked) return
++    clear(codeBox)
++    opts.onContinue()
++  })
++  wrap.appendChild(next)
++  parent.appendChild(wrap)
++  return copy
++}
++
++// Giriş ekranındaki kod kartı (kurulum, kayıt ve kurtarma sonrası). next Devam ile çağrılır.
++function showRecoveryCard (code, name, rotated, next) {
++  const card = el.recoveryCard
++  clear(card)
++  const title = recoveryText('h2', 'section-heading', () => t('recovery.title'))
++  title.id = 'recovery-title'
++  card.appendChild(title)
++  buildRecoveryCodeView(card, {
++    code: code,
++    name: name,
++    rotated: rotated,
++    idPrefix: 'recovery-card',
++    onContinue: () => {
++      clear(card)
++      next()
++    }
++  })
++  showAuthCard('recovery')
++  focusNode(byId('recovery-card-copy'))
++}
++
++// Uygulama içindeki kod penceresi (Ayarlar'dan oluşturma ve yenileme, sıfırlamadan sonra yeni parola).
++// opts: { trigger, rotated }
++function openRecoveryCodeDialog (code, opts) {
++  const o = opts || {}
++  return openAppDialog({
++    name: 'recovery-code',
++    titleKey: 'recovery.title',
++    trigger: o.trigger || null,
++    build: (body, close) => buildRecoveryCodeView(body, {
++      code: code,
++      name: state.me ? state.me.name : '',
++      rotated: Boolean(o.rotated),
++      idPrefix: 'recovery-dialog',
++      onContinue: () => {
++        close('done')
++      }
++    })
++  })
++}
++
++// ----- Parolamı Unuttum kartı -----
++
++function recoveryField (form, id, labelKey, input, hintKey) {
++  const label = recoveryText('label', 'label', () => t(labelKey))
++  label.setAttribute('for', id)
++  input.id = id
++  form.appendChild(label)
++  form.appendChild(input)
++  if (hintKey) {
++    const hint = recoveryText('p', 'hint', () => t(hintKey))
++    hint.id = id + '-hint'
++    input.setAttribute('aria-describedby', hint.id)
++    form.appendChild(hint)
++  }
++  return input
++}
++
++function recoveryInput (type, autocomplete, className) {
++  const input = h('input', 'input' + (className ? ' ' + className : ''))
++  input.type = type
++  input.autocomplete = autocomplete
++  input.setAttribute('autocapitalize', 'none')
++  input.setAttribute('spellcheck', 'false')
++  return input
++}
++
++// Sahibin sunucuda çalıştıracağı sıfırlama komutu (ad yazılmışsa onunla)
++function forgotOwnerCommand (name) {
++  const shown = name && !usernameProblem(name) ? name : '<' + t('auth.username').toLocaleLowerCase(window.I18N.lang === 'tr' ? 'tr-TR' : 'en-US') + '>'
++  return 'node server.js sifre-sifirla ' + shown
++}
++
++function buildForgotCard () {
++  const card = el.forgotCard
++  clear(card)
++  const title = recoveryText('h2', 'section-heading', () => t('auth.forgotTitle'))
++  title.id = 'forgot-title'
++  card.appendChild(title)
++  card.appendChild(recoveryText('p', 'lead', () => t('auth.forgotLead')))
++  const form = h('form', 'form')
++  form.id = 'forgot-form'
++  form.noValidate = true
++  form.setAttribute('autocomplete', 'on')
++  const name = recoveryField(form, 'forgot-name', 'auth.username', recoveryInput('text', 'username'), null)
++  name.maxLength = USERNAME_MAX_INPUT
++  const code = recoveryField(form, 'forgot-code', 'auth.recoveryCode', recoveryInput('text', 'off', 'mono'), 'auth.recoveryCodeHint')
++  code.maxLength = 80
++  code.setAttribute('autocapitalize', 'characters')
++  code.placeholder = 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'
++  const pass = recoveryField(form, 'forgot-password', 'settings.account.newPassword', recoveryInput('password', 'new-password'), null)
++  pass.maxLength = 256
++  const pass2 = recoveryField(form, 'forgot-password2', 'settings.account.newPassword2', recoveryInput('password', 'new-password'), null)
++  pass2.maxLength = 256
++  const strength = buildStrengthMeter(pass, 'forgot-password-strength')
++  const error = h('p', 'form-error')
++  error.id = 'forgot-error'
++  error.setAttribute('role', 'alert')
++  error.hidden = true
++  form.appendChild(error)
++  const submit = button('button button-wide', '')
++  submit.type = 'submit'
++  submit.id = 'forgot-submit'
++  setLive(submit.appendChild(h('span', 'button-text')), () => t('auth.forgotSubmit'))
++  form.appendChild(submit)
++  card.appendChild(form)
++  const back = button('button button-ghost button-wide forgot-back', '')
++  back.id = 'forgot-back'
++  setLive(back.appendChild(h('span', 'button-text')), () => t('auth.forgotBack'))
++  card.appendChild(back)
++  // Kodu olmayanlar: sahibin sıfırlaması (eski özel mesajlar okunamaz) ve sahibin kendisi için komut satırı
++  const none = h('details', 'forgot-nocode')
++  none.id = 'forgot-nocode'
++  const summary = recoveryText('summary', 'forgot-nocode-title', () => t('auth.forgotNoCodeTitle'))
++  summary.id = 'forgot-nocode-title'
++  none.appendChild(summary)
++  none.appendChild(recoveryText('p', 'hint', () => t('auth.forgotNoCodeText')))
++  // Komut metnin içinde kod biçiminde gösterilir: metin komutun yerinden ikiye bölünür, üç parça da dil değişince
++  // yeniden üretilir
++  const owner = h('p', 'hint forgot-owner')
++  owner.id = 'forgot-owner'
++  const ownerParts = () => t('auth.forgotOwnerText', { command: '\u0000' }).split('\u0000')
++  owner.appendChild(recoveryText('span', '', () => ownerParts()[0]))
++  const command = recoveryText('code', 'forgot-command mono', () => forgotOwnerCommand(cleanUsername(name.value)))
++  command.id = 'forgot-command'
++  owner.appendChild(command)
++  owner.appendChild(recoveryText('span', '', () => ownerParts().slice(1).join('')))
++  none.appendChild(owner)
++  card.appendChild(none)
++
++  const refreshCommand = () => {
++    setLive(command, () => forgotOwnerCommand(cleanUsername(name.value)))
++  }
++  name.addEventListener('input', () => {
++    lowercaseInput(name)
++    refreshCommand()
++  })
++  pass.addEventListener('input', () => {
++    updateStrengthMeter(strength, pass.value)
++  })
++  back.addEventListener('click', () => {
++    clearForgotSecrets()
++    showLogin('')
++  })
++  form.addEventListener('submit', (e) => {
++    e.preventDefault()
++    submitForgot()
++  })
++  recoveryUi.forgot = { form: form, name: name, code: code, pass: pass, pass2: pass2, error: error, strength: strength, refreshCommand: refreshCommand }
++  recoveryUi.forgotReady = true
++}
++
++function clearForgotSecrets () {
++  const f = recoveryUi.forgot
++  if (!f) return
++  f.code.value = ''
++  f.pass.value = ''
++  f.pass2.value = ''
++  updateStrengthMeter(f.strength, '')
++  setMsg(f.error, '')
++}
++
++// Giriş formundaki Parolamı Unuttum bağlantısı (03-auth.js prepareAuthForms bağlar)
++function showForgotCard () {
++  if (!recoveryUi.forgotReady) buildForgotCard()
++  const f = recoveryUi.forgot
++  const typed = cleanUsername(el.loginName.value)
++  if (typed && !f.name.value) f.name.value = typed
++  f.refreshCommand()
++  setMsg(f.error, '')
++  showAuthCard('forgot')
++  focusNode(f.name.value ? f.code : f.name)
++}
++
++async function submitForgot () {
++  const f = recoveryUi.forgot
++  if (!f || f.form.classList.contains('is-busy')) return
++  const name = cleanUsername(f.name.value)
++  const fail = (text, input) => {
++    setMsg(f.error, text, 'error')
++    focusNode(input)
++  }
++  const nameProblem = usernameProblem(name)
++  if (nameProblem) return fail(() => usernameProblemText(nameProblem), f.name)
++  if (!f.code.value.trim()) return fail(() => t('identity.error.recovery_empty'), f.code)
++  const passProblem = passwordProblem(f.pass.value)
++  if (passProblem) return fail(passProblem, f.pass)
++  if (f.pass.value !== f.pass2.value) return fail(() => t('auth.passwordMismatch'), f.pass2)
++  if (!cryptoReady()) return fail(() => t('boot.noCrypto'), f.code)
++  setMsg(f.error, '')
++  setFormBusy(f.form, true)
++  const progress = progressLine(f.form)
++  const result = await recoverAccount(name, f.code.value, f.pass.value, (pct) => {
++    showProgress(progress, pct)
++  })
++  showProgress(progress, null)
++  setFormBusy(f.form, false)
++  if (!result.ok) return fail(result.error, result.field === 'code' ? f.code : f.name)
++  clearForgotSecrets()
++  setToken(result.token)
++  showRecoveryCard(result.code, name, true, () => {
++    resumeSession()
++  })
++}
++
++// ----- Ayarlar > Hesabım: Kurtarma Kodu bölümü -----
++
++function recoverySignature () {
++  const rec = identityState.recovery
++  return [identityState.recoveryKnown ? 1 : 0, rec ? rec.createdAt : '', rec && rec.label ? rec.label : '', identityState.resetPending ? 1 : 0].join('|')
++}
++
++// Bölüm her açılışta sunucudaki güncel bilgiyi bir kez ister (kod başka bir cihazda değişmiş olabilir)
++async function recoveryRefresh () {
++  if (recoveryUi.refreshing || !state.me) return
++  recoveryUi.refreshing = true
++  try {
++    await reloadServerKeys()
++  } finally {
++    recoveryUi.refreshing = false
++  }
++  if (typeof isSettingsOpen === 'function' && isSettingsOpen()) updateSettingsPage()
++}
++
++function recoveryStatusText () {
++  const rec = identityState.recovery
++  if (!rec) return t('settings.account.recoveryNone')
++  return t('settings.account.recoveryCreated', { date: formatLong(rec.createdAt), device: rec.label || t('sessions.unknown') })
++}
++
++function recoverySettingsSection (page) {
++  const sec = sSection(page, t('settings.account.recoveryTitle'), 'set-recovery-section')
++  const status = h('p', 'settings-text recovery-status')
++  status.id = 'set-recovery-status'
++  sec.appendChild(status)
++  const actions = sActions(sec)
++  const create = sButton('button button-secondary', '', 'set-recovery-create', null, 'i-key')
++  const remove = sButton('button button-secondary', t('settings.account.recoveryRemove'), 'set-recovery-remove', null, 'i-trash')
++  actions.appendChild(create)
++  actions.appendChild(remove)
++  const form = h('form', 'form settings-form')
++  form.id = 'set-recovery-form'
++  form.noValidate = true
++  form.hidden = true
++  sec.appendChild(form)
++  hiddenUsername(form)
++  const pass = sInput('password')
++  pass.autocomplete = 'current-password'
++  pass.maxLength = 256
++  sField(form, 'set-recovery-password', t('settings.account.currentPassword'), pass, null)
++  const progress = progressNode('set-recovery-progress')
++  form.appendChild(progress)
++  const formActions = sActions(form)
++  const submit = sButton('button', '', 'set-recovery-submit')
++  submit.type = 'submit'
++  formActions.appendChild(submit)
++  const cancel = sButton('button button-secondary', t('common.cancel'), 'set-recovery-cancel')
++  formActions.appendChild(cancel)
++  const msg = sMsg('set-recovery-msg')
++  sec.appendChild(msg)
++  let mode = 'create'
++  let trigger = create
++
++  const showForm = (nextMode, from) => {
++    mode = nextMode
++    trigger = from
++    setButtonText(submit, t(mode === 'remove' ? 'settings.account.recoveryRemove' : identityState.recovery ? 'settings.account.recoveryRenew' : 'settings.account.recoveryCreate'))
++    submit.className = mode === 'remove' ? 'button button-danger' : 'button'
++    form.hidden = false
++    setMsg(msg, '')
++    focusNode(pass)
++  }
++  const hideForm = () => {
++    form.hidden = true
++    pass.value = ''
++  }
++  create.addEventListener('click', () => {
++    showForm('create', create)
++  })
++  remove.addEventListener('click', () => {
++    if (!window.confirm(t('settings.account.recoveryRemoveConfirm'))) return
++    showForm('remove', remove)
++  })
++  cancel.addEventListener('click', () => {
++    hideForm()
++    focusNode(trigger)
++  })
++  form.addEventListener('submit', async (e) => {
++    e.preventDefault()
++    if (isBusy(form)) return
++    if (!pass.value) {
++      setMsg(msg, () => t('settings.account.enterPassword'), 'error')
++      focusNode(pass)
++      return
++    }
++    setMsg(msg, '')
++    setFormBusy(form, true)
++    const result = await recoveryChangeRequest(pass.value, mode !== 'remove', (pct) => {
++      showProgress(progress, pct)
++    })
++    showProgress(progress, null)
++    setFormBusy(form, false)
++    if (!result.ok) {
++      setMsg(msg, result.error, 'error')
++      focusNode(pass)
++      return
++    }
++    hideForm()
++    update()
++    if (result.code) {
++      openRecoveryCodeDialog(result.code, { trigger: create })
++    } else {
++      setMsg(msg, () => t('settings.account.recoveryRemoved'), 'ok')
++      focusNode(create)
++    }
++  })
++
++  const update = () => {
++    const rec = identityState.recovery
++    status.textContent = recoveryStatusText()
++    status.classList.toggle('is-missing', identityState.recoveryKnown && !rec)
++    setButtonText(create, t(rec ? 'settings.account.recoveryRenew' : 'settings.account.recoveryCreate'))
++    remove.hidden = !rec
++    // Sıfırlanmış parolada kod kurulamaz, önce yeni parola belirlenir
++    const blocked = identityState.resetPending || !(identityState.keys && identityState.keys.publicKey)
++    if (!isBusy(form)) {
++      create.disabled = blocked
++      remove.disabled = blocked
++    }
++    if (blocked && !form.hidden && !isBusy(form)) hideForm()
++  }
++  update()
++  recoveryRefresh()
++  return { update: update, signature: recoverySignature }
++}
++
++// ----- Kodu olmayan hesaba girişten sonra bir kez hatırlatma -----
++
++// Giriş formuyla başarılı girişten hemen önce çağrılır (03-auth.js submitLogin)
++function recoveryNoteLogin () {
++  recoveryUi.remindPending = true
++}
++
++function recoveryReminded (userId) {
++  const all = storeGetJson(RECOVERY_REMIND_KEY, {})
++  return all['u:' + userId] === 1
++}
++
++function markRecoveryReminded (userId) {
++  const all = storeGetJson(RECOVERY_REMIND_KEY, {})
++  all['u:' + userId] = 1
++  storeSetJson(RECOVERY_REMIND_KEY, all)
++}
++
++// Uygulama açılınca (03-auth.js enterApp). Profil adımı veya kimlik açma penceresi açıksa beklenir.
++function recoveryAfterEnter () {
++  if (!recoveryUi.remindPending) return
++  clearTimeout(recoveryUi.remindTimer)
++  let tries = 0
++  const tick = () => {
++    recoveryUi.remindTimer = 0
++    if (!state.inApp || !state.me || !recoveryUi.remindPending) return
++    if (findLayer('app-dialog') || (typeof isSettingsOpen === 'function' && isSettingsOpen()) || !identityState.recoveryKnown || !hasIdentity()) {
++      tries += 1
++      if (tries < RECOVERY_REMIND_TRIES) recoveryUi.remindTimer = setTimeout(tick, RECOVERY_REMIND_DELAY_MS)
++      return
++    }
++    recoveryUi.remindPending = false
++    if (identityState.recovery || identityState.resetPending || recoveryReminded(state.me.id)) return
++    markRecoveryReminded(state.me.id)
++    openRecoveryRemind()
++  }
++  recoveryUi.remindTimer = setTimeout(tick, RECOVERY_REMIND_DELAY_MS)
++}
++
++function openRecoveryRemind () {
++  openAppDialog({
++    name: 'recovery-remind',
++    titleKey: 'settings.account.recoveryTitle',
++    build: (body, close) => {
++      body.appendChild(recoveryText('p', 'lead', () => t('recovery.remind')))
++      const row = h('div', 'row dialog-actions')
++      const create = button('button', t('settings.account.recoveryCreate'), 'i-key')
++      create.id = 'recovery-remind-create'
++      const later = button('button button-secondary', t('identity.unlockLater'))
++      later.id = 'recovery-remind-later'
++      create.addEventListener('click', () => {
++        close('done')
++        openSettings('account', null)
++        setTimeout(() => {
++          const section = byId('set-recovery-section')
++          if (section && typeof section.scrollIntoView === 'function') section.scrollIntoView()
++          focusNode(byId('set-recovery-create'))
++        }, 0)
++      })
++      later.addEventListener('click', () => {
++        close('later')
++      })
++      row.appendChild(create)
++      row.appendChild(later)
++      body.appendChild(row)
++      return create
++    }
++  })
++}
++
++// Oturum kapanınca bekleyen hatırlatma düşer (03-auth.js resetAppState)
++function recoveryReset () {
++  recoveryUi.remindPending = false
++  clearTimeout(recoveryUi.remindTimer)
++  recoveryUi.remindTimer = 0
++  clearForgotSecrets()
++}
+diff --git a/public/sw.js b/public/sw.js
+index 51576db..8caf88f 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -74,6 +74,7 @@ const SHELL = [
+   '/js/30-pencere.js',
+   '/js/31-sesler.js',
+   '/js/32-arama.js',
++  '/js/41-kurtarma.js',
+   '/fonts/figtree-latin-ext-wght-normal.woff2',
+   '/fonts/figtree-latin-wght-normal.woff2',
+   '/fonts/manrope-latin-ext-wght-normal.woff2',
+diff --git a/test/kurtarma-istemci.test.js b/test/kurtarma-istemci.test.js
+new file mode 100644
+index 0000000..35f6933
+--- /dev/null
++++ b/test/kurtarma-istemci.test.js
+@@ -0,0 +1,334 @@
++'use strict'
++
++// Kurtarma kodunun istemci tarafı (public/js/16-identity.js, istek 14): kayıtta kodun üretilmesi, Parolamı Unuttum
++// akışı (recoverAccount aynı gizli anahtarı yeni parolayla ve yeni kodla yeniden sarar, istek gövdeleri doğru, 409
++// keys_changed gelince anahtarlar yeniden istenir), Ayarlar'dan kod oluşturma ve kaldırma, parola değişikliğinde
++// kodun isteğe bağlı yenilenmesi. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir,
++// ağ ve parola türetme taklit edilir (sifre-sifirlama-istemci.test.js kalıbı).
++
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++const nodeCrypto = require('node:crypto')
++
++const PUB = path.join(__dirname, '..', 'public')
++const FILES = ['vendor/nacl-fast.min.js', 'vendor/scrypt.js', 'i18n.js', 'crypto.js', 'js/01-core.js', 'js/02-state-dom.js', 'js/03-auth.js', 'js/16-identity.js', 'js/41-kurtarma.js']
++const SOURCES = FILES.map((file) => ({ file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
++const KDF = { salt: Buffer.alloc(16, 7).toString('base64url'), N: 16384, r: 8, p: 1 }
++
++function makeStorage () {
++  const map = new Map()
++  return {
++    map,
++    getItem: (k) => (map.has(k) ? map.get(k) : null),
++    setItem: (k, v) => {
++      map.set(k, String(v))
++    },
++    removeItem: (k) => {
++      map.delete(k)
++    }
++  }
++}
++
++function load () {
++  const sandbox = vm.createContext({})
++  sandbox.self = sandbox
++  sandbox.window = sandbox
++  sandbox.setTimeout = setTimeout
++  sandbox.clearTimeout = clearTimeout
++  sandbox.crypto = nodeCrypto.webcrypto
++  sandbox.TextEncoder = TextEncoder
++  sandbox.TextDecoder = TextDecoder
++  sandbox.localStorage = makeStorage()
++  sandbox.sessionStorage = makeStorage()
++  sandbox.navigator = { languages: ['tr-TR'], language: 'tr-TR', userAgent: 'node' }
++  sandbox.document = { documentElement: { lang: 'tr' }, readyState: 'loading', hidden: false, title: 'Telsiz', addEventListener () {} }
++  sandbox.location = { origin: 'https://kankalar.ornek.com', hash: '', pathname: '/', search: '' }
++  sandbox.history = { replaceState () {} }
++  sandbox.console = { warn () {}, log () {}, error () {} }
++  for (const src of SOURCES) vm.runInContext(src.code, sandbox, { filename: src.file })
++  const run = (code) => vm.runInContext(code, sandbox)
++  // Parola türetme taklidi: parolaya bağlı, belirlenimci authKey ve wrapKey (scrypt'in yavaşlığı olmadan)
++  run(`deriveKeys = function (password, kdf, onPercent) {
++    const text = 'test|' + password
++    const bytes = new Uint8Array(text.length)
++    let i = 0
++    while (i < text.length) {
++      bytes[i] = text.charCodeAt(i) & 255
++      i += 1
++    }
++    const h = window.nacl.hash(bytes)
++    if (typeof onPercent === 'function') onPercent(100)
++    return Promise.resolve({ authKey: Array.from(h.subarray(0, 32)).join('.'), wrapKey: h.slice(32, 64) })
++  }`)
++  // Yanıtlar yola göre verilir, dizi verilirse sırayla tüketilir
++  sandbox.__requests = []
++  sandbox.__responses = {}
++  run(`__answer = function (path) {
++    const r = __responses[path]
++    if (Array.isArray(r)) return Promise.resolve(r.length > 1 ? r.shift() : r[0])
++    return Promise.resolve(r || { status: 200, data: {} })
++  }
++  request = function (method, path, opts) {
++    __requests.push({ path: path, body: opts && opts.body, token: opts && opts.token })
++    return __answer(path)
++  }
++  api = function (method, path, body) {
++    __requests.push({ path: path, body: body })
++    return __answer(path)
++  }
++  afterIdentityChange = function () {}`)
++  return { sandbox, run }
++}
++
++// Taklit edilen paroladan türetilen sarma anahtarı
++async function wrapKeyOf (run, password) {
++  return (await run('deriveKeys(' + JSON.stringify(password) + ')')).wrapKey
++}
++
++// Hesabın kimlik anahtarı ve kurtarma kodu, sunucunun /api/recover/keys yanıtı
++function account (sandbox, run) {
++  run('__pair = window.E2EE.identity.generate()')
++  run('__code = window.E2EE.recovery.generate()')
++  run('__rk = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__code).secret)')
++  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __rk.wrapKey) })')
++  return { code: run('__code'), authKey: run('__rk.authKey'), keys, publicKey: keys.publicKey, secretHex: Buffer.from(run('__pair.secretKey')).toString('hex') }
++}
++
++test('kayıt: hesapla birlikte kurtarma kodu üretilir, kod aynı gizli anahtarı açar ve sonuçta döner', async () => {
++  const { sandbox, run } = load()
++  sandbox.__responses['/api/register'] = { status: 200, data: { token: 't1', user: { id: 4, name: 'ece' }, device: 'a'.repeat(24) + '.' + 'b'.repeat(43) } }
++  const result = await run("registerAccount('ece', 'Parolam-2026', 'inviteCode', 'ABCDE-FGHJK')")
++  assert.equal(result.ok, true)
++  assert.match(result.recoveryCode, /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/)
++  const sent = sandbox.__requests.filter((r) => r.path === '/api/register')[0].body
++  assert.deepEqual(Object.keys(sent.recovery).sort(), ['authKey', 'wrappedKey'])
++  sandbox.__codeText = result.recoveryCode
++  run('__rk = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__codeText).secret)')
++  assert.equal(sent.recovery.authKey, run('__rk.authKey'))
++  sandbox.__wrapped = sent.recovery.wrappedKey
++  sandbox.__pk = sent.publicKey
++  const viaCode = run('window.E2EE.identity.unwrap(__wrapped, __rk.wrapKey, __pk)')
++  assert.ok(viaCode, 'kurtarma kodu kimlik anahtarını açar')
++  sandbox.__key = await wrapKeyOf(run, 'Parolam-2026')
++  sandbox.__wrapped2 = sent.wrappedKey
++  const viaPassword = run('window.E2EE.identity.unwrap(__wrapped2, __key, __pk)')
++  assert.equal(Buffer.from(viaCode).toString('hex'), Buffer.from(viaPassword).toString('hex'), 'aynı gizli anahtar')
++  // Kodun authKey'i parolanınkinden farklıdır
++  assert.notEqual(sent.recovery.authKey, sent.authKey)
++})
++
++test('recoverAccount aynı gizli anahtarı yeni parolayla ve yeni kodla yeniden sarar, istek gövdeleri doğru', async () => {
++  const { sandbox, run } = load()
++  const acc = account(sandbox, run)
++  run("rememberLoginDevice('ece', '" + 'c'.repeat(24) + '.' + 'd'.repeat(43) + "')")
++  sandbox.__responses['/api/recover/keys'] = { status: 200, data: acc.keys }
++  sandbox.__responses['/api/recover'] = { status: 200, data: { token: 't2', user: { id: 4, name: 'ece', role: 'member' }, keys: acc.keys, device: 'e'.repeat(24) + '.' + 'f'.repeat(43), recovery: { createdAt: 5, label: null } } }
++  const percents = []
++  sandbox.__onPercent = (p) => percents.push(p)
++  const result = await run('recoverAccount(\'ece\', ' + JSON.stringify(acc.code.toLowerCase().replace(/-/g, ' ')) + ", 'YeniParolam-2026', __onPercent)")
++  assert.equal(result.ok, true)
++  assert.equal(result.token, 't2')
++  assert.deepEqual(sandbox.__requests.map((r) => r.path), ['/api/recover/keys', '/api/recover'])
++  const keysBody = JSON.parse(JSON.stringify(sandbox.__requests[0].body))
++  assert.deepEqual(keysBody, { name: 'ece', recoveryAuthKey: acc.authKey, device: 'c'.repeat(24) + '.' + 'd'.repeat(43) })
++  assert.equal(sandbox.__requests[0].token, '')
++  const body = sandbox.__requests[1].body
++  assert.deepEqual(Object.keys(body).sort(), ['device', 'kdf', 'name', 'newAuthKey', 'publicKey', 'recovery', 'recoveryAuthKey', 'wrappedKey'])
++  assert.equal(body.recoveryAuthKey, acc.authKey)
++  assert.equal(body.publicKey, acc.publicKey)
++  assert.equal(body.kdf.N, 65536)
++  assert.equal(body.newAuthKey, (await run("deriveKeys('YeniParolam-2026')")).authKey)
++  assert.ok(percents.includes(100))
++  // Yeni parolanın sarma anahtarı aynı gizli anahtarı açar
++  sandbox.__key = await wrapKeyOf(run, 'YeniParolam-2026')
++  sandbox.__w = body.wrappedKey
++  sandbox.__pk = acc.publicKey
++  assert.equal(Buffer.from(run('window.E2EE.identity.unwrap(__w, __key, __pk)')).toString('hex'), acc.secretHex)
++  // Yeni kod sonuçta döner, eskisinden farklıdır, kurulumu yeni koddan türetilir ve aynı gizli anahtarı sarar
++  assert.notEqual(result.code, acc.code)
++  sandbox.__newCode = result.code
++  run('__nk = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__newCode).secret)')
++  assert.equal(body.recovery.authKey, run('__nk.authKey'))
++  sandbox.__rw = body.recovery.wrappedKey
++  assert.equal(Buffer.from(run('window.E2EE.identity.unwrap(__rw, __nk.wrapKey, __pk)')).toString('hex'), acc.secretHex)
++  assert.equal(run('window.E2EE.identity.unwrap(__rw, __rk.wrapKey, __pk)'), null, 'eski kod yeni kaydı açamaz')
++  // Kimlik ve yeni giriş cihazı işareti bu cihazda saklanır
++  assert.equal(run('identityState.pairUser'), '4')
++  assert.equal(Buffer.from(run('identityState.pair.secretKey')).toString('hex'), acc.secretHex)
++  assert.equal(run("loginDeviceOf('ece')"), 'e'.repeat(24) + '.' + 'f'.repeat(43))
++})
++
++test('409 keys_changed gelince anahtarlar yeniden istenir ve güncel anahtarla yeniden denenir', async () => {
++  const { sandbox, run } = load()
++  const old = account(sandbox, run)
++  // Başka bir cihaz bu arada kodla yeni kaydı kurmuş: ikinci yanıt aynı kodla açılan güncel kayıt
++  run('__pair = window.E2EE.identity.generate()')
++  const fresh = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __rk.wrapKey) })')
++  sandbox.__responses['/api/recover/keys'] = [{ status: 200, data: old.keys }, { status: 200, data: fresh }]
++  sandbox.__responses['/api/recover'] = [
++    { status: 409, data: { code: 'keys_changed', error: 'x' } },
++    { status: 200, data: { token: 't3', user: { id: 4, name: 'ece' }, keys: fresh, device: '' } }
++  ]
++  const result = await run('recoverAccount(\'ece\', ' + JSON.stringify(old.code) + ", 'YeniParolam-2026')")
++  assert.equal(result.ok, true)
++  assert.deepEqual(sandbox.__requests.map((r) => r.path), ['/api/recover/keys', '/api/recover', '/api/recover/keys', '/api/recover'])
++  assert.equal(sandbox.__requests[1].body.publicKey, old.publicKey)
++  assert.equal(sandbox.__requests[3].body.publicKey, fresh.publicKey)
++  // Parola bir kez türetilir, iki istekte aynı ayar kullanılır
++  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.__requests[3].body.kdf)), JSON.parse(JSON.stringify(sandbox.__requests[1].body.kdf)))
++})
++
++test('ikinci kez keys_changed veya yanlış kod: hata metni, istek sayısı sınırlı', async () => {
++  const { sandbox, run } = load()
++  const acc = account(sandbox, run)
++  sandbox.__responses['/api/recover/keys'] = { status: 200, data: acc.keys }
++  sandbox.__responses['/api/recover'] = { status: 409, data: { code: 'keys_changed', error: 'x' } }
++  const twice = await run('recoverAccount(\'ece\', ' + JSON.stringify(acc.code) + ", 'YeniParolam-2026')")
++  assert.equal(twice.ok, false)
++  assert.equal(sandbox.__requests.length, 4)
++  assert.equal(twice.error(), 'Hesabın anahtarları değişti, yeniden deneyin.')
++  sandbox.__requests.length = 0
++  sandbox.__responses['/api/recover/keys'] = { status: 401, data: { code: 'bad_recovery', error: 'server' } }
++  const wrong = await run('recoverAccount(\'ece\', ' + JSON.stringify(acc.code) + ", 'YeniParolam-2026')")
++  assert.equal(wrong.ok, false)
++  assert.equal(wrong.field, 'code')
++  assert.equal(wrong.error(), 'Kullanıcı adı veya kurtarma kodu hatalı.')
++  assert.deepEqual(sandbox.__requests.map((r) => r.path), ['/api/recover/keys'], 'yanlış kodda yeni parola gönderilmez')
++  // Sunucunun verdiği kayıt kodla açılmıyorsa (bozuk veya sahte kayıt) yeni parola gönderilmez
++  sandbox.__requests.length = 0
++  run('__other = window.E2EE.identity.generate()')
++  sandbox.__responses['/api/recover/keys'] = { status: 200, data: { publicKey: run('__other.publicKey'), wrappedKey: acc.keys.wrappedKey } }
++  const forged = await run('recoverAccount(\'ece\', ' + JSON.stringify(acc.code) + ", 'YeniParolam-2026')")
++  assert.equal(forged.ok, false)
++  assert.deepEqual(sandbox.__requests.map((r) => r.path), ['/api/recover/keys'])
++})
++
++test('kod biçimi istemcide denetlenir: grup anahtarı kodu ve hatalı kodlar istek göndermez', async () => {
++  const { sandbox, run } = load()
++  const group = run('window.E2EE.generateKeyCode()')
++  const cases = [
++    [group, 'Bu bir frekans anahtarı, kurtarma kodu değil.'],
++    ['', 'Kurtarma kodunu yazın.'],
++    ['ABCD', 'Kod 28 karakter olmalı.'],
++    ['U'.repeat(28), 'Kodda geçersiz karakter var.']
++  ]
++  for (const [code, text] of cases) {
++    const result = await run('recoverAccount(\'ece\', ' + JSON.stringify(code) + ", 'YeniParolam-2026')")
++    assert.equal(result.ok, false)
++    assert.equal(result.field, 'code')
++    assert.equal(result.error(), text)
++  }
++  assert.equal(sandbox.__requests.length, 0)
++  run("window.I18N.setLang('en')")
++  const en = await run('recoverAccount(\'ece\', ' + JSON.stringify(group) + ", 'x')")
++  assert.equal(en.error(), 'This is a frequency key, not a recovery code.')
++})
++
++test('Ayarlar: kod parolayla oluşturulur ve kaldırılır, sunucu bilgisi güncellenir', async () => {
++  const { sandbox, run } = load()
++  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: KDF } }
++  run("state.me = { id: 4, name: 'ece' }")
++  run('__pair = window.E2EE.identity.generate()')
++  sandbox.__key = await wrapKeyOf(run, 'Parolam-2026')
++  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __key) })')
++  sandbox.__keys = keys
++  run('setServerKeys(__keys, false, null)')
++  assert.equal(run('identityState.recoveryKnown'), true)
++  assert.equal(run('identityState.recovery'), null)
++  sandbox.__responses['/api/me/recovery'] = { status: 200, data: { ok: true, recovery: { createdAt: 1700000000000, label: 'Chrome, Linux' } } }
++  // Bu cihazda kimlik yok: parolayla açılır ve saklanır
++  const created = await run("recoveryChangeRequest('Parolam-2026', true)")
++  assert.equal(created.ok, true)
++  const sent = sandbox.__requests.filter((r) => r.path === '/api/me/recovery')[0].body
++  assert.equal(sent.authKey, (await run("deriveKeys('Parolam-2026')")).authKey)
++  sandbox.__c = created.code
++  run('__ck = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__c).secret)')
++  assert.equal(sent.recovery.authKey, run('__ck.authKey'))
++  sandbox.__rw = sent.recovery.wrappedKey
++  assert.equal(Buffer.from(run('window.E2EE.identity.unwrap(__rw, __ck.wrapKey, __pair.publicKey)')).toString('hex'), Buffer.from(run('__pair.secretKey')).toString('hex'))
++  assert.deepEqual(JSON.parse(JSON.stringify(run('identityState.recovery'))), { createdAt: 1700000000000, label: 'Chrome, Linux' })
++  assert.ok(run('hasIdentity()'), 'açılan kimlik bu cihazda saklandı')
++  // Kaldırma
++  sandbox.__responses['/api/me/recovery'] = { status: 200, data: { ok: true, recovery: null } }
++  const removed = await run("recoveryChangeRequest('Parolam-2026', false)")
++  assert.equal(removed.ok, true)
++  assert.equal(removed.code, null)
++  const last = sandbox.__requests.filter((r) => r.path === '/api/me/recovery').pop().body
++  assert.equal(last.recovery, null)
++  assert.equal(run('identityState.recovery'), null)
++  // Yanlış parola: sunucu 401, metin parola hatası
++  sandbox.__responses['/api/me/recovery'] = { status: 401, data: { code: 'bad_credentials', error: 'x' } }
++  const wrong = await run("recoveryChangeRequest('Yanlis-1', false)")
++  assert.equal(wrong.ok, false)
++  assert.equal(wrong.error(), 'Parola hatalı.')
++  // Sunucu keys_changed derse anahtar bilgisi yeniden yüklenir
++  sandbox.__responses['/api/me/recovery'] = { status: 409, data: { code: 'keys_changed', error: 'x' } }
++  sandbox.__responses['/api/state'] = { status: 200, data: { keys: keys, recovery: { createdAt: 9, label: null } } }
++  const changed = await run("recoveryChangeRequest('Parolam-2026', true)")
++  assert.equal(changed.ok, false)
++  assert.equal(sandbox.__requests[sandbox.__requests.length - 1].path, '/api/state')
++  assert.equal(run('identityState.recovery.createdAt'), 9)
++})
++
++test('parola değişikliği: kod istenirse aynı istekle yenilenir, istenmezse gönderilmez', async () => {
++  const { sandbox, run } = load()
++  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: KDF } }
++  run("state.me = { id: 4, name: 'ece' }")
++  run('__pair = window.E2EE.identity.generate()')
++  sandbox.__key = await wrapKeyOf(run, 'Parolam-2026')
++  const keys = run('({ publicKey: __pair.publicKey, wrappedKey: window.E2EE.identity.wrap(__pair.secretKey, __key) })')
++  sandbox.__responses['/api/state'] = { status: 200, data: { keys: keys, recovery: { createdAt: 3, label: null } } }
++  sandbox.__responses['/api/me/password'] = { status: 200, data: { ok: true, device: '', recovery: { createdAt: 3, label: null } } }
++  const plain = await run("changePasswordRequest('Parolam-2026', 'YeniParolam-2026')")
++  assert.equal(plain.ok, true)
++  assert.equal(plain.recoveryCode, undefined)
++  const first = sandbox.__requests.filter((r) => r.path === '/api/me/password')[0].body
++  assert.equal('recovery' in first, false)
++  sandbox.__responses['/api/me/password'] = { status: 200, data: { ok: true, device: '', recovery: { createdAt: 7, label: 'Firefox, Linux' } } }
++  const renewed = await run("changePasswordRequest('Parolam-2026', 'BaskaParola-2027', null, { renewRecovery: true })")
++  assert.equal(renewed.ok, true)
++  const second = sandbox.__requests.filter((r) => r.path === '/api/me/password')[1].body
++  sandbox.__c = renewed.recoveryCode
++  run('__ck = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__c).secret)')
++  assert.equal(second.recovery.authKey, run('__ck.authKey'))
++  sandbox.__rw = second.recovery.wrappedKey
++  assert.ok(run('window.E2EE.identity.unwrap(__rw, __ck.wrapKey, __pair.publicKey)'), 'yeni kod aynı kimliği açar')
++  assert.equal(run('identityState.recovery.createdAt'), 7)
++})
++
++test('sıfırlamadan sonra yeni anahtar çifti kurulurken kurtarma kodu da yeni çifti sarar', async () => {
++  const { sandbox, run } = load()
++  sandbox.__responses['/api/prelogin'] = { status: 200, data: { kdf: KDF } }
++  run("state.me = { id: 4, name: 'ece' }")
++  sandbox.__responses['/api/state'] = { status: 200, data: { keys: { publicKey: null, wrappedKey: null }, resetPending: true, recovery: null } }
++  sandbox.__responses['/api/me/password'] = { status: 200, data: { ok: true, device: '', recovery: { createdAt: 1, label: null } } }
++  const result = await run("changePasswordRequest('GeciciParola12', 'YeniParolam-2026', null, { renewRecovery: true })")
++  assert.equal(result.ok, true)
++  assert.equal(result.keysReset, true)
++  const body = sandbox.__requests.filter((r) => r.path === '/api/me/password')[0].body
++  sandbox.__c = result.recoveryCode
++  sandbox.__rw = body.recovery.wrappedKey
++  sandbox.__pk = body.publicKey
++  run('__ck = window.E2EE.recovery.derive(window.E2EE.recovery.parse(__c).secret)')
++  const viaCode = run('window.E2EE.identity.unwrap(__rw, __ck.wrapKey, __pk)')
++  assert.ok(viaCode)
++  assert.equal(Buffer.from(viaCode).toString('hex'), Buffer.from(run('identityState.pair.secretKey')).toString('hex'))
++})
++
++test('hatırlatma bayrağı kişi başına bir kez yazılır, kod metni dosyası sunucu ve kişi bilgisini taşır', () => {
++  const { sandbox, run } = load()
++  assert.equal(run('recoveryReminded(4)'), false)
++  run('markRecoveryReminded(4)')
++  assert.equal(run('recoveryReminded(4)'), true)
++  assert.equal(run('recoveryReminded(5)'), false)
++  assert.deepEqual(JSON.parse(sandbox.localStorage.getItem('telsiz.recoveryReminded')), { 'u:4': 1 })
++  run("state.serverName = 'Kankalar'")
++  assert.equal(run('recoveryServerText()'), 'Kankalar (https://kankalar.ornek.com)')
++  assert.equal(run("forgotOwnerCommand('ece')"), 'node server.js sifre-sifirla ece')
++  assert.equal(run("forgotOwnerCommand('')"), 'node server.js sifre-sifirla <kullanıcı adı>')
++  run("window.I18N.setLang('en')")
++  assert.equal(run("forgotOwnerCommand('Geçersiz Ad')"), 'node server.js sifre-sifirla <username>')
++})
