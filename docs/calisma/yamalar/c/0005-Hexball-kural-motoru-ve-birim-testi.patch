@@ -1,7 +1,7 @@
 From e657f69ca7005fce0b6448f681182b6d0fde831a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 11 Oct 2026 06:00:55 +0000
-Subject: [PATCH 5/5] Hexball: kural motoru ve birim testi
+Subject: [PATCH 5/6] Hexball: kural motoru ve birim testi
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
