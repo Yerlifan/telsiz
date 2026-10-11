@@ -100,7 +100,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | --- | --- |
 | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
 | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
-| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
+| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları, kayıttan sonra kurtarma kodu kartına geçiş |
 | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
 | `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
@@ -113,7 +113,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `13-profile.js` | Profiller, profil kartı, durum menüsü |
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
-| `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
+| `16-identity.js` | Paroladan anahtar türetme, kişisel kimlik anahtarı ve kurtarma kodu istekleri (kayıtta kod, Ayarlar'dan kod, kodla yeni parola) |
 | `17-search.js` | Cihazda arama |
 | `18-mentions.js` | @ ile anma ve öneri listesi |
 | `19-typing.js` | Yazıyor göstergesi |
@@ -130,6 +130,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
 | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
+| `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü ve kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma |
 
 Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
 
@@ -171,7 +172,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 
 | Alan | Neden hassas |
 | --- | --- |
-| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
+| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, kurtarma kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
 | `public/voice.js` | Ses ve ekran paylaşımı sinyallerinin şifrelenmesi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
 | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
 | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
