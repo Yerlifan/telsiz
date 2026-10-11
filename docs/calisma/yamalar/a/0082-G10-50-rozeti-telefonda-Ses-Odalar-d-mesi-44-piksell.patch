@@ -1,0 +1,667 @@
+From edbb7eecd537bcbd47e9bc9623e2f74e68d8d05d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:05:56 +0000
+Subject: [PATCH 82/82] =?UTF-8?q?G10:=20"50+"=20rozeti,=20telefonda=20Ses?=
+ =?UTF-8?q?=20Odalar=C4=B1=20d=C3=BC=C4=9Fmesi,=2044=20piksellik=20dokunma?=
+ =?UTF-8?q?=20hedefleri=20ve=20sayfay=C4=B1=20s=C3=BCr=C3=BCkleyerek=20kap?=
+ =?UTF-8?q?atma?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Açılışta sayılan sayfanın hepsi okunmamışsa ve daha eskisi varsa rozet sayının sonuna + koyar ("50+"), konuşma
+okununca veya açılıp kesin sayı bilinince kalkar (04-meta.js scanUnread ve countText, 15-dm.js scanDmUnread,
+38-gezinme.js). Telefonda kapalı telsiz kartı İstasyonlar sayfasını ses odalarında açan 44 piksellik Ses Odaları
+düğmesidir (index.html, 10-voice.js, frekans.css). Dokunmatik ekranda oda ve sayfa satırları, üst çubuğun ve
+konuşma başlığının düğmeleri en az 44 piksel yüksekliktedir (400 pikselden dar telefonda üst düğmelerin eni
+korunur). Alttan açılan sayfa tutamacından veya başlığından 80 pikselden çok aşağı sürüklenince kapanır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js  | 110 ++++++++++++++++++++++++++++++++++++++
+ public/css/frekans.css  |  95 +++++++++++++++++++++++++++++++--
+ public/i18n.js          |   4 ++
+ public/index.html       |   2 +
+ public/js/04-meta.js    |  23 +++++---
+ public/js/10-voice.js   |   3 ++
+ public/js/15-dm.js      |   8 ++-
+ public/js/38-gezinme.js | 115 ++++++++++++++++++++++++++++++++++++++++
+ test/chatplus.test.js   |   7 +++
+ test/gezinme.test.js    |  26 +++++++++
+ 10 files changed, 380 insertions(+), 13 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 5ecf232..1567556 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -54,6 +54,11 @@
+ //   açık katmanı (emoji seçici) kapatırken kaydırmaz, katman yokken okundu sayıp en alta iner. Ctrl+K panelinde Odalar
+ //   ve Kişiler bölümü oda adını (Türkçe harfler ve büyük harf duyarsız) ve özel konuşmanın görünen adını bulur, aşağı
+ //   ok ve Enter konuşmayı açar, eşleşme yoksa bölüm gizlidir. Rehber kartında üç kısayol satırı var.
++// G10, küçük düzeltmeler (S11, S13, S14, S15): uygulama kapalıyken 60 mesaj gelen odanın rozeti açılışta "50+", oda
++//   açılınca şerit 60 der ve alta inmeden çıkınca rozet 60 olur. Telefonda (dokunmatik, 360) kapalı telsiz kartı 44
++//   piksellik Ses Odaları düğmesidir ve İstasyonlar sayfasını ses odalarında açar, üst çubuğun düğmeleri ve satırlar en
++//   az 44 piksel yüksekliktedir (412 genişlikte genişlik de), sayfa tutamaçtan 40 piksel sürüklenince yerine döner,
++//   120 piksel sürüklenince kapanır ve odak açan düğmeye döner, ses odasına bağlıyken düğme gizlidir.
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -1234,6 +1239,111 @@ test('Ctrl+K: Odalar ve Kişiler bölümünde oda ve özel konuşma adı eşleş
+   await page.waitForSelector('#hints-card', { state: 'hidden' })
+ })
+ 
++// G10 (S11, S13, S14, S15): okunmamış alt sınırı, telefonda Ses Odaları düğmesi, dokunma hedefleri, sayfayı sürükleyerek
++// kapatma
++
++test('okunmamış alt sınırı: açılışta sayılan sayfa doluysa rozet "50+", oda açılınca kesin sayı', async () => {
++  const page = W.deniz
++  const arsiv = W.w.room('arsiv')
++  const genel = W.w.room('genel').id
++  await setWidth(page, 1440)
++  await openRoomRow(page, genel)
++  // Uygulama kapalıyken 60 mesaj gelir, açılışta yalnızca en yeni sayfa (50) sayılır
++  await page.evaluate(() => stopPoll())
++  let i = 0
++  while (i < 60) {
++    await W.w.say('selin', arsiv, 'uzun ara ' + (i + 1))
++    i += 1
++  }
++  await page.reload({ waitUntil: 'domcontentloaded' })
++  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  await waitConversation(page, 'channel', genel)
++  const mark = (id) => page.evaluate((x) => {
++    const b = document.querySelector('#inbox-list .room-row[data-station="text-' + x + '"]')
++    const m = b ? b.querySelector('.station-mark') : null
++    return m ? m.textContent : ''
++  }, id)
++  await page.waitForFunction((x) => {
++    const b = document.querySelector('#inbox-list .room-row[data-station="text-' + x + '"] .station-mark')
++    return Boolean(b && b.textContent === '50+')
++  }, arsiv.id, { timeout: h.LONG })
++  assert.equal(await page.evaluate((x) => state.unread[x], arsiv.id), 50)
++  // Oda açılınca okunmamışlar iki sayfadan sayılır, alta inmeden çıkınca rozet kesin sayıdır
++  await openRoomRow(page, arsiv.id)
++  await page.waitForSelector('#message-list .unread-divider')
++  assert.equal(await page.evaluate(() => document.querySelector('#unread-bar .unread-bar-count').textContent), '60 yeni mesaj')
++  await openRoomRow(page, genel)
++  assert.equal(await mark(arsiv.id), '60')
++  assert.ok(await h.overflowX(page) <= 0, 'yatay taşma')
++})
++
++test('telefon: kapalı telsiz kartı Ses Odaları düğmesi, dokunma hedefleri en az 44 piksel, sayfa tutamaçtan sürüklenince kapanır', async () => {
++  const page = await W.w.pageFor('ece', { viewport: { width: 360, height: 780 }, mobile: true })
++  assert.equal(await page.evaluate(() => window.matchMedia('(pointer: coarse)').matches), true)
++  const pick = await page.evaluate(() => {
++    const b = document.getElementById('radio-pick-button')
++    const r = b.getBoundingClientRect()
++    return { shown: b.getClientRects().length > 0, height: r.height, text: b.textContent.trim(), radio: Math.round(document.getElementById('radio').getBoundingClientRect().height), textShown: document.getElementById('radio-pick').getClientRects().length > 0 }
++  })
++  assert.deepEqual([pick.shown, pick.text, pick.textShown], [true, 'Ses Odaları', false])
++  assert.ok(pick.height >= 43.5, 'Ses Odaları düğmesi ' + pick.height + ' piksel')
++  assert.ok(pick.radio <= 72, 'kapalı telsiz kartı ' + pick.radio + ' piksel')
++  // Üst çubuğun düğmeleri en az 44 piksel yükseklikte
++  const heights = await page.evaluate(() => Array.from(document.querySelectorAll('.top-bar button')).filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().height))
++  assert.ok(heights.length >= 5 && heights.every((x) => x >= 43.5), 'üst düğmeler: ' + heights.join(','))
++  assert.ok(await h.overflowX(page) <= 0, '360 genişlikte yatay taşma')
++  // Ses Odaları düğmesi İstasyonlar sayfasını ses odalarında açar, satırlar en az 44 piksel
++  await page.click('#radio-pick-button')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await page.waitForFunction(() => document.activeElement && document.activeElement.classList.contains('room-row-voice'))
++  assert.equal(await page.getAttribute('#radio-pick-button', 'aria-expanded'), 'true')
++  const rows = await page.evaluate(() => Array.from(document.querySelectorAll('#stations-list .room-row')).map((b) => b.getBoundingClientRect().height))
++  assert.ok(rows.length > 3 && rows.every((x) => x >= 43.5), 'satırlar: ' + rows.join(','))
++  await page.keyboard.press('Escape')
++  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
++  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'radio-pick-button')
++
++  // Tutamaç: az sürüklenince sayfa yerine döner, 80 pikselden çok sürüklenince kapanır
++  const drag = async (dy) => {
++    const box = await page.locator('#stations-sheet .sheet-handle').boundingBox()
++    const x = box.x + box.width / 2
++    const y = box.y + box.height / 2
++    await page.mouse.move(x, y)
++    await page.mouse.down()
++    await page.mouse.move(x, y + dy / 2)
++    await page.mouse.move(x, y + dy)
++    const moved = await page.evaluate(() => document.getElementById('stations-sheet').style.transform)
++    await page.mouse.up()
++    return moved
++  }
++  await page.click('#btn-rooms')
++  await page.waitForSelector('#stations-sheet:not([hidden])')
++  await h.sleep(400)
++  assert.equal(await drag(40), 'translateY(40px)', 'sayfa parmağı izler')
++  await h.sleep(200)
++  assert.deepEqual(await page.evaluate(() => [document.getElementById('stations-sheet').hidden, document.getElementById('stations-sheet').style.transform]), [false, ''])
++  await drag(120)
++  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
++  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-rooms')
++  // Kartın düğmesi ses odasına bağlıyken gizlidir
++  if (h.FAKE_MIC) {
++    await page.click('#radio-pick-button')
++    await page.waitForSelector('#stations-sheet:not([hidden])')
++    await page.click('#stations-list .room-row-voice')
++    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on', null, { timeout: h.LONG })
++    assert.equal(await page.evaluate(() => document.getElementById('radio-pick-button').getClientRects().length), 0)
++    await page.click('#voice-leave')
++    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
++  }
++  // Daha geniş telefonda üst çubuğun düğmeleri en az 44 piksel genişlikte de
++  await page.setViewportSize({ width: 412, height: 860 })
++  await page.waitForFunction(() => window.innerWidth === 412)
++  const widths = await page.evaluate(() => Array.from(document.querySelectorAll('.top-bar .top-chip, .top-bar .top-personal-button')).filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().width))
++  assert.ok(widths.length >= 4 && widths.every((x) => x >= 43.5), 'üst düğme genişlikleri: ' + widths.join(','))
++  assert.ok(await h.overflowX(page) <= 0, '412 genişlikte yatay taşma')
++  await page.close()
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/css/frekans.css b/public/css/frekans.css
+index 0d52d6d..045ec8d 100644
+--- a/public/css/frekans.css
++++ b/public/css/frekans.css
+@@ -2247,6 +2247,35 @@
+   display: none;
+ }
+ 
++/* Telefonda kapalı telsiz kartının Ses Odaları düğmesi (istek 17): İstasyonlar sayfasını ses odalarında açar */
++.radio-pick-button {
++  display: none;
++  align-items: center;
++  justify-content: center;
++  width: 100%;
++  min-height: 2.9375rem;
++  padding: 0 1rem;
++  border: var(--border-width) solid var(--line);
++  border-radius: var(--radius-card);
++  background-color: var(--screen-bg);
++  color: var(--text-strong);
++  font: inherit;
++  font-family: var(--font-display);
++  font-weight: var(--weight-display);
++  font-size: var(--text-sm);
++  cursor: pointer;
++}
++
++.radio-pick-button:hover {
++  border-color: var(--line-strong);
++}
++
++.radio-pick-button .icon {
++  flex: none;
++  margin-right: 0.5rem;
++  color: var(--accent-text);
++}
++
+ .sheet-section {
+   margin: 1rem 0.25rem 0.375rem;
+ }
+@@ -2777,13 +2806,23 @@
+     display: none;
+   }
+ 
++  /* Kapalı kart tek bir Ses Odaları düğmesidir (44 piksel), ses odası İstasyonlar sayfasında seçilir */
+   .radio[data-state="off"] .radio-screen {
+-    padding: 0.5rem 0.75rem;
++    padding: 0;
++    border: 0;
++    background-color: transparent;
+   }
+ 
+   .radio[data-state="off"] .radio-pick {
+-    margin: 0;
+-    font-size: var(--text-sm);
++    display: none;
++  }
++
++  .radio[data-state="off"] .radio-pick-button:not([hidden]) {
++    display: flex;
++  }
++
++  .radio[data-state="off"] .radio-support {
++    margin: 0.5rem 0 0;
+   }
+ 
+   .radio[data-state="on"] .radio-screen,
+@@ -2830,7 +2869,10 @@
+     animation: sheet-from-bottom var(--dur-med) var(--ease);
+   }
+ 
++  /* Tutamaç ve başlık aşağı sürüklenince sayfa kapanır (38-gezinme.js, istek 17). Tutamacın dokunma alanı görünen
++     çizgiden geniştir (görünmez ::before). */
+   .sheet-handle {
++    position: relative;
+     display: block;
+     flex: none;
+     width: 2.75rem;
+@@ -2838,6 +2880,27 @@
+     margin: 0.5rem auto 0;
+     border-radius: var(--radius-pill);
+     background-color: var(--line-strong);
++    cursor: grab;
++    touch-action: none;
++  }
++
++  .sheet-handle::before {
++    content: "";
++    position: absolute;
++    top: -0.5rem;
++    right: -1.5rem;
++    bottom: -0.5rem;
++    left: -1.5rem;
++  }
++
++  .sheet-head {
++    touch-action: none;
++  }
++
++  .sheet.is-dragging,
++  .side-dj.is-dragging {
++    -webkit-animation: none;
++    animation: none;
+   }
+ 
+   .sheet-head,
+@@ -2866,3 +2929,29 @@
+     animation: none;
+   }
+ }
++
++/* Dokunmatik ekranda (istek 17) oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel
++   yüksekliktedir. Üst çubuğun düğmeleri 400 pikselden dar telefonda eninde kalır (frekans amblemi sığsın). */
++@media (pointer: coarse) {
++  .top-brand-button,
++  .top-chip,
++  .top-personal-button,
++  .room-row,
++  .sheet-row,
++  .convo-head .icon-button,
++  .sheet-close {
++    min-height: 2.9375rem;
++  }
++
++  .convo-head .icon-button,
++  .sheet-close {
++    min-width: 2.9375rem;
++  }
++}
++
++@media (pointer: coarse) and (min-width: 400px) {
++  .top-chip,
++  .top-personal-button {
++    min-width: 2.9375rem;
++  }
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 1d8233b..24b7cc4 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -61,6 +61,8 @@ window.I18N = (function () {
+     'hints.altArrows': 'Alt + Yukarı/Aşağı: önceki veya sonraki konuşma',
+     'hints.altShiftArrows': 'Alt + Shift + Yukarı/Aşağı: sonraki okunmamış',
+     'hints.esc': 'Esc: okundu işaretle ve en alta in',
++    'count.more': '{count}+',
++    'radio.pickButton': 'Ses Odaları',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Saha Telsizi',
+@@ -2101,6 +2103,8 @@ window.I18N = (function () {
+     'hints.altArrows': 'Alt + Up/Down: previous or next conversation',
+     'hints.altShiftArrows': 'Alt + Shift + Up/Down: next unread',
+     'hints.esc': 'Esc: mark as read and jump to bottom',
++    'count.more': '{count}+',
++    'radio.pickButton': 'Voice Rooms',
+     // G11 Yüzen pencereler
+     // G12 Temalar
+     'theme.skin.saha': 'Field Radio',
+diff --git a/public/index.html b/public/index.html
+index ebfbce4..65f9b95 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -640,6 +640,8 @@
+             <!-- Ekran: kapalıyken ses odaları ve Katıl, bağlanırken ve bağlıyken oda adı, kadro ve konuşma satırı (10-voice.js) -->
+             <div class="radio-screen">
+               <p id="radio-pick" class="radio-pick" data-i18n="radio.pick">Bir ses odası seçin</p>
++              <!-- Telefonda kapalı telsiz kartı: İstasyonlar sayfasını ses odalarında açar (38-gezinme.js, istek 17) -->
++              <button id="radio-pick-button" class="radio-pick-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet"><svg class="icon" aria-hidden="true"><use href="#i-speaker" xlink:href="#i-speaker"></use></svg><span data-i18n="radio.pickButton">Ses Odaları</span></button>
+               <p id="radio-support" class="radio-support" hidden></p>
+               <ul id="voice-channels" class="radio-rooms" aria-label="Ses odaları" data-i18n-aria-label="channels.voice"></ul>
+               <div id="radio-tuned" class="radio-tuned" hidden>
+diff --git a/public/js/04-meta.js b/public/js/04-meta.js
+index fe0ff29..8b377d5 100644
+--- a/public/js/04-meta.js
++++ b/public/js/04-meta.js
+@@ -306,8 +306,10 @@ function voiceSpeakingIn (channelId) {
+   return Object.keys(peers).some((id) => peers[id] && peers[id].speaking)
+ }
+ 
+-function countText (n) {
+-  return n > 99 ? '99+' : String(n)
++// Rozet sayısı. more: sayı alt sınırdır (açılışta sayılan sayfa doluydu, 38-gezinme.js navUnreadIsMore), "50+" yazılır.
++function countText (n, more) {
++  if (n > 99) return '99+'
++  return more ? t('count.more', { count: n }) : String(n)
+ }
+ 
+ // Odaların veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (İstasyonlar listesi ve sayfası, üst
+@@ -347,10 +349,11 @@ function bandModel () {
+     const isTuned = tuned === 'text-' + c.id
+     const unread = isTuned ? 0 : Number(state.unread[c.id]) || 0
+     const mention = isTuned ? 0 : mentionCount(c.id)
++    const more = unread > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(c.id)
+     let label = t('band.textLabel', { name: c.name })
+     if (mention) label = t('band.textMentionLabel', { name: c.name, count: mention })
+     else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: unread })
+-    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, mention: mention, tuned: isTuned, label: label }
++    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, more: more, mention: mention, tuned: isTuned, label: label }
+   })
+   const voices = voiceChannels().map((c) => {
+     const roster = voiceRoster(c.id)
+@@ -410,7 +413,7 @@ function bandGroups (model) {
+ }
+ 
+ function stationKeyOf (st) {
+-  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
++  return [st.key, st.name, st.sub, st.unread, st.more ? 1 : 0, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
+     const info = avatarInfoFor(id)
+     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
+   }).join(','), (st.members || []).map((m) => [m.id, shownName(m.id), memberVoiceIcon(m), m.camera ? 1 : 0].join('.')).join(','), st.label].join(':')
+@@ -455,12 +458,12 @@ function buildRoomPeople (st) {
+ 
+ function buildStationMark (st) {
+   if (st.mention > 0) {
+-    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention))
++    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention, st.more))
+     mark.setAttribute('aria-hidden', 'true')
+     return mark
+   }
+   if (st.unread > 0) {
+-    const mark = h('span', 'station-mark mark-unread', countText(st.unread))
++    const mark = h('span', 'station-mark mark-unread', countText(st.unread, st.more))
+     mark.setAttribute('aria-hidden', 'true')
+     return mark
+   }
+@@ -1172,7 +1175,8 @@ function markRead (opts) {
+   return true
+ }
+ 
+-// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
++// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar). Sayfanın
++// en eski mesajı da okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js).
+ async function scanUnread () {
+   const me = state.me
+   const list = textChannels().filter((c) => !sameId(c.id, state.channelId))
+@@ -1184,7 +1188,10 @@ async function scanUnread () {
+     const lastRead = Number(state.lastRead[c.id]) || 0
+     const unread = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id))
+     if (sameId(c.id, state.channelId)) continue
+-    if (unread.length > (state.unread[c.id] || 0)) state.unread[c.id] = unread.length
++    if (unread.length > (state.unread[c.id] || 0)) {
++      state.unread[c.id] = unread.length
++      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(c.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
++    }
+     if (typeof messageMentionsMe === 'function') {
+       const mentions = unread.filter((m) => !(typeof isBlocked === 'function' && isBlocked(m.authorId)) && messageMentionsMe(m)).length
+       if (mentions > (Number(state.mentions[c.id]) || 0)) state.mentions[c.id] = mentions
+diff --git a/public/js/10-voice.js b/public/js/10-voice.js
+index fa0a2da..4e5d017 100644
+--- a/public/js/10-voice.js
++++ b/public/js/10-voice.js
+@@ -746,6 +746,9 @@ function renderVoicePanel () {
+   // Kapalı: ses odaları listesi, destek uyarısı ve tuş ipucu
+   const problem = live ? null : voiceSupportCode()
+   el.radioPick.hidden = live
++  // Telefonda Ses Odaları düğmesi (38-gezinme.js) yalnızca kart kapalıyken
++  const pickButton = byId('radio-pick-button')
++  if (pickButton) pickButton.hidden = live
+   el.voiceChannels.hidden = live
+   setMsg(el.radioSupport, problem ? voiceErrorText(problem, '') : '')
+   renderRadioHint(live || Boolean(problem), s)
+diff --git a/public/js/15-dm.js b/public/js/15-dm.js
+index 01477d8..0ee9a26 100644
+--- a/public/js/15-dm.js
++++ b/public/js/15-dm.js
+@@ -100,7 +100,7 @@ function renderDmList () {
+     const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name })
+     if (count > 0 && !current) {
+       b.classList.add('is-unread')
+-      const badge = h('span', 'unread-badge station-mark mark-mention', count > 99 ? '99+' : String(count))
++      const badge = h('span', 'unread-badge station-mark mark-mention', countText(count, typeof navUnreadIsMore === 'function' && navUnreadIsMore(d.id)))
+       badge.setAttribute('aria-hidden', 'true')
+       b.appendChild(badge)
+     }
+@@ -501,7 +501,11 @@ async function scanDmUnread () {
+     const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(d.id) + '&limit=' + PAGE_SIZE)
+     if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) continue
+     const count = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id)).length
+-    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) state.unread[d.id] = count
++    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) {
++      state.unread[d.id] = count
++      // Sayfanın hepsi okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js)
++      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(d.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
++    }
+   }
+   if (gen === dmState.scanGen && state.inApp && state.me === me) {
+     renderDmList()
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index fadf354..58b37b2 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -34,6 +34,13 @@
+ // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
+ // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
+ //
++// Telefonda ses odaları ve sayfa sürükleme (S13, S15). Kapalı telsiz kartı İstasyonlar sayfasını ses odalarında açan
++// Ses Odaları düğmesidir. Dokunmatik ekranda satırlar ve üst düğmeler en az 44 pikseldir (S14, frekans.css). Alttan
++// açılan sayfa tutamacından aşağı sürüklenince kapanır.
++//
++// Okunmamış sayısının alt sınırı (S11). Açılışta sayılan sayfanın hepsi okunmamışsa ve daha eskisi varsa rozet
++// "50+" gösterir (navUnreadIsMore).
++//
+ // Kısayollar (S10). Alt+Yukarı/Aşağı önceki ve sonraki konuşma, Alt+Shift+Yukarı/Aşağı sıradaki okunmamış (anmalar
+ // önce), Esc (açık katman yokken) okundu say ve en alta in. Ctrl+K paneli adı eşleşen odaları ve kişileri de
+ // gösterir (17-search.js).
+@@ -233,6 +240,7 @@ function navStop () {
+   navCacheClear()
+   navCache.shown = null
+   navCache.ready = false
++  navUnreadMore.clear()
+   if (was) {
+     navState.ops.push({ kind: 'rewind', fallback: extra })
+     navRun()
+@@ -417,6 +425,9 @@ function navInit () {
+   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
+   navWatchInfoCards()
+   navWatchDmHeader()
++  navBindSheetDrag()
++  const pick = byId('radio-pick-button')
++  if (pick) pick.addEventListener('click', navOpenVoiceRooms)
+   // Alt ile oklar yazma alanının kendi tuşlarından önce yakalanır, Esc diğer modüllerden (öneri listesi, düzenleme,
+   // katmanlar) sonra işlenir
+   if (typeof document.addEventListener === 'function') {
+@@ -598,6 +609,11 @@ function navKeepUnread (channelId) {
+   const u = navState.unread
+   if (!sameId(u.channelId, channelId) || !(u.count > 0)) return
+   let changed = false
++  if (u.count >= (Number(state.unread[channelId]) || 0)) {
++    // Sayı alt sınırsa rozet "+" ile gösterilir (S11)
++    if (navUnreadMore.has(String(channelId)) !== (u.more === true)) changed = true
++    navSetUnreadMore(channelId, u.more === true)
++  }
+   if (u.count > (Number(state.unread[channelId]) || 0)) {
+     state.unread[channelId] = u.count
+     changed = true
+@@ -611,8 +627,31 @@ function navKeepUnread (channelId) {
+   if (typeof renderHomeEntry === 'function') renderHomeEntry()
+ }
+ 
++// Okunmamış sayısı alt sınır mı (S11): açılışta sayılan sayfanın (04-meta.js scanUnread, 15-dm.js scanDmUnread)
++// hepsi okunmamıştı ve daha eskisi vardı. Rozet sayının sonuna + koyar ("50+"). Konuşma okununca veya açılıp
++// okunmamışlar sayılınca kalkar.
++const navUnreadMore = new Set()
++
++function navSetUnreadMore (id, more) {
++  if (more) navUnreadMore.add(String(id))
++  else navUnreadMore.delete(String(id))
++}
++
++function navUnreadIsMore (id) {
++  return navUnreadMore.has(String(id)) && navUnreadOf(id) > 0
++}
++
++// Sayfa (mesajlar, hasMore) son okunandan sonraki bütün mesajları kapsamıyor mu: en eski mesaj da son okunandan
++// yeni ve daha eskisi var
++function navPageIsPartial (messages, hasMore, readMark) {
++  if (hasMore !== true || !Array.isArray(messages) || !messages.length) return false
++  const oldest = messages.reduce((min, m) => Math.min(min, Number(m.id)), Infinity)
++  return oldest > (Number(readMark) || 0)
++}
++
+ // Okundu sayıldı (04-meta.js markRead): şerit ve kapsül kalkar, ayraç konuşmadan çıkılana kadar kalır
+ function navAfterRead (channelId) {
++  navSetUnreadMore(channelId, false)
+   if (sameId(navState.unread.channelId, channelId)) navState.unread.bar = false
+   navState.newBelow = 0
+   navRenderBar()
+@@ -784,6 +823,7 @@ function navDmGroup () {
+       unread: 0,
+       // Özel mesajın okunmamışı Özel düğmesindeki gibi anma rengindedir
+       mention: n,
++      more: n > 0 && navUnreadIsMore(d.id),
+       tuned: open !== null && sameId(d.id, open),
+       blocked: typeof isBlocked === 'function' && isBlocked(d.userId),
+       status: shownStatus(d.userId),
+@@ -975,6 +1015,81 @@ function navReadToBottom () {
+   return true
+ }
+ 
++// ------------------------------------------------------------------ telefonda ses odaları ve sayfa sürükleme (S13, S15)
++
++// Telefonda kapalı telsiz kartı tek bir Ses Odaları düğmesidir (#radio-pick-button, frekans.css): İstasyonlar sayfası
++// açılır, ilk odak ses odaları grubundaki ilk odadır
++function navOpenVoiceRooms () {
++  const pick = byId('radio-pick-button')
++  if (typeof openSheet === 'function') openSheet('stations', pick, navVoiceSheetFocus)
++}
++
++function navVoiceSheetFocus (panel) {
++  return panel ? panel.querySelector('.room-row-voice') : null
++}
++
++// Alttan açılan sayfa (telefon) tutamacından veya başlığından NAV_DRAG_CLOSE_PX aşağı sürüklenince kapanır. Sayfa
++// parmağı izler, daha az sürüklenince yerine döner. Başlıktaki düğmelerden başlayan sürükleme sayılmaz.
++const NAV_DRAG_CLOSE_PX = 80
++const navDrag = { layer: null, panel: null, y0: 0, dy: 0 }
++
++function navDragPoint (e) {
++  if (e.touches && e.touches.length) return e.touches[0]
++  if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0]
++  return e
++}
++
++function navDragStart (e) {
++  if (navDrag.layer || typeof isNarrow !== 'function' || !isNarrow()) return
++  if (typeof e.button === 'number' && e.button !== 0) return
++  const target = e.target
++  if (!target || !target.closest) return
++  const grip = target.closest('.sheet-handle, .sheet-head')
++  if (!grip || target.closest('button, a, input, select, textarea')) return
++  const layer = topLayer()
++  if (!layer || !layer.el || !layer.el.contains(grip)) return
++  navDrag.layer = layer
++  navDrag.panel = layer.el
++  navDrag.y0 = navDragPoint(e).clientY
++  navDrag.dy = 0
++  layer.el.classList.add('is-dragging')
++}
++
++function navDragMove (e) {
++  if (!navDrag.layer) return
++  const dy = Math.max(0, navDragPoint(e).clientY - navDrag.y0)
++  navDrag.dy = dy
++  navDrag.panel.style.transform = dy ? 'translateY(' + Math.round(dy) + 'px)' : ''
++  if (dy && e.cancelable) e.preventDefault()
++}
++
++function navDragEnd () {
++  const layer = navDrag.layer
++  if (!layer) return
++  const panel = navDrag.panel
++  const dy = navDrag.dy
++  navDrag.layer = null
++  navDrag.panel = null
++  panel.style.transform = ''
++  panel.classList.remove('is-dragging')
++  if (dy >= NAV_DRAG_CLOSE_PX && layers.indexOf(layer) !== -1) closeLayer(layer, true)
++}
++
++function navBindSheetDrag () {
++  if (typeof document.addEventListener !== 'function') return
++  if (window.PointerEvent) {
++    document.addEventListener('pointerdown', navDragStart)
++    document.addEventListener('pointermove', navDragMove)
++    document.addEventListener('pointerup', navDragEnd)
++    document.addEventListener('pointercancel', navDragEnd)
++    return
++  }
++  document.addEventListener('touchstart', navDragStart, { passive: true })
++  document.addEventListener('touchmove', navDragMove, { passive: false })
++  document.addEventListener('touchend', navDragEnd)
++  document.addEventListener('touchcancel', navDragEnd)
++}
++
+ // ------------------------------------------------------------------ dar özel mesaj başlığı (S9)
+ 
+ // Özel mesaj başlığı (#dm-header) sığmazsa Sesli Ara, Görüntülü Ara, güvenlik rozeti ve Profil yalnızca simge olarak
+diff --git a/test/chatplus.test.js b/test/chatplus.test.js
+index e40bd63..4330533 100644
+--- a/test/chatplus.test.js
++++ b/test/chatplus.test.js
+@@ -305,3 +305,10 @@ test('Odalar ve Kişiler: oda ve özel konuşma adları aramayla aynı katlamayl
+   run('state.me = null')
+   assert.deepStrictEqual(names('genel'), [])
+ })
++
++test('rozet sayısı: alt sınır "50+" ile, 99 üstü "99+" (G10)', () => {
++  for (const lang of ['tr', 'en']) {
++    const { json } = load(lang)
++    assert.deepStrictEqual(json('[countText(50), countText(50, true), countText(1, true), countText(120, true), countText(120)]'), ['50', '50+', '1+', '99+', '99+'], lang)
++  }
++})
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index 5bb85c8..5634b33 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -631,3 +631,29 @@ test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş
+   run("testEntries.length = 0; textChannels = function () { return [{ id: 10, name: 'a' }] }; testView = 'channel'; state.channelId = 10")
+   assert.strictEqual(step('c:10', 1), null)
+ })
++
++test('okunmamış alt sınırı: sayfanın hepsi okunmamışsa ve daha eskisi varsa "+" işareti, okununca ve kesin sayı bilinince kalkar', () => {
++  const { run, json } = load()
++  const page = '[{ id: 60, authorId: 2 }, { id: 61, authorId: 2 }, { id: 62, authorId: 1 }]'
++  assert.deepStrictEqual(json('[navPageIsPartial(' + page + ', true, 40), navPageIsPartial(' + page + ', true, 60), navPageIsPartial(' + page + ', false, 40), navPageIsPartial([], true, 40), navPageIsPartial(' + page + ', true, 0)]'),
++    [true, false, false, false, true])
++  run('state.unread[11] = 50; navSetUnreadMore(11, true); navSetUnreadMore(12, true)')
++  // Okunmamışı olmayan konuşmada işaret yok sayılır
++  assert.deepStrictEqual(json('[navUnreadIsMore(11), navUnreadIsMore(12)]'), [true, false])
++  run('navAfterRead(11)')
++  assert.strictEqual(json('navUnreadIsMore(11)'), false)
++  // Konuşma açılınca sayılan sayı kesinse işaret kalkar, alt sınırsa kalır (06-messages.js loadChannel)
++  run("state.unread[11] = 50; navSetUnreadMore(11, true); navState.unread = { channelId: 11, id: 61, since: 0, count: 60, more: false, mentions: 0, bar: true }; navKeepUnread(11)")
++  assert.deepStrictEqual(json('[state.unread[11], navUnreadIsMore(11)]'), [60, false])
++  run('navState.unread.more = true; navState.unread.count = 70; navKeepUnread(11)')
++  assert.deepStrictEqual(json('[state.unread[11], navUnreadIsMore(11)]'), [70, true])
++  // Özel mesajlar grubunun satırı da işareti taşır, oturum kapanınca işaretler silinir
++  run(`
++    function bandDmEntries () { return [{ id: 50, userId: 2, lastMessageAt: 1 }] }
++    state.unread[50] = 50
++    navSetUnreadMore(50, true)
++  `)
++  assert.deepStrictEqual(json('navDmGroup().stations.map((s) => [s.id, s.mention, s.more])'), [[50, 50, true]])
++  run('navStop()')
++  assert.deepStrictEqual(json('[navUnreadIsMore(11), navUnreadIsMore(50)]'), [false, false])
++})

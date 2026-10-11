@@ -1,0 +1,199 @@
+From 31e591eda348bfeebdfe9a088c8450f4f5dc93ea Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:05:01 +0000
+Subject: [PATCH 76/78] =?UTF-8?q?G11:=20inceleme=20d=C3=BCzeltmeleri=20(iz?=
+ =?UTF-8?q?lenen=20yay=C4=B1n=C4=B1n=20ak=C4=B1=C5=9F=C4=B1=20y=C3=BCzen?=
+ =?UTF-8?q?=20pencere=20a=C3=A7=C4=B1ld=C4=B1ktan=20sonra=20gelse=20de=20b?=
+ =?UTF-8?q?a=C4=9Flan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+İzleyicinin yüzen penceresi yayının akışı gelmeden açılırsa (İzle'ye yeni
+basıldı, yayın 'requested' aşamasında ya da bağlantı yenilendi) görüntü
+öğesi boş kalıyordu: akış yalnızca pencerenin yapısı kurulurken bağlanıyordu
+ve yapı anahtarı akışı içermiyordu. Akış artık her çizimde (floatLive)
+denetlenip gerekirse yeniden bağlanır ve oynatılır.
+
+Testler: vm testi (akış sonradan gelir, değişir, gider) ve e2e/05'te akışı
+geciken yayında yüzen pencerenin akış gelince oynaması.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/05-ses-yayin.test.js | 52 ++++++++++++++++++++++++++++++++++++++--
+ public/js/39-yuzen.js    | 17 +++++++++----
+ test/yuzen.test.js       | 44 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 106 insertions(+), 7 deletions(-)
+
+diff --git a/e2e/05-ses-yayin.test.js b/e2e/05-ses-yayin.test.js
+index 420713a..16737c6 100644
+--- a/e2e/05-ses-yayin.test.js
++++ b/e2e/05-ses-yayin.test.js
+@@ -4,8 +4,8 @@
+ // kadroda ikisi ve Telsiz DJ öğesi görünür, konuşma halesi avatar şeklini izler. Biri ekranını paylaşır,
+ // öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşan önizlemeyi küçültür (paylaşım sürer) ve
+ // üst çubuktaki çipten geri getirir, Yüzen Pencere odayı ve Durdur'u gösterir. İzleyicinin yüzen penceresinde
+-// yayın oynar. Paylaşım sürerken paylaşanın üst çubuğu dar pencerede taşmaz, profil düğmesi görünür kalır.
+-// Paylaşım durdurulunca sahne kapanır.
++// yayın oynar, yayının akışı pencere açıldıktan sonra gelse de. Paylaşım sürerken paylaşanın üst çubuğu dar
++// pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -343,6 +343,54 @@ test('izleyicinin Yüzen Pencere düğmesi izlenen yayını yüzen pencerede oyn
+   await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+ })
+ 
++// Yayının akışı yüzen pencere açıldıktan sonra da gelebilir (İzle'ye yeni basıldı, yayın henüz 'requested'
++// aşamasında veya bağlantı yenilendi). Pencere akışsız açılır, akış gelince aynı pencerede oynar. Akışın gecikmesi
++// yüzen pencerenin okuduğu ses durumunda (radioScreen ve getScreenStream) taklit edilir, sahne etkilenmez.
++test('izleyicinin yüzen penceresi yayının akışı gelmeden açılırsa akış gelince oynar', async () => {
++  const { mert } = W
++  await mert.evaluate(() => {
++    window.__radioScreen = radioScreen
++    window.__getScreenStream = voice.getScreenStream
++    radioScreen = function (s) {
++      const sc = window.__radioScreen(s)
++      const remote = {}
++      Object.keys(sc.remote || {}).forEach((id) => {
++        remote[id] = Object.assign({}, sc.remote[id], { status: 'requested', stream: null })
++      })
++      return Object.assign({}, sc, { remote })
++    }
++    voice.getScreenStream = () => null
++  })
++  try {
++    await mert.click('#cast .cast-float')
++    const pending = await mert.waitForFunction(() => {
++      const pip = window.documentPictureInPicture.window
++      const v = pip ? pip.document.querySelector('.float-share .float-share-video') : null
++      return v && pip.document.body.getAttribute('data-kind') === 'share' ? { stream: Boolean(v.srcObject) } : null
++    }, null, { timeout: h.LONG })
++    assert.deepEqual(await pending.jsonValue(), { stream: false })
++  } finally {
++    await mert.evaluate(() => {
++      radioScreen = window.__radioScreen
++      voice.getScreenStream = window.__getScreenStream
++    })
++  }
++  // Akış gelir: bir sonraki ses durumu değişikliğinde (burada mikrofon kapatılıp açılır) pencere akışı bağlar
++  const muted = await mert.evaluate(() => snap().muted)
++  await mert.evaluate(() => toggleMute())
++  await mert.waitForFunction((m) => snap().muted !== m, muted)
++  await mert.evaluate(() => toggleMute())
++  await mert.waitForFunction((m) => snap().muted === m, muted)
++  const first = await mert.waitForFunction(() => {
++    const v = window.documentPictureInPicture.window.document.querySelector('.float-share-video')
++    return v && v.srcObject && v.videoWidth > 0 && !v.paused ? v.currentTime : null
++  }, null, { timeout: h.LONG })
++  const t0 = await first.jsonValue()
++  await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, t0, { timeout: h.LONG })
++  await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
++  await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
++})
++
+ test('kendi paylaşımı sürerken üst çubuk taşmaz, profil düğmesi görünür, 759 ve altında Ekran ve Durdur kalır', async () => {
+   const { deniz } = W
+   // Paylaşım başlayınca üst çubuğa yayın çipi ve İstasyonlar gelir: frekans adı kısalır, çipin yazısı gizlenir
+diff --git a/public/js/39-yuzen.js b/public/js/39-yuzen.js
+index 3e31fdb..c6f1d05 100644
+--- a/public/js/39-yuzen.js
++++ b/public/js/39-yuzen.js
+@@ -572,7 +572,15 @@ function floatBuildShare (stage, plan, s) {
+     floatState.shareVideo = v
+   }
+   v.setAttribute('aria-label', t('screen.sharingUser', { name: shownName(plan.watching) }))
+-  const stream = floatShareStream(s, plan.watching)
++  floatBindShare(v, floatShareStream(s, plan.watching))
++  box.appendChild(v)
++  box.appendChild(h('span', 'float-name', t('screen.sharingUser', { name: shownName(plan.watching) })))
++  stage.appendChild(box)
++}
++
++// Yayının akışı görüntü öğesine bağlanır. Akış pencere açıldıktan sonra da gelebilir (İzle'ye yeni basıldı, yayın
++// henüz 'requested' aşamasında veya bağlantı yenilendi) ve yenisiyle değişebilir: her çizimde yeniden denetlenir.
++function floatBindShare (v, stream) {
+   if (v.srcObject !== stream) {
+     try {
+       v.srcObject = stream
+@@ -580,9 +588,7 @@ function floatBuildShare (stage, plan, s) {
+       v.srcObject = null
+     }
+   }
+-  box.appendChild(v)
+-  box.appendChild(h('span', 'float-name', t('screen.sharingUser', { name: shownName(plan.watching) })))
+-  stage.appendChild(box)
++  if (stream) floatPlay(v)
+ }
+ 
+ function floatShareStream (s, userId) {
+@@ -596,11 +602,12 @@ function floatShareStream (s, userId) {
+   return null
+ }
+ 
+-// Sık değişenler: konuşma halkası, mikrofon düğmesi, oda adı
++// Sık değişenler: izlenen yayının akışı, konuşma halkası, mikrofon düğmesi, oda adı
+ function floatLive (plan, s) {
+   const doc = floatState.doc
+   const n = floatState.nodes
+   if (!doc || !n) return
++  if (plan.kind === 'share' && floatState.shareVideo) floatBindShare(floatState.shareVideo, floatShareStream(s, plan.watching))
+   const speaking = {}
+   plan.tiles.forEach((tile) => {
+     speaking[tile.id] = tile.speaking
+diff --git a/test/yuzen.test.js b/test/yuzen.test.js
+index 94e12f4..4cbbdaa 100644
+--- a/test/yuzen.test.js
++++ b/test/yuzen.test.js
+@@ -189,6 +189,50 @@ test('masaüstü: simge durumunda ve tepsiye gizlenince yalnızca ses odasınday
+   assert.equal(env.run('floatIsOpen()'), false)
+ })
+ 
++// İzlenen yayının akışı pencere açıldıktan sonra gelebilir (İzle'ye yeni basıldı, bağlantı yenilendi) ve yenisiyle
++// değişebilir. Pencerenin yapısı değişmediği için yeniden kurulmaz, akış her çizimde (floatLive) yeniden bağlanır.
++test('izlenen yayın: akış pencere açıldıktan sonra gelirse veya değişirse aynı görüntü öğesine bağlanıp oynar', () => {
++  const env = load({ documentPip: true })
++  let stream = null
++  env.sandbox.radioScreen = () => ({ remote: { 2: { status: stream ? 'live' : 'requested', stream } } })
++  env.sandbox.castCall = () => null
++  env.sandbox.setIcon = () => {}
++  env.sandbox.castRoomName = () => 'Lobi'
++  const video = {
++    srcObject: null,
++    paused: true,
++    plays: 0,
++    play () {
++      this.plays++
++      this.paused = false
++      return Promise.resolve()
++    }
++  }
++  env.sandbox.__video = video
++  env.run("floatState.mode = 'document'; floatState.doc = { querySelectorAll: () => [] }; floatState.nodes = { mic: { setAttribute () {}, classList: { toggle () {} } }, title: { textContent: 'Lobi' } }; floatState.shareVideo = __video")
++  const plan = { kind: 'share', tiles: [{ id: '2', cam: false, self: false, speaking: false }], more: 0, sharing: false, watching: '2' }
++  const draw = () => env.sandbox.floatLive(plan, { channelId: 5 })
++  draw()
++  assert.equal(video.srcObject, null, 'akış yokken öğe boş kalır')
++  assert.equal(video.plays, 0)
++  const first = { id: 'yayin-1' }
++  stream = first
++  draw()
++  assert.equal(video.srcObject, first, 'akış gelince bağlanır')
++  assert.equal(video.plays, 1)
++  draw()
++  assert.equal(video.plays, 1, 'oynayan öğe yeniden başlatılmaz')
++  const second = { id: 'yayin-2' }
++  stream = second
++  video.paused = true
++  draw()
++  assert.equal(video.srcObject, second, 'yeni akış eskisinin yerine geçer')
++  assert.equal(video.plays, 2)
++  stream = null
++  draw()
++  assert.equal(video.srcObject, null, 'yayın gidince öğe boşalır')
++})
++
+ test('tarayıcı: otomatik açılış işleyicisi yalnızca belge yolunda, odadayken ve ayar açıkken kayıtlıdır', () => {
+   const env = load({ documentPip: true })
+   const change = env.hooks.find((hk) => hk.kind === 'change').fn

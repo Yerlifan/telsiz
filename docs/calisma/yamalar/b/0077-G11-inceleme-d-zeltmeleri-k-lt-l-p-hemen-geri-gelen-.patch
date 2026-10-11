@@ -1,0 +1,138 @@
+From d9bcc80164726b91cf5a12a1ebf4b5dd65e8e94d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:05:11 +0000
+Subject: [PATCH 77/78] =?UTF-8?q?G11:=20inceleme=20d=C3=BCzeltmeleri=20(k?=
+ =?UTF-8?q?=C3=BC=C3=A7=C3=BClt=C3=BCl=C3=BCp=20hemen=20geri=20gelen=20pen?=
+ =?UTF-8?q?cerede=20y=C3=BCzen=20pencere=20kendili=C4=9Finden=20a=C3=A7?=
+ =?UTF-8?q?=C4=B1lmaz)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Masaüstünde pencere simge durumuna küçültülünce yüzen pencere ana süreçten
+ad (arm) yanıtı geldikten sonra açılıyordu. Yanıt beklenirken pencere geri
+yüklenir veya tepsiden gösterilirse kapatılacak açık pencere olmadığı için
+yüzen pencere uygulama görünürken açılıp kalıyordu. Kendiliğinden açılışta
+ad geldiğinde pencerenin son durumu (floatState.windowState) yeniden
+denetlenir, uygulama görünürse pencere hiç açılmaz. Düğmeyle açılış pencere
+durumuna bakmaz.
+
+Test: vm testinde küçültme ve geri yükleme, tepsiye gizleme ve gösterme
+yarışları, küçük kalan pencerede açılış ve düğmeyle açılış.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/js/39-yuzen.js | 14 +++++++++---
+ test/yuzen.test.js    | 53 +++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 64 insertions(+), 3 deletions(-)
+
+diff --git a/public/js/39-yuzen.js b/public/js/39-yuzen.js
+index c6f1d05..7c4e04f 100644
+--- a/public/js/39-yuzen.js
++++ b/public/js/39-yuzen.js
+@@ -195,7 +195,7 @@ function floatOpen (reason) {
+   floatState.opening = true
+   let pending
+   try {
+-    if (mode === 'desktop') pending = floatOpenDesktop()
++    if (mode === 'desktop') pending = floatOpenDesktop(why)
+     else if (mode === 'document') pending = window.documentPictureInPicture.requestWindow({ width: FLOAT_DOC_SIZE.width, height: FLOAT_DOC_SIZE.height })
+     else pending = floatOpenVideo(why)
+   } catch (err) {
+@@ -215,13 +215,21 @@ function floatOpen (reason) {
+   })
+ }
+ 
+-function floatOpenDesktop () {
++// Kendiliğinden açılışta ad beklenirken uygulama penceresi geri gelmiş olabilir (küçültülüp hemen geri yüklendi):
++// pencere hiç açılmaz, kullanılmayan ad ana süreçte kendiliğinden geçersiz olur
++function floatOpenDesktop (reason) {
+   return window.telsizDesktop.float.arm().then((name) => {
+     if (!name) return null
++    if (reason === 'auto' && !floatAppAway()) return null
+     return window.open('about:blank', name)
+   })
+ }
+ 
++// Masaüstünde uygulama penceresi simge durumunda veya tepsiye gizli mi (telsizDesktop.onWindowState son değeri)
++function floatAppAway () {
++  return floatState.windowState === 'minimized' || floatState.windowState === 'hidden'
++}
++
+ function floatClose (reason) {
+   if (!floatIsOpen()) return
+   const mode = floatState.mode
+@@ -957,7 +965,7 @@ function floatRender () {
+ // açılmış pencere kapanır (elle açılan pencere açık kalır)
+ function floatOnWindowState (value) {
+   floatState.windowState = value
+-  if (value === 'minimized' || value === 'hidden') {
++  if (floatAppAway()) {
+     if (floatAutoOn() && floatInRoom(snap()) && !floatIsOpen()) floatOpen('auto')
+   } else if (value === 'restored' || value === 'shown') {
+     if (floatIsOpen() && floatState.reason === 'auto') floatClose('restore')
+diff --git a/test/yuzen.test.js b/test/yuzen.test.js
+index 4cbbdaa..bf50679 100644
+--- a/test/yuzen.test.js
++++ b/test/yuzen.test.js
+@@ -189,6 +189,59 @@ test('masaüstü: simge durumunda ve tepsiye gizlenince yalnızca ses odasınday
+   assert.equal(env.run('floatIsOpen()'), false)
+ })
+ 
++// Ana süreçten ad beklenirken (arm) uygulama penceresi geri gelirse kendiliğinden açılış iptal olur: aksi halde her
++// zaman üstte kalan pencere uygulama görünürken açılır ve bir sonraki küçültme ile geri yükleme döngüsüne kadar kalırdı
++test('masaüstü: ad beklenirken pencere geri gelirse yüzen pencere açılmaz, elle açılış pencere durumuna bakmaz', async () => {
++  const arms = []
++  let onState = null
++  const desktop = {
++    float: { arm: () => new Promise((resolve) => arms.push(resolve)), showMain: () => Promise.resolve(true) },
++    onWindowState: (fn) => {
++      onState = fn
++      return () => {}
++    }
++  }
++  const env = load({ desktop })
++  const opened = []
++  env.sandbox.open = (url, name) => {
++    opened.push(name)
++    return { closed: false, close () { this.closed = true } }
++  }
++  // Belgenin hazırlanması bu testin konusu değil: açılan pencere yalnızca kaydedilir
++  env.run('floatAttach = function (win, mode, reason) { floatState.mode = mode; floatState.reason = reason; floatState.win = win }')
++  env.sandbox.voiceSnap = { channelId: 5 }
++  const flush = () => new Promise((resolve) => setImmediate(resolve))
++  const token = (n) => 'telsiz-yuzen-' + String(n).repeat(32)
++  // Simge durumu ve hemen geri yükleme, sonra tepsiye gizleme ve hemen gösterme
++  for (const [away, back] of [['minimized', 'restored'], ['hidden', 'shown']]) {
++    onState(away)
++    onState(back)
++    assert.equal(arms.length, 1, away)
++    arms.shift()(token(1))
++    await flush()
++    assert.deepEqual(opened, [], away + ' sonra ' + back)
++    assert.equal(env.run('floatIsOpen()'), false)
++    assert.equal(env.run('floatState.opening'), false)
++  }
++  assert.deepEqual(env.toasts, [])
++  // Pencere küçük kalırsa açılır, geri gelince kapanır
++  onState('minimized')
++  arms.shift()(token(2))
++  await flush()
++  assert.deepEqual(opened, [token(2)])
++  assert.equal(env.run('floatState.reason'), 'auto')
++  const win = env.run('floatState.win')
++  onState('restored')
++  assert.equal(win.closed, true)
++  assert.equal(env.run('floatIsOpen()'), false)
++  // Düğmeyle açılış uygulama penceresi görünürken de açılır
++  env.sandbox.floatOpen('button')
++  arms.shift()(token(3))
++  await flush()
++  assert.deepEqual(opened, [token(2), token(3)])
++  assert.equal(env.run('floatState.reason'), 'button')
++})
++
+ // İzlenen yayının akışı pencere açıldıktan sonra gelebilir (İzle'ye yeni basıldı, bağlantı yenilendi) ve yenisiyle
+ // değişebilir. Pencerenin yapısı değişmediği için yeniden kurulmaz, akış her çizimde (floatLive) yeniden bağlanır.
+ test('izlenen yayın: akış pencere açıldıktan sonra gelirse veya değişirse aynı görüntü öğesine bağlanıp oynar', () => {
