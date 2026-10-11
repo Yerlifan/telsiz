@@ -1,0 +1,1251 @@
+From 3dc2d4f4c46d30f4aa86db64146db26e3f462c67 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:35:36 +0000
+Subject: [PATCH 3/4] =?UTF-8?q?Oyun:=20Oyun=20Se=C3=A7=20ad=C4=B1m=C4=B1?=
+ =?UTF-8?q?=20ve=20oyundan=20ba=C4=9F=C4=B1ms=C4=B1z=20genel=20metinler?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Birden çok oyun kayıtlıyken Oyun düğmesi önce yerel bir Oyun Seç ekranı açar,
+  seçilen oyunun Masa Kur ekranı onu izler. Tek oyun kayıtlıyken adım atlanır,
+  Renk'in akışı değişmedi. Açıkken gelen davet aynı sahnede yerini alır, ses
+  odasından çıkınca ya da Küçült ile kapanır.
+- Genel game.* metinleri artık kart oyununa özgü değil: masayı kuran kişi ev
+  sahibidir, el yerine tur denir. GAME_APP_TEXTS içindeki anahtarlar için oyun
+  kendi metnini game.<oyun>.<anahtar> ile verebilir (gameText). Renk bu yolla
+  kurpiyer, el ve deste sözcüklerini ve kendi güven metinlerini korur.
+- Uygulama arayüzü sözleşmesine isteğe bağlı renderResults eklendi: kart ve
+  puan saymayan oyun sonuç bölümünü kendisi çizer.
+- GAME_ENGINES tablosu hexball kimliğini TelsizHexball motoruna bağlar, motor
+  yüklenmedikçe oyun kaydolmaz.
+- MIMARI, ARCHITECTURE, TASARIM, DESIGN ve CONTRIBUTING iki dilde güncellendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CONTRIBUTING.en.md       |   2 +-
+ CONTRIBUTING.md          |   2 +-
+ docs/ARCHITECTURE.md     |   2 +-
+ docs/DESIGN.md           |   2 +-
+ docs/MIMARI.md           |   2 +-
+ docs/TASARIM.md          |   2 +-
+ public/css/oyun.css      |  59 ++++++++++-
+ public/i18n.js           | 164 ++++++++++++++++++++----------
+ public/js/36-oyun.js     | 209 ++++++++++++++++++++++++++++++--------
+ test/oyun-arayuz.test.js | 211 +++++++++++++++++++++++++++++++++++++++
+ 10 files changed, 554 insertions(+), 101 deletions(-)
+
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 8a92387..418e66d 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -133,7 +133,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `33-oyun-protokol.js` | The game protocol core (`window.TelsizGame`): message formats and their validators, the inner envelope (sealing, opening, binding checks), counter rules, validation of the state body, unbiased random choice and shuffling. Pure, uses no DOM, clock or network |
+ | `34-oyun-masa.js` | The game table manager (`window.TelsizGameDesk`): the dealer and player state machines, invites, seats, single flight sending, throttling, liveness and reconnection. Pure, time and network are passed in from outside |
+ | `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
+-| `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
++| `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
+ | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+ 
+ If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index fb1bcfb..c54af20 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -133,7 +133,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `33-oyun-protokol.js` | Oyun protokolü çekirdeği (`window.TelsizGame`): ileti biçimleri ve doğrulayıcıları, iç zarf (mühürleme, açma, bağ denetimi), sayaç kuralları, durum gövdesinin denetimi, yansız rastgele seçim ve karıştırma. Saftır, DOM, saat ve ağ kullanmaz |
+ | `34-oyun-masa.js` | Oyun masası yöneticisi (`window.TelsizGameDesk`): kurpiyer ve oyuncu durum makineleri, davetler, koltuklar, tek uçuşlu gönderim, kısma, canlılık ve yeniden bağlanma. Saftır, zaman ve ağ dışarıdan verilir |
+ | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
+-| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
++| `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
+ | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+ 
+ Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 972711e..b5f4842 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -176,7 +176,7 @@ If a device cannot open the music state because it does not have the key, it kee
+ 
+ People in a voice room can play card games together. The first and so far only game is Renk: a color and number matching card game for 2 to 8 players with a 108 card deck. Games are played only in voice rooms, and there are no games in private calls. Nothing changes on the server: game messages travel on the signal path of the voice room (`POST /api/voice/signal`), and the server cannot tell them apart from other voice signals. The person who sets up the table is the dealer, plays as well and chooses the rule set: Official, or Stacking, where a +2 can go on a +2 and a +4 on a +4. The choice can be changed until Start. If the dealer leaves the voice room, the game ends. If a player leaves, their cards go back to the draw pile, the pile is shuffled again and the game continues with the rest, and it ends if fewer than two remain.
+ 
+-A game has four layers. `voice.js` only carries messages: a signal of type `game` carries the fields `{ type, sid, n, p }`, and `p` is a payload of at most 11000 printable ASCII characters whose meaning is hidden from the voice engine. Like screen and camera signals, an invalid game signal is dropped without using up a sequence number, and only a game message from a connection whose first negotiation has finished and from the same connection (`sid`) reaches the game layer. The voice engine reports four events to the game layer: an incoming message (`message`), a connection is ready (`peer-ready`, once per connection), a person left the roster (`peer-leave`) and the voice session ended (`reset`). `33-oyun-protokol.js` (`window.TelsizGame`) holds the message formats, the inner envelope, the counter rules and the randomness helpers, `34-oyun-masa.js` (`window.TelsizGameDesk`) the dealer and player state machines, and `35-renk-kural.js` (`window.TelsizRenk`) the Renk rule engine. These three modules are pure: they use no DOM, clock or network, and time and sending are passed in from outside. This lets the tests run them with real encryption in a four device network simulation with loss, duplicates and page reloads. `36-oyun.js` sets up the environment of this device and draws the general interface, and `37-renk.js` draws the Renk table. A new game is added through the same app contract: the id and limits (`id`, `RULES`, `DEFAULT_RULES`, `MIN_PLAYERS`, `MAX_PLAYERS`), the state functions (`newGame`, `validateMove`, `applyMove`, `removePlayer`, `endGame`, `isOver`, `turnOf`), the views (`publicView`, `privateView`, `legalMoves`) and their validators (`validateView`, `validatePrivate`). The rule engine is added to the `GAME_ENGINES` table in `36-oyun.js`, and the game's interface registers itself with `gameUiRegister`. The transport and the table manager do not change.
++A game has four layers. `voice.js` only carries messages: a signal of type `game` carries the fields `{ type, sid, n, p }`, and `p` is a payload of at most 11000 printable ASCII characters whose meaning is hidden from the voice engine. Like screen and camera signals, an invalid game signal is dropped without using up a sequence number, and only a game message from a connection whose first negotiation has finished and from the same connection (`sid`) reaches the game layer. The voice engine reports four events to the game layer: an incoming message (`message`), a connection is ready (`peer-ready`, once per connection), a person left the roster (`peer-leave`) and the voice session ended (`reset`). `33-oyun-protokol.js` (`window.TelsizGame`) holds the message formats, the inner envelope, the counter rules and the randomness helpers, `34-oyun-masa.js` (`window.TelsizGameDesk`) the dealer and player state machines, and `35-renk-kural.js` (`window.TelsizRenk`) the Renk rule engine. These three modules are pure: they use no DOM, clock or network, and time and sending are passed in from outside. This lets the tests run them with real encryption in a four device network simulation with loss, duplicates and page reloads. `36-oyun.js` sets up the environment of this device and draws the general interface, and `37-renk.js` draws the Renk table. A new game is added through the same app contract: the id and limits (`id`, `RULES`, `DEFAULT_RULES`, `MIN_PLAYERS`, `MAX_PLAYERS`), the state functions (`newGame`, `validateMove`, `applyMove`, `removePlayer`, `endGame`, `isOver`, `turnOf`), the views (`publicView`, `privateView`, `legalMoves`) and their validators (`validateView`, `validatePrivate`). The optional `DELAYED_MOVES` list says which of the dealer's own out of turn moves are handled with a 300 ms delay (Last Card and Catch in Renk), and the moves of a game without this list have no delay. The rule engine is added to the `GAME_ENGINES` table in `36-oyun.js`, and the game's interface registers itself with `gameUiRegister`. When more than one game is registered, the Game button first opens a local Choose a Game screen. The general texts do not depend on the game and call the person who sets up the table the host, and a game can give some of them in its own words (dealer, hand and deck in Renk) with `game.<game>.<key>` keys. The transport and the table manager do not change.
+ 
+ The layout is a star: the dealer is the single authority, and players talk only to the dealer. The voice engine has no shared message order between peers, order is kept only per peer, so a single device decides the order of the game. The full state of the deck exists only on the dealer's device. The dealer checks every move with the rule engine and sends a full state to each seat separately: the public view (the seats and their card counts, the top card, the active color, the direction, the draw pile and discard counts, the latest events), the recipient's own hand and the result of the recipient's last move travel in one message, and no diffs are sent. A lost message is therefore repaired by the next one. The player's device checks the incoming state strictly (the field sets, the seat order, its own hand size, a card total of 108) and drops an invalid one silently. The rules are checked on the dealer's device. That is why the Wild +4 restriction is enforced automatically and there is no challenge step. The Last Card rule applies in both rule sets. When a round ends the remaining hands are not revealed, and the results show only card counts and points. Each round is scored on its own, and no total is kept across rounds. After a finished round the dealer returns to the lobby with New Round, and the seated players keep their seats.
+ 
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index 92b2236..ecb7da3 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -22,7 +22,7 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
+ | `public/css/dj.css` | The Telsiz DJ card, the docked player, the Telsiz DJ button in the tools row of the radio card, the "Play in DJ" button in messages. |
+ | `public/css/arama.css` | Direct message calls: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status line, controls), the incoming call card. |
+ | `public/css/tanitim.css` | The frequency introduction page that visitors who are not signed in see. |
+-| `public/css/oyun.css` | The game table: the Game button on the radio card and its states, and in the `game` mode of the broadcast stage the Set Up a Table, lobby and invite screens, people lists and status chips, the trust note, the confirmation row, results, the status line and the stage height on phones. |
++| `public/css/oyun.css` | The game table: the Game button on the radio card and its states, and in the `game` mode of the broadcast stage the Set Up a Table, lobby and invite screens, people lists and status chips, the trust note, the confirmation row, results, the status line, the stage height on phones and the Choose a Game list when more than one game is registered. |
+ | `public/css/renk.css` | The Renk table: the opponent strip, the draw pile and card back, the discard, the active color, the action row, the hand, card faces and the Wild color picker. |
+ | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Theme specific styles. |
+ | `public/fonts/` | Local woff2 fonts and OFL license texts. |
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index e8a6dab..c4cb441 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -176,7 +176,7 @@ Bir cihaz müzik durumunu anahtarı olmadığı için açamazsa kaydı saklar ve
+ 
+ Ses odasındaki kişiler birlikte kart oyunu oynayabilir. İlk ve şimdilik tek oyun Renk'tir: 108 kartlık bir desteyle 2 ile 8 kişinin oynadığı, renk ve sayı eşleştirmeli bir kart oyunu. Oyun yalnızca ses odasında oynanır, özel aramada oyun yoktur. Sunucuda hiçbir değişiklik yoktur: oyun iletileri ses odasının sinyal yolundan (`POST /api/voice/signal`) gider ve sunucu bunları diğer ses sinyallerinden ayıramaz. Masayı kuran kişi kurpiyerdir, kendisi de oynar ve kural setini seçer: Resmî veya +2 ile +4'ün üst üste konabildiği Üst Üste Ekleme. Seçim Başlat'a kadar değiştirilebilir. Kurpiyer ses odasından ayrılırsa oyun biter. Bir oyuncu ayrılırsa kartları çekme destesine döner, deste yeniden karıştırılır ve oyun kalanlarla sürer, ikiden az kişi kalırsa biter.
+ 
+-Oyun dört katmandan oluşur. `voice.js` yalnızca taşır: `game` türündeki sinyal `{ type, sid, n, p }` alanlarını taşır ve `p` en çok 11000 yazdırılabilir ASCII karakterlik, anlamı ses motoruna kapalı bir yüktür. Geçersiz oyun sinyali ekran ve kamera sinyalleri gibi sıra numarası tüketmeden atılır, yalnızca ilk anlaşması tamamlanmış ve aynı bağlantıdan (`sid`) gelen oyun iletisi oyun katmanına gider. Ses motoru oyun katmanına dört olay bildirir: gelen ileti (`message`), bağlantı hazır (`peer-ready`, her bağlantı için bir kez), kişi kadrodan çıktı (`peer-leave`) ve ses oturumu bitti (`reset`). `33-oyun-protokol.js` (`window.TelsizGame`) ileti biçimlerini, iç zarfı, sayaç kurallarını ve rastgelelik yardımcılarını, `34-oyun-masa.js` (`window.TelsizGameDesk`) kurpiyer ve oyuncu durum makinelerini, `35-renk-kural.js` (`window.TelsizRenk`) Renk'in kural motorunu tutar. Bu üç modül saftır: DOM, saat ve ağ kullanmaz, zaman ve gönderim dışarıdan verilir. Bu sayede testlerde gerçek şifrelemeyle, dört cihazlık bir ağ benzetiminde kayıp, tekrar ve sayfa yenileme altında sınanırlar. `36-oyun.js` bu cihazın ortamını kurar ve genel arayüzü çizer, `37-renk.js` Renk masasını çizer. Yeni bir oyun aynı uygulama sözleşmesiyle eklenir: kimlik ve sınırlar (`id`, `RULES`, `DEFAULT_RULES`, `MIN_PLAYERS`, `MAX_PLAYERS`), durum işlevleri (`newGame`, `validateMove`, `applyMove`, `removePlayer`, `endGame`, `isOver`, `turnOf`), görünümler (`publicView`, `privateView`, `legalMoves`) ve doğrulayıcıları (`validateView`, `validatePrivate`). Kural motoru `36-oyun.js` içindeki `GAME_ENGINES` tablosuna eklenir, oyunun arayüzü `gameUiRegister` ile kaydolur. Taşıma ve masa yöneticisi değişmez.
++Oyun dört katmandan oluşur. `voice.js` yalnızca taşır: `game` türündeki sinyal `{ type, sid, n, p }` alanlarını taşır ve `p` en çok 11000 yazdırılabilir ASCII karakterlik, anlamı ses motoruna kapalı bir yüktür. Geçersiz oyun sinyali ekran ve kamera sinyalleri gibi sıra numarası tüketmeden atılır, yalnızca ilk anlaşması tamamlanmış ve aynı bağlantıdan (`sid`) gelen oyun iletisi oyun katmanına gider. Ses motoru oyun katmanına dört olay bildirir: gelen ileti (`message`), bağlantı hazır (`peer-ready`, her bağlantı için bir kez), kişi kadrodan çıktı (`peer-leave`) ve ses oturumu bitti (`reset`). `33-oyun-protokol.js` (`window.TelsizGame`) ileti biçimlerini, iç zarfı, sayaç kurallarını ve rastgelelik yardımcılarını, `34-oyun-masa.js` (`window.TelsizGameDesk`) kurpiyer ve oyuncu durum makinelerini, `35-renk-kural.js` (`window.TelsizRenk`) Renk'in kural motorunu tutar. Bu üç modül saftır: DOM, saat ve ağ kullanmaz, zaman ve gönderim dışarıdan verilir. Bu sayede testlerde gerçek şifrelemeyle, dört cihazlık bir ağ benzetiminde kayıp, tekrar ve sayfa yenileme altında sınanırlar. `36-oyun.js` bu cihazın ortamını kurar ve genel arayüzü çizer, `37-renk.js` Renk masasını çizer. Yeni bir oyun aynı uygulama sözleşmesiyle eklenir: kimlik ve sınırlar (`id`, `RULES`, `DEFAULT_RULES`, `MIN_PLAYERS`, `MAX_PLAYERS`), durum işlevleri (`newGame`, `validateMove`, `applyMove`, `removePlayer`, `endGame`, `isOver`, `turnOf`), görünümler (`publicView`, `privateView`, `legalMoves`) ve doğrulayıcıları (`validateView`, `validatePrivate`). İsteğe bağlı `DELAYED_MOVES` listesi, kurpiyerin hangi kendi sıra dışı hamlelerinin 300 ms gecikmeyle işleneceğini söyler (Renk'te Tek! ve Yakala), listesi olmayan oyunun hamleleri gecikmesizdir. Kural motoru `36-oyun.js` içindeki `GAME_ENGINES` tablosuna eklenir, oyunun arayüzü `gameUiRegister` ile kaydolur. Birden çok oyun kayıtlıysa Oyun düğmesi önce yerel bir Oyun Seç ekranı açar. Genel metinler oyundan bağımsızdır ve masayı kuran kişiye ev sahibi der, bir oyun bunların bir kısmını kendi sözcükleriyle (Renk'te kurpiyer, el ve deste) `game.<oyun>.<anahtar>` anahtarlarıyla verebilir. Taşıma ve masa yöneticisi değişmez.
+ 
+ Düzen yıldızdır: kurpiyer tek otoritedir, oyuncular yalnızca kurpiyerle konuşur. Ses motorunda eşler arasında ortak bir ileti sırası yoktur, sıra yalnızca eş başına korunur, bu yüzden oyunun sırasını tek bir cihaz belirler. Destenin tam durumu yalnızca kurpiyerin cihazındadır. Kurpiyer her hamleyi kural motoruyla denetler ve her koltuğa ayrı ayrı tam durum gönderir: herkese açık görünüm (koltuklar ve kart sayıları, üstteki kart, aktif renk, yön, deste ve atılan kart sayıları, son olaylar), alıcının kendi eli ve alıcının son hamlesinin sonucu tek iletide gider, fark gönderilmez. Kaybolan bir ileti bu yüzden bir sonrakiyle onarılır. Oyuncunun cihazı gelen durumu katı biçimde denetler (alan kümeleri, koltuk sırası, kendi el sayısı, kartların toplamının 108 olması) ve geçersizini sessizce atar. Kurallar kurpiyerin cihazında denetlenir. Joker +4 kısıtı bu yüzden otomatik uygulanır ve itiraz adımı yoktur. Tek! kuralı iki kural setinde de geçerlidir. El bitince kalan eller açılmaz, sonuçta yalnızca kart sayıları ve puanlar görünür. Her el ayrı puanlanır, eller arası toplam tutulmaz. Biten elden sonra kurpiyer Yeni El ile lobiye döner, oturanlar yerinde kalır.
+ 
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index 418088a..ad1fb47 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -22,7 +22,7 @@ Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve üç gör
+ | `public/css/dj.css` | Telsiz DJ kartı, köşedeki oynatıcı, telsiz kartının araç satırındaki Telsiz DJ düğmesi, mesajdaki "DJ'de çal" düğmesi. |
+ | `public/css/arama.css` | Özel mesaj araması: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum satırı, denetimler), gelen arama kartı. |
+ | `public/css/tanitim.css` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası. |
+-| `public/css/oyun.css` | Oyun masası: telsiz kartındaki Oyun düğmesi ve durumları, yayın sahnesinin `game` kipinde Masa Kur, lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı, telefonda sahne yüksekliği. |
++| `public/css/oyun.css` | Oyun masası: telsiz kartındaki Oyun düğmesi ve durumları, yayın sahnesinin `game` kipinde Masa Kur, lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı, telefonda sahne yüksekliği, birden çok oyun kayıtlıyken Oyun Seç listesi. |
+ | `public/css/renk.css` | Renk masası: rakip şeridi, deste ve kart arkası, atılan kart, aktif renk, eylem satırı, el, kart yüzleri, Joker renk seçici. |
+ | `public/css/skins/arcade.css`, `gece.css`, `turkuaz.css` | Temaya özgü biçimler. |
+ | `public/fonts/` | Yerel woff2 yazı tipleri ve OFL lisans metinleri. |
+diff --git a/public/css/oyun.css b/public/css/oyun.css
+index 3dd3f57..0d87896 100644
+--- a/public/css/oyun.css
++++ b/public/css/oyun.css
+@@ -2,7 +2,8 @@
+   Oyun masası (36-oyun.js): telsiz kartının araç satırındaki Oyun düğmesi (#radio-game) ve durumları (Davet,
+   Oyun Sürüyor, Sıra Sizde), yayın sahnesinin game kipindeki masa (#cast[data-mode="game"] .cast-game): Masa Kur,
+   lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı ve eşitleme şeridi,
+-  telefonda sahne yüksekliği. Oyunun masa ortası uygulamanın kendi stil dosyasındadır (ör. renk.css).
++  telefonda sahne yüksekliği, birden çok oyun kayıtlıyken Oyun Seç listesi. Oyunun masa ortası uygulamanın kendi stil
++  dosyasındadır (ör. renk.css).
+   Kurallar: renkler yalnızca var(--...) ile, ölçüler rem, grid, flex gap, clamp, :is, :where, aspect-ratio ve
+   inset kullanılmaz (aralık margin ile, konum top, right, bottom, left ile). z-index en çok 3.
+ */
+@@ -114,6 +115,62 @@
+   font-size: var(--text-sm);
+ }
+ 
++/* Oyun Seç (birden çok oyun kayıtlıyken): her oyun adı ve kısa açıklamasıyla bir düğme */
++.game-picks {
++  margin: 0 0 1rem;
++  padding: 0;
++  list-style: none;
++}
++
++.game-pick-item + .game-pick-item {
++  margin-top: 0.5rem;
++}
++
++.game-pick {
++  display: flex;
++  align-items: flex-start;
++  width: 100%;
++  min-height: var(--target);
++  padding: 0.75rem 0.875rem;
++  border: var(--border-width) solid var(--line-strong);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-2);
++  color: var(--text);
++  font: inherit;
++  text-align: left;
++  cursor: pointer;
++}
++
++.game-pick:hover {
++  border-color: var(--accent);
++  background-color: var(--surface-hover);
++}
++
++.game-pick-icon {
++  flex: none;
++  width: 1.25rem;
++  height: 1.25rem;
++  margin: 0.0625rem 0.625rem 0 0;
++  color: var(--accent);
++}
++
++.game-pick-text {
++  display: flex;
++  flex-direction: column;
++  min-width: 0;
++}
++
++.game-pick-name {
++  color: var(--text-strong);
++  font-weight: var(--weight-strong);
++}
++
++.game-pick-hint {
++  margin-top: 0.125rem;
++  color: var(--text-2);
++  font-size: var(--text-sm);
++}
++
+ /* Kişi listeleri: koltuklar ve odadakiler */
+ .game-people {
+   margin: 0;
+diff --git a/public/i18n.js b/public/i18n.js
+index 83260ec..e0cc5c1 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -686,14 +686,16 @@ window.I18N = (function () {
+     'game.toolInvite': 'Davet',
+     'game.toolInviteLabel': 'Davet: {name} sizi {game} oyununa davet ediyor',
+     'game.toolBusy': 'Oyun Sürüyor',
+-    'game.toolBusyLabel': 'Bu odada bir oyun sürüyor, sonraki elde katılabilirsiniz',
+-    'game.toolBusyAria': 'Oyun Sürüyor: bu odadaki oyuna sonraki elde katılabilirsiniz',
++    'game.toolBusyLabel': 'Bu odada bir oyun sürüyor, sonraki turda katılabilirsiniz',
++    'game.toolBusyAria': 'Oyun Sürüyor: bu odadaki oyuna sonraki turda katılabilirsiniz',
+     'game.toolBack': 'Masaya Dön',
+     'game.toolTurn': 'Sıra Sizde',
+     'game.stage': 'Oyun masası',
+     'game.minimize': 'Küçült',
+     'game.minimizeLabel': 'Küçült: masa kapanır, oyun sürer',
+     'game.setupTitle': 'Masa Kur',
++    'game.chooseTitle': 'Oyun Seç',
++    'game.chooseLead': 'Odadakilerle hangi oyunu oynamak istersiniz?',
+     'game.setupLocked': 'Masa kurmak için güvenlik anahtarınızın bu cihazda açık olması gerekir.',
+     'game.lobbyTitle': '{game} Masası',
+     'game.rulesTitle': 'Kurallar',
+@@ -703,14 +705,14 @@ window.I18N = (function () {
+     'game.roomTitle': 'Odadakiler',
+     'game.players_one': '{count} Oyuncu',
+     'game.players_other': '{count} Oyuncu',
+-    'game.dealerLine': 'Kurpiyer {name}',
+-    'game.dealerYou': 'Kurpiyer Sizsiniz',
++    'game.dealerLine': 'Ev Sahibi {name}',
++    'game.dealerYou': 'Ev Sahibi Sizsiniz',
+     'game.openTable': 'Masa Aç',
+     'game.start': 'Başlat',
+     'game.startHint': 'Başlatmak için en az bir oyuncunun daha katılması gerekir.',
+     'game.closeTable': 'Masayı Kapat',
+-    'game.newRound': 'Yeni El',
+-    'game.waitNewRound': 'Kurpiyer yeni el açarsa masada kalırsınız.',
++    'game.newRound': 'Yeni Tur',
++    'game.waitNewRound': 'Ev sahibi yeni tur açarsa masada kalırsınız.',
+     'game.join': 'Katıl',
+     'game.decline': 'Reddet',
+     'game.rejoin': 'Oyuna Dön',
+@@ -722,16 +724,16 @@ window.I18N = (function () {
+     'game.leave': 'Masadan Ayrıl',
+     'game.endGame': 'Oyunu Bitir',
+     'game.removeSeat': 'Koltuktan Çıkar',
+-    'game.leaveAsk': 'Ayrılırsanız kartlarınız desteye döner.',
++    'game.leaveAsk': 'Ayrılırsanız masadaki koltuğunuz boşalır.',
+     'game.endAsk': 'Oyun herkes için biter.',
+     'game.closeAsk': 'Masa herkes için kapanır.',
+-    'game.removeAsk': '{name} masadan çıkarılır, kartları desteye döner.',
++    'game.removeAsk': '{name} masadan çıkarılır.',
+     'game.confirmLeave': 'Ayrıl',
+     'game.confirmEnd': 'Bitir',
+     'game.confirmClose': 'Kapat',
+     'game.confirmRemove': 'Çıkar',
+     'game.confirmStay': 'Vazgeç',
+-    'game.status.dealer': 'Kurpiyer',
++    'game.status.dealer': 'Ev Sahibi',
+     'game.status.waiting': 'Yanıt Bekleniyor',
+     'game.status.joined': 'Katıldı',
+     'game.status.declined': 'Reddetti',
+@@ -747,46 +749,46 @@ window.I18N = (function () {
+     'game.reason.loading': 'Güvenlik anahtarı yükleniyor.',
+     'game.reason.unverified': '{name} kişisinin güvenlik anahtarı doğrulanmadı.',
+     'game.reason.changed': '{name} kişisinin güvenlik anahtarı değişti ve henüz kabul edilmedi.',
+-    'game.reason.peer_unverified': 'Kurpiyerin cihazı güvenlik anahtarınızı doğrulayamadı.',
+-    'game.reason.peer_changed': 'Güvenlik anahtarınız kurpiyerin cihazında değişmiş görünüyor ve henüz kabul edilmedi.',
+-    'game.reason.peer_gone': 'Kurpiyerin cihazı hesabınızı göremiyor.',
+-    'game.reason.peer_loading': 'Kurpiyerin cihazı güvenlik anahtarınızı yüklüyor.',
++    'game.reason.peer_unverified': 'Ev sahibinin cihazı güvenlik anahtarınızı doğrulayamadı.',
++    'game.reason.peer_changed': 'Güvenlik anahtarınız ev sahibinin cihazında değişmiş görünüyor ve henüz kabul edilmedi.',
++    'game.reason.peer_gone': 'Ev sahibinin cihazı hesabınızı göremiyor.',
++    'game.reason.peer_loading': 'Ev sahibinin cihazı güvenlik anahtarınızı yüklüyor.',
+     'game.reason.cannot_locked': '{name} cihazında güvenlik anahtarı açık değil.',
+     'game.reason.cannot_unverified': '{name} cihazı güvenlik anahtarınızı doğrulayamadı.',
+     'game.reason.cannot_changed': 'Güvenlik anahtarınız {name} cihazında değişmiş görünüyor ve henüz kabul edilmedi.',
+     'game.reason.cannot_loading': '{name} cihazı güvenlik anahtarınızı yüklüyor.',
+     'game.reason.cannot_gone': '{name} cihazı hesabınızı göremiyor.',
+     'game.reject.full': 'Masa dolu.',
+-    'game.reject.started': 'Oyun başladı. Sonraki elde katılabilirsiniz.',
++    'game.reject.started': 'Oyun başladı. Sonraki turda katılabilirsiniz.',
+     'game.reject.closed': 'Masa kapandı.',
+-    'game.reject.keys': 'Kurpiyerin cihazı güvenlik anahtarınızı kullanamıyor, bu yüzden katılamazsınız.',
+-    'game.joinTimeout': 'Kurpiyerden yanıt gelmedi. Yeniden deneyebilirsiniz.',
+-    'game.trustDealer': 'Kurpiyer sizsiniz. Desteyi bu cihaz karıştırır ve bütün elleri teknik olarak bilir. Başkalarının elleri bu ekranda gösterilmez. Oyunculara bu durum yazılır.',
+-    'game.trustPlayer': 'Kurpiyer {name}. Desteyi onun cihazı karıştırır ve bütün elleri teknik olarak bilir. Eliniz yalnız size şifreli gönderilir, sunucu ve diğer oyuncular göremez. El bitince yalnız kart sayıları ve puanlar gösterilir.',
+-    'game.trustChip': 'Kurpiyer Elleri Bilir',
++    'game.reject.keys': 'Ev sahibinin cihazı güvenlik anahtarınızı kullanamıyor, bu yüzden katılamazsınız.',
++    'game.joinTimeout': 'Ev sahibinden yanıt gelmedi. Yeniden deneyebilirsiniz.',
++    'game.trustDealer': 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır.',
++    'game.trustPlayer': 'Ev sahibi {name}. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir.',
++    'game.trustChip': 'Oyunu Ev Sahibi Yürütür',
+     'game.trustMore': 'Ayrıntı',
+     'game.trustLess': 'Ayrıntıyı Gizle',
+-    'game.shareWarn': 'Ekranınız yayında: eliniz izleyenlere görünebilir.',
+-    'game.waitingStart': 'Kurpiyerin başlatması bekleniyor.',
++    'game.shareWarn': 'Ekranınız yayında: oyun ekranınız izleyenlere görünebilir.',
++    'game.waitingStart': 'Ev sahibinin başlatması bekleniyor.',
+     'game.syncing': 'Masa eşitleniyor',
+     'game.sending': 'Hamle gönderiliyor',
+-    'game.sendSlow': 'Kurpiyere ulaşılamıyor, yeniden deneniyor',
++    'game.sendSlow': 'Ev sahibine ulaşılamıyor, yeniden deneniyor',
+     'game.sendFailed': 'Masaya ileti gönderilemedi.',
+     'game.turnYou': 'Sıra Sizde',
+     'game.upNext': 'Sıradaki: {name}',
+-    'game.ended.dealer_left': 'Kurpiyer ses odasından ayrıldı, oyun bitti.',
+-    'game.ended.closed': 'Kurpiyer masayı kapattı.',
++    'game.ended.dealer_left': 'Ev sahibi ses odasından ayrıldı, oyun bitti.',
++    'game.ended.closed': 'Ev sahibi masayı kapattı.',
+     'game.ended.superseded': 'Bu masa kapandı, odada başka bir masa açık.',
+-    'game.ended.dealer_lost': 'Kurpiyere uzun süredir ulaşılamıyor, oyun bitti.',
+-    'game.ended.removed': 'Kurpiyer sizi masadan çıkardı.',
+-    'game.ended.keys': 'Kurpiyerle şifreli bağlantı kurulamıyor, oyun bitti.',
++    'game.ended.dealer_lost': 'Ev sahibine uzun süredir ulaşılamıyor, oyun bitti.',
++    'game.ended.removed': 'Ev sahibi sizi masadan çıkardı.',
++    'game.ended.keys': 'Ev sahibiyle şifreli bağlantı kurulamıyor, oyun bitti.',
+     'game.ended.left': 'Masadan ayrıldınız.',
+     'game.ended.reset': 'Ses odasından ayrıldınız, masa kapandı.',
+     'game.resultsTitle': 'Sonuçlar',
+     'game.resultWinner': 'Kazanan {name} · {points}',
+     'game.resultNone': 'Kazanan Yok',
+     'game.resultReason.too_few': 'Masada tek oyuncu kaldı.',
+-    'game.resultReason.ended': 'Kurpiyer oyunu bitirdi.',
++    'game.resultReason.ended': 'Ev sahibi oyunu bitirdi.',
+     'game.cards_one': '{count} Kart',
+     'game.cards_other': '{count} Kart',
+     'game.points_one': '{count} Puan',
+@@ -801,6 +803,34 @@ window.I18N = (function () {
+     'game.sr.started': 'Oyun başladı.',
+     'game.renk.title': 'Renk',
+     'game.renk.tagline': 'Renk ve sayı eşleştirmeli kart oyunu',
++    'game.renk.toolBusyLabel': 'Bu odada bir oyun sürüyor, sonraki elde katılabilirsiniz',
++    'game.renk.toolBusyAria': 'Oyun Sürüyor: bu odadaki oyuna sonraki elde katılabilirsiniz',
++    'game.renk.dealerLine': 'Kurpiyer {name}',
++    'game.renk.dealerYou': 'Kurpiyer Sizsiniz',
++    'game.renk.newRound': 'Yeni El',
++    'game.renk.waitNewRound': 'Kurpiyer yeni el açarsa masada kalırsınız.',
++    'game.renk.leaveAsk': 'Ayrılırsanız kartlarınız desteye döner.',
++    'game.renk.removeAsk': '{name} masadan çıkarılır, kartları desteye döner.',
++    'game.renk.status.dealer': 'Kurpiyer',
++    'game.renk.reason.peer_unverified': 'Kurpiyerin cihazı güvenlik anahtarınızı doğrulayamadı.',
++    'game.renk.reason.peer_changed': 'Güvenlik anahtarınız kurpiyerin cihazında değişmiş görünüyor ve henüz kabul edilmedi.',
++    'game.renk.reason.peer_gone': 'Kurpiyerin cihazı hesabınızı göremiyor.',
++    'game.renk.reason.peer_loading': 'Kurpiyerin cihazı güvenlik anahtarınızı yüklüyor.',
++    'game.renk.reject.started': 'Oyun başladı. Sonraki elde katılabilirsiniz.',
++    'game.renk.reject.keys': 'Kurpiyerin cihazı güvenlik anahtarınızı kullanamıyor, bu yüzden katılamazsınız.',
++    'game.renk.joinTimeout': 'Kurpiyerden yanıt gelmedi. Yeniden deneyebilirsiniz.',
++    'game.renk.trustDealer': 'Kurpiyer sizsiniz. Desteyi bu cihaz karıştırır ve bütün elleri teknik olarak bilir. Başkalarının elleri bu ekranda gösterilmez. Oyunculara bu durum yazılır.',
++    'game.renk.trustPlayer': 'Kurpiyer {name}. Desteyi onun cihazı karıştırır ve bütün elleri teknik olarak bilir. Eliniz yalnız size şifreli gönderilir, sunucu ve diğer oyuncular göremez. El bitince yalnız kart sayıları ve puanlar gösterilir.',
++    'game.renk.trustChip': 'Kurpiyer Elleri Bilir',
++    'game.renk.shareWarn': 'Ekranınız yayında: eliniz izleyenlere görünebilir.',
++    'game.renk.waitingStart': 'Kurpiyerin başlatması bekleniyor.',
++    'game.renk.sendSlow': 'Kurpiyere ulaşılamıyor, yeniden deneniyor',
++    'game.renk.ended.dealer_left': 'Kurpiyer ses odasından ayrıldı, oyun bitti.',
++    'game.renk.ended.closed': 'Kurpiyer masayı kapattı.',
++    'game.renk.ended.dealer_lost': 'Kurpiyere uzun süredir ulaşılamıyor, oyun bitti.',
++    'game.renk.ended.removed': 'Kurpiyer sizi masadan çıkardı.',
++    'game.renk.ended.keys': 'Kurpiyerle şifreli bağlantı kurulamıyor, oyun bitti.',
++    'game.renk.resultReason.ended': 'Kurpiyer oyunu bitirdi.',
+     'game.renk.rules.official': 'Resmî',
+     'game.renk.rules.officialHint': '+2 ve +4 üst üste konmaz. Son kartınıza düşerken Tek! demezseniz ve biri sizi yakalarsa 2 kart çekersiniz.',
+     'game.renk.rules.stack': 'Üst Üste Ekleme',
+@@ -2858,6 +2888,8 @@ window.I18N = (function () {
+     'game.minimize': 'Minimize',
+     'game.minimizeLabel': 'Minimize the table, the game goes on',
+     'game.setupTitle': 'Set Up a Table',
++    'game.chooseTitle': 'Choose a Game',
++    'game.chooseLead': 'Which game do you want to play with the room?',
+     'game.setupLocked': 'To set up a table, your security key must be unlocked on this device.',
+     'game.lobbyTitle': '{game} Table',
+     'game.rulesTitle': 'Rules',
+@@ -2867,14 +2899,14 @@ window.I18N = (function () {
+     'game.roomTitle': 'In the Room',
+     'game.players_one': '{count} Player',
+     'game.players_other': '{count} Players',
+-    'game.dealerLine': 'Dealer {name}',
+-    'game.dealerYou': 'You Are the Dealer',
++    'game.dealerLine': 'Host {name}',
++    'game.dealerYou': 'You Are the Host',
+     'game.openTable': 'Open Table',
+     'game.start': 'Start',
+     'game.startHint': 'At least one more player must join before you can start.',
+     'game.closeTable': 'Close Table',
+     'game.newRound': 'New Round',
+-    'game.waitNewRound': 'If the dealer opens a new round, you stay at the table.',
++    'game.waitNewRound': 'If the host opens a new round, you stay at the table.',
+     'game.join': 'Join',
+     'game.decline': 'Decline',
+     'game.rejoin': 'Return to Game',
+@@ -2886,16 +2918,16 @@ window.I18N = (function () {
+     'game.leave': 'Leave Table',
+     'game.endGame': 'End Game',
+     'game.removeSeat': 'Remove from Seat',
+-    'game.leaveAsk': 'If you leave, your cards go back to the deck.',
++    'game.leaveAsk': 'If you leave, your seat at the table is freed.',
+     'game.endAsk': 'The game ends for everyone.',
+     'game.closeAsk': 'The table closes for everyone.',
+-    'game.removeAsk': '{name} is removed from the table and their cards go back to the deck.',
++    'game.removeAsk': '{name} is removed from the table.',
+     'game.confirmLeave': 'Leave',
+     'game.confirmEnd': 'End',
+     'game.confirmClose': 'Close',
+     'game.confirmRemove': 'Remove',
+     'game.confirmStay': 'Go Back',
+-    'game.status.dealer': 'Dealer',
++    'game.status.dealer': 'Host',
+     'game.status.waiting': 'Waiting for Reply',
+     'game.status.joined': 'Joined',
+     'game.status.declined': 'Declined',
+@@ -2911,10 +2943,10 @@ window.I18N = (function () {
+     'game.reason.loading': 'Loading the security key.',
+     'game.reason.unverified': 'The security key of {name} is not verified.',
+     'game.reason.changed': 'The security key of {name} changed and has not been accepted yet.',
+-    'game.reason.peer_unverified': 'The dealer\'s device could not verify your security key.',
+-    'game.reason.peer_changed': 'Your security key looks changed on the dealer\'s device and has not been accepted yet.',
+-    'game.reason.peer_gone': 'The dealer\'s device cannot see your account.',
+-    'game.reason.peer_loading': 'The dealer\'s device is loading your security key.',
++    'game.reason.peer_unverified': 'The host\'s device could not verify your security key.',
++    'game.reason.peer_changed': 'Your security key looks changed on the host\'s device and has not been accepted yet.',
++    'game.reason.peer_gone': 'The host\'s device cannot see your account.',
++    'game.reason.peer_loading': 'The host\'s device is loading your security key.',
+     'game.reason.cannot_locked': 'The security key of {name} is not unlocked on their device.',
+     'game.reason.cannot_unverified': 'The device of {name} could not verify your security key.',
+     'game.reason.cannot_changed': 'Your security key looks changed on the device of {name} and has not been accepted yet.',
+@@ -2923,34 +2955,34 @@ window.I18N = (function () {
+     'game.reject.full': 'The table is full.',
+     'game.reject.started': 'The game has started. You can join the next round.',
+     'game.reject.closed': 'The table is closed.',
+-    'game.reject.keys': 'The dealer\'s device cannot use your security key, so you cannot join.',
+-    'game.joinTimeout': 'The dealer did not reply. You can try again.',
+-    'game.trustDealer': 'You are the dealer. This device shuffles the deck and technically knows every hand. Other hands are not shown on this screen. Players are told about this.',
+-    'game.trustPlayer': '{name} is the dealer. Their device shuffles the deck and technically knows every hand. Your hand is sent encrypted only to you, and the server and other players cannot see it. When the round ends, only card counts and points are shown.',
+-    'game.trustChip': 'Dealer Knows All Hands',
++    'game.reject.keys': 'The host\'s device cannot use your security key, so you cannot join.',
++    'game.joinTimeout': 'The host did not reply. You can try again.',
++    'game.trustDealer': 'You are the host. This device runs the game and technically knows everything at the table. Players are told about this.',
++    'game.trustPlayer': '{name} is the host. Their device runs the game and technically knows everything at the table.',
++    'game.trustChip': 'Host Runs the Game',
+     'game.trustMore': 'Details',
+     'game.trustLess': 'Hide Details',
+-    'game.shareWarn': 'Your screen is live: viewers may see your hand.',
+-    'game.waitingStart': 'Waiting for the dealer to start.',
++    'game.shareWarn': 'Your screen is live: viewers may see your game screen.',
++    'game.waitingStart': 'Waiting for the host to start.',
+     'game.syncing': 'Syncing the table',
+     'game.sending': 'Sending your move',
+-    'game.sendSlow': 'Cannot reach the dealer, retrying',
++    'game.sendSlow': 'Cannot reach the host, retrying',
+     'game.sendFailed': 'A message could not be sent to the table.',
+     'game.turnYou': 'Your Turn',
+     'game.upNext': 'Up Next: {name}',
+-    'game.ended.dealer_left': 'The dealer left the voice room. The game is over.',
+-    'game.ended.closed': 'The dealer closed the table.',
++    'game.ended.dealer_left': 'The host left the voice room. The game is over.',
++    'game.ended.closed': 'The host closed the table.',
+     'game.ended.superseded': 'This table was closed. Another table is open in the room.',
+-    'game.ended.dealer_lost': 'The dealer has been unreachable for a while. The game is over.',
+-    'game.ended.removed': 'The dealer removed you from the table.',
+-    'game.ended.keys': 'An encrypted connection with the dealer cannot be set up. The game is over.',
++    'game.ended.dealer_lost': 'The host has been unreachable for a while. The game is over.',
++    'game.ended.removed': 'The host removed you from the table.',
++    'game.ended.keys': 'An encrypted connection with the host cannot be set up. The game is over.',
+     'game.ended.left': 'You left the table.',
+     'game.ended.reset': 'You left the voice room. The table was closed.',
+     'game.resultsTitle': 'Results',
+     'game.resultWinner': 'Winner {name} · {points}',
+     'game.resultNone': 'No Winner',
+     'game.resultReason.too_few': 'Only one player is left at the table.',
+-    'game.resultReason.ended': 'The dealer ended the game.',
++    'game.resultReason.ended': 'The host ended the game.',
+     'game.cards_one': '{count} Card',
+     'game.cards_other': '{count} Cards',
+     'game.points_one': '{count} Point',
+@@ -2965,6 +2997,34 @@ window.I18N = (function () {
+     'game.sr.started': 'The game has started.',
+     'game.renk.title': 'Renk',
+     'game.renk.tagline': 'A color and number matching card game',
++    'game.renk.toolBusyLabel': 'A game is in progress in this room, you can join the next round',
++    'game.renk.toolBusyAria': 'Game in Progress: you can join the next round in this room',
++    'game.renk.dealerLine': 'Dealer {name}',
++    'game.renk.dealerYou': 'You Are the Dealer',
++    'game.renk.newRound': 'New Round',
++    'game.renk.waitNewRound': 'If the dealer opens a new round, you stay at the table.',
++    'game.renk.leaveAsk': 'If you leave, your cards go back to the deck.',
++    'game.renk.removeAsk': '{name} is removed from the table and their cards go back to the deck.',
++    'game.renk.status.dealer': 'Dealer',
++    'game.renk.reason.peer_unverified': 'The dealer\'s device could not verify your security key.',
++    'game.renk.reason.peer_changed': 'Your security key looks changed on the dealer\'s device and has not been accepted yet.',
++    'game.renk.reason.peer_gone': 'The dealer\'s device cannot see your account.',
++    'game.renk.reason.peer_loading': 'The dealer\'s device is loading your security key.',
++    'game.renk.reject.started': 'The game has started. You can join the next round.',
++    'game.renk.reject.keys': 'The dealer\'s device cannot use your security key, so you cannot join.',
++    'game.renk.joinTimeout': 'The dealer did not reply. You can try again.',
++    'game.renk.trustDealer': 'You are the dealer. This device shuffles the deck and technically knows every hand. Other hands are not shown on this screen. Players are told about this.',
++    'game.renk.trustPlayer': '{name} is the dealer. Their device shuffles the deck and technically knows every hand. Your hand is sent encrypted only to you, and the server and other players cannot see it. When the round ends, only card counts and points are shown.',
++    'game.renk.trustChip': 'Dealer Knows All Hands',
++    'game.renk.shareWarn': 'Your screen is live: viewers may see your hand.',
++    'game.renk.waitingStart': 'Waiting for the dealer to start.',
++    'game.renk.sendSlow': 'Cannot reach the dealer, retrying',
++    'game.renk.ended.dealer_left': 'The dealer left the voice room. The game is over.',
++    'game.renk.ended.closed': 'The dealer closed the table.',
++    'game.renk.ended.dealer_lost': 'The dealer has been unreachable for a while. The game is over.',
++    'game.renk.ended.removed': 'The dealer removed you from the table.',
++    'game.renk.ended.keys': 'An encrypted connection with the dealer cannot be set up. The game is over.',
++    'game.renk.resultReason.ended': 'The dealer ended the game.',
+     'game.renk.rules.official': 'Official',
+     'game.renk.rules.officialHint': '+2 and +4 cannot be stacked. If you drop to one card without calling Last Card and someone catches you, you draw 2 cards.',
+     'game.renk.rules.stack': 'Stacking',
+diff --git a/public/js/36-oyun.js b/public/js/36-oyun.js
+index 6edce45..fa5b35b 100644
+--- a/public/js/36-oyun.js
++++ b/public/js/36-oyun.js
+@@ -5,7 +5,9 @@
+ // düğmesini (#radio-game, Büyüt ile Telsiz DJ arasında) ve yayın sahnesinin game kipinde (22-cast.js) Masa Kur,
+ // lobi, davet, bitiş ve sonuç ekranlarını, durum satırını, güven notunu, onay satırını ve canlı bölgeleri çizer.
+ // Oyunun masa ortası uygulamanın kendi arayüzündedir (ör. 37-renk.js), o da yüklenirken gameUiRegister ile kaydolur.
+-// Kayıtlı arayüzü olmayan oyun açılamaz, davetleri de işlenmez (düğme görünmez).
++// Kayıtlı arayüzü olmayan oyun açılamaz, davetleri de işlenmez (düğme görünmez). Birden çok oyun kayıtlıysa Oyun
++// düğmesi önce yerel "Oyun Seç" ekranını açar (masa yöneticisine ileti gitmez), seçilen oyunun Masa Kur ekranı onu
++// izler. Tek oyun kayıtlıysa bu adım atlanır.
+ //
+ // Kurallar:
+ // - Özel aramada oyun yoktur: düğme gizlenir, olaylar atılır.
+@@ -13,18 +15,29 @@
+ //   Sahne yalnızca kişi açınca açılır, küçültülünce oyun sürer.
+ // - Görünüm modeli değişince sahne yalnızca kendi anahtarı değiştiyse yeniden çizilir, odak data-focus-key ile korunur.
+ // - "Sıra sizde" duyurusu ısrarlı bölgeye, diğer duyurular kibar bölgeye gider. 400 ms içindekiler birleşir.
++// - Genel metinler (game.*) oyundan bağımsızdır: masayı kuran kişi "ev sahibi"dir. GAME_APP_TEXTS içindeki anahtarlar
++//   için uygulama kendi metnini game.<oyun>.<anahtar> ile verebilir (ör. Renk'te "Kurpiyer", "Yeni El"), gameText
++//   önce onu arar.
+ //
+ // Uygulama arayüzünün sözleşmesi (gameUiRegister(id, ui)), name ve render zorunlu, diğerleri isteğe bağlıdır:
+ //   name(), tagline(), rulesLabel(rules), rulesHint(rules), rulesLine(rules), render(box, model),
+ //   statusParts(model) -> [metin], turnOf(model) -> id, turnText(model), onTurn(box, model), eventText(olay, model),
+ //   errorText(kod) -> metin veya false (sessiz kod), results(model) -> { reason, winner, total, ranks: [{ id, rank, n, points }] },
++//   renderResults(box, model) (sonuç bölümünün içini uygulama çizer, varsa results ve varsayılan liste kullanılmaz),
+ //   notes(model) -> [metin], firstFocus(box) -> öğe, stageClosed() (sahne kapandı, uygulama kendi katmanlarını kapatır)
+ 
+ const GAME_TICK_MS = 250
+ const GAME_ANNOUNCE_MS = 400
+ const GAME_ID_RE = /^[a-z]{1,16}$/
+-// Oyun kimliği -> kural motorunun genel adı (5.1 sözleşmesi)
+-const GAME_ENGINES = { renk: 'TelsizRenk' }
++// Oyun kimliği -> kural motorunun genel adı (5.1 sözleşmesi). Motoru yüklenmemiş oyun kaydolamaz.
++const GAME_ENGINES = { renk: 'TelsizRenk', hexball: 'TelsizHexball' }
++// Uygulamanın game.<oyun>.<anahtar> ile kendi metnini verebildiği genel anahtarlar (gameText). Genel karşılıkları
++// oyundan bağımsızdır (ev sahibi, tur), kart oyunu kendi sözcüklerini (kurpiyer, el, deste) burada kullanır.
++const GAME_APP_TEXTS = ['toolBusyLabel', 'toolBusyAria', 'dealerLine', 'dealerYou', 'newRound', 'waitNewRound',
++  'leaveAsk', 'removeAsk', 'status.dealer', 'reason.peer_unverified', 'reason.peer_changed', 'reason.peer_gone',
++  'reason.peer_loading', 'reject.started', 'reject.keys', 'joinTimeout', 'trustDealer', 'trustPlayer', 'trustChip',
++  'shareWarn', 'waitingStart', 'sendSlow', 'ended.dealer_left', 'ended.closed', 'ended.dealer_lost', 'ended.removed',
++  'ended.keys', 'resultReason.ended']
+ // İlk odak sırası: sahne açılınca en anlamlı denetim
+ const GAME_FIRST_KEYS = ['game-confirm-no', 'game-join', 'game-rejoin', 'game-open', 'game-start', 'game-new-round', 'game-dismiss']
+ 
+@@ -46,6 +59,7 @@ const gameState = {
+   trustOpen: false,
+   seatsOpen: false,
+   picker: null,
++  choosing: false,
+   uiRev: 0,
+   turnFocus: false,
+   lastTurnId: null,
+@@ -111,6 +125,21 @@ function gameRulesHint (ui, rules) {
+   return String(gameUiCall(ui, 'rulesHint', [rules], ''))
+ }
+ 
++// Modelin oyunu: masanın ya da (masa yokken) saklı davetin
++function gameAppOf (m) {
++  if (m && m.app) return m.app
++  return m && m.invite ? m.invite.app : null
++}
++
++// Genel metin: GAME_APP_TEXTS içindeki anahtar için oyunun kendi game.<oyun>.<anahtar> metni varsa o, yoksa genel
++// game.<anahtar> metni
++function gameText (app, key, params) {
++  const id = app === null || app === undefined ? '' : String(app)
++  const own = 'game.' + id + '.' + key
++  if (GAME_ID_RE.test(id) && GAME_APP_TEXTS.indexOf(key) >= 0 && hasText(own)) return t(own, params)
++  return t('game.' + key, params)
++}
++
+ // ----- Masa yöneticisi ve ortamı (4.5) -----
+ 
+ // İç katman anahtarları: kişinin güncel doğrulanmış açık anahtarı ve bu cihazdaki kimlik anahtarı. Her mühürleme ve
+@@ -276,8 +305,10 @@ function gameOnDeskChange () {
+   const before = gameState.model || gameEmptyModel()
+   const m = gameState.desk.model()
+   gameState.model = m
+-  // Kişi açmadan başlayan masa (gelen davet, Oyuna Dön teklifi) sahneyi açmaz
+-  if (before.stage === 'none' && m.stage !== 'none' && !gameState.acting) gameState.minimized = true
++  // Kişi açmadan başlayan masa (gelen davet, Oyuna Dön teklifi) sahneyi açmaz. Oyun Seç ekranı açıkken gelen davet
++  // ise Masa Kur ekranındaki gibi aynı sahnede yerini alır (tek masa kuralı).
++  if (before.stage === 'none' && m.stage !== 'none' && !gameState.acting && !gameState.choosing) gameState.minimized = true
++  if (m.stage !== 'none') gameState.choosing = false
+   if (before.stage !== m.stage) {
+     gameState.confirm = null
+     gameState.picker = null
+@@ -335,16 +366,16 @@ function gameClearActivity () {
+   if (typeof activityClearGames === 'function') activityClearGames()
+ }
+ 
+-function gameEndedText (reason) {
++function gameEndedText (reason, app) {
+   if (reason === 'left') return t('game.ended.left')
+-  return hasText('game.ended.' + reason) ? t('game.ended.' + reason) : t('game.ended.closed')
++  return gameText(app, hasText('game.ended.' + reason) ? 'ended.' + reason : 'ended.closed')
+ }
+ 
+ // Hata kodunun metni: masa yöneticisinin kendi kodları, sonra uygulamanın game.<oyun>.err.<kod> anahtarları
+ function gameErrorText (code, app) {
+   if (!code) return ''
+   if (code === 'send') return t('game.sendFailed')
+-  if (code === 'join_timeout') return t('game.joinTimeout')
++  if (code === 'join_timeout') return gameText(app, 'joinTimeout')
+   if (code === 'locked') return t('game.setupLocked')
+   const ui = gameUi(app)
+   const own = gameUiCall(ui, 'errorText', [code], '')
+@@ -383,19 +414,19 @@ function gameOnNotice (kind, data) {
+     gameAnnounce(text, false)
+     if (!gameStageVisible()) toast(() => gameErrorText(data, m.app), 'error', 6000)
+   } else if (kind === 'ended' && data) {
+-    gameOnEnded(data.reason)
++    gameOnEnded(data.reason, m.app)
+   }
+ }
+ 
+-function gameOnEnded (reason) {
++function gameOnEnded (reason, app) {
+   if (reason === 'reset') {
+     // Ses odasından çıkınca sahne sessizce kapanır
+     gameClearActivity()
+     if (typeof castState === 'undefined' || !castState.full) toast(() => t('game.ended.reset'), '', 6000)
+     return
+   }
+-  gameAnnounce(gameEndedText(reason), false)
+-  if (!gameStageVisible()) toast(() => gameEndedText(reason), '', 8000)
++  gameAnnounce(gameEndedText(reason, app), false)
++  if (!gameStageVisible()) toast(() => gameEndedText(reason, app), '', 8000)
+   // Küçültülmüş masa bitince bitiş ekranı beklemez: duyurulur ve kapanır
+   if (gameState.minimized && gameState.desk && gameState.desk.model().stage === 'ended') gameState.desk.dismiss()
+ }
+@@ -477,8 +508,8 @@ function gameToolState (s, m, visible) {
+   if (!voice || typeof voice.sendGame !== 'function' || !gameAppIds().length) return null
+   const inv = m.invite
+   const out = (kind, label, aria, badge) => ({ kind: kind, label: label, aria: aria, badge: badge, expanded: kind === 'minimize', disabled: kind === 'busy' })
+-  if (m.stage !== 'none' && visible) return out('minimize', t('game.minimize'), t('game.minimizeLabel'), '')
+-  if (m.stage === 'busy' || (m.stage === 'none' && gameOfferBusy(inv, m.me))) return out('busy', t('game.toolBusy'), t('game.toolBusyAria'), '')
++  if ((m.stage !== 'none' || gameState.choosing) && visible) return out('minimize', t('game.minimize'), t('game.minimizeLabel'), '')
++  if (m.stage === 'busy' || (m.stage === 'none' && gameOfferBusy(inv, m.me))) return out('busy', t('game.toolBusy'), gameText(gameAppOf(m), 'toolBusyAria'), '')
+   if (m.stage === 'invited' || m.stage === 'rejoin' || (m.stage === 'none' && inv)) {
+     return out('invite', t('game.toolInvite'), t('game.toolInviteLabel', { name: shownName(inv.dealer), game: gameAppName(inv.app) }), '1')
+   }
+@@ -545,13 +576,41 @@ function gameToolClick () {
+   }
+   const m = gameModel()
+   if (m.stage === 'none') {
++    const ids = gameAppIds()
+     if (m.invite) gameCall('openInvite')
+-    else gameCall('openSetup', gameAppIds()[0])
+-    if (gameModel().stage === 'none') return
++    else if (ids.length > 1) gameState.choosing = true
++    else gameCall('openSetup', ids[0])
++    if (gameModel().stage === 'none' && !gameState.choosing) return
+   }
+   gameOpenStage(true)
+ }
+ 
++// Oyun Seç ekranında seçilen oyunun Masa Kur ekranı açılır. Açılamazsa (ör. bu arada bir davet geldi) seçim
++// ekranı kapanır.
++function gamePickApp (id) {
++  gameState.choosing = false
++  gameCall('openSetup', id)
++  if (gameModel().stage === 'none') gameSyncStage()
++}
++
++function gameCancelChoose () {
++  gameState.choosing = false
++  gameSyncStage()
++  gameAfterClose()
++}
++
++// Sahne istenirliği masa yöneticisinin değişikliği olmadan değişti (Oyun Seç ekranı): yayın sahnesi yeniden düzenlenir
++function gameSyncStage () {
++  const wanted = gameStageWanted()
++  if (wanted !== gameState.wanted) {
++    gameState.wanted = wanted
++    if (typeof castSync === 'function') castSync()
++  } else if (gameStageVisible() && gameCastNodes()) {
++    gameRefreshStage()
++  }
++  gameRenderTool()
++}
++
+ // Bildirimler listesindeki Masaya Bak
+ function gameOpenInvite (dealerId) {
+   if (!gameDesk()) return
+@@ -575,13 +634,23 @@ function gameRender () {
+   }
+   const s = snap()
+   if (s.channelId === null || s.channelId === undefined || s.private) gameClearActivity()
++  // Oyun açılamayan yerde (seste değil, bağlanıyor, özel arama) Oyun Seç ekranı kalmaz
++  if (gameState.choosing && !gameToolState(s, gameModel(), false)) {
++    gameState.choosing = false
++    gameSyncStage()
++  }
+   gameRenderTool()
+ }
+ 
+ // ----- Sahne kancaları (22-cast.js) -----
+ 
++// Sahne masa varken ya da Oyun Seç ekranı açıkken istenir, küçültülmüşse istenmez
+ function gameStageWanted () {
+-  return gameModel().stage !== 'none' && !gameState.minimized
++  return (gameModel().stage !== 'none' || gameState.choosing) && !gameState.minimized
++}
++
++function gameChoosing (m) {
++  return gameState.choosing && m.stage === 'none'
+ }
+ 
+ function gameOpenStage (focus) {
+@@ -590,8 +659,10 @@ function gameOpenStage (focus) {
+   if (typeof castOpenGame === 'function') castOpenGame(Boolean(focus))
+ }
+ 
++// Küçült: masa sürer, Oyun Seç ekranı ise kapanır (saklanacak bir şey yoktur)
+ function gameSetMinimized (on) {
+   gameState.minimized = Boolean(on)
++  if (gameState.minimized) gameState.choosing = false
+   gameState.wanted = gameStageWanted()
+ }
+ 
+@@ -605,6 +676,7 @@ function gameStageClosed () {
+   gameState.trustOpen = false
+   gameState.seatsOpen = false
+   gameState.picker = null
++  gameState.choosing = false
+   Object.keys(gameState.uis).forEach((id) => {
+     gameUiCall(gameState.uis[id], 'stageClosed', [], null)
+   })
+@@ -612,14 +684,16 @@ function gameStageClosed () {
+ 
+ function gameStageTitle () {
+   const m = gameModel()
+-  const name = gameAppName(m.app || (m.invite ? m.invite.app : null))
++  const name = gameAppName(gameAppOf(m))
++  if (gameChoosing(m)) return t('game.chooseTitle')
+   if (m.stage === 'setup') return t('game.setupTitle')
+   if (m.stage === 'play' || m.stage === 'over') return name
+   return t('game.lobbyTitle', { game: name })
+ }
+ 
+ function gameDealerLine (m, dealer) {
+-  return m.me !== null && dealer === m.me ? t('game.dealerYou') : t('game.dealerLine', { name: shownName(dealer) })
++  const app = gameAppOf(m)
++  return m.me !== null && dealer === m.me ? gameText(app, 'dealerYou') : gameText(app, 'dealerLine', { name: shownName(dealer) })
+ }
+ 
+ function gameStageSub () {
+@@ -683,7 +757,8 @@ function gameRenderStage (container) {
+   const m = gameModel()
+   const confirm = gameState.confirm ? gameState.confirm.kind + ':' + (gameState.confirm.id || '') : ''
+   const lang = window.I18N ? window.I18N.lang : ''
+-  const key = [m.rev, lang, gameState.minimized ? 1 : 0, gameState.picker || '', confirm, gameState.trustOpen ? 1 : 0,
++  const stage = gameChoosing(m) ? 'choose' : m.stage
++  const key = [m.rev, stage, lang, gameState.minimized ? 1 : 0, gameState.picker || '', confirm, gameState.trustOpen ? 1 : 0,
+     gameState.seatsOpen ? 1 : 0, isNarrow() ? 1 : 0, gameState.uiRev, gameSharing() ? 1 : 0, gameNamesKey(m)].join('|')
+   if (key === gameState.stageKey && gameState.body && gameState.body.parentNode === container) return
+   gameState.stageKey = key
+@@ -694,9 +769,9 @@ function gameRenderStage (container) {
+   gameState.focusNext = null
+   const prev = gameState.body && gameState.body.parentNode === container ? gameState.body : null
+   // Aynı ekranın yeniden çiziminde kişinin kaydırdığı yer korunur (sahnenin dikey ve elin yatay kaydırması)
+-  const scroll = prev && prev.getAttribute('data-stage') === m.stage ? gameScrollSave(container) : null
++  const scroll = prev && prev.getAttribute('data-stage') === stage ? gameScrollSave(container) : null
+   const body = h('div', 'game-body')
+-  body.setAttribute('data-stage', m.stage)
++  body.setAttribute('data-stage', stage)
+   body.setAttribute('data-role', m.role)
+   gameFillStage(body, m)
+   if (prev) container.replaceChild(body, prev)
+@@ -763,13 +838,17 @@ function gameBindStage (container) {
+ 
+ function gameFillStage (body, m) {
+   const ui = gameUi(m.app)
++  if (gameChoosing(m)) {
++    gameRenderChoose(body)
++    return
++  }
+   if (m.error) body.appendChild(gameErrorLine(m))
+   if (m.stage === 'setup') gameRenderSetup(body, m, ui)
+   else if (m.stage === 'lobby') gameRenderLobby(body, m, ui)
+   else if (m.stage === 'invited' || m.stage === 'rejoin' || m.stage === 'busy') gameRenderInvite(body, m, ui)
+   else if (m.stage === 'joining') gameRenderJoining(body, m, ui)
+-  else if (m.stage === 'rejected') gameRenderNotice(body, t('game.reject.' + (m.rejected ? m.rejected.why : 'closed')))
+-  else if (m.stage === 'ended') gameRenderNotice(body, gameEndedText(m.ended ? m.ended.reason : 'closed'))
++  else if (m.stage === 'rejected') gameRenderNotice(body, gameText(m.app, 'reject.' + (m.rejected ? m.rejected.why : 'closed')))
++  else if (m.stage === 'ended') gameRenderNotice(body, gameEndedText(m.ended ? m.ended.reason : 'closed', m.app))
+   else if (m.stage === 'play' || m.stage === 'over') gameRenderTable(body, m, ui)
+ }
+ 
+@@ -802,8 +881,8 @@ function gameActions () {
+   return h('div', 'game-actions')
+ }
+ 
+-function gameChip (status) {
+-  return h('span', 'game-chip is-' + status, t('game.status.' + status))
++function gameChip (status, app) {
++  return h('span', 'game-chip is-' + status, gameText(app, 'status.' + status))
+ }
+ 
+ function gamePerson (id, opts) {
+@@ -817,7 +896,7 @@ function gamePerson (id, opts) {
+   text.appendChild(name)
+   if (o.reason) text.appendChild(h('span', 'game-person-reason', o.reason))
+   li.appendChild(text)
+-  if (o.chip) li.appendChild(gameChip(o.chip))
++  if (o.chip) li.appendChild(gameChip(o.chip, o.app))
+   if (o.extra) li.appendChild(o.extra)
+   return li
+ }
+@@ -837,7 +916,8 @@ function gameErrorLine (m) {
+ }
+ 
+ function gameTrustText (m, dealer) {
+-  return m.me !== null && dealer === m.me ? t('game.trustDealer') : t('game.trustPlayer', { name: shownName(dealer) })
++  const app = gameAppOf(m)
++  return m.me !== null && dealer === m.me ? gameText(app, 'trustDealer') : gameText(app, 'trustPlayer', { name: shownName(dealer) })
+ }
+ 
+ function gameTrustNote (m, dealer) {
+@@ -872,7 +952,7 @@ function gameRoomBlock (m, entries) {
+   const sec = gameSection('game-room', t('game.roomTitle'), 'game-room-title')
+   const list = h('ul', 'game-people')
+   entries.forEach((e) => {
+-    list.appendChild(gamePerson(e.id, gameRoomEntry(m, e)))
++    list.appendChild(gamePerson(e.id, Object.assign({ app: gameAppOf(m) }, gameRoomEntry(m, e))))
+   })
+   sec.appendChild(list)
+   return sec
+@@ -912,7 +992,7 @@ function gameSeatsBlock (m, ids, dealerView) {
+       })
+     }
+     const reason = dealerView && seat.keyIssue ? t('game.reason.' + seat.keyIssue, { name: shownName(id) }) : ''
+-    list.appendChild(gamePerson(id, { dealer: i === 0, chip: dealerView ? gameSeatChip(seat, i) : null, reason: reason, extra: extra }))
++    list.appendChild(gamePerson(id, { dealer: i === 0, chip: dealerView ? gameSeatChip(seat, i) : null, app: gameAppOf(m), reason: reason, extra: extra }))
+   })
+   sec.appendChild(list)
+   return sec
+@@ -922,6 +1002,39 @@ function gameEnsureProfiles (ids) {
+   if (typeof profilesEnsure === 'function' && ids.length) profilesEnsure(ids)
+ }
+ 
++// Oyun Seç (yerel, birden çok oyun kayıtlıyken): her oyun için adıyla bir düğme, kısa açıklaması düğmenin
++// açıklamasıdır. Seçilen oyunun Masa Kur ekranı açılır, İptal sahneyi kapatır.
++function gameRenderChoose (body) {
++  body.appendChild(h('p', 'game-lead', t('game.chooseLead')))
++  const list = h('ul', 'game-picks')
++  gameAppIds().forEach((id) => {
++    const name = gameAppName(id)
++    const tagline = String(gameUiCall(gameUi(id), 'tagline', [], ''))
++    const b = gameButton('game-pick', null, null, 'game-pick-' + id, () => {
++      gamePickApp(id)
++    })
++    b.setAttribute('data-app', id)
++    b.setAttribute('aria-label', name)
++    b.appendChild(icon('i-gamepad', 'game-pick-icon'))
++    const text = h('span', 'game-pick-text')
++    text.appendChild(h('span', 'game-pick-name', name))
++    if (tagline) {
++      const hint = h('span', 'game-pick-hint', tagline)
++      hint.id = 'game-pick-hint-' + id
++      text.appendChild(hint)
++      b.setAttribute('aria-describedby', hint.id)
++    }
++    b.appendChild(text)
++    const li = h('li', 'game-pick-item')
++    li.appendChild(b)
++    list.appendChild(li)
++  })
++  body.appendChild(list)
++  const actions = gameActions()
++  actions.appendChild(gameButton('button button-secondary', t('common.cancel'), null, 'game-choose-cancel', gameCancelChoose))
++  body.appendChild(actions)
++}
++
+ // Masa Kur (kurpiyer, yerel)
+ function gameRenderSetup (body, m, ui) {
+   const intro = h('div', 'game-intro')
+@@ -959,7 +1072,7 @@ function gameRenderLobby (body, m, ui) {
+     if (room) body.appendChild(room)
+   }
+   body.appendChild(gameTrustNote(m, m.dealer))
+-  if (!dealerView) body.appendChild(gameNote('game-wait', null, t('game.waitingStart')))
++  if (!dealerView) body.appendChild(gameNote('game-wait', null, gameText(m.app, 'waitingStart')))
+   else if (m.seats.length < m.min) body.appendChild(gameNote('game-hint', null, t('game.startHint')))
+   if (gameState.confirm) {
+     body.appendChild(gameConfirmRow())
+@@ -986,7 +1099,7 @@ function gameInviteProblem (m) {
+   const inv = m.invite
+   if (!inv) return ''
+   if (inv.myKey && inv.myKey !== 'loading') return t('game.reason.' + inv.myKey, { name: shownName(inv.dealer) })
+-  if (inv.key && inv.key !== 'loading') return t('game.reason.peer_' + inv.key)
++  if (inv.key && inv.key !== 'loading') return gameText(inv.app, 'reason.peer_' + inv.key)
+   return ''
+ }
+ 
+@@ -996,7 +1109,7 @@ function gameRenderInvite (body, m, ui) {
+   if (!inv) return
+   const name = shownName(inv.dealer)
+   gameEnsureProfiles([inv.dealer].concat(inv.seats))
+-  const lead = m.stage === 'rejoin' ? t('game.rejoinText') : m.stage === 'busy' ? t('game.toolBusyLabel') : t('game.inviteText', { name: name, game: gameAppName(inv.app) })
++  const lead = m.stage === 'rejoin' ? t('game.rejoinText') : m.stage === 'busy' ? gameText(inv.app, 'toolBusyLabel') : t('game.inviteText', { name: name, game: gameAppName(inv.app) })
+   body.appendChild(h('p', 'game-lead', lead))
+   body.appendChild(gameRulesBlock(m, ui, inv.rules, false))
+   if (inv.seats.length) body.appendChild(gameSeatsBlock(m, inv.seats, false))
+@@ -1029,7 +1142,7 @@ function gameRenderInvite (body, m, ui) {
+ function gameRenderJoining (body, m, ui) {
+   const inv = m.invite
+   if (inv) body.appendChild(h('p', 'game-lead', t('game.inviteText', { name: shownName(inv.dealer), game: gameAppName(inv.app) })))
+-  body.appendChild(gameNote('game-wait', null, t('game.waitingStart')))
++  body.appendChild(gameNote('game-wait', null, gameText(gameAppOf(m), 'waitingStart')))
+   const actions = gameActions()
+   actions.appendChild(gameButton('button button-danger', t('game.leave'), null, 'game-leave', gameLeave))
+   body.appendChild(actions)
+@@ -1070,8 +1183,8 @@ function gameStatusRow (m, ui) {
+       row.appendChild(h('span', 'game-status-chip', String(text)))
+     })
+   }
+-  if (gameSharing()) row.appendChild(gameNote('game-share-warn', 'i-screen', t('game.shareWarn')))
+-  const sync = m.slow ? t('game.sendSlow') : m.pending ? t('game.sending') : m.syncing ? t('game.syncing') : ''
++  if (gameSharing()) row.appendChild(gameNote('game-share-warn', 'i-screen', gameText(m.app, 'shareWarn')))
++  const sync = m.slow ? gameText(m.app, 'sendSlow') : m.pending ? t('game.sending') : m.syncing ? t('game.syncing') : ''
+   if (sync) {
+     const strip = h('span', 'game-sync' + (m.slow ? ' is-slow' : ''))
+     strip.appendChild(h('span', 'game-sync-dot'))
+@@ -1083,6 +1196,17 @@ function gameStatusRow (m, ui) {
+ 
+ function gameResultsBlock (m, ui) {
+   const sec = gameSection('game-results', t('game.resultsTitle'), 'game-results-title')
++  // Kart ve puan saymayan oyun (ör. takım oyunu) sonucu kendisi çizer
++  if (ui && typeof ui.renderResults === 'function') {
++    const box = h('div', 'game-results-app')
++    sec.appendChild(box)
++    try {
++      ui.renderResults(box, m)
++    } catch (err) {
++      window.console.error(err)
++    }
++    return sec
++  }
+   const fallback = m.view && m.view.result ? m.view.result : null
+   const res = gameUiCall(ui, 'results', [m], fallback)
+   if (!res || !Array.isArray(res.ranks)) return sec
+@@ -1090,7 +1214,7 @@ function gameResultsBlock (m, ui) {
+     sec.appendChild(h('p', 'game-winner', t('game.resultWinner', { name: shownName(res.winner), points: t('game.points', { count: Number(res.total) || 0 }) })))
+   } else {
+     sec.appendChild(h('p', 'game-winner is-none', t('game.resultNone')))
+-    if (res.reason === 'too_few' || res.reason === 'ended') sec.appendChild(h('p', 'game-results-reason', t('game.resultReason.' + res.reason)))
++    if (res.reason === 'too_few' || res.reason === 'ended') sec.appendChild(h('p', 'game-results-reason', gameText(m.app, 'resultReason.' + res.reason)))
+   }
+   const list = h('ol', 'game-results-list')
+   res.ranks.forEach((r) => {
+@@ -1120,7 +1244,7 @@ function gameFoot (m, ui) {
+   const trust = h('div', 'game-trust-row')
+   const chip = h('span', 'game-trust-chip')
+   chip.appendChild(icon('i-eye'))
+-  chip.appendChild(h('span', '', t('game.trustChip')))
++  chip.appendChild(h('span', '', gameText(m.app, 'trustChip')))
+   trust.appendChild(chip)
+   const more = gameButton('button button-small button-ghost game-trust-more', t(gameState.trustOpen ? 'game.trustLess' : 'game.trustMore'), null, 'game-trust-more', () => {
+     gameState.trustOpen = !gameState.trustOpen
+@@ -1145,7 +1269,7 @@ function gameFoot (m, ui) {
+   }
+   foot.appendChild(detail)
+   if (dealer) foot.appendChild(gameSeatsDetail(m))
+-  if (m.stage === 'over' && m.role !== 'dealer') foot.appendChild(gameNote('game-wait', null, t('game.waitNewRound')))
++  if (m.stage === 'over' && m.role !== 'dealer') foot.appendChild(gameNote('game-wait', null, gameText(m.app, 'waitNewRound')))
+   if (gameState.confirm) {
+     foot.appendChild(gameConfirmRow())
+     return foot
+@@ -1161,7 +1285,7 @@ function gameFoot (m, ui) {
+       gameAsk('close', null, 'game-close-table')
+     }))
+     if (m.stage === 'over') {
+-      actions.appendChild(gameButton('button game-primary', t('game.newRound'), 'i-play', 'game-new-round', () => {
++      actions.appendChild(gameButton('button game-primary', gameText(m.app, 'newRound'), 'i-play', 'game-new-round', () => {
+         gameCall('newRound')
+       }))
+     }
+@@ -1225,19 +1349,20 @@ function gameConfirmYes () {
+ 
+ function gameConfirmRow () {
+   const c = gameState.confirm
++  const app = gameModel().app
+   const row = h('div', 'game-confirm')
+   row.setAttribute('role', 'group')
+   row.setAttribute('aria-labelledby', 'game-confirm-text')
+   let text = t('game.closeAsk')
+   let label = t('game.confirmClose')
+   if (c.kind === 'leave') {
+-    text = t('game.leaveAsk')
++    text = gameText(app, 'leaveAsk')
+     label = t('game.confirmLeave')
+   } else if (c.kind === 'end') {
+     text = t('game.endAsk')
+     label = t('game.confirmEnd')
+   } else if (c.kind === 'remove') {
+-    text = t('game.removeAsk', { name: shownName(c.id) })
++    text = gameText(app, 'removeAsk', { name: shownName(c.id) })
+     label = t('game.confirmRemove')
+   }
+   const p = h('p', 'game-confirm-text', text)
+diff --git a/test/oyun-arayuz.test.js b/test/oyun-arayuz.test.js
+index 4bcab9e..af50d71 100644
+--- a/test/oyun-arayuz.test.js
++++ b/test/oyun-arayuz.test.js
+@@ -501,6 +501,23 @@ const fakeUi = {
+ }
+ `
+ 
++// İkinci oyun: Renk motorunun "hexball" kimlikli kopyası (masa yöneticisi için motorun kendisi önemsizdir) ve
++// testte tanımlı küçük bir arayüz. Sonuç bölümünü kendisi çizer (renderResults). Kayıt sonucu döner.
++const SECOND_APP = `
++window.TelsizHexball = Object.assign({}, TelsizRenk, { id: 'hexball' })
++const fakeUi2 = {
++  name: () => 'Saha',
++  tagline: () => 'Takım oyunu',
++  render: (box, m) => {
++    box.appendChild(h('p', 'fake-table', m.stage))
++  },
++  renderResults: (box, m) => {
++    box.appendChild(h('p', 'fake-results', 'sonuç ' + m.stage))
++  }
++}
++gameUiRegister('hexball', fakeUi2)
++`
++
+ // Bir cihaz: kendi vm bağlamı, DOM'u, ses motoru taklidi ve oyun modülleri
+ function makePage (me, net, opts) {
+   const o = opts || {}
+@@ -812,6 +829,7 @@ describe('i18n ve marka adı', () => {
+       ['game.tool', 'game.toolLabel'],
+       ['game.toolInvite', 'game.toolInviteLabel'],
+       ['game.toolBusy', 'game.toolBusyAria'],
++      ['game.toolBusy', 'game.renk.toolBusyAria'],
+       ['game.minimize', 'game.minimizeLabel'],
+       ['game.view', 'game.viewLabel'],
+       ['game.renk.draw', 'game.renk.drawLabel'],
+@@ -855,6 +873,62 @@ describe('i18n ve marka adı', () => {
+       for (const [key, value] of Object.entries(I.messages[lang])) assert.ok(!brand.test(value), lang + ': ' + key)
+     }
+   })
++
++  test('genel game.* metinleri oyundan bağımsız, uygulamaya özel yazılabilen anahtarları Renk kendi sözcükleriyle verir', () => {
++    const page = makePage('5', makeNet())
++    const I = loadI18n().I18N
++    const list = page.run('GAME_APP_TEXTS')
++    const apps = Object.keys(page.run('GAME_ENGINES'))
++    assert.ok(apps.indexOf('renk') >= 0 && apps.length > 1, apps.join(','))
++    const generic = (key) => key.indexOf('game.') === 0 && !apps.some((a) => key.indexOf('game.' + a + '.') === 0)
++    // Varsayılan sonuç listesi kart ve puan sayan oyunlar içindir (renderResults vermeyen uygulama)
++    const resultList = ['game.cards_one', 'game.cards_other', 'game.resultLabel']
++    const words = { tr: /kurpiyer|deste|kart|\bel(i|in|im|iniz|ler|de|den)?\b/i, en: /dealer|deck|\bhands?\b|\bcards?\b/i }
++    for (const lang of ['tr', 'en']) {
++      I.setLang(lang)
++      let checked = 0
++      for (const [key, value] of Object.entries(I.messages[lang])) {
++        if (!generic(key) || resultList.indexOf(key) >= 0) continue
++        assert.ok(!words[lang].test(value), lang + ': ' + key + ' = ' + value)
++        checked++
++      }
++      assert.ok(checked >= 100, String(checked))
++      for (const key of list) {
++        assert.ok(I.has('game.' + key), lang + ': game.' + key)
++        assert.ok(I.has('game.renk.' + key), lang + ': game.renk.' + key)
++      }
++    }
++    // Renk masasında kurpiyer, el ve deste sözcükleri kalır
++    I.setLang('tr')
++    assert.equal(I.t('game.renk.dealerYou'), 'Kurpiyer Sizsiniz')
++    assert.equal(I.t('game.renk.newRound'), 'Yeni El')
++    assert.equal(I.t('game.renk.leaveAsk'), 'Ayrılırsanız kartlarınız desteye döner.')
++    assert.equal(I.t('game.renk.trustChip'), 'Kurpiyer Elleri Bilir')
++    I.setLang('en')
++    assert.equal(I.t('game.renk.dealerYou'), 'You Are the Dealer')
++    assert.equal(I.t('game.dealerYou'), 'You Are the Host')
++  })
++
++  test('gameText: listedeki anahtarda oyunun kendi metni, yoksa genel metin, listede olmayan anahtarda hep genel metin', () => {
++    const page = makePage('5', makeNet())
++    const g = (app, key, params) => page.run('gameText(' + JSON.stringify(app) + ', ' + JSON.stringify(key) + ', ' + JSON.stringify(params || {}) + ')')
++    assert.equal(g('renk', 'dealerYou'), 'Kurpiyer Sizsiniz')
++    assert.equal(g('hexball', 'dealerYou'), 'Ev Sahibi Sizsiniz', 'kendi metni olmayan oyun')
++    assert.equal(g(null, 'dealerLine', { name: 'Ece' }), 'Ev Sahibi Ece')
++    assert.equal(g('renk', 'dealerLine', { name: 'Ece' }), 'Kurpiyer Ece')
++    assert.equal(g('renk', 'newRound'), 'Yeni El')
++    assert.equal(g('hexball', 'newRound'), 'Yeni Tur')
++    assert.equal(g('renk', 'ended.closed'), 'Kurpiyer masayı kapattı.')
++    assert.equal(g('hexball', 'ended.closed'), 'Ev sahibi masayı kapattı.')
++    // Listede olmayan anahtar oyunun aynı adlı metnine bakmaz (Renk'in sr.yourTurn metni kendi sıra duyurusudur)
++    assert.equal(g('renk', 'sr.yourTurn'), 'Sıra sizde.')
++    assert.equal(g('Renk', 'dealerYou'), 'Ev Sahibi Sizsiniz', 'geçersiz kimlik')
++    page.run("I18N.setLang('en')")
++    assert.equal(g('renk', 'dealerYou'), 'You Are the Dealer')
++    assert.equal(g('hexball', 'dealerYou'), 'You Are the Host')
++    assert.equal(g('hexball', 'trustChip'), 'Host Runs the Game')
++    assert.equal(g('renk', 'trustChip'), 'Dealer Knows All Hands')
++  })
+ })
+ 
+ // ------------------------------------------------------------------ arayüz mantığı
+@@ -1437,6 +1511,143 @@ describe('akış: Masa Kur, davet, lobi, oyun', () => {
+   })
+ })
+ 
++// ------------------------------------------------------------------ birden çok oyun
++
++describe('birden çok oyun: Oyun Seç ve tarafsız metinler', () => {
++  test('iki oyun kayıtlıyken Oyun düğmesi yerel Oyun Seç ekranını açar, seçilen oyunun Masa Kur ekranı gelir', () => {
++    const { net, pages } = makeWorld(['5', '12'])
++    const [deniz, ece] = pages
++    for (const page of pages) assert.equal(page.run(SECOND_APP), true)
++    same(deniz.run('gameAppIds()'), ['renk', 'hexball'])
++    deniz.press('tool-game')
++    assert.equal(deniz.stage(), 'game')
++    assert.equal(deniz.model().stage, 'none')
++    assert.equal(net.queue.length, 0, 'Oyun Seç ekranı ileti göndermez')
++    assert.equal(deniz.text('#cast .cast-title'), 'Oyun Seç')
++    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
++    assert.equal(deniz.text('.game-lead'), 'Odadakilerle hangi oyunu oynamak istersiniz?')
++    same(deniz.qa('.game-pick').map((b) => [b.getAttribute('data-focus-key'), b.getAttribute('aria-label'), b.textContent]),
++      [['game-pick-renk', 'Renk', 'RenkKart oyunu'], ['game-pick-hexball', 'Saha', 'SahaTakım oyunu']])
++    // Erişilebilir ad oyunun adı, kısa açıklama düğmenin açıklaması
++    const hintId = deniz.key('game-pick-hexball').getAttribute('aria-describedby')
++    assert.equal(deniz.text('#' + hintId), 'Takım oyunu')
++    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-pick-renk')
++    assert.equal(deniz.tool().getAttribute('data-state'), 'minimize')
++    assert.equal(deniz.tool().getAttribute('aria-expanded'), 'true')
++    // Seçim: Masa Kur ekranı seçilen oyunla
++    deniz.press('game-pick-hexball')
++    assert.equal(deniz.model().stage, 'setup')
++    assert.equal(deniz.model().app, 'hexball')
++    assert.equal(deniz.text('#cast .cast-title'), 'Masa Kur')
++    assert.equal(deniz.text('.game-intro-name'), 'Saha')
++    assert.equal(deniz.doc.activeElement.getAttribute('data-focus-key'), 'game-open')
++    // Masa Kur'un İptal'i sahneyi kapatır, düğme yeniden Oyun Seç'i açar
++    deniz.press('game-setup-cancel')
++    assert.equal(deniz.stage(), null)
++    deniz.press('tool-game')
++    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
++    // Oyun Seç'in İptal'i sahneyi kapatır, odak Oyun düğmesine gider
++    deniz.press('game-choose-cancel')
++    assert.equal(deniz.stage(), null)
++    assert.equal(deniz.doc.activeElement, deniz.tool())
++    assert.equal(deniz.tool().getAttribute('data-state'), 'tool')
++    // Küçült (düğme) Oyun Seç ekranını kapatır, saklanmaz, düğme yeniden açar
++    deniz.press('tool-game')
++    deniz.press('tool-game')
++    assert.equal(deniz.stage(), null)
++    assert.equal(deniz.run('gameState.choosing'), false)
++    deniz.press('tool-game')
++    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'choose')
++    // Oyun Seç açıkken gelen davet aynı sahnede onun yerini alır (Masa Kur ekranındaki gibi)
++    ece.run("gameCall('openSetup', 'renk')")
++    ece.run("gameCall('openTable', 'official')")
++    net.flush()
++    assert.equal(deniz.model().stage, 'invited')
++    assert.equal(deniz.stage(), 'game', 'sahne açık kalır')
++    assert.equal(deniz.q('.game-body').getAttribute('data-stage'), 'invited')
++    assert.equal(deniz.text('.game-lead'), 'Ece sizi Renk oyununa davet ediyor.')
++    assert.equal(deniz.run('gameState.choosing'), false)
++    assert.equal(net.errors.length, 0, String(net.errors[0]))
++  })
++
++  test('Oyun Seç ekranı ses odasından çıkınca kapanır, tek oyun kayıtlıyken hiç açılmaz', () => {
++    const net = makeNet()
++    const page = makePage('5', net)
++    page.run('gameRender()')
++    page.press('tool-game')
++    assert.equal(page.text('#cast .cast-title'), 'Masa Kur', 'tek oyunda Oyun Seç atlanır')
++    page.press('game-setup-cancel')
++    assert.equal(page.run(SECOND_APP), true)
++    page.run('gameRender()')
++    page.press('tool-game')
++    assert.equal(page.text('#cast .cast-title'), 'Oyun Seç')
++    page.fake.snap.channelId = null
++    page.run('gameRender()')
++    assert.equal(page.stage(), null)
++    assert.equal(page.run('gameState.choosing'), false)
++    assert.equal(page.tool(), null)
++    page.fake.snap.channelId = 3
++    page.run('gameRender()')
++    page.press('tool-game')
++    assert.equal(page.q('.game-body').getAttribute('data-stage'), 'choose', 'yeniden açılır')
++    assert.equal(net.errors.length, 0, String(net.errors[0]))
++  })
++
++  test('kendi metni olmayan oyunda genel metinler ev sahibi der, sonucu uygulama çizer', () => {
++    const { net, pages } = makeWorld(['5', '12'])
++    const [deniz, ece] = pages
++    for (const page of pages) page.run(SECOND_APP)
++    deniz.press('tool-game')
++    deniz.press('game-pick-hexball')
++    assert.equal(deniz.text('.game-trust'), 'Ev sahibi sizsiniz. Oyunu bu cihaz yürütür ve masadaki her şeyi teknik olarak bilir. Oyunculara bu durum yazılır.')
++    deniz.press('game-open')
++    assert.equal(deniz.text('#cast .cast-title'), 'Saha Masası')
++    assert.equal(deniz.text('#cast .cast-sub'), 'Ev Sahibi Sizsiniz · 1 Oyuncu')
++    net.flush()
++    assert.equal(ece.model().invite.app, 'hexball')
++    ece.press('tool-game')
++    assert.equal(ece.text('.game-lead'), 'Deniz sizi Saha oyununa davet ediyor.')
++    assert.equal(ece.text('.game-trust'), 'Ev sahibi Deniz. Oyunu onun cihazı yürütür ve masadaki her şeyi teknik olarak bilir.')
++    assert.equal(ece.text('#cast .cast-sub'), 'Ev Sahibi Deniz · 1 Oyuncu')
++    ece.press('game-join')
++    net.flush()
++    assert.ok(ece.text('.game-body').indexOf('Ev sahibinin başlatması bekleniyor.') !== -1)
++    same(deniz.qa('.game-seats .game-chip').map((c) => c.textContent), ['Ev Sahibi', 'Katıldı'])
++    deniz.press('game-start')
++    net.flush()
++    assert.equal(ece.model().stage, 'play')
++    assert.equal(ece.text('.game-trust-chip'), 'Oyunu Ev Sahibi Yürütür')
++    // Onay satırları: ayrılma (oyuncu) ve koltuktan çıkarma (ev sahibi)
++    ece.press('game-leave')
++    assert.equal(ece.text('.game-confirm-text'), 'Ayrılırsanız masadaki koltuğunuz boşalır.')
++    ece.press('game-confirm-no')
++    deniz.press('game-seats-more')
++    deniz.press('game-remove-12')
++    assert.equal(deniz.text('.game-confirm-text'), 'Ece masadan çıkarılır.')
++    deniz.press('game-confirm-no')
++    // Oyunu Bitir: sonuç bölümünü uygulama çizer, varsayılan kart ve puan listesi yok
++    deniz.press('game-end')
++    deniz.press('game-confirm-yes')
++    net.flush()
++    for (const page of [deniz, ece]) {
++      assert.equal(page.model().stage, 'over')
++      assert.equal(page.text('.game-results .game-h'), 'Sonuçlar')
++      assert.equal(page.text('.game-results .game-results-app .fake-results'), 'sonuç over')
++      assert.equal(page.q('.game-results-list'), null)
++      assert.equal(page.q('.game-winner'), null)
++    }
++    assert.equal(deniz.text('[data-focus-key="game-new-round"]'), 'Yeni Tur')
++    assert.ok(ece.text('.game-foot').indexOf('Ev sahibi yeni tur açarsa masada kalırsınız.') !== -1)
++    // Masa kapanınca oyuncuda genel bitiş metni
++    deniz.press('game-close-table')
++    deniz.press('game-confirm-yes')
++    net.flush()
++    assert.equal(ece.model().stage, 'ended')
++    assert.equal(ece.text('.game-ended'), 'Ev sahibi masayı kapattı.')
++    assert.equal(net.errors.length, 0, String(net.errors[0]))
++  })
++})
++
+ // ------------------------------------------------------------------ Renk masası (37-renk.js)
+ 
+ // Elle kurulmuş Renk eli: oyuncular ['12', '5'], dağıtan 12, soldaki (ilk sıra) 5. Kartlar dealFrom ile kanonik
