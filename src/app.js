@@ -492,8 +492,9 @@ function normalizeUserFields (u, config, log) {
     wrappedKey: auth.isWrappedKey,
     identity: (value) => validEnvelope(value, IDENTITY_MAX_CHARS),
     profile: (value) => validEnvelope(value, config.maxProfileChars),
-    // Yükleme kaydıyla eşleşmesi normalizeAvatars içinde denetlenir
-    avatarUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value)
+    // Yükleme kaydıyla eşleşmesi normalizeProfileImages içinde denetlenir
+    avatarUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value),
+    coverUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value)
   }
   for (const field of Object.keys(checks)) {
     if (u[field] === null) continue
@@ -517,26 +518,32 @@ function normalizeUserFields (u, config, log) {
   return changed
 }
 
-// Profil resmi bağlantıları: kullanıcının avatarUploadId değeri, kendisinin yüklediği, mesaja
-// bağlı olmayan bir kayda işaret etmeli ve o kayıt profileUserId ile kullanıcıya bağlı olmalı.
-// Eşleşmeyen bağlantılar kaldırılır (kayıt sahipsiz kalır ve taramada silinir). Değişiklik sayısı döner.
-function normalizeAvatars (state) {
+// Profil resmi ve kapak fotoğrafı alanları (kullanıcı kaydında yükleme kimliği tutan alanlar)
+const PROFILE_IMAGE_FIELDS = ['avatarUploadId', 'coverUploadId']
+
+// Profil resmi ve kapak fotoğrafı bağlantıları: kullanıcının avatarUploadId ve coverUploadId değerleri, kendisinin
+// yüklediği, mesaja bağlı olmayan bir kayda işaret etmeli ve o kayıt profileUserId ile kullanıcıya bağlı olmalı. Bir
+// kayıt yalnızca tek bir alana bağlanabilir. Eşleşmeyen bağlantılar kaldırılır (kayıt sahipsiz kalır ve taramada
+// silinir). Değişiklik sayısı döner.
+function normalizeProfileImages (state) {
   const records = new Map()
   for (const rec of state.uploads) records.set(rec.id, rec)
   const linked = new Set()
   let fixes = 0
   for (const u of state.users) {
-    if (u.avatarUploadId === null) continue
-    const rec = records.get(u.avatarUploadId)
-    if (u.deleted || !rec || rec.uploaderId !== u.id || rec.messageId !== null || linked.has(rec)) {
-      u.avatarUploadId = null
-      fixes++
-      continue
-    }
-    linked.add(rec)
-    if (rec.profileUserId !== u.id) {
-      rec.profileUserId = u.id
-      fixes++
+    for (const field of PROFILE_IMAGE_FIELDS) {
+      if (u[field] === null) continue
+      const rec = records.get(u[field])
+      if (u.deleted || !rec || rec.uploaderId !== u.id || rec.messageId !== null || linked.has(rec)) {
+        u[field] = null
+        fixes++
+        continue
+      }
+      linked.add(rec)
+      if (rec.profileUserId !== u.id) {
+        rec.profileUserId = u.id
+        fixes++
+      }
     }
   }
   for (const rec of state.uploads) {
@@ -637,7 +644,7 @@ function normalizeLoadedState (state, config, log) {
     state.uploads = uploads
     changed = true
   }
-  const avatarFixes = normalizeAvatars(state)
+  const avatarFixes = normalizeProfileImages(state)
   if (avatarFixes > 0) {
     log.warn(i18n.t(lang, 'log.invalidAvatars', { count: avatarFixes }))
     changed = true
@@ -1718,6 +1725,7 @@ async function createChatServer (options) {
       identity: null,
       profile: null,
       avatarUploadId: null,
+      coverUploadId: null,
       status: 'online',
       allowMemberDms: true,
       pv: 0,
@@ -2012,11 +2020,13 @@ async function createChatServer (options) {
     user.wrappedKey = null
     user.identity = null
     user.pv++
-    // Profil ve profil resmi silinir (profil resmi de bağlanmamış yüklemeler arasında silinir)
+    // Profil, profil resmi ve kapak fotoğrafı silinir (ikisi de bağlanmamış yüklemeler arasında silinir)
     const doomed = []
-    if (user.avatarUploadId !== null) doomed.push(user.avatarUploadId)
+    for (const field of PROFILE_IMAGE_FIELDS) {
+      if (user[field] !== null) doomed.push(user[field])
+      user[field] = null
+    }
     user.profile = null
-    user.avatarUploadId = null
     user.status = 'online'
     for (const rec of state.uploads) {
       if (rec.uploaderId === user.id && rec.messageId === null) doomed.push(rec.id)
@@ -2062,7 +2072,7 @@ async function createChatServer (options) {
     ok(ctx, { ok: true })
   }
 
-  // Profil zarfı (yoksa null), profil resmi, açık anahtar ve kimlik kaydı.
+  // Profil zarfı (yoksa null), profil resmi, kapak fotoğrafı, açık anahtar ve kimlik kaydı.
   // Silinmiş ve engelli hesaplar listelenmez.
   function handleProfiles (ctx) {
     const raw = ctx.query.get('ids')
@@ -2084,6 +2094,7 @@ async function createChatServer (options) {
         pv: u.pv,
         profile: typeof u.profile === 'string' ? u.profile : null,
         avatarUploadId: typeof u.avatarUploadId === 'string' ? u.avatarUploadId : null,
+        coverUploadId: typeof u.coverUploadId === 'string' ? u.coverUploadId : null,
         publicKey: u.publicKey,
         identity: u.identity
       })
@@ -2098,31 +2109,49 @@ async function createChatServer (options) {
     return false
   }
 
-  // Profil: grup anahtarıyla şifrelenmiş zarf (null ile silinir) ve profil resmi yüklemesi
-  // (null ile kaldırılır). Profil resmi kullanıcının kendi yüklediği, mesaja veya başka bir
-  // profile bağlı olmayan bir yükleme olmalıdır. Değişen eski profil resmi silinir.
+  // Profil resmi veya kapak fotoğrafı olarak bağlanacak yükleme: kullanıcının kendi yüklediği, mesaja veya başka bir
+  // profile bağlı olmayan bir kayıt. Geçersizse null.
+  function ownProfileImage (id, user) {
+    if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id)) return null
+    const rec = uploadsById.get(id) || null
+    if (rec === null || rec.uploaderId !== user.id || rec.messageId !== null) return null
+    if (isId(rec.profileUserId) && rec.profileUserId !== user.id) return null
+    return rec
+  }
+
+  // Profil: grup anahtarıyla şifrelenmiş zarf (null ile silinir), profil resmi yüklemesi (null ile kaldırılır) ve
+  // kapak fotoğrafı yüklemesi (null ile kaldırılır, alan gönderilmezse de kaldırılır: kapağı bilmeyen eski bir istemci
+  // profili kaydedince zarfla kayıt tutarlı kalır). İkisi de ownProfileImage koşulunu sağlamalı ve aynı yükleme
+  // olamaz. Artık kullanılmayan eski profil resmi ve kapak silinir.
   function handleMyProfile (ctx) {
     const b = ctx.body
     const user = ctx.user
     if (b.profile !== null && !validEnvelope(b.profile, config.maxProfileChars)) return fail(ctx, 400, 'bad_profile')
-    let rec = null
+    let avatar = null
     if (b.avatarUploadId !== null) {
-      if (typeof b.avatarUploadId !== 'string' || !UPLOAD_ID_RE.test(b.avatarUploadId)) return fail(ctx, 400, 'bad_avatar')
-      rec = uploadsById.get(b.avatarUploadId) || null
-      const ownFree = rec !== null && rec.uploaderId === user.id && rec.messageId === null
-      const linkedElsewhere = rec !== null && isId(rec.profileUserId) && rec.profileUserId !== user.id
-      if (!ownFree || linkedElsewhere) return fail(ctx, 400, 'bad_avatar')
-      if (rec.size > config.avatarMaxBytes) return fail(ctx, 413, 'avatar_too_large')
+      avatar = ownProfileImage(b.avatarUploadId, user)
+      if (avatar === null) return fail(ctx, 400, 'bad_avatar')
+      if (avatar.size > config.avatarMaxBytes) return fail(ctx, 413, 'avatar_too_large')
+    }
+    let cover = null
+    if (b.coverUploadId !== undefined && b.coverUploadId !== null) {
+      cover = ownProfileImage(b.coverUploadId, user)
+      if (cover === null || cover === avatar) return fail(ctx, 400, 'bad_cover')
+      if (cover.size > config.avatarMaxBytes) return fail(ctx, 413, 'cover_too_large')
     }
     if (!takeProfileSlot(ctx)) return
-    const nextAvatar = rec === null ? null : rec.id
-    if (user.profile === b.profile && user.avatarUploadId === nextAvatar) return ok(ctx, { ok: true, pv: user.pv })
-    const previous = user.avatarUploadId
+    const nextAvatar = avatar === null ? null : avatar.id
+    const nextCover = cover === null ? null : cover.id
+    if (user.profile === b.profile && user.avatarUploadId === nextAvatar && user.coverUploadId === nextCover) return ok(ctx, { ok: true, pv: user.pv })
+    const previous = [user.avatarUploadId, user.coverUploadId]
     user.profile = b.profile
     user.avatarUploadId = nextAvatar
-    if (rec !== null) rec.profileUserId = user.id
+    user.coverUploadId = nextCover
+    if (avatar !== null) avatar.profileUserId = user.id
+    if (cover !== null) cover.profileUserId = user.id
     user.pv++
-    if (previous !== null && previous !== nextAvatar) removeUploads([previous])
+    const unused = previous.filter((id) => id !== null && id !== nextAvatar && id !== nextCover)
+    if (unused.length > 0) removeUploads(unused)
     store.saveState()
     hub.bumpMeta()
     ok(ctx, { ok: true, pv: user.pv })
@@ -2329,7 +2358,7 @@ async function createChatServer (options) {
       if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id) || seen.has(id)) return null
       seen.add(id)
       const rec = uploadsById.get(id)
-      // Profil resmi olarak kullanılan yükleme mesaja eklenemez
+      // Profil resmi veya kapak fotoğrafı olarak kullanılan yükleme mesaja eklenemez
       if (!rec || rec.uploaderId !== user.id || rec.messageId !== null || isId(rec.profileUserId)) return null
       records.push(rec)
     }
@@ -2680,18 +2709,18 @@ async function createChatServer (options) {
     return fail(ctx, 413, 'too_large', 'detail.fileTooLarge')
   }
 
-  // Profil resmine bağlı yükleme: bağlı olduğu hesap silinmemiş ve engellenmemişse oturum açmış
-  // herkese açıktır.
-  function isAvatarRecord (rec) {
+  // Profil resmine veya kapak fotoğrafına bağlı yükleme: bağlı olduğu hesap silinmemiş ve engellenmemişse oturum
+  // açmış herkese açıktır.
+  function isProfileImageRecord (rec) {
     if (!isId(rec.profileUserId)) return false
     const owner = usersById.get(rec.profileUserId)
-    return Boolean(owner) && owner.avatarUploadId === rec.id
+    return Boolean(owner) && (owner.avatarUploadId === rec.id || owner.coverUploadId === rec.id)
   }
 
   // Mesaja bağlı yükleme: yazı kanalındaysa herkese, özel konuşmadaysa yalnızca iki üyeye açıktır.
-  // Profil resmi herkese, başka hiçbir yere bağlı olmayan yükleme yalnızca yükleyene açıktır.
+  // Profil resmi ve kapak fotoğrafı herkese, başka hiçbir yere bağlı olmayan yükleme yalnızca yükleyene açıktır.
   function canDownload (rec, user) {
-    if (isAvatarRecord(rec)) {
+    if (isProfileImageRecord(rec)) {
       const owner = usersById.get(rec.profileUserId)
       return !owner.deleted && !owner.banned
     }
@@ -3677,7 +3706,7 @@ async function createChatServer (options) {
       if (expired.length > 0) deleteSessions(expired, 'invalid_token')
       const orphans = []
       for (const rec of state.uploads) {
-        if (rec.messageId === null && !isAvatarRecord(rec) && now - rec.createdAt > config.orphanUploadTtlMs) orphans.push(rec.id)
+        if (rec.messageId === null && !isProfileImageRecord(rec) && now - rec.createdAt > config.orphanUploadTtlMs) orphans.push(rec.id)
       }
       if (orphans.length > 0) removeUploads(orphans)
       for (const limiter of limiters) limiter.sweep(now)
