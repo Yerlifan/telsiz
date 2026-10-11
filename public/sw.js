@@ -30,6 +30,7 @@ const SHELL = [
   '/css/skins/gece.css',
   '/css/skins/turkuaz.css',
   '/css/skins/saha.css',
+  '/css/skins/lamba.css',
   '/i18n.js',
   '/crypto.js',
   '/emoji.js',

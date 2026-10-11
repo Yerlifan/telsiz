@@ -45,6 +45,8 @@ window.I18N = (function () {
     // G12 Temalar
     'theme.skin.saha': 'Saha Telsizi',
     'theme.skinHint.saha': 'Zeytin yeşili sahra telsizi, turuncu sinyal ve şablon etiketler.',
+    'theme.skin.lamba': 'Lambalı Radyo',
+    'theme.skinHint.lamba': 'Ceviz kasa, fildişi kadran ve pirinç yazılarla 1950\'ler radyosu.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android
@@ -2009,6 +2011,8 @@ window.I18N = (function () {
     // G12 Temalar
     'theme.skin.saha': 'Field Radio',
     'theme.skinHint.saha': 'An olive field radio with orange signals and stencil labels.',
+    'theme.skin.lamba': 'Tube Radio',
+    'theme.skinHint.lamba': 'A 1950s tube radio with a walnut case, ivory dial and brass lettering.',
     // G13 Özgün tasarım
     // G14 Kurtarma kodu
     // G15 Android

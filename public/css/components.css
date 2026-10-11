@@ -3961,6 +3961,10 @@ button.member:hover {
 .theme-swatch-saha > span:nth-child(2) { background-color: #ff8f3a; }
 .theme-swatch-saha > span:nth-child(3) { background-color: #c9d48a; }
 .theme-swatch-saha > span:nth-child(4) { background-color: #e4e0cc; }
+.theme-swatch-lamba > span:nth-child(1) { background-color: #281b12; }
+.theme-swatch-lamba > span:nth-child(2) { background-color: #e2b25a; }
+.theme-swatch-lamba > span:nth-child(3) { background-color: #7fe0a0; }
+.theme-swatch-lamba > span:nth-child(4) { background-color: #efe4cc; }
 
 .theme-name {
   font-weight: var(--weight-strong);
