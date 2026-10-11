@@ -2011,6 +2011,16 @@ function djDecorateAttachments (wrap, files, m) {
   })
 }
 
+// "DJ'de Çal" duyurusunun metni (mesajın t alanı). Bu kaynağı bilmeyen eski istemciler metni düz metin olarak
+// gösterir ve içinde @ ile anma arar. Ad dosyayı yükleyen kişinin seçtiği addır. Düğmeye basan kişinin adına ve
+// yetkisiyle anma (ör. @herkes) olmasın diye adın içindeki @ işaretleri tam genişlikli at işaretiyle (U+FF20)
+// yazılır. Duyurunun d alanındaki ad değişmez: yeni istemciler duyuruyu oradan düz metin olarak çizer ve DJ
+// duyurusunda anma aramaz (18-mentions.js messageMentionsMe).
+function djFileRefText (title) {
+  if (!title) return t('dj.notice.fileRef')
+  return t('dj.notice.fileTitle', { title: title.replace(/@/g, '\uff20') })
+}
+
 // "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur. Duyuru eki taşımaz
 // (dosya başka bir mesajdadır), kaynağı 'fileref' olur. Bu kaynağı bilmeyen eski istemciler duyuruyu düz metin
 // olarak gösterir, mesajın metni bu yüzden çevrilmiş tam duyurudur (06-messages.js cleanDjNotice).
@@ -2026,7 +2036,7 @@ function djPlayFile (f, b, m) {
       const title = cleanDjTitle(track ? track.title : f.name)
       const notice = { op: 'add', src: 'fileref' }
       if (title) notice.title = title
-      djAnnounce(m.channelId, title ? t('dj.notice.fileTitle', { title: title }) : t('dj.notice.fileRef'), notice)
+      djAnnounce(m.channelId, djFileRefText(title), notice)
     }
   }, (err) => {
     b.removeAttribute('aria-busy')

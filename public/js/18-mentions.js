@@ -128,7 +128,10 @@ function mentionTokensFor (text, m) {
   return parseMentions(text, resolveMentionName, mayMentionEveryone(m.authorId, m.channelId))
 }
 
-// Mesaj beni anıyor mu (kendi mesajlarım sayılmaz). text verilmezse mesaj çözülür.
+// Mesaj beni anıyor mu (kendi mesajlarım sayılmaz). text verilmezse mesaj çözülür. Geçerli bir Telsiz DJ
+// duyurusu (çözülmüş sonuçta dj) anma sayılmaz: mesajda metin yerine duyuru çizilir (06-messages.js
+// buildDjNotice), metindeki @ görünmez. "DJ'de Çal" duyurusunun metninde dosyayı yükleyen kişinin seçtiği ad
+// da vardır. Metni kendisi veren çağıran DJ duyurusunun metnini vermez.
 function messageMentionsMe (m, text) {
   if (!m || !state.me || sameId(m.authorId, state.me.id)) return false
   let body = text
@@ -139,7 +142,7 @@ function messageMentionsMe (m, text) {
     } catch (err) {
       result = null
     }
-    if (!result || result.state !== 'ok') return false
+    if (!result || result.state !== 'ok' || result.dj) return false
     body = result.text
   }
   if (!body || body.indexOf('@') === -1) return false

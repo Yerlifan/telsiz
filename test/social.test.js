@@ -280,6 +280,18 @@ test('"DJ\'de Çal" duyurusu eki olmayan mesajdır: eski istemci "Bu ses dosyas�
   assert.deepStrictEqual(cleanDjNotice250({ op: 'add', src: 'file', title: 'x.wav' }), { op: 'add', src: 'file' })
 })
 
+test('"DJ\'de Çal" duyurusunun metni dosya adındaki @ işaretini anmaya çevirmez (23-dj.js djFileRefText)', () => {
+  const { run } = load()
+  // Dosyanın adını yükleyen kişi seçer: eski istemci metni düz metin olarak gösterip anma arar, @ tam genişlikli
+  // at işaretiyle yazılır
+  assert.strictEqual(run("djFileRefText('@herkes yeni parca.mp3')"), 'Telsiz DJ kuyruğuna dosya ekledi: \uff20herkes yeni parca.mp3')
+  assert.strictEqual(run("djFileRefText('@ece icin @@mert.mp3')"), 'Telsiz DJ kuyruğuna dosya ekledi: \uff20ece icin \uff20\uff20mert.mp3')
+  assert.doesNotMatch(run("djFileRefText('a @everyone b')"), /@/)
+  // @ içermeyen ad ve adsız duyuru değişmez
+  assert.strictEqual(run("djFileRefText('lobi-temasi.wav')"), 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')
+  assert.strictEqual(run("djFileRefText('')"), 'Telsiz DJ kuyruğuna bir ses dosyası ekledi.')
+})
+
 test('"düzenlendi" etiketi: DJ duyurusunda yalnızca izlenen, yalnızca ad ekleyen ve ad süresi içindeki düzenleme gizlenir', () => {
   const { run } = load()
   const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')

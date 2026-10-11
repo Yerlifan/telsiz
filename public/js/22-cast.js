@@ -956,7 +956,8 @@ function castRenderDock () {
     }
     if (result && result.state === 'ok') {
       text = result.text ? String(result.text).replace(/\s+/g, ' ') : result.files && result.files.length ? t('cast.lastFile') : ''
-      if (typeof messageMentionsMe === 'function') {
+      // Telsiz DJ duyurusu anma sayılmaz (18-mentions.js messageMentionsMe)
+      if (typeof messageMentionsMe === 'function' && !result.dj) {
         try {
           mention = messageMentionsMe(m, result.text || '')
         } catch (err) {

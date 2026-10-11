@@ -222,7 +222,9 @@ function indexSearchMessage (idx, m) {
     foldNames: foldSearchText(names),
     hasImage: files.some((f) => f.kind === 'image'),
     hasFile: files.some((f) => f.kind === 'file'),
-    fileKinds: files.map((f) => f.kind)
+    fileKinds: files.map((f) => f.kind),
+    // Telsiz DJ duyurusu: "Beni anan" süzgecine girmez (18-mentions.js messageMentionsMe)
+    dj: Boolean(result.dj)
   }
   idx.entries.set(key, entry)
   return entry
@@ -403,7 +405,7 @@ function entryMatches (entry, f) {
     const hay = entry.fold + '\n' + entry.foldNames
     if (!f.terms.every((term) => hay.indexOf(term) !== -1)) return false
   }
-  if (f.mentionsMe && !(typeof messageMentionsMe === 'function' && messageMentionsMe({ authorId: entry.authorId, channelId: entry.channelId }, entry.text))) return false
+  if (f.mentionsMe && (entry.dj || !(typeof messageMentionsMe === 'function' && messageMentionsMe({ authorId: entry.authorId, channelId: entry.channelId }, entry.text)))) return false
   if (searchBlockedAuthor(entry)) return false
   return true
 }
