@@ -27,6 +27,10 @@
 // çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
 
 const DJ_TICK_MS = 500
+// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu bu süre içinde
+// düzenlenir.
+const DJ_TITLE_WAIT_MS = 8000
+const DJ_TITLE_EDIT_MS = 10 * 60 * 1000
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
 const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
@@ -62,7 +66,8 @@ const dj = {
   layoutBusy: false,
   dockBottom: null,
   consentRow: null,
-  consentWarnFor: null
+  consentWarnFor: null,
+  titleWatch: []
 }
 
 function djMusic () {
@@ -117,6 +122,7 @@ function djEngine () {
   engine.on('change', (snapshot) => {
     dj.snap = snapshot
     djRenderNow()
+    djCheckTitles()
   })
   // Parça değişti: olay oynatıcı kurulmadan önce gelir, oynatıcı alanı önceden görünür olur
   engine.on('track', () => {
@@ -916,13 +922,31 @@ function djAction (command, fn, announceOk) {
   })
 }
 
+// Kuyruktaki parça (motorun bildiği oturumda yoksa null). Başlık sonradan dolabildiği için duyurular ve
+// bildirimler adı buradan canlı okur.
+function djLiveTrack (trackId) {
+  const engine = djEngine()
+  if (!engine || !trackId) return null
+  const q = engine.queue()
+  const all = (q.current ? [q.current] : []).concat(q.queue || [])
+  return all.filter((tr) => tr && tr.id === trackId)[0] || null
+}
+
+// Parçanın gösterilecek adı: kuyruktaysa güncel adı, değilse bildirimin taşıdığı ad
+function djLiveTitle (trackId, fallback) {
+  const track = djLiveTrack(trackId)
+  if (track) return djTrackTitle(track)
+  return fallback || t('music.untitledYouTube')
+}
+
 function djOnNotice (n) {
   if (!n || typeof n.op !== 'string') return
   const key = 'music.notice.' + n.op
   if (!hasText(key)) return
   const by = n.by
+  const trackId = n.trackId || null
   const title = n.title || ''
-  dj.notice = () => t('music.notice.' + n.op, { name: by !== null && by !== undefined ? shownName(by) : '', title: title || t('music.untitledYouTube') })
+  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
   djRenderSoon()
 }
 
@@ -1212,18 +1236,63 @@ function djCommand (text, ctx) {
   if (!pending) return null
   return pending.then((r) => {
     djReport(r && r.command ? r.command : cmd.name, r)
-    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounce(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId })
+    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounceTrack(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId }, r.trackId)
     return r
   })
 }
 
-// Kuyruğa eklenen parça komutun yazıldığı yazı odasında herkese duyurulur. Duyuru başarısız olursa parça
-// yine kuyruktadır, yalnızca bildirim gösterilir.
+// Kuyruğa eklenen parça yazı odasında herkese duyurulur. Sonuç duyuru mesajının kimliği, gönderilemezse null.
+// Duyuru başarısız olursa parça yine kuyruktadır, yalnızca bildirim gösterilir.
 function djAnnounce (roomId, text, d) {
+  if (!roomId || isDmChannel(roomId)) return Promise.resolve(null)
+  const failed = () => {
+    toast(() => t('dj.notice.failed'), 'error')
+    return null
+  }
+  return postSideMessage(roomId, text, d).then((id) => (id === null || id === undefined ? failed() : id), failed)
+}
+
+// YouTube parçasının adı ekleme anında bilinmeyebilir, oynatıcısı yüklenen ilk cihaz adı duruma yazar
+// (music.js annotate). Ad biliniyorsa duyuru hemen gider. Bilinmiyorsa parça en çok DJ_TITLE_WAIT_MS izlenir,
+// ad gelince duyuru adla gider. Süre dolarsa duyuru adsız gider, ad sonradan gelirse ekleyenin kendi mesajı
+// düzenlenir (DJ_TITLE_EDIT_MS içinde, parça kuyruktayken).
+function djAnnounceTrack (roomId, text, d, trackId) {
   if (!roomId || isDmChannel(roomId)) return
-  postSideMessage(roomId, text, d).then((sent) => {
-    if (!sent) toast(() => t('dj.notice.failed'), 'error')
-  }).catch(() => toast(() => t('dj.notice.failed'), 'error'))
+  const track = djLiveTrack(trackId)
+  const title = d.title || (track ? track.title : '')
+  if (title || !trackId) {
+    djAnnounce(roomId, text, title ? Object.assign({}, d, { title: title }) : d)
+    return
+  }
+  const at = Date.now()
+  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_TITLE_EDIT_MS, sent: null })
+  djCheckTitles()
+}
+
+// Motorun her durum değişikliğinde ve saniyelik denetimde bekleyen duyurular denetlenir
+function djCheckTitles () {
+  if (!dj.titleWatch.length) return
+  const now = Date.now()
+  dj.titleWatch = dj.titleWatch.filter((w) => {
+    const track = djLiveTrack(w.trackId)
+    const title = track ? track.title : ''
+    if (title) {
+      const d = Object.assign({}, w.d, { title: title })
+      if (!w.sent) {
+        djAnnounce(w.roomId, w.text, d)
+      } else {
+        w.sent.then((id) => {
+          if (id !== null) return editSideMessage(w.roomId, id, w.text, d)
+          return false
+        }).catch((err) => {
+          window.console.error(err)
+        })
+      }
+      return false
+    }
+    if (!w.sent && (now >= w.deadline || !track)) w.sent = djAnnounce(w.roomId, w.text, w.d)
+    return Boolean(track) && now < w.until
+  })
 }
 
 // /çal ve ekli ses dosyası: dosya önce yazı odasına mesaj eki olarak gönderilir (odadakiler indirebilsin),
@@ -1245,7 +1314,10 @@ function djPlayAttached (att, ctx) {
     return Promise.resolve({ ok: false, code: 'file_unavailable' })
   }
   const ref = { u: att.uploadId, k: att.key, n: att.nonce, m: att.mime, s: att.size, name: att.name }
-  return Promise.resolve().then(() => sendMessage({ dj: { op: 'add', src: 'file' } })).then(() => {
+  const notice = { op: 'add', src: 'file' }
+  const title = cleanDjTitle(att.name)
+  if (title) notice.title = title
+  return Promise.resolve().then(() => sendMessage({ dj: notice })).then(() => {
     if (state.attachments.indexOf(att) !== -1) {
       toast(() => t('dj.fileSendFailed'), 'error', 7000)
       return { ok: false, code: 'send_failed' }
@@ -1270,7 +1342,7 @@ function djDecorateAttachments (wrap, files, m) {
     const b = djButton('button button-small button-secondary dj-play-file', t('music.playInDj'), 'i-music')
     b.setAttribute('aria-label', t('dj.playFileLabel', { name: f.name || t('music.untitledFile') }))
     b.addEventListener('click', () => {
-      djPlayFile(f, b)
+      djPlayFile(f, b, m)
     })
     row.appendChild(b)
     if (card.nextSibling) wrap.insertBefore(row, card.nextSibling)
@@ -1278,13 +1350,21 @@ function djDecorateAttachments (wrap, files, m) {
   })
 }
 
-function djPlayFile (f, b) {
+// "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur
+function djPlayFile (f, b, m) {
   const engine = djEngine()
   if (!engine || b.getAttribute('aria-busy') === 'true') return
   b.setAttribute('aria-busy', 'true')
   engine.addFile({ u: f.u, k: f.k, n: f.n, m: f.m, s: f.s, name: f.name }).then((r) => {
     b.removeAttribute('aria-busy')
     djReport('play', r)
+    if (r && r.ok && !r.noop && m) {
+      const track = djLiveTrack(r.trackId)
+      const title = cleanDjTitle(track ? track.title : f.name)
+      const notice = { op: 'add', src: 'file' }
+      if (title) notice.title = title
+      djAnnounce(m.channelId, title, notice)
+    }
   }, (err) => {
     b.removeAttribute('aria-busy')
     window.console.error(err)
@@ -1326,6 +1406,7 @@ function djInit () {
   // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).
   setInterval(() => {
     djSyncVoice()
+    djCheckTitles()
     if (djShouldShow()) {
       dj.snap = engine.snapshot()
       if (!dj.layoutBusy) djRender()

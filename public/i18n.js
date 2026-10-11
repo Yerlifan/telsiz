@@ -26,6 +26,8 @@ window.I18N = (function () {
     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
     // G3 Telsiz DJ çekirdeği
     'music.consent.roomHasYoutube': 'Bu ses odasında Telsiz DJ YouTube parçası çalıyor. Dinlemek için oynatıcıyı yükleyin.',
+    'dj.notice.youtubeTitle': 'Telsiz DJ kuyruğuna ekledi: {title}',
+    'dj.notice.fileTitle': 'Telsiz DJ kuyruğuna dosya ekledi: {title}',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta
@@ -1978,6 +1980,8 @@ window.I18N = (function () {
     // sonunda virgülle ekler. Var olan değerler yerinde değiştirilir.
     // G3 Telsiz DJ çekirdeği
     'music.consent.roomHasYoutube': 'Telsiz DJ is playing a YouTube track in this voice room. Load the player to listen.',
+    'dj.notice.youtubeTitle': 'Added to the Telsiz DJ queue: {title}',
+    'dj.notice.fileTitle': 'Added a file to the Telsiz DJ queue: {title}',
     // G4 Telsiz DJ araması
     // G7 Kapak fotoğrafı
     // G8 Otomatik boşta

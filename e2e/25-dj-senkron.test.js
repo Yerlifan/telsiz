@@ -95,13 +95,27 @@ after(async () => {
   if (W.w) await W.w.close()
 })
 
-test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır', async () => {
+test('iki istemci YouTube parçasını en çok 250 ms farkla başlatır, duyuru 8 saniye içinde parçanın adını taşır', async () => {
   const { A, B } = W
   for (const page of [A, B]) await h.joinVoice(page, W.lobi.id)
+  // B'nin gördüğü bütün DJ duyuru metinleri kaydedilir
+  await B.evaluate(() => {
+    window.e2eNotices = []
+    new MutationObserver(() => {
+      document.querySelectorAll('#message-list .msg-dj-text').forEach((n) => {
+        if (window.e2eNotices.indexOf(n.textContent) === -1) window.e2eNotices.push(n.textContent)
+      })
+    }).observe(document.getElementById('message-list'), { childList: true, subtree: true, characterData: true })
+  })
+  const t0 = Date.now()
   await addTrack(A, 'D120aaaaaaa')
   const a = await firstPlay(A, 'D120aaaaaaa', 'A başladı')
   const b = await firstPlay(B, 'D120aaaaaaa', 'B başladı')
   assert.ok(Math.abs(a - b) <= SYNC_MS, 'başlangıç farkı ' + (b - a) + ' ms')
+  // Oynatıcılar adı hemen bildirir: duyuru adsız gitmez, adla gider
+  await B.waitForFunction(() => window.e2eNotices.indexOf('Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa') !== -1, null, { timeout: h.LONG })
+  assert.ok(Date.now() - t0 < 8000 + 2000, 'duyuru ' + (Date.now() - t0) + ' ms sonra geldi')
+  assert.deepEqual(await B.evaluate(() => window.e2eNotices), ['Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'])
 })
 
 test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte sürdürür', async () => {

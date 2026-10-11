@@ -1,7 +1,8 @@
 'use strict'
 
 // Telsiz DJ: iki kullanıcı ses odasında. /çal ile YouTube parçası eklenir, rıza kartı iki istemcide görünür ve
-// rızadan önce YouTube alan adlarına hiçbir istek gitmez. YouTube gömmesi page.route ile yerel sahte oynatıcıya
+// rızadan önce YouTube alan adlarına hiçbir istek gitmez. Parça duyurusu parçanın adını taşır (ad sonradan
+// gelirse ekleyenin duyurusu düzenlenir), "DJ'de çal" da dosyanın yazı odasına adıyla duyurulur. YouTube gömmesi page.route ile yerel sahte oynatıcıya
 // (sahte-youtube.js) yönlendirilir, gerçek YouTube'a erişilmez. Duraklat ve devam iki istemcide eşitlenir,
 // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
@@ -159,7 +160,8 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
   assert.equal(await A.inputValue('#composer-input'), '')
   const sent = await A.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('/çal') !== -1))
   assert.equal(sent, false, 'komut metni mesaj olarak gösterilmedi')
-  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür
+  // Duyuru komutun yazıldığı yazı odasında iki istemcide de görünür. Kimse oynatıcıyı yüklemediği için parçanın
+  // adı bilinmez: duyuru en çok 8 saniye bekler, sonra adsız gider.
   const roomA = await A.evaluate(() => String(state.channelId))
   const me = await A.evaluate(() => userDisplayName(state.me.id))
   assert.equal(await B.evaluate(() => String(state.channelId)), roomA)
@@ -223,6 +225,21 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
     const line = document.getElementById('radio-dj')
     return !line.hidden && /^DJ çalıyor: /.test(document.getElementById('radio-dj-text').textContent)
   }, null, { timeout: h.LONG })
+  // Oynatıcı parçanın adını bildirdi: ekleyenin adsız giden duyurusu adla düzenlenir, DJ duyurusunda
+  // "düzenlendi" etiketi yoktur. Karttaki son işlem satırı da adı kuyruktan canlı okur.
+  const me = await A.evaluate(() => userDisplayName(state.me.id))
+  for (const page of [A, B]) {
+    await page.waitForFunction(() => {
+      const n = document.querySelector('#message-list .msg-dj .msg-dj-text')
+      return n && n.textContent === 'Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'
+    }, null, { timeout: h.LONG })
+    const notice = await page.evaluate(() => {
+      const msg = document.querySelector('#message-list .msg-dj').closest('.msg')
+      return { author: msg.querySelector('.msg-author').textContent, edited: Boolean(msg.querySelector('.msg-edited')), link: msg.querySelector('.msg-dj-link').href }
+    })
+    assert.deepEqual(notice, { author: me, edited: false, link: 'https://www.youtube.com/watch?v=D120aaaaaaa' })
+  }
+  assert.equal(await B.textContent('#dj .dj-last'), me + ' kuyruğa ekledi: Fake video D120aaaaaaa')
 })
 
 test('duraklat ve devam iki istemcide eşitlenir', async () => {
@@ -358,6 +375,14 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
   assert.equal(await B.textContent('#message-list .dj-play-file'), 'DJ\'de Çal')
   await B.click('#message-list .dj-play-file')
   await A.waitForFunction(() => document.querySelectorAll('#dj .dj-queue .dj-queue-item').length === 1 && /lobi-temasi/.test(document.querySelector('#dj .dj-queue-name').textContent), null, { timeout: h.LONG })
+  // "DJ'de çal" dosyanın bulunduğu yazı odasına adıyla duyurulur
+  await B.waitForFunction(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav'), null, { timeout: h.LONG })
+  const fileNotice = await B.evaluate(() => {
+    const n = Array.from(document.querySelectorAll('#message-list .msg-dj-text')).filter((x) => x.textContent === 'Telsiz DJ kuyruğuna dosya ekledi: lobi-temasi.wav')[0]
+    const msg = n.closest('.msg')
+    return { author: msg.querySelector('.msg-author').textContent, link: Boolean(msg.querySelector('.msg-dj-link')) }
+  })
+  assert.deepEqual(fileNotice, { author: 'Ece', link: false })
   await A.click('#dj .dj-skip')
   for (const page of [A, B]) {
     await page.waitForFunction(() => {

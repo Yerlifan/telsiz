@@ -47,20 +47,45 @@ function decryptMessageRaw (m) {
   return result
 }
 
-// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid } veya ekli ses dosyası için { op: 'add', src: 'file' }.
-// Eski istemciler bu alanı bilmez ve t alanındaki komut metnini gösterir.
-function cleanDjNotice (d) {
-  if (!d || typeof d !== 'object' || d.op !== 'add') return null
-  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) return { op: 'add', src: 'yt', vid: d.vid }
-  if (d.src === 'file') return { op: 'add', src: 'file' }
-  return null
+// Telsiz DJ duyurusu (23-dj.js): { op: 'add', src: 'yt', vid, title? } veya ses dosyası için
+// { op: 'add', src: 'file', title? }. title isteğe bağlıdır: parçanın adı, denetim ve yön karakterleri
+// boşluğa çevrilmiş, en çok 120 kod noktası. Eski istemciler bu alanı bilmez ve t alanındaki metni gösterir,
+// title alanını bilmeyen istemciler başlıksız duyuruyu gösterir.
+const DJ_NOTICE_TITLE_MAX = 120
+const DJ_NOTICE_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
+
+function cleanDjTitle (value) {
+  if (typeof value !== 'string') return ''
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    // normalize yoksa olduğu gibi
+  }
+  text = text.replace(DJ_NOTICE_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
+  return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
 }
 
-// Duyuru satırı: nota simgesi, sabit metin ve YouTube parçasında kimlikten kurulan bağlantı
+function cleanDjNotice (d) {
+  if (!d || typeof d !== 'object' || d.op !== 'add') return null
+  let out = null
+  if (d.src === 'yt' && typeof d.vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(d.vid)) out = { op: 'add', src: 'yt', vid: d.vid }
+  else if (d.src === 'file') out = { op: 'add', src: 'file' }
+  if (!out) return null
+  const title = cleanDjTitle(d.title)
+  if (title) out.title = title
+  return out
+}
+
+// Duyuru satırı: nota simgesi, metin (parçanın adı biliniyorsa onunla) ve YouTube parçasında kimlikten kurulan
+// bağlantı. Ad yalnızca metin olarak yazılır.
 function buildDjNotice (d) {
   const line = h('div', 'msg-text msg-dj')
   line.appendChild(icon('i-music'))
-  line.appendChild(h('span', 'msg-dj-text', t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')))
+  let text = ''
+  if (d.title) text = t(d.src === 'yt' ? 'dj.notice.youtubeTitle' : 'dj.notice.fileTitle', { title: d.title })
+  else text = t(d.src === 'yt' ? 'dj.notice.youtube' : 'dj.notice.file')
+  line.appendChild(h('span', 'msg-dj-text', text))
   if (d.src === 'yt') {
     const a = h('a', 'msg-dj-link', t('dj.notice.openYoutube'))
     a.href = 'https://www.youtube.com/watch?v=' + d.vid
@@ -261,7 +286,8 @@ function buildMessageNode (m) {
     text.appendChild(h('span', '', notice))
     body.appendChild(text)
   }
-  if (m.editedAt) {
+  // DJ duyurusunun düzenlenmesi (parçanın adı sonradan eklenir) gösterilmez
+  if (m.editedAt && !(result.state === 'ok' && result.dj)) {
     const edited = h('span', 'msg-edited', t('msg.edited'))
     edited.title = t('msg.editedAt', { date: formatLong(m.editedAt) })
     const target = body.querySelector('.msg-text') || body

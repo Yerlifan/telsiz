@@ -222,22 +222,39 @@ async function sendMessage (opts) {
 }
 
 // Yazma alanına ve gönderilmemiş mesaj durumuna dokunmadan yazı odasına kısa mesaj gönderir (Telsiz DJ
-// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Başarıda true döner.
-async function postSideMessage (channelId, text, d) {
-  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return false
+// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Sonuç mesajın kimliği, başarısızsa null.
+function sealSideBody (channelId, text, d) {
+  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return ''
   let body = ''
   try {
     body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: channelId, t: text, f: [], d: d })
   } catch (err) {
-    return false
+    return ''
   }
-  if (body.length > state.limits.maxBodyChars) return false
+  return body.length > state.limits.maxBodyChars ? '' : body
+}
+
+async function postSideMessage (channelId, text, d) {
+  const body = sealSideBody(channelId, text, d)
+  if (!body) return null
   const res = await api('POST', '/api/messages', { channelId: channelId, body: body, clientMessageId: newClientMessageId() })
-  if (res.status !== 200 || !res.data || !res.data.message) return false
+  if (res.status !== 200 || !res.data || !res.data.message) return null
   if (sameId(channelId, state.channelId) && !state.hasNewer) {
     insertMessage(res.data.message, { own: true })
     markRead()
   }
+  return res.data.message.id
+}
+
+// postSideMessage ile gönderilen kendi mesajını yeni metin ve d ile değiştirir (Telsiz DJ duyurusuna parçanın
+// adı sonradan eklenir). Başarıda true döner.
+async function editSideMessage (channelId, id, text, d) {
+  const body = sealSideBody(channelId, text, d)
+  if (!body || id === null || id === undefined) return false
+  const res = await api('POST', '/api/messages/edit', { id: id, body: body })
+  if (res.status !== 200 || !res.data || !res.data.message) return false
+  // Açık konuşmadaki mesaj hemen yenilenir (yoksa replaceMessage bir şey yapmaz)
+  replaceMessage(res.data.message)
   return true
 }
 

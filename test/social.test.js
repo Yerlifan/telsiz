@@ -4,7 +4,8 @@
 // tarayıcıdaki gibi ortak bir genel ortamda, gerçek crypto.js, tweetnacl ve scrypt-js ile Node vm
 // bağlamında yüklenir. Kullanıcı adı kuralı, parola gücü, türetme yardımcısının ortak test vektörü,
 // kişiye özel metanın süzülmesi, özel mesaj gönderme koşulları ve çözme denetimleri (yazar ve konuşma
-// kimliği, sabitlenmiş anahtarlar, eski anahtar) sınanır.
+// kimliği, sabitlenmiş anahtarlar, eski anahtar) ve Telsiz DJ duyurusunun (06-messages.js cleanDjNotice)
+// doğrulanması sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -224,4 +225,31 @@ test('durum: görünmez kendime çevrimdışı görünür, diğerleri meta durum
   run("state.meta.users[1].status = 'dnd'")
   assert.strictEqual(run('userStatus(2)'), 'dnd')
   assert.strictEqual(run('userStatus(77)'), 'offline')
+})
+
+test('Telsiz DJ duyurusu (06-messages.js): parçanın adı isteğe bağlı, temizlenir ve 120 kod noktasıyla sınırlanır', () => {
+  const { run } = load()
+  const clean = (d) => {
+    const out = run('cleanDjNotice(' + JSON.stringify(d) + ')')
+    return out === null ? null : JSON.parse(JSON.stringify(out))
+  }
+  const vid = 'dQw4w9WgXcQ'
+  // Adsız eski biçim aynen kalır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid }), { op: 'add', src: 'yt', vid: vid })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file' }), { op: 'add', src: 'file' })
+  // Denetim ve yön karakterleri boşluğa döner, boşluklar teke iner, kenarlar kırpılır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: '  Lobi\u202e  teması\u0007 ' }), { op: 'add', src: 'yt', vid: vid, title: 'Lobi teması' })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: 'lobi-temasi.wav' }), { op: 'add', src: 'file', title: 'lobi-temasi.wav' })
+  // En çok 120 kod noktası (dört baytlık karakterler bölünmez)
+  const long = clean({ op: 'add', src: 'yt', vid: vid, title: '🎵'.repeat(130) })
+  assert.strictEqual(Array.from(long.title).length, 120)
+  assert.strictEqual(long.title, '🎵'.repeat(120))
+  // Dize olmayan veya temizlenince boş kalan ad yazılmaz, bilinmeyen alanlar atılır
+  assert.deepStrictEqual(clean({ op: 'add', src: 'yt', vid: vid, title: 42, extra: 'x' }), { op: 'add', src: 'yt', vid: vid })
+  assert.deepStrictEqual(clean({ op: 'add', src: 'file', title: '\u200b\u0000 \u2066' }), { op: 'add', src: 'file' })
+  // Geçersiz işlem, kaynak veya video kimliği
+  assert.strictEqual(clean({ op: 'remove', src: 'file', title: 'a' }), null)
+  assert.strictEqual(clean({ op: 'add', src: 'yt', vid: 'kisa', title: 'a' }), null)
+  assert.strictEqual(clean({ op: 'add', src: 'web', title: 'a' }), null)
+  assert.strictEqual(clean(null), null)
 })
