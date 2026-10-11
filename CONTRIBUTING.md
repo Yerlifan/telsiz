@@ -77,6 +77,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `src/hub.js` | Çevrimiçi durumu, olay halkası, long-poll bekleyenleri, ses kadroları ve sinyal kuyrukları, yazıyor bilgisi |
 | `src/social.js` | Arkadaşlıklar, engellemeler ve özel mesaj kuralları |
 | `src/music.js` | Telsiz DJ'nin bellekteki şifreli oda durumları |
+| `src/youtube-search.js` | Telsiz DJ'nin şarkı adıyla YouTube araması (sahip açarsa): istek, sonuç ayrıştırıcısı, sınırlar ve devre kesici |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, CSP, gövde okuma, statik dosya beyaz listesi |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Sunucu metinleri, sürüm ve tek dosya bilgisi, `telsiz.env` okuyucusu |
 | `src/system-info.js` | Sunucu bilgileri: işlemci, bellek ve cgroup sınırı, disk alanı (`GET /api/server-info`) |

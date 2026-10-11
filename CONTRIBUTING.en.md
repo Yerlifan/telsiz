@@ -77,6 +77,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `src/hub.js` | Presence, the event ring, long poll waiters, voice rosters and signal queues, typing status |
 | `src/social.js` | Friendships, blocks and direct message rules |
 | `src/music.js` | The encrypted in-memory room states of Telsiz DJ |
+| `src/youtube-search.js` | Telsiz DJ's YouTube search by song name (if the owner turns it on): the request, the result parser, limits and the circuit breaker |
 | `src/http-util.js`, `src/static-source.js` | Security headers, CSP, body reading, the static file allowlist |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Server texts, version and single file information, the `telsiz.env` reader |
 | `src/system-info.js` | Server information: processor, memory and cgroup limit, disk space (`GET /api/server-info`) |

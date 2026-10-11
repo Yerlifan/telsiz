@@ -208,7 +208,7 @@ Frekansın (sunucunun) ayarları uygulamadaki tam ekran ayarlar görünümünün
 
 | Yer | Kim | İçerik |
 | --- | --- | --- |
-| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ, YouTube kaynağı ve kısıtlı kip anahtarları (yalnızca sahip), Ses odaları ve kameralar bölümünde ses odası kapasitesi, kameralar ve oda başına kamera sınırı (yalnızca sahip, yönetici salt okunur görür), Sunucu bilgileri bölümünde makine ve kullanım bilgileri ile kapasite önerisi |
+| Ayarlar > Genel | Sahip ve yönetici (bazı alanlar yalnızca sahip) | Frekans adı (yalnızca sahip), frekans fotoğrafı (yalnızca sahip, yönetici önizlemeyi görür), frekans tanıtımı (yalnızca sahip, yönetici salt okunur görür), frekans özeti, Müzik botu bölümünde Telsiz DJ, YouTube kaynağı, kısıtlı kip ve şarkı adıyla YouTube araması anahtarları (yalnızca sahip), Ses odaları ve kameralar bölümünde ses odası kapasitesi, kameralar ve oda başına kamera sınırı (yalnızca sahip, yönetici salt okunur görür), Sunucu bilgileri bölümünde makine ve kullanım bilgileri ile kapasite önerisi |
 | Ayarlar > Odalar | Sahip, yönetici ve oda yönetme izni olan roller | Yazı ve ses odası oluşturma, yeniden adlandırma, sıralama ve silme. Son yazı odası silinemez. |
 | Ayarlar > Üyeler | Sahip, yönetici ve engelleme izni olan roller | Rol değiştirme ve üyeye özel rol verme (yalnızca sahip), alt sıradakileri engelleme, engellerini kaldırma ve frekanstan atma, geçici parolayla parola sıfırlama (yalnızca sahip) |
 | Ayarlar > Roller | Yalnızca sahip | Özel rol oluşturma, adlandırma, renk seçme, izinleri açıp kapatma, sıralama ve silme |
@@ -220,6 +220,24 @@ Frekans tanıtımı en fazla 600 karakter ve 6 satırlık düz bir metindir. Otu
 Frekans fotoğrafı PNG, JPEG veya WebP olabilir (sunucu dosya imzasına bakar, SVG kabul etmez) ve profil resmiyle aynı boyut sınırına tabidir (varsayılan 1 MB). Uygulama seçilen resmi yüklemeden önce ortasından kare kırpar ve 256x256 boyutuna küçültür. Fotoğraf frekans adı gibi herkese açıktır ve şifrelenmez: oturumsuz `GET /api/server-icon` adresinden sunulur, karması `GET /api/info` yanıtında `serverIcon` alanındadır. Diğer frekansların fotoğrafını yalnızca masaüstü uygulaması gösterir, tarayıcıda diğer frekansların istasyonunda baş harf kalır. Fotoğraf veri klasöründe `server-icon/` altında durur ve yedeğe girer.
 
 Telsiz DJ ve YouTube kaynağı varsayılan olarak açıktır. YouTube kaynağı kapatılırsa yalnızca paylaşılan ses dosyaları çalınır. Sunucu şifreli DJ durumunu göremediği için bu kısıt üyelerin cihazlarında uygulanır. Telsiz DJ tamamen kapatılırsa sunucu DJ durum yazımlarını reddeder. Kısıtlı kip açıksa, odada DJ izni olan biri (sahip, yönetici veya DJ izinli rol) varken sunucu diğerlerinin DJ durum yazımlarını reddeder, odada böyle biri yoksa herkes yazabilir.
+
+### Şarkı adıyla YouTube araması
+
+Açıkken `/çal` komutundaki şarkı adını sunucu YouTube'da arar ve ilk çalınabilir sonucu kuyruğa ekler. Ayar varsayılan olarak kapalıdır. Yalnızca sahip Ayarlar > Genel > Müzik botu bölümünden açar, açarken bir onay penceresi riskleri yeniden gösterir. Ayar `state.json` dosyasında `music.search` alanında saklanır. Telsiz DJ veya YouTube kaynağı kapalıyken arama da kullanılamaz. Arama kapalıyken üyeler açık bir hata metni ve YouTube'un sonuç sayfasına giden bir bağlantı görür, sahip ayarın yerini de görür.
+
+- **Hizmet Şartları.** Arama resmî YouTube Data API'sini ve bir API anahtarını kullanmaz. Sunucu YouTube'un web sayfasının kullandığı arama ucunu (`https://www.youtube.com/youtubei/v1/search`) çağırır, olmazsa sonuç sayfasını (`https://www.youtube.com/results`) okur. YouTube Hizmet Şartları otomatik erişimi yasaklar. Aramayı açmak bu şartlara aykırıdır ve riski sunucu sahibi olarak siz üstlenirsiniz.
+- **Dışarıya giden istek.** Arama açıkken biri şarkı adı yazınca sunucu `www.youtube.com` adresine 443 numaralı bağlantı noktasından HTTPS isteği gönderir. Bu, Telsiz sunucusunun kendisinin dışarıya bağlandığı tek durumdur. Güvenlik duvarınız giden bağlantıları kısıtlıyorsa bu adrese izin verin. İstek Node.js'in `node:https` modülüyle doğrudan yapılır, `HTTPS_PROXY` gibi vekil ortam değişkenleri varsayılan olarak kullanılmaz. Sunucu internete yalnızca bir vekil üzerinden çıkabiliyorsa arama çalışmaz. İstemcilerin adresi YouTube'a gitmez, YouTube yalnızca sunucunun adresini görür.
+- **Gizlilik.** Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin olarak gelir ve YouTube'a gider. Sunucu metni günlüğe yazmaz, sonuçları 10 dakika bellekte tutar.
+- **Sınırlar.** Kişi başına dakikada 10 arama, sunucu genelinde son 24 saatte en çok 300 YouTube isteği (önbellekten verilen sonuçlar sayılmaz). Tavan kota için değil, sunucunun adresinin YouTube tarafından engellenmesi olasılığını azaltmak içindir. Bir arama en çok 8 saniye sürer, yönlendirmeler izlenmez.
+- **Bozulma.** YouTube yanıt biçimini değiştirirse, sunucuyu onay sayfasına yönlendirirse veya sunucunun adresini engellerse arama sonuç vermez. Art arda 3 kullanılamayan yanıttan sonra arama 1 saat kapanır ve günlüğe nedeniyle birlikte tek bir uyarı satırı yazılır ("şarkı adıyla YouTube araması art arda başarısız olduğu için 60 dakika kapatıldı"). Bağlantıyla ekleme her durumda çalışır.
+
+**İlk canlı deneme sunucuda yapılmalıdır.** Geliştirme ortamı youtube.com adresine erişemediği için arama gerçek YouTube'a karşı hiç denenmedi. Yanıt biçimi açık kaynaklı YouTube istemcilerinin kaynak kodundan çıkarıldı ve elle hazırlanmış örnek yanıtlarla sınandı. Aramayı açtıktan sonra şunları deneyin:
+
+1. Bir ses odasında `/çal` ile bilinen bir şarkının adını yazın. Parça adıyla kuyruğa eklenmeli ve yazı odasında adıyla duyurulmalıdır.
+2. Birkaç farklı şarkı deneyin. Canlı yayınlar eklenmemeli, ilk sonuç canlı yayınsa sıradaki video eklenmelidir.
+3. Sunucu günlüğünde art arda başarısızlık uyarısı varsa arama çalışmıyordur. Neden `consent_redirect` ise sunucu onay sayfasına yönlendiriliyordur, `status_429` veya `status_403` ise YouTube sunucunun adresini sınırlıyordur, `format`, `json` veya `no_initial_data` ise yanıt biçimi değişmiştir. Bu durumda aramayı kapatın ve arama metnini ve sunucu adresinizi eklemeden bir issue açın.
+
+Geliştiriciler için ayrıntılı deneme listesi [MIMARI.md](MIMARI.md#telsiz-dj) dosyasındadır.
 
 ### Özel roller
 

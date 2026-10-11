@@ -27,7 +27,7 @@ const CLIENT_VERSION_RE = /^\d+\.\d{8}\.\d{2}\.\d{2}$/
 const CLIENT_VERSION_TEXT_RE = /"INNERTUBE_CONTEXT_CLIENT_VERSION":"([0-9.]{1,32})"/
 // Sabit bir masaüstü tarayıcı kimliği (dönüşümlü değildir)
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
-// AB onay sayfasını atlamak için açık kaynaklı istemcilerde görülen çerez
+// Açık kaynaklı bir istemcinin (@distube/ytsr) AB onay sayfası için gönderdiği çerez, etkisi doğrulanamadı
 const CONSENT_COOKIE = 'SOCS=CAI'
 // ytInitialData atamasının olası biçimleri
 const DATA_MARKERS = ['var ytInitialData = ', 'window["ytInitialData"] = ']
