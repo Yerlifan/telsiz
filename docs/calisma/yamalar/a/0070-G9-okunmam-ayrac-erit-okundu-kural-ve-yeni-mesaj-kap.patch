@@ -1,0 +1,248 @@
+From 570ac7b7474252a0cc5e02fa65c8892e8d62ed64 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 17:15:47 +0000
+Subject: [PATCH 70/73] =?UTF-8?q?G9:=20okunmam=C4=B1=C5=9F=20ayrac=C4=B1,?=
+ =?UTF-8?q?=20=C5=9Ferit,=20okundu=20kural=C4=B1=20ve=20yeni=20mesaj=20kap?=
+ =?UTF-8?q?s=C3=BCl=C3=BC=20tamamland=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ara kayıttaki ayraç, şerit ve kapsül sınandı ve tamamlandı. Konuşma yalnızca
+kişi en alttayken okundu sayılır, yukarıdayken gelen mesaj kaydırma yapmaz,
+kapsül ve şerit sayar. En Yeni Mesajlara Dön artık son okunanın çevresine geri
+dönmez, en yeni sayfayı açar (önceden okunmamışlı konuşmada döngüye giriyordu).
+Şeridin iki düğmesi birlikte kayar, telefonda metnin altında eşit genişlikte
+tek satırdır. Birim testi ilk okunmamışın yerini, e2e testi around yolunu ve
+En Yeni Mesajlara Dön davranışını sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js   | 26 +++++++++++++++++++++++++-
+ public/css/convo.css     | 35 ++++++++++++++++++++++++++++++++++-
+ public/js/04-meta.js     |  1 +
+ public/js/06-messages.js |  9 +++++++--
+ public/js/38-gezinme.js  | 20 +++++++++++++++++---
+ test/gezinme.test.js     | 11 +++++++++++
+ 6 files changed, 95 insertions(+), 7 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 1473941..512c41b 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -16,6 +16,13 @@
+ // - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
+ // - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
+ // - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
++// G9, okunmamış ayracı, şerit ve kapsül (S3, S4):
++// - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
++//   inilince düşer, Okunmamışa Git ayracı geri getirir
++// - Yukarıdayken gelen mesajda kaydırma olmaz, kapsül "Aşağıda 1 yeni mesaj" der, son okunan değişmez, kapsüle
++//   basınca en alta inilir ve okundu sayılır
++// - Telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle (around) yüklenir, Okundu İşaretle hepsini okur, En
++//   Yeni Mesajlara Dön son okunanın çevresine geri dönmez
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -507,7 +514,7 @@ test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve ok
+   assert.equal(await page.evaluate(() => document.getElementById('new-below').hidden), true, 'kapsül kalktı')
+ })
+ 
+-test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur', async () => {
++test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yüklenir, Okundu İşaretle hepsini okur, En Yeni Mesajlara Dön en yeni sayfayı açar', async () => {
+   const page = W.deniz
+   const kalabalik = W.w.room('kalabalik').id
+   const genel = W.w.room('genel').id
+@@ -534,6 +541,23 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
+   await page.click('#unread-bar-read')
+   await page.waitForFunction((id) => !state.unread[id] && document.getElementById('unread-bar').hidden, kalabalik)
+   assert.equal(await page.evaluate((id) => Number(state.lastRead[id]), kalabalik), sent[119].id, 'en yeni mesaj okundu')
++
++  // En Yeni Mesajlara Dön son okunanın çevresine geri dönmez: en yeni sayfa açılır, en altta olunduğu için okundu sayılır
++  await openRoom(page, genel)
++  const more = await eceSays('kalabalik', 60, 'yeni tur')
++  await page.waitForFunction((id) => state.unread[id] === 60, kalabalik, { timeout: h.LONG })
++  await openRoom(page, kalabalik)
++  await page.waitForSelector('#message-list .unread-divider')
++  assert.equal(await page.evaluate(() => state.hasNewer), true, 'son okunanın çevresi yüklendi')
++  requests.length = 0
++  page.on('request', onRequest)
++  await page.click('#search-jump-latest')
++  await page.waitForFunction((a) => !state.loading && !state.hasNewer && String(state.messages[state.messages.length - 1].id) === String(a.last) && !state.unread[a.id],
++    { id: kalabalik, last: more[59].id }, { timeout: h.LONG })
++  page.off('request', onRequest)
++  assert.deepEqual(requests, ['channel=' + kalabalik + '&limit=50'])
++  assert.deepEqual(await page.evaluate((id) => [Boolean(document.querySelector('#message-list .unread-divider')), document.getElementById('unread-bar').hidden, Number(state.lastRead[id])], kalabalik),
++    [false, true, more[59].id])
+   await setWidth(page, 1440)
+ })
+ 
+diff --git a/public/css/convo.css b/public/css/convo.css
+index 4f46dab..7797961 100644
+--- a/public/css/convo.css
++++ b/public/css/convo.css
+@@ -321,12 +321,45 @@
+   font-weight: var(--weight-strong);
+ }
+ 
+-.unread-bar .button {
++/* İki düğme birlikte kayar: sütun darsa metnin altına sağa yaslı iner */
++.unread-bar-actions {
++  display: flex;
++  flex: none;
++  margin-left: auto;
++}
++
++.unread-bar-actions .button {
+   flex: none;
+   min-height: var(--target);
+   margin: 0.125rem 0 0.125rem 0.375rem;
+ }
+ 
++/* Telefonda metin üstte, iki düğme altında eşit genişlikte tek satır */
++@media (max-width: 759px) {
++  .unread-bar {
++    margin: 0.375rem 0.5rem 0;
++    padding: 0.25rem 0.25rem 0.25rem 0.375rem;
++  }
++
++  .unread-bar-text {
++    flex-basis: 100%;
++    margin: 0.25rem 0.375rem 0.125rem;
++  }
++
++  .unread-bar-actions {
++    flex: 1 1 100%;
++    margin-left: 0;
++  }
++
++  .unread-bar-actions .button {
++    flex: 1 1 0%;
++    min-width: 0;
++    margin: 0.125rem;
++    padding-right: 0.5rem;
++    padding-left: 0.5rem;
++  }
++}
++
+ /* Kapsül: kişi yukarıdayken mesaj akışının altında yapışık durur, basınca en alta inilir */
+ .new-below {
+   position: -webkit-sticky;
+diff --git a/public/js/04-meta.js b/public/js/04-meta.js
+index d082ae8..52183dc 100644
+--- a/public/js/04-meta.js
++++ b/public/js/04-meta.js
+@@ -41,6 +41,7 @@ function chatPlusReset () {
+   state.hasNewer = false
+   state.newWhileOlder = false
+   state.pendingJump = null
++  state.pendingLatest = false
+   if (typeof searchReset === 'function') searchReset()
+   if (typeof typingReset === 'function') typingReset()
+   if (typeof mentionReset === 'function') mentionReset()
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index 82f5862..50c1285 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -560,8 +560,11 @@ async function loadChannel () {
+   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
+   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
+   state.pendingJump = null
++  // En Yeni Mesajlara Dön (jumpToLatest) okunmamış ayracını ve son okunanın çevresini atlar, en yeni sayfa açılır
++  const latest = state.pendingLatest === true
++  state.pendingLatest = false
+   const nav = typeof navUnreadReset === 'function'
+-  const readMark = nav && !jump ? navReadMark(channelId) : 0
++  const readMark = nav && !jump && !latest ? navReadMark(channelId) : 0
+   const knownUnread = Number(state.unread[channelId]) || 0
+   if (nav) navUnreadReset(channelId)
+   state.loadGen += 1
+@@ -715,10 +718,12 @@ async function loadNewer () {
+   if (!state.hasNewer) markRead()
+ }
+ 
+-// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir
++// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir. Okunmamış mesajlar son okunanın
++// çevresiyle açıldıysa (38-gezinme.js) yeniden oraya dönülmez, kişi en altta olduğu için konuşma okundu sayılır.
+ function jumpToLatest () {
+   if (!state.channelId) return
+   state.pendingJump = null
++  state.pendingLatest = true
+   loadChannel()
+   focusNode(el.composerInput.disabled ? el.messages : el.composerInput)
+ }
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 968f2ba..3fe9093 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -16,6 +16,12 @@
+ // popstate olayı gelene kadar sonraki işlemler bekler. Katman ve konuşma değişiklikleri aynı görev içinde
+ // toplanır, bir sonraki mikro görevde (navReconcile) beklenen geçmişle karşılaştırılır. Böylece sayfadaki bir
+ // satıra basmak (sayfa kapanır, oda açılır) sayfanın kaydını yeni odanın kaydıyla değiştirir.
++//
++// Okunmamış (S3, S4). Konuşma açılırken yüklemeden önceki son okunan mesaj saklanır. İlk okunmamış mesaj yüklüyse
++// önüne Yeni mesajlar ayracı konur, ayraç görünür alanın üst kısmına kaydırılır ve üstte şerit (sayı, Okunmamışa
++// Git, Okundu İşaretle) görünür. İlk okunmamış en yeni sayfada değilse konuşma son okunanın çevresiyle (around)
++// yüklenir. Konuşma yalnızca kişi en alttayken okundu sayılır (04-meta.js markRead). Kişi yukarıdayken gelen mesaj
++// kaydırma yapmaz, alttaki kapsül sayar.
+ 
+ const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
+ const NAV_POP_WAIT_MS = 2000
+@@ -418,16 +424,19 @@ function navBarEl () {
+     text.appendChild(h('span', 'unread-bar-count'))
+     text.appendChild(h('span', 'unread-bar-since'))
+     bar.appendChild(text)
++    // İki düğme birlikte kayar: dar sütunda metnin altında tek satır olurlar
++    const actions = h('div', 'unread-bar-actions')
+     const jump = button('button button-small button-secondary unread-bar-jump', '', 'i-up')
+     jump.id = 'unread-bar-jump'
+     jump.appendChild(h('span', 'button-text'))
+     jump.addEventListener('click', navJumpToUnread)
+-    bar.appendChild(jump)
++    actions.appendChild(jump)
+     const read = button('button button-small unread-bar-read', '', 'i-check')
+     read.id = 'unread-bar-read'
+     read.appendChild(h('span', 'button-text'))
+     read.addEventListener('click', navMarkAllRead)
+-    bar.appendChild(read)
++    actions.appendChild(read)
++    bar.appendChild(actions)
+     el.main.insertBefore(bar, el.messages)
+   }
+   return bar
+@@ -543,9 +552,14 @@ function navRenderBelow () {
+   b.title = count > 0 ? t('nav.newBelowLabel') : text
+ }
+ 
+-// Kişi yukarıdayken açık konuşmaya mesaj geldi (06-messages.js insertMessage)
++// Kişi yukarıdayken açık konuşmaya mesaj geldi (06-messages.js insertMessage). Şerit açıksa sayısı da artar.
+ function navNewBelow () {
+   navState.newBelow += 1
++  const u = navState.unread
++  if (u.bar && sameId(u.channelId, state.channelId)) {
++    u.count += 1
++    navRenderBar()
++  }
+   navRenderBelow()
+ }
+ 
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index 436af0f..dd8b841 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -313,3 +313,14 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
+   await settle()
+   assert.deepStrictEqual(hist.list(), ['0:channel-12'])
+ })
++
++test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa ayraç yok, sayfanın hepsi yeniyse çevresi yüklenir', () => {
++  const { json } = load()
++  // Kullanıcı 1: 6 numaralı mesaj kendi mesajı
++  const list = '[{ id: 5, authorId: 2 }, { id: 6, authorId: 1 }, { id: 7, authorId: 2 }, { id: 8, authorId: 3 }]'
++  assert.deepStrictEqual(json('[navFirstUnread(' + list + ', 5), navFirstUnread(' + list + ', 4), navFirstUnread(' + list + ', 0), navFirstUnread(' + list + ', 8)]'), [2, 0, -1, -1])
++  assert.deepStrictEqual(json('[navCountUnread(' + list + ', 5), navCountUnread(' + list + ', 4), navCountUnread(' + list + ', 0)]'), [2, 3, 0])
++  // En yeni sayfanın ilk mesajı son okunandan yeniyse ve daha eskisi varsa ilk okunmamış bu sayfada olmayabilir
++  assert.deepStrictEqual(json('[navNeedsAround(' + list + ', true, 4), navNeedsAround(' + list + ', true, 5), navNeedsAround(' + list + ', false, 4), navNeedsAround(' + list + ', true, 0), navNeedsAround([], true, 4)]'),
++    [true, false, false, false, false])
++})

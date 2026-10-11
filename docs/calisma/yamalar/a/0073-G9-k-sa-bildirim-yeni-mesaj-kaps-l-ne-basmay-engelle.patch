@@ -1,0 +1,119 @@
+From 04db247e18d96b2bd1736a849095c74f6435ddc4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 17:32:36 +0000
+Subject: [PATCH 73/73] =?UTF-8?q?G9:=20k=C4=B1sa=20bildirim=20yeni=20mesaj?=
+ =?UTF-8?q?=20kaps=C3=BCl=C3=BCne=20basmay=C4=B1=20engellemez?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bütün e2e takımında bir arkadaşlık isteği bildirimi kapsülün üstünde
+belirdiği için kapsüle basılamadı (bildirim tıklamayı yakalıyordu). Kısa
+bildirim yalnızca metindir, artık tıklamaları altındaki öğeye bırakır. e2e
+testi kapsüle basmadan önce aynı yere bir kısa bildirim çıkarır, düzeltme
+olmadan bu adım düşüyor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md           | 2 +-
+ CHANGELOG.md              | 2 +-
+ docs/DESIGN.md            | 2 +-
+ docs/TASARIM.md           | 2 +-
+ e2e/19-gezinme.test.js    | 4 +++-
+ public/css/components.css | 3 +++
+ 6 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index e906d7e..cd832cb 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -9,7 +9,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ - Cover photo: a cover photo can be added to the profile in Settings > Profile (Choose Cover, Remove Cover). The chosen image is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG, and metadata such as the location is removed. Like the profile picture, the cover is end-to-end encrypted with its own file key and follows the same size limit as the profile picture (1 MB by default), the quality is lowered in two steps if it does not fit. The cover appears in the color band of the profile card and in the My Account and Profile previews in Settings. Unlike profile pictures, covers are not downloaded in advance, only when the card is opened. Because of this the server can see who opens whose card. If an older client that does not know about covers saves the profile, the cover is removed. When the cover changes, is removed or the account is deleted, the old file is deleted from the server, and the cover counts toward the user's upload quota. An optional `cover` field was added to the profile envelope and a `coverUploadId` field to the `POST /api/me/profile` request and the `GET /api/profiles` response, with the new error codes `bad_cover` and `cover_too_large`.
+ - Seven new themes: Field Radio (Saha Telsizi), Tube Radio (Lambalı Radyo), Phosphor (Fosfor), Polar Station (Kutup İstasyonu), Vinyl (Plak), Cockpit (Kokpit) and High Contrast (Yüksek Kontrast). Each has a dark and a light mode, and Arcade stays the default theme. The themes bring no new fonts, they use other combinations of the existing fonts. In Settings > Appearance the theme cards sit in the Radio Themes and Accessibility groups and are more compact: the preview strip is shorter and the description is visible only on the selected card (screen readers read the description of every card). High Contrast gives at least 7:1 contrast for text, uses thick borders, no gradients, shadows or background light, underlines links, draws a thick focus ring and sets disabled buttons apart with a dashed border instead of fading them. When the system has high contrast turned on (`prefers-contrast: more` or forced colors such as Windows High Contrast) and no theme preference is stored on the device, High Contrast is chosen on first start. This choice is not stored, and clicking the High Contrast card, which shows as selected in Settings, makes it permanent. In forced colors mode selected items get a border in the system highlight color. The total size of the stylesheets grew with the new themes.
+ - Forgot my password (recovery code): a 28 character recovery code is shown when the account is created. The code can be copied or downloaded as a file, and the person continues after confirming "I saved the code". The code dialog does not close without this confirmation. If the page is reloaded or closed before it, the app warns on the next start and the status is highlighted in Settings > My Account. A person who forgets their password resets it themselves with the Forgot My Password link on the sign in screen using their username, recovery code and a new password: the security key does not change, old direct messages stay readable, the people they talk to see no key change warning, and a new code is issued once the code is used. The code is created, renewed or removed with the password in Settings > My Account > Recovery Code, which shows when and on which device it was created. When changing the password, the code can be renewed at the same time. Accounts without a code are reminded once after signing in with the password, and the "I don't have a recovery code" section on the sign in screen points these people to the frequency owner. A password reset by the owner or the command line also deletes the recovery code. The code is 16 random bytes, and the server stores only the scrypt hash of a key derived from the code and the private key wrapped with the code. The recovery endpoints give the same answer at the same cost when the account does not exist, has no code or the code is wrong, and their attempt counters are separate from sign in. There is no reset by email. The new endpoints `POST /api/me/recovery`, `POST /api/recover/keys` and `POST /api/recover` were added, an optional `recovery` field was added to the `POST /api/register` and `POST /api/me/password` requests and a `recovery` field with the creation time and device of the person's own code to the `GET /api/state` response, with the new error codes `bad_recovery` and `keys_changed`.
+-- Moving between conversations: when a text room or direct conversation with unread messages opens, a New messages divider is placed in front of the first unread message and brought into the upper part of the visible area. The bar above the conversation shows the unread count and the time of the first unread message, Jump to Unread returns to the divider and Mark as Read reads the whole conversation. If the first unread message is not among the newest 50, the conversation opens around the last read message and newer messages arrive as you scroll down. The unread count now drops when you reach the bottom of the conversation, not when you enter the room. A message that arrives while you are scrolled up is not counted as read and does not scroll the page, and the pill at the bottom of the message stream says "1 new message below" and takes you to the bottom when pressed. With no new message, the pill becomes Jump to Bottom when you are more than two screens up. The Stations list and sheet have a Direct messages group between the text rooms and the voice rooms: unread conversations first, at most six rows, and the rest open with All Direct Messages. Below 1280 pixels the Direct Messages button in the top bar opens the Stations sheet at this group, and on wide screens it opens the newest conversation with unread messages, or the last opened one. The Room info sheet no longer has a direct message list, and the Room info button is hidden in the direct message view. When the page reloads, an open direct conversation or the Friends view comes back too (before, only the last text room was remembered). As before, read marks are kept only on the device and are not synced between devices.
++- Moving between conversations: when a text room or direct conversation with unread messages opens, a New messages divider is placed in front of the first unread message and brought into the upper part of the visible area. The bar above the conversation shows the unread count and the time of the first unread message, Jump to Unread returns to the divider and Mark as Read reads the whole conversation. If the first unread message is not among the newest 50, the conversation opens around the last read message and newer messages arrive as you scroll down. The unread count now drops when you reach the bottom of the conversation, not when you enter the room. A message that arrives while you are scrolled up is not counted as read and does not scroll the page, and the pill at the bottom of the message stream says "1 new message below" and takes you to the bottom when pressed. A short notice that appears in the same place no longer blocks pressing the button under it. With no new message, the pill becomes Jump to Bottom when you are more than two screens up. The Stations list and sheet have a Direct messages group between the text rooms and the voice rooms: unread conversations first, at most six rows, and the rest open with All Direct Messages. Below 1280 pixels the Direct Messages button in the top bar opens the Stations sheet at this group, and on wide screens it opens the newest conversation with unread messages, or the last opened one. The Room info sheet no longer has a direct message list, and the Room info button is hidden in the direct message view. When the page reloads, an open direct conversation or the Friends view comes back too (before, only the last text room was remembered). As before, read marks are kept only on the device and are not synced between devices.
+ 
+ ### Changes
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b6ea617..e7ef5a7 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ - Kapak fotoğrafı: Ayarlar > Profil bölümünden profile bir kapak fotoğrafı eklenebilir (Kapak Seç, Kapağı Kaldır). Seçilen resim ortasından 3:1 oranında kırpılıp 1200x400 boyutunda JPEG olarak yeniden kodlanır, konum gibi üst veriler silinir. Kapak profil resmi gibi kendi dosya anahtarıyla uçtan uca şifrelenir ve profil resmiyle aynı boyut sınırına (varsayılan 1 MB) uyar, sığmazsa kalite iki adımda düşürülür. Kapak profil kartının renk bandında, Ayarlar'daki Hesabım ve Profil önizlemelerinde görünür. Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca indirilir. Bu yüzden sunucu kimin hangi kişinin kartını açtığını görebilir. Kapağı bilmeyen eski bir istemci profili kaydederse kapak kalkar. Kapak değişince, kaldırılınca ve hesap silinince eski dosya sunucudan silinir, kapak kullanıcının yükleme kotasına sayılır. Profil zarfına isteğe bağlı `cover` alanı, `POST /api/me/profile` isteğine ve `GET /api/profiles` yanıtına `coverUploadId` alanı eklendi, yeni hata kodları `bad_cover` ve `cover_too_large`.
+ - Yedi yeni tema: Saha Telsizi, Lambalı Radyo, Fosfor, Kutup İstasyonu, Plak, Kokpit ve Yüksek Kontrast. Her birinin koyu ve açık modu vardır, varsayılan tema Arcade olarak kalır. Temalar yeni yazı tipi getirmez, var olan yazı tiplerinin başka birleşimlerini kullanır. Ayarlar > Görünüm'de tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında durur ve sıkıştırıldı: önizleme şeridi kısaldı, açıklama yalnızca seçili kartta görünür (ekran okuyucu her kartın açıklamasını okur). Yüksek Kontrast metinde en az 7:1 kontrast verir, kenarları kalındır, degrade, gölge ve zemin ışığı kullanmaz, bağlantıların altı çizilidir, odak çerçevesi kalındır, devre dışı düğmeler soluklaşmak yerine kesik kenarla ayrılır. Sistemde yüksek karşıtlık açıksa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler) ve cihazda saklı tema tercihi yoksa ilk açılışta Yüksek Kontrast seçilir. Bu seçim saklanmaz, Ayarlar'da işaretli görünen Yüksek Kontrast kartına tıklamak onu kalıcı yapar. Zorlanmış renk kipinde seçili öğeler sistem vurgusu renginde kenar alır. Yeni temalarla birlikte stil dosyalarının toplam boyutu büyüdü.
+ - Parolamı unuttum (kurtarma kodu): hesap açılırken 28 karakterlik bir kurtarma kodu gösterilir. Kod kopyalanabilir veya dosya olarak indirilebilir, "kaydettim" onayından sonra devam edilir. Kod penceresi bu onay olmadan kapanmaz. Sayfa onaydan önce yenilenir veya kapanırsa uygulama sonraki açılışta uyarır ve Ayarlar > Hesabım'da durum vurgulanır. Parolasını unutan kişi giriş ekranındaki Parolamı Unuttum bağlantısında kullanıcı adı, kurtarma kodu ve yeni parolayla parolasını kendisi sıfırlar: güvenlik anahtarı değişmez, eski özel mesajlar okunmaya devam eder, konuştuğu kişilerde anahtar değişti uyarısı çıkmaz ve kod kullanılınca yenisi verilir. Kod Ayarlar > Hesabım > Kurtarma Kodu bölümünden parolayla oluşturulur, yenilenir veya kaldırılır, bölüm kodun ne zaman ve hangi cihazda oluşturulduğunu gösterir. Parola değiştirilirken kod istenirse aynı anda yenilenir. Kodu olmayan hesaplara parolayla girişten sonra bir kez hatırlatma gösterilir, giriş ekranındaki "Kurtarma kodum yok" bölümü bu kişileri frekansın sahibine yönlendirir. Sahibin veya komut satırının parola sıfırlaması kurtarma kodunu da siler. Kod 16 rastgele bayttır, sunucu yalnızca koddan türetilen anahtarın scrypt karmasını ve kodla sarılmış özel anahtarı saklar. Kurtarma uçları hesap yok, kod yok ve kod yanlış durumlarında aynı yanıtı aynı maliyetle verir, deneme sayaçları girişinkilerden ayrıdır. E-posta ile sıfırlama yoktur. Yeni uçlar `POST /api/me/recovery`, `POST /api/recover/keys` ve `POST /api/recover` eklendi, `POST /api/register` ve `POST /api/me/password` isteklerine isteğe bağlı `recovery` alanı, `GET /api/state` yanıtına kişinin kendi kodunun oluşturma zamanını ve cihazını veren `recovery` alanı eklendi, yeni hata kodları `bad_recovery` ve `keys_changed`.
+-- Konuşmalarda gezinme: okunmamış mesajı olan bir yazı odası veya özel konuşma açılınca ilk okunmamış mesajın önüne Yeni mesajlar ayracı konur ve ayraç görünür alanın üst kısmına getirilir. Konuşmanın üstündeki şerit okunmamış sayısını ve ilk okunmamışın saatini gösterir, Okunmamışa Git ayraca döner, Okundu İşaretle bütün konuşmayı okur. İlk okunmamış en yeni 50 mesajın içinde değilse konuşma son okunan mesajın çevresinden açılır, daha yeni mesajlar aşağı inildikçe gelir. Okunmamış sayısı artık odaya girince değil, konuşmanın en altına inince düşer. Yukarıdayken gelen mesaj okundu sayılmaz ve sayfayı kaydırmaz, mesaj akışının altındaki kapsül "Aşağıda 1 yeni mesaj" der, basınca en alta iner. Yeni mesaj yokken iki ekrandan fazla yukarıdaysanız kapsül En Alta Git olur. İstasyonlar listesinde ve sayfasında yazı odalarıyla ses odaları arasında Özel mesajlar grubu vardır: okunmamış konuşmalar önce, en çok altı satır, fazlası Tüm Özel Mesajlar ile açılır. 1280 pikselin altında üst çubuktaki Özel Mesajlar düğmesi İstasyonlar sayfasını bu grupta açar, geniş ekranda okunmamışı olan en yeni konuşmayı, yoksa son açılan konuşmayı açar. Oda bilgisi sayfasında artık özel mesaj listesi yok, özel mesaj görünümünde Oda bilgisi düğmesi gizlenir. Sayfa yenilenince açık özel konuşma veya Arkadaşlar görünümü de geri gelir (önceden yalnızca son yazı odası hatırlanıyordu). Okundu bilgisi önceden olduğu gibi yalnızca cihazda tutulur, cihazlar arasında eşitlenmez.
++- Konuşmalarda gezinme: okunmamış mesajı olan bir yazı odası veya özel konuşma açılınca ilk okunmamış mesajın önüne Yeni mesajlar ayracı konur ve ayraç görünür alanın üst kısmına getirilir. Konuşmanın üstündeki şerit okunmamış sayısını ve ilk okunmamışın saatini gösterir, Okunmamışa Git ayraca döner, Okundu İşaretle bütün konuşmayı okur. İlk okunmamış en yeni 50 mesajın içinde değilse konuşma son okunan mesajın çevresinden açılır, daha yeni mesajlar aşağı inildikçe gelir. Okunmamış sayısı artık odaya girince değil, konuşmanın en altına inince düşer. Yukarıdayken gelen mesaj okundu sayılmaz ve sayfayı kaydırmaz, mesaj akışının altındaki kapsül "Aşağıda 1 yeni mesaj" der, basınca en alta iner. Aynı yerde beliren kısa bildirim artık altındaki düğmeye basmayı engellemez. Yeni mesaj yokken iki ekrandan fazla yukarıdaysanız kapsül En Alta Git olur. İstasyonlar listesinde ve sayfasında yazı odalarıyla ses odaları arasında Özel mesajlar grubu vardır: okunmamış konuşmalar önce, en çok altı satır, fazlası Tüm Özel Mesajlar ile açılır. 1280 pikselin altında üst çubuktaki Özel Mesajlar düğmesi İstasyonlar sayfasını bu grupta açar, geniş ekranda okunmamışı olan en yeni konuşmayı, yoksa son açılan konuşmayı açar. Oda bilgisi sayfasında artık özel mesaj listesi yok, özel mesaj görünümünde Oda bilgisi düğmesi gizlenir. Sayfa yenilenince açık özel konuşma veya Arkadaşlar görünümü de geri gelir (önceden yalnızca son yazı odası hatırlanıyordu). Okundu bilgisi önceden olduğu gibi yalnızca cihazda tutulur, cihazlar arasında eşitlenmez.
+ 
+ ### Değişiklikler
+ 
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index 14043b2..bc4435c 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -227,7 +227,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
+ | Screen sharing and camera grid | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | `body[data-cast="live"]` while the stage is open, `#cast[data-mode="cams"]` for the grid. |
+ | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | The YouTube player area (`.dj-yt`) is always at least 200x200 CSS pixels regardless of font size, and nothing is drawn on top of it. While the card is hidden or covered, the player is docked in a corner with the `.dj-dock` bar below it. |
+ | Settings | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-cards`, `.settings-theme-group`, `.settings-theme-list`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | The selected category is marked with a left line in the needle color. The theme cards form a single radio group in two groups titled Radio Themes and Accessibility. The preview strip is 2rem and the description is visible only on the selected card (on the other cards it is read through `aria-describedby`). |
+-| Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. |
++| Layers | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | On narrow screens layers open from the bottom. The short notice (`.toast`) is text only and lets clicks through to the element under it. |
+ 
+ ## State classes and JavaScript contract
+ 
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index f86e5cb..01126da 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -227,7 +227,7 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl
+ | Ekran paylaşımı ve kameralar ızgarası | `.cast-panel`, `.cast-head`, `.cast-chip`, `.cast-video`, `.cast-cams`, `.cam-tile`, `.cast-dock-toggle`, `.top-cast-chip`, `.cast-preset` | Sahne açıkken `body[data-cast="live"]`, ızgarada `#cast[data-mode="cams"]`. |
+ | Telsiz DJ | `.dj-card`, `.dj-yt`, `.dj-dock`, `.dj-wave`, `.dj-ctrl`, `.dj-vol`, `.crew-dj` | YouTube oynatıcı alanı (`.dj-yt`) yazı boyutundan bağımsız olarak her zaman en az 200x200 CSS pikselidir ve üstüne hiçbir şey bindirilmez. Kart görünmezken veya örtülürken oynatıcı köşeye sabitlenir, altında `.dj-dock` çubuğu durur. |
+ | Ayarlar | `.settings-view`, `.settings-cat`, `.settings-section`, `.settings-theme-cards`, `.settings-theme-group`, `.settings-theme-list`, `.settings-theme-card`, `.settings-switch`, `.settings-number`, `.settings-facts`, `.settings-rec` | Seçili kategori ibre renginde sol çizgiyle işaretlenir. Tema kartları tek radyo grubudur ve Telsiz Temaları ile Erişilebilirlik başlıklı iki grupta durur. Önizleme şeridi 2rem, açıklama yalnızca seçili kartta görünür (öteki kartlarda `aria-describedby` ile okunur). |
+-| Katmanlar | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | Dar ekranda katmanlar alttan açılır. |
++| Katmanlar | `.popup-menu`, `.popover`, `.modal`, `.sheet`, `.toast`, `.conn-banner` | Dar ekranda katmanlar alttan açılır. Kısa bildirim (`.toast`) yalnızca metindir, tıklamaları altındaki öğeye bırakır. |
+ 
+ ## Durum sınıfları ve JavaScript sözleşmesi
+ 
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index fe5c24b..e5d69be 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -20,7 +20,7 @@
+ // - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
+ //   inilince düşer, Okunmamışa Git ayracı geri getirir
+ // - Yukarıdayken gelen mesajda kaydırma olmaz, kapsül "Aşağıda 1 yeni mesaj" der, son okunan değişmez, kapsüle
+-//   basınca en alta inilir ve okundu sayılır
++//   basınca en alta inilir ve okundu sayılır (üstünde kısa bildirim dururken de)
+ // - Telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle (around) yüklenir, Okundu İşaretle hepsini okur, En
+ //   Yeni Mesajlara Dön son okunanın çevresine geri dönmez
+ // G9, Özel mesajlar grubu ve görünümün hatırlanması (S5, S12):
+@@ -512,6 +512,8 @@ test('yukarıdayken gelen mesaj: kaydırılmaz, kapsül "1 yeni mesaj" der ve ok
+   assert.deepEqual(capsule, { text: 'Aşağıda 1 yeni mesaj', top: 0, reach: true })
+   let v = await unreadView(page, sohbet)
+   assert.deepEqual([v.lastRead, v.unread], [before.lastRead, 1], 'yukarıdayken okundu sayılmadı')
++  // Aynı yerde duran kısa bildirim kapsüle basmayı engellemez
++  await page.evaluate(() => toast('Kapsülün üstünde kısa bildirim'))
+   await page.click('#new-below-button')
+   await page.waitForFunction((id) => !state.unread[id], sohbet)
+   v = await unreadView(page, sohbet)
+diff --git a/public/css/components.css b/public/css/components.css
+index c58cdf7..041a96f 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -944,11 +944,14 @@
+    7. Bildirim şeridi ve bağlantı şeridi
+    ========================================================= */
+ 
++/* Kısa bildirim yalnızca metindir, tıklamaları altındaki öğeye bırakır (ör. mesaj akışının altındaki yeni mesaj
++   kapsülü, 38-gezinme.js) */
+ .toast {
+   position: fixed;
+   left: 50%;
+   bottom: 6rem;
+   z-index: 100;
++  pointer-events: none;
+   max-width: 36rem;
+   padding: 0.75rem 1rem;
+   border: var(--border-width) solid var(--line-strong);
