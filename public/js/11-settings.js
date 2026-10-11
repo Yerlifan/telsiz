@@ -1265,17 +1265,20 @@ function myCoverUploadId () {
   return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
 }
 
-// Taslakta gösterilecek kapak. Kayıttan sonra sunucudaki yeni kapak çözülene kadar yerel önizleme gösterilir. Kayıt
-// yenilenene kadar profil kaydında görünen eski kapak indirilmez: değiştirilen veya kaldırılan kapak sunucuda silinmiştir.
+// Taslakta gösterilecek kapak. Kayıttan sonra kendi profil kaydım kayıttan önceki kapağı gösterdikçe kaydedilen kapağın
+// yerel önizlemesi (kaldırıldıysa kapaksız bant) gösterilir. Bunun süre sınırı yoktur: kayıt başarılı oldu, kayıtta
+// görünen eski kapak sunucuda silindi, bu yüzden kayıt ne kadar geç yenilenirse yenilensin eski kapak indirilmez ve
+// gösterilmez. Kayıt yenilenince sunucudaki yeni kapak çözülene kadar, yenilendiğinin görüldüğü andan (p.at) başlayarak
+// en çok AVATAR_PENDING_MS yerel önizleme gösterilir.
 function draftCoverUrl (d) {
   if (d.coverMode === 'new') return d.coverUrl
   if (d.coverMode === 'removed') return ''
   const p = d.coverPending
-  const stillOld = Boolean(p) && myCoverUploadId() === p.from
-  const serverUrl = stillOld ? null : safeCall(() => coverUrlOf(state.me.id, true), null)
+  if (p && myCoverUploadId() === p.from) return p.url
+  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
   if (p) {
-    const waiting = p.url && !serverUrl
-    if ((stillOld || waiting) && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
+    if (!p.at) p.at = Date.now()
+    if (p.url && !serverUrl && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
     d.coverPending = null
     revokeBlobLater(p.url)
   }
@@ -1718,7 +1721,8 @@ async function saveProfileDraft (d, ui) {
   }
   if (coverMode !== 'server') {
     if (d.coverPending) revokeBlobLater(d.coverPending.url)
-    d.coverPending = { from: coverBefore, url: coverMode === 'new' ? coverUrl : '', at: Date.now() }
+    // at: kendi profil kaydımın yenilendiğinin görüldüğü an, draftCoverUrl yazar
+    d.coverPending = { from: coverBefore, url: coverMode === 'new' ? coverUrl : '', at: 0 }
   }
   if (!coverKept) {
     d.coverMode = 'server'

@@ -9,8 +9,9 @@
 // kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
 // sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
 // Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma, kayıt sürerken hazırlanması
-// biten kapak, önceki kaydın kapağı kayda yansımadan yapılan kayıtta bekleyen önizlemenin kalması, kapak inince profil
-// kartında yalnızca bandın, Hesabım'da yalnızca önizleme kartının yenilenmesi de sınanır.
+// biten kapak, önceki kaydın kapağı kayda yansımadan yapılan kayıtta bekleyen önizlemenin kalması, kendi profil kaydım geç
+// yenilense de sunucuda silinen eski kapağın istenmemesi, kapak inince profil kartında yalnızca bandın, Hesabım'da yalnızca
+// önizleme kartının yenilenmesi de sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -1691,6 +1692,81 @@ test('kendi profil kaydım yenilenmeden yapılan ikinci kayıt kapağa dokunmazs
   run('updateSettingsPage()')
   assert.strictEqual(coverImg('set-profile-card').src, 'blob:sunucu-kapak')
   assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+})
+
+test('kendi profil kaydım kayıttan 20 saniye sonra da yenilenmediyse önizleme yerel kapakta kalır, sunucuda silinen eski kapak istenmez ve gösterilmez', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  const previews = () => ['set-cover-preview', 'set-profile-card'].map((id) => (coverImg(id) ? coverImg(id).src : null))
+  // Kendi kaydımda eski kapak X var ve önbellekte çözülmüş durumda. coverUrlOf indirme isteğini (load) kaydeder.
+  const oldCover = 'c'.repeat(32)
+  const newCover = 'e'.repeat(32)
+  sandbox.__cover = oldCover
+  sandbox.__loads = []
+  sandbox.__saved = []
+  sandbox.__now = 1000000
+  run('Date.now = function () { return __now }')
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: __cover ? { u: __cover } : null } } : null }")
+  sandbox.__decoded = false
+  run("coverUrlOf = function (id, load) { if (load) __loads.push(__cover); if (__cover === 'e'.repeat(32)) return __decoded ? 'blob:sunucu-kapak' : null; return __cover ? 'blob:eski-kapak' : null }")
+  run('wait = function () { return Promise.resolve() }')
+  run('makeCoverPreview = function () { return Promise.resolve({ url: "blob:yeni-kapak" }) }')
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  run("openSettings('profile', null)")
+  assert.deepStrictEqual(previews(), ['blob:eski-kapak', 'blob:eski-kapak'])
+  // Yeni kapak seçilip kaydedilir. Kayıttan sonraki profil yenilemesi düşer, kaydım X'i göstermeye devam eder.
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  // Bekleme süresi (AVATAR_PENDING_MS) dolar. İki yenileme: bekleyen önizleme bırakılsaydı ayar izleyicisi imza değiştiği
+  // için sayfayı yeniden çizerdi.
+  sandbox.__now += run('AVATAR_PENDING_MS') + 1
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), ['blob:yeni-kapak', 'blob:yeni-kapak'], 'kayıt başarılı, yerel önizleme kalır')
+  assert.deepStrictEqual(sandbox.__loads, [], 'sunucuda silinen eski kapak istenmez')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:yeni-kapak')
+  // Kayıt yeni kapakla gelir: yeni kapak indirilir, çözülene kadar yerel önizleme kalır (bekleme kaydın yenilendiği
+  // andan sayılır), çözülünce sunucudaki kapak gösterilir ve bekleme biter
+  sandbox.__cover = newCover
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(sandbox.__loads, [newCover])
+  assert.deepStrictEqual(previews(), ['blob:yeni-kapak', 'blob:yeni-kapak'])
+  sandbox.__decoded = true
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), ['blob:sunucu-kapak', 'blob:sunucu-kapak'])
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+
+  // Kapak kaldırılıp kaydedilir, yenileme yine geç kalır: süre dolsa da sunucuda silinen kapak istenmez ve gösterilmez
+  byId('set-cover-remove').click()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[1].coverFile, null)
+  sandbox.__now += run('AVATAR_PENDING_MS') + 1
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), [null, null])
+  assert.deepStrictEqual(sandbox.__loads, [], 'kaldırılan kapak istenmez')
+  // Kayıt kapaksız gelince bekleme biter
+  sandbox.__cover = null
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), [null, null])
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+  assert.strictEqual(byId('set-cover-remove').disabled, true)
 })
 
 test('Hesabım: kapak inince yalnızca önizleme kartı yenilenir, Profili Düzenle düğmesi ve odağı yerinde kalır', () => {
