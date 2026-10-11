@@ -414,12 +414,6 @@ test('1100x800: oynatıcı sağ üstte durur, Taşı köşeleri dolaşır, hiçb
   await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
 })
 
-test('fareyle sürüklenen oynatıcı en yakın köşeye oturur, köşe yeniden yüklemeden sonra korunur', async () => {
-  const { B } = W
-  await B.setViewportSize({ width: 1100, height: 800 })
-  await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
-  const title = await B.evaluate(() => {
-    const r = document.querySelector('#dj .dj-dock-title').getBoundingClientRect()
 // Ayarlar'ın bir sayfasındaki her denetim ortasına kaydırılınca üstünde başka öğe yok (köşedeki oynatıcı
 // örtmüyor). Ulaşılamayan denetimlerin kimlikleri döner.
 function unreachableSettings (page) {
@@ -514,6 +508,12 @@ test('orta genişlikte oynatıcı Oda bilgisi düğmesini ve ses düğmelerini �
   await fakePlaying(A, 'kısa pencereden sonra çalıyor')
 })
 
+test('fareyle sürüklenen oynatıcı en yakın köşeye oturur, köşe yeniden yüklemeden sonra korunur', async () => {
+  const { B } = W
+  await B.setViewportSize({ width: 1100, height: 800 })
+  await B.waitForFunction(() => document.getElementById('dj').classList.contains('is-dock-only'))
+  const title = await B.evaluate(() => {
+    const r = document.querySelector('#dj .dj-dock-title').getBoundingClientRect()
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
   })
   await B.mouse.move(title.x, title.y)

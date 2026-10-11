@@ -1348,7 +1348,6 @@ function djDockBoxes (nodes) {
   return out
 }
 
-// Üst köşelerin sınırı: üst çubuk ve frekans bandının altı
 // Alt köşedeki kutunun üstüne çıktığı öğeler: yazma alanı ve telsiz kartı. Ana görünümü bir katman örtüyorsa
 // bunlar görünmez, oynatıcı ekranın köşesindedir.
 function djDockObstacles () {
@@ -1364,6 +1363,7 @@ function djDockControls () {
   return djDockBoxes([byId('composer')].concat(buttons))
 }
 
+// Üst köşelerin sınırı: üst çubuk ve frekans bandının altı
 function djDockTopLimit () {
   let limit = 0
   const nodes = [byId('top'), el.band || byId('band')]
