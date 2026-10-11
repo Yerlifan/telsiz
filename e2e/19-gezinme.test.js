@@ -16,6 +16,7 @@
 // - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
 // - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
 // - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
+// - Kaydı olmayan katman (1440 durum menüsü, 360 emoji seçici) açıkken geri tuşu yalnızca onu kapatır (inceleme düzeltmesi)
 // G9, okunmamış ayracı, şerit ve kapsül (S3, S4):
 // - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
 //   inilince düşer, Okunmamışa Git ayracı geri getirir
@@ -420,6 +421,34 @@ test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfada
   await waitConversation(page, 'channel', foto)
   await navIdle(page)
   assert.deepEqual(await historyNow(page), { view: 'channel', id: String(foto), d: base.d + 1, href: base.href })
+  await goBack(page)
+  await waitConversation(page, 'channel', genel)
+  await setWidth(page, 1440)
+})
+
+test('geri tuşu: kaydı olmayan katman açıkken (durum menüsü, telefonda emoji seçici) yalnızca katman kapanır, konuşma değişmez', async () => {
+  const page = W.deniz
+  const genel = W.w.room('genel').id
+  const oyun = W.w.room('oyun-gecesi').id
+  await setWidth(page, 1440)
+  await openRoomRow(page, genel)
+  await openRoomRow(page, oyun)
+  await navIdle(page)
+  const base = await historyNow(page)
+  await page.click('#me-button')
+  await page.waitForFunction(() => Boolean(findLayer('status-menu')))
+  await goBack(page)
+  await page.waitForFunction(() => !findLayer('status-menu'))
+  await waitConversation(page, 'channel', oyun)
+  assert.deepEqual(await historyNow(page), base, 'geçmiş eski yerinde')
+  await setWidth(page, 360)
+  await page.click('#btn-emoji')
+  await page.waitForSelector('#emoji-picker:not([hidden])')
+  await goBack(page)
+  await page.waitForSelector('#emoji-picker', { state: 'hidden' })
+  await waitConversation(page, 'channel', oyun)
+  assert.deepEqual(await historyNow(page), base)
+  // Katman kalmayınca geri tuşu önceki konuşmaya döner
   await goBack(page)
   await waitConversation(page, 'channel', genel)
   await setWidth(page, 1440)

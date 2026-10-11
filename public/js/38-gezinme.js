@@ -8,9 +8,11 @@
 // bölümü anahtar ve davet gibi gizli veriler taşıyabilir. Sayfalar, arama, ayarlar, resim görüntüleyici ve profil
 // kartı her genişlikte kendi kaydını ekler: { telsiz: { v: 1, u, d, overlay } }. Katman başka yoldan (Esc, Kapat,
 // dışarı tıklama) kapanınca kaydı history.go ile geri alınır. Geri tuşu önce açık katmanı kapatır, katman yoksa
-// önceki konuşmaya döner (selectChannel, showDm, showHome { fromHistory: true } ile). Kayıttaki kullanıcı
-// kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır. Kök kayıttan geri basılınca tarayıcı
-// uygulamadan çıkar, tuzak kurulmaz. d kaydın kökten uzaklığıdır, ileri ve geri yönü bununla ayrılır.
+// önceki konuşmaya döner (selectChannel, showDm, showHome { fromHistory: true } ile). Kaydı olmayan katman (menü,
+// emoji seçici, kamera büyütme, onay penceresi) en üstteyse geri tuşu yalnızca onu kapatır ve geçmişi eski yerine
+// döndürür. Kayıttaki kullanıcı kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır. Kök kayıttan geri
+// basılınca tarayıcı uygulamadan çıkar, tuzak kurulmaz. d kaydın kökten uzaklığıdır, ileri ve geri yönü bununla
+// ayrılır. Oturum kapanınca (03-auth.js resetAppState) geçmiş kök kayda geri sarılır.
 //
 // Geçmiş işlemleri (pushState, replaceState, go) bir kuyrukta sırayla yapılır: history.go zaman uyumsuzdur, kendi
 // popstate olayı gelene kadar sonraki işlemler bekler. Katman ve konuşma değişiklikleri aynı görev içinde
@@ -298,6 +300,19 @@ function navOnPopState (e) {
     }
     return
   }
+  // Geçmişe yazılmayan katman (menü, emoji seçici, kamera büyütme, onay penceresi) en üstteyse geri ve ileri tuşu
+  // yalnızca onu ve üstündeki yazılmayan katmanları kapatır, geçmiş eski yerine döner, konuşma değişmez
+  const untracked = navUntrackedTop()
+  if (untracked.length) {
+    untracked.forEach((layer) => {
+      closeLayer(layer, true)
+    })
+    if (found.d !== top) {
+      navState.ops.push({ kind: 'go', delta: top - found.d })
+      navRun()
+    }
+    return
+  }
   const stack = navState.stack
   if (found.d > top) {
     // İleri: aradaki bilinmeyen kayıtlar açık konuşmanın kopyası sayılır
@@ -312,9 +327,18 @@ function navOnPopState (e) {
   if (found.entry.overlay && !findLayer(found.entry.overlay)) navQueueGo(-1)
   const ci = navConvIndex()
   const keep = stack.slice(ci + 1).map((entry) => entry.overlay)
-  layers.slice().reverse().forEach((layer) => {
-    if (keep.indexOf(layer.name) === -1) closeLayer(layer, true)
+  // Kaydı geride kalan en alttaki katmandan yukarısı kapanır. Altında kalan yazılmayan katman (ör. kamera büyütme
+  // üstünde açılan profil kartı kapanınca kamera büyütme) açık kalır, sonraki geri basışla kapanır.
+  const open = layers.slice()
+  let cut = -1
+  open.forEach((layer, i) => {
+    if (cut === -1 && navIsOverlay(layer.name) && keep.indexOf(layer.name) === -1) cut = i
   })
+  if (cut !== -1) {
+    open.slice(cut).reverse().forEach((layer) => {
+      if (!navIsOverlay(layer.name) || keep.indexOf(layer.name) === -1) closeLayer(layer, true)
+    })
+  }
   const conv = stack[ci]
   if (conv && !navSameConv(conv, navCurrentConv()) && !navRestore(conv)) {
     // Konuşma artık yok (oda silindi, özel konuşma kapandı): kayıt açık konuşmaya çevrilir
@@ -322,6 +346,17 @@ function navOnPopState (e) {
     if (ci === stack.length - 1) navQueueReplace(stack[ci])
   }
   navRun()
+}
+
+// En üstten başlayarak geçmişe yazılmayan açık katmanlar (ilk yazılan katmana kadar)
+function navUntrackedTop () {
+  const out = []
+  let i = layers.length - 1
+  while (i >= 0 && !navIsOverlay(layers[i].name)) {
+    out.push(layers[i])
+    i -= 1
+  }
+  return out
 }
 
 function navRestore (conv) {
