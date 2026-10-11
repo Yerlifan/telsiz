@@ -1,0 +1,244 @@
+From 68bbda34c6b6535dd5e2f86c569964fd8081dc32 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 07:12:41 +0000
+Subject: [PATCH 48/49] =?UTF-8?q?G5:=20Testler:=20kal=C4=B1c=C4=B1=20?=
+ =?UTF-8?q?=C3=A7er=C3=A7evede=20ikinci=20par=C3=A7a,=20iki=20istemcinin?=
+ =?UTF-8?q?=20e=C5=9Fitli=C4=9Fi,=20r=C4=B1za=20ve=20oda=20de=C4=9Fi=C5=9F?=
+ =?UTF-8?q?imi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+e2e/25-dj-senkron: sonraki YouTube parçası aynı çerçevede hazırlanır (sekmede açılan
+sahte oynatıcı sayısı 1 kalır, çerçeve yeniden yüklenmez), iki istemci yine en çok
+250 ms farkla başlar, parçanın adı ve süresi yeni videodan gelir. Rıza geri alınınca
+çerçeve kalkar, yeniden verilince yeni çerçeve kurulur. Sahte oynatıcının çerçevesi
+adrese göre değil o anki videosuna göre bulunur, ses başlangıçları video kimliğiyle
+kaydedilir.
+
+test/music.test.js: başka bir ses odasına geçince çerçeve kapanır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/25-dj-senkron.test.js | 110 ++++++++++++++++++++++++++++++--------
+ test/music.test.js        |  25 +++++++++
+ 2 files changed, 113 insertions(+), 22 deletions(-)
+
+diff --git a/e2e/25-dj-senkron.test.js b/e2e/25-dj-senkron.test.js
+index 604afbf..b9c76b6 100644
+--- a/e2e/25-dj-senkron.test.js
++++ b/e2e/25-dj-senkron.test.js
+@@ -10,7 +10,10 @@
+ // parçayı izler ve gizlilik ayarı kapalıyken boşalır. Kilit ekranının ve medya tuşlarının Duraklat ve Oynat
+ // işleyicileri yalnızca bu cihazı bekletir (oda çalmaya devam eder), köşedeki oynatıcının çubuğu bekletmeyi
+ // gösterir ve düğmesi odayı duraklatmadan bekletmeyi kaldırır, bekletme ses odasından çıkınca kalkar.
+-// Kendiliğinden biten parçanın adı karttaki son işlem satırında ve Bildirimler kaydında kalır.
++// Kendiliğinden biten parçanın adı karttaki son işlem satırında ve Bildirimler kaydında kalır. Kalıcı çerçeve
++// (istek 13, ikinci aşama): sonraki YouTube parçası aynı çerçevede hazırlanır (yeni çerçeve kurulmaz, sekmede
++// açılan sahte oynatıcı sayısı 1 kalır), iki istemci yine en çok 250 ms farkla başlar, parçanın adı yeni videodan
++// gelir. Rıza geri alınınca çerçeve kalkar, yeniden verilince yeni çerçeve kurulur.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -18,9 +21,10 @@ const fs = require('node:fs')
+ const path = require('node:path')
+ const h = require('./yardimci')
+ 
+-// Sahte oynatıcıya sesin başladığı anları kaydeden ek (aynı makinedeki iki sayfa aynı saati okur)
++// Sahte oynatıcıya sesin başladığı anları video kimliğiyle kaydeden ek (aynı makinedeki iki sayfa aynı saati
++// okur, kalıcı çerçevede aynı belge birden çok videoyu çalar)
+ const FAKE_JS = fs.readFileSync(path.join(__dirname, 'sahte-youtube.js'), 'utf8') +
+-  '\n;(function () { var F = window.FAKE; F.playTimes = []; F.audio.addEventListener("playing", function () { if (!F.firstPlayAt) F.firstPlayAt = Date.now(); F.playTimes.push(Date.now()) }) })()\n'
++  '\n;(function () { var F = window.FAKE; F.playLog = []; F.audio.addEventListener("playing", function () { F.playLog.push({ id: F.videoId, at: Date.now() }) }) })()\n'
+ const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleapis\.com)(:\d+)?\//i
+ const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
+ const CONSENT = { 'telsiz.djYoutubeConsent': '1' }
+@@ -46,36 +50,41 @@ function routeYouTube () {
+   }
+ }
+ 
+-function fakeFrame (page, videoId) {
+-  return page.frames().find((f) => f.url().startsWith('https://www.youtube-nocookie.com/embed/' + videoId))
+-}
+-
+-// Sahte oynatıcının sesi ilk başladığında sayfanın saatiyle o an (ms), başlamadıysa null
+-async function firstPlay (page, videoId, label) {
+-  return h.until(async () => {
+-    const frame = fakeFrame(page, videoId)
+-    if (!frame) return null
++// Sahte oynatıcısında videoId hazırlanmış çerçeve. Kalıcı çerçevenin adresi ilk videonun kimliğini taşır, bu
++// yüzden çerçeve adresine göre değil sahte oynatıcının o anki videosuna göre bulunur.
++async function fakeFrame (page, videoId) {
++  for (const f of page.frames()) {
++    if (!f.url().startsWith('https://www.youtube-nocookie.com/embed/')) continue
+     try {
+-      return await frame.evaluate(() => window.FAKE.firstPlayAt || null)
++      if (await f.evaluate(() => (window.FAKE ? window.FAKE.videoId : null)) === videoId) return f
+     } catch (err) {
+-      return null
++      // Çerçeve kapanıyor
+     }
+-  }, h.LONG, label)
++  }
++  return null
+ }
+ 
+-// Sahte oynatıcının sesi n. kez başladığında sayfanın saatiyle o an (ms)
++// videoId videosunun sesi n. kez başladığında sayfanın saatiyle o an (ms)
+ async function nthPlay (page, videoId, n, label) {
+   return h.until(async () => {
+-    const frame = fakeFrame(page, videoId)
++    const frame = await fakeFrame(page, videoId)
+     if (!frame) return null
+     try {
+-      return await frame.evaluate((i) => window.FAKE.playTimes[i] || null, n - 1)
++      return await frame.evaluate((a) => {
++        const list = window.FAKE.playLog.filter((x) => x.id === a.id)
++        return list.length >= a.n ? list[a.n - 1].at : null
++      }, { id: videoId, n })
+     } catch (err) {
+       return null
+     }
+   }, h.LONG, label)
+ }
+ 
++// videoId videosunun sesi ilk başladığında sayfanın saatiyle o an (ms)
++function firstPlay (page, videoId, label) {
++  return nthPlay(page, videoId, 1, label)
++}
++
+ async function addTrack (page, videoId) {
+   await page.fill('#composer-input', '/çal https://youtu.be/' + videoId)
+   await page.keyboard.press('Enter')
+@@ -84,7 +93,7 @@ async function addTrack (page, videoId) {
+ // Sahte oynatıcı çalıyor (videoId parçası) veya duraklatıldı
+ async function fakePaused (page, videoId, paused, label) {
+   await h.until(async () => {
+-    const frame = fakeFrame(page, videoId)
++    const frame = await fakeFrame(page, videoId)
+     if (!frame) return false
+     try {
+       return await frame.evaluate((p) => Boolean(window.FAKE) && window.FAKE.audio.paused === p && (p || window.FAKE.state === 1), paused)
+@@ -141,7 +150,7 @@ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte s
+   await B.click('#dj .dj-toggle')
+   for (const page of [A, B]) {
+     await h.until(async () => {
+-      const frame = fakeFrame(page, 'D120aaaaaaa')
++      const frame = await fakeFrame(page, 'D120aaaaaaa')
+       if (!frame) return false
+       try {
+         return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.audio.paused)
+@@ -156,9 +165,66 @@ test('devam ettirme de başlangıç payıyla çapalanır, iki istemci birlikte s
+   assert.ok(Math.abs(a - b) <= SYNC_MS, 'sürdürme farkı ' + (b - a) + ' ms')
+ })
+ 
++test('kalıcı çerçeve: sonraki YouTube parçası aynı çerçevede hazırlanır, iki istemci yine 250 ms içinde başlar, rıza geri alınınca çerçeve kalkar', async () => {
++  const { A, B } = W
++  const VID1 = 'D120aaaaaaa'
++  const VID2 = 'D120ccccccc'
++  // Çerçeveler işaretlenir (yeniden yüklenen veya yeni kurulan çerçevede işaret olmaz), oynatıcı alanına
++  // eklenen çerçeveler sayılır
++  for (const page of [A, B]) {
++    await fakePaused(page, VID1, false, 'ilk parça çalıyor')
++    await (await fakeFrame(page, VID1)).evaluate(() => {
++      window.e2eMark = 'kalici'
++    })
++    await page.evaluate(() => {
++      window.e2eFramesAdded = 0
++      new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {
++        if (n.nodeName === 'IFRAME') window.e2eFramesAdded++
++      }))).observe(document.querySelector('#dj .dj-yt'), { childList: true, subtree: true })
++    })
++  }
++  await addTrack(A, VID2)
++  await A.waitForFunction((v) => dj.engine.queue().queue.some((t) => t.videoId === v), VID2, { timeout: h.LONG })
++  await A.evaluate(() => dj.engine.skip())
++  const a = await firstPlay(A, VID2, 'A ikinci parçayı başlattı')
++  const b = await firstPlay(B, VID2, 'B ikinci parçayı başlattı')
++  assert.ok(Math.abs(a - b) <= SYNC_MS, 'ikinci parçada başlangıç farkı ' + (b - a) + ' ms')
++  for (const page of [A, B]) {
++    const frame = await fakeFrame(page, VID2)
++    const info = await frame.evaluate(() => ({
++      mark: window.e2eMark || null,
++      total: window.FAKE.framesTotal,
++      switches: window.FAKE.switches.slice(),
++      cue: window.FAKE.received.indexOf('cueVideoById') !== -1,
++      path: location.pathname
++    }))
++    assert.deepEqual(info, { mark: 'kalici', total: 1, switches: [VID2], cue: true, path: '/embed/' + VID1 })
++    assert.deepEqual(await page.evaluate(() => ({
++      frames: document.querySelectorAll('#dj .dj-yt iframe').length,
++      added: window.e2eFramesAdded
++    })), { frames: 1, added: 0 })
++    // Parçanın adı ve süresi yeni videodan gelir (önceki videonun bilgisi yeni parçaya yazılmaz)
++    await page.waitForFunction((v) => {
++      const s = dj.engine.snapshot().session
++      return s && s.current && s.current.videoId === v && s.current.title === 'Fake video ' + v && s.durationMs === 120000
++    }, VID2, { timeout: h.LONG })
++  }
++  // Rıza geri alınınca çerçeve kalkar, oda çalmaya devam eder
++  await B.evaluate(() => dj.engine.setConsent(false))
++  await B.waitForFunction(() => document.querySelectorAll('#dj iframe').length === 0, null, { timeout: h.LONG })
++  await h.sleep(1000)
++  assert.equal(await A.evaluate(() => dj.engine.snapshot().session.playing), true, 'oda çalmaya devam ediyor')
++  await fakePaused(A, VID2, false, 'A çalmaya devam ediyor')
++  // Yeniden izin verince yeni çerçeve kurulur ve parça ortak konumdan çalar
++  await B.evaluate(() => dj.engine.setConsent(true))
++  await fakePaused(B, VID2, false, 'izin verince B yeniden dinliyor')
++  const again = await (await fakeFrame(B, VID2)).evaluate(() => ({ mark: window.e2eMark || null, total: window.FAKE.framesTotal, path: location.pathname }))
++  assert.deepEqual(again, { mark: null, total: 2, path: '/embed/' + VID2 })
++})
++
+ test('kilit ekranı ve medya tuşları yalnızca bu cihazı bekletir, uyarıdan ve Oynat ile sürer, bekletme odadan çıkınca kalkar', async () => {
+   const { A, B } = W
+-  const VID = 'D120aaaaaaa'
++  const VID = 'D120ccccccc'
+   await fakePaused(B, VID, false, 'B çalıyor')
+   // İşleyiciler kaydedilirken yakalanır: gizlilik ayarı kapatılıp açılınca işleyiciler yeniden kaydedilir
+   await B.evaluate(() => localStorage.setItem('telsiz.djMediaSession', '0'))
+@@ -338,7 +404,7 @@ test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında
+   await C.click('#radio-tuned .radio-dj-consent-accept')
+   await C.waitForFunction(() => localStorage.getItem('telsiz.djYoutubeConsent') === '1' && document.querySelector('#radio-tuned .radio-dj-consent').hidden, null, { timeout: h.LONG })
+   await h.until(async () => {
+-    const frame = fakeFrame(C, 'D120bbbbbbb')
++    const frame = await fakeFrame(C, 'D120bbbbbbb')
+     if (!frame) return false
+     try {
+       return await frame.evaluate(() => Boolean(window.FAKE) && window.FAKE.state === 1 && !window.FAKE.audio.paused)
+diff --git a/test/music.test.js b/test/music.test.js
+index 26b61b2..ae8c393 100644
+--- a/test/music.test.js
++++ b/test/music.test.js
+@@ -1969,6 +1969,31 @@ describe('motor: kalıcı YouTube çerçevesi (istek 13, ikinci aşama)', () =>
+     await timers.advance(100)
+   })
+ 
++  test('başka bir ses odasına geçince çerçeve kapanır, o odanın parçası yeni çerçevede çalar', async () => {
++    const { timers, server, clients } = await setup(persistent)
++    const [a, b] = clients
++    allowYouTube(clients)
++    server.join(OTHER_ROOM, 3)
++    const c = makeClient(server, timers, 3, { yt: { persistent: true } })
++    c.engine.setVoiceRoom(OTHER_ROOM)
++    c.sync()
++    await a.engine.addYouTube(VID, { durationMs: 200000 })
++    await c.engine.addYouTube(VID2, { durationMs: 200000 })
++    b.sync()
++    const p = b.ytPlayers[0]
++    p.becomeReady()
++    await timers.advance(M.LIMITS.startLeadYouTubeMs + 200)
++    assert.equal(p.state.playing, true)
++    server.leave(ROOM, 2)
++    server.join(OTHER_ROOM, 2)
++    b.engine.setVoiceRoom(OTHER_ROOM)
++    b.sync()
++    assert.equal(p.state.destroyed, true)
++    assert.ok(!p.state.commands.some((x) => x.startsWith('load:')))
++    assert.equal(b.ytPlayers.length, 2)
++    assert.equal(b.ytPlayers[1].cfg.videoId, VID2)
++  })
++
+   test('hata bildiren veya henüz hazır olmayan çerçeve yeniden kullanılmaz, load desteklemeyen bağdaştırıcıda her parça yeni çerçeve kurar', async () => {
+     const { timers, clients } = await setup(persistent)
+     const [a, b] = clients
