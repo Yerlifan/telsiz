@@ -2,7 +2,8 @@
 
 // Telsiz DJ: iki kullanıcı ses odasında. /çal ile YouTube parçası eklenir, rıza kartı iki istemcide görünür ve
 // rızadan önce YouTube alan adlarına hiçbir istek gitmez. Parça duyurusu parçanın adını taşır (ad sonradan
-// gelirse ekleyenin duyurusu düzenlenir), "DJ'de çal" da dosyanın yazı odasına adıyla duyurulur. YouTube gömmesi page.route ile yerel sahte oynatıcıya
+// gelirse ekleyenin duyurusu düzenlenir), "DJ'de çal" da dosyanın yazı odasına adıyla duyurulur, ses odasındaki
+// diğer kişinin Bildirimler listesine kayıt düşer. YouTube gömmesi page.route ile yerel sahte oynatıcıya
 // (sahte-youtube.js) yönlendirilir, gerçek YouTube'a erişilmez. Duraklat ve devam iki istemcide eşitlenir,
 // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
@@ -240,6 +241,11 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
     assert.deepEqual(notice, { author: me, edited: false, link: 'https://www.youtube.com/watch?v=D120aaaaaaa' })
   }
   assert.equal(await B.textContent('#dj .dj-last'), me + ' kuyruğa ekledi: Fake video D120aaaaaaa')
+  // Bildirimler listesinde de kayıt durur, parçanın adı sonradan gelince güncellenir
+  await B.waitForFunction((name) => {
+    const n = document.querySelector('#activity:not([hidden]) .activity-item.is-dj .activity-text')
+    return n && n.textContent === name + ' Telsiz DJ kuyruğuna ekledi: Fake video D120aaaaaaa'
+  }, me, { timeout: h.LONG })
 })
 
 test('duraklat ve devam iki istemcide eşitlenir', async () => {
@@ -566,6 +572,7 @@ test('mesajdaki ses dosyası DJ\'de çal ile kuyruğa eklenir, atlayınca iki is
     return { author: msg.querySelector('.msg-author').textContent, link: Boolean(msg.querySelector('.msg-dj-link')) }
   })
   assert.deepEqual(fileNotice, { author: 'Ece', link: false })
+  await A.waitForFunction(() => Array.from(document.querySelectorAll('#activity .activity-item.is-dj .activity-text')).some((n) => n.textContent === 'Ece Telsiz DJ kuyruğuna ekledi: lobi-temasi.wav'), null, { timeout: h.LONG })
   await A.click('#dj .dj-skip')
   for (const page of [A, B]) {
     await page.waitForFunction(() => {

@@ -131,6 +131,7 @@ function djEngine () {
     dj.snap = snapshot
     djRenderNow()
     djCheckTitles()
+    if (typeof activityDjRefresh === 'function') activityDjRefresh()
   })
   // Parça değişti: olay oynatıcı kurulmadan önce gelir, oynatıcı alanı önceden görünür olur
   engine.on('track', () => {
@@ -1120,6 +1121,8 @@ function djOnNotice (n) {
   const title = n.title || ''
   dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
   djRenderSoon()
+  // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının eklediği parça
+  if (n.op === 'add' && typeof activityDj === 'function') activityDj(by, n.room, trackId, title)
 }
 
 // ------------------------------------------------------------------ yerleşim ve sayfa
