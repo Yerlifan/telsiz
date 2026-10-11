@@ -949,6 +949,7 @@ describe('motor: eşitleme, CAS ve komutlar', () => {
     assert.ok(sb.session.startsInMs > 0 && sb.session.startsInMs <= M.LIMITS.startLeadYouTubeMs)
     assert.equal(b.count('track'), 1)
     assert.equal(b.last('notice').op, 'add')
+    assert.ok(Math.abs(b.last('notice').at - server.now()) <= 5, 'bildirim işlemin sunucu zamanını taşır')
     assert.equal(a.count('notice'), 0)
     await timers.advance(10)
     assert.ok(timers.pending() > 0)

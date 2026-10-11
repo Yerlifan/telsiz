@@ -34,6 +34,8 @@ const DJ_TICK_MS = 500
 // düzenlenir.
 const DJ_TITLE_WAIT_MS = 8000
 const DJ_TITLE_EDIT_MS = 10 * 60 * 1000
+// Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
+const DJ_NOTICE_FRESH_MS = 15000
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
 const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
@@ -1121,8 +1123,11 @@ function djOnNotice (n) {
   const title = n.title || ''
   dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, title) })
   djRenderSoon()
-  // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının eklediği parça
-  if (n.op === 'add' && typeof activityDj === 'function') activityDj(by, n.room, trackId, title)
+  // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının az önce eklediği parça. Odaya katılınca
+  // veya sayfa yenilenince gelen eski işlemin bildirimi listeye yazılmaz.
+  const engine = djEngine()
+  const fresh = !n.at || !engine || engine.serverNow() - n.at < DJ_NOTICE_FRESH_MS
+  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, title)
 }
 
 // ------------------------------------------------------------------ yerleşim ve sayfa
@@ -1288,6 +1293,7 @@ function dockDrag (box, handle, opts) {
   }
   handle.addEventListener('pointerup', end)
   handle.addEventListener('pointercancel', end)
+  handle.addEventListener('lostpointercapture', end)
 }
 
 function djRemPx () {

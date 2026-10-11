@@ -1526,7 +1526,8 @@ var TelsizMusic = (function (root) {
         // veya süresini dolduran kendiliğinden bir yazımdır, bildirilmez.
         if (rec && rec.status === 'ok' && st && st.last && st.last.op !== 'annotate' && (!prev || prev.v !== rec.v) &&
           !sameId(st.last.by, me()) && (!prevState || prevState.sid !== st.sid || st.seq > prevState.seq)) {
-          emit('notice', { room: room, op: st.last.op, by: st.last.by, title: st.last.title || '', code: st.last.code || null, trackId: st.last.id || null })
+          // at: işlemin sunucuda kabul zamanı (odaya sonradan katılan, eski bir işlemin bildirimini ayırt edebilir)
+          emit('notice', { room: room, op: st.last.op, by: st.last.by, title: st.last.title || '', code: st.last.code || null, trackId: st.last.id || null, at: rec.at || 0 })
         }
         maybePurge()
       }
