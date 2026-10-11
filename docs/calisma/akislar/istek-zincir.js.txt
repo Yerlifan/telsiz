@@ -3,7 +3,7 @@ export const meta = {
   description: 'Bir istek zincirinin kalan gruplarını sırayla uygula, bağımsız incele ve düzelt (args.zincir A ya da B)',
   phases: [
     { title: 'Zincir A', detail: 'G14, G9, G10, G13 (/home/user/wt/a)' },
-    { title: 'Zincir B', detail: 'G4 tamamlama, G5 inceleme, G8, G11, G16, G15 (/home/user/wt/b)' }
+    { title: 'Zincir B', detail: 'G4 tamamlama, G5 inceleme, G8, G11, G16 (/home/user/wt/b, G15 Android kullanıcı kararıyla ertelendi)' }
   ]
 }
 
@@ -103,7 +103,7 @@ const GRUPLAR = {
   G13: { ad: 'Özgün tasarım, Telsiz yönü (istek 10)', alan: 'tasarim', ek: `Planın bahsettiği telsiz-yonu-prototip.css dosyası ${TASARIM}telsiz-yonu-prototip.css.txt olarak saklandı.` },
   G14: { ad: 'Kurtarma kodu, şifremi unuttum (istek 14)', alan: 'parola' },
   G15: { ad: 'Android uygulaması (istek 1)', alan: 'android', ek: 'Android SDK bu makinede indirilemez, APK ve AAB yalnızca GitHub Actions üzerinde derlenir. Saf Kotlin ya da JVM çekirdeğini burada sınayabildiğin kadar sına. GitHub Actions iş akışı PR üzerinde kırmızıya düşerse birleştirmeyi engelleyeceği için iş akışını dikkatle yaz ve sonuçta derlemenin burada doğrulanamadığını açıkça belirt. İmza anahtarı, Play Console hesabı ve gizli değerler kullanıcıya kalır, depoya hiçbir gizli değer yazma.' },
-  G16: { ad: 'İçerik şikâyeti (Play önkoşulu)', alan: 'android' }
+  G16: { ad: 'İçerik şikâyeti (Play önkoşulu)', alan: 'android', ek: 'Kullanıcı G15 Android uygulamasını şimdilik erteledi. G16 Android koduna bağlı değildir, web ve masaüstü istemcisi için eksiksiz uygula. Android klasörü, Play beyanı ya da Android köprüsüyle ilgili hiçbir şey ekleme.' }
 }
 
 function implPrompt (id, wt, hazirlik) {
@@ -196,7 +196,7 @@ ${KURALLAR}
 Sonuç: ne bulduğun, ne commit'lediğin, test sonuçları.`, { label: 'G4 tamamla', phase: 'Zincir B' })
   sonuc.push({ id: 'G4', tamamlama: g4 })
   sonuc.push(await incelemeDuzelt('G5', WT_B, 'Zincir B', '5e9db29a73a2df60d7bf163ab0e01624d134a905'))
-  const ids = ['G8', 'G11', 'G16', 'G15']
+  const ids = ['G8', 'G11', 'G16']
   for (let i = 0; i < ids.length; i++) sonuc.push(await grup(ids[i], WT_B, 'Zincir B', ''))
 }
 return sonuc
