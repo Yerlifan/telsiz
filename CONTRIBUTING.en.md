@@ -136,6 +136,7 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
 | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
+| `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
 
 If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
 
