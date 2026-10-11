@@ -10,7 +10,10 @@
 // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
 // oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
 // alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi almaz, mesajı duyuruya
-// çeviren veya videosunu değiştiren düzenleme etiketle görünür.
+// çeviren veya videosunu değiştiren düzenleme etiketle görünür. Şarkı adıyla arama (istek 5): sunucuya sahte
+// arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı açık bir hata ve kartta YouTube arama
+// bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
+// isteği gitmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -22,7 +25,17 @@ const FAKE_JS = fs.readFileSync(path.join(__dirname, 'sahte-youtube.js'), 'utf8'
 const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleapis\.com)(:\d+)?\//i
 const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
 
-const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] } }
+const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] }, searches: [] }
+
+// Sunucunun YouTube araması yerine geçen sahte arayıcı: yalnızca "lobi şarkısı" için iki sonuç verir
+function fakeYouTubeSearch (query) {
+  W.searches.push(query)
+  if (query !== 'lobi şarkısı') return Promise.resolve([])
+  return Promise.resolve([
+    { videoId: 'D120lobi001', title: 'Lobi Şarkısı (Resmi Video)', channel: 'Telsiz Kayıtları', durationS: 213 },
+    { videoId: 'D120lobi002', title: 'Lobi Şarkısı (Canlı)', channel: 'Telsiz Kayıtları', durationS: 250 }
+  ])
+}
 // Sahte mikrofon, ekran yakalama ve kendiliğinden oynatma Chromium bayraklarıyla sağlanır
 const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte medya aygıtı yalnızca Chromium bayraklarıyla' })
 
@@ -112,7 +125,7 @@ function assertDocked (info) {
 
 before(async () => {
   if (test.skipped) return
-  W.w = await h.setupWorld({ slot: 5 })
+  W.w = await h.setupWorld({ slot: 5, server: { youtubeSearch: fakeYouTubeSearch } })
   W.lobi = W.w.room('Lobi')
   W.genel = W.w.room('genel')
   W.A = await W.w.pageFor('deniz', { route: routeYouTube('deniz') })
@@ -316,6 +329,78 @@ test('duraklat ve devam iki istemcide eşitlenir', async () => {
     const st = await fakeState(B)
     return st && st.state === 1 && !st.paused
   }, h.LONG, 'B oynatıcısı devam ediyor')
+})
+
+test('/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı, açıkken ilk sonuç başlığıyla eklenir ve duyurulur', async () => {
+  const { A, B } = W
+  await A.evaluate(() => {
+    window.e2eToasts = []
+    new MutationObserver(() => {
+      if (!el.toast.hidden) window.e2eToasts.push(el.toast.textContent)
+    }).observe(el.toast, { childList: true, characterData: true, subtree: true, attributes: true })
+  })
+  const queueBefore = await A.evaluate(() => dj.engine.queue().queue.length)
+  assert.equal(await A.evaluate(() => state.meta.music.search), false, 'arama varsayılan kapalı')
+  await A.fill('#composer-input', '/çal lobi şarkısı')
+  await A.keyboard.press('Enter')
+  await A.waitForFunction(() => window.e2eToasts.indexOf('Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.') !== -1, null, { timeout: h.LONG })
+  await A.waitForFunction(() => !document.querySelector('#dj .dj-search').hidden && !document.querySelector('#dj .dj-search-link-row').hidden)
+  const miss = await A.evaluate(() => {
+    const a = document.querySelector('#dj .dj-search-link')
+    return {
+      text: document.querySelector('#dj .dj-search-text').textContent,
+      link: a.textContent,
+      href: a.getAttribute('href'),
+      target: a.target,
+      rel: a.rel,
+      owner: document.querySelector('#dj .dj-search-owner').hidden ? '' : document.querySelector('#dj .dj-search-owner').textContent,
+      composer: document.getElementById('composer-input').value,
+      sent: Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('lobi şarkısı') !== -1)
+    }
+  })
+  assert.deepEqual(miss, {
+    text: 'Parçayı YouTube\'da "lobi şarkısı" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
+    link: 'YouTube\'da Ara',
+    href: 'https://www.youtube.com/results?search_query=lobi%20%C5%9Fark%C4%B1s%C4%B1',
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    owner: 'Şarkı adıyla aramayı Ayarlar > Genel > Müzik botu bölümünden açabilirsiniz.',
+    composer: '',
+    sent: false
+  })
+  assert.deepEqual(W.searches, [], 'arama kapalıyken sunucu aramadı')
+  assert.equal(await A.evaluate(() => dj.engine.queue().queue.length), queueBefore)
+
+  // Sahip aramayı açar: ilk sonuç başlığıyla kuyruğa eklenir, duyuru başlıkla hemen gider
+  const on = await W.w.call('POST', '/api/settings', { music: { search: true } }, W.w.P.deniz.token)
+  assert.equal(on.status, 200)
+  for (const page of [A, B]) await page.waitForFunction(() => state.meta.music.search === true, null, { timeout: h.LONG })
+  await A.fill('#composer-input', '/çal lobi şarkısı')
+  await A.keyboard.press('Enter')
+  await A.waitForFunction(() => window.e2eToasts.indexOf('Kuyruğa eklendi: Lobi Şarkısı (Resmi Video)') !== -1, null, { timeout: h.LONG })
+  assert.ok(await A.evaluate(() => window.e2eToasts.indexOf('YouTube\'da aranıyor: lobi şarkısı') !== -1), 'aranıyor bildirimi')
+  assert.deepEqual(W.searches, ['lobi şarkısı'])
+  for (const page of [A, B]) {
+    await page.waitForFunction(() => dj.engine.queue().queue.some((t) => t.videoId === 'D120lobi001' && t.title === 'Lobi Şarkısı (Resmi Video)'), null, { timeout: h.LONG })
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent === 'Telsiz DJ kuyruğuna ekledi: Lobi Şarkısı (Resmi Video)'), null, { timeout: h.LONG })
+    const link = await page.evaluate(() => {
+      const n = Array.from(document.querySelectorAll('#message-list .msg-dj-text')).filter((x) => x.textContent === 'Telsiz DJ kuyruğuna ekledi: Lobi Şarkısı (Resmi Video)')[0]
+      return n.closest('.msg-dj').querySelector('.msg-dj-link').href
+    })
+    assert.equal(link, 'https://www.youtube.com/watch?v=D120lobi001')
+  }
+  assert.equal(await A.evaluate(() => document.querySelector('#dj .dj-search').hidden), true, 'arama satırı kalktı')
+  assert.equal(await A.evaluate(() => dj.titleWatch.filter((w) => !w.sent).length), 0, 'duyuru başlığı beklemedi')
+  // İstemciden YouTube'a arama isteği gitmedi (yalnızca gömülü oynatıcı adresleri)
+  for (const who of ['deniz', 'ece']) {
+    assert.ok(W.yt[who].every((u) => /^https:\/\/www\.youtube-nocookie\.com\//.test(u)), who + ': ' + W.yt[who].join(' '))
+  }
+  // Sonraki testler boş kuyrukla sürer: eklenen parça kuyruktan çıkarılır
+  await A.evaluate(() => {
+    const t = dj.engine.queue().queue.filter((x) => x.videoId === 'D120lobi001')[0]
+    return dj.engine.remove(t.id)
+  })
+  for (const page of [A, B]) await page.waitForFunction((n) => dj.engine.queue().queue.length === n, queueBefore, { timeout: h.LONG })
 })
 
 test('Ayarlar açılınca YouTube oynatıcısı köşeye alınır, çalmaya devam eder, kapanınca yerine döner', async () => {

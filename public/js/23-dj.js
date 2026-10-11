@@ -3,6 +3,9 @@
 // Telsiz DJ arayüzü (Ek L2, KONSEPT 8): motorun (public/music.js, window.TelsizMusic) uygulamaya bağlanması,
 // DJ kartı (#dj), ses odası kadrosundaki "Telsiz DJ" öğesi, yazma alanındaki "/" komutları, mesajdaki ses
 // dosyası kartının "DJ'de çal" düğmesi ve sunucu ayarı değişikliklerinin karta yansıması.
+// /çal şarkı adı (istek 5): sahip açtıysa (meta.music.search) arama sunucuda yapılır (POST /api/music/search),
+// ilk sonuç başlığıyla kuyruğa eklenir. İstemci YouTube'a hiçbir istek göndermez. Arama kapalıysa veya
+// yapılamazsa kartta YouTube'un sonuç sayfasına giden bir bağlantı gösterilir (yeni sekmede açılır).
 //
 // Motor tek örnektir (djEngine). Taşıma 01-core.js api() yardımcısıyla kurulur (POST /api/music/state, ek
 // indirme GET /api/uploads/<id>), durum zarfı etkin grup anahtarıyla mühürlenir (E2EE.sealJson) ve oda ile
@@ -41,6 +44,22 @@ const DJ_NOTICE_FRESH_MS = 15000
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
 const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
 const DJ_WAVE_BARS = 30
+// Şarkı adıyla arama (istek 5): arama yapılamayınca kartta verilen YouTube sonuç sayfası ve sunucu ucunun hata
+// kodlarının karşılığı olan music.errors.* kodları
+const DJ_SEARCH_PAGE = 'https://www.youtube.com/results?search_query='
+const DJ_SEARCH_ERRORS = {
+  search_unavailable: 'search_unavailable',
+  search_failed: 'search_failed',
+  rate_limited: 'search_rate',
+  search_daily_limit: 'search_daily',
+  bad_query: 'search_bad_query',
+  not_in_voice: 'not_in_voice',
+  dj_restricted: 'dj_restricted',
+  dj_disabled: 'dj_disabled',
+  channel_not_found: 'not_in_voice'
+}
+// Bu hatalarda kartta YouTube'da arama bağlantısı gösterilir
+const DJ_SEARCH_MISS = ['search_unavailable', 'search_failed', 'search_daily', 'search_no_results']
 const DJ_OK_KEYS = {
   play: 'music.ok.added',
   skip: 'music.ok.skipped',
@@ -78,7 +97,10 @@ const dj = {
   mediaPosAt: 0,
   consentRow: null,
   consentWarnFor: null,
-  titleWatch: []
+  titleWatch: [],
+  // Şarkı adıyla arama: süren aramanın sorgusu ve arama yapılamayınca kartta gösterilen { query, code, room }
+  searching: null,
+  searchMiss: null
 }
 
 function djMusic () {
@@ -213,6 +235,7 @@ function djSyncVoice () {
   }
   if (room === dj.voiceRoom) return
   dj.voiceRoom = room
+  dj.searchMiss = null
   // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
   // da önceki odada kalır (yerel bekletme 'media')
   dj.minimized = false
@@ -473,6 +496,22 @@ function djBuild () {
   // Kısıtlı kipte yalnızca dinleyen için açıklama
   ui.restricted = h('p', 'dj-hint dj-restricted')
   card.appendChild(ui.restricted)
+  // Şarkı adıyla arama: aranırken durum satırı, arama yapılamayınca YouTube'un sonuç sayfasına bağlantı (yeni
+  // sekmede, gönderen bilgisi olmadan) ve sahibe ayarın yeri
+  ui.search = h('div', 'dj-search')
+  ui.search.setAttribute('role', 'status')
+  ui.search.setAttribute('aria-live', 'polite')
+  ui.searchText = h('p', 'dj-hint dj-search-text')
+  ui.search.appendChild(ui.searchText)
+  ui.searchLinkRow = h('p', 'dj-hint dj-search-link-row')
+  ui.searchLink = h('a', 'button button-small button-secondary dj-search-link')
+  ui.searchLink.target = '_blank'
+  ui.searchLink.rel = 'noopener noreferrer'
+  ui.searchLinkRow.appendChild(ui.searchLink)
+  ui.search.appendChild(ui.searchLinkRow)
+  ui.searchOwner = h('p', 'dj-hint dj-search-owner')
+  ui.search.appendChild(ui.searchOwner)
+  card.appendChild(ui.search)
 
   // Kişisel ses seviyesi (cihazda saklanır) veya ayarlanamıyorsa açıklama
   ui.vol = h('div', 'dj-vol')
@@ -728,6 +767,7 @@ function djRender () {
   // Başkasının son işlemi
   djSetText(ui.last, dj.notice ? textOf(dj.notice) : '')
   ui.last.hidden = !dj.notice
+  djRenderSearch(ui)
 
   // Kişisel ses seviyesi ve susturma
   ui.vol.hidden = !s.volumeSupported
@@ -1732,6 +1772,7 @@ function djCommand (text, ctx) {
     // Yükleme sürerken metin yazma alanında kalır (gönderim yüklemeyi bekleme uyarısı verir)
     if (!att && ctx && ctx.pending > 0) return null
     if (att) return djPlayAttached(att, ctx)
+    if (cmd.query) return djPlaySearch(cmd.query, text)
   }
   // Duyuru komutun yazıldığı yazı odasına gider (kullanıcı bu arada oda değiştirse bile)
   const roomId = state.channelId
@@ -1741,6 +1782,100 @@ function djCommand (text, ctx) {
     djReport(r && r.command ? r.command : cmd.name, r)
     if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounceTrack(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId }, r.trackId)
     return r
+  })
+}
+
+// ------------------------------------------------------------------ şarkı adıyla arama (istek 5)
+
+// Sahip aramayı açtı mı (sunucu yalnızca DJ ve YouTube kaynağı da açıkken doğru verir)
+function djSearchOn () {
+  const m = state.meta && state.meta.music
+  return Boolean(m && m.search === true)
+}
+
+function djSearchPage (query) {
+  return DJ_SEARCH_PAGE + encodeURIComponent(query)
+}
+
+// Arama yapılamadı: hata bildirimi ve kartta YouTube'da arama bağlantısı. Sayfa kipinde DJ sayfası açılır ki
+// bağlantı görünsün (/kuyruk komutundaki gibi).
+function djSearchMissed (query, code) {
+  const text = code === 'search_no_results' ? () => t('music.errors.search_no_results', { query: query }) : () => djErrorText(code)
+  toast(text, 'error', 7000)
+  if (DJ_SEARCH_MISS.indexOf(code) === -1) return
+  dj.searchMiss = { query: query, code: code, room: dj.voiceRoom }
+  djRenderSoon()
+  if (djIsSheetMode()) djReveal(document.activeElement)
+}
+
+function djRenderSearch (ui) {
+  const miss = dj.searchMiss && sameId(dj.searchMiss.room, dj.voiceRoom) ? dj.searchMiss : null
+  ui.search.hidden = !dj.searching && !miss
+  ui.searchLinkRow.hidden = !miss
+  ui.searchOwner.hidden = !(miss && miss.code === 'search_unavailable' && isOwner())
+  if (dj.searching) {
+    djSetText(ui.searchText, t('music.searching', { query: dj.searching }))
+    return
+  }
+  if (!miss) return
+  djSetText(ui.searchText, t('dj.searchMiss', { query: miss.query }))
+  djSetText(ui.searchLink, t('dj.searchOnYoutube'))
+  const href = djSearchPage(miss.query)
+  if (ui.searchLink.getAttribute('href') !== href) ui.searchLink.setAttribute('href', href)
+  if (!ui.searchOwner.hidden) djSetText(ui.searchOwner, t('dj.searchOwnerHint'))
+}
+
+// /çal şarkı adı: sunucu YouTube'da arar, ilk sonuç başlığıyla eklenir ve duyuru başlıkla hemen gider. Duyuru
+// komutun yazıldığı yazı odasına gider. Sonuç Promise<{ ok, code?, command }>.
+function djPlaySearch (query, text) {
+  const engine = djEngine()
+  const roomId = state.channelId
+  const voiceRoom = dj.voiceRoom
+  const fail = (code) => Promise.resolve({ ok: false, code: code, command: 'play' })
+  const pre = djPrecheck()
+  if (pre) {
+    djReport('play', { ok: false, code: pre })
+    return fail(pre)
+  }
+  const s = djSnapshot()
+  if (s && s.youtubeEnabled === false) {
+    djReport('play', { ok: false, code: 'youtube_disabled' })
+    return fail('youtube_disabled')
+  }
+  if (!djSearchOn()) {
+    djSearchMissed(query, 'search_unavailable')
+    return fail('search_unavailable')
+  }
+  dj.searching = query
+  dj.searchMiss = null
+  toast(() => t('music.searching', { query: query }), 'ok', 8000)
+  djRenderSoon()
+  // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
+  return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
+    dj.searching = null
+    djRenderSoon()
+    if (!res || res.status !== 200) {
+      const serverCode = res && res.data && typeof res.data.code === 'string' ? res.data.code : ''
+      const code = !res || res.status === 0 ? 'network' : DJ_SEARCH_ERRORS[serverCode] || 'server'
+      djSearchMissed(query, code)
+      return fail(code)
+    }
+    const results = res.data && Array.isArray(res.data.results) ? res.data.results : []
+    const first = results.filter((r) => r && typeof r.videoId === 'string')[0]
+    if (!first) {
+      djSearchMissed(query, 'search_no_results')
+      return fail('search_no_results')
+    }
+    const title = cleanDjTitle(first.title)
+    return engine.addYouTube(first.videoId, { title: title }).then((r) => {
+      if (!r || !r.ok || r.noop) {
+        djReport('play', r)
+        return Object.assign({ command: 'play' }, r)
+      }
+      toast(() => (title ? t('music.ok.addedTitle', { title: title }) : t('music.ok.added')), 'ok')
+      djAnnounceTrack(roomId, text, title ? { op: 'add', src: 'yt', vid: first.videoId, title: title } : { op: 'add', src: 'yt', vid: first.videoId }, r.trackId)
+      return Object.assign({ command: 'play' }, r)
+    })
   })
 }
 
