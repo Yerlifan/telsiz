@@ -15,7 +15,7 @@
 // G9, tarayıcı geçmişi (S2, public/js/38-gezinme.js):
 // - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
 // - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
-// - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
+// - 768x700: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
 // - Kaydı olmayan katman (1440 durum menüsü, 360 emoji seçici) açıkken geri tuşu yalnızca onu kapatır (inceleme düzeltmesi)
 // G9, okunmamış ayracı, şerit ve kapsül (S3, S4):
 // - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
@@ -44,6 +44,10 @@
 //   yakında) daha eski sayfa düğmeye basmadan gelir, önceki ilk mesaj görünür alanda ve odak yazma alanında kalır,
 //   odanın başına gelince düğme kalkar. IntersectionObserver olmayan tarayıcıda kaydırma 400 pikselin altına inince
 //   yükler.
+// G10, orta genişlik ve dar başlık (S8, S9): 768x1024, 900x800, 1024x768 ve 1200x900 boyutlarında İstasyonlar kartı
+//   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
+//   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
+//   başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
 // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
 
 const { before, after } = require('node:test')
@@ -415,7 +419,9 @@ test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfada
   const page = W.deniz
   const genel = W.w.room('genel').id
   const foto = W.w.room('fotograflar').id
-  await setWidth(page, 768, 1024)
+  // Alçak ekran: İstasyonlar kartı gizli, odalar İstasyonlar düğmesiyle sayfada açılır (G10 S8, daha yüksek ekranda
+  // kart telsiz kartının üstündedir)
+  await setWidth(page, 768, 700)
   await openRoom(page, genel)
   await navIdle(page)
   const base = await historyNow(page)
@@ -1041,6 +1047,69 @@ test('eski mesajlar: IntersectionObserver olmayan tarayıcıda kaydırma en üst
   })
   await page.waitForFunction(() => state.messages.length === 100 && !state.loadingOlder, null, { timeout: h.LONG })
   await page.close()
+})
+
+// G10 (S8, S9): orta genişlikte İstasyonlar kartı ve dar özel mesaj başlığı
+
+test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, yalnızca çok alçak ekranda gizli', async () => {
+  const page = W.deniz
+  const layout = () => page.evaluate(() => {
+    const inbox = document.getElementById('inbox').getBoundingClientRect()
+    const radio = document.getElementById('radio').getBoundingClientRect()
+    return {
+      inbox: inbox.height > 0,
+      above: inbox.bottom <= radio.top,
+      rows: document.querySelectorAll('#inbox-list .room-row').length > 0,
+      dmGroup: Boolean(document.getElementById('rooms-title-dm')),
+      button: document.getElementById('btn-rooms').getClientRects().length > 0
+    }
+  })
+  for (const size of [[768, 1024], [900, 800], [1024, 768], [1200, 900]]) {
+    await setWidth(page, size[0], size[1])
+    assert.deepEqual(await layout(), { inbox: true, above: true, rows: true, dmGroup: true, button: false }, size.join('x'))
+    assert.ok(await h.overflowX(page) <= 0, size.join('x') + ' yatay taşma')
+  }
+  // Çok alçak ekranda kart gizlenir, odalar İstasyonlar düğmesiyle açılır
+  await setWidth(page, 1024, 700)
+  const low = await layout()
+  assert.deepEqual([low.inbox, low.button], [false, true])
+  await setWidth(page, 1440)
+})
+
+test('dar özel mesaj başlığı: 1024 ile 1280 px arasında ad en az 80 piksel görünür, düğmeler simgeye döner ve çakışmaz', async () => {
+  const page = W.deniz
+  const head = () => page.evaluate(() => {
+    const header = document.getElementById('dm-header')
+    const name = header.querySelector('.dm-header-name').getBoundingClientRect()
+    const items = Array.from(header.children).concat([document.getElementById('btn-room-info')]).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect())
+    let overlap = false
+    items.forEach((a, i) => {
+      items.slice(i + 1).forEach((b) => {
+        if (a.right > b.left + 1 && b.right > a.left + 1) overlap = true
+      })
+    })
+    const room = header.parentNode.getBoundingClientRect()
+    return {
+      name: Math.round(name.width),
+      tight: header.classList.contains('is-tight'),
+      overlap,
+      inside: items.every((r) => r.right <= room.right + 1),
+      labels: Array.from(header.querySelectorAll('button, [role="button"]')).every((b) => Boolean(b.getAttribute('aria-label')))
+    }
+  })
+  await setWidth(page, 1440)
+  await openDm(page, W.dmEce)
+  const wide = await head()
+  assert.equal(wide.tight, false, '1440 genişlikte düğme yazıları görünür')
+  for (const width of [1024, 1100, 1200, 1280]) {
+    await setWidth(page, width)
+    await page.waitForFunction(() => document.getElementById('dm-header').clientWidth > 0)
+    await h.sleep(100)
+    const v = await head()
+    assert.ok(v.name >= 80, width + ' genişlikte ad ' + v.name + ' piksel')
+    assert.deepEqual([v.overlap, v.inside, v.labels], [false, true, true], width + ' genişlikte başlık')
+  }
+  await setWidth(page, 1440)
 })
 
 test('konsol ve sunucu günlüğü temiz', async () => {

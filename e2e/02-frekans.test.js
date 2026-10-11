@@ -4,8 +4,9 @@
 // sağda İstasyonlar listesi: yazı ve ses odaları, Oda ekle başlıkta, ortada geniş konuşma sütunu, üst çubuğun
 // ortasında kişisel düğmeler), bantta frekanslar arasında gezinme (yön tuşları, Home, End, uç düğmeleri,
 // tekerlek, tıklama ve ibre sürükleme ile başka frekansa geçiş, ses odasındayken onay), rehber açılır
-// penceresi, Frekanslar sayfası (Tümü), sağ sütun görünmediğinde İstasyonlar düğmesi ve sayfası (900 ve
-// 390 genişlikte, sayfadaki Özel mesajlar grubu ve sayfayı o grupta açan Özel düğmesi), arama, anma rozeti ve anma
+// penceresi, Frekanslar sayfası (Tümü), 900 genişlikte telsiz kartının üstündeki İstasyonlar kartı, kart görünmediğinde
+// (alçak ekran, telefon) İstasyonlar düğmesi ve sayfası (900x700 ve 390 genişlikte, sayfadaki Özel mesajlar grubu ve
+// sayfayı o grupta açan Özel düğmesi), arama, anma rozeti ve anma
 // listesi, yazıyor göstergesi, telefon genişliğinde ve uzun frekans adıyla yatay taşma olmaması. Tarayıcıda diğer
 // frekanslar ayrı köken olduğu için durumları ve sayıları gösterilmez.
 
@@ -384,7 +385,7 @@ async function eceWritesDeniz (text) {
   return dmId
 }
 
-test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar düğmesi odaları yan sayfada açar', async () => {
+test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar kartı üstünde, alçak ekranda İstasyonlar düğmesi odaları yan sayfada açar', async () => {
   const page = W.deniz
   W.dm = await eceWritesDeniz('Deniz, sayfadan da ulaşabiliyor musun?')
   await page.waitForFunction((id) => state.unread[id] === 1, W.dm, { timeout: h.LONG })
@@ -394,8 +395,12 @@ test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar düğmesi odalar�
   // Düzen değişince açık sayfalar kapanır (12-init.js onResize): yeni düzen uygulanana kadar beklenir
   await page.waitForFunction(() => window.innerWidth === 900 && el.appView.getAttribute('data-layout') === layoutClass())
   assert.ok(await h.overflowX(page) <= 0, '900 genişlikte yatay taşma')
-  const shown = await page.evaluate(() => ({ button: document.getElementById('btn-rooms').getClientRects().length > 0, inbox: document.getElementById('inbox').getClientRects().length > 0 }))
-  assert.deepEqual(shown, { button: true, inbox: false })
+  const shownAt = () => page.evaluate(() => ({ button: document.getElementById('btn-rooms').getClientRects().length > 0, inbox: document.getElementById('inbox').getClientRects().length > 0 }))
+  // İstasyonlar kartı telsiz kartının üstündedir (istek 17), yalnızca çok alçak ekranda gizlenir ve düğme görünür
+  assert.deepEqual(await shownAt(), { button: false, inbox: true })
+  await page.setViewportSize({ width: 900, height: 700 })
+  await page.waitForFunction(() => window.innerHeight === 700)
+  assert.deepEqual(await shownAt(), { button: true, inbox: false })
   await page.focus('#btn-rooms')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => !document.getElementById('stations-sheet').hidden && document.getElementById('stations-sheet').contains(document.activeElement))

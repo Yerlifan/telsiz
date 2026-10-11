@@ -34,6 +34,9 @@
 // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
 // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
 //
+// Orta genişlik (S8, frekans.css) ve dar özel mesaj başlığı (S9). 760 ile 1279 px arasında İstasyonlar kartı sağ
+// sütunda telsiz kartının üstündedir. Özel mesaj başlığı sığmazsa düğmeler yalnızca simgeye döner (navFitDmHeader).
+//
 // Konum ve önbellek (S6). Son NAV_CACHE_MAX konuşmanın mesajları (sunucudan gelen şifreli zarflar) bellekte
 // tutulur. Konuşmaya geri dönülünce liste iskelet göstermeden ve sunucuya sormadan çizilir, kişi kaldığı yere döner
 // (görünür alandaki ilk mesaj ve kayması), ardından en yeni sayfa arka planda alınıp birleştirilir (06-messages.js
@@ -409,6 +412,7 @@ function navInit () {
   watchLayers(navLayersChanged)
   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
   navWatchInfoCards()
+  navWatchDmHeader()
 }
 
 // ------------------------------------------------------------------ okunmamış ayracı, şerit ve kapsül (S3, S4)
@@ -821,6 +825,42 @@ function navWatchInfoCards () {
   const observer = new window.MutationObserver(navSyncInfoCards)
   observer.observe(el.infoCol, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] })
   navSyncInfoCards()
+}
+
+// ------------------------------------------------------------------ dar özel mesaj başlığı (S9)
+
+// Özel mesaj başlığı (#dm-header) sığmazsa Sesli Ara, Görüntülü Ara, güvenlik rozeti ve Profil yalnızca simge olarak
+// kalır (.is-tight, people.css ve arama.css), karşı tarafın adı en az 6rem görünür. Başlığın genişliği
+// (ResizeObserver) ve içeriği (MutationObserver, başlık yeniden çizilince) izlenir. Gözlemcisi olmayan tarayıcıda
+// yalnızca 999 px altındaki medya sorgusu çalışır.
+const NAV_DM_NAME_REM = 6
+
+function navFitDmHeader () {
+  const header = byId('dm-header')
+  if (!header || header.hidden || !header.clientWidth) return
+  header.classList.remove('is-tight')
+  const text = header.querySelector('.dm-header-text')
+  let rem = 15
+  try {
+    rem = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 15
+  } catch (err) {
+    rem = 15
+  }
+  const narrow = text ? text.getBoundingClientRect().width < NAV_DM_NAME_REM * rem - 1 : false
+  header.classList.toggle('is-tight', narrow || header.scrollWidth > header.clientWidth + 1)
+}
+
+function navWatchDmHeader () {
+  const header = byId('dm-header')
+  if (!header) return
+  if (typeof window.ResizeObserver === 'function') {
+    try {
+      new window.ResizeObserver(navFitDmHeader).observe(header)
+    } catch (err) {
+      // Gözlemci kurulamadı: medya sorgusu yeterli
+    }
+  }
+  if (typeof window.MutationObserver === 'function') new window.MutationObserver(navFitDmHeader).observe(header, { childList: true })
 }
 
 // ------------------------------------------------------------------ görünümün hatırlanması (S12)

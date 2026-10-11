@@ -2485,9 +2485,10 @@
   }
 }
 
-/* Alçak ekranda 1280 px altında İstasyonlar kartı gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
-   çubuktaki İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
-@media (max-height: 860px) and (max-width: 1279px) {
+/* 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar
+   (istek 17). Yalnızca çok alçak ekranda gizlenir (telsiz kartıyla aynı sütundadır), odalar üst çubuktaki
+   İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
+@media (max-height: 720px) and (max-width: 1279px) {
   .inbox {
     display: none;
   }
@@ -2497,14 +2498,10 @@
   }
 }
 
-/* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı gizli (üst çubuktaki İstasyonlar düğmesi yan
-   sayfa olarak açar), istasyonların alt satırı ve küçük avatar yığını gizli, üst çubukta Ara etiketi ve
-   kısayol gizli */
+/* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı telsiz kartının üstünde (çok alçak ekranda ve
+   telefonda gizli, üst çubuktaki İstasyonlar düğmesi yan sayfa olarak açar), istasyonların alt satırı ve küçük
+   avatar yığını gizli, üst çubukta Ara etiketi ve kısayol gizli */
 @media (max-width: 999px) {
-  .top-rooms {
-    display: inline-flex;
-  }
-
   .top-rooms > .station-mark {
     position: absolute;
     top: -0.375rem;
@@ -2528,7 +2525,6 @@
     margin-left: 0.875rem;
   }
 
-  .inbox,
   .top-personal-label,
   .top-chip-label,
   .top-chip .top-kbd,
@@ -2585,8 +2581,17 @@
 }
 
 /* Dar (759 px ve altı, telefon): üst çubuk sadeleşir, bant kenardan kenara ve sağ ucunda sabit Tümü,
-   konuşma tam genişlik, telsiz kartı ekranın altına yapışır, sayfalar alttan açılır */
+   konuşma tam genişlik, telsiz kartı ekranın altına yapışır, odalar İstasyonlar düğmesiyle açılan sayfadadır,
+   sayfalar alttan açılır */
 @media (max-width: 759px) {
+  .inbox {
+    display: none;
+  }
+
+  .top-rooms {
+    display: inline-flex;
+  }
+
   .top-bar {
     padding: 0 0.625rem 0 0.75rem;
     padding-top: env(safe-area-inset-top);

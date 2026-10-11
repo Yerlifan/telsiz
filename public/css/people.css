@@ -644,11 +644,12 @@
   cursor: pointer;
 }
 
+/* Ad en az 6rem görünür (istek 17): başlık sığmazsa düğmeler simgeye döner (.is-tight, 38-gezinme.js) */
 .dm-header-text {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 6rem;
 }
 
 .dm-header .dm-header-name {
@@ -715,6 +716,32 @@
 
 .dm-header .dm-profile-button {
   flex: none;
+}
+
+/* Özel mesaj görünümünde Oda bilgisi düğmesi (⋯) daralmaz, başlığın düğmeleriyle üst üste binmez */
+.app-view[data-view="dm"] .convo-head .room-info-button {
+  flex: none;
+}
+
+/* Dar başlık (38-gezinme.js navFitDmHeader): güvenlik rozetinin ve Profil düğmesinin yazısı gizlenir,
+   erişilebilir adları kalır. Arama düğmeleri arama.css içinde. */
+.dm-header.is-tight .dm-safety {
+  padding: 0 0.625rem;
+}
+
+.dm-header.is-tight .dm-safety .pill-text,
+.dm-header.is-tight .dm-profile-button .button-text {
+  display: none;
+}
+
+.dm-header.is-tight .dm-safety .icon,
+.dm-header.is-tight .dm-profile-button .icon {
+  margin-right: 0;
+}
+
+.dm-header.is-tight .dm-profile-button {
+  min-width: var(--target);
+  padding: 0;
 }
 
 /* =========================================================
