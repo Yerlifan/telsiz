@@ -1,0 +1,565 @@
+/*
+  Hexball masası (46-hexball.js): Takımlar ve sonuç ekranı, maç ekranının skor tablosu, saha tuvali, bindirme yazısı,
+  dokunmatik çubuk ve Vur düğmesi, oyuncu açıklaması. Masa yayın sahnesinin game kipinde oyun.css'in .game-app
+  kutusunun içindedir. Saha ve takım renkleri tokens.css --hex-* belirteçlerindendir, tuval de onları okur.
+  Takımlar yalnızca renkle ayrılmaz: rozette ve diskte takım harfi ile numara, sütun başlığında takımın adı yazar.
+  Kurallar oyun.css ile aynıdır: renkler yalnızca var(--...) ile, ölçüler rem, grid, flex gap, clamp, :is, :where,
+  aspect-ratio ve inset kullanılmaz, z-index en çok 3. Tuval, çubuk ve Vur düğmesi sayfayı kaydırmaz
+  (touch-action: none). Geçiş ve canlandırma yoktur, sarsıntı efekti de yoktur (hareketi azalt seçeneğinde de aynı).
+*/
+
+/* =========================================================
+   1. Ortak parçalar: rozet ve bağ çipi
+   ========================================================= */
+
+.hex-table {
+  position: relative;
+}
+
+/* Takım rozeti: takım rengi zemin, üstünde harf ve numara (ör. K1) */
+.hex-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--hex-red);
+  color: var(--hex-ink);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  line-height: 1;
+}
+
+.hex-badge[data-side="blue"] {
+  background-color: var(--hex-blue);
+}
+
+/* Bağ durumu: bekleniyor kesik çerçeveyle, Bağlantı Yok tehlike rengiyle, her ikisinde yazı vardır */
+.hex-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 1.75rem;
+  margin-left: 0.5rem;
+  padding: 0 0.625rem;
+  border: var(--border-width) dashed var(--warn-line);
+  border-radius: var(--radius-pill);
+  background-color: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+
+.hex-chip.is-failed {
+  border-style: solid;
+  border-color: var(--danger);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.hex-mine,
+.hex-help {
+  margin: 0 0 0.75rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.hex-mine {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.hex-help {
+  margin: 0.75rem 0 0;
+}
+
+.hex-help-role {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+/* =========================================================
+   2. Takımlar ekranı: üç sütun (Kırmızı, Mavi, İzleyici)
+   ========================================================= */
+
+.hex-teams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin: 0 -0.375rem 0.5rem;
+}
+
+.hex-team {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 13rem;
+  min-width: 0;
+  margin: 0 0.375rem 0.75rem;
+  padding: 0.625rem 0.75rem 0.75rem;
+  border: var(--border-width) solid var(--line);
+  border-top: 0.25rem solid var(--hex-red);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-1);
+}
+
+.hex-team[data-side="blue"] {
+  border-top-color: var(--hex-blue);
+}
+
+.hex-team[data-side="spec"] {
+  border-top-color: var(--line-strong);
+}
+
+.hex-team-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 0.5rem;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+}
+
+.hex-team-title .hex-badge {
+  margin-right: 0.5rem;
+}
+
+.hex-team-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hex-team-count {
+  flex: none;
+  margin-left: 0.5rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: normal;
+}
+
+.hex-roster {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hex-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0.375rem 0;
+}
+
+.hex-person + .hex-person {
+  border-top: var(--border-width) solid var(--line);
+}
+
+.hex-person.is-me .hex-person-name {
+  color: var(--accent-text);
+}
+
+.hex-person > .hex-badge {
+  margin-right: 0.5rem;
+}
+
+.hex-person-avatar {
+  flex: none;
+  margin-right: 0.5rem;
+}
+
+.hex-person-text {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+
+.hex-person-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hex-crown {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.375rem;
+  color: var(--warn);
+}
+
+/* Ev sahibinin takım atama düğmeleri kişinin altında, dar sütunda da sığar */
+.hex-set-row {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 100%;
+  margin: 0.25rem -0.125rem 0;
+}
+
+.hex-set-row > .button {
+  margin: 0.125rem;
+}
+
+.hex-set[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.hex-empty {
+  margin: 0.25rem 0 0.5rem;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+.hex-join {
+  align-self: stretch;
+  margin-top: 0.5rem;
+}
+
+.hex-join[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* =========================================================
+   3. Sonuç
+   ========================================================= */
+
+.hex-result {
+  margin: 0 0 1rem;
+}
+
+.hex-result-win {
+  display: flex;
+  align-items: center;
+  margin: 0 0 0.25rem;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-strong);
+}
+
+.hex-result-win .hex-badge {
+  margin-right: 0.5rem;
+}
+
+.hex-result-why,
+.hex-result-score {
+  margin: 0 0 0.25rem;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.hex-result-score {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.hex-goals-title {
+  margin: 0.75rem 0 0.375rem;
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+}
+
+.hex-goals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hex-goal {
+  display: flex;
+  align-items: baseline;
+  padding: 0.25rem 0 0.25rem 0.625rem;
+  border-left: 0.25rem solid var(--hex-red);
+  font-size: var(--text-sm);
+}
+
+.hex-goal[data-side="blue"] {
+  border-left-color: var(--hex-blue);
+}
+
+.hex-goal + .hex-goal {
+  margin-top: 0.25rem;
+}
+
+.hex-goal-time {
+  flex: none;
+  margin-right: 0.625rem;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.hex-goal-who {
+  min-width: 0;
+  color: var(--text);
+}
+
+/* =========================================================
+   4. Maç ekranı: skor tablosu, saha, bindirme yazısı
+   ========================================================= */
+
+.hex-board {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-1);
+}
+
+.hex-board-team {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hex-board-team[data-side="blue"] {
+  flex-direction: row-reverse;
+}
+
+.hex-board-name {
+  min-width: 0;
+  margin: 0 0.5rem;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hex-board-score {
+  flex: none;
+  color: var(--text-strong);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.hex-board-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  margin: 0 0.5rem;
+}
+
+.hex-clock {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.hex-clock.is-golden {
+  color: var(--warn);
+  font-family: inherit;
+  font-weight: var(--weight-strong);
+}
+
+.hex-lag {
+  margin: 0.25rem 0 0;
+}
+
+.hex-field {
+  position: relative;
+  margin: 0 0 0.5rem;
+  text-align: center;
+}
+
+.hex-canvas {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+  border-radius: var(--radius-small);
+  background-color: var(--hex-out);
+  touch-action: none;
+}
+
+/* Gol, başlama vuruşu, duraklama ve bağlantı yazısı sahanın üst kenarında ortalanır: küçük sahada da diskleri ve
+   topu örtmez, dokunmayı engellemez */
+.hex-overlay {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  z-index: 2;
+  max-width: 90%;
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-float);
+  box-shadow: var(--shadow-card);
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  pointer-events: none;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+}
+
+.hex-overlay[data-kind="goal"] {
+  font-size: var(--text-lg);
+}
+
+.hex-overlay[data-kind="paused"],
+.hex-overlay[data-kind="link"] {
+  border-style: dashed;
+  border-color: var(--warn-line);
+}
+
+/* Maçtaki oyuncular: rozet ve ad */
+.hex-legend {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -0.25rem;
+  padding: 0;
+  list-style: none;
+}
+
+.hex-legend-item {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 0.25rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.125rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  font-size: var(--text-sm);
+}
+
+.hex-legend-item.is-me {
+  border-color: var(--accent-text);
+}
+
+.hex-legend-name {
+  min-width: 0;
+  margin-left: 0.375rem;
+  overflow: hidden;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   5. Dokunmatik denetimler: solda çubuk, sağda Vur
+   ========================================================= */
+
+.hex-touch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 0.5rem;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.hex-touch[hidden] {
+  display: none;
+}
+
+.hex-stick {
+  position: relative;
+  flex: none;
+  width: 8rem;
+  height: 8rem;
+  border: 0.125rem solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--surface-2);
+  touch-action: none;
+}
+
+.hex-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: -1.75rem 0 0 -1.75rem;
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: var(--shadow-card);
+  pointer-events: none;
+}
+
+.hex-kick {
+  flex: none;
+  width: 6rem;
+  height: 6rem;
+  margin-left: 1rem;
+  border: 0.125rem solid transparent;
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: var(--shadow-card);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-display);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hex-kick:active {
+  background-color: var(--accent-hover);
+}
+
+@media (max-width: 759px) {
+  .hex-team {
+    flex-basis: 100%;
+  }
+
+  /* Takım adı görsel olarak gizlenir, ekran okuyucu skoru takım adıyla okur (rozet aria-hidden) */
+  .hex-board-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .hex-overlay {
+    top: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    font-size: var(--text-sm);
+  }
+
+  .hex-overlay[data-kind="goal"] {
+    font-size: var(--text-md);
+  }
+
+  /* Büyük yazı boyutunda da çubuk ve Vur ekrana sığar: ölçüler ekran genişliğiyle sınırlanır, yuvarlak kalır */
+  .hex-stick {
+    width: 7rem;
+    height: 7rem;
+    max-width: 34vw;
+    max-height: 34vw;
+  }
+
+  .hex-knob {
+    width: 50%;
+    height: 50%;
+    margin: -25% 0 0 -25%;
+  }
+
+  .hex-kick {
+    width: 5.5rem;
+    height: 5.5rem;
+    max-width: 28vw;
+    max-height: 28vw;
+  }
+}

@@ -1098,6 +1098,9 @@ function castToggleFull () {
     if (!castState.full) return
     castState.pseudoFull = true
     n.panel.classList.add('is-full')
+    // Panelin arkasındaki uygulama kırpılır (cast.css .cast-page-full): büyük yazıda taşan içerik telefonda yerleşim
+    // alanını genişletir, sayfayı kaplayan panel de onunla birlikte ekrandan taşardı
+    document.documentElement.classList.add('cast-page-full')
     castSync()
   }
   if (typeof request === 'function') {
@@ -1130,6 +1133,7 @@ function castExitFull (sync) {
   if (!castState.full) return
   castState.full = false
   castState.pseudoFull = false
+  document.documentElement.classList.remove('cast-page-full')
   const n = castState.nodes
   if (n) n.panel.classList.remove('is-full')
   if (castFullElement()) {

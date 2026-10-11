@@ -2,7 +2,8 @@
   Oyun masası (36-oyun.js): telsiz kartının araç satırındaki Oyun düğmesi (#radio-game) ve durumları (Davet,
   Oyun Sürüyor, Sıra Sizde), yayın sahnesinin game kipindeki masa (#cast[data-mode="game"] .cast-game): Masa Kur,
   lobi, davet, kişi listeleri ve durum çipleri, güven notu, onay satırı, sonuçlar, durum satırı ve eşitleme şeridi,
-  telefonda sahne yüksekliği. Oyunun masa ortası uygulamanın kendi stil dosyasındadır (ör. renk.css).
+  telefonda sahne yüksekliği, birden çok oyun kayıtlıyken Oyun Seç listesi. Oyunun masa ortası uygulamanın kendi stil
+  dosyasındadır (ör. renk.css).
   Kurallar: renkler yalnızca var(--...) ile, ölçüler rem, grid, flex gap, clamp, :is, :where, aspect-ratio ve
   inset kullanılmaz (aralık margin ile, konum top, right, bottom, left ile). z-index en çok 3.
 */
@@ -110,6 +111,62 @@
 
 .game-rules-hint {
   margin: 0.125rem 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+/* Oyun Seç (birden çok oyun kayıtlıyken): her oyun adı ve kısa açıklamasıyla bir düğme */
+.game-picks {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.game-pick-item + .game-pick-item {
+  margin-top: 0.5rem;
+}
+
+.game-pick {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  min-height: var(--target);
+  padding: 0.75rem 0.875rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-pick:hover {
+  border-color: var(--accent);
+  background-color: var(--surface-hover);
+}
+
+.game-pick-icon {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.0625rem 0.625rem 0 0;
+  color: var(--accent);
+}
+
+.game-pick-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.game-pick-name {
+  color: var(--text-strong);
+  font-weight: var(--weight-strong);
+}
+
+.game-pick-hint {
+  margin-top: 0.125rem;
   color: var(--text-2);
   font-size: var(--text-sm);
 }

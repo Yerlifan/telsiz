@@ -9,7 +9,9 @@
 // - now elle ilerletilir, rastgelelik tohumludur.
 // Genelliği göstermek için yalnızca burada tanımlı küçük bir "sayaç" uygulaması kullanılır: her oyuncu sırayla
 // {t:'add', step} gönderir, toplam 10 olunca el biter. Sıra dışı {t:'last'} ve {t:'catch', p} hamleleri kurpiyerin
-// gecikmeli kendi hamlelerini sınamak içindir. Gerçek Renk ile de iki tam el oynanır.
+// gecikmeli kendi hamlelerini sınamak içindir (uygulama bunları DELAYED_MOVES ile bildirir). Gerçek Renk ile de iki
+// tam el oynanır. Hexball kural motoruyla (43) bir masa kurulur: gizli bilgisi olmayan, sırasız ve gecikmeli hamlesi
+// olmayan bir uygulamanın görünümleri ve boş elleri oyuncularda kabul edilir.
 
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -22,6 +24,7 @@ const readJs = (name) => fs.readFileSync(path.join(ROOT, 'public', 'js', name), 
 const GAME_SRC = readJs('33-oyun-protokol.js')
 const DESK_SRC = readJs('34-oyun-masa.js')
 const RENK_SRC = readJs('35-renk-kural.js')
+const HEX_SRC = readJs('43-hexball-kural.js')
 
 function loadContext () {
   const sandbox = vm.createContext({})
@@ -30,6 +33,7 @@ function loadContext () {
   vm.runInContext(GAME_SRC, sandbox, { filename: '33-oyun-protokol.js' })
   vm.runInContext(DESK_SRC, sandbox, { filename: '34-oyun-masa.js' })
   vm.runInContext(RENK_SRC, sandbox, { filename: '35-renk-kural.js' })
+  vm.runInContext(HEX_SRC, sandbox, { filename: '43-hexball-kural.js' })
   return sandbox
 }
 
@@ -37,6 +41,7 @@ const CTX = loadContext()
 const G = CTX.TelsizGame
 const DESK = CTX.TelsizGameDesk
 const R = CTX.TelsizRenk
+const HB = CTX.TelsizHexball
 const TM = DESK.TIMES
 const CH = '3'
 const IDS = ['5', '12', '7', '30', '41', '8', '19', '2', '77']
@@ -118,6 +123,7 @@ function counterApp () {
     HIDDEN: false,
     ERRORS: ['bad_options', 'bad_random', 'bad_move', 'bad_player', 'game_over', 'not_your_turn', 'stale', 'not_catchable', 'self_catch'],
     EVENTS: ['start', 'add', 'last', 'caught', 'leave', 'end'],
+    DELAYED_MOVES: ['last', 'catch'],
     calls,
     newGame (o, rng) {
       calls.newGame++
@@ -311,7 +317,7 @@ function makeDevice (w, uid) {
     rng: seeded(Number(uid) + 11),
     now: () => w.clock,
     isBlocked: (other) => Boolean(d.blocked[other]),
-    apps: { sayac: w.app, renk: R },
+    apps: { sayac: w.app, renk: R, hexball: HB },
     locked: () => d.locked,
     onChange: () => {
       d.changes++
@@ -839,6 +845,26 @@ describe('kurpiyer: hamleler ve sayaçlar', () => {
     assert.equal(K.m().view.total, 1)
   })
 
+  test('gecikmeli hamle türlerini uygulama verir: listesi olmayan uygulamada kurpiyerin catch hamlesi hemen işlenir', () => {
+    const { w, K } = started({ players: 2 })
+    delete w.app.DELAYED_MOVES
+    assert.equal(K.desk.act({ t: 'catch', p: '12' }), true)
+    same(K.m().view.log, ['catch:5'], 'gecikmesiz')
+    // Uygulamanın kendi listesi masa yöneticisinin varsayılanı değildir: yalnızca listedeki tür bekletilir
+    w.app.DELAYED_MOVES = ['last']
+    assert.equal(K.desk.act({ t: 'catch', p: '12' }), true)
+    same(K.m().view.log, ['catch:5', 'catch:5'])
+    assert.equal(K.desk.act({ t: 'last' }), true)
+    same(K.m().view.log, ['catch:5', 'catch:5'], 'last bekletilir')
+    w.advance(TM.SELF_DELAY_MS, [K])
+    same(K.m().view.log, ['catch:5', 'catch:5', 'last:5'])
+  })
+
+  test('Renk kendi gecikmeli hamle türlerini verir: Tek! ve Yakala', () => {
+    same(R.DELAYED_MOVES, ['last', 'catch'])
+    assert.ok(Object.isFrozen(R.DELAYED_MOVES))
+  })
+
   test('Oyunu Bitir, Yeni El ve kural seçimi', () => {
     const { w, K, P } = table({ players: 2, seat: 1 })
     const [B, C] = P
@@ -875,7 +901,8 @@ describe('kurpiyer: hamleler ve sayaçlar', () => {
     K.locked = true
     K.desk.tick()
     assert.equal(K.m().stage, 'none')
-    same(K.noticesOf('ended').map((x) => x.data), [{ reason: 'keys' }])
+    // Masa silindiği için uygulama bildirimle gelir (bitiş metni uygulamanın sözcükleriyle yazılır)
+    same(K.noticesOf('ended').map((x) => x.data), [{ reason: 'keys', app: 'sayac' }])
     assert.equal(K.lastTo(B, 'close').msg.why, 'dealer')
     assert.equal(K.lastTo(C, 'close').msg.why, 'dealer')
     w.deliver()
@@ -1678,6 +1705,106 @@ describe('Renk ile', () => {
   })
 })
 
+describe('Hexball ile', () => {
+  // Kurpiyerin görünümü masadaki bütün oyuncularda aynıdır, eller boş nesnedir, sıra yoktur
+  function sameViews (t, label, players) {
+    const view = t.K.m().view
+    for (const d of [t.K].concat(players || t.P)) {
+      const m = d.m()
+      same(m.view, view, label + ' ' + d.uid)
+      same(m.mine, {}, label + ' ' + d.uid)
+      assert.equal(m.legal.turn, false)
+      assert.equal(m.error, null, label + ' ' + d.uid)
+    }
+    return view
+  }
+
+  test('üç kişi takım seçer, ev sahibi maçı başlatır, gol, süre ve altın gol herkeste aynı görünür', () => {
+    const t = started({ app: 'hexball', players: 2, rules: 'quick' })
+    const [B, C] = t.P
+    let view = sameViews(t, 'başlangıç')
+    assert.equal(t.K.m().stage, 'play')
+    assert.equal(view.ph, 'teams')
+    same(view.teams, { 5: 'red', 12: 'blue', 7: 'red' })
+    assert.equal(t.K.m().legal.kickoff, true)
+    assert.equal(B.m().legal.kickoff, false)
+    // Oyuncu takım değiştirir, ev sahibine özel hamlesi reddedilir
+    assert.equal(C.desk.act({ t: 'team', side: 'blue' }), true)
+    t.w.deliver()
+    view = sameViews(t, 'takım')
+    assert.equal(view.teams['7'], 'blue')
+    assert.equal(B.desk.act({ t: 'kickoff' }), true)
+    t.w.deliver()
+    assert.equal(B.m().error, 'not_host')
+    assert.equal(B.m().view.ph, 'teams')
+    B.desk.dismiss()
+    // Ev sahibinin hamleleri gecikmeden işlenir (DELAYED_MOVES boş)
+    assert.equal(t.K.desk.act({ t: 'kickoff' }), true)
+    assert.equal(t.K.m().view.ph, 'match')
+    t.w.deliver()
+    view = sameViews(t, 'maç')
+    const mt = view.mt
+    same(view.slots, { 5: 0, 12: 1, 7: 2 })
+    assert.match(view.epoch, /^[0-9a-f]{16}$/)
+    assert.equal(t.K.desk.act({ t: 'goal', mt, side: 'blue', by: '12', at: 10 }), true)
+    assert.equal(t.K.desk.act({ t: 'goal', mt, side: 'red', by: '7', at: 20 }), true)
+    t.w.deliver()
+    view = sameViews(t, 'gol')
+    same(view.score, { red: 1, blue: 1 })
+    same(view.goals.map((x) => x.own), [false, true])
+    assert.ok(C.m().events.some((e) => e.e === 'own_goal' && e.p === '7'))
+    // Eski maçın golü kurpiyerde stale hatasıdır, durum değişmez
+    assert.equal(t.K.desk.act({ t: 'goal', mt: mt + 1, side: 'red', by: null, at: 30 }), false)
+    assert.equal(t.K.m().error, 'stale')
+    assert.equal(t.K.desk.act({ t: 'time', mt }), true)
+    t.w.deliver()
+    view = sameViews(t, 'süre')
+    assert.equal(view.golden, true)
+    assert.equal(t.K.desk.act({ t: 'goal', mt, side: 'blue', by: '7', at: 181 }), true)
+    t.w.deliver()
+    view = sameViews(t, 'altın gol')
+    same(view.result, { winner: 'blue', why: 'golden' })
+    // Maç sonu masanın bitişi değildir: Tekrar Oyna aynı turda yeni maç başlatır
+    assert.equal(B.m().stage, 'play')
+    assert.ok(B.m().events.some((e) => e.e === 'win' && e.side === 'blue'))
+    assert.equal(t.K.desk.act({ t: 'kickoff' }), true)
+    t.w.deliver()
+    view = sameViews(t, 'tekrar')
+    assert.equal(view.mt, mt + 1)
+    assert.equal(view.kick, 'blue')
+    same(view.score, { red: 0, blue: 0 })
+    // Ev sahibi masayı bitirir, maçtaysa kazanan yoktur. Yeni Tur ile lobiye dönülür.
+    assert.equal(t.K.desk.endGame(), true)
+    t.w.deliver()
+    for (const d of [t.K, B, C]) {
+      assert.equal(d.m().stage, 'over')
+      same(d.m().view.result, { winner: null, why: 'host' })
+    }
+    assert.equal(t.K.desk.newRound(), true)
+    t.w.deliver()
+    assert.equal(t.K.m().stage, 'lobby')
+  })
+
+  test('maçta takımı boşalan oyuncu ayrılınca maç biter, masa sürer, iki kişinin altında masa biter', () => {
+    const t = started({ app: 'hexball', players: 2, rules: 'classic' })
+    const [B, C] = t.P
+    assert.equal(t.K.desk.act({ t: 'kickoff' }), true)
+    t.w.deliver()
+    B.desk.leave()
+    t.w.deliver()
+    const view = sameViews(t, 'ayrılma', [C])
+    same(view.seats, ['5', '7'])
+    assert.equal(view.ph, 'result')
+    same(view.result, { winner: null, why: 'too_few' })
+    assert.equal(t.K.m().stage, 'play')
+    same(C.m().seats.map((s) => s.id), ['5', '7'])
+    t.w.left(t.K, C)
+    assert.equal(t.K.m().stage, 'over')
+    same(t.K.m().view.seats, ['5'])
+    same(t.K.m().view.result, { winner: null, why: 'too_few' })
+  })
+})
+
 describe('kayıp onarımı', () => {
   test('kaybolan davet aynı ni ile 15 sn sonra yeniden gider, oturana ve reddedene gitmez, açık davetin kopyası bildirim yinelemez', () => {
     const w = makeWorld()
@@ -2074,7 +2201,8 @@ describe('modül', () => {
       OFFER_PROBE_MS: 60000,
       SELF_DELAY_MS: 300
     })
-    same(DESK.DELAYED_MOVES, ['last', 'catch'])
+    // Gecikmeli hamle türleri uygulamaya özeldir (A.DELAYED_MOVES), masa yöneticisinin ortak listesi yoktur
+    assert.equal(DESK.DELAYED_MOVES, undefined)
     for (const code of DESK.ERRORS) assert.ok(G.isCode(code), code)
   })
 

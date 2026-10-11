@@ -727,6 +727,12 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
   border-radius: 0;
 }
 
+/* Sayfa içi tam ekranda (tarayıcı tam ekranı reddedince, ör. iPhone) panelin arkasındaki uygulama kırpılır: büyük
+   yazıda taşan içerik telefonda yerleşim alanını genişletir, sayfayı kaplayan panel de onunla ekrandan taşardı */
+.cast-page-full .app-view {
+  overflow: hidden;
+}
+
 /* =========================================================
    6. Sohbet şeridi (daraltılmış sohbet)
    ========================================================= */

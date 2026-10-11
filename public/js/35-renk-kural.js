@@ -4,8 +4,8 @@
 // Hatalar err.code ile, olaylar kodla verilir, arayüz game.renk.* anahtarlarıyla çevirir.
 // Tam durum yalnızca kurpiyerin cihazında tutulur. Oyunculara publicView (herkese açık) ve privateView (kişinin
 // kendi eli) gider, oyuncunun cihazı bunları validateView ve validatePrivate ile denetler. 34-oyun-masa.js motoru
-// genel uygulama sözleşmesiyle çağırır: id, RULES, DEFAULT_RULES, MIN_PLAYERS, MAX_PLAYERS, newGame, validateMove,
-// applyMove, removePlayer, endGame, isOver, turnOf, publicView, privateView, legalMoves, validateView,
+// genel uygulama sözleşmesiyle çağırır: id, RULES, DEFAULT_RULES, MIN_PLAYERS, MAX_PLAYERS, DELAYED_MOVES, newGame,
+// validateMove, applyMove, removePlayer, endGame, isOver, turnOf, publicView, privateView, legalMoves, validateView,
 // validatePrivate. Motor 36-oyun.js içindeki GAME_ENGINES tablosuna kayıtlıdır.
 // Kart kodu iki karakterdir: renk R Y G B, değer 0-9, S (Engel), V (Yön), D (+2). Jokerler WW ve WF (Joker +4).
 // Değer harfleri benzersizdir, eşleştirme ve puan yalnızca kart kodundan çıkar.
@@ -28,6 +28,9 @@ window.TelsizRenk = (function (G) {
   const MAX_POINTS = DECK_SIZE * 50
   // Tek! kuralı: bir set için false olursa pencere hiç açılmaz
   const LAST_CARD = { official: true, stack: true }
+  // Sıra dışı hamleler (Tek! ve Yakala): kurpiyerin kendi hamlesi ağdan gelen hamlelerle eşit yarışsın diye masa
+  // yöneticisi bunları gecikmeli işler (34-oyun-masa.js SELF_DELAY_MS)
+  const DELAYED_MOVES = ['last', 'catch']
   const CARD_RE = /^(?:[RYGB][0-9SVD]|W[WF])$/
   const PHASES = ['color', 'play', 'drawn', 'over']
   // Görünümde drawn aşaması play olarak görünür
@@ -835,6 +838,7 @@ window.TelsizRenk = (function (G) {
     EVENTS: Object.freeze(EVENTS.slice()),
     COLORS: Object.freeze(COLORS.slice()),
     LAST_CARD: Object.freeze({ official: LAST_CARD.official, stack: LAST_CARD.stack }),
+    DELAYED_MOVES: Object.freeze(DELAYED_MOVES.slice()),
     HAND_SIZE: HAND_SIZE,
     DECK_SIZE: DECK_SIZE,
     newGame: newGame,
