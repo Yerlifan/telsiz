@@ -492,10 +492,14 @@ function onMessagesScroll () {
 // görünür alanın OLDER_MARGIN_PX yakınına gelince (IntersectionObserver ve kaydırma) daha eski sayfa yüklenir.
 // IntersectionObserver olmayan tarayıcıda (eski WebKit) kaydırmada scrollTop < OLDER_SCROLL_PX denetlenir. Kişi en
 // alttayken yüklenmez: kısa mesajlarla dolu sayfada düğme açılışta da yakındadır. Düğme yerinde kalır, kaydırma
-// telafisi loadOlder içindedir.
+// telafisi loadOlder içindedir. Yükleme başarısız olursa (bağlantı koptu, odaya erişim kalktı) kendiliğinden yükleme o
+// konuşmada durur, hata bir kez bildirilir: yeniden deneme düğmeyledir, düğmeyle yükleme başarılı olunca veya konuşma
+// yeniden yüklenince kendiliğinden yükleme sürer.
 const OLDER_MARGIN_PX = 800
 const OLDER_SCROLL_PX = 400
 let olderObserver = null
+// Kendiliğinden yüklemenin durduğu konuşma yüklemesi (state.loadGen), durmadıysa -1
+let olderStoppedGen = -1
 
 function observeOlder () {
   if (olderObserver || typeof window.IntersectionObserver !== 'function' || !el.messages || !el.loadOlderWrap) return
@@ -511,6 +515,7 @@ function observeOlder () {
 
 function autoLoadOlder () {
   if (!state.inApp || !state.hasMore || state.loading || state.loadingOlder || !state.messages.length) return
+  if (olderStoppedGen === state.loadGen) return
   if (el.messages.hidden || el.loadOlderWrap.hidden || isNearBottom()) return
   loadOlder()
 }
@@ -804,9 +809,11 @@ async function loadOlder () {
   el.loadOlder.textContent = t('messages.loadOlder')
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
+    olderStoppedGen = gen
     toast(() => errorText(res, t('messages.olderFailed')), 'error')
     return
   }
+  olderStoppedGen = -1
   const older = res.data.messages.filter((m) => validMessage(m) && Number(m.id) < Number(first.id) && indexOfMessage(m.id) === -1)
     .sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true

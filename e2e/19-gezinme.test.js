@@ -43,7 +43,8 @@
 // G10, eski mesajların kendiliğinden yüklenmesi (S7): en alttayken yüklenmez, en üste yaklaşınca (düğme 800 piksel
 //   yakında) daha eski sayfa düğmeye basmadan gelir, önceki ilk mesaj görünür alanda ve odak yazma alanında kalır,
 //   odanın başına gelince düğme kalkar. IntersectionObserver olmayan tarayıcıda kaydırma 400 pikselin altına inince
-//   yükler.
+//   yükler. İstek başarısız olunca (sunucu 500) kaydırmayı sürdürmek yeni istek ve bildirim üretmez, düğme yeniden
+//   dener ve başarılı olunca kendiliğinden yükleme sürer (inceleme düzeltmesi).
 // G10, orta genişlik ve dar başlık (S8, S9): 768x1024, 900x800, 1024x768 ve 1200x900 boyutlarında İstasyonlar kartı
 //   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
 //   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
@@ -59,7 +60,8 @@
 //   piksellik Ses Odaları düğmesidir ve İstasyonlar sayfasını ses odalarında açar, üst çubuğun düğmeleri ve satırlar en
 //   az 44 piksel yüksekliktedir (412 genişlikte genişlik de), sayfa tutamaçtan 40 piksel sürüklenince yerine döner,
 //   120 piksel sürüklenince kapanır ve odak açan düğmeye döner, ses odasına bağlıyken düğme gizlidir.
-// - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+// - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı ve eski sayfa isteğine bilerek verilen
+//   500 yanıtı dışında)
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -1060,6 +1062,54 @@ test('eski mesajlar: IntersectionObserver olmayan tarayıcıda kaydırma en üst
   await page.close()
 })
 
+test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, hata bir kez bildirilir, düğme yeniden dener', async () => {
+  const page = await W.w.pageFor('ece', { label: 'eski-hata', viewport: { width: 1024, height: 700 } })
+  const eski = W.w.room('eski')
+  await openRoom(page, eski.id)
+  assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
+  // Daha eski sayfa istekleri sayılır, önce sunucu hatasıyla yanıtlanır
+  const older = { count: 0, failing: true }
+  await page.route(/\/api\/messages\?.*before=/, (route) => {
+    older.count += 1
+    if (older.failing) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'server' }) })
+    return route.continue()
+  })
+  await page.evaluate(() => {
+    window.testToasts = 0
+    const show = window.toast
+    window.toast = function () {
+      window.testToasts += 1
+      return show.apply(this, arguments)
+    }
+  })
+  await page.evaluate(() => {
+    el.messages.scrollTop = 300
+  })
+  await page.waitForFunction(() => window.testToasts === 1 && !state.loadingOlder, null, { timeout: h.LONG })
+  // Kişi en üste yakınken kaydırmayı sürdürür: yeni istek ve yeni bildirim yok, düğme yerinde
+  let k = 0
+  while (k < 20) {
+    await page.evaluate((y) => {
+      el.messages.scrollTop = y
+    }, 300 - k * 10)
+    await h.sleep(30)
+    k += 1
+  }
+  await h.sleep(300)
+  assert.equal(older.count, 1, 'başarısız istekten sonra kendiliğinden istek gitmez')
+  assert.deepEqual(await page.evaluate(() => [window.testToasts, state.messages.length, document.getElementById('load-older-wrap').hidden]), [1, 50, false])
+  // Düğme yeniden dener, başarılı olunca kendiliğinden yükleme sürer
+  older.failing = false
+  await page.click('#load-older')
+  await page.waitForFunction(() => state.messages.length >= 100 && !state.loadingOlder, null, { timeout: h.LONG })
+  await page.evaluate(() => {
+    el.messages.scrollTop = 0
+  })
+  await page.waitForFunction(() => state.messages.length === 120 && !state.hasMore && !state.loadingOlder, null, { timeout: h.LONG })
+  assert.deepEqual([older.count, await page.evaluate(() => window.testToasts)], [3, 1])
+  await page.close()
+})
+
 // G10 (S8, S9): orta genişlikte İstasyonlar kartı ve dar özel mesaj başlığı
 
 test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, yalnızca çok alçak ekranda gizli', async () => {
@@ -1347,5 +1397,7 @@ test('telefon: kapalı telsiz kartı Ses Odaları düğmesi, dokunma hedefleri e
 test('konsol ve sunucu günlüğü temiz', async () => {
   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
-  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [badUploads])
+  // Eski mesajlar testinde daha eski sayfa isteği bilerek 500 yanıtı alır
+  const olderFailed = (e) => e.label === 'eski-hata' && e.type === 'error' && /status of 500/.test(e.text) && /before=/.test(e.url)
+  h.assertCleanConsole(W.w.logs, W.w.srv.errors, [badUploads, olderFailed])
 })
