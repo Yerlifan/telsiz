@@ -1431,9 +1431,23 @@
   text-overflow: ellipsis;
 }
 
-/* Gece temasında görünen frekans etiketi, diğerlerinde gizli */
+/* Odanın frekans okuması (04-meta.js channelFreqNode): İstasyonlar listesinde her temada kanal ön ayarı gibi
+   görünür, süstür ve ekran okuyuculardan gizlidir. Gece, Saha Telsizi ve Fosfor kendi biçimini çizer. */
 .channel-freq {
-  display: none;
+  display: inline-block;
+  flex: none;
+  min-width: 3.25rem;
+  padding: 0.0625rem 0.3125rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .dm-section {

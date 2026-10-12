@@ -235,7 +235,7 @@ function updateTitle () {
 }
 
 // Odanın frekansı: oda kimliğinden türetilir (87.5 ile 108.0 arası), yalnızca süstür ve ekran
-// okuyuculardan gizlidir. İstasyonun alt satırında Gece temasında görünür.
+// okuyuculardan gizlidir. İstasyonlar listesinde her temada oda adının solunda görünür.
 
 function channelFreq (id) {
   const n = Math.abs(Math.floor(Number(id) || 0))
@@ -675,7 +675,7 @@ function buildRoomRow (st, prefix) {
   if (st.joining) b.classList.add('is-joining')
   if (st.live) b.classList.add('is-live')
   b.appendChild(icon(st.icon, 'room-row-icon'))
-  // Gece temasında odanın süs frekansı (diğer temalarda gizli)
+  // Odanın süs frekansı (kanal ön ayarı gibi, her temada)
   if (st.freq) b.appendChild(channelFreqNode(st.id))
   const text = h('span', 'room-row-body')
   text.appendChild(h('span', 'room-row-name', st.name))
