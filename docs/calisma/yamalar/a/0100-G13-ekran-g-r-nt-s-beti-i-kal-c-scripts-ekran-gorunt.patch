@@ -1,0 +1,214 @@
+From cd16da238a66d8626c43b8aa679f034ea02a3a1b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 05:01:53 +0000
+Subject: [PATCH 100/100] =?UTF-8?q?G13:=20ekran=20g=C3=B6r=C3=BCnt=C3=BCs?=
+ =?UTF-8?q?=C3=BC=20beti=C4=9Fi=20kal=C4=B1c=C4=B1=20(scripts/ekran-gorunt?=
+ =?UTF-8?q?usu.js)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Uçtan uca testlerin düzeneğiyle geçici sunucu, örnek hesaplar ve mesajlar kurar, her tema, mod ve mesaj düzeninde ses
+odası dışında, ses odasında, telefonda, Ayarlar > Görünüm'de ve profil kartında görüntü alır (e2e-sonuclar/ekran,
+git dışı). Her sahnede yatay taşmayı ve konsol hatalarını yazar. Seçenekler: --tema, --mod, --sahne, --duzen, --boyut,
+--cikti.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ scripts/ekran-goruntusu.js | 186 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 186 insertions(+)
+ create mode 100644 scripts/ekran-goruntusu.js
+
+diff --git a/scripts/ekran-goruntusu.js b/scripts/ekran-goruntusu.js
+new file mode 100644
+index 0000000..75b34ae
+--- /dev/null
++++ b/scripts/ekran-goruntusu.js
+@@ -0,0 +1,186 @@
++'use strict'
++
++// Görsel gözden geçirme için ekran görüntüleri (docs/TASARIM.md, "Yeni tema ekleme" 7. adım). Uçtan uca testlerin
++// düzeneğiyle (e2e/yardimci.js setupWorld) geçici bir sunucu, örnek hesaplar, odalar ve mesajlar kurar, uygulamayı
++// Chromium'da açar ve her tema ve modda aynı sahnelerin görüntüsünü alır. Depoya ve veri klasörüne bir şey yazmaz,
++// görüntüler varsayılan olarak e2e-sonuclar/ekran/ altına (git dışı) yazılır. Testlerin yerini tutmaz, temalar
++// arasında gerileme olup olmadığına gözle bakmak içindir.
++//
++// Kullanım:
++//   node scripts/ekran-goruntusu.js [--tema arcade,gece] [--mod dark,light] [--sahne sesdisi,ses] [--duzen kayit,klasik]
++//                                   [--boyut 1440x900,1920x1080] [--cikti klasör]
++// Sahneler: sesdisi (ses odası dışında, kapalı telsiz kartı), ses (ses odasında, yanında bir kişi daha), telefon
++// (390x844 dokunmatik), ayarlar (Ayarlar > Görünüm), profil (profil kartı). Verilmeyen seçenek hepsi demektir,
++// boyut verilmezse 1440x900 kullanılır (telefon sahnesi her zaman 390x844). Dosya adı
++// <sahne>-<tema>-<mod>-<düzen>-<boyut>.png biçimindedir. Her sahnede yatay taşma ölçülür, taşma ve konsol hatası
++// çıktıya yazılır.
++
++const fs = require('node:fs')
++const path = require('node:path')
++
++const ROOT = path.join(__dirname, '..')
++const SCENES = ['sesdisi', 'ses', 'telefon', 'ayarlar', 'profil']
++const SCHEMES = ['dark', 'light']
++const LAYOUTS = ['kayit', 'klasik']
++const PHONE = { width: 390, height: 844 }
++
++function parseArgs (argv) {
++  const out = {}
++  let i = 0
++  while (i < argv.length) {
++    const arg = argv[i]
++    i += 1
++    if (arg === '--yardim' || arg === '-h' || arg === '--help') {
++      out.help = true
++      continue
++    }
++    const m = /^--(tema|mod|sahne|duzen|boyut|cikti)(?:=(.*))?$/.exec(arg)
++    if (!m) throw new Error('bilinmeyen seçenek: ' + arg)
++    let value = m[2]
++    if (value === undefined) {
++      value = argv[i]
++      i += 1
++    }
++    if (value === undefined || value === '') throw new Error('değer eksik: ' + arg)
++    out[m[1]] = value
++  }
++  return out
++}
++
++function list (value, allowed, label) {
++  if (!value) return allowed.slice()
++  const items = String(value).split(',').map((s) => s.trim()).filter(Boolean)
++  for (const item of items) {
++    if (allowed.indexOf(item) === -1) throw new Error(label + ' bilinmiyor: ' + item + ' (seçenekler: ' + allowed.join(', ') + ')')
++  }
++  return items
++}
++
++function sizes (value) {
++  const items = String(value || '1440x900').split(',').map((s) => s.trim()).filter(Boolean)
++  return items.map((item) => {
++    const m = /^(\d{3,4})x(\d{3,4})$/.exec(item)
++    if (!m) throw new Error('boyut genişlikxyükseklik biçiminde olmalı: ' + item)
++    return { width: Number(m[1]), height: Number(m[2]) }
++  })
++}
++
++// Tema listesi uygulamanın kendi kaynağından (theme-init.js) okunur
++function themeSkins () {
++  const { loadSkins } = require(path.join(ROOT, 'scripts', 'kontrast.js'))
++  return loadSkins()
++}
++
++async function setTheme (h, page, skin, scheme, layout) {
++  await page.evaluate((v) => window.TelsizTheme.set({ skin: v[0], scheme: v[1], msgLayout: v[2] }), [skin, scheme, layout])
++  await page.waitForFunction((v) => {
++    const r = document.documentElement
++    return r.getAttribute('data-skin') === v[0] && r.getAttribute('data-scheme') === v[1] && r.getAttribute('data-msg-layout') === v[2]
++  }, [skin, scheme, layout])
++  // Yazı tipleri ve geçişler otursun
++  await page.evaluate(() => (document.fonts ? document.fonts.ready.then(() => true) : true))
++  await h.sleep(350)
++}
++
++async function main () {
++  const args = parseArgs(process.argv.slice(2))
++  if (args.help) {
++    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(2, 17).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'))
++    return
++  }
++  const skins = list(args.tema, themeSkins(), 'tema')
++  const schemes = list(args.mod, SCHEMES, 'mod')
++  const scenes = list(args.sahne, SCENES, 'sahne')
++  const layouts = list(args.duzen, LAYOUTS, 'düzen')
++  const views = sizes(args.boyut)
++  const outDir = path.resolve(args.cikti || path.join(ROOT, 'e2e-sonuclar', 'ekran'))
++  fs.mkdirSync(outDir, { recursive: true })
++  if (!process.env.TELSIZ_E2E_PORT_BASE) process.env.TELSIZ_E2E_PORT_BASE = String(40000 + Math.floor(Math.random() * 20000))
++  const h = require(path.join(ROOT, 'e2e', 'yardimci.js'))
++  const W = await h.setupWorld({ slot: 0 })
++  const report = []
++  let count = 0
++  const shot = async (page, scene, skin, scheme, layout, view) => {
++    const name = [scene, skin, scheme, layout, view.width + 'x' + view.height].join('-') + '.png'
++    await page.screenshot({ path: path.join(outDir, name) })
++    const over = await h.overflowX(page)
++    if (over > 0) report.push(name + ': yatay taşma ' + over + ' piksel')
++    count++
++  }
++  try {
++    const genel = W.room('genel')
++    const lobi = W.room('Lobi')
++    const lines = [
++      ['mert', 'Ben varım, kulaklığı şarj ettim.'],
++      ['mert', 'Lobiye geçiyorum birazdan.'],
++      ['deniz', 'Ben de geliyorum. @ece yeni haritayı birlikte deneyelim mi?'],
++      ['ece', 'Olur! Önce ekranımı paylaşırım, bir tur birlikte bakarız.'],
++      ['deniz', 'Telsiz DJ\'ye de birkaç parça ekledim.'],
++      ['deniz', 'Listeyi sonra paylaşırım.'],
++      ['ece', 'Harika. Bu arada mesajlar uçtan uca şifreli.']
++    ]
++    for (const l of lines) await W.say(l[0], genel, l[1])
++    const desk = views.length ? views[0] : { width: 1440, height: 900 }
++    const page = await W.pageFor('deniz', { viewport: desk })
++    const each = async (scene, fn) => {
++      if (scenes.indexOf(scene) === -1) return
++      for (const view of scene === 'telefon' ? [PHONE] : views) {
++        if (scene !== 'telefon') await page.setViewportSize(view)
++        for (const skin of skins) {
++          for (const scheme of schemes) {
++            for (const layout of layouts) await fn(skin, scheme, layout, view)
++          }
++        }
++      }
++    }
++    await each('sesdisi', async (skin, scheme, layout, view) => {
++      await setTheme(h, page, skin, scheme, layout)
++      await shot(page, 'sesdisi', skin, scheme, layout, view)
++    })
++    await each('profil', async (skin, scheme, layout, view) => {
++      await setTheme(h, page, skin, scheme, layout)
++      await page.evaluate((id) => openProfileCard(id, document.querySelector('#me-button')), W.P.ece.id)
++      await page.waitForSelector('.profile-card', { state: 'visible' })
++      await h.sleep(250)
++      await shot(page, 'profil', skin, scheme, layout, view)
++      await page.keyboard.press('Escape')
++      await page.waitForSelector('.profile-card', { state: 'hidden' })
++    })
++    await each('ayarlar', async (skin, scheme, layout, view) => {
++      await setTheme(h, page, skin, scheme, layout)
++      await page.evaluate(() => openSettings('appearance', null))
++      await page.waitForSelector('#set-msg-layout-kayit', { state: 'attached' })
++      await h.sleep(250)
++      await shot(page, 'ayarlar', skin, scheme, layout, view)
++      await page.evaluate(() => closeSettings(false))
++    })
++    if (scenes.indexOf('ses') !== -1) {
++      await page.setViewportSize(desk)
++      const ece = await W.pageFor('ece', { label: 'ece' })
++      await h.joinVoice(ece, lobi.id)
++      await h.joinVoice(page, lobi.id)
++      await h.sleep(1000)
++      await each('ses', async (skin, scheme, layout, view) => {
++        await setTheme(h, page, skin, scheme, layout)
++        await shot(page, 'ses', skin, scheme, layout, view)
++      })
++    }
++    if (scenes.indexOf('telefon') !== -1) {
++      const phone = await W.pageFor('mert', { label: 'telefon', viewport: PHONE, mobile: true })
++      await each('telefon', async (skin, scheme, layout, view) => {
++        await setTheme(h, phone, skin, scheme, layout)
++        await shot(phone, 'telefon', skin, scheme, layout, view)
++      })
++    }
++  } finally {
++    await W.close()
++  }
++  console.log(count + ' görüntü: ' + outDir)
++  for (const line of report) console.log(line)
++  if (W.logs.length) console.log('konsol: ' + JSON.stringify(W.logs.slice(0, 10)))
++}
++
++main().catch((err) => {
++  console.error(err && err.stack ? err.stack : err)
++  process.exit(1)
++})

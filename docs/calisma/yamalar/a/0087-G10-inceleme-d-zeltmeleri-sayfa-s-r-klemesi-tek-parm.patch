@@ -1,9 +1,9 @@
 From 6b3550c48c695ad92b2757bff9897ce852516aac Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 11 Oct 2026 19:55:14 +0000
-Subject: [PATCH 87/97] =?UTF-8?q?G10:=20inceleme=20d=C3=BCzeltmeleri=20(sa?=
- =?UTF-8?q?yfa=20s=C3=BCr=C3=BCklemesi=20tek=20parma=C4=9F=C4=B1=20izler,?=
- =?UTF-8?q?=20320=20piksellik=20=C3=B6zel=20mesaj=20ba=C5=9Fl=C4=B1=C4=9F?=
+Subject: [PATCH 087/100] =?UTF-8?q?G10:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?sayfa=20s=C3=BCr=C3=BCklemesi=20tek=20parma=C4=9F=C4=B1=20izler?=
+ =?UTF-8?q?,=20320=20piksellik=20=C3=B6zel=20mesaj=20ba=C5=9Fl=C4=B1=C4=9F?=
  =?UTF-8?q?=C4=B1=20s=C4=B1=C4=9Far,=20"50+"=20eri=C5=9Filebilir=20adda=20?=
  =?UTF-8?q?da)?=
 MIME-Version: 1.0
