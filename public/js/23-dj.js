@@ -42,7 +42,9 @@ const DJ_TITLE_WAIT_MS = 8000
 const DJ_NOTICE_FRESH_MS = 15000
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
-const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
+// 'game-color' Renk masasındaki Joker renk seçicisidir (37-renk.js), yayın panelinin içinde durur, ana görünümü
+// örtmez: açıkken köşedeki oynatıcı telsiz kartının ses düğmelerine inmez.
+const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu', 'game-color']
 const DJ_WAVE_BARS = 30
 // Şarkı adıyla arama (istek 5): arama yapılamayınca kartta verilen YouTube sonuç sayfası ve sunucu ucunun hata
 // kodlarının karşılığı olan music.errors.* kodları

@@ -8,14 +8,14 @@
 // bantta nota işareti ve telsiz kartında "DJ çalıyor" satırı görünür, mesajdaki ses dosyası kuyruğa eklenip
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
 // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
-// oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
-// alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi almaz, mesajı duyuruya
-// çeviren veya videosunu değiştiren düzenleme etiketle görünür. Şarkı adıyla arama (istek 5): sunucuya sahte
-// arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı açık bir hata ve kartta YouTube arama
-// bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
-// isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa kartta bağlantı çıkar, kişi
-// başı sınır ve ağ hatası yalnızca açık metinle bildirilir, önce başlatılan aramanın yanıtı kartı değiştirmez.
-// Arama sürerken başka bir ses odasına geçilirse bulunan parça hiçbir odaya eklenmez.
+// oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, oyun masasının renk seçicisi
+// açıkken yerinde kalır, kısa pencerede de görünüm alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme
+// "düzenlendi" etiketi almaz, mesajı duyuruya çeviren veya videosunu değiştiren düzenleme etiketle görünür.
+// Şarkı adıyla arama (istek 5): sunucuya sahte arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı
+// açık bir hata ve kartta YouTube arama bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı
+// taşır. İstemciden YouTube'a arama isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa
+// kartta bağlantı çıkar, kişi başı sınır ve ağ hatası yalnızca açık metinle bildirilir, önce başlatılan aramanın
+// yanıtı kartı değiştirmez. Arama sürerken başka bir ses odasına geçilirse bulunan parça hiçbir odaya eklenmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -699,6 +699,50 @@ test('1100x800: oynatıcı sağ üstte durur, Taşı köşeleri dolaşır, hiçb
   assert.equal((await fakeState(A)).mark, 'ilk', 'çerçeve yeniden yüklenmedi')
   await A.click('#dj .dj-dock-move')
   await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+})
+
+// Renk masasındaki Joker renk seçicisi ('game-color', 37-renk.js renkOpenPicker) yayın panelinin içindeki bir
+// katmandır, ana görünümü örtmez. Açıkken oynatıcı köşesini değiştirmez, telsiz kartının ses düğmelerine inmez.
+// Oyun Seç sahneye alınır, seçiciyle aynı adda ve seçeneklerde bir katman masanın içinde açılır.
+test('1100x800: oyun masasında renk seçici katmanı açıkken oynatıcı yerinde kalır, ses düğmeleri ulaşılabilir', async () => {
+  const { A } = W
+  await A.click('#radio-game')
+  await A.waitForSelector('#cast[data-mode="game"]:not([hidden])')
+  await h.sleep(300)
+  const corner = await A.evaluate(() => document.getElementById('dj').getAttribute('data-dock'))
+  await A.evaluate(() => {
+    const node = h('div', 'renk-picker')
+    const pick = h('button', 'renk-pick', 'R')
+    pick.type = 'button'
+    node.appendChild(pick)
+    document.querySelector('#cast .cast-game').appendChild(node)
+    window.__colorLayer = {
+      name: 'game-color',
+      el: node,
+      level: 2,
+      trap: true,
+      outside: true,
+      closeOnFocusOut: true,
+      initialFocus: () => pick,
+      onClose: () => {
+        if (node.parentNode) node.parentNode.removeChild(node)
+      }
+    }
+    openLayer(window.__colorLayer)
+  })
+  try {
+    await h.sleep(600)
+    const r = await A.evaluate(() => ({ top: topLayer().name, dock: document.getElementById('dj').getAttribute('data-dock') }))
+    assert.deepEqual(r, { top: 'game-color', dock: corner })
+    assertDocked(await dockInfo(A))
+    for (const sel of VOICE_BUTTONS) assert.equal(await h.reachable(A, sel), true, 'renk seçici açıkken ulaşılabilir: ' + sel)
+  } finally {
+    await A.evaluate(() => closeLayer(window.__colorLayer, false))
+  }
+  await A.click('#cast [data-focus-key="game-choose-cancel"]')
+  await A.waitForFunction(() => document.getElementById('cast').hidden)
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'tr')
+  await fakePlaying(A, 'oyun masası kapanınca çalıyor')
 })
 
 // Ayarlar'ın bir sayfasındaki her denetim ortasına kaydırılınca üstünde başka öğe yok (köşedeki oynatıcı
