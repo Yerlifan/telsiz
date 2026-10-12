@@ -4,8 +4,9 @@
 // kadroda ikisi ve Telsiz DJ öğesi görünür, konuşma halesi avatar şeklini izler. Biri ekranını paylaşır,
 // öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşan önizlemeyi küçültür (paylaşım sürer) ve
 // üst çubuktaki çipten geri getirir, Yüzen Pencere odayı ve Durdur'u gösterir. İzleyicinin yüzen penceresinde
-// yayın oynar, yayının akışı pencere açıldıktan sonra gelse de. Paylaşım sürerken paylaşanın üst çubuğu dar
-// pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
+// yayın oynar, yayının akışı pencere açıldıktan sonra gelse de. Görüntü yedeğinde (belge resim içinde resim yok)
+// izlenen yayının penceresi Oyun açılınca ve İzlemeyi Bırak'a basılınca kapanır. Paylaşım sürerken paylaşanın
+// üst çubuğu dar pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -392,6 +393,61 @@ test('izleyicinin yüzen penceresi yayının akışı gelmeden açılırsa akı�
   await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, t0, { timeout: h.LONG })
   await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
   await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+})
+
+// Safari ve Android Chrome'daki görüntü yedeği (belge resim içinde resim yok): izlenen yayın sahnenin kendi görüntü
+// öğesiyle resim içinde resimde açılır. Oyun açılınca veya İzlemeyi Bırak'a basılınca sahne öğenin akışını bırakır,
+// pencere boş kalmaz, kapanır ve Yüzen Pencere düğmesi kapalı görünür. Chromium'da belge API'si gizlenerek sınanır.
+test('görüntü yedeği: izlenen yayının penceresi Oyun açılınca ve İzlemeyi Bırak\'a basılınca kapanır', async () => {
+  const { mert } = W
+  const denizId = String(W.w.P.deniz.id)
+  const openPip = async (label) => {
+    await mert.click('#cast .cast-float')
+    await mert.waitForFunction(() => {
+      const v = document.querySelector('#cast .cast-video')
+      return document.pictureInPictureElement === v && floatState.mode === 'video' && document.getElementById('radio-float').getAttribute('aria-pressed') === 'true'
+    }, null, { timeout: h.LONG })
+    assert.equal(await mert.evaluate(() => document.querySelector('#cast .cast-video').hasAttribute('disablepictureinpicture')), false, label)
+  }
+  const closed = async (label) => {
+    await mert.waitForFunction(() => !document.pictureInPictureElement && !floatIsOpen(), null, { timeout: h.LONG })
+    const r = await mert.evaluate(() => ({
+      pressed: document.getElementById('radio-float').getAttribute('aria-pressed'),
+      guard: document.querySelector('#cast .cast-video').hasAttribute('disablepictureinpicture'),
+      watching: castState.watching
+    }))
+    assert.deepEqual(r, { pressed: 'false', guard: true, watching: null }, label)
+  }
+  const watchAgain = async () => {
+    await mert.evaluate((id) => castWatch(id, false), denizId)
+    await mert.waitForFunction(() => {
+      const v = document.querySelector('#cast[data-mode="watch"]:not([hidden]) .cast-video')
+      return v && v.srcObject && v.videoWidth > 0 && !v.paused
+    }, null, { timeout: h.LONG })
+  }
+  await mert.evaluate(() => {
+    window.__dpip = window.documentPictureInPicture
+    Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true })
+  })
+  try {
+    assert.equal(await mert.evaluate(() => floatMode()), 'video')
+    await openPip('Oyun öncesi')
+    // Oyun düğmesi izlemeyi bırakır, sahnede Oyun Seç açılır
+    await mert.click('#radio-game')
+    await mert.waitForSelector('#cast[data-mode="game"]:not([hidden])')
+    await closed('Oyun açılınca')
+    await mert.click('#cast [data-focus-key="game-choose-cancel"]')
+    await mert.waitForFunction(() => document.getElementById('cast').hidden)
+    await watchAgain()
+    await openPip('İzlemeyi Bırak öncesi')
+    await mert.click('#cast .cast-unwatch')
+    await closed('İzlemeyi Bırak\'tan sonra')
+  } finally {
+    await mert.evaluate(() => {
+      Object.defineProperty(window, 'documentPictureInPicture', { value: window.__dpip, configurable: true })
+    })
+  }
+  await watchAgain()
 })
 
 test('kendi paylaşımı sürerken üst çubuk taşmaz, profil düğmesi görünür, 759 ve altında Ekran ve Durdur kalır', async () => {

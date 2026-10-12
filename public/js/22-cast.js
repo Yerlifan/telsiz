@@ -257,6 +257,8 @@ function castSync () {
   if (castState.dialog) castRenderDialogState()
   // Oyun düğmesinin etiketi sahnenin görünürlüğüne bağlıdır (Küçült veya Masaya Dön)
   if (typeof gameRenderTool === 'function') gameRenderTool()
+  // Görüntü yedeğinde resim içinde resimdeki sahne görüntüsü artık yayını göstermiyorsa pencere kapanır (39-yuzen.js)
+  if (typeof floatOnStage === 'function') floatOnStage()
 }
 
 // Sahne kipi önceliği: izlenen paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesi

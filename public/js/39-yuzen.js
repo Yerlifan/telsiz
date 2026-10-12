@@ -20,7 +20,7 @@
 // - 'video': görüntü resim içinde resim yedeği (Safari, Android Chrome). Kutular 480x270 bir tuvale saniyede 15
 //   kare çizilir, tuvalin akışı bir görüntü öğesinde resim içinde resim olarak açılır. Pencerede düğme yoktur,
 //   mikrofon işletim sisteminin medya denetimlerinden açılıp kapanabilir (togglemicrophone). İzlenen ekran
-//   paylaşımında yayının kendi görüntü öğesi açılır.
+//   paylaşımında yayının kendi görüntü öğesi açılır, yayın izlenmez olunca pencere kapanır (floatOnStage).
 //
 // Pencerenin içeriğini bu sayfanın betiği çizer: düğümler bu sayfada üretilir ve yüzen belgeye eklenir, akışlar
 // aynı süreçte paylaşılır. Uygulama penceresi gizliyken onun çizim döngüsü (requestAnimationFrame) durur, bu
@@ -956,6 +956,16 @@ function floatOnVoice (snapshot) {
   }
   if (floatState.mode === 'video') floatMediaMicState()
   else floatSchedule()
+}
+
+// Yayın sahnesi yeniden çizildi (22-cast.js castSync). Görüntü yedeğinde izlenen yayın sahnenin kendi görüntü
+// öğesiyle resim içinde resimde açılır (floatOpenVideo). Yayın artık izlenmiyorsa (İzlemeyi Bırak, Büyüt, oyun
+// masası, paylaşım bitti veya bağlantısı yenilendi) sahne öğenin akışını bırakır ve pencere boş kalırdı, Yüzen
+// Pencere düğmesi de açık görünürdü. Pencere kapanır: kullanıcı hareketi olmadan tuval akışına geçilemez.
+function floatOnStage () {
+  const v = floatState.video
+  if (floatState.mode !== 'video' || !v || !v.own) return
+  if (floatPlan(floatInput()).kind !== 'share') floatClose('unwatch')
 }
 
 // Ses kancası 'render': telsiz kartı yeniden çizildi (kadro, kameralar, adlar)

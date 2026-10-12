@@ -286,6 +286,45 @@ test('izlenen yayın: akış pencere açıldıktan sonra gelirse veya değişirs
   assert.equal(video.srcObject, null, 'yayın gidince öğe boşalır')
 })
 
+// Görüntü yedeğinde izlenen yayın sahnenin kendi görüntü öğesiyle resim içinde resimde açılır. Yayın izlenmez olunca
+// (İzlemeyi Bırak, Büyüt, oyun masası, paylaşım bitti) sahne öğenin akışını bırakır: 22-cast.js castSync'in
+// çağırdığı floatOnStage pencereyi kapatır, öğenin resim içinde resim izni geri kapanır
+test('görüntü yedeği: izlenen yayının sahne öğesi resim içinde resimdeyken yayın izlenmez olunca pencere kapanır', () => {
+  const env = load({ videoPip: true })
+  const attrs = {}
+  const video = {
+    setAttribute: (k, v) => {
+      attrs[k] = v
+    }
+  }
+  let exits = 0
+  env.sandbox.document.pictureInPictureElement = video
+  env.sandbox.document.exitPictureInPicture = () => {
+    exits++
+    return Promise.resolve()
+  }
+  env.sandbox.voiceSnap = { channelId: 5 }
+  env.sandbox.voiceRoster = () => [{ userId: 1 }, { userId: 2 }]
+  env.sandbox.radioScreen = () => ({ state: 'off', remote: { 2: { status: 'live' } } })
+  env.sandbox.castState = { watching: '2' }
+  env.sandbox.__video = video
+  env.run("floatState.mode = 'video'; floatState.reason = 'share'; floatState.video = { video: __video, holder: null, timer: 0, own: true }")
+  env.run('floatOnStage()')
+  assert.equal(env.run('floatState.mode'), 'video', 'yayın izlenirken pencere açık kalır')
+  assert.equal(exits, 0)
+  env.sandbox.castState.watching = null
+  env.run('floatOnStage()')
+  assert.equal(env.run('floatState.mode'), null, 'yayın izlenmez olunca pencere kapanır')
+  assert.equal(env.run('floatState.video'), null)
+  assert.equal(exits, 1)
+  assert.equal(attrs.disablepictureinpicture, '', 'sahne öğesinin resim içinde resim izni geri kapanır')
+  // Tuval akışıyla açılan pencere (kamera ve avatarlar) yayına bağlı değildir, açık kalır
+  env.run("floatState.mode = 'video'; floatState.video = { video: __video, holder: {}, timer: 0, own: false }")
+  env.run('floatOnStage()')
+  assert.equal(env.run('floatState.mode'), 'video')
+  assert.equal(exits, 1)
+})
+
 test('tarayıcı: otomatik açılış işleyicisi yalnızca belge yolunda, odadayken ve ayar açıkken kayıtlıdır', () => {
   const env = load({ documentPip: true })
   const change = env.hooks.find((hk) => hk.kind === 'change').fn
