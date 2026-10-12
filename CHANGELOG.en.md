@@ -2,6 +2,12 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Fixes
+
+- Choosing Create Code or Create New Code in the recovery code reminder or warning moves the focus to the create button in Settings > My Account. In Firefox the focus sometimes stayed on the page title instead.
+
 ## [2.5.0]
 
 ### New features

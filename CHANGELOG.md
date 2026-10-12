@@ -2,6 +2,12 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Düzeltmeler
+
+- Kurtarma kodu hatırlatmasında veya uyarısında Kod Oluştur ya da Yeni Kod Oluştur seçilince odak Ayarlar > Hesabım'daki oluşturma düğmesine gider. Firefox'ta odak zaman zaman bunun yerine sayfa başlığında kalıyordu.
+
 ## [2.5.0]
 
 ### Yeni özellikler

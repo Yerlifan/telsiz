@@ -314,8 +314,18 @@ test('kodu olmayan kişi: hata ve yönlendirme metni, girişten sonra bir kez ha
   await uiLogin(page, 'mert', 'parola-mert-1')
   await page.waitForSelector('#recovery-remind-dialog', { timeout: h.LONG })
   assert.equal(await page.textContent('#recovery-remind-dialog .lead'), 'Hesabınızın kurtarma kodu yok. Parolanızı unutursanız özel mesajlarınızı kaybedersiniz.')
+  // Ayarlar katmanının ilk odağı sonraki karede verilir. Kare geç gelse de (Firefox'ta görülen sıra) odak
+  // oluşturma düğmesinde kalır, başlığa geçmez.
+  await page.evaluate(() => {
+    window.testRaf = window.requestAnimationFrame
+    window.requestAnimationFrame = (fn) => setTimeout(fn, 40)
+  })
   await page.click('#recovery-remind-create')
   await page.waitForSelector('#set-recovery-section', { timeout: h.LONG })
+  await h.sleep(200)
+  await page.evaluate(() => {
+    window.requestAnimationFrame = window.testRaf
+  })
   await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'set-recovery-create', null, { timeout: h.LONG })
   await page.evaluate(() => closeSettings())
   await page.evaluate(() => logout())

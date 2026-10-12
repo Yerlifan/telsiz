@@ -181,12 +181,14 @@ function isSettingsTab (name) {
 }
 
 // Açma ve kapatma. Kategori verilirse doğrudan o sayfa açılır (ör. openSettings('profile')).
-// Verilmezse geniş ekranda Hesabım, dar ekranda kategori listesi gösterilir.
-function openSettings (name, trigger) {
+// Verilmezse geniş ekranda Hesabım, dar ekranda kategori listesi gösterilir. focusTarget verilirse odak, katmanın
+// ilk odağı olarak bu işlevin döndürdüğü öğeye verilir (ör. 41-kurtarma.js kurtarma kodu düğmesi).
+function openSettings (name, trigger, focusTarget) {
   if (!state.inApp || !state.me) return
   const wanted = settingsCatName(name)
   if (isSettingsOpen()) {
     if (wanted) showSettingsCat(wanted, 'title')
+    if (focusTarget) focusNode(focusTarget())
     return
   }
   const root = settingsRoot()
@@ -212,7 +214,7 @@ function openSettings (name, trigger) {
     trigger: trigger || el.meButton,
     level: 1,
     trap: true,
-    initialFocus: () => settingsFocusTarget(wanted ? 'title' : 'nav'),
+    initialFocus: () => (focusTarget && focusTarget()) || settingsFocusTarget(wanted ? 'title' : 'nav'),
     onClose: onSettingsClosed
   })
   // Sayfa katman kurulmadan önce çizildi, isSettingsTab'e bağlı bölümler (ses, tuş atamaları) şimdi doldurulur
