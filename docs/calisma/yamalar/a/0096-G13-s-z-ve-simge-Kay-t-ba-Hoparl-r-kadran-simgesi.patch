@@ -1,0 +1,314 @@
+From 62726df4609054833c37d1c7c96922356401e8ab Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 04:56:00 +0000
+Subject: [PATCH 96/97] =?UTF-8?q?G13:=20s=C3=B6z=20ve=20simge:=20Kay=C4=B1?=
+ =?UTF-8?q?t=20ba=C5=9F=C4=B1,=20Hoparl=C3=B6r,=20kadran=20simgesi?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Oda başlangıcı "Kayıt başı: {name}" (Log start). "Sağırlaştır" yerine Hoparlör: erişilebilir ad ve kısayol adları
+Hoparlörü Kapat ve Hoparlörü Aç/Kapat, durum Hoparlör Kapalı, açıklamalar buna göre. Telsiz kartındaki düğme Kamera ve
+Mikrofon gibi ad ve durumdur (Hoparlör, Açık ya da Kapalı). Anahtar adları ve toggleDeafen tanımlayıcıları değişmez.
+Yeni i-speaker-off simgesi kulaklığın yerini alır (düğme, kadro işareti, Çevrimiçi listesi, DJ susturma işareti).
+Telefonda İstasyonlar düğmesinin simgesi i-hash yerine i-dial.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/i18n.js        | 44 +++++++++++++++++++++----------------------
+ public/index.html     |  7 ++++---
+ public/js/04-meta.js  |  4 ++--
+ public/js/10-voice.js |  5 +++--
+ public/js/23-dj.js    |  2 +-
+ test/i18n.test.js     |  8 ++++----
+ 6 files changed, 36 insertions(+), 34 deletions(-)
+
+diff --git a/public/i18n.js b/public/i18n.js
+index f537fa6..e0c7660 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -246,7 +246,7 @@ window.I18N = (function () {
+     'desktop.shortcuts.title': 'Genel kısayollar (masaüstü uygulaması)',
+     'desktop.shortcuts.hint': 'Bu kısayollar Telsiz arka plandayken de çalışır, örneğin bir oyun açıkken.',
+     'desktop.shortcuts.toggleMute': 'Mikrofonu aç/kapat',
+-    'desktop.shortcuts.toggleDeafen': 'Sağırlaştır',
++    'desktop.shortcuts.toggleDeafen': 'Hoparlörü Aç/Kapat',
+     'desktop.shortcuts.none': 'Atanmadı',
+     'desktop.shortcuts.assign': 'Ata',
+     'desktop.shortcuts.cancel': 'Vazgeç',
+@@ -687,7 +687,7 @@ window.I18N = (function () {
+     'channels.voice': 'Ses odaları',
+     'channels.unreadLabel_one': '{name}, {count} okunmamış mesaj',
+     'channels.unreadLabel_other': '{name}, {count} okunmamış mesaj',
+-    'channel.welcome': '{name} odasının başlangıcı',
++    'channel.welcome': 'Kayıt başı: {name}',
+     'header.noKey': 'Anahtar Yok',
+ 
+     'top.searchLabel': 'Ara (Ctrl K)',
+@@ -860,7 +860,7 @@ window.I18N = (function () {
+     'radio.joining': 'Telsiz · bağlanıyor',
+     'radio.pick': 'Bir ses odası seçin',
+     'radio.mic': 'Mikrofon',
+-    'radio.deafen': 'Sağırlaştır',
++    'radio.deafen': 'Hoparlör',
+     'radio.crew': 'Odadakiler',
+     'radio.roomMeta_one': '{count} Kişi · Şifreli',
+     'radio.roomMeta_other': '{count} Kişi · Şifreli',
+@@ -883,8 +883,8 @@ window.I18N = (function () {
+     'radio.micOn': 'Açık',
+     'radio.micServerMuted': 'Herkes İçin Susturuldu',
+     'radio.micOff': 'Kapalı',
+-    'radio.hearing': 'Duyuyorsunuz',
+-    'radio.deafened': 'Sağır',
++    'radio.hearing': 'Açık',
++    'radio.deafened': 'Kapalı',
+     'radio.screen': 'Ekran',
+     'radio.screenShare': 'Paylaş',
+     'radio.screenLive': 'Yayında',
+@@ -1041,7 +1041,7 @@ window.I18N = (function () {
+ 
+     'user.online': 'Çevrimiçi',
+     'user.mute': 'Mikrofonu kapat',
+-    'user.deafen': 'Sağırlaştır',
++    'user.deafen': 'Hoparlörü Kapat',
+ 
+     'messages.label': 'Mesajlar',
+     'messages.start': 'Mesajlar uçtan uca şifrelidir.',
+@@ -1228,8 +1228,8 @@ window.I18N = (function () {
+     'voice.localMuted': 'yerel olarak susturuldu',
+     'voice.mutedTitle': 'Mikrofonu kapalı',
+     'voice.mutedState': 'mikrofonu kapalı',
+-    'voice.deafenedTitle': 'Sağırlaştırılmış',
+-    'voice.deafenedState': 'sağırlaştırılmış',
++    'voice.deafenedTitle': 'Hoparlör Kapalı',
++    'voice.deafenedState': 'hoparlör kapalı',
+     'voice.memberStates': '{name}, {states}',
+     'voice.memberSettings': '{label}, ses ayarları',
+ 
+@@ -1554,7 +1554,7 @@ window.I18N = (function () {
+     'settings.voice.outputVolume': 'Genel çıkış ses seviyesi',
+     'settings.voice.outputHint': 'Duyduğunuz herkesin sesine uygulanır, kişi başına ses seviyesiyle birlikte çalışır.',
+     'settings.voice.sounds': 'Ses odası sesleri',
+-    'settings.voice.soundsHint': 'Ses odasına biri katılınca veya ayrılınca, biri ekran yayını başlatınca ve bağlantınız düşünce her biri kendine özgü 2 saniyelik bir ses çalar. Sağırlaştırılmışken başkalarının hareketleri sessizdir. Ses düzeyi Bildirimler bölümünden ayarlanır. Masaüstü uygulamasında bas konuş kısayoluyla konuşma başlayıp biterken de kısa bir ses çalar.',
++    'settings.voice.soundsHint': 'Ses odasına biri katılınca veya ayrılınca, biri ekran yayını başlatınca ve bağlantınız düşünce her biri kendine özgü 2 saniyelik bir ses çalar. Hoparlör kapalıyken başkalarının hareketleri sessizdir. Ses düzeyi Bildirimler bölümünden ayarlanır. Masaüstü uygulamasında bas konuş kısayoluyla konuşma başlayıp biterken de kısa bir ses çalar.',
+     'settings.screen.title': 'Ekran paylaşımı kalitesi',
+     'settings.screen.lead': 'Paylaşım başlarken bu ayarlar kullanılır. Paylaşım sürerken değiştirirseniz hemen uygulanır.',
+     'settings.screen.unsupported': 'Bu cihaz ekran paylaşımını başlatamıyor, ama izleyebilirsiniz.',
+@@ -1707,7 +1707,7 @@ window.I18N = (function () {
+     'settings.keybinds.pttHint': 'Bas konuş modunda, basılı tuttuğunuz sürece mikrofon açık kalır.',
+     'settings.keybinds.toggleMute': 'Mikrofonu aç/kapat',
+     'settings.keybinds.toggleMuteHint': 'Her basışta mikrofonunuzu kapatır veya açar.',
+-    'settings.keybinds.toggleDeafen': 'Sağırlaştır',
++    'settings.keybinds.toggleDeafen': 'Hoparlörü Aç/Kapat',
+     'settings.keybinds.toggleDeafenHint': 'Her basışta tüm sesleri ve mikrofonunuzu kapatır veya açar.',
+     'settings.keybinds.assign': 'Ata',
+     'settings.keybinds.clear': 'Temizle',
+@@ -1715,7 +1715,7 @@ window.I18N = (function () {
+     'settings.keybinds.capturePrompt': 'Bir tuşa, fare yan tuşuna veya oyun kolu düğmesine basın... Esc ile iptal.',
+     'settings.keybinds.cleared': '{action} ataması temizlendi.',
+     'settings.keybinds.assigned': '{action}: {key}',
+-    'settings.keybinds.conflictHint': 'Aynı tuş hem mikrofon hem sağırlaştırma için atanamaz, yeni atama eskisini kaldırır. Tuşlar yalnızca seste veya mikrofon testindeyken çalışır.',
++    'settings.keybinds.conflictHint': 'Aynı tuş hem mikrofon hem hoparlör için atanamaz, yeni atama eskisini kaldırır. Tuşlar yalnızca seste veya mikrofon testindeyken çalışır.',
+     'settings.keybinds.samePtt': 'Bu tuş Bas konuş tuşuyla aynı. Bas konuş modunda yalnızca Bas konuş olarak çalışır.',
+     'settings.keybinds.openVoice': 'Giriş Modunu Değiştir',
+     'settings.keybinds.modePtt': 'Giriş modu: Bas konuş. Bas konuş tuşu basılıyken mikrofon açılır.',
+@@ -2296,7 +2296,7 @@ window.I18N = (function () {
+     'desktop.shortcuts.title': 'Global shortcuts (desktop app)',
+     'desktop.shortcuts.hint': 'These shortcuts also work while Telsiz is in the background, for example while a game is open.',
+     'desktop.shortcuts.toggleMute': 'Toggle microphone',
+-    'desktop.shortcuts.toggleDeafen': 'Deafen',
++    'desktop.shortcuts.toggleDeafen': 'Toggle Speaker',
+     'desktop.shortcuts.none': 'Not assigned',
+     'desktop.shortcuts.assign': 'Assign',
+     'desktop.shortcuts.cancel': 'Cancel',
+@@ -2737,7 +2737,7 @@ window.I18N = (function () {
+     'channels.voice': 'Voice rooms',
+     'channels.unreadLabel_one': '{name}, {count} unread message',
+     'channels.unreadLabel_other': '{name}, {count} unread messages',
+-    'channel.welcome': 'Start of {name}',
++    'channel.welcome': 'Log start: {name}',
+     'header.noKey': 'No Key',
+ 
+     'top.searchLabel': 'Search (Ctrl K)',
+@@ -2910,7 +2910,7 @@ window.I18N = (function () {
+     'radio.joining': 'Radio · connecting',
+     'radio.pick': 'Pick a voice room',
+     'radio.mic': 'Microphone',
+-    'radio.deafen': 'Deafen',
++    'radio.deafen': 'Speaker',
+     'radio.crew': 'In the room',
+     'radio.roomMeta_one': '{count} Person · Encrypted',
+     'radio.roomMeta_other': '{count} People · Encrypted',
+@@ -2933,8 +2933,8 @@ window.I18N = (function () {
+     'radio.micOn': 'On',
+     'radio.micServerMuted': 'Muted for Everyone',
+     'radio.micOff': 'Off',
+-    'radio.hearing': 'Listening',
+-    'radio.deafened': 'Deafened',
++    'radio.hearing': 'On',
++    'radio.deafened': 'Off',
+     'radio.screen': 'Screen',
+     'radio.screenShare': 'Share',
+     'radio.screenLive': 'On Air',
+@@ -3091,7 +3091,7 @@ window.I18N = (function () {
+ 
+     'user.online': 'Online',
+     'user.mute': 'Mute microphone',
+-    'user.deafen': 'Deafen',
++    'user.deafen': 'Speaker Off',
+ 
+     'messages.label': 'Messages',
+     'messages.start': 'Messages are end-to-end encrypted.',
+@@ -3278,8 +3278,8 @@ window.I18N = (function () {
+     'voice.localMuted': 'muted locally',
+     'voice.mutedTitle': 'Microphone off',
+     'voice.mutedState': 'microphone off',
+-    'voice.deafenedTitle': 'Deafened',
+-    'voice.deafenedState': 'deafened',
++    'voice.deafenedTitle': 'Speaker Off',
++    'voice.deafenedState': 'speaker off',
+     'voice.memberStates': '{name}, {states}',
+     'voice.memberSettings': '{label}, voice settings',
+ 
+@@ -3604,7 +3604,7 @@ window.I18N = (function () {
+     'settings.voice.outputVolume': 'Overall output volume',
+     'settings.voice.outputHint': 'Applies to everyone you hear and works together with each person\'s own volume.',
+     'settings.voice.sounds': 'Voice room sounds',
+-    'settings.voice.soundsHint': 'Plays a distinct 2 second sound when someone joins or leaves the voice room, when someone starts a screen share and when your connection drops. While deafened, other people\'s actions are silent. The volume is set in Notifications. In the desktop app it also plays a short sound when the push to talk shortcut starts or stops talking.',
++    'settings.voice.soundsHint': 'Plays a distinct 2 second sound when someone joins or leaves the voice room, when someone starts a screen share and when your connection drops. While the speaker is off, other people\'s actions are silent. The volume is set in Notifications. In the desktop app it also plays a short sound when the push to talk shortcut starts or stops talking.',
+     'settings.screen.title': 'Screen sharing quality',
+     'settings.screen.lead': 'These settings are used when you start sharing. If you change them while sharing, they apply right away.',
+     'settings.screen.unsupported': 'This device can\'t start screen sharing, but you can watch.',
+@@ -3757,7 +3757,7 @@ window.I18N = (function () {
+     'settings.keybinds.pttHint': 'In Push to talk mode, your microphone stays open while you hold it.',
+     'settings.keybinds.toggleMute': 'Toggle microphone',
+     'settings.keybinds.toggleMuteHint': 'Turns your microphone off or on with each press.',
+-    'settings.keybinds.toggleDeafen': 'Deafen',
++    'settings.keybinds.toggleDeafen': 'Toggle Speaker',
+     'settings.keybinds.toggleDeafenHint': 'Turns all sound and your microphone off or on with each press.',
+     'settings.keybinds.assign': 'Assign',
+     'settings.keybinds.clear': 'Clear',
+@@ -3765,7 +3765,7 @@ window.I18N = (function () {
+     'settings.keybinds.capturePrompt': 'Press a key, a side mouse button or a gamepad button... Esc to cancel.',
+     'settings.keybinds.cleared': '{action} binding cleared.',
+     'settings.keybinds.assigned': '{action}: {key}',
+-    'settings.keybinds.conflictHint': 'One key cannot toggle both the microphone and deafen, a new binding replaces the old one. Keybinds only work while you are in voice or testing your microphone.',
++    'settings.keybinds.conflictHint': 'One key cannot toggle both the microphone and the speaker, a new binding replaces the old one. Keybinds only work while you are in voice or testing your microphone.',
+     'settings.keybinds.samePtt': 'This is the same as your Push to talk key. In Push to talk mode it only works as Push to talk.',
+     'settings.keybinds.openVoice': 'Change Input Mode',
+     'settings.keybinds.modePtt': 'Input mode: Push to talk. Your microphone opens while the Push to talk key is held.',
+diff --git a/public/index.html b/public/index.html
+index 65f9b95..12946d6 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -92,6 +92,7 @@
+     <symbol id="i-logo" viewBox="0 0 32 32"><rect x="19" y="1" width="4.5" height="11" rx="2.25" fill="url(#g-logo)"/><rect x="5.5" y="7" width="21" height="24" rx="7" fill="url(#g-logo)"/><rect x="10.5" y="11.25" width="11" height="3.25" rx="1.625" fill="#0E0D16"/><circle cx="16" cy="21.75" r="5.25" fill="#0E0D16"/><circle cx="16" cy="21.75" r="2.1" fill="url(#g-logo)"/></symbol>
+     <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9.75 4.5 8.25 19.5M15.75 4.5l-1.5 15M5 9.25h14.5M4.5 14.75H19"/></symbol>
+     <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.75h2.75L11 6v12l-4.25-3.75H4a1 1 0 0 1-1-1v-2.5a1 1 0 0 1 1-1z"/><path d="M15 9.25a3.9 3.9 0 0 1 0 5.5M17.75 6.5a7.8 7.8 0 0 1 0 11"/></symbol>
++    <symbol id="i-speaker-off" viewBox="0 0 24 24"><path d="M4 9.75h2.75L11 6v12l-4.25-3.75H4a1 1 0 0 1-1-1v-2.5a1 1 0 0 1 1-1z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></symbol>
+     <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></symbol>
+     <symbol id="i-mic-off" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6M3.5 3.5l17 17"/></symbol>
+     <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="2"/><rect x="16" y="14" width="4.5" height="6.5" rx="2"/></symbol>
+@@ -474,7 +475,7 @@
+       <div class="top-side top-side-end">
+         <div id="top-cast" class="top-cast" hidden></div>
+         <!-- İstasyonlar düğmesi: sağ sütun görünmediğinde yazı ve ses odalarını sayfa olarak açar (frekans.css, 04-meta.js renderRoomsButton) -->
+-        <button id="btn-rooms" class="top-chip top-rooms" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="İstasyonlar: yazı ve ses odaları" title="İstasyonlar: yazı ve ses odaları" data-i18n-aria-label="rooms.buttonLabel" data-i18n-title="rooms.buttonLabel"><svg class="icon" aria-hidden="true"><use href="#i-hash" xlink:href="#i-hash"></use></svg><span class="top-chip-label" data-i18n="rooms.button">İstasyonlar</span><span id="btn-rooms-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
++        <button id="btn-rooms" class="top-chip top-rooms" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="stations-sheet" aria-label="İstasyonlar: yazı ve ses odaları" title="İstasyonlar: yazı ve ses odaları" data-i18n-aria-label="rooms.buttonLabel" data-i18n-title="rooms.buttonLabel"><svg class="icon" aria-hidden="true"><use href="#i-dial" xlink:href="#i-dial"></use></svg><span class="top-chip-label" data-i18n="rooms.button">İstasyonlar</span><span id="btn-rooms-mark" class="station-mark mark-unread" aria-hidden="true" hidden></span></button>
+         <!-- Kişisel girişler: Özel mesajlar ve Arkadaşlar, profil düğmesinin hemen solunda (04-meta.js renderTopPersonal) -->
+         <nav id="top-personal" class="top-personal" aria-label="Kişisel" data-i18n-aria-label="band.groupPersonal">
+           <button id="top-dm" class="top-personal-button" type="button" data-station="dm"><svg class="icon" aria-hidden="true"><use href="#i-chat" xlink:href="#i-chat"></use></svg><span class="top-personal-label" data-i18n="layout.dms">Özel Mesajlar</span><span id="top-dm-mark" class="station-mark mark-mention" aria-hidden="true" hidden></span></button>
+@@ -684,11 +685,11 @@
+                 </span>
+                 <span class="radio-vad-meter" aria-hidden="true"><span id="radio-vad-bar" class="radio-vad-bar"></span></span>
+               </div>
+-              <!-- İki satır: Kamera, Mikrofon, Sağırlaştır ve altında Ekran ile Ayrıl. Her düğmenin kendi rengi var (radio.css tone-*) -->
++              <!-- İki satır: Kamera, Mikrofon, Hoparlör ve altında Ekran ile Ayrıl. Her düğmenin kendi rengi var (radio.css tone-*) -->
+               <div id="radio-row" class="radio-row">
+                 <button id="btn-camera" class="radio-button tone-camera" type="button" aria-pressed="false" aria-label="Kamerayı aç" data-i18n-aria-label="camera.start"><svg class="icon" aria-hidden="true"><use href="#i-camera" xlink:href="#i-camera"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.camera">Kamera</span><span id="btn-camera-state" class="radio-button-state"></span></span></button>
+                 <button id="btn-mute" class="radio-button tone-mic" type="button" aria-pressed="false" aria-label="Mikrofonu kapat" data-i18n-aria-label="user.mute" title="Sağ tıklayın: Bas konuş veya Ses etkinliği" data-i18n-title="radio.micMenuHint"><svg class="icon" aria-hidden="true"><use href="#i-mic" xlink:href="#i-mic"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.mic">Mikrofon</span><span id="btn-mute-state" class="radio-button-state"></span></span></button>
+-                <button id="btn-deafen" class="radio-button tone-deafen" type="button" aria-pressed="false" aria-label="Sağırlaştır" data-i18n-aria-label="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-headphones" xlink:href="#i-headphones"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.deafen">Sağırlaştır</span><span id="btn-deafen-state" class="radio-button-state"></span></span></button>
++                <button id="btn-deafen" class="radio-button tone-deafen" type="button" aria-pressed="false" aria-label="Hoparlörü Kapat" data-i18n-aria-label="user.deafen"><svg class="icon" aria-hidden="true"><use href="#i-speaker" xlink:href="#i-speaker"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.deafen">Hoparlör</span><span id="btn-deafen-state" class="radio-button-state"></span></span></button>
+                 <button id="btn-screen" class="radio-button tone-screen" type="button" aria-haspopup="dialog" aria-controls="cast-dialog" aria-label="Ekranı paylaş" data-i18n-aria-label="screen.share"><svg class="icon" aria-hidden="true"><use href="#i-screen" xlink:href="#i-screen"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="radio.screen">Ekran</span><span id="btn-screen-state" class="radio-button-state"></span></span></button>
+                 <button id="voice-leave" class="radio-button is-danger" type="button" aria-label="Bağlantıyı kes" data-i18n-aria-label="voice.disconnect"><svg class="icon" aria-hidden="true"><use href="#i-hangup" xlink:href="#i-hangup"></use></svg><span class="radio-button-text"><span class="radio-button-label" data-i18n="voice.leave">Ayrıl</span><span id="voice-leave-state" class="radio-button-state"></span></span></button>
+               </div>
+diff --git a/public/js/04-meta.js b/public/js/04-meta.js
+index c670fae..58cb49f 100644
+--- a/public/js/04-meta.js
++++ b/public/js/04-meta.js
+@@ -433,7 +433,7 @@ function memberVoiceIcon (m) {
+ }
+ 
+ const MEMBER_VOICE_ICONS = {
+-  deafened: ['i-headphones-off', 'voice.deafenedTitle'],
++  deafened: ['i-speaker-off', 'voice.deafenedTitle'],
+   'server-muted': ['i-mic-off', 'voice.serverMutedTitle'],
+   muted: ['i-mic-off', 'voice.mutedTitle']
+ }
+@@ -1061,7 +1061,7 @@ function buildMemberRow (entry) {
+     sub.appendChild(talk)
+     sub.appendChild(h('span', 'member-state', vs.text))
+     text.appendChild(sub)
+-    if (vs.deafened) flag = icon('i-headphones-off', 'member-flag')
++    if (vs.deafened) flag = icon('i-speaker-off', 'member-flag')
+     else if (vs.muted) flag = icon('i-mic-off', 'member-flag')
+   } else {
+     const subText = memberPresenceText(u.id, status)
+diff --git a/public/js/10-voice.js b/public/js/10-voice.js
+index 4e5d017..00484f6 100644
+--- a/public/js/10-voice.js
++++ b/public/js/10-voice.js
+@@ -562,7 +562,7 @@ function crewBadge (failed, deafened, muted, serverMuted) {
+     title = t('voice.peerFailed')
+     kind = ' is-error'
+   } else if (deafened) {
+-    name = 'i-headphones-off'
++    name = 'i-speaker-off'
+     title = t('voice.deafenedTitle')
+   } else if (serverMuted) {
+     name = 'i-mic-off'
+@@ -1024,7 +1024,8 @@ function renderUserPanel () {
+   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
+   setText(el.btnMuteState, t(s.serverMuted ? 'radio.micServerMuted' : s.muted ? 'radio.micOff' : 'radio.micOn'))
+   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
+-  setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
++  // Hoparlör düğmesi: açıkken hoparlör, kapalıyken çarpılı hoparlör simgesi
++  setIcon(el.btnDeafen, s.deafened ? 'i-speaker-off' : 'i-speaker')
+   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))
+   setText(el.btnDeafenState, t(s.deafened ? 'radio.deafened' : 'radio.hearing'))
+ }
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index 994c565..f618e0c 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -1024,7 +1024,7 @@ function djUpdateCrewItem (li) {
+   let badge = av.querySelector('.crew-badge')
+   if (s.muted && !badge) {
+     badge = h('span', 'crew-badge dj-crew-badge')
+-    badge.appendChild(icon('i-headphones-off'))
++    badge.appendChild(icon('i-speaker-off'))
+     av.appendChild(badge)
+   } else if (!s.muted && badge) {
+     av.removeChild(badge)
+diff --git a/test/i18n.test.js b/test/i18n.test.js
+index 60d86b0..a03ceb1 100644
+--- a/test/i18n.test.js
++++ b/test/i18n.test.js
+@@ -134,12 +134,12 @@ test('setLang dili değiştirir, kalıcı yapar ve <html lang> değerini güncel
+ 
+ test('t: parametre yerleştirme ve eksik parametre', () => {
+   const { I18N } = load({ languages: ['tr-TR'] })
+-  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), 'genel odasının başlangıcı')
++  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), 'Kayıt başı: genel')
+   assert.strictEqual(I18N.t('auth.nameLength', { min: 2, max: 20 }), 'Kullanıcı adı 2 ile 20 karakter arasında olmalı.')
+-  assert.strictEqual(I18N.t('channel.welcome'), '{name} odasının başlangıcı', 'parametre verilmezse yer tutucu kalır')
+-  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), '<b>{x}</b> odasının başlangıcı', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
++  assert.strictEqual(I18N.t('channel.welcome'), 'Kayıt başı: {name}', 'parametre verilmezse yer tutucu kalır')
++  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), 'Kayıt başı: <b>{x}</b>', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
+   I18N.setLang('en')
+-  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Start of general')
++  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Log start: general')
+   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '40%')
+   I18N.setLang('tr')
+   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '%40')

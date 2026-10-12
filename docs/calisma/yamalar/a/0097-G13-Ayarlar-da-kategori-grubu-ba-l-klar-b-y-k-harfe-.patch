@@ -1,0 +1,40 @@
+From a4de51ed3494507aae573401cb452b238120f3f0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 04:56:00 +0000
+Subject: [PATCH 97/97] =?UTF-8?q?G13:=20Ayarlar'da=20kategori=20grubu=20ba?=
+ =?UTF-8?q?=C5=9Fl=C4=B1klar=C4=B1=20b=C3=BCy=C3=BCk=20harfe=20=C3=A7evril?=
+ =?UTF-8?q?mez?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kullanıcı ayarları ve Frekans ayarları başlıkları temanın etiket yazısıyla, büyük harfe çevrilmeden yazılır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/settings.css | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/public/css/settings.css b/public/css/settings.css
+index 0328859..7ef3d29 100644
+--- a/public/css/settings.css
++++ b/public/css/settings.css
+@@ -94,14 +94,15 @@
+   margin-top: 0.75rem;
+ }
+ 
++/* Kategori grubunun başlığı (Kullanıcı ayarları, Frekans ayarları): temanın etiket yazısıyla, büyük harfe
++   çevrilmeden (istek 10). Seçili kategori ibre renginde sol çizgiyle işaretlenir. */
+ .settings-group-title {
+   margin: 0.5rem 0.5rem 0.4rem;
+   color: var(--text-3);
+   font-family: var(--font-label);
+   font-size: var(--label-size);
+   font-weight: 700;
+-  letter-spacing: var(--label-spacing);
+-  text-transform: uppercase;
++  letter-spacing: 0.02em;
+ }
+ 
+ .settings-cats {
