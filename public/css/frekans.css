@@ -1319,7 +1319,8 @@
      kalır, kart sığmazsa kendi içinde kayar. Kart taşınmaz (YouTube çerçevesi yeniden yüklenmesin), yalnızca
      yeri değişir. Düzen flexbox ile kurulur: sahne sütun yönlü ve satır kaydırmalıdır, sol sütun ve konuşma
      sütunu tam yükseklikte birer flex çizgisi olur, üçüncü çizgide İstasyonlar listesi üstte (order), DJ kartı
-     altta durur. Kartın en büyük yüksekliği listeye 12rem bırakır, böylece kart dördüncü bir çizgiye kaymaz. */
+     altta durur. Kartın en büyük yüksekliği listeye 12rem bırakır, böylece kart dördüncü bir çizgiye kaymaz.
+     Sütun aralıkları da öteki düzenlerdeki gibi temanın --column-gap belirtecinden gelir (düz panelli temalarda 0). */
   .app-view[data-dj-col="on"] .stage {
     /* Sağ sütun, YouTube oynatıcısı yazı boyutundan bağımsız en az 200 piksel kalacak kadar geniştir */
     --dj-col-w: max(var(--side-right-w), 15rem, calc(204px + 2rem));
@@ -1330,21 +1331,21 @@
 
   .app-view[data-dj-col="on"] .side-left {
     flex: 0 0 100%;
-    margin-right: 1rem;
+    margin-right: var(--column-gap);
   }
 
   .app-view[data-dj-col="on"] .center {
     flex: 0 0 100%;
-    width: calc(100% - var(--side-left-w) - var(--dj-col-w) - 2rem);
-    margin-right: 1rem;
+    width: calc(100% - var(--side-left-w) - var(--dj-col-w) - var(--column-gap) * 2);
+    margin-right: var(--column-gap);
   }
 
   .app-view[data-dj-col="on"] .side-dj {
     order: 2;
     flex: 0 1 auto;
     width: var(--dj-col-w);
-    max-height: calc(100% - 13rem);
-    margin: 1rem 0 0;
+    max-height: calc(100% - 12rem - var(--column-gap));
+    margin: var(--column-gap) 0 0;
   }
 
   .app-view[data-dj-col="on"] .side-dj .dj-card {

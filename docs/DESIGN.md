@@ -163,7 +163,7 @@ Text, accent and status:
 | `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
 | `--theme-color` | Browser bar color |
 
-Shape, type and layout (they change per theme, the corners are `--radius-panel`, `--radius-card` and `--radius-control` in this order). On wide screens (1000 pixels and up) the layout tokens give the padding of the stage and the gap between the columns (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`). The side and bottom padding of the stage is 1.25 times `--layout-pad`, and below 1280 pixels the column gap is 1.25 times `--column-gap`. Themes with floating panels keep space between the columns, in themes with flat panels (0) the columns meet with thin dividers:
+Shape, type and layout (they change per theme, the corners are `--radius-panel`, `--radius-card` and `--radius-control` in this order). On wide screens (1000 pixels and up) the layout tokens give the padding of the stage and the gap between the columns (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`), also while the Telsiz DJ column is open (`.app-view[data-dj-col="on"]`). The side and bottom padding of the stage is 1.25 times `--layout-pad`, and below 1280 pixels the column gap is 1.25 times `--column-gap`. Themes with floating panels keep space between the columns, in themes with flat panels (0) the columns meet with thin dividers:
 
 | Theme | Body (`--font-body`) | Display (`--font-display`) | Label (`--font-label`) | Corners | Border (`--border-width`) | Layout (`--layout-pad`, `--column-gap`) |
 | --- | --- | --- | --- | --- | --- | --- |

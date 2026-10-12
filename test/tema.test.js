@@ -196,6 +196,15 @@ test('düzen belirteçleri (--layout-pad, --column-gap) her temada yazılıdır,
     const fixed = values.filter((v) => v.indexOf('var(--column-gap)') === -1)
     assert.ok(values.length - fixed.length >= 2, pair[0] + ' ' + pair[1] + ' geniş ekranda --column-gap ile: ' + values.join(', '))
   }
+  // Telsiz DJ sütunu açıkken (data-dj-col) sütun aralıkları da sabit değil, --column-gap ile verilir: düz panelli
+  // temalarda DJ kartı açılınca sütunlar arasında boşluk belirmez
+  const dj = (selector, prop) => decl('.app-view[data-dj-col="on"] ' + selector, prop)
+  for (const pair of [['.side-left', 'margin-right'], ['.center', 'margin-right'], ['.center', 'width'], ['.side-dj', 'margin'], ['.side-dj', 'max-height']]) {
+    const values = dj(pair[0], pair[1])
+    assert.equal(values.length, 1, pair[0] + ' ' + pair[1] + ' DJ sütunu kuralında yok')
+    assert.ok(values[0].indexOf('var(--column-gap)') !== -1, pair[0] + ' ' + pair[1] + ' DJ sütununda --column-gap ile: ' + values[0])
+    assert.ok(!/(^|[\s(])1rem\b|\b2rem\b|\b13rem\b/.test(values[0]), pair[0] + ' ' + pair[1] + ' DJ sütununda sabit aralık: ' + values[0])
+  }
 })
 
 test('ortak CSS ve tema dosyalarında geri dönüşsüz kullanılan her belirteç ilgili tema ve modlarda çözülür', () => {

@@ -163,7 +163,7 @@ Metin, vurgu ve durum:
 | `--av-0` ile `--av-7`, `--av-fg`, `--av-offline` | Sekiz avatar ve profil rengi, baş harf rengi, çevrimdışı avatar dolgusu. Gece temasında her renk kendi baş harf rengine sahiptir (`--av-fg-0` ile `--av-fg-7`). |
 | `--theme-color` | Tarayıcı çubuğu rengi |
 
-Biçim, yazı ve düzen (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`). Düzen belirteçleri geniş ekranda (1000 piksel ve üstü) sahnenin iç boşluğunu ve sütunlar arasındaki aralığı verir (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`). Sahnenin yan ve alt boşluğu `--layout-pad` değerinin, 1280 pikselin altında sütun aralığı da `--column-gap` değerinin 1,25 katıdır. Yüzen panelli temalarda sütunlar arasında boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir:
+Biçim, yazı ve düzen (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`). Düzen belirteçleri geniş ekranda (1000 piksel ve üstü) sahnenin iç boşluğunu ve sütunlar arasındaki aralığı verir (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`), Telsiz DJ sütunu açıkken de (`.app-view[data-dj-col="on"]`). Sahnenin yan ve alt boşluğu `--layout-pad` değerinin, 1280 pikselin altında sütun aralığı da `--column-gap` değerinin 1,25 katıdır. Yüzen panelli temalarda sütunlar arasında boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir:
 
 | Tema | Gövde (`--font-body`) | Başlık (`--font-display`) | Etiket (`--font-label`) | Köşeler | Kenar (`--border-width`) | Düzen (`--layout-pad`, `--column-gap`) |
 | --- | --- | --- | --- | --- | --- | --- |
