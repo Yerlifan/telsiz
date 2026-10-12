@@ -563,7 +563,9 @@ describe('oturumlar', () => {
       const second = await h.login(ctx, 'sahip', h.PASSWORD, { 'user-agent': UA.firefoxLinux })
       const third = await h.login(ctx, 'sahip', h.PASSWORD, { 'user-agent': UA.ps5 })
       const idOf = (token) => crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)
-      const badBodies = [{}, { id: 'xyz' }, { id: idOf(second.data.token), others: true }, { others: 'true' }, { id: idOf(second.data.token).toUpperCase() },
+      // Büyük harfli kimliğin ilk hanesi F yapılır: karmanın ilk 16 hanesi yalnızca rakamsa toUpperCase kimliği değiştirmezdi
+      const upperId = 'F' + idOf(second.data.token).slice(1).toUpperCase()
+      const badBodies = [{}, { id: 'xyz' }, { id: idOf(second.data.token), others: true }, { others: 'true' }, { id: upperId },
         { others: false }, { id: 'xyz', others: true }, { id: null, others: true }, { id: idOf(second.data.token), others: false }, { id: 42 }]
       for (const body of badBodies) {
         h.expectStatus(await h.post(ctx, '/api/me/sessions/revoke', owner.token, body), 400, 'bad_request')
