@@ -1,0 +1,53 @@
+{
+ "bulgular": [
+  {
+   "onem": "orta",
+   "dosya": "src/app.js",
+   "satir": 3128,
+   "ozet": "Şikâyet edilen kişi sahip ya da yöneticiyse kendisi hakkındaki şikâyeti, şikâyet edenin adını ve çözülmüş notu görür, şikâyeti kendisi kapatabilir. Bu, arayüzün ve belgelerin verdiği 'bildirilen kişiye gösterilmez' sözüyle çelişir.",
+   "senaryo": "Mert, yönetici Ece'yi profil kartından 'Taciz' nedeniyle bildiriyor. Pencere 'Telsiz şikâyetinizi bildirilen kişiye göstermez.' diyor (public/i18n.js 'report.leadUser' ve 'report.leadMessage'). handleReportCreate privateChanged(staffIds()) ile Ece'nin açık şikâyet sayısını da artırıyor. handleReportsList hedefe göre süzme yapmadığı için Ece, Ayarlar > Üyeler > Şikâyetler'de 'Kişi: Ece · Taciz · Bildiren: Mert' satırını ve çözülmüş notu görüyor. handleReportResolve hedefi denetlemediği için Ece 'Çözüldü İşaretle'ye basıyor, şikâyet Çözülenler'e geçiyor ve sahibin açık sayısı 0'a düşüyor. Ece rütbece üstte olduğu için Mert'i engelleyebilir ya da frekanstan atabilir. MIMARI/ARCHITECTURE'daki 'Bildirilen kişiye hiçbir şey gönderilmez' cümlesi ve README'deki aynı söz de bu durumda yanlış oluyor.",
+   "oneri": "GET /api/reports ve openReportCount, isteği yapan kişinin hedef olduğu kayıtları dışarıda bıraksın. handleReportResolve kendi hakkındaki şikâyeti 403 ile reddetsin. Hiç yöneticisi olmayan bir frekansta sahip hakkındaki şikâyet için ya bunu açıkça yazın ya da pencere metnini 'Sahip veya yönetici bildirilirse şikâyeti görebilir' diye düzeltin. Bunun için bir sunucu testi ekleyin."
+  },
+  {
+   "onem": "orta",
+   "dosya": "src/app.js",
+   "satir": 3100,
+   "ozet": "500 açık şikâyetle liste dolunca herkesin şikâyeti 503 reports_full ile reddediliyor. Kişi başına açık şikâyet sınırı olmadığından tek bir üye bile şikâyet özelliğini (Play UGC önkoşulu) kilitleyebilir. Hız sınırı hakkı da dolu liste denetiminden önce harcanıyor.",
+   "senaryo": "Kötü niyetli bir üye her saat farklı 10 mesajı bildiriyor (yineleme denetimi yalnızca aynı mesaj ya da kişi için çalışıyor). Yaklaşık 50 saatte, davet koduyla açılmış 5 hesapla yaklaşık 10 saatte, 500 açık kayıt birikiyor. Bundan sonra frekanstaki herkesin gerçek şikâyeti 503 reports_full alıyor. Sahip ve yöneticiler bunları toplu kapatamıyor, tek tek 'Çözüldü İşaretle'ye basmak zorunda kalıyorlar ve bu da adminLimiter (dakikada 30) ile sınırlı. Ayrıca takeReportSlot 3100. satırda 503 denetiminden önce çağrıldığı için 503 alan kişi saatlik hakkından da kaybediyor.",
+   "oneri": "Şikâyet eden başına açık şikâyet sınırı koyun (ör. 20, aşılınca 429 ya da 409). Dolu liste denetimini takeReportSlot'tan önceye alın. İsterseniz liste dolduğunda en çok açık şikâyeti olan kişinin en eski açık kaydını düşürün."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/13-profile.js",
+   "satir": 1387,
+   "ozet": "Etkin grup anahtarı cihazda yoksa okunabilen bir yazı odası mesajı hiç bildirilemiyor. Alıntı kendiliğinden eklendiği için not her zaman mühürlenmek zorunda kalıyor ve hata metni işe yaramayan bir öneri veriyor.",
+   "senaryo": "Sahip grup anahtarını yeniliyor. Üye yeni anahtarı henüz girmemiş ama eski anahtar halkasında duruyor (anahtar ekranı atlanmış, keySkipped). Eski mesajlar çözülebildiği için reportQuoteOf alıntıyı dolduruyor. Yazı odasında quoteText her zaman dolu olduğundan noteText || quoteText doğru oluyor, activeKid() veya hasActiveKey() başarısız oluyor ve 'report.needKey' gösteriliyor: 'Notu boş bırakıp yeniden deneyin.' Not boş bırakılsa da alıntı yüzünden aynı hata tekrar geliyor, yani mesaj bildirilemiyor. Özel mesajda kutu işaretliyse de aynı durum oluyor: kişinin kutuyu da kaldırması gerekiyor ama metin bunu söylemiyor.",
+   "oneri": "Etkin anahtar yoksa alıntıyı ve notu düşürüp şikâyeti notsuz gönderin ve kullanıcıya bunu söyleyin. Bunun yerine alıntı kutusunu yazı odasında da kaldırılabilir yapıp needKey metnini 'notu boş bırakın ve mesaj metnini eklemeyin' diye güncelleyebilirsiniz. Değişiklik TR ve EN metinlerde yapılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/11-settings.js",
+   "satir": 4332,
+   "ozet": "Şikâyetteki mesaj metnini bildiren kişi kendisi yazıyor, kimse doğrulamıyor. Liste bu metni 'Mesaj: …' diye, sanki mesajın gerçek içeriğiymiş gibi gösteriyor. Bütünlük denetimi yalnızca a, k, u ve m kimliklerine bakıyor.",
+   "senaryo": "Grup anahtarı olan bir üye konsolda E2EE.sealJson(activeKid(), {v:1,a:benimId,k:'message',u:eceId,m:zararsizDmId,n:'',q:'<uydurma tehdit metni>'}) ile not üretip Ece'nin zararsız bir özel mesajını bildiriyor. Kimlikler kayıtla tuttuğu için openReportNote 'ok' dönüyor. Sahip 'Ece adlı kişinin özel mesajı · Mesaj: <uydurma tehdit metni>' satırını görüyor. Özel mesajı okuyamadığı için doğrulama yolu yok ve haksız yere engelleme ya da atma kararı verebilir.",
+   "oneri": "Etiketi 'Bildirenin eklediği metin' gibi bir ifadeyle doğrulanmamış olduğunu belirtecek şekilde değiştirin (TR ve EN). Yazı odası mesajlarında mesaj hâlâ duruyor ve çözülebiliyorsa alıntıyı canlı metinle karşılaştırıp tutmadığında bunu gösterin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/06-messages.js",
+   "satir": 926,
+   "ozet": "Test eksiği: dokunmatik cihazlarda (Android) tek yol olan Mesaj eylemleri menüsündeki 'Mesajı Bildir' öğesi ve listedeki bütünlük denetimi (zarftaki kimlik tutmayınca notu kilitleme) hiç sınanmıyor.",
+   "senaryo": "@media (hover: none) kuralı .msg-quick düğmelerini gizliyor. Play önkoşulunun hedefi olan dokunmatik cihazda şikâyet yalnızca reportMenuItem'ın ilk açılışta oluşturduğu #msg-menu-report öğesiyle açılabiliyor. e2e/11-roller yalnızca üzerine gelince görünen .msg-report düğmesine tıklıyor, birim testleri de menü öğesine hiç dokunmuyor. Bu yol bozulursa (ör. menü kapanırken state.menuMessageId null kalırsa öğe sessizce hiçbir şey yapmaz) hiçbir test bunu yakalamaz. openReportNote'un a, u ya da m tutmadığında 'locked' döndüğü de test edilmiyor: test/settings.test.js anahtarı olmayan sahte bir zarf kullanıyor.",
+   "oneri": "e2e'de '...' menüsünden #msg-menu-report ile şikâyet açan bir adım ekleyin. Birim testinde, kimliği başka bir mesaja bağlı geçerli bir zarfın 'report-locked' olarak gösterildiğini sınayın."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/MIMARI.md",
+   "satir": 46,
+   "ozet": "Belge, yinelenen şikâyette yanıtın eski kaydı döndürdüğünü söylüyor. Kod yalnızca { ok, id, duplicate } döndürüyor.",
+   "senaryo": "MIMARI 'yanıt eski kaydı duplicate: true ile döner', ARCHITECTURE de 'returns the existing record with duplicate: true' diyor. Oysa handleReportCreate 'return ok(ctx, { ok: true, id: same.id, duplicate: true })' döndürüyor ve test/server-sikayet.test.js de tam olarak bu üç alanı bekliyor. Belgeye bakan bir istemci yazarı yanıtta kayıt alanlarını (reason, createdAt vb.) arar ve bulamaz.",
+   "oneri": "İki belgede de 'yanıt eski kaydın kimliğini duplicate: true ile döner' diye düzeltin."
+  }
+ ],
+ "testler": "Çalışma kopyası /home/user/wt/b, hiçbir dosya değiştirilmedi. 'npm run denetle': 270 dosya tarandı, ihlal yok (çıkış 0). 'npm test': 991 test, 990 geçti, 0 başarısız, 1 atlandı (çıkış 0). Bunlara test/server-sikayet.test.js'in 7 testi ve test/settings.test.js'teki yeni şikâyet testi dahil. 'node --test e2e/11-roller.test.js' (TELSIZ_E2E_BROWSER varsayılanı chromium) 5/5 geçti (çıkış 0). Yeni testler 'üye mesajı bildirir, sahibin açık Şikâyetler listesine gelir, not çözülür ve sahip çözer' ve 'kişi profil kartından, özel mesaj ise metin yalnızca kutu işaretlenince eklenerek bildirilir' de geçti. Kabul ölçütü (üye mesajı bildiriyor, sahip listede görüp çözüyor, not sunucuda düz metin değil) bu testlerle karşılanıyor. Firefox ve webkit ile e2e çalıştırılmadı."
+}

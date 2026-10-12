@@ -1,0 +1,215 @@
+From abb603c07b74680ef50150f43ee722e97368a7d4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 20:20:06 +0000
+Subject: [PATCH 090/104] =?UTF-8?q?G13:=20d=C3=BCzen=20belirte=C3=A7leri?=
+ =?UTF-8?q?=20(--layout-pad,=20--column-gap)=20sahnede=20ve=20s=C3=BCtun?=
+ =?UTF-8?q?=20aral=C4=B1klar=C4=B1nda=20kullan=C4=B1l=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Arcade'in görünümü değişmez, düz panelli temalarda sütunlar ince ayırıcılarla bitişir.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/DESIGN.md         | 28 ++++++++++++++--------------
+ docs/TASARIM.md        | 28 ++++++++++++++--------------
+ public/css/frekans.css | 17 ++++++++++-------
+ public/css/tokens.css  |  2 +-
+ test/tema.test.js      | 27 +++++++++++++++++++++++++++
+ 5 files changed, 66 insertions(+), 36 deletions(-)
+
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index c1c2153..8983649 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -145,20 +145,20 @@ Text, accent and status:
+ | `--av-0` to `--av-7`, `--av-fg`, `--av-offline` | Eight avatar and profile colors, initial color, offline avatar fill. In the Gece theme each color has its own initial color (`--av-fg-0` to `--av-fg-7`). |
+ | `--theme-color` | Browser bar color |
+ 
+-Shape and type (they change per theme, the corners are `--radius-panel`, `--radius-card` and `--radius-control` in this order):
+-
+-| Theme | Body (`--font-body`) | Display (`--font-display`) | Label (`--font-label`) | Corners | Border (`--border-width`) |
+-| --- | --- | --- | --- | --- | --- |
+-| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (floating panels), 18px, 14px | 1px |
+-| Night Frequency (Gece) | Manrope | Manrope 800 | Martian Mono | 0 (flat panels), 14px, 12px | 1px |
+-| Turquoise and Copper (Turkuaz) | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px |
+-| Field Radio (Saha) | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px |
+-| Tube Radio (Lamba) | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px |
+-| Phosphor (Fosfor) | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px |
+-| Polar Station (Kutup) | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px |
+-| Vinyl (Plak) | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px |
+-| Cockpit (Kokpit) | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px |
+-| High Contrast (Kontrast) | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px |
++Shape, type and layout (they change per theme, the corners are `--radius-panel`, `--radius-card` and `--radius-control` in this order). On wide screens (1000 pixels and up) the layout tokens give the padding of the stage and the gap between the columns (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`). The side and bottom padding of the stage is 1.25 times `--layout-pad`, and below 1280 pixels the column gap is 1.25 times `--column-gap`. Themes with floating panels keep space between the columns, in themes with flat panels (0) the columns meet with thin dividers:
++
++| Theme | Body (`--font-body`) | Display (`--font-display`) | Label (`--font-label`) | Corners | Border (`--border-width`) | Layout (`--layout-pad`, `--column-gap`) |
++| --- | --- | --- | --- | --- | --- | --- |
++| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (floating panels), 18px, 14px | 1px | 1rem, 1rem |
++| Night Frequency (Gece) | Manrope | Manrope 800 | Martian Mono | 0 (flat panels), 14px, 12px | 1px | 0, 0 |
++| Turquoise and Copper (Turkuaz) | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px | 0, 0 |
++| Field Radio (Saha) | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px | 0, 0 |
++| Tube Radio (Lamba) | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px | 0, 0 |
++| Phosphor (Fosfor) | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px | 0, 0 |
++| Polar Station (Kutup) | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px | 0.75rem, 0.75rem |
++| Vinyl (Plak) | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px | 0.875rem, 0.875rem |
++| Cockpit (Kokpit) | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px | 0, 0 |
++| High Contrast (Kontrast) | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px | 0, 0 |
+ 
+ The new themes bring no new fonts, they use other combinations of the existing six families (Rubik, Unbounded, Manrope, Martian Mono, Figtree, Young Serif). Martian Mono is bundled only in weight 500.
+ 
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index f0b1442..5702f3d 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -145,20 +145,20 @@ Metin, vurgu ve durum:
+ | `--av-0` ile `--av-7`, `--av-fg`, `--av-offline` | Sekiz avatar ve profil rengi, baş harf rengi, çevrimdışı avatar dolgusu. Gece temasında her renk kendi baş harf rengine sahiptir (`--av-fg-0` ile `--av-fg-7`). |
+ | `--theme-color` | Tarayıcı çubuğu rengi |
+ 
+-Biçim ve yazı (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`):
+-
+-| Tema | Gövde (`--font-body`) | Başlık (`--font-display`) | Etiket (`--font-label`) | Köşeler | Kenar (`--border-width`) |
+-| --- | --- | --- | --- | --- | --- |
+-| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (yüzen paneller), 18px, 14px | 1px |
+-| Gece Frekansı | Manrope | Manrope 800 | Martian Mono | 0 (düz paneller), 14px, 12px | 1px |
+-| Turkuaz ve Bakır | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px |
+-| Saha Telsizi | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px |
+-| Lambalı Radyo | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px |
+-| Fosfor | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px |
+-| Kutup İstasyonu | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px |
+-| Plak | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px |
+-| Kokpit | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px |
+-| Yüksek Kontrast | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px |
++Biçim, yazı ve düzen (temaya göre değişir, köşeler sırasıyla `--radius-panel`, `--radius-card` ve `--radius-control`). Düzen belirteçleri geniş ekranda (1000 piksel ve üstü) sahnenin iç boşluğunu ve sütunlar arasındaki aralığı verir (`frekans.css` `.stage`, `.side-left`, `.side-right`, `.side-dj`). Sahnenin yan ve alt boşluğu `--layout-pad` değerinin, 1280 pikselin altında sütun aralığı da `--column-gap` değerinin 1,25 katıdır. Yüzen panelli temalarda sütunlar arasında boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir:
++
++| Tema | Gövde (`--font-body`) | Başlık (`--font-display`) | Etiket (`--font-label`) | Köşeler | Kenar (`--border-width`) | Düzen (`--layout-pad`, `--column-gap`) |
++| --- | --- | --- | --- | --- | --- | --- |
++| Arcade | Rubik | Unbounded 700 | Unbounded | 24px (yüzen paneller), 18px, 14px | 1px | 1rem, 1rem |
++| Gece Frekansı | Manrope | Manrope 800 | Martian Mono | 0 (düz paneller), 14px, 12px | 1px | 0, 0 |
++| Turkuaz ve Bakır | Figtree | Young Serif 400 | Young Serif | 0, 1.125rem, 0.75rem | 1px | 0, 0 |
++| Saha Telsizi | Manrope | Martian Mono 500 | Martian Mono | 0, 6px, 4px | 1px | 0, 0 |
++| Lambalı Radyo | Manrope | Young Serif 400 | Young Serif | 0, 1rem, 0.625rem | 1px | 0, 0 |
++| Fosfor | Manrope | Martian Mono 500 | Martian Mono | 0, 3px, 2px | 1px | 0, 0 |
++| Kutup İstasyonu | Figtree | Unbounded 700 | Martian Mono | 14px, 12px, 10px | 1px | 0.75rem, 0.75rem |
++| Plak | Rubik | Young Serif 400 | Rubik | 22px, 16px, 14px | 1px | 0.875rem, 0.875rem |
++| Kokpit | Manrope | Martian Mono 500 | Martian Mono | 0, 8px, 6px | 1px | 0, 0 |
++| Yüksek Kontrast | Figtree | Figtree 800 | Figtree | 0, 6px, 6px | 2px | 0, 0 |
+ 
+ Yeni temalar yeni yazı tipi getirmez, var olan altı ailenin (Rubik, Unbounded, Manrope, Martian Mono, Figtree, Young Serif) başka birleşimlerini kullanır. Martian Mono yalnızca 500 kalınlıkta paketlenmiştir.
+ 
+diff --git a/public/css/frekans.css b/public/css/frekans.css
+index 136620e..7950084 100644
+--- a/public/css/frekans.css
++++ b/public/css/frekans.css
+@@ -1125,12 +1125,15 @@
+    4. Sahne: sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun
+    ========================================================= */
+ 
++/* Sahnenin iç boşluğu ve sütun aralıkları temanın düzen belirteçlerinden gelir (--layout-pad, --column-gap):
++   yüzen panelli temalarda boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir. 1000
++   pikselin altı kendi sabit boşluklarını kullanır. */
+ .stage {
+   position: relative;
+   display: flex;
+   flex: 1 1 auto;
+   min-height: 0;
+-  padding: 1rem 1.25rem 1.25rem;
++  padding: var(--layout-pad) calc(var(--layout-pad) * 1.25) calc(var(--layout-pad) * 1.25);
+ }
+ 
+ .side {
+@@ -1142,7 +1145,7 @@
+ 
+ .side-left {
+   width: var(--side-left-w);
+-  margin-right: 1.25rem;
++  margin-right: calc(var(--column-gap) * 1.25);
+ }
+ 
+ .side-scroll {
+@@ -1252,12 +1255,12 @@
+ 
+ .side-dj {
+   width: var(--side-w);
+-  margin-left: 1.25rem;
++  margin-left: calc(var(--column-gap) * 1.25);
+ }
+ 
+ .side-right {
+   width: var(--radio-w);
+-  margin-left: 1.25rem;
++  margin-left: calc(var(--column-gap) * 1.25);
+ }
+ 
+ /* 1280 px altında telsiz kartı sağ altta, üstte kalan alanı İstasyonlar kartı kullanır */
+@@ -1278,15 +1281,15 @@
+ 
+   .side-dj {
+     width: var(--side-right-w);
+-    margin-left: 1rem;
++    margin-left: var(--column-gap);
+   }
+ 
+   .side-left {
+-    margin-right: 1rem;
++    margin-right: var(--column-gap);
+   }
+ 
+   .side-right {
+-    margin-left: 1rem;
++    margin-left: var(--column-gap);
+   }
+ 
+   /* Ayarlı istasyonun kartı geniş ekranda gösterilmez: oda adı ve şifreleme durumu konuşmanın başlığındadır,
+diff --git a/public/css/tokens.css b/public/css/tokens.css
+index 6cd5440..11c5e69 100644
+--- a/public/css/tokens.css
++++ b/public/css/tokens.css
+@@ -106,7 +106,7 @@
+   --radius-small: 10px;
+   --radius-pill: 999px;
+   --layout-pad: 1rem;
+-  --column-gap: 0.875rem;
++  --column-gap: 1rem;
+   --border-width: 1px;
+ }
+ 
+diff --git a/test/tema.test.js b/test/tema.test.js
+index 2d5f1e1..23ad1d6 100644
+--- a/test/tema.test.js
++++ b/test/tema.test.js
+@@ -171,6 +171,33 @@ test('ton belirteçleri (--tone-*) her temada çözülür, varsayılanları rol
+   }
+ })
+ 
++test('düzen belirteçleri (--layout-pad, --column-gap) her temada yazılıdır, sahne ve sütun aralıkları bunlarla verilir', () => {
++  // Arcade, Kutup İstasyonu ve Plak yüzen paneller (iç boşluk ve aralık), düz panelli temalar 0: sütunlar ince
++  // ayırıcılarla bitişir. Telefon ve 1000 pikselin altı kendi sabit boşluklarını kullanır.
++  for (const c of combos()) {
++    for (const name of ['--layout-pad', '--column-gap']) {
++      const value = resolve(c.vars, name)
++      assert.ok(/^(0|\d*\.?\d+rem)$/.test(String(value)), c.skin + ' ' + c.scheme + ': ' + name + ' rem ya da 0: ' + value)
++      assert.ok(ownDecl(RULES, c.skin, c.scheme, name), c.skin + ': ' + name + ' temanın kendi bloğunda yok')
++    }
++  }
++  const arcade = cascade(RULES, { 'data-skin': 'arcade', 'data-scheme': 'dark' })
++  assert.equal(resolve(arcade, '--layout-pad'), '1rem', 'Arcade sahne iç boşluğu değişmez')
++  assert.equal(resolve(arcade, '--column-gap'), '1rem', 'Arcade sütun aralığı değişmez')
++  const frekans = parseRules(fs.readFileSync(path.join(PUB, 'css', 'frekans.css'), 'utf8'))
++  const decl = (selector, prop) => frekans.filter((rule) => rule.selectors.indexOf(selector) !== -1).map((rule) => {
++    const m = new RegExp('(?:^|[\\s\\x3b{])' + prop + '\\s*:\\s*([^\\x3b}]+)').exec(rule.body)
++    return m ? m[1].trim() : null
++  }).filter((v) => v !== null)
++  assert.ok(decl('.stage', 'padding').some((v) => v.indexOf('var(--layout-pad)') !== -1), '.stage iç boşluğu --layout-pad ile')
++  for (const pair of [['.side-left', 'margin-right'], ['.side-right', 'margin-left'], ['.side-dj', 'margin-left']]) {
++    const values = decl(pair[0], pair[1]).filter((v) => v !== '0')
++    assert.ok(values.length >= 2, pair[0] + ' iki genişlikte aralık verir: ' + values.join(', '))
++    const fixed = values.filter((v) => v.indexOf('var(--column-gap)') === -1)
++    assert.ok(values.length - fixed.length >= 2, pair[0] + ' ' + pair[1] + ' geniş ekranda --column-gap ile: ' + values.join(', '))
++  }
++})
++
+ test('ortak CSS ve tema dosyalarında geri dönüşsüz kullanılan her belirteç ilgili tema ve modlarda çözülür', () => {
+   // Bulgu A'nın sınıfı: yalnızca bir temada tanımlı belirteç ortak CSS'te var(--x) olarak, geri dönüş değeri
+   // olmadan kullanılırsa öteki temalarda bildirim geçersiz olur. Bir temaya bağlı kurallar (seçicilerin hepsi

@@ -1,0 +1,51 @@
+From 0a1d3ad1f131bdee3ba0e2a4e9b9cd55c477f74a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 05:32:44 +0000
+Subject: [PATCH 102/104] =?UTF-8?q?G13:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?desktop/README=20ikilisinde=20Sa=C4=9F=C4=B1rla=C5=9Ft=C4=B1r?=
+ =?UTF-8?q?=20yerine=20Hoparl=C3=B6r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Basılı tut kuralındaki kısayolun adı Ayarlar'daki gibi Hoparlörü Aç/Kapat (EN Toggle Speaker), bas aç, bas kapat
+maddesinde mikrofonun kapalı olduğu durumlar "hoparlör kapalıyken" (EN "with the speaker off") olur. Önceki belge
+commit'indeki "desktop/README ikilisinde Sağırlaştır geçmiyor" notu yanlıştı, plan adımı 10 bu commit'le tamamlanır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/README.en.md | 4 ++--
+ desktop/README.md    | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/desktop/README.en.md b/desktop/README.en.md
+index efbcd14..1e0c782 100644
+--- a/desktop/README.en.md
++++ b/desktop/README.en.md
+@@ -171,8 +171,8 @@ Shortcuts made of a letter, number or punctuation key without a modifier, or wit
+ 
+ The app's own push to talk key only works while the Telsiz window is in front. To talk while a game is in front, the global shortcuts section of Settings > Keybinds offers two ways:
+ 
+-- Press to start, press to stop (default): the `pttToggle` global shortcut. Press it once to start talking and again to stop. A short sound plays when talking starts and stops (if Voice room sounds in Settings > Voice and Video is on). No key is assigned by default, and the shortcut follows the same rules as the other global shortcuts. Outside a voice room the shortcut does nothing. While the microphone is off (muted, deafened or muted for everyone) talking does not start and the stop sound plays.
+-- Hold to talk (key hook, optional): when turned on, you talk while the chosen key or key combination is held and go quiet when you release it. Global shortcuts only report the press, so the release is received with the [uiohook-napi](https://github.com/SnosMe/uiohook-napi) key hook. While hold to talk is on, the press to start, press to stop shortcut is not registered. The hold to talk key can also be a single letter or number, because the hook does not take the key away from other applications. A hold to talk key that would also fire with the Toggle microphone or Deafen shortcut is not accepted.
++- Press to start, press to stop (default): the `pttToggle` global shortcut. Press it once to start talking and again to stop. A short sound plays when talking starts and stops (if Voice room sounds in Settings > Voice and Video is on). No key is assigned by default, and the shortcut follows the same rules as the other global shortcuts. Outside a voice room the shortcut does nothing. While the microphone is off (muted, with the speaker off or muted for everyone) talking does not start and the stop sound plays.
++- Hold to talk (key hook, optional): when turned on, you talk while the chosen key or key combination is held and go quiet when you release it. Global shortcuts only report the press, so the release is received with the [uiohook-napi](https://github.com/SnosMe/uiohook-napi) key hook. While hold to talk is on, the press to start, press to stop shortcut is not registered. The hold to talk key can also be a single letter or number, because the hook does not take the key away from other applications. A hold to talk key that would also fire with the Toggle microphone or Toggle Speaker shortcut is not accepted.
+ 
+ In Voice activity mode the shortcut does not switch to push to talk mode, it acts like Toggle microphone and plays the same start or stop sound. The hold to talk hook is never started in Voice activity mode.
+ 
+diff --git a/desktop/README.md b/desktop/README.md
+index daa9148..189ee23 100644
+--- a/desktop/README.md
++++ b/desktop/README.md
+@@ -171,8 +171,8 @@ Kısayollarda değiştiricisiz harf, rakam veya noktalama ile yalnızca Shift'li
+ 
+ Uygulamanın kendi bas konuş tuşu yalnızca Telsiz penceresi öndeyken çalışır. Bir oyun öndeyken konuşmak için Ayarlar > Tuş atamaları sayfasındaki genel kısayollar bölümünde iki yol vardır:
+ 
+-- Bas aç, bas kapat (varsayılan): genel kısayol `pttToggle`. Bir kez basınca konuşma başlar, tekrar basınca biter. Açılış ve kapanışta kısa bir ses çalar (Ayarlar > Ses ve Görüntü bölümündeki Ses odası sesleri açıksa). Varsayılan olarak tuş atanmamıştır, kısayol diğer genel kısayollarla aynı kurallara uyar. Ses odasında değilken kısayol hiçbir şey yapmaz. Mikrofon kapalıyken (susturulmuş, sağırlaştırılmış veya herkes için susturulmuş) konuşma başlamaz, kapanış sesi çalar.
+-- Basılı tut (tuş kancası, isteğe bağlı): açılırsa seçilen tuş veya tuş birleşimi basılıyken konuşulur, bırakınca susulur. Genel kısayollar yalnızca basmayı bildirdiği için bırakma olayı [uiohook-napi](https://github.com/SnosMe/uiohook-napi) tuş kancasıyla alınır. Basılı tut açıkken bas aç, bas kapat kısayolu kaydedilmez. Basılı tut tuşu tek başına harf veya rakam da olabilir, çünkü kanca tuşu diğer uygulamalardan almaz. Basılı tut tuşu Mikrofonu aç/kapat veya Sağırlaştır kısayoluyla birlikte tetiklenecekse kabul edilmez.
++- Bas aç, bas kapat (varsayılan): genel kısayol `pttToggle`. Bir kez basınca konuşma başlar, tekrar basınca biter. Açılış ve kapanışta kısa bir ses çalar (Ayarlar > Ses ve Görüntü bölümündeki Ses odası sesleri açıksa). Varsayılan olarak tuş atanmamıştır, kısayol diğer genel kısayollarla aynı kurallara uyar. Ses odasında değilken kısayol hiçbir şey yapmaz. Mikrofon kapalıyken (susturulmuşken, hoparlör kapalıyken veya herkes için susturulmuşken) konuşma başlamaz, kapanış sesi çalar.
++- Basılı tut (tuş kancası, isteğe bağlı): açılırsa seçilen tuş veya tuş birleşimi basılıyken konuşulur, bırakınca susulur. Genel kısayollar yalnızca basmayı bildirdiği için bırakma olayı [uiohook-napi](https://github.com/SnosMe/uiohook-napi) tuş kancasıyla alınır. Basılı tut açıkken bas aç, bas kapat kısayolu kaydedilmez. Basılı tut tuşu tek başına harf veya rakam da olabilir, çünkü kanca tuşu diğer uygulamalardan almaz. Basılı tut tuşu Mikrofonu aç/kapat veya Hoparlörü Aç/Kapat kısayoluyla birlikte tetiklenecekse kabul edilmez.
+ 
+ Ses etkinliği modunda kısayol bas konuş moduna geçmez, Mikrofonu aç/kapat gibi davranır ve aynı açılış veya kapanış sesini çalar. Basılı tut kancası ses etkinliği modunda hiç başlatılmaz.
+ 

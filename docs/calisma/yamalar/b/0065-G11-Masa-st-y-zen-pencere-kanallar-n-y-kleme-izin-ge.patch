@@ -1,0 +1,346 @@
+From 392f6a11309e4a119c879f7c207b53ba4498f496 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 17:46:38 +0000
+Subject: [PATCH 65/88] =?UTF-8?q?G11:=20Masa=C3=BCst=C3=BC:=20y=C3=BCzen?=
+ =?UTF-8?q?=20pencere=20kanallar=C4=B1,=20=C3=B6n=20y=C3=BCkleme,=20izin,?=
+ =?UTF-8?q?=20gezinme,=20ayar=20ve=20metin?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/e2e/duman.test.js         |  2 +-
+ desktop/src/lib/channels.js       |  4 +++
+ desktop/src/lib/navigation.js     | 10 +++++--
+ desktop/src/lib/permissions.js    |  8 +++--
+ desktop/src/lib/settings-store.js | 10 +++++--
+ desktop/src/lib/strings.js        |  4 ++-
+ desktop/src/preload.js            | 20 +++++++++++++
+ desktop/test/kararlar.test.js     |  9 ++++++
+ desktop/test/paket.test.js        | 10 ++++++-
+ desktop/test/preload.test.js      | 49 ++++++++++++++++++++++++++++++-
+ 10 files changed, 113 insertions(+), 13 deletions(-)
+
+diff --git a/desktop/e2e/duman.test.js b/desktop/e2e/duman.test.js
+index 67e639b..157644a 100644
+--- a/desktop/e2e/duman.test.js
++++ b/desktop/e2e/duman.test.js
+@@ -415,7 +415,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
+ test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
+   const page = ctx.page
+   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
+-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'float', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
+   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
+diff --git a/desktop/src/lib/channels.js b/desktop/src/lib/channels.js
+index b0f68cc..3fecf12 100644
+--- a/desktop/src/lib/channels.js
++++ b/desktop/src/lib/channels.js
+@@ -38,6 +38,10 @@ const CHANNELS = Object.freeze({
+   windowState: 'telsiz:window-state',
+   // Sistemin boşta süresi (saniye, src/lib/window-state.js): uygulama ve arka plan pencereleri okuyabilir
+   idleSeconds: 'telsiz:idle-seconds',
++  // Yüzen pencere (src/lib/float-window.js): tek kullanımlık pencere adı (jeton) ve uygulama penceresini öne
++  // getirme (yüzen penceredeki Uygulamaya Dön düğmesi). İkisi de yalnızca uygulama penceresinden kabul edilir.
++  floatArm: 'telsiz:float-arm',
++  floatShowMain: 'telsiz:float-show-main',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+diff --git a/desktop/src/lib/navigation.js b/desktop/src/lib/navigation.js
+index d39862b..ba22ccd 100644
+--- a/desktop/src/lib/navigation.js
++++ b/desktop/src/lib/navigation.js
+@@ -5,7 +5,9 @@
+ // telsiz://baglan/ belgesinde, ekran paylaşımı seçicisi yalnızca telsiz://secici/ belgesinde.
+ // Diğer her gezinme engellenir. Uygulama penceresindeki https:// bağlantılar (ör. mesajdaki bir
+ // bağlantı) kullanıcının varsayılan tarayıcısında açılır, başka hiçbir şema dışarı verilmez.
+-// Yeni pencere hiçbir zaman açılmaz. Alt çerçevelerde yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir.
++// Yeni pencere açılmaz. Tek istisna uygulama penceresinin yüzen penceresidir (src/lib/float-window.js): tek
++// kullanımlık jetonla açılan about:blank penceresi. Yüzen pencerede (bağlam 'float') her gezinme reddedilir.
++// Alt çerçevelerde yalnızca Telsiz DJ'nin YouTube oynatıcısı açılabilir.
+ 
+ const { SCHEME, APP_HOST, CONNECT_HOST, PICKER_HOST } = require('./channels')
+ 
+@@ -50,9 +52,11 @@ function isExternalUrl (value) {
+   return url.protocol === 'https:' && url.hostname !== '' && url.username === '' && url.password === ''
+ }
+ 
+-// context: 'app', 'connect' veya 'picker' (bilinmeyen içerik için başka herhangi bir değer)
+-// Sonuç: 'allow' (aynı belgede kal), 'external' (tarayıcıda aç) veya 'deny'
++// context: 'app', 'connect', 'picker' veya 'float' (bilinmeyen içerik için başka herhangi bir değer)
++// Sonuç: 'allow' (aynı belgede kal), 'external' (tarayıcıda aç) veya 'deny'. Yüzen pencere hiçbir yere gidemez,
++// bağlantıları da dış tarayıcıya verilmez.
+ function decideNavigation (value, context) {
++  if (context === 'float') return 'deny'
+   const paths = DOCUMENT_PATHS[context]
+   if (paths && typeof value === 'string') {
+     let url = null
+diff --git a/desktop/src/lib/permissions.js b/desktop/src/lib/permissions.js
+index db89d84..e314a9a 100644
+--- a/desktop/src/lib/permissions.js
++++ b/desktop/src/lib/permissions.js
+@@ -13,7 +13,7 @@
+ // Geri kalan her izin (konum, pano okuma, HID, USB, seri port, MIDI, dış uygulama açma ve diğerleri)
+ // reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir izin verilmez. Arka plan
+ // pencereleri (src/lib/background.js) yalnızca bildirim gösterebilir: mikrofon ve kamera dahil diğer
+-// her izin reddedilir (decideFor).
++// her izin reddedilir, yüzen pencere hiçbir izin alamaz (deniedFor).
+ //
+ // Ekran yakalama neden ayrıca ele alınır: Electron 44'te getDisplayMedia önce mediaTypes listesi
+ // boş bir 'media' izin isteği üretir, ekran seçimi bu izin verildikten sonra gelir. Eski
+@@ -63,9 +63,11 @@ function decideCheck (permission, requestingOrigin, details, allowedOrigin) {
+ }
+ 
+ // Pencere bağlamına göre ilk eleme: arka plan penceresi bildirim dışındaki her izni (mikrofon, kamera,
+-// ekran) reddeder. true dönerse istek veya denetim reddedilir, false dönerse decideRequest veya
+-// decideCheck karar verir.
++// ekran) reddeder. Yüzen pencere (src/lib/float-window.js) hiçbir izin alamaz: içeriğini açan uygulama
++// penceresi çizer, kendisi hiçbir aygıt veya bildirim istemez. true dönerse istek veya denetim reddedilir, false
++// dönerse decideRequest veya decideCheck karar verir.
+ function deniedFor (context, permission) {
++  if (context === 'float') return true
+   return context === 'background' && !BACKGROUND_PERMISSIONS.has(permission)
+ }
+ 
+diff --git a/desktop/src/lib/settings-store.js b/desktop/src/lib/settings-store.js
+index 1f96480..20b855b 100644
+--- a/desktop/src/lib/settings-store.js
++++ b/desktop/src/lib/settings-store.js
+@@ -1,8 +1,9 @@
+ 'use strict'
+ 
+ // Masaüstü ayarları: etkin frekans (sunucu adresi), kayıtlı frekans listesi, kapatınca tepsiye
+-// küçültme, genel kısayollar, bas konuş (ptt: kip ve basılı tut tuşu, varsayılan bas aç, bas kapat)
+-// ve güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık).
++// küçültme, genel kısayollar, bas konuş (ptt: kip ve basılı tut tuşu, varsayılan bas aç, bas kapat),
++// güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık) ve yüzen pencerenin son konumu ve boyutu
++// (floatBounds: { x, y, width, height } veya null, src/lib/float-window.js).
+ // Uygulama verisi klasöründe (Electron app.getPath('userData')) ayarlar.json olarak saklanır.
+ // Dosya her okunuşta doğrulanır, geçersiz alanlar varsayılan değere döner. Yazma atomiktir
+ // (geçici dosya ve yeniden adlandırma), böylece yarım kalan bir yazma ayarları bozmaz.
+@@ -16,13 +17,14 @@ const path = require('node:path')
+ const { isValidOrigin } = require('./server-url')
+ const { validateShortcutMap, emptyMap, validatePttSettings, defaultPtt } = require('./shortcuts')
+ const frequencies = require('./frequencies')
++const floatWindow = require('./float-window')
+ 
+ const FILE_NAME = 'ayarlar.json'
+ const FORMAT_VERSION = 2
+ const MAX_BYTES = 64 * 1024
+ 
+ function defaults () {
+-  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), ptt: defaultPtt(), autoUpdate: true }
++  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), ptt: defaultPtt(), autoUpdate: true, floatBounds: null }
+ }
+ 
+ // Okunan nesneden geçerli ayarları çıkarır
+@@ -44,6 +46,8 @@ function sanitize (raw) {
+     const checked = validatePttSettings(raw.ptt)
+     if (checked.ok) out.ptt = checked.value
+   }
++  // Geçersiz konum unutulur, yüzen pencere varsayılan köşede açılır
++  out.floatBounds = floatWindow.validBounds(raw.floatBounds)
+   return out
+ }
+ 
+diff --git a/desktop/src/lib/strings.js b/desktop/src/lib/strings.js
+index 26fbb80..543894e 100644
+--- a/desktop/src/lib/strings.js
++++ b/desktop/src/lib/strings.js
+@@ -1,7 +1,7 @@
+ 'use strict'
+ 
+ // Masaüstü uygulamasının kendi metinleri (menü, tepsi, frekans adresi ekranı, ekran paylaşımı
+-// seçicisi, iletişim kutuları).
++// seçicisi, yüzen pencerenin ilk başlığı, iletişim kutuları).
+ // Web uygulamasının metinleri public/i18n.js içindedir, bu küçük sözlük yalnızca uygulama
+ // penceresinin dışındaki arayüz içindir. Dil sistem dilinden seçilir: Türkçe ise tr, değilse en.
+ // İki sözlüğün anahtarları ve parametreleri birebir aynıdır (desktop/test/strings.test.js).
+@@ -83,6 +83,7 @@ const MESSAGES = {
+     'connect.error.unknown': 'Bağlanılamadı. Yeniden deneyin.',
+     'connect.version.mismatch': '{name} sunucusunun sürümü ({server}) bu uygulamanın sürümüyle ({app}) uyumlu olmayabilir, ana sürümler farklı. Sunucuyu veya uygulamayı güncelleyin ya da yine de bağlanın.',
+     'connect.version.unknown': '{name} sunucusu sürümünü bildirmiyor, uyumluluk doğrulanamadı. Yine de bağlanabilirsiniz.',
++    'float.windowTitle': 'Telsiz: yüzen pencere',
+     'picker.windowTitle': 'Telsiz: ekran paylaş',
+     'picker.title': 'Neyi paylaşmak istiyorsunuz?',
+     'picker.lead': 'Seçtiğiniz ekran veya pencere ses odasında izlemek isteyenlere gönderilir. Paylaşımı istediğiniz an durdurabilirsiniz.',
+@@ -175,6 +176,7 @@ const MESSAGES = {
+     'connect.error.unknown': 'Could not connect. Try again.',
+     'connect.version.mismatch': 'The version of {name} ({server}) may not be compatible with this app ({app}), the major versions differ. Update the server or the app, or connect anyway.',
+     'connect.version.unknown': '{name} does not report its version, compatibility could not be verified. You can still connect.',
++    'float.windowTitle': 'Telsiz: floating window',
+     'picker.windowTitle': 'Telsiz: share your screen',
+     'picker.title': 'What do you want to share?',
+     'picker.lead': 'The screen or window you choose is sent to those in the voice room who want to watch. You can stop sharing at any time.',
+diff --git a/desktop/src/preload.js b/desktop/src/preload.js
+index 51d1eb1..6eb6200 100644
+--- a/desktop/src/preload.js
++++ b/desktop/src/preload.js
+@@ -26,6 +26,8 @@ const CHANNELS = {
+   titleBarFullscreen: 'telsiz:title-bar-fullscreen',
+   windowState: 'telsiz:window-state',
+   idleSeconds: 'telsiz:idle-seconds',
++  floatArm: 'telsiz:float-arm',
++  floatShowMain: 'telsiz:float-show-main',
+   listFrequencies: 'telsiz:list-frequencies',
+   switchFrequency: 'telsiz:switch-frequency',
+   addFrequency: 'telsiz:add-frequency',
+@@ -47,6 +49,8 @@ const HOLD_PHASES = ['start', 'end']
+ const PTT_MODES = ['toggle', 'hold']
+ // Pencere durumu yalnızca bu değerlerle sayfaya verilir (src/lib/window-state.js ile aynı)
+ const WINDOW_STATES = ['minimized', 'restored', 'hidden', 'shown']
++// Yüzen pencerenin tek kullanımlık adı (src/lib/float-window.js TOKEN_RE ile aynı)
++const FLOAT_TOKEN_RE = /^telsiz-yuzen-[0-9a-f]{32}$/
+ const VERSION_ARG = '--telsiz-version='
+ const VERSION_RE = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/
+ const ACTIVATION_INTERVAL_MS = 1000
+@@ -178,6 +182,15 @@ function idleSeconds () {
+   return ipcRenderer.invoke(CHANNELS.idleSeconds).then(cleanIdleSeconds)
+ }
+ 
++// Yüzen pencere: ana süreçten gelen ad biçime uymuyorsa boş dizge (sayfa o zaman pencere açmaz)
++function floatArm () {
++  return ipcRenderer.invoke(CHANNELS.floatArm).then((value) => (typeof value === 'string' && FLOAT_TOKEN_RE.test(value) ? value : ''))
++}
++
++function floatShowMain () {
++  return ipcRenderer.invoke(CHANNELS.floatShowMain).then((value) => value === true)
++}
++
+ function shortText (value, max) {
+   return typeof value === 'string' ? value.slice(0, max) : ''
+ }
+@@ -273,6 +286,13 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
+   },
+   // Sistemin son kullanıcı girişinden bu yana geçen süre: Promise, negatif olmayan tam saniye
+   idleSeconds,
++  // Yüzen pencere (public/js/39-yuzen.js): arm() tek kullanımlık pencere adını verir (Promise, geçersizse boş
++  // dizge), sayfa yaklaşık 3 saniye içinde window.open('about:blank', ad) çağırır. Ana süreç yalnızca bu isteğe
++  // her zaman üstte kalan çerçevesiz bir pencere açar. showMain() uygulama penceresini öne getirir (Promise, true).
++  float: {
++    arm: floatArm,
++    showMain: floatShowMain
++  },
+   // Kayıtlı frekanslar: { active, items: [{ origin, name, host, active }] }, etkin frekans başta
+   listFrequencies: () => ipcRenderer.invoke(CHANNELS.listFrequencies),
+   // Listedeki bir frekansa geçer (uygulama penceresi o frekansın oturum bölümüyle yeniden açılır)
+diff --git a/desktop/test/kararlar.test.js b/desktop/test/kararlar.test.js
+index dd4de44..1e24547 100644
+--- a/desktop/test/kararlar.test.js
++++ b/desktop/test/kararlar.test.js
+@@ -99,6 +99,15 @@ test('arka plan penceresi yalnızca bildirim alabilir: mikrofon ve kamera redded
+   assert.deepEqual(Array.from(perm.MEDIA_TYPES).sort(), ['audio', 'video'])
+ })
+ 
++test('yüzen pencere hiçbir izin alamaz, hiçbir yere gidemez', () => {
++  for (const p of ['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen', 'geolocation', 'display-capture', 'unknown', '']) {
++    assert.equal(perm.deniedFor('float', p), true, p)
++  }
++  for (const url of ['telsiz://app/', 'telsiz://app/index.html', 'https://ornek.com/', 'https://www.youtube.com/watch?v=abcdefghijk', 'about:blank', 'javascript:alert(1)']) {
++    assert.equal(nav.decideNavigation(url, 'float'), 'deny', url)
++  }
++})
++
+ test('ekran paylaşımı: kullanıcı girişi, istek ve bekleyen seçim', () => {
+   const now = 100000
+   assert.equal(share.hasRecentActivation(now - 1000, now), true)
+diff --git a/desktop/test/paket.test.js b/desktop/test/paket.test.js
+index 8899d19..f9b9cf2 100644
+--- a/desktop/test/paket.test.js
++++ b/desktop/test/paket.test.js
+@@ -202,7 +202,7 @@ test('ayarlar doğrulanarak okunur ve atomik yazılır', () => {
+     const file = path.join(root, 'alt', settingsStore.FILE_NAME)
+     assert.deepEqual(settingsStore.load(file), settingsStore.defaults())
+     const saved = settingsStore.save(file, { server: 'https://telsiz.ornek.com', closeToTray: true, shortcuts: { toggleMute: 'ctrl+shift+m', toggleDeafen: null } })
+-    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null, pttToggle: null }, ptt: { mode: 'toggle', holdKey: null }, autoUpdate: true })
++    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null, pttToggle: null }, ptt: { mode: 'toggle', holdKey: null }, autoUpdate: true, floatBounds: null })
+     assert.deepEqual(settingsStore.load(file), saved)
+     // Bas konuş: varsayılan bas aç, bas kapat. Basılı tut ve tuşu saklanır, geçersiz ayar varsayılana döner.
+     assert.deepEqual(settingsStore.defaults().ptt, { mode: 'toggle', holdKey: null })
+@@ -214,6 +214,14 @@ test('ayarlar doğrulanarak okunur ve atomik yazılır', () => {
+       fs.writeFileSync(file, JSON.stringify(Object.assign({}, saved, { ptt: bad })))
+       assert.deepEqual(settingsStore.load(file).ptt, { mode: 'toggle', holdKey: null }, JSON.stringify(bad))
+     }
++    // Yüzen pencerenin konumu ve boyutu saklanır, geçersiz değer unutulur
++    const floated = settingsStore.save(file, Object.assign({}, saved, { floatBounds: { x: -1200, y: 40, width: 360, height: 250, fazla: 1 } }))
++    assert.deepEqual(floated.floatBounds, { x: -1200, y: 40, width: 360, height: 250 })
++    assert.deepEqual(settingsStore.load(file).floatBounds, { x: -1200, y: 40, width: 360, height: 250 })
++    for (const bad of [{ x: 0, y: 0, width: 100, height: 250 }, { x: 0.5, y: 0, width: 360, height: 250 }, 'sol alt', [0, 0, 360, 250]]) {
++      fs.writeFileSync(file, JSON.stringify(Object.assign({}, saved, { floatBounds: bad })))
++      assert.equal(settingsStore.load(file).floatBounds, null, JSON.stringify(bad))
++    }
+     // Eski ayar dosyası (ptt ve pttToggle yok) okunur
+     fs.writeFileSync(file, JSON.stringify({ version: 2, server: 'https://telsiz.ornek.com', shortcuts: { toggleMute: 'F9', toggleDeafen: null } }))
+     const old = settingsStore.load(file)
+diff --git a/desktop/test/preload.test.js b/desktop/test/preload.test.js
+index ac3a78e..a1efbf0 100644
+--- a/desktop/test/preload.test.js
++++ b/desktop/test/preload.test.js
+@@ -59,7 +59,8 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
+   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
+   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
+   const api = p.exposed.telsizDesktop
+-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'float', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
++  assert.deepEqual(Object.keys(api.float).sort(), ['arm', 'showMain'])
+   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
+   assert.equal(api.version, '2.0.0')
+   assert.equal(api.platform, 'linux')
+@@ -115,6 +116,52 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
+   assert.deepEqual(got, ['toggleMute', 'toggleDeafen', 'pttToggle'])
+ })
+ 
++test('yüzen pencere API: ad yalnızca biçime uyarsa sayfaya gider, sayfa argüman geçiremez', async () => {
++  const token = 'telsiz-yuzen-' + 'a1'.repeat(16)
++  const replies = [token, 'telsiz-yuzen-' + 'A1'.repeat(16), 'telsiz-yuzen-kotu', '_blank', null, 5, { toString: () => token }, true, 'evet']
++  const q = loadPreloadWith(replies)
++  const api = q.exposed.telsizDesktop.float
++  const got = []
++  while (got.length < 7) got.push(await api.arm('fazla', { kotu: 1 }))
++  assert.deepEqual(got, [token, '', '', '', '', '', ''])
++  // Uygulamaya Dön: sonuç yalnızca true veya false
++  assert.equal(await api.showMain('https://kotu.com'), true)
++  assert.equal(await api.showMain(), false)
++  assert.deepEqual(q.invoked, replies.map((value, i) => [i < 7 ? channels.CHANNELS.floatArm : channels.CHANNELS.floatShowMain]))
++  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
++  assert.ok(preload.includes('const FLOAT_TOKEN_RE = ' + String(require('../src/lib/float-window').TOKEN_RE)))
++})
++
++// Ön yükleme betiğini, invoke çağrılarına sırayla verilen yanıtları döndüren sahte electron modülüyle çalıştırır
++function loadPreloadWith (replies) {
++  const exposed = {}
++  const invoked = []
++  const answers = replies.slice()
++  const electron = {
++    contextBridge: {
++      exposeInMainWorld (name, api) {
++        exposed[name] = api
++      }
++    },
++    ipcRenderer: {
++      invoke (channel, ...args) {
++        invoked.push([channel].concat(args))
++        return Promise.resolve(answers.shift())
++      },
++      send () {},
++      on () {}
++    }
++  }
++  const sandbox = {
++    require: () => electron,
++    process: { argv: [], platform: 'linux' },
++    window: { addEventListener () {} },
++    Date
++  }
++  vm.runInNewContext(fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8'), sandbox, { filename: 'preload.js' })
++  return { exposed, invoked }
++}
++
+ test('başlık şeridi API: bilgi süzülür, renkler kısaltılır, menü isteği yalnızca tam sayı ve sonlu konumla gider', async () => {
+   const p = loadPreload('preload.js', ['electron'])
+   const api = p.exposed.telsizDesktop.titleBar
