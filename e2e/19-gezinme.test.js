@@ -1069,16 +1069,24 @@ test('eski mesajlar: IntersectionObserver olmayan tarayıcıda kaydırma en üst
 test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, hata bir kez bildirilir, düğme yeniden dener', async () => {
   const page = await W.w.pageFor('ece', { label: 'eski-hata', viewport: { width: 1024, height: 700 } })
   const eski = W.w.room('eski')
-  // Daha eski sayfa istekleri sayılır, önce sunucu hatasıyla yanıtlanır. Yönlendirme ve bildirim sayacı oda
-  // açılmadan kurulur: açılışla ilk kaydırma arasında kendiliğinden giden bir istek de sayılır ve hatayla yanıtlanır
-  // (oda açılışının ilk sayfa isteğinde before= yoktur).
-  const older = { count: 0, failing: true }
-  await page.route(/\/api\/messages\?.*before=/, (route) => {
-    older.count += 1
-    if (older.failing) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'server' }) })
-    return route.continue()
-  })
+  // Daha eski sayfa istekleri sayfanın api katmanında sayılır ve önce sunucu hatasıyla (500) yanıtlanır. Ağ
+  // yönlendirmesi (page.route) WebKit'te bu istekleri yakalamadı (CI'da istek sayısı 0 kalırken 120 mesaj sunucudan
+  // yüklendi), hata bu yüzden her tarayıcıda aynı yoldan sayfada üretilir. Sayaçlar oda açılmadan kurulur: açılışla
+  // ilk kaydırma arasında kendiliğinden giden bir istek de sayılır (oda açılışının ilk sayfa isteğinde before= yoktur).
   await page.evaluate(() => {
+    window.testOlder = { count: 0, failing: true }
+    const realApi = window.api
+    window.api = function (method, path) {
+      if (method === 'GET' && /^\/api\/messages\?.*before=/.test(String(path))) {
+        window.testOlder.count += 1
+        if (window.testOlder.failing) {
+          const failed = Promise.resolve({ status: 500, data: { error: 'server' }, aborted: false })
+          failed.abort = function () {}
+          return failed
+        }
+      }
+      return realApi.apply(this, arguments)
+    }
     window.testToasts = 0
     const show = window.toast
     window.toast = function () {
@@ -1086,24 +1094,19 @@ test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, ha
       return show.apply(this, arguments)
     }
   })
+  const olderCount = () => page.evaluate(() => window.testOlder.count)
   await openRoom(page, eski.id)
   assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
-  // Kişi en üste yaklaşır. WebKit'te yeni açılan sayfada tek kaydırma isteği her zaman başlatmadı, kaydırma ilk istek
-  // gidene kadar yinelenir. İstek hiç gitmezse sayfanın durumu hata metnine yazılır.
-  const deadline = Date.now() + h.LONG
-  while (older.count === 0 && Date.now() < deadline) {
-    await page.evaluate(() => {
-      el.messages.scrollTop = 300
-    })
-    await h.sleep(100)
-  }
-  const olderState = () => page.evaluate(() => JSON.stringify({ scrollTop: el.messages.scrollTop, scrollHeight: el.messages.scrollHeight, clientHeight: el.messages.clientHeight, messages: state.messages.length, hasMore: state.hasMore, loadingOlder: state.loadingOlder, toasts: window.testToasts }))
-  assert.equal(older.count, 1, 'en üste yaklaşınca bir eski sayfa isteği gider: ' + await olderState())
+  await page.evaluate(() => {
+    el.messages.scrollTop = 300
+  })
   try {
     await page.waitForFunction(() => window.testToasts === 1 && !state.loadingOlder, null, { timeout: h.LONG })
   } catch (err) {
-    throw new Error('hata bildirimi bir kez gösterilmedi: ' + await olderState() + ' istek ' + older.count)
+    const now = await page.evaluate(() => JSON.stringify({ scrollTop: el.messages.scrollTop, scrollHeight: el.messages.scrollHeight, clientHeight: el.messages.clientHeight, messages: state.messages.length, hasMore: state.hasMore, loadingOlder: state.loadingOlder, toasts: window.testToasts, older: window.testOlder.count }))
+    throw new Error('hata bildirimi bir kez gösterilmedi: ' + now)
   }
+  assert.equal(await olderCount(), 1, 'en üste yaklaşınca bir eski sayfa isteği gider')
   // Kişi en üste yakınken kaydırmayı sürdürür: yeni istek ve yeni bildirim yok, düğme yerinde
   let k = 0
   while (k < 20) {
@@ -1114,17 +1117,19 @@ test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, ha
     k += 1
   }
   await h.sleep(300)
-  assert.equal(older.count, 1, 'başarısız istekten sonra kendiliğinden istek gitmez')
+  assert.equal(await olderCount(), 1, 'başarısız istekten sonra kendiliğinden istek gitmez')
   assert.deepEqual(await page.evaluate(() => [window.testToasts, state.messages.length, document.getElementById('load-older-wrap').hidden]), [1, 50, false])
   // Düğme yeniden dener, başarılı olunca kendiliğinden yükleme sürer
-  older.failing = false
+  await page.evaluate(() => {
+    window.testOlder.failing = false
+  })
   await page.click('#load-older')
   await page.waitForFunction(() => state.messages.length >= 100 && !state.loadingOlder, null, { timeout: h.LONG })
   await page.evaluate(() => {
     el.messages.scrollTop = 0
   })
   await page.waitForFunction(() => state.messages.length === 120 && !state.hasMore && !state.loadingOlder, null, { timeout: h.LONG })
-  assert.deepEqual([older.count, await page.evaluate(() => window.testToasts)], [3, 1])
+  assert.deepEqual([await olderCount(), await page.evaluate(() => window.testToasts)], [3, 1])
   await page.close()
 })
 
