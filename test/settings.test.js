@@ -982,7 +982,7 @@ test('mesaj düzeni (msgLayout): Kayıt Defteri varsayılan, Klasik saklanır, g
   first.theme.set({ msgLayout: 'klasik' })
   assert.strictEqual(first.attrs['data-msg-layout'], 'klasik')
   assert.strictEqual(first.saved['telsiz.msgLayout'], 'klasik')
-  first.theme.set({ msgLayout: 'discord' })
+  first.theme.set({ msgLayout: 'yok' })
   assert.strictEqual(first.theme.get().msgLayout, 'klasik', 'listede olmayan değer yok sayılır')
   const again = runThemeInit({ 'telsiz.msgLayout': 'klasik' })
   assert.strictEqual(again.attrs['data-msg-layout'], 'klasik', 'yeniden açılışta saklı düzen')
