@@ -559,14 +559,14 @@ function recoveryAfterEnter () {
   recoveryUi.remindTimer = setTimeout(tick, RECOVERY_REMIND_DELAY_MS)
 }
 
-// Ayarlar > Hesabım açılır ve Kurtarma Kodu bölümünün oluşturma düğmesine odaklanılır
+// Ayarlar > Hesabım açılır ve Kurtarma Kodu bölümünün oluşturma düğmesine odaklanılır. Odak katmanın ilk odağı
+// olarak verilir, ayrı bir zamanlayıcıyla verilseydi katmanın sonraki karedeki odağı onu başlığa taşıyabilirdi.
 function openRecoverySettings () {
-  openSettings('account', null)
-  setTimeout(() => {
+  openSettings('account', null, () => {
     const section = byId('set-recovery-section')
     if (section && typeof section.scrollIntoView === 'function') section.scrollIntoView()
-    focusNode(byId('set-recovery-create'))
-  }, 0)
+    return byId('set-recovery-create')
+  })
 }
 
 function openRecoveryRemind () {

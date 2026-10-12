@@ -80,17 +80,21 @@ function openUpload (ctx, token, headers) {
 // Hız testlerinde her yüklemenin boyutu: 4000 baytlık ilk parça ve 50 ms arayla gönderilen parçalar
 const RATE_TEST_BYTES = 4000 + 50 * 1200
 
-// Yüklemelere önce first bayt, ardından her 50 ms'de bir chunk bayt gönderir (chunk 1200 iken dosya başına yaklaşık
-// 24 KB/sn). Gövde tamamlanınca istek bitirilir. Yanıtları döndürür, 4 sn içinde yanıt gelmeyen yükleme 'bitmedi' olur.
+// Yüklemelere önce first bayt, ardından her 50 ms için chunk bayt gönderir (chunk 1200 iken dosya başına yaklaşık
+// 24 KB/sn). Gönderilecek miktar geçen süreden hesaplanır: zamanlayıcı geç tetiklenirse (Windows'ta kaba zamanlayıcı
+// adımı, yüklü makine) parça büyür ve hız değişmez. Gövde tamamlanınca istek bitirilir. Yanıtları döndürür, 4 sn
+// içinde yanıt gelmeyen yükleme 'bitmedi' olur.
 async function dripUploads (ctx, ups, first, chunk) {
   const sent = ups.map(() => first)
   for (const u of ups) u.req.write(crypto.randomBytes(first))
   await h.waitFor(() => ctx.server.stats().activeUploads === ups.length)
+  const start = Date.now()
   const drip = setInterval(() => {
+    const due = Math.min(RATE_TEST_BYTES, first + Math.floor((Date.now() - start) / 50) * chunk)
     ups.forEach((u, i) => {
-      if (u.req.destroyed || sent[i] >= RATE_TEST_BYTES) return
-      const part = Math.min(chunk, RATE_TEST_BYTES - sent[i])
-      sent[i] += part
+      if (u.req.destroyed || sent[i] >= due) return
+      const part = due - sent[i]
+      sent[i] = due
       if (sent[i] >= RATE_TEST_BYTES) u.req.end(crypto.randomBytes(part))
       else u.req.write(crypto.randomBytes(part))
     })
