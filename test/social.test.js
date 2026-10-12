@@ -590,7 +590,8 @@ test('Bildirimler listesi yalnızca kayıtlarındaki bir kişinin profili deği�
   const { run } = load()
   run('globalThis.__renders = 0')
   run('globalThis.renderActivity = function () { __renders += 1 }')
-  run("globalThis.activityState = { items: [{ id: 2, kind: 'share', userId: '3', channelId: null }, { id: 1, kind: 'join', userId: '2', channelId: '9' }] }")
+  // 28-bildirim.js yüklü: activityState onun sabitidir, kayıtlar yerinde değiştirilir
+  run("activityState.items = [{ id: 2, kind: 'share', userId: '3', channelId: null }, { id: 1, kind: 'join', userId: '2', channelId: '9' }]")
   run("profileActivityRefresh(new Set(['4', '5']))")
   assert.strictEqual(run('__renders'), 0, 'listede olmayan kişiler')
   run("profileActivityRefresh(new Set(['5', '2']))")
