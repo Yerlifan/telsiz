@@ -1,0 +1,458 @@
+From b632a90c7905fcf47b815238a63e2d7242166f4e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:01:38 +0000
+Subject: [PATCH 39/88] =?UTF-8?q?G4:=20/=C3=A7al=20=C5=9Fark=C4=B1=20ad?=
+ =?UTF-8?q?=C4=B1=20sunucuda=20aran=C4=B1r,=20ilk=20sonu=C3=A7=20ba=C5=9Fl?=
+ =?UTF-8?q?=C4=B1=C4=9F=C4=B1yla=20eklenir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+djCommand şarkı adını POST /api/music/search ile arar, aranırken durum
+gösterir, ilk sonucu addYouTube(videoId, { title }) ile ekler ve duyuru
+başlıkla hemen gider. Arama kapalıysa ya da yapılamazsa açık bir hata
+metni ve kartta YouTube sonuç sayfasına giden bağlantı (yeni sekmede,
+noopener noreferrer) çıkar, sahip ayarın yerini de görür. İstemci
+YouTube'a hiçbir istek göndermez. Metinler iki dilde, /çal açıklaması ve
+ipuçları şarkı adını da anar. e2e/06-dj sahte arayıcıyla sınar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/06-dj.test.js  |  91 +++++++++++++++++++++++++++++-
+ public/i18n.js     |  38 ++++++++++---
+ public/js/23-dj.js | 137 ++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 254 insertions(+), 12 deletions(-)
+
+diff --git a/e2e/06-dj.test.js b/e2e/06-dj.test.js
+index f55c388..290ce38 100644
+--- a/e2e/06-dj.test.js
++++ b/e2e/06-dj.test.js
+@@ -10,7 +10,10 @@
+ // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
+ // oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
+ // alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi almaz, mesajı duyuruya
+-// çeviren veya videosunu değiştiren düzenleme etiketle görünür.
++// çeviren veya videosunu değiştiren düzenleme etiketle görünür. Şarkı adıyla arama (istek 5): sunucuya sahte
++// arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı açık bir hata ve kartta YouTube arama
++// bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı taşır. İstemciden YouTube'a arama
++// isteği gitmez.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -22,7 +25,17 @@ const FAKE_JS = fs.readFileSync(path.join(__dirname, 'sahte-youtube.js'), 'utf8'
+ const YT_HOST_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleapis\.com)(:\d+)?\//i
+ const EMBED_HTML = '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#111"><script src="/fake/embed.js"></script></body></html>'
+ 
+-const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] } }
++const W = { w: null, A: null, B: null, lobi: null, genel: null, yt: { deniz: [], ece: [] }, searches: [] }
++
++// Sunucunun YouTube araması yerine geçen sahte arayıcı: yalnızca "lobi şarkısı" için iki sonuç verir
++function fakeYouTubeSearch (query) {
++  W.searches.push(query)
++  if (query !== 'lobi şarkısı') return Promise.resolve([])
++  return Promise.resolve([
++    { videoId: 'D120lobi001', title: 'Lobi Şarkısı (Resmi Video)', channel: 'Telsiz Kayıtları', durationS: 213 },
++    { videoId: 'D120lobi002', title: 'Lobi Şarkısı (Canlı)', channel: 'Telsiz Kayıtları', durationS: 250 }
++  ])
++}
+ // Sahte mikrofon, ekran yakalama ve kendiliğinden oynatma Chromium bayraklarıyla sağlanır
+ const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []), { browsers: ['chromium'], reason: 'sahte medya aygıtı yalnızca Chromium bayraklarıyla' })
+ 
+@@ -112,7 +125,7 @@ function assertDocked (info) {
+ 
+ before(async () => {
+   if (test.skipped) return
+-  W.w = await h.setupWorld({ slot: 5 })
++  W.w = await h.setupWorld({ slot: 5, server: { youtubeSearch: fakeYouTubeSearch } })
+   W.lobi = W.w.room('Lobi')
+   W.genel = W.w.room('genel')
+   W.A = await W.w.pageFor('deniz', { route: routeYouTube('deniz') })
+@@ -318,6 +331,78 @@ test('duraklat ve devam iki istemcide eşitlenir', async () => {
+   }, h.LONG, 'B oynatıcısı devam ediyor')
+ })
+ 
++test('/çal şarkı adı: arama kapalıyken hata ve YouTube arama bağlantısı, açıkken ilk sonuç başlığıyla eklenir ve duyurulur', async () => {
++  const { A, B } = W
++  await A.evaluate(() => {
++    window.e2eToasts = []
++    new MutationObserver(() => {
++      if (!el.toast.hidden) window.e2eToasts.push(el.toast.textContent)
++    }).observe(el.toast, { childList: true, characterData: true, subtree: true, attributes: true })
++  })
++  const queueBefore = await A.evaluate(() => dj.engine.queue().queue.length)
++  assert.equal(await A.evaluate(() => state.meta.music.search), false, 'arama varsayılan kapalı')
++  await A.fill('#composer-input', '/çal lobi şarkısı')
++  await A.keyboard.press('Enter')
++  await A.waitForFunction(() => window.e2eToasts.indexOf('Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.') !== -1, null, { timeout: h.LONG })
++  await A.waitForFunction(() => !document.querySelector('#dj .dj-search').hidden && !document.querySelector('#dj .dj-search-link-row').hidden)
++  const miss = await A.evaluate(() => {
++    const a = document.querySelector('#dj .dj-search-link')
++    return {
++      text: document.querySelector('#dj .dj-search-text').textContent,
++      link: a.textContent,
++      href: a.getAttribute('href'),
++      target: a.target,
++      rel: a.rel,
++      owner: document.querySelector('#dj .dj-search-owner').hidden ? '' : document.querySelector('#dj .dj-search-owner').textContent,
++      composer: document.getElementById('composer-input').value,
++      sent: Array.from(document.querySelectorAll('#message-list .msg-text')).some((n) => n.textContent.indexOf('lobi şarkısı') !== -1)
++    }
++  })
++  assert.deepEqual(miss, {
++    text: 'Parçayı YouTube\'da "lobi şarkısı" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
++    link: 'YouTube\'da Ara',
++    href: 'https://www.youtube.com/results?search_query=lobi%20%C5%9Fark%C4%B1s%C4%B1',
++    target: '_blank',
++    rel: 'noopener noreferrer',
++    owner: 'Şarkı adıyla aramayı Ayarlar > Genel > Müzik botu bölümünden açabilirsiniz.',
++    composer: '',
++    sent: false
++  })
++  assert.deepEqual(W.searches, [], 'arama kapalıyken sunucu aramadı')
++  assert.equal(await A.evaluate(() => dj.engine.queue().queue.length), queueBefore)
++
++  // Sahip aramayı açar: ilk sonuç başlığıyla kuyruğa eklenir, duyuru başlıkla hemen gider
++  const on = await W.w.call('POST', '/api/settings', { music: { search: true } }, W.w.P.deniz.token)
++  assert.equal(on.status, 200)
++  for (const page of [A, B]) await page.waitForFunction(() => state.meta.music.search === true, null, { timeout: h.LONG })
++  await A.fill('#composer-input', '/çal lobi şarkısı')
++  await A.keyboard.press('Enter')
++  await A.waitForFunction(() => window.e2eToasts.indexOf('Kuyruğa eklendi: Lobi Şarkısı (Resmi Video)') !== -1, null, { timeout: h.LONG })
++  assert.ok(await A.evaluate(() => window.e2eToasts.indexOf('YouTube\'da aranıyor: lobi şarkısı') !== -1), 'aranıyor bildirimi')
++  assert.deepEqual(W.searches, ['lobi şarkısı'])
++  for (const page of [A, B]) {
++    await page.waitForFunction(() => dj.engine.queue().queue.some((t) => t.videoId === 'D120lobi001' && t.title === 'Lobi Şarkısı (Resmi Video)'), null, { timeout: h.LONG })
++    await page.waitForFunction(() => Array.from(document.querySelectorAll('#message-list .msg-dj-text')).some((n) => n.textContent === 'Telsiz DJ kuyruğuna ekledi: Lobi Şarkısı (Resmi Video)'), null, { timeout: h.LONG })
++    const link = await page.evaluate(() => {
++      const n = Array.from(document.querySelectorAll('#message-list .msg-dj-text')).filter((x) => x.textContent === 'Telsiz DJ kuyruğuna ekledi: Lobi Şarkısı (Resmi Video)')[0]
++      return n.closest('.msg-dj').querySelector('.msg-dj-link').href
++    })
++    assert.equal(link, 'https://www.youtube.com/watch?v=D120lobi001')
++  }
++  assert.equal(await A.evaluate(() => document.querySelector('#dj .dj-search').hidden), true, 'arama satırı kalktı')
++  assert.equal(await A.evaluate(() => dj.titleWatch.filter((w) => !w.sent).length), 0, 'duyuru başlığı beklemedi')
++  // İstemciden YouTube'a arama isteği gitmedi (yalnızca gömülü oynatıcı adresleri)
++  for (const who of ['deniz', 'ece']) {
++    assert.ok(W.yt[who].every((u) => /^https:\/\/www\.youtube-nocookie\.com\//.test(u)), who + ': ' + W.yt[who].join(' '))
++  }
++  // Sonraki testler boş kuyrukla sürer: eklenen parça kuyruktan çıkarılır
++  await A.evaluate(() => {
++    const t = dj.engine.queue().queue.filter((x) => x.videoId === 'D120lobi001')[0]
++    return dj.engine.remove(t.id)
++  })
++  for (const page of [A, B]) await page.waitForFunction((n) => dj.engine.queue().queue.length === n, queueBefore, { timeout: h.LONG })
++})
++
+ test('Ayarlar açılınca YouTube oynatıcısı köşeye alınır, çalmaya devam eder, kapanınca yerine döner', async () => {
+   const { A } = W
+   await fakePlaying(A, 'A çalıyor')
+diff --git a/public/i18n.js b/public/i18n.js
+index 55b9abf..3aee8b6 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -45,6 +45,17 @@ window.I18N = (function () {
+     'settings.privacy.mediaSessionHint': 'Açıkken çalan parçanın adı işletim sisteminin medya denetimlerinde ve kilit ekranında görünür. Ad uçtan uca şifreli DJ durumundan gelir ve böylece uygulamanın dışına çıkar.',
+     // G4 Telsiz DJ araması
+     'music.errors.needs_search': 'Şarkı adıyla eklemek için arama gerekir. YouTube bağlantısını yapıştırın.',
++    'music.errors.search_unavailable': 'Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.',
++    'music.errors.search_failed': 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.',
++    'music.errors.search_no_results': '"{query}" için çalınabilir bir sonuç bulunamadı.',
++    'music.errors.search_rate': 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.',
++    'music.errors.search_daily': 'Bu sunucunun son 24 saatlik arama sınırı doldu. YouTube bağlantısını yapıştırın.',
++    'music.errors.search_bad_query': 'Şarkı adı en fazla 200 karakter olabilir.',
++    'music.searching': 'YouTube\'da aranıyor: {query}',
++    'music.ok.addedTitle': 'Kuyruğa eklendi: {title}',
++    'dj.searchOnYoutube': 'YouTube\'da Ara',
++    'dj.searchMiss': 'Parçayı YouTube\'da "{query}" diye arayıp bağlantısını /çal ile ekleyebilirsiniz.',
++    'dj.searchOwnerHint': 'Şarkı adıyla aramayı Ayarlar > Genel > Müzik botu bölümünden açabilirsiniz.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+@@ -123,7 +134,7 @@ window.I18N = (function () {
+     'music.notice.resume': '{name} müziği devam ettirdi.',
+     'music.notice.stop': '{name} müziği durdurdu ve kuyruğu temizledi.',
+     'music.notice.purge_youtube': 'YouTube parçaları frekans ayarı nedeniyle kuyruktan çıkarıldı.',
+-    'music.errors.bad_url': 'Bu bir YouTube video bağlantısı değil. youtube.com/watch?v=, youtu.be/, youtube.com/shorts/, music.youtube.com/watch?v= ve youtube-nocookie.com/embed/ biçimleri desteklenir. Oynatma listesi ve arama desteklenmez.',
++    'music.errors.bad_url': 'Bu bir YouTube video bağlantısı değil. youtube.com/watch?v=, youtu.be/, youtube.com/shorts/, music.youtube.com/watch?v= ve youtube-nocookie.com/embed/ biçimleri desteklenir, oynatma listesi desteklenmez. Bağlantı yerine şarkı adı da yazabilirsiniz.',
+     'music.errors.dj_unsupported': 'Bu sunucu Telsiz DJ\'yi desteklemiyor.',
+     'music.errors.dj_disabled': 'Telsiz DJ bu frekansta kapalı.',
+     'music.errors.dj_restricted': 'Bu odada kuyruğu DJ izni olanlar yönetiyor.',
+@@ -139,7 +150,7 @@ window.I18N = (function () {
+     'music.errors.file_media_error': 'Ses dosyası çalınırken bir hata oluştu.',
+     'music.errors.nothing_playing': 'Şu an bir şey çalmıyor.',
+     'music.errors.bad_track': 'Parça bulunamadı.',
+-    'music.errors.play_needs_source': '/çal komutuyla bir YouTube bağlantısı yazın veya bir ses dosyası ekleyin.',
++    'music.errors.play_needs_source': '/çal komutuyla bir YouTube bağlantısı ya da şarkı adı yazın veya bir ses dosyası ekleyin.',
+     'music.errors.queue_full': 'Kuyruk dolu, en fazla 100 parça olabilir.',
+     'music.errors.bad_op': 'Geçersiz DJ işlemi.',
+     'music.errors.invalid_state': 'Sunucudaki müzik durumu doğrulanamadı.',
+@@ -903,7 +914,7 @@ window.I18N = (function () {
+     'dj.cmd.resume': '/devam',
+     'dj.cmd.queue': '/kuyruk',
+     'dj.cmd.stop': '/dur',
+-    'dj.cmdDesc.play': 'YouTube bağlantısı veya ekli ses dosyası',
++    'dj.cmdDesc.play': 'YouTube bağlantısı, şarkı adı veya ekli ses dosyası',
+     'dj.cmdDesc.skip': 'sıradaki parçaya geç',
+     'dj.cmdDesc.pause': 'müziği duraklat',
+     'dj.cmdDesc.resume': 'kaldığı yerden sürdür',
+@@ -929,7 +940,7 @@ window.I18N = (function () {
+     'dj.restrictedNote': 'Bu odada kuyruğu DJ izni olanlar yönetiyor, siz dinliyorsunuz.',
+     'dj.queueTitle': 'Kuyruk · {count}',
+     'dj.queueRemove': '{title} parçasını kuyruktan çıkar',
+-    'dj.addHint': 'Eklemek için yazma alanında /çal ve bağlantı yazın ya da ses dosyasında DJ\'de çal düğmesine basın.',
++    'dj.addHint': 'Eklemek için yazma alanında /çal ile bir YouTube bağlantısı ya da şarkı adı yazın veya ses dosyasında DJ\'de Çal düğmesine basın.',
+     'dj.empty': 'Henüz parça yok',
+     'dj.consentNote': 'Onay bu cihazda saklanır, Ayarlar > Gizlilik ve güvenlik bölümünden geri alınır. Dosya parçaları onaysız da çalar.',
+     'dj.queueSummary_one': 'Şimdi çalıyor: {title}. Kuyrukta {count} parça var.',
+@@ -2015,6 +2026,17 @@ window.I18N = (function () {
+     'settings.privacy.mediaSessionHint': 'When on, the playing track\'s name appears in your system\'s media controls and on the lock screen. The name comes from the end-to-end encrypted DJ state and so leaves the app.',
+     // G4 Telsiz DJ araması
+     'music.errors.needs_search': 'Adding by song name needs a search. Paste a YouTube link.',
++    'music.errors.search_unavailable': 'Search by song name is off on this server. Paste a YouTube link.',
++    'music.errors.search_failed': 'The YouTube search failed. Try again later or paste a link.',
++    'music.errors.search_no_results': 'No playable result found for "{query}".',
++    'music.errors.search_rate': 'Too many searches. Try again in a minute.',
++    'music.errors.search_daily': 'This server\'s search limit for the last 24 hours has been reached. Paste a YouTube link.',
++    'music.errors.search_bad_query': 'The song name can be at most 200 characters.',
++    'music.searching': 'Searching YouTube: {query}',
++    'music.ok.addedTitle': 'Added to the queue: {title}',
++    'dj.searchOnYoutube': 'Search on YouTube',
++    'dj.searchMiss': 'You can search YouTube for "{query}" and add the track\'s link with /play.',
++    'dj.searchOwnerHint': 'You can turn on search by song name in Settings > General > Music bot.',
+     // G7 Kapak fotoğrafı
+     // G8 Otomatik boşta
+     // G9 ve G10 Gezinme
+@@ -2093,7 +2115,7 @@ window.I18N = (function () {
+     'music.notice.resume': '{name} resumed the music.',
+     'music.notice.stop': '{name} stopped the music and cleared the queue.',
+     'music.notice.purge_youtube': 'YouTube tracks were removed from the queue because of a frequency setting.',
+-    'music.errors.bad_url': 'This is not a YouTube video link. The youtube.com/watch?v=, youtu.be/, youtube.com/shorts/, music.youtube.com/watch?v= and youtube-nocookie.com/embed/ formats are supported. Playlists and search are not supported.',
++    'music.errors.bad_url': 'This is not a YouTube video link. The youtube.com/watch?v=, youtu.be/, youtube.com/shorts/, music.youtube.com/watch?v= and youtube-nocookie.com/embed/ formats are supported, playlists are not. You can also type a song name instead of a link.',
+     'music.errors.dj_unsupported': 'This server does not support Telsiz DJ.',
+     'music.errors.dj_disabled': 'Telsiz DJ is turned off on this frequency.',
+     'music.errors.dj_restricted': 'In this room the queue is managed by people with the DJ permission.',
+@@ -2109,7 +2131,7 @@ window.I18N = (function () {
+     'music.errors.file_media_error': 'An error occurred while playing the audio file.',
+     'music.errors.nothing_playing': 'Nothing is playing right now.',
+     'music.errors.bad_track': 'Track not found.',
+-    'music.errors.play_needs_source': 'Write a YouTube link after /play or attach an audio file.',
++    'music.errors.play_needs_source': 'Write a YouTube link or a song name after /play, or attach an audio file.',
+     'music.errors.queue_full': 'The queue is full, it can hold at most 100 tracks.',
+     'music.errors.bad_op': 'Invalid DJ action.',
+     'music.errors.invalid_state': 'The music state on the server could not be verified.',
+@@ -2873,7 +2895,7 @@ window.I18N = (function () {
+     'dj.cmd.resume': '/resume',
+     'dj.cmd.queue': '/queue',
+     'dj.cmd.stop': '/stop',
+-    'dj.cmdDesc.play': 'YouTube link or attached audio file',
++    'dj.cmdDesc.play': 'YouTube link, song name or attached audio file',
+     'dj.cmdDesc.skip': 'skip to the next track',
+     'dj.cmdDesc.pause': 'pause the music',
+     'dj.cmdDesc.resume': 'continue where it stopped',
+@@ -2899,7 +2921,7 @@ window.I18N = (function () {
+     'dj.restrictedNote': 'In this room the queue is managed by people with the DJ permission, you are listening.',
+     'dj.queueTitle': 'Queue · {count}',
+     'dj.queueRemove': 'Remove {title} from the queue',
+-    'dj.addHint': 'To add a track, type /play and a link in the message box, or press Play in DJ on an audio file.',
++    'dj.addHint': 'To add a track, type /play and a YouTube link or a song name in the message box, or press Play in DJ on an audio file.',
+     'dj.empty': 'No tracks yet',
+     'dj.consentNote': 'Your choice is stored on this device and can be undone in Settings > Privacy and security. File tracks play without it.',
+     'dj.queueSummary_one': 'Now playing: {title}. {count} track in the queue.',
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index eb4ee49..ed81668 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -3,6 +3,9 @@
+ // Telsiz DJ arayüzü (Ek L2, KONSEPT 8): motorun (public/music.js, window.TelsizMusic) uygulamaya bağlanması,
+ // DJ kartı (#dj), ses odası kadrosundaki "Telsiz DJ" öğesi, yazma alanındaki "/" komutları, mesajdaki ses
+ // dosyası kartının "DJ'de çal" düğmesi ve sunucu ayarı değişikliklerinin karta yansıması.
++// /çal şarkı adı (istek 5): sahip açtıysa (meta.music.search) arama sunucuda yapılır (POST /api/music/search),
++// ilk sonuç başlığıyla kuyruğa eklenir. İstemci YouTube'a hiçbir istek göndermez. Arama kapalıysa veya
++// yapılamazsa kartta YouTube'un sonuç sayfasına giden bir bağlantı gösterilir (yeni sekmede açılır).
+ //
+ // Motor tek örnektir (djEngine). Taşıma 01-core.js api() yardımcısıyla kurulur (POST /api/music/state, ek
+ // indirme GET /api/uploads/<id>), durum zarfı etkin grup anahtarıyla mühürlenir (E2EE.sealJson) ve oda ile
+@@ -41,6 +44,22 @@ const DJ_NOTICE_FRESH_MS = 15000
+ // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
+ const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
+ const DJ_WAVE_BARS = 30
++// Şarkı adıyla arama (istek 5): arama yapılamayınca kartta verilen YouTube sonuç sayfası ve sunucu ucunun hata
++// kodlarının karşılığı olan music.errors.* kodları
++const DJ_SEARCH_PAGE = 'https://www.youtube.com/results?search_query='
++const DJ_SEARCH_ERRORS = {
++  search_unavailable: 'search_unavailable',
++  search_failed: 'search_failed',
++  rate_limited: 'search_rate',
++  search_daily_limit: 'search_daily',
++  bad_query: 'search_bad_query',
++  not_in_voice: 'not_in_voice',
++  dj_restricted: 'dj_restricted',
++  dj_disabled: 'dj_disabled',
++  channel_not_found: 'not_in_voice'
++}
++// Bu hatalarda kartta YouTube'da arama bağlantısı gösterilir
++const DJ_SEARCH_MISS = ['search_unavailable', 'search_failed', 'search_daily', 'search_no_results']
+ const DJ_OK_KEYS = {
+   play: 'music.ok.added',
+   skip: 'music.ok.skipped',
+@@ -78,7 +97,10 @@ const dj = {
+   mediaPosAt: 0,
+   consentRow: null,
+   consentWarnFor: null,
+-  titleWatch: []
++  titleWatch: [],
++  // Şarkı adıyla arama: süren aramanın sorgusu ve arama yapılamayınca kartta gösterilen { query, code, room }
++  searching: null,
++  searchMiss: null
+ }
+ 
+ function djMusic () {
+@@ -213,6 +235,7 @@ function djSyncVoice () {
+   }
+   if (room === dj.voiceRoom) return
+   dj.voiceRoom = room
++  dj.searchMiss = null
+   // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
+   // da önceki odada kalır (yerel bekletme 'media')
+   dj.minimized = false
+@@ -473,6 +496,22 @@ function djBuild () {
+   // Kısıtlı kipte yalnızca dinleyen için açıklama
+   ui.restricted = h('p', 'dj-hint dj-restricted')
+   card.appendChild(ui.restricted)
++  // Şarkı adıyla arama: aranırken durum satırı, arama yapılamayınca YouTube'un sonuç sayfasına bağlantı (yeni
++  // sekmede, gönderen bilgisi olmadan) ve sahibe ayarın yeri
++  ui.search = h('div', 'dj-search')
++  ui.search.setAttribute('role', 'status')
++  ui.search.setAttribute('aria-live', 'polite')
++  ui.searchText = h('p', 'dj-hint dj-search-text')
++  ui.search.appendChild(ui.searchText)
++  ui.searchLinkRow = h('p', 'dj-hint dj-search-link-row')
++  ui.searchLink = h('a', 'button button-small button-secondary dj-search-link')
++  ui.searchLink.target = '_blank'
++  ui.searchLink.rel = 'noopener noreferrer'
++  ui.searchLinkRow.appendChild(ui.searchLink)
++  ui.search.appendChild(ui.searchLinkRow)
++  ui.searchOwner = h('p', 'dj-hint dj-search-owner')
++  ui.search.appendChild(ui.searchOwner)
++  card.appendChild(ui.search)
+ 
+   // Kişisel ses seviyesi (cihazda saklanır) veya ayarlanamıyorsa açıklama
+   ui.vol = h('div', 'dj-vol')
+@@ -728,6 +767,7 @@ function djRender () {
+   // Başkasının son işlemi
+   djSetText(ui.last, dj.notice ? textOf(dj.notice) : '')
+   ui.last.hidden = !dj.notice
++  djRenderSearch(ui)
+ 
+   // Kişisel ses seviyesi ve susturma
+   ui.vol.hidden = !s.volumeSupported
+@@ -1732,6 +1772,7 @@ function djCommand (text, ctx) {
+     // Yükleme sürerken metin yazma alanında kalır (gönderim yüklemeyi bekleme uyarısı verir)
+     if (!att && ctx && ctx.pending > 0) return null
+     if (att) return djPlayAttached(att, ctx)
++    if (cmd.query) return djPlaySearch(cmd.query, text)
+   }
+   // Duyuru komutun yazıldığı yazı odasına gider (kullanıcı bu arada oda değiştirse bile)
+   const roomId = state.channelId
+@@ -1744,6 +1785,100 @@ function djCommand (text, ctx) {
+   })
+ }
+ 
++// ------------------------------------------------------------------ şarkı adıyla arama (istek 5)
++
++// Sahip aramayı açtı mı (sunucu yalnızca DJ ve YouTube kaynağı da açıkken doğru verir)
++function djSearchOn () {
++  const m = state.meta && state.meta.music
++  return Boolean(m && m.search === true)
++}
++
++function djSearchPage (query) {
++  return DJ_SEARCH_PAGE + encodeURIComponent(query)
++}
++
++// Arama yapılamadı: hata bildirimi ve kartta YouTube'da arama bağlantısı. Sayfa kipinde DJ sayfası açılır ki
++// bağlantı görünsün (/kuyruk komutundaki gibi).
++function djSearchMissed (query, code) {
++  const text = code === 'search_no_results' ? () => t('music.errors.search_no_results', { query: query }) : () => djErrorText(code)
++  toast(text, 'error', 7000)
++  if (DJ_SEARCH_MISS.indexOf(code) === -1) return
++  dj.searchMiss = { query: query, code: code, room: dj.voiceRoom }
++  djRenderSoon()
++  if (djIsSheetMode()) djReveal(document.activeElement)
++}
++
++function djRenderSearch (ui) {
++  const miss = dj.searchMiss && sameId(dj.searchMiss.room, dj.voiceRoom) ? dj.searchMiss : null
++  ui.search.hidden = !dj.searching && !miss
++  ui.searchLinkRow.hidden = !miss
++  ui.searchOwner.hidden = !(miss && miss.code === 'search_unavailable' && isOwner())
++  if (dj.searching) {
++    djSetText(ui.searchText, t('music.searching', { query: dj.searching }))
++    return
++  }
++  if (!miss) return
++  djSetText(ui.searchText, t('dj.searchMiss', { query: miss.query }))
++  djSetText(ui.searchLink, t('dj.searchOnYoutube'))
++  const href = djSearchPage(miss.query)
++  if (ui.searchLink.getAttribute('href') !== href) ui.searchLink.setAttribute('href', href)
++  if (!ui.searchOwner.hidden) djSetText(ui.searchOwner, t('dj.searchOwnerHint'))
++}
++
++// /çal şarkı adı: sunucu YouTube'da arar, ilk sonuç başlığıyla eklenir ve duyuru başlıkla hemen gider. Duyuru
++// komutun yazıldığı yazı odasına gider. Sonuç Promise<{ ok, code?, command }>.
++function djPlaySearch (query, text) {
++  const engine = djEngine()
++  const roomId = state.channelId
++  const voiceRoom = dj.voiceRoom
++  const fail = (code) => Promise.resolve({ ok: false, code: code, command: 'play' })
++  const pre = djPrecheck()
++  if (pre) {
++    djReport('play', { ok: false, code: pre })
++    return fail(pre)
++  }
++  const s = djSnapshot()
++  if (s && s.youtubeEnabled === false) {
++    djReport('play', { ok: false, code: 'youtube_disabled' })
++    return fail('youtube_disabled')
++  }
++  if (!djSearchOn()) {
++    djSearchMissed(query, 'search_unavailable')
++    return fail('search_unavailable')
++  }
++  dj.searching = query
++  dj.searchMiss = null
++  toast(() => t('music.searching', { query: query }), 'ok', 8000)
++  djRenderSoon()
++  // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
++  return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
++    dj.searching = null
++    djRenderSoon()
++    if (!res || res.status !== 200) {
++      const serverCode = res && res.data && typeof res.data.code === 'string' ? res.data.code : ''
++      const code = !res || res.status === 0 ? 'network' : DJ_SEARCH_ERRORS[serverCode] || 'server'
++      djSearchMissed(query, code)
++      return fail(code)
++    }
++    const results = res.data && Array.isArray(res.data.results) ? res.data.results : []
++    const first = results.filter((r) => r && typeof r.videoId === 'string')[0]
++    if (!first) {
++      djSearchMissed(query, 'search_no_results')
++      return fail('search_no_results')
++    }
++    const title = cleanDjTitle(first.title)
++    return engine.addYouTube(first.videoId, { title: title }).then((r) => {
++      if (!r || !r.ok || r.noop) {
++        djReport('play', r)
++        return Object.assign({ command: 'play' }, r)
++      }
++      toast(() => (title ? t('music.ok.addedTitle', { title: title }) : t('music.ok.added')), 'ok')
++      djAnnounceTrack(roomId, text, title ? { op: 'add', src: 'yt', vid: first.videoId, title: title } : { op: 'add', src: 'yt', vid: first.videoId }, r.trackId)
++      return Object.assign({ command: 'play' }, r)
++    })
++  })
++}
++
+ // Kuyruğa eklenen parça yazı odasında herkese duyurulur. Sonuç duyuru mesajının kimliği, gönderilemezse null.
+ // Duyuru başarısız olursa parça yine kuyruktadır, yalnızca bildirim gösterilir.
+ function djAnnounce (roomId, text, d) {

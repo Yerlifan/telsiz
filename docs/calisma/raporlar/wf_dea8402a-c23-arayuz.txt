@@ -1,0 +1,54 @@
+Adım 6 bitti ve `0ded0cf` olarak commit'lendi: "Hexball: arayüz, saha tuvali, denetimler ve kayıt". Lint, birim testleri ve `e2e/16-oyun.test.js` geçti, push edilmedi, çalışma kopyası temiz. Adımın bir parçası önceki denemede `453c5c2` olarak commit'lenmişti ("Oyun: oyun kolu ve güven notu için arayüz kancaları"): `ownsPad` ve `trustNote` kancaları ile `21-band.js` içindeki `padPoll` değişikliği. Onu tekrarlamadım. Commit'lenmemiş `46-hexball.js` taslağını inceleyip düzelterek sürdürdüm.
+
+**Değişen dosyalar** (hepsi `/home/user/wt/c` altında)
+- `public/js/46-hexball.js` (yeni): Takımlar ve sonuç ekranı, maç ekranı, tuval, klavye, oyun kolu, dokunmatik çubuk ve Vur düğmesi, "Bağlantı Yok" durumu, güven notu. Taslakta düzelttiklerim:
+  - Basılı tutulan çubuk ve Vur düğmesi artık pencere düzeyinde izleniyor. Eskiden ekran yeniden çizilince (ör. gol) basılı çubuk bırakılıyordu.
+  - Oyuncu tarafındaki 15 saniyelik bekleme sayacı her tikte sıfırlanıyordu, düzelttim. Ses motoru oyun bağını hiç bilmiyorsa oyuncu hemen "Bağlantı Yok" görüyor.
+  - Tuval çok küçük çiziliyordu (masaüstünde 303 px). Artık sahnenin görünen yüksekliğini dolduruyor (720 px). Telefonda dokunmatik denetimlere yer bırakılıyor.
+  - Gol ve başlama vuruşu yazısı sahanın ortasındaydı ve küçük sahada diskleri örtüyordu. Sahanın üst kenarına aldım.
+- `public/css/hexball.css` (yeni): yalnızca belirteç kullanıyor, yasak CSS özelliği yok, tuval, çubuk ve Vur düğmesinde `touch-action: none`.
+- `public/css/tokens.css`: 14 `--hex-*` belirteci. Kart oyunlarının bloğundan önceki ortak `:root` bloğunda (koyu) ve `:root[data-scheme="light"]` bloğunda (açık) tanımlı. Bu yüzden G12 ile gelecek temalar dahil her tema ve modda çözülüyorlar.
+- `public/i18n.js`: TR ve EN'de 94'er `game.hexball.*` anahtarı.
+- `public/index.html` ve `public/sw.js`: `hexball.css` ile 43, 44, 45 ve 46 numaralı betikler numara sırasıyla eklendi.
+- `test/hexball-arayuz.test.js` (yeni, 20 test). Gerçek masa, fizik ve ağla iki ve üç cihaz üzerinde sınıyor. Ayrıca her tema ve modda belirteç ve kontrast denetimi, i18n kapsamı ve marka denetimi yapıyor. Marka denetimi adı karakter kodlarıyla kuruyor ve depodaki bütün metin dosyalarında ve i18n değerlerinde arıyor.
+- `test/oyun-ortam.js` (yeni) ve `test/oyun-arayuz.test.js`: ortak test ortamını (DOM taklidi, sahte saat, sahne taklitleri) değiştirmeden ayrı dosyaya taşıdım. `oyun-arayuz` hâlâ 46 test.
+- `e2e/16-oyun.test.js`: iki oyun kayıtlı olduğu için Oyun düğmesi önce "Oyun Seç" ekranını açıyor. Test bu ekranı ve Renk seçimini doğruluyor, hiçbir beklenti gevşemedi.
+- `CONTRIBUTING.md` ve `CONTRIBUTING.en.md`: modül tablosuna 46 numaralı dosya için birer satır.
+
+**Sapmalar ve gerekçeleri**
+1. **`test/tema.test.js` bu dalda yok.** O dosya G12 ile `istek/a` dalında geliyor. Yerine kendi testim temaları `theme-init.js` içindeki listeden okuyor ve her tema ile modda şunları denetliyor:
+   - takım rengi ve yazı en az 4.5:1 (beyaz ve kırmızı 5.28, beyaz ve mavi 5.69),
+   - saha çizgileri, direkler, disk kenarı, top ve halkalar sahayla en az 3:1.
+2. **Hexball genel metinleri (ev sahibi, tur) değiştirmiyor.** Var olan bir test, Hexball'da bu metinlerin genel karşılıklarının çıkmasını bekliyor.
+3. **Takım atanınca canlı bölgede bir duyuru yapılıyor** (ör. "Mert Mavi takımda.").
+
+**Çalıştırılan testler**
+- `npm run denetle`: ihlal yok.
+- `npm test`: 1332 testten 1331'i geçti, 1'i atlandı. Atlanan, önceden de atlanan masaüstü uygulaması derleme testi.
+  - İlk çalıştırmada `server-cli.test.js` içindeki bir test düştü. Tek başına ve tam paketle yeniden çalıştırınca geçti, makinedeki yükten kaynaklanan bir zamanlama sorunuydu.
+- `e2e/16-oyun.test.js`: 15/15, üç kez çalıştırdım.
+- Yeni testin hataları yakaladığını yedi kasıtlı bozmayla sınadım, her biri en az bir testi düşürdü.
+- Commit'lemediğim bir Chromium duman testi de çalıştırdım: üç kişi, gerçek `voice.js` ve veri kanalı.
+  - El sıkışma 15 ile 480 ms sürdü. Klavye girdisi ev sahibinin dünyasında diski hareket ettirdi.
+  - Gol iki tarafta aynı göründü, Maçı Durdur sonuç ekranını açtı.
+  - Telefonda (390 px) yatay taşma yok, konsol temiz.
+
+**Sonraki adımın bilmesi gerekenler**
+- **Global işlevler:** `hexballState`, `hexballFrameNow()`, `hexballLinks()` (kişi kimliğinden `none`, `waiting`, `ready` ya da `failed`), `hexballPlayerLink(m)`, `hexballColors()`, `hexballKickoff()`.
+- **Odak anahtarları:** `hex-join-<side>`, `hex-set-<id>-<side>`, `hex-kickoff`, `hex-lobby`, `hex-stop`, `hex-stop-no`, `hex-stop-yes`, `hex-kick`.
+- **Seçiciler:**
+  - `.hex-table[data-ph]`
+  - `.hex-person[data-user-id] .hex-chip.is-failed` ve `.is-waiting`
+  - `.hex-link.is-failed` ve `.is-waiting`
+  - `.hex-board-team[data-side] .hex-board-score`, `.hex-clock`, `.hex-canvas`
+  - `.hex-overlay[data-kind]`, `.hex-touch`, `.hex-legend-item`
+  - `.hex-result-win`, `.hex-result-why`, `.hex-result-score`, `.hex-goal`
+- **Test ortamı:** `test/oyun-ortam.js` şunları dışa açıyor: `same`, `stripComments`, `makeDocument`, `makeClock`, `fakeDm`, `seeded`, `STAGE_FAKES`, `NAMES`.
+- **Belgeler hâlâ güncellenmedi:** README, MIMARI ve ARCHITECTURE, TASARIM ve DESIGN (`--hex-*` belirteçleri), CHANGELOG. `e2e/24-hexball.test.js` de yazılmadı.
+
+**Açık sorunlar**
+- **G12 birleşince:** temalar ve kontrast yeniden denetlenmeli. Yüksek Kontrast temasında saha renkleri diğer temalarla aynı kalıyor.
+- **Bağı kurulamayan oyuncu:** ev sahibinde bağ engellenince durum hemen "Bağlantı Yok" oluyor. Oyuncu ise bunu en geç 15 saniye sonra görüyor. Karşı tarafın `voice.js`'inde `link-failed` olayı üretilip üretilmediğini doğrulayamadım.
+- **Maç ortasında ayrılan kişi:** takımında başka oyuncu varsa maç sürüyor ve onun diski maç bitene kadar sahada hareketsiz kalıyor. Ağ modülünde oyuncuyu maçtan çıkarma yolu yok.
+- **Telefonda saha küçük:** tam ekran olmayan sahnede dokunmatik denetimler görünürken saha yaklaşık 240 px genişliğinde. Tam Ekran daha geniş alan veriyor.
+- **Denenmeyenler:** Firefox, gerçek telefon ve oyun kolu elle denenmedi. PS5 desteği iddia edilmiyor.

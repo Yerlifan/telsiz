@@ -1,0 +1,163 @@
+export const meta = {
+  name: 'istek-arastirma',
+  description: 'Kullanıcının 18 isteğini kod ve dış kaynaklarla araştır, kök nedenleri ve uygulama planını çıkar, paralel uygulama için toplu plan yaz',
+  phases: [
+    { title: 'Araştırma', detail: 'sekiz alan paralel' },
+    { title: 'Plan', detail: 'birleşik uygulama planı ve dosya çakışma haritası' },
+  ],
+}
+
+const REPO = '/home/user/ps5-pc-communication'
+const SP = '/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad'
+
+const COMMON = `
+Depo: ${REPO} (Telsiz: kendi sunucunda çalışan, uçtan uca şifreli yazılı ve sesli iletişim. Node sunucu src/, tarayıcı
+istemcisi public/ (voice.js ses motoru, public/js/NN-*.js arayüz modülleri, ES2017), Electron masaüstü uygulaması desktop/,
+belgeler docs/ ve README). Proje kuralları CONTRIBUTING.md ve scripts/denetle.js içinde.
+SADECE OKU ve ARAŞTIR. Depodaki hiçbir dosyayı değiştirme, git stash/checkout/reset/commit kullanma. Geçici dosyaları
+${SP}/arastirma/ altına yaz. Başka bir iş akışı aynı anda public/js/33-37 oyun dosyalarını ve voice.js'i değiştiriyor
+olabilir, onlara dokunma.
+Tarayıcıda denemen gerekirse Playwright Chromium /opt/pw-browsers'tadır (indirme yapma). e2e/yardimci.js'teki setupWorld
+kalıbını kullan, port çakışmasın diye rastgele yüksek port seç.
+Dış bilgiler (tarayıcı API desteği, YouTube kuralları, Android ve Google Play gereksinimleri) için WebSearch ve WebFetch
+kullan, ezberden yazma. Her dış iddiaya kaynak URL'si ver, doğrulayamadığını "doğrulanamadı" diye işaretle.
+Yanıtın Türkçe olsun.
+
+Her istek için şu başlıkları yaz:
+1. Kullanıcının isteği (kelimesi kelimesine).
+2. Mevcut durum: ilgili kod, dosya:satır ile.
+3. Hata ise kök neden (kanıtla, mümkünse yeniden üret). Özellik ise yapılabilirlik ve kısıtlar.
+4. Önerilen çözüm: değişecek dosyalar ve işlevler, yeni dosyalar, sunucu değişikliği gerekiyor mu, yeni API uçları,
+   veri biçimi, i18n anahtarları, belgeler.
+5. Testler: birim, e2e, elle deneme.
+6. Riskler ve güvenlik etkisi (şifreleme, yetki, gizlilik).
+7. Büyüklük (S, M, L, XL) ve tahmini adım sayısı.
+8. Kullanıcının kararını gerektiren noktalar ve senin önerdiğin varsayılan (kullanıcı "hepsini yap" dedi, bu yüzden
+   makul bir varsayılan seç ve gerekçelendir).
+9. Dokunulacak paylaşılan dosyalar (i18n.js, index.html, sw.js, tokens.css, voice.js, src/app.js gibi): paralel
+   çalışmada çakışma haritası için.`
+
+const AREAS = [
+  { key: 'dj', prompt: `ALAN: TELSİZ DJ.
+İstekler:
+(5) "çal komutuna direkt şarkıyı yazınca da youtubetan arayıp şarkıyı telsiz dj'e getir"
+(6) "Başkası şarkıyı ekleyince chat alanında ekleyip hangi şarkıyı eklediği yazmıyor"
+(13) "Telsiz botunda şarkıyı başlatınca odadaki diğer üyelerde hemen başlamıyor"
+(15) "Telsiz DJ çalarken anlık konumunu değiştiremediğim için bazı yerlere tıklayamıyorum. Floating olmalı ve video gözükmese de çalmalı."
+(18) "Uygulama ekranı arkaplanda kalınca müzik devam etmiyor"
+İncele: public/js/23-dj.js, public/css/dj.css, sunucudaki müzik uçları (src/app.js, grep music), çal komutu (grep 'çal' ve
+komut ayrıştırması), senkronizasyon (sunucu saati, long-poll, autoplay politikaları). (13) için gerçek tarayıcıda iki
+kullanıcıyla başlatma gecikmesini ölçmeye çalış ve kök nedeni kanıtla.
+Dış kaynakla DOĞRULA: YouTube API Hizmetleri Şartları ve Geliştirici Politikaları (oynatıcının gizlenmesi, en küçük
+oynatıcı boyutu, sesin görüntüden ayrılması, arka planda oynatma), YouTube IFrame Player API'nin mobil tarayıcıda sayfa
+gizlenince davranışı, arama için YouTube Data API v3 search.list kotası ve anahtar gereksinimi, IFrame API'de listType
+search'ün durumu. Anahtarsız arama seçeneklerinin ToS durumu. Dosya parçaları (yüklenen ses) için arka planda oynatma
+(Media Session API, audio öğesi) desteği.` },
+  { key: 'profil', prompt: `ALAN: PROFİL VE ÇEVRİMİÇİ DURUMU.
+İstekler:
+(2) "Belli bir süre sonra çevrimiçi pozisyonundan boşa geçsin" (otomatik boşta durumu)
+(3) "profilden değiştirince frekansta ses odasında falan senkronize değişmiyor" (ad, avatar vb. değişikliği diğer yerlere
+anında yansımıyor; hangi alanlar, hangi yerler: kadro, ses odası listesi, İstasyonlar, mesajlar, telsiz kartı, üst çubuk).
+(8) "Profilde kapak fotoğrafı da yüklenebilsin"
+(9) "Profil fotoğrafının sağına görünen ad ve kullanıcı adı gelsin. Görünen adın hemen yanına rolü yazsın." (profil kartı
+ve profil sayfası düzeni; hangi yüzeylerde)
+(12) Arkadaş ekle kutusunda yer tutucu "kullanici_adi" yerine "Kullanıcı adı giriniz" yazsın.
+İncele: public/js/13-profile.js, 14-social.js, 16-identity.js, 04-meta.js, durum (status) sistemi (grep status, idle,
+dnd, away), avatar yükleme uçları (src/app.js), dosya boyutu sınırları, şifreleme (profil alanları şifreli mi), i18n.
+(3) için gerçek tarayıcıda iki kullanıcıyla kök nedeni yeniden üret.` },
+  { key: 'yuzen', prompt: `ALAN: YÜZEN PENCERELER.
+İstekler:
+(7) "Simge durumuna küçülünce kamera açıksa onlar çıksın. Kameralar kapalıysa sadece profil fotoğrafları ve konuşunca
+etrafında yeşil işaret floating olarak olsun."
+(16) "Ekran yayını yaparken küçültme ya da floating yapma olmalı."
+İncele: masaüstü uygulaması (desktop/src/main.js pencere yönetimi, preload), sahne (public/js/22-cast.js), kamera ızgarası,
+konuşma göstergesi (speaking), mevcut tam ekran ve küçült.
+Dış kaynakla DOĞRULA: Document Picture-in-Picture API desteği (Chrome, Edge, Firefox, Safari, Android Chrome), kullanıcı
+hareketi gereksinimi, otomatik PiP (mediaSession 'enterpictureinpicture' eylemi, Chrome sürümleri, video konferans
+koşulları), Electron'da her zaman üstte küçük pencere (BrowserWindow alwaysOnTop, focusable false, küçültme olayı),
+video öğesi PiP. Telefon için seçenekler.` },
+  { key: 'gezinme', prompt: `ALAN: YAZI KANALLARI VE SOHBETLERDE GEZİNME.
+İstek: (17) "Yazı kanalları ve chatleri düzgün ve rahatça gezemiyoruz."
+Gerçek tarayıcıda (Playwright Chromium) bir kullanılabilirlik denetimi yap: 360, 412, 768, 1024, 1440 px; birkaç kanal,
+çok mesajlı bir kanal, özel mesajlar, okunmamışlar. Kanallar arası geçiş, kanal listesinin görünürlüğü, özel mesaj ile
+kanal arası geçiş, geri tuşu ve tarayıcı geçmişi, klavye kısayolları, okunmamışa atlama, eski mesajlara kaydırma,
+konuşmaya girince konumun korunması, telefonda alt sayfalar. Somut sorunları ekran görüntüleriyle (${SP}/arastirma/gezinme/)
+ve ölçümlerle listele. İncele: public/js/05-poll.js, 06-*.js, 07-*.js, 08-*.js, 12-init.js, 21-band.js, frekans.css.
+Her sorun için önerilen düzeltmeyi yaz. Öncelik sırası ver.` },
+  { key: 'tasarim', prompt: `ALAN: ÖZGÜN TASARIM VE TEMALAR.
+İstekler: (10) "Tam discord gibi olmasın bize özel eşsiz tasarım olsun." (11) "Daha fazla tema olsun."
+İncele: public/css/tokens.css, skins/ (görünümler), tema seçimi (11-settings.js görünüm), docs/TASARIM.md, mevcut
+görünümlerin sayısı ve kimliği. Gerçek tarayıcıda mevcut görünümlerin ekran görüntülerini al (${SP}/arastirma/tasarim/).
+Arayüzü Discord'a benzeten öğeleri somut olarak listele (sol sunucu sütunu, kanal listesi, mesaj düzeni, renkler vb.).
+"Telsiz" kimliğine (radyo, frekans, istasyon, telsiz kartı) dayanan özgün bir tasarım yönü öner: hangi bileşenler nasıl
+değişmeli, hangi kalıplar korunmalı (erişilebilirlik, eski WebKit desteği, CSS yasakları: grid, gap, clamp, :is, :where,
+aspect-ratio, inset yok). En az 6 yeni tema öner: adı, kimliği, renk belirteçleri (açık ve koyu), kontrast hesabı (WCAG
+AA, metin 4.5:1). Mevcut tema altyapısına nasıl ekleneceğini yaz.` },
+  { key: 'parola', prompt: `ALAN: ŞİFREMİ UNUTTUM.
+İstek: (14) "Şifremi unuttum bölümü de olmalı"
+İncele: src/auth.js, src/app.js (handleResetPassword, handleMyPassword, applyCredentials, /api/me/keys, giriş, kayıt),
+public/js/03-auth.js, 16-identity.js, public/crypto.js (kimlik anahtarının parolayla sarılması, wrappedKey, kdf).
+E-posta altyapısı var mı. Sahibin parola sıfırlama özelliği nasıl çalışıyor, sıfırlamada şifreli özel mesajlara ne oluyor.
+Seçenekleri karşılaştır: (a) kayıtta ve ayarlarda üretilen kurtarma kodu ile kişinin parolasını kendisinin sıfırlaması
+ve kimlik anahtarının kurtarma koduyla da sarılması (özel mesajlar korunur), (b) giriş ekranından sahibe sıfırlama isteği,
+(c) e-posta. Her biri için tehdit modeli (sunucuyu işleten kişi, kaba kuvvet, hız sınırı, kodun entropisi, scrypt
+parametreleri), veri biçimi, uçlar, arayüz akışı. Önerilen varsayılan: (a) ve kurtarma kodu olmayanlar için açık
+yönlendirme (sahip sıfırlar). Bunun ayrıntılı tasarımını yaz. CONTRIBUTING şifreleme protokolü değişikliğini önce issue'da
+tartışmayı istiyor, bunu not et.` },
+  { key: 'android', prompt: `ALAN: ANDROID GOOGLE PLAY UYGULAMASI.
+İstek: (1) "Android google play uygulaması da olsun."
+İncele: desktop/ (masaüstü uygulaması sunucu adresi seçiciyle çalışıyor: desktop/src/main.js, lib/server-url.js, picker,
+connect), public/manifest (PWA), service worker, .github/workflows/release.yml (yayın hattı).
+Dış kaynakla DOĞRULA (2026 itibarıyla güncel): Google Play hedef API düzeyi şartı, AAB zorunluluğu, Play App Signing,
+veri güvenliği formu, ön plan hizmeti türleri (mediaPlayback, microphone, camera) ve beyan şartları, Android WebView'da
+WebRTC (getUserMedia izinleri, WebChromeClient onPermissionRequest), WebView'da ekran paylaşımı (getDisplayMedia desteği),
+WebView'da service worker, arka planda ses için ön plan hizmeti, Trusted Web Activity (Bubblewrap) ve alan doğrulaması
+(assetlinks.json), TWA'nın birden çok sunucu adresiyle kullanılamaması.
+Seçenekleri karşılaştır: (a) masaüstündeki gibi sunucu adresi seçen genel WebView uygulaması, (b) tek alan için TWA,
+(c) Capacitor. Önerilen varsayılan: (a). Ayrıntılı tasarım: proje yapısı (android/ klasörü), Kotlin ya da Java, Gradle
+sürümleri, bağımlılık politikası (CONTRIBUTING: çalışma zamanı bağımlılığı yok kuralı yalnız Node paketi için mi),
+imzalama (GitHub gizli değişkenleri), CI derlemesi (GitHub Actions'ta Android SDK), testler, kullanıcının yapması
+gerekenler (Play Console hesabı, gizlilik politikası, içerik derecelendirme). Bu kapta Android SDK kurulabilir mi,
+dl.google.com ve services.gradle.org erişilebilir mi, dene (curl -sI ile) ve sonucu yaz.` },
+  { key: 'hexball', prompt: `ALAN: HEXBALL OYUNU.
+İstek: (4) "Renk oyunu yanında hexball oyunu da ekleyelim." (HaxBall benzeri, üstten görünümlü, gerçek zamanlı fizik
+futbolu varsayılıyor. Ses odasındakiler arasında oynanır.)
+Önce Renk'in tasarımını oku: ${SP}/renk-tasarim.md (1., 2., 3., 4.5 ve 5.1 bölümleri) ve mevcut kodu: public/voice.js
+(game sinyali, sendGame), public/js/33-oyun-protokol.js, 34-oyun-masa.js (henüz yazılıyor olabilir), 22-cast.js sahne.
+Gerçek zamanlı oyun için sinyal hattı yetmez (kullanıcı başına 120 sinyal / 10 sn, sunucu üzerinden long-poll). Ses
+bağlantılarının üzerine WebRTC veri kanalı (RTCDataChannel, sırasız ve güvenilmez) eklenmesini incele: voice.js'te
+bağlantı kurulumu, yeniden anlaşma, mevcut aktarıcılar, ölçek (tam örgü, 8 kişi), DTLS şifrelemesi.
+Tasarım: ev sahibi yetkili fizik (60 Hz), oyuncu girdileri, 20-30 Hz durum anlık görüntüleri, ara değerleme, takım
+seçimi, skor, süre, top ve oyuncu fiziği (daire çarpışmaları, sürtünme, vuruş), saha boyutu, klavye, dokunmatik
+joystick, oyun kolu (Gamepad API), PS5 tarayıcısı. Masa yöneticisi ile ortak lobi akışı (5.1 sözleşmesi uygun mu).
+Ad: "Hexball" kullanıcı adı, ama HaxBall bir oyunun adı. Benzerlik riskini not et ve ad için öneri yaz (kullanıcı adı
+"hexball" dedi, varsayılan bu ad).` },
+]
+
+phase('Araştırma')
+const reports = await parallel(AREAS.map((a) => () => agent(COMMON + '\n\n' + a.prompt, { label: 'araştırma:' + a.key, phase: 'Araştırma' })))
+const named = AREAS.map((a, i) => '### ALAN: ' + a.key + '\n\n' + (reports[i] || '(rapor yok)')).join('\n\n---\n\n')
+const missing = AREAS.filter((a, i) => !reports[i]).map((a) => a.key)
+if (missing.length) log('Rapor gelmeyen alanlar: ' + missing.join(', '))
+
+phase('Plan')
+const plan = await agent(`${COMMON}
+
+Aşağıda sekiz alanın araştırma raporları var. Bunlardan tek bir UYGULAMA PLANI yaz. Kullanıcı "hepsini yap" dedi.
+Bölümler:
+1. Özet tablo: istek no, kısa ad, tür (hata/özellik), büyüklük, önerilen varsayılan karar, dış kısıt (ör. YouTube kuralı).
+2. Kullanıcıya bildirilmesi gereken kısıtlar: doğrulanmış dış kısıtlar (kaynaklarıyla) ve bu yüzden isteğin tam olarak
+   yapılamayan kısımları. Dürüst ol.
+3. Uygulama grupları: birbirine bağımlı ya da aynı dosyaları değiştiren istekleri aynı gruba koy. Her grup bir PR olacak.
+   Her grup için: istekler, değişecek dosyalar, yeni dosyalar, testler, belgeler. Gruplar ayrı git worktree'lerinde paralel
+   yapılabilecek biçimde paylaşılan dosya çakışmasını en aza indir. Çakışma matrisi ver (grup x paylaşılan dosya).
+   Renk oyunu ayrı bir iş akışında yapılıyor (public/js/33-37, oyun.css, renk.css, voice.js game sinyali, 22-cast.js game
+   kipi, 28-bildirim.js, i18n game.*). Hexball Renk'in altyapısına bağlıysa Renk bittikten sonra başlamalı.
+4. Sıra: hangi gruplar hemen paralel başlayabilir, hangileri beklemeli.
+5. Her grup için uygulayıcıya verilecek ayrıntılı iş tanımı (kendi başına yeterli olsun): adımlar, dosya:satır, veri
+   biçimleri, i18n anahtarları (tr ve en metinleri), testler, kabul ölçütleri.
+6. Açık riskler.
+
+${named}`, { label: 'birleşik plan', phase: 'Plan', effort: 'high' })
+
+return { plan, reports: AREAS.map((a, i) => ({ key: a.key, report: reports[i] })) }

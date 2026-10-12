@@ -1,0 +1,237 @@
+From 25dac82cb0c6e2fa94504e5ae28be6bd122f61bd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:26:03 +0000
+Subject: [PATCH 054/104] =?UTF-8?q?G12:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?kendili=C4=9Finden=20se=C3=A7ilen=20Y=C3=BCksek=20Kontrast=20ka?=
+ =?UTF-8?q?rt=C4=B1na=20t=C4=B1klan=C4=B1nca=20saklan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Saklı tema yokken sistem yüksek karşıtlık istediği için seçilen Yüksek
+Kontrast kalıcı yapılamıyordu: kart zaten işaretli olduğu için tıklamak
+change üretmiyor, set({skin}) de aynı tema için yazmıyordu. theme-init.js
+aynı tema seçildiğinde saklı değer yoksa onu yazar (görünüm değişmediği
+için yeniden uygulamaz), Ayarlar'daki tema kartı click olayında da temayı
+seçer. tema.test.js bootTheme ile, settings.test.js işaretli karta click
+ile, e2e/04-ayarlar gerçek tarayıcıda sınar. TASARIM/DESIGN ve CHANGELOG×2
+güncellendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md          |  2 +-
+ CHANGELOG.md             |  2 +-
+ docs/DESIGN.md           |  2 +-
+ docs/TASARIM.md          |  2 +-
+ e2e/04-ayarlar.test.js   | 12 +++++++++++-
+ public/js/11-settings.js |  5 +++++
+ public/theme-init.js     | 17 ++++++++++++-----
+ test/settings.test.js    | 20 ++++++++++++++++++++
+ test/tema.test.js        | 22 ++++++++++++++++++++++
+ 9 files changed, 74 insertions(+), 10 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index ef1a2b8..83e077e 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -7,7 +7,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ ### New features
+ 
+ - Cover photo: a cover photo can be added to the profile in Settings > Profile (Choose Cover, Remove Cover). The chosen image is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG, and metadata such as the location is removed. Like the profile picture, the cover is end-to-end encrypted with its own file key and follows the same size limit as the profile picture (1 MB by default), the quality is lowered in two steps if it does not fit. The cover appears in the color band of the profile card and in the My Account and Profile previews in Settings. Unlike profile pictures, covers are not downloaded in advance, only when the card is opened. Because of this the server can see who opens whose card. If an older client that does not know about covers saves the profile, the cover is removed. When the cover changes, is removed or the account is deleted, the old file is deleted from the server, and the cover counts toward the user's upload quota. An optional `cover` field was added to the profile envelope and a `coverUploadId` field to the `POST /api/me/profile` request and the `GET /api/profiles` response, with the new error codes `bad_cover` and `cover_too_large`.
+-- Seven new themes: Field Radio (Saha Telsizi), Tube Radio (Lambalı Radyo), Phosphor (Fosfor), Polar Station (Kutup İstasyonu), Vinyl (Plak), Cockpit (Kokpit) and High Contrast (Yüksek Kontrast). Each has a dark and a light mode, and Arcade stays the default theme. The themes bring no new fonts, they use other combinations of the existing fonts. In Settings > Appearance the theme cards sit in the Radio Themes and Accessibility groups and are more compact: the preview strip is shorter and the description is visible only on the selected card (screen readers read the description of every card). High Contrast gives at least 7:1 contrast for text, uses thick borders, no gradients, shadows or background light, underlines links, draws a thick focus ring and sets disabled buttons apart with a dashed border instead of fading them. When the system has high contrast turned on (`prefers-contrast: more` or forced colors such as Windows High Contrast) and no theme preference is stored on the device, High Contrast is chosen on first start. In forced colors mode selected items get a border in the system highlight color. The total size of the stylesheets grew with the new themes.
++- Seven new themes: Field Radio (Saha Telsizi), Tube Radio (Lambalı Radyo), Phosphor (Fosfor), Polar Station (Kutup İstasyonu), Vinyl (Plak), Cockpit (Kokpit) and High Contrast (Yüksek Kontrast). Each has a dark and a light mode, and Arcade stays the default theme. The themes bring no new fonts, they use other combinations of the existing fonts. In Settings > Appearance the theme cards sit in the Radio Themes and Accessibility groups and are more compact: the preview strip is shorter and the description is visible only on the selected card (screen readers read the description of every card). High Contrast gives at least 7:1 contrast for text, uses thick borders, no gradients, shadows or background light, underlines links, draws a thick focus ring and sets disabled buttons apart with a dashed border instead of fading them. When the system has high contrast turned on (`prefers-contrast: more` or forced colors such as Windows High Contrast) and no theme preference is stored on the device, High Contrast is chosen on first start. This choice is not stored, and clicking the High Contrast card, which shows as selected in Settings, makes it permanent. In forced colors mode selected items get a border in the system highlight color. The total size of the stylesheets grew with the new themes.
+ 
+ ### Changes
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c03a336..4a5dedb 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,7 +7,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ ### Yeni özellikler
+ 
+ - Kapak fotoğrafı: Ayarlar > Profil bölümünden profile bir kapak fotoğrafı eklenebilir (Kapak Seç, Kapağı Kaldır). Seçilen resim ortasından 3:1 oranında kırpılıp 1200x400 boyutunda JPEG olarak yeniden kodlanır, konum gibi üst veriler silinir. Kapak profil resmi gibi kendi dosya anahtarıyla uçtan uca şifrelenir ve profil resmiyle aynı boyut sınırına (varsayılan 1 MB) uyar, sığmazsa kalite iki adımda düşürülür. Kapak profil kartının renk bandında, Ayarlar'daki Hesabım ve Profil önizlemelerinde görünür. Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca indirilir. Bu yüzden sunucu kimin hangi kişinin kartını açtığını görebilir. Kapağı bilmeyen eski bir istemci profili kaydederse kapak kalkar. Kapak değişince, kaldırılınca ve hesap silinince eski dosya sunucudan silinir, kapak kullanıcının yükleme kotasına sayılır. Profil zarfına isteğe bağlı `cover` alanı, `POST /api/me/profile` isteğine ve `GET /api/profiles` yanıtına `coverUploadId` alanı eklendi, yeni hata kodları `bad_cover` ve `cover_too_large`.
+-- Yedi yeni tema: Saha Telsizi, Lambalı Radyo, Fosfor, Kutup İstasyonu, Plak, Kokpit ve Yüksek Kontrast. Her birinin koyu ve açık modu vardır, varsayılan tema Arcade olarak kalır. Temalar yeni yazı tipi getirmez, var olan yazı tiplerinin başka birleşimlerini kullanır. Ayarlar > Görünüm'de tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında durur ve sıkıştırıldı: önizleme şeridi kısaldı, açıklama yalnızca seçili kartta görünür (ekran okuyucu her kartın açıklamasını okur). Yüksek Kontrast metinde en az 7:1 kontrast verir, kenarları kalındır, degrade, gölge ve zemin ışığı kullanmaz, bağlantıların altı çizilidir, odak çerçevesi kalındır, devre dışı düğmeler soluklaşmak yerine kesik kenarla ayrılır. Sistemde yüksek karşıtlık açıksa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler) ve cihazda saklı tema tercihi yoksa ilk açılışta Yüksek Kontrast seçilir. Zorlanmış renk kipinde seçili öğeler sistem vurgusu renginde kenar alır. Yeni temalarla birlikte stil dosyalarının toplam boyutu büyüdü.
++- Yedi yeni tema: Saha Telsizi, Lambalı Radyo, Fosfor, Kutup İstasyonu, Plak, Kokpit ve Yüksek Kontrast. Her birinin koyu ve açık modu vardır, varsayılan tema Arcade olarak kalır. Temalar yeni yazı tipi getirmez, var olan yazı tiplerinin başka birleşimlerini kullanır. Ayarlar > Görünüm'de tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında durur ve sıkıştırıldı: önizleme şeridi kısaldı, açıklama yalnızca seçili kartta görünür (ekran okuyucu her kartın açıklamasını okur). Yüksek Kontrast metinde en az 7:1 kontrast verir, kenarları kalındır, degrade, gölge ve zemin ışığı kullanmaz, bağlantıların altı çizilidir, odak çerçevesi kalındır, devre dışı düğmeler soluklaşmak yerine kesik kenarla ayrılır. Sistemde yüksek karşıtlık açıksa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler) ve cihazda saklı tema tercihi yoksa ilk açılışta Yüksek Kontrast seçilir. Bu seçim saklanmaz, Ayarlar'da işaretli görünen Yüksek Kontrast kartına tıklamak onu kalıcı yapar. Zorlanmış renk kipinde seçili öğeler sistem vurgusu renginde kenar alır. Yeni temalarla birlikte stil dosyalarının toplam boyutu büyüdü.
+ 
+ ### Değişiklikler
+ 
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index a8f0aaa..ecbb8b7 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -39,7 +39,7 @@ The Telsiz interface is built on a single HTML structure, a layout called Freque
+ 
+ Root element (`<html>`) attributes: `data-skin` (one of the ids in the theme list), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` and `data-reduce-motion` (`true`, `false`). The keys on the device are `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact` and `telsiz.reduceMotion`. If storage is unavailable, the choice lasts only for that session.
+ 
+-If there is no stored (valid) theme preference on the device and the system asks for high contrast (`prefers-contrast: more`, or forced colors such as Windows High Contrast, `forced-colors: active`), the page opens with the High Contrast theme, otherwise with Arcade. This choice is not stored: until the person picks a theme in Settings, the system setting is checked on every start, and a chosen theme is stored and takes precedence over the system setting. Older browsers that do not know these media queries keep the default Arcade.
++If there is no stored (valid) theme preference on the device and the system asks for high contrast (`prefers-contrast: more`, or forced colors such as Windows High Contrast, `forced-colors: active`), the page opens with the High Contrast theme, otherwise with Arcade. This choice is not stored: until the person picks a theme in Settings, the system setting is checked on every start, and a chosen theme is stored and takes precedence over the system setting. The card of an automatically chosen High Contrast shows as selected in Settings, and clicking this card also stores the choice, so the theme stays even when the system setting is turned off. Older browsers that do not know these media queries keep the default Arcade.
+ 
+ `12-init.js` updates the `theme-color` meta tag to the `--theme-color` token of the active theme and the `color-scheme` meta tag to the applied mode every time the theme changes. The default font size is `normal` (15 pixels). With the `auto` font size, the root font size is 15 pixels, 18 pixels at 1280 pixels wide and up, and 22 pixels at 1800 pixels and up. `small` is 14, `normal` 15, `large` 18 and `tv` 22 pixels. With `custom`, the size is set by hand with the slider in Settings > Appearance between 12 and 28 pixels, and `theme-init.js` writes the value to the `--font-px` variable of the root element. All measurements use `rem`, so the interface grows with the font size.
+ 
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index 6055679..1f8477a 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -39,7 +39,7 @@ Telsiz'in arayüzü tek bir HTML yapısı, Frekans adlı bir düzen ve on görse
+ 
+ Kök öğe (`<html>`) öznitelikleri: `data-skin` (tema listesindeki kimliklerden biri), `data-scheme` (`dark`, `light`), `data-font-size` (`auto`, `small`, `normal`, `large`, `tv`), `data-compact` ve `data-reduce-motion` (`true`, `false`). Cihazdaki anahtarlar `telsiz.skin`, `telsiz.scheme`, `telsiz.fontSize`, `telsiz.compact` ve `telsiz.reduceMotion` adlarını taşır. Depolama kapalıysa seçim yalnızca o oturumda geçerlidir.
+ 
+-Cihazda saklı (geçerli) bir tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler, `forced-colors: active`) sayfa Yüksek Kontrast temasıyla açılır, yoksa Arcade ile. Bu seçim saklanmaz: kişi Ayarlar'dan bir tema seçene kadar her açılışta sistem ayarına bakılır, seçilen tema saklanır ve sistem ayarının önüne geçer. Bu medya sorgularını tanımayan eski tarayıcılarda varsayılan Arcade kalır.
++Cihazda saklı (geçerli) bir tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler, `forced-colors: active`) sayfa Yüksek Kontrast temasıyla açılır, yoksa Arcade ile. Bu seçim saklanmaz: kişi Ayarlar'dan bir tema seçene kadar her açılışta sistem ayarına bakılır, seçilen tema saklanır ve sistem ayarının önüne geçer. Kendiliğinden seçilen Yüksek Kontrast'ın kartı Ayarlar'da işaretli görünür, bu karta tıklamak da seçimi saklar, böylece tema sistem ayarı kapansa da korunur. Bu medya sorgularını tanımayan eski tarayıcılarda varsayılan Arcade kalır.
+ 
+ `12-init.js` tema her değiştiğinde `theme-color` meta etiketini etkin temanın `--theme-color` belirtecine, `color-scheme` meta etiketini uygulanan moda göre günceller. Varsayılan yazı boyutu `normal` (15 piksel). Yazı boyutu `auto` seçiliyken kök yazı boyutu 15 piksel, 1280 piksel ve üstü genişlikte 18 piksel, 1800 piksel ve üstünde 22 pikseldir. `small` 14, `normal` 15, `large` 18, `tv` 22 pikseldir. `custom` seçiliyken boyut Ayarlar > Görünüm'deki kaydırıcıyla 12 ile 28 piksel arasında elle ayarlanır, `theme-init.js` değeri kök öğenin `--font-px` değişkenine yazar. Bütün ölçüler `rem` ile verildiği için arayüz yazı boyutuyla birlikte büyür.
+ 
+diff --git a/e2e/04-ayarlar.test.js b/e2e/04-ayarlar.test.js
+index 31779bd..8e51bc4 100644
+--- a/e2e/04-ayarlar.test.js
++++ b/e2e/04-ayarlar.test.js
+@@ -7,6 +7,7 @@
+ // ve modda 1440 ve 390 piksel genişlikte yatay taşma yoktur ve Gönder düğmesinde tek bir simge görünür (telefonda
+ // etiket gizlenince düğmenin tek işareti). Sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
+ // forced-colors: active öykünmesi) saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, saklı tema önce gelir.
++// Kendiliğinden seçilen Yüksek Kontrast'ın işaretli kartına tıklamak seçimi saklar.
+ // Zorlanmış renk kipinde her tema ve modda seçili öğelerin kenarı sistem vurgusu renginde, seçili olmayanlarınki başka
+ // renkte, Bas konuş kenarlıdır (base.css kuralları bileşen ve süs dosyalarındaki kurallara ezilmez).
+ 
+@@ -190,7 +191,7 @@ test('her tema ve modda 1440 ve 390 piksel genişlikte yatay taşma yok, Gönder
+   assert.deepEqual(problems, [])
+ })
+ 
+-test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta Yüksek Kontrast seçilir', async () => {
++test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta Yüksek Kontrast seçilir, kartına tıklamak seçimi saklar', async () => {
+   const page = W.page
+   const reload = async () => {
+     await page.reload({ waitUntil: 'domcontentloaded' })
+@@ -206,6 +207,15 @@ test('sistem yüksek karşıtlık istiyorsa saklı tema yokken ilk açılışta
+   assert.equal(await page.evaluate(() => localStorage.getItem('telsiz.skin')), null, 'otomatik seçim saklanmaz')
+   await page.emulateMedia({ contrast: null, forcedColors: 'active' })
+   assert.equal(await reload(), 'kontrast', 'forced-colors: active')
++  // Kendiliğinden seçilen Yüksek Kontrast kartı işaretli görünür. Karta tıklamak (change olayı üretmez) seçimi saklar,
++  // sistem ayarı kapansa da tema korunur.
++  await openAppearance(page)
++  assert.equal(await page.evaluate(() => document.getElementById('set-skin-kontrast').checked), true, 'Yüksek Kontrast kartı işaretli')
++  await page.click('label[for="set-skin-kontrast"]')
++  await page.waitForFunction(() => localStorage.getItem('telsiz.skin') === 'kontrast')
++  await closeSettings(page)
++  await page.emulateMedia({ contrast: null, forcedColors: null })
++  assert.equal(await reload(), 'kontrast', 'onaylanan Yüksek Kontrast sistem ayarı olmadan da korunur')
+   // Saklı tema sistem ayarının önüne geçer
+   await page.emulateMedia({ contrast: 'more', forcedColors: null })
+   await page.evaluate(() => localStorage.setItem('telsiz.skin', 'gece'))
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index ea6d1ff..80134e5 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -3211,6 +3211,11 @@ function buildAppearancePage (page) {
+     input.addEventListener('change', () => {
+       if (input.checked) setTheme({ skin: skin })
+     })
++    // Zaten işaretli karta tıklamak change üretmez. Sistem ayarıyla kendiliğinden seçilen Yüksek Kontrast böyle
++    // işaretli görünür, tıklama seçimi onaylar ve theme-init.js onu saklar (sistem ayarı kapansa da korunur).
++    input.addEventListener('click', () => {
++      if (input.checked) setTheme({ skin: skin })
++    })
+     lists[skin].appendChild(card)
+     skinInputs[skin] = input
+   })
+diff --git a/public/theme-init.js b/public/theme-init.js
+index 3835dc9..e83d3fd 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -73,7 +73,8 @@ function createTelsizTheme () {
+ 
+   // İlk açılış: saklı (geçerli) tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
+   // Windows Yüksek Karşıtlık gibi zorlanmış renkler) Yüksek Kontrast seçilir. Seçim saklanmaz, kişi Ayarlar'dan bir
+-  // tema seçene kadar her açılışta sistem ayarına bakılır. Bu sorguları tanımayan eski tarayıcılarda varsayılan kalır.
++  // tema seçene kadar (kendiliğinden seçilen Yüksek Kontrast dahil) her açılışta sistem ayarına bakılır. Bu sorguları
++  // tanımayan eski tarayıcılarda varsayılan kalır.
+   function initialSkin () {
+     const stored = read(STORE.skin)
+     if (SKINS.indexOf(stored) !== -1) return stored
+@@ -144,10 +145,16 @@ function createTelsizTheme () {
+   function set (partial) {
+     const next = partial && typeof partial === 'object' ? partial : {}
+     let changed = false
+-    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1 && next.skin !== prefs.skin) {
+-      prefs.skin = next.skin
+-      write(STORE.skin, prefs.skin)
+-      changed = true
++    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1) {
++      if (next.skin !== prefs.skin) {
++        prefs.skin = next.skin
++        write(STORE.skin, prefs.skin)
++        changed = true
++      } else if (read(STORE.skin) !== prefs.skin) {
++        // Sistem ayarıyla kendiliğinden seçilen tema saklı değildir. Kişi aynı temayı seçerse seçim saklanır ve
++        // sistem ayarı kapansa da korunur. Görünüm değişmediği için yeniden uygulanmaz.
++        write(STORE.skin, prefs.skin)
++      }
+     }
+     if (next.scheme !== undefined && SCHEMES.indexOf(next.scheme) !== -1 && next.scheme !== prefs.scheme) {
+       prefs.scheme = next.scheme
+diff --git a/test/settings.test.js b/test/settings.test.js
+index c85837e..de0ed5a 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -960,6 +960,26 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
+   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
+ })
+ 
++test('zaten işaretli tema kartına tıklamak temayı yeniden seçer (kendiliğinden seçilen Yüksek Kontrast saklanır)', () => {
++  const { run, root, sandbox } = load()
++  sandbox.TelsizTheme.prefs.skin = THEME_INIT.contrastSkin
++  const calls = []
++  const set = sandbox.TelsizTheme.set
++  sandbox.TelsizTheme.set = function (p) {
++    calls.push(p.skin)
++    return set.call(this, p)
++  }
++  run("openSettings('appearance', null)")
++  const input = root.querySelector('#set-skin-' + THEME_INIT.contrastSkin)
++  assert.strictEqual(input.checked, true, 'kendiliğinden seçilen tema işaretli')
++  // Tarayıcıda işaretli radyo düğmesine tıklamak change üretmez, yalnızca click gelir
++  input.dispatchEvent(fakeEvent('click'))
++  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
++  // İşaretli olmayan kartın click olayı tek başına tema seçmez
++  root.querySelector('#set-skin-gece').dispatchEvent(fakeEvent('click'))
++  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
++})
++
+ test('tema kartları theme-init.js listesinden çizilir, ayarlar kendi kopyasını tutmaz', () => {
+   // Liste yalnızca theme-init.js içinde: ayarlar modülünde tema kimliklerini sıralayan bir dizi yok
+   assert.ok(!/['"]arcade['"]\s*,\s*['"]gece['"]/.test(SETTINGS_SOURCE), '11-settings.js tema listesinin kopyasını tutmamalı')
+diff --git a/test/tema.test.js b/test/tema.test.js
+index af26adf..2d5f1e1 100644
+--- a/test/tema.test.js
++++ b/test/tema.test.js
+@@ -298,6 +298,28 @@ test('Yüksek Kontrast ilk açılışta: saklı tema yoksa ve sistem yüksek kar
+   assert.ok(SKINS.indexOf(plain.theme.contrastSkin) !== -1)
+ })
+ 
++test('kendiliğinden seçilen Yüksek Kontrast aynı tema seçilince saklanır, sistem ayarı kapansa da korunur', () => {
++  const auto = bootTheme({ media: ['(prefers-contrast: more)'] })
++  let notified = 0
++  auto.theme.onChange(() => {
++    notified += 1
++  })
++  assert.equal(auto.theme.get().skin, 'kontrast')
++  assert.equal(auto.store['telsiz.skin'], undefined, 'otomatik seçim saklı değil')
++  // Ayarlar'da işaretli görünen Yüksek Kontrast kartına tıklamak aynı temayı seçer
++  auto.theme.set({ skin: 'kontrast' })
++  assert.equal(auto.store['telsiz.skin'], 'kontrast', 'onaylanan seçim saklanır')
++  assert.equal(notified, 0, 'görünüm değişmediği için yeniden uygulanmaz')
++  assert.equal(bootTheme({ stored: auto.store }).theme.get().skin, 'kontrast', 'sistem ayarı kapansa da korunur')
++  // Varsayılan Arcade de aynı yolla saklanabilir, saklı tema varken aynı temayı seçmek depoyu değiştirmez
++  const plain = bootTheme()
++  plain.theme.set({ skin: 'arcade' })
++  assert.equal(plain.store['telsiz.skin'], 'arcade')
++  const stored = bootTheme({ stored: { 'telsiz.skin': 'gece' } })
++  stored.theme.set({ skin: 'gece' })
++  assert.deepEqual(stored.store, { 'telsiz.skin': 'gece' })
++})
++
+ test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir, kurallar sonraki dosyalara ezilmez', () => {
+   const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8')
+   const rules = skinRules(base).filter((rule) => rule.atRules.indexOf('@media (forced-colors: active)') !== -1)

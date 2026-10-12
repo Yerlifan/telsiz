@@ -1,0 +1,85 @@
+# İstek zinciri B'nin istek/birlesim dalına birleştirilmesi: rapor (devam)
+
+`istek/b` dalı birleştirildi ve bütün testler geçiyor: denetim, `npm test`, desktop testi ve tam e2e paketi. Bu oturumda yeni commit gerekmedi. Önceki ajanın birleştirme commit'ini (c3350b8) ve dört düzeltme commit'ini gözden geçirdim ve doğru buldum. Testleri baştan sona çalıştırdım, hiçbiri düşmedi. Çalışma kopyası `/home/user/wt/d`, dal `istek/birlesim`, HEAD `0d2901b`, ağaç temiz, push yapılmadı.
+
+## Çakışan dosyalar ve önceki ajanın çözümleri
+
+Çakışan dosyaları `git show --remerge-diff c3350b8` ile buldum, 14 dosya çıktı. 22-cast.js, cast.css ve i18n.js'te çakışma çıkmadı, git bunları kendisi birleştirdi.
+
+- **`CHANGELOG.md` ve `CHANGELOG.en.md`:** Yayımlanmamış "Yeni özellikler" bölümünde Renk ve Hexball maddeleri ile B'nin maddeleri birlikte duruyor. İki dilde de 13 madde ve aynı üç başlık var.
+- **`public/index.html` ve `public/sw.js`:**
+  - CSS sırası: oyun, renk, hexball, yuzen.
+  - Betik sırası: 33-37, 39, 40, 43-46, numaraya göre.
+  - Her `public/js` ve `public/css` dosyasının iki listede de yer aldığını betikle denetledim.
+- **`public/js/10-voice.js`:** `renderVoiceAll` içinde iki satır da tutuldu: önce `gameRender()`, sonra `runVoiceHooks('render')`.
+- **`public/js/28-bildirim.js`:**
+  - Baştaki yorum dört kayıt türünü yazıyor: paylaşım, katılma ve ayrılma, oyun daveti, DJ.
+  - Renk'in `activityGame`, `activityClearGames` ve `activityGameName` işlevleri ile G3'ün `activityDj` ve `activityDjRefresh` işlevleri birlikte duruyor.
+  - `activityText` hem `game` hem `dj` türünü işliyor.
+- **`CONTRIBUTING.md` ve `CONTRIBUTING.en.md`:**
+  - 22-cast satırı iki tarafı da anlatıyor: oyun masası kipi ve önizlemeyi küçültme.
+  - 23-dj satırı B'nin metnini aldı, 28-bildirim satırı hem oyun davetini hem DJ kaydını sayıyor.
+  - Modül tablosunda 33-37, 39, 40 ve 43-46 sırasıyla yer alıyor.
+- **`README.md` ve `README.en.md`:**
+  - Şifreleme sınırları paragrafında B'nin eklediği bilgiler var: otomatik boşta, şikâyetler, şarkı adıyla arama.
+  - Main'in iki cümlesi de korundu: grup anahtarına dayanan güven, Renk'te kurpiyerin bütün elleri bilmesi ve Hexball'da ev sahibinin hile yapabilmesi.
+  - Bunu iki tarafın metnini kelime kelime karşılaştırıp mevcut dosyada arayarak doğruladım.
+- **`docs/MIMARI.md` ve `docs/ARCHITECTURE.md`:**
+  - `index.html` paragrafı modül aralığını "01-core.js ile 46-hexball.js arası" diye yazıyor.
+  - "Şarkı adıyla arama" bölümü "Oyunlar" bölümünün önünde duruyor.
+  - "Sunucunun gördüğü üst veri" listesinde B'nin eklemeleri ile main'in "(oyun iletileri dahil)" notu birlikte var.
+- **`docs/TASARIM.md` ve `docs/DESIGN.md`:** Oyun masası ve Hexball satırları main'den, Telsiz DJ satırı B'den (`.dj-float` ve `.radio-dj-consent` ile) alındı.
+
+## Otomatik birleşen 22-cast.js ve cast.css
+
+İki tarafın değişikliklerini satır satır karşılaştırdım. Sahne önceliğini `castModeFor` belirliyor: izlenen paylaşım, kamera ızgarası, oyun masası, kendi paylaşımının önizlemesi. G11'in küçültmesi bu satıra dokunmuyor. `castRenderStage`, küçültülmüş `own` kipini sahneyi kapatmak için `null`'a çeviriyor.
+
+- `castRenderFloatTools` oyun kipinde Yüzen Pencere ve Küçült düğmelerini gizliyor.
+- `castBuildStage` başlıkta iki tarafın düğmelerini birlikte kuruyor: float ve ownMin (B), gameMin (main).
+- `castInit` içinde G11'in `ownMin` yüklemesi ve ekran boyu değişince yeniden çizim duruyor.
+- `castStopShare` main'in odak korumasını alıyor.
+- `cast.css`'te main'in `.cast-page-full` kuralı ve G11'in 9. bölümü birlikte var.
+
+## Önceki ajanın düzeltme commit'leri
+
+1. **b4c6843, DJ duyurusu testi:** e2e/06-dj, DJ duyurusunun düzenlenemediğini "tehlike rengi olmayan hızlı düğme yok" diye denetliyordu. G16'nın Mesajı Bildir düğmesi bu denetimi bozuyor.
+   - Bu sorun Renk'ten değil, `istek/b`'nin kendi içindeki G3 ile G16 etkileşiminden geliyor. Kod okumasına göre (`canReport` başkasının mesajında doğru döner) testin `istek/b`'de de düşmesi gerekir. G16 raporuna göre G16 yalnızca e2e/11'i çalıştırmış. Bunu `istek/b` üzerinde ayrıca çalıştırarak doğrulamadım.
+   - Düzeltme testi gevşetmiyor: `editable: false` denetimi duruyor. Mesajı Bildir düğmesinin yalnızca başkasının duyurusunda bulunduğu ek olarak denetleniyor.
+2. **ac36f28, araç satırında düğme sırası:** Oyun düğmesi (36-oyun.js) ve Yüzen Pencere düğmesi (39-yuzen.js) ikisi de kendini Telsiz DJ'nin hemen önüne koyuyordu. Bu yüzden her çizimde yer değiştiriyorlardı.
+   - Yüzen Pencere artık Oyun'un, Oyun yoksa DJ'nin önüne geçiyor. Sıra: Büyüt, Yüzen Pencere, Oyun, Telsiz DJ.
+   - e2e/20, iki çizimde hiçbir düğümün taşınmadığını ve odağın korunduğunu denetliyor.
+3. **13d79b3, Önizlemeyi Göster:** Oyun masası, izlenen paylaşım veya kamera ızgarası sahnedeyken bu düğme artık çıkmıyor (`castShowWanted`). Önceden basınca önizleme görünmüyordu ve düğme kayboluyordu.
+   - Yeni birim testi dört kipi ve dar ekranı denetliyor.
+   - MIMARI ve ARCHITECTURE bu kuralı yazıyor.
+4. **0d2901b, Bildirimler listesi:** Geçerli oyun davetinin Masaya Bak satırı, sık gelen DJ kayıtları yüzünden listeden düşüyordu. Artık ekran paylaşımı kaydı gibi korunuyor (`activityLive`). Birim testi ve CHANGELOG çifti güncellendi.
+
+## Çakışmasız ama etkileşen yerler
+
+Bu bölümde değişiklik gerekmedi.
+
+- **Ses kancaları:** G0'ın `voiceHook` kancaları ile Renk ve Hexball'un yönlendirmesi (`gameOnVoiceEvent`, `gameOnData`) ayrı yollardan çalışıyor. 39-yuzen ve 40-bosta kancaya kayıtlı. `istek/b` `voice.js`'e dokunmamış.
+- **21-band.js oyun kolu:**
+  - `padPoll` içinde `gameOwnsPad` yalnızca L1 ve R1'in frekans değiştirmesini engelliyor.
+  - G8'in `idlePadFrame` çağrısı döngünün sonunda her karede çalışmaya devam ediyor.
+  - Oyunlar yalnızca ses odasında oynandığı için ve G8 ses odasında boşta saymadığı için çakışma yok.
+- **DJ ve oyun sahnesi:** 23-dj.js, `data-cast="live"` olan her sahneyi (oyun dahil) aynı karşılıyor ve oynatıcıyı köşeye alıyor. Oyun dosyalarında DJ'ye özel kural yok.
+- **denetle.js:** G0'ın CSS kuralı `public/css/` altındaki bütün dosyaları tarıyor, renk.css, hexball.css ve oyun.css de içinde. İhlal yok.
+- **i18n.js:** Grup işaretleri iki sözlükte aynı sırada ve aynı aralıkta. Renk ve Hexball anahtarları main'in kendi bloğunda duruyor (tr 815-1165, en 3234-3584). TR ve EN anahtarlarını `npm run denetle` ve `npm test` ile denetledim, sorun yok.
+- **14-social.js ve tokens.css:** İki taraf farklı işlevlere ve farklı belirteçlere dokunmuş, birbirlerini etkilemiyor.
+- **Sürüm:** Her yerde 2.5.0, `CACHE_NAME 'telsiz-2.5.0'`. Değişiklikler yayımlanmamış bölümde olduğu için sürüm artırılmadı.
+
+## Son test sonuçları (HEAD 0d2901b)
+
+| Komut | Sonuç |
+|---|---|
+| `npm run denetle` | 296 dosya tarandı, ihlal yok |
+| `npm test` | 1473 test: 1472 geçti, 0 düştü, 1 atlandı (`TELSIZ_SEA_TEST=1` verilmediğinde zaten atlanan ikili derleme testi) |
+| `cd desktop && npm test` | 158 geçti, 0 düştü |
+| `npm run test:e2e` | 188 geçti, 0 düştü, 0 atlandı (ilk çalıştırmada, yeniden deneme gerekmedi) |
+
+## Açık kalanlar
+
+- **`.has-float` kuralları:** yuzen.css'teki `.radio-tools.has-float` kuralları, Renk'in radio.css'teki sarılan araç satırıyla aynı işi yapıyor. G11 raporu da bunu "fazlalık ama zararsız" diye öngörmüştü. Temizlenmedi.
+- **Boş G17 işareti:** i18n.js'teki `// G17 Hexball` işareti boş kaldı. Hexball anahtarları main'in oyun bloğunda. Taşınmadı.
+- **DJ oynatıcısı oyun masasında:** Köşedeki oynatıcı (en az 200x200) oyun masasının bir köşesini örtebilir. Bu main'de de vardı ve G3 ile oynatıcı sürüklenebilir oldu. Gerçek ekranda denenmedi.
+- **Çalıştırılmayan testler:** `desktop` altındaki `npm run test:duman` (Electron duman testi) görev listesinde olmadığı için çalıştırılmadı. b4c6843'ün düzelttiği testin `istek/b`'de de düştüğü yalnızca kod okumasıyla belirlendi, çalıştırılarak doğrulanmadı.

@@ -1,0 +1,150 @@
+From d38676ca2cf696733de72978eba97a0bce920585 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 13:28:22 +0000
+Subject: [PATCH 066/104] =?UTF-8?q?G14:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?/api/me/recovery=20await=20sonras=C4=B1=20denetimleri=20s=C4=B1?=
+ =?UTF-8?q?nan=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+İki cihazdan aynı anda gelen yeni kod isteğinde önce kaydedilen kod kalır, öteki
+409 keys_changed alır. Kod karması beklerken parola değişirse istek 401
+bad_credentials alır ve kod kaydedilmez. Testler auth.hashPassword çağrısını
+bekleterek zamanlamaya bağlı olmadan çalışır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ test/server-kurtarma.test.js | 105 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 102 insertions(+), 3 deletions(-)
+
+diff --git a/test/server-kurtarma.test.js b/test/server-kurtarma.test.js
+index b06ad14..a9d57dc 100644
+--- a/test/server-kurtarma.test.js
++++ b/test/server-kurtarma.test.js
+@@ -1,8 +1,9 @@
+ 'use strict'
+ 
+-// Kurtarma kodu (istek 14): kayıtta ve Ayarlar'da kod kurulumu, /api/me/recovery, oturumsuz /api/recover/keys ve
+-// /api/recover uçları, aynı yanıt ve aynı maliyetle ad taraması koruması, ayrı hız sınırı sayaçları, kurtarmadan
+-// sonra kimlik anahtarının korunması, sıfırlama, hesap silme ve normalleştirmede kaydın silinmesi.
++// Kurtarma kodu (istek 14): kayıtta ve Ayarlar'da kod kurulumu, /api/me/recovery (karma beklerken kod veya parola
++// değişirse await sonrası yeniden denetimler), oturumsuz /api/recover/keys ve /api/recover uçları, aynı yanıt ve
++// aynı maliyetle ad taraması koruması, ayrı hız sınırı sayaçları, kurtarmadan sonra kimlik anahtarının korunması,
++// sıfırlama, hesap silme ve normalleştirmede kaydın silinmesi.
+ 
+ const { describe, it } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -68,6 +69,39 @@ function recover (ctx, body, headers) {
+   return h.request(ctx, 'POST', '/api/recover', { headers, body })
+ }
+ 
++// auth.hashPassword çağrılarını test serbest bırakana kadar bekletir. Sunucu aynı süreçte çalışır ve işlevi her
++// çağrıda auth nesnesinden okur, böylece await sonrası yeniden denetimler zamanlamaya bağlı olmadan sınanır.
++// passThrough() sonrasındaki çağrılar beklemeden çalışır, restore() özgün işlevi geri koyar ve bekleyenleri bırakır.
++function holdHashes () {
++  const original = auth.hashPassword
++  const held = []
++  let holding = true
++  auth.hashPassword = function (...args) {
++    if (!holding) return original.apply(auth, args)
++    return new Promise((resolve, reject) => {
++      const entry = { done: false }
++      entry.run = () => {
++        if (entry.done) return
++        entry.done = true
++        original.apply(auth, args).then(resolve, reject)
++      }
++      held.push(entry)
++    })
++  }
++  return {
++    waitHeld: (count) => h.waitFor(() => held.length >= count, { label: count + ' karma bekliyor' }),
++    release: (i) => held[i].run(),
++    passThrough () {
++      holding = false
++    },
++    restore () {
++      holding = false
++      auth.hashPassword = original
++      for (const entry of held) entry.run()
++    }
++  }
++}
++
+ describe('kurtarma kodu kaydı', () => {
+   it('kayıtta saklanır, karma ve sarılmış anahtar hiçbir yanıtta dönmez, yeniden başlatmada kalır', async () => {
+     let ctx = await h.startServer()
+@@ -289,6 +323,71 @@ describe('POST /api/me/recovery', () => {
+       await ctx.cleanup()
+     }
+   })
++
++  it('iki cihazdan aynı anda yeni kod: önce kaydedilen kalır, öteki 409 keys_changed alır ve kaydedilmez', async () => {
++    const ctx = await h.startServer()
++    let hold = null
++    try {
++      const owner = await h.setupOwner(ctx)
++      const phone = await h.login(ctx, 'sahip')
++      h.expectStatus(phone, 200)
++      const authKey = h.authKeyFor(PASSWORD)
++      const first = newCode()
++      const second = newCode()
++      hold = holdHashes()
++      // İki istek de parola denetiminden geçip kod karmasında bekler, ikisi de aynı (boş) kaydı görmüştür
++      const a = h.post(ctx, '/api/me/recovery', owner.token, { authKey, recovery: first.setup })
++      await hold.waitHeld(1)
++      const b = h.post(ctx, '/api/me/recovery', phone.data.token, { authKey, recovery: second.setup })
++      await hold.waitHeld(2)
++      hold.release(0)
++      const ra = await a
++      h.expectStatus(ra, 200)
++      hold.release(1)
++      h.expectStatus(await b, 409, 'keys_changed')
++      hold.restore()
++      hold = null
++      // Önce kaydedilen kod geçerli, ötekinin gösterdiği kod sunucuda yok
++      assert.deepEqual((await h.stateOf(ctx, phone.data.token)).recovery, ra.data.recovery)
++      h.expectStatus(await recoverKeys(ctx, 'sahip', first.authKey), 200)
++      h.expectStatus(await recoverKeys(ctx, 'sahip', second.authKey), 401, 'bad_recovery')
++      assert.equal((await diskUser(ctx, owner.user.id)).recovery.wrappedKey, first.setup.wrappedKey)
++    } finally {
++      if (hold) hold.restore()
++      await ctx.cleanup()
++    }
++  })
++
++  it('kod karması hesaplanırken parola değişirse 401 bad_credentials, kod kaydedilmez', async () => {
++    const ctx = await h.startServer({ loginFailLimit: 1 })
++    let hold = null
++    try {
++      const owner = await h.setupOwner(ctx)
++      const code = newCode()
++      hold = holdHashes()
++      const pending = h.post(ctx, '/api/me/recovery', owner.token, { authKey: h.authKeyFor(PASSWORD), recovery: code.setup })
++      await hold.waitHeld(1)
++      // Aynı oturumdan parola değişikliği kod karması beklerken tamamlanır (bu oturum açık kalır)
++      hold.passThrough()
++      const change = { oldAuthKey: h.authKeyFor(PASSWORD), newAuthKey: h.authKeyFor('yeni-parola-1'), kdf: KDF, wrappedKey: h.keyPair().wrappedKey }
++      h.expectStatus(await h.post(ctx, '/api/me/password', owner.token, change), 200)
++      hold.release(0)
++      h.expectStatus(await pending, 401, 'bad_credentials')
++      hold.restore()
++      hold = null
++      assert.equal((await h.stateOf(ctx, owner.token)).recovery, null)
++      h.expectStatus(await recoverKeys(ctx, 'sahip', code.authKey), 401, 'bad_recovery')
++      assert.equal((await diskUser(ctx, owner.user.id)).recovery, null)
++      // Ret await sonrası denetimden geldi: hesap işlemleri sayacı artmadı (sınır 1), yeni parolayla kod kurulur.
++      // Kurtarma sayaçları ayrıdır ve yukarıdaki 401 ile dolduğu için kod burada /api/recover/keys ile denenmez.
++      const renewed = await h.post(ctx, '/api/me/recovery', owner.token, { authKey: h.authKeyFor('yeni-parola-1'), recovery: code.setup })
++      h.expectStatus(renewed, 200)
++      assert.deepEqual((await h.stateOf(ctx, owner.token)).recovery, renewed.data.recovery)
++    } finally {
++      if (hold) hold.restore()
++      await ctx.cleanup()
++    }
++  })
+ })
+ 
+ describe('POST /api/recover/keys', () => {

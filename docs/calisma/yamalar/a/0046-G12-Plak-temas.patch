@@ -1,0 +1,188 @@
+From 7ed238c4909ef3b3f0aa4737a7bd576175a11292 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:40:43 +0000
+Subject: [PATCH 046/104] =?UTF-8?q?G12:=20Plak=20temas=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bas konuş kubbesinde ve Telsiz DJ kartının köşesinde ince plak yivleri, altın yaldız bölüm yazıları,
+gül pembesi ayarlı istasyon kenarı ve hap biçimli Bas konuş. Önizleme renkleri, iki dilde ad ve
+açıklama, index.html ve sw.js kaydı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css |  4 ++
+ public/css/skins/plak.css | 84 +++++++++++++++++++++++++++++++++++++++
+ public/i18n.js            |  4 ++
+ public/index.html         |  1 +
+ public/sw.js              |  1 +
+ public/theme-init.js      |  2 +-
+ 6 files changed, 95 insertions(+), 1 deletion(-)
+ create mode 100644 public/css/skins/plak.css
+
+diff --git a/public/css/components.css b/public/css/components.css
+index c62670d..70f8d8f 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3973,6 +3973,10 @@ button.member:hover {
+ .theme-swatch-kutup > span:nth-child(2) { background-color: #5aa9ff; }
+ .theme-swatch-kutup > span:nth-child(3) { background-color: #ff7a45; }
+ .theme-swatch-kutup > span:nth-child(4) { background-color: #e8eef5; }
++.theme-swatch-plak > span:nth-child(1) { background-color: #1f1522; }
++.theme-swatch-plak > span:nth-child(2) { background-color: #ff79b0; }
++.theme-swatch-plak > span:nth-child(3) { background-color: #f2c36b; }
++.theme-swatch-plak > span:nth-child(4) { background-color: #f3e9ee; }
+ 
+ .theme-name {
+   font-weight: var(--weight-strong);
+diff --git a/public/css/skins/plak.css b/public/css/skins/plak.css
+new file mode 100644
+index 0000000..46b552b
+--- /dev/null
++++ b/public/css/skins/plak.css
+@@ -0,0 +1,84 @@
++/*
++  Plak teması. Gece yarısı plak yayını: patlıcan moru zemin, gül pembesi plak etiketi, altın yaldız yazılar.
++  Bas konuş kubbesinde ve Telsiz DJ kartında ince plak yivleri, yuvarlak hatlı paneller. Yivler çok
++  saydamdır, metin her zaman okunur zeminde kalır. Her seçici :root[data-skin="plak"] ile başlar.
++*/
++
++/* Gönder simgesi: oynat üçgeni (işaretlemede Arcade'in simgesi) */
++:root[data-skin="plak"] .skin-arcade {
++  display: inline-block;
++}
++
++/* Altın yaldız: bölüm etiketleri ve telsiz başlığı */
++:root[data-skin="plak"] .section-title,
++:root[data-skin="plak"] .rooms-group-title,
++:root[data-skin="plak"] .radio .radio-label,
++:root[data-skin="plak"] .band-group-label {
++  color: var(--accent-2-text);
++}
++
++/* Plak yivleri: Bas konuş kubbesi */
++:root[data-skin="plak"] .radio-ptt-dome {
++  background-image: repeating-radial-gradient(circle, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0) 2px, rgba(128, 128, 128, 0.16) 2px, rgba(128, 128, 128, 0.16) 3px);
++  box-shadow: 0 0 0 3px var(--accent-2), inset 0 0 0 6px var(--surface-1);
++}
++
++:root[data-skin="plak"] .radio .radio-ptt {
++  border-radius: 999px;
++}
++
++/* Plak yivleri: Telsiz DJ kartının köşesinde yarım plak */
++:root[data-skin="plak"] .dj-card {
++  background-image: repeating-radial-gradient(circle at 100% 0, rgba(128, 128, 128, 0) 0, rgba(128, 128, 128, 0) 3px, rgba(128, 128, 128, 0.1) 3px, rgba(128, 128, 128, 0.1) 4px);
++  background-repeat: no-repeat;
++  background-size: 9rem 9rem;
++  background-position: 100% 0;
++}
++
++/* Telsiz gövdesi: yuvarlak hatlı pikap kapağı */
++:root[data-skin="plak"] .radio {
++  border-radius: 1.75rem;
++}
++
++/* Ayarlı istasyon: gül pembesi etiket kenarı */
++:root[data-skin="plak"] .station.is-tuned {
++  border-color: var(--accent);
++}
++
++/* Okunmamış noktası altın */
++:root[data-skin="plak"] .unread-badge {
++  background-color: var(--accent-2-text);
++}
++
++/* Konuşan kişi: gül pembesi ve altın hale */
++:root[data-skin="plak"] .avatar.has-face.is-speaking .avatar-face,
++:root[data-skin="plak"] .is-speaking > .avatar.has-face .avatar-face {
++  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 12px 2px var(--halo-2);
++}
++
++/* Anahtarsız şifreli mesaj: plak kabı */
++:root[data-skin="plak"] .msg-notice {
++  display: inline-flex;
++  padding: 0.5rem 0.85rem;
++  border: 1px dashed var(--edge);
++  border-radius: var(--radius-card);
++  background-color: var(--surface-3);
++  font-style: normal;
++}
++
++/* Profil kartı bandı: plak yivleri */
++:root[data-skin="plak"] .profile-card-band {
++  background-image: repeating-radial-gradient(circle at 85% 120%, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0) 3px, rgba(255, 255, 255, 0.14) 3px, rgba(255, 255, 255, 0.14) 4px);
++}
++
++/* Seviye ölçer: yuvarlak uçlu */
++:root[data-skin="plak"] .meter,
++:root[data-skin="plak"] .meter-bar {
++  border-radius: 999px;
++}
++
++/* Ayarlar: seçili kategoride gül pembesi çizgi */
++:root[data-skin="plak"] .settings-cat[aria-current="page"] {
++  border-color: transparent;
++  box-shadow: inset 3px 0 0 var(--accent);
++}
+diff --git a/public/i18n.js b/public/i18n.js
+index 6c8be8d..b68db59 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -51,6 +51,8 @@ window.I18N = (function () {
+     'theme.skinHint.fosfor': 'Yeşil fosforlu tarayıcı ekranı, açık modda LCD.',
+     'theme.skin.kutup': 'Kutup İstasyonu',
+     'theme.skinHint.kutup': 'Buzul mavisi ve parka turuncusu araştırma istasyonu.',
++    'theme.skin.plak': 'Plak',
++    'theme.skinHint.plak': 'Patlıcan moru, gül pembesi ve altın yaldızlı gece plak yayını.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+@@ -2021,6 +2023,8 @@ window.I18N = (function () {
+     'theme.skinHint.fosfor': 'A green phosphor scanner screen, LCD in light mode.',
+     'theme.skin.kutup': 'Polar Station',
+     'theme.skinHint.kutup': 'A research station in glacier blue and parka orange.',
++    'theme.skin.plak': 'Vinyl',
++    'theme.skinHint.plak': 'A late-night vinyl show in aubergine, rose and gold.',
+     // G13 Özgün tasarım
+     // G14 Kurtarma kodu
+     // G15 Android
+diff --git a/public/index.html b/public/index.html
+index fb065fb..d418082 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -35,6 +35,7 @@
+   <link rel="stylesheet" href="/css/skins/lamba.css">
+   <link rel="stylesheet" href="/css/skins/fosfor.css">
+   <link rel="stylesheet" href="/css/skins/kutup.css">
++  <link rel="stylesheet" href="/css/skins/plak.css">
+   <script src="/vendor/nacl-fast.min.js" defer></script>
+   <script src="/vendor/scrypt.js" defer></script>
+   <script src="/i18n.js" defer></script>
+diff --git a/public/sw.js b/public/sw.js
+index dae3aab..19ce122 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -33,6 +33,7 @@ const SHELL = [
+   '/css/skins/lamba.css',
+   '/css/skins/fosfor.css',
+   '/css/skins/kutup.css',
++  '/css/skins/plak.css',
+   '/i18n.js',
+   '/crypto.js',
+   '/emoji.js',
+diff --git a/public/theme-init.js b/public/theme-init.js
+index 56b2e98..bbf2da9 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -8,7 +8,7 @@
+ // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
+ 
+ function createTelsizTheme () {
+-  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup']
++  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup', 'plak']
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']

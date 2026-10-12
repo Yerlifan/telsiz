@@ -1,0 +1,63 @@
+From f5dc38c0a95fbf4c31c4b805ba23a29b04174ec7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:10:46 +0000
+Subject: [PATCH 038/104] =?UTF-8?q?G7:=20inceleme=20d=C3=BCzeltmeleri=20(k?=
+ =?UTF-8?q?apa=C4=9F=C4=B1n=20avatar=C4=B1n=20alt=C4=B1nda=20kalmamas?=
+ =?UTF-8?q?=C4=B1n=C4=B1n=20gerek=C3=A7esi)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Avatar kapağın üstünde, çünkü .avatar-wrap position: relative ve ağaçta
+banttan sonra geliyor. Bandın konumlandırılmaması bunun nedeni değil. CSS
+yorumu, TASARIM ve DESIGN buna göre düzeltildi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/DESIGN.md            | 2 +-
+ docs/TASARIM.md           | 2 +-
+ public/css/components.css | 4 ++--
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index f859020..7843318 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -194,7 +194,7 @@ Settings > General has two sections. The Voice rooms and cameras section (`#set-
+ | Left column and Stations | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.inbox-head`, `.rooms-list`, `.room-row`, `.top-rooms` | Row states: `.is-current`, `.is-unread`, and for voice `.is-connected`, `.is-joining`, `.is-live`. |
+ | Conversation column | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | A message that mentions you gets the `--mention-bg` background and a left line. |
+ | Radio card | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.crew-avatar.has-camera`, `.cam-video`, `.radio-tools`, `.cams-tool`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-cam-bar`, `.radio-cam-live`, `.radio-cam-flip`, `.radio-button` | `.is-speaking` and `.has-camera` on crew items, `aria-pressed` on buttons, `.is-mirrored` on your own video (except a rear camera), `aria-disabled` on Flip Camera while switching. |
+-| Profile card | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | The avatar overlaps the color band. The display name sits to the right of the avatar, the role badges (the base role and a custom role if there is one) right next to the name, and the @username below the name (`13-profile.js buildProfileIdentity`). If the name is long the badges wrap to the next line, and if the card is narrower than 18rem the name, badges and @username move below the avatar. The two preview cards in Settings and the head of the avatar menu use the same layout. If the person has a cover photo it sits inside the band (`.profile-card-band.has-cover`, `.profile-card-cover`, `object-fit: cover`), and since the band is not positioned the avatar that overlaps it stays above the cover. In Turquoise the band and the cover keep the arch shape. |
++| Profile card | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | The avatar overlaps the color band. The display name sits to the right of the avatar, the role badges (the base role and a custom role if there is one) right next to the name, and the @username below the name (`13-profile.js buildProfileIdentity`). If the name is long the badges wrap to the next line, and if the card is narrower than 18rem the name, badges and @username move below the avatar. The two preview cards in Settings and the head of the avatar menu use the same layout. If the person has a cover photo it sits inside the band (`.profile-card-band.has-cover`, `.profile-card-cover`, `object-fit: cover`), and the avatar that overlaps it (`.avatar-wrap`, `position: relative`) comes after the band in the tree, so it is drawn above the cover. In Turquoise the band and the cover keep the arch shape. |
+ | Avatar menu | `.avatar-menu` | Status options are `menuitemradio`. The head shows the role badges next to the name and the @username below it. |
+ | People | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | The Online sheet, the Friends station, the direct message header. |
+ | Sign in card | `.auth-card`, `.auth-dial`, `.auth-needle` | A card shaped like a radio body. |
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index 2e1b3e6..569648e 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -194,7 +194,7 @@ Ayarlar > Genel sayfasında iki bölüm vardır. Ses odaları ve kameralar böl
+ | Sol sütun ve İstasyonlar | `.side-left`, `.info-bottom`, `.radio-slot`, `.facts`, `.hints`, `.hints-pop`, `.dm-section`, `.inbox`, `.inbox-head`, `.rooms-list`, `.room-row`, `.top-rooms` | Satır durumları: `.is-current`, `.is-unread`, ses için `.is-connected`, `.is-joining`, `.is-live`. |
+ | Konuşma sütunu | `.convo`, `.convo-head`, `.convo-title`, `.msg`, `.msg-skeleton`, `.channel-start`, `.typing-line`, `.mention-popover`, `.search-panel` | Beni anan mesaj `--mention-bg` zemin ve sol çizgiyle. |
+ | Telsiz kartı | `.radio`, `.radio-screen`, `.crew-item`, `.crew-badge`, `.crew-avatar.has-camera`, `.cam-video`, `.radio-tools`, `.cams-tool`, `.radio-talk`, `.radio-ptt`, `.radio-vad`, `.radio-cam-bar`, `.radio-cam-live`, `.radio-cam-flip`, `.radio-button` | Kadro öğesinde `.is-speaking` ve `.has-camera`, düğmelerde `aria-pressed`, kendi görüntüde `.is-mirrored` (arka kamera hariç), Kamerayı Çevir değiştirilirken `aria-disabled`. |
+-| Profil kartı | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | Avatar renk bandına biner. Görünen ad avatarın sağında, rol rozetleri (temel rol ve varsa özel rol) adın hemen yanında, @kullanıcı adı adın altındadır (`13-profile.js buildProfileIdentity`). Ad uzunsa rozetler alt satıra kayar, kart 18rem'den darsa ad, rozetler ve @kullanıcı adı avatarın altına iner. Ayarlar'daki iki önizleme kartı ve avatar menüsünün başı aynı düzeni kullanır. Kişinin kapak fotoğrafı varsa bandın içinde durur (`.profile-card-band.has-cover`, `.profile-card-cover`, `object-fit: cover`), bant konumlandırılmadığı için banda binen avatar kapağın üstünde kalır. Turkuaz'da bant ve kapak kemer biçimini korur. |
++| Profil kartı | `.profile-card`, `.profile-card-band`, `.profile-card-head`, `.profile-card-body`, `.profile-identity`, `.profile-identity-name`, `.profile-identity-badges`, `.profile-identity-handle` | Avatar renk bandına biner. Görünen ad avatarın sağında, rol rozetleri (temel rol ve varsa özel rol) adın hemen yanında, @kullanıcı adı adın altındadır (`13-profile.js buildProfileIdentity`). Ad uzunsa rozetler alt satıra kayar, kart 18rem'den darsa ad, rozetler ve @kullanıcı adı avatarın altına iner. Ayarlar'daki iki önizleme kartı ve avatar menüsünün başı aynı düzeni kullanır. Kişinin kapak fotoğrafı varsa bandın içinde durur (`.profile-card-band.has-cover`, `.profile-card-cover`, `object-fit: cover`), banda binen avatar (`.avatar-wrap`, `position: relative`) ağaçta banttan sonra geldiği için kapağın üstünde çizilir. Turkuaz'da bant ve kapak kemer biçimini korur. |
+ | Avatar menüsü | `.avatar-menu` | Durum seçenekleri `menuitemradio`. Baş kısımda adın yanında rol rozetleri, altında @kullanıcı adı. |
+ | Kişiler | `.member`, `.home-view`, `.home-tab`, `.dm-header`, `.people-card` | Çevrimiçi sayfası, Arkadaşlar istasyonu, özel mesaj başlığı. |
+ | Giriş kartı | `.auth-card`, `.auth-dial`, `.auth-needle` | Telsiz gövdesi biçiminde kart. |
+diff --git a/public/css/components.css b/public/css/components.css
+index be4757c..b5276c9 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -3207,8 +3207,8 @@ button.member:hover {
+   background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.12));
+ }
+ 
+-/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Bant
+-   konumlandırılmaz, böylece banda binen avatar kapağın üstünde kalır. */
++/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Banda binen
++   avatar (.avatar-wrap, position: relative) ağaçta banttan sonra geldiği için kapağın üstünde çizilir. */
+ .profile-card-cover {
+   display: block;
+   width: 100%;

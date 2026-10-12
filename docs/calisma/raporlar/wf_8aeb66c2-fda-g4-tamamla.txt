@@ -1,0 +1,29 @@
+Bırakılan değişiklikler eksikti: kod düzeltmesi yapılmamıştı. Eksiği tamamladım, testler geçti ve hepsini tek commit'le kaydettim: `549d93e G4: inceleme düzeltmeleri (arama sürerken ses odası değişince parça eklenmez, "aranıyor" satırı yeni odada görünmez)`.
+
+**Ne buldum**
+
+Yarıda kalan ajan dört dosyada commit'lenmemiş değişiklik bırakmıştı:
+- **`docs/MIMARI.md` ve `docs/ARCHITECTURE.md`:**
+  - `/çal` bağlantı denetiminin tanımı güncellenmişti. Bu kısım doğruydu ve `public/music.js` içindeki `looksLikeUrl` ile örtüşüyordu. Önceki 7d09551 commit'i belgeyi güncellememişti.
+  - Arama sürerken oda değişince ne olduğunu anlatan bir paragraf eklenmişti.
+- **`public/i18n.js`:** TR ve EN `music.errors.search_room_changed` metni.
+- **`e2e/06-dj.test.js`:** Arama sürerken Lobi'den Oyun'a geçilen yeni bir test.
+
+Eksik olan: `public/js/23-dj.js` içinde hiçbir kod değişikliği yoktu. Belgeler ve test, uygulanmamış bir davranışı anlatıyordu. Kodun eski hâliyle yeni test gerçekten düşüyor (`06-dj.test.js:1120`, "aranıyor" satırı yeni odada kalıyor).
+
+**Ne ekledim ve düzelttim**
+- **`public/js/23-dj.js`, `djSyncVoice`:** Ses odası değişince `dj.searching` temizleniyor ve `dj.searchSeq` artıyor. Böylece "aranıyor" satırı yeni odada görünmüyor ve eski aramanın yanıtı yeni odanın kartını değiştirmiyor.
+- **`public/js/23-dj.js`, `djPlaySearch`:** Yanıt gelince önce `djSyncVoice()` çağrılıyor, oda bir sonraki saniyelik denetimi beklemeden yeniden okunuyor. Bu cihazın odası aramanın başladığı oda değilse (`sameId`) `addYouTube` çağrılmıyor ve `search_room_changed` hata bildirimi gösteriliyor.
+- **Belgeler (MIMARI ve ARCHITECTURE):** Ajanın yazdığı cümle, kişi arama sürerken odadan çıkıp aynı odaya dönerse de parçanın eklenmeyeceğini söylüyordu. Kod ise yalnızca yanıt geldiği andaki odaya bakıyor ve bu durumda parçayı ekliyor. Cümleyi kodun yaptığı gibi yazdım: "yanıt geldiğinde başka bir ses odasındaysa veya hiçbir ses odasında değilse". "Aranıyor" satırıyla ilgili bir cümle de ekledim.
+
+**Test sonuçları**
+| Komut | Sonuç |
+|---|---|
+| `npm run denetle` | 259 dosya, ihlal yok |
+| `npm test` | 941 testten 940'ı geçti, 1 atlandı |
+| `node --test e2e/06-dj.test.js` | 23 testin 23'ü geçti |
+| `node --test e2e/25-dj-senkron.test.js` | 9 testin 9'u geçti |
+
+`npm test` içinde atlanan tek test zaten öyle tanımlı: `TELSIZ_SEA_TEST=1` verilmeden çalışmayan ikili derleme testi.
+
+Sapmalar: yok. CHANGELOG'daki G4 paragrafı genel kaldığı için bu küçük düzeltmeye satır eklemedim.
