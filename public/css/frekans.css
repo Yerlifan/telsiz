@@ -1125,12 +1125,16 @@
    4. Sahne: sol bilgi sütunu, konuşma sütunu, DJ sütunu, sağ sütun
    ========================================================= */
 
+/* Sahnenin iç boşluğu ve sütun aralıkları temanın düzen belirteçlerinden gelir (--layout-pad, --column-gap):
+   yüzen panelli temalarda boşluk kalır, düz panelli temalarda (0rem) sütunlar ince ayırıcılarla bitişir. 1000
+   pikselin altı kendi sabit boşluklarını kullanır. Belirteçler calc() içinde kullanıldığı için birimlidir:
+   birimsiz 0 calc() içinde sayı sayılır, uzunlukla toplanınca bildirim geçersiz olur (tokens.css). */
 .stage {
   position: relative;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  padding: 1rem 1.25rem 1.25rem;
+  padding: var(--layout-pad) calc(var(--layout-pad) * 1.25) calc(var(--layout-pad) * 1.25);
 }
 
 .side {
@@ -1142,7 +1146,7 @@
 
 .side-left {
   width: var(--side-left-w);
-  margin-right: 1.25rem;
+  margin-right: calc(var(--column-gap) * 1.25);
 }
 
 .side-scroll {
@@ -1252,12 +1256,12 @@
 
 .side-dj {
   width: var(--side-w);
-  margin-left: 1.25rem;
+  margin-left: calc(var(--column-gap) * 1.25);
 }
 
 .side-right {
   width: var(--radio-w);
-  margin-left: 1.25rem;
+  margin-left: calc(var(--column-gap) * 1.25);
 }
 
 /* 1280 px altında telsiz kartı sağ altta, üstte kalan alanı İstasyonlar kartı kullanır */
@@ -1278,15 +1282,15 @@
 
   .side-dj {
     width: var(--side-right-w);
-    margin-left: 1rem;
+    margin-left: var(--column-gap);
   }
 
   .side-left {
-    margin-right: 1rem;
+    margin-right: var(--column-gap);
   }
 
   .side-right {
-    margin-left: 1rem;
+    margin-left: var(--column-gap);
   }
 
   /* Ayarlı istasyonun kartı geniş ekranda gösterilmez: oda adı ve şifreleme durumu konuşmanın başlığındadır,
@@ -1314,31 +1318,36 @@
   /* Telsiz DJ kartı açıkken İstasyonlar listesi sağ sütunun üstünde kalır, kart altına yerleşir (frekans bandı
      frekansları dizdiği için odalara buradan ulaşılır). Kart en çok içeriği kadar yer alır, liste en az 12rem
      kalır, kart sığmazsa kendi içinde kayar. Kart taşınmaz (YouTube çerçevesi yeniden yüklenmesin), yalnızca
-     ızgarada yeri değişir. */
+     yeri değişir. Düzen flexbox ile kurulur: sahne sütun yönlü ve satır kaydırmalıdır, sol sütun ve konuşma
+     sütunu tam yükseklikte birer flex çizgisi olur, üçüncü çizgide İstasyonlar listesi üstte (order), DJ kartı
+     altta durur. Kartın en büyük yüksekliği listeye 12rem bırakır, böylece kart dördüncü bir çizgiye kaymaz.
+     Sütun aralıkları da öteki düzenlerdeki gibi temanın --column-gap belirtecinden gelir (düz panelli temalarda
+     0rem). */
   .app-view[data-dj-col="on"] .stage {
-    display: grid;
     /* Sağ sütun, YouTube oynatıcısı yazı boyutundan bağımsız en az 200 piksel kalacak kadar geniştir */
-    grid-template-columns: auto minmax(0, 1fr) max(var(--side-right-w), 15rem, calc(204px + 2rem));
-    grid-template-rows: minmax(12rem, 1fr) minmax(0, auto);
-    gap: 1rem;
+    --dj-col-w: max(var(--side-right-w), 15rem, calc(204px + 2rem));
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-content: flex-start;
   }
 
   .app-view[data-dj-col="on"] .side-left {
-    grid-column: 1;
-    grid-row: 1 / 3;
-    margin-right: 0;
+    flex: 0 0 100%;
+    margin-right: var(--column-gap);
   }
 
   .app-view[data-dj-col="on"] .center {
-    grid-column: 2;
-    grid-row: 1 / 3;
+    flex: 0 0 100%;
+    width: calc(100% - var(--side-left-w) - var(--dj-col-w) - var(--column-gap) * 2);
+    margin-right: var(--column-gap);
   }
 
   .app-view[data-dj-col="on"] .side-dj {
-    grid-column: 3;
-    grid-row: 2;
-    width: auto;
-    margin: 0;
+    order: 2;
+    flex: 0 1 auto;
+    width: var(--dj-col-w);
+    max-height: calc(100% - 12rem - var(--column-gap));
+    margin: var(--column-gap) 0 0;
   }
 
   .app-view[data-dj-col="on"] .side-dj .dj-card {
@@ -1346,9 +1355,10 @@
   }
 
   .app-view[data-dj-col="on"] .side-right {
-    grid-column: 3;
-    grid-row: 1;
-    width: auto;
+    order: 1;
+    flex: 1 1 0;
+    width: var(--dj-col-w);
+    min-height: 12rem;
     margin: 0;
   }
 
@@ -1363,14 +1373,47 @@
     display: inline-flex;
   }
 
-  /* Geniş ekranda kapalı telsiz kartı küçüktür: ses odaları sağdaki İstasyonlar listesindedir */
-  .side-left .radio[data-state="off"] .radio-rooms {
-    display: none;
+  /* El telsizi (istek 10): telsiz kartı sol sütunun kalanını kaplar, Bildirimler üstünde kalır ve sütunun üstünde
+     boş alan kalmaz. Kartın içeriği üstte durur, altta kalan yeri hoparlör ızgarası süsü doldurur (.radio::after).
+     Sütun yetmezse (uzun özel mesaj listesi, alçak ekran) kart içeriği kadar kalır ve sütun kayar. Kapalı kart bir
+     kanal tarayıcısıdır: ses odaları Katıl düğmeleriyle görünür, liste kartın yüksekliğini kullanır. */
+  .side-left .side-scroll > .info-bottom {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    margin-top: 0;
   }
 
-  .side-left .radio[data-state="off"] .radio-pick {
-    margin: 0;
-    font-size: var(--text-md);
+  .side-left .radio-slot {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+  }
+
+  /* Bildirimler ile kart arasında yalnızca antenin yeri kalır (.side-card'ın alt boşluğu yok) */
+  .side-left .info-bottom > .activity-card {
+    margin-bottom: 0;
+  }
+
+  .side-left .radio-slot > .radio {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+  }
+
+  .side-left .radio::after {
+    content: "";
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 0.875rem;
+    border-radius: var(--radius-control);
+    background-image: radial-gradient(circle, var(--line-strong) 0, var(--line-strong) 1.25px, rgba(0, 0, 0, 0) 1.75px);
+    background-position: 0 0;
+    background-size: 0.625rem 0.625rem;
+  }
+
+  .side-left .radio .radio-rooms {
+    max-height: none;
   }
 }
 
@@ -1682,20 +1725,21 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* İstasyonlar listesi: iki grup (yazı ve ses odaları), her satır 44 px */
+/* İstasyonlar listesi: iki grup (yazı ve ses odaları), her satır 44 px. Grup başlığı büyük harf yerine
+   temanın etiket yazısıyla ve altında kadran çizgileriyle (bandın ölçek çizgileri, --tick) çizilir. */
 .rooms-group-title {
-  margin: 0.75rem 0.5rem 0.25rem;
+  margin: 0.75rem 0.5rem 0.375rem;
+  padding-bottom: 0.4375rem;
+  background-image: repeating-linear-gradient(90deg, var(--tick) 0, var(--tick) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 8px);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 0.25rem;
   color: var(--text-3);
   font-family: var(--font-label);
   font-size: var(--label-size);
   font-weight: 700;
-  letter-spacing: var(--label-spacing);
+  letter-spacing: 0.02em;
   line-height: 1.3;
-  text-transform: uppercase;
-}
-
-:root[data-skin="turkuaz"] .rooms-group-title {
-  text-transform: none;
 }
 
 .rooms-list {
@@ -1847,26 +1891,64 @@
   }
 }
 
-/* Ses odasındaki kişiler (04-meta.js buildRoomPeople): oda satırının altında girintili liste, küçük avatar,
-   ad ve susturma ile kamera simgeleri. Konuşan kişinin avatarında canlı renkli halka. */
+/* Özel mesajlar grubu (istek 17, 38-gezinme.js navDmGroup): satırda küçük avatar ve ad, okunmamış rozeti Özel
+   düğmesindeki gibi anma renginde. Son satır Tüm Özel Mesajlar: grubu açar ve kapar, konuşma sayısını gösterir. */
+.room-row-avatar {
+  flex: none;
+  margin-right: 0.625rem;
+}
+
+.room-row-dm.is-blocked .room-row-name {
+  text-decoration: line-through;
+}
+
+.room-row-more {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.room-row-more .room-row-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Ses odasındaki kişiler (04-meta.js buildRoomPeople): oda satırının altında, adın hizasından başlayan yan
+   yana çipler (liste anlamı ul ve li ile korunur). Çipte küçük avatar, ad ve susturma ile kamera simgeleri, uzun
+   ad kısalır. Konuşan kişinin avatarında canlı renkli halka ve çipin kenarı canlı renkte. Eski WebKit flex gap
+   desteklemez: çipler arasındaki aralık sağ ve alt boşluktur. */
+/* Çipler odanın frekans okumasının hizasından başlar (o frekanstakiler): satırın iç boşluğu ve kenarı, simge
+   (1.25em) ve boşluğu. Yazı boyutu satırınkiyle aynıdır (em). */
 .room-people {
+  display: flex;
+  flex-wrap: wrap;
   margin: 0 0 0.375rem;
-  padding: 0 0 0 2.125rem;
+  padding: 0.125rem 0.25rem 0 calc(0.625rem + var(--border-width) + 1.25em + 0.625rem);
+  font-size: var(--text-sm);
   list-style: none;
 }
 
 .room-person {
   display: flex;
   align-items: center;
+  flex: none;
+  max-width: 100%;
   min-height: 1.75rem;
-  padding-right: 0.5rem;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.125rem 0.5rem 0.125rem 0.125rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-sunken);
   color: var(--text-2);
   font-size: var(--text-sm);
 }
 
 .room-person-avatar {
   flex: none;
-  margin-right: 0.5rem;
+  margin-right: 0.375rem;
+}
+
+.room-person.is-speaking {
+  border-color: var(--live);
 }
 
 .room-person.is-speaking .room-person-avatar {
@@ -1874,8 +1956,9 @@
 }
 
 .room-person-name {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 9rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1924,10 +2007,18 @@
   margin-right: 0.25rem;
 }
 
-/* Gece temasındaki süs frekansı oda satırında (diğer temalarda gizli, components.css) */
+/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir:
+   en uzun okuma beş karakterdir (108.0), tek aralıklı yazıda her karakter 1ch, yanına iç boşluk ve kenar eklenir.
+   Böylece her temanın yazısında ve yazı boyutunda oda adları tek hizada durur. Ayarlı odada vurgu renginde. */
 .room-row > .channel-freq {
-  min-width: 2.75rem;
+  min-width: calc(5ch + 0.75rem + 2px);
   margin-right: 0.5rem;
+  white-space: nowrap;
+}
+
+.room-row.is-current > .channel-freq {
+  border-color: var(--accent-text);
+  color: var(--accent-text);
 }
 
 /* İstasyonlar düğmesi (üst çubuk): yalnızca sağ sütun görünmediğinde (kesme noktaları bölüm 9) */
@@ -2226,6 +2317,35 @@
   display: none;
 }
 
+/* Telefonda kapalı telsiz kartının Ses Odaları düğmesi (istek 17): İstasyonlar sayfasını ses odalarında açar */
+.radio-pick-button {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 2.9375rem;
+  padding: 0 1rem;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  background-color: var(--screen-bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.radio-pick-button:hover {
+  border-color: var(--line-strong);
+}
+
+.radio-pick-button .icon {
+  flex: none;
+  margin-right: 0.5rem;
+  color: var(--accent-text);
+}
+
 .sheet-section {
   margin: 1rem 0.25rem 0.375rem;
 }
@@ -2438,6 +2558,19 @@
     display: flex;
   }
 
+  /* Oda bilgisi sayfasında özel mesaj listesi yoktur: özel konuşmalar İstasyonlar sayfasındaki Özel mesajlar
+     grubundadır, üst çubuktaki Özel düğmesi sayfayı o grupta açar (istek 17) */
+  .app-view[data-view="dm"] .dm-section,
+  .app-view[data-view="home"] .dm-section {
+    display: none;
+  }
+
+  /* Özel mesaj görünümünde sayfada oda bilgisi yoktur: Oda bilgisi düğmesi yalnızca sayfada gelen arkadaşlık
+     istekleri veya Bildirimler kartı varken görünür (38-gezinme.js navSyncInfoCards, .has-info-cards) */
+  .app-view[data-view="dm"]:not(.has-info-cards) .convo-head .room-info-button {
+    display: none;
+  }
+
   .side-left.is-open .side-sheet-head {
     display: flex;
   }
@@ -2451,9 +2584,11 @@
   }
 }
 
-/* Alçak ekranda 1280 px altında İstasyonlar kartı gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
+/* 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar
+   (istek 17). Çok alçak ekranda ve telsiz kartı uzayıp listeye iki satırlık yer kalmayınca (ses odasında kalabalık
+   kadro, 38-gezinme.js navFitInbox, .is-inbox-cramped) gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
    çubuktaki İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
-@media (max-height: 860px) and (max-width: 1279px) {
+@media (max-height: 720px) and (max-width: 1279px) {
   .inbox {
     display: none;
   }
@@ -2463,14 +2598,20 @@
   }
 }
 
-/* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı gizli (üst çubuktaki İstasyonlar düğmesi yan
-   sayfa olarak açar), istasyonların alt satırı ve küçük avatar yığını gizli, üst çubukta Ara etiketi ve
-   kısayol gizli */
-@media (max-width: 999px) {
-  .top-rooms {
-    display: inline-flex;
+@media (max-width: 1279px) {
+  .app-view.is-inbox-cramped .inbox {
+    display: none;
   }
 
+  .app-view.is-inbox-cramped .top-rooms {
+    display: inline-flex;
+  }
+}
+
+/* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı telsiz kartının üstünde (çok alçak ekranda ve
+   telefonda gizli, üst çubuktaki İstasyonlar düğmesi yan sayfa olarak açar), istasyonların alt satırı ve küçük
+   avatar yığını gizli, üst çubukta Ara etiketi ve kısayol gizli */
+@media (max-width: 999px) {
   .top-rooms > .station-mark {
     position: absolute;
     top: -0.375rem;
@@ -2494,7 +2635,6 @@
     margin-left: 0.875rem;
   }
 
-  .inbox,
   .top-personal-label,
   .top-chip-label,
   .top-chip .top-kbd,
@@ -2551,8 +2691,17 @@
 }
 
 /* Dar (759 px ve altı, telefon): üst çubuk sadeleşir, bant kenardan kenara ve sağ ucunda sabit Tümü,
-   konuşma tam genişlik, telsiz kartı ekranın altına yapışır, sayfalar alttan açılır */
+   konuşma tam genişlik, telsiz kartı ekranın altına yapışır, odalar İstasyonlar düğmesiyle açılan sayfadadır,
+   sayfalar alttan açılır */
 @media (max-width: 759px) {
+  .inbox {
+    display: none;
+  }
+
+  .top-rooms {
+    display: inline-flex;
+  }
+
   .top-bar {
     padding: 0 0.625rem 0 0.75rem;
     padding-top: env(safe-area-inset-top);
@@ -2738,13 +2887,23 @@
     display: none;
   }
 
+  /* Kapalı kart tek bir Ses Odaları düğmesidir (44 piksel), ses odası İstasyonlar sayfasında seçilir */
   .radio[data-state="off"] .radio-screen {
-    padding: 0.5rem 0.75rem;
+    padding: 0;
+    border: 0;
+    background-color: transparent;
   }
 
   .radio[data-state="off"] .radio-pick {
-    margin: 0;
-    font-size: var(--text-sm);
+    display: none;
+  }
+
+  .radio[data-state="off"] .radio-pick-button:not([hidden]) {
+    display: flex;
+  }
+
+  .radio[data-state="off"] .radio-support {
+    margin: 0.5rem 0 0;
   }
 
   .radio[data-state="on"] .radio-screen,
@@ -2791,7 +2950,10 @@
     animation: sheet-from-bottom var(--dur-med) var(--ease);
   }
 
+  /* Tutamaç ve başlık aşağı sürüklenince sayfa kapanır (38-gezinme.js, istek 17). Tutamacın dokunma alanı görünen
+     çizgiden geniştir (görünmez ::before). */
   .sheet-handle {
+    position: relative;
     display: block;
     flex: none;
     width: 2.75rem;
@@ -2799,6 +2961,27 @@
     margin: 0.5rem auto 0;
     border-radius: var(--radius-pill);
     background-color: var(--line-strong);
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .sheet-handle::before {
+    content: "";
+    position: absolute;
+    top: -0.5rem;
+    right: -1.5rem;
+    bottom: -0.5rem;
+    left: -1.5rem;
+  }
+
+  .sheet-head {
+    touch-action: none;
+  }
+
+  .sheet.is-dragging,
+  .side-dj.is-dragging {
+    -webkit-animation: none;
+    animation: none;
   }
 
   .sheet-head,
@@ -2825,5 +3008,31 @@
   .side-left.is-open {
     -webkit-animation: none;
     animation: none;
+  }
+}
+
+/* Dokunmatik ekranda (istek 17) oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel
+   yüksekliktedir. Üst çubuğun düğmeleri 400 pikselden dar telefonda eninde kalır (frekans amblemi sığsın). */
+@media (pointer: coarse) {
+  .top-brand-button,
+  .top-chip,
+  .top-personal-button,
+  .room-row,
+  .sheet-row,
+  .convo-head .icon-button,
+  .sheet-close {
+    min-height: 2.9375rem;
+  }
+
+  .convo-head .icon-button,
+  .sheet-close {
+    min-width: 2.9375rem;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 400px) {
+  .top-chip,
+  .top-personal-button {
+    min-width: 2.9375rem;
   }
 }

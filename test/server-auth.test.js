@@ -989,7 +989,7 @@ describe('kişisel anahtarlar, kimlik kaydı ve profiller', () => {
       const res = await h.get(ctx, '/api/profiles?ids=' + member.user.id + ',' + owner.user.id, owner.token)
       h.expectStatus(res, 200)
       const mine = res.data.profiles.find((p) => p.id === member.user.id)
-      assert.deepEqual(mine, { id: member.user.id, pv: 1, profile: null, avatarUploadId: null, publicKey: body.publicKey, identity })
+      assert.deepEqual(mine, { id: member.user.id, pv: 1, profile: null, avatarUploadId: null, coverUploadId: null, publicKey: body.publicKey, identity })
       // Sarılmış özel anahtar yalnızca sahibine (giriş ve durum yanıtında) gider
       assert.ok(!res.text.includes(body.wrappedKey))
       const ownerState = await h.get(ctx, '/api/state', owner.token)
@@ -1021,7 +1021,7 @@ describe('kişisel anahtarlar, kimlik kaydı ve profiller', () => {
       h.expectStatus(res, 200)
       assert.deepEqual(res.data.profiles.map((p) => p.id), [ayse.user.id, owner.user.id])
       for (const p of res.data.profiles) {
-        assert.deepEqual(Object.keys(p).sort(), ['avatarUploadId', 'id', 'identity', 'profile', 'publicKey', 'pv'])
+        assert.deepEqual(Object.keys(p).sort(), ['avatarUploadId', 'coverUploadId', 'id', 'identity', 'profile', 'publicKey', 'pv'])
       }
       const hundred = await h.get(ctx, '/api/profiles?ids=' + h.times(100).map((i) => i + 1).join(','), ayse.token)
       h.expectStatus(hundred, 200)

@@ -23,7 +23,7 @@ const socialState = {
 }
 
 function emptyPrivate () {
-  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null, call: null }
+  return { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: true, status: null, call: null, reports: 0, reportsLast: 0 }
 }
 
 function validId (id) {
@@ -79,6 +79,10 @@ function normalizePrivate (p) {
   out.allowMemberDms = p.allowMemberDms !== false
   out.status = STATUS_CHOICES.indexOf(p.status) !== -1 ? p.status : null
   out.call = normalizeCall(p.call)
+  // Sahip ve yöneticilerin açık şikâyet sayısı ve görebildikleri en yeni şikâyetin kimliği (üyelerde alan yoktur),
+  // Ayarlar > Üyeler listesi bunlara göre yenilenir
+  out.reports = typeof p.reports === 'number' && p.reports >= 0 && Math.floor(p.reports) === p.reports ? p.reports : 0
+  out.reportsLast = typeof p.reportsLast === 'number' && p.reportsLast >= 0 && Math.floor(p.reportsLast) === p.reportsLast ? p.reportsLast : 0
   return out
 }
 
@@ -141,6 +145,8 @@ function socialApplyPrivate (p, pmv) {
   if (typeof voiceRefreshCall === 'function') voiceRefreshCall()
   if (typeof aramaOnPrivate === 'function') aramaOnPrivate()
   if (!state.inApp) return
+  // Engellenen kişiyle ve listeden kalkan özel konuşmanın taslağı bırakılır (08-composer.js)
+  composerPruneDrafts()
   if (blockedChanged) {
     autoMuteBlocked()
     if (!isDmChannel(state.channelId)) refreshAllMessages()
@@ -175,7 +181,8 @@ function socialReset () {
 // Uygulama ekranı açıldıktan sonra
 function socialAfterOpen () {
   bindSocialUi()
-  setConversationMode('channel')
+  // openApp son görünümü (özel konuşma veya Arkadaşlar) geri yüklediyse o görünüm korunur (38-gezinme.js)
+  setConversationMode(socialState.view === 'dm' || socialState.view === 'home' ? socialState.view : 'channel')
   profilesOnMeta()
   profilesEnsure(privateIds(priv()))
   socialRender()
@@ -201,6 +208,8 @@ function socialAfterMeta (prevKid) {
   }
   autoMuteBlocked()
   if (!state.inApp) return
+  // Silinen yazı odasının taslağı bırakılır (08-composer.js)
+  composerPruneDrafts()
   renderDmList()
   if (socialState.view === 'home') renderHomeView()
   if (socialState.view === 'dm') dmRefreshChrome()
@@ -305,7 +314,12 @@ function showHome (tab, opts) {
   closeMessageMenu()
   const wantAdd = tab === 'add'
   if (tab && HOME_TABS.indexOf(tab) !== -1) socialState.homeTab = tab
-  if (socialState.view !== 'home') {
+  const leaving = socialState.view !== 'home'
+  if (leaving) {
+    // Çizili konuşma önbelleğe yazılır, dönünce kaldığı yerden açılır (38-gezinme.js)
+    if (typeof navCacheLeave === 'function') navCacheLeave(null)
+    // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+    composerLeave()
     state.loadGen += 1
     state.loading = false
     state.channelId = null
@@ -317,9 +331,12 @@ function showHome (tab, opts) {
     dmState.partnerId = null
   }
   setConversationMode('home')
+  if (leaving) composerEnter()
   renderChannels()
   renderDmList()
   renderHomeView()
+  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
+  if (leaving && typeof navOnConversation === 'function') navOnConversation(options)
   // Geniş ekranda Arkadaş ekle sekmesi yoktur, form sol sütundaki karttadır
   if (wantAdd && homeAddInline()) {
     const input = byId('friend-add-name')
@@ -854,6 +871,8 @@ function updatePrivateLocal (mutate) {
   const p = priv()
   mutate(p)
   socialState.priv = p
+  // Engellenen kişiyle özel konuşmanın taslağı bırakılır (08-composer.js)
+  if (state.inApp) composerPruneDrafts()
   socialRender()
   refreshProfileCard()
 }

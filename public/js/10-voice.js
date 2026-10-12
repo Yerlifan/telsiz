@@ -11,9 +11,10 @@
 // (#radio-vad) ve beş düğmeli sıra (#radio-row: Mikrofon, Sağırlaştır, Ekran, Kamera, Ayrıl) durur.
 // Kamerası açık kişinin kadro öğesi aynı yumuşak kare biçimde canlı görüntüye döner (kendi görüntünüz
 // aynalı), kamera açıkken düğme sırasının üstünde her zaman görünen bir "Kameranız açık" satırı durur.
-// Kadronun altındaki araç satırının (#radio-tools) sırası Büyüt, Oyun, Telsiz DJ'dir. Büyüt (#radio-cams)
-// odada kamera varsa görünür ve kameraları yayın sahnesinde ızgara olarak açar (22-cast.js). Oyun (#radio-game)
-// masa kurar, daveti ve masayı açar (36-oyun.js), Telsiz DJ kartı açar (23-dj.js).
+// Kadronun altındaki araç satırının (#radio-tools) sırası Büyüt, Yüzen Pencere, Oyun, Telsiz DJ'dir. Büyüt
+// (#radio-cams) odada kamera varsa görünür ve kameraları yayın sahnesinde ızgara olarak açar (22-cast.js). Yüzen
+// Pencere (#radio-float) bu cihazda yüzen pencere varsa görünür (39-yuzen.js). Oyun (#radio-game) masa kurar,
+// daveti ve masayı açar (36-oyun.js), Telsiz DJ kartı açar (23-dj.js).
 
 // Ses arayüzü (5.8, Ek D1). Bağlantı mantığı voice.js içindeki VoiceClient'tadır. voice.js metin
 // üretmez, hata ve durumları kodla bildirir (snapshot.errorCode, Error.code), metinler burada çevrilir.
@@ -124,6 +125,25 @@ let lastCameraError = null
 // Son katılma denemesinin odası: hata satırındaki "Tekrar dene" bu odaya yeniden katılır
 let radioLastChannel = null
 
+// Ses kancaları: başka modüller bu dosyayı düzenlemeden ses durumuna bağlanır. 'change' her ses anlık
+// görüntüsünde state.voiceSnap ile, 'render' telsiz kartı ve bant yeniden çizildikten sonra çağrılır.
+// Bir kancanın hatası ötekileri ve ses arayüzünü durdurmaz.
+const voiceHooks = { change: [], render: [] }
+
+function voiceHook (kind, fn) {
+  if (voiceHooks[kind] && typeof fn === 'function') voiceHooks[kind].push(fn)
+}
+
+function runVoiceHooks (kind, arg) {
+  voiceHooks[kind].forEach((fn) => {
+    try {
+      fn(arg)
+    } catch (err) {
+      window.console.error(err)
+    }
+  })
+}
+
 function onVoiceChange (snapshot) {
   state.voiceSnap = snapshot || null
   // Masaüstü uygulaması (20-desktop.js) basılı tut kancası için ses odası durumunu ana sürece bildirir
@@ -140,6 +160,7 @@ function onVoiceChange (snapshot) {
   if (code && code !== lastVoiceError && !callOwnsError(code)) toast(() => voiceErrorText(code, server), 'error', 8000)
   lastVoiceError = code
   if (typeof aramaOnVoice === 'function') aramaOnVoice(state.voiceSnap)
+  runVoiceHooks('change', state.voiceSnap)
   const camCode = snapshot && snapshot.camera && snapshot.camera.errorCode ? snapshot.camera.errorCode : null
   if (camCode && camCode !== lastCameraError) toast(() => cameraErrorText(camCode, ''), camCode === 'camera_limit' || camCode === 'camera_moderated' ? '' : 'error', 8000)
   lastCameraError = camCode
@@ -191,6 +212,7 @@ function renderVoiceAll () {
   if (typeof aramaRender === 'function') aramaRender()
   // Oyun düğmesi ve masa (36-oyun.js)
   if (typeof gameRender === 'function') gameRender()
+  runVoiceHooks('render')
 }
 
 function voiceRoster (channelId) {
@@ -553,7 +575,7 @@ function crewBadge (failed, deafened, muted, serverMuted) {
     title = t('voice.peerFailed')
     kind = ' is-error'
   } else if (deafened) {
-    name = 'i-headphones-off'
+    name = 'i-speaker-off'
     title = t('voice.deafenedTitle')
   } else if (serverMuted) {
     name = 'i-mic-off'
@@ -737,6 +759,9 @@ function renderVoicePanel () {
   // Kapalı: ses odaları listesi, destek uyarısı ve tuş ipucu
   const problem = live ? null : voiceSupportCode()
   el.radioPick.hidden = live
+  // Telefonda Ses Odaları düğmesi (38-gezinme.js) yalnızca kart kapalıyken
+  const pickButton = byId('radio-pick-button')
+  if (pickButton) pickButton.hidden = live
   el.voiceChannels.hidden = live
   setMsg(el.radioSupport, problem ? voiceErrorText(problem, '') : '')
   renderRadioHint(live || Boolean(problem), s)
@@ -989,6 +1014,8 @@ function myStatusLine (s) {
   if (chosen === 'idle') return t('layout.status.idle')
   if (chosen === 'dnd') return t('layout.status.dnd')
   if (chosen === 'invisible') return t('layout.status.invisible')
+  // Otomatik boşta (13-profile.js myAutoIdle): elle seçilen durum Çevrimiçi, başkaları Boşta görüyor
+  if (typeof myAutoIdle === 'function' && myAutoIdle()) return t('status.autoIdle')
   return t('user.online')
 }
 
@@ -1012,7 +1039,8 @@ function renderUserPanel () {
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
   setText(el.btnMuteState, t(s.serverMuted ? 'radio.micServerMuted' : s.muted ? 'radio.micOff' : 'radio.micOn'))
   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
-  setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
+  // Hoparlör düğmesi: açıkken hoparlör, kapalıyken çarpılı hoparlör simgesi
+  setIcon(el.btnDeafen, s.deafened ? 'i-speaker-off' : 'i-speaker')
   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))
   setText(el.btnDeafenState, t(s.deafened ? 'radio.deafened' : 'radio.hearing'))
 }

@@ -5,8 +5,13 @@
 // kullanılır (öğe ağacı, öznitelikler, sınıflar, olaylar, odak ve basit seçiciler). Kategori adları,
 // cihaz ayarı anahtarları ve varsayılanları, mesaj sesi kuralları, 12 kategorinin çizimi ve yetkiler,
 // dar ekran listesi ve Geri, Esc ile kapanma ve odak dönüşü, oturum ve üye satırları, iki dilde metinler,
-// CSS kuralları ve index.html ile sw.js bağlantıları sınanır. Gerçek sunucu ve tarayıcıyla yapılan
-// doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+// CSS kuralları, index.html ile sw.js bağlantıları, ses kancaları (10-voice.js voiceHook) ve önizleme kartının
+// kimlik düzeni (ad avatarın yanında, rol ve özel rol rozetleri adın yanında) sınanır. Gerçek
+// sunucu ve tarayıcıyla yapılan doğrulama ayrıca yapılır, bu testler CI'da ayarlar görünümünün bozulmasını yakalar.
+// Profil sayfasındaki kapak fotoğrafı (istek 8): seçme, önizleme, kaydetme, kaldırma, geri alma, kayıt sürerken hazırlanması
+// biten kapak, önceki kaydın kapağı kayda yansımadan yapılan kayıtta bekleyen önizlemenin kalması, kendi profil kaydım geç
+// yenilense de sunucuda silinen eski kapağın istenmemesi, kapak inince profil kartında yalnızca bandın, Hesabım'da yalnızca
+// önizleme kartının yenilenmesi de sınanır.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -25,6 +30,19 @@ const FILES = [
 ]
 const SOURCES = FILES.map((file) => ({ file: file, code: fs.readFileSync(path.join(PUB, file), 'utf8') }))
 const SETTINGS_SOURCE = fs.readFileSync(path.join(PUB, 'js', '11-settings.js'), 'utf8')
+
+// Tema listesinin tek kaynağı theme-init.js: ön yükleyici küçük bir tarayıcı taklidinde çalıştırılır, ayarlar
+// görünümüne verilen TelsizTheme taklidi bu listeyi taşır
+function loadThemeInit () {
+  const root = { setAttribute () {}, style: { setProperty () {} }, classList: { add () {} } }
+  const box = { document: { documentElement: root }, localStorage: { getItem: () => null, setItem () {} } }
+  box.window = box
+  vm.createContext(box)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
+  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin, msgLayouts: Array.from(box.window.TelsizTheme.msgLayouts) }
+}
+const THEME_INIT = loadThemeInit()
+const SKINS = THEME_INIT.skins
 
 // Küçük DOM taklidi
 
@@ -455,7 +473,10 @@ function load (options) {
   sandbox.matchMedia = () => ({ matches: false })
   sandbox.console = { warn () {}, log () {}, error () {} }
   sandbox.TelsizTheme = {
-    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' },
+    skins: SKINS.slice(),
+    contrastSkin: THEME_INIT.contrastSkin,
+    msgLayouts: THEME_INIT.msgLayouts.slice(),
+    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system', msgLayout: 'kayit' },
     get () {
       return Object.assign({}, this.prefs)
     },
@@ -541,6 +562,80 @@ test('cihaz ayarı anahtarları ve varsayılanlar (yazıyor, bildirim düzeyi, m
   assert.strictEqual(run('messageSoundEnabled()'), false)
 })
 
+test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5, 10, 15, 30 veya 60', () => {
+  const { run, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdle'), 'telsiz.autoIdle')
+  assert.strictEqual(run('SETTINGS_KEYS.autoIdleMinutes'), 'telsiz.autoIdleMinutes')
+  assert.deepStrictEqual(Array.from(run('AUTO_IDLE_MINUTES')), [5, 10, 15, 30, 60])
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  storage.setItem('telsiz.autoIdle', '0')
+  assert.strictEqual(run('autoIdleEnabled()'), false)
+  storage.setItem('telsiz.autoIdle', '1')
+  assert.strictEqual(run('autoIdleEnabled()'), true)
+  assert.strictEqual(run('autoIdleMinutes()'), 10)
+  for (const n of [5, 15, 30, 60]) {
+    storage.setItem('telsiz.autoIdleMinutes', String(n))
+    assert.strictEqual(run('autoIdleMinutes()'), n)
+  }
+  for (const bad of ['0', '7', '-5', 'on', '']) {
+    storage.setItem('telsiz.autoIdleMinutes', bad)
+    assert.strictEqual(run('autoIdleMinutes()'), 10, JSON.stringify(bad))
+  }
+})
+
+test('yüzen pencere ayarı: varsayılan açık, anahtar telsiz.floatAuto yazar, açıklama platforma göre değişir', () => {
+  const { run, root, storage, sandbox } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.floatAuto'), 'telsiz.floatAuto')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'off')
+  assert.strictEqual(run('floatAutoEnabled()'), false)
+  storage.setItem('telsiz.floatAuto', 'on')
+  assert.strictEqual(run('floatAutoEnabled()'), true)
+  storage.setItem('telsiz.floatAuto', 'bozuk')
+  assert.strictEqual(run('floatAutoEnabled()'), true, 'yalnızca off kapatır')
+  // Yüzen pencere modülü yokken (desteklenmiyor) anahtar devre dışı, nedeni yazılı
+  run("openSettings('voice', null)")
+  const sw = () => root.querySelector('#set-float-auto')
+  const hint = () => root.querySelector('#set-float-auto-hint').textContent
+  assert.strictEqual(root.querySelector('#set-float-section-title').textContent, 'Yüzen Pencere')
+  assert.strictEqual(root.querySelector('label[for="set-float-auto"] .settings-switch-text').textContent, 'Uygulama küçültülünce yüzen pencereyi aç')
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.strictEqual(sw().disabled, true)
+  assert.strictEqual(hint(), 'Bu tarayıcı yüzen pencereyi desteklemiyor.')
+  // Yüzen pencere bölümü Çıkış bölümünden sonra, ekran paylaşımı bölümünden önce
+  const ids = root.querySelectorAll('.settings-section').map((n) => n.id)
+  assert.ok(ids.indexOf('set-float-section') === ids.indexOf('set-output-section') + 1, ids.join())
+  assert.ok(ids.indexOf('set-float-section') < ids.indexOf('set-screen-section'))
+  run('closeSettings(false)')
+  // Tarayıcı: sekme değişimi açıklaması, anahtar yazar ve modüle bildirir
+  sandbox.__floatChanged = 0
+  run("var floatMode = function () { return 'document' }")
+  run('var floatSettingsChanged = function () { __floatChanged++ }')
+  run("openSettings('voice', null)")
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().checked, true)
+  assert.ok(hint().indexOf('Chrome ve Edge') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'off')
+  sw().click()
+  assert.strictEqual(storage.getItem('telsiz.floatAuto'), 'on')
+  assert.strictEqual(sandbox.__floatChanged, 2)
+  run('closeSettings(false)')
+  // Linux masaüstü: simge durumu açıklaması ve Wayland notu
+  run("var floatMode = function () { return 'desktop' }")
+  run("window.telsizDesktop = { platform: 'linux' }")
+  run("openSettings('voice', null)")
+  assert.ok(hint().indexOf('Ses odasındayken pencere küçültülür') === 0, hint())
+  assert.strictEqual(root.querySelector('#set-float-wayland').textContent, 'Wayland oturumunda pencere her zaman üstte kalamaz ve ekran paylaşımına girebilir.')
+  run('closeSettings(false)')
+  run("window.telsizDesktop = { platform: 'win32' }")
+  run("openSettings('voice', null)")
+  assert.strictEqual(root.querySelector('#set-float-wayland'), null)
+  run('closeSettings(false)')
+  run('delete window.telsizDesktop')
+})
+
 test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
   const { run, storage, audio } = load()
   assert.strictEqual(run('playMessageSound()'), true)
@@ -570,10 +665,12 @@ test('yardımcılar: atama karşılaştırma, seviye yüzdesi, kaydırıcı sın
   assert.strictEqual(run("sliderValue({ value: '-140' }, -100, 0)"), -100)
   assert.strictEqual(run("sliderValue({ value: '12.6' }, 0, 1000)"), 13)
   assert.strictEqual(run("sliderValue({ value: 'x' }, 0, 1000)"), 0)
-  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server' }"
+  const base = "{ base: { displayName: 'a', statusText: '', bio: '', color: 2 }, displayName: 'a', statusText: '', bio: '', color: 2, avatarMode: 'server', coverMode: 'server' }"
   assert.strictEqual(run('draftDirty(' + base + ')'), false)
   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { color: 3 }))"), true)
   assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { avatarMode: 'removed' }))"), true)
+  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'new' }))"), true)
+  assert.strictEqual(run('draftDirty(Object.assign(' + base + ", { coverMode: 'removed' }))"), true)
 })
 
 test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', () => {
@@ -587,12 +684,12 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
   assert.deepStrictEqual(cats, ['account', 'profile', 'privacy', 'voice', 'keybinds', 'notifications', 'appearance', 'app', 'general', 'channels', 'members', 'roles', 'invite'])
   const expected = {
     account: ['set-account-card', 'set-username-change', 'set-username-form', 'set-old-password', 'set-new-password', 'set-new-password2', 'set-password-submit', 'set-logout', 'set-delete-password', 'set-delete-submit', 'set-delete-owner-note'],
-    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
-    privacy: ['set-allow-dms', 'set-typing', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke'],
-    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+    profile: ['set-avatar-pick', 'set-avatar-file', 'set-avatar-remove', 'set-cover-preview', 'set-cover-pick', 'set-cover-file', 'set-cover-remove', 'set-cover-hint', 'set-display-name', 'set-status-text', 'set-bio', 'set-color-0', 'set-color-7', 'set-profile-save', 'set-profile-reset', 'set-profile-card'],
+    privacy: ['set-allow-dms', 'set-typing', 'set-auto-idle', 'set-auto-idle-minutes', 'set-blocked-list', 'set-sessions-list', 'set-sessions-others', 'set-fingerprint', 'set-keyring', 'set-key-input', 'set-key-show', 'set-invite-copy', 'set-key-generate', 'set-youtube-state', 'set-youtube-revoke', 'set-dj-media-session'],
+    voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-float-auto', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
-    appearance: ['set-skin-arcade', 'set-skin-gece', 'set-skin-turkuaz', 'set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang'],
+    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-msg-layout-kayit', 'set-msg-layout-klasik', 'set-msg-layout-hint', 'set-compact', 'set-motion-on', 'set-lang']),
     app: ['set-install', 'set-version', 'set-repo-link'],
     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
@@ -821,6 +918,208 @@ test('frekanstan atma: onay istenir, iptalde istek gitmez, onayda istek gider, e
   assert.strictEqual(root.querySelector('#set-members-msg').textContent, 'mert frekanstan atıldı.')
 })
 
+test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, engelleme izinli üye görmez', async () => {
+  const reports = (sandbox) => {
+    sandbox.__reports = [
+      { id: 5, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, messageId: 40, dm: false, reason: 'spam', note: null, createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 4, kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 9, messageId: 41, dm: true, reason: 'harassment', note: '1.0011223344556677.' + 'A'.repeat(32) + '.' + 'B'.repeat(40), createdAt: 900, resolvedAt: null, resolvedBy: null, resolverName: '' },
+      { id: 3, kind: 'user', reporterId: 2, reporterName: '', targetUserId: 3, targetName: 'mert', channelId: null, messageId: null, dm: false, reason: 'other', note: null, createdAt: 800, resolvedAt: 850, resolvedBy: 1, resolverName: 'burak' }
+    ]
+  }
+  const owner = load({ role: 'owner' })
+  const { run, root, sandbox } = owner
+  reports(sandbox)
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    if (path === '/api/reports/resolve') return Promise.resolve({ status: 200, data: { ok: true, report: Object.assign({}, __reports[0], { resolvedAt: 2000, resolvedBy: 1, resolverName: 'burak' }) } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  assert.strictEqual(root.querySelector('#set-reports-section').hidden, false)
+  assert.strictEqual(root.querySelector('#set-reports-section-title').textContent, 'Şikâyetler')
+  await new Promise((r) => setImmediate(r))
+  const rows = root.querySelectorAll('#set-reports-list .report-row')
+  assert.deepStrictEqual(rows.map((n) => n.getAttribute('data-report-id')), ['5', '4'])
+  assert.strictEqual(root.querySelector('#set-reports-count').textContent, '2 açık şikâyet')
+  assert.strictEqual(rows[0].querySelector('.list-name').textContent, 'ece adlı kişinin mesajı')
+  assert.ok(rows[0].querySelector('.list-sub').textContent.indexOf('İstenmeyen içerik · Bildiren: mert · ') === 0)
+  assert.ok(rows[0].querySelector('.act-report-go'), 'yazı odasındaki mesaja gidilebilir')
+  assert.strictEqual(rows[0].querySelector('.act-report-resolve').getAttribute('aria-label'), 'ece hakkındaki şikâyeti çözüldü işaretle')
+  // Özel mesaj: Mesaja Git yok, anahtarı olmayan not kilitli görünür
+  assert.strictEqual(rows[1].querySelector('.list-name').textContent, 'ece adlı kişinin özel mesajı')
+  assert.strictEqual(rows[1].querySelector('.act-report-go'), null)
+  assert.ok(rows[1].querySelector('.report-locked'))
+  // Çözülenler: silinmiş bildiren ve çözen
+  const done = root.querySelectorAll('#set-reports-done-list .report-row')
+  assert.strictEqual(done.length, 1)
+  assert.strictEqual(done[0].querySelector('.list-name').textContent, 'Kişi: mert')
+  assert.ok(done[0].textContent.indexOf('Bildiren: Silinmiş kullanıcı') !== -1)
+  assert.ok(done[0].textContent.indexOf('Çözen: burak') !== -1)
+  assert.strictEqual(done[0].querySelector('.act-report-resolve'), null)
+  rows[0].querySelector('.act-report-resolve').click()
+  await new Promise((r) => setImmediate(r))
+  const resolves = sandbox.__requests.filter((r) => r.path === '/api/reports/resolve')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(resolves[0].body)), { id: 5 })
+  assert.strictEqual(root.querySelector('#set-reports-msg').textContent, 'Şikâyet çözüldü olarak işaretlendi.')
+  assert.deepStrictEqual(root.querySelectorAll('#set-reports-list .report-row').map((n) => n.getAttribute('data-report-id')), ['4'])
+  assert.strictEqual(root.querySelectorAll('#set-reports-done-list .report-row').length, 2)
+  // Özel görünümdeki açık şikâyet sayısı değişince liste yeniden alınır
+  const gets = () => sandbox.__requests.filter((r) => r.method === 'GET' && r.path === '/api/reports').length
+  const before = gets()
+  run('socialState.priv.reports = 7')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 1)
+  // Sayı aynı kalsa da en yeni şikâyetin kimliği değişince (dolu listede yer değiştirme) yeniden alınır
+  run('socialState.priv.reportsLast = 99')
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
+  run('updateSettingsPage()')
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(gets(), before + 2)
+  // Kapanınca liste unutulur
+  run('closeSettings(false)')
+  assert.strictEqual(run('settingsUi.reports'), null)
+
+  // Engelleme izinli üye Üyeler sayfasını görür ama şikâyetleri görmez ve istemez
+  const mod = load({ role: 'member' })
+  mod.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'blue', perms: ['ban'] }]")
+  mod.run('state.meta.users[0].roleId = 7')
+  mod.run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  assert.strictEqual(mod.root.querySelector('#settings-page').getAttribute('data-cat'), 'members')
+  assert.strictEqual(mod.root.querySelector('#set-reports-section').hidden, true)
+  assert.strictEqual(mod.sandbox.__requests.filter((r) => r.path === '/api/reports').length, 0)
+})
+
+test('şikâyetler (Üyeler): mühürlü not çözülür, kimliği başka kayda bağlı zarf kilitli kalır, alıntı bildirenin metni olarak gösterilir', async () => {
+  const { run, root, sandbox } = load({ role: 'owner' })
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  sandbox.__kid = kid
+  const seal = (obj) => run('E2EE.sealJson(__kid, ' + JSON.stringify(obj) + ')')
+  const base = { kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, dm: false, reason: 'spam', createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' }
+  const row = (id, messageId, value) => Object.assign({}, base, { id: id, messageId: messageId, note: seal(value) })
+  sandbox.__reports = [
+    // Doğru zarf: not ve alıntı görünür, mesaj bu cihazda yüklü ve metni farklı
+    row(9, 40, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Sürekli reklam', q: 'Uydurulmuş metin' }),
+    // Doğru zarf: alıntı yüklü mesajın metniyle aynı
+    row(8, 41, { v: 1, a: 3, k: 'message', u: 2, m: 41, n: '', q: 'Gerçek metin' }),
+    // Geçerli ama başka bir mesaja bağlı zarf
+    row(7, 42, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Başka mesajın notu', q: 'Başka mesajın metni' }),
+    // Geçerli ama başka bir bildirene ve başka bir hedefe bağlı zarflar
+    row(6, 43, { v: 1, a: 2, k: 'message', u: 2, m: 43, n: 'Yanlış bildiren', q: '' }),
+    row(5, 44, { v: 1, a: 3, k: 'message', u: 3, m: 44, n: 'Yanlış hedef', q: '' })
+  ]
+  // Yazı odasında yüklü iki mesaj (ece, genel)
+  sandbox.__bodies = [seal({ v: 1, a: 2, c: 1, t: 'Mesajın gerçek metni' }), seal({ v: 1, a: 2, c: 1, t: 'Gerçek metin' })]
+  run('state.messages = [{ id: 40, channelId: 1, authorId: 2, body: __bodies[0], createdAt: 1 }, { id: 41, channelId: 1, authorId: 2, body: __bodies[1], createdAt: 2 }]')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openSettings('members', null)")
+  await new Promise((r) => setImmediate(r))
+  const rowOf = (id) => root.querySelector('#set-reports-list .report-row[data-report-id="' + id + '"]')
+  assert.strictEqual(rowOf(9).querySelector('.report-note-line').textContent, 'Not: Sürekli reklam')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Uydurulmuş metin')
+  assert.strictEqual(rowOf(9).querySelector('.report-quote-changed').textContent, 'Mesajın şu anki metni bundan farklı. Mesaj sonradan düzenlenmiş ya da bildiren metni değiştirmiş olabilir.')
+  assert.strictEqual(rowOf(9).querySelector('.report-locked'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Gerçek metin')
+  assert.strictEqual(rowOf(8).querySelector('.report-quote-changed'), null)
+  assert.strictEqual(rowOf(8).querySelector('.report-note-line'), null)
+  for (const id of [7, 6, 5]) {
+    assert.strictEqual(rowOf(id).querySelector('.report-locked').textContent, 'Not bu cihazda açılamadı. Grup anahtarı yok veya not doğrulanamadı.', 'kayıt ' + id)
+    assert.strictEqual(rowOf(id).querySelector('.report-note-line'), null)
+    assert.strictEqual(rowOf(id).querySelector('.report-quote-line'), null)
+  }
+  // İngilizce etiket de doğrulanmamış metni bildirene bağlar
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.reports.quote', { text: 'x' })"), 'Message text added by the reporter: x')
+  run("I18N.setLang('tr')")
+})
+
+test('şikâyet penceresi: etkin anahtar yoksa not ve alıntı eklenmez, şikâyet nedenle gönderilir', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  // Eski anahtar cihazda, sahibin yenilediği etkin anahtar yok: eski mesaj çözülür
+  const oldKid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  const newKid = run('(function () { const k = E2EE.keyring.add(E2EE.generateKeyCode()); E2EE.keyring.remove(k); return k })()')
+  sandbox.__oldKid = oldKid
+  run('state.meta.activeKid = ' + JSON.stringify(newKid))
+  assert.strictEqual(run('hasActiveKey()'), false)
+  sandbox.__body = run("E2EE.sealJson(__oldKid, { v: 1, a: 3, c: 1, t: 'Eski anahtarla yazılmış mesaj' })")
+  run('__msg = { id: 40, channelId: 1, authorId: 3, body: __body, createdAt: 1 }')
+  assert.strictEqual(run('reportQuoteOf(__msg)'), 'Eski anahtarla yazılmış mesaj')
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  run("openReportDialog({ kind: 'message', message: __msg })")
+  assert.ok(doc.querySelector('#report-dialog #report-form'), 'pencere açıldı')
+  assert.strictEqual(doc.querySelector('#report-quote'), null)
+  assert.strictEqual(doc.querySelector('#report-note'), null)
+  assert.strictEqual(doc.querySelector('#report-nokey').textContent, 'Bu cihazda frekansın etkin grup anahtarı yok. Not ve mesaj metni şikâyete eklenemez, şikâyet yalnızca seçtiğiniz nedenle gönderilir.')
+  doc.querySelector('#report-reason').value = 'spam'
+  doc.querySelector('#report-send').click()
+  await new Promise((r) => setImmediate(r))
+  const posts = sandbox.__requests.filter((r) => r.path === '/api/reports')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(posts.map((r) => r.body))), [{ kind: 'message', targetUserId: 3, reason: 'spam', channelId: 1, messageId: 40 }])
+  assert.strictEqual(doc.querySelector('#report-dialog'), null)
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekans sahibine ve yöneticilere iletildi.')
+})
+
+test('şikâyet penceresi: sahip bildirilince şikâyeti yalnızca yöneticiler görür, yönetici yoksa kimse görmez', async () => {
+  const member = load({ role: 'member' })
+  const { run, doc, sandbox } = member
+  const dialogRoot = doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  doc.body.appendChild(dialogRoot)
+  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
+  run('state.meta.activeKid = ' + JSON.stringify(kid))
+  assert.strictEqual(run('hasActiveKey()'), true)
+  run("state.meta.users[2].role = 'owner'")
+  run(`api = function (method, path, body) {
+    __requests.push({ method: method, path: path, body: body })
+    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
+    return Promise.resolve({ status: 200, data: {} })
+  }`)
+  const send = async () => {
+    doc.querySelector('#report-reason').value = 'harassment'
+    doc.querySelector('#report-send').click()
+    await new Promise((r) => setImmediate(r))
+  }
+  // Yönetici (ece) var: pencere şikâyetin yöneticilere gittiğini söyler
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'mert adlı kişiyi frekansın yöneticilerine bildiriyorsunuz. mert frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
+  assert.ok(doc.querySelector('#report-note'), 'anahtar varken not yazılabilir')
+  doc.querySelector('#report-note').value = 'Kuralları kendisi çiğniyor'
+  await send()
+  const posts = () => sandbox.__requests.filter((r) => r.path === '/api/reports').map((r) => r.body)
+  assert.strictEqual(posts().length, 1)
+  assert.ok(/^1\./.test(posts()[0].note), 'not mühürlü')
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekansın yöneticilerine iletildi.')
+  // Yönetici yok: şikâyet kaydedilir ama kimse göremez
+  run("state.meta.users[1].role = 'member'")
+  run("openReportDialog({ kind: 'user', userId: 3 })")
+  assert.strictEqual(doc.querySelector('#report-audience').textContent, 'Bu frekansta yönetici yok. Şikâyet kaydedilir ama bir yönetici atanana kadar kimse göremez.')
+  await send()
+  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz kaydedildi. Bu frekansta yönetici olmadığı için şu anda kimse göremez.')
+  // Sahip olmayan kişi için metin değişmez
+  run("openReportDialog({ kind: 'user', userId: 2 })")
+  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'ece adlı kişiyi frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.')
+  assert.strictEqual(doc.querySelector('#report-audience'), null)
+})
+
 test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
   const owner = load({ role: 'owner' })
   const { run, root, sandbox } = owner
@@ -939,6 +1238,138 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
 })
 
+// Ön yükleyici gerçek tarayıcı taklidinde: kök öznitelikleri ve localStorage kaydı
+function runThemeInit (stored) {
+  const attrs = {}
+  const saved = Object.assign({}, stored || {})
+  const root = { setAttribute (k, v) { attrs[k] = v }, style: { setProperty () {} }, classList: { add () {} } }
+  const box = { document: { documentElement: root }, localStorage: { getItem: (k) => (k in saved ? saved[k] : null), setItem (k, v) { saved[k] = String(v) } } }
+  box.window = box
+  vm.createContext(box)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
+  return { theme: box.window.TelsizTheme, attrs, saved }
+}
+
+test('mesaj düzeni (msgLayout): Kayıt Defteri varsayılan, Klasik saklanır, geçersiz değer yok sayılır', () => {
+  assert.deepStrictEqual(THEME_INIT.msgLayouts, ['kayit', 'klasik'])
+  const first = runThemeInit()
+  assert.strictEqual(first.theme.get().msgLayout, 'kayit')
+  assert.strictEqual(first.attrs['data-msg-layout'], 'kayit', 'ilk çizimde kök özniteliği')
+  first.theme.set({ msgLayout: 'klasik' })
+  assert.strictEqual(first.attrs['data-msg-layout'], 'klasik')
+  assert.strictEqual(first.saved['telsiz.msgLayout'], 'klasik')
+  first.theme.set({ msgLayout: 'yok' })
+  assert.strictEqual(first.theme.get().msgLayout, 'klasik', 'listede olmayan değer yok sayılır')
+  const again = runThemeInit({ 'telsiz.msgLayout': 'klasik' })
+  assert.strictEqual(again.attrs['data-msg-layout'], 'klasik', 'yeniden açılışta saklı düzen')
+  const bad = runThemeInit({ 'telsiz.msgLayout': '<b>' })
+  assert.strictEqual(bad.attrs['data-msg-layout'], 'kayit', 'bozuk kayıt varsayılana düşer')
+})
+
+test('Görünüm > Mesaj görünümü: düzen radyo grubu ve kompakt anahtarı birlikte çalışır', () => {
+  const { run, root, sandbox } = load()
+  run("openSettings('appearance', null)")
+  const group = root.querySelector('#set-msg-layout-kayit').parentNode.parentNode
+  assert.strictEqual(group.getAttribute('role'), 'radiogroup')
+  assert.strictEqual(group.getAttribute('aria-labelledby'), 'set-msg-layout-title')
+  assert.strictEqual(group.getAttribute('aria-describedby'), 'set-msg-layout-hint')
+  assert.strictEqual(root.querySelector('#set-msg-layout-title').textContent, 'Mesaj Düzeni')
+  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'Kayıt Defteri varsayılan')
+  assert.strictEqual(root.querySelector('label[for="set-msg-layout-kayit"]').textContent, 'Kayıt Defteri')
+  assert.strictEqual(root.querySelector('label[for="set-msg-layout-klasik"]').textContent, 'Klasik')
+  root.querySelector('#set-msg-layout-klasik').click()
+  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik')
+  root.querySelector('#set-compact').click()
+  assert.strictEqual(sandbox.TelsizTheme.prefs.compact, true)
+  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik', 'kompakt anahtarı düzeni değiştirmez')
+  sandbox.TelsizTheme.prefs.msgLayout = 'kayit'
+  run('refreshThemeSettings()')
+  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'başka yerden değişen düzen yansır')
+  assert.strictEqual(root.querySelector('#set-compact').checked, true)
+})
+
+test('zaten işaretli tema kartına tıklamak temayı yeniden seçer (kendiliğinden seçilen Yüksek Kontrast saklanır)', () => {
+  const { run, root, sandbox } = load()
+  sandbox.TelsizTheme.prefs.skin = THEME_INIT.contrastSkin
+  const calls = []
+  const set = sandbox.TelsizTheme.set
+  sandbox.TelsizTheme.set = function (p) {
+    calls.push(p.skin)
+    return set.call(this, p)
+  }
+  run("openSettings('appearance', null)")
+  const input = root.querySelector('#set-skin-' + THEME_INIT.contrastSkin)
+  assert.strictEqual(input.checked, true, 'kendiliğinden seçilen tema işaretli')
+  // Tarayıcıda işaretli radyo düğmesine tıklamak change üretmez, yalnızca click gelir
+  input.dispatchEvent(fakeEvent('click'))
+  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
+  // İşaretli olmayan kartın click olayı tek başına tema seçmez
+  root.querySelector('#set-skin-gece').dispatchEvent(fakeEvent('click'))
+  assert.deepStrictEqual(calls, [THEME_INIT.contrastSkin])
+})
+
+test('tema kartları theme-init.js listesinden çizilir, ayarlar kendi kopyasını tutmaz', () => {
+  // Liste yalnızca theme-init.js içinde: ayarlar modülünde tema kimliklerini sıralayan bir dizi yok
+  assert.ok(!/['"]arcade['"]\s*,\s*['"]gece['"]/.test(SETTINGS_SOURCE), '11-settings.js tema listesinin kopyasını tutmamalı')
+  assert.ok(SKINS.length >= 3 && SKINS[0] === 'arcade', 'theme-init.js listesi okunur')
+  const { run, root, sandbox } = load()
+  run("openSettings('appearance', null)")
+  const cards = root.querySelectorAll('label[data-skin-choice]').map((n) => n.getAttribute('data-skin-choice'))
+  assert.deepStrictEqual(cards, SKINS, 'her tema için bir kart, theme-init.js sırasıyla')
+  for (const skin of SKINS) {
+    const input = root.querySelector('#set-skin-' + skin)
+    assert.ok(input, skin + ' radyo düğmesi')
+    assert.strictEqual(input.getAttribute('aria-describedby'), 'set-skin-' + skin + '-hint')
+    assert.ok(root.querySelector('#set-skin-' + skin + '-hint').textContent.length > 0, skin + ' açıklaması')
+  }
+  // Listeye eklenen tema ayarlarda da görünür (ayrı bir kopyayı güncellemek gerekmez)
+  sandbox.TelsizTheme.skins = SKINS.concat(['deneme'])
+  run("showSettingsCat('account', null)")
+  run("showSettingsCat('appearance', null)")
+  assert.ok(root.querySelector('#set-skin-deneme'), 'yeni tema kartı')
+  // Ön yükleyici yoksa yalnızca varsayılan tema
+  sandbox.TelsizTheme.skins = undefined
+  assert.deepStrictEqual(Array.from(run('skinChoices()')), ['arcade'])
+})
+
+test('tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında, Yüksek Kontrast ayrı grupta', () => {
+  assert.strictEqual(THEME_INIT.contrastSkin, 'kontrast')
+  assert.ok(SKINS.indexOf('kontrast') !== -1, 'Yüksek Kontrast tema listesinde')
+  const { run, root } = load()
+  run("openSettings('appearance', null)")
+  const radiogroup = root.querySelector('.settings-theme-cards')
+  assert.strictEqual(radiogroup.getAttribute('role'), 'radiogroup')
+  assert.strictEqual(radiogroup.getAttribute('aria-labelledby'), 'set-skin-section-title')
+  const groups = root.querySelectorAll('.settings-theme-group')
+  assert.deepStrictEqual(groups.map((g) => g.getAttribute('data-skin-group')), ['radio', 'access'])
+  const titles = groups.map((g) => {
+    assert.strictEqual(g.getAttribute('role'), 'group')
+    const title = root.querySelector('#' + g.getAttribute('aria-labelledby'))
+    assert.ok(title, 'grup başlığı')
+    return title.textContent
+  })
+  assert.deepStrictEqual(titles, ['Telsiz Temaları', 'Erişilebilirlik'])
+  const inGroup = (id) => groups[id === 'radio' ? 0 : 1].querySelectorAll('label[data-skin-choice]').map((n) => n.getAttribute('data-skin-choice'))
+  assert.deepStrictEqual(inGroup('access'), ['kontrast'])
+  assert.deepStrictEqual(inGroup('radio'), SKINS.filter((s) => s !== 'kontrast'))
+  // Bütün kartlar tek radyo grubudur
+  const names = root.querySelectorAll('input[name="set-skin"]').map((n) => n.id)
+  assert.strictEqual(names.length, SKINS.length)
+  // İngilizce başlıklar
+  run("I18N.setLang('en')")
+  run('settingsOnLanguage()')
+  const en = root.querySelectorAll('.settings-theme-group-title').map((n) => n.textContent)
+  assert.deepStrictEqual(en, ['Radio Themes', 'Accessibility'])
+  run("I18N.setLang('tr')")
+})
+
+test('tema kartları sıkışık: önizleme 2rem, açıklama yalnızca seçili kartta görünür', () => {
+  const css = fs.readFileSync(path.join(PUB, 'css', 'settings.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.ok(/\.settings-theme-card \.theme-swatch \{\s*height: 2rem\x3b/.test(css), 'önizleme şeridi 2rem')
+  assert.ok(/\.settings-theme-card:not\(\.is-selected\) \.settings-theme-hint \{\s*display: none\x3b/.test(css), 'açıklama seçili olmayan kartta gizli')
+  assert.ok(/\.settings-theme-list \{\s*display: flex\x3b\s*flex-wrap: wrap\x3b/.test(css), 'grup içinde satır kırılır')
+})
+
 test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
   const { run, root, storage } = load()
   run("openSettings('privacy', null)")
@@ -951,6 +1382,97 @@ test('gizlilik: yazıyor ve bildirim tercihleri cihazda saklanır', () => {
   assert.strictEqual(storage.getItem('telsiz.notifyLevel'), 'all')
   root.querySelector('#set-message-sound').click()
   assert.strictEqual(storage.getItem('telsiz.messageSound'), '0')
+})
+
+test('gizlilik: otomatik boşta anahtarı ve süresi cihazda saklanır, değişiklik hemen bildirilir', () => {
+  const { run, root, storage } = load()
+  run('var __idleChanges = 0; function idleSettingsChanged () { __idleChanges += 1 }')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-auto-idle')
+  const minutes = root.querySelector('#set-auto-idle-minutes')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  // Ses odası kuralı bu frekans içindir (masaüstünde başka frekansın ses odası arka plan penceresini etkilemez)
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Bu frekansın bir ses odasındayken burada boşta sayılmazsınız') !== -1)
+  assert.ok(root.querySelector('#set-auto-idle-hint').textContent.indexOf('Bu frekans birden çok cihazda veya sekmede açıksa') !== -1)
+  assert.strictEqual(root.querySelector('#set-idle-section-title').textContent, 'Otomatik Boşta')
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.value), ['5', '10', '15', '30', '60'])
+  assert.deepStrictEqual(minutes.childNodes.map((o) => o.textContent), ['5 dakika', '10 dakika', '15 dakika', '30 dakika', '60 dakika'])
+  assert.strictEqual(minutes.value, '10')
+  assert.strictEqual(minutes.disabled, false)
+  const label = root.querySelectorAll('label').filter((l) => l.getAttribute('for') === 'set-auto-idle-minutes')[0]
+  assert.strictEqual(label.textContent, 'Süre')
+  minutes.value = '30'
+  minutes.dispatchEvent(fakeEvent('change'))
+  assert.strictEqual(storage.getItem('telsiz.autoIdleMinutes'), '30')
+  assert.strictEqual(run('__idleChanges'), 1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.autoIdle'), '0')
+  assert.strictEqual(minutes.disabled, true)
+  assert.strictEqual(run('__idleChanges'), 2)
+  // Başka sekmede değişen ayar sayfa yenilenince görünür
+  storage.setItem('telsiz.autoIdle', '1')
+  storage.setItem('telsiz.autoIdleMinutes', '5')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-auto-idle').checked, true)
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').value, '5')
+  assert.strictEqual(root.querySelector('#set-auto-idle-minutes').disabled, false)
+  // İngilizce tekil ve çoğul
+  run("I18N.setLang('en')")
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 1 })"), '1 minute')
+  assert.strictEqual(run("t('settings.privacy.autoIdleMinutes', { count: 5 })"), '5 minutes')
+})
+
+test('otomatik boşta: kendi durumum "Boşta (otomatik)" görünür, elle seçilen durum değişmez', () => {
+  const { run } = load()
+  const me = () => ({
+    auto: run('myAutoIdle()'),
+    status: run('userStatus(1)'),
+    label: run('myStatusLabel()'),
+    line: run('myStatusLine(snap())'),
+    settings: run('chosenStatusLabel()')
+  })
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  // Sunucu beni boşta gösteriyor (bütün oturumlarım boşta), bu cihaz da boşta bildiriyor
+  run("state.meta.users[0].status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: true, status: 'idle', label: 'Boşta (otomatik)', line: 'Boşta (otomatik)', settings: 'Boşta (otomatik)' })
+  assert.strictEqual(run('myChosenStatus()'), 'online')
+  // Bu cihaz etkinse sunucunun eski metası "otomatik" sayılmaz (ör. elle Boşta'dan Çevrimiçi'ne dönerken)
+  run('var __deviceIdle = false; function idleThisDevice () { return __deviceIdle }')
+  assert.deepStrictEqual(me(), { auto: false, status: 'online', label: 'Çevrimiçi', line: 'Çevrimiçi', settings: 'Çevrimiçi' })
+  run('__deviceIdle = true')
+  assert.strictEqual(run('myAutoIdle()'), true)
+  // Elle seçilen durumlar otomatik sayılmaz
+  run("state.me.status = 'idle'")
+  assert.deepStrictEqual(me(), { auto: false, status: 'idle', label: 'Boşta', line: 'Boşta', settings: 'Boşta' })
+  run("state.me.status = 'dnd'; state.meta.users[0].status = 'dnd'")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'dnd')
+  run("state.me.status = 'invisible'; state.meta.users[0].status = 'offline'; state.meta.users[0].online = false")
+  assert.strictEqual(run('myAutoIdle()'), false)
+  assert.strictEqual(run('userStatus(1)'), 'offline')
+  run("I18N.setLang('en')")
+  run("state.me.status = 'online'; state.meta.users[0].status = 'idle'; state.meta.users[0].online = true")
+  assert.strictEqual(run('myStatusLabel()'), 'Idle (automatic)')
+})
+
+test('gizlilik: Telsiz DJ medya denetimleri varsayılan açık, kapatılınca telsiz.djMediaSession 0', () => {
+  const { run, root, storage } = load()
+  assert.strictEqual(run('SETTINGS_KEYS.djMediaSession'), 'telsiz.djMediaSession')
+  run("openSettings('privacy', null)")
+  const sw = root.querySelector('#set-dj-media-session')
+  assert.strictEqual(sw.checked, true)
+  assert.strictEqual(sw.getAttribute('role'), 'switch')
+  assert.ok(root.querySelector('#set-dj-media-session-hint').textContent.indexOf('kilit ekranında') !== -1)
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '0')
+  sw.click()
+  assert.strictEqual(storage.getItem('telsiz.djMediaSession'), '1')
+  storage.setItem('telsiz.djMediaSession', '0')
+  run("showSettingsCat('notifications', null)")
+  run("showSettingsCat('privacy', null)")
+  assert.strictEqual(root.querySelector('#set-dj-media-session').checked, false)
 })
 
 test('settings.css yalnızca belirteçlerle yazılır ve eski WebKit kurallarına uyar', () => {
@@ -1075,6 +1597,53 @@ test('Telsiz DJ sunucu anahtarları: yalnızca sahipte görünür ve sahipte etk
   const admin = load({ role: 'admin' })
   admin.run("openSettings('general', null)")
   assert.strictEqual(admin.root.querySelector('#set-music-section').hidden, true, 'yönetici görmez')
+})
+
+test('şarkı adıyla YouTube araması anahtarı: varsayılan kapalı, YouTube kapalıyken devre dışı, açarken onay penceresi', async () => {
+  const owner = load({ role: 'owner' })
+  const dialogRoot = owner.doc.createElement('div')
+  dialogRoot.id = 'dialog-root'
+  dialogRoot.hidden = true
+  owner.doc.body.appendChild(dialogRoot)
+  owner.run("openSettings('general', null)")
+  const sw = () => owner.root.querySelector('#set-music-search')
+  assert.strictEqual(sw().checked, false, 'varsayılan kapalı')
+  assert.strictEqual(sw().disabled, false)
+  assert.strictEqual(sw().getAttribute('role'), 'switch')
+  assert.ok(owner.root.querySelector('#set-music-search-hint').textContent.indexOf('Hizmet Şartları') !== -1, 'risk açıklaması')
+  const settingsPosts = () => owner.sandbox.__requests.filter((r) => r.path === '/api/settings')
+  // Açmak onay ister: İptal anahtarı kapalı bırakır ve istek göndermez
+  sw().click()
+  assert.strictEqual(sw().checked, false)
+  const dialog = () => owner.doc.querySelector('#music-search-dialog')
+  assert.ok(dialog(), 'onay penceresi açıldı')
+  assert.strictEqual(owner.doc.querySelector('#music-search-confirm').textContent, 'Riskleri Okudum, Aramayı Aç')
+  owner.doc.querySelector('#music-search-cancel').click()
+  assert.strictEqual(dialog(), null)
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(settingsPosts().length, 0)
+  // Onay: POST /api/settings { music: { search: true } }
+  sw().click()
+  owner.doc.querySelector('#music-search-confirm').click()
+  await new Promise((resolve) => setImmediate(resolve))
+  owner.run('0')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }])
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(owner.root.querySelector('#set-music-msg').textContent, 'Şarkı adıyla YouTube araması açıldı.')
+  // Kapatmak onay istemez
+  sw().click()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.strictEqual(dialog(), null)
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(settingsPosts().map((r) => r.body))), [{ music: { search: true } }, { music: { search: false } }])
+  // YouTube kaynağı kapalıyken anahtar kapalı görünür ve devre dışıdır
+  owner.run('state.meta.music = { enabled: true, youtube: false, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, false)
+  assert.strictEqual(sw().disabled, true)
+  owner.run('state.meta.music = { enabled: true, youtube: true, restricted: false, search: true }')
+  owner.run('updateSettingsPage()')
+  assert.strictEqual(sw().checked, true)
+  assert.strictEqual(sw().disabled, false)
 })
 
 test('ses ve tuş atamaları sayfası doğrudan kategoriyle açılınca da tam çizilir', () => {
@@ -1234,4 +1803,493 @@ test('Frekans fotoğrafı: sahip seçer ve kaldırır (POST /api/server-icon/del
   assert.strictEqual(admin.root.querySelector('#set-photo-owner-only').hidden, false)
   admin.root.querySelector('#set-photo-pick').click()
   assert.strictEqual(admin.sandbox.__requests.filter((r) => r.path.indexOf('/api/server-icon') === 0).length, 0)
+})
+
+test('ses kancaları: voiceHook değişiklik ve çizim kancalarını kaydeder, hatalı kanca ötekileri durdurmaz', () => {
+  const { run, sandbox } = load()
+  const errors = []
+  sandbox.console = { warn () {}, log () {}, error (err) { errors.push(err && err.message) } }
+  assert.strictEqual(run('typeof voiceHook'), 'function')
+  assert.strictEqual(run('typeof runVoiceHooks'), 'function')
+  // Telsiz kartının ve bandın DOM çizimi taklit ortamda boşa çıkarılır, çağrı sırası ve kancalar değişmez
+  run('renderBand = renderVoiceChannels = renderVoicePanel = renderUserPanel = updateVoiceLive = aramaRender = function () {}')
+  run(`__hooks = []
+    voiceHook('change', function (snap) { __hooks.push('change:' + (snap ? snap.channelId : 'yok')) })
+    voiceHook('change', function () { throw new Error('bozuk kanca') })
+    voiceHook('change', function () { __hooks.push('change2') })
+    voiceHook('render', function (arg) { __hooks.push('render:' + typeof arg) })
+    voiceHook('bilinmeyen', function () { __hooks.push('bilinmeyen') })
+    voiceHook('change', 'işlev değil')`)
+  const hooks = () => JSON.parse(run('JSON.stringify(__hooks)'))
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks(), ['change:3', 'change2', 'render:undefined'])
+  assert.deepStrictEqual(errors, ['bozuk kanca'])
+  // Yapı değişmeyince kart yeniden çizilmez: change kancaları çalışır, render kancası çalışmaz
+  run('onVoiceChange({ channelId: 3, peers: {} })')
+  assert.deepStrictEqual(hooks().slice(3), ['change:3', 'change2'])
+  run('onVoiceChange(null)')
+  assert.deepStrictEqual(hooks().slice(5), ['change:yok', 'change2', 'render:undefined'])
+})
+
+test('önizleme kartında ad avatarın yanında, rol rozetleri adın yanında: üyede soluk Üye rozeti ve özel rol', () => {
+  const badgesOf = (root, id) => root.querySelectorAll('#' + id + ' .profile-identity-line .profile-identity-badges .badge')
+    .map((b) => [b.getAttribute('class'), b.textContent])
+  let ctx = load({ role: 'member' })
+  ctx.run("state.meta.roles = [{ id: 7, name: 'Moderatör', color: 'green', perms: [] }]")
+  ctx.run('state.meta.users[0].roleId = 7')
+  ctx.run("openSettings('account', null)")
+  const head = ctx.root.querySelector('#set-account-preview .profile-card-head')
+  assert.ok(head.classList.contains('profile-identity'))
+  assert.ok(head.firstChild.classList.contains('profile-card-avatar'), 'avatar solda')
+  assert.strictEqual(head.querySelector('.profile-identity-line .profile-card-name').textContent, 'burak')
+  assert.strictEqual(head.querySelector('.profile-identity-text .profile-card-handle').textContent, '@burak')
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-member', 'Üye'], ['badge badge-custom role-color-green', 'Moderatör']])
+  // Profil sayfasındaki önizleme de aynı rozetleri gösterir
+  ctx.run("showSettingsCat('profile', 'title')")
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-profile-card').map((b) => b[1]), ['Üye', 'Moderatör'])
+
+  ctx = load({ role: 'owner' })
+  ctx.run("openSettings('account', null)")
+  assert.deepStrictEqual(badgesOf(ctx.root, 'set-account-preview'), [['badge badge-owner', 'Sahip']])
+})
+
+test('Profil sayfasında kapak fotoğrafı: seçilen kapak iki önizlemede görünür, kaydedince saveProfile kapağı alır, kaldırma ve geri alma', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  // Bekleyen söz zincirlerinin ilerlemesi için olay döngüsüne birkaç tur verilir
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const band = (id) => root.querySelector('#' + id + ' .profile-card-band')
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  run('hasActiveKey = function () { return true }')
+  run("openSettings('profile', null)")
+  assert.strictEqual(root.querySelector('#set-cover-title').textContent, 'Kapak fotoğrafı')
+  assert.strictEqual(root.querySelector('#set-cover-pick .button-text').textContent, 'Kapak Seç')
+  assert.strictEqual(root.querySelector('#set-cover-remove .button-text').textContent, 'Kapağı Kaldır')
+  assert.ok(root.querySelector('#set-cover-hint').textContent.indexOf('1200x400') !== -1)
+  // Kapak yokken iki önizlemede de yalnızca profil rengi
+  for (const id of ['set-cover-preview', 'set-profile-card']) {
+    assert.ok(band(id), id + ' bandı')
+    assert.strictEqual(band(id).classList.contains('has-cover'), false)
+    assert.strictEqual(coverImg(id), null)
+  }
+  assert.strictEqual(root.querySelector('#set-cover-pick').disabled, false)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  const file = root.querySelector('#set-cover-file')
+  const choose = async (picked) => {
+    file.files = [picked]
+    file.dispatchEvent(fakeEvent('change'))
+    await settle()
+  }
+  // Kaynak dosya 20 MB'tan büyükse okunmaz
+  await choose({ name: 'buyuk.jpg', size: 21 * 1024 * 1024 })
+  assert.match(root.querySelector('#set-cover-msg').textContent, /^Resim en fazla /)
+  // Kodlanamayan veya sınıra sığmayan kapak: hata metni, taslak değişmez
+  sandbox.__preview = { error: () => 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.' }
+  run('makeCoverPreview = function () { return Promise.resolve(__preview) }')
+  await choose({ name: 'gurultu.png', size: 1000 })
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak 1 MB sınırına sığdırılamadı. Başka bir resim seçin.')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  // Kırpılmış kapak önizlemesi: bant önizlemesinde ve profil kartı önizlemesinde görünür
+  sandbox.__preview = { url: 'blob:kapak-onizleme' }
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  await choose(chosen)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
+  for (const id of ['set-cover-preview', 'set-profile-card']) {
+    assert.strictEqual(band(id).classList.contains('has-cover'), true, id)
+    assert.strictEqual(coverImg(id).src, 'blob:kapak-onizleme', id)
+    assert.strictEqual(coverImg(id).alt, '')
+  }
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
+  // Geri al: kapak taslaktan çıkar
+  root.querySelector('#set-profile-reset').click()
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
+  // Yeniden seçip kaldırınca da kapak düşer, sunucuda kapak olmadığı için taslak temiz kalır
+  await choose(chosen)
+  root.querySelector('#set-cover-remove').click()
+  assert.strictEqual(coverImg('set-profile-card'), null)
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  // Kaydet: seçilen dosya saveProfile'a coverFile olarak gider, profil resmi alanı gönderilmez
+  sandbox.__saved = []
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  await choose(chosen)
+  root.querySelector('#set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  assert.strictEqual('avatarFile' in sandbox.__saved[0], false)
+  assert.strictEqual(root.querySelector('#set-profile-msg').textContent, 'Profil kaydedildi.')
+  // Sunucudaki kapak çözülene kadar yerel önizleme kalır, taslak temizdir
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:kapak-onizleme')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, true)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, '')
+})
+
+test('Profil sayfası kaldırılan kapağı kayıttan sonra, sunucu kaydı yenilenene kadar yeniden indirmeye kalkmaz', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  // Sunucudaki kendi kaydımda kapak var. coverUrlOf indirme isteğini (load) kaydeder.
+  sandbox.__cover = 'c'.repeat(32)
+  sandbox.__loads = []
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) && __cover ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: { u: __cover } } } : null }")
+  run("coverUrlOf = function (id, load) { __loads.push(Boolean(load)); return __cover ? 'blob:sunucu-kapak' : null }")
+  run("openSettings('profile', null)")
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:sunucu-kapak')
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, false)
+  root.querySelector('#set-cover-remove').click()
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(root.querySelector('#set-cover-msg').textContent, 'Kapak kaydedince kaldırılır.')
+  assert.strictEqual(root.querySelector('#set-profile-save').disabled, false)
+  sandbox.__saved = []
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  sandbox.__loads.length = 0
+  root.querySelector('#set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual(sandbox.__saved[0].coverFile, null)
+  // Kayıt yenilenene kadar eski kapak (sunucuda silindi) istenmez ve gösterilmez
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(sandbox.__loads.filter(Boolean), [], 'silinen kapak indirilmez')
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(coverImg('set-profile-card'), null)
+  // Sunucu kaydı kapaksız gelince bekleme biter
+  sandbox.__cover = null
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-cover-preview'), null)
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+  assert.strictEqual(root.querySelector('#set-cover-remove').disabled, true)
+})
+
+
+test('Profil kaydı sürerken hazırlanması biten kapak taslakta kalır, Kaldır düğmeleri kayıt bitene kadar kapalı kalır', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  // Kapak hazırlığı ve kayıt, testin bitirdiği sözlerle sürer
+  sandbox.__finishPreview = null
+  sandbox.__finishSave = null
+  sandbox.__saved = []
+  run('hasActiveKey = function () { return true }')
+  run('makeCoverPreview = function () { return new Promise(function (resolve) { __finishPreview = resolve }) }')
+  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
+  run("openSettings('profile', null)")
+  // Görünen ad değişir, Kaydet açılır
+  const name = byId('set-display-name')
+  name.value = 'Burak Yeni'
+  name.dispatchEvent(fakeEvent('input'))
+  assert.strictEqual(byId('set-profile-save').disabled, false)
+  // Büyük bir kapak seçilir, kapak hazırlanırken Kaydet'e basılır: kayıt kapaksız gider
+  const chosen = { name: 'buyuk-kapak.jpg', size: 9 * 1024 * 1024 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazırlanıyor...')
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 1)
+  assert.strictEqual('coverFile' in sandbox.__saved[0], false)
+  // Kayıt sürerken kapak hazır olur: önizlemede görünür, düğmeler kayıt bitene kadar kapalı kalır
+  sandbox.__finishPreview({ url: 'blob:gec-kapak' })
+  await settle()
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
+  for (const id of ['set-profile-save', 'set-profile-reset', 'set-cover-pick', 'set-cover-remove', 'set-avatar-pick', 'set-avatar-remove']) {
+    assert.strictEqual(byId(id).disabled, true, id + ' kayıt sürerken kapalı')
+  }
+  // Ayar izleyicisinin yenilemesi de Kaldır düğmelerini açmaz, kapalı düğmeye basılsa da taslak değişmez
+  run('updateSettingsPage()')
+  assert.strictEqual(byId('set-cover-remove').disabled, true)
+  assert.strictEqual(byId('set-avatar-remove').disabled, true)
+  byId('set-cover-remove').dispatchEvent(fakeEvent('click'))
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  // Kayıt biter: görünen ad kaydedilir, kayda girmeyen kapak taslakta kalır ve kaydedilmemiş değişiklik olarak görünür
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.strictEqual(byId('set-profile-msg').textContent, 'Profil kaydedildi.')
+  assert.strictEqual(run('settingsUi.draft.base.displayName'), 'Burak Yeni')
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  assert.strictEqual(run('settingsUi.draft.coverFile === __saved[0].coverFile'), false)
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:gec-kapak')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:gec-kapak')
+  assert.strictEqual(byId('set-cover-msg').textContent, 'Kapak hazır, kaydedince yüklenir.')
+  assert.strictEqual(byId('set-profile-dirty').hidden, false)
+  assert.strictEqual(byId('set-profile-save').disabled, false)
+  assert.strictEqual(byId('set-cover-remove').disabled, false)
+  // İkinci kayıt kapağı yükler
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 2)
+  assert.strictEqual(sandbox.__saved[1].coverFile, chosen)
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'server')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:gec-kapak')
+  assert.strictEqual(byId('set-profile-dirty').hidden, true)
+})
+
+test('Profil kaydı sürerken yeni kapak seçilirse kayda giren kapağın önizlemesi bırakılmaz, kayıt düşerse bırakılır', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const byId = (id) => root.querySelector('#' + id)
+  sandbox.__previews = []
+  sandbox.__finishSave = null
+  sandbox.__saved = []
+  sandbox.__revoked = []
+  run('hasActiveKey = function () { return true }')
+  run('revokeBlobLater = function (url) { if (url) __revoked.push(url) }')
+  run('makeCoverPreview = function () { return new Promise(function (resolve) { __previews.push(resolve) }) }')
+  run('saveProfile = function (input) { __saved.push(input); return new Promise(function (resolve) { __finishSave = resolve }) }')
+  run("openSettings('profile', null)")
+  const file = byId('set-cover-file')
+  const choose = async (picked) => {
+    file.files = [picked]
+    file.dispatchEvent(fakeEvent('change'))
+    await settle()
+  }
+  // A kapağı hazır, B kapağı hazırlanırken Kaydet: kayda A girer
+  const first = { name: 'a.jpg', size: 5000 }
+  const second = { name: 'b.jpg', size: 5000 }
+  await choose(first)
+  sandbox.__previews.shift()({ url: 'blob:a' })
+  await settle()
+  await choose(second)
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, first)
+  // B kayıt sürerken hazır olur: taslağa girer, kayda giren A bırakılmaz
+  sandbox.__previews.shift()({ url: 'blob:b' })
+  await settle()
+  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:b')
+  assert.deepStrictEqual(sandbox.__revoked, [])
+  // Kayıt düşer: A artık taslakta olmadığı için bırakılır, B taslakta kalır
+  sandbox.__finishSave({ ok: false, error: () => 'Profil kaydedilemedi.' })
+  await settle()
+  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+  assert.strictEqual(run('settingsUi.draft.coverFile.name'), 'b.jpg')
+  // C kapağı hazırlanırken yeniden kaydedilir: kayda B girer, kayıt başarılı olunca B bekleyen önizleme olur, kayıt
+  // sürerken hazır olan C taslakta kalır
+  await choose({ name: 'c.jpg', size: 5000 })
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[1].coverFile, second)
+  sandbox.__previews.shift()({ url: 'blob:c' })
+  await settle()
+  sandbox.__finishSave({ ok: true })
+  await settle()
+  assert.deepStrictEqual(sandbox.__revoked, ['blob:a'])
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:b')
+  assert.strictEqual(run('settingsUi.draft.coverUrl'), 'blob:c')
+  assert.strictEqual(run('settingsUi.draft.coverMode'), 'new')
+})
+
+test('kendi profil kaydım yenilenmeden yapılan ikinci kayıt kapağa dokunmazsa yeni kapağın önizlemesi kalır, silinen eski kapak istenmez', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  // Kendi kaydımda eski kapak X var. Kayıttan sonraki yenileme düşer, kayıt X'i göstermeye devam eder.
+  const oldCover = 'c'.repeat(32)
+  sandbox.__cover = oldCover
+  sandbox.__loads = []
+  sandbox.__saved = []
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: __cover ? { u: __cover } : null } } : null }")
+  run("coverUrlOf = function (id, load) { if (load) __loads.push(__cover); return __cover === 'e'.repeat(32) ? 'blob:sunucu-kapak' : null }")
+  // Önceki kaydın yansımasını bekleme süresi hemen dolar
+  run('wait = function () { return Promise.resolve() }')
+  run('makeCoverPreview = function () { return Promise.resolve({ url: "blob:yeni-kapak" }) }')
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  run("openSettings('profile', null)")
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  assert.strictEqual(run('settingsUi.draft.coverPending.from'), oldCover)
+  // Yalnızca hakkımda metni değiştirilip yeniden kaydedilir: kapak kayda girmez (saveProfile son kayıttaki kapağı
+  // kullanır), yeni kapağın bekleyen önizlemesi kalır
+  const bio = byId('set-bio')
+  bio.value = 'Yeni metin'
+  bio.dispatchEvent(fakeEvent('input'))
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved.length, 2)
+  assert.strictEqual('coverFile' in sandbox.__saved[1], false)
+  assert.strictEqual(byId('set-profile-msg').textContent, 'Profil kaydedildi.')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:yeni-kapak')
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-cover-preview').src, 'blob:yeni-kapak')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:yeni-kapak')
+  assert.deepStrictEqual(sandbox.__loads, [], 'sunucuda silinen eski kapak indirilmez')
+  assert.strictEqual(byId('set-cover-remove').disabled, false)
+  // Kayıt yeni kapakla gelince bekleme biter
+  sandbox.__cover = 'e'.repeat(32)
+  run('updateSettingsPage()')
+  assert.strictEqual(coverImg('set-profile-card').src, 'blob:sunucu-kapak')
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+})
+
+test('kendi profil kaydım kayıttan 20 saniye sonra da yenilenmediyse önizleme yerel kapakta kalır, sunucuda silinen eski kapak istenmez ve gösterilmez', async () => {
+  const { run, root, sandbox } = load({ role: 'member' })
+  const settle = async (rounds = 6) => {
+    if (rounds === 0) return
+    await new Promise((resolve) => setImmediate(resolve))
+    return settle(rounds - 1)
+  }
+  const coverImg = (id) => root.querySelector('#' + id + ' .profile-card-band img.profile-card-cover')
+  const byId = (id) => root.querySelector('#' + id)
+  const previews = () => ['set-cover-preview', 'set-profile-card'].map((id) => (coverImg(id) ? coverImg(id).src : null))
+  // Kendi kaydımda eski kapak X var ve önbellekte çözülmüş durumda. coverUrlOf indirme isteğini (load) kaydeder.
+  const oldCover = 'c'.repeat(32)
+  const newCover = 'e'.repeat(32)
+  sandbox.__cover = oldCover
+  sandbox.__loads = []
+  sandbox.__saved = []
+  sandbox.__now = 1000000
+  run('Date.now = function () { return __now }')
+  run('hasActiveKey = function () { return true }')
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: '', statusText: '', bio: '', color: null, avatar: null, cover: __cover ? { u: __cover } : null } } : null }")
+  sandbox.__decoded = false
+  run("coverUrlOf = function (id, load) { if (load) __loads.push(__cover); if (__cover === 'e'.repeat(32)) return __decoded ? 'blob:sunucu-kapak' : null; return __cover ? 'blob:eski-kapak' : null }")
+  run('wait = function () { return Promise.resolve() }')
+  run('makeCoverPreview = function () { return Promise.resolve({ url: "blob:yeni-kapak" }) }')
+  run('saveProfile = function (input) { __saved.push(input); return Promise.resolve({ ok: true }) }')
+  run("openSettings('profile', null)")
+  assert.deepStrictEqual(previews(), ['blob:eski-kapak', 'blob:eski-kapak'])
+  // Yeni kapak seçilip kaydedilir. Kayıttan sonraki profil yenilemesi düşer, kaydım X'i göstermeye devam eder.
+  const chosen = { name: 'kapak.jpg', size: 5000 }
+  const file = byId('set-cover-file')
+  file.files = [chosen]
+  file.dispatchEvent(fakeEvent('change'))
+  await settle()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[0].coverFile, chosen)
+  // Bekleme süresi (AVATAR_PENDING_MS) dolar. İki yenileme: bekleyen önizleme bırakılsaydı ayar izleyicisi imza değiştiği
+  // için sayfayı yeniden çizerdi.
+  sandbox.__now += run('AVATAR_PENDING_MS') + 1
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), ['blob:yeni-kapak', 'blob:yeni-kapak'], 'kayıt başarılı, yerel önizleme kalır')
+  assert.deepStrictEqual(sandbox.__loads, [], 'sunucuda silinen eski kapak istenmez')
+  assert.strictEqual(run('settingsUi.draft.coverPending.url'), 'blob:yeni-kapak')
+  // Kayıt yeni kapakla gelir: yeni kapak indirilir, çözülene kadar yerel önizleme kalır (bekleme kaydın yenilendiği
+  // andan sayılır), çözülünce sunucudaki kapak gösterilir ve bekleme biter
+  sandbox.__cover = newCover
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(sandbox.__loads, [newCover])
+  assert.deepStrictEqual(previews(), ['blob:yeni-kapak', 'blob:yeni-kapak'])
+  sandbox.__decoded = true
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), ['blob:sunucu-kapak', 'blob:sunucu-kapak'])
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+
+  // Kapak kaldırılıp kaydedilir, yenileme yine geç kalır: süre dolsa da sunucuda silinen kapak istenmez ve gösterilmez
+  byId('set-cover-remove').click()
+  byId('set-profile-save').click()
+  await settle()
+  assert.strictEqual(sandbox.__saved[1].coverFile, null)
+  sandbox.__now += run('AVATAR_PENDING_MS') + 1
+  sandbox.__loads.length = 0
+  run('updateSettingsPage()')
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), [null, null])
+  assert.deepStrictEqual(sandbox.__loads, [], 'kaldırılan kapak istenmez')
+  // Kayıt kapaksız gelince bekleme biter
+  sandbox.__cover = null
+  run('updateSettingsPage()')
+  assert.deepStrictEqual(previews(), [null, null])
+  assert.strictEqual(run('settingsUi.draft.coverPending'), null)
+  assert.strictEqual(byId('set-cover-remove').disabled, true)
+})
+
+test('Hesabım: kapak inince yalnızca önizleme kartı yenilenir, Profili Düzenle düğmesi ve odağı yerinde kalır', () => {
+  const { run, root, doc, sandbox } = load({ role: 'member' })
+  sandbox.__coverUrl = null
+  run("profileRecord = function (id) { return sameId(id, state.me.id) ? { pv: 1, missing: false, profile: { displayName: 'Burak', statusText: '', bio: '', color: null, avatar: null, cover: { u: 'c'.repeat(32) } } } : null }")
+  run('coverUrlOf = function () { return __coverUrl }')
+  run("openSettings('account', null)")
+  const host = root.querySelector('#set-account-card')
+  const edit = root.querySelector('#set-account-edit-profile')
+  const card = root.querySelector('#set-account-preview')
+  // Düğümler karşılaştırılırken assert.ok kullanılır: DOM taklidinin döngülü ağacı hata iletisine dökülmez
+  assert.ok(host.childNodes.length === 2 && host.childNodes[0] === card && host.childNodes[1] === edit, 'önce kart, sonra düğme')
+  assert.strictEqual(card.querySelector('.profile-card-band').classList.contains('has-cover'), false)
+  edit.focus()
+  // Kapak iner: ayar izleyicisi imzanın değiştiğini görür ve sayfayı yeniler
+  sandbox.__coverUrl = 'blob:kapak'
+  run('settingsWatchTick()')
+  const fresh = root.querySelector('#set-account-preview')
+  assert.ok(fresh !== card, 'kart yenilenir')
+  assert.strictEqual(fresh.querySelector('img.profile-card-cover').src, 'blob:kapak')
+  assert.ok(root.querySelector('#set-account-edit-profile') === edit, 'düğme yeniden kurulmaz')
+  assert.ok(host.childNodes.length === 2 && host.childNodes[0] === fresh && host.childNodes[1] === edit, 'kart düğmenin önünde kalır')
+  assert.ok(doc.activeElement === edit, 'odak düğmede kalır')
+  assert.strictEqual(root.querySelectorAll('#set-account-preview').length, 1)
+  // Düğme çalışmaya devam eder
+  edit.click()
+  assert.strictEqual(run('settingsUi.cat'), 'profile')
+})
+
+test('kapak inince açık profil kartında yalnızca bant değişir, kartın geri kalanı yeniden kurulmaz', () => {
+  const { run, doc, sandbox } = load({ role: 'member' })
+  const card = doc.createElement('div')
+  card.id = 'profile-card'
+  card.hidden = true
+  doc.body.appendChild(card)
+  sandbox.__coverUrl = null
+  run('coverUrlOf = function () { return __coverUrl }')
+  run('openProfileCard(2, null)')
+  assert.strictEqual(card.hidden, false)
+  const band = card.querySelector('.profile-card-band')
+  assert.strictEqual(band.classList.contains('has-cover'), false)
+  const body = card.querySelector('.profile-card-body')
+  const head = card.querySelector('.profile-card-head')
+  assert.ok(body && head)
+  // Başka kişinin kapağı gelince kart değişmez
+  sandbox.__coverUrl = 'blob:ece-kapak'
+  run('profileCoverReady(3)')
+  assert.strictEqual(card.querySelector('.profile-card-band'), band)
+  // Kart sahibinin kapağı gelince bant değişir, ad, durum, ses düzeyi ve düğmeler aynı öğeler olarak kalır
+  run('profileCoverReady(2)')
+  const fresh = card.querySelector('.profile-card-band')
+  assert.notStrictEqual(fresh, band)
+  assert.strictEqual(card.firstChild, fresh, 'bant kartın başında kalır')
+  assert.strictEqual(fresh.classList.contains('has-cover'), true)
+  assert.strictEqual(fresh.querySelector('img.profile-card-cover').src, 'blob:ece-kapak')
+  assert.strictEqual(card.querySelectorAll('.profile-card-band').length, 1)
+  assert.strictEqual(card.querySelector('.profile-card-body'), body)
+  assert.strictEqual(card.querySelector('.profile-card-head'), head)
+  assert.strictEqual(body.parentNode, card)
 })

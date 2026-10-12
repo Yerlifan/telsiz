@@ -3,6 +3,9 @@
 // Telsiz DJ arayüzü (Ek L2, KONSEPT 8): motorun (public/music.js, window.TelsizMusic) uygulamaya bağlanması,
 // DJ kartı (#dj), ses odası kadrosundaki "Telsiz DJ" öğesi, yazma alanındaki "/" komutları, mesajdaki ses
 // dosyası kartının "DJ'de çal" düğmesi ve sunucu ayarı değişikliklerinin karta yansıması.
+// /çal şarkı adı (istek 5): sahip açtıysa (meta.music.search) arama sunucuda yapılır (POST /api/music/search),
+// ilk sonuç başlığıyla kuyruğa eklenir. İstemci YouTube'a hiçbir istek göndermez. Arama kapalıysa veya
+// yapılamazsa kartta YouTube'un sonuç sayfasına giden bir bağlantı gösterilir (yeni sekmede açılır).
 //
 // Motor tek örnektir (djEngine). Taşıma 01-core.js api() yardımcısıyla kurulur (POST /api/music/state, ek
 // indirme GET /api/uploads/<id>), durum zarfı etkin grup anahtarıyla mühürlenir (E2EE.sealJson) ve oda ile
@@ -17,17 +20,48 @@
 // YouTube oynatıcı alanı (.dj-yt) motora attachPlayer ile bir kez verilir ve hiç temizlenmez. Alan en az
 // 200x200 CSS pikseli ve görünürdür, üstüne hiçbir öğe konmaz (dokunarak başlat, uyarılar ve hata metinleri
 // alanın altındadır). Oynatıcı görünmezse motor YouTube parçasını bu cihazda duraklatır (music.js syncPlayer).
-// Köşedeki oynatıcı: kart görünmezken (sayfa kipinde sayfa kapalı) veya üstünü bir katman örterken (Ayarlar,
-// başka bir sayfa, menü, pencere) oynatıcı alanı yalnızca CSS sınıflarıyla köşeye sabitlenir, altında başlık,
-// duraklat ve "DJ'yi aç" düğmeleri olan küçük bir çubuk durur (djApplyLayout). Çerçeve ve ataları DOM'da hiç
-// taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir. Böylece müzik ses odasından
-// ayrılana kadar çalmaya devam eder.
+// Köşedeki oynatıcı: kart görünmezken (sayfa kipinde sayfa kapalı), üstünü bir katman örterken (Ayarlar,
+// başka bir sayfa, menü, pencere) veya "Yüzen Oynatıcı" açıkken yüzen kutu (oynatıcı alanı ya da dosya
+// parçasının dalga biçimi ve altında başlık, duraklat, Taşı, Küçült ve "DJ'yi aç" düğmeleri olan çubuk)
+// yalnızca CSS sınıflarıyla dört köşeden birine sabitlenir (djApplyLayout, djPlaceDock). Kutu çubuğundan
+// sürüklenir ve en yakın köşeye oturur (dockDrag), köşe cihazda saklanır (telsiz.djDock), alt köşede yazma
+// alanının ve telsiz kartının üstüne çıkar, üst köşede bandın ve sohbet başlığının altında durur, yer oldukça
+// kartın düğmelerine inmez ve görünüm alanında kalır. Ayarlar gibi ana görünümü örten bir katman açıkken kutu
+// seçilen yandaki alt köşededir. Küçültülen kutuda yalnızca çubuk kalır, YouTube parçası bu cihazda bekletilir.
+// Çerçeve ve ataları DOM'da hiç taşınmaz (taşınan çerçeve yeniden yüklenir), kart visibility ile gizlenir.
+// Böylece müzik ses odasından ayrılana kadar çalmaya devam eder.
+// Çizim: motorun parça ve durum olaylarında kart hemen çizilir, diğer değişiklikler bir sonraki karede
+// toplanır. Sayfa gizliyken (arka plandaki sekme, simge durumundaki pencere) tarayıcı kareleri bekletir,
+// çizim zamanlayıcıyla yapılır ve saniyelik denetim kartı her zaman çizer.
 
 const DJ_TICK_MS = 500
+// Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu DJ_NOTICE_EDIT_MS
+// (06-messages.js) içinde düzenlenir, konuşmayı açık tutanlar bu düzenlemeyi "düzenlendi" etiketsiz görür.
+const DJ_TITLE_WAIT_MS = 8000
+// Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
+const DJ_NOTICE_FRESH_MS = 15000
 // Perdesiz küçük katmanlar: kartın yanında açılabilir, oynatıcıyı yalnızca üstüne gelirse örter. Diğer
 // katmanlar (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici, tam ekran yayın) her zaman örter.
-const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu']
+// 'game-color' Renk masasındaki Joker renk seçicisidir (37-renk.js), yayın panelinin içinde durur, ana görünümü
+// örtmez: açıkken köşedeki oynatıcı telsiz kartının ses düğmelerine inmez.
+const DJ_POPOVER_LAYERS = ['emoji', 'msg-menu', 'peer', 'profile-card', 'status-menu', 'social-menu', 'frekans-menu', 'band-help', 'search', 'mic-menu', 'game-color']
 const DJ_WAVE_BARS = 30
+// Şarkı adıyla arama (istek 5): arama yapılamayınca kartta verilen YouTube sonuç sayfası ve sunucu ucunun hata
+// kodlarının karşılığı olan music.errors.* kodları
+const DJ_SEARCH_PAGE = 'https://www.youtube.com/results?search_query='
+const DJ_SEARCH_ERRORS = {
+  search_unavailable: 'search_unavailable',
+  search_failed: 'search_failed',
+  rate_limited: 'search_rate',
+  search_daily_limit: 'search_daily',
+  bad_query: 'search_bad_query',
+  not_in_voice: 'not_in_voice',
+  dj_restricted: 'dj_restricted',
+  dj_disabled: 'dj_disabled',
+  channel_not_found: 'not_in_voice'
+}
+// Bu hatalarda kartta YouTube'da arama bağlantısı gösterilir
+const DJ_SEARCH_MISS = ['search_unavailable', 'search_failed', 'search_daily', 'search_no_results']
 const DJ_OK_KEYS = {
   play: 'music.ok.added',
   skip: 'music.ok.skipped',
@@ -52,11 +86,25 @@ const dj = {
   crewLi: null,
   crewFocus: false,
   renderQueued: false,
+  renderTimer: 0,
   marksKey: '',
   docked: false,
   dockSticky: null,
   layoutBusy: false,
-  dockBottom: null
+  dockBottom: null,
+  minimized: false,
+  desktopWatched: false,
+  mediaKey: null,
+  mediaPosKey: '',
+  mediaPosAt: 0,
+  consentRow: null,
+  consentWarnFor: null,
+  titleWatch: [],
+  // Şarkı adıyla arama: son başlatılan aramanın sorgusu (yanıtı gelene kadar), her aramada ve ses odası her
+  // değiştiğinde artan sıra numarası ve arama yapılamayınca kartta gösterilen { query, code, room }
+  searching: null,
+  searchSeq: 0,
+  searchMiss: null
 }
 
 function djMusic () {
@@ -110,15 +158,18 @@ function djEngine () {
   const engine = dj.engine
   engine.on('change', (snapshot) => {
     dj.snap = snapshot
-    djRenderSoon()
+    djRenderNow()
+    djCheckTitles()
+    if (typeof activityDjRefresh === 'function') activityDjRefresh()
   })
+  // Parça değişti: olay oynatıcı kurulmadan önce gelir, oynatıcı alanı önceden görünür olur
   engine.on('track', () => {
-    djRenderSoon()
+    dj.snap = engine.snapshot()
+    djRenderNow()
   })
   engine.on('notice', djOnNotice)
-  engine.on('consentneeded', () => {
-    if (!djCardShown()) toast(() => t('music.consent.needed'), '', 8000)
-  })
+  // Rıza sorusu: telsiz kartındaki uyarı ve kısa bildirim (djSyncConsentWarn)
+  engine.on('consentneeded', djRenderNow)
   engine.on('tapneeded', () => {
     // Köşedeki oynatıcının çubuğunda dokunarak başlatma düğmesi zaten vardır
     if (!djCardShown() && !dj.docked) toast(() => t('dj.tapViaCrew'), '', 8000)
@@ -188,6 +239,15 @@ function djSyncVoice () {
   }
   if (room === dj.voiceRoom) return
   dj.voiceRoom = room
+  dj.searchMiss = null
+  // Önceki odada süren aramanın "aranıyor" satırı yeni odada görünmez, yanıtı kartı değiştirmez ve bulunan parça
+  // hiçbir odaya eklenmez (djPlaySearch)
+  dj.searching = null
+  dj.searchSeq += 1
+  // Küçültülmüş oynatıcı yeni odada yeniden açık başlar, medya tuşuyla veya kilit ekranından verilen duraklatma
+  // da önceki odada kalır (yerel bekletme 'media')
+  dj.minimized = false
+  if (typeof engine.setLocalHold === 'function') engine.setLocalHold('media', false)
   engine.setVoiceRoom(room)
   djRenderSoon()
 }
@@ -304,11 +364,22 @@ function djBuild () {
   // Oynatıcı alanı: YouTube çerçevesi, rıza kartı, YouTube kapalı uyarısı, dosya dalga biçimi veya boş durum
   const stage = h('div', 'dj-stage')
   ui.stage = stage
+  // Yüzen kutu: YouTube oynatıcı alanı, dosya parçasının dalga biçimi ve köşedeki oynatıcının çubuğu. Köşeye
+  // alınınca yalnızca bu kutu sabitlenir ve sürüklenir. Kutu çerçeve kurulmadan önce yapılır, sonra hiç taşınmaz.
+  ui.float = h('div', 'dj-float')
+  stage.appendChild(ui.float)
   ui.yt = h('div', 'dj-yt')
   ui.yt.setAttribute('role', 'group')
-  stage.appendChild(ui.yt)
+  ui.float.appendChild(ui.yt)
 
-  // Köşedeki oynatıcının çubuğu: yalnızca köşedeyken görünür, oynatıcı alanının altında durur (üstüne binmez)
+  ui.wave = h('div', 'dj-wave')
+  ui.wave.setAttribute('aria-hidden', 'true')
+  ui.waveBars = h('span', 'dj-wave-bars')
+  ui.wave.appendChild(ui.waveBars)
+  ui.float.appendChild(ui.wave)
+
+  // Köşedeki oynatıcının çubuğu: yalnızca köşedeyken görünür, oynatıcı alanının altında durur (üstüne binmez).
+  // Çubuk sürükleme tutamağıdır (düğmeleri dışında).
   ui.dock = h('div', 'dj-dock')
   ui.dock.setAttribute('role', 'group')
   ui.dock.appendChild(h('span', 'dj-led'))
@@ -318,15 +389,30 @@ function djBuild () {
   ui.dockToggle.addEventListener('click', () => {
     const engine = djEngine()
     const s = djSnapshot()
-    // Dokunarak başlatma bu dokunuşla yapılır (kullanıcı hareketi), değilse kart düğmesi gibi herkes için
+    // Dokunarak başlatma bu dokunuşla yapılır (kullanıcı hareketi). Bu cihazda yerel bekletme varsa düğme yalnızca
+    // bekletmeyi kaldırır (oda durumu değişmez), değilse kart düğmesi gibi herkes için duraklatır veya sürdürür.
     if (engine && s && s.player && s.player.needsTap) engine.unlock()
+    else if (engine && djDockHold(s)) djReleaseHolds()
     else djOnToggle()
   })
   ui.dock.appendChild(ui.dockToggle)
+  ui.dockMove = button('icon-button dj-dock-move', '', 'i-grip', '')
+  ui.dockMove.addEventListener('click', djMoveDock)
+  ui.dock.appendChild(ui.dockMove)
+  ui.dockMin = button('icon-button dj-dock-min', '', 'i-down', '')
+  ui.dockMin.addEventListener('click', djToggleMinimized)
+  ui.dock.appendChild(ui.dockMin)
   ui.dockOpen = button('icon-button dj-dock-open', '', 'i-expand', '')
   ui.dockOpen.addEventListener('click', djOpenFromDock)
   ui.dock.appendChild(ui.dockOpen)
-  stage.appendChild(ui.dock)
+  ui.float.appendChild(ui.dock)
+  dockDrag(ui.float, ui.dock, {
+    canStart: (e) => dj.docked && !(e.target && e.target.closest && e.target.closest('button')),
+    onDrop: (corner) => {
+      djSetDockCorner(corner)
+      djRenderNow()
+    }
+  })
 
   ui.consent = h('div', 'dj-consent')
   ui.consent.appendChild(icon('i-shield', 'dj-consent-icon'))
@@ -356,12 +442,6 @@ function djBuild () {
   ui.blockedText = h('p', 'dj-blocked-text')
   ui.blocked.appendChild(ui.blockedText)
   stage.appendChild(ui.blocked)
-
-  ui.wave = h('div', 'dj-wave')
-  ui.wave.setAttribute('aria-hidden', 'true')
-  ui.waveBars = h('span', 'dj-wave-bars')
-  ui.wave.appendChild(ui.waveBars)
-  stage.appendChild(ui.wave)
 
   ui.empty = h('div', 'dj-empty')
   ui.empty.appendChild(icon('i-music', 'dj-empty-icon'))
@@ -424,6 +504,22 @@ function djBuild () {
   // Kısıtlı kipte yalnızca dinleyen için açıklama
   ui.restricted = h('p', 'dj-hint dj-restricted')
   card.appendChild(ui.restricted)
+  // Şarkı adıyla arama: aranırken durum satırı, arama yapılamayınca YouTube'un sonuç sayfasına bağlantı (yeni
+  // sekmede, gönderen bilgisi olmadan) ve sahibe ayarın yeri
+  ui.search = h('div', 'dj-search')
+  ui.search.setAttribute('role', 'status')
+  ui.search.setAttribute('aria-live', 'polite')
+  ui.searchText = h('p', 'dj-hint dj-search-text')
+  ui.search.appendChild(ui.searchText)
+  ui.searchLinkRow = h('p', 'dj-hint dj-search-link-row')
+  ui.searchLink = h('a', 'button button-small button-secondary dj-search-link')
+  ui.searchLink.target = '_blank'
+  ui.searchLink.rel = 'noopener noreferrer'
+  ui.searchLinkRow.appendChild(ui.searchLink)
+  ui.search.appendChild(ui.searchLinkRow)
+  ui.searchOwner = h('p', 'dj-hint dj-search-owner')
+  ui.search.appendChild(ui.searchOwner)
+  card.appendChild(ui.search)
 
   // Kişisel ses seviyesi (cihazda saklanır) veya ayarlanamıyorsa açıklama
   ui.vol = h('div', 'dj-vol')
@@ -471,6 +567,26 @@ function djBuild () {
   })
   card.appendChild(ui.mute)
 
+  // "Yüzen Oynatıcı": kart görünürken de oynatıcı köşede durur (yalnızca bu cihazda)
+  ui.floatSwitch = h('button', 'dj-mute dj-float-switch')
+  ui.floatSwitch.type = 'button'
+  ui.floatSwitch.setAttribute('role', 'switch')
+  const floatText = h('span', 'dj-mute-text')
+  ui.floatLabel = h('span', 'dj-mute-label')
+  floatText.appendChild(ui.floatLabel)
+  ui.floatHint = h('span', 'dj-mute-hint')
+  floatText.appendChild(ui.floatHint)
+  ui.floatSwitch.appendChild(floatText)
+  const floatSw = h('span', 'dj-switch')
+  floatSw.setAttribute('aria-hidden', 'true')
+  floatSw.appendChild(h('i', ''))
+  ui.floatSwitch.appendChild(floatSw)
+  ui.floatSwitch.addEventListener('click', () => {
+    djSetFloat(!djFloatOn())
+    djRenderNow()
+  })
+  card.appendChild(ui.floatSwitch)
+
   // Kuyruk
   ui.queueTitle = h('h3', 'kicker dj-queue-title')
   ui.queueTitle.id = 'dj-queue-title'
@@ -484,19 +600,54 @@ function djBuild () {
   card.appendChild(ui.addHint)
   ui.speakerHint = h('p', 'dj-hint dj-speaker-hint')
   card.appendChild(ui.speakerHint)
+  // Masaüstü uygulamasında: YouTube parçası pencere arka plandayken çalmaz
+  ui.bgNote = h('p', 'dj-hint dj-bg-note')
+  card.appendChild(ui.bgNote)
 
   dj.ui = ui
   const engine = djEngine()
   if (engine) engine.attachPlayer(ui.yt)
 }
 
+// Sayfa gizli mi (arka plandaki sekme, simge durumundaki veya tepsideki masaüstü penceresi)
+function djPageHidden () {
+  try {
+    return document.visibilityState === 'hidden'
+  } catch (err) {
+    return false
+  }
+}
+
+// Çizim bir sonraki karede yapılır. Gizli sayfada tarayıcı requestAnimationFrame'i bekletir (Chrome arka
+// plandaki sekmede, Electron simge durumundaki pencerede): çizim zamanlayıcıyla yapılır, yoksa oynatıcı alanı
+// hiç çizilmez ve motor görünmeyen YouTube parçasını duraklatır. Kare beklenirken sayfa gizlenirse de
+// zamanlayıcı kurulur.
 function djRenderSoon () {
-  if (dj.renderQueued || !dj.ready) return
+  if (!dj.ready) return
+  if (dj.renderQueued) {
+    if (djPageHidden() && !dj.renderTimer) dj.renderTimer = setTimeout(djRenderQueued, 0)
+    return
+  }
   dj.renderQueued = true
-  nextFrame(() => {
-    dj.renderQueued = false
-    djRender()
-  })
+  if (djPageHidden()) dj.renderTimer = setTimeout(djRenderQueued, 0)
+  else nextFrame(djRenderQueued)
+}
+
+function djRenderQueued () {
+  if (dj.renderTimer) {
+    clearTimeout(dj.renderTimer)
+    dj.renderTimer = 0
+  }
+  if (!dj.renderQueued) return
+  dj.renderQueued = false
+  djRender()
+}
+
+// Motorun parça ve durum olaylarında yerleşim ve oynatıcı alanı kare beklenmeden uygulanır: parça gelince
+// YouTube çerçevesi görünür bir alana kurulur (sayfa gizliyken de)
+function djRenderNow () {
+  if (!dj.ready || dj.layoutBusy) return
+  djRender()
 }
 
 // ------------------------------------------------------------------ bant ve telsiz kartı işaretleri
@@ -541,12 +692,18 @@ function djSyncMarks () {
 function djRender () {
   if (!dj.ready || !el.dj) return
   djSyncMarks()
-  const s = djSnapshot()
   const show = djShouldShow()
   djApplyLayout(show)
+  // Anlık görüntü yerleşimden sonra okunur: yerleşim yerel bekletmeyi değiştirebilir (küçültülmüş köşe), motorun
+  // o sıradaki değişiklik olayı çizim yapmaz (djRenderNow), çubuk ve uyarı satırı yeni durumla çizilir
+  const s = djSnapshot()
   djAttr(el.appView, 'data-dj', s && s.supported && s.enabled ? 'on' : 'off')
   djEnsureCrewItem(show)
-  if (!show || !dj.ui || !s) return
+  if (!show || !dj.ui || !s) {
+    djSyncConsentWarn(null)
+    djMediaSession(null)
+    return
+  }
   const ui = dj.ui
   const session = s.session
   const current = session ? session.current : null
@@ -618,6 +775,7 @@ function djRender () {
   // Başkasının son işlemi
   djSetText(ui.last, dj.notice ? textOf(dj.notice) : '')
   ui.last.hidden = !dj.notice
+  djRenderSearch(ui)
 
   // Kişisel ses seviyesi ve susturma
   ui.vol.hidden = !s.volumeSupported
@@ -632,6 +790,9 @@ function djRender () {
   djAttr(ui.mute, 'aria-checked', s.muted ? 'true' : 'false')
   djSetText(ui.muteLabel, t('music.muteForMe'))
   djSetText(ui.muteHint, t('dj.muteHint'))
+  djAttr(ui.floatSwitch, 'aria-checked', djFloatOn() ? 'true' : 'false')
+  djSetText(ui.floatLabel, t('dj.dock.float'))
+  djSetText(ui.floatHint, t('dj.muteHint'))
 
   // Kuyruk
   djRenderQueue(session ? session.queue : [])
@@ -644,6 +805,155 @@ function djRender () {
   const vad = Boolean(vs && !(vs.ptt && vs.ptt.enabled))
   ui.speakerHint.hidden = !(current && vad)
   if (!ui.speakerHint.hidden) djSetText(ui.speakerHint, t('music.speakerHint'))
+  ui.bgNote.hidden = !(isYt && dj.desktopWatched)
+  if (!ui.bgNote.hidden) djSetText(ui.bgNote, t('music.player.backgroundYoutube'))
+  djSyncConsentWarn(s)
+  djMediaSession(s)
+}
+
+// ------------------------------------------------------------------ Media Session
+
+const DJ_MEDIA_KEY = 'telsiz.djMediaSession'
+const DJ_MEDIA_POSITION_MS = 5000
+
+// Ayarlar > Gizlilik: parça adı işletim sisteminin medya denetimlerine verilsin mi (varsayılan açık)
+function djMediaSessionOn () {
+  return djStoreGet(DJ_MEDIA_KEY) !== '0'
+}
+
+// İşletim sisteminin medya denetimleri ve kilit ekranı (navigator.mediaSession): başlık parçanın adı, sanatçı
+// alanı "Telsiz DJ · oda". Oynat ve Duraklat yalnızca bu cihazdaki yerel bekletmeyi yönetir (music.js
+// setLocalHold 'media'), odanın durumunu değiştirmez: bir kulaklık tuşu bütün odayı durdurmaz. Konum
+// setPositionState ile bildirilir. Odadan çıkınca, parça kalmayınca veya ayar kapalıyken metadata null olur ve
+// işleyiciler kaldırılır. Başka modüller aynı nesneye yalnızca kendi eylem işleyicilerini ekler, metadata'yı
+// yalnızca bu işlev yazar.
+function djMediaSession (s) {
+  const ms = navigator.mediaSession
+  if (!ms) return
+  const engine = djEngine()
+  const session = s ? s.session : null
+  const current = session ? session.current : null
+  const active = Boolean(engine && s && s.supported && s.enabled && current && dj.voiceRoom !== null && djMediaSessionOn())
+  if (!active) {
+    if (dj.mediaKey === null) return
+    dj.mediaKey = null
+    dj.mediaPosAt = 0
+    try {
+      ms.metadata = null
+      ms.playbackState = 'none'
+      ms.setActionHandler('play', null)
+      ms.setActionHandler('pause', null)
+    } catch (err) {
+      // Desteklenmeyen eylem
+    }
+    return
+  }
+  if (dj.mediaKey === null) {
+    try {
+      ms.setActionHandler('play', () => {
+        const e = djEngine()
+        if (e) e.setLocalHold('media', false)
+      })
+      ms.setActionHandler('pause', () => {
+        const e = djEngine()
+        if (e) e.setLocalHold('media', true)
+      })
+    } catch (err) {
+      // Desteklenmeyen eylem
+    }
+  }
+  const title = djTrackTitle(current)
+  const artist = t('dj.mediaSession.artist', { room: djRoomName(dj.voiceRoom) })
+  const key = current.id + '|' + title + '|' + artist
+  if (key !== dj.mediaKey) {
+    dj.mediaKey = key
+    dj.mediaPosAt = 0
+    try {
+      ms.metadata = typeof window.MediaMetadata === 'function' ? new window.MediaMetadata({ title: title, artist: artist }) : null
+    } catch (err) {
+      ms.metadata = null
+    }
+  }
+  const p = s.player || {}
+  const held = Array.isArray(p.localHold) && p.localHold.length > 0
+  const state = session.playing && !held ? 'playing' : 'paused'
+  const posKey = state + '|' + current.id
+  try {
+    if (ms.playbackState !== state) ms.playbackState = state
+  } catch (err) {
+    // Yoksa sessiz
+  }
+  // Konum: parça veya durum değişince ve birkaç saniyede bir
+  const dur = current.durationMs || 0
+  const now = Date.now()
+  if (typeof ms.setPositionState === 'function' && dur > 0 && (posKey !== dj.mediaPosKey || now - dj.mediaPosAt >= DJ_MEDIA_POSITION_MS)) {
+    dj.mediaPosKey = posKey
+    dj.mediaPosAt = now
+    const pos = Math.max(0, Math.min(dur, Number(engine.queue().positionMs) || 0))
+    try {
+      ms.setPositionState({ duration: dur / 1000, playbackRate: 1, position: pos / 1000 })
+    } catch (err) {
+      // Geçersiz konum, sonraki denetimde yeniden denenir
+    }
+  }
+}
+
+// ------------------------------------------------------------------ erken YouTube rızası
+
+// Rıza sorusu daha erken: YouTube oynatıcısına henüz izin vermemiş (sorulmamış) kişi ses odasındayken odada
+// YouTube parçası çalıyorsa (odaya sonradan katılınca da) telsiz kartında kalıcı bir uyarı ve Yükle düğmesi
+// durur. Her yeni YouTube parçasında bir kez kısa bildirim de çıkar, DJ kartı görünürken de (arka plandayken
+// kaçmasın). Rıza yine yalnızca bu cihazda ve kişinin düğmesiyle verilir, ayrıntılı açıklama DJ kartındadır.
+function djConsentWarnTrack (s) {
+  if (!s || !s.supported || !s.enabled || !s.youtubeEnabled || s.consent !== 'unset' || dj.voiceRoom === null) return null
+  if (!sameId(s.room, dj.voiceRoom) || !s.session || !s.session.current || s.session.current.type !== 'youtube') return null
+  return s.session.current.id
+}
+
+function djConsentWarnRow () {
+  if (dj.consentRow) return dj.consentRow
+  const row = h('div', 'radio-dj-consent')
+  row.setAttribute('role', 'group')
+  row.hidden = true
+  const text = h('p', 'radio-dj-consent-text')
+  text.id = 'radio-dj-consent-text'
+  row.setAttribute('aria-labelledby', text.id)
+  row.appendChild(text)
+  const actions = h('div', 'radio-dj-consent-actions')
+  const accept = button('button button-small radio-dj-consent-accept', ' ')
+  accept.addEventListener('click', () => {
+    const engine = djEngine()
+    if (engine) engine.setConsent(true)
+  })
+  actions.appendChild(accept)
+  const decline = button('button button-small button-ghost radio-dj-consent-decline', ' ')
+  decline.addEventListener('click', () => {
+    const engine = djEngine()
+    if (engine) engine.setConsent(false)
+  })
+  actions.appendChild(decline)
+  row.appendChild(actions)
+  dj.consentRow = { row: row, text: text, accept: accept, decline: decline }
+  return dj.consentRow
+}
+
+function djSyncConsentWarn (s) {
+  const trackId = djConsentWarnTrack(s)
+  if (trackId && trackId !== dj.consentWarnFor) toast(() => t('music.consent.roomHasYoutube'), '', 8000)
+  dj.consentWarnFor = trackId
+  // DJ kartı rıza sorusunu zaten gösteriyorsa uyarı yinelenmez
+  const cardAsks = Boolean(trackId && djCardShown() && dj.ui && !dj.ui.consent.hidden)
+  const want = Boolean(trackId) && !cardAsks
+  const host = el.radioTuned || byId('radio-tuned')
+  if (!want && !dj.consentRow) return
+  const c = djConsentWarnRow()
+  if (want && host && c.row.parentNode !== host) host.appendChild(c.row)
+  if (want) {
+    djSetText(c.text, t('music.consent.roomHasYoutube'))
+    djSetText(c.accept.lastChild, t('music.consent.accept'))
+    djSetText(c.decline.lastChild, t('music.consent.decline'))
+  }
+  if (c.row.hidden !== !want) c.row.hidden = !want
 }
 
 // Oynatıcı alanının altındaki tek uyarı satırı. Öncelik: oturum hatası, dokunarak başlat, oynatıcı hatası,
@@ -654,12 +964,22 @@ function djRenderAlert (s, current, ytVisible) {
   let text = ''
   let action = ''
   let primary = false
+  const holds = current && Array.isArray(p.localHold) ? p.localHold : []
   if (current && p.needsTap) {
     action = 'tap'
     primary = true
   } else if (current && p.error) {
     text = djErrorText(p.error)
     action = 'retry'
+  } else if (holds.indexOf('media') !== -1) {
+    // Kilit ekranı veya medya tuşuyla bu cihazda duraklatıldı
+    text = t('music.player.holdDevice')
+    action = 'media'
+  } else if (holds.indexOf('window') !== -1) {
+    text = t('music.player.waitingVisible')
+  } else if (holds.indexOf('minimized') !== -1) {
+    text = t('music.player.minimizedYoutube')
+    action = 'restore'
   } else if (current && p.hold) {
     text = t(p.holdReason === 'device' ? 'music.player.holdDevice' : 'music.player.hold')
     action = 'resync'
@@ -677,32 +997,70 @@ function djRenderAlert (s, current, ytVisible) {
   ui.alertAction.classList.toggle('button-secondary', !primary)
   ui.alertAction.classList.toggle('dj-tap', primary)
   if (action) {
-    const key = action === 'tap' ? 'music.tapToListen' : action === 'retry' ? 'music.actions.retry' : 'music.actions.resync'
+    let key = 'music.actions.resync'
+    if (action === 'tap') key = 'music.tapToListen'
+    else if (action === 'retry') key = 'music.actions.retry'
+    else if (action === 'restore') key = 'dj.dock.restore'
     djSetText(ui.alertAction.lastChild, t(key))
   }
 }
 
-// Köşedeki oynatıcının çubuğu: parça adı, duraklat veya devam (dokunarak başlatma gerekiyorsa o) ve DJ'yi aç
+// Bu cihazda kişinin kaldırabileceği yerel bekletme: medya tuşu veya kilit ekranı ('media'), küçültülmüş YouTube
+// ('minimized'). Pencere bekletmesi ('window') pencere görünür olunca kendiliğinden kalkar.
+function djDockHold (s) {
+  const holds = s && s.player && Array.isArray(s.player.localHold) ? s.player.localHold : []
+  if (holds.indexOf('media') !== -1) return 'media'
+  if (holds.indexOf('minimized') !== -1) return 'minimized'
+  return ''
+}
+
+// "Bu Cihazda Devam Et": medya bekletmesi kalkar, küçültülmüş oynatıcı açılır. Oynatıcı odanın konumuna atlayıp
+// sürer, odanın durumu değişmez.
+function djReleaseHolds () {
+  const engine = djEngine()
+  dj.minimized = false
+  if (engine && typeof engine.setLocalHold === 'function') engine.setLocalHold('media', false)
+  djRenderNow()
+}
+
+// Köşedeki oynatıcının çubuğu: parça adı, duraklat veya devam (dokunarak başlatma gerekiyorsa o) ve DJ'yi aç. Kartın
+// uyarı satırı köşedeyken görünmez: bu cihazda yerel bekletme varsa çubuk bunu söner lamba ve "Bu Cihazda Devam
+// Et" düğmesiyle gösterir, düğme odayı duraklatmaz.
 function djRenderDock (s, current) {
   const ui = dj.ui
   if (!dj.docked || !current) return
   const session = s.session
   const tap = Boolean(s.player && s.player.needsTap)
+  const hold = tap ? '' : djDockHold(s)
   const playing = Boolean(session && session.playing)
   djAttr(ui.dock, 'aria-label', t('dj.dock.label'))
   djSetText(ui.dockTitle, djTrackTitle(current))
   djAttr(ui.dockTitle, 'title', djTrackTitle(current))
-  setIcon(ui.dockToggle, playing && !tap ? 'i-pause' : 'i-play')
-  const toggleLabel = t(tap ? 'music.tapToListen' : playing ? 'music.actions.pause' : 'music.actions.resume')
+  setIcon(ui.dockToggle, playing && !tap && !hold ? 'i-pause' : 'i-play')
+  const toggleLabel = t(tap ? 'music.tapToListen' : hold ? 'dj.dock.resumeHere' : playing ? 'music.actions.pause' : 'music.actions.resume')
   djAttr(ui.dockToggle, 'aria-label', toggleLabel)
   djAttr(ui.dockToggle, 'title', toggleLabel)
   djAttr(ui.dockOpen, 'aria-label', t('dj.dock.open'))
   djAttr(ui.dockOpen, 'title', t('dj.dock.open'))
+  djAttr(ui.dockMove, 'aria-label', t('dj.dock.moveLabel'))
+  djAttr(ui.dockMove, 'title', t('dj.dock.move'))
+  setIcon(ui.dockMin, dj.minimized ? 'i-up' : 'i-down')
+  const minLabel = t(dj.minimized ? 'dj.dock.restore' : 'dj.dock.minimize')
+  djAttr(ui.dockMin, 'aria-label', minLabel)
+  djAttr(ui.dockMin, 'title', minLabel)
   ui.dock.classList.toggle('needs-tap', tap)
+  ui.dock.classList.toggle('is-held', Boolean(hold))
 }
 
-// "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir
+// "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir. Köşedeki kutu
+// pencerelerin de üstünde durur: kilitli bir katman açıksa (ör. kurtarma kodu penceresi, 41-kurtarma.js) hiçbir
+// katman kapanmaz, odak o katmana döner. Kilit yalnızca katmanın kendi düğmesiyle açılır.
 function djOpenFromDock () {
+  const locked = lockedLayer()
+  if (locked) {
+    focusNode(focusables(locked.el)[0] || locked.el)
+    return
+  }
   layers.slice().reverse().forEach((layer) => {
     if (layer.name !== 'sheet-dj') closeLayer(layer, false)
   })
@@ -715,8 +1073,16 @@ function djOnAlertAction () {
   if (!engine || !dj.ui) return
   const action = dj.ui.alertAction.getAttribute('data-action')
   // unlock() kullanıcı hareketinin içinde eşzamanlı çağrılmalıdır (kendiliğinden oynatma kuralı)
-  if (action === 'tap') engine.unlock()
-  else if (action === 'retry' || action === 'resync') engine.resync()
+  if (action === 'tap') {
+    engine.unlock()
+  } else if (action === 'retry' || action === 'resync') {
+    engine.resync()
+  } else if (action === 'media') {
+    engine.setLocalHold('media', false)
+  } else if (action === 'restore') {
+    dj.minimized = false
+    djRenderNow()
+  }
 }
 
 // Dosya parçasının dalga biçimi: çubuk boyları parça kimliğinden türetilir (içerik çözümlenmez)
@@ -769,7 +1135,7 @@ function djRenderQueue (list) {
   const ui = dj.ui
   const items = Array.isArray(list) ? list : []
   const listenOnly = djListenOnly()
-  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
+  const key = window.I18N.lang + '|' + (listenOnly ? 'l' : 'c') + '|' + (typeof profileEpoch === 'function' ? profileEpoch() : 0) + '|' + items.map((tr) => tr.id + ':' + tr.title + ':' + tr.addedBy).join(',')
   djSetText(ui.queueTitle, t('dj.queueTitle', { count: items.length }))
   ui.queueEmpty.hidden = items.length > 0
   djSetText(ui.queueEmpty, t('music.queue.empty'))
@@ -815,14 +1181,47 @@ function djAction (command, fn, announceOk) {
   })
 }
 
+// Kuyruktaki parça (motorun bildiği oturumda yoksa null). Başlık sonradan dolabildiği için duyurular ve
+// bildirimler adı buradan canlı okur.
+function djLiveTrack (trackId) {
+  const engine = djEngine()
+  if (!engine || !trackId) return null
+  const q = engine.queue()
+  const all = (q.current ? [q.current] : []).concat(q.queue || [])
+  return all.filter((tr) => tr && tr.id === trackId)[0] || null
+}
+
+// Parçanın gösterilecek adı. seen, adı gösteren kaydın kendi belleğidir ({ title, type }: Bildirimler kaydı
+// veya karttaki son işlem satırı). Parça kuyruktayken güncel adı ve türü bu belleğe yazılır, böylece parça
+// kuyruktan çıkınca (bitti, geçildi, durduruldu) kayıt en son bilinen adı gösterir. Ad hiç bilinmediyse metin
+// parçanın türüne göre seçilir ("YouTube videosu" veya "Ses dosyası").
+function djLiveTitle (trackId, seen) {
+  const memo = seen && typeof seen === 'object' ? seen : {}
+  const track = djLiveTrack(trackId)
+  if (track) {
+    if (track.type === 'youtube' || track.type === 'file') memo.type = track.type
+    if (track.title) memo.title = track.title
+  }
+  if (memo.title) return memo.title
+  return t(memo.type === 'file' ? 'music.untitledFile' : 'music.untitledYouTube')
+}
+
 function djOnNotice (n) {
   if (!n || typeof n.op !== 'string') return
   const key = 'music.notice.' + n.op
   if (!hasText(key)) return
   const by = n.by
-  const title = n.title || ''
-  dj.notice = () => t('music.notice.' + n.op, { name: by !== null && by !== undefined ? shownName(by) : '', title: title || t('music.untitledYouTube') })
+  const trackId = n.trackId || null
+  // Satırın kendi belleği: bildirimin taşıdığı ad, parça kuyruktaysa şimdiki adı ve türü
+  const seen = { title: typeof n.title === 'string' ? n.title : '', type: null }
+  djLiveTitle(trackId, seen)
+  dj.notice = () => t(key, { name: by !== null && by !== undefined ? shownName(by) : '', title: djLiveTitle(trackId, seen) })
   djRenderSoon()
+  // Bildirimler listesi (28-bildirim.js): aynı ses odasında başkasının az önce eklediği parça. Odaya katılınca
+  // veya sayfa yenilenince gelen eski işlemin bildirimi listeye yazılmaz.
+  const engine = djEngine()
+  const fresh = !n.at || !engine || engine.serverNow() - n.at < DJ_NOTICE_FRESH_MS
+  if (n.op === 'add' && fresh && typeof activityDj === 'function') activityDj(by, n.room, trackId, seen.title, seen.type)
 }
 
 // ------------------------------------------------------------------ yerleşim ve sayfa
@@ -842,13 +1241,18 @@ function djLayerCovers (layer) {
 // sayfa, pencere, görüntüleyici, üstüne gelen menü). Karar ölçülen görünürlüğe değil bu durumlara bağlıdır,
 // köşeye alma ve geri döndürme birbirini tetikleyip titremez. Yedek: katman açıkken motor oynatıcıyı yine de
 // görünmez bulduysa (beklenmeyen bir örtü) oynatıcı köşeye alınır ve katmanlar değişene kadar orada kalır.
+// "Yüzen Oynatıcı" açıksa oynatıcı kart görünürken de köşede durur (DJ sayfası açıkken sayfanın içindedir). Dosya
+// parçası yalnızca bu anahtarla köşeye çıkar (dalga biçimi ve çubuk), dosya görünmeden de çalar.
 function djWantDock (show, hidden) {
   const s = djSnapshot()
   if (!show || !dj.ui || !s) return false
   const current = s.session ? s.session.current : null
-  if (!current || current.type !== 'youtube') return false
+  if (!current) return false
+  const sheetOpen = dj.sheetMode && Boolean(findLayer('sheet-dj'))
+  const float = djFloatOn() && !sheetOpen
+  if (current.type !== 'youtube') return float
   if (!s.youtubeEnabled || s.consent !== 'granted' || (s.player && s.player.blocked === 'youtube_disabled')) return false
-  if (hidden) return true
+  if (hidden || float) return true
   const others = layers.filter((layer) => layer.name !== 'sheet-dj')
   const key = others.map((layer) => layer.name).join(',')
   if (dj.dockSticky !== null && dj.dockSticky !== key) dj.dockSticky = null
@@ -861,27 +1265,318 @@ function djWantDock (show, hidden) {
   return false
 }
 
-// Telefonda köşedeki oynatıcı yazma alanının üstünde durur. Yazma alanı görünmüyorsa veya üstünü bir katman
-// örtüyorsa (Ayarlar, alt sayfa) ekranın altındadır.
-function djDockBottom () {
-  if (!isNarrow() || layers.some((layer) => layer.name !== 'sheet-dj')) return null
-  const composer = byId('composer')
-  if (!composer || !composer.getClientRects().length) return null
-  const r = composer.getBoundingClientRect()
-  const lift = Math.round(window.innerHeight - r.top)
-  return r.height > 0 && lift > 0 && lift < window.innerHeight / 2 ? lift + 'px' : null
+// ------------------------------------------------------------------ köşedeki oynatıcı: köşe, sürükleme, küçültme
+
+const DJ_DOCK_KEY = 'telsiz.djDock'
+const DJ_FLOAT_KEY = 'telsiz.djFloat'
+const DJ_CORNERS = ['tl', 'tr', 'br', 'bl']
+
+function djStoreGet (key) {
+  try {
+    return storeGet(key)
+  } catch (err) {
+    return null
+  }
 }
 
-// Yükseklik gövdeye yazılır: kısa bildirim ve güncelleme şeridi de köşedeki oynatıcının üstüne çıkar (dj.css)
+function djStoreSet (key, value) {
+  try {
+    storeSet(key, value)
+  } catch (err) {
+    // Saklanamazsa bu oturumda geçerlidir
+  }
+}
+
+function djFloatOn () {
+  return djStoreGet(DJ_FLOAT_KEY) === '1'
+}
+
+function djSetFloat (on) {
+  djStoreSet(DJ_FLOAT_KEY, on ? '1' : '0')
+}
+
+// Köşe: kişinin seçtiği köşe (cihazda saklanır), yoksa akıllı varsayılan (djDockDefault)
+function djDockCorner () {
+  const saved = djStoreGet(DJ_DOCK_KEY)
+  if (DJ_CORNERS.indexOf(saved) !== -1) return saved
+  return djDockDefault()
+}
+
+// Akıllı varsayılan: telsiz kartının düğmelerini, yazma alanını ve sohbet başlığındaki Oda bilgisi düğmesini
+// örtmeyen ilk köşe. 760 ile 1279 piksel arasında telsiz kartı sağ alttadır, önce sağ üst (bandın altı)
+// denenir. Diğer genişliklerde önce sağ alt. Hiçbiri uymazsa sıradaki ilk köşe.
+function djDockDefault () {
+  const mid = window.innerWidth >= 760 && window.innerWidth < 1280
+  const order = mid ? ['tr', 'br', 'tl', 'bl'] : ['br', 'tr', 'bl', 'tl']
+  const box = dj.ui ? dj.ui.float.getBoundingClientRect() : null
+  if (!box || !box.width || !box.height) return order[0]
+  // Ölçü YouTube oynatıcısının tam boyudur (çerçeve ve çubuk): köşe küçültünce veya dosya parçasında değişmez
+  const bar = dj.ui.dock.getBoundingClientRect().height
+  const size = { width: box.width, height: Math.max(box.height, bar > 0 ? 202 + bar : 0) }
+  const guards = djDockControls().concat(djDockCovered() ? [] : djDockBoxes([byId('btn-room-info')]))
+  for (const corner of order) {
+    const r = djDockSpot(corner, size).rect
+    if (!guards.some((g) => g.left < r.right && g.right > r.left && g.top < r.bottom && g.bottom > r.top)) return corner
+  }
+  return order[0]
+}
+
+// Kutunun bulunduğu köşe: Ayarlar, sayfalar veya bir pencere ana görünümü örterken üst köşe aynı yandaki alt
+// köşeye iner. Bu katmanların başlığı ve Kapat düğmesi üsttedir, Ayarlar içeriğe alttan kutu kadar pay bırakır
+// (dj.css), her satıra kaydırarak ulaşılır. Seçilen köşe değişmez, katman kapanınca kutu oraya döner.
+function djDockPlace () {
+  const corner = djDockCorner()
+  return djDockCovered() && corner.charAt(0) === 't' ? 'b' + corner.charAt(1) : corner
+}
+
+function djSetDockCorner (corner) {
+  if (DJ_CORNERS.indexOf(corner) !== -1) djStoreSet(DJ_DOCK_KEY, corner)
+}
+
+// "Taşı": köşeler saat yönünde dolaşılır (klavyeyle de taşınabilsin). Ana görünümü örten bir katman açıkken
+// kutu yalnızca alt köşelerde durduğu için iki alt köşe arasında geçer.
+function djMoveDock () {
+  const order = djDockCovered() ? ['br', 'bl'] : DJ_CORNERS
+  const i = order.indexOf(djDockPlace())
+  djSetDockCorner(order[(i + 1) % order.length])
+  djRenderNow()
+}
+
+// "Küçült" ve "Göster": küçültülünce yalnızca çubuk kalır. Dosya parçası çalmaya devam eder, YouTube parçası
+// yalnızca bu cihazda duraklar (yerel bekletme, music.js setLocalHold) ve açılınca odayla eşitlenip sürer.
+function djToggleMinimized () {
+  dj.minimized = !dj.minimized
+  const s = djSnapshot()
+  const current = s && s.session ? s.session.current : null
+  if (dj.minimized && current && current.type === 'youtube') toast(() => t('music.player.minimizedYoutube'), '', 7000)
+  djRenderNow()
+  if (dj.ui && dj.ui.dockMin.isConnected) focusNode(dj.ui.dockMin)
+}
+
+// Sürükleme yardımcısı (ayrı tutulur, yüzen başka pencereler de kullanabilir). box position: fixed bir kutudur,
+// handle içinden pointer olaylarıyla sürüklenir (tutamakta touch-action: none). Kutu sürüklenirken görünüm
+// alanının içinde tutulur, bırakınca kutunun ortasına en yakın köşe opts.onDrop(corner) ile bildirilir
+// ('tl' | 'tr' | 'bl' | 'br'), kutunun satır içi konumu silinir. Birkaç pikselden kısa hareket tıklama sayılır.
+// opts: { canStart(event) -> bool, onStart(), onDrop(corner) }
+function dockDrag (box, handle, opts) {
+  const o = opts || {}
+  let drag = null
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+  const reset = () => {
+    box.classList.remove('is-dragging')
+    box.style.left = ''
+    box.style.top = ''
+    box.style.right = ''
+    box.style.bottom = ''
+  }
+  handle.addEventListener('pointerdown', (e) => {
+    if (drag || (typeof e.button === 'number' && e.button !== 0)) return
+    if (typeof o.canStart === 'function' && !o.canStart(e)) return
+    const r = box.getBoundingClientRect()
+    drag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height, x0: e.clientX, y0: e.clientY, moved: false }
+    try {
+      handle.setPointerCapture(e.pointerId)
+    } catch (err) {
+      // Yakalama yoksa olaylar yine tutamaktan gelir
+    }
+  })
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) + Math.abs(e.clientY - drag.y0) < 6) return
+    if (!drag.moved) {
+      drag.moved = true
+      box.classList.add('is-dragging')
+      if (typeof o.onStart === 'function') o.onStart()
+    }
+    const vw = document.documentElement.clientWidth || window.innerWidth
+    const vh = window.innerHeight
+    box.style.left = Math.round(clamp(e.clientX - drag.dx, 0, Math.max(0, vw - drag.w))) + 'px'
+    box.style.top = Math.round(clamp(e.clientY - drag.dy, 0, Math.max(0, vh - drag.h))) + 'px'
+    box.style.right = 'auto'
+    box.style.bottom = 'auto'
+    if (e.cancelable) e.preventDefault()
+  })
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return
+    const d = drag
+    drag = null
+    try {
+      handle.releasePointerCapture(e.pointerId)
+    } catch (err) {
+      // Zaten bırakılmış
+    }
+    if (!d.moved) return
+    const r = box.getBoundingClientRect()
+    const vw = document.documentElement.clientWidth || window.innerWidth
+    const vh = window.innerHeight
+    reset()
+    const corner = (r.top + r.height / 2 < vh / 2 ? 't' : 'b') + (r.left + r.width / 2 < vw / 2 ? 'l' : 'r')
+    if (typeof o.onDrop === 'function') o.onDrop(corner)
+  }
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+  handle.addEventListener('lostpointercapture', end)
+}
+
+function djRemPx () {
+  const v = parseFloat(window.getComputedStyle(document.documentElement).fontSize)
+  return isFinite(v) && v > 0 ? v : 15
+}
+
+// Ana görünümü örten bir katman açık mı (Ayarlar, sayfalar ve perdeleri, pencereler, görüntüleyici). Perdesiz
+// küçük katmanlar (DJ_POPOVER_LAYERS) ve DJ sayfası sayılmaz, onlar açıkken telsiz kartı ve yazma alanı görünür.
+function djDockCovered () {
+  return layers.some((layer) => layer.name !== 'sheet-dj' && DJ_POPOVER_LAYERS.indexOf(layer.name) === -1)
+}
+
+// Görünür öğelerin kutuları
+function djDockBoxes (nodes) {
+  const out = []
+  nodes.forEach((n) => {
+    if (!n || !n.getClientRects().length) return
+    const r = n.getBoundingClientRect()
+    if (r.width > 0 && r.height > 0) out.push(r)
+  })
+  return out
+}
+
+// Alt köşedeki kutunun üstüne çıktığı öğeler: yazma alanı ve telsiz kartı. Ana görünümü bir katman örtüyorsa
+// bunlar görünmez, oynatıcı ekranın köşesindedir.
+function djDockObstacles () {
+  return djDockCovered() ? [] : djDockBoxes([byId('composer'), byId('radio')])
+}
+
+// Kutunun hiçbir köşede inmediği düğmeler: telsiz kartındaki kadro (kişi başı ses ayarları), araç satırı
+// (Telsiz DJ, Büyüt) ve ses düğmeleri, yazma alanı. Kartın üstünde yer kalmazsa kutu kartın başlığını ve oda
+// adını örtebilir, düğmelerini örtmez.
+function djDockControls () {
+  if (djDockCovered()) return []
+  const buttons = Array.from(document.querySelectorAll('#radio-crew button, #radio-tools button, #radio-row button'))
+  return djDockBoxes([byId('composer')].concat(buttons))
+}
+
+// Üst köşelerin sınırı: üst çubuk ve frekans bandının altı
+function djDockTopLimit () {
+  let limit = 0
+  const nodes = [byId('top'), el.band || byId('band')]
+  nodes.forEach((n) => {
+    if (!n || !n.getClientRects().length) return
+    const r = n.getBoundingClientRect()
+    if (r.height > 0) limit = Math.max(limit, r.bottom)
+  })
+  return limit
+}
+
+// Sohbet başlığı (oda adı, şifreleme ve Oda bilgisi düğmesi) ve görünürse altındaki okunmamış şeridi
+// (38-gezinme.js #unread-bar: Okunmamışa Git ve Okundu İşaretle)
+function djDockHeads () {
+  if (djDockCovered() || !el.main) return []
+  return djDockBoxes([el.main.querySelector('.convo-head'), byId('unread-bar')])
+}
+
+// Kutunun köşedeki yeri (görünüm alanı koordinatları). Üst köşede kutu bandın altında, aynı hizadaysa sohbet
+// başlığının ve okunmamış şeridinin de altında durur. Alt köşede aynı yandaki yazma alanının ve telsiz kartının
+// üstüne çıkar, sığmazsa bu üst sınıra kadar çıkar. İki durumda da kartın düğmelerine ve yazma alanına inmez: yer
+// yetmezse başlık değil düğmeler korunur (kutu bandın altına kadar çıkar). Kutu görünüm alanında kalır (pencere
+// kutudan alçak değilse): kısa pencerede bandın üstüne çıkar, 200x200 çerçeve kırpılmaz. free: alt köşede önünde
+// hiçbir şey yok.
+function djDockSpot (corner, box) {
+  const vw = document.documentElement.clientWidth || window.innerWidth
+  const vh = window.innerHeight
+  const gap = djRemPx()
+  const left = corner.charAt(1) === 'l' ? gap : vw - gap - box.width
+  const right = left + box.width
+  const across = (r) => r.left < right && r.right > left
+  const band = Math.round(djDockTopLimit() + gap)
+  let upper = band
+  djDockHeads().forEach((r) => {
+    if (across(r)) upper = Math.max(upper, Math.round(r.bottom + gap / 2))
+  })
+  let top = upper
+  let natural = null
+  let lifted = false
+  if (corner.charAt(0) === 'b') {
+    let bottom = vh - gap
+    djDockObstacles().forEach((r) => {
+      if (!across(r)) return
+      bottom = Math.min(bottom, r.top - gap / 2)
+      lifted = true
+    })
+    natural = Math.round(bottom - box.height)
+    top = Math.max(natural, upper)
+  }
+  let floor = Infinity
+  djDockControls().forEach((r) => {
+    if (across(r)) floor = Math.min(floor, r.top - gap / 2)
+  })
+  if (top + box.height > floor) top = Math.max(band, Math.round(floor - box.height))
+  top = Math.max(0, Math.min(top, Math.round(vh - box.height - gap)))
+  return {
+    top: top,
+    lift: Math.round(vh - top - box.height),
+    free: !lifted && top === natural,
+    rect: { left: left, right: right, top: top, bottom: top + box.height }
+  }
+}
+
+// Yeni mesaj kapsülü (38-gezinme.js #new-below) mesaj akışının altına yapışık durur. Alt köşedeki kutu akışın
+// altını örtüyorsa kapsül kutunun üstüne çıkar: dönen değer akışın alt kenarından kutunun üstüne kadarki uzaklıktır
+// (piksel, dj.css --dj-dock-below), kutu akışı örtmüyorsa null. Kapsül gizliyken de hesaplanır, mesaj gelince
+// kapsül hemen doğru yerde çıkar.
+function djDockBelow (rect) {
+  const box = el.messages
+  if (djDockCovered() || !box || !box.getClientRects().length) return null
+  const r = box.getBoundingClientRect()
+  if (!(r.width > 0 && r.height > 0)) return null
+  if (rect.left >= r.right || rect.right <= r.left || rect.top >= r.bottom || rect.bottom <= r.top) return null
+  return Math.round(r.bottom - rect.top + djRemPx() / 2)
+}
+
+function djSetDockBelow (value) {
+  const body = document.body
+  if (value === null) body.style.removeProperty('--dj-dock-below')
+  else body.style.setProperty('--dj-dock-below', value + 'px')
+  body.classList.toggle('has-dj-dock-below', value !== null)
+}
+
+// Köşe ve uzaklıklar gövdeye yazılır (dj.css): üst köşelerde --dj-dock-top, alt köşelerde --dj-dock-lift
+// (djDockSpot). Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (--dj-dock-clear), yeni mesaj
+// kapsülü de kutu mesaj akışının altını örtüyorsa (--dj-dock-below, djDockBelow).
 function djPlaceDock (docked) {
   const body = document.body
+  const node = el.dj
+  const corner = docked ? djDockPlace() : null
   body.classList.toggle('has-dj-dock', docked)
-  const value = docked ? djDockBottom() : null
-  if (value === dj.dockBottom) return
-  dj.dockBottom = value
+  body.classList.toggle('has-dj-dock-bottom', Boolean(corner) && corner.charAt(0) === 'b')
+  djAttr(node, 'data-dock', corner)
+  if (!docked || !dj.ui) {
+    body.style.removeProperty('--dj-dock-lift')
+    body.style.removeProperty('--dj-dock-top')
+    body.style.removeProperty('--dj-dock-clear')
+    body.classList.remove('has-dj-dock-lift')
+    djSetDockBelow(null)
+    dj.dockBottom = null
+    return
+  }
+  const box = dj.ui.float.getBoundingClientRect()
+  const spot = djDockSpot(corner, box)
+  if (corner.charAt(0) === 't') {
+    body.style.setProperty('--dj-dock-top', spot.top + 'px')
+    body.style.removeProperty('--dj-dock-lift')
+    body.style.removeProperty('--dj-dock-clear')
+    body.classList.remove('has-dj-dock-lift')
+    djSetDockBelow(null)
+    dj.dockBottom = null
+    return
+  }
+  djSetDockBelow(djDockBelow(spot.rect))
+  // Önünde bir şey yoksa kutu CSS'teki yerindedir (alt boşluk ve güvenli alan)
+  const value = spot.free ? null : spot.lift + 'px'
   if (value === null) body.style.removeProperty('--dj-dock-lift')
   else body.style.setProperty('--dj-dock-lift', value)
   body.classList.toggle('has-dj-dock-lift', value !== null)
+  body.style.setProperty('--dj-dock-clear', Math.round(spot.lift + box.height + djRemPx()) + 'px')
+  dj.dockBottom = value
 }
 
 function djApplyLayout (show) {
@@ -913,9 +1608,11 @@ function djApplyLayoutNow (show) {
     hidden = !(show && Boolean(findLayer('sheet-dj')))
   }
   // Köşedeyken kart görünmezdir (display: none çerçeveyi de gizlerdi): kart visibility ile gizlenir, yalnızca
-  // oynatıcı alanı ve çubuğu görünür. Kapalı sayfa yer kaplamaz, sütundaki kart yerini korur (dj.css).
+  // oynatıcı alanı ve çubuğu görünür. Kapalı sayfa yer kaplamaz, sütundaki kart yerini korur (dj.css). Yüzen
+  // oynatıcıda kart görünür kalır, oynatıcının yeri kapanır.
   const docked = djWantDock(show, hidden)
   const dockOnly = docked && hidden
+  const dockFloat = docked && !hidden && djFloatOn()
   const dialog = sheetMode && !dockOnly
   djAttr(node, 'role', dialog ? 'dialog' : null)
   djAttr(node, 'aria-modal', dialog ? 'true' : null)
@@ -923,9 +1620,19 @@ function djApplyLayoutNow (show) {
   dj.docked = docked
   node.classList.toggle('is-docked', docked)
   node.classList.toggle('is-dock-only', dockOnly)
-  djPlaceDock(docked)
+  node.classList.toggle('is-dock-float', dockFloat)
+  node.classList.toggle('is-dock-min', docked && dj.minimized)
   const hide = hidden && !docked
   if (node.hidden !== hide) node.hidden = hide
+  djPlaceDock(docked)
+  djSyncMinimizedHold()
+}
+
+// Küçültülmüş köşedeki YouTube oynatıcısı bu cihazda bekletilir (music.js setLocalHold, oda durumu değişmez)
+function djSyncMinimizedHold () {
+  const engine = djEngine()
+  if (!engine || typeof engine.setLocalHold !== 'function') return
+  engine.setLocalHold('minimized', Boolean(dj.docked && dj.minimized), 'youtube')
 }
 
 function djLayout () {
@@ -947,9 +1654,11 @@ function djOnLayers () {
   if (dj.ready && !dj.layoutBusy) djRender()
 }
 
-// Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar
+// Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar. Kilitli bir katman açıkken (ör.
+// kurtarma kodu penceresi) hiçbir şey yapılmaz: sayfa açılışı (openLayer) pencereyi onaysız kapatırdı, sütundaki
+// karta odaklanmak da odağı pencereden çıkarırdı. /kuyruk ve arama sonucu kartta kalır, sonra görülür.
 function djReveal (trigger) {
-  if (!djShouldShow()) return
+  if (!djShouldShow() || lockedLayer()) return
   djRender()
   if (!djIsSheetMode()) {
     const target = dj.ui ? focusables(el.djCard)[0] : null
@@ -1024,7 +1733,7 @@ function djUpdateCrewItem (li) {
   let badge = av.querySelector('.crew-badge')
   if (s.muted && !badge) {
     badge = h('span', 'crew-badge dj-crew-badge')
-    badge.appendChild(icon('i-headphones-off'))
+    badge.appendChild(icon('i-speaker-off'))
     av.appendChild(badge)
   } else if (!s.muted && badge) {
     av.removeChild(badge)
@@ -1104,6 +1813,7 @@ function djCommand (text, ctx) {
     // Yükleme sürerken metin yazma alanında kalır (gönderim yüklemeyi bekleme uyarısı verir)
     if (!att && ctx && ctx.pending > 0) return null
     if (att) return djPlayAttached(att, ctx)
+    if (cmd.query) return djPlaySearch(cmd.query, text)
   }
   // Duyuru komutun yazıldığı yazı odasına gider (kullanıcı bu arada oda değiştirse bile)
   const roomId = state.channelId
@@ -1111,18 +1821,186 @@ function djCommand (text, ctx) {
   if (!pending) return null
   return pending.then((r) => {
     djReport(r && r.command ? r.command : cmd.name, r)
-    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounce(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId })
+    if (r && r.ok && !r.noop && cmd.name === 'play' && cmd.videoId) djAnnounceTrack(roomId, text, { op: 'add', src: 'yt', vid: cmd.videoId }, r.trackId)
     return r
   })
 }
 
-// Kuyruğa eklenen parça komutun yazıldığı yazı odasında herkese duyurulur. Duyuru başarısız olursa parça
-// yine kuyruktadır, yalnızca bildirim gösterilir.
+// ------------------------------------------------------------------ şarkı adıyla arama (istek 5)
+
+// Sahip aramayı açtı mı (sunucu yalnızca DJ ve YouTube kaynağı da açıkken doğru verir)
+function djSearchOn () {
+  const m = state.meta && state.meta.music
+  return Boolean(m && m.search === true)
+}
+
+function djSearchPage (query) {
+  return DJ_SEARCH_PAGE + encodeURIComponent(query)
+}
+
+// Arama yapılamadı: hata bildirimi ve kartta YouTube'da arama bağlantısı. Sayfa kipinde DJ sayfası açılır ki
+// bağlantı görünsün (/kuyruk komutundaki gibi). Arkasından yeni bir arama başlatılmışsa (stale) yalnızca
+// bildirim gösterilir, kart son aramayı gösterir.
+function djSearchMissed (query, code, stale) {
+  const text = code === 'search_no_results' ? () => t('music.errors.search_no_results', { query: query }) : () => djErrorText(code)
+  toast(text, 'error', 7000)
+  if (stale || DJ_SEARCH_MISS.indexOf(code) === -1) return
+  dj.searchMiss = { query: query, code: code, room: dj.voiceRoom }
+  djRenderSoon()
+  if (djIsSheetMode()) djReveal(document.activeElement)
+}
+
+function djRenderSearch (ui) {
+  // Sahip aramayı sonradan açtıysa "arama kapalı" satırı artık gösterilmez
+  const stale = Boolean(dj.searchMiss && dj.searchMiss.code === 'search_unavailable' && djSearchOn())
+  const miss = dj.searchMiss && !stale && sameId(dj.searchMiss.room, dj.voiceRoom) ? dj.searchMiss : null
+  ui.search.hidden = !dj.searching && !miss
+  ui.searchLinkRow.hidden = !miss
+  ui.searchOwner.hidden = !(miss && miss.code === 'search_unavailable' && isOwner())
+  if (dj.searching) {
+    djSetText(ui.searchText, t('music.searching', { query: dj.searching }))
+    return
+  }
+  if (!miss) return
+  djSetText(ui.searchText, t('dj.searchMiss', { query: miss.query }))
+  djSetText(ui.searchLink, t('dj.searchOnYoutube'))
+  const href = djSearchPage(miss.query)
+  if (ui.searchLink.getAttribute('href') !== href) ui.searchLink.setAttribute('href', href)
+  if (!ui.searchOwner.hidden) djSetText(ui.searchOwner, t('dj.searchOwnerHint'))
+}
+
+// /çal şarkı adı: sunucu YouTube'da arar, ilk sonuç başlığıyla eklenir ve duyuru başlıkla hemen gider. Duyuru
+// komutun yazıldığı yazı odasına gider. Sonuç Promise<{ ok, code?, command }>.
+function djPlaySearch (query, text) {
+  const engine = djEngine()
+  const roomId = state.channelId
+  const voiceRoom = dj.voiceRoom
+  const fail = (code) => Promise.resolve({ ok: false, code: code, command: 'play' })
+  const pre = djPrecheck()
+  if (pre) {
+    djReport('play', { ok: false, code: pre })
+    return fail(pre)
+  }
+  const s = djSnapshot()
+  if (s && s.youtubeEnabled === false) {
+    djReport('play', { ok: false, code: 'youtube_disabled' })
+    return fail('youtube_disabled')
+  }
+  // Aynı anda birden çok arama sürebilir: "aranıyor" satırı ve karttaki bağlantı yalnızca son yazılan /çal
+  // komutuyla değişir, daha önce başlatılan aramanın yanıtı yalnızca bildirim gösterir
+  dj.searchSeq += 1
+  if (!djSearchOn()) {
+    dj.searching = null
+    djSearchMissed(query, 'search_unavailable')
+    return fail('search_unavailable')
+  }
+  const seq = dj.searchSeq
+  dj.searching = query
+  dj.searchMiss = null
+  toast(() => t('music.searching', { query: query }), 'ok', 8000)
+  djRenderSoon()
+  // Ses odasının kimliği anlık görüntüde dize olabilir, sunucu sayı bekler (motorun postState'i gibi)
+  return api('POST', '/api/music/search', { channelId: Number(voiceRoom), q: query }).then((res) => {
+    // Ses odası saniyelik denetimden önce yeniden okunur: yanıt gelmeden oda değiştiyse arama eskimiştir
+    djSyncVoice()
+    const stale = seq !== dj.searchSeq
+    if (!stale) {
+      dj.searching = null
+      djRenderSoon()
+    }
+    if (!res || res.status !== 200) {
+      const serverCode = res && res.data && typeof res.data.code === 'string' ? res.data.code : ''
+      const code = !res || res.status === 0 ? 'network' : DJ_SEARCH_ERRORS[serverCode] || 'server'
+      djSearchMissed(query, code, stale)
+      return fail(code)
+    }
+    const results = res.data && Array.isArray(res.data.results) ? res.data.results : []
+    const first = results.filter((r) => r && typeof r.videoId === 'string')[0]
+    if (!first) {
+      djSearchMissed(query, 'search_no_results', stale)
+      return fail('search_no_results')
+    }
+    // Arama komutun verildiği ses odası içindir. Yanıt gelmeden bu cihaz başka bir ses odasına geçtiyse veya
+    // odadan çıktıysa parça eklenmez: motor artık yeni odanın kuyruğunu yazar
+    if (!sameId(dj.voiceRoom, voiceRoom)) {
+      toast(() => t('music.errors.search_room_changed', { query: query }), 'error', 7000)
+      return fail('search_room_changed')
+    }
+    const title = cleanDjTitle(first.title)
+    return engine.addYouTube(first.videoId, { title: title }).then((r) => {
+      if (!r || !r.ok || r.noop) {
+        djReport('play', r)
+        return Object.assign({ command: 'play' }, r)
+      }
+      toast(() => (title ? t('music.ok.addedTitle', { title: title }) : t('music.ok.added')), 'ok')
+      djAnnounceTrack(roomId, text, title ? { op: 'add', src: 'yt', vid: first.videoId, title: title } : { op: 'add', src: 'yt', vid: first.videoId }, r.trackId)
+      return Object.assign({ command: 'play' }, r)
+    })
+  })
+}
+
+// Kuyruğa eklenen parça yazı odasında herkese duyurulur. Sonuç duyuru mesajının kimliği, gönderilemezse null.
+// Duyuru başarısız olursa parça yine kuyruktadır, yalnızca bildirim gösterilir.
 function djAnnounce (roomId, text, d) {
+  if (!roomId || isDmChannel(roomId)) return Promise.resolve(null)
+  const failed = () => {
+    toast(() => t('dj.notice.failed'), 'error')
+    return null
+  }
+  return postSideMessage(roomId, text, d).then((id) => (id === null || id === undefined ? failed() : id), failed)
+}
+
+// YouTube parçasının adı ekleme anında bilinmeyebilir, oynatıcısı yüklenen ilk cihaz adı duruma yazar
+// (music.js annotate). Ad biliniyorsa duyuru hemen gider. Bilinmiyorsa parça en çok DJ_TITLE_WAIT_MS izlenir,
+// ad gelince duyuru adla gider. Süre dolarsa duyuru adsız gider, ad sonradan gelirse ekleyenin kendi mesajı
+// düzenlenir (DJ_NOTICE_EDIT_MS içinde, parça kuyruktayken). Sayfa gizlenir veya kapanırsa bekleyen duyuru hemen
+// adsız gider (djFlushTitles).
+function djAnnounceTrack (roomId, text, d, trackId) {
   if (!roomId || isDmChannel(roomId)) return
-  postSideMessage(roomId, text, d).then((sent) => {
-    if (!sent) toast(() => t('dj.notice.failed'), 'error')
-  }).catch(() => toast(() => t('dj.notice.failed'), 'error'))
+  const track = djLiveTrack(trackId)
+  const title = d.title || (track ? track.title : '')
+  if (title || !trackId) {
+    djAnnounce(roomId, text, title ? Object.assign({}, d, { title: title }) : d)
+    return
+  }
+  const at = Date.now()
+  dj.titleWatch.push({ roomId: roomId, text: text, d: d, trackId: trackId, deadline: at + DJ_TITLE_WAIT_MS, until: at + DJ_NOTICE_EDIT_MS, sent: null })
+  djCheckTitles()
+}
+
+// Motorun her durum değişikliğinde ve saniyelik denetimde bekleyen duyurular denetlenir
+function djCheckTitles () {
+  if (!dj.titleWatch.length) return
+  const now = Date.now()
+  dj.titleWatch = dj.titleWatch.filter((w) => {
+    const track = djLiveTrack(w.trackId)
+    const title = track ? track.title : ''
+    if (title) {
+      const d = Object.assign({}, w.d, { title: title })
+      if (!w.sent) {
+        djAnnounce(w.roomId, w.text, d)
+      } else {
+        w.sent.then((id) => {
+          if (id !== null) return editSideMessage(w.roomId, id, w.text, d)
+          return false
+        }).catch((err) => {
+          window.console.error(err)
+        })
+      }
+      return false
+    }
+    if (!w.sent && (now >= w.deadline || !track)) w.sent = djAnnounce(w.roomId, w.text, w.d)
+    return Boolean(track) && now < w.until
+  })
+}
+
+// Sayfa gizlenirken (visibilitychange) veya kapanırken (pagehide) adı beklenen duyurular hemen adsız gider:
+// bekleyen kayıt yalnızca bellektedir, sekme kapanır veya yenilenirse duyuru hiç gitmezdi. Sayfa açık kalırsa ad
+// gelince duyuru yine düzenlenir. Kapanış anında başlayan istek yarıda kalabilir, bu en iyi çabadır.
+function djFlushTitles () {
+  dj.titleWatch.forEach((w) => {
+    if (!w.sent) w.sent = djAnnounce(w.roomId, w.text, w.d)
+  })
 }
 
 // /çal ve ekli ses dosyası: dosya önce yazı odasına mesaj eki olarak gönderilir (odadakiler indirebilsin),
@@ -1144,7 +2022,10 @@ function djPlayAttached (att, ctx) {
     return Promise.resolve({ ok: false, code: 'file_unavailable' })
   }
   const ref = { u: att.uploadId, k: att.key, n: att.nonce, m: att.mime, s: att.size, name: att.name }
-  return Promise.resolve().then(() => sendMessage({ dj: { op: 'add', src: 'file' } })).then(() => {
+  const notice = { op: 'add', src: 'file' }
+  const title = cleanDjTitle(att.name)
+  if (title) notice.title = title
+  return Promise.resolve().then(() => sendMessage({ dj: notice })).then(() => {
     if (state.attachments.indexOf(att) !== -1) {
       toast(() => t('dj.fileSendFailed'), 'error', 7000)
       return { ok: false, code: 'send_failed' }
@@ -1169,7 +2050,7 @@ function djDecorateAttachments (wrap, files, m) {
     const b = djButton('button button-small button-secondary dj-play-file', t('music.playInDj'), 'i-music')
     b.setAttribute('aria-label', t('dj.playFileLabel', { name: f.name || t('music.untitledFile') }))
     b.addEventListener('click', () => {
-      djPlayFile(f, b)
+      djPlayFile(f, b, m)
     })
     row.appendChild(b)
     if (card.nextSibling) wrap.insertBefore(row, card.nextSibling)
@@ -1177,16 +2058,54 @@ function djDecorateAttachments (wrap, files, m) {
   })
 }
 
-function djPlayFile (f, b) {
+// "DJ'de Çal" duyurusunun metni (mesajın t alanı). Bu kaynağı bilmeyen eski istemciler metni düz metin olarak
+// gösterir ve içinde @ ile anma arar. Ad dosyayı yükleyen kişinin seçtiği addır. Düğmeye basan kişinin adına ve
+// yetkisiyle anma (ör. @herkes) olmasın diye adın içindeki @ işaretleri tam genişlikli at işaretiyle (U+FF20)
+// yazılır. Duyurunun d alanındaki ad değişmez: yeni istemciler duyuruyu oradan düz metin olarak çizer ve DJ
+// duyurusunda anma aramaz (18-mentions.js messageMentionsMe).
+function djFileRefText (title) {
+  if (!title) return t('dj.notice.fileRef')
+  return t('dj.notice.fileTitle', { title: title.replace(/@/g, '\uff20') })
+}
+
+// "DJ'de çal": dosya kuyruğa eklenir ve dosyanın bulunduğu yazı odasına adıyla duyurulur. Duyuru eki taşımaz
+// (dosya başka bir mesajdadır), kaynağı 'fileref' olur. Bu kaynağı bilmeyen eski istemciler duyuruyu düz metin
+// olarak gösterir, mesajın metni bu yüzden çevrilmiş tam duyurudur (06-messages.js cleanDjNotice).
+function djPlayFile (f, b, m) {
   const engine = djEngine()
   if (!engine || b.getAttribute('aria-busy') === 'true') return
   b.setAttribute('aria-busy', 'true')
   engine.addFile({ u: f.u, k: f.k, n: f.n, m: f.m, s: f.s, name: f.name }).then((r) => {
     b.removeAttribute('aria-busy')
     djReport('play', r)
+    if (r && r.ok && !r.noop && m) {
+      const track = djLiveTrack(r.trackId)
+      const title = cleanDjTitle(track ? track.title : f.name)
+      const notice = { op: 'add', src: 'fileref' }
+      if (title) notice.title = title
+      djAnnounce(m.channelId, djFileRefText(title), notice)
+    }
   }, (err) => {
     b.removeAttribute('aria-busy')
     window.console.error(err)
+  })
+}
+
+// ------------------------------------------------------------------ masaüstü penceresi
+
+// Masaüstü uygulamasında (20-desktop.js window.telsizDesktop, onWindowState) pencere simge durumuna
+// küçültülünce veya tepsiye gizlenince YouTube parçası bu cihazda bekletilir (YouTube kuralları pencere kapalı
+// veya küçültülmüşken çalmayı yasaklar), dosya parçaları çalmaya devam eder. Pencere geri gelince ('restored'
+// veya 'shown') bekletme kalkar, oynatıcı odanın konumuna atlayıp sürer. Abonelik bir kez kurulur.
+function djWatchWindowState () {
+  const desktop = window.telsizDesktop
+  if (dj.desktopWatched || !desktop || typeof desktop.onWindowState !== 'function') return
+  dj.desktopWatched = true
+  desktop.onWindowState((value) => {
+    if (value !== 'minimized' && value !== 'hidden' && value !== 'restored' && value !== 'shown') return
+    const engine = djEngine()
+    if (engine && typeof engine.setLocalHold === 'function') engine.setLocalHold('window', value === 'minimized' || value === 'hidden', 'youtube')
+    djRenderSoon()
   })
 }
 
@@ -1220,18 +2139,25 @@ function djInit () {
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
   }
   window.addEventListener('resize', djOnResize)
+  window.addEventListener('pagehide', djFlushTitles)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') djFlushTitles()
+  })
   if (typeof watchLayers === 'function') watchLayers(djOnLayers)
-  // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor")
+  // Saniyelik denetim: ses odası, konum ve zamana bağlı durum (ör. "Yükleniyor" yerine "Çalıyor"). Kart
+  // gösterilmesi gerekiyorsa her zaman çizilir (sayfa gizliyken kare gelmese de yerleşim güncel kalır).
   setInterval(() => {
     djSyncVoice()
-    if (djCardShown() || dj.docked) {
+    djCheckTitles()
+    if (djShouldShow()) {
       dj.snap = engine.snapshot()
-      djRender()
+      if (!dj.layoutBusy) djRender()
     } else {
       djSyncMarks()
     }
   }, DJ_TICK_MS)
   if (typeof composerSetCommandHandler === 'function') composerSetCommandHandler(djCommand)
+  djWatchWindowState()
   dj.castLive = djDetectCast()
   if (state.meta) djOnMeta()
   djSyncVoice()

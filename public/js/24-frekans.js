@@ -830,6 +830,8 @@ function frekansSwitch (origin) {
   if (d) {
     Promise.resolve(d.switchFrequency(origin)).then((res) => {
       if (!res || !res.ok) toast(() => t('frekans.failed'), 'error')
+      // Frekans değişince bu frekansın konuşma taslakları silinir (08-composer.js)
+      else if (typeof composerDraftsClear === 'function') composerDraftsClear()
     }, () => toast(() => t('frekans.failed'), 'error'))
     return
   }
@@ -837,6 +839,7 @@ function frekansSwitch (origin) {
   // Karşı köken listeyi bant sırasıyla parçadan alır: bu frekans (adıyla) ve diğer kayıtlı frekanslar
   const list = frekansWebItems().map((item) => ({ origin: item.origin, name: item.name }))
   const target = origin + '/#' + FREKANS_FRAGMENT_KEY + '=' + frekansEncodeList(list)
+  if (typeof composerDraftsClear === 'function') composerDraftsClear()
   try {
     window.location.assign(target)
   } catch (err) {

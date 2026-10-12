@@ -39,15 +39,25 @@ const SETTINGS_ICONS = {
 // varsayılan, 'none'), telsiz.messageSound ('0' kapalı). Ekran paylaşımı kalitesi
 // telsiz.screenQuality içinde JSON olarak ({ hint: 'motion' | 'detail', preset: '720p15' | '720p30' |
 // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
-// başka her değer veya anahtarın olmaması verilmedi) saklanır.
+// başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
+// denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
+// Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
+// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır. Yüzen pencerenin kendiliğinden açılması
+// (39-yuzen.js) telsiz.floatAuto içinde ('off' kapalı, 'on' veya anahtarın olmaması açık) saklanır.
 const SETTINGS_KEYS = {
   typing: 'telsiz.typing',
   notifyLevel: 'telsiz.notifyLevel',
   messageSound: 'telsiz.messageSound',
   screenQuality: 'telsiz.screenQuality',
-  youtubeConsent: 'telsiz.djYoutubeConsent'
+  youtubeConsent: 'telsiz.djYoutubeConsent',
+  djMediaSession: 'telsiz.djMediaSession',
+  autoIdle: 'telsiz.autoIdle',
+  autoIdleMinutes: 'telsiz.autoIdleMinutes',
+  floatAuto: 'telsiz.floatAuto'
 }
 const NOTIFY_LEVELS = ['all', 'mentions', 'none']
+const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
+const AUTO_IDLE_DEFAULT = 10
 const SCREEN_HINT_CHOICES = ['motion', 'detail']
 const SCREEN_PRESET_CHOICES = ['720p15', '720p30', '1080p15', '1080p30']
 const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
@@ -55,7 +65,6 @@ const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
 // false olursa anahtarlar devre dışı kalır.
 const MUSIC_SETTINGS_READY = true
 const BIND_ACTIONS = ['ptt', 'toggleMute', 'toggleDeafen']
-const SKIN_CHOICES = ['arcade', 'gece', 'turkuaz']
 const SCHEME_CHOICES = ['dark', 'light', 'system']
 const FONT_SIZE_CHOICES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
 // Elle ayarlanan yazı boyutunun sınırları (theme-init.js ile aynı) ve varsayılanı, piksel
@@ -97,7 +106,14 @@ const settingsUi = {
   keyVisible: false,
   membersFilter: '',
   metaUserKey: '',
-  adminRefreshAt: 0
+  adminRefreshAt: 0,
+  // Şikâyetler (yalnızca sahip ve yöneticiler): GET /api/reports listesi, yüklenirken true, hata metni üreticisi,
+  // son yüklemede görülen özel görünüm işareti (açık şikâyet sayısı ve en yeni şikâyetin kimliği) ve yükleme kuşağı
+  reports: null,
+  reportsLoading: false,
+  reportsError: null,
+  reportsSeen: '',
+  reportsGen: 0
 }
 
 const SETTINGS_PAGES = {
@@ -222,6 +238,7 @@ function onSettingsClosed () {
   settingsUi.temp = null
   settingsUi.newInvite = ''
   settingsUi.sessions = null
+  resetReports()
   document.body.classList.remove('modal-open')
 }
 
@@ -774,7 +791,9 @@ function shownStatusOf (userId) {
   return safeCall(() => shownStatus(userId), 'offline')
 }
 
+// Kendi durumumun metni (13-profile.js myStatusLabel): otomatik boştaysam "Boşta (otomatik)"
 function chosenStatusLabel () {
+  if (typeof myStatusLabel === 'function') return safeCall(() => myStatusLabel(), '')
   const status = safeCall(() => myChosenStatus(), 'online')
   return safeCall(() => statusLabel(status), '')
 }
@@ -804,8 +823,9 @@ function statusDotNode (status) {
   return dot
 }
 
-// Kendi profilimin şu anki görünümü (sunucudan çözülen profil)
-function myProfileView () {
+// Kendi profilimin şu anki görünümü (sunucudan çözülen profil). textOnly: yalnızca metin alanları ve renk gerekiyor,
+// kapak indirilmez (Profil sayfasının taslağı kapağı draftCoverUrl ile kendisi yönetir).
+function myProfileView (textOnly) {
   const id = state.me.id
   const profile = safeCall(() => activeProfile(id), null)
   return {
@@ -813,11 +833,13 @@ function myProfileView () {
     statusText: profile && profile.statusText ? profile.statusText : '',
     bio: profile && profile.bio ? profile.bio : '',
     color: profile && profile.color !== null && profile.color !== undefined ? profile.color : defaultColorIndex(id),
-    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null)
+    avatarUrl: safeCall(() => avatarInfoFor(id).blobUrl, null),
+    // Kendi kapağım önizlemede gösterileceği için indirilir (13-profile.js coverUrlOf)
+    coverUrl: textOnly ? null : safeCall(() => coverUrlOf(id, true), null)
   }
 }
 
-// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl }
+// Profil önizleme kartı (Hesabım ve Profil sayfaları). view: { displayName, statusText, bio, color, avatarUrl, coverUrl }
 function buildPreviewCard (view, id) {
   const me = state.me
   const status = shownStatusOf(me.id)
@@ -825,19 +847,16 @@ function buildPreviewCard (view, id) {
   if (id) card.id = id
   card.setAttribute('aria-label', t('settings.profile.previewLabel'))
   card.setAttribute('role', 'group')
-  const band = h('div', 'profile-card-band')
-  band.setAttribute('data-color', String(view.color))
-  card.appendChild(band)
-  const head = h('div', 'profile-card-head')
+  // Kartla aynı bant: kapak fotoğrafı varsa bandın içinde, QSL künyesiyle (13-profile.js profileCoverBand)
+  card.appendChild(profileCoverBand(view.coverUrl, view.color, me.id))
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || me.name), view.color, status))
-  head.appendChild(av)
+  // Kartla aynı düzen ve rozetler (13-profile.js): ad avatarın sağında, rol ve özel rol adın yanında
+  const name = h('p', 'profile-card-name settings-preview-name', view.displayName || me.name)
+  const head = buildProfileIdentity(av, name, h('p', 'profile-card-handle', '@' + me.name), profileBadges(me.id, me.role))
+  head.classList.add('profile-card-head')
   card.appendChild(head)
   const body = h('div', 'profile-card-body')
-  body.appendChild(h('p', 'profile-card-name settings-preview-name', view.displayName || me.name))
-  body.appendChild(h('p', 'profile-card-handle', '@' + me.name))
-  const badge = roleBadge(me.role)
-  if (badge) body.appendChild(badge)
   const statusRow = h('p', 'profile-card-status')
   statusRow.setAttribute('data-status', status)
   statusRow.appendChild(statusDotNode(status))
@@ -854,14 +873,16 @@ function buildPreviewCard (view, id) {
   return card
 }
 
+// Profil önizlemesinin imzası. Ses odası (QSL künyesindeki frekans okuması) burada yok: ses odası değişikliği metayla
+// gelir ve 04-meta.js applyMeta, refreshSettings ile açık sayfayı zaten yeniden çizer (e2e/22-telsiz-duzen.test.js).
 function myProfileSignature () {
   if (!state.me) return ''
   const id = state.me.id
   const rec = safeCall(() => profileRecord(id), null)
-  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, '')].join('|')
+  return [state.me.name, state.me.role, safeCall(() => myChosenStatus(), ''), safeCall(() => myAutoIdle(), false), rec ? rec.pv : '', rec && rec.profile ? JSON.stringify(rec.profile) : '', safeCall(() => avatarInfoFor(id).blobUrl, ''), safeCall(() => coverUrlOf(id), '')].join('|')
 }
 
-// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, çıkış ve hesabı silme
+// 1. Hesabım: önizleme kartı, kullanıcı adı, parola, kurtarma kodu, çıkış ve hesabı silme
 
 function buildAccountPage (page) {
   const cardHost = h('div', 'settings-card-host')
@@ -961,6 +982,16 @@ function buildAccountPage (page) {
   newPass2.autocomplete = 'new-password'
   newPass2.maxLength = 256
   sField(passForm, 'set-new-password2', t('settings.account.newPassword2'), newPass2, null)
+  // Kurtarma kodu parola değişince geçerli kalır, istenirse aynı istekle yenilenir (yalnızca kod varken görünür)
+  const renewRow = h('label', 'check settings-check')
+  const renewBox = h('input')
+  renewBox.type = 'checkbox'
+  renewBox.id = 'set-password-renew-recovery'
+  renewRow.setAttribute('for', renewBox.id)
+  renewRow.appendChild(renewBox)
+  renewRow.appendChild(h('span', '', t('settings.account.recoveryRenewWithPassword')))
+  renewRow.hidden = true
+  passForm.appendChild(renewRow)
   const passProgress = progressNode('set-password-progress')
   passForm.appendChild(passProgress)
   const passMsg = sMsg('set-password-msg')
@@ -976,8 +1007,11 @@ function buildAccountPage (page) {
   })
   passForm.addEventListener('submit', (e) => {
     e.preventDefault()
-    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength })
+    submitPasswordChange({ form: passForm, oldPass: oldPass, newPass: newPass, newPass2: newPass2, progress: passProgress, msg: passMsg, strength: strength, renew: renewBox, renewRow: renewRow })
   })
+
+  // Kurtarma kodu (41-kurtarma.js)
+  const recovery = typeof recoverySettingsSection === 'function' ? recoverySettingsSection(page) : null
 
   // Oturum
   const sessSec = sSection(page, t('settings.account.session'), 'set-session-section')
@@ -1016,14 +1050,19 @@ function buildAccountPage (page) {
     submitAccountDelete({ form: delForm, pass: delPass, progress: delProgress, msg: delMsg })
   })
 
+  // Profili Düzenle düğmesi bir kez kurulur. Profil veya kapak değişince (ör. kapak indikten sonra) yalnızca önizleme kartı
+  // değiştirilir, düğme yerinde kaldığı için klavye ve kumanda odağı kaybolmaz.
+  const edit = sButton('button button-secondary settings-card-action', t('profile.edit'), 'set-account-edit-profile', () => {
+    showSettingsCat('profile', 'title')
+  }, 'i-edit')
+  cardHost.appendChild(edit)
+  let preview = null
   const update = () => {
     if (!state.me) return
-    clear(cardHost)
-    cardHost.appendChild(buildPreviewCard(myProfileView(), 'set-account-preview'))
-    const edit = sButton('button button-secondary settings-card-action', t('profile.edit'), 'set-account-edit-profile', () => {
-      showSettingsCat('profile', 'title')
-    }, 'i-edit')
-    cardHost.appendChild(edit)
+    const card = buildPreviewCard(myProfileView(), 'set-account-preview')
+    if (preview && preview.parentNode === cardHost) cardHost.replaceChild(card, preview)
+    else cardHost.insertBefore(card, edit)
+    preview = card
     nameValue.textContent = '@' + state.me.name
     const owner = isOwner()
     ownerNote.hidden = !owner
@@ -1036,9 +1075,15 @@ function buildAccountPage (page) {
     Array.from(page.querySelectorAll('input[autocomplete="username"]')).forEach((input) => {
       input.value = state.me.name
     })
+    renewRow.hidden = !identityState.recovery
+    if (renewRow.hidden) renewBox.checked = false
+    if (recovery) recovery.update()
   }
   update()
-  return { update: update, signature: myProfileSignature }
+  return {
+    update: update,
+    signature: () => myProfileSignature() + '|' + (recovery ? recovery.signature() : '')
+  }
 }
 
 async function submitUsernameChange (ui) {
@@ -1108,18 +1153,22 @@ async function submitPasswordChange (ui) {
   }
   setMsg(ui.msg, '')
   setFormBusy(ui.form, true)
+  const renew = Boolean(ui.renew && ui.renew.checked && !ui.renewRow.hidden)
   const result = await changePasswordRequest(oldPassword, newPassword, (pct) => {
     showProgress(ui.progress, pct)
-  })
+  }, { renewRecovery: renew })
   showProgress(ui.progress, null)
   setFormBusy(ui.form, false)
   if (result.ok) {
     ui.oldPass.value = ''
     ui.newPass.value = ''
     ui.newPass2.value = ''
+    if (ui.renew) ui.renew.checked = false
     updateStrengthMeter(ui.strength, '')
     setMsg(ui.msg, () => t('settings.password.changed'), 'ok')
     settingsUi.sessions = null
+    updateSettingsPage()
+    if (result.recoveryCode && typeof openRecoveryCodeDialog === 'function') openRecoveryCodeDialog(result.recoveryCode, { trigger: byId('set-password-submit'), rotated: true })
     return
   }
   setMsg(ui.msg, result.error, 'error')
@@ -1152,15 +1201,16 @@ async function submitAccountDelete (ui) {
   focusNode(ui.pass)
 }
 
-// 2. Profil: profil resmi (kare kırpma önizlemesi), görünen ad, özel durum, hakkımda, renk ve canlı
-// önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip sunucuya gider.
+// 2. Profil: profil resmi (kare kırpma önizlemesi), kapak fotoğrafı (3:1 kırpma önizlemesi), görünen ad, özel
+// durum, hakkımda, renk ve canlı önizleme kartı. Taslak bellekte tutulur, Kaydet ile grup anahtarıyla şifrelenip
+// sunucuya gider.
 
 function profileDraft () {
   const me = state.me
   const existing = settingsUi.draft
   if (existing && sameId(existing.userId, me.id)) return existing
   dropProfileDraft()
-  const view = myProfileView()
+  const view = myProfileView(true)
   settingsUi.draft = {
     userId: me.id,
     base: { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color },
@@ -1171,7 +1221,14 @@ function profileDraft () {
     avatarMode: 'server',
     avatarFile: null,
     avatarUrl: '',
-    pending: null
+    pending: null,
+    // Kapak fotoğrafı: avatar alanlarıyla aynı anlam (server, new, removed), coverPending kayıttan sonraki yerel önizleme
+    coverMode: 'server',
+    coverFile: null,
+    coverUrl: '',
+    coverPending: null,
+    // Kayıt sürerken kayda giren önizlemeler { avatarUrl, coverUrl } (releaseDraftUrl), kayıt yokken null
+    saving: null
   }
   return settingsUi.draft
 }
@@ -1193,10 +1250,12 @@ function dropProfileDraft () {
   if (!d) return
   revokeBlobLater(d.avatarUrl)
   if (d.pending) revokeBlobLater(d.pending.url)
+  revokeBlobLater(d.coverUrl)
+  if (d.coverPending) revokeBlobLater(d.coverPending.url)
 }
 
 function draftDirty (d) {
-  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server'
+  return d.displayName !== d.base.displayName || d.statusText !== d.base.statusText || d.bio !== d.base.bio || d.color !== d.base.color || d.avatarMode !== 'server' || d.coverMode !== 'server'
 }
 
 function myAvatarUploadId () {
@@ -1222,13 +1281,52 @@ function draftAvatarUrl (d) {
   return serverUrl || ''
 }
 
+function myCoverUploadId () {
+  if (!state.me) return null
+  const rec = safeCall(() => profileRecord(state.me.id), null)
+  return rec && rec.profile && rec.profile.cover ? rec.profile.cover.u : null
+}
+
+// Taslakta gösterilecek kapak. Kayıttan sonra kendi profil kaydım kayıttan önceki kapağı gösterdikçe kaydedilen kapağın
+// yerel önizlemesi (kaldırıldıysa kapaksız bant) gösterilir. Bunun süre sınırı yoktur: kayıt başarılı oldu, kayıtta
+// görünen eski kapak sunucuda silindi, bu yüzden kayıt ne kadar geç yenilenirse yenilensin eski kapak indirilmez ve
+// gösterilmez. Kayıt yenilenince sunucudaki yeni kapak çözülene kadar, yenilendiğinin görüldüğü andan (p.at) başlayarak
+// en çok AVATAR_PENDING_MS yerel önizleme gösterilir.
+function draftCoverUrl (d) {
+  if (d.coverMode === 'new') return d.coverUrl
+  if (d.coverMode === 'removed') return ''
+  const p = d.coverPending
+  if (p && myCoverUploadId() === p.from) return p.url
+  const serverUrl = safeCall(() => coverUrlOf(state.me.id, true), null)
+  if (p) {
+    if (!p.at) p.at = Date.now()
+    if (p.url && !serverUrl && Date.now() - p.at < AVATAR_PENDING_MS) return p.url
+    d.coverPending = null
+    revokeBlobLater(p.url)
+  }
+  return serverUrl || ''
+}
+
 function draftView (d) {
   return {
     displayName: d.displayName.trim(),
     statusText: d.statusText.trim(),
     bio: d.bio.trim(),
     color: d.color,
-    avatarUrl: draftAvatarUrl(d)
+    avatarUrl: draftAvatarUrl(d),
+    coverUrl: draftCoverUrl(d)
+  }
+}
+
+// Kapak önizlemesi: kayıtta yüklenecek kodlamanın aynısı (13-profile.js prepareCover, ortadan 3:1, 1200x400 JPEG).
+// Sonuç { url } veya { error }.
+async function makeCoverPreview (file) {
+  const prepared = await prepareCover(file)
+  if (!prepared.ok) return { error: prepared.error }
+  try {
+    return { url: URL.createObjectURL(new Blob([prepared.bytes], { type: prepared.mime })) }
+  } catch (err) {
+    return { error: () => t('profile.coverInvalid') }
   }
 }
 
@@ -1312,6 +1410,28 @@ function buildProfilePage (page) {
   const avatarMsg = sMsg('set-avatar-msg')
   form.appendChild(avatarMsg)
 
+  // Kapak fotoğrafı: bant biçiminde önizleme, seçme ve kaldırma
+  sSub(form, t('settings.profile.coverTitle'), 'set-cover-title')
+  const coverHost = h('div', 'settings-cover-host')
+  coverHost.id = 'set-cover-preview'
+  form.appendChild(coverHost)
+  const coverButtons = h('div', 'settings-avatar-buttons')
+  const coverPick = sButton('button button-secondary', t('settings.profile.coverPick'), 'set-cover-pick', null, 'i-image')
+  const coverRemove = sButton('button button-ghost', t('settings.profile.coverRemove'), 'set-cover-remove', null, 'i-trash')
+  coverButtons.appendChild(coverPick)
+  coverButtons.appendChild(coverRemove)
+  form.appendChild(coverButtons)
+  const coverFile = h('input', 'file-input')
+  coverFile.type = 'file'
+  coverFile.accept = 'image/*'
+  coverFile.id = 'set-cover-file'
+  coverFile.tabIndex = -1
+  coverFile.setAttribute('aria-hidden', 'true')
+  form.appendChild(coverFile)
+  form.appendChild(sHint(t('settings.profile.coverHint'), 'set-cover-hint'))
+  const coverMsg = sMsg('set-cover-msg')
+  form.appendChild(coverMsg)
+
   // Metin alanları ve karakter sayaçları
   const counters = []
   const addText = (id, labelKey, value, max, multiline, placeholder, field) => {
@@ -1393,9 +1513,10 @@ function buildProfilePage (page) {
     const view = draftView(d)
     clear(avatarHost)
     avatarHost.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || state.me.name), view.color, ''))
+    clear(coverHost)
+    coverHost.appendChild(profileCoverBand(view.coverUrl, view.color))
     clear(previewHost)
     previewHost.appendChild(buildPreviewCard(view, 'set-profile-card'))
-    remove.disabled = !view.avatarUrl
     counters.forEach((c) => {
       const len = cpLength(c.control.value.trim())
       c.counter.textContent = t('settings.profile.counter', { count: formatNumber(len), max: formatNumber(c.max) })
@@ -1404,10 +1525,14 @@ function buildProfilePage (page) {
     const keyOk = hasActiveKey()
     keyNotice.hidden = keyOk
     const dirty = draftDirty(d)
+    // Kayıt sürerken (setFormBusy) düğmeler kapalı kalır, ayar izleyicisinin yenilemesi de onları açmaz
     if (!isBusy(form)) {
       save.disabled = !dirty || !keyOk
       reset.disabled = !dirty
       pick.disabled = !keyOk
+      coverPick.disabled = !keyOk
+      remove.disabled = !view.avatarUrl
+      coverRemove.disabled = !view.coverUrl && !(d.coverMode === 'server' && myCoverUploadId())
     }
     dirtyNote.hidden = !dirty
   }
@@ -1434,7 +1559,7 @@ function buildProfilePage (page) {
       revokeBlobLater(preview.url)
       return
     }
-    if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
+    if (d.avatarMode === 'new') releaseDraftUrl(d, d.avatarUrl)
     d.avatarMode = 'new'
     d.avatarFile = chosen
     d.avatarUrl = preview.url
@@ -1443,6 +1568,7 @@ function buildProfilePage (page) {
     if (isConnected(pick)) focusNode(pick)
   })
   remove.addEventListener('click', () => {
+    if (isBusy(form)) return
     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
     d.avatarFile = null
     d.avatarUrl = ''
@@ -1451,8 +1577,50 @@ function buildProfilePage (page) {
     refresh()
     focusNode(pick)
   })
+  coverPick.addEventListener('click', () => {
+    coverFile.value = ''
+    coverFile.click()
+  })
+  coverFile.addEventListener('change', async () => {
+    const chosen = coverFile.files && coverFile.files[0] ? coverFile.files[0] : null
+    coverFile.value = ''
+    if (!chosen) return
+    if (chosen.size > AVATAR_SOURCE_MAX) {
+      setMsg(coverMsg, () => t('settings.profile.avatarTooBig', { size: formatSize(AVATAR_SOURCE_MAX) }), 'error')
+      return
+    }
+    setMsg(coverMsg, () => t('settings.profile.coverReading'))
+    const preview = await makeCoverPreview(chosen)
+    if (!preview.url) {
+      setMsg(coverMsg, preview.error, 'error')
+      return
+    }
+    if (settingsUi.draft !== d) {
+      revokeBlobLater(preview.url)
+      return
+    }
+    if (d.coverMode === 'new') releaseDraftUrl(d, d.coverUrl)
+    d.coverMode = 'new'
+    d.coverFile = chosen
+    d.coverUrl = preview.url
+    setMsg(coverMsg, () => t('settings.profile.coverReady'), 'ok')
+    refresh()
+    if (isConnected(coverPick)) focusNode(coverPick)
+  })
+  coverRemove.addEventListener('click', () => {
+    if (isBusy(form)) return
+    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
+    d.coverFile = null
+    d.coverUrl = ''
+    d.coverMode = myCoverUploadId() || d.coverPending ? 'removed' : 'server'
+    setMsg(coverMsg, () => t('settings.profile.coverRemoved'))
+    refresh()
+    focusNode(coverPick)
+  })
   reset.addEventListener('click', () => {
+    if (isBusy(form)) return
     if (d.avatarMode === 'new') revokeBlobLater(d.avatarUrl)
+    if (d.coverMode === 'new') revokeBlobLater(d.coverUrl)
     d.displayName = d.base.displayName
     d.statusText = d.base.statusText
     d.bio = d.base.bio
@@ -1460,15 +1628,19 @@ function buildProfilePage (page) {
     d.avatarMode = 'server'
     d.avatarFile = null
     d.avatarUrl = ''
+    d.coverMode = 'server'
+    d.coverFile = null
+    d.coverUrl = ''
     fillInputs()
     setMsg(avatarMsg, '')
+    setMsg(coverMsg, '')
     setMsg(msg, () => t('settings.profile.resetDone'))
     refresh()
     focusNode(nameInput)
   })
   form.addEventListener('submit', (e) => {
     e.preventDefault()
-    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg })
+    saveProfileDraft(d, { form: form, msg: msg, refresh: refresh, fill: fillInputs, avatarMsg: avatarMsg, coverMsg: coverMsg })
   })
 
   fillInputs()
@@ -1476,7 +1648,7 @@ function buildProfilePage (page) {
   const update = () => {
     // Taslakta değişiklik yoksa sunucudaki profil (ör. başka cihazdan) taslağa yansır
     if (!draftDirty(d) && !isBusy(form)) {
-      const view = myProfileView()
+      const view = myProfileView(true)
       d.base = { displayName: view.displayName, statusText: view.statusText, bio: view.bio, color: view.color }
       d.displayName = view.displayName
       d.statusText = view.statusText
@@ -1486,9 +1658,19 @@ function buildProfilePage (page) {
     }
     refresh()
   }
-  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') }
+  return { update: update, signature: () => myProfileSignature() + '|' + hasActiveKey() + '|' + (d.pending ? 'p' : '') + (d.coverPending ? 'c' : '') }
 }
 
+// Taslaktan çıkan önizleme bırakılır. Kayıt sürerken kayda giren önizleme bırakılmaz, kayıt bitince saveProfileDraft
+// onu bekleyen önizleme olarak kullanır veya bırakır.
+function releaseDraftUrl (d, url) {
+  if (d.saving && (d.saving.avatarUrl === url || d.saving.coverUrl === url)) return
+  revokeBlobLater(url)
+}
+
+// Kayıt sürerken taslak değişebilir: kayıttan önce seçilip hazırlanması kayıt sırasında biten profil resmi veya kapak.
+// Kayıt bitince yalnızca kayda giren resim alanları sıfırlanır, sonradan seçilen resim taslakta kalır ve bir sonraki
+// kayıtta yüklenir.
 async function saveProfileDraft (d, ui) {
   if (isBusy(ui.form)) return
   if (!hasActiveKey()) {
@@ -1497,20 +1679,42 @@ async function saveProfileDraft (d, ui) {
   }
   setFormBusy(ui.form, true)
   setMsg(ui.msg, () => t('settings.profile.saving'))
-  // Önceki kaydın profil resmi sunucu kaydına yansıyana kadar beklenir (en fazla birkaç saniye)
+  // Önceki kaydın profil resmi ve kapağı kendi profil kaydıma yansıyana kadar beklenir (en fazla birkaç saniye), yeni
+  // bekleyen önizlemenin başlangıcı (from) güncel kayda göre belirlenir. Süre dolarsa kayıt yine gider: saveProfile
+  // değişmeyen resimleri eski kayıttan değil son başarılı kayıttan alır (13-profile.js ownImageBase).
   let waited = 0
-  while (d.pending && myAvatarUploadId() === d.pending.from && waited < 3000) {
+  while (((d.pending && myAvatarUploadId() === d.pending.from) || (d.coverPending && myCoverUploadId() === d.coverPending.from)) && waited < 3000) {
     await wait(100)
     waited += 100
   }
   const input = { displayName: d.displayName, statusText: d.statusText, bio: d.bio, color: d.color }
   if (d.avatarMode === 'new') input.avatarFile = d.avatarFile
   else if (d.avatarMode === 'removed') input.avatarFile = null
+  if (d.coverMode === 'new') input.coverFile = d.coverFile
+  else if (d.coverMode === 'removed') input.coverFile = null
   const before = myAvatarUploadId()
   const mode = d.avatarMode
-  const result = await saveProfile(input)
+  const avatarFile = d.avatarFile
+  const avatarUrl = d.avatarUrl
+  const coverBefore = myCoverUploadId()
+  const coverMode = d.coverMode
+  const coverFile = d.coverFile
+  const coverUrl = d.coverUrl
+  d.saving = { avatarUrl: mode === 'new' ? avatarUrl : '', coverUrl: coverMode === 'new' ? coverUrl : '' }
+  let result = null
+  try {
+    result = await saveProfile(input)
+  } catch (err) {
+    result = { ok: false, error: errorProducer(err, () => t('profile.saveFailed')) }
+  }
+  d.saving = null
   setFormBusy(ui.form, false)
+  const avatarKept = d.avatarMode !== mode || d.avatarFile !== avatarFile
+  const coverKept = d.coverMode !== coverMode || d.coverFile !== coverFile
   if (!result.ok) {
+    // Kayda giren önizleme kayıt sırasında taslaktan çıktıysa artık kullanılmaz
+    if (avatarKept && mode === 'new') revokeBlobLater(avatarUrl)
+    if (coverKept && coverMode === 'new') revokeBlobLater(coverUrl)
     setMsg(ui.msg, result.error, 'error')
     ui.refresh()
     return
@@ -1525,17 +1729,29 @@ async function saveProfileDraft (d, ui) {
   d.displayName = saved.displayName
   d.statusText = saved.statusText
   d.bio = saved.bio
-  if (d.pending) revokeBlobLater(d.pending.url)
-  d.pending = null
-  if (mode === 'new') {
-    d.pending = { from: before, url: d.avatarUrl, at: Date.now() }
-  } else if (mode === 'removed') {
-    d.pending = { from: before, url: '', at: Date.now() }
+  // Bu kayıt resme dokunmadıysa önceki kaydın bekleyen önizlemesi kalır: kendi profil kaydım hâlâ eskiyse yerel önizleme
+  // gösterilmeye devam eder, sunucuda silinmiş eski resim istenmez. Bekleme draftAvatarUrl ve draftCoverUrl içinde biter.
+  if (mode !== 'server') {
+    if (d.pending) revokeBlobLater(d.pending.url)
+    d.pending = { from: before, url: mode === 'new' ? avatarUrl : '', at: Date.now() }
   }
-  d.avatarMode = 'server'
-  d.avatarFile = null
-  d.avatarUrl = ''
-  setMsg(ui.avatarMsg, '')
+  if (!avatarKept) {
+    d.avatarMode = 'server'
+    d.avatarFile = null
+    d.avatarUrl = ''
+    setMsg(ui.avatarMsg, '')
+  }
+  if (coverMode !== 'server') {
+    if (d.coverPending) revokeBlobLater(d.coverPending.url)
+    // at: kendi profil kaydımın yenilendiğinin görüldüğü an, draftCoverUrl yazar
+    d.coverPending = { from: coverBefore, url: coverMode === 'new' ? coverUrl : '', at: 0 }
+  }
+  if (!coverKept) {
+    d.coverMode = 'server'
+    d.coverFile = null
+    d.coverUrl = ''
+    setMsg(ui.coverMsg, '')
+  }
   setMsg(ui.msg, () => t('settings.profile.saved'), 'ok')
   if (isConnected(ui.form)) {
     ui.fill()
@@ -1548,6 +1764,22 @@ async function saveProfileDraft (d, ui) {
 
 function typingEnabled () {
   return storeGet(SETTINGS_KEYS.typing) !== '0'
+}
+
+// Otomatik boşta (40-bosta.js): varsayılan açık, süre AUTO_IDLE_MINUTES dışındaysa varsayılan 10 dakika
+function autoIdleEnabled () {
+  return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
+}
+
+// Yüzen pencere (39-yuzen.js): ses odasındayken uygulama küçültülünce (masaüstü) veya sekme değişince (Chrome, Edge)
+// kendiliğinden açılsın mı, varsayılan açık
+function floatAutoEnabled () {
+  return storeGet(SETTINGS_KEYS.floatAuto) !== 'off'
+}
+
+function autoIdleMinutes () {
+  const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
+  return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
 }
 
 // YouTube oynatıcısı izni (music.js ile aynı anlam): '1' verildi, '0' reddedildi (yeniden sorulmaz),
@@ -1590,6 +1822,26 @@ function buildPrivacyPage (page) {
   typingSec.appendChild(typing.row)
   typingSec.appendChild(typingMsg)
 
+  // Otomatik boşta (40-bosta.js): cihaza özel anahtar ve süre, değişiklik hemen uygulanır
+  const idleSec = sSection(page, t('settings.privacy.idleTitle'), 'set-idle-section')
+  const idleMinutes = h('select', 'input select select-small')
+  const autoIdle = sSwitch('set-auto-idle', t('settings.privacy.autoIdle'), autoIdleEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.autoIdle, checked ? '1' : '0')
+    idleMinutes.disabled = !checked
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  }, t('settings.privacy.autoIdleHint'))
+  idleSec.appendChild(autoIdle.row)
+  sField(idleSec, 'set-auto-idle-minutes', t('settings.privacy.autoIdleAfter'), idleMinutes)
+  AUTO_IDLE_MINUTES.forEach((n) => {
+    const opt = h('option', '', t('settings.privacy.autoIdleMinutes', { count: n }))
+    opt.value = String(n)
+    idleMinutes.appendChild(opt)
+  })
+  idleMinutes.addEventListener('change', () => {
+    storeSet(SETTINGS_KEYS.autoIdleMinutes, idleMinutes.value)
+    if (typeof idleSettingsChanged === 'function') idleSettingsChanged()
+  })
+
   // YouTube oynatıcısı izni (Ek L2.5): izin Telsiz DJ'de ilk YouTube parçasında istenir, burada
   // durumu görünür ve geri alınabilir
   const ytSec = sSection(page, t('settings.youtube.title'), 'set-youtube-section')
@@ -1613,6 +1865,14 @@ function buildPrivacyPage (page) {
   }, 'i-close')
   ytRow.appendChild(ytRevoke)
   ytSec.appendChild(ytMsg)
+
+  // Telsiz DJ'nin medya denetimleri (Media Session): çalan parçanın adı kilit ekranında ve işletim sisteminin
+  // medya denetimlerinde görünür. Ad uçtan uca şifreli DJ durumundan gelir, kapatılabilir.
+  const mediaSec = sSection(page, t('settings.privacy.mediaSessionTitle'), 'set-media-session-section')
+  const media = sSwitch('set-dj-media-session', t('settings.privacy.mediaSession'), storeGet(SETTINGS_KEYS.djMediaSession) !== '0', (checked) => {
+    storeSet(SETTINGS_KEYS.djMediaSession, checked ? '1' : '0')
+  }, t('settings.privacy.mediaSessionHint'))
+  mediaSec.appendChild(media.row)
 
   // Engellenen kullanıcılar
   const blockSec = sSection(page, t('settings.privacy.blockedTitle'), 'set-blocked-section')
@@ -1662,6 +1922,9 @@ function buildPrivacyPage (page) {
   const update = () => {
     if (!allow.input.disabled) allow.input.checked = priv().allowMemberDms !== false
     typing.input.checked = typingEnabled()
+    autoIdle.input.checked = autoIdleEnabled()
+    idleMinutes.value = String(autoIdleMinutes())
+    idleMinutes.disabled = !autoIdleEnabled()
     const consent = youtubeConsentState()
     ytState.textContent = t(consent === 'granted' ? 'settings.youtube.granted' : consent === 'denied' ? 'settings.youtube.denied' : 'settings.youtube.notGranted')
     ytState.setAttribute('data-state', consent === 'granted' ? 'granted' : consent === 'denied' ? 'denied' : 'default')
@@ -1687,7 +1950,7 @@ function buildPrivacyPage (page) {
     signature: () => {
       const p = priv()
       const blocked = p.blocked.map((id) => id + ':' + safeCall(() => userDisplayName(id), '') + ':' + safeCall(() => avatarInfoFor(id).blobUrl, '')).join(',')
-      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
+      return [p.allowMemberDms, blocked, safeCall(() => myFingerprint(), ''), safeCall(() => identityNeedsUnlock(), false), typingEnabled(), autoIdleEnabled(), autoIdleMinutes(), youtubeConsentState(), keyringSignature(), isAdmin(), state.inviteCode || ''].join('|')
     }
   }
 }
@@ -2277,6 +2540,7 @@ function buildVoicePage (page) {
   }, t('settings.voice.soundsHint'))
   outSec.appendChild(sounds.row)
 
+  buildFloatSection(page)
   buildScreenQualitySection(page)
 
   fillMicList()
@@ -2291,6 +2555,23 @@ function buildVoicePage (page) {
       return (s ? JSON.stringify(s) : '') + '|' + JSON.stringify(screenQuality())
     }
   }
+}
+
+// Yüzen pencere (istek 7, 39-yuzen.js): kendiliğinden açılma anahtarı. Açıklama platforma göre değişir: masaüstünde
+// simge durumu ve tepsi, tarayıcıda sekme değişimi. Linux masaüstünde Wayland notu da görünür. Bu cihazda yüzen
+// pencere yoksa anahtar devre dışıdır ve nedeni yazılır.
+function buildFloatSection (page) {
+  const sec = sSection(page, t('settings.voice.floatTitle'), 'set-float-section')
+  const mode = typeof floatMode === 'function' ? floatMode() : null
+  const hint = mode === null ? t('float.unsupported') : mode === 'desktop' ? t('settings.voice.floatHintDesktop') : t('settings.voice.floatHintBrowser')
+  const sw = sSwitch('set-float-auto', t('settings.voice.floatAuto'), floatAutoEnabled(), (checked) => {
+    storeSet(SETTINGS_KEYS.floatAuto, checked ? 'on' : 'off')
+    if (typeof floatSettingsChanged === 'function') floatSettingsChanged()
+  }, hint)
+  sw.input.disabled = mode === null
+  sec.appendChild(sw.row)
+  const desktop = window.telsizDesktop
+  if (mode === 'desktop' && desktop && desktop.platform === 'linux') sec.appendChild(sHint(t('settings.voice.floatHintWayland'), 'set-float-wayland'))
 }
 
 // Ekran paylaşımı kalitesi (Ek L1.4): içerik önceliği ve çözünürlük/kare hızı ön ayarı. Tercih bu
@@ -2955,11 +3236,11 @@ function playMessageSound (opts) {
   return playAlertSound('message', opts)
 }
 
-// 7. Görünüm: tema, mod, yazı boyutu, kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
+// 7. Görünüm: tema, mod, yazı boyutu, mesaj düzeni ve kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
 
 function themeState () {
   const theme = window.TelsizTheme
-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system' }
+  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
   return theme.get()
 }
 
@@ -2969,16 +3250,59 @@ function setTheme (patch) {
   theme.set(patch)
 }
 
+// Tema listesinin tek kaynağı theme-init.js (window.TelsizTheme.skins), burada kopyası tutulmaz. Ön yükleyici
+// yoksa yalnızca varsayılan tema listelenir.
+function skinChoices () {
+  const theme = window.TelsizTheme
+  return theme && Array.isArray(theme.skins) && theme.skins.length ? theme.skins.slice() : ['arcade']
+}
+
+// Mesaj düzenleri (Kayıt Defteri, Klasik): listenin kaynağı theme-init.js (window.TelsizTheme.msgLayouts)
+function msgLayoutChoices () {
+  const theme = window.TelsizTheme
+  return theme && Array.isArray(theme.msgLayouts) && theme.msgLayouts.length ? theme.msgLayouts.slice() : ['kayit', 'klasik']
+}
+
+// Tema kartlarının grupları: Telsiz Temaları ve Erişilebilirlik (Yüksek Kontrast, theme-init.js contrastSkin).
+// Boş grup çizilmez.
+function skinGroups (skins) {
+  const theme = window.TelsizTheme
+  const access = theme && typeof theme.contrastSkin === 'string' ? theme.contrastSkin : null
+  return [
+    { id: 'radio', title: t('theme.groupRadio'), skins: skins.filter((skin) => skin !== access) },
+    { id: 'access', title: t('theme.groupAccess'), skins: skins.filter((skin) => skin === access) }
+  ].filter((group) => group.skins.length > 0)
+}
+
 function buildAppearancePage (page) {
   const current = themeState()
 
-  // Tema kartları
+  // Tema kartları iki grupta (Telsiz Temaları, Erişilebilirlik). Bütün kartlar tek radyo grubudur (aynı ad),
+  // grup başlıkları role="group" ile okunur. Kartlar sıkıştırılmıştır: önizleme şeridi kısa, açıklama yalnızca
+  // seçili kartta görünür (settings.css), aria-describedby ile her kartta okunur.
   const skinSec = sSection(page, t('theme.title'), 'set-skin-section')
   const cards = h('div', 'settings-theme-cards')
   cards.setAttribute('role', 'radiogroup')
   cards.setAttribute('aria-labelledby', 'set-skin-section-title')
   const skinInputs = {}
-  SKIN_CHOICES.forEach((skin) => {
+  const skins = skinChoices()
+  const lists = {}
+  skinGroups(skins).forEach((group) => {
+    const box = h('div', 'settings-theme-group')
+    box.setAttribute('role', 'group')
+    box.setAttribute('data-skin-group', group.id)
+    const title = h('h4', 'settings-subtitle settings-theme-group-title', group.title)
+    title.id = 'set-skin-group-' + group.id + '-title'
+    box.setAttribute('aria-labelledby', title.id)
+    box.appendChild(title)
+    const list = h('div', 'settings-theme-list')
+    box.appendChild(list)
+    cards.appendChild(box)
+    group.skins.forEach((skin) => {
+      lists[skin] = list
+    })
+  })
+  skins.forEach((skin) => {
     const card = h('label', 'theme-card settings-theme-card')
     card.setAttribute('for', 'set-skin-' + skin)
     card.setAttribute('data-skin-choice', skin)
@@ -3007,7 +3331,12 @@ function buildAppearancePage (page) {
     input.addEventListener('change', () => {
       if (input.checked) setTheme({ skin: skin })
     })
-    cards.appendChild(card)
+    // Zaten işaretli karta tıklamak change üretmez. Sistem ayarıyla kendiliğinden seçilen Yüksek Kontrast böyle
+    // işaretli görünür, tıklama seçimi onaylar ve theme-init.js onu saklar (sistem ayarı kapansa da korunur).
+    input.addEventListener('click', () => {
+      if (input.checked) setTheme({ skin: skin })
+    })
+    lists[skin].appendChild(card)
     skinInputs[skin] = input
   })
   skinSec.appendChild(cards)
@@ -3041,7 +3370,15 @@ function buildAppearancePage (page) {
   sizeSec.appendChild(pxRange)
   showPx(pxOf(current))
 
+  // Mesaj görünümü: düzen (Kayıt Defteri varsayılan, Klasik) ve iki düzende de çalışan kompakt anahtarı
   const compactSec = sSection(page, t('settings.appearance.messagesTitle'), 'set-compact-section')
+  sSub(compactSec, t('theme.msgLayout'), 'set-msg-layout-title')
+  const layouts = sRadios('set-msg-layout', 'set-msg-layout-title', msgLayoutChoices().map((v) => ({ value: v, label: t('theme.msgLayout.' + v) })), current.msgLayout || 'kayit', (value) => {
+    setTheme({ msgLayout: value })
+  }, 'is-chips')
+  layouts.group.setAttribute('aria-describedby', 'set-msg-layout-hint')
+  compactSec.appendChild(layouts.group)
+  compactSec.appendChild(sHint(t('theme.msgLayoutHint'), 'set-msg-layout-hint'))
   const compact = sSwitch('set-compact', t('theme.compact'), current.compact, (checked) => {
     setTheme({ compact: checked })
   }, t('theme.compactHint'))
@@ -3075,7 +3412,7 @@ function buildAppearancePage (page) {
 
   const update = () => {
     const now = themeState()
-    SKIN_CHOICES.forEach((skin) => {
+    skins.forEach((skin) => {
       const input = skinInputs[skin]
       input.checked = skin === now.skin
       input.parentNode.parentNode.classList.toggle('is-selected', skin === now.skin)
@@ -3086,6 +3423,7 @@ function buildAppearancePage (page) {
       pxRange.value = String(pxOf(now))
       showPx(pxOf(now))
     }
+    setRadioValue(layouts.inputs, now.msgLayout || 'kayit')
     compact.input.checked = Boolean(now.compact)
     setRadioValue(motions.inputs, now.reduceMotion)
     if (lang.value !== window.I18N.lang) lang.value = window.I18N.lang
@@ -3277,6 +3615,17 @@ function buildGeneralPage (page) {
     musicSwitchChange('restricted', checked, input)
   }, t('settings.music.restrictedHint'))
   musicSec.appendChild(musicRestricted.row)
+  // Şarkı adıyla YouTube araması (istek 5): resmî API'yi kullanmaz ve YouTube Hizmet Şartları otomatik erişimi
+  // yasakladığı için varsayılan kapalıdır, açarken riskler onay penceresinde yeniden gösterilir
+  const musicSearch = sSwitch('set-music-search', t('settings.dj.search'), false, (checked, input) => {
+    if (!checked) {
+      musicSwitchChange('search', false, input)
+      return
+    }
+    input.checked = false
+    musicSearchConfirm(input)
+  }, t('settings.dj.searchHint'))
+  musicSec.appendChild(musicSearch.row)
   musicSec.appendChild(sMsg('set-music-msg'))
 
   // Ses odaları ve kameralar (yalnızca sahip değiştirir, yönetici salt okunur görür)
@@ -3304,9 +3653,11 @@ function buildGeneralPage (page) {
     musicOn.input.checked = music.enabled
     musicYt.input.checked = music.youtube
     musicRestricted.input.checked = music.restricted
+    musicSearch.input.checked = music.search
     musicOn.input.disabled = !MUSIC_SETTINGS_READY || !owner
     musicYt.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
     musicRestricted.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.enabled
+    musicSearch.input.disabled = !MUSIC_SETTINGS_READY || !owner || !music.youtube
     voiceLimits.update(owner)
     if (serverInfo) serverInfo.update(owner)
     clear(summary)
@@ -3749,18 +4100,50 @@ function buildAboutSection (page) {
   return { update: update }
 }
 
-// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted }, varsayılan ilk ikisi açık,
-// kısıtlı kip kapalı)
+// Sunucunun Telsiz DJ ayarı (meta.music: { enabled, youtube, restricted, search }, varsayılan ilk ikisi açık,
+// kısıtlı kip ve şarkı adıyla arama kapalı). Sunucu search alanını yalnızca DJ ve YouTube kaynağı açıkken doğru
+// verir, burada da aynı kural uygulanır.
 function musicServerSettings () {
   const m = state.meta && state.meta.music && typeof state.meta.music === 'object' ? state.meta.music : null
   const enabled = !m || m.enabled !== false
-  return { enabled: enabled, youtube: enabled && (!m || m.youtube !== false), restricted: Boolean(m && m.restricted === true) }
+  const youtube = enabled && (!m || m.youtube !== false)
+  return { enabled: enabled, youtube: youtube, restricted: Boolean(m && m.restricted === true), search: youtube && Boolean(m && m.search === true) }
 }
 
 function musicSwitchOkKey (field, checked) {
   if (field === 'enabled') return checked ? 'dj.settings.enabledOn' : 'dj.settings.enabledOff'
   if (field === 'restricted') return checked ? 'dj.settings.restrictedOn' : 'dj.settings.restrictedOff'
+  if (field === 'search') return checked ? 'dj.settings.searchOn' : 'dj.settings.searchOff'
   return checked ? 'dj.settings.youtubeOn' : 'dj.settings.youtubeOff'
+}
+
+// Şarkı adıyla aramayı açmadan önce onay penceresi: riskler yeniden gösterilir, ilk odak İptal'dedir. Yalnızca
+// "Riskleri Okudum, Aramayı Aç" ile istek gönderilir, kapatılırsa anahtar kapalı kalır.
+function musicSearchConfirm (input) {
+  openAppDialog({
+    name: 'music-search',
+    titleKey: 'settings.dj.searchConfirmTitle',
+    trigger: input,
+    build: (body, close) => {
+      body.appendChild(h('p', 'lead', t('settings.dj.searchHint')))
+      body.appendChild(h('p', 'hint', t('settings.dj.searchConfirmNote')))
+      const row = h('div', 'row dialog-actions')
+      const confirm = button('button', t('settings.dj.searchConfirm'))
+      confirm.id = 'music-search-confirm'
+      const cancel = button('button button-secondary', t('common.cancel'))
+      cancel.id = 'music-search-cancel'
+      row.appendChild(confirm)
+      row.appendChild(cancel)
+      body.appendChild(row)
+      cancel.addEventListener('click', () => close('dismiss'))
+      confirm.addEventListener('click', () => {
+        close('done')
+        input.checked = true
+        musicSwitchChange('search', true, input)
+      })
+      return cancel
+    }
+  })
 }
 
 // Anahtar değişince POST /api/settings { music: { <alan>: değer } } gönderilir. Başarısızlıkta anahtar
@@ -4022,7 +4405,7 @@ async function deleteChannel (c) {
 }
 
 // 11. Üyeler: liste, rol değiştirme ve özel rol verme (sahip), engelleme, engeli kaldırma ve frekanstan atma
-// (engelleme izni), parola sıfırlama (sahip)
+// (engelleme izni), parola sıfırlama (sahip), şikâyetler (sahip ve yöneticiler)
 
 function memberMatches (u, filter) {
   if (!filter) return true
@@ -4050,6 +4433,7 @@ function buildMembersPage (page) {
   page.appendChild(temp)
   const msg = sMsg('set-members-msg')
   page.appendChild(msg)
+  const reports = buildReportsSection(page)
 
   const listSec = sSection(page, t('settings.members.listTitle'), 'set-members-section')
   const filterLabel = h('label', 'sr-only', t('settings.members.filter'))
@@ -4104,13 +4488,236 @@ function buildMembersPage (page) {
       bannedList.appendChild(buildMemberAdminRow({ id: u.id, name: String(u.name || ''), role: u.role || 'member' }, true))
     })
     restoreFocusKey(bannedList, bFocus)
+    reports.update()
   }
   update()
   return {
     update: update,
     signature: () => {
       const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
-      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '')
+      return users.map((u) => [u.id, u.name, u.role, u.roleId, u.status, u.online, safeCall(() => shownName(u.id), ''), safeCall(() => avatarInfoFor(u.id).blobUrl, '')].join(':')).join(',') + '|' + JSON.stringify(state.bannedUsers || []) + '|' + JSON.stringify(metaRoles()) + '|' + myPermsKey() + '|' + (settingsUi.temp ? 't' : '') + '|' + reports.signature()
+    }
+  }
+}
+
+// Şikâyetler: üyelerin bildirdiği mesajlar ve kişiler (GET /api/reports, yalnızca sahip ve yöneticiler). Liste sayfa
+// açılınca, Yenile ile ve özel görünümdeki açık şikâyet sayısı değişince yeniden alınır. Not ve mesaj metni grup
+// anahtarıyla çözülür, mühürlü içerikteki şikâyet eden, hedef ve mesaj sunucunun kaydıyla tutmazsa gösterilmez.
+
+function resetReports () {
+  settingsUi.reportsGen += 1
+  settingsUi.reports = null
+  settingsUi.reportsLoading = false
+  settingsUi.reportsError = null
+  settingsUi.reportsSeen = ''
+}
+
+function reportsOpenCount () {
+  if (typeof priv !== 'function') return 0
+  const p = priv()
+  return p && typeof p.reports === 'number' ? p.reports : 0
+}
+
+// Özel görünümdeki açık şikâyet sayısı ve görülebilen en yeni şikâyetin kimliği. Biri değişince liste yeniden
+// alınır (liste doluyken yeni şikâyet eski bir açık şikâyetin yerini aldığında sayı aynı kalır, kimlik değişir).
+function reportsMark () {
+  const p = typeof priv === 'function' ? priv() : null
+  const last = p && typeof p.reportsLast === 'number' ? p.reportsLast : 0
+  return reportsOpenCount() + ':' + last
+}
+
+function validReport (r) {
+  return Boolean(r && typeof r === 'object' && typeof r.id === 'number' && (r.kind === 'message' || r.kind === 'user') && typeof r.createdAt === 'number')
+}
+
+async function loadReports () {
+  if (!isAdmin()) return
+  settingsUi.reportsGen += 1
+  const gen = settingsUi.reportsGen
+  settingsUi.reportsLoading = true
+  settingsUi.reportsSeen = reportsMark()
+  const res = await api('GET', '/api/reports')
+  if (gen !== settingsUi.reportsGen) return
+  settingsUi.reportsLoading = false
+  if (res.status === 200 && res.data && Array.isArray(res.data.reports)) {
+    settingsUi.reports = res.data.reports.filter(validReport)
+    settingsUi.reportsError = null
+  } else {
+    if (settingsUi.reports === null) settingsUi.reports = []
+    settingsUi.reportsError = () => errorText(res, t('settings.reports.loadFailed'))
+  }
+  if (isSettingsTab('members')) updateSettingsPage()
+}
+
+// Mühürlü not: { state: 'none' } (not yok), { state: 'locked' } (anahtar yok veya kayıtla tutmuyor) veya
+// { state: 'ok', note, quote }
+function openReportNote (r) {
+  if (typeof r.note !== 'string' || !r.note) return { state: 'none' }
+  let opened = null
+  try {
+    opened = window.E2EE.openJson(r.note)
+  } catch (err) {
+    opened = null
+  }
+  if (!opened || opened.ok !== true) return { state: 'locked' }
+  const v = opened.value
+  if (!v || typeof v !== 'object' || v.v !== 1 || v.k !== r.kind || !sameId(v.a, r.reporterId) || !sameId(v.u, r.targetUserId)) return { state: 'locked' }
+  const sameMessage = r.messageId === null || r.messageId === undefined ? v.m === null : sameId(v.m, r.messageId)
+  if (!sameMessage) return { state: 'locked' }
+  return { state: 'ok', note: typeof v.n === 'string' ? v.n : '', quote: typeof v.q === 'string' ? v.q : '' }
+}
+
+// Alıntıyı bildiren kişi yazar, sunucu ve liste doğrulayamaz. Yazı odasındaki mesaj bu cihazda yüklüyse ve
+// çözülebiliyorsa şu anki metni alıntıyla aynı biçimde döner (karşılaştırmak için), yoksa null.
+function reportLiveQuote (r) {
+  if (r.kind !== 'message' || r.dm || typeof reportQuoteOf !== 'function' || typeof indexOfMessage !== 'function') return null
+  const i = indexOfMessage(r.messageId)
+  const m = i === -1 ? null : state.messages[i]
+  if (!m || !sameId(m.channelId, r.channelId)) return null
+  return reportQuoteOf(m) || null
+}
+
+// Sunucunun verdiği ad boşsa hesap silinmiştir, listedeki kişi için görünen ad kullanılır
+function reportPersonName (userId, name) {
+  if (!name) return t('profile.deletedUser')
+  const listed = state.meta && Array.isArray(state.meta.users) && state.meta.users.some((u) => u && sameId(u.id, userId))
+  return listed ? shownName(userId) : String(name)
+}
+
+function buildReportRow (r) {
+  const li = h('li', 'list-row report-row')
+  li.setAttribute('data-report-id', String(r.id))
+  const main = h('span', 'list-main')
+  main.appendChild(avatar(r.targetUserId, 'sm'))
+  const text = h('span', 'list-text')
+  const target = reportPersonName(r.targetUserId, r.targetName)
+  const kindKey = r.kind === 'user' ? 'settings.reports.kindUser' : r.dm ? 'settings.reports.kindDm' : 'settings.reports.kindMessage'
+  text.appendChild(h('span', 'list-name', t(kindKey, { name: target })))
+  const reason = REPORT_REASON_KEYS.indexOf(r.reason) !== -1 ? t('report.reason.' + r.reason) : String(r.reason || '')
+  text.appendChild(h('span', 'list-sub', t('settings.reports.sub', { reason: reason, reporter: reportPersonName(r.reporterId, r.reporterName), time: formatShort(r.createdAt) })))
+  if (r.resolvedAt !== null && r.resolvedAt !== undefined) {
+    text.appendChild(h('span', 'list-sub', t('settings.reports.resolvedSub', { name: reportPersonName(r.resolvedBy, r.resolverName), time: formatShort(r.resolvedAt) })))
+  }
+  const opened = openReportNote(r)
+  if (opened.state === 'ok') {
+    if (opened.quote) {
+      text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
+      const live = reportLiveQuote(r)
+      if (live !== null && live !== opened.quote) text.appendChild(h('span', 'list-sub report-quote-changed', t('settings.reports.quoteChanged')))
+    }
+    if (opened.note) text.appendChild(h('span', 'report-text report-note-line', t('settings.reports.note', { text: opened.note })))
+  } else if (opened.state === 'locked') {
+    text.appendChild(h('span', 'list-sub report-locked', t('settings.reports.noteLocked')))
+  }
+  main.appendChild(text)
+  li.appendChild(main)
+  const actions = h('span', 'row-actions')
+  if (r.kind === 'message' && !r.dm && typeof goToMessage === 'function') {
+    const go = button('button button-small button-secondary act-report-go', t('settings.reports.goTo'))
+    go.setAttribute('data-focus-key', 'report-go-' + r.id)
+    go.addEventListener('click', () => {
+      closeSettings(false)
+      goToMessage(r.channelId, r.messageId)
+    })
+    actions.appendChild(go)
+  }
+  if (r.resolvedAt === null) {
+    const resolve = button('button button-small act-report-resolve', t('settings.reports.resolve'))
+    resolve.setAttribute('data-focus-key', 'report-resolve-' + r.id)
+    resolve.setAttribute('aria-label', t('settings.reports.resolveLabel', { name: target }))
+    resolve.addEventListener('click', () => {
+      resolveReport(r, resolve)
+    })
+    actions.appendChild(resolve)
+  }
+  li.appendChild(actions)
+  return li
+}
+
+async function resolveReport (r, btn) {
+  const list = byId('set-reports-list')
+  const index = list ? Array.from(list.querySelectorAll('.act-report-resolve')).indexOf(btn) : -1
+  btn.disabled = true
+  const res = await api('POST', '/api/reports/resolve', { id: r.id })
+  btn.disabled = false
+  const msg = byId('set-reports-msg')
+  if (msg) msg.removeAttribute('data-load-error')
+  if (res.status !== 200 || !res.data || !validReport(res.data.report)) {
+    setMsg(msg, () => errorText(res, t('settings.reports.resolveFailed')), 'error')
+    return
+  }
+  const done = res.data.report
+  settingsUi.reports = (settingsUi.reports || []).map((x) => (x.id === done.id ? done : x))
+  setMsg(msg, () => t('settings.reports.resolved'), 'ok')
+  if (!isSettingsTab('members')) return
+  updateSettingsPage()
+  if (list && index !== -1) focusListAfterRemoval(list, index, 'set-reports-section-title')
+}
+
+function buildReportsSection (page) {
+  const sec = sSection(page, t('settings.reports.title'), 'set-reports-section')
+  sec.appendChild(sHint(t('settings.reports.hint'), 'set-reports-hint'))
+  const head = h('div', 'settings-inline-form')
+  const count = h('p', 'list-sub settings-reports-count')
+  count.id = 'set-reports-count'
+  count.setAttribute('role', 'status')
+  head.appendChild(count)
+  head.appendChild(sButton('button button-small button-secondary', t('settings.reports.refresh'), 'set-reports-refresh', () => {
+    loadReports()
+  }))
+  sec.appendChild(head)
+  const msg = sMsg('set-reports-msg')
+  sec.appendChild(msg)
+  const list = h('ul', 'plain-list settings-list')
+  list.id = 'set-reports-list'
+  list.setAttribute('aria-labelledby', 'set-reports-section-title')
+  sec.appendChild(list)
+  const doneWrap = h('div', 'settings-block')
+  doneWrap.id = 'set-reports-done-wrap'
+  sSub(doneWrap, t('settings.reports.resolvedTitle'), 'set-reports-done-title')
+  const doneList = h('ul', 'plain-list settings-list')
+  doneList.id = 'set-reports-done-list'
+  doneList.setAttribute('aria-labelledby', 'set-reports-done-title')
+  doneWrap.appendChild(doneList)
+  sec.appendChild(doneWrap)
+  const update = () => {
+    const staff = isAdmin()
+    sec.hidden = !staff
+    if (!staff) return
+    if (!settingsUi.reportsLoading && (settingsUi.reports === null || reportsMark() !== settingsUi.reportsSeen)) loadReports()
+    const all = settingsUi.reports || []
+    const open = all.filter((r) => r.resolvedAt === null)
+    const done = all.filter((r) => r.resolvedAt !== null)
+    count.textContent = settingsUi.reports === null ? t('settings.reports.loading') : t('settings.reports.open', { count: open.length })
+    // Yükleme hatası yalnızca kendi gösterdiğini kaldırır (çözme hatası kalır)
+    if (settingsUi.reportsError) {
+      setMsg(msg, settingsUi.reportsError, 'error')
+      msg.setAttribute('data-load-error', '1')
+    } else if (msg.getAttribute('data-load-error') === '1') {
+      msg.removeAttribute('data-load-error')
+      setMsg(msg, '')
+    }
+    const focusKey = activeFocusKey(list)
+    clear(list)
+    if (settingsUi.reports !== null && !open.length) list.appendChild(h('li', 'empty-row', t('settings.reports.none')))
+    open.forEach((r) => {
+      list.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(list, focusKey)
+    doneWrap.hidden = !done.length
+    const doneFocus = activeFocusKey(doneList)
+    clear(doneList)
+    done.forEach((r) => {
+      doneList.appendChild(buildReportRow(r))
+    })
+    restoreFocusKey(doneList, doneFocus)
+  }
+  return {
+    update: update,
+    signature: () => {
+      if (!isAdmin()) return 'x'
+      const rows = (settingsUi.reports || []).map((r) => [r.id, r.resolvedAt, r.resolvedBy, r.reporterName, r.targetName].join(':')).join(',')
+      return [reportsMark(), settingsUi.reports === null ? 'n' : rows, settingsUi.reportsLoading ? 'l' : '', settingsUi.reportsError ? 'e' : '', activeKid() || ''].join('|')
     }
   }
 }

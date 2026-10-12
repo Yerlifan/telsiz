@@ -1,0 +1,352 @@
+'use strict'
+
+// Özgün tasarım, Telsiz yönü (istek 10, G13). Bu dosyayı G13 kurar.
+// - Kayıt Defteri mesaj düzeni (varsayılan): her mesajda saat solda görünür, kendi mesajında TX, gelen mesajda RX (ikisi
+//   de aria-hidden), başlıkta küçük avatar ve ad, büyük avatar gizli. Grubu bağlayan yayın çizgisi yazarın profil
+//   renginde. Mesaj günlüğü (role="log") ve ekran okuyucu başlığı (msg-sr) değişmez.
+// - Ayarlar > Görünüm > Mesaj Düzeni'nde Klasik seçilince eski görünüm döner: büyük avatar ve başlıktaki saat görünür,
+//   küçük avatar, yön etiketi, yayın çizgisi ve sürekli saat sütunu yok. Seçim yeniden yüklemede korunur.
+// - İstasyonlar (bütün temalarda): her odada aynı genişlikte frekans okuması, oda adları tek hizada, grup başlıkları
+//   büyük harfe çevrilmez. Ses odasındakiler ul ve li yapısıyla yan yana çipler.
+// - Sol sütun (1440x900): kapalı telsiz kartı ses odalarını Katıl düğmeleriyle gösterir, düğmelere ulaşılır (h.reachable).
+//   Ses odasında kartın üst kenarı Bildirimler'in hemen altında, alt kenarı sütunun altında.
+// - Hoparlör düğmesi (Sağırlaştır yerine): Hoparlör, Açık, erişilebilir adı Hoparlörü Kapat, basınca çarpılı hoparlör.
+// - Durum LED çubuğu: md avatarda çubuk (genişliği yüksekliğinden büyük), xs avatarda köşe noktası.
+// - QSL profil kartı: büyük tek aralıklı @kullanıcı adı, bantta frekans adı, ses odasındaki kişinin oda frekansı ve QSL
+//   damgası, künye ekran okuyuculardan gizli. Kart açıkken kişi odadan çıkınca ve yeniden girince okuma yenilenir,
+//   Ayarlar'daki profil önizlemelerinde de (ses odası değişikliği metayla gelir, 04-meta.js refreshSettings).
+// - 390x844 telefonda ve 1440 genişlikte yatay taşma yok, oda başlangıcı "Kayıt başı", konsol ve sunucu günlüğü temiz.
+// Sahte mikrofon Chromium bayraklarıyla sağlandığı için ses odasına giren testler yalnızca Chromium'da çalışır.
+
+const { before, after } = require('node:test')
+const assert = require('node:assert/strict')
+const h = require('./yardimci')
+
+const W = { w: null, deniz: null, ece: null, genel: null, lobi: null }
+const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
+const VOICE = { browsers: ['chromium'], reason: 'sahte mikrofon yalnızca Chromium bayraklarıyla' }
+
+before(async () => {
+  if (test.skipped) return
+  W.w = await h.setupWorld({ slot: 33 })
+  W.genel = W.w.room('genel')
+  W.lobi = W.w.room('Lobi')
+  for (const line of [['ece', 'Selam, Lobi\'de misiniz?'], ['ece', 'Birazdan geliyorum.'], ['deniz', 'Ben buradayım.'], ['deniz', 'Haritayı açtım.'], ['ece', 'Tamam.']]) {
+    await W.w.say(line[0], W.genel, line[1])
+  }
+  W.deniz = await W.w.pageFor('deniz')
+  await W.deniz.waitForFunction(() => document.querySelectorAll('#message-list .msg').length === 5, null, { timeout: h.LONG })
+})
+
+after(async () => {
+  if (W.w) await W.w.close()
+})
+
+// Mesaj akışının görünür durumu: her mesajda saat, yön etiketi, avatarlar ve yayın çizgisi
+function readMessages (page) {
+  return page.evaluate(() => Array.from(document.querySelectorAll('#message-list .msg')).map((n) => {
+    const shown = (sel) => {
+      const el = n.querySelector(sel)
+      if (!el || !el.getClientRects().length) return false
+      const r = el.getBoundingClientRect()
+      return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== 'hidden'
+    }
+    const dir = n.querySelector('.msg-dir')
+    const line = getComputedStyle(n, '::after')
+    const callAvatar = n.querySelector('.msg-call-avatar')
+    return {
+      first: n.classList.contains('msg-first'),
+      own: n.classList.contains('msg-own'),
+      av: n.getAttribute('data-av'),
+      hoverTime: shown('.msg-hover-time') ? n.querySelector('.msg-hover-time').textContent : '',
+      headTime: shown('.msg-head .msg-time'),
+      bigAvatar: shown('.msg-gutter .msg-avatar'),
+      dir: shown('.msg-dir') ? dir.textContent : '',
+      dirHidden: dir ? dir.getAttribute('aria-hidden') : null,
+      sr: n.querySelector('.msg-sr') ? n.querySelector('.msg-sr').textContent : '',
+      line: line.content !== 'none' && line.content !== 'normal' ? line.backgroundColor : '',
+      // Yazarın profil rengi (--av-N) hesaplanmış biçimde
+      color: (() => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = 'var(--av-' + String(n.getAttribute('data-av')).slice(1) + ')'
+        n.appendChild(probe)
+        const value = getComputedStyle(probe).backgroundColor
+        n.removeChild(probe)
+        return value
+      })(),
+      callAvatar: shown('.msg-call-avatar') && Boolean(callAvatar)
+    }
+  }))
+}
+
+test('Kayıt Defteri varsayılan: her mesajda saat solda, kendi mesajında TX, gelende RX, başlıkta küçük avatar', async () => {
+  const page = W.deniz
+  assert.equal(await page.getAttribute('html', 'data-msg-layout'), 'kayit')
+  assert.equal(await page.getAttribute('#messages', 'role'), 'log', 'mesaj günlüğü değişmez')
+  const list = await readMessages(page)
+  assert.equal(list.length, 5)
+  for (const m of list) {
+    assert.match(m.hoverTime, /^\d{2}:\d{2}$/, 'her mesajda saat görünür: ' + JSON.stringify(m))
+    assert.equal(m.headTime, false, 'başlıktaki saat görünmez, ekran okuyucu metni yerinde')
+    assert.equal(m.bigAvatar, false, 'büyük avatar gizli')
+    assert.equal(m.dirHidden, 'true', 'yön etiketi ekran okuyuculardan gizli')
+    assert.match(m.sr, /\d{2}:\d{2}/, 'ekran okuyucu başlığı değişmez')
+    assert.ok(m.line, 'yayın çizgisi var')
+    assert.match(m.av, /^c[0-7]$/)
+    if (m.first) {
+      assert.equal(m.callAvatar, true, 'başlıkta küçük avatar')
+      assert.equal(m.dir, m.own ? 'TX' : 'RX')
+      // Yayın çizgisi yazarın profil renginde (küçük avatarın zemin rengiyle aynı)
+      assert.equal(m.line, m.color, 'çizgi rengi yazarın rengi')
+    }
+  }
+  assert.ok(list.some((m) => m.own && m.first) && list.some((m) => !m.own && m.first), 'iki yazar da var')
+  assert.equal(await page.textContent('#channel-start-title'), 'Kayıt başı: genel')
+  assert.ok(await h.overflowX(page) <= 0, '1440 genişlikte yatay taşma yok')
+})
+
+test('Klasik düzen eski görünümü getirir ve yeniden yüklemede korunur, Kayıt Defteri\'ne dönülür', async () => {
+  const page = W.deniz
+  await page.evaluate(() => openSettings('appearance', null))
+  await page.waitForSelector('#set-msg-layout-klasik', { state: 'attached' })
+  assert.equal(await page.isChecked('#set-msg-layout-kayit'), true)
+  await page.click('label[for="set-msg-layout-klasik"]')
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-msg-layout') === 'klasik')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#settings-view', { state: 'hidden' })
+  const check = async () => {
+    // Fare bir mesajın üstündeyse o mesajın saati görünür, ölçümden önce kenara çekilir
+    await page.mouse.move(1, 1)
+    const list = await readMessages(page)
+    assert.equal(list.length, 5)
+    for (const m of list) {
+      assert.equal(m.callAvatar, false, 'küçük avatar yok')
+      assert.equal(m.dir, '', 'yön etiketi yok')
+      assert.equal(m.line, '', 'yayın çizgisi yok')
+      if (m.first) {
+        assert.equal(m.bigAvatar, true, 'grubun ilk mesajında büyük avatar')
+        assert.equal(m.headTime, true, 'başlıkta saat')
+        assert.equal(m.hoverTime, '', 'saat sütunu yalnızca üzerine gelince')
+      } else {
+        assert.equal(m.hoverTime, '', 'gruptaki mesajda saat yalnızca üzerine gelince')
+      }
+    }
+  }
+  await check()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
+  await page.waitForFunction(() => document.querySelectorAll('#message-list .msg').length === 5, null, { timeout: h.LONG })
+  assert.equal(await page.getAttribute('html', 'data-msg-layout'), 'klasik', 'yeniden yüklemede korunur')
+  await check()
+  await page.evaluate(() => window.TelsizTheme.set({ msgLayout: 'kayit' }))
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-msg-layout') === 'kayit')
+  const back = await readMessages(page)
+  assert.ok(back.every((m) => /^\d{2}:\d{2}$/.test(m.hoverTime)), 'Kayıt Defteri geri döner')
+})
+
+test('İstasyonlar: her odada aynı genişlikte frekans okuması, grup başlığı büyük harfe çevrilmez', async () => {
+  const page = W.deniz
+  const skins = await page.evaluate(() => Array.from(window.TelsizTheme.skins))
+  assert.ok(skins.length >= 3)
+  for (const skin of skins) {
+    await page.evaluate((s) => window.TelsizTheme.set({ skin: s }), skin)
+    await page.waitForFunction((s) => document.documentElement.getAttribute('data-skin') === s, skin)
+    const r = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('#inbox-list .room-row[data-station^="text-"], #inbox-list .room-row[data-station^="voice-"]'))
+      return {
+        rows: rows.length,
+        freqs: rows.map((row) => {
+          const f = row.querySelector('.channel-freq')
+          return f && f.getClientRects().length ? { text: f.textContent, width: Math.round(f.getBoundingClientRect().width), hidden: f.getAttribute('aria-hidden') } : null
+        }),
+        nameLeft: rows.map((row) => Math.round(row.querySelector('.room-row-name').getBoundingClientRect().left)),
+        titles: Array.from(document.querySelectorAll('#inbox-list .rooms-group-title')).map((n) => getComputedStyle(n).textTransform)
+      }
+    })
+    assert.equal(r.rows, W.w.meta.channels.length, skin + ': bütün yazı ve ses odaları')
+    for (const f of r.freqs) {
+      assert.ok(f, skin + ': her odada frekans okuması görünür')
+      assert.match(f.text, /^\d{2,3}\.\d$/)
+      assert.equal(f.hidden, 'true', 'frekans süstür')
+    }
+    assert.equal(new Set(r.freqs.map((f) => f.width)).size, 1, skin + ': frekans okumaları aynı genişlikte ' + JSON.stringify(r.freqs))
+    assert.equal(new Set(r.nameLeft).size, 1, skin + ': oda adları tek hizada ' + JSON.stringify(r.nameLeft))
+    assert.ok(r.titles.length >= 2 && r.titles.every((v) => v === 'none'), skin + ': grup başlıkları büyük harfe çevrilmez')
+  }
+  await page.evaluate(() => window.TelsizTheme.set({ skin: 'arcade' }))
+})
+
+test('kapalı telsiz kartı sol sütunda kanal tarayıcısıdır: Katıl düğmelerine ulaşılır, kart sütunu doldurur', async () => {
+  const page = W.deniz
+  const ids = await page.evaluate(() => Array.from(document.querySelectorAll('#voice-channels .radio-join')).map((b) => b.getAttribute('data-channel-id')))
+  assert.equal(ids.length, W.w.meta.channels.filter((c) => c.type === 'voice').length, 'her ses odasında Katıl')
+  assert.equal(await page.evaluate(() => document.getElementById('radio-slot').contains(document.getElementById('radio'))), true)
+  for (const id of ids) {
+    assert.equal(await h.reachable(page, '#voice-channels .radio-join[data-channel-id="' + id + '"]'), true, 'Katıl düğmesine ulaşılır: ' + id)
+  }
+  const g = await page.evaluate(() => {
+    const radio = document.getElementById('radio').getBoundingClientRect()
+    const col = document.querySelector('#info-col .side-scroll').getBoundingClientRect()
+    return { radioBottom: radio.bottom, colBottom: col.bottom, radioTop: radio.top, colTop: col.top }
+  })
+  assert.ok(Math.abs(g.radioBottom - g.colBottom) <= 2, 'kart sütunun altına kadar uzanır: ' + JSON.stringify(g))
+  assert.ok(g.radioTop - g.colTop < 40, 'sütunun üstünde boş alan kalmaz: ' + JSON.stringify(g))
+})
+
+test('ses odasında 1440x900: kart Bildirimler\'in hemen altında, kişiler çip, Hoparlör düğmesi ve LED çubuğu', async () => {
+  const page = W.deniz
+  W.ece = await W.w.pageFor('ece', { label: 'ece' })
+  await h.joinVoice(W.ece, W.lobi.id)
+  await page.waitForSelector('#activity:not([hidden]) .activity-item', { timeout: h.LONG })
+  await h.joinVoice(page, W.lobi.id)
+  await page.waitForFunction(() => document.querySelectorAll('#inbox-list .room-people .room-person').length === 2, null, { timeout: h.LONG })
+  const g = await page.evaluate(() => {
+    const act = document.getElementById('activity').getBoundingClientRect()
+    const radio = document.getElementById('radio').getBoundingClientRect()
+    const col = document.querySelector('#info-col .side-scroll').getBoundingClientRect()
+    const people = document.querySelector('#inbox-list .room-people')
+    const chips = Array.from(people.querySelectorAll('.room-person'))
+    return {
+      gap: radio.top - act.bottom,
+      bottom: Math.abs(radio.bottom - col.bottom),
+      list: people.tagName + '>' + chips.map((c) => c.tagName).join(','),
+      tops: chips.map((c) => Math.round(c.getBoundingClientRect().top)),
+      names: chips.map((c) => c.querySelector('.room-person-name').textContent)
+    }
+  })
+  assert.ok(g.gap >= 0 && g.gap <= 24, 'kartın üst kenarı Bildirimler\'in hemen altında: ' + g.gap)
+  assert.ok(g.bottom <= 2, 'kart sütunun altına kadar uzanır')
+  assert.equal(g.list, 'UL>LI,LI', 'liste anlamı korunur')
+  assert.equal(new Set(g.tops).size, 1, 'iki kişi yan yana tek satırda')
+  assert.deepEqual(g.names.slice().sort(), ['Deniz', 'Ece'])
+  // Hoparlör (Sağırlaştır yerine)
+  const before = await page.evaluate(() => {
+    const b = document.getElementById('btn-deafen')
+    return { label: b.querySelector('.radio-button-label').textContent, state: b.querySelector('.radio-button-state').textContent, aria: b.getAttribute('aria-label'), icon: b.querySelector('use').getAttribute('href'), pressed: b.getAttribute('aria-pressed') }
+  })
+  assert.deepEqual(before, { label: 'Hoparlör', state: 'Açık', aria: 'Hoparlörü Kapat', icon: '#i-speaker', pressed: 'false' })
+  await page.click('#btn-deafen')
+  await page.waitForFunction(() => document.getElementById('btn-deafen').getAttribute('aria-pressed') === 'true')
+  const off = await page.evaluate(() => {
+    const b = document.getElementById('btn-deafen')
+    return { state: b.querySelector('.radio-button-state').textContent, icon: b.querySelector('use').getAttribute('href') }
+  })
+  assert.deepEqual(off, { state: 'Kapalı', icon: '#i-speaker-off' })
+  await page.click('#btn-deafen')
+  await page.waitForFunction(() => document.getElementById('btn-deafen').getAttribute('aria-pressed') === 'false')
+  // Durum LED çubuğu: görünen ilk xs dışı avatarda çubuk, mesaj başlığındaki xs avatarda köşe noktası
+  const led = await page.evaluate(() => {
+    const box = (el) => {
+      const s = getComputedStyle(el, '::after')
+      return { w: parseFloat(s.width), h: parseFloat(s.height) }
+    }
+    const visible = (el) => el.getClientRects().length > 0
+    const big = Array.from(document.querySelectorAll('.avatar[data-status]:not(.avatar-xs)')).filter(visible)[0]
+    const small = Array.from(document.querySelectorAll('#message-list .msg-call-avatar.avatar-xs[data-status]')).filter(visible)[0]
+    return { bar: box(big), dot: box(small), big: big.className }
+  })
+  assert.ok(led.bar.w > led.bar.h * 1.5, 'xs dışındaki avatarda LED çubuğu: ' + JSON.stringify(led))
+  assert.equal(Math.round(led.dot.w), Math.round(led.dot.h), 'xs avatarda köşe noktası')
+}, VOICE)
+
+test('QSL profil kartı: büyük tek aralıklı çağrı işareti, frekans künyesi ve damga ekran okuyuculardan gizli', async () => {
+  const page = W.deniz
+  await page.evaluate((id) => openProfileCard(id, document.querySelector('#me-button')), W.w.P.ece.id)
+  await page.waitForSelector('#profile-card:not([hidden]) .profile-card-qsl')
+  const r = await page.evaluate((lobiId) => {
+    const card = document.getElementById('profile-card')
+    const qsl = card.querySelector('.profile-card-qsl')
+    const handle = card.querySelector('.profile-card-handle')
+    const name = card.querySelector('.profile-card-name')
+    const freq = qsl.querySelector('.profile-card-qsl-freq')
+    const room = document.querySelector('#inbox-list .room-row[data-station="voice-' + lobiId + '"] .channel-freq')
+    const qb = qsl.getBoundingClientRect()
+    const band = card.querySelector('.profile-card-band').getBoundingClientRect()
+    return {
+      hidden: qsl.getAttribute('aria-hidden'),
+      station: qsl.querySelector('.profile-card-qsl-station').textContent,
+      freq: freq ? freq.textContent : null,
+      roomFreq: room ? room.textContent : null,
+      stamp: qsl.querySelector('.profile-card-qsl-stamp').textContent,
+      inBand: qb.left >= band.left && qb.right <= band.right && qb.top >= band.top && qb.bottom <= band.bottom,
+      handle: handle.textContent,
+      handleFont: getComputedStyle(handle).fontFamily,
+      mono: getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim(),
+      bigger: parseFloat(getComputedStyle(handle).fontSize) > parseFloat(getComputedStyle(document.documentElement).fontSize),
+      nameFirst: Boolean(name.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING)
+    }
+  }, W.lobi.id)
+  assert.equal(r.hidden, 'true')
+  assert.equal(r.station, 'Kankalar')
+  if (VOICE.browsers.indexOf(h.BROWSER) !== -1) assert.equal(r.freq, r.roomFreq, 'ses odasındaki kişinin oda frekansı')
+  assert.equal(r.stamp, 'QSL')
+  assert.equal(r.inBand, true, 'künye bandın içinde')
+  assert.equal(r.handle, '@ece')
+  assert.equal(r.handleFont.replace(/\s/g, ''), r.mono.replace(/\s/g, ''), 'çağrı işareti tek aralıklı')
+  assert.equal(r.bigger, true, 'çağrı işareti gövde yazısından büyük')
+  assert.equal(r.nameFirst, true, 'okuma sırası: ad, sonra @kullanıcı adı')
+  if (VOICE.browsers.indexOf(h.BROWSER) !== -1) {
+    // Kart açıkken Ece odadan çıkınca künyedeki frekans okuması kalkar, yeniden girince geri gelir (13-profile.js cardModKey)
+    await W.ece.evaluate(() => leaveVoice())
+    await page.waitForFunction(() => {
+      const qsl = document.querySelector('#profile-card:not([hidden]) .profile-card-qsl')
+      return Boolean(qsl) && !qsl.querySelector('.profile-card-qsl-freq')
+    }, null, { timeout: h.LONG })
+    await h.joinVoice(W.ece, W.lobi.id)
+    await page.waitForFunction((f) => {
+      const freq = document.querySelector('#profile-card:not([hidden]) .profile-card-qsl-freq')
+      return Boolean(freq) && freq.textContent === f
+    }, r.roomFreq, { timeout: h.LONG })
+  }
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#profile-card', { state: 'hidden' })
+})
+
+test('Ayarlar\'daki profil önizlemesinde QSL künyesi ses odasından çıkınca ve girince yenilenir', async () => {
+  const page = W.deniz
+  const roomFreq = await page.evaluate((id) => channelFreq(id), W.lobi.id)
+  const freqOf = (sel) => page.evaluate((s) => {
+    const n = document.querySelector(s + ' .profile-card-qsl-freq')
+    return n ? n.textContent : null
+  }, sel)
+  await page.evaluate(() => openSettings('profile', null))
+  await page.waitForSelector('#set-profile-card .profile-card-qsl')
+  assert.equal(await freqOf('#set-profile-card'), roomFreq, 'odadayken önizlemede oda frekansı')
+  await page.evaluate(() => leaveVoice())
+  await page.waitForFunction(() => {
+    const qsl = document.querySelector('#set-profile-card .profile-card-qsl')
+    return Boolean(qsl) && !qsl.querySelector('.profile-card-qsl-freq')
+  }, null, { timeout: h.LONG })
+  await page.evaluate(() => openSettings('account', null))
+  await page.waitForSelector('#set-account-preview .profile-card-qsl')
+  assert.equal(await freqOf('#set-account-preview'), null, 'odada değilken frekans okuması yok')
+  await page.evaluate((id) => joinVoice(id), W.lobi.id)
+  await page.waitForFunction((f) => {
+    const n = document.querySelector('#set-account-preview .profile-card-qsl-freq')
+    return Boolean(n) && n.textContent === f
+  }, roomFreq, { timeout: h.LONG })
+  await page.evaluate(() => closeSettings(false))
+  await page.waitForSelector('#settings-view', { state: 'hidden' })
+  await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on', null, { timeout: h.LONG })
+}, VOICE)
+
+test('390x844 telefonda yatay taşma yok, İstasyonlar düğmesinde kadran simgesi', async () => {
+  const phone = await W.w.pageFor('mert', { label: 'telefon', viewport: { width: 390, height: 844 }, mobile: true })
+  await phone.waitForFunction(() => document.querySelectorAll('#message-list .msg').length === 5, null, { timeout: h.LONG })
+  assert.equal(await phone.getAttribute('#btn-rooms use', 'href'), '#i-dial')
+  for (const layout of ['kayit', 'klasik']) {
+    await phone.evaluate((v) => window.TelsizTheme.set({ msgLayout: v }), layout)
+    await phone.waitForFunction((v) => document.documentElement.getAttribute('data-msg-layout') === v, layout)
+    assert.ok(await h.overflowX(phone) <= 0, layout + ': yatay taşma yok')
+  }
+  const list = await readMessages(phone)
+  assert.ok(list.every((m) => m.callAvatar === false), 'Klasik düzen telefonda da')
+  await phone.evaluate(() => window.TelsizTheme.set({ msgLayout: 'kayit' }))
+  const kayit = await readMessages(phone)
+  assert.ok(kayit.every((m) => /^\d{2}:\d{2}$/.test(m.hoverTime)), 'Kayıt Defteri telefonda her mesajda saat')
+  assert.ok(await h.overflowX(phone) <= 0)
+})
+
+test('konsol ve sunucu günlüğü temiz', async () => {
+  h.assertCleanConsole(W.w.logs, W.w.srv.errors)
+})

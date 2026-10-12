@@ -4,7 +4,7 @@
 // 19-typing.js) testleri. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında yüklenir.
 // Arama eşleştirme normalleştirmesi (Türkçe ve İngilizce, ı/i, İ/i, aksanlar), vurgu aralıkları ve kısa
 // alıntı, anma ayrıştırma ve kelime sınırları, @herkes kuralı (yazarın rolü), öneri kelimesi, yazıyor
-// metninin çoğul kuralları ve yazanların süzülmesi sınanır.
+// metninin çoğul kuralları ve yazanların süzülmesi sınanır. G10: arama panelindeki Odalar ve Kişiler eşleşmesi.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -203,6 +203,38 @@ test('@herkes ve @everyone: yalnızca sahip ve yönetici yazınca, yazı kanalı
   assert.strictEqual(me(2, 10, '@herkes yarın toplantı'), false)
 })
 
+test('Telsiz DJ duyurusu anma sayılmaz: sayaç, bildirim ve "Beni anan" süzgeci duyurunun metnine bakmaz', () => {
+  const { run } = load('tr')
+  // 06-messages.js bu bağlamda yüklenmez: çözme taklidi mesajın plain alanını döner
+  run('function decryptMessage (m) { return m.plain }')
+  const msg = (author, text, dj) => ({ id: 70, channelId: 10, authorId: author, plain: { state: 'ok', text: text, files: [], dj: dj || null } })
+  const mentions = (m) => run('messageMentionsMe(' + JSON.stringify(m) + ')')
+  const alert = (m) => run('messageAlertAllowed(' + JSON.stringify(m) + ')')
+  // "DJ'de Çal": metinde dosyayı yükleyen kişinin seçtiği ad var, düğmeye basan yönetici (2) gönderir
+  const fileRef = { op: 'add', src: 'fileref', title: '@herkes yeni parca.mp3' }
+  const everyone = 'Telsiz DJ kuyruğuna dosya ekledi: @herkes yeni parca.mp3'
+  assert.strictEqual(mentions(msg(2, everyone)), true, 'aynı metin sıradan mesajda anmadır')
+  assert.strictEqual(mentions(msg(2, everyone, fileRef)), false)
+  assert.strictEqual(mentions(msg(3, 'Telsiz DJ kuyruğuna dosya ekledi: @burak icin.mp3', { op: 'add', src: 'fileref', title: '@burak icin.mp3' })), false)
+  // /çal duyurusunun metni komutun kendisidir, duyuruda görünmez
+  assert.strictEqual(mentions(msg(3, '/çal https://youtu.be/dQw4w9WgXcQ @burak', { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ' })), false)
+  assert.strictEqual(mentions(msg(3, '/çal @burak', { op: 'add', src: 'file' })), false)
+  // Varsayılan bildirim düzeyinde (yalnızca anmalar) duyuru bildirim ve ses vermez, sayaç artmaz
+  assert.strictEqual(alert(msg(2, everyone)), true)
+  assert.strictEqual(alert(msg(2, everyone, fileRef)), false)
+  run('state.mentions = Object.create(null)')
+  assert.strictEqual(run('mentionOnIncoming(' + JSON.stringify(msg(2, everyone, fileRef)) + ')'), false)
+  assert.strictEqual(run('state.mentions[10]'), undefined)
+  // Arama dizinindeki duyuru "Beni anan" süzgecine girmez
+  run(`
+    var base = { terms: [], fromId: null, fromMissing: false, hasImage: false, hasFile: false, mentionsMe: true }
+    var plainEntry = { id: 7, channelId: 10, authorId: 2, text: ${JSON.stringify(everyone)}, names: '', fold: '', foldNames: '', hasImage: false, hasFile: false, dj: false }
+    var djEntry = Object.assign({}, plainEntry, { id: 8, dj: true })
+  `)
+  assert.strictEqual(run('entryMatches(plainEntry, base)'), true)
+  assert.strictEqual(run('entryMatches(djEntry, base)'), false)
+})
+
 test('öneri kelimesi: imlecin önündeki @ kelimesi, kelime sınırı ve kelimenin sonu', () => {
   const { json } = load('tr')
   const at = (text, caret) => json('mentionQueryAt(' + q(text) + ', ' + caret + ')')
@@ -280,4 +312,40 @@ test('bildirim düzeyi: varsayılan anmalar, tanınmayan değer anmalar sayılı
   assert.strictEqual(run('mentionNotifyLevel()'), 'none')
   run("localStorage.setItem('telsiz.notifyLevel', 'bozuk')")
   assert.strictEqual(run('mentionNotifyLevel()'), 'mentions')
+})
+
+test('Odalar ve Kişiler: oda ve özel konuşma adları aramayla aynı katlamayla eşleşir, adı terimle başlayanlar önce, en çok altı sonuç', () => {
+  const { run, json } = load('tr')
+  run(`
+    state.meta.channels.push({ id: 12, name: 'Yazılım', type: 'text', position: 2 }, { id: 13, name: 'genel-yazı', type: 'text', position: 3 }, { id: 14, name: 'Sesli', type: 'voice', position: 4 })
+    function dmEntries () { return [{ id: 50, userId: 2 }, { id: 51, userId: 3 }] }
+    function userHandle (id) { return id === 3 ? '@mert.kaya' : '@kisi' + id }
+  `)
+  const names = (query) => json('searchQuickItems(' + q(query) + ').map((i) => [i.kind, i.name, i.id].join(String.fromCharCode(58)))')
+  assert.deepStrictEqual(names('yazilim'), ['channel:Yazılım:12'])
+  assert.deepStrictEqual(names('YAZI'), ['channel:Yazılım:12', 'channel:genel-yazı:13'])
+  // Özel konuşmada görünen ad (kelime başı önce) ve kullanıcı adı
+  assert.deepStrictEqual(names('yılmaz'), ['dm:Ece Yılmaz:50'])
+  assert.deepStrictEqual(names('kaya'), ['dm:Mert:51'])
+  // Adı terimle başlayan önce, sonra liste sırası (yazı odaları, özel konuşmalar)
+  assert.deepStrictEqual(names('e'), ['dm:Ece Yılmaz:50', 'channel:genel:10', 'channel:genel-yazı:13', 'dm:Mert:51'])
+  // Bütün terimler aynı adda geçmeli, ses odaları ve yalnızca kimden: belirteci sonuç vermez
+  assert.deepStrictEqual([names('genel yazı'), names('sesli'), names(''), names('kimden:ece')], [['channel:genel-yazı:13'], [], [], []])
+  run("let k = 20; while (k < 30) { state.meta.channels.push({ id: k, name: 'oda' + k, type: 'text', position: k }); k += 1 }")
+  assert.strictEqual(json("searchQuickItems('oda').length"), 6)
+  // Oturum yoksa sonuç yok
+  run('state.me = null')
+  assert.deepStrictEqual(names('genel'), [])
+})
+
+test('rozet sayısı: alt sınır "50+" ile, 99 üstü "99+", erişilebilir etikette alt sınır "en az 50" (G10)', () => {
+  const labels = {
+    tr: ['genel, yazı odası, en az 50 okunmamış', 'genel, yazı odası, 3 okunmamış', 'Ece ile özel mesajlar, en az 50 okunmamış', 'Ece ile özel mesajlar, 1 okunmamış'],
+    en: ['genel, text room, at least 50 unread', 'genel, text room, 3 unread', 'Direct messages with Ece, at least 50 unread', 'Direct messages with Ece, 1 unread']
+  }
+  for (const lang of ['tr', 'en']) {
+    const { json } = load(lang)
+    assert.deepStrictEqual(json('[countText(50), countText(50, true), countText(1, true), countText(120, true), countText(120)]'), ['50', '50+', '1+', '99+', '99+'], lang)
+    assert.deepStrictEqual(json("[t('band.textUnreadLabel', { name: 'genel', count: ariaCount(50, true) }), t('band.textUnreadLabel', { name: 'genel', count: ariaCount(3, false) }), t('dm.itemUnreadLabel', { name: 'Ece', count: ariaCount(50, true) }), t('dm.itemUnreadLabel', { name: 'Ece', count: ariaCount(1, false) })]"), labels[lang], lang)
+  }
 })

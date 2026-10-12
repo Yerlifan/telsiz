@@ -8,7 +8,8 @@
 // (vidstack 1.12, vime 5.4, youtube-iframe-ctrl 1.0) kullandığı biçim esas alınmıştır:
 //   ana sayfa -> çerçeve: {"event":"listening","id":N,"channel":"widget"}
 //                         {"event":"command","func":"playVideo"|"pauseVideo"|"seekTo"|"setVolume"|"mute"|
-//                          "unMute"|"addEventListener","args":[...],"id":N,"channel":"widget"}
+//                          "unMute"|"addEventListener"|"cueVideoById"|"loadVideoById","args":[...],"id":N,
+//                          "channel":"widget"}
 //   çerçeve -> ana sayfa: initialDelivery, onReady, infoDelivery { playerState, currentTime, duration,
 //                         videoData: { title }, volume, muted }, onStateChange (info: durum), onError (info: kod)
 // Belgelenmiş anlamlar (IFrame Player API başvurusu): durum kodları -1, 0, 1, 2, 3, 5, hata kodları 2, 5,
@@ -19,24 +20,55 @@
 // Oynatma gerçek bir <audio> öğesiyle yapılır (tarayıcının kendiliğinden oynatma kuralı gerçekten uygulanır).
 // Kimlik kuralları: D + üç basamak = süre saniyesi (D006... altı saniye), EMBEDOFF150 = gömmeye kapalı,
 // L ile başlayan kimlik = yavaş ağ: her oynatma ve atlama 2,5 sn yükler (durum 3, konum ilerlemez).
+// Kalıcı çerçeve (istek 13, ikinci aşama): cueVideoById aynı belgede yeni videoyu hazırlar (durum 5, ses
+// başlamaz), loadVideoById hazırlayıp oynatır. İki komut da kimliği dizge olarak veya { videoId, startSeconds }
+// nesnesiyle alır, çerçevenin adresi değişmez. Değişimden sonra önce yeni durum, ardından yeni videonun bilgisi
+// (süre, ad, kimlik) gönderilir. F.framesTotal bu sekmede açılan sahte oynatıcı belgelerinin sayısıdır (aynı
+// kökendeki çerçeveler sessionStorage'ı paylaşır), F.switches hazırlanan videoların kimlikleridir.
 
 window.FAKE_INIT = (function () {
   const params = new URLSearchParams(location.search)
-  const videoId = location.pathname.split('/').pop()
   const originParam = params.get('origin')
   const targetOrigin = originParam || '*'
-  const m = /^D(\d{3})/.exec(videoId)
-  const duration = m ? Number(m[1]) : 120
-  const embedOff = videoId === 'EMBEDOFF150'
-  const loadMs = /^L/.test(videoId) ? 2500 : 0
+  const FRAMES_KEY = 'sahteYoutubeCerceve'
+  // Videoya ait bilgiler (cueVideoById ve loadVideoById ile değişir)
+  let videoId = ''
+  let duration = 120
+  let embedOff = false
+  let loadMs = 0
+  let title = ''
   let loadTimer = null
-  const title = 'Fake video ' + videoId
   const subs = []
   let state = -1
   let widgetId = null
   let listening = false
   let ticker = null
-  const F = window.FAKE = { videoId, originParam, enablejsapi: params.get('enablejsapi'), received: [], sent: [], subs, rejected: [], plays: 0, blocked: 0, errorsSent: 0, autoplayBlockedSent: 0, seeks: 0, everPlayed: false, playedAt: [] }
+  const F = window.FAKE = { videoId, originParam, enablejsapi: params.get('enablejsapi'), received: [], sent: [], subs, rejected: [], plays: 0, blocked: 0, errorsSent: 0, autoplayBlockedSent: 0, seeks: 0, everPlayed: false, playedAt: [], switches: [] }
+
+  function useVideo (id) {
+    const m = /^D(\d{3})/.exec(id)
+    videoId = id
+    duration = m ? Number(m[1]) : 120
+    embedOff = id === 'EMBEDOFF150'
+    loadMs = /^L/.test(id) ? 2500 : 0
+    title = 'Fake video ' + id
+    F.videoId = id
+  }
+  useVideo(location.pathname.split('/').pop())
+  try {
+    sessionStorage.setItem(FRAMES_KEY, String(Number(sessionStorage.getItem(FRAMES_KEY) || '0') + 1))
+  } catch (err) {
+    // Depolama yoksa sayaç tutulmaz
+  }
+  Object.defineProperty(F, 'framesTotal', {
+    get: () => {
+      try {
+        return Number(sessionStorage.getItem(FRAMES_KEY) || '0')
+      } catch (err) {
+        return null
+      }
+    }
+  })
 
   function wav (seconds, rate) {
     const n = Math.round(seconds * rate)
@@ -110,6 +142,30 @@ window.FAKE_INIT = (function () {
     F.everPlayed = true
     F.playedAt.push(audio.currentTime)
   })
+
+  // Aynı belgede başka bir video: ses öğesinin kaynağı değişir, play doğruysa hemen oynatılır
+  function switchVideo (args, play) {
+    const a0 = args[0]
+    const id = typeof a0 === 'string' ? a0 : (a0 && typeof a0.videoId === 'string' ? a0.videoId : null)
+    const start = typeof a0 === 'string' ? args[1] : (a0 ? a0.startSeconds : 0)
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(id)) return
+    clearTimeout(loadTimer)
+    audio.pause()
+    useVideo(id)
+    F.switches.push(id)
+    audio.src = URL.createObjectURL(wav(duration, 8000))
+    audio.currentTime = typeof start === 'number' && start > 0 ? Math.min(duration, start) : 0
+    label.textContent = title
+    // Durum aynı kalsa da değişim bildirilir
+    state = null
+    setState(play ? -1 : 5)
+    post({ event: 'infoDelivery', info: info() })
+    if (embedOff) {
+      sendError(150)
+      return
+    }
+    if (play) startPlayback()
+  }
 
   // Oynatmayı başlatır: yavaş kimlikte önce yükler (durum 3). Engellenirse onAutoplayBlocked gönderilir.
   function startPlayback () {
@@ -191,6 +247,12 @@ window.FAKE_INIT = (function () {
         break
       case 'unMute':
         audio.muted = false
+        break
+      case 'cueVideoById':
+        switchVideo(a, false)
+        break
+      case 'loadVideoById':
+        switchVideo(a, true)
         break
       default:
         break

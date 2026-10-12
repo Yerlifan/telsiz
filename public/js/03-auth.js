@@ -1,7 +1,8 @@
 'use strict'
 
 // Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları ile oturum yaşam döngüsü. Giriş ve kayıtta
-// parola istemcide türetilir (16-identity.js), sunucuya yalnızca kimlik doğrulama anahtarı gider.
+// parola istemcide türetilir (16-identity.js), sunucuya yalnızca kimlik doğrulama anahtarı gider. Parolamı Unuttum
+// ve kurtarma kodu kartlarının içeriği 41-kurtarma.js tarafından kurulur.
 
 // Görünümler
 
@@ -19,7 +20,7 @@ function showBoot (text, canRetry) {
   el.bootRetry.hidden = !canRetry
 }
 
-const AUTH_CARDS = ['setup', 'invite', 'login', 'key']
+const AUTH_CARDS = ['setup', 'invite', 'login', 'key', 'forgot', 'recovery']
 
 function showAuthCard (name, notice) {
   showView('auth')
@@ -239,6 +240,10 @@ function prepareAuthForms () {
   el.loginName.addEventListener('input', () => {
     lowercaseInput(el.loginName)
   })
+  // Parolamı Unuttum: kurtarma koduyla yeni parola (41-kurtarma.js)
+  el.loginForgot.addEventListener('click', () => {
+    if (typeof showForgotCard === 'function') showForgotCard()
+  })
   el.setupName.addEventListener('input', () => {
     lowercaseInput(el.setupName)
     authHelpers.setupCheck.run()
@@ -306,14 +311,24 @@ async function submitSetup (e) {
     setMsg(el.setupError, () => errorText(st, t('auth.stateFailed')), 'error')
     return
   }
-  if (!created.ok) {
-    startSession(st.data)
-    toast(created.error, 'error', 10000)
-    return
-  }
-  showInvite(st.data.inviteCode, created.code, () => {
-    startSession(st.data)
+  // Sıra: kurtarma kodu kartı, davet kartı, uygulama
+  withRecoveryCode(result.recoveryCode, { id: result.user.id, name: name }, () => {
+    if (!created.ok) {
+      startSession(st.data)
+      toast(created.error, 'error', 10000)
+      return
+    }
+    showInvite(st.data.inviteCode, created.code, () => {
+      startSession(st.data)
+    })
   })
+}
+
+// Kayıttan sonra kurtarma kodu varsa önce kod kartı gösterilir (41-kurtarma.js), Devam ile next çalışır.
+// user: { id, name }
+function withRecoveryCode (code, user, next) {
+  if (code && typeof showRecoveryCard === 'function') showRecoveryCard(code, user, false, next)
+  else next()
 }
 
 // Yeni grup anahtarı üretir, anahtarlığa ekler ve sunucuda etkin anahtar kimliğini ayarlar.
@@ -422,6 +437,8 @@ async function submitLogin (e) {
   el.loginPassword.value = ''
   setToken(result.token)
   if (result.keysReset) state.fragmentNotice = { kind: 'ok', text: () => t('identity.keysReset') }
+  // Kurtarma kodu olmayan hesaba girişten sonra bir kez hatırlatma (41-kurtarma.js)
+  if (typeof recoveryNoteLogin === 'function') recoveryNoteLogin()
   await resumeSession()
 }
 
@@ -452,9 +469,11 @@ async function submitRegister (e) {
     clearPasswordFields([el.registerPassword, el.registerPassword2])
     storeRemove(KEYS.invite, 'session')
     setToken(result.token)
-    // Kayıttan sonra isteğe bağlı profil adımı (görünen ad)
-    identityState.profileStep = true
-    await resumeSession()
+    // Sıra: kurtarma kodu kartı, ardından isteğe bağlı profil adımı (görünen ad)
+    withRecoveryCode(result.recoveryCode, { id: result.user.id, name: name }, () => {
+      identityState.profileStep = true
+      resumeSession()
+    })
     return
   }
   const res = result.res
@@ -675,7 +694,7 @@ function applyStateData (data) {
   state.sigSeq = Number(data.sigSeq) || 0
   state.inviteCode = typeof data.inviteCode === 'string' ? data.inviteCode : null
   state.bannedUsers = Array.isArray(data.bannedUsers) ? data.bannedUsers : state.bannedUsers
-  setServerKeys(data.keys, data.resetPending)
+  setServerKeys(data.keys, data.resetPending, data.recovery)
   setFormerUsers(data.formerUsers)
   if (data.meta) applyMeta(data.meta, true)
   socialApplyState(data)
@@ -710,6 +729,7 @@ function startSession (data) {
 function enterApp () {
   openApp()
   socialAfterOpen()
+  if (typeof recoveryAfterEnter === 'function') recoveryAfterEnter()
   // Anahtar ekranında eklenen anahtarla, girişte açılamayan müzik durumları da açılır
   if (typeof djRekey === 'function') djRekey()
 }
@@ -763,11 +783,16 @@ async function logout () {
 }
 
 function resetAppState () {
+  // Tarayıcı geçmişi kök kayda geri sarılır (38-gezinme.js). Açık katman olmasa da çağrılır, katmanların
+  // kapanması geçmişe ayrıca yazılmaz.
+  if (typeof navStop === 'function') navStop()
   closeAllLayers()
   socialReset()
   if (typeof activityReset === 'function') activityReset()
   // Zil, gelen arama kartı ve arama bölümü kapanır (32-arama.js)
   if (typeof aramaReset === 'function') aramaReset()
+  // Bekleyen kurtarma kodu hatırlatması ve Parolamı Unuttum alanları (41-kurtarma.js)
+  if (typeof recoveryReset === 'function') recoveryReset()
   state.inApp = false
   state.me = null
   state.meta = null
@@ -784,6 +809,10 @@ function resetAppState () {
   state.editingId = null
   state.voiceKey = ''
   identityState.keys = null
+  identityState.recovery = null
+  identityState.recoveryKnown = false
+  // Konuşma taslakları ve ekleri yalnızca bellekteydi, oturumla birlikte silinir (08-composer.js)
+  composerDraftsClear()
   clearAttachments()
   decryptCache.clear()
   clear(el.messageList)

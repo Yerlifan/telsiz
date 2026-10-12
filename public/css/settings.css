@@ -94,14 +94,15 @@
   margin-top: 0.75rem;
 }
 
+/* Kategori grubunun başlığı (Kullanıcı ayarları, Frekans ayarları): temanın etiket yazısıyla, büyük harfe
+   çevrilmeden (istek 10). Seçili kategori ibre renginde sol çizgiyle işaretlenir. */
 .settings-group-title {
   margin: 0.5rem 0.5rem 0.4rem;
   color: var(--text-3);
   font-family: var(--font-label);
   font-size: var(--label-size);
   font-weight: 700;
-  letter-spacing: var(--label-spacing);
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .settings-cats {
@@ -300,6 +301,16 @@
 
 .settings-hint {
   max-width: 44rem;
+}
+
+/* Kurtarma kodu yoksa veya kaydedildiği onaylanmadıysa durum satırı uyarı olarak vurgulanır (41-kurtarma.js) */
+.recovery-status.is-missing {
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-small);
+  background-color: var(--warn-bg);
+  color: var(--text);
+  font-weight: var(--weight-strong);
 }
 
 .settings-note {
@@ -666,6 +677,19 @@
   margin: 0 0.5rem 0.5rem 0;
 }
 
+/* Kapak fotoğrafı önizlemesi: profil kartının bandı (kapak yoksa profil rengi), altında düğmeler */
+.settings-cover-host {
+  max-width: 24rem;
+  margin: 0 0 0.5rem;
+  overflow: hidden;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-card);
+}
+
+.settings-cover-host .profile-card-band {
+  border-radius: 0;
+}
+
 /* Frekans fotoğrafı önizlemesi: büyük frekans amblemi (fotoğraf yoksa baş harf), dar ekranda düğmeler
    önizlemenin yanında alt alta durur */
 .settings-photo-row {
@@ -788,6 +812,28 @@
 
 .settings-person-row .list-main > .avatar {
   margin-right: 0.75rem;
+}
+
+/* Şikâyet satırı: çözülmüş not ve mesaj metni satırlarıyla görünür (11-settings.js buildReportRow) */
+.report-row .list-main {
+  align-items: flex-start;
+  flex-basis: 18rem;
+}
+
+.report-row .list-text {
+  flex: 1 1 auto;
+}
+
+.report-row .list-name {
+  white-space: normal;
+}
+
+.report-text {
+  margin-top: 0.25rem;
+  color: var(--text-2);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .settings-fingerprint {
@@ -1063,7 +1109,18 @@
    7. Görünüm: tema kartları
    ========================================================= */
 
-.settings-theme-cards {
+/* Kartlar iki grupta (Telsiz Temaları, Erişilebilirlik), her grup kendi içinde satır kırar. On kart telefonda
+   uzun bir liste olmasın diye sıkıştırılmıştır: önizleme şeridi 2rem, açıklama yalnızca seçili kartta görünür
+   (öteki kartlarda aria-describedby ile okunur). */
+.settings-theme-group + .settings-theme-group {
+  margin-top: 0.5rem;
+}
+
+.settings-theme-group:first-child > .settings-theme-group-title {
+  margin-top: 0.25rem;
+}
+
+.settings-theme-list {
   display: flex;
   flex-wrap: wrap;
 }
@@ -1073,7 +1130,15 @@
   flex: 1 1 12rem;
   max-width: 17rem;
   margin: 0 0.75rem 0.75rem 0;
-  padding: 0.6rem 0.6rem 0.75rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+}
+
+.settings-theme-card .theme-swatch {
+  height: 2rem;
+}
+
+.settings-theme-card:not(.is-selected) .settings-theme-hint {
+  display: none;
 }
 
 .settings-theme-card:hover {

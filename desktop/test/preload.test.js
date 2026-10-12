@@ -59,7 +59,8 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   const p = loadPreload('preload.js', ['electron', '--telsiz-version=2.0.0'])
   assert.deepEqual(Object.keys(p.exposed), ['telsizDesktop', 'telsizArkaPlan'])
   const api = p.exposed.telsizDesktop
-  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api).sort(), ['addFrequency', 'changeServer', 'float', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(Object.keys(api.float).sort(), ['arm', 'showMain'])
   assert.deepEqual(Object.keys(api.updates).sort(), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(api.version, '2.0.0')
   assert.equal(api.platform, 'linux')
@@ -114,6 +115,52 @@ test('uygulama ön yüklemesi yalnızca dar API açar ve kanallar sabittir', asy
   fire({}, 'toggleMute')
   assert.deepEqual(got, ['toggleMute', 'toggleDeafen', 'pttToggle'])
 })
+
+test('yüzen pencere API: ad yalnızca biçime uyarsa sayfaya gider, sayfa argüman geçiremez', async () => {
+  const token = 'telsiz-yuzen-' + 'a1'.repeat(16)
+  const replies = [token, 'telsiz-yuzen-' + 'A1'.repeat(16), 'telsiz-yuzen-kotu', '_blank', null, 5, { toString: () => token }, true, 'evet']
+  const q = loadPreloadWith(replies)
+  const api = q.exposed.telsizDesktop.float
+  const got = []
+  while (got.length < 7) got.push(await api.arm('fazla', { kotu: 1 }))
+  assert.deepEqual(got, [token, '', '', '', '', '', ''])
+  // Uygulamaya Dön: sonuç yalnızca true veya false
+  assert.equal(await api.showMain('https://kotu.com'), true)
+  assert.equal(await api.showMain(), false)
+  assert.deepEqual(q.invoked, replies.map((value, i) => [i < 7 ? channels.CHANNELS.floatArm : channels.CHANNELS.floatShowMain]))
+  const preload = fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8').replace(/\r\n/g, '\n')
+  assert.ok(preload.includes('const FLOAT_TOKEN_RE = ' + String(require('../src/lib/float-window').TOKEN_RE)))
+})
+
+// Ön yükleme betiğini, invoke çağrılarına sırayla verilen yanıtları döndüren sahte electron modülüyle çalıştırır
+function loadPreloadWith (replies) {
+  const exposed = {}
+  const invoked = []
+  const answers = replies.slice()
+  const electron = {
+    contextBridge: {
+      exposeInMainWorld (name, api) {
+        exposed[name] = api
+      }
+    },
+    ipcRenderer: {
+      invoke (channel, ...args) {
+        invoked.push([channel].concat(args))
+        return Promise.resolve(answers.shift())
+      },
+      send () {},
+      on () {}
+    }
+  }
+  const sandbox = {
+    require: () => electron,
+    process: { argv: [], platform: 'linux' },
+    window: { addEventListener () {} },
+    Date
+  }
+  vm.runInNewContext(fs.readFileSync(path.join(SRC, 'preload.js'), 'utf8'), sandbox, { filename: 'preload.js' })
+  return { exposed, invoked }
+}
 
 test('başlık şeridi API: bilgi süzülür, renkler kısaltılır, menü isteği yalnızca tam sayı ve sonlu konumla gider', async () => {
   const p = loadPreload('preload.js', ['electron'])
@@ -264,7 +311,7 @@ test('sürüm argümanı doğrulanır', () => {
 test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik, durum süzülür', async () => {
   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0'])
   const bg = p.exposed.telsizArkaPlan
-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'onState'])
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'getState', 'idleSeconds', 'onState'])
   assert.equal(bg.background, false)
   await bg.getState()
   assert.deepEqual(p.invoked, [[channels.CHANNELS.bgGet]])
@@ -297,7 +344,7 @@ test('arka plan nesnesi: uygulama penceresinde yalnızca durum okuma ve abonelik
 test('arka plan penceresi: yalnızca ana sürecin argümanıyla, rapor bilinen alanlarla kopyalanır', async () => {
   const p = loadPreload('preload.js', ['--telsiz-version=2.0.0', '--telsiz-background=https://b.ornek.com:8443'])
   const bg = p.exposed.telsizArkaPlan
-  assert.deepEqual(Object.keys(bg).sort(), ['background', 'open', 'origin', 'report'])
+  assert.deepEqual(Object.keys(bg).sort(), ['background', 'idleSeconds', 'open', 'origin', 'report'])
   assert.equal(bg.background, true)
   assert.equal(bg.origin, 'https://b.ornek.com:8443')
   bg.report({ origin: 'https://b.ornek.com:8443', state: 'ok', unread: 2, mention: 1, online: true, lastError: null, name: 'Bee', onlineUsers: 3, fazla: { kotu: 1 } })
@@ -343,6 +390,7 @@ test('ön yüklemelerdeki sabitler src/lib/channels.js ile aynıdır', () => {
   assert.ok(preload.includes("const PTT_MODES = ['" + require('../src/lib/shortcuts').PTT_MODES.join("', '") + "']"))
   assert.ok(preload.includes("const VERSION_ARG = '" + channels.VERSION_ARG + "'"))
   assert.ok(preload.includes("const BACKGROUND_ARG = '" + channels.BACKGROUND_ARG + "'"))
+  assert.ok(preload.includes("const WINDOW_STATES = ['" + require('../src/lib/window-state').STATES.join("', '") + "']"))
 })
 
 test('ana süreç sertleştirmeleri kaynakta bulunur', () => {

@@ -14,7 +14,9 @@
 // - Ece sayfasını yenileyip ses odasına döner, Oyuna Dön ile koltuğuna ve eline döner
 // - Telefonda sahnenin başlığı 375 x 667 ve 360 x 640 ekranda ve büyük yazıda ulaşılabilir, masa sahnenin içinde kayar
 // - Telefonda masa yeniden çizilince sahnenin dikey ve elin yatay kaydırması korunur, odak sahneyi kaydırmaz
-// - Masa açıkken paylaşım izlenip bırakılınca ve üst çubuktan durdurulunca odak masada kalır (yalnız Chromium)
+// - Masa açıkken paylaşım başlar: tam ekrandaki masa küçültülünce sahne kendi önizlemesine düşer ve tam ekrandan
+//   çıkılır, odak Oyun düğmesindedir. Paylaşım izlenip bırakılınca ve üst çubuktan durdurulunca odak masada kalır
+//   (yalnız Chromium)
 // - Telefonda yatay taşma yoktur, el kendi içinde yatay kayar
 // - Mert ses odasından ayrılınca iki koltuk kalır, kartları desteye döner
 // - Kurpiyer ses odasından ayrılınca oyuncuda bitiş metni görünür, Kapat odağı Oyun düğmesine verir
@@ -431,7 +433,7 @@ test('telefonda masa yeniden çizilince sahnenin ve elin kaydırması korunur, o
   assert.deepEqual(r, { rebuilt: true, hidden: true, top: 0, left: true, focus: true })
 })
 
-test('masa açıkken paylaşım izlenip bırakılınca ve üst çubuktan durdurulunca odak masada kalır', async () => {
+test('masa açıkken paylaşım: tam ekranda Küçült tam ekrandan çıkar, izlenip bırakılınca ve durdurulunca odak masada kalır', async () => {
   const { deniz, ece } = W
   const focusIn = (page) => page.evaluate(() => {
     const c = document.getElementById('cast')
@@ -443,6 +445,36 @@ test('masa açıkken paylaşım izlenip bırakılınca ve üst çubuktan durduru
   await deniz.waitForSelector('#top-cast:not([hidden]) .top-cast-stop', { timeout: h.LONG })
   // Kendi paylaşımının önizlemesi masadan sonra gelir: sahne oyun kipinde kalır
   assert.equal(await deniz.getAttribute('#cast', 'data-mode'), 'game')
+  // Tam ekrandaki masa küçültülünce sahne kendi paylaşımının önizlemesine düşer. Önizlemede Tam Ekran düğmesi yoktur:
+  // tam ekrandan (burada sayfa içi tam ekran, tarayıcının isteği reddedilir) çıkılır, odak görünen Oyun düğmesindedir
+  await deniz.evaluate(() => {
+    window.__requestFullscreen = Element.prototype.requestFullscreen
+    Element.prototype.requestFullscreen = function () {
+      return Promise.reject(new Error('e2e'))
+    }
+  })
+  try {
+    await deniz.click('#cast .cast-full')
+    await deniz.waitForFunction(() => document.documentElement.classList.contains('cast-page-full') && document.querySelector('#cast .cast-panel').classList.contains('is-full'))
+    await deniz.click('#cast .cast-game-min')
+    await deniz.waitForSelector('#cast[data-mode="own"]:not([hidden])')
+    const r = await deniz.evaluate(() => ({
+      full: castState.full,
+      pageFull: document.documentElement.classList.contains('cast-page-full'),
+      isFull: document.querySelector('#cast .cast-panel').classList.contains('is-full'),
+      layer: Boolean(findLayer('cast-full')),
+      active: document.activeElement.id
+    }))
+    assert.deepEqual(r, { full: false, pageFull: false, isFull: false, layer: false, active: 'radio-game' })
+    assert.equal(await h.reachable(deniz, '#radio-game'), true, 'Oyun düğmesi panelin altında kalmaz')
+  } finally {
+    await deniz.evaluate(() => {
+      Element.prototype.requestFullscreen = window.__requestFullscreen
+    })
+  }
+  // Masaya Dön masayı yeniden açar
+  await deniz.click('#radio-game')
+  await deniz.waitForSelector('#cast[data-mode="game"]:not([hidden])')
   await ece.waitForSelector('#activity:not([hidden]) .activity-item.is-share .activity-watch', { timeout: h.LONG })
   await ece.focus('#activity .activity-item.is-share .activity-watch')
   await ece.keyboard.press('Enter')

@@ -578,7 +578,7 @@ function hexballKeyAction (e) {
   return null
 }
 
-// Ses atamasının tuşu (bas konuş, sustur, sağırlaştır): oyunda kullanılmaz, olayı ses motoru alır
+// Ses atamasının tuşu (bas konuş, mikrofonu aç/kapat, hoparlörü aç/kapat): oyunda kullanılmaz, olayı ses motoru alır
 function hexballVoiceKey (e) {
   if (!voice || typeof voice.settings !== 'function' || !e.code) return false
   try {
@@ -649,7 +649,7 @@ function hexballPadOn (gp, index) {
   return Boolean(b && (b.pressed || b.value > 0.5))
 }
 
-// Ses atamalarının kol düğmeleri (bas konuş, sustur, sağırlaştır) oyunda kullanılmaz, basışı ses motoru alır
+// Ses atamalarının kol düğmeleri (bas konuş, mikrofonu aç/kapat, hoparlörü aç/kapat) oyunda kullanılmaz, basışı ses motoru alır
 // (klavyedeki hexballVoiceKey ile aynı kural). Vuruş HEXBALL_PAD_KICKS içinden atanmamış ilk düğmedir, hepsi
 // atanmışsa kolda vuruş yoktur. Atamalar HEXBALL_PAD_CHECK_FRAMES karede bir okunur.
 function hexballPadButtons () {

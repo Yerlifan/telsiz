@@ -41,6 +41,8 @@ test('arkadaşlık isteği: kullanıcı adıyla gönderilir, karşı tarafta roz
     await deniz.click('#home-tab-add')
   }
   await deniz.waitForSelector('#friend-add-name')
+  // Arkadaş Ekle kutusunun tek görünen ipucu yer tutucudur (etiket yalnızca ekran okuyucuya görünür)
+  assert.equal(await deniz.getAttribute('#friend-add-name', 'placeholder'), 'Kullanıcı adı giriniz')
   await deniz.fill('#friend-add-name', 'ece')
   await deniz.click('#friend-add-submit')
   await deniz.waitForFunction(() => /^Ece kişisine arkadaşlık isteği gönderildi/.test(document.getElementById('friend-add-msg').textContent))
@@ -127,6 +129,119 @@ test('telefon 390: özel mesaj ve arkadaşlar görünümünde yatay taşma yok',
   assert.ok(await h.overflowX(page) <= 0, 'özel mesajda yatay taşma')
   await openFriends(page)
   assert.ok(await h.overflowX(page) <= 0, 'arkadaşlarda yatay taşma')
+  await page.setViewportSize({ width: 1440, height: 900 })
+})
+
+// Kenar belirteçleri (--live-edge, --danger-edge) her temada tanımlıdır. Tanımsız belirteç border kısaltmasını
+// geçersiz kılıyor ve kenar hiç çizilmiyordu (Arcade ve Turkuaz): kamera göstergesi (tehlike kenarı) ve paylaşım
+// bildirimi (canlı kenarı) her tema ve modda ölçülür.
+test('kamera göstergesinin ve paylaşım bildiriminin kenarı her tema ve modda çizilir', async () => {
+  const result = await W.deniz.evaluate(() => {
+    const root = document.documentElement
+    const before = { skin: root.getAttribute('data-skin'), scheme: root.getAttribute('data-scheme') }
+    const cam = document.getElementById('radio-cam-live')
+    const notice = document.createElement('div')
+    notice.className = 'cast-notice'
+    notice.hidden = true
+    document.body.appendChild(notice)
+    const schemes = ['dark', 'light']
+    const out = []
+    window.TelsizTheme.skins.forEach((skin) => {
+      schemes.forEach((scheme) => {
+        root.setAttribute('data-skin', skin)
+        root.setAttribute('data-scheme', scheme)
+        const a = getComputedStyle(cam)
+        const b = getComputedStyle(notice)
+        out.push({ skin, scheme, cam: a.borderTopStyle, camWidth: parseFloat(a.borderTopWidth), camColor: a.borderTopColor, notice: b.borderTopStyle, noticeWidth: parseFloat(b.borderTopWidth) })
+      })
+    })
+    notice.remove()
+    root.setAttribute('data-skin', before.skin)
+    root.setAttribute('data-scheme', before.scheme)
+    return out
+  })
+  assert.ok(result.length >= 6, 'en az üç tema ve iki mod')
+  for (const r of result) {
+    assert.equal(r.cam, 'solid', r.skin + ' ' + r.scheme + ' kamera göstergesi kenarı')
+    assert.ok(r.camWidth > 0, r.skin + ' ' + r.scheme + ' kamera göstergesi kenar kalınlığı')
+    assert.equal(r.notice, 'solid', r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenarı')
+    assert.ok(r.noticeWidth > 0, r.skin + ' ' + r.scheme + ' paylaşım bildirimi kenar kalınlığı')
+  }
+  // Her tema kendi kenar tonunu verir
+  const color = (skin, scheme) => result.find((r) => r.skin === skin && r.scheme === scheme).camColor
+  assert.notEqual(color('arcade', 'dark'), color('turkuaz', 'dark'))
+  assert.notEqual(color('arcade', 'dark'), color('arcade', 'light'))
+})
+
+// Telsiz DJ duyurusu eski WebKit için flex gap yerine çocukların kenar boşluğu ve kabın eksi kenar boşluğuyla
+// aralanır. Satır kırılması her genişlikte gap ile birebir aynı olmalı (karşılaştırma için kopyaya tarayıcının
+// gap'i verilir), eksi kenar boşluğu mesaj satırından ve mesaj akışından taşmamalı.
+test('Telsiz DJ duyurusu gap düzeniyle aynı kırılır, mesaj akışında yatay taşma yok', async () => {
+  const page = W.deniz
+  const diffs = await page.evaluate(() => {
+    const host = document.querySelector('#message-list .msg .msg-body')
+    const box = document.createElement('div')
+    host.appendChild(box)
+    const out = []
+    // Duyurunun çocuklarının ve altındaki satırın çerçeveye göre konumu ve boyutu
+    const shape = (frame) => {
+      const f = frame.getBoundingClientRect()
+      const parts = Array.from(frame.firstChild.children).concat(frame.lastChild)
+      return parts.map((n) => {
+        const r = n.getBoundingClientRect()
+        return [r.left - f.left, r.top - f.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')
+      }).join(' ')
+    }
+    const kinds = [{ src: 'yt', vid: 'D120aaaaaaa' }, { src: 'file' }]
+    kinds.forEach((d) => {
+      const real = buildDjNotice(d)
+      const ref = real.cloneNode(true)
+      ref.style.margin = '0'
+      ref.style.gap = '0.25rem 0.5rem'
+      Array.from(ref.children).forEach((n) => { n.style.margin = '0' })
+      const frames = [real, ref].map((n) => {
+        const frame = document.createElement('div')
+        const below = document.createElement('div')
+        below.textContent = 'x'
+        frame.appendChild(n)
+        frame.appendChild(below)
+        box.appendChild(frame)
+        return frame
+      })
+      // 150 ile 700 piksel arasındaki her genişlik
+      let w = 150
+      while (w <= 700) {
+        frames.forEach((frame) => { frame.style.width = w + 'px' })
+        const a = shape(frames[0])
+        const b = shape(frames[1])
+        if (a !== b) out.push(d.src + ' ' + w + ': ' + a + ' / ' + b)
+        w++
+      }
+    })
+    box.remove()
+    return out
+  })
+  assert.deepEqual(diffs, [])
+
+  // Gerçek mesaj satırında geniş ekranda ve telefonda
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await page.waitForFunction((w) => window.innerWidth === w, width)
+    const fit = await page.evaluate(() => {
+      const msg = document.querySelector('#message-list .msg')
+      const notice = buildDjNotice({ src: 'yt', vid: 'D120aaaaaaa' })
+      msg.querySelector('.msg-body').appendChild(notice)
+      const list = document.getElementById('messages')
+      const r = {
+        inside: notice.getBoundingClientRect().right <= msg.getBoundingClientRect().right,
+        list: list.scrollWidth - list.clientWidth,
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      }
+      notice.remove()
+      return r
+    })
+    assert.deepEqual(fit, { inside: true, list: 0, page: 0 }, width + ' genişlikte')
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
 })
 

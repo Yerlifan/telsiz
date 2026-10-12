@@ -208,7 +208,7 @@ The settings of the frequency (the server) are in the "Frequency settings" group
 
 | Place | Who | Contents |
 | --- | --- | --- |
-| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ, the YouTube source and restricted mode (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
+| Settings > General | Owner and admins (some fields owner only) | Frequency name (owner only), frequency photo (owner only, admins see the preview), frequency introduction (owner only, admins see it read only), frequency summary, in the Music bot section the switches for Telsiz DJ, the YouTube source, restricted mode and YouTube search by song name (owner only), in the Voice rooms and cameras section the voice room capacity, cameras and the per-room camera limit (owner only, admins see them read only), and in the Server information section the machine and usage information with a capacity recommendation |
 | Settings > Rooms | Owner, admins and roles with the manage rooms permission | Creating, renaming, reordering and deleting text and voice rooms. The last text room cannot be deleted. |
 | Settings > Members | Owner, admins and roles with the ban permission | Changing roles and giving a member a custom role (owner only), banning, unbanning and kicking people ranked lower, resetting a password with a temporary password (owner only) |
 | Settings > Roles | Owner only | Creating, naming, coloring, turning permissions on and off for, ordering and deleting custom roles |
@@ -220,6 +220,24 @@ The frequency introduction is plain text of at most 600 characters and 6 lines. 
 The frequency photo can be a PNG, JPEG or WebP image (the server checks the file signature and does not accept SVG) and has the same size limit as profile pictures (1 MB by default). Before uploading, the app crops the chosen image to a square from its center and scales it down to 256x256. Like the frequency name, the photo is public and not encrypted: it is served without a session at `GET /api/server-icon`, and its hash is in the `serverIcon` field of the `GET /api/info` response. Only the desktop app shows the photos of other frequencies, in the browser the stations of other frequencies keep the first letter. The photo lives in the data folder under `server-icon/` and is part of the backup.
 
 Telsiz DJ and the YouTube source are on by default. If the YouTube source is turned off, only shared audio files play. Since the server cannot see the encrypted DJ state, this restriction is applied on the members' devices. If Telsiz DJ is turned off completely, the server rejects DJ state writes. When restricted mode is on, the server rejects DJ state writes from others while someone with the DJ permission (the owner, an admin or a role with the DJ permission) is in the room, and everyone can write if no such person is in the room.
+
+### YouTube search by song name
+
+When on, the server searches YouTube for the song name in the `/play` command and adds the first playable result to the queue. The setting is off by default. Only the owner turns it on in Settings > General > Music bot, and a confirmation dialog shows the risks again when turning it on. The setting is stored in the `music.search` field of `state.json`. Search cannot be used while Telsiz DJ or the YouTube source is off. While search is off, members see a clear error message and a link to YouTube's results page, and the owner also sees where the setting is.
+
+- **Terms of Service.** The search does not use the official YouTube Data API or an API key. The server calls the search endpoint that YouTube's web page uses (`https://www.youtube.com/youtubei/v1/search`) and, if that fails, reads the results page (`https://www.youtube.com/results`). YouTube's Terms of Service prohibit automated access. Turning on the search goes against those terms, and you take on the risk as the server owner.
+- **Outgoing requests.** While search is on, when someone types a song name the server sends an HTTPS request to `www.youtube.com` on port 443. This is the only case in which the Telsiz server itself connects out. If your firewall restricts outgoing connections, allow this address. The request is made directly with Node.js's `node:https` module, and proxy environment variables such as `HTTPS_PROXY` are not used by default. If the server can reach the internet only through a proxy, the search does not work. The clients' addresses do not go to YouTube, YouTube sees only the server's address.
+- **Privacy.** Unlike the DJ state, the search text is not encrypted: it reaches the server as plain text and goes to YouTube. The server does not log the text and keeps results in memory for 10 minutes.
+- **Limits.** 10 searches per minute per person, and at most 300 YouTube requests in the last 24 hours across the server. A search makes at most two requests (the search endpoint and the results page), and neither results served from the cache nor searches refused while search is paused after repeated failures count. The cap is not about a quota, it lowers the chance that YouTube blocks the server's address. A search takes at most 8 seconds, and redirects are not followed.
+- **Breakage.** If YouTube changes its response format, redirects the server to a consent page or blocks the server's address, the search returns nothing. After 3 unusable responses in a row the search turns off for 1 hour, and a single warning line with the reason is written to the log ("YouTube search by song name was turned off for 60 minutes after repeated failures"). Adding by link always works.
+
+**The first live test has to be done on the server.** Since the development environment cannot reach youtube.com, the search has never been tried against the real YouTube. The response format was extracted from the source code of open source YouTube clients and tested with hand-made sample responses. After turning the search on, try the following:
+
+1. In a voice room, type `/play` and the name of a well-known song. The track should be added to the queue with its name and announced with its name in the text room.
+2. Try a few different songs. Live streams should not be added, and if the first result is a live stream the next video should be added.
+3. If the server log has the repeated failures warning, the search is not working. If the reason is `consent_redirect`, the server is being redirected to a consent page, `status_429` or `status_403` means YouTube is limiting the server's address, and `format`, `json` or `no_initial_data` means the response format has changed. In that case turn the search off and open an issue without the search text or your server's address.
+
+A detailed test list for developers is in [ARCHITECTURE.md](ARCHITECTURE.md#telsiz-dj).
 
 ### Custom roles
 
@@ -353,6 +371,8 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You 
 
 ## Password reset and troubleshooting
 
+**Recovery code.** A recovery code is shown to the person when the account is created, and the code can also be created and renewed in Settings > My Account. A person with a code resets their password themselves with the Forgot My Password link on the sign in screen. The owner does not need to do anything, the person's security key and direct messages are kept, and a new code is issued once the code is used. The reset paths below are only for people without a code. Telsiz does not use email, and the server does not need to send email for recovery.
+
 **A member's password.** The owner creates a temporary password in Settings > Members. The person's sessions are closed.
 
 **The owner's password.** Stop the server and run the reset command with the same data folder. The command prints a temporary password.
@@ -364,7 +384,7 @@ node server.js sifre-sifirla <username>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js reset-password <username>
 ```
 
-A password reset also resets the person's personal security key. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
+A password reset by the owner or the command line also resets the person's personal security key and recovery code. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
 
 **Port already in use.** The server may already be running in another window. Close that window or choose another port with `PORT`.
 

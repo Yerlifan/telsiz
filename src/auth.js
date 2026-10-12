@@ -1,7 +1,7 @@
 'use strict'
 
 // Kimlik doğrulama yardımcıları: kullanıcı adı kuralları, istemci anahtar türetme parametreleri
-// ve anahtar biçimleri, scrypt karması, oturum token'ları ve cihaz etiketleri, güvenilir ters
+// ve anahtar biçimleri, kurtarma kodu kayıtları, scrypt karması, oturum token'ları ve cihaz etiketleri, güvenilir ters
 // vekil listesi ve istemci IP'si, kayan pencereli hız sınırlayıcı, kurulum ve davet kodları.
 // Parola sunucuya hiç gelmez. İstemci paroladan authKey türetir, sunucu yalnızca onun scrypt
 // karmasını saklar. Bu modül hiçbir şey loglamaz.
@@ -166,6 +166,26 @@ function isPublicKey (value) {
 // Parolayla sarılmış özel anahtar: '1w.' + b64url(nonce) + '.' + b64url(secretbox)
 function isWrappedKey (value) {
   return typeof value === 'string' && WRAPPED_KEY_RE.test(value)
+}
+
+// Kurtarma kodu kurulumu (istemciden): { authKey: 64 onaltılık, wrappedKey: '1w.…' }. Temiz kopya veya null.
+// authKey kurtarma kodundan türetilir (public/crypto.js recovery.derive), sunucu yalnızca scrypt karmasını saklar.
+function cleanRecoverySetup (value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  if (!isAuthKey(value.authKey) || !isWrappedKey(value.wrappedKey)) return null
+  return { authKey: value.authKey, wrappedKey: value.wrappedKey }
+}
+
+const RECOVERY_RECORD_KEYS = ['createdAt', 'hash', 'label', 'v', 'wrappedKey']
+
+// Diskteki kurtarma kaydı: { v: 1, hash: 'scrypt$…', wrappedKey: '1w.…', createdAt: ms, label: cihaz etiketi | null }
+function isRecoveryRecord (value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value).sort()
+  if (keys.length !== RECOVERY_RECORD_KEYS.length || keys.some((k, i) => k !== RECOVERY_RECORD_KEYS[i])) return false
+  if (value.v !== 1 || parseHash(value.hash) === null || !isWrappedKey(value.wrappedKey)) return false
+  if (typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || value.createdAt < 0) return false
+  return value.label === null || isSessionLabel(value.label)
 }
 
 function passwordBytes (password) {
@@ -712,6 +732,8 @@ module.exports = {
   cleanKdf,
   isPublicKey,
   isWrappedKey,
+  cleanRecoverySetup,
+  isRecoveryRecord,
   deriveAuthKey,
   newCredentials,
   preloginSalt,

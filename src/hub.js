@@ -13,6 +13,12 @@
 // değişince uyanır ve tam müzik haritasını alır. muv vermeyen poll müziği izlemiyor sayılır (harita yalnızca
 // resync yanıtında gelir). Her yanıtta sunucu zamanı (now) ve güncel muv bulunur, istemciler saat farkını
 // now ile kestirir.
+// Otomatik boşta oturum başınadır ve yalnızca bellekte tutulur: poll sorgusundaki idle ('1' boşta, '0' değil), tab ile
+// adlandırılan sayfanın (aynı tarayıcıdaki sekmeler ve kurulu uygulama penceresi aynı oturumu paylaşır) bildirimidir.
+// Oturum, ses odasında değilse ve son poll süresi içinde poll gönderen bütün sayfaları boşta bildirdiyse boştadır.
+// Kişinin bütün etkin oturumları boştaysa ve elle seçtiği durum Çevrimiçi ise başkalarına Boşta görünür. Elle seçilen
+// Boşta, Rahatsız etmeyin ve Görünmez durumlarına dokunulmaz, görünmez kişinin boşta geçişleri meta sürümünü
+// artırmaz. Boşa geçiş oturum başına en sık idleGapMs aralıkla kabul edilir.
 // Özel mesaj aramalarının ses odaları (isPrivateRoom true dönen kanallar) herkese açık metaya girmez: bu odalardaki
 // ses değişiklikleri meta sürümünü artırmaz, yalnızca onPrivateVoice ile bildirilir (kişiye özel görünüm src/app.js'te
 // yenilenir). Ses odası denetimi (çıkarma, kamerayı kapatma, sunucu susturması) özel odalara uzanmaz.
@@ -23,6 +29,14 @@ const crypto = require('node:crypto')
 const MAX_EVENTS_PER_POLL = 500
 const MAX_SIGNALS_PER_POLL = 100
 const MAX_SIGNAL_QUEUE = 200
+// Oturumun boşa geçişleri arasındaki varsayılan en kısa süre (options.idleGapMs). Daha erken gelen boşa geçiş yok
+// sayılır (istemci sonraki poll'da yeniden bildirir), boştan dönüş hemen işlenir. Böylece bir oturum bu sürede meta
+// sürümünü en çok iki kez artırır.
+const IDLE_GAP_MS = 5000
+// Otomatik boşta: oturum başına izlenen en çok sayfa sayısı (fazlası en eski bildirimden başlanarak unutulur) ve
+// sayfa kimliğinin biçimi (poll sorgusundaki tab). Kimliği olmayan veya geçersiz kimlikli poll tek bir sayfa sayılır.
+const IDLE_TABS_MAX = 8
+const IDLE_TAB_RE = /^[0-9a-z]{1,32}$/
 
 function randomHex (bytes) {
   return crypto.randomBytes(bytes).toString('hex')
@@ -46,13 +60,14 @@ function inAudience (audience, userId) {
   return audience === null || audience.includes(userId)
 }
 
-// options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs,
+// options: { pollTimeoutMs, graceMs, eventBufferSize, maxWaitersPerSession, typingTtlMs, idleGapMs,
 //   getBase: () => ({ serverName, serverIcon, activeKid, channels, users: [{ id, name, role, roleId, voiceMuted, pv,
 //     status }], roles, music,
 //     voiceSettings }),
 //   music: { version: () => muv, map: () => ({ '<oda>': kayıt }) } (verilmezse müzik yok),
 //   getPrivate: (userId) => kişiye özel meta, isHidden: (userId) => görünmez mi,
 //   canSeeTyping: (viewerId, typerId) => yazıyor bilgisini görebilir mi,
+//   showsAutoIdle: (userId) => otomatik boşta başkalarına görünür mü (elle seçilen durum Çevrimiçi ise true),
 //   isPrivateRoom: (channelId) => özel arama odası mı, onPrivateVoice: (channelId) => özel odanın ses üyeliği veya
 //     durumu değişti,
 //   send: (res, status, json) => void (json: JSON metni) }
@@ -62,10 +77,12 @@ function createHub (options) {
   const eventBufferSize = options.eventBufferSize
   const maxWaitersPerSession = options.maxWaitersPerSession
   const typingTtlMs = options.typingTtlMs
+  const idleGapMs = Number.isSafeInteger(options.idleGapMs) && options.idleGapMs > 0 ? options.idleGapMs : IDLE_GAP_MS
   const getBase = options.getBase
   const getPrivate = options.getPrivate
   const isHidden = typeof options.isHidden === 'function' ? options.isHidden : () => false
   const canSeeTyping = typeof options.canSeeTyping === 'function' ? options.canSeeTyping : () => true
+  const showsAutoIdle = typeof options.showsAutoIdle === 'function' ? options.showsAutoIdle : () => true
   const isPrivateRoom = typeof options.isPrivateRoom === 'function' ? options.isPrivateRoom : () => false
   const onPrivateVoice = typeof options.onPrivateVoice === 'function' ? options.onPrivateVoice : () => {}
   const send = options.send
@@ -109,6 +126,34 @@ function createHub (options) {
     return false
   }
 
+  // Kişinin bütün etkin oturumları boşta mı (etkin oturumu yoksa false)
+  function userAutoIdle (userId) {
+    const set = byUser.get(userId)
+    if (!set) return false
+    let any = false
+    for (const rt of set) {
+      if (!rt.active) continue
+      if (!rt.idle) return false
+      any = true
+    }
+    return any
+  }
+
+  // Kişinin başkalarına görünebilecek varlığı: çevrimiçi mi ve çevrimiçiyse otomatik boşta mı
+  function presenceOf (userId) {
+    const online = isUserOnline(userId)
+    return { online, idle: online && userAutoIdle(userId) }
+  }
+
+  // İşlemden önceki varlığa (presenceOf) göre görünen varlık değişti mi. Görünmez kişide hiçbir zaman değişmez,
+  // otomatik boşta yalnızca elle seçilen durum Çevrimiçi iken görünür.
+  function presenceChanged (userId, before) {
+    if (isHidden(userId)) return false
+    const after = presenceOf(userId)
+    if (after.online !== before.online) return true
+    return after.idle !== before.idle && showsAutoIdle(userId)
+  }
+
   function newPeerId () {
     let id = randomHex(8)
     while (byPeer.has(id)) id = randomHex(8)
@@ -132,7 +177,12 @@ function createHub (options) {
         deafened: false,
         camera: false,
         signals: [],
-        sigSeq: 0
+        sigSeq: 0,
+        // Otomatik boşta: oturumun geçerli bayrağı, son geçişin zamanı ve sayfaların son bildirimleri
+        // (tab -> { idle, seen }, bkz. setIdle)
+        idle: false,
+        idleAt: 0,
+        idleTabs: new Map()
       }
       sessions.set(hash, rt)
       let set = byUser.get(userId)
@@ -144,11 +194,11 @@ function createHub (options) {
     }
     rt.lastSeen = now
     if (!rt.active) {
-      const wasOnline = isUserOnline(userId)
+      const before = presenceOf(userId)
       rt.active = true
       rt.peerId = newPeerId()
       byPeer.set(rt.peerId, rt)
-      if (!wasOnline && !isHidden(userId)) bumpMeta()
+      if (presenceChanged(userId, before)) bumpMeta()
     }
     return rt
   }
@@ -183,14 +233,18 @@ function createHub (options) {
     for (const id of privates) onPrivateVoice(id)
   }
 
-  // Çevrimdışına düşen oturum sesten sessizce çıkarılır, sinyal kuyruğu boşaltılır.
+  // Çevrimdışına düşen oturum sesten sessizce çıkarılır, sinyal kuyruğu boşaltılır, sayfalarının boşta bildirimleri
+  // unutulur (yeniden etkin olunca boşta değildir). Kişinin kalan etkin oturumlarının hepsi boştaysa kişi Boşta
+  // görünmeye başlar.
   function deactivate (rt) {
-    const wasOnline = isUserOnline(rt.userId)
+    const before = presenceOf(rt.userId)
     rt.active = false
+    rt.idle = false
+    rt.idleTabs.clear()
     if (rt.peerId !== null && byPeer.get(rt.peerId) === rt) byPeer.delete(rt.peerId)
     rt.signals = []
     const left = clearVoice(rt)
-    voiceChanged([left], wasOnline && !isUserOnline(rt.userId) && !isHidden(rt.userId))
+    voiceChanged([left], presenceChanged(rt.userId, before))
   }
 
   // reply(res): oturumun bekleyen poll'larına gönderilecek hata yanıtı
@@ -198,7 +252,7 @@ function createHub (options) {
     const rt = sessions.get(hash)
     if (!rt) return
     for (const w of rt.waiters.slice()) finishWaiterWith(w, reply)
-    const wasOnline = isUserOnline(rt.userId)
+    const before = presenceOf(rt.userId)
     const left = clearVoice(rt)
     sessions.delete(hash)
     if (rt.peerId !== null && byPeer.get(rt.peerId) === rt) byPeer.delete(rt.peerId)
@@ -212,7 +266,40 @@ function createHub (options) {
         clearTypingUser(rt.userId)
       }
     }
-    voiceChanged([left], wasOnline !== isUserOnline(rt.userId) && !isHidden(rt.userId))
+    voiceChanged([left], presenceChanged(rt.userId, before))
+  }
+
+  // Otomatik boşta (poll sorgusundaki idle ve tab): idle '1' boşta, '0' değil, başka değer veya yokluğu yok sayılır.
+  // tab bildirimi gönderen sayfanın kimliğidir: aynı oturumu paylaşan sekmelerin bildirimleri ayrı tutulur, böylece
+  // kullanılan sekme ile unutulmuş sekme oturumun bayrağını sırayla değiştirmez. Hiçbir şey diske yazılmaz.
+  function setIdle (rt, value, tab, now) {
+    if (value !== '0' && value !== '1') return false
+    const key = typeof tab === 'string' && IDLE_TAB_RE.test(tab) ? tab : ''
+    // Son bildiren sayfa sona alınır, sayfa sayısı aşılırsa en eski bildirim unutulur
+    rt.idleTabs.delete(key)
+    rt.idleTabs.set(key, { idle: value === '1', seen: now })
+    while (rt.idleTabs.size > IDLE_TABS_MAX) rt.idleTabs.delete(rt.idleTabs.keys().next().value)
+    return refreshIdle(rt, now)
+  }
+
+  // Oturumun boşta bayrağını yeniden hesaplar. Oturum ses odasında değilse ve son pollTimeoutMs + graceMs içinde
+  // bildirim gönderen bütün sayfaları boştaysa boştadır, süresi geçen bildirimler (kapanan sekme) unutulur. Boşa geçiş
+  // son geçişten en az idleGapMs sonra kabul edilir, boştan dönüş hemen. Kişinin görünen durumu değişirse meta sürümü
+  // artar.
+  function refreshIdle (rt, now) {
+    let idle = rt.voiceChannelId === null
+    for (const [key, report] of rt.idleTabs) {
+      if (now - report.seen >= pollTimeoutMs + graceMs) rt.idleTabs.delete(key)
+      else if (!report.idle) idle = false
+    }
+    if (rt.idleTabs.size === 0) idle = false
+    if (rt.idle === idle) return false
+    if (idle && now - rt.idleAt < idleGapMs) return false
+    const before = presenceOf(rt.userId)
+    rt.idle = idle
+    rt.idleAt = now
+    if (presenceChanged(rt.userId, before)) bumpMeta()
+    return true
   }
 
   function sweep (now) {
@@ -259,9 +346,12 @@ function createHub (options) {
     return metaCache
   }
 
-  // Başkalarına gösterilen kullanıcı: görünmez veya çevrimdışıysa online false ve status 'offline'
+  // Başkalarına gösterilen kullanıcı: görünmez veya çevrimdışıysa online false ve status 'offline'. Elle seçilen
+  // durumu Çevrimiçi olan kişinin bütün etkin oturumları boştaysa status 'idle' (otomatik boşta).
   function presenceView (u) {
     const online = u.status !== 'invisible' && isUserOnline(u.id)
+    let status = 'offline'
+    if (online) status = u.status === 'online' && userAutoIdle(u.id) ? 'idle' : u.status
     return {
       id: u.id,
       name: u.name,
@@ -269,7 +359,7 @@ function createHub (options) {
       roleId: u.roleId === undefined ? null : u.roleId,
       voiceMuted: u.voiceMuted === true,
       online,
-      status: online ? u.status : 'offline',
+      status,
       pv: u.pv
     }
   }
@@ -567,10 +657,11 @@ function createHub (options) {
     }
   }
 
-  // params: { since, mv, pmv, tv, muv, sig, boot } (sorgu dizgeleri)
+  // params: { since, mv, pmv, tv, muv, sig, boot, idle, tab } (sorgu dizgeleri)
   function poll (rt, params, res) {
     const now = Date.now()
     rt.lastSeen = now
+    setIdle(rt, params.idle, params.tab, now)
     const bootOk = params.boot === bootId
     const since = parseCounter(params.since)
     const mv = parseCounter(params.mv)
@@ -633,6 +724,8 @@ function createHub (options) {
       rt.voiceSince = ++voiceCounter
     }
     voiceChanged(touched)
+    // Ses odasındaki oturum boşta sayılmaz (başka bir sekmesi boşta bildirse de)
+    refreshIdle(rt, Date.now())
     others.sort((a, b) => a.voiceSince - b.voiceSince)
     return others.map(memberView)
   }
