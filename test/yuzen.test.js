@@ -452,6 +452,75 @@ test('22-cast: Önizlemeyi Göster yalnızca önizleme sahnenin en üstteki kipi
   assert.equal(env.run("castShowWanted(true, 'own')"), false, 'önizleme küçük değil')
 })
 
+// Üst çubuk çipi (castRenderTop) kip değişince de yeniden kurulur: önizleme küçükken izlenen paylaşım veya kamera
+// ızgarası kapanınca Önizlemeyi Göster Durdur'un önüne gelir. Odak düğmenin anahtarıyla korunur, Durdur'daki odak
+// Önizlemeyi Göster'e kaymaz. Modül küçük DOM taklidiyle (test/oyun-ortam.js) yüklenir.
+test('22-cast: üst çubuk çipi kip değişince yeniden kurulur, odaktaki düğme odağı korur', () => {
+  const { makeDocument } = require('./oyun-ortam')
+  const doc = makeDocument()
+  doc.readyState = 'loading'
+  const sandbox = {
+    console,
+    window: null,
+    document: doc,
+    innerWidth: 1440,
+    isNarrow: () => sandbox.innerWidth < 760,
+    storeGet: () => null,
+    storeSet: () => {},
+    t: (key) => key,
+    h: (tag, className, text) => {
+      const node = doc.createElement(tag)
+      if (className) node.className = className
+      if (text !== undefined && text !== null) node.textContent = String(text)
+      return node
+    },
+    icon: () => doc.createElement('svg'),
+    clear: (node) => {
+      while (node && node.firstChild) node.removeChild(node.firstChild)
+    },
+    setLive: (node, value) => {
+      node.textContent = typeof value === 'function' ? value() : value
+      return node.textContent
+    },
+    focusNode: (node) => {
+      if (node) node.focus()
+    },
+    el: { topCast: doc.body.appendChild(doc.createElement('div')) },
+    state: { inApp: true },
+    voice: null
+  }
+  sandbox.window = sandbox
+  sandbox.addEventListener = () => {}
+  vm.createContext(sandbox)
+  vm.runInContext(fs.readFileSync(path.join(PUB, 'js', '22-cast.js'), 'utf8'), sandbox, { filename: '22-cast.js' })
+  const run = (code) => vm.runInContext(code, sandbox)
+  const chip = () => Array.from(sandbox.el.topCast.querySelectorAll('button')).map((b) => b.getAttribute('data-focus-key'))
+  const active = () => doc.activeElement.getAttribute('data-focus-key')
+  const top = (mode) => run("castRenderTop({ state: 'live' }, {}, true, " + JSON.stringify(mode) + ')')
+  run('castState.ownMin = true')
+  // İzlerken çipte yalnızca Durdur, kişi Durdur'a gelir, izlenen paylaşım biter (watch'tan own'a)
+  top('watch')
+  assert.deepEqual(chip(), ['cast-top-stop'])
+  sandbox.el.topCast.querySelector('.top-cast-stop').focus()
+  top('own')
+  assert.deepEqual(chip(), ['cast-top-show', 'cast-top-stop'])
+  assert.equal(active(), 'cast-top-stop', 'odak Durdur\'da kalır')
+  // Kamera ızgarası açılınca Önizlemeyi Göster kalkar, ızgara kapanınca geri gelir, odak yine Durdur'da
+  top('cams')
+  assert.deepEqual(chip(), ['cast-top-stop'])
+  assert.equal(active(), 'cast-top-stop')
+  top('own')
+  assert.equal(active(), 'cast-top-stop')
+  // Önizlemeyi Göster odaktayken o düğme kalkarsa odak çipteki ilk düğmeye (Durdur) gider
+  sandbox.el.topCast.querySelector('.top-cast-show').focus()
+  top('watch')
+  assert.equal(active(), 'cast-top-stop')
+  // Odak çipte değilken yeniden kurulum odağı taşımaz
+  doc.body.focus()
+  top('own')
+  assert.equal(doc.activeElement, doc.body)
+})
+
 test('22-cast: Yüzen Pencere düğmesi kendi paylaşımında ve izlerken, Küçült yalnızca kendi paylaşımında', () => {
   const env = loadCast()
   const n = { float: env.attr(), ownMin: env.attr() }

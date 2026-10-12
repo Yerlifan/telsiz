@@ -279,7 +279,10 @@ function castRenderTop (sc, remote, sharing, mode) {
   const key = [sharing ? 1 : 0, minimized ? 1 : 0, window.I18N ? window.I18N.lang : ''].join('|')
   if (key === castState.topKey) return
   castState.topKey = key
+  // Çip kip değişince de yeniden kurulur (Önizlemeyi Göster gelir veya gider): odak düğmenin anahtarıyla korunur,
+  // Durdur'daki odak önüne eklenen Önizlemeyi Göster'e kaymaz
   const hadFocus = box.contains(document.activeElement)
+  const focusKey = hadFocus ? document.activeElement.getAttribute('data-focus-key') : null
   clear(box)
   if (sharing) {
     const own = h('div', 'top-cast-chip is-own')
@@ -311,7 +314,9 @@ function castRenderTop (sc, remote, sharing, mode) {
     box.appendChild(own)
   }
   box.hidden = !box.firstChild
-  if (hadFocus) focusNode(box.querySelector('button'))
+  if (!hadFocus) return
+  const same = focusKey ? Array.from(box.querySelectorAll('[data-focus-key]')).filter((n) => n.getAttribute('data-focus-key') === focusKey)[0] : null
+  focusNode(same || box.querySelector('button'))
 }
 
 // Bildirim: "Ece ekranını paylaşıyor." ve İzle
