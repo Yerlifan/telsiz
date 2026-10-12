@@ -1,0 +1,69 @@
+{
+ "bulgular": [
+  {
+   "onem": "yuksek",
+   "dosya": "public/js/36-oyun.js",
+   "satir": 1000,
+   "ozet": "Oyun sürerken kurpiyerin ekranında Koltuktan Çıkar düğmesi yok. Belgeler bu düğmenin olduğunu ve hayalet koltuğun böyle çözüldüğünü söylüyor.",
+   "senaryo": "Deniz kurpiyer, Ece oturuyor, Deniz Başlat'a basıyor. Ece sayfasını yeniliyor ve ses odasına dönmüyor, yani hayalet oluyor. Sıra Ece'ye geçince 60 saniye sonra 'Uzakta' çipi çıkıyor, ama Deniz'in masasında Koltuktan Çıkar düğmesi yok. gameRenderTable yalnızca durum satırını, .game-app'i, sonuçları ve gameFoot'u çiziyor. Koltuk düğmelerini taşıyan gameSeatsBlock (satır 855-872) yalnızca gameRenderLobby'den çağrılıyor. Bunun sonucu olarak gameSeatsBlock içindeki `if (m.stage === 'play') gameAsk('remove', ...)` dalı (satır 863) hiç çalışmıyor. Test kopyasıyla doğrulandı: lobide `deniz.key('game-remove-12')` var, Başlat'tan sonra stage 'play' iken yok ve `.game-seats` sayısı 0. Oyun, kurpiyer Oyunu Bitir deyip Yeni El ile lobiye dönene kadar takılı kalıyor. Bu durum şu yazılarla çelişiyor: MIMARI.md:189 ve ARCHITECTURE.md:189 ('Kurpiyer her koltuğu Koltuktan Çıkar ile kaldırabilir'), MIMARI.md:278 ve ARCHITECTURE.md:278 ('Hayalet oyuncu ... kurpiyer onu Koltuktan Çıkar ile kaldırır'), CHANGELOG.md:9 ve CHANGELOG.en.md:9 ('kurpiyer onu koltuktan çıkarabilir') ve tasarım belgesindeki 'Hareketsiz oyuncu' kararı. Hiçbir test oyun sırasında bu düğmeyi aramıyor. test/oyun-arayuz.test.js:1021 yalnızca lobiye bakıyor, e2e'de koltuktan çıkarma hiç yok.",
+   "oneri": "Oyun ve sonuç aşamasında kurpiyere koltuk başına Koltuktan Çıkar düğmesi gösterilmeli. Bu, rakip şeridinde ya da gameFoot'ta onay satırıyla yapılabilir. Ayrıca oyun-arayuz testine play aşamasında `game-remove-<id>` ve onay satırı denetimi eklenmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/MIMARI.md",
+   "satir": 193,
+   "ozet": "MIMARI ve ARCHITECTURE davet alan kişide Oyun düğmesinin 'Masaya Bak' olduğunu söylüyor, ama kod hiçbir durumda bu etiketi kullanmıyor.",
+   "senaryo": "Odada lobi açılınca davet alan Ece'nin düğmesinde 'Davet' (game.toolInvite, 36-oyun.js:488-489) görünüyor. Oyun sürerken gelen davette ise 'Oyun Sürüyor' (satır 487) görünüyor. e2e/16-oyun.test.js:230 ve 272 de etiketin 'Davet' olduğunu sınıyor. 'Masaya Bak' (game.view) yalnızca Bildirimler kaydındaki düğmenin adı. Aynı paragrafın sonraki cümlesi 'Oyun düğmesi \"Davet\" olur' dediği için belge kendi içinde de çelişiyor. Aynı hata ARCHITECTURE.md:193'te de var ('the Game button becomes View Table').",
+   "oneri": "Cümle şöyle düzeltilmeli: 'Oyun düğmesi Davet (oyun sürüyorsa Oyun Sürüyor) olur'."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/MIMARI.md",
+   "satir": 179,
+   "ozet": "Yeni oyun için verilen uygulama sözleşmesi listesi eksik. Masa yöneticisinin zorunlu olarak çağırdığı alanlar listede yok.",
+   "senaryo": "Belgede sayılan newGame, validateMove, applyMove, removePlayer, endGame, publicView, privateView, validateView ve validatePrivate işlevleriyle yazılan bir 'pisti' motoru düşünelim. doOpenSetup A.DEFAULT_RULES'u okuyor (undefined). doOpenTable A.RULES.indexOf'u çağırıyor (TypeError). limits A.MIN_PLAYERS ve A.MAX_PLAYERS'ı okuyor (NaN). doStart'tan sonra applyChange T.A.isOver'ı, trackTurn T.A.turnOf'u, buildModel T.A.legalMoves'u çağırıyor (34-oyun-masa.js:178, 232, 267, 1172, 1208, 1514). 36-oyun.js gameApp ise `engine.id` alanını ve GAME_ENGINES tablosunda bir kaydı (satır 27, 66) şart koşuyor. Belgedeki listeye uyan bir oyun açılamıyor ya da ilk hamlede çöküyor. Aynı eksik liste ARCHITECTURE.md:179'da da var.",
+   "oneri": "Listeye id, RULES, DEFAULT_RULES, MIN_PLAYERS, MAX_PLAYERS, turnOf, isOver ve legalMoves eklenmeli. 36-oyun.js içindeki GAME_ENGINES kaydının gerektiği de yazılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/TASARIM.md",
+   "satir": 187,
+   "ozet": "Ayrılma ve koltuktan çıkarmanın her zaman onay satırı açtığı yazıyor. Lobide ikisi de onaysız, hemen uygulanıyor.",
+   "senaryo": "Lobide kurpiyer Ece'nin satırındaki Koltuktan Çıkar'a basıyor. 36-oyun.js:863-864 play dışında doğrudan gameCall('removeSeat') çağırıyor. Test kopyasında `.game-confirm` oluşmadı ve koltuk sayısı hemen düştü. Lobide Mert Masadan Ayrıl'a basıyor. gameLeave (satır 1198-1201) yalnızca stage 'play' iken soruyor, burada Mert onaysız masadan çıktı (stage 'none'). TASARIM.md:187 ve DESIGN.md:187 dört işlemin de koşulsuz onay satırı açtığını söylüyor.",
+   "oneri": "Belge 'oyun sürerken' koşuluyla düzeltilmeli ya da lobide de onay satırı açılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/TASARIM.md",
+   "satir": 187,
+   "ozet": "Masadaki 'Kurpiyer Elleri Bilir' çipinin sınıfı belgede yanlış yazılmış: .game-trust olarak geçiyor, doğrusu .game-trust-chip.",
+   "senaryo": "gameFoot çipi `.game-trust-row > span.game-trust-chip` olarak çiziyor (36-oyun.js:1073-1074, oyun.css:410). `.game-trust` ise lobi ve davet ekranlarındaki güven notunun (gameTrustNote, satır 809) sınıfı. Belgeye bakıp `.game-trust` için tema kuralı yazan biri masadaki çipi değil lobi notunu biçimlendirir. Aynı yanlış DESIGN.md:187'de de var.",
+   "oneri": "Çip için `.game-trust-chip` (satırı `.game-trust-row`) yazılmalı, `.game-trust` güven notu olarak anılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/TASARIM.md",
+   "satir": 221,
+   "ozet": "Hareketi azalt davranışı gameReducedMotion işlevine bağlanmış, ama bu işlev hiçbir yerden çağrılmıyor.",
+   "senaryo": "gameReducedMotion yalnızca tanımlanıyor (36-oyun.js:114-122). `grep -rn gameReducedMotion public/` başka sonuç vermiyor. Kart geçişlerini ve eşitleme noktasını durduran asıl kurallar CSS'te: renk.css:780 ve oyun.css:558'deki `@media (prefers-reduced-motion)` ile base.css:342'deki `:root[data-reduce-motion=\"true\"] *`. Belgeye bakıp gameReducedMotion'ı değiştiren biri davranışta hiçbir fark görmez. Aynı ifade DESIGN.md:221'de de var.",
+   "oneri": "Belgede CSS kuralları anılmalı. Kullanılmayan işlev ise ya kaldırılmalı ya da kullanılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "docs/TASARIM.md",
+   "satir": 189,
+   "ozet": "Kart yüzü anlatımında Joker +4'ün ortasında '+4', altında da renk harfi olduğu söyleniyor. Kod ortaya dört renk karesi, alta '+4' koyuyor.",
+   "senaryo": "renkFace'te color === 'W' olan her kartın ortasına renk-quads konuyor (37-renk.js:444-452). Alt köşede Joker'de boş metin, Joker +4'te '+4' var (satır 462). Belgedeki 'ortada büyük değer (... +2, +4), altta dile göre rengin harfi' ifadesi Joker +4 için yanlış. Ortada '+4' yazmasını bekleyen bir görsel inceleme ya da test yazımı yanılır. Aynı ifade DESIGN.md:189'da da var.",
+   "oneri": "'+4' ortadaki değerler listesinden çıkarılmalı. Joker +4'te +4'ün köşede ve altta durduğu yazılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "test/oyun-arayuz.test.js",
+   "satir": 1050,
+   "ozet": "Belgelerde öne çıkan Oyuna Dön ekranı ve gerçek Küçült yolu hiçbir testte çalışmıyor.",
+   "senaryo": "Oyuna Dön düğmesini (`game-rejoin`, gameRenderInvite 'rejoin' dalı, 36-oyun.js:972-974) hiçbir test çizmiyor ya da basmıyor. `grep -rn game-rejoin test/ e2e/` boş dönüyor. oyun-arayuz yalnızca gameToolState'in 'rejoin' satırını sınıyor (satır 853), yenileme ise yalnızca masa modelinde sınanıyor. 22-cast.js'teki gerçek castMinimizeGame ve castOpenGame de çalıştırılmıyor. oyun-arayuz bunların yerine STAGE_FAKES içinde kendi kopyalarını kullanıyor (satır 397-430) ve gerçek kaynağı yalnızca düzenli ifadeyle tarıyor (satır 748). e2e/16-oyun.test.js'te sayfa yenileme ve Küçült hiç yok. Örneğin rejoin dalında düğmenin odak anahtarı ya da işleyicisi bozulursa, ya da castMinimizeGame oyunu kapatırsa, README ve CHANGELOG'daki 'Oyuna Dön ile koltuğuna döner' ve 'küçültülünce oyun sürer' özellikleri bozulur ama bütün testler yeşil kalır.",
+   "oneri": "oyun-arayuz'a 'rejoin' aşamasının çizimini ve `game-rejoin` ile koltuğa dönüşü sınayan bir test eklenmeli. e2e'ye de bir oyuncunun sayfa yenileyip Oyuna Dön ile döndüğü ve masanın küçültülüp yeniden açıldığı adımlar eklenmeli."
+  }
+ ],
+ "testler": "Ana kopyada şu testleri çalıştırdım, hepsi geçti: `node --test test/oyun-*.test.js test/renk-kural.test.js` (248 test, 248 geçti), `node --test e2e/16-oyun.test.js` (10 test, 10 geçti; bu koşuda ilk kart RS'ydi, eller 7 7 7) ve `npm run denetle` (361 dosya, ihlal yok). Doğrulama için test/oyun-arayuz.test.js'in test altyapısını yalnızca scratchpad'e kopyaladım (/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/dogrula/remove.test.js) ve iki sınama ekledim. Sonuçlar: lobide `game-remove-12` var, play aşamasında yok ve `.game-seats` sayısı 0; lobide Koltuktan Çıkar ve Masadan Ayrıl onay satırı açmadan uygulanıyor. Belgelerdeki şu sayılar ve ifadeler koda uyuyor: kart kontrast oranları (yeniden hesapladım), süreler (10/15/25/45/60 sn, 300 ms, 30 sn, 2-4-8-16-30 sn geri çekilme, 1-2-4 sn yeniden deneme), 120 istek/10 sn sınırı ve sınıra takılan isteğin sayılmaması, 11000 karakter p sınırı, 108 kart, 2-8 oyuncu, hız bütçesindeki 4,7, 23, 70 ve 91 hesapları, stil dosyası sırası ve kart ölçüleri. Depoda hiçbir dosyayı değiştirmedim."
+}

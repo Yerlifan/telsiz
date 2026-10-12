@@ -1,0 +1,472 @@
+# Alan: Yüzen pencereler (istek 7 ve istek 16)
+
+Depoda hiçbir dosyayı değiştirmedim, `git status` temiz. Bütün deneme betikleri ve ekran görüntüleri `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/` altında.
+
+## 0. Ortak bulgular
+
+### Kendi denemelerim (kanıt)
+
+**E1. Electron 44.5.1'de belge PiP çalışmıyor.**
+- Ortam: Chromium 152.0.7977.130, Linux ve Xvfb.
+- Betik: `electron-deneme/main.js` ve `main2.js`.
+- `'documentPictureInPicture' in window` true dönüyor, yani özellik var görünüyor.
+- Uygulamanın bugünkü `deny` politikasıyla `requestWindow()` şu hatayla reddediliyor: `InvalidStateError: ... Internal error: no window`.
+- `allow` verilince söz çözülüyor ama pencere görünmüyor. `innerWidth` 0, `BrowserWindow.getAllWindows()` 1, ek webContents yok. Ekran görüntüsü: `electron-pip.png`.
+- Kullanıcı hareketi yokken `NotAllowedError: Document PiP requires user activation` hatası geliyor.
+- Windows'ta denenemedi.
+
+**E2. Electron'da `window.open('about:blank', ad)` ile yüzen pencere çalışıyor.**
+- Betik: `main3.js` ve `main6.js`.
+- `setWindowOpenHandler` → `allow` ve `overrideBrowserWindowOptions` şunlarla verildi: `{ alwaysOnTop, frame:false, skipTaskbar, webPreferences:{ preload:'' } }`.
+- Sonuç: 260x180, çerçevesiz, `isAlwaysOnTop() === true` olan bir pencere açıldı.
+- Pencere kullanıcı hareketi olmadan açıldı.
+- Kökeni `telsiz://app`, ön yükleme betiği pencerede çalışmıyor.
+- Açan sayfanın MediaStream'i pencerede oynuyor (`videoWidth` 160).
+- `<link>` ile CSS yükleniyor. `style` özniteliği CSP tarafından engelleniyor, yani CSP pencereye miras geçiyor.
+- Aynı sonuç `Cross-Origin-Opener-Policy: same-origin` ve uygulamanın bütün güvenlik başlıklarıyla da alındı. Ekran görüntüsü: `electron-yuzen.png`.
+- Kısıt: kök kullanıcı olarak `sandbox:false` ile denendi, `sandbox:true` elle denenmeli.
+
+**E3. Ana pencere gizliyken çizim duruyor.**
+- Betik: `main4.js`. Ana pencere `hide()` ile gizlendi, 2 saniye ölçüldü.
+- Ana belgede rAF 0 kez çalıştı, yüzen alt pencerede 122 kez.
+- `setInterval(20ms)` Telsiz'in anahtarları olmadan 3 kez, anahtarlarla (`disable-background-timer-throttling`, `disable-renderer-backgrounding`) 100 kez çalıştı.
+
+**E4. Pencereyi hangi çerçevenin açtığı ancak açıldıktan sonra anlaşılıyor.**
+- Betik: `main5.js`.
+- `setWindowOpenHandler` içinde ana çerçeve ile alt çerçeve ayırt edilemiyor, ikisinde de `referrer.url` boş.
+- `did-create-window` içinde `child.webContents.opener` ana çerçeveyi alt çerçeveden ayırıyor (`openerIsAppMain` true veya false).
+
+**E5. Chromium'da gerçek Telsiz istemcisiyle belge PiP çalışıyor.**
+- Ortam: Playwright Chromium 141, `setupWorld` ve rastgele yüksek port.
+- Betik: `pw/pip-deneme.js`, ekran görüntüsü `pw/chromium-pip.png`.
+- Mert'in kamera akışı PiP penceresinde oynadı (`videoWidth` 320).
+- Bağlanan CSS uygulandı: avatar 60px, köşe yarıçapı %28.
+- `style` özniteliği engellendi.
+- Açan sayfada üretilen `blob:` avatar adresi PiP penceresinde yüklendi (`pw/blob-deneme.js`, başlıklı ve başsız kipte).
+- Sınır: Playwright sayfaları hep "visible" tutuyor, bu yüzden sekme değişimi ve otomatik PiP burada denenemedi.
+
+**E6. Kendi yayınında küçültme düğmesi yok.**
+- Betik: `pw/yayin-deneme.js`, ekran görüntüleri `pw/yayin-own.png` ve `pw/yayin-watch.png`.
+- Kendi yayınında sahne başlığında yalnız iki düğme var: `Kalite` ve `Paylaşımı Durdur`.
+- Sahne 1095x677 boyutunda ve sohbeti kaplıyor (`data-cast-chat="closed"`). Videoda `disablepictureinpicture` var.
+- İzleyicide düğmeler: `Sığdır`, `Doldur`, `Tam Ekran`, `İzlemeyi Bırak`.
+
+### Dış kaynaklardan doğrulanan destek
+
+| Özellik | Chrome / Edge | Firefox | Safari macOS / iOS | Android Chrome | Android WebView | Electron 44 |
+|---|---|---|---|---|---|---|
+| Belge PiP (`documentPictureInPicture`) | 116 | 151 (masaüstü, 19 Mayıs 2026) | yok | yok | yok | var gibi görünüyor, çalışmıyor (E1) |
+| Video PiP (`requestPictureInPicture`) | 69 | 153 (masaüstü, 21 Temmuz 2026) | 13.1 (iOS aynı) | 105 | yok | var |
+| mediaSession `enterpictureinpicture` | 120 | yok | yok | tabloda 120, ama otomatik PiP bayrağı Android'de varsayılan kapalı | yok | denenmedi |
+| mediaSession `togglemicrophone`, `hangup` | 93 | yok | `togglemicrophone` 18.4, `hangup` yok | 93 | yok | denenmedi |
+| `canvas.captureStream` | 51 | 43 | 11 | var | var | var |
+
+**Kullanıcı hareketi gereksinimi**
+- `requestWindow()` geçici kullanıcı etkinleştirmesi ister, yoksa `NotAllowedError` verir (MDN, WICG şartnamesi).
+- PiP penceresi gezinemez ve konumunu site belirleyemez (Chrome belgesi).
+- Video PiP de kullanıcı hareketi ister. `disablePictureInPicture` varsa istek `InvalidStateError` ile reddedilebilir (W3C şartnamesi).
+
+**Otomatik PiP (Chrome 120 masaüstü)**
+- Uygun olmak için üç koşul gerekir:
+  - `enterpictureinpicture` işleyicisi kayıtlı olmalı.
+  - Sayfa getUserMedia ile kamera veya mikrofon yakalıyor olmalı.
+  - Kullanıcının tarayıcı ayarı açık olmalı (varsayılan açık).
+- İşleyici kullanıcı başka sekmeye geçince ve kullanıcı hareketi olmadan çağrılır. Sayfa yeniden görünür olunca pencere kendiliğinden kapanır.
+- Chromium ana dalında pencere örtülünce tetikleme (`kAutoPictureInPictureOnWindowOccluded`) varsayılan kapalı. Simge durumu (`kHidden`) için kod bilerek hiçbir şey yapmaz. Yani tarayıcıda simge durumuna küçültmek otomatik PiP açmaz.
+- Gizli pencerede (incognito, OTR) "sor" ayarı "engelle" sayılır.
+- Kararlı Chrome'da bu bayrakların sunucu tarafından açılıp açılmadığı doğrulanamadı.
+- Telsiz ses odasında sessizdeyken de mikrofonu açık tutuyor (`voice.js:1884` yalnızca `track.enabled` değiştiriyor). Bu durumda Chrome'un sayfayı "yakalıyor" sayıp saymadığı doğrulanamadı.
+
+**Electron**
+- `alwaysOnTop` Wayland'de desteklenmiyor.
+- Wayland'de `minimize` olayı yalnızca istemci tarafı dekorasyondan (pencere denetimleri kaplamasının düğmesi) gelir.
+- Electron 38'den beri Wayland oturumunda doğal Wayland kullanılıyor (`--ozone-platform=x11` ile XWayland zorlanabilir).
+- `focusable:false`: Windows'ta `skipTaskbar` anlamına da gelir. Linux'ta pencere yöneticisiyle etkileşimi keser.
+- `setContentProtection(true)` pencereyi ekran yakalamadan çıkarır (Windows 10 2004 ve sonrası, macOS). Linux'ta yok.
+- `backgroundThrottling` açıkken Sayfa Görünürlüğü simge durumunda `hidden` olur.
+
+**Zamanlayıcı kısma (Chrome 88)**
+- Gizli ve son 30 saniyedir sessiz bir sayfada zamanlayıcılar saniyede bire iner.
+- `RTCPeerConnection` canlı bir parçaya sahipse yoğun kısma (dakikada bir) uygulanmaz.
+
+**Android uygulaması**
+- Activity PiP Android 8.0 (API 26) ile geldi, bildirimde `android:supportsPictureInPicture` gerekir.
+- `setAutoEnterEnabled(true)` Android 12'den beri var.
+- PiP'te uygulamanın arayüzüyle etkileşilemez, yalnızca özel eylemler kullanılabilir.
+- PiP için sistem uyarı penceresi (SAW) kullanılmamalı.
+
+**WebKit**
+- Belge PiP için tutum yok. Belirtilen kaygılar: usability, portability, annoyance, device independence.
+
+---
+
+## İstek 7
+
+### 1. Kullanıcının isteği
+
+"Simge durumuna küçülünce kamera açıksa onlar çıksın. Kameralar kapalıysa sadece profil fotoğrafları ve konuşunca etrafında yeşil işaret floating olarak olsun."
+
+### 2. Mevcut durum
+
+**Masaüstü**
+- `desktop/src/main.js:536-610` (`openMainWindow`) yalnızca `close` (584) ve tam ekran (567-568) olaylarını dinliyor. `minimize`, `restore` ve `hide` dinleyicisi hiç yok.
+- `desktop/src/main.js:1458-1462`: `setWindowOpenHandler` her zaman `{ action: 'deny' }` dönüyor. `desktop/src/lib/navigation.js:3-8` bunu "Yeni pencere hiçbir zaman açılmaz" diye belgeliyor, testleri `desktop/test/guvenlik.test.js:74-85` ve `kararlar.test.js:40-41`.
+- `desktop/src/main.js:121-122` zamanlayıcı kısmayı kapatıyor. Ana pencerede `backgroundThrottling` varsayılan (açık) kalıyor. Arka plan pencerelerinde kapalı (766).
+- `desktop/src/preload.js:186` `telsizDesktop` API'sinde pencere durumu yok.
+
+**İstemci**
+- `public/js/10-voice.js:121-154` `onVoiceChange`: `voiceRenderQueued` korumasından (140) sonra `nextFrame` (`01-core.js:502`, rAF) ile çiziyor. Belge gizliyken rAF çalışmaz (E3), bu yüzden bu yoldan hiçbir canlı güncelleme yüzen bir pencereye ulaşmaz.
+- Kullanılabilecek parçalar:
+  - `voiceRoster` (`10-voice.js:190`, özel aramayı da kapsar)
+  - `cameraStreams` (396)
+  - `cameraVideoFor` (416), ön ekler `crew-`, `grid-`, `call-`
+  - `pruneCameraVideos` (455)
+  - `speakingIn` (630)
+  - `updateVoiceLive` (667), `.is-speaking` sınıfını değiştiriyor
+- Bütün görüntülerde `disablepictureinpicture` var: `10-voice.js:427`, `22-cast.js:473`. Tarayıcının kendi PiP düğmesi de kapalı.
+- Depoda PiP veya mediaSession kullanımı yok (grep).
+- Kamera ızgarası `22-cast.js:655` (`castRenderCams`). Tam ekran `22-cast.js:992`, Fullscreen API ile ve sözde tam ekran yedeğiyle. Izgaradaki "Küçült" (458) yalnızca ızgarayı kapatıyor.
+
+**Yeşil işaret zaten var**
+- `public/css/components.css:710-723`: `.avatar.is-speaking`, `var(--live)` halkası.
+- `radio.css:232`, `cast.css:592`.
+- `tokens.css:163`: `--live: #45db9c`.
+
+**CSP ve başlıklar**
+- `src/http-util.js:15` ve `desktop/src/lib/csp.js:18`: `style-src 'self'`, `img-src 'self' blob:`.
+- Masaüstünde COOP `same-origin` (`desktop/src/lib/static-files.js:24`).
+
+**Konuşma algılama**
+- `voice.js:16` `TICK_MS=20`, `voice.js:1982` `setInterval`.
+
+### 3. Yapılabilirlik ve kısıtlar
+
+**Masaüstü (Electron): tam yapılabilir**
+- Belge PiP kullanılamaz (E1). `'documentPictureInPicture' in window` true döndüğü için özellik algılaması yanıltır. Masaüstü yolu algılamada önce gelmeli.
+- Çalışan yol: ana süreç `minimize` veya `hide` olayını sayfaya bildirir, sayfa `window.open('about:blank', jeton)` çağırır, ana süreç her zaman üstte kalan çerçevesiz pencereyi verir (E2).
+- İçerik açan sayfanın JS'iyle çizilir ve akışlar aynı süreçte paylaşılır.
+- Çizim yüzen pencerenin rAF'ıyla yapılmalı (E3).
+- Wayland'de her zaman üstte kalma yok.
+
+**Tarayıcı**
+- Chrome, Edge ve Firefox 151 ve sonrası: belge PiP ile tam arayüz kurulabilir (E5).
+- Otomatik açılış yalnızca Chrome ve Edge'de, sekme değişince olur. Simge durumunda olmaz.
+- Elle "Yüzen Pencere" düğmesi kullanıcı hareketiyle her yerde çalışır. Önce düğmeyle açılan pencere, tarayıcı sonra küçültülse de kalır. Bu son davranış doğrulanamadı, elle denenmeli.
+- Gizli sekmede 30 saniye sessizlikten sonra 20 ms'lik tik saniyede bire iner. Uzun sessizlikten sonra yeşil halka yaklaşık 1 saniyeye kadar gecikebilir.
+
+**Telefon**
+- Android Chrome: belge PiP yok, otomatik PiP varsayılan kapalı. Yalnız düğmeyle video PiP mümkün: kutular tuvale çizilir, `captureStream` → `<video>` → `requestPictureInPicture`. Etkileşim yok, yalnız medya düğmeleri var (`togglemicrophone`, `hangup`).
+- iOS Safari: yalnız video PiP. Tuvalden üretilen akışla çalışıp çalışmadığı doğrulanamadı.
+- Telsiz Android uygulaması (istek 86): yerel Activity PiP ve `setAutoEnterEnabled` ile "eve dönünce" otomatik açılır. WebView aynı küçük yerleşimi bir JS köprüsüyle çizer. WebView video PiP'i desteklemez.
+
+### 4. Önerilen çözüm (sunucu değişikliği yok, yeni API ucu yok)
+
+**Yeni dosyalar**
+- `public/js/38-yuzen.js`. 33-37 oyuna ayrıldığı için 38.
+  - `floatMode()`: `'desktop'` (`telsizDesktop.float` varsa, ilk denetlenir), `'document'`, `'video'` veya `null`.
+  - `floatPlan(s)`: saf işlev, birim testine uygun. Çıktı `{ kind: 'share' | 'cams' | 'avatars', tiles: [{ id, cam, self, speaking }], more }`. Kural: kamera varsa kameralar büyük, kamerası kapalı kişiler altta küçük avatar şeridi. Kamera yoksa yalnız avatarlar ve `.is-speaking` halkası. İzlenen yayın varsa `share`.
+  - `floatOpen(neden)` / `floatClose(neden)`.
+  - `floatRender()` / `floatOnVoice(snapshot)`: yüzen belgenin `requestAnimationFrame`'i ile zamanlanır.
+  - Görüntüler `cameraVideoFor('float-' + id)` ile, temizlik `pruneCameraVideos('float-')` ile.
+  - Stil, açan sayfanın `link[rel=stylesheet]` adreslerinin mutlak hâlinden ve kök `<html>` özniteliklerinden (tema, yazı boyutu) kopyalanır.
+  - Kapanış belge PiP'te `pagehide` olayıyla yakalanır.
+  - Kontroller: Mikrofon, Uygulamaya Dön, Kapat.
+  - Tarayıcıda ses odasındayken ve ayar açıkken `navigator.mediaSession.setActionHandler('enterpictureinpicture', ...)` kaydedilir, odadan çıkınca kaldırılır.
+  - Video yedeği: 480x270 tuval, `setInterval` ile 15 kare (rAF gizlide durur).
+- `public/css/yuzen.css`: flexbox ve margin, `grid` ve `gap` yok. Masaüstünde başlık için `-webkit-app-region: drag`. Yeni belirteç yok, `--live` kullanılır.
+- `desktop/src/lib/float-window.js`: saf işlevler.
+  - Tek kullanımlık jeton: `arm()` / `take(ad)`, ömrü yaklaşık 3 saniye, biçimi `telsiz-yuzen-<32 hex>`.
+  - `options(bounds)`: `{ show:false, frame:false, alwaysOnTop:true, skipTaskbar:true, minimizable:false, maximizable:false, fullscreenable:false, resizable:true, minWidth:200, minHeight:120, webPreferences:{ preload:'' } }`.
+  - `cleanBounds(raw, workArea)`.
+
+**Değişecek masaüstü dosyaları**
+- `desktop/src/main.js`:
+  - `openMainWindow` içine `minimize`, `restore`, `hide`, `show` olayları eklenir. Sayfaya `telsiz:window-state` ile yalnız `'minimized' | 'restored' | 'hidden' | 'shown'` değerleri gider.
+  - `setWindowOpenHandler` içinde dar bir istisna: bağlam `'app'`, gönderen ana pencere, adres `about:blank` ve `floatGate.take(details.frameName)` başarılı olmalı.
+  - `did-create-window` içinde `child.webContents.opener === state.mainWindow.webContents.mainFrame` denetlenir (E4), değilse `destroy()`.
+  - Sonra: bağlam `'float'` olarak kaydedilir, `setAlwaysOnTop(true, 'floating')`, `setVisibleOnAllWorkspaces(true)`, `setContentProtection(true)`, ana pencerenin ekranında sağ alt köşe, `showInactive()`.
+  - Konum ve boyut `floatBounds` olarak kaydedilir.
+  - Ana pencere kapanınca veya sayfa yenilenince yüzen pencere kapatılır.
+  - Yeni IPC kanalları: `telsiz:float-arm` (invoke, `requireSender 'app'`, jeton döner) ve `telsiz:float-show-main` (`showMain`).
+- `desktop/src/preload.js` ve `desktop/src/lib/channels.js`: `float: { arm(), showMain(), onWindowState(cb) }`. Değerler beyaz listeden geçer.
+- `desktop/src/lib/permissions.js`: `deniedFor('float', *)` her izni reddeder.
+- `navigation.js`: `float` bağlamında her gezinme reddedilir. Belge yorumu güncellenir.
+- `settings-store.js`: `floatBounds` alanı eklenir ve doğrulanır.
+- `desktop/src/lib/strings.js`: `float.windowTitle`.
+
+**Değişecek istemci dosyaları**
+- `public/js/10-voice.js`, iki kanca:
+  - `onVoiceChange` içinde 140. satırdaki korumadan önce `floatOnVoice(state.voiceSnap)`.
+  - `renderVoiceAll` içinde `floatRender()`. "Yüzen Pencere" düğmesini `#radio-tools` içine 38 numaralı modül kendisi ekler, `renderRadioCams` kalıbıyla.
+- `public/js/11-settings.js`: Ses ve Görüntü bölümüne "Yüzen Pencere" anahtarı. Anahtar `telsiz.floatAuto`, varsayılan açık. Altında platforma göre açıklama.
+
+**Veri biçimi**
+- `localStorage`: `telsiz.floatAuto` (`'on'` veya `'off'`).
+- Masaüstü `settings.json`: `floatBounds: { x, y, width, height }`.
+- Sunucuya hiçbir şey gitmez.
+
+**i18n (TR ve EN birlikte)**
+- `float.open` ("Yüzen Pencere"), `float.openLabel`, `float.backToApp` ("Uygulamaya Dön"), `float.title` ("{room} · Telsiz").
+- `float.more_one` ve `float.more_other` ("+{count} kişi").
+- `float.unsupported`, `float.failed`.
+- `settings.voice.floatTitle`, `settings.voice.floatAuto`, `settings.voice.floatHintDesktop`, `settings.voice.floatHintBrowser`, `settings.voice.floatHintWayland`.
+- Düğme etiketleri Her Kelimesi Büyük yazılır (görev 72).
+
+**Paylaşılan dosyalardaki değişiklikler**
+- `public/index.html`: betik `/js/38-yuzen.js`, `/css/yuzen.css`, `i-pip` ve `i-minimize` simgeleri.
+- `public/sw.js`: kabuk listesine iki giriş.
+
+**Belgeler**
+- `README.md` ve `README.en.md`: Kamera ve Masaüstü paragrafları.
+- `desktop/README.md` ve `.en`: güvenlik maddesindeki "yeni pencere engellenir" ifadesine istisna, API tablosu.
+- `docs/MIMARI.md` ve `ARCHITECTURE.md`.
+- `CONTRIBUTING.md` ve `.en`: modül tablosu.
+- `CHANGELOG.md` ve `.en`.
+
+### 5. Testler
+
+**Birim: `test/yuzen.test.js` (vm ile)**
+- `floatPlan` durumları: kamera yok, kamera var ve avatar şeridi, konuşma, izlenen yayın, özel arama kadrosu, sınırı aşınca "+N".
+- `floatMode`: `documentPictureInPicture` varken `telsizDesktop.float` da varsa `'desktop'` dönmeli.
+- i18n anahtarları, `index.html` ve `sw.js` bağlantıları.
+
+**Masaüstü birim**
+- `float-window` jetonu tek kullanımlık olmalı, süresi dolmalı, yanlış adla açılmamalı.
+- Seçenekler doğru olmalı (ön yükleme betiği yok, `show:false`).
+- `cleanBounds`, `deniedFor('float')`.
+- `preload.test.js` kanal eşitliği.
+- `guvenlik.test.js` düzenli ifadesi yeni istisnaya göre güncellenir.
+
+**E2E: `e2e/16-yuzen.test.js` (Chromium, başsız kipte de çalışır, E5)**
+- Mert kamera açar, Deniz "Yüzen Pencere"ye basar.
+- `documentPictureInPicture.window` içinde Mert'in kutusunda oynayan görüntü olmalı.
+- Mert kamerayı kapatınca kutu avatara dönmeli.
+- Mert konuşunca halka görünmeli.
+- Kapat'a basınca `float-` görüntüleri temizlenmeli.
+
+**Masaüstü duman testi**
+- Jetonsuz `window.open('about:blank')` hâlâ `null` dönmeli.
+- `telsizDesktop.float.arm()` ile açılan pencere `alwaysOnTop` olmalı ve izinleri reddedilmeli.
+
+**Elle deneme**
+- Windows 10 ve 11: pencere düğmesiyle, Win+D ile ve görev çubuğuyla küçültme. Tepsiye gizleme. Tam ekran paylaşımında pencerenin görünmemesi.
+- Linux X11 ve GNOME Wayland.
+- Chrome ve Edge'de sekme değişimi.
+- Chrome'u küçültme (otomatik açılmamalı, düğmeyle açılan kalmalı).
+- Firefox 151 ve sonrası, Safari video PiP, Android Chrome, iOS Safari.
+- Masaüstünde `sandbox:true` ile aynı akış.
+
+### 6. Riskler ve güvenlik
+
+**Masaüstü pencere istisnası (CONTRIBUTING'e göre hassas alan)**
+- YouTube çerçevesi kullanıcı hareketi olmadan `window.open` çağırabiliyor (`guvenlik.test.js:8`).
+- Önlemler:
+  - Ana süreçten gelen tek kullanımlık jeton.
+  - `opener` denetimi (E4).
+  - Yalnızca `about:blank` adresi.
+  - Pencerede ön yükleme betiği yok.
+  - `float` bağlamında bütün izinler, gezinme ve yeni pencere reddediliyor.
+  - CSP ve korumalı alan mirası (E2).
+
+**Şifreleme**
+- Değişmiyor. Yüzen pencere aynı kökende, zaten çözülmüş ad ve avatarları gösteriyor. Akışlar cihazdan çıkmıyor, sunucu değişmiyor.
+
+**Gizlilik**
+- Arkadaşların kameraları başka uygulamaların üstünde görünür.
+- Başka bir uygulamada tam ekran paylaşılırsa pencere yayına girebilir. Windows ve macOS'ta `setContentProtection` engeller. Linux'ta ve tarayıcıda (belge PiP) engellenmez.
+- Chrome kendi PiP penceresini sekme yakalamasından dışlıyor mu, doğrulanamadı.
+
+**Uyumluluk**
+- Wayland'de her zaman üstte kalma yok.
+- Tarayıcıda simge durumunda otomatik açılış yok, yalnızca sekme değişince var.
+- Chrome sayfa görünür olunca otomatik PiP penceresini kapatır, bu yüzden ayrıca açık tutma mantığı gerekir.
+
+**Tek pencere sınırı**
+- Belge PiP sayfa başına bir pencere açabilir, tarayıcı var olanı kapatabilir.
+- Telsiz DJ'nin "yüzen oynatıcısı" (görev 79) ayrı pencere açarsa çakışır.
+
+### 7. Büyüklük
+
+L. Yaklaşık 14 adım:
+1. `float-window.js` ve testleri
+2. Kanallar ve ön yükleme betiği
+3. `main.js` (olaylar, istisna, IPC, izinler)
+4. `settings-store`
+5. 38 numaralı modülün çekirdeği
+6. CSS
+7. `10-voice.js` kancaları
+8. Belge PiP ve mediaSession
+9. Video yedeği
+10. Ayarlar
+11. `index.html`, `sw.js`, i18n
+12. Birim testleri
+13. E2E ve duman testi
+14. Belgeler
+
+### 8. Karar noktaları ve önerdiğim varsayılanlar
+
+- **Ne zaman açılsın:** Masaüstünde simge durumu ve tepsiye gizleme. Kullanıcı ses odasında veya özel aramadaysa ve `telsiz.floatAuto` açıksa. Gerekçe: oyuncu kullanıcı çoğu zaman tepsiyi kullanıyor, iki durumda da uygulama görünmüyor. Pencere geri gelince kendiliğinden kapanır.
+- **Tarayıcı:** Chrome ve Edge'de sekme değişince otomatik açılış varsayılan açık. Her tarayıcıda elle düğme var.
+- **Kamera varken ne görünsün:** Kameralar büyük, kamerasız kişiler küçük avatar şeridinde. Gerekçe: kamerasız birinin konuştuğu kaybolmasın. Kendi kameran sonda ve küçük.
+- **Kutu sınırı:** En fazla 4 kamera ve 8 avatar, kalanı "+N".
+- **Kontroller:** Ayrıl düğmesi yok, kazara basılma riski var.
+- **Wayland:** XWayland zorlanmaz. Ayarda not gösterilir.
+- **Yakalama koruması:** `setContentProtection` varsayılan açık.
+- **Ayarın yeri:** Sayfa tarafında, tarayıcıyla ortak olsun diye. Masaüstünde bu yüzden frekans başına olur.
+
+### 9. Dokunulacak paylaşılan dosyalar
+
+- `public/index.html`
+- `public/sw.js`
+- `public/i18n.js`
+- `public/js/10-voice.js`: oyun iş akışı `renderVoiceAll` içindeki `gameRender` kancasıyla aynı işleve dokunuyor, çakışma riski var.
+- `public/js/11-settings.js`
+- `desktop/src/main.js`, `desktop/src/preload.js`, `desktop/src/lib/channels.js`, `permissions.js`, `navigation.js`, `settings-store.js`, `strings.js`
+- Belge çiftleri
+- Değişmeyecekler: `voice.js`, `tokens.css`, `src/app.js`.
+- Görev 79 (DJ yüzen oynatıcı) aynı 38 numaralı modülü ve `navigator.mediaSession` nesnesini paylaşmalı.
+
+---
+
+## İstek 16
+
+### 1. Kullanıcının isteği
+
+"Ekran yayını yaparken küçültme ya da floating yapma olmalı."
+
+### 2. Mevcut durum
+
+- `public/js/22-cast.js:238`: `mode = watching ? 'watch' : cams ? 'cams' : sharing ? 'own' : null`. Paylaşım sürdükçe sahne kapatılamıyor.
+- Kendi yayınında başlıkta yalnızca `Kalite` (444) ve `Durdur` görünüyor (628-633: `n.full.hidden = own`, `n.camsClose.hidden = !cams`).
+- Sohbet geniş ekranda daraltılmış kalıyor (`castChatOpen`, 871).
+- Üst çipte (`castRenderTop`, 252) yalnızca "Ekranınız yayında · Durdur" var.
+- Videoda `disablepictureinpicture` var (473).
+- Kanıt: E6, ekran görüntüsü `pw/yayin-own.png`.
+
+### 3. Yapılabilirlik ve kısıtlar
+
+**Küçült:** Yalnızca istemci işi, her platformda çalışır.
+
+**Yüzen:** İstek 7'nin altyapısına bağlı.
+- Yayıncıya kendi ekranının önizlemesini yüzdürmek ayna etkisi yaratır. Bu yüzden yayıncı için yüzen pencere odayı (kameralar veya avatarlar) ve "Yayındasınız · Durdur" düğmesini göstermeli.
+- İzleyici için yüzen pencere izlenen yayını gösterir. Tarayıcı yedeğinde video PiP isteğinden hemen önce `disablePictureInPicture` kaldırılmalı, yoksa istek reddedilebilir (W3C şartnamesi).
+
+### 4. Önerilen çözüm (sunucu değişikliği yok)
+
+**`22-cast.js`**
+- `castState.ownMin` ve `telsiz.castOwnMin` eklenir. 238. satır şöyle olur: `sharing && !ownMin ? 'own' : null`.
+- Kendi yayınının başlığına iki düğme: "Küçült" (`i-minimize`) ve "Yüzen Pencere" (`i-pip`). İkincisi `floatOpen('share-own')` çağırır ve sahneyi küçültür.
+- `castRenderTop` içine küçültülmüşken "Göster" düğmesi eklenir.
+- İzleme kipine "Yüzen Pencere" düğmesi eklenir, `floatPlan` türü `share` olur.
+
+**`38-yuzen.js`**
+- Yayın sürerken `cast.ownChip` ve Durdur çubuğu gösterilir.
+
+**`cast.css`**
+- Yeni düğmeler.
+
+**Masaüstü**
+- İstek 7'deki `setContentProtection(true)` yüzen pencereyi Windows ve macOS'ta yayına sokmaz.
+
+**i18n**
+- `cast.minimize` ("Küçült", ızgaradaki `camera.gridClose` ile tutarlı)
+- `cast.minimizeLabel` ("Önizlemeyi küçült, paylaşım sürer")
+- `cast.showPreview` ("Önizlemeyi Göster")
+- `cast.float` ("Yüzen Pencere")
+- `cast.floatLabel`
+- `cast.floatLinuxNote`
+
+**Belgeler**
+- README'lerdeki ekran paylaşımı bölümü, CHANGELOG çifti.
+
+### 5. Testler
+
+- **E2E:** `e2e/05-ses-yayin.test.js` genişletilir.
+  - Küçült'e basınca `#cast` gizlenmeli, yayın sürmeli, Mert hâlâ izleyebilmeli.
+  - Üst çipte "Göster" sahneyi geri getirmeli.
+  - "Yüzen Pencere" `documentPictureInPicture.window` açmalı, içinde Durdur olmalı.
+  - İzleyicide yüzen pencerede izlenen yayının görüntüsü oynamalı.
+- **Birim:** `castSync` kip seçimi ve `floatPlan` için `share` durumu.
+- **Elle:** Windows'ta tam ekran paylaşırken uygulamayı küçült, yüzen pencere yayında görünmemeli. Linux'ta görünür, not doğru gösterilmeli.
+
+### 6. Riskler ve güvenlik
+
+- Yayıncı küçültünce önizlemeyi görmez, yanlış pencereyi paylaştığını fark etmeyebilir. Çip "Ekranınız yayında" ile sürekli görünür kalır.
+- Linux ve tarayıcıda yüzen pencere tam ekran paylaşıma girer, yani arkadaşların görüntüsü izleyicilere de gider. Gizlilik uyarısı gerekir.
+- Şifreleme ve yetki değişmez.
+
+### 7. Büyüklük
+
+M. Yaklaşık 7 adım: durum ve kip, başlık düğmeleri, çip, izleyici yüzen pencere, yakalama koruması notu, i18n ve CSS, testler ve belgeler. "Küçült" kısmı istek 7'den bağımsız yapılabilir (S).
+
+### 8. Karar noktaları ve önerdiğim varsayılanlar
+
+- **Küçült tam mı gizlesin, köşede mini önizleme mi:** Tam gizleme ve çip. Daha az yerleşim riski taşır.
+- **Seçim hatırlansın mı:** Evet (`localStorage`), sık paylaşan biri her seferinde küçültmek zorunda kalmasın.
+- **Yayıncının yüzen penceresi:** Oda gösterilir, kendi ekranı gösterilmez.
+- **İzleyicinin yüzen penceresi:** İzlenen yayın gösterilir.
+- **Yayında küçültünce otomatik yüzen pencere:** Evet, istek 7'deki ayarla.
+
+### 9. Dokunulacak paylaşılan dosyalar
+
+- `public/js/22-cast.js`
+- `public/css/cast.css`
+- `public/i18n.js`
+- `public/index.html` (simgeler, istek 7 ile ortak)
+- `38-yuzen.js` (istek 7 ile ortak)
+- `voice.js`, `src/app.js` ve `tokens.css` değişmiyor.
+
+---
+
+## Kaynaklar
+
+developer.chrome.com, developer.mozilla.org ve webkit.org vekil sunucuda engelli (403). Aynı makaleleri GitHub'daki kaynak dosyalarından okudum, iki adresi de veriyorum.
+
+**Belge PiP ve video PiP**
+- MDN uyumluluk verisi:
+  - https://raw.githubusercontent.com/mdn/browser-compat-data/main/api/DocumentPictureInPicture.json
+  - https://raw.githubusercontent.com/mdn/browser-compat-data/main/api/HTMLVideoElement.json
+  - https://raw.githubusercontent.com/mdn/browser-compat-data/main/api/MediaSession.json
+  - https://raw.githubusercontent.com/mdn/browser-compat-data/main/api/HTMLCanvasElement.json
+  - https://raw.githubusercontent.com/mdn/browser-compat-data/main/api/PictureInPictureWindow.json
+- MDN `requestWindow`: https://developer.mozilla.org/en-US/docs/Web/API/DocumentPictureInPicture/requestWindow (kaynak: https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/api/documentpictureinpicture/requestwindow/index.md)
+- Firefox 151 ve 153 sürüm notları: https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Releases/151 ve https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Releases/153 (kaynak: https://raw.githubusercontent.com/mdn/content/main/files/en-us/mozilla/firefox/releases/151/index.md ve aynı yolda 153)
+- WICG şartnamesi: https://wicg.github.io/document-picture-in-picture/ (kaynak: https://raw.githubusercontent.com/WICG/document-picture-in-picture/main/spec.bs)
+- W3C video PiP şartnamesi: https://w3c.github.io/picture-in-picture/ (kaynak: https://raw.githubusercontent.com/w3c/picture-in-picture/main/index.bs)
+- WebKit tutumu: https://github.com/WebKit/standards-positions/issues/41 (https://raw.githubusercontent.com/WebKit/standards-positions/main/summary.json)
+
+**Chrome**
+- Belge PiP: https://developer.chrome.com/docs/web-platform/document-picture-in-picture (kaynak: https://raw.githubusercontent.com/GoogleChrome/developer.chrome.com/main/site/en/docs/web-platform/document-picture-in-picture/index.md)
+- Otomatik PiP: https://developer.chrome.com/blog/automatic-picture-in-picture (kaynak: https://raw.githubusercontent.com/GoogleChrome/developer.chrome.com/main/site/en/blog/automatic-picture-in-picture/index.md)
+- Zamanlayıcı kısma: https://developer.chrome.com/blog/timer-throttling-in-chrome-88 (kaynak: https://raw.githubusercontent.com/GoogleChrome/developer.chrome.com/main/site/en/blog/timer-throttling-in-chrome-88/index.md)
+- Chromium kaynak kodu:
+  - https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.cc
+  - https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/picture_in_picture/auto_picture_in_picture_window_occlusion_helper_base.h
+  - https://raw.githubusercontent.com/chromium/chromium/main/media/base/media_switches.cc
+
+**Electron** (belgeler ana daldan okundu, 44 ile küçük farklar olabilir)
+- https://raw.githubusercontent.com/electron/electron/main/docs/api/base-window.md
+- https://raw.githubusercontent.com/electron/electron/main/docs/api/browser-window.md
+- https://raw.githubusercontent.com/electron/electron/main/docs/api/structures/base-window-options.md
+- https://raw.githubusercontent.com/electron/electron/main/docs/api/structures/web-preferences.md
+- https://raw.githubusercontent.com/electron/electron/main/docs/api/web-contents.md
+- https://raw.githubusercontent.com/electron/electron/main/docs/breaking-changes.md
+- Kanonik adresler: https://www.electronjs.org/docs/latest/api/base-window ve https://www.electronjs.org/docs/latest/api/browser-window
+
+**Android**
+- https://developer.android.com/develop/ui/views/picture-in-picture (son güncelleme 2026-10-01)
+
+**Doğrulanamayanlar**
+- Chrome'un kararlı sürümünde örtülme bayrağının sunucu tarafından açılıp açılmadığı.
+- Mikrofon sessizdeyken otomatik PiP için uygunluk.
+- Tarayıcı küçültülünce önceden açılmış belge PiP penceresinin kalması.
+- iOS'ta tuvalden üretilen akışla video PiP.
+- Chrome'un kendi PiP penceresini tam ekran yakalamasında dışlaması.
+- Windows'ta Electron'un belge PiP davranışı.
+
+## Deneme dosyaları
+
+Hepsi `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/` altında:
+- **Electron denemeleri** (`electron-deneme/`): main.js, main2.js, main3.js, main4.js, main5.js, main6.js, electron-pip.png, electron-yuzen.png, electron-yuzen-coop.png
+- **Playwright denemeleri** (`pw/`): pip-deneme.js, yayin-deneme.js, blob-deneme.js, blob-headless.js, chromium-pip.png, yayin-own.png, yayin-watch.png
+- **İndirilen kaynaklar ve yardımcı**: indir/ (indirilen kaynaklar), bcd.py (uyumluluk verisi okuyucu)

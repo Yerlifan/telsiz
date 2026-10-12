@@ -1,0 +1,79 @@
+export const meta = {
+  name: 'hexball-uygulama',
+  description: 'Hexball gerçek zamanlı futbol oyununu plan G17 ve araştırma raporuna göre adım adım uygula, bağımsız incele ve düzelt',
+  phases: [
+    { title: 'Uygulama', detail: 'veri kanalı, Renk altyapısının genelleştirilmesi, kural, fizik, ağ, arayüz, e2e, belgeler' },
+    { title: 'İnceleme', detail: 'dört boyutta bulgu arama ve doğrulama' },
+    { title: 'Düzeltme', detail: 'doğrulanan bulguların düzeltilmesi' }
+  ]
+}
+
+const ANA = '/home/user/ps5-pc-communication'
+const WT = '/home/user/wt/c'
+const PLAN = ANA + '/docs/calisma/istek-plani.md'
+const RAPOR = ANA + '/docs/calisma/raporlar/wf_0a579f99-523-ara-t-rma-hexball.txt'
+const RENK = ANA + '/docs/calisma/renk-tasarim.md'
+const IMZA = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT'
+
+const KURALLAR = `Telsiz deposu. Hexball (istek 4) uygulanıyor: ses odasındakilerle üstten görünümlü gerçek zamanlı futbol. Çalışma kopyan: ${WT} (yerel dal istek/c, taban main üzerindeki Renk birleştirmesi 9034306). Kullanıcı oyunun adını "hexball" olarak istedi, ad yalnızca i18n'de geçer.
+Kaynaklar: plan ${PLAN} ("### G17 Hexball" bölümü ve 2.1 madde 7), araştırma raporu ${RAPOR} (4. bölüm ayrıntılı tasarım, 4.5 veri kanalı biçimi, 4.6 fizik değerleri, 5. testler, 6. riskler), Renk tasarım belgesi ${RENK} (5.1 uygulama sözleşmesi ve oyun altyapısı). Issue: Yerlifan/telsiz#44.
+Ortak kurallar:
+1. Yalnızca ${WT} içinde çalış, mutlak yol kullan. Ana kopyada ve /home/user/wt/a, /home/user/wt/b içinde hiçbir şeyi değiştirme, oralarda git komutu çalıştırma (ana kopyadaki docs/calisma altındaki belgeleri okuyabilirsin).
+2. Her adımı ayrı commit'le, başlık "Hexball: <Türkçe özet>" ya da Renk altyapısını değiştiren adımda "Oyun: <Türkçe özet>". Mesajın sonuna bir boş satır ve tam olarak şu iki satırı ekle:
+${IMZA}
+Asla push etme. git stash, git checkout, git switch, git restore, git reset --hard, git rebase, git commit --amend ve git clean kullanma.
+3. Commit'ten önce "npm run denetle" ve "npm test" geçmeli, adımın e2e etkisi varsa ilgili e2e dosyaları da (örneğin e2e/16-oyun.test.js Renk'in bozulmadığını gösterir). Chromium /opt/pw-browsers altında hazır, playwright install çalıştırma. Makinede başka testler de koştuğu için zamanlama yüzünden düşen bir e2e testini bir kez yeniden çalıştır, ikinci kez düşerse gerçek hatadır. Hiçbir testi atlama ya da gevşetme.
+4. CONTRIBUTING kuralları: ES2017, innerHTML yok, noktalı virgülsüz kod, uzun ve kısa tire yok, Markdown düzyazısında noktalı virgül yok, CSS'te grid, gap, clamp, :is, :where, aspect-ratio, inset yok. Arayüz metinleri resmî Türkçe ve İngilizce karşılıklı, düğme etiketlerinde her kelime büyük harfle başlar. HaxBall ya da başka bir oyunun adı hiçbir yerde geçmez, fizik değerleri başka oyundan kopyalanmaz. Doğrulayamadığın bilgiyi doğruymuş gibi yazma. PS5 desteği iddia edilmez.
+5. Adımın bir kısmı önceki bir denemede commit'lenmiş olabilir. "git -C ${WT} log --oneline -15" ile bak, biteni tekrarlama, commit'lenmemiş değişiklik varsa incele ve doğruysa sürdür.
+6. Sonuç: değişen dosyalar, sapmalar ve gerekçeleri, çalıştırılan testler ve sonuçları, sonraki adımın bilmesi gerekenler (API adları, olaylar), açık kalan sorunlar.`
+
+const ADIMLAR = [
+  { k: 'veri-kanali', p: "Adım 1: public/voice.js içinde oyun veri kanalı (plan G17 madde 2 ve 3, rapor 4.2 ve 4.5). Sabitler, openGameLink, closeGameLink, gameLinkState, sendGameData, link-open, link-close ve link-failed olayları, opts.onGameData, createPeer içindeki ondatachannel kabul kuralı, needsNegotiation, mlineCount, answerFailed, offerFailed ve closePeer değişiklikleri. public/js/10-voice.js içinde onGameData seçeneği ve gameOnData yönlendirmesi. Birim testi (veri kanalı, var olan voice.js testlerinin kalıbıyla). Ses ve ekran paylaşımı yeniden anlaşmasının bozulmadığını var olan testlerle göster (screenshare, kamera, ozel-arama-ses testleri ve e2e 05-ses-yayin)." },
+  { k: 'altyapi', p: "Adım 2: Renk altyapısını çok oyunlu hâle getir (plan G17 madde 8 ve 9). public/js/34-oyun-masa.js içinde DELAYED_MOVES uygulamaya özel olsun (uygulama nesnesinden okunsun, Renk kendi değerini versin). public/js/36-oyun.js içinde masa kurulurken 'Oyun Seç' adımı ve genel game.* metinlerin kart oyununa özgü olmaması (Kurpiyer yerine genel bir ev sahibi ifadesi yalnızca genel metinlerde, Renk kendi metinlerinde kurpiyer demeye devam edebilir). Oyun kayıt düzeni (gameUiRegister ve uygulama sözleşmesi) birden çok uygulamayı taşısın. Renk davranışı değişmesin: test/oyun-*.test.js, test/renk-kural.test.js ve e2e/16-oyun.test.js geçmeli, gerekiyorsa yalnızca metin beklentileri güncellensin." },
+  { k: 'kural', p: "Adım 3: public/js/43-hexball-kural.js kural motoru (plan G17 madde 4, rapor 4.4, Renk tasarımı 5.1 sözleşmesi). Görünüm durumu, hamleler (team, set, kickoff, goal, time, stop), takım dengesi, skor, süre ve altın gol, sonuç. Birim testi." },
+  { k: 'fizik', p: "Adım 4: public/js/44-hexball-fizik.js (plan G17 madde 5, rapor 4.6). 60 Hz, 2 alt adım, üç saha ön ayarı (quick, classic, long), oyuncu ve top çarpışmaları, kale ve gol algılama, vuruş. Belirlenimci olsun (aynı girdi aynı çıktı), böylece testler sabit tohumla çalışır. Birim testi: gol, duvar, çarpışma, enerji ve hız sınırları, belirlenimcilik." },
+  { k: 'ag', p: "Adım 5: public/js/45-hexball-ag.js (plan G17 madde 6, rapor 4.5 ve 4.7). İkili HELLO, HELLO_ACK, INPUT, SNAP iletileri (little endian, ilk bayt sürüm), ev sahibi otoriter döngüsü (setTimeout zinciri, 250 ms aşılırsa duraklama), ev sahibinin kendi girdisinin en çok 80 ms bekletilmesi, oyuncularda 2 anlık görüntülük tamponla ara değerleme, sınır ve kısma denetimleri (rapor 4.8). Birim testi: kodlama ve çözme, bozuk ve büyük ileti reddi, kayıp ve sıra dışı paket, duraklama." },
+  { k: 'arayuz', p: "Adım 6: public/js/46-hexball.js ve public/css/hexball.css (plan G17 madde 7 ve 10, rapor 4.9). Tuval çizimi, takım seçimi ve maç akışı ekranları, klavye (oklar veya WASD, X veya Boşluk), telefonda dokunmatik çubuk ve Vur düğmesi, oyun kolu, maç sürerken public/js/21-band.js padPoll içinde L1 ve R1 ile frekans değişmemesi (gameOwnsPad). index.html ve sw.js kayıtları numara sırasıyla, tokens.css içinde saha ve takım belirteçleri (her tema ve modda tanımlı ve kontrastı yeterli, test/tema.test.js geçmeli), i18n anahtarları TR ve EN. 'Bağlantı Yok' durumu ve ev sahibinin hile yapabileceği notu. Arayüz birim testi (HaxBall adının hiçbir yerde geçmediğini de denetlesin)." },
+  { k: 'e2e', p: "Adım 7: e2e/24-hexball.test.js (yuva 37, h.MIC_BROWSERS, e2e/16-oyun.test.js kalıbı). Üç kişi ses odasında, ev sahibi Hexball seçip masayı kurar, ikisi katılır, takım seçilir, maç başlar, klavye girdisiyle oynanır, gol ve skor üç sayfada aynıdır, telefon genişliğinde taşma yoktur, bir oyuncu ayrılınca ve ev sahibi ayrılınca doğru davranış, konsol temiz. Veri kanalı açılamayan durum için 'Bağlantı Yok' denetimi (örneğin bir sayfada RTCPeerConnection.prototype.createDataChannel bozularak). Chromium ile geçmeli." },
+  { k: 'belgeler', p: "Adım 8: Belgeler (plan G17 madde 12). README ve README.en, docs/MIMARI.md ve docs/ARCHITECTURE.md (oyun veri kanalı, biçim, sınırlar, ses ve kanalda sunucuyu işleten kişinin araya girme riski, ev sahibinin hile yapabilmesi), docs/TASARIM.md ve docs/DESIGN.md (Hexball arayüzü, belirteçler), CONTRIBUTING.md ve CONTRIBUTING.en.md (modül tablosu, güvenliğe hassas alanlar, kural 11 eşten eşe WebRTC kapsamı), CHANGELOG.md ve CHANGELOG.en.md 'Yayımlanmamış' altında. Belge çiftleri birebir karşılıklı olsun, sayılar ve dosya adları koda uysun." }
+]
+
+phase('Uygulama')
+const raporlar = []
+for (let i = 0; i < ADIMLAR.length; i++) {
+  const a = ADIMLAR[i]
+  const onceki = raporlar.length ? '\n\nÖnceki adımların özetleri (API adları için):\n' + raporlar.map((x) => '[' + x.k + '] ' + String(x.r).slice(0, 2500)).join('\n\n') : ''
+  const r = await agent(KURALLAR + '\n\n' + a.p + onceki, { label: a.k, phase: 'Uygulama' })
+  raporlar.push({ k: a.k, r: r })
+  log(a.k + ' bitti')
+}
+
+const ORTAK = `Telsiz deposunda Hexball (ses odasında gerçek zamanlı futbol) uygulandı. Çalışma kopyası ${WT}, değişiklik "git -C ${WT} diff 9034306..HEAD" (commit listesi "git -C ${WT} log --oneline 9034306..HEAD"). Plan ${PLAN} "### G17 Hexball", araştırma raporu ${RAPOR}, issue Yerlifan/telsiz#44.
+Bu aşamada hiçbir dosyayı değiştirme ve commit atma. Testleri ${WT} içinde çalıştırabilirsin. Başka çalışma kopyalarına dokunma. Yalnızca somut ve doğrulanabilir bulguları, somut bir başarısızlık senaryosuyla bildir. Üslup önerisi bildirme.`
+const BOYUTLAR = [
+  { k: 'tasima-guvenlik', p: 'Boyut: voice.js veri kanalı ve ağ katmanının güvenliği ve sağlamlığı. Kötü niyetli bir oda üyesinin bozuk, büyük ya da yoğun iletilerle neler yapabileceği, ses ve ekran paylaşımı yeniden anlaşmasına etkisi, eski istemcilerle uyum, özel aramada kanal açılmaması, kaynak sızıntıları.' },
+  { k: 'oyun-dogrulugu', p: 'Boyut: kural motoru ve fiziğin doğruluğu. Gol algılama, skor ve süre, altın gol, takım değişimi, oyuncu ayrılınca davranış, belirlenimcilik, sayısal kararlılık (NaN, sonsuz hız), ev sahibi ile oyuncular arasında skor uyuşmazlığı.' },
+  { k: 'arayuz-renk', p: 'Boyut: arayüz, erişilebilirlik ve Renk ile bütünleşme. Oyun Seç adımı, Renk davranışında gerileme (e2e/16-oyun.test.js ve test/oyun-*.test.js çalıştır), telefon düzeni, klavye ve oyun kolu, padPoll ile frekans değişmemesi, i18n eksiksizliği, düğme etiketleri, tema belirteçleri.' },
+  { k: 'belge-test', p: 'Boyut: belgeler ve testler. Belgelerin koda uygunluğu (sayılar, sınırlar, dosya adları), belge çiftlerinin eşliği, önemli yolların testlerle gerçekten sınanıp sınanmadığı (e2e/24-hexball.test.js dahil).' }
+]
+const BULGU = { type: 'object', properties: { bulgular: { type: 'array', items: { type: 'object', properties: { onem: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] }, dosya: { type: 'string' }, satir: { type: 'integer' }, ozet: { type: 'string' }, senaryo: { type: 'string' }, oneri: { type: 'string' } }, required: ['onem', 'dosya', 'ozet', 'senaryo'] } }, testler: { type: 'string' } }, required: ['bulgular', 'testler'] }
+const KARAR = { type: 'object', properties: { gercek: { type: 'boolean' }, onem: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] }, kanit: { type: 'string' } }, required: ['gercek', 'onem', 'kanit'] }
+
+const sonuc = await pipeline(
+  BOYUTLAR,
+  (b) => agent(ORTAK + '\n\n' + b.p, { label: 'incele:' + b.k, phase: 'İnceleme', schema: BULGU }),
+  (r, b) => parallel((r ? r.bulgular : []).map((f, i) => () =>
+    agent(ORTAK + '\n\nBağımsız ve şüpheci bir doğrulayıcısın. Aşağıdaki bulguyu çürütmeye çalış, kodu oku, gerekiyorsa deneme betiği yaz (scratchpad altında) ya da test çalıştır. Gerçekten yeniden üretiliyorsa gercek=true, emin değilsen gercek=false yaz.\n\nBulgu (' + b.k + '):\n' + JSON.stringify(f, null, 1), { label: 'doğrula:' + b.k + ':' + (i + 1), phase: 'İnceleme', schema: KARAR })
+      .then((v) => ({ boyut: b.k, bulgu: f, karar: v }))))
+)
+const hepsi = sonuc.filter(Boolean).flat().filter(Boolean)
+const dogrulanan = hepsi.filter((x) => x.karar && x.karar.gercek)
+log('bulgu ' + hepsi.length + ', doğrulanan ' + dogrulanan.length)
+
+let duzeltme = null
+if (dogrulanan.length > 0) {
+  phase('Düzeltme')
+  duzeltme = await agent(KURALLAR + '\n\nBağımsız inceleme aşağıdaki bulguları doğruladı. Hepsini düzelt, gerekiyorsa test ekle, gerçek olmadığını gördüğün olursa nedenini yaz. Commit başlığı "Hexball: inceleme düzeltmeleri".\n\n' + JSON.stringify(dogrulanan.map((x) => ({ boyut: x.boyut, onem: x.karar.onem, bulgu: x.bulgu, kanit: x.karar.kanit })), null, 1), { label: 'düzelt', phase: 'Düzeltme' })
+}
+
+return { raporlar, bulgular: hepsi, dogrulanan: dogrulanan.length, duzeltme }

@@ -1,0 +1,718 @@
+From 7290d753c4f9aba0badd0acdef262cb120af6840 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 13:48:39 +0000
+Subject: [PATCH 56/88] =?UTF-8?q?G8:=20=C4=B0stemci:=2040-bosta.js=20harek?=
+ =?UTF-8?q?etsizli=C4=9Fi=20=C3=B6l=C3=A7er,=20poll=20idle=20parametresini?=
+ =?UTF-8?q?=20ta=C5=9F=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Yeni modül fare, klavye, dokunma, tekerlek, görünür olma ve oyun kolu
+girdilerini dinler, kararı Date.now() farkıyla 15 saniyede bir verir. Ses
+odasındayken, uygulama dışındayken ve ayar kapalıyken cihaz boşta sayılmaz.
+Durum değişince poll yeniden başlar (startPoll). Masaüstünde sistemin boşta
+süresi (telsizDesktop.idleSeconds) da sayılır. Arka plan penceresinde girdi
+dinlenmez, karar telsizArkaPlan.idleSeconds ile verilir ve bgRestartPoll
+bekleyen poll'u bırakıp yeni değerle hemen yeniden gönderir. Oyun kolu
+21-band.js'e dokunmadan 2 saniyede bir okunur, ölü bölgedeki titreme
+sayılmaz. Ayar anahtarları telsiz.autoIdle ve telsiz.autoIdleMinutes
+(varsayılan açık, 10 dakika). Modül index.html ve sw.js'e eklendi.
+Testler: test/bosta-istemci.test.js, test/settings.test.js.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/index.html          |   1 +
+ public/js/05-poll.js       |   4 +-
+ public/js/11-settings.js   |  18 ++-
+ public/js/25-arka-plan.js  |  19 ++-
+ public/js/40-bosta.js      | 187 ++++++++++++++++++++++
+ public/sw.js               |   1 +
+ test/bosta-istemci.test.js | 311 +++++++++++++++++++++++++++++++++++++
+ test/settings.test.js      |  21 +++
+ 8 files changed, 559 insertions(+), 3 deletions(-)
+ create mode 100644 public/js/40-bosta.js
+ create mode 100644 test/bosta-istemci.test.js
+
+diff --git a/public/index.html b/public/index.html
+index 7ab31dc..e2228ff 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -71,6 +71,7 @@
+   <script src="/js/30-pencere.js" defer></script>
+   <script src="/js/31-sesler.js" defer></script>
+   <script src="/js/32-arama.js" defer></script>
++  <script src="/js/40-bosta.js" defer></script>
+ </head>
+ <body>
+   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false">
+diff --git a/public/js/05-poll.js b/public/js/05-poll.js
+index a345b29..e99ce0a 100644
+--- a/public/js/05-poll.js
++++ b/public/js/05-poll.js
+@@ -41,7 +41,9 @@ async function pollLoop (generation) {
+       '&sig=' + encodeURIComponent(state.sigSeq) +
+       '&boot=' + encodeURIComponent(state.boot) +
+       // muv: Telsiz DJ müzik sürümü (23-dj.js motoru). Gönderilmezse poll müzik yazımıyla uyanmaz.
+-      (typeof djPollParam === 'function' ? '&muv=' + encodeURIComponent(djPollParam()) : '')
++      (typeof djPollParam === 'function' ? '&muv=' + encodeURIComponent(djPollParam()) : '') +
++      // idle: otomatik boşta (40-bosta.js), '1' bu cihaz boşta. Değişince poll yeniden başlatılır.
++      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) : '')
+     const t0 = djClockNow()
+     const pending = api('GET', path, null, { timeout: POLL_TIMEOUT_MS })
+     state.activePoll = pending
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 25e6ffb..7e01ab8 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -41,15 +41,21 @@ const SETTINGS_ICONS = {
+ // '1080p15' | '1080p30' }), YouTube oynatıcısı izni telsiz.djYoutubeConsent içinde ('1' verildi,
+ // başka her değer veya anahtarın olmaması verilmedi), Telsiz DJ'nin parça adını işletim sisteminin medya
+ // denetimlerine vermesi telsiz.djMediaSession içinde ('0' kapalı, varsayılan açık, 23-dj.js okur) saklanır.
++// Otomatik boşta (40-bosta.js) telsiz.autoIdle ('0' kapalı, varsayılan açık) ve telsiz.autoIdleMinutes
++// (AUTO_IDLE_MINUTES içinden dakika, varsayılan 10) içinde saklanır.
+ const SETTINGS_KEYS = {
+   typing: 'telsiz.typing',
+   notifyLevel: 'telsiz.notifyLevel',
+   messageSound: 'telsiz.messageSound',
+   screenQuality: 'telsiz.screenQuality',
+   youtubeConsent: 'telsiz.djYoutubeConsent',
+-  djMediaSession: 'telsiz.djMediaSession'
++  djMediaSession: 'telsiz.djMediaSession',
++  autoIdle: 'telsiz.autoIdle',
++  autoIdleMinutes: 'telsiz.autoIdleMinutes'
+ }
+ const NOTIFY_LEVELS = ['all', 'mentions', 'none']
++const AUTO_IDLE_MINUTES = [5, 10, 15, 30, 60]
++const AUTO_IDLE_DEFAULT = 10
+ const SCREEN_HINT_CHOICES = ['motion', 'detail']
+ const SCREEN_PRESET_CHOICES = ['720p15', '720p30', '1080p15', '1080p30']
+ const SCREEN_DEFAULT = { hint: 'detail', preset: '720p15' }
+@@ -1552,6 +1558,16 @@ function typingEnabled () {
+   return storeGet(SETTINGS_KEYS.typing) !== '0'
+ }
+ 
++// Otomatik boşta (40-bosta.js): varsayılan açık, süre AUTO_IDLE_MINUTES dışındaysa varsayılan 10 dakika
++function autoIdleEnabled () {
++  return storeGet(SETTINGS_KEYS.autoIdle) !== '0'
++}
++
++function autoIdleMinutes () {
++  const n = Number(storeGet(SETTINGS_KEYS.autoIdleMinutes))
++  return AUTO_IDLE_MINUTES.indexOf(n) !== -1 ? n : AUTO_IDLE_DEFAULT
++}
++
+ // YouTube oynatıcısı izni (music.js ile aynı anlam): '1' verildi, '0' reddedildi (yeniden sorulmaz),
+ // anahtar yoksa sorulmadı (ilk YouTube parçasında sorulur)
+ function youtubeConsentState () {
+diff --git a/public/js/25-arka-plan.js b/public/js/25-arka-plan.js
+index ae78a55..9911ab3 100644
+--- a/public/js/25-arka-plan.js
++++ b/public/js/25-arka-plan.js
+@@ -25,6 +25,9 @@
+ // - O frekansta masaüstü bildirimleri açıksa (Ayarlar > Bildirimler, bildirim düzeyi ve Rahatsız etmeyin
+ //   kuralı) sizi anan mesaj ve özel mesaj için sessiz bir sistem bildirimi gösterir. Bildirime basınca ana
+ //   süreç o frekansa geçer (telsizArkaPlan.open).
++// - Otomatik boşta (40-bosta.js): long-poll sorgusu idle=0|1 taşır, karar sistemin boşta süresine
++//   (telsizArkaPlan.idleSeconds) ve o frekansın bu cihazdaki Otomatik Boşta ayarına dayanır. Değer değişince
++//   bekleyen poll bırakılıp yeni değerle hemen yeniden gönderilir (bgRestartPoll).
+ // Sayılar oturuma özeldir: uygulama yeniden açılınca açılış taraması son okunandan yeniden sayar.
+ 
+ const BG_REPORT_GAP_MS = 1000
+@@ -42,6 +45,8 @@ const bgState = {
+   failures: 0,
+   dm: Object.create(null),
+   activePoll: null,
++  // Bekleyen poll otomatik boşta değiştiği için bırakıldı (hata sayılmaz, hemen yeniden gönderilir)
++  restartPoll: false,
+   reportTimer: 0,
+   lastSentAt: 0,
+   lastPayload: '',
+@@ -283,12 +288,15 @@ async function bgPoll (gen) {
+       '&mv=' + encodeURIComponent(state.metaVersion) +
+       '&pmv=' + encodeURIComponent(socialPmv()) +
+       '&sig=' + encodeURIComponent(state.sigSeq) +
+-      '&boot=' + encodeURIComponent(state.boot)
++      '&boot=' + encodeURIComponent(state.boot) +
++      (typeof idlePollParam === 'function' ? '&idle=' + encodeURIComponent(idlePollParam()) : '')
++    bgState.restartPoll = false
+     const pending = request('GET', path, { timeout: POLL_TIMEOUT_MS })
+     bgState.activePoll = pending
+     const res = await pending
+     if (gen !== bgState.gen) return
+     bgState.activePoll = null
++    if (res.aborted && bgState.restartPoll) continue
+     if (res.status === 200 && res.data) {
+       failures = 0
+       if (bgState.status !== 'ok' || bgState.online !== true) bgSetStatus('ok', hasActiveKey() ? null : 'no_key', true)
+@@ -309,6 +317,15 @@ async function bgPoll (gen) {
+   }
+ }
+ 
++// Otomatik boşta değişti (40-bosta.js): bekleyen poll bırakılır, döngü yeni değerle hemen yeniden gönderir.
++// Poll beklemiyorsa (açılış taraması, yeniden deneme beklemesi) sonraki poll zaten güncel değeri taşır.
++function bgRestartPoll () {
++  const pending = bgState.activePoll
++  if (!pending || typeof pending.abort !== 'function') return
++  bgState.restartPoll = true
++  pending.abort()
++}
++
+ function bgApplyPrivate (p, pmv) {
+   socialState.priv = normalizePrivate(p)
+   if (typeof pmv === 'number') socialState.pmv = pmv
+diff --git a/public/js/40-bosta.js b/public/js/40-bosta.js
+new file mode 100644
+index 0000000..0672886
+--- /dev/null
++++ b/public/js/40-bosta.js
+@@ -0,0 +1,187 @@
++'use strict'
++
++// Otomatik boşta (istek 2). Bu cihazda seçilen süre (Ayarlar > Gizlilik, varsayılan 10 dakika) boyunca fare,
++// klavye, dokunma, tekerlek veya oyun kolu kullanılmazsa long-poll sorgusu idle=1 taşır (05-poll.js
++// pollLoop, arka plan penceresinde 25-arka-plan.js bgPoll). Sunucu (src/hub.js) kişinin bütün etkin oturumları
++// boştaysa ve elle seçtiği durum Çevrimiçi ise kişiyi başkalarına Boşta gösterir. Elle seçilen Boşta, Rahatsız
++// etmeyin ve Görünmez durumlarına dokunulmaz, hiçbir geçiş diske yazılmaz.
++// - Karar zamanlayıcının kendisine değil Date.now() farkına dayanır. Tarayıcı gizli sekmedeki zamanlayıcıları
++//   dakikada bire indirebildiği için karar en çok yaklaşık bir dakika gecikebilir.
++// - Ses odasındayken (özel mesaj araması dahil) cihaz boşta sayılmaz.
++// - Oyun kolu 2 saniyede bir okunur: basılı düğmeler ve ölü bölgeyi aşan eksenler değişince girdi sayılır
++//   (çubuk titremesi sayılmaz). 21-band.js değişmez.
++// - Masaüstü uygulamasında sistemin boşta süresi de okunur (telsizDesktop.idleSeconds, arka plan penceresinde
++//   telsizArkaPlan.idleSeconds): kişi başka bir uygulamayı kullanıyorsa boşta sayılmaz. Arka plan penceresinde
++//   girdi dinlenmez, karar yalnızca sistemin boşta süresine dayanır.
++// - Durum değişince poll yeni değerle yeniden başlar (startPoll, arka planda bgRestartPoll).
++
++const IDLE_CHECK_MS = 15000
++const IDLE_MOVE_GAP_MS = 2000
++const IDLE_PAD_MS = 2000
++const IDLE_PAD_DEADZONE = 0.5
++
++const idleState = {
++  started: false,
++  idle: false,
++  lastInput: Date.now(),
++  // Sistemin boşta süresinden çıkarılan son girdi zamanı (masaüstü), bilinmiyorsa 0
++  systemInput: 0,
++  checkTimer: 0,
++  padTimer: 0,
++  pads: Object.create(null),
++  reading: false
++}
++
++function idleBgMode () {
++  return typeof bgModeActive === 'function' && bgModeActive()
++}
++
++// Sistemin boşta süresini veren masaüstü işlevi, yoksa null
++function idleDesktopReader () {
++  const d = idleBgMode() ? window.telsizArkaPlan : window.telsizDesktop
++  return d && typeof d.idleSeconds === 'function' ? d : null
++}
++
++// Bu cihaz ses odasında mı (katılırken dahil)
++function idleInVoice () {
++  if (typeof snap !== 'function') return false
++  try {
++    const s = snap()
++    return Boolean(s && (s.channelId || s.joining))
++  } catch (err) {
++    return false
++  }
++}
++
++function idleLastActivity () {
++  return Math.max(idleState.lastInput, idleState.systemInput)
++}
++
++// Bu cihaz şu anda boşta mı sayılmalı (ayar açık, uygulama açık, ses odasında değil, süre doldu)
++function idleDecide (now) {
++  if (typeof autoIdleEnabled !== 'function' || !autoIdleEnabled()) return false
++  if (!idleBgMode() && !state.inApp) return false
++  if (idleInVoice()) return false
++  return now - idleLastActivity() >= autoIdleMinutes() * 60000
++}
++
++// Poll sorgusunun idle değeri: '1' bu cihaz boşta, '0' değil
++function idlePollParam () {
++  return idleState.idle ? '1' : '0'
++}
++
++// Bu cihaz boşta bildiriyor mu (13-profile.js kendi durumumun gösterimi)
++function idleThisDevice () {
++  return idleState.idle
++}
++
++function idleApply () {
++  const want = idleDecide(Date.now())
++  if (want === idleState.idle) return
++  idleState.idle = want
++  if (idleBgMode()) {
++    if (typeof bgRestartPoll === 'function') bgRestartPoll()
++    return
++  }
++  if (state.inApp && state.token) startPoll()
++}
++
++function idleNoteInput (now) {
++  idleState.lastInput = now || Date.now()
++  if (idleState.idle) idleApply()
++}
++
++// Fare hareketi zaman damgasıyla kısılır, boştayken ilk hareket hemen işlenir
++function idleOnMove () {
++  const now = Date.now()
++  if (!idleState.idle && now - idleState.lastInput < IDLE_MOVE_GAP_MS) return
++  idleNoteInput(now)
++}
++
++function idleOnInput () {
++  idleNoteInput(Date.now())
++}
++
++function idleOnVisible () {
++  if (!document.hidden) idleNoteInput(Date.now())
++}
++
++// Oyun kolunun girdi imzası: basılı düğmeler ve ölü bölgeyi aşan eksenlerin yönü
++function idlePadSignature (gp) {
++  const buttons = Array.prototype.map.call(gp.buttons || [], (b) => (b && (b.pressed || b.value > IDLE_PAD_DEADZONE) ? '1' : '0'))
++  const axes = Array.prototype.map.call(gp.axes || [], (value) => {
++    const a = Number(value) || 0
++    return a > IDLE_PAD_DEADZONE ? '+' : a < -IDLE_PAD_DEADZONE ? '-' : '0'
++  })
++  return buttons.join('') + '|' + axes.join('')
++}
++
++function idlePadTick () {
++  let pads = []
++  try {
++    pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : []
++  } catch (err) {
++    pads = []
++  }
++  const seen = Object.create(null)
++  let changed = false
++  pads.forEach((gp) => {
++    if (!gp || gp.connected === false) return
++    const key = String(gp.index)
++    const sig = idlePadSignature(gp)
++    seen[key] = sig
++    if (idleState.pads[key] !== undefined && idleState.pads[key] !== sig) changed = true
++  })
++  idleState.pads = seen
++  if (changed) idleNoteInput(Date.now())
++}
++
++// Masaüstünde sistemin boşta süresi okunur, ardından karar verilir
++function idleCheck () {
++  const reader = idleDesktopReader()
++  if (!reader || idleState.reading) {
++    idleApply()
++    return
++  }
++  idleState.reading = true
++  let pending = null
++  try {
++    pending = Promise.resolve(reader.idleSeconds())
++  } catch (err) {
++    pending = Promise.reject(err)
++  }
++  pending.then((seconds) => {
++    const n = Number(seconds)
++    if (isFinite(n) && n >= 0) idleState.systemInput = Date.now() - n * 1000
++  }).catch(() => {
++    // Sistemin boşta süresi okunamadı, yalnızca bu sayfanın girdileri sayılır
++  }).then(() => {
++    idleState.reading = false
++    idleApply()
++  })
++}
++
++// Ayar değişti (11-settings.js) veya ses durumu değişti: karar hemen yenilenir
++function idleSettingsChanged () {
++  idleCheck()
++}
++
++function idleStart () {
++  if (idleState.started) return
++  idleState.started = true
++  idleState.lastInput = Date.now()
++  idleState.checkTimer = setInterval(idleCheck, IDLE_CHECK_MS)
++  if (idleBgMode()) return
++  const opts = { capture: true, passive: true }
++  document.addEventListener('pointerdown', idleOnInput, opts)
++  document.addEventListener('pointermove', idleOnMove, opts)
++  document.addEventListener('keydown', idleOnInput, opts)
++  document.addEventListener('wheel', idleOnInput, opts)
++  document.addEventListener('touchstart', idleOnInput, opts)
++  document.addEventListener('visibilitychange', idleOnVisible)
++  if (navigator.getGamepads) idleState.padTimer = setInterval(idlePadTick, IDLE_PAD_MS)
++  // Ses odasına katılınca boştan hemen çıkılır, ayrılınca karar yeniden verilir
++  if (typeof voiceHook === 'function') voiceHook('change', idleApply)
++}
++
++idleStart()
+diff --git a/public/sw.js b/public/sw.js
+index b1a9695..10a95e7 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -67,6 +67,7 @@ const SHELL = [
+   '/js/30-pencere.js',
+   '/js/31-sesler.js',
+   '/js/32-arama.js',
++  '/js/40-bosta.js',
+   '/fonts/figtree-latin-ext-wght-normal.woff2',
+   '/fonts/figtree-latin-wght-normal.woff2',
+   '/fonts/manrope-latin-ext-wght-normal.woff2',
+diff --git a/test/bosta-istemci.test.js b/test/bosta-istemci.test.js
+new file mode 100644
+index 0000000..f7c0a14
+--- /dev/null
++++ b/test/bosta-istemci.test.js
+@@ -0,0 +1,311 @@
++'use strict'
++
++// Otomatik boşta istemcisi (public/js/40-bosta.js): süre dolunca poll'un idle=1 taşıması ve yeniden başlaması,
++// girdiyle hemen dönüş, fare hareketinin kısılması, ayar, uygulama dışı ve ses odası kuralları, oyun kolunun ölü
++// bölgesi, masaüstünde sistemin boşta süresi, arka plan penceresi (25-arka-plan.js bgRestartPoll) ve index.html,
++// sw.js, poll sorgusu bağlantıları. Modüller tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında, gerekli
++// yardımcılar taklit edilerek yüklenir. Saat ve zamanlayıcılar elle ilerletilir.
++
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++
++const PUB = path.join(__dirname, '..', 'public')
++const BOSTA = fs.readFileSync(path.join(PUB, 'js', '40-bosta.js'), 'utf8')
++const ARKA = fs.readFileSync(path.join(PUB, 'js', '25-arka-plan.js'), 'utf8')
++const POLL = fs.readFileSync(path.join(PUB, 'js', '05-poll.js'), 'utf8')
++const HTML = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8')
++const SW = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8')
++const MIN = 60000
++
++function load (opts) {
++  const o = opts || {}
++  const clock = { now: 1000000 }
++  const intervals = []
++  const listeners = {}
++  const polls = { main: 0, bg: 0 }
++  const hooks = []
++  const sandbox = {
++    console,
++    Promise,
++    Date: { now: () => clock.now },
++    window: null,
++    document: {
++      hidden: false,
++      addEventListener: (type, fn) => {
++        listeners[type] = fn
++      }
++    },
++    navigator: o.pads ? { getGamepads: () => o.pads.list } : {},
++    setInterval: (fn, ms) => {
++      intervals.push({ fn, ms })
++      return intervals.length
++    },
++    clearInterval: () => {},
++    state: { inApp: true, token: 'jeton' },
++    startPoll: () => {
++      polls.main += 1
++    },
++    bgRestartPoll: () => {
++      polls.bg += 1
++    },
++    bgModeActive: () => o.bg === true,
++    snap: () => sandbox.voiceSnap,
++    voiceSnap: { channelId: null, joining: false },
++    voiceHook: (kind, fn) => hooks.push({ kind, fn }),
++    autoIdleEnabled: () => sandbox.enabled,
++    autoIdleMinutes: () => sandbox.minutes,
++    enabled: true,
++    minutes: 10
++  }
++  sandbox.window = sandbox
++  if (o.desktop) sandbox.telsizDesktop = o.desktop
++  if (o.bgDesktop) sandbox.telsizArkaPlan = o.bgDesktop
++  vm.createContext(sandbox)
++  vm.runInContext(BOSTA, sandbox, { filename: '40-bosta.js' })
++  const run = (code) => vm.runInContext(code, sandbox)
++  // Denetim zamanlayıcısı (15 sn) ve oyun kolu zamanlayıcısı (2 sn)
++  const tick = (ms) => {
++    intervals.filter((t) => t.ms === ms).forEach((t) => t.fn())
++  }
++  const advance = (ms) => {
++    clock.now += ms
++  }
++  const fire = (type, extra) => listeners[type](Object.assign({ type }, extra || {}))
++  return { sandbox, run, clock, intervals, listeners, polls, hooks, tick, advance, fire }
++}
++
++// Bekleyen söz zincirleri (masaüstü okuması) bitsin
++function settle () {
++  return new Promise((resolve) => setImmediate(resolve))
++}
++
++test('süre dolunca boşa geçer ve poll yeniden başlar, girdiyle hemen döner', () => {
++  const env = load()
++  assert.equal(env.run('idlePollParam()'), '0')
++  assert.deepEqual(env.intervals.map((t) => t.ms), [15000], 'oyun kolu desteği yokken yalnızca denetim zamanlayıcısı')
++  env.advance(10 * MIN - 1)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '0')
++  assert.equal(env.polls.main, 0)
++  env.advance(1)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++  assert.equal(env.run('idleThisDevice()'), true)
++  assert.equal(env.polls.main, 1)
++  env.tick(15000)
++  assert.equal(env.polls.main, 1, 'durum değişmeden poll yeniden başlamaz')
++  env.fire('pointerdown')
++  assert.equal(env.run('idlePollParam()'), '0')
++  assert.equal(env.polls.main, 2)
++  // Dinlenen girdiler ve görünür olma
++  assert.deepEqual(Object.keys(env.listeners).sort(), ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'visibilitychange', 'wheel'])
++  for (const type of ['keydown', 'wheel', 'touchstart']) {
++    env.advance(10 * MIN)
++    env.tick(15000)
++    assert.equal(env.run('idlePollParam()'), '1', type)
++    env.fire(type)
++    assert.equal(env.run('idlePollParam()'), '0', type)
++  }
++  env.advance(10 * MIN)
++  env.tick(15000)
++  env.sandbox.document.hidden = true
++  env.fire('visibilitychange')
++  assert.equal(env.run('idlePollParam()'), '1', 'gizlenmek girdi sayılmaz')
++  env.sandbox.document.hidden = false
++  env.fire('visibilitychange')
++  assert.equal(env.run('idlePollParam()'), '0', 'görünür olmak girdi sayılır')
++})
++
++test('fare hareketi kısılır, boştayken ilk hareket hemen işlenir', () => {
++  const env = load()
++  const start = env.clock.now
++  env.advance(1000)
++  env.fire('pointermove')
++  assert.equal(env.run('idleState.lastInput'), start, '2 sn içindeki hareket sayılmaz')
++  env.advance(1000)
++  env.fire('pointermove')
++  assert.equal(env.run('idleState.lastInput'), start + 2000)
++  env.advance(10 * MIN)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++  env.advance(10)
++  env.fire('pointermove')
++  assert.equal(env.run('idlePollParam()'), '0')
++  assert.equal(env.polls.main, 2)
++})
++
++test('ayar kapalıyken, uygulama dışında ve ses odasındayken boşta olunmaz, seçilen süre geçerlidir', () => {
++  const env = load()
++  env.sandbox.enabled = false
++  env.advance(60 * MIN)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '0')
++  env.sandbox.enabled = true
++  env.sandbox.state.inApp = false
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '0')
++  env.sandbox.state.inApp = true
++  env.sandbox.voiceSnap = { channelId: 7, joining: false }
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '0', 'ses odasında')
++  env.sandbox.voiceSnap = { channelId: null, joining: true }
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '0', 'katılırken')
++  env.sandbox.voiceSnap = { channelId: null, joining: false }
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++  // Ses odasına katılınca ses kancasıyla hemen dönülür
++  assert.deepEqual(env.hooks.map((x) => x.kind), ['change'])
++  env.sandbox.voiceSnap = { channelId: 7, joining: false }
++  env.hooks[0].fn({ channelId: 7 })
++  assert.equal(env.run('idlePollParam()'), '0')
++  // Ayar kapatılınca karar hemen yenilenir
++  env.sandbox.voiceSnap = { channelId: null, joining: false }
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++  env.sandbox.enabled = false
++  env.run('idleSettingsChanged()')
++  assert.equal(env.run('idlePollParam()'), '0')
++  // Süre 5 dakika seçiliyse 5 dakikada boşa geçilir
++  env.sandbox.enabled = true
++  env.sandbox.minutes = 5
++  env.fire('pointerdown')
++  env.advance(5 * MIN)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++})
++
++test('oyun kolu: düğme ve ölü bölgeyi aşan eksen girdi sayılır, çubuk titremesi sayılmaz', () => {
++  const pad = { index: 0, connected: true, buttons: [{ pressed: false, value: 0 }, { pressed: false, value: 0 }], axes: [0.02, -0.03] }
++  const pads = { list: [null, pad] }
++  const env = load({ pads })
++  assert.deepEqual(env.intervals.map((t) => t.ms).sort((a, b) => a - b), [2000, 15000])
++  env.tick(2000)
++  env.advance(10 * MIN)
++  pad.axes = [0.3, -0.4]
++  env.tick(2000)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1', 'ölü bölge içindeki eksen değişimi')
++  pad.axes = [0.9, 0]
++  env.tick(2000)
++  assert.equal(env.run('idlePollParam()'), '0', 'eksen ölü bölgeyi aştı')
++  env.advance(10 * MIN)
++  env.tick(2000)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1', 'eksen aynı yönde tutuluyor')
++  pad.buttons[1] = { pressed: true, value: 1 }
++  env.tick(2000)
++  assert.equal(env.run('idlePollParam()'), '0', 'düğmeye basıldı')
++  // Yeni bağlanan kolun ilk okuması girdi sayılmaz
++  env.advance(10 * MIN)
++  pads.list = [{ index: 2, connected: true, buttons: [{ pressed: true, value: 1 }], axes: [] }]
++  env.tick(2000)
++  env.tick(15000)
++  assert.equal(env.run('idlePollParam()'), '1')
++})
++
++test('masaüstü: sistemin boşta süresi kısaysa boşta olunmaz, okunamazsa sayfanın girdisi sayılır', async () => {
++  const desktop = { seconds: 30, fail: false, calls: 0 }
++  desktop.idleSeconds = () => {
++    desktop.calls += 1
++    return desktop.fail ? Promise.reject(new Error('yok')) : Promise.resolve(desktop.seconds)
++  }
++  const env = load({ desktop })
++  env.advance(30 * MIN)
++  env.tick(15000)
++  await settle()
++  assert.equal(desktop.calls, 1)
++  assert.equal(env.run('idlePollParam()'), '0', 'kişi başka bir uygulamayı kullanıyor')
++  desktop.seconds = 11 * 60
++  env.tick(15000)
++  await settle()
++  assert.equal(env.run('idlePollParam()'), '1')
++  // Okuma hatasında son okunan değer ve sayfanın girdileri geçerli kalır
++  desktop.fail = true
++  env.fire('keydown')
++  assert.equal(env.run('idlePollParam()'), '0')
++  env.advance(10 * MIN)
++  env.tick(15000)
++  await settle()
++  assert.equal(env.run('idlePollParam()'), '1')
++})
++
++test('arka plan penceresi: girdi dinlenmez, karar sistemin boşta süresiyle verilir ve bgRestartPoll çağrılır', async () => {
++  const bgDesktop = { background: true, seconds: 0 }
++  bgDesktop.idleSeconds = () => Promise.resolve(bgDesktop.seconds)
++  const env = load({ bg: true, bgDesktop, pads: { list: [] } })
++  env.sandbox.state.inApp = false
++  assert.deepEqual(Object.keys(env.listeners), [])
++  assert.deepEqual(env.intervals.map((t) => t.ms), [15000])
++  assert.deepEqual(env.hooks, [])
++  env.advance(20 * MIN)
++  env.tick(15000)
++  await settle()
++  assert.equal(env.run('idlePollParam()'), '0', 'sistem kullanılıyor')
++  bgDesktop.seconds = 10 * 60
++  env.tick(15000)
++  await settle()
++  assert.equal(env.run('idlePollParam()'), '1')
++  assert.deepEqual(env.polls, { main: 0, bg: 1 })
++  bgDesktop.seconds = 3
++  env.tick(15000)
++  await settle()
++  assert.equal(env.run('idlePollParam()'), '0')
++  assert.deepEqual(env.polls, { main: 0, bg: 2 })
++})
++
++test('arka plan poll döngüsü: idle sorguda gider, bgRestartPoll bekleyen poll\'u bırakıp hemen yeniden gönderir', async () => {
++  const requests = []
++  const sandbox = {
++    console,
++    Promise,
++    window: null,
++    state: { seq: 5, metaVersion: 2, sigSeq: 0, boot: 'b00t', token: 'jeton' },
++    POLL_TIMEOUT_MS: 35000,
++    socialPmv: () => 1,
++    idle: '0',
++    idlePollParam: () => sandbox.idle,
++    request: (method, url) => {
++      let resolve = null
++      const p = new Promise((r) => {
++        resolve = r
++      })
++      p.abort = () => resolve({ status: 0, data: null, aborted: true })
++      p.finish = resolve
++      requests.push({ url, p })
++      return p
++    },
++    wait: () => new Promise(() => {})
++  }
++  sandbox.window = sandbox
++  vm.createContext(sandbox)
++  vm.runInContext(ARKA, sandbox, { filename: '25-arka-plan.js' })
++  const run = (code) => vm.runInContext(code, sandbox)
++  run('bgRestartPoll()')
++  const gen = run('bgState.gen')
++  const loop = run('bgPoll(bgState.gen)')
++  await settle()
++  assert.equal(requests.length, 1)
++  assert.match(requests[0].url, /&idle=0$/)
++  sandbox.idle = '1'
++  run('bgRestartPoll()')
++  await settle()
++  assert.equal(requests.length, 2, 'bırakılan poll hata sayılmadan hemen yeniden gönderilir')
++  assert.match(requests[1].url, /&idle=1$/)
++  assert.equal(run('bgState.status'), 'starting', 'durum değişmedi')
++  // Döngü sona erer
++  run('bgState.gen += 1')
++  requests[1].p.finish({ status: 0, data: null, aborted: true })
++  await loop
++  assert.equal(run('bgState.gen'), gen + 1)
++})
++
++test('index.html, sw.js ve poll sorguları: modül bağlı, idle gönderilir', () => {
++  assert.ok(HTML.indexOf('<script src="/js/40-bosta.js" defer></script>') > HTML.indexOf('<script src="/js/32-arama.js" defer></script>'))
++  assert.ok(SW.indexOf("'/js/40-bosta.js'") > SW.indexOf("'/js/32-arama.js'"))
++  assert.ok(POLL.indexOf("'&idle=' + encodeURIComponent(idlePollParam())") !== -1)
++  assert.ok(ARKA.indexOf("'&idle=' + encodeURIComponent(idlePollParam())") !== -1)
++})
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 154bba2..4b926b9 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -541,6 +541,27 @@ test('cihaz ayarı anahtarları ve varsayılanlar (yazıyor, bildirim düzeyi, m
+   assert.strictEqual(run('messageSoundEnabled()'), false)
+ })
+ 
++test('otomatik boşta ayarı: varsayılan açık ve 10 dakika, süre yalnızca 5, 10, 15, 30 veya 60', () => {
++  const { run, storage } = load()
++  assert.strictEqual(run('SETTINGS_KEYS.autoIdle'), 'telsiz.autoIdle')
++  assert.strictEqual(run('SETTINGS_KEYS.autoIdleMinutes'), 'telsiz.autoIdleMinutes')
++  assert.deepStrictEqual(Array.from(run('AUTO_IDLE_MINUTES')), [5, 10, 15, 30, 60])
++  assert.strictEqual(run('autoIdleEnabled()'), true)
++  storage.setItem('telsiz.autoIdle', '0')
++  assert.strictEqual(run('autoIdleEnabled()'), false)
++  storage.setItem('telsiz.autoIdle', '1')
++  assert.strictEqual(run('autoIdleEnabled()'), true)
++  assert.strictEqual(run('autoIdleMinutes()'), 10)
++  for (const n of [5, 15, 30, 60]) {
++    storage.setItem('telsiz.autoIdleMinutes', String(n))
++    assert.strictEqual(run('autoIdleMinutes()'), n)
++  }
++  for (const bad of ['0', '7', '-5', 'on', '']) {
++    storage.setItem('telsiz.autoIdleMinutes', bad)
++    assert.strictEqual(run('autoIdleMinutes()'), 10, JSON.stringify(bad))
++  }
++})
++
+ test('mesaj sesi: ayar kapalıyken ve Rahatsız etmeyin durumunda çalmaz, deneme her zaman çalar', () => {
+   const { run, storage, audio } = load()
+   assert.strictEqual(run('playMessageSound()'), true)

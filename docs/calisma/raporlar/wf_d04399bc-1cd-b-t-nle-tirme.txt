@@ -1,0 +1,74 @@
+Üç parça bütünleştirildi ve üç commit atıldı. Son durumda `npm run denetle` ihlal vermiyor, `npm test` içinde düşen test yok. Push yapılmadı.
+
+# RAPOR: Bütünleştirme ve üç commit
+
+## Commit'ler
+Her commit'ten sonra `git status` ile yalnız beklenen dosyaların girdiği doğrulandı. Son durumda çalışma ağacı temiz.
+
+| Commit | Başlık | Dosyalar |
+|---|---|---|
+| `afdbc1c` | Oyun: ses odası sinyalinde genel oyun taşıması | `public/voice.js`, `public/js/10-voice.js`, `test/oyun-tasima.test.js` |
+| `e23c57d` | Oyun: protokol çekirdeği | `public/js/33-oyun-protokol.js`, `public/index.html` ve `public/sw.js` (yalnız 33 satırı), `test/oyun-protokol.test.js` |
+| `0c7f05f` | Renk: kural motoru | `public/js/35-renk-kural.js`, `test/renk-kural.test.js`, `public/index.html` ve `public/sw.js` (35 satırı), `test/oyun-protokol.test.js` (1 satır) |
+
+## Değişen ve eklenen dosyalar (benim payım)
+- **`/home/user/ps5-pc-communication/public/index.html`:** 73. satırdaki `32-arama.js` satırının arkasına 33 ve 35 betik satırları eklendi.
+- **`/home/user/ps5-pc-communication/public/sw.js`:** 69. satırdaki `'/js/32-arama.js'` girdisinin arkasına aynı iki girdi eklendi. `CACHE_NAME` (satır 11) değişmedi.
+- **`/home/user/ps5-pc-communication/test/oyun-protokol.test.js`:** sonuna `bağlantılar ve taşıma` grubu eklendi, iki test var:
+  - **Bağlantı testi:** `GAME_MODULES` listesindeki her dosya index.html ve sw.js'te bir kez geçer, `32-arama.js`'ten sonra ve sırayla gelir. index.html'de `</head>` öncesindedir.
+  - **Taşıma testi:**
+    - `voice.gameUtils.maxChars === G.MAX_P`.
+    - voice.js `GAME_TEXT_RE` ile 33'teki `TEXT_RE` kaynakta aynı (CRLF ile de çalışır).
+    - Karakter kodu 0 ile 0x17F arasında voice doğrulayıcısı aynı sonucu verir.
+    - 11000 karakter kabul edilir, 11001 reddedilir.
+    - `encodePlain` ve `sealInner` çıktıları taşımadan geçer.
+  - Bu test protokol ajanının açık bıraktığı eşitlik maddesini kapatıyor. Dosyanın başlık yorumuna bir satır eklendi.
+- **`/home/user/ps5-pc-communication/test/renk-kural.test.js`:**
+  - `fakeGame`, `existsSync` ve `NEEDED` kaldırıldı. Test artık her zaman gerçek 33 dosyasını yüklüyor.
+  - `loadEngine({core:false})` korundu, ama sahte çekirdek vermiyor. Yalnız motorun çekirdeğe çalışma anında eriştiğini sınıyor.
+  - `playRandomGame` işlevine isteğe bağlı `onStep` kancası eklendi.
+  - Yeni `protokol çekirdeğiyle uyum` grubunda üç test var:
+    1. Kaynaktaki `G.*` kullanımları tam olarak `fail`, `isId`, `onlyKeys`, `ring` ve `shuffle`. Hepsi 33'te işlev olarak var. `no_random` ve `bad_random` hataları çekirdekten motora geçiyor.
+    2. `isApp(R.id)` doğru. `RULES`, `ERRORS` ve `EVENTS` içindeki her kod `isCode` desenine uyuyor. `DESK_ERRORS` listesi `R.ERRORS` içinde. `MAX_PLAYERS <= MAX_SEATS`.
+    3. 14 tohumlu oyunda (2 ile 8 oyuncu, iki kural seti) her adım ve her koltuk için gerçek `publicView`, `privateView` ve olaylar (`r` eklenerek) bir state gövdesine sarılıyor. Bu gövde `validStateBody` ile `validateView` ve `validatePrivate` denetimlerinden geçiyor, `encodePlain` de null dönmüyor. Toplam 1000'den fazla denetim yapılıyor.
+
+## Uyum denetiminin sonucu
+- 35'in çağırdığı her `TelsizGame` işlevi 33'te var ve imzalar aynı: `shuffle(list, rng)` yeni dizi döner, `ring(n, from, dir, steps)`, `onlyKeys(obj, keys)`, `fail(code)`.
+- voice.js ile 33 arasında sınır ve desen aynı.
+- 33, 35 ve voice.js kaynaklarında düzeltme gerekmedi.
+
+## Belgeden sapmalar
+1. **33 ve 35 satırları ayrı commit'lerde.** `e23c57d` yalnız 33 satırını içeriyor, çünkü o sürümde 35 dosyası yok ve index.html var olmayan bir betiğe bağlanırdı. Bu da tarayıcıda 404 ve konsol hatası demek, e2e `assertCleanConsole` bunu yakalar. Yöntem: dosyaları geçici olarak ara duruma getirdim, `git add` ile ekledim, commit'ten sonra 35 satırlarını geri koydum. Bu yüzden `test/oyun-protokol.test.js` üçüncü commit'te 1 satır değişti (`GAME_MODULES` listesine 35 eklendi).
+2. **Uyum testlerinin yeri.** Gerçek Renk görünümleri ve kodlarla yapılan uyum testleri `renk-kural` testine kondu, `oyun-protokol` testine değil. Böylece `e23c57d` tek başına geçiyor.
+3. **Kayan satır numaraları.** Belgedeki index.html 73, sw.js 69 ve 11 numaraları doğrulandı. Taşıma commit'inden sonra voice.js satırları kaydı. Örneğin `processSignal` 3195'te, `game` dalı 3286'da, `applyRoster` silme döngüsü 5265 ile 5278 arasında.
+
+## Sonraki adımın (3, masa yöneticisi) bilmesi gerekenler
+- **Liste satırları:** `34-oyun-masa.js` satırı index.html ve sw.js'te 33 ile 35 arasına girer. `test/oyun-protokol.test.js` içindeki liste `['33-oyun-protokol.js', '34-oyun-masa.js', '35-renk-kural.js']` olmalı.
+- **Durum gövdesi:**
+  - Renk olaylarında `r` yok, masa ekler.
+  - `ev` en çok `TelsizGame.MAX_EVENTS` (8) öğedir, `r` azalmaz ve zarfın `r` değerini aşmaz.
+  - `seats` Renk durumundaki koltuk sırasıyla aynı olmalı, çünkü `validateView(view, seatIds)` sırayı da denetler. `seats[0]` kurpiyerdir.
+  - `R.isOver(s)` doğruysa `ph` `'over'` olur.
+- **Koltuk sayısı:** Renk, bitmiş elde ayrılmayla koltukları 0'a indirebilir. Gövde ise en az 1 koltuk ve `seats[0] === dealer` ister, masa yöneticisi bu durumu ele almalı.
+- **Çıkarılan oyuncu:** "çıkarıldım" bilgisi `TelsizGame.isRemovalBody(b, ctx)` ile tanınır.
+- **voice.js API:** taşıma raporundaki gibi. `sendGame(peerId, p, done)` şu kodlardan birini döner: `'ok'`, `'not_in_voice'`, `'bad_message'`, `'no_peer'`, `'not_ready'`, `'no_key'`. Olaylar: `message`, `peer-ready`, `peer-leave`, `reset`.
+
+## Koşturulan komutlar
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-protokol.test.js` (ara durumda, yalnız 33) | 33 test, 33 geçti, 0 kaldı |
+| `node --test test/renk-kural.test.js` | 98 test, 98 geçti, 0 kaldı (önceki 95'e 3 test eklendi) |
+| `node --test oyun-protokol + renk-kural + sw` (son durum) | 134 test, 134 geçti |
+| Geçici kopyada bozma denemeleri | 8 bozmanın 8'i en az bir testi düşürdü: belgedeki `CODE_RE`, `ring` dışa açılmıyor, `BODY_KEYS` eksik, `MAX_EVENTS` 0, sw.js'te 35 yok, index.html'de sıra ters, voice sınırı 12000, voice deseni genişletildi |
+| `npm run denetle` (son durum) | 255 dosya, 0 ihlal |
+| `npm test` (HEAD `0c7f05f`) | 1016 test, 1015 geçti, 0 kaldı, 1 atlandı (`TELSIZ_SEA_TEST`) |
+| `git archive afdbc1c` ayrı dizinde, denetle ve test | 251 dosya, 0 ihlal. 885 test, 884 geçti, 0 kaldı, 1 atlandı |
+| `git archive e23c57d` ayrı dizinde, denetle ve test | 253 dosya, 0 ihlal. 918 test, 917 geçti, 0 kaldı, 1 atlandı |
+| Yeni ve değişen dosyalarda marka adı, uzun ve kısa tire, commit mesajlarında noktalı virgül | Hiçbiri yok |
+
+## Açık kalan sorunlar
+1. **Issue onayı yok.** 0. adımdaki issue (CONTRIBUTING.md:184, voice.js'e yeni düz metin türü eklenmesi) hâlâ açılmadı ve onaylanmadı. Commit'ler bu onay gelmeden atıldı.
+2. **Eskiyen belgeler.** docs/MIMARI.md:70 ve docs/ARCHITECTURE.md:70 hâlâ "`01-core.js` ile `32-arama.js`" diyor. CONTRIBUTING modül tablosunda da 33 ve 35 yok. Belgeye göre bunlar 9. adımda güncellenecek.
+3. **Başlık yorumu.** 10-voice.js başlık yorumundaki araç satırı sırası 6. adımda güncellenecek.
+4. **Kullanıcı doğrulaması.** `LAST_CARD.stack: true` kararı (belge 11. bölüm, risk 10) kullanıcıya doğrulatılmalı.
+5. **Çıkarılan oyuncuya son durum.** Çıkarılan oyuncuya son durumun nasıl gönderileceği (belge 4.10.4) 3. adımda tasarlanmalı.

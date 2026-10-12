@@ -1,0 +1,375 @@
+From 3f80808f8a09b53937b753564ea2ae8f8d87b6ce Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 17:43:59 +0000
+Subject: [PATCH 64/88] =?UTF-8?q?G11:=20Masa=C3=BCst=C3=BC:=20y=C3=BCzen?=
+ =?UTF-8?q?=20pencere=20mod=C3=BCl=C3=BC=20(tek=20kullan=C4=B1ml=C4=B1k=20?=
+ =?UTF-8?q?jeton,=20se=C3=A7enekler,=20konum)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ desktop/src/lib/float-window.js   | 172 ++++++++++++++++++++++++++++++
+ desktop/test/float-window.test.js | 172 ++++++++++++++++++++++++++++++
+ 2 files changed, 344 insertions(+)
+ create mode 100644 desktop/src/lib/float-window.js
+ create mode 100644 desktop/test/float-window.test.js
+
+diff --git a/desktop/src/lib/float-window.js b/desktop/src/lib/float-window.js
+new file mode 100644
+index 0000000..8c50a79
+--- /dev/null
++++ b/desktop/src/lib/float-window.js
+@@ -0,0 +1,172 @@
++'use strict'
++
++// Yüzen pencere (istek 7 ve 16): ses odasındayken uygulama penceresi simge durumuna küçültülür veya tepsiye
++// gizlenirse kameralar ya da profil fotoğrafları her zaman üstte kalan küçük, çerçevesiz bir pencerede görünür
++// (public/js/39-yuzen.js). Electron'a bağımlı değildir.
++//
++// Neden kendi penceremiz: Electron 44'te belge resim içinde resim (documentPictureInPicture) var görünür ama
++// açtığı pencere görünmez (Electron 44.5.1 ile denendi). Sayfa bunun yerine window.open('about:blank', jeton)
++// çağırır, ana süreç bu tek isteğe izin verir. Pencere açan sayfayla aynı kökendedir, içeriğini açan sayfanın
++// betiği çizer ve kamera akışları aynı süreçte paylaşılır.
++//
++// Yeni pencere kuralının tek istisnası olduğu için açma isteği dar tutulur (src/main.js):
++// - Jeton: sayfa telsiz:float-arm ile ana süreçten tek kullanımlık bir ad alır (telsiz-yuzen-<32 onaltılık>).
++//   Ad yaklaşık 3 saniye geçerlidir, yalnızca bir kez kullanılır ve yeni bir jeton eskisini geçersiz kılar.
++//   YouTube oynatıcısının çerçevesi kullanıcı hareketi olmadan da window.open çağırabilir, ama jetonu bilemez.
++// - Yalnızca uygulama penceresinin isteği, yalnızca about:blank adresi ve doğru jeton kabul edilir. Pencere
++//   açıldıktan sonra açanın uygulama penceresinin ana çerçevesi olduğu ayrıca denetlenir (did-create-window).
++// - Pencerede ön yükleme betiği yoktur (preload: ''), bütün izinler, gezinmeler ve yeni pencereler reddedilir
++//   (permissions.js deniedFor, navigation.js decideNavigation).
++//
++// Konum ve boyut ayarlar dosyasında floatBounds olarak saklanır (settings-store.js). Kayıtlı konum ekranın
++// çalışma alanına sığmazsa pencere uygulama penceresinin ekranında sağ alt köşeye yerleşir.
++
++const crypto = require('node:crypto')
++
++const TOKEN_PREFIX = 'telsiz-yuzen-'
++const TOKEN_RE = /^telsiz-yuzen-[0-9a-f]{32}$/
++const TOKEN_TTL_MS = 3000
++const MIN_WIDTH = 200
++const MIN_HEIGHT = 120
++const DEFAULT_WIDTH = 340
++const DEFAULT_HEIGHT = 240
++// Kayıtlı değerlerin akıl sınırı (piksel). Daha büyük ekran koordinatı veya boyut geçersiz sayılır.
++const MAX_COORD = 100000
++const MAX_SIZE = 10000
++// Varsayılan konumda ekranın kenarından uzaklık
++const MARGIN = 16
++
++function isToken (value) {
++  return typeof value === 'string' && TOKEN_RE.test(value)
++}
++
++// Tek kullanımlık jeton kapısı. opts.now (saat, ms) ve opts.random (bayt üreteci) testte verilir.
++// arm(): yeni jeton üretir ve önceki jetonu geçersiz kılar. take(ad): ad geçerli jetonsa jetonu harcar ve
++// true döner, değilse false (yanlış ad bekleyen jetonu harcamaz).
++function createGate (opts) {
++  const o = opts || {}
++  const now = typeof o.now === 'function' ? o.now : () => Date.now()
++  const random = typeof o.random === 'function' ? o.random : (n) => crypto.randomBytes(n)
++  let pending = null
++  return {
++    arm () {
++      const token = TOKEN_PREFIX + Buffer.from(random(16)).toString('hex')
++      pending = { token, at: now() }
++      return token
++    },
++    take (name) {
++      if (!pending || !isToken(name)) return false
++      if (now() - pending.at > TOKEN_TTL_MS) {
++        pending = null
++        return false
++      }
++      if (name !== pending.token) return false
++      pending = null
++      return true
++    }
++  }
++}
++
++// window.open isteği yüzen pencere isteği mi? req: { context (açan pencerenin bağlamı), fromMain (açan uygulama
++// penceresi mi), url, frameName (window.open ikinci argümanı), open (yüzen pencere zaten açık mı) }. Bütün koşullar
++// tutarsa jeton harcanır ve true döner. Koşullardan biri tutmazsa jetona dokunulmaz.
++function isFloatRequest (req, gate) {
++  const r = req || {}
++  if (r.context !== 'app' || r.fromMain !== true || r.url !== 'about:blank' || r.open === true) return false
++  return Boolean(gate && typeof gate.take === 'function' && gate.take(r.frameName))
++}
++
++// İki çerçeve (Electron WebFrameMain) aynı mı: aynı nesne ya da aynı süreç ve yönlendirme kimliği. Biri yoksa false.
++function sameFrame (a, b) {
++  if (!a || !b) return false
++  if (a === b) return true
++  return Number.isInteger(a.processId) && a.processId === b.processId && Number.isInteger(a.routingId) && a.routingId === b.routingId
++}
++
++function isInt (value, min, max) {
++  return Number.isInteger(value) && value >= min && value <= max
++}
++
++// Ayarlar dosyasındaki floatBounds: { x, y, width, height } tam sayılar, akıl sınırları içinde. Geçersizse null.
++function validBounds (raw) {
++  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
++  if (!isInt(raw.x, -MAX_COORD, MAX_COORD) || !isInt(raw.y, -MAX_COORD, MAX_COORD)) return null
++  if (!isInt(raw.width, MIN_WIDTH, MAX_SIZE) || !isInt(raw.height, MIN_HEIGHT, MAX_SIZE)) return null
++  return { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
++}
++
++function validArea (area) {
++  if (!area || typeof area !== 'object') return null
++  const nums = [area.x, area.y, area.width, area.height]
++  if (!nums.every((n) => typeof n === 'number' && Number.isFinite(n))) return null
++  if (area.width <= 0 || area.height <= 0) return null
++  return { x: Math.round(area.x), y: Math.round(area.y), width: Math.floor(area.width), height: Math.floor(area.height) }
++}
++
++function clamp (value, min, max) {
++  return Math.max(min, Math.min(max, value))
++}
++
++// Pencerenin konumu ve boyutu. raw: kayıtlı floatBounds (veya null), workArea: uygulama penceresinin ekranının
++// çalışma alanı. Kayıtlı pencere bu alanın içinde kalıyorsa boyutu alana sığdırılarak korunur. Yoksa veya alanın
++// dışına düşüyorsa varsayılan boyutla sağ alt köşe seçilir. Sonuç her zaman tam sayıdır.
++function cleanBounds (raw, workArea) {
++  const area = validArea(workArea) || { x: 0, y: 0, width: DEFAULT_WIDTH + 2 * MARGIN, height: DEFAULT_HEIGHT + 2 * MARGIN }
++  const maxW = Math.max(MIN_WIDTH, area.width)
++  const maxH = Math.max(MIN_HEIGHT, area.height)
++  const saved = validBounds(raw)
++  if (saved) {
++    const width = clamp(saved.width, MIN_WIDTH, maxW)
++    const height = clamp(saved.height, MIN_HEIGHT, maxH)
++    const inside = saved.x >= area.x && saved.y >= area.y && saved.x + saved.width <= area.x + area.width && saved.y + saved.height <= area.y + area.height
++    if (inside) return { x: saved.x, y: saved.y, width, height }
++  }
++  const width = clamp(DEFAULT_WIDTH, MIN_WIDTH, maxW)
++  const height = clamp(DEFAULT_HEIGHT, MIN_HEIGHT, maxH)
++  return {
++    x: Math.max(area.x, area.x + area.width - width - MARGIN),
++    y: Math.max(area.y, area.y + area.height - height - MARGIN),
++    width,
++    height
++  }
++}
++
++// window.open isteğine verilecek pencere seçenekleri (setWindowOpenHandler overrideBrowserWindowOptions).
++// Pencere gizli açılır, ana süreç did-create-window içinde odak almadan gösterir (showInactive).
++// webPreferences açan pencereden miras kalır (bağlam yalıtımı, korumalı alan, oturum bölümü), ön yükleme betiği
++// boş verilerek kaldırılır: yüzen pencerede telsizDesktop API'si yoktur.
++function options (bounds) {
++  const b = validBounds(bounds)
++  const out = {
++    show: false,
++    frame: false,
++    alwaysOnTop: true,
++    skipTaskbar: true,
++    minimizable: false,
++    maximizable: false,
++    fullscreenable: false,
++    resizable: true,
++    minWidth: MIN_WIDTH,
++    minHeight: MIN_HEIGHT,
++    webPreferences: { preload: '' }
++  }
++  if (b) Object.assign(out, b)
++  return out
++}
++
++module.exports = {
++  TOKEN_PREFIX,
++  TOKEN_RE,
++  TOKEN_TTL_MS,
++  MIN_WIDTH,
++  MIN_HEIGHT,
++  DEFAULT_WIDTH,
++  DEFAULT_HEIGHT,
++  isToken,
++  createGate,
++  isFloatRequest,
++  sameFrame,
++  validBounds,
++  cleanBounds,
++  options
++}
+diff --git a/desktop/test/float-window.test.js b/desktop/test/float-window.test.js
+new file mode 100644
+index 0000000..5ccaf6d
+--- /dev/null
++++ b/desktop/test/float-window.test.js
+@@ -0,0 +1,172 @@
++'use strict'
++
++// Yüzen pencere (src/lib/float-window.js): tek kullanımlık jeton, açma isteğinin koşulları, açanın çerçevesi,
++// pencere seçenekleri ve konumun ekrana sığdırılması. Ana süreçteki bağlantı ve gerçek Electron davranışı
++// e2e/duman.test.js içinde denetlenir.
++
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fw = require('../src/lib/float-window')
++
++function clock (start) {
++  const c = { now: start || 1000 }
++  c.fn = () => c.now
++  return c
++}
++
++// Sıralı bayt üreteci: her çağrıda farklı jeton
++function counter () {
++  let n = 0
++  return (size) => {
++    n++
++    return Buffer.alloc(size, n)
++  }
++}
++
++test('jeton: biçim telsiz-yuzen-<32 onaltılık>, tek kullanımlık, yanlış ad harcamaz', () => {
++  const c = clock()
++  const gate = fw.createGate({ now: c.fn, random: counter() })
++  const token = gate.arm()
++  assert.match(token, /^telsiz-yuzen-[0-9a-f]{32}$/)
++  assert.equal(fw.isToken(token), true)
++  // Yanlış adlar jetonu harcamaz
++  for (const name of ['', 'telsiz-yuzen-', token + '0', token.toUpperCase(), 'telsiz-yuzen-' + 'f'.repeat(32), null, undefined, 5, { toString: () => token }, [token]]) {
++    assert.equal(gate.take(name), false, String(name))
++  }
++  assert.equal(gate.take(token), true)
++  // İkinci kullanım reddedilir
++  assert.equal(gate.take(token), false)
++  // Jeton üretilmeden hiçbir ad kabul edilmez
++  assert.equal(fw.createGate().take(token), false)
++})
++
++test('jeton: yaklaşık 3 saniye geçerli, yeni jeton eskisini geçersiz kılar', () => {
++  assert.equal(fw.TOKEN_TTL_MS, 3000)
++  const c = clock()
++  const gate = fw.createGate({ now: c.fn, random: counter() })
++  const first = gate.arm()
++  c.now += fw.TOKEN_TTL_MS
++  assert.equal(gate.take(first), true, 'süre sınırında hâlâ geçerli')
++  const late = gate.arm()
++  c.now += fw.TOKEN_TTL_MS + 1
++  assert.equal(gate.take(late), false, 'süresi dolan jeton reddedilir')
++  c.now += 10
++  assert.equal(gate.take(late), false)
++  const a = gate.arm()
++  const b = gate.arm()
++  assert.notEqual(a, b)
++  assert.equal(gate.take(a), false, 'eski jeton geçersiz')
++  assert.equal(gate.take(b), true)
++  // Gerçek üreteçle iki jeton farklıdır
++  const real = fw.createGate()
++  assert.notEqual(real.arm(), real.arm())
++})
++
++test('açma isteği: yalnızca uygulama penceresinden, about:blank adresine, doğru jetonla, pencere yokken', () => {
++  const gate = fw.createGate()
++  const ok = (token) => ({ context: 'app', fromMain: true, url: 'about:blank', frameName: token, open: false })
++  let token = gate.arm()
++  const denied = [
++    Object.assign(ok(token), { context: 'background' }),
++    Object.assign(ok(token), { context: 'float' }),
++    Object.assign(ok(token), { context: 'connect' }),
++    Object.assign(ok(token), { context: undefined }),
++    Object.assign(ok(token), { fromMain: false }),
++    Object.assign(ok(token), { fromMain: 'true' }),
++    Object.assign(ok(token), { url: 'about:blank#x' }),
++    Object.assign(ok(token), { url: 'telsiz://app/' }),
++    Object.assign(ok(token), { url: 'https://www.youtube.com/' }),
++    Object.assign(ok(token), { url: '' }),
++    Object.assign(ok(token), { open: true }),
++    null
++  ]
++  for (const req of denied) assert.equal(fw.isFloatRequest(req, gate), false, JSON.stringify(req))
++  // Koşulu tutmayan istekler jetonu harcamadı
++  assert.equal(fw.isFloatRequest(ok(token), gate), true)
++  assert.equal(fw.isFloatRequest(ok(token), gate), false, 'jeton tek kullanımlık')
++  token = gate.arm()
++  assert.equal(fw.isFloatRequest(ok('telsiz-yuzen-' + '0'.repeat(32)), gate), false)
++  assert.equal(fw.isFloatRequest(ok(''), gate), false, 'jetonsuz window.open reddedilir')
++  assert.equal(fw.isFloatRequest(ok(token), null), false)
++  assert.equal(fw.isFloatRequest(ok(token), gate), true)
++})
++
++test('açanın çerçevesi: aynı nesne veya aynı süreç ve yönlendirme kimliği', () => {
++  const main = { processId: 4, routingId: 1 }
++  assert.equal(fw.sameFrame(main, main), true)
++  assert.equal(fw.sameFrame({ processId: 4, routingId: 1 }, main), true)
++  assert.equal(fw.sameFrame({ processId: 4, routingId: 2 }, main), false, 'alt çerçeve (YouTube oynatıcısı)')
++  assert.equal(fw.sameFrame({ processId: 5, routingId: 1 }, main), false)
++  assert.equal(fw.sameFrame({}, {}), false)
++  assert.equal(fw.sameFrame(null, main), false)
++  assert.equal(fw.sameFrame(main, null), false)
++  assert.equal(fw.sameFrame(undefined, undefined), false)
++})
++
++test('seçenekler: gizli, çerçevesiz, her zaman üstte, görev çubuğunda yok, ön yükleme betiği yok', () => {
++  const o = fw.options(null)
++  assert.deepEqual(o, {
++    show: false,
++    frame: false,
++    alwaysOnTop: true,
++    skipTaskbar: true,
++    minimizable: false,
++    maximizable: false,
++    fullscreenable: false,
++    resizable: true,
++    minWidth: 200,
++    minHeight: 120,
++    webPreferences: { preload: '' }
++  })
++  const withBounds = fw.options({ x: 10, y: 20, width: 300, height: 200 })
++  assert.deepEqual([withBounds.x, withBounds.y, withBounds.width, withBounds.height], [10, 20, 300, 200])
++  assert.equal(withBounds.webPreferences.preload, '')
++  // Geçersiz konum seçeneklere girmez
++  const bad = fw.options({ x: 1.5, y: 0, width: 300, height: 200 })
++  assert.equal('x' in bad, false)
++  // Her çağrı yeni nesne döner (Electron seçenek nesnesini değiştirebilir)
++  assert.notEqual(fw.options(null).webPreferences, fw.options(null).webPreferences)
++})
++
++test('kayıtlı konum: tam sayı ve akıl sınırları içinde, değilse null', () => {
++  assert.deepEqual(fw.validBounds({ x: -50, y: 0, width: 200, height: 120, fazla: 1 }), { x: -50, y: 0, width: 200, height: 120 })
++  const bad = [
++    null, undefined, 'x', [], [1, 2, 3, 4],
++    { x: 0, y: 0, width: 199, height: 200 },
++    { x: 0, y: 0, width: 300, height: 119 },
++    { x: 0, y: 0, width: 10001, height: 200 },
++    { x: 100001, y: 0, width: 300, height: 200 },
++    { x: 0, y: -100001, width: 300, height: 200 },
++    { x: 0.5, y: 0, width: 300, height: 200 },
++    { x: '0', y: 0, width: 300, height: 200 },
++    { x: 0, y: 0, width: NaN, height: 200 },
++    { x: 0, y: 0, width: 300 }
++  ]
++  for (const raw of bad) assert.equal(fw.validBounds(raw), null, JSON.stringify(raw))
++})
++
++test('konum: kayıtlı pencere ekrandaysa korunur, değilse sağ alt köşe, her zaman tam sayı', () => {
++  const area = { x: 0, y: 0, width: 1920, height: 1040 }
++  assert.deepEqual(fw.cleanBounds({ x: 100, y: 100, width: 400, height: 300 }, area), { x: 100, y: 100, width: 400, height: 300 })
++  // Varsayılan: sağ alt köşe, kenardan 16 piksel
++  const def = fw.cleanBounds(null, area)
++  assert.deepEqual(def, { x: 1920 - fw.DEFAULT_WIDTH - 16, y: 1040 - fw.DEFAULT_HEIGHT - 16, width: fw.DEFAULT_WIDTH, height: fw.DEFAULT_HEIGHT })
++  // Ekranın dışına taşan veya başka ekranda kalan pencere sağ alt köşeye döner
++  assert.deepEqual(fw.cleanBounds({ x: 1800, y: 100, width: 400, height: 300 }, area), def)
++  assert.deepEqual(fw.cleanBounds({ x: -2000, y: 0, width: 400, height: 300 }, area), def)
++  assert.deepEqual(fw.cleanBounds({ x: 0, y: 0, width: 1.5, height: 300 }, area), def)
++  // İkinci ekran (negatif koordinatlar) ve kesirli çalışma alanı
++  const left = { x: -1280, y: 0.4, width: 1280.6, height: 720.2 }
++  assert.deepEqual(fw.cleanBounds({ x: -1200, y: 10, width: 300, height: 200 }, left), { x: -1200, y: 10, width: 300, height: 200 })
++  const leftDef = fw.cleanBounds(null, left)
++  assert.deepEqual(leftDef, { x: -1280 + 1280 - fw.DEFAULT_WIDTH - 16, y: 720 - fw.DEFAULT_HEIGHT - 16, width: fw.DEFAULT_WIDTH, height: fw.DEFAULT_HEIGHT })
++  // Varsayılandan küçük ekranda pencere alana sığar, en küçük boyutun altına inmez
++  assert.deepEqual(fw.cleanBounds(null, { x: 0, y: 0, width: 260, height: 150 }), { x: 0, y: 0, width: 260, height: 150 })
++  assert.deepEqual(fw.cleanBounds(null, { x: 0, y: 0, width: 100, height: 100 }), { x: 0, y: 0, width: 200, height: 120 })
++  // Çalışma alanı bilinmiyorsa varsayılan boyut kullanılır
++  for (const bad of [null, {}, { x: 0, y: 0, width: 0, height: 100 }, { x: 'a', y: 0, width: 10, height: 10 }]) {
++    const b = fw.cleanBounds(null, bad)
++    assert.deepEqual([b.width, b.height], [fw.DEFAULT_WIDTH, fw.DEFAULT_HEIGHT], JSON.stringify(bad))
++    assert.ok(Object.values(b).every(Number.isInteger))
++  }
++})

@@ -1,0 +1,31 @@
+{
+ "tamam": true,
+ "baslangic": "f5e202dc54332c3b5db4854ecd0781acda238de8",
+ "commitler": [
+  "0d587c1 G0: Arkadaş Ekle yer tutucusu \"Kullanıcı adı giriniz\" (istek 12)",
+  "f4d1c07 G0: Arcade ve Turkuaz'a canlı ve tehlike kenarı belirteçleri",
+  "cc71fbb G0: Denetleyici eski WebKit CSS kurallarını zorunlu tutar",
+  "17b62c5 G0: 10-voice.js içine ses kancası kaydı (voiceHook)",
+  "8bd959c G0: i18n sözlüklerine iş grubu işaretleri",
+  "d514b91 G0: Belgeler: CSS denetimi, ses kancaları, kenar belirteçleri, CHANGELOG"
+ ],
+ "testler": "Her commit'ten önce npm run denetle temiz geçti (251 dosya, ihlal yok) ve npm test yeşil kaldı (son durumda 880 test: 879 geçti, 0 düştü, 1 atlandı, atlanan test daha önce de atlanıyordu). Yeni ve genişletilen birim testleri: test/tema.test.js (5 test). Bu dosya eski tokens.css ile çalıştırıldığında 3 testin düştüğü doğrulandı. test/denetle.test.js içine 2 yeni test eklendi (toplam 33 geçiyor). test/settings.test.js içine ses kancası testi eklendi. Uçtan uca (e2e) testler node --test ile ilk denemede geçti: 03-sosyal 8/8, 05-ses-yayin 11/11, 06-dj 11/11, 04-ayarlar 5/5, 10-kamera 10/10, 15-ozel-arama 8/8, 02-frekans 17/17. Bu dosyaların çoğundaki konsol ve sunucu günlüğünün temiz olduğunu denetleyen testler de geçti. 03-sosyal'e yeni eklenen kenar testinin eski tokens.css ile düştüğü de görüldü (beklenen solid, gelen none). Ayrıca .msg-dj için eski gap düzeni ile yeni margin düzeni Chromium'da 600, 260 ve 120 piksel genişlikte karşılaştırıldı, öğelerin konumları birebir aynı çıktı.",
+ "sapmalar": [
+  "10-voice.js: Bu çalışma kopyasında renderVoiceAll içinde gameRender satırı yok, çünkü Renk işi henüz birleşmedi. Bu yüzden runVoiceHooks('render') çağrısı işlevin en sonuna, aramaRender satırından sonra eklendi.",
+  "Plandaki CSS_ISTISNALARI adı yerine CSS_EXCEPTIONS kullanıldı, çünkü CONTRIBUTING kural 13 tanımlayıcıların İngilizce olmasını istiyor. Kayıt dosya adı, seçici ve 'G3 kaldırır' notunu taşıyor. Satır aralığı (1318-1324) yerine seçiciyle eşleşiyor, çünkü satır numaraları kayar. Ek olarak, artık hiçbir ihlali kapsamayan kayıt da ihlal sayılıyor. Testler listeyi runChecks(dir, { cssExceptions }) seçeneğiyle değiştirebiliyor.",
+  "Kenar değerleri plandaki Gece başlangıç değerleri (#2f7e58, #c2554b) yerine her tema için ölçülerek seçildi. Gece'nin koyu değerleri Arcade koyuda 2.29, Turkuaz koyuda 1.88 kontrasta iniyordu. Seçilen değerler (Arcade koyu #349a71 ve #c46a76, Arcade açık #358668 ve #bf5769, Turkuaz koyu #58a877 ve #c86f5d, Turkuaz açık #3f7a4d ve #b95d48) bütün yüzeylerde ve kendi saydam zemininde en az 3.20 veriyor.",
+  "test/tema.test.js planın istediğinden fazlasını denetliyor: iki belirtecin her tema ve modda çözülmesinin yanında temanın kendi bloğunda yazılı olmasını, 3:1 kontrastı ve ortak CSS ile tema dosyalarında geri dönüşsüz kullanılan her belirtecin ilgili temalarda çözülmesini de denetliyor. Tema listesi theme-init.js'ten okunuyor.",
+  "Planın kabul ölçütü (.radio-cam-live için border-top-style: solid) e2e/03-sosyal.test.js içinde her tema ve modda ölçülüyor. Aynı test .cast-notice (canlı kenarı) için de ölçüyor.",
+  "Belgeler planın G0 için saydığından geniş tutuldu: TASARIM ve DESIGN belirteç tablosuna ve kontrast tablosuna iki kenar belirteci, CONTRIBUTING modül tablosuna voiceHook, komut tablosuna stil dosyası denetimi eklendi.",
+  "i18n işaretlerinin üstüne iki satırlık açıklama yorumu eklendi ('İş grubu işaretleri: ...'). İşaret satırları planda verilen sırada ve aynı metinle duruyor.",
+  "CSS taraması plandaki gibi yalnızca public/css altını kapsıyor. desktop/src altındaki CSS dosyaları taranmıyor, çünkü güncel Electron Chromium'unda çalışıyorlar."
+ ],
+ "kullaniciya": [
+  "Hiçbir şey push edilmedi. Commit'ler yerel istek/a dalında, /home/user/wt/a çalışma kopyasında duruyor.",
+  "G3 için not: frekans.css içindeki .app-view[data-dj-col=\"on\"] .stage ızgarası flexbox ile yeniden yazılınca scripts/denetle.js içindeki CSS_EXCEPTIONS kaydı da silinmeli. Kayıt kalırsa denetleyici 'artık hiçbir ihlali kapsamıyor' hatası verir.",
+  "G12 için not: Her yeni tema --live-edge ve --danger-edge belirteçlerini kendi koyu ve açık bloklarında tanımlamalı. test/tema.test.js bunu ve 3:1 kontrastı denetliyor. e2e/03-sosyal temaları window.TelsizTheme.skins üzerinden dolaştığı için yeni temalar da otomatik ölçülecek.",
+  "Renk birleşmesi için not: 10-voice.js renderVoiceAll içinde runVoiceHooks('render') son satır kalmalı. Plan bu çağrıyı gameRender satırının arkasına koyuyor.",
+  "voiceHook('change', fn) her ses anlık görüntüsünde state.voiceSnap ile çağrılır. voiceHook('render', fn) ise yalnızca telsiz kartının yapısı değişip yeniden çizilince çağrılır. G6, G11 ve G15 bu kancaları kullanabilir."
+ ],
+ "kalan": []
+}

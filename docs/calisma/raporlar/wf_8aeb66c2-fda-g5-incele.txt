@@ -1,0 +1,45 @@
+{
+ "bulgular": [
+  {
+   "onem": "yuksek",
+   "dosya": "public/dj/youtube.js",
+   "satir": 228,
+   "ozet": "Arka arkaya iki load() çağrısında ilk videonun hazırlandı (5) iletisi ikinci geçişin penceresini kapatıyor. Önceki videonun süresi ve adı yeni parçaya yazılıyor, yeni videonunki hiç bildirilmiyor.",
+   "senaryo": "switchSettled, durumun CUED (5) ya da UNSTARTED (-1) olmasını hangi videodan geldiğine bakmadan 'yeni video' sayıyor. load(B) gönderilir, çerçeve B'yi hazırladığını bildirmeden önce parça yine değişir ve load(C) çağrılır. Gerçek YouTube'da cue sırasında videonun bilgileri ağdan çekildiği için bu aralık yüzlerce ms sürebilir. Örneğin biri Geç'e arka arkaya iki kez basarsa olur. reuseFrame yalnızca ready() değerine baktığı için ikinci geçişte de aynı çerçeve kullanılır. Bu durumda switching {from:B, to:C} olur. Ardından gelen B iletileri (onStateChange 5, infoDelivery {duration:90, videoData:{title:'Video B'}}) pencereyi kapatıp C'ye yazılır. Doğrulama: scratchpad/g5/s/race.js betiği gerçek youtube.js'i yükler ve şu olayları basar: [{type:'duration',ms:90000},{type:'title',text:'Video B'}]. Ardından gelen C bilgileri durationSent ve titleSent dolu olduğu için hiç bildirilmez. music.js'de bu olaylar C'nin kancalarına gider ve requestAnnotate C'nin ortak durumuna yanlış adı ve 90 sn süreyi yazar (bağlantıyla eklenen parçada title boş, duration 0 olduğundan yazım kabul edilir). Sonuç: kart, kuyruk, kilit ekranı ve ekleyenin duyurusu yanlış adı gösterir. Odadaki her istemcide endFallback d=90000 ile requestEnd ister, 5 dakikalık C parçası herkes için yaklaşık 92,5. saniyede kesilir.",
+   "oneri": "Bekleyen her cue için yalnızca hedef videoya ait sinyali kabul edin. videoData.video_id varsa to ile eşleşmesini zorunlu tutun. Durum sinyali kullanılacaksa bekleyen cue sayısını tutun ve her 5/-1 iletisinde azaltın, pencereyi sayı sıfıra inince kapatın. Ya da hazırlanması bitmemiş çerçeveyi reuseFrame'de yeniden kullanmayın. Arka arkaya iki load() için birim testi ekleyin."
+  },
+  {
+   "onem": "orta",
+   "dosya": "docs/calisma/istek-plani.md",
+   "satir": 537,
+   "ozet": "Plandaki 5. adım (gerçek YouTube ile iki masaüstü ve bir telefonda elle deneme, ikinci parçada dokunma izninin korunması) yapılmadı, \"Yapamadıkları\" listesinde de bildirilmedi.",
+   "senaryo": "Uygulayıcı yapamadıklarını [] olarak bildirdi. Oysa CHANGELOG, MIMARI ve youtube.js açıklaması \"gerçek YouTube ile henüz denenmedi\" diyor. Özelliğin iki ana amacı (yükleme süresini ödememek, telefonda dokunma iznini taşımak) yalnızca sahte oynatıcıyla sınandı. Sahte oynatıcı cue komutunu eşzamanlı işler ve hemen 5 ile bilgi gönderir. Gerçek YouTube cueVideoById sonrasında başka sırayla ileti gönderirse switchSettled 1,5 sn boyunca gerçek PLAYING geçişini yutar. Örneğin önce 3 ya da 1 gelirse ve bu geçiş pencere kapanınca yeniden uygulanmazsa durum UNSTARTED kalır. Bu durumda play() 5 sn sonra 'blocked' döner ve gereksiz \"Dinlemek için dokunun\" çıkar. Bu risk hiç ölçülmedi.",
+   "oneri": "Elle denemeyi yapın ya da yapılamadığını açıkça bildirin. Gerçek YouTube'un cueVideoById sonrasındaki ileti sırasını kaydedip switchSettled varsayımını buna göre doğrulayın."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/dj/youtube.js",
+   "satir": 328,
+   "ozet": "Kalıcı çerçeve yeniden yüklenirse (load olayı) çerçeve src'deki ilk videoya döner, bağdaştırıcı ise currentId'yi sonraki parça sanmaya devam eder.",
+   "senaryo": "Bağdaştırıcı çerçevenin yeniden yüklenmesini açıkça destekliyor: onLoad connected=false yapıp el sıkışmayı yeniler. Ancak load() src'yi değiştirmiyor. Parça 1 (src), load(C) ile C'ye geçildikten sonra çerçeve belgesi yeniden yüklenirse çerçeve parça 1'in videosunu açar. becomeReady, ready zaten true olduğu için erken döner. Ne yeniden cue yapılır ne de çerçeve bozuk işaretlenir. Motor C'yi çaldığını sanar ama parça 1'in sesi çalar. G5 öncesinde src her zaman parçanın videosuydu, bu yol doğru çalışıyordu.",
+   "oneri": "onLoad içinde currentId !== ilk kimlik ise yeniden bağlanınca cueVideoById(currentId) gönderin ya da motorun yeni çerçeve kurması için bir hata ya da bozuk durumu bildirin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/dj/youtube.js",
+   "satir": 309,
+   "ozet": "onError ve onAutoplayBlocked iletileri parça değişimi penceresinden geçirilmiyor. Eski videonun yolda kalan hatası yeni parçaya yazılıp onu herkes için geçtirebilir.",
+   "senaryo": "Durum ve bilgi iletileri switchSettled ile süzülüyor, onError süzülmüyor. T1 gömmeye kapalı bir video olsun (150). B cihazı hatayı önce görüp error_skip ile T2'ye geçer. A cihazının T1 hatası load(T2) çağrısından hemen önce gönderilmiş ama henüz işlenmemişse çerçeve bozuk değildir ve yeniden kullanılır. Sonra gelen eski onError routeYouTubeEvent'te broken=true yapar, hooks(T2).error('yt_embed_blocked') çağrılır. A'da T2 için hata bildirimi çıkar, local.failed olur ve requestErrorSkip(T2) çalışır, sağlam T2 odadaki herkes için geçilir. Aralık dar ama aynı \"yolda kalan ileti\" gerekçesi durum iletileri için de kullanılıyor.",
+   "oneri": "switching sürerken gelen onError'u (ve onAutoplayBlocked'u) yok sayın ya da yalnızca pencere kapandıktan sonra yeni videoya yazın. Bunun için birim testi ekleyin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/dj/youtube.js",
+   "satir": 500,
+   "ozet": "Plandan bildirilmemiş sapma: parça değişince loadVideoById gönderilmiyor, sonraki parça için cueVideoById ile ön yükleme de yok.",
+   "senaryo": "Plan adım 1: \"Parça değişince loadVideoById gönderilir, ön yükleme için cueVideoById\". Uygulamada yalnızca parça değişince cueVideoById var. loadVideoById hiçbir yerde kullanılmıyor (yalnızca sahte oynatıcı öğreniyor) ve sıradaki parça önceden hazırlanmıyor. Bu yüzden videonun bilgisini çekme süresi yine her geçişte ödeniyor. Bu, 1. bulgudaki yarışın penceresini de genişletiyor. Uygulayıcı sapma listesini [] bildirdi.",
+   "oneri": "Seçimi (cue ile ortak çapada başlatma) sapma olarak bildirip plana ve belgeye yazın. Ön yükleme yapılmayacaksa bu da açıkça belirtilsin."
+  }
+ ],
+ "testler": "Çalışma kopyası: /home/user/wt/b (HEAD 549d93e). Not: 5e9db29..HEAD aralığında G5'in 4 commit'inin yanında G3 ve G4 inceleme düzeltmeleri de var (9cf53d7, e4c1c4b, 549d93e). Onlara da baktım (resume ile MEDIA_HOLD, djSyncVoice ve search_room_changed, DJ duyurusunun anma sayılmaması, U+FF20), somut bir hata bulmadım.\n\n- npm run denetle: geçti. \"Denetim tamamlandı: 259 dosya tarandı, ihlal bulunmadı.\" (çıkış 0)\n- npm test: 941 test, 940 geçti, 1 atlandı, 0 düştü (çıkış 0).\n- node --test --test-concurrency=1 e2e/25-dj-senkron.test.js: 9/9 geçti. Yeni \"kalıcı çerçeve ... rıza geri alınınca çerçeve kalkar\" testi de geçti.\n- node --test --test-concurrency=1 e2e/06-dj.test.js: 23/23 geçti. Arama sürerken oda değişimi testi de geçti.\n- Ek doğrulama: /tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/g5/s/race.js betiği gerçek public/dj/youtube.js ile arka arkaya iki load() yarışını yeniden üretiyor. Önceki videonun süresi ve adı yeni videoya bildiriliyor (1. bulgu).\n\nKabul ölçütleri: ikinci parçada framesTotal 1 kalıyor, iki istemci 250 ms içinde başlıyor, rıza geri alınınca çerçeve kalkıyor. Köken, kaynak ve sandbox denetimleri değişmemiş. Bunların hepsi sahte oynatıcıyla sağlanıyor. Elle deneme adımı yapılmamış.\n\nTest eksikleri: hazırlanması bitmemiş çerçevede ikinci load(), load() sonrasında gelen eski onError ve kalıcı çerçevenin yeniden yüklenmesi hiç sınanmıyor."
+}

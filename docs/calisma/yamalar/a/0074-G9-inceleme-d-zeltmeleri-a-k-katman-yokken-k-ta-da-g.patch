@@ -1,0 +1,283 @@
+From ecf9b9a6ee4f93d901ada10479d5c641ac131d9f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:04:44 +0000
+Subject: [PATCH 074/104] =?UTF-8?q?G9:=20inceleme=20d=C3=BCzeltmeleri=20(a?=
+ =?UTF-8?q?=C3=A7=C4=B1k=20katman=20yokken=20=C3=A7=C4=B1k=C4=B1=C5=9Fta?=
+ =?UTF-8?q?=20da=20ge=C3=A7mi=C5=9F=20k=C3=B6k=20kayda=20sar=C4=B1l=C4=B1r?=
+ =?UTF-8?q?)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+resetAppState navStop çağırır. Önceden geri sarma yalnızca katman yığını değişince
+çalışıyordu, durum menüsünden Çıkış Yap veya oturumun düşmesi geçmişi eski bırakıyor,
+giriş ekranında geri basıldıktan sonra yeniden girişte uygulamanın kökü aşılıyordu.
+Geri sarma miktarı artık sıra gelince tarayıcının o anki kaydındaki d'den okunur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/ARCHITECTURE.md    |  2 +-
+ docs/MIMARI.md          |  2 +-
+ e2e/19-gezinme.test.js  | 63 +++++++++++++++++++++++++++++++++++++++++
+ public/js/03-auth.js    |  3 ++
+ public/js/38-gezinme.js | 32 +++++++++++++++++----
+ test/gezinme.test.js    | 51 ++++++++++++++++++++++++++++++++-
+ 6 files changed, 145 insertions(+), 8 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 2bf6400..e713fae 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -71,7 +71,7 @@ The client is made of plain script files in the `public/` folder. There is no bu
+ 
+ The interface uses the Frequency layout: a top bar (the frequency info and the Online strip on the left, Search in the exact center, and the Direct messages, Friends and profile buttons on the right), the frequency band where the joined frequencies (each a separate Telsiz server) are arranged as stations (`24-frekans.js`, pressing a station switches to that frequency), the conversation column in the middle, and on wide screens Notifications with the radio card at the very bottom of the column on the left and the list of text and voice rooms of the open frequency (Stations, with the people in each voice room under it, a sheet opened from the Stations button on narrow screens) on the right. Notifications (`28-bildirim.js`) is a short event list kept only in the client's memory and adds no new data on the server: joining and leaving voice rooms come from comparing the voice rosters (`meta.voice`) with the previous ones on every meta update, while a screen share is written from the encrypted share announcement that arrives over the voice connections, so only shares in the same voice room appear. The people in the Stations list are drawn from the same rosters, and the ring around the person speaking is known only in the room you are connected to. In the desktop app hidden background windows count the unread messages of frequencies that are not open (`25-arka-plan.js`, [desktop/README.en.md](../desktop/README.en.md)). Details are in [DESIGN.md](DESIGN.md). The service worker (`sw.js`) caches only the app shell and never touches `/api/` requests.
+ 
+-Moving between conversations lives in `38-gezinme.js`. Room, direct message and Friends switches add an entry to the browser history, and the address and its `#` part never change (that part can carry a key or an invite). An entry carries only the user id, the distance from the root, the view type and a numeric id (`{ telsiz: { v: 1, u, d, view, id } }`). Sheets, the search panel, settings, the image viewer and the profile card add their own entry at every width (`{ telsiz: { v: 1, u, d, overlay } }`), and the entry is taken back when the layer closes some other way. The back button first closes the open layer, then returns to the previous conversation. Pressing back on the root entry leaves the app through the browser, no trap entry is added. An entry from another account and a history event outside the app are ignored. Read marks (`telsiz.read.<user>`) are kept only on the device and are not synced between devices. A conversation counts as read only while the person is at the bottom and the newest messages are loaded, so a message that arrives while they are scrolled up is not counted as read. The Mark as Read button reads the whole conversation and asks the server for the id of the newest message when the newest messages are not loaded. When a conversation opens and the first unread message is not on the newest page, the page is requested around the last read message (`around`) and newer messages load as the person scrolls down. This needed no server change. The open view (a text room, a direct conversation or Friends, `telsiz.view.<user>`) is stored on the device and restored when the page reloads.
++Moving between conversations lives in `38-gezinme.js`. Room, direct message and Friends switches add an entry to the browser history, and the address and its `#` part never change (that part can carry a key or an invite). An entry carries only the user id, the distance from the root, the view type and a numeric id (`{ telsiz: { v: 1, u, d, view, id } }`). Sheets, the search panel, settings, the image viewer and the profile card add their own entry at every width (`{ telsiz: { v: 1, u, d, overlay } }`), and the entry is taken back when the layer closes some other way. The back button first closes the open layer, then returns to the previous conversation. Pressing back on the root entry leaves the app through the browser, no trap entry is added. When the session ends (Log Out or a lost session) the history is rewound to the root entry even when no layer is open. The rewind amount is read from the distance stored in the browser's current entry, so it never goes past the root even when the in-memory model is stale. An entry from another account and a history event outside the app are ignored. Read marks (`telsiz.read.<user>`) are kept only on the device and are not synced between devices. A conversation counts as read only while the person is at the bottom and the newest messages are loaded, so a message that arrives while they are scrolled up is not counted as read. The Mark as Read button reads the whole conversation and asks the server for the id of the newest message when the newest messages are not loaded. When a conversation opens and the first unread message is not on the newest page, the page is requested around the last read message (`around`) and newer messages load as the person scrolls down. This needed no server change. The open view (a text room, a direct conversation or Friends, `telsiz.view.<user>`) is stored on the device and restored when the page reloads.
+ 
+ Data stored on the device lives in the browser's local storage: the session token, the group keyring (`telsiz.keys`), the personal identity key, pinned contact keys, theme and voice settings, the YouTube consent, read marks and the last open view. The search index exists only in the memory of the session and is never written to disk.
+ 
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index 3b43fef..3f83173 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -71,7 +71,7 @@ Her olayın bir hedef kitlesi vardır: ya bütün üyeler ya da yalnızca belirl
+ 
+ Arayüz Frekans düzenini kullanır: üst çubuk (solda frekans bilgisi ve Çevrimiçi şeridi, tam ortada Ara, sağda Özel mesajlar, Arkadaşlar ve profil düğmesi), katılınan frekansların (her biri ayrı bir Telsiz sunucusu) istasyon olarak dizildiği frekans bandı (`24-frekans.js`, istasyona basmak o frekansa geçer), ortada konuşma sütunu, geniş ekranda solda Bildirimler ve sütunun en altında telsiz kartı, sağda açık frekansın yazı ve ses odalarının listesi (İstasyonlar, ses odalarının altında odadaki kişiler, dar ekranda İstasyonlar düğmesiyle açılan sayfa). Bildirimler (`28-bildirim.js`) yalnızca istemcinin belleğinde tutulan kısa bir olay listesidir ve sunucuya yeni bir veri eklemez: ses odasına katılma ve ayrılma her meta güncellemesinde ses kadrolarının (`meta.voice`) bir öncekiyle karşılaştırılmasından çıkar, ekran paylaşımı ise ses bağlantıları üzerinden gelen şifreli paylaşım duyurusundan yazılır, bu yüzden yalnızca aynı ses odasındaki paylaşımlar görünür. İstasyonlar listesindeki kişiler de aynı kadrolardan çizilir, konuşan kişinin halkası yalnızca bağlı olunan odada bilinir. Masaüstü uygulamasında açık olmayan frekansların okunmamış sayılarını gizli arka plan pencereleri sayar (`25-arka-plan.js`, [desktop/README.md](../desktop/README.md)). Ayrıntılar [TASARIM.md](TASARIM.md) dosyasındadır. Service worker (`sw.js`) yalnızca uygulama kabuğunu önbelleğe alır ve `/api/` isteklerine hiçbir zaman dokunmaz.
+ 
+-Konuşmalar arasında gezinme `38-gezinme.js` içindedir. Oda, özel mesaj ve Arkadaşlar geçişleri tarayıcı geçmişine kayıt ekler, adres ve `#` bölümü değişmez (bu bölüm anahtar ve davet taşıyabilir). Kayıt yalnızca kullanıcı kimliğini, kökten uzaklığı, görünüm türünü ve sayı kimliğini taşır (`{ telsiz: { v: 1, u, d, view, id } }`). Sayfalar, arama paneli, ayarlar, resim görüntüleyici ve profil kartı her genişlikte kendi kaydını ekler (`{ telsiz: { v: 1, u, d, overlay } }`), katman başka yoldan kapanınca kaydı geri alınır. Geri tuşu önce açık katmanı kapatır, sonra önceki konuşmaya döner. Kök kayıttan geri basılınca tarayıcı uygulamadan çıkar, tuzak kaydı kurulmaz. Başka bir hesabın kaydı ve uygulama dışında gelen geçmiş olayı yok sayılır. Okundu bilgisi (`telsiz.read.<kullanıcı>`) yalnızca cihazda tutulur ve cihazlar arasında eşitlenmez. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır, yukarıdayken gelen mesaj okunmuş sayılmaz. Okundu İşaretle düğmesi bütün konuşmayı okur, en yeni mesajlar yüklü değilse en yeni mesajın kimliğini sunucudan alır. Konuşma açılırken ilk okunmamış mesaj en yeni sayfada değilse sayfa son okunan mesajın çevresiyle (`around`) istenir, daha yeni mesajlar aşağı inildikçe yüklenir. Bunun için sunucuda değişiklik gerekmedi. Açık görünüm (yazı odası, özel konuşma veya Arkadaşlar, `telsiz.view.<kullanıcı>`) cihazda saklanır ve sayfa yenilenince geri yüklenir.
++Konuşmalar arasında gezinme `38-gezinme.js` içindedir. Oda, özel mesaj ve Arkadaşlar geçişleri tarayıcı geçmişine kayıt ekler, adres ve `#` bölümü değişmez (bu bölüm anahtar ve davet taşıyabilir). Kayıt yalnızca kullanıcı kimliğini, kökten uzaklığı, görünüm türünü ve sayı kimliğini taşır (`{ telsiz: { v: 1, u, d, view, id } }`). Sayfalar, arama paneli, ayarlar, resim görüntüleyici ve profil kartı her genişlikte kendi kaydını ekler (`{ telsiz: { v: 1, u, d, overlay } }`), katman başka yoldan kapanınca kaydı geri alınır. Geri tuşu önce açık katmanı kapatır, sonra önceki konuşmaya döner. Kök kayıttan geri basılınca tarayıcı uygulamadan çıkar, tuzak kaydı kurulmaz. Oturum kapanınca (Çıkış Yap veya oturumun düşmesi) açık katman olmasa da geçmiş kök kayda geri sarılır. Geri sarma miktarı tarayıcının o anki kaydındaki uzaklıktan okunur, bellekteki model eskimiş olsa da kökün ötesine gidilmez. Başka bir hesabın kaydı ve uygulama dışında gelen geçmiş olayı yok sayılır. Okundu bilgisi (`telsiz.read.<kullanıcı>`) yalnızca cihazda tutulur ve cihazlar arasında eşitlenmez. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır, yukarıdayken gelen mesaj okunmuş sayılmaz. Okundu İşaretle düğmesi bütün konuşmayı okur, en yeni mesajlar yüklü değilse en yeni mesajın kimliğini sunucudan alır. Konuşma açılırken ilk okunmamış mesaj en yeni sayfada değilse sayfa son okunan mesajın çevresiyle (`around`) istenir, daha yeni mesajlar aşağı inildikçe yüklenir. Bunun için sunucuda değişiklik gerekmedi. Açık görünüm (yazı odası, özel konuşma veya Arkadaşlar, `telsiz.view.<kullanıcı>`) cihazda saklanır ve sayfa yenilenince geri yüklenir.
+ 
+ Cihazda saklanan veriler tarayıcının yerel depolamasındadır: oturum belirteci, grup anahtarlığı (`telsiz.keys`), kişisel kimlik anahtarı, sabitlenmiş kişi anahtarları, tema ve ses ayarları, YouTube onayı, okundu bilgisi ve son açılan görünüm. Arama dizini yalnızca oturumun belleğindedir ve diske yazılmaz.
+ 
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index e5d69be..698e519 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -28,6 +28,9 @@
+ //   düğmesi İstasyonlar sayfasını okunmamış konuşmada açar, geniş ekranda okunmamışı olan en yeni konuşmayı açar.
+ //   Özel mesaj görünümünde Oda bilgisi düğmesi yok
+ // - Özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yenilenince aynı görünüme dönülür
++// G9 inceleme düzeltmeleri:
++// - Açık katman yokken durum menüsünden Çıkış Yap ve oturumun düşmesi geçmişi kök kayda sarar, giriş ekranında tek
++//   geri basış uygulamadan çıkar, yeniden girişte uygulamada kalınır
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -670,6 +673,66 @@ test('görünüm: özel mesajdayken ve Arkadaşlar görünümündeyken sayfa yen
+   await waitConversation(page, 'channel', genel)
+ })
+ 
++// G9 inceleme düzeltmeleri: oturum kapanınca geçmiş, açık katman olmasa da kök kayda geri sarılır
++
++// Giriş ekranından arayüzle giriş, uygulama ve bant beklenir
++async function uiLogin (page, name, password) {
++  await page.fill('#login-name', name)
++  await page.fill('#login-password', password)
++  await page.click('#login-submit')
++  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
++}
++
++test('çıkış: açık katman yokken Çıkış Yap ve oturum düşmesi geçmişi köke sarar, giriş ekranında geri tuşu uygulamadan çıkar', async () => {
++  // Sekmede uygulamadan önce başka bir belge vardır (sorgulu adres), uygulamadan çıkmak o belgeye dönmektir
++  const page = await W.w.tb.newPage('mert', { person: W.w.P.mert, extra: { 'telsiz.skin': 'arcade', 'telsiz.scheme': 'dark' } })
++  const before = W.w.base + '/?onceki=1'
++  await page.goto(before, { timeout: h.LONG })
++  await page.goto(W.w.base + '/#anahtar=' + encodeURIComponent(W.w.keyCode), { timeout: h.LONG })
++  await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
++  await page.waitForSelector('#band-track .station[data-station]', { timeout: h.LONG })
++  const rooms = ['oyun-gecesi', 'fotograflar', 'genel'].map((name) => W.w.room(name).id)
++  const walk = async () => {
++    await navIdle(page)
++    const start = await historyNow(page)
++    for (const id of rooms) await openRoomRow(page, id)
++    await navIdle(page)
++    assert.equal((await historyNow(page)).d, start.d + 3)
++    return start
++  }
++  const loggedOut = async () => {
++    await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++    await navIdle(page)
++    return page.evaluate(() => ({ on: navState.on, d: window.history.state && window.history.state.telsiz ? window.history.state.telsiz.d : null }))
++  }
++  // Durum menüsünden Çıkış Yap: menü kapanırken kişi henüz uygulamadadır, çıkışta açık katman yoktur
++  await walk()
++  await page.click('#me-button')
++  await page.click('#menu-logout')
++  assert.deepEqual(await loggedOut(), { on: false, d: 0 }, 'çıkışta kök kayda sarıldı')
++  // Giriş ekranında tek geri basış uygulamadan çıkar
++  await page.goBack({ waitUntil: 'commit' })
++  await page.waitForURL(before)
++  await page.goForward({ waitUntil: 'domcontentloaded' })
++  await page.waitForSelector('#login-card:not([hidden])', { timeout: h.LONG })
++  await uiLogin(page, 'mert', 'parola-mert-1')
++  await navIdle(page)
++  assert.equal((await historyNow(page)).d, 0)
++
++  // Oturum düşmesi (ör. başka cihazdan kapatıldı): yeniden girişte uygulamada kalınır, geçmiş kökten başlar
++  await walk()
++  await page.evaluate(() => handleSessionLost('sessionEnded'))
++  assert.deepEqual(await loggedOut(), { on: false, d: 0 }, 'oturum düşünce kök kayda sarıldı')
++  await uiLogin(page, 'mert', 'parola-mert-1')
++  await navIdle(page)
++  const now = await historyNow(page)
++  assert.equal(now.d, 0)
++  assert.ok(now.href.indexOf(W.w.base + '/') === 0 && now.href !== before, 'uygulamadan çıkılmadı')
++  await page.goBack({ waitUntil: 'commit' })
++  await page.waitForURL(before)
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/js/03-auth.js b/public/js/03-auth.js
+index 58091e0..8f7889f 100644
+--- a/public/js/03-auth.js
++++ b/public/js/03-auth.js
+@@ -783,6 +783,9 @@ async function logout () {
+ }
+ 
+ function resetAppState () {
++  // Tarayıcı geçmişi kök kayda geri sarılır (38-gezinme.js). Açık katman olmasa da çağrılır, katmanların
++  // kapanması geçmişe ayrıca yazılmaz.
++  if (typeof navStop === 'function') navStop()
+   closeAllLayers()
+   socialReset()
+   if (typeof activityReset === 'function') activityReset()
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 72c3154..40695f3 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -133,6 +133,20 @@ function navQueueGo (delta) {
+   navState.ops.push({ kind: 'go', delta: delta })
+ }
+ 
++// Tarayıcının o anki kaydının kökten uzaklığı (d). Kayıt bize ait değilse null. Hesap denetlenmez: oturum kapanırken
++// geri sarılan kayıtlar kapanan oturumundur.
++function navDepthNow (hist) {
++  let raw = null
++  try {
++    raw = hist.state
++  } catch (err) {
++    raw = null
++  }
++  const s = raw && typeof raw === 'object' ? raw.telsiz : null
++  if (!s || typeof s !== 'object' || s.v !== 1 || typeof s.d !== 'number' || !isFinite(s.d) || s.d < 0) return null
++  return Math.floor(s.d)
++}
++
+ function navRun () {
+   const hist = navHistory()
+   while (!navState.waiting && navState.ops.length) {
+@@ -144,10 +158,15 @@ function navRun () {
+       } else if (op.kind === 'replace') {
+         hist.replaceState(op.state, '')
+       } else {
++        // Kök kayda geri sarma (navStop): miktar sıra gelince tarayıcının o anki kaydından okunur, model eskimiş
++        // olsa da kökün ötesine geçilmez
++        const depth = op.kind === 'rewind' ? navDepthNow(hist) : null
++        const delta = op.kind === 'rewind' ? -(depth === null ? op.fallback : depth) : op.delta
++        if (!delta) continue
+         navState.waiting = true
+         clearTimeout(navState.waitTimer)
+         navState.waitTimer = setTimeout(navPopTimeout, NAV_POP_WAIT_MS)
+-        hist.go(op.delta)
++        hist.go(delta)
+       }
+     } catch (err) {
+       navState.waiting = false
+@@ -179,16 +198,19 @@ function navStart () {
+   navRun()
+ }
+ 
+-// Uygulamadan çıkıldı (oturum kapandı): geçmiş kök kayda geri sarılır, bundan sonraki popstate yok sayılır
++// Uygulamadan çıkıldı (oturum kapandı, 03-auth.js resetAppState): geçmiş kök kayda geri sarılır, bundan sonraki
++// popstate yok sayılır. Geri sarma miktarı tarayıcının o anki kaydındaki d'dir (navRun), model yalnızca kayıt bize
++// ait değilse kullanılır. Böylece giriş ekranında geri basıldıktan sonra da kökün ötesine geçilmez.
+ function navStop () {
+-  const extra = navState.stack.length - 1
++  const was = navState.on
++  const extra = Math.max(0, navState.stack.length - 1)
+   navState.on = false
+   navState.stack = []
+   navState.convMode = ''
+   navState.dmAll = false
+   navUnreadReset(null)
+-  if (extra > 0) {
+-    navState.ops.push({ kind: 'go', delta: -extra })
++  if (was) {
++    navState.ops.push({ kind: 'rewind', fallback: extra })
+     navRun()
+   }
+ }
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index e908c5f..10e5a27 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -306,7 +306,8 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
+   run("testOpen('settings', 1)")
+   await settle()
+   assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:settings'])
+-  // 03-auth.js resetAppState: katmanlar kapanır, uygulamadan çıkılır
++  // Katmanlar kapanırken uygulamadan çıkılmışsa navReconcile de geri sarar (03-auth.js resetAppState ayrıca navStop
++  // çağırır, aşağıdaki test)
+   run('closeAllLayers(); state.inApp = false')
+   await settle()
+   assert.strictEqual(hist.index, 0)
+@@ -316,6 +317,54 @@ test('geçmiş: oturum kapanınca açık katmanların kayıtları geri sarılır
+   assert.deepStrictEqual(hist.list(), ['0:channel-12'])
+ })
+ 
++test('geçmiş: açık katman yokken oturum kapanınca da geri sarılır, eskimiş model kökün ötesine geri sarmaz', async () => {
++  const { run, hist, json } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  run('selectChannel(12, {})')
++  await settle()
++  run('showDm(50, {})')
++  await settle()
++  assert.strictEqual(hist.index, 3)
++  // 03-auth.js resetAppState: katman açık değil, navStop doğrudan çağrılır (katmanların kapanması bir şey bildirmez)
++  run('navStop(); closeAllLayers(); state.inApp = false')
++  await settle()
++  assert.strictEqual(hist.index, 0)
++  assert.deepStrictEqual(json('[navState.on, navState.stack.length]'), [false, 0])
++  // Uygulama dışında ileri tuşu bir şey açmaz, yeniden girişte geri sarılacak kayıt yoktur
++  run('testCalls.length = 0')
++  hist.user(1)
++  await settle()
++  assert.deepStrictEqual(json('testCalls'), [], 'uygulama dışında geçmiş olayı yok sayılır')
++  hist.user(-1)
++  await settle()
++  hist.calls.length = 0
++  run("state.inApp = true; testView = 'channel'; state.channelId = 10; navStart()")
++  await settle()
++  assert.deepStrictEqual(hist.calls, ['replace'])
++  assert.deepStrictEqual(hist.list(), ['0:channel-10'])
++
++  // Model eskidiyse (uygulama dışındayken geri basıldı, navStop çağrılmadı) geri sarma tarayıcının o anki kaydındaki
++  // d kadardır: modelin uzunluğu kadar geri gidilseydi kökün ötesindeki sayfaya çıkılırdı
++  run('selectChannel(11, {})')
++  await settle()
++  run('selectChannel(12, {})')
++  await settle()
++  run('showDm(50, {})')
++  await settle()
++  run('state.inApp = false')
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[navState.on, navState.stack.length]'), [true, 4])
++  assert.strictEqual(hist.index, 2)
++  hist.calls.length = 0
++  run('state.inApp = true; navStart()')
++  await settle()
++  assert.deepStrictEqual(hist.calls, ['go-2', 'replace'])
++  assert.strictEqual(hist.index, 0)
++  assert.deepStrictEqual(hist.list(), ['0:dm-50'])
++})
++
+ test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa ayraç yok, sayfanın hepsi yeniyse çevresi yüklenir', () => {
+   const { json } = load()
+   // Kullanıcı 1: 6 numaralı mesaj kendi mesajı

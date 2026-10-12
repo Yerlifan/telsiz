@@ -1,0 +1,384 @@
+From b878db2275df7516d8ef503bac79490810b158f4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 13:06:55 +0000
+Subject: [PATCH 065/104] =?UTF-8?q?G14:=20Belgeler:=20kurtarma=20kodu,=20P?=
+ =?UTF-8?q?arolam=C4=B1=20Unuttum=20ve=20CHANGELOG?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MIMARI ve ARCHITECTURE kurtarma kodunun biçimini, türetmeyi, kullanıcı
+kaydını, uçları, hız sınırlarını ve sınırlarını anlatır, parola
+sıfırlamasını yalnızca sahibin yapabildiği düzeltildi. KURULUM ve
+DEPLOYMENT kodu olan kişinin sahibe gerek duymadan parolasını
+sıfırladığını, README çiftleri özelliği, CONTRIBUTING çiftleri
+41-kurtarma.js modülünü ve kurtarma kodunun ek inceleme isteyen alana
+girdiğini, SECURITY bilinen sınırları ve bildirilmesi beklenen açıkları
+yazar. CHANGELOG çiftine Yayımlanmamış altında özellik ve API notu
+eklendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md      |  2 ++
+ CHANGELOG.md         |  2 ++
+ CONTRIBUTING.en.md   |  7 ++++---
+ CONTRIBUTING.md      |  7 ++++---
+ README.en.md         |  4 +++-
+ README.md            |  4 +++-
+ SECURITY.md          |  6 ++++--
+ docs/ARCHITECTURE.md | 29 ++++++++++++++++++++++++++---
+ docs/DEPLOYMENT.md   |  4 +++-
+ docs/KURULUM.md      |  4 +++-
+ docs/MIMARI.md       | 29 ++++++++++++++++++++++++++---
+ 11 files changed, 80 insertions(+), 18 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 0915e27..5c61b81 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -8,6 +8,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ 
+ - Cover photo: a cover photo can be added to the profile in Settings > Profile (Choose Cover, Remove Cover). The chosen image is center-cropped to 3:1 and re-encoded as a 1200x400 JPEG, and metadata such as the location is removed. Like the profile picture, the cover is end-to-end encrypted with its own file key and follows the same size limit as the profile picture (1 MB by default), the quality is lowered in two steps if it does not fit. The cover appears in the color band of the profile card and in the My Account and Profile previews in Settings. Unlike profile pictures, covers are not downloaded in advance, only when the card is opened. Because of this the server can see who opens whose card. If an older client that does not know about covers saves the profile, the cover is removed. When the cover changes, is removed or the account is deleted, the old file is deleted from the server, and the cover counts toward the user's upload quota. An optional `cover` field was added to the profile envelope and a `coverUploadId` field to the `POST /api/me/profile` request and the `GET /api/profiles` response, with the new error codes `bad_cover` and `cover_too_large`.
+ - Seven new themes: Field Radio (Saha Telsizi), Tube Radio (Lambalı Radyo), Phosphor (Fosfor), Polar Station (Kutup İstasyonu), Vinyl (Plak), Cockpit (Kokpit) and High Contrast (Yüksek Kontrast). Each has a dark and a light mode, and Arcade stays the default theme. The themes bring no new fonts, they use other combinations of the existing fonts. In Settings > Appearance the theme cards sit in the Radio Themes and Accessibility groups and are more compact: the preview strip is shorter and the description is visible only on the selected card (screen readers read the description of every card). High Contrast gives at least 7:1 contrast for text, uses thick borders, no gradients, shadows or background light, underlines links, draws a thick focus ring and sets disabled buttons apart with a dashed border instead of fading them. When the system has high contrast turned on (`prefers-contrast: more` or forced colors such as Windows High Contrast) and no theme preference is stored on the device, High Contrast is chosen on first start. This choice is not stored, and clicking the High Contrast card, which shows as selected in Settings, makes it permanent. In forced colors mode selected items get a border in the system highlight color. The total size of the stylesheets grew with the new themes.
++- Forgot my password (recovery code): a 28 character recovery code is shown when the account is created. The code can be copied or downloaded as a file, and the person continues after confirming "I saved the code". A person who forgets their password resets it themselves with the Forgot My Password link on the sign in screen using their username, recovery code and a new password: the security key does not change, old direct messages stay readable, the people they talk to see no key change warning, and a new code is issued once the code is used. The code is created, renewed or removed with the password in Settings > My Account > Recovery Code, which shows when and on which device it was created. When changing the password, the code can be renewed at the same time. Accounts without a code are reminded once after signing in with the password, and the "I don't have a recovery code" section on the sign in screen points these people to the frequency owner. A password reset by the owner or the command line also deletes the recovery code. The code is 16 random bytes, and the server stores only the scrypt hash of a key derived from the code and the private key wrapped with the code. The recovery endpoints give the same answer at the same cost when the account does not exist, has no code or the code is wrong, and their attempt counters are separate from sign in. There is no reset by email. The new endpoints `POST /api/me/recovery`, `POST /api/recover/keys` and `POST /api/recover` were added, an optional `recovery` field was added to the `POST /api/register` and `POST /api/me/password` requests and a `recovery` field with the creation time and device of the person's own code to the `GET /api/state` response, with the new error codes `bad_recovery` and `keys_changed`.
+ 
+ ### Changes
+ 
+@@ -21,6 +22,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ - Profile changes did not show up everywhere: when someone changed their display name or profile picture, the camera grid, the Notifications list, the name of the person who added a track in the Telsiz DJ queue and the title of an open volume card kept showing the old name and picture. All surfaces now update right away. A username change reaches the same surfaces. If a profile request failed with a connection error, the change did not arrive until the next unrelated change, and if a profile picture download failed, the picture did not show until the page was reloaded. A failed profile request is now retried after 2, 5, 15 and 60 seconds, and after that at most once a minute while the connection works, so once the connection is back the change arrives within a minute. A failed profile picture download is retried after 10 seconds, 30 seconds and 2 minutes. While the connection works the wait never exceeds a minute, and after the four attempts it is still tried at most once a minute, so once the connection is back the picture arrives within a minute. A picture the server does not have or that cannot be decrypted is not requested again.
+ - In the Arcade and Turquoise and Copper themes the border of the camera indicator on the radio card ("Your camera is on, everyone in the room can see it") and of the notice shown when someone starts sharing their screen was not drawn at all. The muted Microphone and active Camera buttons of a direct message call, the chip and panel of your own share, the Stop Watching button, the Telsiz DJ error box and the verified safety number button were also drawn in the text color instead of their own border color. Both themes now have live and danger border colors, and the borders show with at least 3:1 contrast on every surface.
+ - Text and attachments in the message field stayed there when you moved to another conversation: text typed in a direct message and a photo attached to it remained in the message field after switching to a text room and could be sent to that room with the Send button. The same happened between text rooms. Every text room and direct message now has its own draft: when you leave a conversation its text and attachments stay with it and are back when you return, they never show up in another conversation's message field and cannot be sent there. An attachment that is still uploading finishes in its own conversation. Drafts are kept only in memory and never written to disk. They are deleted when you sign out and when you switch frequencies, the draft of a direct message is deleted when you block that person and the draft of a text room is deleted when the room is deleted. Because the server deletes uploads that are not attached to a message after an hour, an attachment left waiting in a draft for a long time could not be sent and every attempt showed "The files attached to the message are invalid." Such an attachment is now uploaded again from its file when you return to the conversation or press Send, the text stays in place and the message can be sent once the upload finishes. The upload queue handles the open conversation's attachments first, and an upload error in one conversation no longer marks the attachments of other conversations as failed.
++- The architecture document said a password could be reset by the owner, an admin or the command line. Only the owner can reset members' passwords, the document was corrected.
+ 
+ ## [2.5.0]
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c160c00..c82917c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -8,6 +8,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ 
+ - Kapak fotoğrafı: Ayarlar > Profil bölümünden profile bir kapak fotoğrafı eklenebilir (Kapak Seç, Kapağı Kaldır). Seçilen resim ortasından 3:1 oranında kırpılıp 1200x400 boyutunda JPEG olarak yeniden kodlanır, konum gibi üst veriler silinir. Kapak profil resmi gibi kendi dosya anahtarıyla uçtan uca şifrelenir ve profil resmiyle aynı boyut sınırına (varsayılan 1 MB) uyar, sığmazsa kalite iki adımda düşürülür. Kapak profil kartının renk bandında, Ayarlar'daki Hesabım ve Profil önizlemelerinde görünür. Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca indirilir. Bu yüzden sunucu kimin hangi kişinin kartını açtığını görebilir. Kapağı bilmeyen eski bir istemci profili kaydederse kapak kalkar. Kapak değişince, kaldırılınca ve hesap silinince eski dosya sunucudan silinir, kapak kullanıcının yükleme kotasına sayılır. Profil zarfına isteğe bağlı `cover` alanı, `POST /api/me/profile` isteğine ve `GET /api/profiles` yanıtına `coverUploadId` alanı eklendi, yeni hata kodları `bad_cover` ve `cover_too_large`.
+ - Yedi yeni tema: Saha Telsizi, Lambalı Radyo, Fosfor, Kutup İstasyonu, Plak, Kokpit ve Yüksek Kontrast. Her birinin koyu ve açık modu vardır, varsayılan tema Arcade olarak kalır. Temalar yeni yazı tipi getirmez, var olan yazı tiplerinin başka birleşimlerini kullanır. Ayarlar > Görünüm'de tema kartları Telsiz Temaları ve Erişilebilirlik gruplarında durur ve sıkıştırıldı: önizleme şeridi kısaldı, açıklama yalnızca seçili kartta görünür (ekran okuyucu her kartın açıklamasını okur). Yüksek Kontrast metinde en az 7:1 kontrast verir, kenarları kalındır, degrade, gölge ve zemin ışığı kullanmaz, bağlantıların altı çizilidir, odak çerçevesi kalındır, devre dışı düğmeler soluklaşmak yerine kesik kenarla ayrılır. Sistemde yüksek karşıtlık açıksa (`prefers-contrast: more` veya Windows Yüksek Karşıtlık gibi zorlanmış renkler) ve cihazda saklı tema tercihi yoksa ilk açılışta Yüksek Kontrast seçilir. Bu seçim saklanmaz, Ayarlar'da işaretli görünen Yüksek Kontrast kartına tıklamak onu kalıcı yapar. Zorlanmış renk kipinde seçili öğeler sistem vurgusu renginde kenar alır. Yeni temalarla birlikte stil dosyalarının toplam boyutu büyüdü.
++- Parolamı unuttum (kurtarma kodu): hesap açılırken 28 karakterlik bir kurtarma kodu gösterilir. Kod kopyalanabilir veya dosya olarak indirilebilir, "kaydettim" onayından sonra devam edilir. Parolasını unutan kişi giriş ekranındaki Parolamı Unuttum bağlantısında kullanıcı adı, kurtarma kodu ve yeni parolayla parolasını kendisi sıfırlar: güvenlik anahtarı değişmez, eski özel mesajlar okunmaya devam eder, konuştuğu kişilerde anahtar değişti uyarısı çıkmaz ve kod kullanılınca yenisi verilir. Kod Ayarlar > Hesabım > Kurtarma Kodu bölümünden parolayla oluşturulur, yenilenir veya kaldırılır, bölüm kodun ne zaman ve hangi cihazda oluşturulduğunu gösterir. Parola değiştirilirken kod istenirse aynı anda yenilenir. Kodu olmayan hesaplara parolayla girişten sonra bir kez hatırlatma gösterilir, giriş ekranındaki "Kurtarma kodum yok" bölümü bu kişileri frekansın sahibine yönlendirir. Sahibin veya komut satırının parola sıfırlaması kurtarma kodunu da siler. Kod 16 rastgele bayttır, sunucu yalnızca koddan türetilen anahtarın scrypt karmasını ve kodla sarılmış özel anahtarı saklar. Kurtarma uçları hesap yok, kod yok ve kod yanlış durumlarında aynı yanıtı aynı maliyetle verir, deneme sayaçları girişinkilerden ayrıdır. E-posta ile sıfırlama yoktur. Yeni uçlar `POST /api/me/recovery`, `POST /api/recover/keys` ve `POST /api/recover` eklendi, `POST /api/register` ve `POST /api/me/password` isteklerine isteğe bağlı `recovery` alanı, `GET /api/state` yanıtına kişinin kendi kodunun oluşturma zamanını ve cihazını veren `recovery` alanı eklendi, yeni hata kodları `bad_recovery` ve `keys_changed`.
+ 
+ ### Değişiklikler
+ 
+@@ -21,6 +22,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ - Profil değişikliği her yere yansımıyordu: biri görünen adını veya profil resmini değiştirince kameralar ızgarası, Bildirimler listesi, Telsiz DJ kuyruğundaki ekleyen adı ve açık kişi ses kartının başlığı eski adı ve resmi göstermeye devam ediyordu. Artık bütün yüzeyler hemen güncellenir. Kullanıcı adı değişikliği de aynı yüzeylere yansır. Profil isteği bağlantı hatasıyla düşerse değişiklik bir sonraki ilgisiz değişikliğe kadar hiç gelmiyordu, profil resmi indirmesi düşerse resim sayfa yenilenene kadar görünmüyordu. Düşen profil isteği artık 2, 5, 15 ve 60 saniye sonra, sonra da bağlantı düzeldikçe en çok dakikada bir yeniden denenir, bağlantı düzelince değişiklik en geç bir dakika içinde gelir. Düşen profil resmi indirmesi 10 saniye, 30 saniye ve 2 dakika sonra yeniden denenir. Bağlantı çalışırken bekleme bir dakikayı geçmez, dört deneme bittikten sonra da en çok dakikada bir denenir, böylece bağlantı düzelince resim en geç bir dakika içinde gelir. Sunucuda bulunmayan veya çözülemeyen resim yeniden istenmez.
+ - Arcade ile Turkuaz ve Bakır temalarında telsiz kartındaki kamera göstergesinin ("Kameranız açık, odadaki herkes görüyor") ve biri ekran paylaşmaya başlayınca çıkan bildirimin kenarı hiç çizilmiyordu. Özel mesaj aramasındaki kapalı Mikrofon ve açık Kamera düğmeleri, kendi paylaşımınızın çipi ve paneli, İzlemeyi Bırak düğmesi, Telsiz DJ'nin hata kutusu ve doğrulanmış güvenlik numarası düğmesi de kendi kenar rengi yerine yazı rengiyle çiziliyordu. İki temaya canlı ve tehlike kenarı renkleri eklendi, kenarlar her yüzeyde en az 3:1 kontrastla görünür.
+ - Başka bir konuşmaya geçince yazma alanındaki metin ve ekler yeni konuşmada da duruyordu: özel mesajda yazılan metin ve eklenen fotoğraf bir yazı odasına geçince yazma alanında duruyor ve Gönder düğmesiyle o odaya gönderilebiliyordu. Aynı durum yazı odaları arasında da vardı. Artık her yazı odasının ve özel konuşmanın kendi taslağı vardır: konuşmadan çıkınca metin ve ekler o konuşmada kalır, geri dönünce yerinde durur, başka bir konuşmanın yazma alanında görünmez ve gönderilemez. Yüklemesi süren ek kendi konuşmasında tamamlanır. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değiştirilince silinir, kişi engellenince o kişiyle özel konuşmanın, yazı odası silinince o odanın taslağı silinir. Sunucu mesaja eklenmemiş yüklemeleri bir saat sonra sildiği için taslakta uzun süre bekleyen ek gönderilemiyor ve her denemede "Mesaja eklenen dosyalar geçersiz." uyarısı çıkıyordu. Artık böyle bir ek konuşmaya dönünce veya gönderirken dosyasından yeniden yüklenir, metin yerinde kalır ve yükleme bitince mesaj gönderilebilir. Yükleme sırasında açık konuşmanın ekleri öne alınır, bir konuşmadaki yükleme hatası başka konuşmaların eklerine geçmez.
++- Mimari belgesi parola sıfırlamayı sahip, yönetici veya komut satırının yapabildiğini söylüyordu. Üyelerin parolasını yalnızca sahip sıfırlayabilir, belge düzeltildi.
+ 
+ ## [2.5.0]
+ 
+diff --git a/CONTRIBUTING.en.md b/CONTRIBUTING.en.md
+index 896a6ee..069ff93 100644
+--- a/CONTRIBUTING.en.md
++++ b/CONTRIBUTING.en.md
+@@ -100,7 +100,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | --- | --- |
+ | `01-core.js` | Constants, storage keys, `t()`, server requests, formatting helpers |
+ | `02-state-dom.js` | App state, element cache, DOM helpers, the layer stack, notifications |
+-| `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
++| `03-auth.js` | Startup, setup, invite, sign in, registration and key screens, moving to the recovery code card after registration |
+ | `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
+ | `05-poll.js` | The long poll loop, event handling, notifications |
+ | `06-messages.js` | Message decryption, message nodes, paging, editing and deleting |
+@@ -113,7 +113,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `13-profile.js` | Profiles, the profile card, the status menu |
+ | `14-social.js` | Friends, blocking, the view mode |
+ | `15-dm.js` | Direct messages and the safety number |
+-| `16-identity.js` | Key derivation from the password and the personal identity key |
++| `16-identity.js` | Key derivation from the password, the personal identity key and recovery code requests (code at registration, code from Settings, new password with the code) |
+ | `17-search.js` | Search on the device |
+ | `18-mentions.js` | @ mentions and the suggestion list |
+ | `19-typing.js` | Typing indicator |
+@@ -130,6 +130,7 @@ The client modules are numbered files under `public/js/` and are loaded in this
+ | `30-pencere.js` | The title strip of the desktop app (Windows and Linux): app menus, window title, theme color of the window buttons |
+ | `31-sesler.js` | Sound notifications (`window.TelsizSesler`): synthesized 2 second sounds for join, leave, screen share, direct message, friend request, voice room disconnect and incoming call (ring), the message sound, the notification sound volume |
+ | `32-arama.js` | Voice and video calls in direct messages: the Voice Call and Video Call buttons in the header, the call area above the conversation (tiles, status, Microphone, Camera, End Call), the incoming call card, the ring and the system notification |
++| `41-kurtarma.js` | Recovery code interface: the Forgot My Password card on the sign in screen (new password with the code, pointing people without a code to the owner), the code card shown after setup, registration and recovery, the code dialog inside the app (Copy, Download as File, saved confirmation), the Recovery Code section in Settings > My Account and the one time reminder after signing in to an account without a code |
+ 
+ If a new client module is added, it is also added to the script list in `index.html` and to the shell list in `public/sw.js`.
+ 
+@@ -171,7 +172,7 @@ Changes that touch the following areas need extra review. In these pull requests
+ 
+ | Area | Why it is sensitive |
+ | --- | --- |
+-| `public/crypto.js`, `public/js/16-identity.js` | Key code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
++| `public/crypto.js`, `public/js/16-identity.js` | Key code, recovery code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
+ | `public/voice.js` | Encryption of voice and screen sharing signals, verification of sender and recipient, replay protection |
+ | `public/music.js`, `public/dj/youtube.js` | Validation of the encrypted DJ state, isolation of the YouTube frame and the consent rule |
+ | `src/auth.js`, `src/app.js` | Password hashing, sessions, permissions, rate limits, trusted proxies |
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 3217764..bc51ffb 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -100,7 +100,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | --- | --- |
+ | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
+ | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
+-| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
++| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları, kayıttan sonra kurtarma kodu kartına geçiş |
+ | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
+ | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
+ | `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
+@@ -113,7 +113,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `13-profile.js` | Profiller, profil kartı, durum menüsü |
+ | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
+ | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
+-| `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
++| `16-identity.js` | Paroladan anahtar türetme, kişisel kimlik anahtarı ve kurtarma kodu istekleri (kayıtta kod, Ayarlar'dan kod, kodla yeni parola) |
+ | `17-search.js` | Cihazda arama |
+ | `18-mentions.js` | @ ile anma ve öneri listesi |
+ | `19-typing.js` | Yazıyor göstergesi |
+@@ -130,6 +130,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
+ | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
+ | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
+ | `32-arama.js` | Özel mesajda sesli ve görüntülü arama: başlıktaki Sesli Ara ve Görüntülü Ara düğmeleri, konuşmanın üstündeki arama bölümü (kutular, durum, Mikrofon, Kamera, Aramayı Bitir), gelen arama kartı, zil ve sistem bildirimi |
++| `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü ve kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma |
+ 
+ Yeni bir istemci modülü eklenirse `index.html` içindeki betik listesine ve `public/sw.js` içindeki kabuk listesine de eklenir.
+ 
+@@ -171,7 +172,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
+ 
+ | Alan | Neden hassas |
+ | --- | --- |
+-| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
++| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, kurtarma kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
+ | `public/voice.js` | Ses ve ekran paylaşımı sinyallerinin şifrelenmesi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması |
+ | `public/music.js`, `public/dj/youtube.js` | Şifreli DJ durumunun doğrulanması, YouTube çerçevesinin yalıtılması ve onay kuralı |
+ | `src/auth.js`, `src/app.js` | Parola karması, oturumlar, yetkiler, hız sınırları, güvenilir vekil |
+diff --git a/README.en.md b/README.en.md
+index ac84b85..12a113d 100644
+--- a/README.en.md
++++ b/README.en.md
+@@ -20,6 +20,8 @@ Messages, files, profiles and the setup messages of voice connections are encryp
+ 
+ **Friends and direct messages.** Users can send each other friend requests by username, accept them and block people. Messages from a blocked person in text rooms are collapsed and their voice is muted on your side.
+ 
++**Forgot my password.** A 28 character recovery code is shown when the account is created. The code can be copied or downloaded as a file, and it can be created again, renewed or removed with the password in Settings > My Account. A person who forgets their password sets a new one with the code via the Forgot My Password link on the sign in screen. The security key does not change, old direct messages stay readable, and a new code is issued once the code is used. A person without a code is pointed to the frequency owner, and old direct messages can no longer be read after the owner's password reset. Telsiz does not use email.
++
+ **Profile.** Settings > Profile sets the display name, custom status, about me text, profile color, profile picture and cover photo. The profile picture is center-cropped to a square and re-encoded at 256x256, the cover photo is center-cropped to 3:1 and re-encoded at 1200x400, and metadata such as the location is removed. The profile details and both images are end-to-end encrypted and only members with the encryption key can see them. The cover appears in the color band of the profile card and is downloaded only when the card is opened, so the server can see who opens whose card.
+ 
+ **Voice chat.** Audio flows directly between people over WebRTC and does not pass through the server. You choose between voice activity detection (with an automatic or manual threshold) and push to talk. The choice can also be made from a small menu that opens when you right click the microphone button (Shift+F10 on the keyboard). A keyboard key, a mouse side button or a gamepad button can be assigned to push to talk, mute and deafen. When you join a voice room, a radio card that looks like a handheld radio opens: the people in the room, a halo around the speaker, a large Push to talk button, and buttons in two rows, each in its own color (Camera, Microphone and Deafen on top, Screen and Leave below, on phones only icons in a single row). The volume of each person can be set between 0% and 200%, and anything above 100% boosts that person's voice on the device. Because the boosted voice plays from the browser's audio context, Chromium's echo cancellation may not take it into account, so echo may reach the other side when you use speakers. Headphones avoid this. A distinct 2 second notification sound plays when someone joins or leaves the voice room, when someone starts a screen share, when a direct message or a friend request arrives and when you drop out of the voice room. The sounds are not played from files, they are synthesized on the device. Their volume is set with the slider in Settings > Notifications (40% by default), where each sound can also be played. Advanced noise suppression (RNNoise) suppresses non-speech sounds such as keyboard clicks on the device before they reach others, and it is on by default. By default up to 8 people can join a voice room, and the owner of the frequency can change this limit between 2 and 12 people in Settings > General.
+@@ -165,7 +167,7 @@ The server is configured with environment variables. Each setting has a Turkish
+ | `GUVENILIR_VEKIL` (`TRUSTED_PROXY`) | `loopback` | Proxy addresses whose `X-Forwarded-For` and `CF-Connecting-IP` headers are trusted: `loopback`, `none`, IP addresses or CIDR blocks, comma separated. |
+ | `DIL` (`TELSIZ_LANG`) | system language | The language of console messages: `tr` or `en`. |
+ 
+-If the owner forgets the password, the `sifre-sifirla <username>` command (in English `reset-password`) creates a temporary password while the server is stopped, for example `npx telsiz reset-password deniz` or `node server.js reset-password deniz`. This resets the person's security key, so their old direct messages can no longer be read.
++Anyone with a recovery code (the owner included) resets their password themselves with the Forgot My Password link on the sign in screen and keeps their direct messages. If an owner without a code forgets the password, the `sifre-sifirla <username>` command (in English `reset-password`) creates a temporary password while the server is stopped, for example `npx telsiz reset-password deniz` or `node server.js reset-password deniz`. This resets the person's security key and recovery code, so their old direct messages can no longer be read.
+ 
+ ## Documentation
+ 
+diff --git a/README.md b/README.md
+index 44651fb..dfcb566 100644
+--- a/README.md
++++ b/README.md
+@@ -20,6 +20,8 @@ Mesajlar, dosyalar, profiller ve ses bağlantısının kurulum mesajları cihazd
+ 
+ **Arkadaşlar ve özel mesajlar.** Kullanıcılar birbirine kullanıcı adıyla arkadaşlık isteği gönderebilir, kabul edebilir ve engelleyebilir. Engellenen kişinin yazı odalarındaki mesajları katlanır ve sesi sizin tarafınızda kısılır.
+ 
++**Parolamı unuttum.** Hesap açılırken 28 karakterlik bir kurtarma kodu gösterilir. Kod kopyalanabilir veya dosya olarak indirilebilir, Ayarlar > Hesabım bölümünden parolayla yeniden oluşturulur, yenilenir veya kaldırılır. Parolasını unutan kişi giriş ekranındaki Parolamı Unuttum bağlantısında kodla yeni parola belirler. Güvenlik anahtarı değişmez, eski özel mesajlar okunmaya devam eder ve kod kullanılınca yenisi verilir. Kodu olmayan kişi frekansın sahibine yönlendirilir, sahibin parola sıfırlamasında eski özel mesajlar okunamaz. Telsiz e-posta kullanmaz.
++
+ **Profil.** Ayarlar > Profil bölümünden görünen ad, özel durum, hakkımda metni, profil rengi, profil resmi ve kapak fotoğrafı ayarlanır. Profil resmi ortasından kare kırpılıp 256x256, kapak fotoğrafı ortasından 3:1 kırpılıp 1200x400 boyutunda yeniden kodlanır, konum gibi üst veriler silinir. Profil bilgileri ve iki resim uçtan uca şifrelidir, yalnızca şifreleme anahtarına sahip üyeler görür. Kapak profil kartının renk bandında görünür ve yalnızca kart açılınca indirilir, bu yüzden sunucu kimin hangi kişinin kartını açtığını görebilir.
+ 
+ **Sesli sohbet.** Ses, kişiler arasında WebRTC ile doğrudan akar ve sunucudan geçmez. Ses etkinliği algılama (otomatik veya elle ayarlanan eşikle) ve bas konuş arasında seçim yapılır. Bu seçim mikrofon düğmesine sağ tıklayınca (klavyede Shift+F10) açılan küçük menüden de yapılabilir. Bas konuş, mikrofonu kapatma ve sağırlaştırma için klavye tuşu, fare yan tuşu veya oyun kolu düğmesi atanabilir. Ses odasına bağlanınca bir el telsizini andıran telsiz kartı açılır: odadakiler, konuşanın halesi, büyük Bas konuş düğmesi ve iki satırda, her biri kendi renginde düğmeler (üstte Kamera, Mikrofon ve Sağırlaştır, altta Ekran ve Ayrıl, telefonda tek satırda yalnızca simgeler). Kişi bazında ses seviyesi %0 ile %200 arasında ayarlanabilir, %100'ün üstü o kişinin sesini cihazda yükseltir. Yükseltilmiş ses tarayıcının ses bağlamından çaldığı için Chromium'un yankı engellemesi bu sesi hesaba katmayabilir, hoparlörle kullanırken karşı tarafa yankı gidebilir, kulaklıkla bu sorun olmaz. Ses odasına biri katılınca veya ayrılınca, biri ekran yayını başlatınca, özel mesaj veya arkadaşlık isteği gelince ve ses odasından düşünce her biri kendine özgü, 2 saniyelik bir bildirim sesi çalar. Sesler dosyadan çalınmaz, cihazda sentezlenir. Düzeyleri Ayarlar > Bildirimler'deki kaydırıcıyla ayarlanır (varsayılan %40), aynı yerde her ses dinlenebilir. Gelişmiş gürültü engelleme (RNNoise) klavye tıkırtısı gibi konuşma dışı sesleri karşı tarafa gitmeden cihazda bastırır, varsayılan olarak açıktır. Bir ses odasına varsayılan olarak en fazla 8 kişi katılabilir, frekansın sahibi bu sınırı Ayarlar > Genel bölümünden 2 ile 12 kişi arasında değiştirebilir.
+@@ -165,7 +167,7 @@ Sunucu ortam değişkenleriyle ayarlanır. Her ayarın Türkçe adı ve İngiliz
+ | `GUVENILIR_VEKIL` (`TRUSTED_PROXY`) | `loopback` | `X-Forwarded-For` ve `CF-Connecting-IP` başlıklarına güvenilen vekil adresleri: `loopback`, `none`, IP adresleri veya CIDR blokları, virgülle ayrılmış. |
+ | `DIL` (`TELSIZ_LANG`) | sistem dili | Konsol metinlerinin dili: `tr` veya `en`. |
+ 
+-Sahip parolasını unutursa sunucu durdurulduktan sonra `sifre-sifirla <kullanıcı adı>` (İngilizcesi `reset-password`) komutu geçici bir parola üretir, örneğin `npx telsiz sifre-sifirla deniz` veya `node server.js sifre-sifirla deniz`. Bu işlem kişinin güvenlik anahtarını sıfırlar, eski özel mesajları artık okunamaz.
++Kurtarma kodu olan herkes (sahip dahil) parolasını giriş ekranındaki Parolamı Unuttum bağlantısıyla kendisi sıfırlar ve özel mesajlarını korur. Kodu olmayan sahip parolasını unutursa sunucu durdurulduktan sonra `sifre-sifirla <kullanıcı adı>` (İngilizcesi `reset-password`) komutu geçici bir parola üretir, örneğin `npx telsiz sifre-sifirla deniz` veya `node server.js sifre-sifirla deniz`. Bu işlem kişinin güvenlik anahtarını ve kurtarma kodunu sıfırlar, eski özel mesajları artık okunamaz.
+ 
+ ## Belgeler
+ 
+diff --git a/SECURITY.md b/SECURITY.md
+index 567e03e..1dfe4e6 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -33,7 +33,7 @@ Proje gönüllü olarak sürdürüldüğü için belirli bir yanıt süresi gara
+ 
+ Kapsamdaki bileşenler: sunucu kodu (`server.js`, `src/`), istemci kodu (`public/`, `public/vendor/` hariç), şifreleme kütüphanelerinin bu projede nasıl kullanıldığı, masaüstü uygulaması (`desktop/`), başlatma ve tünel betikleri, `Dockerfile`, `deploy/` örnekleri ve GitHub Actions iş akışları.
+ 
+-Bildirilmesi beklenen açıklara örnekler: yetki denetiminin atlatılması, anahtarı bilmeyen birinin mesajları, dosyaları, profilleri veya Telsiz DJ durumunu okuyabilmesi, sunucunun düz metne, parolaya veya şifreleme anahtarlarına ulaşabilmesi, grup anahtarı olmayan bir sunucunun ses veya ekran paylaşımı sinyallerini değiştirebilmesi, uygulamada betik çalıştırılabilmesi (XSS), içerik güvenliği politikasının veya YouTube çerçevesi yalıtımının aşılması, yol geçişiyle sunucudaki başka dosyaların okunabilmesi, boyut veya hız sınırlarının atlatılması, tek bir istekle sunucunun çökertilebilmesi ve masaüstü uygulamasının bütünlük denetiminin veya izin kurallarının aşılması.
++Bildirilmesi beklenen açıklara örnekler: yetki denetiminin atlatılması, anahtarı bilmeyen birinin mesajları, dosyaları, profilleri veya Telsiz DJ durumunu okuyabilmesi, sunucunun düz metne, parolaya veya şifreleme anahtarlarına ulaşabilmesi, grup anahtarı olmayan bir sunucunun ses veya ekran paylaşımı sinyallerini değiştirebilmesi, uygulamada betik çalıştırılabilmesi (XSS), içerik güvenliği politikasının veya YouTube çerçevesi yalıtımının aşılması, yol geçişiyle sunucudaki başka dosyaların okunabilmesi, boyut veya hız sınırlarının atlatılması, kurtarma uçlarının yanıtından veya yanıt süresinden bir hesabın ya da kurtarma kodunun var olup olmadığının anlaşılabilmesi, tek bir istekle sunucunun çökertilebilmesi ve masaüstü uygulamasının bütünlük denetiminin veya izin kurallarının aşılması.
+ 
+ TweetNaCl-js, scrypt-js ve RNNoise ile WebAssembly derlemesinin (`@shiguredo/rnnoise-wasm`) kendisindeki açıklar kendi projelerine bildirilmelidir. Tarayıcılar, Electron, Node.js, Cloudflare, `cloudflared`, YouTube ve işletim sistemlerindeki açıklar bu projenin kapsamı dışındadır. Aşağıda anlatılan kabul edilmiş sınırlar da tek başlarına açık sayılmaz.
+ 
+@@ -60,6 +60,7 @@ Aşağıdaki durumlar tasarımın bilinen sınırlarıdır ve tek başlarına g
+ 13. **Masaüstü güncellemeleri.** Güncellemeler kod imzalı değildir. electron-updater indirilen paketi sürümdeki `latest.yml` veya `latest-linux.yml` dosyasındaki sha512 değeriyle doğrular, ancak bu dosyalar da aynı GitHub sürümündedir. Güncellemenin bütünlüğü bu yüzden GitHub hesabının ve deposunun güvenliğine dayanır, depo sahibi ve yazma yetkisi olanlar iki adımlı doğrulama (2FA) kullanmalıdır. Güncelleme denetimi GitHub'a bağlanır, GitHub IP adresini ve uygulama sürümünü görebilir. Denetim ayarlardan kapatılabilir, kapalıyken hiçbir istek gönderilmez.
+ 14. **Masaüstü tuş kancası.** Basılı tut seçeneği açıkken ve bir ses odasında bas konuş modundayken masaüstü uygulaması uiohook-napi ile sistem genelinde bir tuş kancası çalıştırır. Kanca bütün tuş olaylarını görür, uygulama yalnızca seçilen tuşu ana süreçte işler ve tuş bilgisini sayfaya, sunucuya veya günlüğe iletmez. Kanca npm paketindeki hazır derlenmiş yerel ikiliyle çalışır, bu ikili derlemede kaynaktan yeniden üretilmez. Seçenek varsayılan olarak kapalıdır.
+ 15. **Denetim.** Bu proje bağımsız bir güvenlik denetiminden geçmemiştir ve hiçbir yazılım için hiç açığı olmadığı garanti edilemez. scrypt-js yaygın olarak kullanılır, ancak resmi bir güvenlik denetimi bilinmemektedir.
++16. **Kurtarma kodu.** Kurtarma kodu parolaya eşdeğerdir, kodu ele geçiren kişi parolayı değiştirip özel mesajları okuyabilir. Kod yalnızca bir kez gösterilir, indirilen dosya ve pano geçmişi kodu açıkta bırakabilir. Sunucu kod verisini silerek veya değiştirerek kurtarmayı engelleyebilir, ancak 128 bitlik kodu çevrimdışı denemeyle bulamaz ve istemciye fark ettirmeden sahte bir sarılmış anahtar veremez.
+ 
+ ## English
+ 
+@@ -92,7 +93,7 @@ Because the project is maintained by volunteers, no specific response time can b
+ 
+ In scope: the server code (`server.js`, `src/`), the client code (`public/`, except `public/vendor/`), how the encryption libraries are used in this project, the desktop app (`desktop/`), the start and tunnel scripts, the `Dockerfile`, the `deploy/` examples and the GitHub Actions workflows.
+ 
+-Examples of vulnerabilities we want to hear about: bypassing authorization checks, someone without the key being able to read messages, files, profiles or the Telsiz DJ state, the server being able to reach plaintext, passwords or encryption keys, a server without the group key being able to change voice or screen sharing signals, running scripts in the app (XSS), bypassing the Content Security Policy or the isolation of the YouTube frame, reading other files on the server through path traversal, bypassing size or rate limits, crashing the server with a single request, and bypassing the integrity check or the permission rules of the desktop app.
++Examples of vulnerabilities we want to hear about: bypassing authorization checks, someone without the key being able to read messages, files, profiles or the Telsiz DJ state, the server being able to reach plaintext, passwords or encryption keys, a server without the group key being able to change voice or screen sharing signals, running scripts in the app (XSS), bypassing the Content Security Policy or the isolation of the YouTube frame, reading other files on the server through path traversal, bypassing size or rate limits, telling from the answer or the response time of the recovery endpoints whether an account or a recovery code exists, crashing the server with a single request, and bypassing the integrity check or the permission rules of the desktop app.
+ 
+ Vulnerabilities in TweetNaCl-js, scrypt-js, RNNoise and its WebAssembly build (`@shiguredo/rnnoise-wasm`) themselves should be reported to their own projects. Vulnerabilities in browsers, Electron, Node.js, Cloudflare, `cloudflared`, YouTube and operating systems are out of scope. The accepted limits below are not vulnerabilities on their own.
+ 
+@@ -119,3 +120,4 @@ The following are known limits of the design and are not vulnerabilities on thei
+ 13. **Desktop updates.** Updates are not code signed. electron-updater verifies the downloaded package against the sha512 in `latest.yml` or `latest-linux.yml` of the release, but these files are in the same GitHub release. The integrity of updates therefore rests on the security of the GitHub account and repository, and the repository owner and everyone with write access should use two factor authentication (2FA). Update checks connect to GitHub, which can see the IP address and the app version. Checks can be turned off in the settings, and while they are off no request is sent.
+ 14. **Desktop key hook.** While the hold to talk option is on and you are in a voice room in push to talk mode, the desktop app runs a system wide key hook with uiohook-napi. The hook sees every key event, the app only handles the chosen key in the main process and does not pass key information to the page, the server or the log. The hook runs with the prebuilt native binary from the npm package, and this binary is not rebuilt from source during the build. The option is off by default.
+ 15. **Audit.** This project has not had an independent security audit, and no software can be guaranteed to be free of vulnerabilities. scrypt-js is widely used, but no formal security audit of it is known.
++16. **Recovery code.** The recovery code is equivalent to the password, whoever gets it can change the password and read the direct messages. The code is shown only once, and a downloaded file and clipboard history can leave it exposed. The server can block recovery by deleting or altering the code data, but it cannot find the 128 bit code by guessing offline and cannot hand out a fake wrapped key without the client noticing.
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index d1d7b2f..aca76f3 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -67,7 +67,7 @@ If `state.json` is corrupt, the server tries to recover from `state.json.bak`. I
+ 
+ The client is made of plain script files in the `public/` folder. There is no build step, package manager or framework. For compatibility with older WebKit based console browsers the code uses at most ES2017 syntax, and network requests use `XMLHttpRequest`. The page is written only with `createElement` and `textContent`, and no DOM is built from HTML strings.
+ 
+-`index.html` is a single page. First `theme-init.js` applies the theme before the first paint, then the encryption libraries (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), the dictionaries (`i18n.js`), the encryption helpers (`crypto.js`), emoji data, the Telsiz DJ engine (`music.js`, `dj/youtube.js`), the voice engine (`voice.js`, which also loads `rnnoise-worklet.js` into the audio context for advanced noise suppression) and the numbered modules from `public/js/01-core.js` to `32-arama.js` are loaded. The list of module responsibilities is in [CONTRIBUTING.en.md](../CONTRIBUTING.en.md#project-layout).
++`index.html` is a single page. First `theme-init.js` applies the theme before the first paint, then the encryption libraries (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), the dictionaries (`i18n.js`), the encryption helpers (`crypto.js`), emoji data, the Telsiz DJ engine (`music.js`, `dj/youtube.js`), the voice engine (`voice.js`, which also loads `rnnoise-worklet.js` into the audio context for advanced noise suppression) and the numbered modules starting with `public/js/01-core.js` are loaded in order. The list of module responsibilities is in [CONTRIBUTING.en.md](../CONTRIBUTING.en.md#project-layout).
+ 
+ The interface uses the Frequency layout: a top bar (the frequency info and the Online strip on the left, Search in the exact center, and the Direct messages, Friends and profile buttons on the right), the frequency band where the joined frequencies (each a separate Telsiz server) are arranged as stations (`24-frekans.js`, pressing a station switches to that frequency), the conversation column in the middle, and on wide screens Notifications with the radio card at the very bottom of the column on the left and the list of text and voice rooms of the open frequency (Stations, with the people in each voice room under it, a sheet opened from the Stations button on narrow screens) on the right. Notifications (`28-bildirim.js`) is a short event list kept only in the client's memory and adds no new data on the server: joining and leaving voice rooms come from comparing the voice rosters (`meta.voice`) with the previous ones on every meta update, while a screen share is written from the encrypted share announcement that arrives over the voice connections, so only shares in the same voice room appear. The people in the Stations list are drawn from the same rosters, and the ring around the person speaking is known only in the room you are connected to. In the desktop app hidden background windows count the unread messages of frequencies that are not open (`25-arka-plan.js`, [desktop/README.en.md](../desktop/README.en.md)). Details are in [DESIGN.md](DESIGN.md). The service worker (`sw.js`) caches only the app shell and never touches `/api/` requests.
+ 
+@@ -101,7 +101,28 @@ So that a server without the group key cannot replace personal keys, each user p
+ 
+ The direct message envelope has the format `2.<nonce>.<ciphertext>` and is encrypted with a shared key computed from both parties' keys with `box.before`. The server accepts only the `1.` format in text rooms and only the `2.` format in direct message conversations. There are no group direct messages. For voice and video calls in direct messages, see [Direct message calls](#direct-message-calls).
+ 
+-If a password is reset by the owner, an admin or the command line, the server deletes the person's public key, wrapped key and identity binding. After signing in with the temporary password, the person chooses a new password, and the new key pair is created and wrapped with that new password in the same request. The server refuses to store a key pair while the account still has the temporary password, so whoever reset it, and therefore knows the temporary password, cannot choose or open the person's new key. If they use the temporary password first, the person can no longer sign in with it and notices. The person can no longer read their old direct messages. When a person changes their own password, the same private key is wrapped again with the new password and direct messages stay readable.
++If a password is reset by the owner or the command line, the server deletes the person's public key, wrapped key, identity binding and recovery code. After signing in with the temporary password, the person chooses a new password, and the new key pair is created and wrapped with that new password in the same request. The server refuses to store a key pair while the account still has the temporary password, so whoever reset it, and therefore knows the temporary password, cannot choose or open the person's new key. If they use the temporary password first, the person can no longer sign in with it and notices. The person can no longer read their old direct messages. When a person changes their own password, the same private key is wrapped again with the new password and direct messages stay readable.
++
++### Recovery code
++
++A person who forgets their password resets it themselves with a recovery code they saved earlier, and the identity key is kept. The code is 16 random bytes written in the same 28 character Crockford base32 format as the group key code, only the checksum label differs (`telsiz-recovery-v1/check`). If a group key code is typed into the recovery field, the client recognizes it and shows a separate warning. Because the secret has 128 bits, the client does not use scrypt and derives two keys with domain separated SHA-512:
++
++- `authKey = hex(first 32 bytes of SHA-512("telsiz-recovery-v1/auth" ‖ secret))` goes to the server, which stores its scrypt hash just like for the password.
++- `wrapKey = first 32 bytes of SHA-512("telsiz-recovery-v1/wrap" ‖ secret)` never leaves the device and wraps the identity key a second time in the same `1w.` format as the password.
++
++The `recovery` field of the user record is `{ v: 1, hash, wrappedKey, createdAt, label }` (`label` is the session label of the device that created the code), or `null` when there is no code. A person sees only the creation time and device in their own `/api/state` response, the hash and the wrapped key are never returned.
++
++- Registration and setup create the code together with the account. The code card is shown once (Copy, Download as File), Continue is enabled after the "I saved the code" confirmation.
++- `POST /api/me/recovery` creates, renews or removes the code (`recovery: null`). The current password is required and wrong attempts count toward the account action counter. So that someone who once learns the password cannot quietly set up a code and take the account back later, the code changes only with the password, and Settings > My Account shows when and on which device it was created.
++- The code stays valid when the password changes. The "Also renew the recovery code" box in the password form renews it in the same request (`POST /api/me/password`, `recovery` field).
++- Accounts without a code are reminded once per device after signing in with the password.
++
++Recovery takes two requests without a session:
++
++1. `POST /api/recover/keys { name, recoveryAuthKey }` returns the public key and the private key wrapped with the code when the code is right. The client opens the key with the code and checks that it matches the public key, so a fake wrapped key from the server is noticed.
++2. `POST /api/recover` sends the key derivation settings and `authKey` of the new password, the same private key wrapped again with the new password and, mandatorily, a new recovery code. The server checks the code again and returns 409 `keys_changed` if the public key changed (the client then asks for the keys once more). The password hash, key derivation settings, wrapped key, login device epoch and recovery code are renewed, all sessions are signed out, the login counters are reset and a new session is opened on this device. The public key, identity binding and profile version stay the same, so the person reads their old direct messages and the people they talk to see no key change warning. The code works only once, a second request with the same code is refused.
++
++If the account does not exist, has no code or the code is wrong, both endpoints give the same 401 `bad_recovery` response with a dummy hash check of the same cost, so the response cannot be used to scan for usernames. A banned account gets 403 only after the right code. The rate limit is the same per address limit as for sign in, and the per account and address and per username counters are separate from the sign in counters (`r:` prefix): recovery attempts do not lock sign in and failed sign ins do not lock recovery. The login device token of a device that signed in before is honored here too. A password reset by the owner or the command line and account deletion also delete the code. A person without a code is pointed to the owner in the "I don't have a recovery code" section of the sign in screen and loses their old direct messages with the owner's reset.
+ 
+ ## Voice
+ 
+@@ -212,7 +233,9 @@ Telsiz is designed to hide content from the server, but it does not hide everyth
+ 
+ **The group key.** The group key is shared by everyone on the server. Anyone who knows the key can read all group content as long as they can reach the encrypted data. There is no forward secrecy. Someone removed from the group still knows the old key, and a new key protects only the content that follows. Anyone who sees the invite link learns the key.
+ 
+-**Direct messages.** Direct messages have no forward secrecy either, and the same identity keys are used for a long time. A member who has the group key and also runs the server, or colludes with it, could publish a fake identity binding. On the first conversation the key is not pinned yet, so such a man in the middle attack goes unnoticed. A later change is caught by the key change warning thanks to pinning on first sight, while an attack on the first conversation is caught only by comparing safety numbers. Verify the safety number over another channel for important conversations. When a password is reset, old direct messages can no longer be read.
++**Direct messages.** Direct messages have no forward secrecy either, and the same identity keys are used for a long time. A member who has the group key and also runs the server, or colludes with it, could publish a fake identity binding. On the first conversation the key is not pinned yet, so such a man in the middle attack goes unnoticed. A later change is caught by the key change warning thanks to pinning on first sight, while an attack on the first conversation is caught only by comparing safety numbers. Verify the safety number over another channel for important conversations. When a password is reset by the owner or the command line, old direct messages can no longer be read, after a reset with the recovery code they stay readable.
++
++**Recovery code.** The code is equivalent to the password: whoever gets it can change the password and read the direct messages. The code is shown only once, a downloaded file and clipboard history (including a cloud clipboard) can leave it exposed. If the response of the recovery request is lost on the network, the new code is lost too, the person signs in with the new password and creates a new code in Settings. The server can block recovery by deleting or altering the code data, but it cannot find the 128 bit secret by guessing offline and cannot hand out a fake wrapped key without the client noticing.
+ 
+ **A malicious server and integrity.** The server cannot open envelopes, but it can serve the envelopes it stores however it likes. The plaintext of a message carries the author and the room id, but no message id or version. A malicious server can therefore replay or duplicate an old message, hide messages, and roll back an edit by showing the earlier version of a message. Text rooms have no sender signatures, and content is authenticated only with the shared group key. Anyone who has the group key, for example a member colluding with the server, can create messages in another member's name.
+ 
+diff --git a/docs/DEPLOYMENT.md b/docs/DEPLOYMENT.md
+index 848fcb3..c5fce61 100644
+--- a/docs/DEPLOYMENT.md
++++ b/docs/DEPLOYMENT.md
+@@ -353,6 +353,8 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You
+ 
+ ## Password reset and troubleshooting
+ 
++**Recovery code.** A recovery code is shown to the person when the account is created, and the code can also be created and renewed in Settings > My Account. A person with a code resets their password themselves with the Forgot My Password link on the sign in screen. The owner does not need to do anything, the person's security key and direct messages are kept, and a new code is issued once the code is used. The reset paths below are only for people without a code. Telsiz does not use email, and the server does not need to send email for recovery.
++
+ **A member's password.** The owner creates a temporary password in Settings > Members. The person's sessions are closed.
+ 
+ **The owner's password.** Stop the server and run the reset command with the same data folder. The command prints a temporary password.
+@@ -364,7 +366,7 @@ node server.js sifre-sifirla <username>
+ sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js reset-password <username>
+ ```
+ 
+-A password reset also resets the person's personal security key. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
++A password reset by the owner or the command line also resets the person's personal security key and recovery code. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
+ 
+ **Port already in use.** The server may already be running in another window. Close that window or choose another port with `PORT`.
+ 
+diff --git a/docs/KURULUM.md b/docs/KURULUM.md
+index 49ffe94..5738c5f 100644
+--- a/docs/KURULUM.md
++++ b/docs/KURULUM.md
+@@ -353,6 +353,8 @@ Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasında
+ 
+ ## Parola sıfırlama ve sorun giderme
+ 
++**Kurtarma kodu.** Hesap açılırken kişiye bir kurtarma kodu gösterilir, kod Ayarlar > Hesabım'dan da oluşturulup yenilenebilir. Kodu olan kişi parolasını giriş ekranındaki Parolamı Unuttum bağlantısıyla kendisi sıfırlar. Sahibin bir şey yapması gerekmez, kişinin güvenlik anahtarı ve özel mesajları korunur, kod kullanılınca yenisi verilir. Aşağıdaki sıfırlama yolları yalnızca kodu olmayan kişiler içindir. Telsiz e-posta kullanmaz, kurtarma için sunucunun e-posta göndermesi gerekmez.
++
+ **Bir üyenin parolası.** Sahip Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
+ 
+ **Sahibin parolası.** Sunucuyu durdurun ve aynı veri klasörüyle sıfırlama komutunu çalıştırın. Komut geçici bir parola yazar.
+@@ -364,7 +366,7 @@ node server.js reset-password <kullanıcı adı>
+ sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js sifre-sifirla <kullanıcı adı>
+ ```
+ 
+-Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi geçici parolayla girdikten sonra yeni bir parola seçer ve yeni anahtar onunla oluşturulur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
++Sahibin veya komut satırının parola sıfırlaması kişinin kişisel güvenlik anahtarını ve kurtarma kodunu da sıfırlar. Kişi geçici parolayla girdikten sonra yeni bir parola seçer ve yeni anahtar onunla oluşturulur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
+ 
+ **Bağlantı noktası kullanımda.** Sunucu başka bir pencerede zaten çalışıyor olabilir. O pencereyi kapatın veya `PORT` ile başka bir bağlantı noktası seçin.
+ 
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index 3c60327..881cfe4 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -67,7 +67,7 @@ Her olayın bir hedef kitlesi vardır: ya bütün üyeler ya da yalnızca belirl
+ 
+ İstemci `public/` klasöründeki düz betik dosyalarından oluşur. Derleme adımı, paket yöneticisi veya çerçeve yoktur. Eski WebKit tabanlı konsol tarayıcılarıyla uyum için kod en fazla ES2017 sözdizimiyle yazılır ve ağ istekleri `XMLHttpRequest` ile yapılır. Sayfaya yalnızca `createElement` ve `textContent` ile yazılır, HTML dizesinden DOM üretilmez.
+ 
+-`index.html` tek sayfadır. Önce `theme-init.js` temayı ilk çizimden önce uygular, sonra şifreleme kütüphaneleri (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), sözlükler (`i18n.js`), şifreleme yardımcıları (`crypto.js`), emoji verisi, Telsiz DJ motoru (`music.js`, `dj/youtube.js`), ses motoru (`voice.js`, gelişmiş gürültü engelleme için ses bağlamına ayrıca `rnnoise-worklet.js` yüklenir) ve `public/js/01-core.js` ile `32-arama.js` arasındaki numaralı modüller yüklenir. Modüllerin görev listesi [CONTRIBUTING.md](../CONTRIBUTING.md#proje-yapısı) dosyasındadır.
++`index.html` tek sayfadır. Önce `theme-init.js` temayı ilk çizimden önce uygular, sonra şifreleme kütüphaneleri (`vendor/nacl-fast.min.js`, `vendor/scrypt.js`), sözlükler (`i18n.js`), şifreleme yardımcıları (`crypto.js`), emoji verisi, Telsiz DJ motoru (`music.js`, `dj/youtube.js`), ses motoru (`voice.js`, gelişmiş gürültü engelleme için ses bağlamına ayrıca `rnnoise-worklet.js` yüklenir) ve `public/js/01-core.js` ile başlayan numaralı modüller sırayla yüklenir. Modüllerin görev listesi [CONTRIBUTING.md](../CONTRIBUTING.md#proje-yapısı) dosyasındadır.
+ 
+ Arayüz Frekans düzenini kullanır: üst çubuk (solda frekans bilgisi ve Çevrimiçi şeridi, tam ortada Ara, sağda Özel mesajlar, Arkadaşlar ve profil düğmesi), katılınan frekansların (her biri ayrı bir Telsiz sunucusu) istasyon olarak dizildiği frekans bandı (`24-frekans.js`, istasyona basmak o frekansa geçer), ortada konuşma sütunu, geniş ekranda solda Bildirimler ve sütunun en altında telsiz kartı, sağda açık frekansın yazı ve ses odalarının listesi (İstasyonlar, ses odalarının altında odadaki kişiler, dar ekranda İstasyonlar düğmesiyle açılan sayfa). Bildirimler (`28-bildirim.js`) yalnızca istemcinin belleğinde tutulan kısa bir olay listesidir ve sunucuya yeni bir veri eklemez: ses odasına katılma ve ayrılma her meta güncellemesinde ses kadrolarının (`meta.voice`) bir öncekiyle karşılaştırılmasından çıkar, ekran paylaşımı ise ses bağlantıları üzerinden gelen şifreli paylaşım duyurusundan yazılır, bu yüzden yalnızca aynı ses odasındaki paylaşımlar görünür. İstasyonlar listesindeki kişiler de aynı kadrolardan çizilir, konuşan kişinin halkası yalnızca bağlı olunan odada bilinir. Masaüstü uygulamasında açık olmayan frekansların okunmamış sayılarını gizli arka plan pencereleri sayar (`25-arka-plan.js`, [desktop/README.md](../desktop/README.md)). Ayrıntılar [TASARIM.md](TASARIM.md) dosyasındadır. Service worker (`sw.js`) yalnızca uygulama kabuğunu önbelleğe alır ve `/api/` isteklerine hiçbir zaman dokunmaz.
+ 
+@@ -101,7 +101,28 @@ Grup anahtarına sahip olmayan bir sunucunun kişisel anahtarları değiştireme
+ 
+ Özel mesaj zarfı `2.<nonce>.<şifreli metin>` biçimindedir ve iki tarafın anahtarlarından `box.before` ile hesaplanan ortak anahtarla şifrelenir. Sunucu yazı odalarında yalnızca `1.`, özel mesaj konuşmalarında yalnızca `2.` biçimini kabul eder. Grup özel mesajı yoktur. Özel mesajda sesli ve görüntülü arama için [Özel mesaj araması](#özel-mesaj-araması) bölümüne bakın.
+ 
+-Bir parola sahip, yönetici veya komut satırı tarafından sıfırlanırsa sunucu kişinin açık anahtarını, sarılmış anahtarını ve kimlik bağlamasını siler. Kişi geçici parolayla girdikten sonra yeni bir parola seçer, yeni anahtar çifti aynı istekte oluşturulur ve yeni parolayla sarılır. Hesap geçici paroladayken sunucu anahtar çifti kaydetmez, bu yüzden sıfırlayan, yani geçici parolayı bilen biri kişinin yeni anahtarını seçemez veya açamaz. Geçici parolayı önce o kullanırsa kişi onunla artık giremez ve durumu fark eder. Kişi eski özel mesajlarını artık okuyamaz. Parolasını kendisi değiştiren kişide aynı özel anahtar yeni parolayla yeniden sarılır, özel mesajlar okunmaya devam eder.
++Bir parola sahip veya komut satırı tarafından sıfırlanırsa sunucu kişinin açık anahtarını, sarılmış anahtarını, kimlik bağlamasını ve kurtarma kodunu siler. Kişi geçici parolayla girdikten sonra yeni bir parola seçer, yeni anahtar çifti aynı istekte oluşturulur ve yeni parolayla sarılır. Hesap geçici paroladayken sunucu anahtar çifti kaydetmez, bu yüzden sıfırlayan, yani geçici parolayı bilen biri kişinin yeni anahtarını seçemez veya açamaz. Geçici parolayı önce o kullanırsa kişi onunla artık giremez ve durumu fark eder. Kişi eski özel mesajlarını artık okuyamaz. Parolasını kendisi değiştiren kişide aynı özel anahtar yeni parolayla yeniden sarılır, özel mesajlar okunmaya devam eder.
++
++### Kurtarma kodu
++
++Parolasını unutan kişi, daha önce kaydettiği kurtarma koduyla parolasını kendisi sıfırlar ve kimlik anahtarı korunur. Kod 16 rastgele bayttır ve grup anahtarı koduyla aynı 28 karakterlik Crockford base32 biçiminde yazılır, yalnızca sağlama etiketi farklıdır (`telsiz-recovery-v1/check`). Grup anahtarı kodu kurtarma alanına yazılırsa istemci bunu tanır ve ayrı bir uyarı gösterir. Sır 128 bit olduğu için istemcide scrypt kullanılmaz, iki anahtar alan ayrımlı SHA-512 ile türetilir:
++
++- `authKey = hex(SHA-512("telsiz-recovery-v1/auth" ‖ sır) ilk 32 bayt)` sunucuya gider, sunucu parolada olduğu gibi onun scrypt karmasını saklar.
++- `wrapKey = SHA-512("telsiz-recovery-v1/wrap" ‖ sır) ilk 32 bayt` cihazdan çıkmaz ve kimlik anahtarını parolanınkiyle aynı `1w.` biçiminde ikinci kez sarar.
++
++Kullanıcı kaydındaki `recovery` alanı `{ v: 1, hash, wrappedKey, createdAt, label }` biçimindedir (`label` kodu oluşturan cihazın oturum etiketidir) veya kod yoksa `null`. Kişi kendi `/api/state` yanıtında yalnızca oluşturma zamanını ve cihazı görür, karma ve sarılmış anahtar hiçbir yanıtta dönmez.
++
++- Kayıt ve kurulum kodu hesapla birlikte oluşturur. Kod kartı bir kez gösterilir (Kopyala, Dosya Olarak İndir), Devam "kaydettim" onayından sonra açılır.
++- `POST /api/me/recovery` kodu oluşturur, yeniler veya kaldırır (`recovery: null`). Şu anki parola gerekir, hatalı denemeler hesap işlemlerinin sayacına eklenir. Parolayı bir kez öğrenen birinin kişiden habersiz kod kurup hesabı sonradan geri alamaması için kod yalnızca parolayla değişir ve Ayarlar > Hesabım kodun ne zaman, hangi cihazda oluşturulduğunu gösterir.
++- Parola değişince kod geçerli kalır. Parola formundaki "Kurtarma kodunu da yenile" kutusu kodu aynı istekle (`POST /api/me/password`, `recovery` alanı) yeniler.
++- Kodu olmayan hesaplara parolayla girişten sonra her cihazda bir kez hatırlatma gösterilir.
++
++Kurtarma iki oturumsuz istekle yapılır:
++
++1. `POST /api/recover/keys { name, recoveryAuthKey }` doğru kodda açık anahtarı ve kodla sarılmış özel anahtarı döner. İstemci anahtarı kodla açar ve açık anahtarla eşleştiğini denetler, böylece sunucunun verdiği sahte bir sarılmış anahtar fark edilir.
++2. `POST /api/recover` yeni parolanın türetme ayarlarını ve `authKey` değerini, yeni parolayla yeniden sarılmış aynı özel anahtarı ve zorunlu olarak yeni bir kurtarma kodunu gönderir. Sunucu kodu yeniden doğrular, açık anahtar değişmişse 409 `keys_changed` döner (istemci anahtarları bir kez yeniden ister). Parola karması, türetme ayarları, sarılmış anahtar, giriş cihazı dönemi ve kurtarma kodu yenilenir, bütün oturumlar kapanır, giriş sayaçları sıfırlanır ve bu cihaza yeni oturum açılır. Açık anahtar, kimlik bağlaması ve profil sürümü değişmez, bu yüzden kişi eski özel mesajlarını okur ve konuştuğu kişilerde anahtar değişti uyarısı çıkmaz. Kod tek kullanımlıktır, aynı kodla gelen ikinci istek reddedilir.
++
++Hesap yoksa, hesabın kodu yoksa veya kod yanlışsa iki uç da aynı 401 `bad_recovery` yanıtını, aynı maliyette bir sahte karma doğrulamasıyla verir, bu yüzden yanıttan ad taraması yapılamaz. Engelli hesap yalnızca doğru koddan sonra 403 alır. Hız sınırı girişle aynı adres başına sınırdır, ayrıca hesap ve adres ile hesap adı başına sayaçlar girişinkilerden ayrıdır (`r:` öneki): kurtarma denemeleri girişi, hatalı girişler kurtarmayı kilitlemez. Daha önce giriş yapılmış cihazın giriş işareti burada da geçerlidir. Sahibin veya komut satırının parola sıfırlaması ve hesap silme kodu da siler. Kodu olmayan kişi giriş ekranındaki "Kurtarma kodum yok" bölümünde sahibe yönlendirilir, sahibin sıfırlamasıyla eski özel mesajlarını kaybeder.
+ 
+ ## Ses
+ 
+@@ -212,7 +233,9 @@ Telsiz içerikleri sunucudan gizlemek için tasarlanmıştır, ancak her şeyi g
+ 
+ **Grup anahtarı.** Grup anahtarı sunucudaki herkes için ortaktır. Anahtarı bilen herkes, şifreli veriye ulaşabildiği sürece bütün grup içeriğini okuyabilir. İleriye dönük gizlilik yoktur. Gruptan çıkarılan biri eski anahtarı bilmeye devam eder, yeni anahtar yalnızca sonraki içerikleri korur. Davet bağlantısını gören herkes anahtarı öğrenir.
+ 
+-**Özel mesajlar.** Özel mesajlarda da ileriye dönük gizlilik yoktur, aynı kimlik anahtarları uzun süre kullanılır. Grup anahtarına sahip bir üye aynı zamanda sunucuyu da yönetiyorsa veya sunucuyla iş birliği yapıyorsa sahte bir kimlik bağlaması yayımlayabilir. İlk konuşmada anahtar henüz sabitlenmediği için bu ortadaki adam saldırısı fark edilmez. Sonradan yapılan bir değişiklik ilk görüşte sabitleme sayesinde uyarıyla, ilk konuşmadaki saldırı ise ancak güvenlik numarası karşılaştırmasıyla yakalanır. Bu yüzden önemli konuşmalarda güvenlik numarasını başka bir yoldan doğrulayın. Parola sıfırlanınca eski özel mesajlar okunamaz.
++**Özel mesajlar.** Özel mesajlarda da ileriye dönük gizlilik yoktur, aynı kimlik anahtarları uzun süre kullanılır. Grup anahtarına sahip bir üye aynı zamanda sunucuyu da yönetiyorsa veya sunucuyla iş birliği yapıyorsa sahte bir kimlik bağlaması yayımlayabilir. İlk konuşmada anahtar henüz sabitlenmediği için bu ortadaki adam saldırısı fark edilmez. Sonradan yapılan bir değişiklik ilk görüşte sabitleme sayesinde uyarıyla, ilk konuşmadaki saldırı ise ancak güvenlik numarası karşılaştırmasıyla yakalanır. Bu yüzden önemli konuşmalarda güvenlik numarasını başka bir yoldan doğrulayın. Parola sahip veya komut satırı tarafından sıfırlanınca eski özel mesajlar okunamaz, kurtarma koduyla sıfırlanınca okunmaya devam eder.
++
++**Kurtarma kodu.** Kod parolaya eşdeğerdir: kodu ele geçiren kişi parolayı değiştirebilir ve özel mesajları okuyabilir. Kod yalnızca bir kez gösterilir, indirilen dosya ve pano geçmişi (bulut panosu dahil) kodu açıkta bırakabilir. Kurtarma isteğinin yanıtı ağda kaybolursa yeni kod da kaybolur, kişi yeni parolayla girip Ayarlar'dan yeni kod oluşturur. Sunucu kod verisini silip değiştirerek kurtarmayı engelleyebilir ama 128 bitlik sırrı çevrimdışı denemeyle bulamaz ve istemciye fark ettirmeden sahte bir sarılmış anahtar veremez.
+ 
+ **Kötü niyetli bir sunucu ve bütünlük.** Sunucu zarfları açamaz, ancak sakladığı zarfları istediği gibi sunabilir. Mesajın düz metni yazar ve oda kimliğini taşır, ancak mesaj kimliği veya sürüm taşımaz. Bu yüzden kötü niyetli bir sunucu eski bir mesajı yeniden oynatabilir veya çoğaltabilir, mesajları gizleyebilir ve bir düzenlemeyi geri alarak mesajın eski hâlini gösterebilir. Yazı odalarında gönderen imzası yoktur, içerik yalnızca ortak grup anahtarıyla doğrulanır. Grup anahtarına sahip herhangi biri, örneğin sunucuyla iş birliği yapan bir üye, başka bir üyenin adına mesaj üretebilir.
+ 

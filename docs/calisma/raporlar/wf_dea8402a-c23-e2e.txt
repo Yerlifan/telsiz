@@ -1,0 +1,60 @@
+Adım 7 bitti ve `e5f38c8` olarak commit'lendi: "Hexball: uçtan uca test". Yeni e2e dosyası Chromium'da ilk çalıştırmadan sonra arka arkaya dört kez 12/12 geçti. Firefox'ta hiç çalıştırılmadı, çünkü bu makinede kurulu değil. CI bu dosyayı Firefox'ta da çalıştırıyor. Uygulama koduna dokunmadım, push edilmedi, çalışma kopyası temiz.
+
+**Değişen dosya**
+- `/home/user/wt/c/e2e/24-hexball.test.js` (yeni, yuva 37, `h.MIC_BROWSERS`, `e2e/16-oyun.test.js` kalıbı). 12 test, tek dünyada sırayla:
+  1. Deniz, Ece ve telefondaki Mert (360 x 740) aynı ses odasına girer.
+  2. Ev sahibi Deniz Oyun Seç'te `['renk','hexball']` görür ve Hexball'u seçer. Masa Kur'da Klasik seçili gelir, güven notunun sonunda fiziği ev sahibinin hesapladığı yazar. Hızlı seçilip masa açılır, başlık "Hexball Masası" olur.
+  3. Ece ve Mert davet görür ("Davet: Deniz sizi Hexball oyununa davet ediyor"), güven notunu okuyup katılır.
+  4. Takımlar ekranı:
+     - Ece kendisi Kırmızı'ya geçer.
+     - Ev sahibi Mert'i izleyicilere alır, bir takım boşken Maçı Başlat pasiftir.
+     - Mert Mavi'ye, Deniz de Mavi'ye geçer.
+     - Takımlar üç sayfada hem görünümde hem sütunlarda aynıdır.
+     - Oyun bağları hazır olunca (ev sahibinde ikisi de `ready`, oyuncularda bağ notu yok) Maçı Başlat etkinleşir.
+     - Telefonda yatay taşma yoktur.
+  5. Maç başlar:
+     - Üç sayfada aynı epoch, `mt` 1 ve yuvalar `{deniz:0, ece:1, mert:2}`, skor 0-0, saat `03:00`.
+     - Ekranda "Başlama vuruşu: Kırmızı" yazar. Ev sahibindeki diziliş (180,-72), (-180,0), (180,72), top (0,0).
+     - Telefonda çubuk ve Vur düğmesi görünür. Maçı Durdur yalnız ev sahibinde vardır.
+  6. Klavye: Deniz (ev sahibi) ArrowUp, Mert (oyuncu) ArrowDown tuşunu basılı tutar. Disk ev sahibinde durunca konumu üç sayfada en çok 0,5 birim farkla aynıdır.
+  7. Ece ArrowRight ile X tuşunu basılı tutar ve topu kaleye sürer (yaklaşık 4,4 sn). Üç sayfada şunlar aynıdır:
+     - skor 1-0 hem görünümde, hem anlık görüntüde, hem skor tablosunda, hem tuvalin `aria-label`'ında,
+     - golü atan Ece, kendi kalesine gol değil,
+     - ardından "Başlama vuruşu: Mavi".
+  8. Telefonda yatay taşma yoktur, tuvalde `touch-action: none` vardır. Tam Ekran'da tuval 240 x 135'ten 338 x 189'a büyür, skor tablosu, tuval, çubuk ve Vur düğmesi kaydırmadan birlikte görünür. Tam ekrandan her durumda çıkılır.
+  9. Mert ses odasından ayrılır: maç sürer (Mavi'de Deniz kalır), iki koltuk kalır, skor korunur, Mert'in oyun oturumu kapanır.
+  10. Ev sahibi ayrılır: Ece'de "Ev sahibi ses odasından ayrıldı, oyun bitti." görünür, oyun oturumu kapanır, Kapat odağı Oyun düğmesine verir.
+  11. Bağlantı Yok:
+      - Mert odaya döner, Ece'nin sayfasında `RTCPeerConnection.prototype.createDataChannel` bozulur ve Ece yeni bir Hexball masası kurar.
+      - Ece Mert'i hemen "Bağlantı Yok" görür, uyarı metni çıkar, Maçı Başlat pasif kalır.
+      - Mert yaklaşık 15 sn sonra aynı durumu görür. Prototip test sonunda geri yüklenir.
+  12. Konsol ve sunucu günlüğü temiz.
+
+**Sapmalar ve gerekçeleri**
+1. **Veri kanalını ev sahibinde bozdum, oyuncuda değil.** `createDataChannel`'ı yalnız kanalı açan ev sahibi çağırıyor, oyuncuda bozmak hiçbir şeyi değiştirmezdi. Masa bozuk sayfada açıldığı için yeni bir masa gerekti. Bunu ev sahibi ayrıldıktan sonra Ece ev sahibi olarak, Mert odaya dönerek yapıyor.
+2. **Telefonda Tam Ekran denetimini ekledim.** Yerleşik sahnede saha ile dokunmatik denetimler birlikte sığmıyor (aşağıdaki 1. açık sorun).
+3. **Bindirme yazısını bekliyorum.** Yazı çizim döngüsünde güncelleniyor, ilk anlık görüntüden önce "Bağlantı bekleniyor" yazıyor. Bir çalıştırmada test bu yüzden düşmüştü, test artık beklenen yazıyı bekliyor. Hiçbir denetim gevşemedi.
+4. **Firefox için yazıldı ama sınanmadı.** Kaba işaretçi bildirmeyen tarayıcıda dokunmatik denetimler sahaya dokununca açılıyor, test bu yolu da kapsıyor.
+5. **Raporun 5. bölümündeki iki madde bu dosyada yok.** Sayfayı yenileyip dönen oyuncuda bağın yeniden açılması ve `navigator.getGamepads` taklidiyle oyun kolu, adım 7'nin listesinde yoktu.
+
+**Testler**
+- Testin hatayı yakaladığını kasıtlı bir bozmayla sınadım: `voice.js` gelen kanalı reddedince test 4 "oyun bağları hazır değil" ile düştü. Dosyayı sonra geri koydum.
+- Tam ekran denetimini ilk eklediğimde iki çalıştırmada test 8 düştü. Testin kendi zamanlama hatasıydı: tuval yeniden ölçülmeden denetim geçiyordu. Bekleme koşulunu düzelttikten sonra üç çalıştırma geçti.
+- `npm run denetle`: ihlal yok.
+- `npm test`: 1332 testin 1331'i geçti, düşen yok. Atlanan 1 test önceden de atlanan masaüstü uygulaması (SEA) derlemesi.
+- `e2e/24-hexball.test.js`: 12/12, yaklaşık 45 sn.
+- `e2e/16-oyun.test.js`: 15/15, Renk bozulmadı.
+
+**Sonraki adımın bilmesi gerekenler**
+- e2e sayfadan şunları okuyor: `gameModel()`, `hexballFrameNow()`, `hexballLinks()`, `hexballLive(m)`, `hexballPlayerLink(m)`, `castState.full`. Bunların adı değişirse test de değişmeli.
+- DOM'da kullanılan seçiciler:
+  - Odak anahtarları: `game-pick-hexball`, `game-rule-quick`, `hex-join-<takım>`, `hex-set-<id>-<takım>`, `hex-kickoff`, `hex-stop`.
+  - Sınıflar: `.hex-team[data-side]`, `.hex-person[data-user-id]`, `.hex-chip.is-failed`, `.hex-failed`, `.hex-link.is-failed`, `.hex-board-score`, `.hex-clock`, `.hex-overlay`, `.hex-canvas`, `.hex-legend-item`, `.hex-touch`, `.hex-kick`, `.hex-stick`, `.hex-field`.
+
+**Açık sorunlar**
+1. **Telefonda yerleşik sahnede saha görünmüyor.** 360 x 740'ta oyun kutusu 316 px. Tuval en küçük yükseklikte (135 px), dokunmatik denetimlerle (105 px) birlikte sığmıyor. Maç başlarken odak Vur düğmesine gidiyor ve odak sahneyi kaydırıyor (ölçülen kaydırma 217 px), saha görünür alandan neredeyse çıkıyor. Tam Ekran'da hepsi sığıyor. Bu adımda düzeltmedim. İki öneri: dokunmatikte ilk odak Vur olmasın, Tam Ekran önerilsin.
+2. **Maçtan ayrılan oyuncunun diski ev sahibinin fizik dünyasında kalıyor.** Bunu yalnız koddan çıkardım, testte görmedim:
+   - `45-hexball-ag.js` dünyayı `startMatch`'te kuruyor, `44-hexball-fizik.js`'te disk kaldıran bir işlev yok.
+   - Disk çizilmiyor ama çarpışmaya ve başlama vuruşu dizilişine katılıyor olmalı.
+   - Düzeltilirse e2e'deki 9. teste "karede iki disk kaldı" denetimi eklenebilir.
+3. **Firefox'ta sınanmadı.** Bu makinede yalnız Chromium var, CI Firefox'ta da çalıştırıyor.

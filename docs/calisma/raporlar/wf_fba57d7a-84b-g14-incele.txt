@@ -1,0 +1,29 @@
+{
+ "bulgular": [
+  {
+   "onem": "orta",
+   "dosya": "public/js/41-kurtarma.js",
+   "satir": 295,
+   "ozet": "Kod kartı onaylanmadan oturum kalıcı oluyor. Sayfa yenilenirse kod kaybolur ama arayüz kod var gösterir.",
+   "senaryo": "Ece Parolamı Unuttum'dan kodla yeni parola belirliyor. submitForgot önce setToken(result.token) çağırıyor (token localStorage'a yazılıyor), sonra yeni kodu kartta gösteriyor. Sunucu bu sırada eski kodu geçersiz kılmış, yenisini kaydetmiş. Ece kodu yazmadan sekmeyi yeniliyor ya da tarayıcı kapanıyor. Sonraki açılışta resumeSession doğrudan uygulamaya giriyor ve yeni kod bir daha gösterilmiyor. Ayarlar > Hesabım '{tarih} tarihinde ... oluşturuldu' yazıyor, is-missing vurgusu yok. recoveryAfterEnter hatırlatması da çıkmıyor (yalnızca parolayla girişte çalışıyor, identityState.recovery dolu). Ece elinde kod olduğunu sanıyor ama yok. Aynı durum kayıt ve kurulumda da var (03-auth.js submitRegister 468-475, submitSetup 304-316): token kod kartından önce kalıcı yazılıyor, sunucu kodu hesapla birlikte zaten saklamış.",
+   "oneri": "Token'ı Devam'a basılana kadar yalnızca bellekte tutun (state.token), storeSet(KEYS.token) çağrısı onDevam içinde yapılsın. Ya da kişi başına 'kod onaylanmadı' bayrağı yazın. Bayrak varsa sonraki enterApp'te hatırlatma açılsın ve Ayarlar'da durum vurgulu gösterilsin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/41-kurtarma.js",
+   "satir": 119,
+   "ozet": "Uygulama içi kod penceresi 'kaydettim' onayı olmadan Escape, X veya dışarı tıklamayla kapanıyor.",
+   "senaryo": "openRecoveryCodeDialog, openAppDialog kullanıyor. Bu pencere kapat düğmesiyle, arka plana mousedown ile ve 02-state-dom.js onLayerKeydown içindeki Escape ile kapanıyor. Devam düğmesinin onay kutusuna bağlı olması bu yolları engellemiyor. Örnek: Mert sahibin sıfırlamasından sonra openResetPassword ile yeni parolasını belirliyor. Kod penceresi açılıyor, Mert Escape'e (PS5'te geri tuşuna) basıyor. Pencere kapanıyor, kod bir daha gösterilmiyor. Sunucuda kod kayıtlı olduğu için Ayarlar 'oluşturuldu' diyor ve hatırlatma çıkmıyor. Ayarlar'dan Yeni Kod Oluştur ile parola değiştirirken 'Kurtarma kodunu da yenile' seçilince de durum aynı. Bu iki yolda eski kod da artık geçersiz.",
+   "oneri": "Bu pencere için Escape, arka plan ve X ile kapatmayı engelleyin ya da openAppDialog'a onClose verin. reason 'done' değilse kodu bir kez daha gösterin veya 'kod kaydedilmedi' uyarısı verin. Bunu e2e'de Escape ile sınayın."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "src/app.js",
+   "satir": 2034,
+   "ozet": "/api/me/recovery'de await sonrası yeniden denetim yolları hiç sınanmıyor (plan adım 6).",
+   "senaryo": "Planda 'await sonrası passHash ve publicKey yeniden denetlenir' isteniyor. handleMyRecovery bunu yapıyor: passHash değiştiyse 401 dönüyor, publicKey veya recovery değiştiyse 409 keys_changed dönüyor. Ama test/server-kurtarma.test.js içinde aynı anda iki /api/me/recovery isteği gönderen ya da hash sırasında parolayı değiştiren bir test yok. test/kurtarma-istemci.test.js de recoveryChangeRequest'in keys_changed alınca reloadServerKeys çağırdığı yolu sınamıyor. 'user.recovery !== recoveryUsed' denetimi silinse iki cihazdan aynı anda Yeni Kod Oluştur ikisinde de başarılı olur. İlk cihaz sunucunun artık kabul etmediği bir kodu gösterir, yine de hiçbir test kırılmaz.",
+   "oneri": "hashConcurrency:1 ile iki eşzamanlı /api/me/recovery isteği gönderen bir test ekleyin, beklenen sonuç 200 ve 409 keys_changed. Kod hash'lenirken /api/me/password ile parolayı değiştirip 401 bekleyen bir test ekleyin. vm testine 409 keys_changed alınca /api/state'in yeniden istendiğini doğrulayan bir durum ekleyin."
+  }
+ ],
+ "testler": "Çalışma kopyası: /home/user/wt/a. Hiçbir dosya değiştirilmedi.\n- npm run denetle: 266 dosya tarandı, ihlal yok (exit 0).\n- npm test: 979 test, 978 geçti, 1 atlandı, 0 başarısız (exit 0).\n- e2e/21-kurtarma.test.js (grubun e2e dosyası, yuva 31): 5/5 geçti. Ayarlar'da oluşturma, yenileme ve kaldırma; Parolamı Unuttum'dan sonra eski özel mesajın okunması ve anahtar uyarısının çıkmaması; kodu olmayan kişinin yönlendirilmesi, hatırlatma ve sahip sıfırlamasından sonra yeni kod; 360 piksel genişlikte taşma olmaması; temiz konsol.\n- G14'ün değiştirdiği e2e/01-kurulum ve e2e/12-anahtarsiz-kayit: 7/7 geçti.\n- Gerileme denetimi için ek olarak e2e/04-ayarlar, e2e/08-tanitim ve e2e/17-profil: 25/25 geçti.\n- desktop birim testleri (desktop/test): 137/137 geçti.\n- crypto.test.js'deki RECOVERY_VECTORS[0], Python hashlib ile bağımsız olarak yeniden hesaplandı: authKey, wrapKey ve kod aynı çıktı.\n\nNotlar:\n- İncelenen aralık (b3de39d..HEAD) G14 dışı commit'ler de içeriyor: G6/G7 inceleme düzeltmeleri e934486, 4c3e879, 138ddb8, f86b9c3 ve 136ca4e (13-profile.js, 11-settings.js kapak kodu, 17-profil e2e, social ve settings testleri). İnceleme G14 commit'lerine odaklandı: 17984b9, 5db540c, cfa3565, 41a8ef7, b878db2.\n- Plan adım 1 (issue) bilerek yapılmadı. Uygulayıcı bunu bildirdi, orkestratörün işi.\n- Sunucu tarafında şunlar doğrulandı ve sorun bulunmadı: hesap yok, kod yok ve yanlış kod durumlarında aynı 401 yanıtı ve dummyHash ile aynı maliyet; ayrı r: ve rd: sayaçları; await sonrası yeniden denetimler; temizlik (applyCredentials, deleteAccount, CLI, handleMyKeys); normalizeUserFields ile isRecoveryRecord ve sessionLabel uyumu; publicUser ve metaUser'ın recovery alanını sızdırmaması."
+}

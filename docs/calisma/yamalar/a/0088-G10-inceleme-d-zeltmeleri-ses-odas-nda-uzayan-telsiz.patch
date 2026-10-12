@@ -1,0 +1,285 @@
+From 85c22ea929ff10b49a55bfaf1d3532320b0f3603 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 20:08:22 +0000
+Subject: [PATCH 088/104] =?UTF-8?q?G10:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?ses=20odas=C4=B1nda=20uzayan=20telsiz=20kart=C4=B1=20listeye=20?=
+ =?UTF-8?q?iki=20sat=C4=B1rl=C4=B1k=20yer=20b=C4=B1rakmay=C4=B1nca=20?=
+ =?UTF-8?q?=C4=B0stasyonlar=20kart=C4=B1=20gizlenir,=20d=C3=BC=C4=9Fme=20g?=
+ =?UTF-8?q?=C3=B6r=C3=BCn=C3=BCr)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ CHANGELOG.en.md         |  2 +-
+ CHANGELOG.md            |  2 +-
+ docs/DESIGN.md          |  6 ++--
+ docs/TASARIM.md         |  6 ++--
+ e2e/19-gezinme.test.js  | 41 +++++++++++++++++++++++++--
+ public/css/frekans.css  | 15 ++++++++--
+ public/js/38-gezinme.js | 61 ++++++++++++++++++++++++++++++++++++-----
+ 7 files changed, 113 insertions(+), 20 deletions(-)
+
+diff --git a/CHANGELOG.en.md b/CHANGELOG.en.md
+index 6984b66..b4579ff 100644
+--- a/CHANGELOG.en.md
++++ b/CHANGELOG.en.md
+@@ -14,7 +14,7 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
+ 
+ ### Changes
+ 
+-- At medium widths (760 to 1279 pixels) the Stations list shows in the right column above the radio card, so rooms and direct messages are reachable without pressing a button. The list is hidden only on screens shorter than 720 pixels and on phones, and then the Stations button in the top bar shows. On phones the closed radio card no longer has the "Pick a voice room" bar that could not be pressed, and has a 44 pixel Voice Rooms button that opens the Stations sheet at the voice rooms instead. On touch screens room and sheet rows and the buttons of the top bar and the conversation header are at least 44 pixels high. On phones bottom sheets close when dragged down by their handle or header. The unread count at startup comes from the newest 50 messages, so 120 unread messages showed as "50". Now they show as "50+", and the count becomes exact once the conversation is opened.
++- At medium widths (760 to 1279 pixels) the Stations list shows in the right column above the radio card, so rooms and direct messages are reachable without pressing a button. The list is hidden on screens shorter than 720 pixels, on phones and when the radio card grows in a voice room and leaves no room for two rows of the list, and then the Stations button in the top bar shows. On phones the closed radio card no longer has the "Pick a voice room" bar that could not be pressed, and has a 44 pixel Voice Rooms button that opens the Stations sheet at the voice rooms instead. On touch screens room and sheet rows and the buttons of the top bar and the conversation header are at least 44 pixels high. On phones bottom sheets close when dragged down by their handle or header. The unread count at startup comes from the newest 50 messages, so 120 unread messages showed as "50". Now they show as "50+", and the count becomes exact once the conversation is opened.
+ - The placeholder of the Add Friend field now reads "Enter a username" (before "username"). The field's label is only visible to screen readers, so the placeholder is the only visible hint.
+ - The display name and @username on the profile card now sit to the right of the profile picture, with the role right next to the name. Before, the name, username and role were stacked below the picture. Plain members now also get a faint "Member" badge on their card, and someone with a custom role shows both badges. The My Account and Profile previews in Settings and the head of the avatar menu use the same layout and also show the custom role (the avatar menu used to write the role next to the username). If the name is long the role wraps to the next line, and if the card gets very narrow (for example on a phone with a large font size) the name moves below the picture. On a phone with a large font size the right edge of the card no longer runs off the screen.
+ - In every theme text and user interface component colors are now measured on all nine surfaces, hover and selected backgrounds included (`scripts/kontrast.js`, `test/tema.test.js`). Colors that fell slightly below the threshold in this measurement were adjusted: the online and idle markers in Night Frequency light mode and the live color in Turquoise and Copper light mode became slightly darker, and the danger text and the input border in Turquoise and Copper dark mode became slightly lighter. Of the eight custom role colors shared by the light modes, seven became slightly darker and blue stayed the same. The colors of the Camera, Microphone, Deafen and Screen buttons on the radio card now come from tone tokens (`--tone-*`) that themes can override.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 08cf559..198cb0d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -14,7 +14,7 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
+ 
+ ### Değişiklikler
+ 
+-- Orta genişlikte (760 ile 1279 piksel) İstasyonlar listesi sağ sütunda telsiz kartının üstünde görünür, odalara ve özel mesajlara ulaşmak için düğmeye basmak gerekmez. Liste yalnızca 720 pikselden alçak ekranda ve telefonda gizlenir, o zaman üst çubuktaki İstasyonlar düğmesi görünür. Telefonda kapalı telsiz kartındaki tıklanamayan "Bir ses odası seçin" çubuğu yerine İstasyonlar sayfasını ses odalarında açan 44 piksellik Ses Odaları düğmesi var. Dokunmatik ekranda oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel yüksekliktedir. Telefonda alttan açılan sayfalar tutamaçtan veya başlıktan aşağı sürüklenince kapanır. Açılışta okunmamış sayısı en yeni 50 mesajdan sayıldığı için 120 okunmamış "50" görünüyordu, artık "50+" görünür ve konuşma açılınca kesin sayıya döner.
++- Orta genişlikte (760 ile 1279 piksel) İstasyonlar listesi sağ sütunda telsiz kartının üstünde görünür, odalara ve özel mesajlara ulaşmak için düğmeye basmak gerekmez. Liste 720 pikselden alçak ekranda, telefonda ve ses odasında uzayan telsiz kartı listeye iki satırlık yer bırakmadığında gizlenir, o zaman üst çubuktaki İstasyonlar düğmesi görünür. Telefonda kapalı telsiz kartındaki tıklanamayan "Bir ses odası seçin" çubuğu yerine İstasyonlar sayfasını ses odalarında açan 44 piksellik Ses Odaları düğmesi var. Dokunmatik ekranda oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel yüksekliktedir. Telefonda alttan açılan sayfalar tutamaçtan veya başlıktan aşağı sürüklenince kapanır. Açılışta okunmamış sayısı en yeni 50 mesajdan sayıldığı için 120 okunmamış "50" görünüyordu, artık "50+" görünür ve konuşma açılınca kesin sayıya döner.
+ - Arkadaş Ekle kutusunun yer tutucusu artık "Kullanıcı adı giriniz" (önceden "kullanici_adi"). Kutunun etiketi yalnızca ekran okuyucuya göründüğü için yer tutucu tek görünen ipucudur.
+ - Profil kartında görünen ad ve @kullanıcı adı artık profil resminin sağında, rol de adın hemen yanında durur. Önceden ad, kullanıcı adı ve rol resmin altında alt alta diziliyordu. Düz üyelerin kartında da soluk bir "Üye" rozeti çıkar, özel rolü olan kişide iki rozet de görünür. Ayarlar'daki Hesabım ve Profil önizlemeleri ile avatar menüsünün başı aynı düzeni kullanır ve özel rolü de gösterir (avatar menüsü önceden rolü kullanıcı adının yanında yazıyordu). Ad uzunsa rol alt satıra kayar, kart çok daralırsa (örneğin telefonda büyük yazı boyutuyla) ad resmin altına iner. Telefonda büyük yazı boyutunda kartın sağ kenarı artık ekrandan taşmaz.
+ - Bütün temalarda metin ve arayüz bileşeni renkleri artık üzerine gelme ve seçili zeminler dahil dokuz yüzeyin hepsinde ölçülür (`scripts/kontrast.js`, `test/tema.test.js`). Bu ölçümde eşiğin biraz altında kalan renkler ayarlandı: Gece Frekansı açık modda çevrimiçi ve boşta işaretleri ile Turkuaz ve Bakır açık modda canlı rengi biraz koyulaştı, Turkuaz ve Bakır koyu modda tehlike metni ve girdi kenarı biraz açıldı. Açık modlarda ortak kullanılan sekiz özel rol renginden yedisi biraz koyulaştı, mavi aynı kaldı. Telsiz kartındaki Kamera, Mikrofon, Sağırlaştır ve Ekran düğmelerinin renkleri artık temaların ezebildiği ton belirteçlerinden (`--tone-*`) gelir.
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+index f88a70d..c1c2153 100644
+--- a/docs/DESIGN.md
++++ b/docs/DESIGN.md
+@@ -49,7 +49,7 @@ The app screen (`#app-view`) consists of the following regions from top to botto
+ 
+ 1. **Top bar (`#top`).** At the top left, the frequency switcher (`#frekans-button`: emblem (the frequency photo, otherwise the first letter), frequency name and a down arrow, with "Frequency · member count" and the encrypted note on the second line). Pressing it opens the menu of saved frequencies (`#frekans-menu`, `24-frekans.js`): the open frequency first and marked, switching to another, Add a frequency, Remove from list. Right next to the frequency switcher, the Online strip (small avatars of online people, which opens the people list). The Search chip sits exactly in the middle: the two side sections (`.top-side`) grow at the same rate, and when space runs short the sections do not overlap and Search moves slightly. The left section (`.top-side-start`, `min-width: 0`) can shrink below its content: a long frequency name is cut with an ellipsis, so the buttons and the avatar chip on the right are not pushed off screen. On the right, the "Your screen is live" chip (`#top-cast`) shown on every station while you share your screen (at 1439 pixels and below only the red lamp and Stop, below 760 pixels there is no chip and the share is stopped from the Screen button on the radio card or the Stop button in the stage header), the Stations button while the right column is hidden, the Direct messages and Friends buttons (`#top-personal`, with badges for unread direct messages and pending requests) and at the far right the avatar chip (`#me-button`, which opens the avatar menu: status, custom status, profile, settings, appearance, language, sign out). When the connection drops, a banner (`#conn-banner`) appears below the top bar. In the desktop app (Windows and Linux) a title strip as tall as the window buttons (32 pixels) sits above the top bar (`#titlebar`, `30-pencere.js`): the Telsiz icon and the app menus on the left, the window title in the middle, and the minimize, maximize and close buttons drawn by the operating system on the right. The strip has a transparent background, and the background and symbol color of the buttons come from the theme's background (`--bg`) and text (`--text`) colors, so the strip looks like one piece with the top bar. Hovering a menu button and an open menu show the `--surface-hover` background, and keyboard focus shows the `--focus` ring. Because the height comes from the system, the text and spacing of the strip are in pixels. In full screen the strip goes away.
+ 2. **Frequency band (`#band`, `#band-track`).** The frequencies you have joined in a single row, with the "Frequencies" label at the start of the group (produced by `24-frekans.js`, drawn by `04-meta.js renderBand`). Each station is a frequency: an emblem with the frequency photo or the first letter of its name and a status dot in its corner (the open frequency in the needle color, online green, offline red, sign-in needed yellow, unknown an empty ring), the name (the address if unknown), a second line with the status, the number of people online or the address, an inline unread badge and a mention badge in the corner (`@count`). The unread count is the total of rooms and direct messages, the mention count is the total of messages that mention you and direct messages. The band is one row high (`--band-h` 3.5rem): the scale strip and the needle knob on top, the 44 pixel stations below. The scale ticks scroll with the content, and the needle above a station shows the open frequency. Pressing another station, dragging the needle and dropping it on another station, the end buttons and the L1 and R1 buttons of a gamepad switch to that frequency, and while you are in a voice room you are asked first. The ends of the band hold previous and next frequency buttons, an Add a frequency button (+), a ? button that shows the guide to changing frequencies and the shortcuts between conversations (Alt + Up/Down, Alt + Shift + Up/Down, Esc) in a small popover (`#band-help`, `#hints-card`) and the All button that opens the Frequencies sheet. The band is a single tab stop on the keyboard (arrow keys move the focus, Home, End, Enter switches), and the wheel only scrolls the band horizontally and never changes the frequency. In the desktop app the status and unread counts of frequencies that are not open are shown too (background counting, [desktop/README.en.md](../desktop/README.en.md)). In the browser each frequency is a separate origin, so only the status and counts of the open frequency are shown, and the tooltip and accessible name of the other stations say so. In the browser the band order is carried in the address fragment, so it is the same on every frequency.
+-3. **Stage (`#stage`).** On wide screens from left to right: a narrow fixed left column (`#info-col`, `--side-left-w`: the conversation list and personal cards in the Direct view, and at the bottom of the column the radio card `#radio` at the very bottom of the column with Notifications `#activity` right above it: a screen share started in the same voice room with a Watch button, and joining and leaving voice rooms. The card of the tuned station only shows in the Room info sheet below 1280 pixels), the conversation column that takes the remaining space (`#main`: header, messages, typing line, composer) and a narrow fixed right column (`#side-right`, `--side-right-w`: the list of text and voice rooms called Stations `#inbox`, with unread and mention badges, the number of people in a voice room and the people in the room below it (avatar, name, mute and camera icons, a ring around the person speaking), a speaking indicator and the Telsiz DJ note, and an Add room button `#inbox-add` in its header for people with the manage rooms permission (the owner, admins and permitted roles)). A Direct messages group sits between the text rooms and the voice rooms (`38-gezinme.js navDmGroup`, there is no group without direct conversations): each row has a small avatar and the name, the unread badge uses the mention color like the one on the Direct Messages button, unread conversations come first and the rest follow by their last message. At most six rows show, and the rest open with the All Direct Messages button on the last row (`aria-expanded`, with the number of conversations) and close with Show Fewer. Pressing a text room tunes it, pressing a voice room joins it, and pressing a direct conversation row opens it. Between 760 and 1279 pixels the Stations card sits in the right column above the radio card, and its list scrolls when it does not fit. When the Stations card is not visible (below 760 pixels, below 1280 pixels on screens shorter than 720 pixels or while a screen share is live, the right column stays in place for the camera grid), the Stations button in the top bar (`#btn-rooms`, with a total unread badge) opens the same list in the Stations sheet. While Telsiz DJ is playing the Stations list stays at the top of the right column and the DJ card (`#dj`) sits below it (the list keeps at least 12rem, and the card scrolls inside itself if it does not fit), and while a screen share is live the right column is hidden. Below 1280 pixels the radio card moves to the right column (`12-init.js placeRadio`).
++3. **Stage (`#stage`).** On wide screens from left to right: a narrow fixed left column (`#info-col`, `--side-left-w`: the conversation list and personal cards in the Direct view, and at the bottom of the column the radio card `#radio` at the very bottom of the column with Notifications `#activity` right above it: a screen share started in the same voice room with a Watch button, and joining and leaving voice rooms. The card of the tuned station only shows in the Room info sheet below 1280 pixels), the conversation column that takes the remaining space (`#main`: header, messages, typing line, composer) and a narrow fixed right column (`#side-right`, `--side-right-w`: the list of text and voice rooms called Stations `#inbox`, with unread and mention badges, the number of people in a voice room and the people in the room below it (avatar, name, mute and camera icons, a ring around the person speaking), a speaking indicator and the Telsiz DJ note, and an Add room button `#inbox-add` in its header for people with the manage rooms permission (the owner, admins and permitted roles)). A Direct messages group sits between the text rooms and the voice rooms (`38-gezinme.js navDmGroup`, there is no group without direct conversations): each row has a small avatar and the name, the unread badge uses the mention color like the one on the Direct Messages button, unread conversations come first and the rest follow by their last message. At most six rows show, and the rest open with the All Direct Messages button on the last row (`aria-expanded`, with the number of conversations) and close with Show Fewer. Pressing a text room tunes it, pressing a voice room joins it, and pressing a direct conversation row opens it. Between 760 and 1279 pixels the Stations card sits in the right column above the radio card, and its list scrolls when it does not fit. When the Stations card is not visible (below 760 pixels, below 1280 pixels on screens shorter than 720 pixels, when the radio card grows in a voice room and leaves no room for the header and two rows of the list (13rem, `38-gezinme.js navFitInbox`, `.is-inbox-cramped`) or while a screen share is live, the right column stays in place for the camera grid), the Stations button in the top bar (`#btn-rooms`, with a total unread badge) opens the same list in the Stations sheet. While Telsiz DJ is playing the Stations list stays at the top of the right column and the DJ card (`#dj`) sits below it (the list keeps at least 12rem, and the card scrolls inside itself if it does not fit), and while a screen share is live the right column is hidden. Below 1280 pixels the radio card moves to the right column (`12-init.js placeRadio`).
+ 4. **Broadcast stage (`#cast`).** While watching a screen share, previewing your own or with the camera grid open, the left and middle regions merge and the chat moves down into a collapsed strip.
+ 5. **Sheets.** Frequencies (`#frekans-sheet`, the All button of the band: the frequencies with their status and counts, removing from the list and Add a frequency), Stations (`#stations-sheet`, text and voice rooms, Add room in the header), Online (`#people-sheet`) and, below 1280 pixels, Room info are side sheets that open from the right on wide screens and bottom sheets on phones. The Stations sheet has the Direct messages group too. Below 1280 pixels there is no conversation list in the left column, so the Direct Messages button in the top bar (`#top-dm`, `aria-haspopup="dialog"`) opens the Stations sheet and puts focus on the first conversation in the group, while on wide screens it opens the newest conversation with unread messages, or the last opened one. With no direct conversations the button is not announced as a popup (no `aria-haspopup`) and opens the Friends view. The Room info sheet has no direct message list, and in the direct message view the Room info button appears only when the sheet has incoming friend requests (`#req-card`) or Notifications (`#activity`) to show (`.app-view.has-info-cards`). The up and down arrows, Home and End move between the rows of a sheet. On phones a bottom sheet closes when it is dragged down more than 80 pixels by its handle (`.sheet-handle`, whose invisible touch area is larger than the line) or its header, and it springs back when dragged less, and a drag that starts on a header button does not count. Only one sheet is open at a time, and they share the `#drawer-backdrop` overlay.
+ 6. **TV hint bar (`#tvbar`).** Appears at the bottom at 1800 pixels and up when a gamepad is detected.
+@@ -67,9 +67,9 @@ The layout follows the markup order, and `dir` or `flex-direction: row-reverse`
+ | TV | `min-width: 1800px` | Root font 22 pixels (with the automatic font size), larger focus ring, hint bar when a gamepad is present, header row of the radio card hidden |
+ | Wide | `min-width: 1280px` | Three region stage: radio card and room info on the left, the conversation grows in the middle, Stations or the DJ card on the right |
+ | Wide narrow | 1000 to 1279 pixels | Left column hidden, radio card in the right column with the Stations card above it, personal buttons in the top bar as icons, the Direct Messages button opens the Stations sheet at the Direct messages group, room info in a side sheet from the header button (in the direct message view the button appears only when the sheet has incoming requests or Notifications), DJ card in a sheet opened from the Telsiz DJ button on the radio card |
+-| Medium | `max-width: 999px` | Radio card 17rem, buttons in two rows, the Stations card above the radio card (no Stations button in the top bar), Fit, Fill (the `i-fill` symbol) and Full Screen in the broadcast stage header are icons only (the accessible name and a tooltip matching the visible label remain) |
++| Medium | `max-width: 999px` | Radio card 17rem, buttons in two rows, the Stations card above the radio card (the Stations button in the top bar shows only while the card is hidden), Fit, Fill (the `i-fill` symbol) and Full Screen in the broadcast stage header are icons only (the accessible name and a tooltip matching the visible label remain) |
+ | Narrow (phone) | `max-width: 759px` | The band runs edge to edge and scrolls with a finger, All button, only the emblem on the frequency button (the name is on the band), full width conversation, the radio card sticks to the bottom of the screen, layers (Stations included) open from the bottom, the Stations card is hidden and the top bar has the Stations button, the closed radio card is a 44 pixel Voice Rooms button (`#radio-pick-button`) that opens the Stations sheet at the voice rooms, no share chip in the top bar, the tools row of the radio card (Enlarge and Telsiz DJ) moves below the room name when it does not fit |
+-| Short | `max-height: 720px` and below 1280 pixels | Stations card hidden, Stations button in the top bar |
++| Short | `max-height: 720px` and below 1280 pixels, or below 1280 pixels when the radio card leaves less than 13rem for the Stations card (`.is-inbox-cramped`) | Stations card hidden, Stations button in the top bar |
+ | Touch | `pointer: coarse` | Room and sheet rows and the buttons of the top bar and the conversation header are at least 44 pixels high, and at 400 pixels and wider the top bar buttons are at least 44 pixels wide too |
+ 
+ Two more limits do not depend on the layout class. At 1439 pixels and below the text of your own share chip in the top bar is hidden. In a private call with Flip Camera present (`.dm-call-controls.has-flip`), the text of the control buttons is also hidden at 540 pixels and below and between 760 and 899 pixels, while a row of three buttons hides it only at 420 pixels and below.
+diff --git a/docs/TASARIM.md b/docs/TASARIM.md
+index 734e0ea..f0b1442 100644
+--- a/docs/TASARIM.md
++++ b/docs/TASARIM.md
+@@ -49,7 +49,7 @@ Uygulama ekranı (`#app-view`) yukarıdan aşağı şu bölgelerden oluşur:
+ 
+ 1. **Üst çubuk (`#top`).** Sol üstte frekans değiştirici (`#frekans-button`: amblem (frekans fotoğrafı, yoksa baş harf), frekans adı ve aşağı ok, alt satırda "Frekans · üye sayısı" ve şifreli notu). Basınca kayıtlı frekansların menüsü (`#frekans-menu`, `24-frekans.js`) açılır: açık frekans başta ve işaretli, diğerine geçme, Frekans ekle, Listeden çıkar. Frekans değiştiricinin hemen sağında Çevrimiçi şeridi (çevrimiçi kişilerin küçük avatarları, basınca kişi listesi). Tam ortada Ara çipi: iki yan bölüm (`.top-side`) aynı oranda esner, yer daralınca bölümler üst üste binmez, Ara biraz kayar. Sol bölüm (`.top-side-start`, `min-width: 0`) içeriğinin altına inebilir: uzun frekans adı üç noktayla kısalır, sağdaki düğmeler ve avatar çipi ekran dışına itilmez. Sağda ekran paylaşırken her istasyonda görünen "Ekranınız yayında" çipi (`#top-cast`, 1439 piksel ve altında yalnızca kırmızı lamba ve Durdur, 760 pikselin altında hiç yoktur ve paylaşım telsiz kartının Ekran düğmesinden ya da sahne başlığındaki Durdur'dan durdurulur), sağ sütun görünmediğinde İstasyonlar düğmesi, Özel mesajlar ve Arkadaşlar düğmeleri (`#top-personal`, okunmamış özel mesaj ve bekleyen istek rozetleriyle) ve en sağda avatar çipi (`#me-button`, basınca avatar menüsü: durum, özel durum, profil, ayarlar, görünüm, dil, çıkış). Bağlantı koptuğunda üst çubuğun altında bir şerit (`#conn-banner`) çıkar. Masaüstü uygulamasında (Windows ve Linux) üst çubuğun üstünde pencere düğmeleri kadar yüksek (32 piksel) bir başlık şeridi (`#titlebar`, `30-pencere.js`) vardır: solda Telsiz simgesi ve uygulama menüleri, ortada pencere başlığı, sağda işletim sisteminin çizdiği küçült, ekranı boyutla ve kapat düğmeleri. Şeridin zemini saydamdır, düğmelerin zemini ve simge rengi temanın zemin (`--bg`) ve metin (`--text`) renginden gelir, böylece şerit üst çubukla tek parça görünür. Menü düğmesinin üstüne gelince ve menü açıkken `--surface-hover` zemini, klavye odağında `--focus` halkası görünür. Yükseklik sistemden geldiği için şeridin yazısı ve boşlukları piksel cinsindendir. Tam ekranda şerit kalkar.
+ 2. **Frekans bandı (`#band`, `#band-track`).** Katıldığınız frekanslar tek satırda, "Frekanslar" etiketi grubun başında (`24-frekans.js` üretir, `04-meta.js renderBand` çizer). Her istasyon bir frekanstır: frekans fotoğrafı veya adının baş harfiyle amblem ve köşesinde durum noktası (açık frekans ibre renginde, çevrimiçi yeşil, çevrimdışı kırmızı, giriş gerekli sarı, bilinmiyor boş halka), ad (bilinmiyorsa adres), alt satırda durum, çevrimiçi kişi sayısı veya adres, satır içinde okunmamış rozeti ve köşede anma rozeti (`@sayı`). Okunmamış sayısı odaların ve özel mesajların, anma sayısı sizi anan mesajlar ile özel mesajların toplamıdır. Bant tek satırlıktır (`--band-h` 3.5rem): üstte ölçek şeridi ve ibrenin topuzu, altında 44 piksellik istasyonlar. Ölçek çizgileri içerikle birlikte kayar, açık frekansı istasyonun üstündeki ibre gösterir. Başka bir istasyona basmak, ibreyi sürükleyip başka bir istasyona bırakmak, uç düğmeleri ve oyun kolunun L1 ve R1 düğmeleri o frekansa geçer, ses odasındayken önce onay istenir. Bandın uçlarında önceki ve sonraki frekans düğmeleri, Frekans ekle düğmesi (+), frekans değiştirme rehberini ve konuşmalar arası kısayolları (Alt + Yukarı/Aşağı, Alt + Shift + Yukarı/Aşağı, Esc) küçük bir açılır pencerede gösteren ? düğmesi (`#band-help`, `#hints-card`) ve Frekanslar sayfasını açan Tümü düğmesi bulunur. Bant klavyede tek bir sekme durağıdır (ok tuşları odağı gezdirir, Home, End, Enter geçer), tekerlek bandı yalnızca yatay kaydırır ve hiçbir zaman frekans değiştirmez. Masaüstü uygulamasında açık olmayan frekansların durumu ve okunmamış sayıları da görünür (arka plan sayımı, [desktop/README.md](../desktop/README.md)). Tarayıcıda her frekans ayrı bir köken olduğu için yalnızca açık frekansın durumu ve sayıları gösterilir, diğer istasyonların ipucu ve erişilebilir adı bunu söyler. Tarayıcıda bant sırası adres parçasıyla taşınır, böylece her frekansta aynıdır.
+-3. **Sahne (`#stage`).** Geniş ekranda soldan sağa: dar ve sabit sol sütun (`#info-col`, `--side-left-w`: Özel görünümünde konuşma listesi ve kişisel kartlar, sütunun en altında telsiz kartı `#radio` ve hemen üstünde Bildirimler `#activity`: aynı ses odasında başlayan ekran paylaşımı İzle düğmesiyle, ses odalarına katılma ve ayrılma. Ayarlı istasyonun kartı yalnızca 1280 pikselin altında Oda bilgisi sayfasında görünür), kalan alanı alan konuşma sütunu (`#main`: başlık, mesajlar, yazıyor satırı, yazma alanı) ve dar ve sabit sağ sütun (`#side-right`, `--side-right-w`: yazı ve ses odalarının listesi İstasyonlar `#inbox`, okunmamış ve anma rozetleri, ses odasında kişi sayısı ve odanın altında odadaki kişiler (avatar, ad, susturma ve kamera simgesi, konuşan kişinin halkası), konuşan göstergesi ve Telsiz DJ notası, başlıkta oda yönetme izni olanlar (sahip, yönetici ve izinli roller) için Oda ekle düğmesi `#inbox-add`). Yazı odalarıyla ses odaları arasında Özel mesajlar grubu durur (`38-gezinme.js navDmGroup`, özel konuşma yoksa grup yoktur): satırda küçük avatar ve ad, okunmamış rozeti Özel Mesajlar düğmesindeki gibi anma renginde, okunmamış konuşmalar önce, sonra son mesaja göre. En çok altı satır görünür, fazlası son satırdaki Tüm Özel Mesajlar düğmesiyle (`aria-expanded`, konuşma sayısıyla) açılır ve Daha Az Göster ile kapanır. Yazı odasına basmak onu ayarlar, ses odasına basmak o odaya katılır, özel konuşma satırı konuşmayı açar. 760 ile 1279 piksel arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar. İstasyonlar kartı görünmediğinde (760 pikselin altı, 720 pikselden alçak ekranda 1280 pikselin altı veya ekran paylaşımı yayındayken, kamera ızgarasında sağ sütun yerinde kalır) üst çubuktaki İstasyonlar düğmesi (`#btn-rooms`, toplam okunmamış rozetiyle) aynı listeyi İstasyonlar sayfasında açar. Telsiz DJ çalarken İstasyonlar listesi sağ sütunun üstünde kalır, DJ kartı (`#dj`) altına yerleşir (liste en az 12rem, kart sığmazsa kendi içinde kayar), ekran paylaşımı yayındayken sağ sütun gizlenir. 1280 pikselin altında telsiz kartı sağ sütuna taşınır (`12-init.js placeRadio`).
++3. **Sahne (`#stage`).** Geniş ekranda soldan sağa: dar ve sabit sol sütun (`#info-col`, `--side-left-w`: Özel görünümünde konuşma listesi ve kişisel kartlar, sütunun en altında telsiz kartı `#radio` ve hemen üstünde Bildirimler `#activity`: aynı ses odasında başlayan ekran paylaşımı İzle düğmesiyle, ses odalarına katılma ve ayrılma. Ayarlı istasyonun kartı yalnızca 1280 pikselin altında Oda bilgisi sayfasında görünür), kalan alanı alan konuşma sütunu (`#main`: başlık, mesajlar, yazıyor satırı, yazma alanı) ve dar ve sabit sağ sütun (`#side-right`, `--side-right-w`: yazı ve ses odalarının listesi İstasyonlar `#inbox`, okunmamış ve anma rozetleri, ses odasında kişi sayısı ve odanın altında odadaki kişiler (avatar, ad, susturma ve kamera simgesi, konuşan kişinin halkası), konuşan göstergesi ve Telsiz DJ notası, başlıkta oda yönetme izni olanlar (sahip, yönetici ve izinli roller) için Oda ekle düğmesi `#inbox-add`). Yazı odalarıyla ses odaları arasında Özel mesajlar grubu durur (`38-gezinme.js navDmGroup`, özel konuşma yoksa grup yoktur): satırda küçük avatar ve ad, okunmamış rozeti Özel Mesajlar düğmesindeki gibi anma renginde, okunmamış konuşmalar önce, sonra son mesaja göre. En çok altı satır görünür, fazlası son satırdaki Tüm Özel Mesajlar düğmesiyle (`aria-expanded`, konuşma sayısıyla) açılır ve Daha Az Göster ile kapanır. Yazı odasına basmak onu ayarlar, ses odasına basmak o odaya katılır, özel konuşma satırı konuşmayı açar. 760 ile 1279 piksel arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar. İstasyonlar kartı görünmediğinde (760 pikselin altı, 720 pikselden alçak ekranda 1280 pikselin altı, ses odasında uzayan telsiz kartı kartta başlık ve iki satırlık liste yeri (13rem) bırakmadığında (`38-gezinme.js navFitInbox`, `.is-inbox-cramped`) veya ekran paylaşımı yayındayken, kamera ızgarasında sağ sütun yerinde kalır) üst çubuktaki İstasyonlar düğmesi (`#btn-rooms`, toplam okunmamış rozetiyle) aynı listeyi İstasyonlar sayfasında açar. Telsiz DJ çalarken İstasyonlar listesi sağ sütunun üstünde kalır, DJ kartı (`#dj`) altına yerleşir (liste en az 12rem, kart sığmazsa kendi içinde kayar), ekran paylaşımı yayındayken sağ sütun gizlenir. 1280 pikselin altında telsiz kartı sağ sütuna taşınır (`12-init.js placeRadio`).
+ 4. **Yayın sahnesi (`#cast`).** Ekran paylaşımı izlenirken, kişi kendi paylaşımının önizlemesine bakarken veya kameralar ızgarası açıkken sol ve orta bölge birleşir, sohbet altta daraltılmış bir şeride iner.
+ 5. **Sayfalar.** Frekanslar (`#frekans-sheet`, bandın Tümü düğmesi: frekanslar durum ve sayılarıyla, listeden çıkarma ve Frekans ekle), İstasyonlar (`#stations-sheet`, yazı ve ses odaları, başlıkta Oda ekle), Çevrimiçi (`#people-sheet`) ve 1280 pikselin altında Oda bilgisi geniş ekranda sağdan açılan yan sayfa, telefonda alttan açılan sayfadır. İstasyonlar sayfasında da Özel mesajlar grubu vardır. 1280 pikselin altında sol sütundaki konuşma listesi olmadığı için üst çubuktaki Özel Mesajlar düğmesi (`#top-dm`, `aria-haspopup="dialog"`) İstasyonlar sayfasını açar ve odağı gruptaki ilk konuşmaya koyar, geniş ekranda okunmamışı olan en yeni konuşmayı, yoksa son açılanı açar. Hiç özel konuşma yoksa düğme açılır pencere olarak duyurulmaz (`aria-haspopup` yok) ve Arkadaşlar görünümünü açar. Oda bilgisi sayfasında özel mesaj listesi yoktur, özel mesaj görünümünde Oda bilgisi düğmesi yalnızca sayfada gelen arkadaşlık istekleri (`#req-card`) veya Bildirimler (`#activity`) varken görünür (`.app-view.has-info-cards`). Sayfadaki satırlar arasında yukarı ve aşağı ok, Home ve End gezer. Telefonda alttan açılan sayfa tutamacından (`.sheet-handle`, görünmez dokunma alanı çizgiden geniştir) veya başlığından 80 pikselden çok aşağı sürüklenince kapanır, daha az sürüklenince yerine döner, başlıktaki düğmelerden başlayan sürükleme sayılmaz. Aynı anda tek sayfa açıktır, ortak örtü `#drawer-backdrop`'tur.
+ 6. **Televizyon ipucu çubuğu (`#tvbar`).** 1800 piksel ve üstünde, oyun kolu algılandığında altta görünür.
+@@ -67,9 +67,9 @@ Düzen işaretleme sırasıyla kurulur, `dir` veya `flex-direction: row-reverse`
+ | Televizyon | `min-width: 1800px` | Kök yazı 22 piksel (otomatik yazı boyutunda), büyük odak halkası, oyun kolu varsa ipucu çubuğu, telsiz kartının başlık satırı gizli |
+ | Geniş | `min-width: 1280px` | Üç bölgeli sahne: solda telsiz kartı ve oda bilgisi, ortada genişleyen konuşma, sağda İstasyonlar veya DJ kartı |
+ | Geniş dar | 1000 ile 1279 piksel | Sol sütun gizli, telsiz kartı sağ sütunda ve İstasyonlar kartı onun üstünde, üst çubuktaki kişisel düğmeler simge, Özel Mesajlar düğmesi İstasyonlar sayfasını Özel mesajlar grubunda açar, oda bilgisi başlıktaki düğmeyle yan sayfada (özel mesaj görünümünde düğme yalnızca sayfada gelen istekler veya Bildirimler varken görünür), DJ kartı telsiz kartındaki Telsiz DJ düğmesinden açılan sayfada |
+-| Orta | `max-width: 999px` | Telsiz kartı 17rem, düğmeler iki satırda, İstasyonlar kartı telsiz kartının üstünde (üst çubukta İstasyonlar düğmesi yok), yayın sahnesi başlığında Sığdır, Doldur (`i-fill` simgesi) ve Tam Ekran yalnızca simgedir (erişilebilir ad ve görünür etiketle aynı ipucu kalır) |
++| Orta | `max-width: 999px` | Telsiz kartı 17rem, düğmeler iki satırda, İstasyonlar kartı telsiz kartının üstünde (üst çubuktaki İstasyonlar düğmesi yalnızca kart gizliyken görünür), yayın sahnesi başlığında Sığdır, Doldur (`i-fill` simgesi) ve Tam Ekran yalnızca simgedir (erişilebilir ad ve görünür etiketle aynı ipucu kalır) |
+ | Dar (telefon) | `max-width: 759px` | Bant kenardan kenara ve parmakla kayar, Tümü düğmesi, frekans düğmesinde yalnızca amblem (ad bantta), konuşma tam genişlik, telsiz kartı ekranın altına yapışır, katmanlar (İstasyonlar dahil) alttan açılır, İstasyonlar kartı gizli ve üst çubukta İstasyonlar düğmesi var, kapalı telsiz kartı İstasyonlar sayfasını ses odalarında açan 44 piksellik Ses Odaları düğmesidir (`#radio-pick-button`), üst çubukta paylaşım çipi yoktur, telsiz kartının araç satırı (Büyüt ve Telsiz DJ) sığmazsa oda adının altına iner |
+-| Alçak | `max-height: 720px` ve 1280 pikselin altı | İstasyonlar kartı gizli, üst çubukta İstasyonlar düğmesi |
++| Alçak | `max-height: 720px` ve 1280 pikselin altı, ya da 1280 pikselin altında telsiz kartı İstasyonlar kartına 13rem bırakmıyor (`.is-inbox-cramped`) | İstasyonlar kartı gizli, üst çubukta İstasyonlar düğmesi |
+ | Dokunmatik | `pointer: coarse` | Oda ve sayfa satırları, üst çubuğun ve konuşma başlığının düğmeleri en az 44 piksel yükseklikte, 400 piksel ve üstünde üst çubuğun düğmeleri en az 44 piksel genişlikte de |
+ 
+ Düzen sınıfına bağlı olmayan iki eşik daha vardır. 1439 piksel ve altında üst çubuktaki kendi paylaşım çipinin yazısı gizlenir. Özel aramada Kamerayı Çevir varken (`.dm-call-controls.has-flip`) denetim düğmelerinin yazıları 540 piksel ve altında ve 760 ile 899 piksel arasında da gizlenir, üç düğmeli satırda yalnızca 420 piksel ve altında.
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 4a843b8..fb036ec 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -47,8 +47,9 @@
+ //   dener ve başarılı olunca kendiliğinden yükleme sürer (inceleme düzeltmesi).
+ // G10, orta genişlik ve dar başlık (S8, S9): 768x1024, 900x800, 1024x768 ve 1200x900 boyutlarında İstasyonlar kartı
+ //   telsiz kartının üstünde ve Özel mesajlar grubuyla, İstasyonlar düğmesi gizli, çok alçak ekranda (1024x700) kart
+-//   gizli ve düğme görünür. Özel mesaj başlığında 1024 ile 1280 px arasında ad en az 80 piksel, düğmeler çakışmaz ve
+-//   başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
++//   gizli ve düğme görünür. Ses odasında uzayan telsiz kartı listeye iki satırlık yer bırakmayınca kart gizlenir ve düğme
++//   görünür, yer açılınca kart en az iki satırla geri gelir (inceleme düzeltmesi). Özel mesaj başlığında 1024 ile 1280
++//   px arasında ad en az 80 piksel, düğmeler çakışmaz ve başlıktan taşmaz, 1440 genişlikte düğme yazıları görünür.
+ // G10, kısayollar (S10): Alt+Aşağı ve Alt+Yukarı İstasyonlar listesinin sırasıyla (yazı odaları, özel konuşmalar)
+ //   konuşma değiştirir ve uçlarda başa döner, odak yazma alanında kalır. Alt+Shift+Aşağı önce anması olan odaya, sonra
+ //   okunmamış odaya gider, okunmamış kalmayınca konuşma değişmez. Bas konuş Alt tuşuna atanınca kısayol çalışmaz. Esc
+@@ -1113,7 +1114,7 @@ test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, ha
+ 
+ // G10 (S8, S9): orta genişlikte İstasyonlar kartı ve dar özel mesaj başlığı
+ 
+-test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, yalnızca çok alçak ekranda gizli', async () => {
++test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mesajlar grubuyla, çok alçak ekranda ve telsiz kartı yer bırakmayınca gizli', async () => {
+   const page = W.deniz
+   const layout = () => page.evaluate(() => {
+     const inbox = document.getElementById('inbox').getBoundingClientRect()
+@@ -1135,6 +1136,40 @@ test('orta genişlik: İstasyonlar kartı telsiz kartının üstünde, Özel mes
+   await setWidth(page, 1024, 700)
+   const low = await layout()
+   assert.deepEqual([low.inbox, low.button], [false, true])
++  // Ses odasında telsiz kartı uzar: kartta başlık ve iki satırlık liste yeri (13rem) kalmayınca kart gizlenir ve
++  // İstasyonlar düğmesi görünür, yer açılınca kart geri gelir. Yükseklikler telsiz kartının ölçüsünden hesaplanır ve
++  // 720 pikselden alçak ekran kuralının dışında kalır (inceleme düzeltmesi).
++  if (h.FAKE_MIC) {
++    await page.bringToFront()
++    await setWidth(page, 1024, 900)
++    await h.joinVoice(page, W.w.room('Lobi').id)
++    const cramped = () => page.evaluate(() => {
++      const list = document.getElementById('inbox-list')
++      const row = list.querySelector('.room-row')
++      return {
++        inbox: document.getElementById('inbox').getClientRects().length > 0,
++        button: document.getElementById('btn-rooms').getClientRects().length > 0,
++        list: list.clientHeight,
++        row: row ? row.offsetHeight : 0
++      }
++    })
++    const sizes = await page.evaluate(() => {
++      const rem = parseFloat(window.getComputedStyle(document.documentElement).fontSize)
++      const extra = window.innerHeight - el.sideRight.clientHeight
++      return { tight: Math.round(el.radio.offsetHeight + extra + 13 * rem - 25), roomy: Math.round(el.radio.offsetHeight + extra + 13 * rem + 40) }
++    })
++    assert.ok(sizes.tight > 730, 'telsiz kartı yeterince uzun: ' + JSON.stringify(sizes))
++    await setWidth(page, 1024, sizes.tight)
++    await page.waitForFunction(() => el.appView.classList.contains('is-inbox-cramped'))
++    assert.deepEqual(await cramped().then((v) => [v.inbox, v.button]), [false, true], '1024x' + sizes.tight + ' ses odasında')
++    await setWidth(page, 1024, sizes.roomy)
++    await page.waitForFunction(() => !el.appView.classList.contains('is-inbox-cramped'))
++    const roomy = await cramped()
++    assert.deepEqual([roomy.inbox, roomy.button], [true, false], '1024x' + sizes.roomy + ' ses odasında')
++    assert.ok(roomy.list >= 2 * roomy.row, 'listede en az iki satır görünür: ' + JSON.stringify(roomy))
++    await page.click('#voice-leave')
++    await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'off', null, { timeout: h.LONG })
++  }
+   await setWidth(page, 1440)
+ })
+ 
+diff --git a/public/css/frekans.css b/public/css/frekans.css
+index 045ec8d..136620e 100644
+--- a/public/css/frekans.css
++++ b/public/css/frekans.css
+@@ -2515,8 +2515,9 @@
+ }
+ 
+ /* 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir, sığmazsa listesi kayar
+-   (istek 17). Yalnızca çok alçak ekranda gizlenir (telsiz kartıyla aynı sütundadır), odalar üst çubuktaki
+-   İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
++   (istek 17). Çok alçak ekranda ve telsiz kartı uzayıp listeye iki satırlık yer kalmayınca (ses odasında kalabalık
++   kadro, 38-gezinme.js navFitInbox, .is-inbox-cramped) gizlenir (telsiz kartıyla aynı sütundadır), odalar üst
++   çubuktaki İstasyonlar düğmesiyle sayfa olarak açılır. Geniş ekranda liste sağ sütunun tamamıdır, kaydırılır. */
+ @media (max-height: 720px) and (max-width: 1279px) {
+   .inbox {
+     display: none;
+@@ -2527,6 +2528,16 @@
+   }
+ }
+ 
++@media (max-width: 1279px) {
++  .app-view.is-inbox-cramped .inbox {
++    display: none;
++  }
++
++  .app-view.is-inbox-cramped .top-rooms {
++    display: inline-flex;
++  }
++}
++
+ /* Orta (999 px ve altı): telsiz kartı 17rem, İstasyonlar kartı telsiz kartının üstünde (çok alçak ekranda ve
+    telefonda gizli, üst çubuktaki İstasyonlar düğmesi yan sayfa olarak açar), istasyonların alt satırı ve küçük
+    avatar yığını gizli, üst çubukta Ara etiketi ve kısayol gizli */
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 769bbb7..bc1d9d3 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -425,6 +425,7 @@ function navInit () {
+   if (typeof window.addEventListener === 'function') window.addEventListener('popstate', navOnPopState)
+   navWatchInfoCards()
+   navWatchDmHeader()
++  navWatchInbox()
+   navBindSheetDrag()
+   const pick = byId('radio-pick-button')
+   if (pick) pick.addEventListener('click', navOpenVoiceRooms)
+@@ -1123,13 +1124,7 @@ function navFitDmHeader () {
+   if (!header || header.hidden || !header.clientWidth) return
+   header.classList.remove('is-tight')
+   const text = header.querySelector('.dm-header-text')
+-  let rem = 15
+-  try {
+-    rem = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 15
+-  } catch (err) {
+-    rem = 15
+-  }
+-  const narrow = text ? text.getBoundingClientRect().width < NAV_DM_NAME_REM * rem - 1 : false
++  const narrow = text ? text.getBoundingClientRect().width < NAV_DM_NAME_REM * navRootRem() - 1 : false
+   header.classList.toggle('is-tight', narrow || header.scrollWidth > header.clientWidth + 1)
+ }
+ 
+@@ -1146,6 +1141,58 @@ function navWatchDmHeader () {
+   if (typeof window.MutationObserver === 'function') new window.MutationObserver(navFitDmHeader).observe(header, { childList: true })
+ }
+ 
++// Kök yazı boyutu (piksel, kişi Ayarlar'da değiştirebilir)
++function navRootRem () {
++  try {
++    return parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 15
++  } catch (err) {
++    return 15
++  }
++}
++
++// ------------------------------------------------------------------ orta genişlikte İstasyonlar kartı (S8)
++
++// 760 ile 1279 px arasında İstasyonlar kartı sağ sütunda telsiz kartının üstündedir. Telsiz kartı uzayınca (ses
++// odasında kalabalık kadro) kartta NAV_INBOX_MIN_REM yer kalmazsa (başlık ve iki satırlık liste) kart gizlenir, odalar
++// üst çubuktaki İstasyonlar düğmesiyle açılır (#app-view.is-inbox-cramped, frekans.css). Yer kartın görünürlüğünden
++// bağımsız ölçülür (sağ sütunun yüksekliğinden telsiz kartının yüksekliği düşülür), böylece kart gizlenip görünürken
++// gidip gelmez. Sağ sütunun ve telsiz kartının boyutu izlenir (ResizeObserver, yoksa pencere boyutu ve telsiz kartının
++// içeriği). Telsiz kartı sol sütundaysa (1280 px ve üstü, 12-init.js placeRadio) sınıf kalkar.
++const NAV_INBOX_MIN_REM = 13
++
++function navFitInbox () {
++  const side = el.sideRight
++  const radio = el.radio
++  const view = el.appView
++  if (!side || !radio || !view || !view.classList) return
++  const holds = radio.parentNode === side
++  const cramped = holds && side.clientHeight - radio.offsetHeight < NAV_INBOX_MIN_REM * navRootRem()
++  if (cramped === view.classList.contains('is-inbox-cramped')) return
++  // Odak gizlenen kartın içindeyse üst çubuktaki İstasyonlar düğmesine geçer
++  const inbox = el.inbox
++  const active = document.activeElement
++  view.classList.toggle('is-inbox-cramped', cramped)
++  const rooms = byId('btn-rooms')
++  if (cramped && inbox && active && inbox.contains(active) && rooms) focusNode(rooms)
++}
++
++function navWatchInbox () {
++  if (!el.sideRight || !el.radio) return
++  if (typeof window.ResizeObserver === 'function') {
++    try {
++      const observer = new window.ResizeObserver(navFitInbox)
++      observer.observe(el.sideRight)
++      observer.observe(el.radio)
++      return
++    } catch (err) {
++      // Gözlemci kurulamadı: pencere boyutu ve telsiz kartının içeriği izlenir
++    }
++  }
++  if (typeof window.addEventListener === 'function') window.addEventListener('resize', navFitInbox)
++  if (typeof window.MutationObserver === 'function') new window.MutationObserver(navFitInbox).observe(el.radio, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'data-state'] })
++  navFitInbox()
++}
++
+ // ------------------------------------------------------------------ görünümün hatırlanması (S12)
+ 
+ function navRememberView () {
