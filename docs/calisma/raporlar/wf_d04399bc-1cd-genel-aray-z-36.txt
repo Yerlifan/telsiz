@@ -1,0 +1,83 @@
+Adım 6 tamam: Oyun düğmesi, sahnenin `game` kipi ve genel masa arayüzü yazıldı, `5e94980 Oyun: genel arayüz ve sahne kipi` commit'iyle kaydedildi. `npm test` düşensiz, ama **`npm run denetle` ihlalsiz değil**: 3 ihlalin hepsi bana ait olmayan `docs/calisma/akislar/rapor-dok.py.txt` dosyasında (`b17e135`, 13. ve 14. satır). Kayıtlı arayüz olmadığı için Oyun düğmesi bu adımda görünmüyor, bu beklenen durum. Push yapılmadı, çalışma ağacı temiz.
+
+## Değişen ve eklenen dosyalar
+- **Yeni:**
+  - `public/js/36-oyun.js`
+  - `public/css/oyun.css`
+  - `test/oyun-arayuz.test.js`: 20 test.
+- **`public/js/22-cast.js`:**
+  - Yeni işlevler: `castModeFor`, `castRenderGame`, `castOpenGame`, `castMinimizeGame`.
+  - Sahne düğümleri: `n.game` (`.cast-game`) ve `n.gameMin` (`cast-game-min`).
+  - Görünürlük kuralları.
+  - Oyunda paylaşan seçicisi gizli ve sohbet varsayılan olarak daraltılmış.
+  - `castCloseStage` içinde `clear(nodes.game)` ve `gameStageClosed()`.
+  - `castFocusAfterClose(mode)`.
+  - Başlık yorumu güncellendi.
+- **`public/js/28-bildirim.js`:** `activityGame`, `activityClearGames`, oyun kaydının metni, Masaya Bak düğmesi, başlık yorumu.
+- **`public/css/tokens.css`:** 6.9'daki kart belirteçleri.
+- **`public/css/cast.css`:** yalnız başlık yorumu.
+- **`public/js/10-voice.js`:** yalnız başlık yorumu (sıra Büyüt, Oyun, Telsiz DJ).
+- **`public/index.html`, `public/sw.js`:** `oyun.css` ve `36-oyun.js` satırları. `CACHE_NAME` değişmedi.
+- **`public/i18n.js`:** 7.1'deki 109 `game.*` anahtarı, tr ve en'de `activity.voiceRoom` satırından sonra aynı sırada.
+
+## Belgeden sapmalar
+1. **`activityGame` üçüncü bir parametre alıyor:** `activityGame(dealerId, on, app)`. `game.renk.title` bu adımda yok, kayıttaki oyun adı `gameAppName(app)` ile yazılıyor.
+2. **Davet sahneyi açmasın diye otomatik küçültme.** Masa yöneticisi gelen daveti kendiliğinden benimsiyor (aşama `invited` oluyor). Bu yüzden aşama kişi bir işlem yapmadan `none`'dan başka bir aşamaya geçerse masa küçültülmüş başlar. Kişinin başlattığı işlemler `gameUser` ile sarılı, onlarda bu kural çalışmaz.
+3. **Küçültülmüş masa biterse** bildirim gösterilip `desk.dismiss()` kendiliğinden çağrılıyor, bitiş ekranı beklemiyor. `reset` belgedeki gibi sessiz, tam ekran değilse bildirim gösteriliyor.
+4. **Onay satırı her durumda açılmıyor.**
+   - Masadan Ayrıl ve Koltuktan Çıkar yalnız oyun sürerken (`play`) onay istiyor, çünkü metinleri kartlardan söz ediyor.
+   - Masayı Kapat her zaman, Oyunu Bitir oyun sırasında onay istiyor.
+5. **Anahtar sorunu olan davette Kapat** önce `desk.join()` çağırıyor, sonra sahneyi küçültüyor. Böylece 4.7'deki tek seferlik `decline {why:'keys'}` gidiyor ve kurpiyer "Katılamaz" görüyor. Oyuna Dön ve Oyun Sürüyor ekranlarındaki Kapat `desk.decline()` çağırıyor.
+6. **Oyun Sürüyor bilgi ekranı** yeni anahtar eklememek için `game.toolBusyLabel` metnini kullanıyor.
+7. **Sahne anahtarına eklemeler.** `gameRenderStage` anahtarına `uiRev`, `trustOpen`, ekran paylaşımı ve kişi adları eklendi. Böylece profil gelince adlar yenileniyor, ama her ses değişikliğinde masa yeniden çizilmiyor.
+8. **Duyuru sırası.** "Oyun başladı" duyurusu elin olaylarından önce geliyor (`gameStartNote`). Sıra başkasına geçince `game.sr.next` duyuruluyor.
+9. **Diğer küçük kararlar:**
+   - `castSync` sonunda `gameRenderTool()` çağrılıyor, çünkü düğme etiketi sahnenin görünürlüğüne bağlı.
+   - Gizli düğme DOM'dan çıkarılıyor, böylece `.radio-tools:empty` ve "DJ son öğe" testleri korunuyor.
+   - `#cast` kökünün `data-i18n-aria-label` değeri oyunda `game.stage` oluyor, sahne kapanınca eski haline dönüyor.
+10. **`--danger-edge` yerine `var(--danger)`.** Belirteç yalnız gece temasında tanımlı.
+11. **Bağlantı denetimi taşınmadı.** Belge onu `oyun-protokol` testinden `oyun-arayuz` testine taşımamı istiyor, ama `test/oyun-protokol.test.js` benim dosya listemde değil. `oyun-arayuz` kendi tam denetimini yapıyor, iki denetim şimdilik yan yana duruyor.
+12. **Kayan satır numaraları.** `i-gamepad` artık index.html:154'te (belgede 151).
+
+## 7. adımın bilmesi gereken API
+- **Kayıt:** `gameUiRegister('renk', ui)` çağrısı. Kural motoru `GAME_ENGINES = { renk: 'TelsizRenk' }` içinde olmalı.
+  - Zorunlu kancalar: `name()`, `render(box, model)`.
+  - İsteğe bağlı kancalar: `tagline`, `rulesLabel/rulesHint/rulesLine(rules)`, `statusParts(m) -> [metin]`, `turnOf(m)`, `turnText(m)`, `onTurn(box, m)`, `eventText(ev, m)`, `errorText(code)`, `results(m)`, `notes(m)`, `firstFocus(box)`.
+- **`render` ne zaman çağrılır:** `play` ve `over` aşamalarında, boş bir `.game-app` kutusuyla.
+- **36'nın kendisinin çizdikleri:**
+  - Durum satırı: "Sıra Sizde" veya "Sıradaki", paylaşım uyarısı, gönderme ve eşitleme göstergeleri.
+  - Sonuçlar: `results` kancası yoksa `view.result`, biçim `{reason, winner, total, ranks:[{id,rank,n,points}]}`.
+  - Alt satır: güven çipi, Ayrıntı (`notes`), ayrılma ve bitirme düğmeleri, onay satırı.
+- **37'nin kullanabileceği yardımcılar:**
+  - `gameCall('act', move)`: hamle gönderir.
+  - `gameSetPicker(v)` ve `gameRefreshStage()`: yerel durum değişince (seçici, Tek! işareti) çağrılmalı.
+  - Diğerleri: `gameAnnounce(text, assertive)`, `gameModel()`, `gameStageVisible()`, `gameReducedMotion()`.
+- **Hata metinleri:** masa yöneticisinin kodları `send` → `game.sendFailed`, `join_timeout` → `game.joinTimeout`, `locked` → `game.setupLocked`. Uygulama kodları önce `ui.errorText`, sonra `game.<oyun>.err.<kod>` ile çevriliyor.
+- **e2e (8. adım) için:**
+  - Seçiciler: `#radio-game[data-state]`, `.is-invited`, `.is-busy`, `#activity .activity-item.is-game .activity-watch`, `.game-body[data-stage]`, `.game-room .game-chip`, `.game-ended`, `.game-confirm`.
+  - Odak anahtarları belgedeki 6.8 listesiyle aynı.
+  - Oyun Sürüyor düğmesi `aria-disabled` olduğu için Playwright onu `force: true` olmadan tıklamıyor.
+- **`test/oyun-arayuz.test.js`:** `GAME_SCRIPTS` ve `GAME_STYLES` listelerine `37-renk.js` ve `renk.css` eklenmeli. Testteki `FAKE_UI` gerçek arayüzün yerini tutuyor.
+
+## Koşturulan komutlar
+| Komut | Sonuç |
+|---|---|
+| `node --test test/oyun-arayuz.test.js` | 20 test, 20 geçti |
+| Oyun ve ilgili testler (arayuz, protokol, masa, renk-kural, tasima, i18n, sw, settings) | 270 test, 270 geçti |
+| `npm test` | 1109 test, 1108 geçti, 0 kaldı, 1 atlandı |
+| `npm run denetle` | 312 dosya, 3 ihlal, hepsi `docs/calisma/akislar/rapor-dok.py.txt` içinde, benim dosyalarımda 0 |
+| e2e: 05, 10, 04 | 26 test, 26 geçti |
+| e2e: 06, 15, 01 | 24 test, 24 geçti |
+| Son e2e turu: 05, 10, 04, 06, 15 | 45 test, 45 geçti |
+| Bozma denemesi (dosya geçici olarak bozuldu, geri yüklendi) | 15 bozmanın 15'i yakalandı |
+| Chromium'da sahte arayüzle uçtan uca deneme (`scratchpad/adim6/duman.js`) | Bütün akış geçti, konsol temiz, telefonda yatay taşma 0 |
+| Marka adı, uzun ve kısa tire, BOM, CR, commit mesajında noktalı virgül | Hiçbiri yok |
+
+## Açık kalan sorunlar
+1. **`npm run denetle` ihlalsiz değil.** Yukarıdaki yabancı dosya düzeltilmeli ya da depodan çıkarılmalı.
+2. **Marka adı `docs/calisma` içinde geçiyor.** Örnek: `oyun-altyapi-haritasi.md`. Benim testim o klasörü taramıyor.
+3. **Önceki adımlardan devreden işler:**
+   - voice.js için gereken issue onayı (CONTRIBUTING.md:184) hâlâ yok.
+   - `LAST_CARD.stack` kararı kullanıcıya doğrulatılmalı.
+   - Belgeler 9. adımda güncellenecek.
+4. **37'ye kalanlar.** Elde ve eylem satırında ok tuşlarıyla gezinme (6.8) Renk arayüzünün işi. Kolun PS5'teki davranışı ve telefon yerleşimi cihazda denenmeli.

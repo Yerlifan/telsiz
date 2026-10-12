@@ -1,0 +1,81 @@
+From 562b243d840d103dd8642630876a87b499abe147 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:57:47 +0000
+Subject: [PATCH 87/88] =?UTF-8?q?G16:=20inceleme=20d=C3=BCzeltmeleri=20(e2?=
+ =?UTF-8?q?e:=20Mesaj=20eylemleri=20men=C3=BCs=C3=BCnden=20=C5=9Fik=C3=A2y?=
+ =?UTF-8?q?et)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Dokunmatik cihazlarda tek yol olan Mesaj eylemleri menüsündeki Mesajı Bildir öğesi sınanır: ilk özel mesaj
+şikâyeti bu yoldan açılır, kendi mesajının menüsünde öğe gizlidir.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/11-roller.test.js | 30 ++++++++++++++++++++++++++----
+ 1 file changed, 26 insertions(+), 4 deletions(-)
+
+diff --git a/e2e/11-roller.test.js b/e2e/11-roller.test.js
+index 04b5243..b04f7b8 100644
+--- a/e2e/11-roller.test.js
++++ b/e2e/11-roller.test.js
+@@ -8,8 +8,8 @@
+ // kaldırılınca Mert'in kendi durumu geri gelir. Ece Mert'i odadan çıkarınca Mert'in telsizi kapanır. İçerik şikâyeti:
+ // Mert Ece'nin genel odadaki mesajını notla bildirir, Deniz'in açık Üyeler sayfasındaki Şikâyetler listesine şikâyet
+ // kendiliğinden gelir, not ve mesaj metni çözülmüş görünür, Deniz çözüldü işaretler. Not sunucuda düz metin değildir.
+-// Mert Ece'yi profil kartından bildirir ve Ece'nin iki özel mesajını bildirir: kutu işaretlenmezse mesaj metni
+-// şikâyete girmez, işaretlenirse girer. Sonunda Deniz Mert'i Üyeler sayfasından frekanstan atar: onay sorulur,
++// Mert Ece'yi profil kartından bildirir ve Ece'nin iki özel mesajını bildirir: ilkini dokunmatik cihazlardaki tek
++// yol olan Mesaj eylemleri menüsünden açar, kutu işaretlenmezse mesaj metni şikâyete girmez, işaretlenirse girer. Sonunda Deniz Mert'i Üyeler sayfasından frekanstan atar: onay sorulur,
+ // Mert listeden düşer ve Mert'in uygulaması giriş ekranında frekanstan çıkarıldığını yazar.
+ 
+ const { before, after } = require('node:test')
+@@ -38,6 +38,20 @@ async function openMessageReport (page, messageId) {
+   await page.waitForSelector('#report-dialog #report-form')
+ }
+ 
++// Mesaj eylemleri menüsündeki (...) Mesajı Bildir öğesiyle şikâyet penceresini açar. Dokunmatik cihazlarda araç
++// çubuğu düğmeleri gizlidir (@media (hover: none)), şikâyet yalnızca bu yoldan açılır.
++async function openMessageReportFromMenu (page, messageId) {
++  const node = '#message-list .msg[data-id="' + messageId + '"]'
++  await page.waitForSelector(node, { timeout: h.LONG })
++  await page.hover(node)
++  await page.click(node + ' .msg-more')
++  await page.waitForSelector('#msg-menu:not([hidden]) #msg-menu-report:not([hidden])')
++  assert.equal((await page.textContent('#msg-menu-report')).trim(), 'Mesajı Bildir')
++  await page.click('#msg-menu-report')
++  await page.waitForSelector('#report-dialog #report-form')
++  assert.equal(await page.isHidden('#msg-menu'), true)
++}
++
+ // Pencereyi gönderir, onay bildirimini bekler
+ async function sendReport (page) {
+   await page.click('#report-send')
+@@ -163,6 +177,13 @@ test('üye mesajı bildirir, sahibin açık Şikâyetler listesine gelir, not ç
+   const own = await W.w.say('mert', genel, 'Benim mesajım')
+   await mert.waitForSelector('#message-list .msg[data-id="' + own.id + '"]', { timeout: h.LONG })
+   assert.equal(await mert.$('#message-list .msg[data-id="' + own.id + '"] .msg-report'), null)
++  // Kendi mesajının eylemler menüsünde de Mesajı Bildir yoktur
++  await mert.hover('#message-list .msg[data-id="' + own.id + '"]')
++  await mert.click('#message-list .msg[data-id="' + own.id + '"] .msg-more')
++  await mert.waitForSelector('#msg-menu:not([hidden])')
++  assert.equal(await mert.isHidden('#msg-menu-report'), true)
++  await mert.keyboard.press('Escape')
++  await mert.waitForSelector('#msg-menu', { state: 'hidden' })
+   await openMessageReport(mert, m.id)
+   assert.equal(await mert.textContent('#report-dialog .app-dialog-title'), 'Mesajı Bildir')
+   assert.equal(await mert.textContent('#report-quote'), REPORTED_TEXT)
+@@ -242,8 +263,9 @@ test('kişi profil kartından, özel mesaj ise metin yalnızca kutu işaretlenin
+   const first = await idOf(DM_FIRST)
+   const second = await idOf(DM_SECOND)
+ 
+-  // Kutu işaretlenmezse mesaj metni şikâyete girmez (not da boşsa not hiç gönderilmez)
+-  await openMessageReport(mert, first)
++  // Mesaj eylemleri menüsünden açılır. Kutu işaretlenmezse mesaj metni şikâyete girmez (not da boşsa not hiç
++  // gönderilmez).
++  await openMessageReportFromMenu(mert, first)
+   assert.equal(await mert.textContent('#report-quote'), DM_FIRST)
+   assert.equal(await mert.isChecked('#report-attach'), false)
+   assert.match(await mert.textContent('#report-attach-hint'), /uçtan uca şifrelidir/)

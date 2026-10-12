@@ -1,0 +1,29 @@
+From 2eaa8f4738c2950df9778281a27a80ad57f65b8e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 05:32:44 +0000
+Subject: [PATCH 103/104] =?UTF-8?q?G13:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?msgLayout=20testinde=20ge=C3=A7ersiz=20de=C4=9Fer=20=C3=B6rne?=
+ =?UTF-8?q?=C4=9Fi=20n=C3=B6tr=20bir=20dizgi)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ test/settings.test.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/test/settings.test.js b/test/settings.test.js
+index 78a5b6d..221a28f 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -982,7 +982,7 @@ test('mesaj düzeni (msgLayout): Kayıt Defteri varsayılan, Klasik saklanır, g
+   first.theme.set({ msgLayout: 'klasik' })
+   assert.strictEqual(first.attrs['data-msg-layout'], 'klasik')
+   assert.strictEqual(first.saved['telsiz.msgLayout'], 'klasik')
+-  first.theme.set({ msgLayout: 'discord' })
++  first.theme.set({ msgLayout: 'yok' })
+   assert.strictEqual(first.theme.get().msgLayout, 'klasik', 'listede olmayan değer yok sayılır')
+   const again = runThemeInit({ 'telsiz.msgLayout': 'klasik' })
+   assert.strictEqual(again.attrs['data-msg-layout'], 'klasik', 'yeniden açılışta saklı düzen')

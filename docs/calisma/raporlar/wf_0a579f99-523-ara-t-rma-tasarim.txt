@@ -1,0 +1,387 @@
+# Alan: Özgün tasarım ve temalar (istek 10 ve 11)
+
+## 0. Ortak bulgular, deneme yöntemi ve kanıtlar
+
+**Deneme yöntemi.** Depoda hiçbir dosyayı değiştirmedim (`git status` içinde yalnızca başka iş akışının `public/js/34-oyun-masa.js` değişikliği görünüyor). Betikler `e2e/yardimci.js` içindeki `setupWorld` kalıbını kullanıyor. Sunucu rastgele yüksek bir portta açıldı (`TELSIZ_E2E_PORT_BASE` = 40000 ile 60000 arası rastgele), tarayıcı `/opt/pw-browsers` altındaki Chromium. Önerilen temalar ve prototip depoya yazılmadı. `tokens.css`, `theme-init.js` ve `skins/turkuaz.css` istekleri Playwright `context.route` ile değiştirilmiş içerikle yanıtlandı. Hiçbir çalıştırmada konsol hatası yoktu (`W.logs` boş). 1440 genişlikte yatay taşma 0.
+
+**Üretilen dosyalar** (`/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/`):
+- Mevcut temalar: `tasarim/ana-{arcade,gece,turkuaz}-{dark,light}-1440.png`, `ana-*-dark-1920.png`, `telefon-*-dark.png`, `ana-arcade-dark-sesdisi.png`, `ayarlar-gorunum-arcade-dark.png`, `durum-menusu-arcade.png`, `profil-karti-arcade.png`, `tanitim-gece-dark.png`
+- Önerilen temalar: `tasarim/yeni-{saha,lamba,fosfor,kutup,plak,kokpit,kontrast}-{dark,light}.png`, belirteçler `tasarim/yeni-temalar.css` (7 temanın bütün belirteçleri), ölçüm çıktısı `tasarim/kontrast-ciktisi.txt`
+- Telsiz yönü prototipi: `tasarim/telsiz-yonu-prototip.css`, `tasarim/prototip-{arcade-dark,arcade-dark-sesdisi,gece-dark,kutup-light,saha-dark}.png`
+- Betikler: `ekran.js`, `ekran2.js`, `ekran3.js`, `ekran4.js`, `olcum.js`, `kontrast.js` (WCAG ölçer, tokens.css biçimini okur), `temalar.js` (üreteç)
+- Ölçümler: `tasarim/kenar-belirtecleri.json`, `tasarim/olcum.json`, `tasarim/geometri.json`, `tasarim/mevcut-kontrast-ciktisi.txt`
+
+**Mevcut durum.** 3 tema var (`arcade`, `gece`, `turkuaz`), her birinin koyu ve açık modu var, yani 6 görünüm.
+- Arcade (varsayılan): oyun salonu, mor ve camgöbeği.
+- Gece Frekansı: radyo istasyonu, kehribar, tek aralıklı etiketler, frekans rozetleri.
+- Turkuaz ve Bakır: çini, serif başlıklar.
+
+Altyapının yerleri:
+- Tema listesi ve varsayılanlar: `public/theme-init.js:11` (`SKINS`) ve `:27` (`DEFAULTS`)
+- Ayarlardaki ikinci kopya: `public/js/11-settings.js:58` (`SKIN_CHOICES`), kartlar `:2973-3013`, güncelleme `:3077-3081`
+- Belirteç blokları: `public/css/tokens.css:92-275` (arcade), `:276-482` (gece), `:483-662` (turkuaz)
+- Bağlantılar ve önbellek: `public/index.html:31-33`, `public/sw.js:29-31`
+- Metinler: `public/i18n.js:220-228` ve `:2157-2165`
+- Önizleme renkleri ve kartlar: `public/css/components.css:3878-3901`, `public/css/settings.css:1066-1100`
+- Tarayıcı çubuğu rengi: `public/js/12-init.js:251` (`--theme-color`)
+- Sunucu ve masaüstü beyaz listesi desenle çalışıyor: `src/app.js:285` (`/css/skins/` için `^[0-9a-z-]+\.css$`), `desktop/src/lib/static-files.js:60`. Yeni tema dosyası için sunucu değişikliği gerekmiyor.
+
+**Bulgu A (hata, yeniden üretildi).** `--live-edge` ve `--danger-edge` yalnızca Gece temasında tanımlı (`tokens.css:296-482`), ama ortak CSS'te sekiz yerde geri dönüş değeri olmadan kullanılıyor: `arama.css:199,205`, `cast.css:54,98,205,395`, `dj.css:297`, `people.css:618`, `radio.css:921`.
+- Tarayıcıda ölçtüm: Arcade ve Turkuaz'da kamera göstergesi `.radio-cam-live` için `border-top-style: none` ve `border-top-width: 0px` çıkıyor, Gece'de `solid 1px` (`kenar-belirtecleri.json`).
+- Nedeni: `border` kısaltmasındaki tanımsız `var()` değeri hesaplama anında geçersiz sayılıyor, kenar hiç çizilmiyor.
+- Çözüm: iki belirteci `:root, :root[data-skin="arcade"][data-scheme="dark"]` bloğuna (ve arcade açık moda) ekleyip bütün temalar için geri dönüş sağlamak. Yeni temalar ikisini de tanımlıyor.
+
+**Bulgu B (ölü belirteç).** `--layout-pad` ve `--column-gap` (`tokens.css` her temada) hiçbir CSS dosyasında kullanılmıyor. `docs/TASARIM.md:151` Gece ve Turkuaz için "0 (düz paneller)" diyor, ama ölçüm üç temada da aynı yerleşimi veriyor (`olcum.json`): sahne iç boşluğu `15px 18.75px 18.75px`, sütun aralıkları 15 px. Sabit değerler `frekans.css:1128-1134` ve `:1143-1146` içinde. Sonuç olarak üç temanın iskeleti birebir aynı, temalar yalnızca renk ve köşe değiştiriyor.
+
+**Bulgu C (tema bağımsız renkler).** Telsiz kartı düğmelerinin rengi `--role-*` belirteçlerinden geliyor (`radio.css:813-836`), bu belirteçler yalnızca moda göre değişiyor (`tokens.css:721-741`). Ölçümler:
+- Açık modda üzerine gelme ve çukur zeminde rol renkleri Gece'de 4.38, Turkuaz'da 4.33 ile 4.5 eşiğinin altına iniyor.
+- Önerilen LCD benzeri Fosfor açık modda bu değer 3.32 olurdu.
+- Temaların `--role-*` (ya da yeni `--tone-*`) belirteçlerini ezebilmesi gerekiyor. Fosfor açık ve Yüksek Kontrast için ölçülmüş rol renkleri aşağıda.
+
+**Bulgu D (kural denetlenmiyor).** CSS yasakları (grid, flex gap, clamp, :is, :where, aspect-ratio, inset) `scripts/denetle.js` tarafından denetlenmiyor ve şu anda ihlal ediliyor:
+- `frekans.css:1319-1323`: `display: grid` ve `gap`, `@supports` olmadan 1280 piksel üstü medya sorgusu içinde
+- `components.css:2007`: `.msg-dj` içinde flex `gap`
+
+Ayrı bir iş olarak önerilir: denetleyiciye CSS kuralı eklemek ve bu iki yeri flex ve margin ile yeniden yazmak.
+
+**Bulgu E (boş alan).** 1440x900 boyutunda sol sütunun üstü boş kalıyor (`ana-arcade-dark-sesdisi.png`, `ana-arcade-dark-1440.png`). Nedeni `frekans.css:1164` (`.info-bottom { margin-top: auto }`) ve `:1367-1369` (kapalı telsizde ses odası listesi gizli).
+- Ses odası dışında yaklaşık 620 px boş.
+- Ses odasındayken Bildirimler'in üstünde yaklaşık 230 px boş.
+
+**Bulgu F (kontrast yöntemi).** `kontrast.js` WCAG 2.x göreli parlaklık formülüyle her rolü 9 zeminde ölçüyor (üzerine gelme ve seçili zeminler dahil). Bu katı ölçümde mevcut temalarda eşiğin altında kalan çiftler:
+- Turkuaz koyu: tehlike metni 4.45 ve kart kenarı 2.84, ikisi de `--surface-hover` (#1d3a42) üstünde
+- Turkuaz açık: canlı metin 4.42
+
+Belgedeki tablo bu zeminleri içermiyor. Yeni temalar katı ölçümden geçti.
+
+**Dış kaynak notu.** WebFetch bu ortamda DNS hatası verdi (www.w3.org, w3c.github.io). Bu yüzden dış iddialar WebSearch sonuçlarından ve kaynak sayfalarının özetlerinden doğrulandı. Doğrulayamadıklarım "doğrulanamadı" diye işaretli.
+
+---
+
+## İstek 10
+
+### 1. Kullanıcının isteği
+"Tam discord gibi olmasın bize özel eşsiz tasarım olsun."
+
+### 2. Mevcut durum: arayüzü Discord'a benzeten öğeler (dosya:satır)
+
+| # | Öğe | Telsiz'deki yeri | Discord karşılığı (kaynak) |
+| --- | --- | --- | --- |
+| 1 | Üç sütunlu yerleşim: sol altta ses denetim paneli (Mikrofon, Sağırlaştır, Ayrıl), ortada sohbet, sağda oda listesi | `index.html:497-528` (`#info-col`), `:622-683` (`#radio`), `12-init.js` `placeRadio` | Sol altta ses ve kullanıcı paneli: doğrulanamadı (yalnızca ikincil bloglar bulundu) |
+| 2 | Oda listesi: büyük harfli kategori başlıkları "YAZI ODALARI / SES ODALARI", ses odasının altında alt alta katılımcılar | `04-meta.js:423-445` (`buildRoomPeople`), `frekans.css:1686`, `:1852-1900` | Ses kanalı altında üye listesi: doğrulanamadı |
+| 3 | Mesaj düzeni: büyük avatar solda, üst satırda ad, rol ve saat, sonraki mesajlar avatarsız gruplanır, gruptaki mesajda saat yalnızca üzerine gelince görünür. Ayrıca "Kompakt" kip | `06-messages.js:196-230`, `:318`, `components.css:1873-1972`, `convo.css:43-77`, `i18n.js:242-243` | Cozy ve Compact görünümü ([Discord blog](https://discord.com/blog/making-discord-on-desktop-look-just-right-display-settings-to-ease-the-eyes)) |
+| 4 | Mesajın sağ üstünde üzerine gelince açılan araç çubuğu | `06-messages.js:275-300` | doğrulanamadı |
+| 5 | Anma: rozet ve mesajın zemini ile sol çizgisi | `convo.css:71-74` | doğrulanamadı |
+| 6 | Oda başlangıcı metni "{name} odasının başlangıcı" | `i18n.js:576` (EN `:2513`) | doğrulanamadı |
+| 7 | Durumlar: Çevrimiçi, Boşta, Rahatsız Etmeyin, Görünmez, avatarın sağ alt köşesinde zemin halkalı nokta, biçimler dolu, hilal, çubuk ve halka | `i18n.js:383-387`, `components.css:660-705` | Dört durum ve renkleri ([Discord 227779547](https://support.discord.com/hc/da/articles/227779547-Changing-Online-Status), [211374998](https://support.discord.com/hc/en-us/articles/211374998-What-do-those-colored-dots-next-to-my-avatar-mean)), Boşta hilali ([HowToGeek](https://www.howtogeek.com/770109/what-does-idle-mean-in-discord/)). DND eksi ve çevrimdışı halka biçimi: doğrulanamadı |
+| 8 | Ctrl+K ile arama | `17-search.js:1270-1273`, `index.html:461` | Quick Switcher Ctrl+K ([Discord 115000070311](https://support.discord.com/hc/en-us/articles/115000070311)) |
+| 9 | "Sağırlaştır" düğmesi ve kulaklık simgesi | `index.html:677`, `i18n.js:750,774,931,1118` | Deafen (kavram, ikincil kaynak) |
+| 10 | Ekran paylaşımı "yayında", kadrodan "Yayına katıl" | `cast.css`, `10-voice.js` | Go Live ([Discord 360040816151](https://support.discord.com/hc/articles/360040816151)) |
+| 11 | Arkadaşlar sekmeleri: Çevrimiçi, Tümü, Bekleyen, Engellenenler, Arkadaş Ekle | `i18n.js:404-408` | Online, All, Pending, Blocked, Add Friend ([Discord 217674288](https://support.discord.com/hc/en-us/articles/217674288-Friends-List-101)) |
+| 12 | Profil kartı: üstte bant, banda binen avatar, altta ad, @kullanıcı adı, durum, düğmeler | `13-profile.js:614-645`, `profil-karti-arcade.png` | Profil bandı ([TechCrunch](https://techcrunch.com/?p=2185125), kısmi) |
+| 13 | Ayarlar: tam ekran, solda "KULLANICI AYARLARI / FREKANS AYARLARI" gruplu menü, sağ üstte kapat | `11-settings.js`, `i18n.js:1271-1272`, `ayarlar-gorunum-arcade-dark.png` | User Settings ve App Settings yolu (ikincil kaynak), düzen: doğrulanamadı |
+| 14 | Telefonda odalar düğmesinde `#` simgesi | `index.html:465` (`i-hash`) | `#` metin kanalı ön eki ([Discord 115000070311](https://support.discord.com/hc/en-us/articles/115000070311)) |
+| 15 | Renk: varsayılan Arcade'in vurgusu #8f6bff (ton yaklaşık 255°) ve kömür zemin | `tokens.css:113-190` | Blurple #5865F2 (ton yaklaşık 235°) ([discord.com/branding](https://discord.com/branding)) |
+| 16 | Roller, renkli rol adları, "Sahip" rozeti, davet kodu | `11-settings.js`, `02-state-dom.js` `roleBadge` | doğrulanamadı |
+
+**Zaten özgün olanlar (korunmalı):**
+- Sunucu sütunu yerine yatay frekans bandı, ibre ve ölçek çizgileri (`21-band.js`, `frekans.css`)
+- Telsiz kartı: LED, anten çıkıntısı, Bas Konuş, kadro
+- Gece temasının frekans rozetleri (`04-meta.js:229-237`)
+- Yumuşak kare avatarlar (`--avatar-radius`)
+- Telsiz DJ
+- Oyun kolu L1/R1 ile gezinme
+- Tanıtım sayfasındaki radyo cihazı (`tanitim-gece-dark.png`), uygulamanın en "Telsiz" görünen yüzü
+
+### 3. Yapılabilirlik ve kısıtlar
+
+Benzerliğin kök nedeni renk değil bilgi mimarisi ve bileşen sözlüğü. Temalar yalnızca belirteç ve süs değiştiriyor (`TASARIM.md:5`), düzen belirteçleri ölü (Bulgu B). Bu yüzden 10 tema da aynı Discord benzeri iskelette kalır.
+
+Yapılabilirlik yüksek. Prototip (`telsiz-yonu-prototip.css`, yalnızca CSS, yasaklı özellik yok) gerçek tarayıcıda sorunsuz çalıştı (`prototip-*.png`, taşma 0, konsol temiz).
+
+Kısıtlar:
+- Flexbox ve margin.
+- ES2017.
+- CSP: satır içi stil yok, CSSOM ataması serbest.
+- Erişilebilirlik: `role="log"`, hedef `--target`, odak halkası, hareketi azalt.
+- Kullanıcının önceki tercihleri korunmalı: telsiz kartı sol altta ve üstünde Bildirimler (#54), ses odasındakiler İstasyonlar listesinde görünür (#53), ayarlı istasyon kartı yok (#51).
+
+Eski WebKit gerekçesi:
+- flex `gap` Safari 14.1 ile geldi ([web.dev](https://web.dev/blog/compat2021-midyear), [CSS-Tricks](https://css-tricks.com/?p=339666)).
+- `aspect-ratio` Safari 15 gerektiriyor ([caniuse](https://caniuse.com/mdn-css_properties_aspect-ratio)).
+- PlayStation port'unun kullanıcı ajanında Safari 14.0 yazdığı bildirilmiş ([WebKit 262528](https://onbugs.webkit.org/show_bug.cgi?id=262528)). Kısmen doğrulandı, PS5'in güncel motor sürümü doğrulanamadı.
+
+### 4. Önerilen çözüm: "Telsiz yönü" (bütün temalarda ortak iskelet, aşamalı)
+
+İlke: arayüz bir el telsizi ve kayıt defteri gibi okunmalı. Kanallar frekans ön ayarıdır, mesajlar yayın kaydıdır, kişiler çağrı işaretidir. İşaretleme bütün temalarda aynı kalır, temalar süsleri `skins/*.css` ile çizer.
+
+**F0. Belirteç sözleşmesi (önkoşul, S)**
+- `tokens.css`: `--live-edge`, `--danger-edge` arcade koyu ve açık bloklarına eklenir (Bulgu A).
+- `--layout-pad` ve `--column-gap` ya `frekans.css:1128-1146` içinde gerçekten kullanılır ya da belgeden ve belirteçlerden silinir. Öneri: kullanılsın.
+- Yeni `--tone-camera`, `--tone-mic`, `--tone-deafen`, `--tone-screen` belirteçleri, varsayılanı `var(--role-*)`. `radio.css:818-835` bunları kullanır.
+
+**F1. Mesaj akışı "Kayıt defteri" (varsayılan), "Klasik" seçenek olarak kalır (M-L)**
+- Her mesajın saati solda tek aralıklı sütunda sürekli görünür.
+- Avatar adın yanında küçük bir "çağrı işareti" çipine iner (1.5rem).
+- Grup, yazarın profil renginde ince bir yayın çizgisiyle bağlanır.
+- Kendi mesajında `TX`, gelen mesajda `RX` etiketi.
+- Prototipte görüldü: `prototip-arcade-dark.png`.
+- `06-messages.js` `buildMessageNode` (`:196-300`):
+  - `.msg-head` içine `msg-call` (küçük avatar ve ad)
+  - düğüme `data-av="cN"` (çizgi rengi)
+  - `aria-hidden="true"` yön etiketi (`msg-dir`)
+  - Ekran okuyucu metni (`msg-sr`) değişmez.
+- Prototipte avatar mutlak konumlandığı için ilk metin satırına biniyordu. Gerçek uygulamada avatar başlığın içinde olmalı.
+- `theme-init.js`: yeni tercih `msgLayout` (`kayit` | `klasik`), anahtar `telsiz.msgLayout`, kök özniteliği `data-msg-layout`, `set()` doğrulaması.
+- `11-settings.js` Görünüm > Mesaj görünümü: yeni radyo grubu. Kompakt anahtarı iki düzende de çalışır.
+- CSS `convo.css` ve `components.css:1873-1972` içinde `:root[data-msg-layout="kayit"]` altında.
+
+**F2. İstasyonlar = kanal ön ayarları (M)**
+- Frekans okuması bütün temalarda görünür. `components.css:1425` `display:none` kaldırılır, biçim `frekans.css:1928`.
+- `channelFreq` (`04-meta.js:229`) 37 ve 206 aralarında asal olduğu için kimlikler 206'nın katı kadar farklı değilse çakışmaz.
+- Kategori başlıkları büyük harf yerine kadran çizgili başlık (`frekans.css:1686`).
+- Ses odasındakiler alt alta liste yerine yan yana çipler (`frekans.css:1852-1900`). Adlar görünür kalır (#53 korunur). Liste anlamı (`ul/li`) değişmez.
+- Prototip: `prototip-arcade-dark.png` sağ sütun.
+
+**F3. Sol sütun el telsizi (M)**
+- 1280 piksel ve üstünde telsiz kartı sütunun kalanını kaplar. Bildirimler üstte kalır (#54 sırası korunur), boş alan kalmaz (Bulgu E).
+- Ses odası dışındayken kapalı kart "kanal tarayıcısı" olur: ses odaları Katıl düğmeleriyle görünür (`frekans.css:1367-1369` geri alınır).
+- Alt kısımda hoparlör ızgarası süsü.
+- Prototip: `prototip-arcade-dark-sesdisi.png`.
+- İlk adım yalnızca CSS. `10-voice.js` oyun iş akışının dokunduğu dosya olduğu için ertelenir.
+
+**F4. Durum LED çubuğu (S-M)**
+- Köşe noktası yerine avatarın alt kenarında kısa LED çubuğu (`components.css:660-705`). Biçim kodu (dolu, yarım, çizgili, boş) korunur, 3:1 kenar ölçülür.
+- Prototip `prototip-*.png`. Mesaj başlığında metne yakınlığı nedeniyle boşluk ayarı gerekir.
+
+**F5. Profil kartı = QSL kartı (M)**
+- Amatör telsizcilerin görüşmeyi onaylamak için gönderdiği kartlara benzer: çağrı işareti, frekans, tarih ve sinyal raporu taşıyan kartpostal ([Wikipedia](https://en.wikipedia.org/wiki/QSL_card), [RSGB](https://rsgb.org/main/?p=1940)).
+- Solda avatar, sağda büyük tek aralıklı @kullanıcı adı ("çağrı işareti"), görünen ad ve rol.
+- Üst bantta frekans adı ve frekans okuması, köşede "QSL" damgası. Kapak fotoğrafı (istek 8) kartın resim alanı olur.
+- `13-profile.js:614-645`, `components.css`.
+- Profil iş akışının istek 9 önerisiyle (adı avatarın sağına alma) aynı yönde, birlikte yapılmalı.
+
+**F6. Söz ve simge (S)**
+- `channel.welcome`: "Kayıt başı: {name}" / "Log start: {name}".
+- `index.html:465` simgesi `i-hash` yerine var olan `i-dial` (`index.html:151`).
+- "Sağırlaştır" yerine "Hoparlör" (anahtarlar aynı kalır, değerler değişir: `i18n.js:135,750,774,931,1118,1119,1597,1598` ve EN eşleri). Simge kulaklık yerine hoparlör (`i-speaker` var, yeni `i-speaker-off` sembolü `index.html` SVG kümesine).
+- `desktop/src` içindeki `toggleDeafen` tanımlayıcıları değişmez.
+
+**F7. Ayarlar (S, isteğe bağlı)**
+- Grup başlıkları büyük harf değil, tema etiket yazısıyla. Seçili kategori ibre çizgisiyle (zaten var).
+
+Sunucu değişikliği yok, yeni API ucu yok, veri biçimi değişmiyor. Tek yeni yerel anahtar `telsiz.msgLayout`.
+
+**Yeni i18n anahtarları (TR ve EN):**
+- `theme.msgLayout`, `theme.msgLayout.kayit`, `theme.msgLayout.klasik`, `theme.msgLayoutHint`
+- `msg.dirOut` ("TX"), `msg.dirIn` ("RX")
+- `channel.welcome` değeri değişir
+- Hoparlör değerleri değişir
+
+**Belgeler:** `docs/TASARIM.md` ve `DESIGN.md` (Frekans düzeni, Bileşenler, belirteç tablosu, düzen belirteçleri), `README.md` ve `README.en.md`, `desktop/README*.md` ("Sağırlaştır" geçiyor), CHANGELOG (TR ve EN).
+
+### 5. Testler
+- **Birim** (`test/settings.test.js`): `msgLayout` tercihinin doğrulanması ve saklanması, Görünüm sayfasında yeni radyo grubu.
+- **Birim** (yeni `test/tema.test.js`, istek 11 ile ortak): `--live-edge` ve `--danger-edge` her temada çözülüyor, `--tone-*` tanımlı.
+- **e2e** (yeni `e2e/17-telsiz-duzen.test.js`, numara diğer işlerle kararlaştırılmalı):
+  - kayıt düzeninde her mesajda saat görünür
+  - kendi mesajında TX
+  - başlıkta avatar var
+  - klasik düzene geçiş eski görünümü geri getirir
+  - 1440x900'de telsiz kartının üst kenarı Bildirimler'in hemen altında
+  - kapalı telsizde Katıl düğmeleri `h.reachable` ile ulaşılabilir
+  - 390x844'te `h.overflowX` 0
+  - `#radio-cam-live` her temada `border-style: solid`
+- **Elle:** `TASARIM.md:255` listesindeki 5 boyut, iki mod, bütün temalar, TV yazı boyutu, hareketi azalt, oyun kolu.
+
+### 6. Riskler ve güvenlik
+- Alışkanlık riski: "Klasik" mesaj düzeni seçenek olarak kalır.
+- Görsel gerileme yüzeyi büyük. `ekran3.js` ve `ekran4.js` gibi bir ekran görüntüsü betiği kalıcı hâle getirilmeli.
+- Erişilebilirlik: TX/RX `aria-hidden`, okuma sırası değişmez, durum çubuğu 3:1 ve biçim kodlu.
+- Güvenlik ve gizlilik: yalnızca CSS ve istemci görünümü, şifreleme, yetki ve ağ etkilenmez. CSP değişmez. Yeni yerel anahtar yalnızca görünüm tercihi.
+
+### 7. Büyüklük
+XL, yaklaşık 30 adım: F0 2, F1 8, F2 4, F3 4, F4 3, F5 5, F6 3, F7 1.
+
+### 8. Karar noktaları ve varsayılanlar
+- **Kayıt defteri mesaj düzeni.** Varsayılan: açık, "Klasik" seçenek olarak kalır. Gerekçe: Discord benzerliğinin en görünür kaynağı mesaj düzeni.
+- **"Sağırlaştır" yerine "Hoparlör".** Varsayılan: evet. Gerekçe: telsiz metaforu, anahtarlar aynı kaldığı için ucuz.
+- **Durum LED çubuğu.** Varsayılan: evet, xs avatarda köşe noktası kalır.
+- **Varsayılan tema.** Varsayılan: Arcade kalır. Gerekçe: logo ve simgeler Arcade, kullanıcı daha önce seçmiş. Benzerliği yapı değişikliği giderir.
+- **QSL profil kartı.** Varsayılan: evet, profil işiyle (#80) birlikte.
+- **Sıra.** Varsayılan: önce F0 ve istek 11, yapısal aşamalar gezinme (#82) ve profil (#80) birleştikten sonra.
+
+### 9. Dokunulacak paylaşılan dosyalar
+- `public/css/tokens.css`, `components.css` (1425, 660-705, 1873-1972), `frekans.css` (1128-1146, 1164-1172, 1367-1369, 1686, 1852-1900, 1928), `convo.css`, `radio.css` (813-836), `skins/*.css`
+- `public/js/06-messages.js`, `13-profile.js`, `11-settings.js`, `public/theme-init.js`
+- `public/i18n.js`, `public/index.html` (465, 677, SVG kümesi)
+- Belgeler ve CHANGELOG
+- Çakışma riskleri:
+  - gezinme (#82): `frekans.css`, `convo.css`, `04-meta.js`, `06-messages.js`
+  - profil (#80): `13-profile.js`, `components.css`, `skins/turkuaz.css`
+  - oyun: yalnızca F3'ün ileri adımında `10-voice.js`
+- `voice.js` ve `src/` dosyalarına dokunulmaz.
+
+---
+
+## İstek 11
+
+### 1. Kullanıcının isteği
+"Daha fazla tema olsun."
+
+### 2. Mevcut durum
+- 3 tema, 2 mod. Kimlikler ve dosya:satır için bölüm 0.
+- Tema kartları `flex-wrap` ile dizilir (`settings.css:1066-1077`, kart `flex: 1 1 12rem`), önizleme renkleri sabit (`components.css:3890-3901`).
+- Tema listesi iki yerde tekrar ediyor: `theme-init.js:11` ve `11-settings.js:58`. Ayrışma riski var, `TelsizTheme.skins` (`theme-init.js` dönüşü) tek kaynak olarak zaten mevcut.
+- Toplam CSS 408.005 bayt, `tokens.css` 21.244, tema dosyaları 7.930 ile 9.825 bayt.
+
+### 3. Yapılabilirlik ve kısıtlar
+Altyapı hazır (`TASARIM.md:247-255` adımları).
+- Yeni yazı tipi gerekmiyor: önerilen 7 tema mevcut 6 ailenin (Rubik, Unbounded, Manrope, Martian Mono, Figtree, Young Serif) yeni birleşimlerini kullanıyor. Lisans ve boyut değişmez.
+- Martian Mono yalnızca 500 kalınlıkta var, başlıkta 500 kullanılmalı.
+- Kısıtlar: eksik belirteç Arcade koyuya düşer (`:root` bloğu). Bu yüzden her tema bütün belirteçleri tanımlar. Yasaklı CSS yok, `conic-gradient` kullanılmamalı, `backdrop-filter` yalnızca `@supports` içinde.
+
+### 4. Önerilen çözüm: 7 yeni tema
+
+Belirteçlerin tamamı `tasarim/yeni-temalar.css` dosyasında. Görünümleri `tasarim/yeni-*.png`.
+
+| id | Ad (TR / EN) | Kimlik | Yazı (gövde / başlık / etiket) | Köşe |
+| --- | --- | --- | --- | --- |
+| `saha` | Saha Telsizi / Field Radio | Askerî sahra telsizi: zeytin yeşili gövde, turuncu sinyal, şablon etiketler | Manrope / Martian Mono 500 / Martian Mono | 0, 6px, 4px |
+| `lamba` | Lambalı Radyo / Tube Radio | 1950'ler lambalı radyosu: ceviz kasa, fildişi kadran, pirinç yazı, "sihirli göz" yeşili | Manrope / Young Serif / Young Serif | 0, 1rem, 0.625rem |
+| `fosfor` | Fosfor / Phosphor | Tarayıcı ve katot ışınlı ekran: yeşil fosfor, size yönelik şeyler kehribar fosfor, açık modda LCD | Manrope / Martian Mono / Martian Mono | 0, 3px, 2px |
+| `kutup` | Kutup İstasyonu / Polar Station | Araştırma istasyonu: buzul mavisi, buz beyazı, parka turuncusu, açık mod öncelikli | Figtree / Unbounded / Martian Mono | 14px, 12px, 10px |
+| `plak` | Plak / Vinyl | Gece yarısı plak yayını: patlıcan moru, gül pembesi etiket, altın yaldız | Rubik / Young Serif / Rubik | 22px, 16px, 14px |
+| `kokpit` | Kokpit / Cockpit | Cam kokpit: grafit, macenta etkin rota, camgöbeği seçili, kehribar dikkat | Manrope / Martian Mono / Martian Mono | 0, 8px, 6px |
+| `kontrast` | Yüksek Kontrast / High Contrast | Erişilebilirlik: metin 7:1 hedefi, 2px kenar, süs yok | Figtree 800 / Figtree / Figtree | 0, 6px, 6px |
+
+**Ana renk belirteçleri** (sıra: bg, surface-2, text, text-3, accent, on-accent, accent-text, accent-2, focus, edge, live, danger, warn)
+
+| Tema / mod | Değerler |
+| --- | --- |
+| saha koyu | #10120c, #1b1f14, #eef0e2, #a7b092, #ff8f3a, #1c0e02, #ffa463, #c9d48a, #f4f1d0, #7d8964, #9ad677, #ff9585, #f2c94c |
+| saha açık | #e4e0cc, #f5f3e8, #1b1e12, #4f553e, #b04e0a, #ffffff, #923f06, #4f6b1f, #1b1e12, #77725b, #2b6418, #a1241b, #6e4a00 |
+| lamba koyu | #1a110b, #281b12, #f6ecd9, #bba98b, #e2b25a, #241703, #e8bd6c, #7fe0a0, #fff6e0, #988069, #7fe0a0, #ff978a, #f0c35a |
+| lamba açık | #efe4cc, #fbf6ea, #24170c, #5a4936, #8a5c0c, #ffffff, #744a05, #1f7a46, #24170c, #80705a, #1a6a3c, #a12a1c, #6e4a00 |
+| fosfor koyu | #050a06, #0b160d, #c8f7d2, #78bf8a, #39ff7a, #02140a, #5cff93, #ffcf5c, #eaffef, #46955d, #39ff7a, #ff8a8a, #ffcf5c |
+| fosfor açık (LCD) | #c9d1b4, #dbe1ca, #0f170b, #36422c, #1d5a2c, #f2f5ea, #174a24, #6a4a00, #0f170b, #56624a, #164f26, #7f1913, #4f3700 |
+| kutup koyu | #0b1118, #121c27, #eaf2fb, #9aabc1, #5aa9ff, #04121f, #7ab9ff, #ff7a45, #ffffff, #71869e, #5fd99a, #ff929c, #f5c451 |
+| kutup açık | #e8eef5, #ffffff, #0d1620, #4a596b, #0f62c9, #ffffff, #0b54ad, #c2410c, #0d1620, #6a7a8c, #0f6e3e, #a81e2c, #6e4a00 |
+| plak koyu | #120c14, #1f1522, #f7eaf3, #bfa6b7, #ff79b0, #24050f, #ff8fbd, #f2c36b, #fff4fa, #937a99, #6fe0a8, #ff9a87, #f2c36b |
+| plak açık | #f3e9ee, #fffafc, #1f1019, #5a4352, #b8226a, #ffffff, #9a1c58, #8a5a00, #1f1019, #80697a, #0f6e3e, #a8231c, #6e4a00 |
+| kokpit koyu | #0a0b0d, #13161a, #f2f4f7, #a0a9b5, #ff5cd1, #22041a, #ff7ad9, #5ce1ff, #5ce1ff, #78808d, #4ee08a, #ff8792, #ffb020 |
+| kokpit açık | #e9eaec, #ffffff, #0d0f12, #4a515b, #b0168a, #ffffff, #99127a, #00728f, #0d0f12, #6c737e, #0f6e3e, #a81e2c, #6e4a00 |
+| kontrast koyu | #000000, #000000, #ffffff, #d4d4d4, #ffe600, #000000, #ffe600, #80dfff, #00e5ff, #d6d6d6, #5dff7a, #ff9a9a, #ffe600 |
+| kontrast açık | #ffffff, #ffffff, #000000, #2e2e2e, #0040c0, #ffffff, #0035a0, #6b0099, #000000, #2b2b2b, #004d16, #990000, #5c3b00 |
+
+**Rol rengi ezmeleri** (Bulgu C, ölçülmüş):
+- Fosfor açık, en düşük 4.81: red #8a1a12, orange #7a3800, yellow #574200, green #0d5228, teal #075550, blue #17439a, purple #522fa6, pink #87195a
+- Kontrast açık, en düşük 7.62: #8a170e, #6e3000, #523e00, #084d27, #054a45, #143a8f, #4a279a, #7a174c
+- Kontrast koyu, en düşük 7.94: #ffa3a3, #ffbf8a, #ffe08a, #7dffb0, #6ff0e4, #a3c8ff, #cfb8ff, #ffa8d8
+
+**Kontrast hesabı.** WCAG 2.x göreli parlaklık formülü (0.2126, 0.7152, 0.0722 ağırlıkları, (L1+0.05)/(L2+0.05)) ([W3C wiki](https://www.w3.org/WAI/GL/wiki/Relative_luminance)) kullanıldı.
+- Eşikler: metin 4.5:1 ([W3C 1.4.3](https://w3c.github.io/wcag/understanding/contrast-minimum.html), [WebAIM](https://webaim.org/articles/contrast/)), bileşen ve odak 3:1 ([1.4.11 özeti, DAISY](https://kb.daisy.org/publishing/docs/wcag/non-text-contrast.html), [NYU](https://digitalaccessibility.nyu.edu/testing/sc1411.html)).
+- Ölçüm katı: 9 zemin, üzerine gelme ve seçili zeminler dahil, yarı saydam zeminler bileşik. Roller `TASARIM.md:217-245` tablosuyla aynı, ek olarak canlı ve tehlike kenarı.
+- 14 tema-mod bileşiminde eşik altı çift sayısı 0.
+
+| Tema / mod | Ana metin | Soluk metin | En düşük metin rolü | En düşük bileşen (3:1) |
+| --- | --- | --- | --- | --- |
+| saha koyu / açık | 11.49 / 11.81 | 5.85 / 5.43 | 5.85 / 4.99 | 3.17 / 3.32 |
+| lamba koyu / açık | 11.67 / 12.72 | 5.96 / 6.27 | 5.96 / 4.82 | 3.34 / 3.07 |
+| fosfor koyu / açık | 11.93 / 10.16 | 6.49 / 5.91 | 6.24 / 5.35 | 3.19 / 3.58 |
+| kutup koyu / açık | 11.87 / 14.45 | 5.73 / 5.68 | 5.61 / 5.02 | 3.19 / 3.40 |
+| plak koyu / açık | 12.49 / 14.00 | 6.49 / 6.80 | 5.91 / 4.83 | 3.54 / 3.27 |
+| kokpit koyu / açık | 13.44 / 14.80 | 6.23 / 6.18 | 6.23 / 4.88 | 3.33 / 3.30 |
+| kontrast koyu / açık | 15.13 / 16.83 | 10.21 / 10.88 | 7.45 / 7.15 (AAA) | 5.99 / 5.39 |
+
+Rol bazında tam tablo `tasarim/kontrast-ciktisi.txt` dosyasında.
+
+**Altyapıya ekleme adımları:**
+1. `theme-init.js:11` `SKINS` listesine 7 kimlik. `11-settings.js:58` kendi kopyasını bırakıp `window.TelsizTheme.skins` kullanır (tek kaynak).
+2. `tokens.css`: her tema için `:root[data-skin="x"]`, `...[data-scheme="dark"]` ve `...[data-scheme="light"]` blokları. Doğrudan `yeni-temalar.css` dosyasından alınabilir, 33.040 bayt.
+3. Temaya özgü süs dosyaları `public/css/skins/{saha,lamba,fosfor,kutup,plak,kokpit,kontrast}.css`, her seçici `:root[data-skin="x"]` ile başlar:
+   - saha: kesik çizgili şerit ayırıcılar, kare LED'ler, kauçuk Bas Konuş
+   - lamba: koyu modda `repeating-linear-gradient` ile ceviz damarı, fildişi kadran camı, tırtıklı topuz
+   - fosfor: yalnızca bant, telsiz ekranı ve başlıkta tarama çizgileri, koyu modda vurgu metnine hafif parıltı, açık modda LCD hücreleri
+   - kutup: `@supports` içinde buzlu cam, ince harita ızgarası
+   - plak: Bas Konuş ve DJ kartında `repeating-radial-gradient` ile plak yivleri
+   - kokpit: çerçeve köşe vidaları, macenta ibre, MFD yumuşak tuş biçimli düğmeler
+   - kontrast: degrade, gölge ve parıltı yok, bağlantılar altı çizili, 4px odak, devre dışı düğmede `opacity` yerine kesik kenar. `yeni-kontrast-dark.png` görüntüsünde boş yazma alanında Gönder düğmesi çok soluk görünüyor.
+4. `index.html:33` sonrasına 7 `<link>`, `sw.js:31` sonrasına 7 yol.
+5. `i18n.js`: `theme.skin.<id>` ve `theme.skinHint.<id>`, TR ve EN, 28 değer. Gruplama için `theme.groupRadio` ("Telsiz temaları") ve `theme.groupAccess` ("Erişilebilirlik").
+6. `components.css:3901` sonrasına `.theme-swatch-<id>` (dört renk: koyu yüzey, vurgu, ikinci vurgu, açık zemin).
+7. Ayarlar kartları (`settings.css:1066-1100`): 10 kart telefonda uzun bir liste olur. Kartlar sıkıştırılır (önizleme 2rem, açıklama yalnızca seçili kartta görünür, `aria-describedby` korunur), Yüksek Kontrast ayrı grupta.
+8. İsteğe bağlı erişilebilirlik: ilk açılışta (saklı tercih yoksa) `(prefers-contrast: more)` veya `(forced-colors: active)` doğruysa `kontrast` seçilir. Destek:
+   - `prefers-contrast`: Chrome 96, Firefox 101, Safari 14.1 ([caniuse](https://caniuse.com/wf-prefers-contrast), [MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-contrast))
+   - `forced-colors`: Safari 16 ([caniuse](https://caniuse.com/wf-forced-colors))
+   - Eski WebKit bu sorguları yok sayar, zararı yok.
+   - `base.css` içine kenarları görünür tutan küçük bir `@media (forced-colors: active)` bölümü eklenir.
+9. Masaüstü: `desktop/scripts/hazirla.js` yeni dosyaları otomatik kopyalar ve `butunluk.json` dosyasına ekler. Kod değişikliği gerekmez.
+
+Sunucu değişikliği yok, API yok, yeni veri biçimi yok. `telsiz.skin` değer kümesi genişler, `theme-init.js` bilinmeyen değeri yok sayar.
+
+**Belgeler:**
+- `TASARIM.md` ve `DESIGN.md`: tema tanımları, yazı tablosu (`:144-151`), kontrast tablosu (`:217-245`). 20 sütunlu tablo okunmaz, satırlar tema ve mod, sütunlar roller olacak biçimde çevrilmeli.
+- README (TR ve EN) tema sayısı, CHANGELOG (TR ve EN).
+
+### 5. Testler
+- **Birim** (yeni `test/tema.test.js`, `kontrast.js` mantığı taşınır):
+  - `theme-init.js` içindeki her tema için üç blok var
+  - Arcade koyu bloğundaki her belirteç ile `--live-edge` ve `--danger-edge` tanımlı
+  - her rol eşiğin üstünde, `kontrast` metinleri 7:1
+  - `index.html` bağlantısı, `sw.js` kaydı, `skins/<id>.css` dosyası, i18n anahtarları (TR ve EN), `.theme-swatch-<id>` kuralı var
+  - tema dosyalarında yasaklı CSS yok, her seçici `:root[data-skin="<id>"]` ile başlıyor
+- **Birim** (`test/settings.test.js:595` ve `:914-939`): yeni `set-skin-*` kimlikleri, tek kaynaklı tema listesi.
+- **e2e** (`e2e/04-ayarlar.test.js` genişletilir):
+  - 10 kart tıklanarak `data-skin` değişir, zemin rengi değişir
+  - yeniden yüklemede korunur
+  - 390x844 ve 1440x900'de taşma yok, konsol temiz
+- **e2e:** `prefers-contrast` öykünmesiyle ilk açılışta `kontrast` seçilir. Playwright sürümünün bu öykünmeyi desteklediği doğrulanmalı.
+- **Elle:** her tema iki modda 5 boyutta. Bant, ses odası, ekran paylaşımı, Telsiz DJ, emoji, ayarlar, giriş ve tanıtım ekranı. Windows'ta Yüksek Karşıtlık (forced-colors).
+
+### 6. Riskler ve güvenlik
+- Boyut: her sayfaya yaklaşık 33 KB belirteç ve 40 ile 60 KB tema süsü eklenir, toplam CSS yaklaşık yüzde 20 artar. Service worker önbelleğe alır. Tembel yükleme ilk çizimde yanlış temayla görünme riski taşıdığı için önerilmez.
+- Bakım: 20 görünüm. Birim kontrast testi ve ekran görüntüsü betiği şart.
+- Güvenlik: yalnızca CSS ve görünüm tercihi. CSP (`style-src 'self'`) değişmez, satır içi stil yok. `theme-init` beyaz listeyle doğrular. Şifreleme, yetki ve gizlilik etkilenmez.
+
+### 7. Büyüklük
+L, yaklaşık 16 adım:
+1. F0 belirteç düzeltmesi ve tek kaynaklı liste
+2. Her tema için bir adım, toplam 7 (belirteç, süs dosyası, önizleme, i18n)
+3. Ayarlar kartlarının gruplanması
+4. `prefers-contrast` ve `forced-colors`
+5. Birim test
+6. e2e
+7. Belgeler
+8. Ekran görüntüsü gözden geçirme
+
+### 8. Karar noktaları ve varsayılanlar
+- **Kaç tema.** Varsayılan: 7'nin hepsi. Gerekçe: "hepsini yap", belirteçler hazır ve ölçülmüş.
+- **Yüksek Kontrast'ın otomatik seçilmesi.** Varsayılan: yalnızca ilk açılışta ve saklı tercih yokken.
+- **Yeni yazı tipi** (ör. Saha için şablon harfi). Varsayılan: hayır. Gerekçe: boyut ve lisans yükü.
+- **Varsayılan tema.** Varsayılan: Arcade kalır.
+- **Ayarlarda gruplama.** Varsayılan: "Telsiz temaları" ve "Erişilebilirlik", açıklama yalnızca seçili kartta.
+
+### 9. Dokunulacak paylaşılan dosyalar
+- `public/theme-init.js`, `public/css/tokens.css`, `public/css/components.css` (3878-3901), `public/css/settings.css` (1066-1100), `public/css/base.css` (yalnızca forced-colors)
+- `public/index.html` (31-33), `public/sw.js` (29-31), `public/i18n.js` (220-228, 2157-2165)
+- `public/js/11-settings.js` (58, 2973-3013, 3077-3081)
+- Yeni `public/css/skins/*.css` (7 dosya)
+- `test/settings.test.js`, `e2e/04-ayarlar.test.js`, yeni `test/tema.test.js`
+- `docs/TASARIM.md`, `docs/DESIGN.md`, README ve CHANGELOG (TR ve EN)
+- Dokunulmayacaklar: `voice.js`, `public/js/33-37`, `src/`
+- Çakışma riskleri:
+  - profil işi `skins/turkuaz.css` ve `components.css`
+  - gezinme işi `i18n.js`, `index.html` ve `sw.js` (birleştirme sırasında satır çakışması)
+- Önerilen sıra: istek 11 ve F0 ilk, istek 10'un yapısal aşamaları #82 ve #80 sonrası.
+
+## Kaynaklar
+- WCAG 1.4.3: https://w3c.github.io/wcag/understanding/contrast-minimum.html (doğrudan okunamadı, DNS hatası, arama özetiyle doğrulandı), https://webaim.org/articles/contrast/
+- WCAG 1.4.11: https://kb.daisy.org/publishing/docs/wcag/non-text-contrast.html, https://digitalaccessibility.nyu.edu/testing/sc1411.html
+- Göreli parlaklık: https://www.w3.org/WAI/GL/wiki/Relative_luminance
+- Eski WebKit desteği: https://web.dev/blog/compat2021-midyear, https://css-tricks.com/?p=339666, https://caniuse.com/mdn-css_properties_aspect-ratio, https://caniuse.com/css-matches-pseudo, https://www.stefanjudis.com/blog/css-inset-is-supported-across-all-major-browsers, https://caniuse.com/css-math-functions
+- PlayStation tarayıcısı: https://onbugs.webkit.org/show_bug.cgi?id=262528 (kısmen doğrulandı, PS5 motor sürümü doğrulanamadı)
+- prefers-contrast ve forced-colors: https://caniuse.com/wf-prefers-contrast, https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-contrast, https://caniuse.com/wf-forced-colors
+- Discord: https://support.discord.com/hc/en-us/articles/115000070311, https://support.discord.com/hc/da/articles/227779547-Changing-Online-Status, https://support.discord.com/hc/en-us/articles/211374998-What-do-those-colored-dots-next-to-my-avatar-mean, https://www.howtogeek.com/770109/what-does-idle-mean-in-discord/, https://support.discord.com/hc/articles/360040816151, https://discord.com/blog/making-discord-on-desktop-look-just-right-display-settings-to-ease-the-eyes, https://support.discord.com/hc/en-us/articles/217674288-Friends-List-101, https://discord.com/branding, https://techcrunch.com/?p=2185125
+- Doğrulanamadı: Discord'da sol alttaki ses ve kullanıcı paneli ile bağlantıyı kes düğmesi, ayarların gruplu sol menü düzeni, DND eksi ve çevrimdışı halka biçimleri, ses kanalı altında üye listesi, mesaj araç çubuğu, anma vurgusu, kanal başlangıcı metni
+- QSL kartı: https://en.wikipedia.org/wiki/QSL_card, https://rsgb.org/main/?p=1940

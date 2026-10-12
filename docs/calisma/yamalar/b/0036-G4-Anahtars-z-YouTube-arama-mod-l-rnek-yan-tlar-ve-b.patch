@@ -1,0 +1,2150 @@
+From c9cae0df460a0acc6295846e82b9be63cc9eca97 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:45:06 +0000
+Subject: [PATCH 36/88] =?UTF-8?q?G4:=20Anahtars=C4=B1z=20YouTube=20arama?=
+ =?UTF-8?q?=20mod=C3=BCl=C3=BC,=20=C3=B6rnek=20yan=C4=B1tlar=20ve=20birim?=
+ =?UTF-8?q?=20testleri?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+src/youtube-search.js bağımlılıksız (node:https) arama yapar: önce InnerTube
+arama ucu, olmazsa sonuç sayfasındaki ytInitialData. Ayrıştırıcı yalnızca
+videoRenderer ve video türündeki lockupViewModel düğümlerini toplar, reklam,
+raf, kanal ve oynatma listesi alt ağaçlarına inmez, canlı ve süresiz öğeleri
+atlar. 8 saniye toplam süre, yönlendirme izlenmez, JSON 4 MB, HTML 6 MB,
+200000 düğüm sınırı. Art arda 3 kullanılamayan yanıttan sonra arama 1 saat
+kapanır. Örnek yanıtlar test/fixtures/yt-arama altına kopyalandı.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ src/youtube-search.js                         | 555 ++++++++++++++++
+ .../yt-arama/ornek-lockupviewmodel.json       | 484 ++++++++++++++
+ .../yt-arama/ornek-videorenderer.json         | 620 ++++++++++++++++++
+ test/youtube-search.test.js                   | 436 ++++++++++++
+ 4 files changed, 2095 insertions(+)
+ create mode 100644 src/youtube-search.js
+ create mode 100644 test/fixtures/yt-arama/ornek-lockupviewmodel.json
+ create mode 100644 test/fixtures/yt-arama/ornek-videorenderer.json
+ create mode 100644 test/youtube-search.test.js
+
+diff --git a/src/youtube-search.js b/src/youtube-search.js
+new file mode 100644
+index 0000000..517a452
+--- /dev/null
++++ b/src/youtube-search.js
+@@ -0,0 +1,555 @@
++'use strict'
++
++// Telsiz DJ: şarkı adıyla YouTube araması (istek 5). Sunucu sahibi Ayarlar'dan açar, varsayılan kapalıdır.
++// Resmî YouTube Data API ve anahtar kullanılmaz: sunucu YouTube web arayüzünün kendi arama ucunu (InnerTube,
++// POST /youtubei/v1/search) çağırır, olmazsa sonuç sayfasındaki ytInitialData verisini okur. YouTube Hizmet
++// Şartları otomatik erişimi yasaklar, sahip bu riski açarken onaylar. Yanıt biçimi belgelenmemiştir ve
++// değişebilir: ayrıştırıcı ağaçta yalnızca tanınan video düğümlerini toplar, reklam, raf, kanal ve oynatma
++// listesi alt ağaçlarına inmez. Yapı tanınmazsa arama başarısız sayılır, art arda hatalarda bir süre kapanır.
++// Bu modül hiçbir bağımlılık kullanmaz (node:https), yönlendirme izlemez ve arama metnini hiçbir zaman günlüğe
++// yazmaz. Biçim bilgisi açık kaynaklı InnerTube istemcilerinin kaynak kodundan çıkarıldı ve canlı YouTube'da
++// sınanmadı. İlk canlı deneme sunucuda yapılır (docs/MIMARI.md, Telsiz DJ araması).
++
++const https = require('node:https')
++
++const HOST = 'www.youtube.com'
++const ORIGIN = 'https://www.youtube.com'
++const SEARCH_PATH = '/youtubei/v1/search?prettyPrint=false'
++const RESULTS_PATH = '/results'
++// Yalnızca video süzgeci: protobuf { 2: { 2: 1 } }, base64 EgIQAQ==. Gövdeye URL kodlu konur (youtubei.js
++// biçimi), sonuç sayfası adresinde URLSearchParams kodlar. Süzgecin uygulandığına güvenilmez, ayrıştırıcı
++// yine türe göre süzer.
++const VIDEO_PARAMS = 'EgIQAQ%3D%3D'
++const VIDEO_SP = 'EgIQAQ=='
++// Web istemcisinin sürümü. Sonuç sayfası okunduğunda sayfadaki değerle bellekte güncellenir.
++const DEFAULT_CLIENT_VERSION = '2.20260720.04.00'
++const CLIENT_VERSION_RE = /^\d+\.\d{8}\.\d{2}\.\d{2}$/
++const CLIENT_VERSION_TEXT_RE = /"INNERTUBE_CONTEXT_CLIENT_VERSION":"([0-9.]{1,32})"/
++// Sabit bir masaüstü tarayıcı kimliği (dönüşümlü değildir)
++const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
++// AB onay sayfasını atlamak için açık kaynaklı istemcilerde görülen çerez
++const CONSENT_COOKIE = 'SOCS=CAI'
++// ytInitialData atamasının olası biçimleri
++const DATA_MARKERS = ['var ytInitialData = ', 'window["ytInitialData"] = ']
++
++const LIMITS = Object.freeze({
++  // Bir aramanın iki isteği (InnerTube ve sonuç sayfası) toplam bu sürede biter
++  timeoutMs: 8000,
++  jsonMaxBytes: 4 * 1024 * 1024,
++  htmlMaxBytes: 6 * 1024 * 1024,
++  maxNodes: 200000,
++  maxDepth: 64,
++  // Başlık ve kanal adı, kod noktası
++  textMax: 120,
++  // Art arda bu kadar kullanılamayan yanıttan sonra arama breakerMs boyunca kapanır
++  breakerFails: 3,
++  breakerMs: 60 * 60 * 1000
++})
++
++const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/
++const DURATION_RE = /^\d{1,3}(?::\d{1,2}){1,2}$/
++const UNSAFE_TEXT_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
++
++// Reklam düğümleri (sınıf adı: ilk harf büyük, Renderer ve Model ekleri silinmiş). Alt ağaçlarına inilmez.
++const AD_CLASSES = new Set([
++  'AdSlot', 'DisplayAd', 'SearchPyv', 'MealbarPromo', 'PrimetimePromo', 'PromotedSparklesWeb',
++  'CompactPromotedVideo', 'BrandVideoShelf', 'BrandVideoSingleton', 'StatementBanner', 'GuideSigninPromo',
++  'AdsEngagementPanelContent', 'MiniGameCardView', 'GenAiFeedbackFormView', 'PlayerInterstitial',
++  'InterstitialView', 'CarouselAd', 'PromotedVideo', 'PromotedSparklesTextSearch', 'CompactPromotedItem'
++])
++// Sonuç olmayan kapsayıcılar: raflar, kanal ve oynatma listesi öğeleri, yan sütun
++const SKIP_KEYS = new Set([
++  'shelfRenderer', 'richShelfRenderer', 'reelShelfRenderer', 'horizontalCardListRenderer', 'playlistRenderer',
++  'radioRenderer', 'channelRenderer', 'universalWatchCardRenderer', 'secondaryContents'
++])
++const VIDEO_KEYS = new Set(['videoRenderer', 'compactVideoRenderer', 'gridVideoRenderer'])
++const LOCKUP_KEY = 'lockupViewModel'
++const LOCKUP_VIDEO = 'LOCKUP_CONTENT_TYPE_VIDEO'
++// Sonuç listesinin tanınan kapsayıcıları: biri görülmezse ve hiç video düğümü yoksa biçim değişmiş sayılır
++const STRUCTURE_KEYS = new Set(['sectionListRenderer', 'itemSectionRenderer', 'richGridRenderer', 'appendContinuationItemsAction'])
++
++function noop () {}
++
++// code: search_failed veya search_unavailable. reason: günlük için sabit, İngilizce bir belirteç (arama metni
++// içermez). counts: yanıt geldi ama kullanılamadı (devre kesiciye sayılır). Ağ hataları ve zaman aşımı sayılmaz.
++function searchError (code, reason, counts) {
++  const err = new Error('youtube search: ' + reason)
++  err.code = code
++  err.reason = reason
++  err.counts = Boolean(counts)
++  return err
++}
++
++function responseError (reason) {
++  return searchError('search_failed', reason, true)
++}
++
++function isObj (value) {
++  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
++}
++
++// Metin temizliği (istemcideki TelsizMusic cleanText ile aynı kural): NFC, denetim ve yön karakterleri boşluk
++// olur, boşluklar sadeleşir, en çok max kod noktası, eşsiz vekil yarımları U+FFFD olur
++function cleanText (value, max) {
++  if (typeof value !== 'string') return ''
++  let text = value
++  try {
++    text = text.normalize('NFC')
++  } catch (err) {
++    text = value
++  }
++  text = text.replace(UNSAFE_TEXT_G, ' ').replace(/\s+/g, ' ').trim()
++  const limit = Number.isSafeInteger(max) && max > 0 ? max : LIMITS.textMax
++  const out = []
++  let i = 0
++  while (i < text.length && out.length < limit) {
++    const c = text.charCodeAt(i)
++    const d = i + 1 < text.length ? text.charCodeAt(i + 1) : 0
++    if (c >= 0xd800 && c <= 0xdbff && d >= 0xdc00 && d <= 0xdfff) {
++      out.push(text.slice(i, i + 2))
++      i += 2
++    } else {
++      out.push(c >= 0xd800 && c <= 0xdfff ? '\ufffd' : text.charAt(i))
++      i++
++    }
++  }
++  return out.join('').trim()
++}
++
++// Bir sonuç listesini istemciye gidecek biçime getirir: geçersiz kimlik ve süre elenir, kimlik tekrarı atılır,
++// metinler temizlenir, en çok max öğe. Enjekte edilen arayıcıların sonuçları da buradan geçer (src/app.js).
++function cleanResults (list, max) {
++  const out = []
++  const seen = new Set()
++  const limit = Number.isSafeInteger(max) && max > 0 ? max : Infinity
++  if (!Array.isArray(list)) return out
++  for (const item of list) {
++    if (out.length >= limit) break
++    if (!isObj(item) || typeof item.videoId !== 'string' || !VIDEO_ID_RE.test(item.videoId) || seen.has(item.videoId)) continue
++    const durationS = Number.isSafeInteger(item.durationS) && item.durationS > 0 && item.durationS <= 999 * 3600 ? item.durationS : 0
++    if (durationS === 0) continue
++    seen.add(item.videoId)
++    out.push({ videoId: item.videoId, title: cleanText(item.title, LIMITS.textMax), channel: cleanText(item.channel, LIMITS.textMax), durationS })
++  }
++  return out
++}
++
++// ---------------------------------------------------------------- ayrıştırıcı
++
++function className (key) {
++  return (key.charAt(0).toUpperCase() + key.slice(1)).replace(/Renderer|Model/g, '')
++}
++
++function isAdKey (key) {
++  return AD_CLASSES.has(className(key)) || /^promoted/i.test(key)
++}
++
++// Metin alanı: { simpleText }, { runs: [{ text }] } veya { content } (yeni biçim)
++function textOf (t) {
++  if (!isObj(t)) return ''
++  if (typeof t.simpleText === 'string') return t.simpleText
++  if (Array.isArray(t.runs)) return t.runs.map((r) => (r && typeof r.text === 'string' ? r.text : '')).join('')
++  if (typeof t.content === 'string') return t.content
++  return ''
++}
++
++// "3:33" veya "1:02:03" biçimli süre, saniye. Başka biçimde null.
++function seconds (value) {
++  if (typeof value !== 'string') return null
++  const text = value.trim()
++  if (!DURATION_RE.test(text)) return null
++  return text.split(':').reduce((total, part) => total * 60 + Number(part), 0)
++}
++
++function arrayOf (value) {
++  return Array.isArray(value) ? value : []
++}
++
++// Eski biçim video öğesi (videoRenderer, compactVideoRenderer, gridVideoRenderer)
++function readVideoRenderer (v) {
++  if (!isObj(v) || typeof v.videoId !== 'string' || !VIDEO_ID_RE.test(v.videoId)) return null
++  const overlays = arrayOf(v.thumbnailOverlays).map((o) => (isObj(o) ? o.thumbnailOverlayTimeStatusRenderer : null)).filter(isObj)
++  const live = arrayOf(v.badges).some((b) => isObj(b) && isObj(b.metadataBadgeRenderer) && b.metadataBadgeRenderer.style === 'BADGE_STYLE_TYPE_LIVE_NOW') ||
++    overlays.some((o) => o.style === 'LIVE' || o.style === 'UPCOMING') ||
++    Boolean(v.upcomingEventData)
++  let duration = seconds(textOf(v.lengthText))
++  if (duration === null) {
++    for (const o of overlays) {
++      if (duration === null) duration = seconds(textOf(o.text))
++    }
++  }
++  return {
++    videoId: v.videoId,
++    title: textOf(v.title),
++    channel: textOf(v.ownerText) || textOf(v.longBylineText) || textOf(v.shortBylineText),
++    durationS: live || duration === null ? 0 : duration
++  }
++}
++
++// Yeni biçim öğe (lockupViewModel). Yalnızca video türü okunur, oynatma listesi ve diğerleri null.
++function readLockup (l) {
++  if (!isObj(l) || l.contentType !== LOCKUP_VIDEO || typeof l.contentId !== 'string' || !VIDEO_ID_RE.test(l.contentId)) return null
++  const meta = isObj(l.metadata) && isObj(l.metadata.lockupMetadataViewModel) ? l.metadata.lockupMetadataViewModel : null
++  const cmv = meta && isObj(meta.metadata) && isObj(meta.metadata.contentMetadataViewModel) ? meta.metadata.contentMetadataViewModel : null
++  const rows = cmv ? arrayOf(cmv.metadataRows) : []
++  const tvm = isObj(l.contentImage) && isObj(l.contentImage.thumbnailViewModel) ? l.contentImage.thumbnailViewModel : null
++  const badges = []
++  for (const o of tvm ? arrayOf(tvm.overlays) : []) {
++    if (!isObj(o)) continue
++    const a = isObj(o.thumbnailBottomOverlayViewModel) ? arrayOf(o.thumbnailBottomOverlayViewModel.badges) : []
++    const b = isObj(o.thumbnailOverlayBadgeViewModel) ? arrayOf(o.thumbnailOverlayBadgeViewModel.thumbnailBadges) : []
++    for (const r of a.concat(b)) {
++      if (isObj(r) && isObj(r.thumbnailBadgeViewModel)) badges.push(r.thumbnailBadgeViewModel)
++    }
++  }
++  const live = badges.some((r) => {
++    const source = isObj(r.icon) ? arrayOf(r.icon.sources)[0] : null
++    return isObj(source) && isObj(source.clientResource) && source.clientResource.imageName === 'LIVE'
++  })
++  let duration = null
++  for (const r of badges) {
++    if (duration === null) duration = seconds(typeof r.text === 'string' ? r.text : '')
++  }
++  const firstRow = isObj(rows[0]) ? arrayOf(rows[0].metadataParts) : []
++  const part = isObj(firstRow[0]) ? firstRow[0] : null
++  return {
++    videoId: l.contentId,
++    title: meta ? textOf(meta.title) : '',
++    channel: part ? textOf(part.text) : '',
++    durationS: live || duration === null ? 0 : duration
++  }
++}
++
++// Ağaçta (özyineleme yerine açık yığınla) tanınan video düğümlerini belge sırasıyla toplar. Reklam ve atlanacak
++// kapsayıcıların alt ağaçlarına, video düğümlerinin içine ve maxDepth'ten derine inilmez. maxNodes aşılırsa hata.
++// Aynı kimlik bir kez alınır (ilk görülen).
++function collectVideos (root) {
++  const out = []
++  const seen = new Set()
++  let recognized = false
++  let nodes = 0
++  // Öğeler [düğüm, derinlik, anahtar]. Çocuklar sondan başa itilir, böylece belge sırasıyla çıkar.
++  const stack = [[root, 0, '']]
++  while (stack.length > 0) {
++    const top = stack.pop()
++    const node = top[0]
++    const depth = top[1]
++    const key = top[2]
++    nodes += 1
++    if (nodes > LIMITS.maxNodes) throw responseError('too_many_nodes')
++    if (key && (VIDEO_KEYS.has(key) || key === LOCKUP_KEY)) {
++      recognized = true
++      const item = key === LOCKUP_KEY ? readLockup(node) : readVideoRenderer(node)
++      if (item && !seen.has(item.videoId)) {
++        seen.add(item.videoId)
++        out.push(item)
++      }
++      continue
++    }
++    if (key && STRUCTURE_KEYS.has(key)) recognized = true
++    if (!node || typeof node !== 'object' || depth >= LIMITS.maxDepth) continue
++    if (Array.isArray(node)) {
++      let i = node.length
++      while (i > 0) {
++        i -= 1
++        if (node[i] && typeof node[i] === 'object') stack.push([node[i], depth + 1, ''])
++      }
++      continue
++    }
++    const keys = Object.keys(node)
++    let j = keys.length
++    while (j > 0) {
++      j -= 1
++      const k = keys[j]
++      const value = node[k]
++      if (!value || typeof value !== 'object' || SKIP_KEYS.has(k) || isAdKey(k)) continue
++      stack.push([value, depth + 1, k])
++    }
++  }
++  return { items: out, recognized }
++}
++
++// InnerTube yanıtından ya da ytInitialData'dan çalınabilir sonuçlar (canlı ve süresiz öğeler atlanır). Yapı
++// tanınmazsa search_failed (format) hatası atar. Sonuç yoksa boş dizi.
++function parseSearchResponse (data) {
++  if (!isObj(data)) throw responseError('format')
++  const two = isObj(data.contents) && isObj(data.contents.twoColumnSearchResultsRenderer) ? data.contents.twoColumnSearchResultsRenderer : null
++  const root = two && isObj(two.primaryContents) ? two.primaryContents : data
++  const result = collectVideos(root)
++  if (!result.recognized) throw responseError('format')
++  return cleanResults(result.items.filter((item) => item.durationS > 0))
++}
++
++// Dizgi ve kaçış karakterini bilen süslü parantez sayacı: start'taki { karakterinin eşi, yoksa -1
++function matchBrace (text, start) {
++  let depth = 0
++  let inString = false
++  let escaped = false
++  let i = start - 1
++  while (i + 1 < text.length) {
++    i += 1
++    const c = text.charCodeAt(i)
++    if (inString) {
++      if (escaped) escaped = false
++      else if (c === 92) escaped = true
++      else if (c === 34) inString = false
++      continue
++    }
++    if (c === 34) {
++      inString = true
++    } else if (c === 123) {
++      depth += 1
++    } else if (c === 125) {
++      depth -= 1
++      if (depth === 0) return i
++    }
++  }
++  return -1
++}
++
++// Sonuç sayfasındaki ytInitialData nesnesi, bulunamazsa veya ayrıştırılamazsa null
++function extractInitialData (html) {
++  if (typeof html !== 'string') return null
++  for (const marker of DATA_MARKERS) {
++    const at = html.indexOf(marker)
++    if (at === -1) continue
++    const start = at + marker.length
++    if (html.charAt(start) !== '{') continue
++    const end = matchBrace(html, start)
++    if (end === -1) continue
++    try {
++      const data = JSON.parse(html.slice(start, end + 1))
++      if (isObj(data)) return data
++    } catch (err) {
++      // Bir sonraki işaret denenir
++    }
++  }
++  return null
++}
++
++// Sayfadaki ya da yanıttaki web istemcisi sürümü, desene uymuyorsa null
++function readClientVersion (html, data) {
++  const m = typeof html === 'string' ? CLIENT_VERSION_TEXT_RE.exec(html) : null
++  if (m && CLIENT_VERSION_RE.test(m[1])) return m[1]
++  const ctx = isObj(data) && isObj(data.responseContext) ? data.responseContext : null
++  for (const service of ctx ? arrayOf(ctx.serviceTrackingParams) : []) {
++    for (const p of isObj(service) ? arrayOf(service.params) : []) {
++      if (isObj(p) && p.key === 'cver' && typeof p.value === 'string' && CLIENT_VERSION_RE.test(p.value)) return p.value
++    }
++  }
++  return null
++}
++
++// ---------------------------------------------------------------- ağ
++
++// İstek işlevi: { method, path, headers, body, maxBytes, timeoutMs } -> Promise<{ status, text }>. Yalnızca sabit
++// sunucuya gider, yönlendirme izlenmez (3xx başarısızlıktır), sıkıştırma istenmez ve sıkıştırılmış yanıt kabul
++// edilmez, gövde maxBytes'ı aşınca bağlantı kesilir. transport, host ve port yalnızca testler içindir.
++function makeRequester (options) {
++  const o = options || {}
++  const transport = o.transport || https
++  const host = o.host || HOST
++  const port = o.port || 443
++  const active = new Set()
++  function request (opts) {
++    return new Promise((resolve, reject) => {
++      let settled = false
++      let req = null
++      const finish = (err, value) => {
++        if (settled) return
++        settled = true
++        clearTimeout(timer)
++        active.delete(req)
++        if (err) {
++          if (req) req.destroy()
++          reject(err)
++        } else {
++          resolve(value)
++        }
++      }
++      const timer = setTimeout(() => finish(searchError('search_failed', 'timeout', false)), Math.max(1, opts.timeoutMs || LIMITS.timeoutMs))
++      try {
++        req = transport.request({ host, port, method: opts.method, path: opts.path, headers: opts.headers }, (res) => {
++          const status = res.statusCode
++          if (status >= 300 && status < 400) {
++            const location = String(res.headers.location || '')
++            res.resume()
++            finish(responseError(/consent\./i.test(location) ? 'consent_redirect' : 'redirect'))
++            return
++          }
++          const encoding = String(res.headers['content-encoding'] || 'identity').toLowerCase()
++          if (encoding !== 'identity') {
++            res.resume()
++            finish(responseError('encoding'))
++            return
++          }
++          const declared = Number(res.headers['content-length'])
++          if (Number.isFinite(declared) && declared > opts.maxBytes) {
++            res.resume()
++            finish(responseError('too_large'))
++            return
++          }
++          const chunks = []
++          let bytes = 0
++          res.on('data', (chunk) => {
++            if (settled) return
++            bytes += chunk.length
++            if (bytes > opts.maxBytes) {
++              finish(responseError('too_large'))
++              return
++            }
++            chunks.push(chunk)
++          })
++          res.on('end', () => finish(null, { status, text: Buffer.concat(chunks).toString('utf8') }))
++          res.on('error', () => finish(searchError('search_failed', 'network', false)))
++          res.on('aborted', () => finish(searchError('search_failed', 'network', false)))
++        })
++      } catch (err) {
++        finish(searchError('search_failed', 'network', false))
++        return
++      }
++      active.add(req)
++      req.on('error', () => finish(searchError('search_failed', 'network', false)))
++      if (opts.body !== undefined && opts.body !== null) req.write(opts.body)
++      req.end()
++    })
++  }
++  // Süren istekleri keser (sunucu kapanırken)
++  request.abortAll = function abortAll () {
++    for (const req of Array.from(active)) req.destroy(searchError('search_failed', 'closed', false))
++    active.clear()
++  }
++  return request
++}
++
++// ---------------------------------------------------------------- arama
++
++// options: { request, now, onBreak(reason, minutes) }. Sonuç { search(query), close(), status() }.
++// search: Promise<[{ videoId, title, channel, durationS }]> (çalınabilir sonuçlar, sonuç yoksa boş dizi). Hata
++// kodu search_failed. Devre kesici açıkken istek atılmadan search_failed döner.
++function createYouTubeSearch (options) {
++  const o = options || {}
++  const request = typeof o.request === 'function' ? o.request : makeRequester()
++  const now = typeof o.now === 'function' ? o.now : Date.now
++  const onBreak = typeof o.onBreak === 'function' ? o.onBreak : noop
++  let clientVersion = DEFAULT_CLIENT_VERSION
++  let fails = 0
++  let openUntil = 0
++
++  function remaining (deadline) {
++    return Math.max(1, deadline - now())
++  }
++
++  async function viaApi (query, deadline) {
++    const body = JSON.stringify({
++      context: { client: { clientName: 'WEB', clientVersion, hl: 'en', gl: 'US', utcOffsetMinutes: 0 }, user: {} },
++      query,
++      params: VIDEO_PARAMS
++    })
++    const res = await request({
++      method: 'POST',
++      path: SEARCH_PATH,
++      headers: {
++        'Content-Type': 'application/json',
++        'Content-Length': String(Buffer.byteLength(body)),
++        Accept: '*/*',
++        'Accept-Language': 'en-US,en',
++        'X-Youtube-Client-Name': '1',
++        'X-Youtube-Client-Version': clientVersion,
++        Origin: ORIGIN,
++        Referer: ORIGIN + '/',
++        'User-Agent': USER_AGENT,
++        Cookie: CONSENT_COOKIE
++      },
++      body,
++      maxBytes: LIMITS.jsonMaxBytes,
++      timeoutMs: remaining(deadline)
++    })
++    if (res.status !== 200) throw responseError('status_' + Number(res.status))
++    let data = null
++    try {
++      data = JSON.parse(res.text)
++    } catch (err) {
++      throw responseError('json')
++    }
++    return parseSearchResponse(data)
++  }
++
++  async function viaPage (query, deadline) {
++    const qs = new URLSearchParams({ search_query: query, sp: VIDEO_SP, hl: 'en', gl: 'US' }).toString()
++    const res = await request({
++      method: 'GET',
++      path: RESULTS_PATH + '?' + qs,
++      headers: {
++        Accept: 'text/html,application/xhtml+xml',
++        'Accept-Language': 'en-US,en',
++        Referer: ORIGIN + '/',
++        'User-Agent': USER_AGENT,
++        Cookie: CONSENT_COOKIE
++      },
++      maxBytes: LIMITS.htmlMaxBytes,
++      timeoutMs: remaining(deadline)
++    })
++    if (res.status !== 200) throw responseError('status_' + Number(res.status))
++    const data = extractInitialData(res.text)
++    if (!data) throw responseError('no_initial_data')
++    const version = readClientVersion(res.text, data)
++    if (version) clientVersion = version
++    return parseSearchResponse(data)
++  }
++
++  async function search (query) {
++    if (typeof query !== 'string' || query.trim() === '') throw searchError('search_failed', 'bad_query', false)
++    if (now() < openUntil) throw searchError('search_failed', 'paused', false)
++    const deadline = now() + LIMITS.timeoutMs
++    let failure = null
++    try {
++      const results = await viaApi(query, deadline)
++      fails = 0
++      return results
++    } catch (err) {
++      failure = err
++    }
++    if (failure && failure.reason !== 'closed' && now() < deadline) {
++      try {
++        const results = await viaPage(query, deadline)
++        fails = 0
++        return results
++      } catch (err) {
++        if (!failure.counts || err.counts) failure = err
++      }
++    }
++    if (failure && failure.counts) {
++      fails += 1
++      if (fails >= LIMITS.breakerFails) {
++        fails = 0
++        openUntil = now() + LIMITS.breakerMs
++        onBreak(failure.reason, Math.round(LIMITS.breakerMs / 60000))
++      }
++    }
++    throw searchError('search_failed', failure ? failure.reason : 'unknown', false)
++  }
++
++  function close () {
++    if (typeof request.abortAll === 'function') request.abortAll()
++  }
++
++  function status () {
++    return { clientVersion, fails, pausedUntil: openUntil }
++  }
++
++  return { search, close, status }
++}
++
++module.exports = {
++  LIMITS,
++  DEFAULT_CLIENT_VERSION,
++  VIDEO_PARAMS,
++  createYouTubeSearch,
++  makeRequester,
++  parseSearchResponse,
++  extractInitialData,
++  readClientVersion,
++  cleanResults,
++  cleanText
++}
+diff --git a/test/fixtures/yt-arama/ornek-lockupviewmodel.json b/test/fixtures/yt-arama/ornek-lockupviewmodel.json
+new file mode 100644
+index 0000000..5b0978c
+--- /dev/null
++++ b/test/fixtures/yt-arama/ornek-lockupviewmodel.json
+@@ -0,0 +1,484 @@
++{
++  "_aciklama": "Elle hazırlanmış örnek. Gerçek YouTube yanıtı değildir, kimlikler ve metinler uydurmadır. lockupViewModel alan yolları youtubei 1.8.17 (VideoCompactParser.js, PlaylistCompactParser.js, SearchResultParser.js) ve youtubei.js 18.1.0 (LockupView.js ve alt sınıfları) kaynak kodundan çıkarıldı. Doğrulanamayan değerler: badgeStyle değerleri, LIVE rozetinin text değeri, video lockup içindeki onTap watchEndpoint yolu, reklam öğesinin iç yapısı, responseContext içindeki servis adı. Ayrıntı: src/youtube-search.js ve docs/MIMARI.md (Telsiz DJ araması)",
++  "responseContext": {
++    "visitorData": "ORNEK_ZIYARETCI_VERISI",
++    "serviceTrackingParams": [
++      {
++        "service": "CSI",
++        "params": [
++          { "key": "c", "value": "WEB" },
++          { "key": "cver", "value": "2.20261001.00.00" }
++        ]
++      }
++    ]
++  },
++  "estimatedResults": "48211",
++  "contents": {
++    "twoColumnSearchResultsRenderer": {
++      "primaryContents": {
++        "sectionListRenderer": {
++          "contents": [
++            {
++              "itemSectionRenderer": {
++                "contents": [
++                  {
++                    "adSlotRenderer": {
++                      "adSlotMetadata": { "slotId": "ornek-reklam-yuvasi-1" },
++                      "fulfillmentContent": {
++                        "fulfilledLayout": {
++                          "inFeedAdLayoutRenderer": {
++                            "renderingContent": {
++                              "searchPyvRenderer": {
++                                "ads": [
++                                  {
++                                    "promotedVideoRenderer": {
++                                      "videoId": "TLSZreklam4",
++                                      "title": { "simpleText": "Reklam: Örnek Kulaklık Tanıtımı" },
++                                      "lengthText": { "simpleText": "0:30" },
++                                      "navigationEndpoint": { "watchEndpoint": { "videoId": "TLSZreklam4" } }
++                                    }
++                                  }
++                                ]
++                              }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  },
++                  {
++                    "channelRenderer": {
++                      "channelId": "UCtelsizOrnekKanali00001",
++                      "title": { "simpleText": "Örnek Sanatçı" },
++                      "navigationEndpoint": {
++                        "commandMetadata": {
++                          "webCommandMetadata": { "url": "/@orneksanatci", "webPageType": "WEB_PAGE_TYPE_CHANNEL", "apiUrl": "/youtubei/v1/browse" }
++                        },
++                        "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00001", "canonicalBaseUrl": "/@orneksanatci" }
++                      },
++                      "thumbnail": {
++                        "thumbnails": [
++                          { "url": "//yt3.ggpht.com/ornek-avatar-1=s88-c-k-c0x00ffffff-no-rj-mo", "width": 88, "height": 88 }
++                        ]
++                      },
++                      "subscriberCountText": { "simpleText": "@orneksanatci" },
++                      "videoCountText": { "simpleText": "1.2M subscribers" }
++                    }
++                  },
++                  {
++                    "lockupViewModel": {
++                      "contentImage": {
++                        "thumbnailViewModel": {
++                          "image": {
++                            "sources": [
++                              { "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg", "width": 360, "height": 202 },
++                              { "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg", "width": 720, "height": 404 }
++                            ]
++                          },
++                          "overlays": [
++                            {
++                              "thumbnailBottomOverlayViewModel": {
++                                "badges": [
++                                  {
++                                    "thumbnailBadgeViewModel": {
++                                      "icon": { "sources": [ { "clientResource": { "imageName": "LIVE" } } ] },
++                                      "text": "LIVE",
++                                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
++                                    }
++                                  }
++                                ]
++                              }
++                            }
++                          ]
++                        }
++                      },
++                      "metadata": {
++                        "lockupMetadataViewModel": {
++                          "title": { "content": "Örnek Sanatçı Canlı Konser 7/24" },
++                          "image": {
++                            "decoratedAvatarViewModel": {
++                              "avatar": {
++                                "avatarViewModel": {
++                                  "image": { "sources": [ { "url": "https://yt3.ggpht.com/ornek-avatar-3=s68-c-k-c0x00ffffff-no-rj", "width": 68, "height": 68 } ] },
++                                  "avatarImageSize": "AVATAR_SIZE_M"
++                                }
++                              },
++                              "a11yLabel": "Örnek Canlı Yayın kanalına git",
++                              "rendererContext": {
++                                "commandContext": {
++                                  "onTap": {
++                                    "innertubeCommand": {
++                                      "commandMetadata": {
++                                        "webCommandMetadata": { "url": "/@ornekcanli", "webPageType": "WEB_PAGE_TYPE_CHANNEL", "apiUrl": "/youtubei/v1/browse" }
++                                      },
++                                      "browseEndpoint": { "browseId": "UCtelsizCanliYayin000003", "canonicalBaseUrl": "/@ornekcanli" }
++                                    }
++                                  }
++                                }
++                              }
++                            }
++                          },
++                          "metadata": {
++                            "contentMetadataViewModel": {
++                              "metadataRows": [
++                                {
++                                  "metadataParts": [
++                                    {
++                                      "text": {
++                                        "content": "Örnek Canlı Yayın",
++                                        "commandRuns": [
++                                          {
++                                            "startIndex": 0,
++                                            "length": 17,
++                                            "onTap": {
++                                              "innertubeCommand": {
++                                                "browseEndpoint": { "browseId": "UCtelsizCanliYayin000003", "canonicalBaseUrl": "/@ornekcanli" }
++                                              }
++                                            }
++                                          }
++                                        ]
++                                      }
++                                    }
++                                  ]
++                                },
++                                {
++                                  "metadataParts": [
++                                    { "text": { "content": "1.2K watching" } }
++                                  ]
++                                }
++                              ]
++                            }
++                          }
++                        }
++                      },
++                      "contentId": "TLSZcanli03",
++                      "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
++                      "rendererContext": {
++                        "accessibilityContext": { "label": "Örnek Sanatçı Canlı Konser 7/24" },
++                        "commandContext": {
++                          "onTap": {
++                            "innertubeCommand": {
++                              "commandMetadata": {
++                                "webCommandMetadata": { "url": "/watch?v=TLSZcanli03", "webPageType": "WEB_PAGE_TYPE_WATCH" }
++                              },
++                              "watchEndpoint": { "videoId": "TLSZcanli03" }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  },
++                  {
++                    "lockupViewModel": {
++                      "contentImage": {
++                        "thumbnailViewModel": {
++                          "image": {
++                            "sources": [
++                              { "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg", "width": 360, "height": 202 },
++                              { "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg", "width": 720, "height": 404 }
++                            ]
++                          },
++                          "overlays": [
++                            {
++                              "thumbnailBottomOverlayViewModel": {
++                                "badges": [
++                                  {
++                                    "thumbnailBadgeViewModel": {
++                                      "text": "3:33",
++                                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
++                                    }
++                                  }
++                                ]
++                              }
++                            }
++                          ]
++                        }
++                      },
++                      "metadata": {
++                        "lockupMetadataViewModel": {
++                          "title": { "content": "Örnek Sanatçı Gece Şarkısı (Resmi Video)" },
++                          "image": {
++                            "decoratedAvatarViewModel": {
++                              "avatar": {
++                                "avatarViewModel": {
++                                  "image": { "sources": [ { "url": "https://yt3.ggpht.com/ornek-avatar-1=s68-c-k-c0x00ffffff-no-rj", "width": 68, "height": 68 } ] },
++                                  "avatarImageSize": "AVATAR_SIZE_M"
++                                }
++                              },
++                              "a11yLabel": "Örnek Sanatçı kanalına git",
++                              "rendererContext": {
++                                "commandContext": {
++                                  "onTap": {
++                                    "innertubeCommand": {
++                                      "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00001", "canonicalBaseUrl": "/@orneksanatci" }
++                                    }
++                                  }
++                                }
++                              }
++                            }
++                          },
++                          "metadata": {
++                            "contentMetadataViewModel": {
++                              "metadataRows": [
++                                {
++                                  "metadataParts": [
++                                    {
++                                      "text": {
++                                        "content": "Örnek Sanatçı",
++                                        "commandRuns": [
++                                          {
++                                            "startIndex": 0,
++                                            "length": 13,
++                                            "onTap": {
++                                              "innertubeCommand": {
++                                                "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00001", "canonicalBaseUrl": "/@orneksanatci" }
++                                              }
++                                            }
++                                          }
++                                        ]
++                                      }
++                                    }
++                                  ]
++                                },
++                                {
++                                  "metadataParts": [
++                                    { "text": { "content": "12M views" } },
++                                    { "text": { "content": "2 years ago" } }
++                                  ]
++                                }
++                              ]
++                            }
++                          }
++                        }
++                      },
++                      "contentId": "TLSZornek01",
++                      "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
++                      "rendererContext": {
++                        "accessibilityContext": { "label": "Örnek Sanatçı Gece Şarkısı (Resmi Video) 3 minutes, 33 seconds" },
++                        "commandContext": {
++                          "onTap": {
++                            "innertubeCommand": {
++                              "commandMetadata": {
++                                "webCommandMetadata": { "url": "/watch?v=TLSZornek01", "webPageType": "WEB_PAGE_TYPE_WATCH" }
++                              },
++                              "watchEndpoint": { "videoId": "TLSZornek01" }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  },
++                  {
++                    "lockupViewModel": {
++                      "contentImage": {
++                        "thumbnailViewModel": {
++                          "image": {
++                            "sources": [
++                              { "url": "https://i.ytimg.com/vi/TLSZornek02/hqdefault.jpg", "width": 480, "height": 360 }
++                            ]
++                          },
++                          "overlays": [
++                            {
++                              "thumbnailOverlayBadgeViewModel": {
++                                "thumbnailBadges": [
++                                  {
++                                    "thumbnailBadgeViewModel": {
++                                      "text": "1:02:03",
++                                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
++                                    }
++                                  }
++                                ],
++                                "position": "THUMBNAIL_OVERLAY_BADGE_POSITION_BOTTOM_END"
++                              }
++                            }
++                          ]
++                        }
++                      },
++                      "metadata": {
++                        "lockupMetadataViewModel": {
++                          "title": { "content": "Gece Şarkısı & Diğer Şarkılar (Ortak Kayıt)" },
++                          "image": {
++                            "avatarStackViewModel": {
++                              "rendererContext": {
++                                "commandContext": {
++                                  "onTap": {
++                                    "innertubeCommand": {
++                                      "showDialogCommand": {
++                                        "panelLoadingStrategy": {
++                                          "inlineContent": {
++                                            "dialogViewModel": {
++                                              "customContent": {
++                                                "listViewModel": {
++                                                  "listItems": [
++                                                    {
++                                                      "listItemViewModel": {
++                                                        "title": { "content": "Örnek Müzik Arşivi" },
++                                                        "leadingAccessory": {
++                                                          "avatarViewModel": {
++                                                            "image": { "sources": [ { "url": "https://yt3.ggpht.com/ornek-avatar-2=s68", "width": 68, "height": 68 } ] }
++                                                          }
++                                                        },
++                                                        "rendererContext": {
++                                                          "commandContext": {
++                                                            "onTap": {
++                                                              "innertubeCommand": {
++                                                                "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00002" }
++                                                              }
++                                                            }
++                                                          }
++                                                        }
++                                                      }
++                                                    },
++                                                    {
++                                                      "listItemViewModel": {
++                                                        "title": { "content": "Örnek Sanatçı" },
++                                                        "leadingAccessory": {
++                                                          "avatarViewModel": {
++                                                            "image": { "sources": [ { "url": "https://yt3.ggpht.com/ornek-avatar-1=s68", "width": 68, "height": 68 } ] }
++                                                          }
++                                                        },
++                                                        "rendererContext": {
++                                                          "commandContext": {
++                                                            "onTap": {
++                                                              "innertubeCommand": {
++                                                                "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00001" }
++                                                              }
++                                                            }
++                                                          }
++                                                        }
++                                                      }
++                                                    }
++                                                  ]
++                                                }
++                                              }
++                                            }
++                                          }
++                                        }
++                                      }
++                                    }
++                                  }
++                                }
++                              }
++                            }
++                          },
++                          "metadata": {
++                            "contentMetadataViewModel": {
++                              "metadataRows": [
++                                {
++                                  "metadataParts": [
++                                    { "text": { "content": "Örnek Müzik Arşivi and Örnek Sanatçı" } }
++                                  ]
++                                },
++                                {
++                                  "metadataParts": [
++                                    { "text": { "content": "98K views" } },
++                                    { "text": { "content": "5 months ago" } }
++                                  ]
++                                }
++                              ]
++                            }
++                          }
++                        }
++                      },
++                      "contentId": "TLSZornek02",
++                      "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
++                      "rendererContext": {
++                        "accessibilityContext": { "label": "Gece Şarkısı & Diğer Şarkılar (Ortak Kayıt) 1 hour, 2 minutes, 3 seconds" },
++                        "commandContext": {
++                          "onTap": {
++                            "innertubeCommand": {
++                              "commandMetadata": {
++                                "webCommandMetadata": { "url": "/watch?v=TLSZornek02", "webPageType": "WEB_PAGE_TYPE_WATCH" }
++                              },
++                              "watchEndpoint": { "videoId": "TLSZornek02" }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  },
++                  {
++                    "lockupViewModel": {
++                      "contentImage": {
++                        "collectionThumbnailViewModel": {
++                          "primaryThumbnail": {
++                            "thumbnailViewModel": {
++                              "image": {
++                                "sources": [
++                                  { "url": "https://i.ytimg.com/vi/TLSZraf0005/hqdefault.jpg", "width": 480, "height": 270 }
++                                ]
++                              },
++                              "overlays": [
++                                {
++                                  "thumbnailOverlayBadgeViewModel": {
++                                    "thumbnailBadges": [
++                                      { "thumbnailBadgeViewModel": { "text": "25 videos" } }
++                                    ]
++                                  }
++                                }
++                              ]
++                            }
++                          }
++                        }
++                      },
++                      "metadata": {
++                        "lockupMetadataViewModel": {
++                          "title": { "content": "Örnek Sanatçı Bütün Şarkılar (Oynatma Listesi)" },
++                          "metadata": {
++                            "contentMetadataViewModel": {
++                              "metadataRows": [
++                                {
++                                  "metadataParts": [
++                                    {
++                                      "text": {
++                                        "content": "Örnek Sanatçı",
++                                        "commandRuns": [
++                                          {
++                                            "onTap": {
++                                              "innertubeCommand": {
++                                                "browseEndpoint": { "browseId": "UCtelsizOrnekKanali00001" }
++                                              }
++                                            }
++                                          }
++                                        ]
++                                      }
++                                    },
++                                    { "text": { "content": "Playlist" } }
++                                  ]
++                                }
++                              ]
++                            }
++                          }
++                        }
++                      },
++                      "contentId": "PLtelsizOrnekListe0000000000000001",
++                      "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
++                      "rendererContext": {
++                        "commandContext": {
++                          "onTap": {
++                            "innertubeCommand": {
++                              "watchEndpoint": { "videoId": "TLSZraf0005", "playlistId": "PLtelsizOrnekListe0000000000000001" }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  }
++                ]
++              }
++            },
++            {
++              "continuationItemRenderer": {
++                "continuationEndpoint": {
++                  "commandMetadata": { "webCommandMetadata": { "sendPost": true, "apiUrl": "/youtubei/v1/search" } },
++                  "continuationCommand": { "token": "ORNEK_DEVAM_JETONU" }
++                }
++              }
++            }
++          ]
++        }
++      }
++    }
++  },
++  "refinements": [ "gece şarkısı canlı", "gece şarkısı sözleri" ]
++}
+diff --git a/test/fixtures/yt-arama/ornek-videorenderer.json b/test/fixtures/yt-arama/ornek-videorenderer.json
+new file mode 100644
+index 0000000..38c6939
+--- /dev/null
++++ b/test/fixtures/yt-arama/ornek-videorenderer.json
+@@ -0,0 +1,620 @@
++{
++  "_aciklama": "Elle hazırlanmış örnek. Gerçek YouTube yanıtı değildir, kimlikler ve metinler uydurmadır. Düğüm adları ve alan yolları youtubei.js 18.1.0, youtubei 1.8.17, @distube/ytsr 2.0.4, ytsr 3.8.4 ve youtube-sr 4.3.12 kaynak kodundan çıkarıldı. Reklam öğesinin iç yapısı ve responseContext içindeki servis adı doğrulanamadı. Ayrıntı: src/youtube-search.js ve docs/MIMARI.md (Telsiz DJ araması)",
++  "responseContext": {
++    "visitorData": "ORNEK_ZIYARETCI_VERISI",
++    "serviceTrackingParams": [
++      {
++        "service": "CSI",
++        "params": [
++          {
++            "key": "c",
++            "value": "WEB"
++          },
++          {
++            "key": "cver",
++            "value": "2.20261001.00.00"
++          }
++        ]
++      }
++    ]
++  },
++  "estimatedResults": "48211",
++  "contents": {
++    "twoColumnSearchResultsRenderer": {
++      "primaryContents": {
++        "sectionListRenderer": {
++          "contents": [
++            {
++              "itemSectionRenderer": {
++                "contents": [
++                  {
++                    "adSlotRenderer": {
++                      "adSlotMetadata": {
++                        "slotId": "ornek-reklam-yuvasi-1"
++                      },
++                      "fulfillmentContent": {
++                        "fulfilledLayout": {
++                          "inFeedAdLayoutRenderer": {
++                            "renderingContent": {
++                              "searchPyvRenderer": {
++                                "ads": [
++                                  {
++                                    "promotedVideoRenderer": {
++                                      "videoId": "TLSZreklam4",
++                                      "title": {
++                                        "simpleText": "Reklam: Örnek Kulaklık Tanıtımı"
++                                      },
++                                      "longBylineText": {
++                                        "runs": [
++                                          {
++                                            "text": "Örnek Reklam Veren",
++                                            "navigationEndpoint": {
++                                              "browseEndpoint": {
++                                                "browseId": "UCtelsizReklamVeren00004"
++                                              }
++                                            }
++                                          }
++                                        ]
++                                      },
++                                      "lengthText": {
++                                        "simpleText": "0:30"
++                                      },
++                                      "navigationEndpoint": {
++                                        "watchEndpoint": {
++                                          "videoId": "TLSZreklam4"
++                                        }
++                                      }
++                                    }
++                                  }
++                                ]
++                              }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  },
++                  {
++                    "channelRenderer": {
++                      "channelId": "UCtelsizOrnekKanali00001",
++                      "title": {
++                        "simpleText": "Örnek Sanatçı"
++                      },
++                      "navigationEndpoint": {
++                        "commandMetadata": {
++                          "webCommandMetadata": {
++                            "url": "/@orneksanatci",
++                            "webPageType": "WEB_PAGE_TYPE_CHANNEL",
++                            "apiUrl": "/youtubei/v1/browse"
++                          }
++                        },
++                        "browseEndpoint": {
++                          "browseId": "UCtelsizOrnekKanali00001",
++                          "canonicalBaseUrl": "/@orneksanatci"
++                        }
++                      },
++                      "thumbnail": {
++                        "thumbnails": [
++                          {
++                            "url": "//yt3.ggpht.com/ornek-avatar-1=s88-c-k-c0x00ffffff-no-rj-mo",
++                            "width": 88,
++                            "height": 88
++                          },
++                          {
++                            "url": "//yt3.ggpht.com/ornek-avatar-1=s176-c-k-c0x00ffffff-no-rj-mo",
++                            "width": 176,
++                            "height": 176
++                          }
++                        ]
++                      },
++                      "descriptionSnippet": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçının resmi kanalı."
++                          }
++                        ]
++                      },
++                      "subscriberCountText": {
++                        "simpleText": "@orneksanatci"
++                      },
++                      "videoCountText": {
++                        "simpleText": "1.2M subscribers"
++                      },
++                      "ownerBadges": [
++                        {
++                          "metadataBadgeRenderer": {
++                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST",
++                            "tooltip": "Official Artist Channel"
++                          }
++                        }
++                      ]
++                    }
++                  },
++                  {
++                    "videoRenderer": {
++                      "videoId": "TLSZcanli03",
++                      "thumbnail": {
++                        "thumbnails": [
++                          {
++                            "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg",
++                            "width": 360,
++                            "height": 202
++                          },
++                          {
++                            "url": "https://i.ytimg.com/vi/TLSZcanli03/hq720.jpg",
++                            "width": 720,
++                            "height": 404
++                          }
++                        ]
++                      },
++                      "title": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçı Canlı Konser 7/24"
++                          }
++                        ],
++                        "accessibility": {
++                          "accessibilityData": {
++                            "label": "Örnek Sanatçı Canlı Konser 7/24"
++                          }
++                        }
++                      },
++                      "longBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Canlı Yayın",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizCanliYayin000003",
++                                "canonicalBaseUrl": "/@ornekcanli"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "viewCountText": {
++                        "runs": [
++                          {
++                            "text": "1,234"
++                          },
++                          {
++                            "text": " watching"
++                          }
++                        ]
++                      },
++                      "navigationEndpoint": {
++                        "commandMetadata": {
++                          "webCommandMetadata": {
++                            "url": "/watch?v=TLSZcanli03",
++                            "webPageType": "WEB_PAGE_TYPE_WATCH"
++                          }
++                        },
++                        "watchEndpoint": {
++                          "videoId": "TLSZcanli03"
++                        }
++                      },
++                      "badges": [
++                        {
++                          "metadataBadgeRenderer": {
++                            "style": "BADGE_STYLE_TYPE_LIVE_NOW",
++                            "label": "LIVE"
++                          }
++                        }
++                      ],
++                      "ownerText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Canlı Yayın",
++                            "navigationEndpoint": {
++                              "commandMetadata": {
++                                "webCommandMetadata": {
++                                  "url": "/@ornekcanli",
++                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
++                                  "apiUrl": "/youtubei/v1/browse"
++                                }
++                              },
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizCanliYayin000003",
++                                "canonicalBaseUrl": "/@ornekcanli"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "shortBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Canlı Yayın",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizCanliYayin000003",
++                                "canonicalBaseUrl": "/@ornekcanli"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "thumbnailOverlays": [
++                        {
++                          "thumbnailOverlayTimeStatusRenderer": {
++                            "text": {
++                              "runs": [
++                                {
++                                  "text": "LIVE"
++                                }
++                              ]
++                            },
++                            "style": "LIVE"
++                          }
++                        }
++                      ],
++                      "channelThumbnailSupportedRenderers": {
++                        "channelThumbnailWithLinkRenderer": {
++                          "thumbnail": {
++                            "thumbnails": [
++                              {
++                                "url": "https://yt3.ggpht.com/ornek-avatar-3=s68-c-k-c0x00ffffff-no-rj",
++                                "width": 68,
++                                "height": 68
++                              }
++                            ]
++                          }
++                        }
++                      },
++                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-3"
++                    }
++                  },
++                  {
++                    "videoRenderer": {
++                      "videoId": "TLSZornek01",
++                      "thumbnail": {
++                        "thumbnails": [
++                          {
++                            "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg",
++                            "width": 360,
++                            "height": 202
++                          },
++                          {
++                            "url": "https://i.ytimg.com/vi/TLSZornek01/hq720.jpg",
++                            "width": 720,
++                            "height": 404
++                          }
++                        ]
++                      },
++                      "title": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçı "
++                          },
++                          {
++                            "text": "Gece Şarkısı (Resmi Video)"
++                          }
++                        ],
++                        "accessibility": {
++                          "accessibilityData": {
++                            "label": "Örnek Sanatçı Gece Şarkısı (Resmi Video) 3 minutes, 33 seconds"
++                          }
++                        }
++                      },
++                      "longBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçı",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00001",
++                                "canonicalBaseUrl": "/@orneksanatci"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "publishedTimeText": {
++                        "simpleText": "2 years ago"
++                      },
++                      "lengthText": {
++                        "accessibility": {
++                          "accessibilityData": {
++                            "label": "3 minutes, 33 seconds"
++                          }
++                        },
++                        "simpleText": "3:33"
++                      },
++                      "viewCountText": {
++                        "simpleText": "12,345,678 views"
++                      },
++                      "navigationEndpoint": {
++                        "commandMetadata": {
++                          "webCommandMetadata": {
++                            "url": "/watch?v=TLSZornek01",
++                            "webPageType": "WEB_PAGE_TYPE_WATCH"
++                          }
++                        },
++                        "watchEndpoint": {
++                          "videoId": "TLSZornek01"
++                        }
++                      },
++                      "ownerBadges": [
++                        {
++                          "metadataBadgeRenderer": {
++                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST",
++                            "tooltip": "Official Artist Channel"
++                          }
++                        }
++                      ],
++                      "ownerText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçı",
++                            "navigationEndpoint": {
++                              "commandMetadata": {
++                                "webCommandMetadata": {
++                                  "url": "/@orneksanatci",
++                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
++                                  "apiUrl": "/youtubei/v1/browse"
++                                }
++                              },
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00001",
++                                "canonicalBaseUrl": "/@orneksanatci"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "shortBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Sanatçı",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00001",
++                                "canonicalBaseUrl": "/@orneksanatci"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "shortViewCountText": {
++                        "simpleText": "12M views"
++                      },
++                      "thumbnailOverlays": [
++                        {
++                          "thumbnailOverlayTimeStatusRenderer": {
++                            "text": {
++                              "simpleText": "3:33"
++                            },
++                            "style": "DEFAULT"
++                          }
++                        }
++                      ],
++                      "detailedMetadataSnippets": [
++                        {
++                          "snippetText": {
++                            "runs": [
++                              {
++                                "text": "Gece Şarkısı resmi müzik videosu."
++                              }
++                            ]
++                          },
++                          "snippetHoverText": {
++                            "runs": [
++                              {
++                                "text": "From the video description"
++                              }
++                            ]
++                          }
++                        }
++                      ],
++                      "channelThumbnailSupportedRenderers": {
++                        "channelThumbnailWithLinkRenderer": {
++                          "thumbnail": {
++                            "thumbnails": [
++                              {
++                                "url": "https://yt3.ggpht.com/ornek-avatar-1=s68-c-k-c0x00ffffff-no-rj",
++                                "width": 68,
++                                "height": 68
++                              }
++                            ]
++                          }
++                        }
++                      },
++                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-1"
++                    }
++                  },
++                  {
++                    "videoRenderer": {
++                      "videoId": "TLSZornek02",
++                      "thumbnail": {
++                        "thumbnails": [
++                          {
++                            "url": "https://i.ytimg.com/vi/TLSZornek02/hqdefault.jpg",
++                            "width": 480,
++                            "height": 360
++                          }
++                        ]
++                      },
++                      "title": {
++                        "runs": [
++                          {
++                            "text": "Gece Şarkısı & Diğer Şarkılar (Uzun Kayıt)"
++                          }
++                        ]
++                      },
++                      "longBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Müzik Arşivi",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00002",
++                                "canonicalBaseUrl": "/@ornekarsiv"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "publishedTimeText": {
++                        "simpleText": "5 months ago"
++                      },
++                      "lengthText": {
++                        "accessibility": {
++                          "accessibilityData": {
++                            "label": "1 hour, 2 minutes, 3 seconds"
++                          }
++                        },
++                        "simpleText": "1:02:03"
++                      },
++                      "viewCountText": {
++                        "simpleText": "98,765 views"
++                      },
++                      "navigationEndpoint": {
++                        "commandMetadata": {
++                          "webCommandMetadata": {
++                            "url": "/watch?v=TLSZornek02",
++                            "webPageType": "WEB_PAGE_TYPE_WATCH"
++                          }
++                        },
++                        "watchEndpoint": {
++                          "videoId": "TLSZornek02"
++                        }
++                      },
++                      "ownerText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Müzik Arşivi",
++                            "navigationEndpoint": {
++                              "commandMetadata": {
++                                "webCommandMetadata": {
++                                  "url": "/@ornekarsiv",
++                                  "webPageType": "WEB_PAGE_TYPE_CHANNEL",
++                                  "apiUrl": "/youtubei/v1/browse"
++                                }
++                              },
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00002",
++                                "canonicalBaseUrl": "/@ornekarsiv"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "shortBylineText": {
++                        "runs": [
++                          {
++                            "text": "Örnek Müzik Arşivi",
++                            "navigationEndpoint": {
++                              "browseEndpoint": {
++                                "browseId": "UCtelsizOrnekKanali00002",
++                                "canonicalBaseUrl": "/@ornekarsiv"
++                              }
++                            }
++                          }
++                        ]
++                      },
++                      "thumbnailOverlays": [
++                        {
++                          "thumbnailOverlayTimeStatusRenderer": {
++                            "text": {
++                              "simpleText": "1:02:03"
++                            },
++                            "style": "DEFAULT"
++                          }
++                        }
++                      ],
++                      "searchVideoResultEntityKey": "ornek-varlik-anahtari-2"
++                    }
++                  },
++                  {
++                    "shelfRenderer": {
++                      "title": {
++                        "simpleText": "People also watched"
++                      },
++                      "content": {
++                        "verticalListRenderer": {
++                          "items": [
++                            {
++                              "videoRenderer": {
++                                "videoId": "TLSZraf0005",
++                                "thumbnail": {
++                                  "thumbnails": [
++                                    {
++                                      "url": "https://i.ytimg.com/vi/TLSZraf0005/hqdefault.jpg",
++                                      "width": 480,
++                                      "height": 360
++                                    }
++                                  ]
++                                },
++                                "title": {
++                                  "runs": [
++                                    {
++                                      "text": "Raf İçindeki Başka Bir Şarkı"
++                                    }
++                                  ]
++                                },
++                                "lengthText": {
++                                  "simpleText": "4:05"
++                                },
++                                "ownerText": {
++                                  "runs": [
++                                    {
++                                      "text": "Örnek Raf Kanalı",
++                                      "navigationEndpoint": {
++                                        "browseEndpoint": {
++                                          "browseId": "UCtelsizRafKanali0000005",
++                                          "canonicalBaseUrl": "/@ornekraf"
++                                        }
++                                      }
++                                    }
++                                  ]
++                                },
++                                "navigationEndpoint": {
++                                  "watchEndpoint": {
++                                    "videoId": "TLSZraf0005"
++                                  }
++                                },
++                                "thumbnailOverlays": [
++                                  {
++                                    "thumbnailOverlayTimeStatusRenderer": {
++                                      "text": {
++                                        "simpleText": "4:05"
++                                      },
++                                      "style": "DEFAULT"
++                                    }
++                                  }
++                                ]
++                              }
++                            }
++                          ]
++                        }
++                      }
++                    }
++                  }
++                ]
++              }
++            },
++            {
++              "continuationItemRenderer": {
++                "continuationEndpoint": {
++                  "commandMetadata": {
++                    "webCommandMetadata": {
++                      "sendPost": true,
++                      "apiUrl": "/youtubei/v1/search"
++                    }
++                  },
++                  "continuationCommand": {
++                    "token": "ORNEK_DEVAM_JETONU"
++                  }
++                }
++              }
++            }
++          ]
++        }
++      }
++    }
++  },
++  "refinements": [
++    "gece şarkısı canlı",
++    "gece şarkısı sözleri"
++  ]
++}
+diff --git a/test/youtube-search.test.js b/test/youtube-search.test.js
+new file mode 100644
+index 0000000..cbaac0a
+--- /dev/null
++++ b/test/youtube-search.test.js
+@@ -0,0 +1,436 @@
++'use strict'
++
++// Telsiz DJ şarkı adıyla YouTube araması (src/youtube-search.js, istek 5). Canlı YouTube'a hiçbir istek gitmez:
++// ayrıştırıcı test/fixtures/yt-arama altındaki elle hazırlanmış örnek yanıtlarla, arama akışı enjekte edilen
++// istek işleviyle, ağ katmanı (yönlendirme, boyut, sıkıştırma, zaman aşımı) bu bilgisayarda açılan sahte bir
++// HTTP sunucusuyla sınanır.
++
++const { describe, it } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const http = require('node:http')
++const ys = require('../src/youtube-search')
++
++const FIXTURES = path.join(__dirname, 'fixtures', 'yt-arama')
++const RAW_VIDEO = fs.readFileSync(path.join(FIXTURES, 'ornek-videorenderer.json'), 'utf8')
++const RAW_LOCKUP = fs.readFileSync(path.join(FIXTURES, 'ornek-lockupviewmodel.json'), 'utf8')
++const SKIPPED = ['TLSZreklam4', 'TLSZcanli03', 'TLSZraf0005']
++
++function fixture (raw) {
++  return JSON.parse(raw)
++}
++
++// Tek bir itemSectionRenderer içinde verilen öğeler
++function response (items) {
++  return { contents: { twoColumnSearchResultsRenderer: { primaryContents: { sectionListRenderer: { contents: [{ itemSectionRenderer: { contents: items } }] } } } } }
++}
++
++function video (id, extra) {
++  return { videoRenderer: Object.assign({ videoId: id, title: { runs: [{ text: 'Parça ' + id }] }, ownerText: { runs: [{ text: 'Kanal' }] }, lengthText: { simpleText: '3:00' } }, extra || {}) }
++}
++
++function failsWith (fn, reason) {
++  assert.throws(fn, (err) => err.code === 'search_failed' && err.reason === reason)
++}
++
++describe('ayrıştırıcı: örnek yanıtlar', () => {
++  it('iki örnek dosyadan yalnızca TLSZornek01 ve TLSZornek02 çıkar, reklam, canlı yayın, raf ve liste atlanır', () => {
++    for (const raw of [RAW_VIDEO, RAW_LOCKUP]) {
++      // Atlanan kimlikler örnekte gerçekten bulunur
++      for (const id of SKIPPED) assert.ok(raw.indexOf(id) !== -1, id)
++      const results = ys.parseSearchResponse(fixture(raw))
++      assert.deepEqual(results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++      assert.deepEqual(results[0], { videoId: 'TLSZornek01', title: 'Örnek Sanatçı Gece Şarkısı (Resmi Video)', channel: 'Örnek Sanatçı', durationS: 213 })
++      assert.equal(results[1].durationS, 3723)
++    }
++    assert.equal(ys.parseSearchResponse(fixture(RAW_VIDEO))[1].title, 'Gece Şarkısı & Diğer Şarkılar (Uzun Kayıt)')
++    assert.equal(ys.parseSearchResponse(fixture(RAW_LOCKUP))[1].channel, 'Örnek Müzik Arşivi and Örnek Sanatçı')
++  })
++
++  it('iki biçim aynı yanıtta karışık gelebilir, aynı kimlik bir kez alınır', () => {
++    const a = fixture(RAW_VIDEO).contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents
++    const b = fixture(RAW_LOCKUP).contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents
++    const results = ys.parseSearchResponse(response(b.concat(a)))
++    assert.deepEqual(results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++    // Önce görülen (lockup) kayıt kalır
++    assert.equal(results[1].title, 'Gece Şarkısı & Diğer Şarkılar (Ortak Kayıt)')
++  })
++
++  it('belge sırası korunur, birden çok bölüm ve devam yanıtı gezilir, yan sütun atlanır', () => {
++    const data = {
++      contents: {
++        twoColumnSearchResultsRenderer: {
++          primaryContents: {
++            sectionListRenderer: {
++              contents: [
++                { itemSectionRenderer: { contents: [video('aaaaaaaaaa1'), video('aaaaaaaaaa2')] } },
++                { itemSectionRenderer: { contents: [video('aaaaaaaaaa3')] } }
++              ]
++            }
++          },
++          secondaryContents: { itemSectionRenderer: { contents: [video('bbbbbbbbbb1')] } }
++        }
++      }
++    }
++    assert.deepEqual(ys.parseSearchResponse(data).map((r) => r.videoId), ['aaaaaaaaaa1', 'aaaaaaaaaa2', 'aaaaaaaaaa3'])
++    const more = { onResponseReceivedCommands: [{ appendContinuationItemsAction: { continuationItems: [{ itemSectionRenderer: { contents: [video('cccccccccc1')] } }] } }], secondaryContents: [video('bbbbbbbbbb2')] }
++    assert.deepEqual(ys.parseSearchResponse(more).map((r) => r.videoId), ['cccccccccc1'])
++  })
++
++  it('reklam alt ağaçlarına (promoted dahil), raflara, kanal ve oynatma listesi öğelerine inilmez', () => {
++    const data = response([
++      { promotedSparklesWebRenderer: { content: video('ddddddddd01') } },
++      { promotedSomethingNewRenderer: { content: video('ddddddddd02') } },
++      { carouselAdRenderer: { items: [video('ddddddddd03')] } },
++      { playlistRenderer: { videos: [{ childVideoRenderer: { videoId: 'ddddddddd04' } }], content: video('ddddddddd05') } },
++      { radioRenderer: { content: video('ddddddddd06') } },
++      { reelShelfRenderer: { items: [video('ddddddddd07')] } },
++      { lockupViewModel: { contentType: 'LOCKUP_CONTENT_TYPE_PLAYLIST', contentId: 'ddddddddd08' } },
++      { unknownWrapperRenderer: { content: video('ddddddddd09') } }
++    ])
++    // Bilinmeyen yeni sarmalayıcı aşılır
++    assert.deepEqual(ys.parseSearchResponse(data).map((r) => r.videoId), ['ddddddddd09'])
++  })
++
++  it('canlı, yaklaşan ve süresi ayrıştırılamayan öğeler atlanır, süre örtüden de okunur', () => {
++    const data = response([
++      video('eeeeeeeeee1', { lengthText: undefined, thumbnailOverlays: [{ thumbnailOverlayTimeStatusRenderer: { style: 'LIVE', text: { simpleText: 'LIVE' } } }] }),
++      video('eeeeeeeeee2', { upcomingEventData: { startTime: '1900000000' } }),
++      video('eeeeeeeeee3', { badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] }),
++      video('eeeeeeeeee4', { lengthText: { simpleText: 'yakında' } }),
++      video('eeeeeeeeee5', { lengthText: undefined }),
++      video('eeeeeeeeee6', { lengthText: undefined, thumbnailOverlays: [{ thumbnailOverlayTimeStatusRenderer: { style: 'DEFAULT', text: { simpleText: '4:05' } } }] }),
++      video('eeeeeeeeee7', { lengthText: { simpleText: '0:00' } }),
++      { compactVideoRenderer: { videoId: 'eeeeeeeeee8', title: { simpleText: 'Dar' }, lengthText: { simpleText: '10:00' }, shortBylineText: { runs: [{ text: 'K' }] } } }
++    ])
++    const results = ys.parseSearchResponse(data)
++    assert.deepEqual(results.map((r) => [r.videoId, r.durationS]), [['eeeeeeeeee6', 245], ['eeeeeeeeee8', 600]])
++    assert.equal(results[1].channel, 'K')
++  })
++
++  it('geçersiz kimlik reddedilir', () => {
++    const data = response([video('kisa'), video('cok-uzun-kimlik1'), video('bosluk var!'), { lockupViewModel: { contentType: 'LOCKUP_CONTENT_TYPE_VIDEO', contentId: 'x'.repeat(12) } }, video('ffffffffff1')])
++    assert.deepEqual(ys.parseSearchResponse(data).map((r) => r.videoId), ['ffffffffff1'])
++  })
++
++  it('başlık ve kanal adı temizlenir: denetim ve yön karakterleri, boşluk, 120 kod noktası', () => {
++    const ctl = String.fromCharCode(0, 7, 0x1b, 0x9f)
++    const bidi = String.fromCharCode(0x202e, 0x2066, 0x200b, 0xfeff)
++    const emoji = String.fromCharCode(0xd83c, 0xdfb5)
++    const lone = String.fromCharCode(0xd800)
++    const long = emoji.repeat(130)
++    const data = response([video('ggggggggggg', { title: { runs: [{ text: '  Ad' + ctl + 'ı' }, { text: bidi + '\n\tSon' + lone + '  ' }] }, ownerText: { runs: [{ text: long }] } })])
++    const r = ys.parseSearchResponse(data)[0]
++    assert.equal(r.title, 'Ad ı Son' + String.fromCharCode(0xfffd))
++    assert.equal(r.channel, emoji.repeat(120))
++    assert.equal(ys.cleanText(5), '')
++  })
++
++  it('tanınmayan yapı biçim hatasıdır, boş sonuç listesi hata değildir', () => {
++    for (const data of [null, 'metin', [], {}, { contents: {} }, { contents: { twoColumnSearchResultsRenderer: { primaryContents: { yeniBicim: [{ a: 1 }] } } } }]) {
++      failsWith(() => ys.parseSearchResponse(data), 'format')
++    }
++    assert.deepEqual(ys.parseSearchResponse(response([])), [])
++    assert.deepEqual(ys.parseSearchResponse(response([{ channelRenderer: { channelId: 'UC' } }])), [])
++  })
++
++  it('düğüm sınırı aşılınca hata, derinlik sınırının altına inilmez', () => {
++    const many = new Array(ys.LIMITS.maxNodes + 10).fill(0).map(() => ({ a: 1 }))
++    failsWith(() => ys.parseSearchResponse(response(many)), 'too_many_nodes')
++    let deep = video('hhhhhhhhhhh')
++    for (const n of new Array(100).fill(0)) deep = { sarmal: deep, n }
++    assert.deepEqual(ys.parseSearchResponse(response([deep, video('hhhhhhhhhh2')])).map((r) => r.videoId), ['hhhhhhhhhh2'])
++  })
++
++  it('cleanResults: enjekte edilen arayıcının sonuçları da temizlenir ve sınırlanır', () => {
++    const list = [
++      { videoId: 'iiiiiiiiii1', title: 'Bir', channel: 'K', durationS: 60 },
++      { videoId: 'iiiiiiiiii1', title: 'Tekrar', channel: 'K', durationS: 60 },
++      { videoId: '<script>', title: 'Kötü', durationS: 60 },
++      { videoId: 'iiiiiiiiii2', title: 'Süresiz', durationS: 0 },
++      { videoId: 'iiiiiiiiii3', title: 42, channel: null, durationS: 61 },
++      null,
++      'metin',
++      { videoId: 'iiiiiiiiii4', title: 'Dört', channel: 'K', durationS: 62 }
++    ]
++    assert.deepEqual(ys.cleanResults(list, 5), [
++      { videoId: 'iiiiiiiiii1', title: 'Bir', channel: 'K', durationS: 60 },
++      { videoId: 'iiiiiiiiii3', title: '', channel: '', durationS: 61 },
++      { videoId: 'iiiiiiiiii4', title: 'Dört', channel: 'K', durationS: 62 }
++    ])
++    assert.equal(ys.cleanResults(list, 1).length, 1)
++    assert.deepEqual(ys.cleanResults('yok'), [])
++  })
++})
++
++describe('HTML yedeği: ytInitialData çıkarımı', () => {
++  it('süslü parantez sayacı dizgi içini ve kaçışları atlar, kaçışlı </script> metni bozmaz', () => {
++    const data = fixture(RAW_VIDEO)
++    data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[3].videoRenderer.title = { runs: [{ text: 'a }"{ <\/script> \\ b' }] }
++    const json = JSON.stringify(data).split('</').join('<\\/')
++    const html = '<html><head><script>var other = { "x": "}" };</script></head><body><script nonce="n">var ytInitialData = ' + json + ';</script><script>var ytInitialPlayerResponse = {"y": 1};</script></body></html>'
++    const out = ys.extractInitialData(html)
++    assert.ok(out)
++    const results = ys.parseSearchResponse(out)
++    assert.deepEqual(results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++    assert.equal(results[0].title, 'a }"{ </script> \\ b')
++  })
++
++  it('window["ytInitialData"] biçimi de okunur, işaret yoksa veya JSON bozuksa null', () => {
++    assert.deepEqual(ys.extractInitialData('<script>window["ytInitialData"] = {"a":[1,{"b":"}"}]};</script>'), { a: [1, { b: '}' }] })
++    assert.equal(ys.extractInitialData('<html>yok</html>'), null)
++    assert.equal(ys.extractInitialData('var ytInitialData = {"a": 1'), null)
++    assert.equal(ys.extractInitialData('var ytInitialData = {"a": tanımsız};'), null)
++    assert.equal(ys.extractInitialData('var ytInitialData = [1];'), null)
++    assert.equal(ys.extractInitialData(null), null)
++    // İlk işaret bozuksa ikincisi denenir
++    assert.deepEqual(ys.extractInitialData('var ytInitialData = {bozuk}; window["ytInitialData"] = {"ok": true};'), { ok: true })
++  })
++
++  it('istemci sürümü sayfadan veya cver alanından okunur, desene uymayan yok sayılır', () => {
++    assert.equal(ys.readClientVersion('..."INNERTUBE_CONTEXT_CLIENT_VERSION":"2.20261005.01.00",...', null), '2.20261005.01.00')
++    assert.equal(ys.readClientVersion('"INNERTUBE_CONTEXT_CLIENT_VERSION":"1.2.3"', null), null)
++    assert.equal(ys.readClientVersion('', fixture(RAW_LOCKUP)), '2.20261001.00.00')
++    assert.equal(ys.readClientVersion('', { responseContext: { serviceTrackingParams: [{ params: [{ key: 'cver', value: 'x' }] }] } }), null)
++  })
++})
++
++// Sahte istek işlevi: her çağrı kaydedilir, yanıtlar sırayla verilir (işlev ya da { status, text })
++function fakeRequest (replies) {
++  const calls = []
++  const fn = (opts) => {
++    calls.push(opts)
++    const next = replies.length > 1 ? replies.shift() : replies[0]
++    return Promise.resolve().then(() => (typeof next === 'function' ? next(opts) : next))
++  }
++  fn.calls = calls
++  return fn
++}
++
++function page (data, version) {
++  return '<html><script>var ytInitialData = ' + JSON.stringify(data) + ';</script><script>ytcfg.set({"INNERTUBE_CONTEXT_CLIENT_VERSION":"' + (version || '2.20261010.00.00') + '"})</script></html>'
++}
++
++function networkError () {
++  const err = new Error('youtube search: timeout')
++  err.code = 'search_failed'
++  err.reason = 'timeout'
++  err.counts = false
++  throw err
++}
++
++describe('arama akışı (enjekte edilen istek işlevi)', () => {
++  it('InnerTube isteği: sabit adres, anahtarsız, video süzgeci, istemci bağlamı ve başlıklar', async () => {
++    const request = fakeRequest([{ status: 200, text: RAW_LOCKUP }])
++    const engine = ys.createYouTubeSearch({ request })
++    const results = await engine.search('gece şarkısı')
++    assert.deepEqual(results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++    assert.equal(request.calls.length, 1)
++    const call = request.calls[0]
++    assert.equal(call.method, 'POST')
++    assert.equal(call.path, '/youtubei/v1/search?prettyPrint=false')
++    assert.ok(!/key=/.test(call.path))
++    assert.deepEqual(JSON.parse(call.body), {
++      context: { client: { clientName: 'WEB', clientVersion: ys.DEFAULT_CLIENT_VERSION, hl: 'en', gl: 'US', utcOffsetMinutes: 0 }, user: {} },
++      query: 'gece şarkısı',
++      params: 'EgIQAQ%3D%3D'
++    })
++    assert.equal(call.headers['Content-Type'], 'application/json')
++    assert.equal(call.headers['Content-Length'], String(Buffer.byteLength(call.body)))
++    assert.equal(call.headers['X-Youtube-Client-Name'], '1')
++    assert.equal(call.headers['X-Youtube-Client-Version'], ys.DEFAULT_CLIENT_VERSION)
++    assert.equal(call.headers.Origin, 'https://www.youtube.com')
++    assert.equal(call.headers.Referer, 'https://www.youtube.com/')
++    assert.equal(call.headers.Cookie, 'SOCS=CAI')
++    assert.match(call.headers['User-Agent'], /^Mozilla\/5\.0 /)
++    assert.equal(call.maxBytes, ys.LIMITS.jsonMaxBytes)
++    assert.ok(call.timeoutMs > 0 && call.timeoutMs <= ys.LIMITS.timeoutMs)
++  })
++
++  it('InnerTube başarısız olursa sonuç sayfası okunur, öğrenilen istemci sürümü sonraki istekte kullanılır', async () => {
++    const request = fakeRequest([{ status: 400, text: '{}' }, { status: 200, text: page(fixture(RAW_VIDEO), '2.20261010.00.00') }, { status: 200, text: RAW_VIDEO }])
++    const engine = ys.createYouTubeSearch({ request })
++    const results = await engine.search('lobi & şarkı')
++    assert.deepEqual(results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++    const get = request.calls[1]
++    assert.equal(get.method, 'GET')
++    const url = new URL('https://www.youtube.com' + get.path)
++    assert.equal(url.pathname, '/results')
++    assert.equal(url.searchParams.get('search_query'), 'lobi & şarkı')
++    assert.equal(url.searchParams.get('sp'), 'EgIQAQ==')
++    assert.ok(get.path.indexOf('sp=EgIQAQ%3D%3D') !== -1, get.path)
++    assert.equal(url.searchParams.get('hl'), 'en')
++    assert.equal(url.searchParams.get('gl'), 'US')
++    assert.equal(get.headers.Cookie, 'SOCS=CAI')
++    assert.equal(get.maxBytes, ys.LIMITS.htmlMaxBytes)
++    assert.equal(engine.status().clientVersion, '2.20261010.00.00')
++    await engine.search('ikinci')
++    assert.equal(JSON.parse(request.calls[2].body).context.client.clientVersion, '2.20261010.00.00')
++    assert.equal(request.calls[2].headers['X-Youtube-Client-Version'], '2.20261010.00.00')
++  })
++
++  it('sonuç yoksa boş dizi döner ve hata sayılmaz', async () => {
++    const request = fakeRequest([{ status: 200, text: JSON.stringify(response([])) }])
++    const engine = ys.createYouTubeSearch({ request })
++    assert.deepEqual(await engine.search('hiç'), [])
++    assert.equal(engine.status().fails, 0)
++    assert.equal(request.calls.length, 1)
++  })
++
++  it('devre kesici: art arda 3 kullanılamayan yanıttan sonra 1 saat istek atılmaz, tek günlük satırı, sonra yeniden dener', async () => {
++    let clock = 1000000
++    const breaks = []
++    const request = fakeRequest([{ status: 200, text: '<html>JSON değil</html>' }])
++    const engine = ys.createYouTubeSearch({ request, now: () => clock, onBreak: (reason, minutes) => breaks.push([reason, minutes]) })
++    for (const i of [0, 1, 2]) {
++      await assert.rejects(engine.search('sorgu-' + i), (err) => err.code === 'search_failed' && err.message.indexOf('sorgu') === -1)
++    }
++    // Her aramada InnerTube ve sonuç sayfası denendi
++    assert.equal(request.calls.length, 6)
++    assert.deepEqual(breaks, [['no_initial_data', 60]])
++    await assert.rejects(engine.search('dördüncü'), (err) => err.code === 'search_failed' && err.reason === 'paused')
++    assert.equal(request.calls.length, 6, 'kesici açıkken istek atılmadı')
++    clock += ys.LIMITS.breakerMs
++    await assert.rejects(engine.search('beşinci'), (err) => err.code === 'search_failed')
++    assert.equal(request.calls.length, 8)
++    assert.equal(breaks.length, 1)
++    // Günlüğe giden neden sabit bir belirteçtir, arama metnini taşımaz
++    assert.ok(breaks.every((b) => /^[a-z_0-9]+$/.test(b[0])))
++  })
++
++  it('başarılı arama sayacı sıfırlar, ağ hataları ve zaman aşımı kesiciye sayılmaz', async () => {
++    const bad = { status: 503, text: '' }
++    const good = { status: 200, text: RAW_VIDEO }
++    const breaks = []
++    const request = fakeRequest([bad, bad, bad, bad, good, bad, bad, bad, bad, networkError, networkError, networkError, networkError, networkError, networkError, bad, bad])
++    const engine = ys.createYouTubeSearch({ request, onBreak: (reason) => breaks.push(reason) })
++    await assert.rejects(engine.search('a'))
++    await assert.rejects(engine.search('b'))
++    assert.equal(engine.status().fails, 2)
++    assert.equal((await engine.search('c')).length, 2)
++    assert.equal(engine.status().fails, 0)
++    await assert.rejects(engine.search('d'))
++    await assert.rejects(engine.search('e'))
++    for (const i of [0, 1, 2]) await assert.rejects(engine.search('ağ-' + i), (err) => err.reason === 'timeout')
++    assert.equal(engine.status().fails, 2)
++    assert.deepEqual(breaks, [])
++    await assert.rejects(engine.search('f'), (err) => err.reason === 'status_503')
++    assert.deepEqual(breaks, ['status_503'])
++  })
++
++  it('boş sorgu istek atmadan reddedilir', async () => {
++    const request = fakeRequest([{ status: 200, text: RAW_VIDEO }])
++    const engine = ys.createYouTubeSearch({ request })
++    for (const q of ['', '   ', null, 5]) await assert.rejects(engine.search(q), (err) => err.code === 'search_failed')
++    assert.equal(request.calls.length, 0)
++  })
++})
++
++// Sahte sunucu: her istek kaydedilir, yanıtı handler verir
++async function fakeServer (handler) {
++  const seen = []
++  const server = http.createServer((req, res) => {
++    const chunks = []
++    req.on('data', (c) => chunks.push(c))
++    req.on('end', () => {
++      seen.push({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') })
++      handler(req, res)
++    })
++  })
++  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
++  const request = ys.makeRequester({ transport: http, host: '127.0.0.1', port: server.address().port })
++  const close = () => {
++    if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
++    return new Promise((resolve) => server.close(resolve))
++  }
++  return { seen, request, close }
++}
++
++function get (request, extra) {
++  return request(Object.assign({ method: 'GET', path: '/results?search_query=x', headers: { Accept: 'text/html' }, maxBytes: 1000, timeoutMs: 2000 }, extra || {}))
++}
++
++describe('ağ katmanı (sahte HTTP sunucusu)', () => {
++  it('gövde ve başlıklar gider, yanıt metni döner', async () => {
++    const s = await fakeServer((req, res) => {
++      res.writeHead(200, { 'Content-Type': 'application/json' })
++      res.end('{"tamam":"evet"}')
++    })
++    try {
++      const res = await s.request({ method: 'POST', path: '/youtubei/v1/search?prettyPrint=false', headers: { 'Content-Type': 'application/json', 'X-Deneme': '1' }, body: '{"query":"ş"}', maxBytes: 100, timeoutMs: 2000 })
++      assert.deepEqual(res, { status: 200, text: '{"tamam":"evet"}' })
++      assert.equal(s.seen[0].method, 'POST')
++      assert.equal(s.seen[0].url, '/youtubei/v1/search?prettyPrint=false')
++      assert.equal(s.seen[0].headers['x-deneme'], '1')
++      assert.equal(s.seen[0].body, '{"query":"ş"}')
++      assert.equal(s.seen[0].headers['accept-encoding'], undefined)
++    } finally {
++      await s.close()
++    }
++  })
++
++  it('yönlendirme izlenmez, onay sayfası ayrı bildirilir', async () => {
++    let target = 'https://consent.youtube.com/m?continue=x'
++    const s = await fakeServer((req, res) => {
++      res.writeHead(302, { Location: target })
++      res.end()
++    })
++    try {
++      await assert.rejects(get(s.request), (err) => err.code === 'search_failed' && err.reason === 'consent_redirect' && err.counts === true)
++      target = '/baska'
++      await assert.rejects(get(s.request), (err) => err.reason === 'redirect')
++      assert.equal(s.seen.length, 2, 'yönlendirilen adrese istek gitmedi')
++    } finally {
++      await s.close()
++    }
++  })
++
++  it('boyut sınırı: bildirilen ya da akan gövde sınırı aşınca kesilir', async () => {
++    let mode = 'declared'
++    const s = await fakeServer((req, res) => {
++      if (mode === 'declared') {
++        res.writeHead(200, { 'Content-Length': '5000' })
++        res.end('x'.repeat(5000))
++        return
++      }
++      res.writeHead(200)
++      res.write('x'.repeat(600))
++      setTimeout(() => res.end('y'.repeat(600)), 20)
++    })
++    try {
++      await assert.rejects(get(s.request), (err) => err.reason === 'too_large' && err.counts === true)
++      mode = 'chunked'
++      await assert.rejects(get(s.request), (err) => err.reason === 'too_large')
++    } finally {
++      await s.close()
++    }
++  })
++
++  it('sıkıştırılmış yanıt kabul edilmez', async () => {
++    const s = await fakeServer((req, res) => {
++      res.writeHead(200, { 'Content-Encoding': 'gzip' })
++      res.end('abc')
++    })
++    try {
++      await assert.rejects(get(s.request), (err) => err.reason === 'encoding')
++    } finally {
++      await s.close()
++    }
++  })
++
++  it('zaman aşımı ve bağlantı hatası ağ hatasıdır (kesiciye sayılmaz), abortAll süren isteği keser', async () => {
++    const s = await fakeServer(() => {})
++    try {
++      await assert.rejects(get(s.request, { timeoutMs: 100 }), (err) => err.reason === 'timeout' && err.counts === false)
++      const pending = get(s.request, { timeoutMs: 5000 })
++      await new Promise((resolve) => setTimeout(resolve, 100))
++      s.request.abortAll()
++      await assert.rejects(pending, (err) => err.code === 'search_failed' && err.counts === false)
++    } finally {
++      await s.close()
++    }
++    const closed = ys.makeRequester({ transport: http, host: '127.0.0.1', port: 9 })
++    await assert.rejects(get(closed), (err) => err.reason === 'network' && err.counts === false)
++  })
++})

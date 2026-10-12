@@ -1,0 +1,802 @@
+From fabde51daf97e6f239b0348f7555a21f2e325d8f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:50:16 +0000
+Subject: [PATCH 37/88] =?UTF-8?q?G4:=20POST=20/api/music/search=20ucu,=20s?=
+ =?UTF-8?q?ahip=20ayar=C4=B1=20music.search=20ve=20sunucu=20metinleri?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sahip Telsiz DJ ayarlarına search anahtarını ekleyebilir (varsayılan kapalı).
+meta.music.search yalnızca DJ, YouTube kaynağı ve arama açıkken doğrudur. Uç
+/api/music/state ile aynı denetimleri yapar (ses odası, kısıtlı kip), sorgu
+1 ile 200 kod noktası arasında olmalıdır. Kullanıcı başına 10 / dk, sunucu
+geneli son 24 saatte 300 YouTube isteği, 10 dakikalık önbellek, aynı anda
+gelen aynı sorgu tek aramaya iner. En çok 5 temizlenmiş sonuç döner. Arama
+metni günlüğe yazılmaz. Testler için youtubeSearch seçeneği arayıcıyı ya da
+gerçek ayrıştırıcının istek işlevini verir.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ src/app.js                       | 139 ++++++++++++--
+ src/i18n.js                      |  20 ++
+ src/youtube-search.js            |   3 +-
+ test/server-music-search.test.js | 316 +++++++++++++++++++++++++++++++
+ test/server-music.test.js        |  22 +--
+ test/server-poll.test.js         |   2 +-
+ test/youtube-search.test.js      |   2 +-
+ 7 files changed, 477 insertions(+), 27 deletions(-)
+ create mode 100644 test/server-music-search.test.js
+
+diff --git a/src/app.js b/src/app.js
+index fd74119..6723f77 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -2,10 +2,10 @@
+ 
+ // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
+ // hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
+-// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
+-// liste ve düzgün kapanış.
++// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
++// YouTube araması, statik beyaz liste ve düzgün kapanış.
+ // Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
+-// token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
++// token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
+ // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
+ // Türkçe veya İngilizcedir (src/i18n.js).
+ 
+@@ -21,6 +21,7 @@ const { createHub } = require('./hub')
+ const { createSocial } = require('./social')
+ const { createMusic } = require('./music')
+ const { createCalls } = require('./calls')
++const youtubeSearch = require('./youtube-search')
+ const i18n = require('./i18n')
+ const runtime = require('./runtime')
+ const staticSource = require('./static-source')
+@@ -112,6 +113,15 @@ const DEFAULTS = Object.freeze({
+   musicLimit: 30,
+   musicWindowMs: 10000,
+   musicIdleMs: 30 * 60 * 1000,
++  // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
++  // en çok 300 YouTube isteği (önbellekten verilen yanıtlar sayılmaz). Tavan kota için değil, sunucunun adresinin
++  // YouTube tarafından engellenmesine karşıdır.
++  musicSearchLimit: 10,
++  musicSearchWindowMs: 60000,
++  musicSearchDailyMax: 300,
++  // Testler için arama yerine geçen işlev (query) => Promise<[{ videoId, title, channel, durationS }]> veya
++  // { request } (gerçek ayrıştırıcıya sahte istek işlevi). null ise src/youtube-search.js YouTube'a gider.
++  youtubeSearch: null,
+   // Özel mesaj aramaları: başlatma ve reddetme kullanıcı başına 10 / 60 sn, cevaplanmayan arama 45 sn sonra düşer
+   callLimit: 10,
+   callWindowMs: 60000,
+@@ -142,7 +152,8 @@ const POSITIVE_OPTIONS = [
+   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
+   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
+   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
+-  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs'
++  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
++  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax'
+ ]
+ const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
+ 
+@@ -195,7 +206,15 @@ const DEFAULT_MAX_CAMERAS = 4
+ const CALL_CAPACITY = 2
+ const CALL_MAX_CAMERAS = 2
+ const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
+-const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
++const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted', 'search']
++// Şarkı adıyla arama: sorgu en çok bu kadar kod noktası, yanıtta en çok bu kadar sonuç, aynı sorgunun sonucu bu
++// süre bellekte tutulur (en çok MUSIC_SEARCH_CACHE_MAX sorgu)
++const MUSIC_SEARCH_QUERY_MAX = 200
++const MUSIC_SEARCH_RESULTS = 5
++const MUSIC_SEARCH_CACHE_MS = 10 * 60 * 1000
++const MUSIC_SEARCH_CACHE_MAX = 500
++// Sorgudaki denetim ve yön karakterleri boşluk olur (satır sonları dahil)
++const SEARCH_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
+ const PROFILE_IDS_MAX = 100
+ // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
+ const USER_RECORDS_FACTOR = 4
+@@ -413,6 +432,10 @@ function resolveOptions (options) {
+   if (config.publicDir !== null) config.publicDir = path.resolve(config.publicDir)
+   if (config.staticSource === null) config.staticSource = staticSource.defaultSource(config.publicDir)
+   else if (!staticSource.isSource(config.staticSource)) throw new TypeError('createChatServer: invalid staticSource.')
++  const ys = config.youtubeSearch
++  if (ys !== null && typeof ys !== 'function' && !(ys && typeof ys === 'object' && typeof ys.request === 'function')) {
++    throw new TypeError('createChatServer: youtubeSearch must be a function or { request }.')
++  }
+   if (config.setupCode !== null && auth.normalizeCode(config.setupCode) === null) {
+     throw new TypeError('createChatServer: setupCode may contain only Crockford base32 characters.')
+   }
+@@ -737,15 +760,32 @@ function normalizeLoadedState (state, config, log) {
+   return changed
+ }
+ 
+-// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted }. enabled ve youtube eksikse açık, restricted (kuyruğu
+-// odada DJ izni olan biri varken yalnızca o yönetir) eksikse kapalıdır.
++// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted, search }. enabled ve youtube eksikse açık, restricted
++// (kuyruğu odada DJ izni olan biri varken yalnızca o yönetir) ve search (şarkı adıyla YouTube araması, Hizmet
++// Şartları riski yüzünden sahip açıkça açar) eksikse kapalıdır.
+ function cleanMusicSettings (value) {
+   const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+   return {
+     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
+     youtube: typeof src.youtube === 'boolean' ? src.youtube : true,
+-    restricted: typeof src.restricted === 'boolean' ? src.restricted : false
++    restricted: typeof src.restricted === 'boolean' ? src.restricted : false,
++    search: typeof src.search === 'boolean' ? src.search : false
++  }
++}
++
++// Arama metni: NFC, denetim karakterleri ve satır sonları boşluk olur, boşluklar sadeleşir. 1 ile
++// MUSIC_SEARCH_QUERY_MAX kod noktası arasında değilse null.
++function cleanSearchQuery (value) {
++  if (typeof value !== 'string' || value.length > MUSIC_SEARCH_QUERY_MAX * 4) return null
++  let text = value
++  try {
++    text = text.normalize('NFC')
++  } catch (err) {
++    return null
+   }
++  text = text.replace(SEARCH_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
++  const length = Array.from(text).length
++  return length >= 1 && length <= MUSIC_SEARCH_QUERY_MAX ? text : null
+ }
+ 
+ function intInRange (value, min, max) {
+@@ -791,8 +831,8 @@ function prepareState (store, config, log) {
+       blocks: [],
+       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
+       roles: [],
+-      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
+-      music: { enabled: true, youtube: true, restricted: false },
++      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
++      music: cleanMusicSettings(null),
+       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
+       voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
+     })
+@@ -990,8 +1030,11 @@ async function createChatServer (options) {
+   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
+   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
+   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
++  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar)
++  const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
++  const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
+   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
+-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
++    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily]
+   const trustsProxy = auth.trustPolicy(config.trustedProxies)
+   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
+   let proxyWarned = false
+@@ -1005,6 +1048,19 @@ async function createChatServer (options) {
+   // Telsiz DJ müzik durumları: yalnızca bellekte, ses odası başına (src/music.js)
+   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
+ 
++  // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
++  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz.
++  const searchEngine = typeof config.youtubeSearch === 'function'
++    ? null
++    : youtubeSearch.createYouTubeSearch({
++      request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
++      onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
++    })
++  const runYouTubeSearch = searchEngine ? searchEngine.search : config.youtubeSearch
++  // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
++  const musicSearchCache = new Map()
++  const musicSearchPending = new Map()
++
+   const hub = createHub({
+     pollTimeoutMs: config.pollTimeoutMs,
+     graceMs: config.graceMs,
+@@ -1107,7 +1163,8 @@ async function createChatServer (options) {
+       channels,
+       users,
+       roles: state.roles.map(publicRole),
+-      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted },
++      // search: arama gerçekten kullanılabilir mi (DJ ve YouTube kaynağı da açık olmalı)
++      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted, search: state.music.enabled && state.music.youtube && state.music.search },
+       voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
+     }
+   }
+@@ -2994,7 +3051,8 @@ async function createChatServer (options) {
+     return okDurable(ctx, { ok: true, tempPassword: creds.tempPassword })
+   }
+ 
+-  // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
++  // Telsiz DJ ayar değişikliği: { enabled?, youtube?, restricted?, search? } (en az biri, yalnızca boolean).
++  // Geçersizse null.
+   function musicSettingsPatch (value) {
+     if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+     const keys = Object.keys(value)
+@@ -3462,6 +3520,56 @@ async function createChatServer (options) {
+     ok(ctx, { v: result.v, at: result.at, now })
+   }
+ 
++  // POST /api/music/search { channelId, q } (istek 5): şarkı adıyla YouTube araması. Sahip açar (music.search), DJ ve
++  // YouTube kaynağı da açık olmalıdır. Denetimler /api/music/state ile aynıdır: kişi o ses odasında olmalı, kısıtlı
++  // kipte DJ izni gerekir. Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin gelir ve sunucunun
++  // adresiyle YouTube'a gider. Metin günlüğe yazılmaz. Aynı sorgu MUSIC_SEARCH_CACHE_MS boyunca önbellekten verilir.
++  // Yanıt { results: [{ videoId, title, channel, durationS }] } (en çok MUSIC_SEARCH_RESULTS, çalınabilir sonuçlar).
++  async function handleMusicSearch (ctx) {
++    const b = ctx.body
++    if (!state.music.enabled) return fail(ctx, 403, 'dj_disabled')
++    if (!state.music.youtube || !state.music.search) return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
++    const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
++    if (!channel) return fail(ctx, 404, 'channel_not_found')
++    if (!hub.userInVoice(ctx.user.id, channel.id)) return fail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
++    if (state.music.restricted && !hasPerm(ctx.user, 'dj') && djInRoom(channel.id)) {
++      return fail(ctx, 403, 'dj_restricted', 'detail.musicRestricted')
++    }
++    const query = cleanSearchQuery(b.q)
++    if (query === null) return fail(ctx, 400, 'bad_query', 'detail.musicSearchQuery', null, { max: MUSIC_SEARCH_QUERY_MAX })
++    const wait = musicSearchLimiter.consume('u' + ctx.user.id, ctx.now)
++    if (wait > 0) return tooMany(ctx, wait, 'detail.musicSearchRate')
++    const key = query.toLowerCase()
++    const cached = musicSearchCache.get(key)
++    if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
++    let pending = musicSearchPending.get(key)
++    if (!pending) {
++      const dailyWait = musicSearchDaily.consume('all', ctx.now)
++      if (dailyWait > 0) {
++        return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(dailyWait / 1000))) })
++      }
++      pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
++      musicSearchPending.set(key, pending)
++      pending.then((results) => {
++        musicSearchPending.delete(key)
++        if (musicSearchCache.size >= MUSIC_SEARCH_CACHE_MAX) musicSearchCache.delete(musicSearchCache.keys().next().value)
++        musicSearchCache.set(key, { at: Date.now(), results })
++      }, () => {
++        musicSearchPending.delete(key)
++      })
++    }
++    let results = null
++    try {
++      results = await pending
++    } catch (err) {
++      if (closing) return fail(ctx, 503, 'shutting_down')
++      if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
++      return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
++    }
++    if (closing) return fail(ctx, 503, 'shutting_down')
++    ok(ctx, { results })
++  }
++
+   // ---------------------------------------------------------------- yönlendirme
+ 
+   const routes = new Map()
+@@ -3534,6 +3642,7 @@ async function createChatServer (options) {
+   route('/api/calls/decline', 'POST', handleCallDecline)
+   route('/api/server-info', 'GET', handleServerInfo)
+   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
++  route('/api/music/search', 'POST', handleMusicSearch)
+   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
+ 
+   // Kimlik isteyen yollarda oturum, gövde okunmadan önce (yalnızca X-Token başlığıyla) doğrulanır.
+@@ -3684,6 +3793,9 @@ async function createChatServer (options) {
+       for (const [userId, rec] of musicFanout) {
+         if (now - rec.start >= config.musicWindowMs) musicFanout.delete(userId)
+       }
++      for (const [key, rec] of musicSearchCache) {
++        if (now - rec.at >= MUSIC_SEARCH_CACHE_MS) musicSearchCache.delete(key)
++      }
+     } catch (err) {
+       log.error(i18n.t(config.lang, 'log.sweepError', { error: describeError(err, config.lang) }))
+     }
+@@ -3705,6 +3817,7 @@ async function createChatServer (options) {
+     closing = true
+     clearInterval(sweepTimer)
+     hub.close()
++    if (searchEngine) searchEngine.close()
+     for (const job of Array.from(uploadJobs)) {
+       if (job.finish) job.finish('aborted')
+       job.req.destroy()
+diff --git a/src/i18n.js b/src/i18n.js
+index b5fb1dc..6d5c69e 100644
+--- a/src/i18n.js
++++ b/src/i18n.js
+@@ -77,6 +77,10 @@ const messages = {
+       target_not_in_voice: 'Bu kişi şu an bir ses odasında değil.',
+       target_camera_off: 'Bu kişinin kamerası açık değil.',
+       bad_envelope: 'Müzik durumu geçersiz.',
++      search_unavailable: 'Şarkı adıyla arama bu sunucuda kapalı.',
++      search_failed: 'YouTube araması şu anda yapılamadı.',
++      search_daily_limit: 'Bu sunucunun son 24 saatlik arama sınırı doldu.',
++      bad_query: 'Arama metni geçersiz.',
+       owner_cannot_delete: 'Frekans sahibi hesabını silemez.',
+       self: 'Bu işlem kendi hesabınıza uygulanamaz.',
+       already_friends: 'Bu kişiyle zaten arkadaşsınız.',
+@@ -115,6 +119,11 @@ const messages = {
+       musicNotInRoom: 'Müziği yalnızca o ses odasında bulunanlar değiştirebilir.',
+       musicRestricted: 'Bu odada DJ izni olan biri var, kuyruğu yalnızca DJ izni olanlar yönetebilir.',
+       musicRate: 'Müzik komutları çok sık gönderiliyor, lütfen biraz bekleyin.',
++      musicSearchOff: 'Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.',
++      musicSearchRate: 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.',
++      musicSearchFailed: 'YouTube araması şu anda yapılamadı. Biraz sonra yeniden deneyin ya da bağlantıyı yapıştırın.',
++      musicSearchDaily: 'Bu sunucunun son 24 saatlik YouTube arama sınırı doldu. YouTube bağlantısını yapıştırın.',
++      musicSearchQuery: 'Arama metni 1 ile {max} karakter arasında olmalıdır.',
+       uploadTooLarge: 'Dosya çok büyük. En fazla {mb} MB yüklenebilir.',
+       fileTooLarge: 'Dosya çok büyük.'
+     },
+@@ -149,6 +158,7 @@ const messages = {
+       ownerCreated: 'Sahip hesabı oluşturuldu. Kurulum kodu artık geçersiz.',
+       requestError: 'İstek işlenirken beklenmeyen hata ({label}): {error}',
+       sweepError: 'Tarama sırasında beklenmeyen hata: {error}',
++      musicSearchPaused: 'Uyarı: şarkı adıyla YouTube araması art arda başarısız olduğu için {minutes} dakika kapatıldı (neden: {reason}). YouTube yanıt biçimini değiştirmiş ya da bu sunucunun adresini engellemiş olabilir. Bağlantıyla ekleme çalışmaya devam eder.',
+       untrustedForwarder: 'Uyarı: X-Forwarded-For veya CF-Connecting-IP başlığı taşıyan bir istek, GUVENILIR_VEKIL listesinde olmayan yerel {address} adresinden geldi. Başlık yok sayıldı ve bütün istemciler bu adresten geliyormuş gibi hız sınırına tabi. Ters vekiliniz bu adresten bağlanıyorsa (ör. Docker ağ geçidi) adresi GUVENILIR_VEKIL ayarına ekleyin.'
+     },
+     store: {
+@@ -322,6 +332,10 @@ const messages = {
+       target_not_in_voice: 'This person is not in a voice room right now.',
+       target_camera_off: 'This person\'s camera is not on.',
+       bad_envelope: 'The music state is invalid.',
++      search_unavailable: 'Search by song name is off on this server.',
++      search_failed: 'The YouTube search failed.',
++      search_daily_limit: 'This server\'s search limit for the last 24 hours has been reached.',
++      bad_query: 'The search text is invalid.',
+       owner_cannot_delete: 'The frequency owner cannot delete their account.',
+       self: 'This action cannot be applied to your own account.',
+       already_friends: 'You are already friends with this person.',
+@@ -360,6 +374,11 @@ const messages = {
+       musicNotInRoom: 'Only people in that voice room can change its music.',
+       musicRestricted: 'Someone with the DJ permission is in this room, only people with the DJ permission can manage the queue.',
+       musicRate: 'Music commands are being sent too often, please wait a moment.',
++      musicSearchOff: 'Search by song name is off on this server. Paste a YouTube link.',
++      musicSearchRate: 'Too many searches. Try again in a minute.',
++      musicSearchFailed: 'The YouTube search failed. Try again later or paste a link.',
++      musicSearchDaily: 'This server\'s YouTube search limit for the last 24 hours has been reached. Paste a YouTube link.',
++      musicSearchQuery: 'The search text must be between 1 and {max} characters.',
+       uploadTooLarge: 'The file is too large. The maximum size is {mb} MB.',
+       fileTooLarge: 'The file is too large.'
+     },
+@@ -394,6 +413,7 @@ const messages = {
+       ownerCreated: 'The owner account was created. The setup code is no longer valid.',
+       requestError: 'Unexpected error while handling a request ({label}): {error}',
+       sweepError: 'Unexpected error during cleanup: {error}',
++      musicSearchPaused: 'Warning: YouTube search by song name was turned off for {minutes} minutes after repeated failures (reason: {reason}). YouTube may have changed its response format or blocked this server\'s address. Adding by link still works.',
+       untrustedForwarder: 'Warning: a request carrying an X-Forwarded-For or CF-Connecting-IP header came from the local address {address}, which is not in the GUVENILIR_VEKIL list. The header was ignored, so every client is rate limited as if it came from this address. If your reverse proxy connects from this address (for example a Docker gateway), add it to the GUVENILIR_VEKIL setting.'
+     },
+     store: {
+diff --git a/src/youtube-search.js b/src/youtube-search.js
+index 517a452..911cb56 100644
+--- a/src/youtube-search.js
++++ b/src/youtube-search.js
+@@ -516,7 +516,8 @@ function createYouTubeSearch (options) {
+         fails = 0
+         return results
+       } catch (err) {
+-        if (!failure.counts || err.counts) failure = err
++        // Gelen yanıtla ilgili ilk hata korunur (günlükteki neden InnerTube'unki olur)
++        if (!failure.counts && err.counts) failure = err
+       }
+     }
+     if (failure && failure.counts) {
+diff --git a/test/server-music-search.test.js b/test/server-music-search.test.js
+new file mode 100644
+index 0000000..6034cf5
+--- /dev/null
++++ b/test/server-music-search.test.js
+@@ -0,0 +1,316 @@
++'use strict'
++
++// Telsiz DJ şarkı adıyla YouTube araması, sunucu tarafı (POST /api/music/search, istek 5): sahip ayarı (varsayılan
++// kapalı, meta.music.search), DJ ve YouTube kaynağı şartı, oturum, ses odası ve kısıtlı kip denetimleri, sorgu
++// doğrulaması, sonuçların temizlenmesi, kullanıcı başına hız sınırı, sunucu geneli 24 saatlik tavan, önbellek ve
++// eşzamanlı aynı sorgunun tek aramaya inmesi, arayıcı hataları. Arama metninin günlüklere düşmediği, gerçek
++// ayrıştırıcının sahte istek işleviyle çalıştığı ve devre kesicinin günlüğe tek satır yazdığı da sınanır. Canlı
++// YouTube'a hiçbir istek gitmez.
++
++const { describe, it } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const h = require('./server-yardimci')
++const i18n = require('../src/i18n')
++
++const VOICE = 3
++const TEXT = 1
++const RAW_LOCKUP = fs.readFileSync(path.join(__dirname, 'fixtures', 'yt-arama', 'ornek-lockupviewmodel.json'), 'utf8')
++
++// Sahte arayıcı: çağrılar kaydedilir, yanıtı reply verir (varsayılan iki sonuç)
++function fakeSearch (reply) {
++  const calls = []
++  const fn = (query) => {
++    calls.push(query)
++    if (reply) return reply(query, calls.length)
++    return Promise.resolve([
++      { videoId: 'AAAAAAAAAA1', title: 'Sonuç: ' + query, channel: 'Kanal', durationS: 200 },
++      { videoId: 'AAAAAAAAAA2', title: 'İkinci', channel: 'Kanal', durationS: 180 }
++    ])
++  }
++  fn.calls = calls
++  return fn
++}
++
++async function room (options) {
++  const ctx = await h.startServer(options)
++  const owner = await h.setupOwner(ctx)
++  const ayse = await h.addUser(ctx, owner.token, 'ayse')
++  const mehmet = await h.addUser(ctx, owner.token, 'mehmet')
++  return { ctx, owner, ayse, mehmet }
++}
++
++function join (ctx, token, channelId) {
++  return h.post(ctx, '/api/voice/join', token, { channelId })
++}
++
++function search (ctx, token, q, channelId) {
++  return h.post(ctx, '/api/music/search', token, { channelId: channelId === undefined ? VOICE : channelId, q })
++}
++
++async function enable (ctx, ownerToken, value) {
++  h.expectStatus(await h.post(ctx, '/api/settings', ownerToken, { music: { search: value !== false } }), 200)
++}
++
++function allLogs (ctx) {
++  const l = ctx.log.lines
++  return l.info.concat(l.warn, l.error).join('\n')
++}
++
++describe('Telsiz DJ araması: sahip ayarı', () => {
++  it('varsayılan kapalı (503 search_unavailable), yalnızca sahip açar, kalıcıdır, DJ veya YouTube kapalıyken kullanılamaz', async () => {
++    const yt = fakeSearch()
++    const { ctx, owner, ayse } = await room({ youtubeSearch: yt })
++    let next = null
++    try {
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      assert.equal((await h.stateOf(ctx, ayse.token)).meta.music.search, false)
++      const off = await search(ctx, ayse.token, 'gece şarkısı')
++      h.expectStatus(off, 503, 'search_unavailable')
++      assert.equal(off.data.error, i18n.t('en', 'detail.musicSearchOff'))
++      const offTr = await h.request(ctx, 'POST', '/api/music/search', { token: ayse.token, headers: { 'accept-language': 'tr' }, body: { channelId: VOICE, q: 'gece' } })
++      assert.equal(offTr.data.error, 'Şarkı adıyla arama bu sunucuda kapalı. YouTube bağlantısını yapıştırın.')
++      assert.deepEqual(yt.calls, [])
++
++      // Yönetici açamaz, geçersiz değer reddedilir
++      await h.makeAdmin(ctx, owner.token, ayse.user.id)
++      h.expectStatus(await h.post(ctx, '/api/settings', ayse.token, { music: { search: true } }), 403, 'forbidden')
++      h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { search: 'evet' } }), 400, 'bad_request')
++      await enable(ctx, owner.token)
++      assert.deepEqual((await h.stateOf(ctx, ayse.token)).meta.music, { enabled: true, youtube: true, restricted: false, search: true })
++      h.expectStatus(await search(ctx, ayse.token, 'gece şarkısı'), 200)
++      assert.deepEqual(yt.calls, ['gece şarkısı'])
++
++      // YouTube kaynağı kapalı: meta.search yanlış, uç 503
++      h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { youtube: false } }), 200)
++      assert.equal((await h.stateOf(ctx, ayse.token)).meta.music.search, false)
++      h.expectStatus(await search(ctx, ayse.token, 'başka'), 503, 'search_unavailable')
++      // DJ kapalı: 403 dj_disabled
++      h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { youtube: true, enabled: false } }), 200)
++      assert.equal((await h.stateOf(ctx, ayse.token)).meta.music.search, false)
++      h.expectStatus(await search(ctx, ayse.token, 'başka'), 403, 'dj_disabled')
++      assert.deepEqual(yt.calls, ['gece şarkısı'])
++
++      // Ayar diske yazılır ve yeniden başlatmada korunur
++      h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { enabled: true } }), 200)
++      await ctx.server.flush()
++      const disk = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'))
++      assert.deepEqual(disk.music, { enabled: true, youtube: true, restricted: false, search: true })
++      next = await ctx.restart()
++      assert.equal((await h.stateOf(next, owner.token)).meta.music.search, true)
++      await enable(next, owner.token, false)
++      assert.equal((await h.stateOf(next, owner.token)).meta.music.search, false)
++    } finally {
++      if (next) await next.cleanup()
++      else await ctx.cleanup()
++    }
++  })
++})
++
++describe('Telsiz DJ araması: uç noktası', () => {
++  it('sahte arayıcıyla temizlenmiş sonuç: en çok 5, geçersiz kimlik, tekrar ve süresiz öğe elenir, sorgu sadeleşir', async () => {
++    const ctl = String.fromCharCode(0, 0x1b, 0x202e)
++    const yt = fakeSearch(() => Promise.resolve([
++      { videoId: 'BBBBBBBBBB1', title: ' Ad' + ctl + 'Soyad ', channel: 'K' + ctl, durationS: 61, thumbnail: 'https://i.ytimg.com/x.jpg' },
++      { videoId: '<img src=x>', title: 'Kötü', channel: 'K', durationS: 60 },
++      { videoId: 'BBBBBBBBBB1', title: 'Tekrar', channel: 'K', durationS: 60 },
++      { videoId: 'BBBBBBBBBB2', title: 'Canlı', channel: 'K', durationS: 0 },
++      { videoId: 'BBBBBBBBBB3', title: 'x'.repeat(300), channel: 'K', durationS: 62 },
++      { videoId: 'BBBBBBBBBB4', title: 'Dört', channel: 'K', durationS: 63 },
++      { videoId: 'BBBBBBBBBB5', title: 'Beş', channel: 'K', durationS: 64 },
++      { videoId: 'BBBBBBBBBB6', title: 'Altı', channel: 'K', durationS: 65 },
++      { videoId: 'BBBBBBBBBB7', title: 'Yedi', channel: 'K', durationS: 66 }
++    ]))
++    const { ctx, owner, ayse } = await room({ youtubeSearch: yt })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      const res = await search(ctx, ayse.token, '  gece\nşarkısı\t' + String.fromCharCode(0x200b) + ' ')
++      h.expectStatus(res, 200)
++      assert.deepEqual(yt.calls, ['gece şarkısı'])
++      assert.deepEqual(Object.keys(res.data), ['results'])
++      assert.deepEqual(res.data.results.map((r) => r.videoId), ['BBBBBBBBBB1', 'BBBBBBBBBB3', 'BBBBBBBBBB4', 'BBBBBBBBBB5', 'BBBBBBBBBB6'])
++      assert.deepEqual(res.data.results[0], { videoId: 'BBBBBBBBBB1', title: 'Ad Soyad', channel: 'K', durationS: 61 })
++      assert.equal(res.data.results[1].title, 'x'.repeat(120))
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('oturum, ses odası, oda türü, kısıtlı kip ve sorgu denetimleri', async () => {
++    const yt = fakeSearch()
++    const { ctx, owner, ayse, mehmet } = await room({ youtubeSearch: yt })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await search(ctx, null, 'gece'), 401)
++      h.expectStatus(await search(ctx, ayse.token, 'gece'), 403, 'not_in_voice')
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      h.expectStatus(await search(ctx, ayse.token, 'gece', TEXT), 404, 'channel_not_found')
++      h.expectStatus(await search(ctx, ayse.token, 'gece', 'abc'), 404, 'channel_not_found')
++      h.expectStatus(await search(ctx, ayse.token, 'gece', 999), 404, 'channel_not_found')
++      for (const q of ['', '   ', '\n\t', 'a'.repeat(201), 42, null, ['gece']]) {
++        const bad = await search(ctx, ayse.token, q)
++        h.expectStatus(bad, 400, 'bad_query')
++        assert.equal(bad.data.error, i18n.t('en', 'detail.musicSearchQuery', { max: 200 }))
++      }
++      // 200 kod noktası (vekil çiftleri tek sayılır) kabul edilir
++      const emoji = String.fromCharCode(0xd83c, 0xdfb5)
++      h.expectStatus(await search(ctx, ayse.token, emoji.repeat(200)), 200)
++      h.expectStatus(await search(ctx, ayse.token, emoji.repeat(201)), 400, 'bad_query')
++      assert.equal(yt.calls.length, 1)
++
++      // Kısıtlı kip: odada DJ izni olan (yönetici) varken üye arayamaz, o çıkınca arayabilir
++      await h.makeAdmin(ctx, owner.token, ayse.user.id)
++      h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { restricted: true } }), 200)
++      h.expectStatus(await join(ctx, mehmet.token, VOICE), 200)
++      h.expectStatus(await search(ctx, mehmet.token, 'kısıtlı'), 403, 'dj_restricted')
++      h.expectStatus(await search(ctx, ayse.token, 'kısıtlı'), 200)
++      h.expectStatus(await h.post(ctx, '/api/voice/leave', ayse.token, {}), 200)
++      h.expectStatus(await search(ctx, mehmet.token, 'kısıtlı'), 200)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('kullanıcı başına 429 rate_limited, sunucu geneli tavan 429 search_daily_limit, önbellek isabeti arayıcıya ve tavana sayılmaz', async () => {
++    const yt = fakeSearch()
++    const { ctx, owner, ayse, mehmet } = await room({ youtubeSearch: yt, musicSearchLimit: 3, musicSearchDailyMax: 4 })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      h.expectStatus(await join(ctx, mehmet.token, VOICE), 200)
++      for (const q of ['bir', 'iki', 'üç']) h.expectStatus(await search(ctx, ayse.token, q), 200)
++      const limited = await search(ctx, ayse.token, 'dört')
++      h.expectStatus(limited, 429, 'rate_limited')
++      assert.equal(limited.data.error, i18n.t('en', 'detail.musicSearchRate'))
++      assert.ok(Number(limited.headers['retry-after']) >= 1)
++      assert.deepEqual(yt.calls, ['bir', 'iki', 'üç'])
++      // Önbellek: büyük ve küçük harf aynı sorgudur, arayıcı yeniden çağrılmaz
++      const hit = await search(ctx, mehmet.token, 'Bir')
++      h.expectStatus(hit, 200)
++      assert.equal(hit.data.results[0].title, 'Sonuç: bir')
++      assert.deepEqual(yt.calls, ['bir', 'iki', 'üç'])
++      h.expectStatus(await search(ctx, mehmet.token, 'dört'), 200)
++      const daily = await search(ctx, mehmet.token, 'beş')
++      h.expectStatus(daily, 429, 'search_daily_limit')
++      assert.ok(Number(daily.headers['retry-after']) > 3600)
++      assert.deepEqual(yt.calls, ['bir', 'iki', 'üç', 'dört'])
++      // Tavan dolu olsa da önbellekteki sorgu verilir (kullanıcı başına sınırı dolmamış biri)
++      h.expectStatus(await join(ctx, owner.token, VOICE), 200)
++      h.expectStatus(await search(ctx, owner.token, 'iki'), 200)
++      h.expectStatus(await search(ctx, owner.token, 'altı'), 429, 'search_daily_limit')
++      assert.equal(yt.calls.length, 4)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('arayıcı hataları: search_failed 502, search_unavailable 503, sonuç yoksa boş liste, hatalar önbelleğe girmez', async () => {
++    let mode = 'failed'
++    const yt = fakeSearch(() => {
++      if (mode === 'failed') return Promise.reject(Object.assign(new Error('x'), { code: 'search_failed' }))
++      if (mode === 'unavailable') return Promise.reject(Object.assign(new Error('x'), { code: 'search_unavailable' }))
++      if (mode === 'throw') throw new Error('beklenmeyen')
++      if (mode === 'junk') return Promise.resolve({ results: 'yok' })
++      return Promise.resolve([])
++    })
++    const { ctx, owner, ayse } = await room({ youtubeSearch: yt })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      const failed = await search(ctx, ayse.token, 'sorgu')
++      h.expectStatus(failed, 502, 'search_failed')
++      assert.equal(failed.data.error, i18n.t('en', 'detail.musicSearchFailed'))
++      mode = 'unavailable'
++      h.expectStatus(await search(ctx, ayse.token, 'sorgu'), 503, 'search_unavailable')
++      mode = 'throw'
++      h.expectStatus(await search(ctx, ayse.token, 'sorgu'), 502, 'search_failed')
++      mode = 'junk'
++      const junk = await search(ctx, ayse.token, 'sorgu')
++      h.expectStatus(junk, 200)
++      assert.deepEqual(junk.data, { results: [] })
++      mode = 'empty'
++      h.expectStatus(await search(ctx, ayse.token, 'başka'), 200)
++      assert.equal(yt.calls.length, 5)
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('aynı anda gelen aynı sorgu tek aramaya iner', async () => {
++    let release = null
++    const gate = new Promise((resolve) => {
++      release = resolve
++    })
++    const yt = fakeSearch(() => gate.then(() => [{ videoId: 'CCCCCCCCCC1', title: 'Tek', channel: 'K', durationS: 90 }]))
++    const { ctx, owner, ayse, mehmet } = await room({ youtubeSearch: yt })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      h.expectStatus(await join(ctx, mehmet.token, VOICE), 200)
++      const a = search(ctx, ayse.token, 'aynı sorgu')
++      const b = search(ctx, mehmet.token, 'Aynı Sorgu')
++      await h.waitFor(() => yt.calls.length === 1)
++      await h.sleep(50)
++      release()
++      const [ra, rb] = await Promise.all([a, b])
++      h.expectStatus(ra, 200)
++      h.expectStatus(rb, 200)
++      assert.deepEqual(ra.data, rb.data)
++      assert.deepEqual(yt.calls, ['aynı sorgu'])
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++})
++
++describe('Telsiz DJ araması: gerçek ayrıştırıcı ve günlük', () => {
++  it('sahte istek işleviyle örnek yanıt ayrıştırılır, devre kesici günlüğe tek satır yazar, sorgu hiçbir günlüğe düşmez', async () => {
++    let reply = { status: 200, text: RAW_LOCKUP }
++    const requests = []
++    const request = (opts) => {
++      requests.push(opts)
++      return Promise.resolve(reply)
++    }
++    const { ctx, owner, ayse } = await room({ youtubeSearch: { request } })
++    try {
++      await enable(ctx, owner.token)
++      h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
++      const res = await search(ctx, ayse.token, 'GIZLISORGU gece')
++      h.expectStatus(res, 200)
++      assert.deepEqual(res.data.results.map((r) => r.videoId), ['TLSZornek01', 'TLSZornek02'])
++      assert.deepEqual(res.data.results[0], { videoId: 'TLSZornek01', title: 'Örnek Sanatçı Gece Şarkısı (Resmi Video)', channel: 'Örnek Sanatçı', durationS: 213 })
++      assert.equal(JSON.parse(requests[0].body).query, 'GIZLISORGU gece')
++
++      // YouTube biçimi değişti: art arda üç kullanılamayan yanıt devre kesiciyi açar
++      reply = { status: 200, text: '{"yeniBicim":true}' }
++      for (const q of ['GIZLISORGU 1', 'GIZLISORGU 2', 'GIZLISORGU 3']) {
++        const bad = await search(ctx, ayse.token, q)
++        h.expectStatus(bad, 502, 'search_failed')
++        assert.ok(bad.text.indexOf('GIZLISORGU') === -1)
++      }
++      assert.equal(ctx.log.lines.warn.length, 1, ctx.log.lines.warn.join('\n'))
++      assert.equal(ctx.log.lines.warn[0], i18n.t('tr', 'log.musicSearchPaused', { minutes: 60, reason: 'format' }))
++      const count = requests.length
++      h.expectStatus(await search(ctx, ayse.token, 'GIZLISORGU 4'), 502, 'search_failed')
++      assert.equal(requests.length, count, 'kesici açıkken YouTube\'a istek gitmedi')
++      // Bağlantıyla ekleme (DJ durumu yazımı) etkilenmez
++      h.expectStatus(await h.post(ctx, '/api/music/state', ayse.token, { channelId: VOICE, expect: 0, env: h.envelope() }), 200)
++      assert.equal(allLogs(ctx).indexOf('GIZLISORGU'), -1, 'sorgu günlükte yok')
++    } finally {
++      await ctx.cleanup()
++    }
++  })
++
++  it('geçersiz youtubeSearch seçeneği reddedilir', async () => {
++    for (const value of ['evet', 5, { request: 'x' }]) {
++      const root = h.makeRoot()
++      try {
++        await assert.rejects(h.startServer({ youtubeSearch: value }, root), /youtubeSearch/)
++      } finally {
++        h.removeRoot(root)
++      }
++    }
++  })
++})
+diff --git a/test/server-music.test.js b/test/server-music.test.js
+index cbd36ef..ae9373e 100644
+--- a/test/server-music.test.js
++++ b/test/server-music.test.js
+@@ -53,7 +53,7 @@ describe('Telsiz DJ: durum alanları ve yazım', () => {
+       assert.equal(typeof st.muv, 'number')
+       assert.deepEqual(st.music, {})
+       assert.ok(Math.abs(st.now - Date.now()) < 5000)
+-      assert.deepEqual(st.meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(st.meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+       // muv sorgusu sunucununkinden farklıysa poll hemen müzik haritasıyla döner
+       const stale = await h.get(ctx, '/api/poll?since=' + st.seq + '&mv=' + st.metaVersion + '&pmv=' + st.pmv + '&muv=0&sig=0&boot=' + st.boot, owner.token)
+       h.expectStatus(stale, 200)
+@@ -519,7 +519,7 @@ describe('Telsiz DJ: sunucu ayarı', () => {
+         h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music }), 400, 'bad_request')
+       }
+       let meta = (await h.stateOf(ctx, owner.token)).meta
+-      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+ 
+       // YouTube kapalı: yalnızca meta (içerik sunucuya görünmez, istemciler uygular), yazım sürer
+       h.expectStatus(await join(ctx, ayse.token, VOICE), 200)
+@@ -530,14 +530,14 @@ describe('Telsiz DJ: sunucu ayarı', () => {
+       await waiting
+       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { youtube: false } }), 200)
+       const woke = await pending
+-      assert.deepEqual(woke.data.meta.music, { enabled: true, youtube: false, restricted: false })
++      assert.deepEqual(woke.data.meta.music, { enabled: true, youtube: false, restricted: false, search: false })
+       const w1 = await write(ctx, ayse.token, VOICE, 0)
+       h.expectStatus(w1, 200)
+ 
+       // DJ kapalı: yazım 403, mevcut durum haritada kalır
+       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { music: { enabled: false } }), 200)
+       meta = (await h.stateOf(ctx, owner.token)).meta
+-      assert.deepEqual(meta.music, { enabled: false, youtube: false, restricted: false })
++      assert.deepEqual(meta.music, { enabled: false, youtube: false, restricted: false, search: false })
+       const off = await write(ctx, ayse.token, VOICE, w1.data.v)
+       h.expectStatus(off, 403, 'dj_disabled')
+       expectNow(off)
+@@ -546,14 +546,14 @@ describe('Telsiz DJ: sunucu ayarı', () => {
+       h.expectStatus(await h.post(ctx, '/api/settings', owner.token, { serverName: 'Yeni ad', music: { youtube: true } }), 200)
+       await ctx.server.flush()
+       const disk = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'))
+-      assert.deepEqual(disk.music, { enabled: false, youtube: true, restricted: false })
++      assert.deepEqual(disk.music, { enabled: false, youtube: true, restricted: false, search: false })
+       next = await ctx.restart()
+       meta = (await h.stateOf(next, owner.token)).meta
+-      assert.deepEqual(meta.music, { enabled: false, youtube: true, restricted: false })
++      assert.deepEqual(meta.music, { enabled: false, youtube: true, restricted: false, search: false })
+       assert.equal(meta.serverName, 'Yeni ad')
+       h.expectStatus(await h.post(next, '/api/settings', owner.token, { music: { enabled: true } }), 200)
+       meta = (await h.stateOf(next, owner.token)).meta
+-      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+     } finally {
+       if (next) await next.cleanup()
+       else await ctx.cleanup()
+@@ -569,18 +569,18 @@ describe('Telsiz DJ: sunucu ayarı', () => {
+       await ctx.stop()
+       const file = path.join(ctx.dataDir, 'state.json')
+       const disk = JSON.parse(fs.readFileSync(file, 'utf8'))
+-      assert.deepEqual(disk.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(disk.music, { enabled: true, youtube: true, restricted: false, search: false })
+       disk.music = { enabled: 'evet' }
+       fs.writeFileSync(file, JSON.stringify(disk))
+       next = await h.startServer({}, ctx.root)
+-      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+       await next.stop()
+       delete disk.music
+       fs.writeFileSync(file, JSON.stringify(disk))
+       next = await h.startServer({}, ctx.root)
+-      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual((await h.stateOf(next, owner.token)).meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+       await next.server.flush()
+-      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).music, { enabled: true, youtube: true, restricted: false, search: false })
+     } finally {
+       if (next) await next.cleanup()
+       else h.removeRoot(ctx.root)
+diff --git a/test/server-poll.test.js b/test/server-poll.test.js
+index 0e7a7f8..0856419 100644
+--- a/test/server-poll.test.js
++++ b/test/server-poll.test.js
+@@ -61,7 +61,7 @@ describe('long-poll', () => {
+       assert.deepEqual(res.data.events, [])
+       assert.ok(res.data.meta.channels.some((c) => c.name === 'muhabbet'))
+       assert.deepEqual(Object.keys(res.data.meta).sort(), ['activeKid', 'channels', 'music', 'roles', 'serverIcon', 'serverName', 'users', 'voice', 'voiceSettings'])
+-      assert.deepEqual(res.data.meta.music, { enabled: true, youtube: true, restricted: false })
++      assert.deepEqual(res.data.meta.music, { enabled: true, youtube: true, restricted: false, search: false })
+       assert.deepEqual(res.data.meta.users, [{ id: 1, name: 'sahip', role: 'owner', roleId: null, voiceMuted: false, online: true, status: 'online', pv: 0 }])
+ 
+       // Güncel sürümle sorulunca meta gönderilmez
+diff --git a/test/youtube-search.test.js b/test/youtube-search.test.js
+index cbaac0a..ec06d57 100644
+--- a/test/youtube-search.test.js
++++ b/test/youtube-search.test.js
+@@ -288,7 +288,7 @@ describe('arama akışı (enjekte edilen istek işlevi)', () => {
+     }
+     // Her aramada InnerTube ve sonuç sayfası denendi
+     assert.equal(request.calls.length, 6)
+-    assert.deepEqual(breaks, [['no_initial_data', 60]])
++    assert.deepEqual(breaks, [['json', 60]])
+     await assert.rejects(engine.search('dördüncü'), (err) => err.code === 'search_failed' && err.reason === 'paused')
+     assert.equal(request.calls.length, 6, 'kesici açıkken istek atılmadı')
+     clock += ys.LIMITS.breakerMs

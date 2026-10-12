@@ -1,0 +1,169 @@
+From 7d095510234b1e5ce082cf2cd1e4f9816b36f3a2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 06:47:35 +0000
+Subject: [PATCH 44/88] =?UTF-8?q?G4:=20inceleme=20d=C3=BCzeltmeleri=20(/?=
+ =?UTF-8?q?=C3=A7al=20ba=C4=9Flant=C4=B1=20denetimi=20b=C3=BCt=C3=BCn=20ar?=
+ =?UTF-8?q?g=C3=BCmana=20bakar,=20=C5=9Fark=C4=B1=20ad=C4=B1=20sunucudaki?=
+ =?UTF-8?q?=20kuralla=20temizlenir)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- <...> veya tırnak içindeki YouTube bağlantısı çalınır. Argümanın herhangi bir yerinde şema ya da bilinen bir
+  alan adı geçiyorsa bağlantı sayılır (bad_url), şarkı adı olarak sunucuya gitmez. Alan adı ve yol biçiminde
+  son etiket en az iki harf olmalıdır, "R.E.M/Losing My Religion" gibi adlar şarkı adı sayılır.
+- Şarkı adındaki denetim ve yön karakterleri boşluk olur. Yalnızca görünmez karakterden oluşan argüman boş
+  /çal sayılır. bad_query metni "1 ile 200 karakter arasında" der.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/i18n.js     |  4 ++--
+ public/music.js    | 40 +++++++++++++++++++++++++++-------------
+ test/music.test.js | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 75 insertions(+), 15 deletions(-)
+
+diff --git a/public/i18n.js b/public/i18n.js
+index 72c9598..6d51e38 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -50,7 +50,7 @@ window.I18N = (function () {
+     'music.errors.search_no_results': '"{query}" için çalınabilir bir sonuç bulunamadı.',
+     'music.errors.search_rate': 'Çok sık arama yapıldı. Bir dakika sonra yeniden deneyin.',
+     'music.errors.search_daily': 'Bu sunucunun son 24 saatlik arama sınırı doldu. YouTube bağlantısını yapıştırın.',
+-    'music.errors.search_bad_query': 'Şarkı adı en fazla 200 karakter olabilir.',
++    'music.errors.search_bad_query': 'Şarkı adı 1 ile 200 karakter arasında olmalıdır.',
+     'music.searching': 'YouTube\'da aranıyor: {query}',
+     'music.ok.addedTitle': 'Kuyruğa eklendi: {title}',
+     'dj.searchOnYoutube': 'YouTube\'da Ara',
+@@ -2038,7 +2038,7 @@ window.I18N = (function () {
+     'music.errors.search_no_results': 'No playable result found for "{query}".',
+     'music.errors.search_rate': 'Too many searches. Try again in a minute.',
+     'music.errors.search_daily': 'This server\'s search limit for the last 24 hours has been reached. Paste a YouTube link.',
+-    'music.errors.search_bad_query': 'The song name can be at most 200 characters.',
++    'music.errors.search_bad_query': 'The song name must be between 1 and 200 characters.',
+     'music.searching': 'Searching YouTube: {query}',
+     'music.ok.addedTitle': 'Added to the queue: {title}',
+     'dj.searchOnYoutube': 'Search on YouTube',
+diff --git a/public/music.js b/public/music.js
+index 02a57c6..bc23058 100644
+--- a/public/music.js
++++ b/public/music.js
+@@ -318,22 +318,34 @@ var TelsizMusic = (function (root) {
+     return typeof id === 'string' && VIDEO_ID_RE.test(id) ? { videoId: id } : null
+   }
+ 
+-  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). İlk sözcüğe bakılır: şema (x://) veya www. ile
+-  // başlıyorsa, bilinen bir YouTube alan adıysa ya da alan adı ve yol biçimindeyse (example.com/x) bağlantıdır.
+-  // "AC/DC", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
++  // Bağlantının çevresindeki işaretler: <...>, düz ve tipografik tırnaklar, parantez ve köşeli parantez
++  function unwrapLink (text) {
++    return text.replace(/^[<"'(\[\u201c\u201d\u2018\u2019\u00ab]+/, '').replace(/[>"')\]\u201c\u201d\u2018\u2019\u00bb]+$/, '')
++  }
++
++  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). Herhangi bir yerinde şema (x://) geçiyorsa ya da
++  // sözcüklerinden biri (çevresindeki işaretler atılarak) www. ile başlıyorsa, bilinen bir YouTube alan adıysa
++  // veya alan adı ve yol biçimindeyse (example.com/x, son etiket en az iki harf) bağlantıdır. "AC/DC",
++  // "R.E.M/Losing My Religion", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
+   function looksLikeUrl (text) {
+-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
+-    const first = text.split(/\s+/)[0]
+-    if (/^www\./i.test(first)) return true
+-    const host = first.split(/[/?#]/)[0].toLowerCase()
+-    if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
+-    return /^[a-z0-9-]+(\.[a-z0-9-]+)+[/?#]/i.test(first)
++    if (/[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
++    const words = text.split(/\s+/)
++    for (const raw of words) {
++      const word = unwrapLink(raw)
++      if (/^www\./i.test(word)) return true
++      const host = word.split(/[/?#]/)[0].toLowerCase()
++      if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
++      if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]/i.test(word)) return true
++    }
++    return false
+   }
+ 
+   // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, query?, error? }.
+   // name: play, skip, pause, resume, queue, stop. play için arg boşsa videoId null olur (ekli dosya beklenir).
+-  // play argümanı geçerli bir YouTube bağlantısıysa videoId, bağlantıya benzeyip geçersizse error 'bad_url',
+-  // bağlantıya hiç benzemiyorsa query (aranacak şarkı adı, boşlukları sadeleşmiş) olur.
++  // play argümanı geçerli bir YouTube bağlantısıysa (<...> veya tırnak içinde de olabilir) videoId, bağlantıya
++  // benzeyip geçersizse error 'bad_url', bağlantıya hiç benzemiyorsa query olur. query aranacak şarkı adıdır:
++  // sunucudaki kuralla temizlenir (denetim ve yön karakterleri boşluk olur, boşluklar sadeleşir). Temizlenince
++  // boş kalan argüman boş argüman sayılır.
+   function parseCommand (input) {
+     if (typeof input !== 'string') return null
+     let text = input
+@@ -359,10 +371,12 @@ var TelsizMusic = (function (root) {
+       if (arg === '') {
+         out.videoId = null
+       } else {
+-        const yt = parseYouTubeUrl(arg)
++        const yt = parseYouTubeUrl(unwrapLink(arg))
++        const query = arg.replace(UNSAFE_TEXT_G, ' ').replace(/\s+/g, ' ').trim()
+         if (yt) out.videoId = yt.videoId
+         else if (looksLikeUrl(arg)) out.error = 'bad_url'
+-        else out.query = arg.replace(/\s+/g, ' ')
++        else if (query === '') out.videoId = null
++        else out.query = query
+       }
+     }
+     return out
+diff --git a/test/music.test.js b/test/music.test.js
+index f81e205..6a6798a 100644
+--- a/test/music.test.js
++++ b/test/music.test.js
+@@ -648,6 +648,52 @@ describe('parseCommand', () => {
+     assert.equal(M.parseCommand('/geç lobi şarkısı').query, undefined)
+   })
+ 
++  test('köşeli parantez veya tırnak içindeki bağlantı çalınır, argümanın herhangi bir yerindeki bağlantı şarkı adı sayılmaz', () => {
++    for (const wrapped of ['<https://youtu.be/' + VID + '>', '"https://youtu.be/' + VID + '"', '\u201chttps://www.youtube.com/watch?v=' + VID + '\u201d', '(youtu.be/' + VID + ')']) {
++      const cmd = M.parseCommand('/çal ' + wrapped)
++      assert.equal(cmd.videoId, VID, wrapped)
++      assert.equal(cmd.query, undefined, wrapped)
++      assert.equal(cmd.error, undefined, wrapped)
++    }
++    const links = [
++      '/çal şarkı https://youtu.be/' + VID,
++      '/çal şarkı <https://youtu.be/' + VID + '>',
++      '/çal "https://youtu.be/kisa"',
++      '/çal <https://vimeo.com/1>',
++      '/çal bunu çal youtube.com/watch?v=' + VID,
++      '/çal dinle www.example.com',
++      '/çal dinle "example.com/x"',
++      '/çal adı: m.youtube.com'
++    ]
++    for (const text of links) {
++      const cmd = M.parseCommand(text)
++      assert.equal(cmd.error, 'bad_url', text)
++      assert.equal(cmd.query, undefined, text)
++      assert.equal(cmd.videoId, undefined, text)
++    }
++    // Noktalı kısaltma ve eğik çizgili adlar bağlantı değildir (son etiket en az iki harf olmalı)
++    for (const [text, query] of [['/çal R.E.M/Losing My Religion', 'R.E.M/Losing My Religion'], ['/çal "Bohemian Rhapsody"', '"Bohemian Rhapsody"'], ['/çal Vol.2/3 derleme', 'Vol.2/3 derleme']]) {
++      const cmd = M.parseCommand(text)
++      assert.equal(cmd.query, query, text)
++      assert.equal(cmd.error, undefined, text)
++    }
++  })
++
++  test('şarkı adı sunucudaki kuralla temizlenir, temizlenince boş kalan argüman boş /çal sayılır', () => {
++    const zw = String.fromCharCode(0x200b)
++    const rlo = String.fromCharCode(0x202e)
++    const ctl = String.fromCharCode(0x1b)
++    let cmd = M.parseCommand('/çal gece' + zw + 'şarkısı' + rlo + ' ' + ctl + 'remix')
++    assert.equal(cmd.query, 'gece şarkısı remix')
++    for (const only of [zw, zw + zw + ' ' + rlo, String.fromCharCode(0xfeff), ctl]) {
++      cmd = M.parseCommand('/çal ' + only)
++      assert.equal(cmd.name, 'play')
++      assert.equal(cmd.videoId, null, JSON.stringify(only))
++      assert.equal(cmd.query, undefined, JSON.stringify(only))
++      assert.equal(cmd.error, undefined, JSON.stringify(only))
++    }
++  })
++
+   test('komut listesi sözleşmesi', () => {
+     same(Object.keys(M.COMMANDS), ['play', 'skip', 'pause', 'resume', 'queue', 'stop'])
+     assert.ok(M.COMMANDS.play.includes('/çal'))

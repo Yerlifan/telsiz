@@ -1,0 +1,29 @@
+{
+ "bulgular": [
+  {
+   "onem": "orta",
+   "dosya": "public/css/base.css",
+   "satir": 356,
+   "ozet": "Zorlanmış renk (forced-colors) bölümü hiç etkili değil. Seçili öğelere Highlight kenarı verilmiyor, Bas Konuş kenarı radio.css'teki border: 0 ile siliniyor.",
+   "senaryo": "index.html stil dosyalarını tokens, base, frekans, components, settings, ..., radio sırasıyla yükler. base.css'teki @media (forced-colors: active) kuralları özgüllük eklemez. Bu yüzden aynı özgüllükteki sonraki kurallar onları ezer: frekans.css:693 .station.is-tuned, :1768 .room-row.is-current ve :245 .top-personal-button.is-current, components.css:1389 .dm-item[aria-current], settings.css:138 .settings-cat[aria-current=\"page\"] ve settings.css'teki .settings-theme-card.is-selected. Bas Konuş için de radio.css:587'deki .radio .radio-ptt { border: 0 } aynı şeyi yapar. Kontrast, Saha, Fosfor, Kutup, Lamba, Plak ve Kokpit süs dosyalarındaki daha özgül kurallar da (ör. .settings-cat[aria-current] { border-color: transparent }) aynı kenarları ezer. Playwright'ta (Chromium 1194) emulateMedia({forcedColors:'active'}) ile sayfa bütün stil dosyalarıyla yüklendi. Ayarlı istasyonun, seçili ayar kategorisinin ve seçili tema kartının kenarı her temada (arcade, gece, turkuaz, saha, kontrast) rgb(0,0,0) çıktı, seçili olmayan öğelerle aynı. Yalnızca tokens.css ile base.css yüklenince aynı öğeler Highlight rengini alıyor. Bas Konuş kenarı Kontrast dışındaki her temada '0px none'. Yani Windows Yüksek Karşıtlık açıkken seçili istasyon, oda, özel mesaj, ayar kategorisi ve tema kartı seçili olmayanlardan ayırt edilmez. Zemini sistem rengine dönen Bas Konuş da kenarsız kalır. CHANGELOG×2 ve TASARIM/DESIGN 'seçili öğeler sistem vurgusu renginde kenar alır' diyor, tasarım raporunun 318. satırı da kenarların görünür kalmasını istiyordu. test/tema.test.js:301 yalnızca metnin dosyada geçtiğine bakıyor, e2e testi forced-colors görünümünde kenarları ölçmüyor.",
+   "oneri": "Kuralları kademede sonra gelecek bir yere taşıyın (ör. en son yüklenen kontrast.css'ten sonra ayrı bir dosya, ya da her bileşen dosyasının sonu) veya seçicilerin özgüllüğünü süs dosyalarındaki kurallardan yükseltin (ör. :root[data-skin] .station.is-tuned). Kenar genişliği de verin (.radio .radio-ptt için border-width). e2e/04-ayarlar'a forcedColors öykünmesiyle seçili ve seçili olmayan bir öğenin kenar rengini karşılaştıran bir denetim ekleyin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/theme-init.js",
+   "satir": 147,
+   "ozet": "Yüksek Kontrast kendiliğinden seçildiyse kişi bu seçimi kalıcı yapamaz. Kart zaten işaretli olduğu için tıklamak saklamaz, sistem ayarı kapanınca tema Arcade'e döner.",
+   "senaryo": "Saklı tema yokken (prefers-contrast: more) ile açılan sayfada prefs.skin 'kontrast' olur ama saklanmaz. Kişi Ayarlar > Görünüm'de Yüksek Kontrast kartını işaretli görür. Karta tıklamak change olayı üretmez. set({skin:'kontrast'}) çağrılsa da next.skin === prefs.skin olduğu için write çağrılmaz. Sandbox'ta denendi: set({skin:'kontrast'}) sonrası depo {} kaldı, sistem ayarı olmadan yeniden açılışta tema 'arcade' oldu. Kişi macOS'ta 'Kontrastı artır' ayarını kapatınca sevdiği tema habersizce değişir. Kontrastı korumanın tek yolu önce başka bir tema seçip sonra Yüksek Kontrast'a geri dönmektir.",
+   "oneri": "Otomatik seçim etkinken Ayarlar'da açık bir onay yolu sunun: set içinde saklı değer yoksa aynı temayı da yazın (ör. read(STORE.skin) === null ise write), ya da kart change olmasa bile click'te setTheme çağırsın. Bu davranışı tema.test.js'teki bootTheme ile sınayın."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "CHANGELOG.md",
+   "satir": 16,
+   "ozet": "CHANGELOG×2 'bütün açık modlarda sekiz özel rol rengi biraz koyulaştı veya açıldı' diyor. Oysa mavi (#1f56c0) değişmedi ve değişen yedi rengin hepsi koyulaştı.",
+   "senaryo": "git diff'te --role-blue: #1f56c0 aynı kalıyor. Öteki yedi renk koyulaştı: #b42318->#b22318, #a14a00->#964500, #765a00->#755900, #16723d->#146a39, #0b6c64->#0b6860, #6a3fd2->#683ece, #ad236d->#aa226b. Açılan renk yok. Ayrıca Fosfor açık ve Yüksek Kontrast bu ortak değerleri kendi bloklarında ezdiği için 'bütün açık modlarda' ifadesi de tam doğru değil. Sürüm notunu okuyan kişi mavi rozetin değiştiğini sanır.",
+   "oneri": "TR ve EN metni 'yedi özel rol rengi biraz koyulaştı (mavi aynı kaldı)' olarak düzeltin."
+  }
+ ],
+ "testler": "Çalışma kopyasında (/home/user/wt/a) hiçbir dosya değiştirilmedi, git status temiz.\n- npm run denetle: GEÇTİ (\"262 dosya tarandı, ihlal bulunmadı\", çıkış 0).\n- npm test: GEÇTİ (943 test, 942 geçti, 0 başarısız, 1 atlandı, çıkış 0).\n- node --test e2e/04-ayarlar.test.js (grubun e2e dosyası): 8/8 GEÇTİ. On kart, gruplar, yeniden yükleme, 1440 ve 390 px taşma, tek Gönder simgesi, prefers-contrast ve forced-colors öykünmesi, İngilizce metin ve konsol temizliği testleri geçti.\n- Ek olarak tema listesini kullanan veya ona değen e2e/03-sosyal.test.js ile e2e/17-profil.test.js çalıştırıldı: 16/16 GEÇTİ.\n- node scripts/kontrast.js ve --en: eşik altında çift 0, çıkış 0. Üretilen 22 satır TASARIM.md ve DESIGN.md'deki tablolarla birebir aynı.\n- Kendi doğrulamam: Playwright ve yerel Chromium 1194 ile forcedColors öykünmesinde kademe denetlendi (birinci bulgunun kanıtı). Betikler yalnızca scratchpad'de durur.\nKabul ölçütleri: 20 görünümün kontrast testi, iki boyutta taşma olmaması ve temiz konsol karşılanıyor. Planın i18n tablosu, kayıt (index.html, sw.js), süs dosyası kuralları ve tek kaynaklı tema listesi adımları tamam. Bildirilen sapmalar kodla tutarlı. Sunucu, IPC ya da gizlilik etkisi yok: değişiklik yalnızca istemci CSS'i, theme-init ve ayarlar arayüzüyle sınırlı, sunucu ve masaüstü beyaz listeleri desenle çalıştığı için yeni dosyaları kendiliğinden kapsıyor."
+}

@@ -1,0 +1,435 @@
+# TELSİZ DJ araştırma raporu: istekler 5, 6, 13, 15 ve 18
+
+## Yöntem ve ortam
+
+- Kodun tamamı okundu: `public/music.js`, `public/dj/youtube.js`, `public/js/23-dj.js`, `public/css/dj.css`, `public/js/06-messages.js`, `public/js/08-composer.js`, `public/js/05-poll.js`, `src/music.js`, `src/hub.js`, `src/app.js` (müzik bölümleri), `desktop/src/main.js`.
+- Ölçümler gerçek Chromium ile yapıldı (`/opt/pw-browsers/chromium`, `e2e/yardimci.js` setupWorld, işletim sisteminin verdiği rastgele port). YouTube yerine depodaki sahte oynatıcı kullanıldı (`e2e/sahte-youtube.js`). Ölçüm betikleri:
+  - `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/olcum13.js` (senaryolar s1 ile s8 arası)
+  - `.../arastirma/olcum15.js`
+  - `.../arastirma/autoplay-probe.js`
+  - ekran görüntüleri `.../arastirma/ekran/dock-*.png`, indirilen belgeler `.../arastirma/kaynak/`
+- Ağ kısıtı: WebFetch DNS hatası verdi. developers.google.com, youtube.com, MDN, webkit.org ve electronjs.org adresleri ajan vekilinden 403 aldı. Dış iddialar üç yoldan doğrulandı:
+  - WebSearch özetleri,
+  - raw.githubusercontent.com üzerindeki resmî belge kaynakları (Chrome, Electron, MDN, browser-compat-data),
+  - ikincil kaynaklar (her birinin yanında ayrıca belirtildi).
+- Gerçek YouTube oynatıcısının yüklenme süresi ölçülemedi.
+
+## Ortak bulgu A: arka planda arayüz çizimi
+
+Bu bulgu (13) ve (18) için ortak kök nedendir ve yeniden üretildi.
+
+`djRenderSoon` çizimi yalnızca `requestAnimationFrame` ile yapıyor (`public/js/01-core.js:502-508`, `public/js/23-dj.js:493-500`). Saniyelik yedek denetim kartı yalnızca kart görünürken veya oynatıcı köşedeyken çiziyor (`23-dj.js:1225-1233`).
+
+DJ boşken kart sayfa kipinde ve gizlidir (`23-dj.js:260-262`). İlk YouTube parçası geldiğinde motor çerçeveyi hemen gizli `.dj-yt` içine kuruyor (`music.js:2405-2442`, `.dj-yt` `23-dj.js:570`'te hidden). Sekme arka plandayken rAF çalışmadığı için düzen hiç güncellenmiyor. Çerçeve 0x0 kalıyor, `visible()` false dönüyor (`dj/youtube.js:367-369`) ve motor oynatıcıyı "görünmüyor" diye duraklatıyor (`music.js:2488-2500`).
+
+Ölçüm (s8, benzetim: B'de rAF durduruldu, `visibilityState` hidden yapıldı; Chrome'da gizli sayfada rAF'ın beklediği resmî belgede yazıyor):
+
+| Durum | Sonuç |
+|---|---|
+| A | 1546 ms'de çalmaya başladı |
+| B, sayfa gizliyken | 7 saniyeden uzun süre hiç çalmadı (çerçeve 0x0, `player.hidden: true`, `status: paused`) |
+| B, sayfa görünür olunca | 351 ms sonra 6,4. saniyeden başladı (parçanın başı kaçtı) |
+
+Aynı yol iki durumda daha geçerli. Birincisi, dar ekranda bir dosya parçasından sonra gelen YouTube parçası. İkincisi, masaüstü uygulamasında pencere tepsiye alınınca veya küçültülünce. Electron'da `backgroundThrottling` varsayılan olarak açıktır ve görünürlük durumu hidden olur.
+
+## Ortak bulgu B: her parça için yeni oynatıcı
+
+Her parça yeni bir oynatıcı kuruyor:
+
+- YouTube'da her parça için çerçeve yok edilip yeniden kuruluyor (`music.js:2436-2439`, `dj/youtube.js:124` ve `298-299`). İkinci parça ölçümünde `framesTotal: 2` görüldü.
+- Dosya parçalarında her parça yeni bir `<audio>` öğesi oluşturuyor (`music.js:928-933`).
+
+Sonuçları:
+
+- Her parçada çerçeve yükleme süresi baştan ödeniyor.
+- Mobilde dokunuşla verilen oynatma izni çerçeveye bağlı olduğu için her parçada kayboluyor.
+- iOS'ta arka planda yeni öğeyle başlatılan parçanın sessiz kaldığı bildiriliyor.
+
+---
+
+## İstek (5)
+
+**1. Kullanıcının isteği:** "çal komutuna direkt şarkıyı yazınca da youtubetan arayıp şarkıyı telsiz dj'e getir"
+
+**2. Mevcut durum**
+
+- `parseCommand` bağlantı olmayan argümanı `error: 'bad_url'` olarak işaretliyor (`public/music.js:319-350`, satır 346). Komut adları `music.js:138-145`'te.
+- `runCommand` (`music.js:1903-1924`) ve `addYouTube(input, extra)` (`music.js:1783-1805`) zaten `extra.title` alabiliyor.
+- Arayüz kancası `djCommand`, `public/js/23-dj.js:1095-1117`'de.
+- Hata metni açıkça "Oynatma listesi ve arama desteklenmez" diyor (`public/i18n.js:93`). Komut açıklaması `dj.cmdDesc.play` (`i18n.js:873`).
+- CSP `connect-src 'self'`, `img-src`'de ytimg yok (`src/http-util.js:15`). Sunucuda hiçbir dış HTTP isteği yok.
+- `meta.music` alanı `src/app.js:1110`'da, ayar anahtarları `MUSIC_SETTING_KEYS` `src/app.js:198`'de, ortam değişkeni adları `server.js:40-51`'de.
+- Mevcut testler aramayı reddettiğimizi sınıyor: `test/music.test.js:534` ve `597-607`.
+
+**3. Yapılabilirlik ve kısıtlar**
+
+- IFrame API'deki `listType=search` 15 Kasım 2020'de kaldırıldı. Google'ın önerdiği yer Data API `search.list` (resmî revizyon geçmişi, arama özetiyle doğrulandı).
+- `search.list` çağrısı 100 birim. 1 Haziran 2026'dan beri `search.list` kendi kota kovasında (resmî revizyon geçmişi). Varsayılanın "günde 100 çağrı" olduğu iddiası yalnızca ikincil kaynakta geçiyor (doğrulanamadı).
+- OAuth gerekmez, API anahtarı zorunlu ("A request that does not provide an OAuth 2.0 token must send an API key", resmî başlangıç sayfası, arama özeti).
+- Anahtarsız seçenekler uygun değil:
+  - Kazıma, InnerTube veya Invidious/Piped: YouTube Hizmet Şartları otomatik erişimi ("robots, botnets or scrapers") arama motorları dışında yasaklıyor. Öneri: reddedilsin.
+  - İstemciden doğrudan Data API çağrısı: CSP değişikliği gerekir, anahtar istemcilere açılır ve kullanıcının IP adresi rızadan önce Google'a gider. Reddedilsin.
+- Data API kullanan istemci Geliştirici Politikaları III.A.1 ve III.A.2'ye uymalı: YouTube Hizmet Şartları bağlantısı ve gizlilik politikası (arama özeti).
+
+**4. Önerilen çözüm**
+
+Sunucu tarafında Data API vekili, anahtar sunucu sahibinden.
+
+- **Yeni dosya `src/youtube-search.js`:**
+  - Ek bağımlılık olmadan `node:https` ile sabit adrese istek: `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&videoSyndicated=true&maxResults=5&q=&key=`.
+  - 8 saniyelik zaman aşımı, 512 KB yanıt sınırı, yönlendirme izlenmez.
+  - `videoId` için `/^[A-Za-z0-9_-]{11}$/` denetimi, başlık ve kanal adı temizlenir.
+  - Data API başlıklarının HTML varlığıyla kaçışlı gelmesi beklenen bir davranış ama doğrulanamadı, test edilmeli.
+- **`src/app.js` değişiklikleri:**
+  - Yeni uç `POST /api/music/search { channelId, q }` (sorgu adres ve günlüklere düşmesin diye POST).
+  - Denetimler `/api/music/state` ile aynı: DJ açık, YouTube açık, kişi ses odasında, kısıtlı kip kuralı.
+  - `q` 1 ile 200 kod noktası arası.
+  - Kullanıcı başına hız sınırı (10 istek/dk), sunucu geneli günlük tavan (varsayılan 90), bellekte 10 dakikalık sonuç önbelleği.
+  - Yanıt: `200 { results: [{ videoId, title, channel }] }`. Hatalar: `503 search_unavailable`, `502 search_failed`, `429 rate_limited`.
+  - `meta.music.search = Boolean(anahtar) && state.music.youtube`.
+  - Test için `createChatServer` seçeneklerine enjekte edilebilen `youtubeSearch` işlevi.
+- **`server.js`:** `YOUTUBE_API_ANAHTARI` / `YOUTUBE_API_KEY` ortam değişkeni ve `telsiz.env` desteği. Anahtar meta, günlük ve yanıtlarda hiç görünmez.
+- **`public/music.js`:**
+  - `parseCommand`: bağlantı biçimine benzemeyen argüman `{ name: 'play', query }` döner. Bağlantıya benzeyip geçersizse `bad_url` kalır.
+  - `runCommand` sorguyu arayüze bırakır.
+- **`public/js/23-dj.js`:** `djCommand` sorguda `api('POST','/api/music/search')` çağırır, ilk sonucu `addYouTube(videoId, { title })` ile ekler ve duyuru başlıkla gider (bkz. 6).
+  - Anahtar yoksa hata metni gösterilir. DJ kartına `https://www.youtube.com/results?search_query=...` bağlantısı konur, kullanıcı tıklarsa yeni sekmede açılır.
+- **CSP değişikliği gerekmez.**
+- **i18n anahtarları:**
+  - yeni: `music.errors.search_unavailable`, `music.errors.search_failed`, `music.errors.search_no_results`, `music.ok.addedTitle` ("Kuyruğa eklendi: {title}"), `dj.searchOnYoutube`
+  - güncellenecek: `music.errors.bad_url`, `music.errors.play_needs_source`, `dj.cmdDesc.play`, `dj.addHint`
+  - sunucu (`src/i18n.js`): `detail.musicSearchOff`, `detail.musicSearchRate`
+- **Belgeler:**
+  - README.md ve README.en.md (Telsiz DJ paragrafı)
+  - docs/MIMARI.md ve ARCHITECTURE.md (Telsiz DJ bölümü, "Sunucunun gördüğü üst veri" ve YouTube gizlilik paragrafı)
+  - docs/KURULUM.md ve DEPLOYMENT.md (ortam değişkeni)
+  - deploy/ altındaki compose örneği
+  - iki CHANGELOG
+
+**5. Testler**
+
+- Birim (`test/music.test.js`): `parseCommand` sorgu, geçersiz bağlantı ve boş `/çal` durumları. 534 ve 597 numaralı testler güncellenir.
+- Sunucu (yeni `test/server-music-search.test.js`):
+  - anahtar yokken 503
+  - sahte arayıcıyla temizlenmiş sonuç
+  - geçersiz kimliğin elenmesi
+  - 429 ve günlük tavan
+  - oturum ve ses odası şartı
+  - kısıtlı kip
+  - anahtarın hiçbir yanıtta olmaması
+- E2E (`e2e/06-dj.test.js`): sunucuya `youtubeSearch` taklidi verilir, `/çal lobi şarkısı` doğru parçayı başlığıyla ekler ve sohbet duyurusu başlığı taşır.
+- Elle deneme: gerçek anahtarla, kota hatası (403 `quotaExceeded`) ve sunucuda dış ağ yokken.
+
+**6. Riskler ve güvenlik**
+
+- **Gizlilik:** Arama metni sunucuya ve sunucunun IP adresiyle Google'a düz metin gider. Bugün DJ durumu sunucuya kapalı (şifreli zarf), bu yüzden belgelenmesi gereken bir istisna. Varsayılan kapalıdır, sahip anahtar eklerse açılır.
+- **Anahtar ve kota:** Anahtar sızması ve kota tüketimi hız sınırı ve tavanla sınırlanır.
+- **SSRF:** Yok, adres sabit.
+- **Gelen veri:** Dönen başlıklar güvenilmez kabul edilir, yalnızca `textContent` ile basılır.
+- **Hukuki yük:** Geliştirici Politikaları yükümlülükleri (YouTube Hizmet Şartları bağlantısı, gizlilik politikası) sunucu sahibine düşer.
+
+**7. Büyüklük:** L, yaklaşık 14 adım.
+
+**8. Karar noktaları ve varsayılanlarım**
+
+- Sağlayıcı: sunucu vekiliyle Data API. Gerekçe: Hizmet Şartlarına uygun, CSP ve rıza modeli değişmiyor.
+- Sonuç seçimi: ilk sonuç doğrudan eklenir (kullanıcı "direkt" dedi). Beş sonuçlu seçici sonraki sürüme kalır.
+- Anahtar yeri: ortam değişkeni veya `telsiz.env`, arayüzde girilmez (sır web arayüzünde ve state.json'da tutulmaz).
+- Varsayılan güvenli arama: `moderate`.
+
+**9. Paylaşılan dosyalar:** `src/app.js`, `server.js`, `src/i18n.js`, `public/i18n.js`, `public/music.js`, `public/js/23-dj.js`, `public/js/11-settings.js` (yalnızca durum satırı), belgeler. `voice.js`, `index.html`, `sw.js` ve `tokens.css`'e dokunulmaz.
+
+---
+
+## İstek (6)
+
+**1. Kullanıcının isteği:** "Başkası şarkıyı ekleyince chat alanında ekleyip hangi şarkıyı eklediği yazmıyor"
+
+**2. Mevcut durum**
+
+- Duyuru yalnızca `/çal` ile YouTube eklenince gidiyor (`23-dj.js:1114`, `djAnnounce` `1121-1126`).
+- Taşıdığı veri yalnızca `{op, src, vid}` (`06-messages.js:52-57`). Metin sabit, başlık yok: "Telsiz DJ kuyruğuna bir YouTube parçası ekledi." (`06-messages.js:60-72`, `i18n.js:905-906`).
+- "DJ'de çal" düğmesi (`djPlayFile`, `23-dj.js:1180-1191`) hiç mesaj göndermiyor.
+- Kart bildirimi (`djOnNotice`, `23-dj.js:818-826`) eklenme anındaki başlığı kullanıyor.
+- Bildirimler listesi yalnızca katılma, ayrılma ve ekran paylaşımı yazıyor (`28-bildirim.js:3-11`).
+
+**3. Kök neden (yeniden üretildi, s1)**
+
+B'nin ekranında sohbet: "Deniz | Telsiz DJ kuyruğuna bir YouTube parçası ekledi. YouTube'da aç". Kart: "Deniz kuyruğa ekledi: YouTube videosu". Oysa B'nin motorunda başlık 200 ms içinde "Fake video D120aaaaaaa" olmuştu.
+
+Nedenler:
+
+- YouTube başlığı ekleme anında bilinmiyor (`music.js:1796-1803`). Başlık sonradan oynatıcıdan açıklama (annotate) ile doluyor (`dj/youtube.js:222-227`, `music.js:1729-1743`).
+- Açıklama bildirimleri bastırılıyor (`music.js:1495-1497`), bu yüzden duyurular hiç güncellenmiyor.
+- Duyuru yalnızca ekleyenin o an açık olan yazı odasına gidiyor (`23-dj.js:1108-1109`). Ses odasındaki başka yazı odasındaki kişiler görmüyor.
+- Dosya düğmesiyle eklemede hiç duyuru yok.
+
+**4. Önerilen çözüm (sunucu değişikliği gerekmez)**
+
+- **Duyuru verisi:** `d` alanı isteğe bağlı `title` ile genişler (en çok 120 kod noktası, `cleanText`). Eski istemciler bu alanı yok sayar.
+  - `cleanDjNotice` ve `buildDjNotice` (`06-messages.js`) başlıklı yeni metni gösterir: `dj.notice.youtubeTitle` "Telsiz DJ kuyruğuna ekledi: {title}", `dj.notice.fileTitle`.
+- **Başlığın beklenmesi (`23-dj.js`):**
+  - Başlık biliniyorsa (arama sonucu) duyuru hemen gider.
+  - Bilinmiyorsa `addYouTube` sonucundaki `trackId` için kuyruk en fazla 8 saniye izlenir, başlık gelince gider.
+  - Süre dolarsa başlıksız gider, başlık gelince ekleyenin istemcisi `/api/messages/edit` ile mesajı düzenler. DJ duyurusunda "düzenlendi" etiketi gösterilmez.
+  - Bunun için `postSideMessage` mesaj kimliğini döndürmeli (`08-composer.js:226-243`).
+- **"DJ'de çal" düğmesi:** dosyanın bulunduğu yazı odasına (`m.channelId`) başlıklı duyuru gönderir.
+- **Kart bildirimi:** `trackId` tutulur, başlık motorun kuyruğundan canlı okunur.
+- **Bildirimler listesi (`28-bildirim.js`):** aynı ses odası için yeni "dj" kaydı ("{name} ekledi: {title}"). Motorun `notice` olayından beslenir ve hangi yazı odasında olunursa olunsun görünür.
+- **i18n anahtarları:** `dj.notice.youtubeTitle`, `dj.notice.fileTitle`, `activity.djAdd` (iki dilde).
+- **Belgeler:** README'de DJ paragrafı, MIMARI'de duyuru biçimi.
+
+**5. Testler**
+
+- Birim: `cleanDjNotice` başlık doğrulaması (denetim karakteri, uzunluk).
+- E2E 06-dj: B'de "Deniz … ekledi: Fake video D120aaaaaaa" metni görünür. 152. satırdaki eski metin beklentisi güncellenir. "DJ'de çal" yolu duyuru üretir. Bildirimler listesinde kayıt çıkar.
+- Elle deneme: başlığı geç gelen video.
+
+**6. Riskler ve güvenlik**
+
+- Başlık uçtan uca şifreli mesaj zarfının içinde kalır.
+- Düzenleme yalnızca kişinin kendi mesajında yapılır (sunucu yetkisi değişmez).
+- Başlık YouTube'dan gelen güvenilmez metindir, yalnızca `textContent` ile basılır.
+
+**7. Büyüklük:** M, yaklaşık 8 adım.
+
+**8. Karar noktaları:** Yazı odası duyurusu ve Bildirimler kaydı birlikte. Sohbette ilk anda başlıksız görünüp sonradan dolmasındansa en fazla 8 saniye bekleme.
+
+**9. Paylaşılan dosyalar:** `public/js/06-messages.js`, `public/js/08-composer.js`, `public/js/28-bildirim.js`, `public/i18n.js`, `public/js/23-dj.js`.
+
+---
+
+## İstek (13)
+
+**1. Kullanıcının isteği:** "Telsiz botunda şarkıyı başlatınca odadaki diğer üyelerde hemen başlamıyor"
+
+**2. Mevcut durum**
+
+- Ekleme ve parça geçişi `START_LEAD_MS = 1500` kadar ileri çapalanıyor (`music.js:43`, `563-570`, `609-613`).
+- Devam ettirmede bu pay yok, `anchorAt = now` (`music.js:651-655`).
+- Long-poll müzik yazımıyla hemen uyanıyor (`src/hub.js:702-705`, `05-poll.js:34-67`).
+- YouTube rızası cihaz başına soruluyor (`music.js:2416`, `23-dj.js:119-121`).
+
+**3. Kök neden (ölçüldü)**
+
+Sahte oynatıcıyla ölçümler. Süreler A'nın Enter'a basmasından itibaren ms.
+
+| Senaryo | Durumun B'ye ulaşması | A sesi | B sesi | B ile A arası sapma |
+|---|---|---|---|---|
+| s1, ideal | 64 | 1548 | 1547 | 3 ms |
+| s3, Chromium kendiliğinden oynatma kuralı açık | 52 | 1542 | 1541 | 0 ms |
+| s2, yavaş ağ (2,5 sn yükleme) | 103 | 4047 | 4044 | 0 ms |
+| s4, B rıza vermemiş | 89 | 1568 | hiç başlamadı | yok |
+| s5, B 390 px genişlikte | 34 | 1531 | 1522 | 0 ms |
+| s8, B sekmesi arka planda (benzetim) | 63 | 1546 | gizliyken hiç | yok |
+
+s3 notu: B'nin çerçevesinde kullanıcı hareketi olmadan, `allow="autoplay"` yetki devriyle çaldı. s2 notu: ikisi de ortak konumun 2,6 sn gerisinde. s8 notu: B görünür olunca 351 ms sonra, 6,4. saniyeden başladı.
+
+Kök nedenler:
+
+- **K1 (yeniden üretildi):** Arka plandaki sekme veya tepsideki masaüstü penceresi. Bkz. Ortak bulgu A.
+- **K2 (yeniden üretildi):** Rıza vermemiş üye onay kartına basana kadar hiç dinlemiyor.
+- **K3 (kod kanıtı ve belge):** Her parçada yeni çerçeve kuruluyor (Ortak bulgu B).
+  - Gerçek YouTube'da çerçeve yükleme ve tamponlama süresi 1,5 sn'lik payı aşınca herkes ortadan başlıyor. Gerçek süre ölçülemedi.
+  - Mobilde `playVideo` ve `loadVideoById` kullanıcı dokunuşu olmadan çalışmayabilir (YouTube "Mobile considerations", resmî sayfa açılamadı, ikincil kopyadan, doğrulanamadı). Yeni çerçevede dokunma izni her parçada yeniden isteniyor.
+- **K4 (kod kanıtı):** Devam ettirmede pay olmadığı için uzaktaki istemciler atlama ve tamponlama kadar geride başlıyor.
+- **Neden olmayan:** Poll gecikmesi ölçümlerde 34 ile 115 ms arası. Senkron mekanizmasının kendisi doğru çalışıyor (sapma en fazla 3 ms).
+
+**4. Önerilen çözüm (sunucu değişikliği gerekmez)**
+
+- **Çizim düzeltmesi (`23-dj.js`):** Sayfa gizliyken `djRenderSoon` rAF yerine `setTimeout(…, 0)` kullanır. Motorun `track` ve `change` olaylarında düzen (`djApplyLayout`) rAF beklemeden uygulanır. Saniyelik denetim `djShouldShow()` doğruysa her zaman çizer.
+- **Erken rıza:** Rıza vermemiş üyeye, ses odasında YouTube oturumu varken veya odaya katılınca "Yükle" düğmeli kalıcı uyarı gösterilir. Kart görünürken de kısa bildirim çıkar, böylece arka plandayken kaçmaz.
+- **Başlangıç payı (`music.js`):** YouTube için 3000 ms, dosya için 1500 ms. Devam ettirmede de `anchorAt = now + START_LEAD_MS`. `applyOp` testleri güncellenir.
+- **Kalıcı çerçeve (2. aşama, `dj/youtube.js` ve `music.js`):** Odadaki oturum boyunca tek çerçeve tutulur. Parça değişince `loadVideoById` / `cueVideoById` komutu gönderilir. Bu IFrame API işlevleri belgeli ama resmî sayfa bu ortamdan açılamadı, doğrulanamadı. `e2e/sahte-youtube.js` bu komutları öğrenir.
+- **i18n anahtarları:** `music.consent.roomHasYoutube`, `music.player.waitingVisible`.
+
+**5. Testler**
+
+- `olcum13.js` E2E'ye taşınır: iki istemci ±250 ms içinde başlar, gizli sayfa benzetiminde B'nin oynatıcı alanı çizilir ve oynatıcı köşeye alınır.
+- Birim: devam ettirmede pay, kalıcı çerçevede ikinci parça yeni çerçeve kurmaz.
+- Elle deneme: gerçek YouTube ile iki masaüstü ve bir telefon, biri arka planda.
+
+**6. Riskler ve güvenlik**
+
+- Kalıcı çerçeve belgelenmemiş postMessage kanalına dayanıyor. Bu kanal zaten kullanılıyor, yeni bir yüzey açılmıyor.
+- Rıza modeli değişmez, yalnızca soru daha erken sorulur.
+- Payı büyütmek tüm başlangıçları 1,5 sn geciktirir.
+
+**7. Büyüklük:** L, yaklaşık 11 adım (çizim düzeltmesi S, rıza S, pay S, kalıcı çerçeve M-L).
+
+**8. Karar noktaları:** YouTube payı 3000 ms. Kalıcı çerçeve ayrı PR olsun. Arka planda YouTube davranışı için bkz. (18).
+
+**9. Paylaşılan dosyalar:** `public/music.js`, `public/dj/youtube.js`, `public/js/23-dj.js`, `public/i18n.js`, `e2e/sahte-youtube.js`.
+
+---
+
+## İstek (15)
+
+**1. Kullanıcının isteği:** "Telsiz DJ çalarken anlık konumunu değiştiremediğim için bazı yerlere tıklayamıyorum. Floating olmalı ve video gözükmese de çalmalı."
+
+**2. Mevcut durum**
+
+- Köşedeki oynatıcı sağ alta sabit, `z-index: 110`. Boyutu 22.25rem, 202 px ve 3.25rem'lik çubuk (`public/css/dj.css:625-716`).
+- Köşeye alma kararı `djWantDock` (`23-dj.js:845-862`), telefonda yükseklik `djDockBottom` (`866-873`).
+- Sürükleme ve taşıma yok. Köşeye alma yalnızca YouTube parçalarında var.
+
+**3. Kök neden (yeniden üretildi, `olcum15.js`)**
+
+| Ekran | Oynatıcının örttüğü öğeler |
+|---|---|
+| 1100x800 | Kamerayı aç, Mikrofonu kapat, Sağırlaştır, Ekranı paylaş, Lobi odasından ayrıl |
+| 800x1000 | Aynıları ve Telsiz DJ düğmesi |
+| 390x844 | Mesaj listesinin ortası |
+
+Görüntüler: `.../arastirma/ekran/dock-1100x800.png`, `dock-390x844.png`.
+
+"Video gözükmese de çalsın" kısmı YouTube için bilinçli olarak engelli (`music.js:2488-2500`, `dj/youtube.js:337-460`). Gerekçeler:
+
+- En küçük alan 200x200 ve oynatıcının üstüne katman konamaz (Required Minimum Functionality, arama özeti; katman metni üçüncü taraf alıntısından).
+- Görüntü ve ses bileşenleri ayrılamaz, arka plan oynatıcısı kullanılamaz (Geliştirici Politikaları, arama özeti ve alıntılar).
+
+Dosya parçalarında görünürlük şartı yok, zaten çalıyorlar (`e2e/06-dj.test.js:410-433`).
+
+**4. Önerilen çözüm (sunucu değişikliği yok)**
+
+- **Sürükleme (`23-dj.js` ve `dj.css`):**
+  - Çubuktan pointer olaylarıyla sürüklenir (`touch-action: none`).
+  - Bırakınca en yakın dört köşeden birine oturur.
+  - Kutu her zaman görünüm alanında tutulur, 200x200'ün altına inmez ve kırpılmaz.
+  - Seçilen köşe cihazda saklanır (localStorage, try/catch ile), pencere boyutu değişince yeniden sınırlanır.
+- **Klavye:** Çubuğa "Taşı" düğmesi eklenir, basıldıkça köşeler arasında döner. Erişilebilirliği sağlar.
+- **Akıllı varsayılan:** Telsiz kartının düğmeleri ve yazma alanıyla kesişmeyen köşe seçilir. 760 ile 1279 px arasında sağ üst, bandın altı.
+- **"Yüzen oynatıcı" anahtarı:** Kart sütundayken de oynatıcı köşeye çıkarılabilir.
+- **"Küçült" seçeneği:**
+  - Dosya parçasında yalnızca çubuk kalır, müzik sürer.
+  - YouTube parçasında yalnızca bu cihazda duraklar ve "YouTube küçültülünce duraklar" notu gösterilir. Açınca eşitlenerek devam eder.
+- **İsteğe bağlı:** Document Picture-in-Picture (yalnızca masaüstü Chrome 116 ve üstü, Android ve Safari'de yok). Çerçeve taşınınca yeniden yüklendiği için (`dj.css:618`) varsayılan olmaz.
+- **i18n anahtarları:** `dj.dock.move`, `dj.dock.minimize`, `dj.dock.restore`, `dj.dock.float`, `music.player.minimizedYoutube`.
+
+**5. Testler**
+
+- E2E: 1100x800'de köşe değişince ses düğmeleri ulaşılabilir (`h.reachable`). Fareyle sürükleme, yeniden yüklemeden sonra köşenin korunması ve `assertDocked` kuralları sınanır. Küçültmede YouTube duraklar, dosya çalmaya devam eder.
+- Elle deneme: dokunmatik telefonda sürükleme.
+
+**6. Riskler ve güvenlik**
+
+- Politika: köşe ne olursa olsun 200x200 alan ve üstüne katman konmaması korunmalı. Kısmen ekran dışına çekme engellenmeli.
+- İstekteki "YouTube görünmeden çalsın" kısmı yapılmamalı.
+
+**7. Büyüklük:** M-L, yaklaşık 10 adım.
+
+**8. Karar noktaları:** Köşeye oturtma (serbest konum değil). Küçültünce YouTube duraklasın (politika gereği, isteğin bu kısmı reddediliyor). Picture-in-Picture sonraya kalsın.
+
+**9. Paylaşılan dosyalar:** `public/css/dj.css`, `public/js/23-dj.js`, `public/i18n.js`. İstek #81 "yüzen pencereler" ile ortak sürükleme yardımcısı çıkabilir, sürükleme kodu bir yardımcı işleve ayrılmalı.
+
+---
+
+## İstek (18)
+
+**1. Kullanıcının isteği:** "Uygulama ekranı arkaplanda kalınca müzik devam etmiyor"
+
+**2. Mevcut durum**
+
+- Gizli sayfada örtme denetimi atlanıyor (`dj/youtube.js:457`).
+- Arka planda duran oynatıcı, sayfa görünür olunca yeniden eşitleniyor (`music.js:2092-2105`, `2700-2704`).
+- Media Session hiç kullanılmıyor (grep sonucu boş).
+- Masaüstü ana penceresinde `backgroundThrottling` varsayılan olarak açık (`desktop/src/main.js:556-558`). Yalnızca arka plan pencereleri kapatıyor (`766`).
+- Müzik ses odası üyeliğine bağlı: ses bağlantısı kopunca çalma durur (`23-dj.js:181-193`, `music.js:2405-2435`).
+
+**3. Kök neden**
+
+- **Ortak bulgu A:** İlk parça ve dosyadan sonra gelen YouTube parçası arka planda hiç başlamıyor (ölçüldü).
+- **Electron:** Pencere küçültülünce veya `win.hide()` ile tepsiye alınınca görünürlük hidden olur (Electron belgesi). Aynı hata orada da geçerli.
+- **Mobilde YouTube:** YouTube, 2026 başından beri üçüncü taraf mobil tarayıcılarda Premium olmayanlar için arka planda oynatmayı bilerek engelliyor (Google sözcüsü, Android Authority ve 9to5Google). Gömülü oynatıcıya etkisi doğrulanamadı.
+- **Politika:** Geliştirici politikaları rehberi, "pencere kapalı veya küçültülmüşken çalmasına izin vermeyi" yasak örnekler arasında sayıyor (arama özeti). Masaüstü uygulamasında tepsiye alınınca YouTube'un çalmaya devam etmesi bu örneğe birebir uyuyor.
+- **Dosya parçaları:** Her parçada yeni `<audio>` öğesi kuruluyor. iOS'ta arka planda yeni öğeyle başlayan parçanın sessiz kaldığı bildiriliyor (WebKit hata kayıtları ve Apple forumları, ikincil, doğrulanamadı). iOS arka planda görüntüyü durdurur, sesi sürdürür (ikincil).
+- **Neden olmayan:** Chrome ses çalan ve WebRTC kullanan sayfayı yoğun zamanlayıcı kısıtlamasına sokmaz ve dondurmaz (resmî belge).
+
+**4. Önerilen çözüm**
+
+- **Çizim düzeltmesi:** Ortak bulgu A düzeltmesi (13 ile aynı iş).
+- **Tek `<audio>` öğesi (`music.js`):** Motor boyunca tek öğe tutulur, parça değişince yalnızca `src` değişir.
+- **Media Session (`23-dj.js` veya `music.js`):**
+  - `navigator.mediaSession.metadata` ile başlık ve "Telsiz DJ · oda adı".
+  - `play` / `pause` işleyicileri yalnızca bu cihazdaki yerel duraklatmayı yönetir, odayı değiştirmez.
+  - `setPositionState` ile konum.
+  - Destek: Chrome 73 ve üstü, Chrome Android 57 ve üstü, Safari ve iOS 15 ve üstü. Android WebView desteklemiyor.
+- **YouTube davranışı:**
+  - Engeli aşan hiçbir yöntem eklenmez.
+  - Masaüstü uygulamasında pencere küçültülünce veya tepsiye alınınca YouTube bu cihazda duraklar, pencere açılınca eşitlenerek devam eder. Bunun için ana süreçten IPC ile `minimize` / `hide` olayı gelir (`desktop/src/main.js` ve `preload.js`).
+  - Tarayıcıdaki arka plan sekmesi bugünkü yorumla aktif olarak duraklatılmaz (`dj/youtube.js:337-345`).
+- **Arayüz notu:** `music.player.backgroundYoutube` "YouTube parçaları uygulama arka plandayken çalmaz, ses dosyaları çalar".
+- **Belgeler:** README, MIMARI, desktop/README.
+
+**5. Testler**
+
+- E2E, gizli sayfa benzetimi: iki dosya parçası art arda arka planda çalar, `createAudio` bir kez çağrılır, `mediaSession.metadata.title` doğru.
+- Birim: tek öğe yeniden kullanımı.
+- Masaüstü (`desktop`, `npm test`): küçültmede IPC olayı.
+- Elle deneme: Android Chrome'da ekran kapalı, iOS Safari ve PWA, Electron tepsisi.
+
+**6. Riskler ve güvenlik**
+
+- Media Session parça adını kilit ekranına ve işletim sisteminin medya arayüzüne çıkarır. Uçtan uca şifreli içerik cihaz dışına sızmış olur.
+- Arka planda YouTube çalmak sözleşme riski taşır.
+- Ses bağlantısı arka planda düşerse müzik durur. Bu kapsam dışı, `voice.js` bu iş akışının dosyası değil.
+
+**7. Büyüklük:** M, yaklaşık 9 adım (Ortak bulgu A ile birlikte).
+
+**8. Karar noktaları**
+
+- Media Session açık olsun, Ayarlar > Gizlilik'te "kilit ekranında parça adını göster" kapatılabilsin.
+- Kilit ekranı düğmeleri yalnızca yereli etkilesin. Bir kulaklık tuşu bütün odayı durdurmamalı.
+- Masaüstünde küçültünce YouTube duraklasın (politikadaki örnek açık).
+- Kullanıcının YouTube'u arka planda dinleme isteği karşılanamıyor, dosya parçaları karşılanıyor.
+
+**9. Paylaşılan dosyalar:** `public/music.js`, `public/js/23-dj.js`, `public/i18n.js`, `public/js/11-settings.js`, `desktop/src/main.js`, `desktop/src/preload.js`.
+
+---
+
+## Çakışma haritası
+
+| Dosya | İstekler | Not |
+|---|---|---|
+| `public/js/23-dj.js` | 5, 6, 13, 15, 18 | Tek PR dizisinde sırayla yapılmalı |
+| `public/music.js` | 5, 13, 18 | Güvenlik açısından hassas |
+| `public/dj/youtube.js` | 13 | Güvenlik açısından hassas |
+| `public/css/dj.css` | 15, 18 | |
+| `public/i18n.js` | hepsi | Diğer iş akışlarıyla çakışır |
+| `public/js/06-messages.js`, `08-composer.js`, `28-bildirim.js` | 6 | |
+| `public/js/11-settings.js` | 5, 18 | |
+| `src/app.js`, `src/i18n.js`, `server.js`, yeni `src/youtube-search.js` | 5 | |
+| `desktop/src/main.js`, `preload.js` | 18 | |
+| `e2e/06-dj.test.js`, `e2e/sahte-youtube.js`, `test/music.test.js`, `test/server-music*.test.js` | testler | |
+| `voice.js`, `public/js/33-37`, `index.html`, `sw.js`, `tokens.css` | yok | Yayında yalnızca `sw.js` CACHE_NAME artar |
+
+## Önerilen sıra
+
+1. Ortak bulgu A düzeltmesi (13 ve 18).
+2. İstek (6).
+3. İstek (15).
+4. Tek `<audio>` öğesi ve Media Session.
+5. Devam ettirme ve başlangıç payı.
+6. İstek (5).
+7. Kalıcı YouTube çerçevesi.
+
+## Kaynaklar ve doğrulama durumu
+
+- Chrome kendiliğinden oynatma, çerçeveye yetki devri: https://developer.chrome.com/blog/autoplay (kaynağı okundu: https://raw.githubusercontent.com/GoogleChrome/developer.chrome.com/main/site/en/blog/autoplay/index.md)
+- Zamanlayıcı kısıtlaması, gizli sayfada rAF'ın beklemesi, ses ve WebRTC istisnaları: https://developer.chrome.com/blog/timer-throttling-in-chrome-88 (raw kaynak okundu)
+- Ses çalan ve WebRTC kullanan sayfanın atılmaması: https://developer.chrome.com/docs/web-platform/page-lifecycle-api (raw: site/en/articles/page-lifecycle-api)
+- Electron görünürlüğü ve `backgroundThrottling`: https://www.electronjs.org/docs/latest/api/browser-window#page-visibility ve https://www.electronjs.org/docs/latest/api/structures/web-preferences (raw kaynak okundu)
+- Media Session desteği: https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API ve https://github.com/mdn/browser-compat-data/blob/main/api/MediaSession.json
+- Document PiP desteği: https://github.com/mdn/browser-compat-data/blob/main/api/DocumentPictureInPicture.json
+- 200x200 alan: https://developers.google.com/youtube/player_parameters ve https://developers.google.com/youtube/terms/required-minimum-functionality (arama özeti). Katman yasağı metni üçüncü taraf alıntısından: https://optiview.dolby.com/docs/theoplayer/faq/is-youtube-supported/ (resmî sayfa açılamadı, kısmen doğrulandı)
+- Ses ve görüntünün ayrılmaması, arka planda oynatma örneği: https://developers.google.com/youtube/terms/developer-policies-guide, https://developers.google.com/youtube/terms/developer-policies, https://news.ycombinator.com/item?id=15164854 (arama özetleri, resmî sayfa açılamadı)
+- `listType=search` kaldırıldı: https://developers.google.com/youtube/iframe_api_revision_history (arama özeti)
+- Mobilde betikle oynatma: https://backiee.wasmer.app/http_Stackoverflow_com/a/74561036 (ikincil kopya, resmî metin doğrulanamadı)
+- `search.list` 100 birim ve ayrı kova: https://developers.google.com/youtube/v3/determine_quota_cost, https://developers.google.com/youtube/v3/revision_history. Günde 100 çağrı varsayılanı: https://bundle.social/blog/youtube-api-quota-exceeded-limits-fixes (doğrulanamadı)
+- API anahtarı şartı: https://developers.google.com/youtube/v3/getting-started (arama özeti)
+- III.A.1 ve III.A.2 yükümlülükleri: https://developers.google.com/youtube/terms/developer-policies (arama özeti)
+- Otomatik erişim yasağı: https://www.youtube.com/terms (arama özeti)
+- Mobil tarayıcılarda arka plan engeli (2026): https://www.androidauthority.com/youtube-background-playback-browsers-fix-3636806/, https://9to5google.com/2026/02/02/youtube-background-playback-workarounds-not-working-third-party-browsers/ (haber kaynakları)
+- iOS arka plan sesi: https://bugs.webkit.org/show_bug.cgi?id=198277, https://developer.apple.com/forums/thread/762582, https://developer.apple.com/forums/thread/774239 (ikincil özet, doğrulanamadı)
+- Chrome Android arka plan medyası: https://9to5google.com/2016/09/15/google-chrome-54-beta-features/, https://developer.chrome.com/blog/chrome-61-media-updates (tarihsel, güncel durum doğrulanamadı)
+- YouTube oEmbed resmî desteği: doğrulanamadı, öneride kullanılmadı.

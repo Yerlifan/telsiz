@@ -1,0 +1,108 @@
+From d244e3b1ea0307d0dbaa855b636ffc1b64d5348f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 05:01:42 +0000
+Subject: [PATCH 098/104] =?UTF-8?q?G13:=20frekans=20okumas=C4=B1=20be?=
+ =?UTF-8?q?=C5=9F=20karakterlik=20geni=C5=9Flikte,=20Bildirimler=20ile=20t?=
+ =?UTF-8?q?elsiz=20kart=C4=B1=20aras=C4=B1nda=20yaln=C4=B1zca=20anten?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Frekans okumasının genişliği temaya özgü belirteç yerine tek aralıklı yazının karakter genişliğinden (5ch) gelir, böylece
+on temada ve her yazı boyutunda oda adları tek hizada durur (Kutup İstasyonu ve Gece'de 106.0 taşıyordu). Geniş ekranda
+Bildirimler kartının alt boşluğu (.side-card) kaldırıldı, telsiz kartı yalnızca antenin yeri kadar aşağıda başlar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/frekans.css      | 13 ++++++++++---
+ public/css/skins/fosfor.css |  6 +-----
+ public/css/skins/gece.css   |  7 +------
+ public/css/skins/saha.css   |  6 +-----
+ 4 files changed, 13 insertions(+), 19 deletions(-)
+
+diff --git a/public/css/frekans.css b/public/css/frekans.css
+index 452a8e1..e3497d1 100644
+--- a/public/css/frekans.css
++++ b/public/css/frekans.css
+@@ -1383,6 +1383,11 @@
+     flex: 1 0 auto;
+   }
+ 
++  /* Bildirimler ile kart arasında yalnızca antenin yeri kalır (.side-card'ın alt boşluğu yok) */
++  .side-left .info-bottom > .activity-card {
++    margin-bottom: 0;
++  }
++
+   .side-left .radio-slot > .radio {
+     display: flex;
+     flex-direction: column;
+@@ -1995,11 +2000,13 @@
+   margin-right: 0.25rem;
+ }
+ 
+-/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir
+-   (--room-freq-w), böylece adlar ve ses odasındakilerin çipleri tek hizada durur. Ayarlı odada vurgu renginde. */
++/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir:
++   en uzun okuma beş karakterdir (108.0), tek aralıklı yazıda her karakter 1ch, yanına iç boşluk ve kenar eklenir.
++   Böylece her temanın yazısında ve yazı boyutunda oda adları tek hizada durur. Ayarlı odada vurgu renginde. */
+ .room-row > .channel-freq {
+-  min-width: var(--room-freq-w, 2.75rem);
++  min-width: calc(5ch + 0.75rem + 2px);
+   margin-right: 0.5rem;
++  white-space: nowrap;
+ }
+ 
+ .room-row.is-current > .channel-freq {
+diff --git a/public/css/skins/fosfor.css b/public/css/skins/fosfor.css
+index b11c396..79c2d46 100644
+--- a/public/css/skins/fosfor.css
++++ b/public/css/skins/fosfor.css
+@@ -69,11 +69,7 @@
+   background-color: var(--surface-sunken);
+ }
+ 
+-/* Frekans etiketi: tarayıcıdaki kanal frekansı. Genişliği İstasyonlar listesinde --room-freq-w (frekans.css). */
+-:root[data-skin="fosfor"] {
+-  --room-freq-w: 3.2rem;
+-}
+-
++/* Frekans etiketi: tarayıcıdaki kanal frekansı (genişliği İstasyonlar listesinde frekans.css) */
+ :root[data-skin="fosfor"] .channel-freq {
+   display: inline-block;
+   flex: none;
+diff --git a/public/css/skins/gece.css b/public/css/skins/gece.css
+index f1a7cdc..6c19a7a 100644
+--- a/public/css/skins/gece.css
++++ b/public/css/skins/gece.css
+@@ -23,12 +23,7 @@
+   font-weight: 500;
+ }
+ 
+-/* Frekans rozeti. Genişliği İstasyonlar listesinde --room-freq-w (Martian Mono geniş yazıdır, beş rakam sığar),
+-   ses odasındakilerin çipleri de bu genişliğe göre hizalanır (frekans.css). */
+-:root[data-skin="gece"] {
+-  --room-freq-w: 3.4rem;
+-}
+-
++/* Frekans rozeti (genişliği İstasyonlar listesinde frekans.css .room-row > .channel-freq) */
+ :root[data-skin="gece"] .channel-freq {
+   display: inline-block;
+   flex: none;
+diff --git a/public/css/skins/saha.css b/public/css/skins/saha.css
+index 3646fea..68ef3bc 100644
+--- a/public/css/skins/saha.css
++++ b/public/css/skins/saha.css
+@@ -74,11 +74,7 @@
+   border-top-width: 3px;
+ }
+ 
+-/* Frekans etiketi: odalar kanal numarası taşır. Genişliği İstasyonlar listesinde --room-freq-w (frekans.css). */
+-:root[data-skin="saha"] {
+-  --room-freq-w: 3.2rem;
+-}
+-
++/* Frekans etiketi: odalar kanal numarası taşır (genişliği İstasyonlar listesinde frekans.css) */
+ :root[data-skin="saha"] .channel-freq {
+   display: inline-block;
+   flex: none;
