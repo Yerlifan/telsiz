@@ -71,8 +71,8 @@ const profileState = {
 }
 
 // Ad ve avatar çizen, kendi önbellek anahtarıyla yeniden çizimi atlayan yüzeyler (kameralar ızgarası, paylaşan
-// seçicisi, izleyiciler, Telsiz DJ kuyruğu) bu değeri anahtarlarına katar. Değer her profil değişikliğinde, profil
-// resmi gelince ve metadaki kullanıcı adı değişince artar.
+// seçicisi, izleyiciler, Telsiz DJ kuyruğu, oyun masası, yüzen pencere) bu değeri anahtarlarına katar. Değer her
+// profil değişikliğinde, profil resmi gelince ve metadaki kullanıcı adı değişince artar.
 function profileEpoch () {
   return profileState.epoch
 }

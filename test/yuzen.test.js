@@ -1,11 +1,11 @@
 'use strict'
 
 // Yüzen pencere istemcisi (public/js/39-yuzen.js): floatPlan durumları (kamera yok, kamera ve avatar şeridi, konuşma,
-// izlenen yayın, kendi yayını, özel arama kadrosu, sınırı aşınca "+N"), floatMode önceliği (masaüstünde belge resim
-// içinde resim de var görünür ama masaüstü yolu seçilir), masaüstünde simge durumu ve tepsi kuralları, tarayıcıda
-// otomatik açılış işleyicisi, i18n anahtarları ve index.html, sw.js bağlantıları. Modül tarayıcıdaki gibi ortak bir
-// genel ortamda Node vm bağlamında, gerekli yardımcılar taklit edilerek yüklenir. Gerçek pencere e2e/20-yuzen.test.js
-// içinde açılır.
+// izlenen yayın, kendi yayını, özel arama kadrosu, sınırı aşınca "+N"), yapı anahtarının profil sürümü (floatKey),
+// floatMode önceliği (masaüstünde belge resim içinde resim de var görünür ama masaüstü yolu seçilir), masaüstünde
+// simge durumu ve tepsi kuralları, tarayıcıda otomatik açılış işleyicisi, i18n anahtarları ve index.html, sw.js
+// bağlantıları. Modül tarayıcıdaki gibi ortak bir genel ortamda Node vm bağlamında, gerekli yardımcılar taklit
+// edilerek yüklenir. Gerçek pencere e2e/20-yuzen.test.js içinde açılır.
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
@@ -137,6 +137,26 @@ test('floatPlan: özel arama kadrosu (iki kişi) ses odası gibi gösterilir', (
   const p = env.plan({ room: true, me: '1', roster: ['1', '9'], cams: { 9: 'kamera' } })
   assert.equal(p.kind, 'cams')
   assert.deepEqual(ids(p), ['9*', '1@'])
+})
+
+test('floatKey: profil sürümü (13-profile.js profileEpoch) artınca anahtar değişir, aynı sürümde değişmez', () => {
+  // Profil resmi olmayan kişinin avatarı baş harf ve profil rengiyle çizilir. Rengini değiştirince ad ve resim aynı
+  // kalır ama profil sürümü artar: anahtar değişir, pencerenin içi yeni renkle yeniden kurulur
+  const env = load()
+  const box = env.sandbox
+  box.color = 2
+  box.epoch = 1
+  box.shownName = () => 'Deniz'
+  box.castRoomName = () => 'Oda'
+  box.avatarInfoFor = () => ({ initial: 'D', colorIndex: box.color, blobUrl: null })
+  box.profileEpoch = () => box.epoch
+  const plan = { kind: 'avatars', tiles: [{ id: '2', cam: false, self: false, speaking: false }], more: 0, sharing: false, watching: null }
+  const key = () => box.floatKey(plan, { channelId: 5, private: false }, { cams: {} })
+  const before = key()
+  assert.equal(key(), before, 'aynı profil sürümünde anahtar aynı')
+  box.color = 6
+  box.epoch = 2
+  assert.notEqual(key(), before, 'profil sürümü artınca anahtar değişir')
 })
 
 test('floatMode: masaüstü önce gelir (belge resim içinde resim de var görünse), sonra belge, sonra görüntü', () => {

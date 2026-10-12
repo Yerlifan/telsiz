@@ -409,7 +409,9 @@ function floatRoomName (s) {
   return typeof castRoomName === 'function' ? castRoomName(s.channelId) : ''
 }
 
-// Yapı anahtarı: değişince pencerenin içi yeniden kurulur, değişmezse yalnızca konuşma halkası ve mikrofon güncellenir
+// Yapı anahtarı: değişince pencerenin içi yeniden kurulur, değişmezse yalnızca konuşma halkası ve mikrofon güncellenir.
+// Profil sürümü (13-profile.js profileEpoch) de anahtardadır: profil resmi olmayan kişi profil rengini değiştirince
+// avatarın rengi de yenilenir.
 function floatKey (plan, s, input) {
   const root = document.documentElement
   const avatars = plan.tiles.map((tile) => {
@@ -417,7 +419,8 @@ function floatKey (plan, s, input) {
     return tile.id + ':' + (tile.cam ? 1 : 0) + ':' + shownName(tile.id) + ':' + (info && info.blobUrl ? info.blobUrl : '')
   })
   const camKey = Object.keys(input.cams).sort().map((id) => id + '=' + input.cams[id]).join(',')
-  return [plan.kind, avatars.join(','), plan.more, plan.sharing ? 1 : 0, plan.watching || '', camKey, floatRoomName(s), window.I18N ? window.I18N.lang : '', root.getAttribute('data-skin'), root.getAttribute('data-scheme'), root.getAttribute('data-font-size')].join('|')
+  const epoch = typeof profileEpoch === 'function' ? profileEpoch() : 0
+  return [plan.kind, avatars.join(','), plan.more, plan.sharing ? 1 : 0, plan.watching || '', camKey, floatRoomName(s), window.I18N ? window.I18N.lang : '', root.getAttribute('data-skin'), root.getAttribute('data-scheme'), root.getAttribute('data-font-size'), epoch].join('|')
 }
 
 function floatRenderNow () {
