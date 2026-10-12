@@ -543,8 +543,8 @@ async function clickStation (page, key) {
   await page.click('#band-track .station[data-station="' + key + '"]')
 }
 
-// Ses odasına katılır ve telsiz kartının bağlanmasını bekler. Geniş ekranda kapalı telsiz kartı küçüktür,
-// ses odaları sağdaki İstasyonlar listesinden seçilir, daha dar ekranda kartın Katıl düğmesi kullanılır.
+// Ses odasına katılır ve telsiz kartının bağlanmasını bekler. Kapalı telsiz kartının Katıl düğmesi görünüyorsa o
+// kullanılır, yoksa ses odası İstasyonlar listesinden (#inbox-list) seçilir.
 async function joinVoice (page, channelId) {
   const joinSel = '#voice-channels .radio-join[data-channel-id="' + channelId + '"]'
   const visible = await page.evaluate((sel) => {

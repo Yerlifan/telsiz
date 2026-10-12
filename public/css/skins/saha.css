@@ -25,9 +25,12 @@
   border-top: 1px dashed var(--line-strong);
 }
 
+/* İstasyonlar grup başlığında kadran çizgileri yerine kesik çizgili şerit (yukarıda) */
 :root[data-skin="saha"] .rooms-group-title {
   display: flex;
   align-items: center;
+  padding-bottom: 0;
+  background-image: none;
 }
 
 /* Telsiz gövdesi: kare köşeler, kalın kasa kenarı, anten kare */
@@ -71,12 +74,14 @@
   border-top-width: 3px;
 }
 
-/* Frekans etiketi: odalar kanal numarası taşır */
+/* Frekans etiketi: odalar kanal numarası taşır. Genişliği İstasyonlar listesinde --room-freq-w (frekans.css). */
+:root[data-skin="saha"] {
+  --room-freq-w: 3.2rem;
+}
+
 :root[data-skin="saha"] .channel-freq {
   display: inline-block;
   flex: none;
-  min-width: 3.2rem;
-  margin-right: 0.5rem;
   padding: 0.05rem 0.3rem;
   border: 1px dashed var(--edge);
   border-radius: 2px;

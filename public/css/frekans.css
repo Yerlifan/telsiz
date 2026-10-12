@@ -1366,14 +1366,42 @@
     display: inline-flex;
   }
 
-  /* Geniş ekranda kapalı telsiz kartı küçüktür: ses odaları sağdaki İstasyonlar listesindedir */
-  .side-left .radio[data-state="off"] .radio-rooms {
-    display: none;
+  /* El telsizi (istek 10): telsiz kartı sol sütunun kalanını kaplar, Bildirimler üstünde kalır ve sütunun üstünde
+     boş alan kalmaz. Kartın içeriği üstte durur, altta kalan yeri hoparlör ızgarası süsü doldurur (.radio::after).
+     Sütun yetmezse (uzun özel mesaj listesi, alçak ekran) kart içeriği kadar kalır ve sütun kayar. Kapalı kart bir
+     kanal tarayıcısıdır: ses odaları Katıl düğmeleriyle görünür, liste kartın yüksekliğini kullanır. */
+  .side-left .side-scroll > .info-bottom {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    margin-top: 0;
   }
 
-  .side-left .radio[data-state="off"] .radio-pick {
-    margin: 0;
-    font-size: var(--text-md);
+  .side-left .radio-slot {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+  }
+
+  .side-left .radio-slot > .radio {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+  }
+
+  .side-left .radio::after {
+    content: "";
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 0.875rem;
+    border-radius: var(--radius-control);
+    background-image: radial-gradient(circle, var(--line-strong) 0, var(--line-strong) 1.25px, rgba(0, 0, 0, 0) 1.75px);
+    background-position: 0 0;
+    background-size: 0.625rem 0.625rem;
+  }
+
+  .side-left .radio .radio-rooms {
+    max-height: none;
   }
 }
 
@@ -1876,11 +1904,14 @@
    yana çipler (liste anlamı ul ve li ile korunur). Çipte küçük avatar, ad ve susturma ile kamera simgeleri, uzun
    ad kısalır. Konuşan kişinin avatarında canlı renkli halka ve çipin kenarı canlı renkte. Eski WebKit flex gap
    desteklemez: çipler arasındaki aralık sağ ve alt boşluktur. */
+/* Çipler odanın frekans okumasının hizasından başlar (o frekanstakiler): satırın iç boşluğu ve kenarı, simge
+   (1.25em) ve boşluğu. Yazı boyutu satırınkiyle aynıdır (em). */
 .room-people {
   display: flex;
   flex-wrap: wrap;
   margin: 0 0 0.375rem;
-  padding: 0.125rem 0.25rem 0 5.375rem;
+  padding: 0.125rem 0.25rem 0 calc(0.625rem + var(--border-width) + 1.25em + 0.625rem);
+  font-size: var(--text-sm);
   list-style: none;
 }
 
@@ -1964,9 +1995,10 @@
   margin-right: 0.25rem;
 }
 
-/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Ayarlı odada vurgu renginde. */
+/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir
+   (--room-freq-w), böylece adlar ve ses odasındakilerin çipleri tek hizada durur. Ayarlı odada vurgu renginde. */
 .room-row > .channel-freq {
-  min-width: 2.75rem;
+  min-width: var(--room-freq-w, 2.75rem);
   margin-right: 0.5rem;
 }
 

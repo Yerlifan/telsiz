@@ -23,12 +23,15 @@
   font-weight: 500;
 }
 
-/* Frekans rozeti */
+/* Frekans rozeti. Genişliği İstasyonlar listesinde --room-freq-w (Martian Mono geniş yazıdır, beş rakam sığar),
+   ses odasındakilerin çipleri de bu genişliğe göre hizalanır (frekans.css). */
+:root[data-skin="gece"] {
+  --room-freq-w: 3.4rem;
+}
+
 :root[data-skin="gece"] .channel-freq {
   display: inline-block;
   flex: none;
-  min-width: 3.4rem;
-  margin-right: 0.6rem;
   padding: 0.1rem 0.35rem;
   border: 1px solid var(--line-strong);
   border-radius: 5px;

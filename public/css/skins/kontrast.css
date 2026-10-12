@@ -38,6 +38,11 @@
   border-radius: var(--radius-card);
 }
 
+/* Süs yok: geniş ekranda sol sütunu kaplayan telsiz kartının hoparlör ızgarası çizilmez (frekans.css) */
+:root[data-skin="kontrast"] .radio::after {
+  background-image: none;
+}
+
 :root[data-skin="kontrast"] .radio .radio-ptt,
 :root[data-skin="kontrast"] .radio .radio-ptt.is-active {
   border: 2px solid var(--text);
