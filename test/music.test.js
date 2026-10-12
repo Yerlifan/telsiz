@@ -1593,6 +1593,33 @@ describe('motor: oynatıcı, rıza ve dokunarak başlatma', () => {
     assert.equal(b.engine.snapshot().player.hidden, false)
   })
 
+  // Pencere daralınca stil hemen değişir, arayüzün yerleşimi (23-dj.js köşeye alma) resize olayıyla bir sonraki
+  // karede veya arayüzün yarım saniyelik denetimiyle gelir. Tick bu aralıkta ölçerse çerçeve görünmez bulunur, değişiklik olayını alan arayüz yerleşimi aynı
+  // anda uygular. Motor ölçümü olaydan sonra yineler: oynatıcı duraklatılmaz ve görünmez sayılı kalmaz.
+  test('değişiklik olayında arayüz yerleşimi düzeltirse görünmez ölçülen YouTube oynatıcısı duraklatılmaz', async () => {
+    const { timers, clients: [a, b] } = await setup()
+    b.storage.set(CONSENT_KEY, '1')
+    b.engine.attachPlayer({ appendChild () {} })
+    await a.engine.addYouTube(VID)
+    b.sync()
+    const p = b.ytPlayers[0]
+    p.becomeReady()
+    await timers.advance(3000)
+    assert.equal(p.state.playing, true)
+    const seen = []
+    b.engine.on('change', (snap) => {
+      seen.push(snap.player.hidden)
+      if (snap.player.hidden) p.state.visible = true
+    })
+    p.state.visible = false
+    await timers.advance(600)
+    assert.deepEqual(seen.filter((x, i) => i === 0 || x !== seen[i - 1]), [true, false])
+    assert.equal(p.state.commands.indexOf('pause'), -1, 'duraklatma komutu gönderilmedi')
+    assert.equal(p.state.playing, true)
+    assert.equal(b.engine.snapshot().player.hidden, false)
+    assert.equal(b.engine.snapshot().player.status, 'playing')
+  })
+
   test('gömmeye kapalı video: hata herkes için tek geçişle atlanır', async () => {
     const { timers, server, clients: [a, b] } = await setup()
     for (const c of [a, b]) {

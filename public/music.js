@@ -2681,16 +2681,27 @@ var TelsizMusic = (function (root) {
       local.driftMs = pos === null ? null : pos - target
       if (player.kind === 'youtube' && !player.visible()) {
         // Oynatıcı görünür değilse YouTube bu cihazda çalınmaz (gizli arka plan oynatımı yok)
+        let shown = false
         if (!local.hidden) {
           local.hidden = true
           changed()
+          // Ölçüm arayüzün henüz uygulamadığı bir yerleşime denk gelmiş olabilir: pencere daralınca stil yeni
+          // genişliğe hemen geçer, arayüzün yerleşimi ise ancak resize olayıyla (bir sonraki karede) veya kendi
+          // yarım saniyelik denetimiyle gelir. Bu aralıkta DJ sütunundaki çerçeve (telefonda display: none)
+          // görünmez bulunur. Değişiklik olayını alan arayüz (23-dj.js) yerleşimi aynı anda yeniden uygular ve
+          // oynatıcıyı köşeye alır. Ölçüm bu yüzden olaydan sonra yinelenir, çerçeve artık görünürse duraklatılmaz
+          // ve görünür sayılır. Yinelenmeseydi düzelen yerleşimde de bir sonraki tick'e (TICK_MS) kadar görünmez
+          // sayılır ve duraklatılırdı.
+          shown = player.visible()
         }
-        if (player.playing()) {
-          local.ownPauseUntil = local0 + OWN_PAUSE_MS
-          player.pause()
+        if (!shown) {
+          if (player.playing()) {
+            local.ownPauseUntil = local0 + OWN_PAUSE_MS
+            player.pause()
+          }
+          setStatus('paused')
+          return
         }
-        setStatus('paused')
-        return
       }
       if (local.hidden) {
         local.hidden = false

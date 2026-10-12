@@ -7,6 +7,8 @@ Notable changes in Telsiz releases are listed in this file. Version numbers foll
 ### Fixes
 
 - Choosing Create Code or Create New Code in the recovery code reminder or warning moves the focus to the create button in Settings > My Account. In Firefox the focus sometimes stayed on the page title instead.
+- In Telsiz DJ, narrowing the window to phone width could pause the YouTube player for up to half a second while it moved to the corner. The player is now measured again after the layout is applied and keeps playing if it is visible.
+- In the search opened with Ctrl+K, typing and moving to a result with the down arrow could send the focus back to the search box when the page rendered slowly. When the focus moves to another element inside a panel after the panel opens, the panel's initial focus no longer undoes that choice.
 
 ## [2.5.0]
 

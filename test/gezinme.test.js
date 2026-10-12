@@ -419,6 +419,58 @@ test('geçmiş: açık katman yokken oturum kapanınca da geri sarılır, eskimi
   assert.deepStrictEqual(hist.list(), ['0:dm-50'])
 })
 
+// Katmanın ilk odağı (02-state-dom.js openLayer) bir sonraki karede verilir (burada requestAnimationFrame yok, 16 ms
+// sonra). Kare gelmeden odak katmanın içinde başka bir öğeye geçtiyse (Ctrl+K aramasında yazılıp aşağı okla sonuca
+// inilmesi) ilk odak onu geri almaz. Odak açılıştan beri değişmediyse, dışarıda da katmanın içinde de olsa, ilk odak verilir.
+test('katman: ilk odak, kare gelmeden katmanın içinde seçilen öğeyi geri almaz, odak değişmediyse verilir', async () => {
+  const { run, json } = load()
+  run(`
+    var testFocus = []
+    function testNode (name, parent) {
+      const node = {
+        name: name,
+        parent: parent || null,
+        focus () {
+          testFocus.push(name)
+          document.activeElement = node
+        },
+        contains (other) {
+          let n = other
+          while (n) {
+            if (n === node) return true
+            n = n.parent
+          }
+          return false
+        }
+      }
+      return node
+    }
+    var testPanel = testNode('panel')
+    var testInput = testNode('input', testPanel)
+    var testItem = testNode('item', testPanel)
+    var testOutside = testNode('outside')
+    function testOpenPanel () {
+      testFocus.length = 0
+      openLayer({ name: 'deneme', el: testPanel, level: 1, initialFocus: () => testInput, onClose: () => {} })
+    }
+  `)
+  const frame = () => new Promise((resolve) => setTimeout(resolve, 40))
+  // Kare gelmeden aşağı ok sonuca odaklanır
+  run('document.activeElement = testOutside; testOpenPanel(); testItem.focus()')
+  await frame()
+  assert.deepStrictEqual(json('[document.activeElement.name, testFocus]'), ['item', ['item']])
+  run("testClose('deneme')")
+  // Odak dışarıda kaldı
+  run('document.activeElement = testOutside; testOpenPanel()')
+  await frame()
+  assert.deepStrictEqual(json('[document.activeElement.name, testFocus]'), ['input', ['input']])
+  run("testClose('deneme')")
+  // Odak açılışta zaten katmanın içindeydi ve değişmedi
+  run('document.activeElement = testItem; testOpenPanel()')
+  await frame()
+  assert.deepStrictEqual(json('[document.activeElement.name, testFocus]'), ['input', ['input']])
+})
+
 test('okunmamış: ilk okunmamış kendi mesajlarını atlar, okuma kaydı yoksa ayraç yok, sayfanın hepsi yeniyse çevresi yüklenir', () => {
   const { json } = load()
   // Kullanıcı 1: 6 numaralı mesaj kendi mesajı

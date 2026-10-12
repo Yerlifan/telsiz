@@ -126,7 +126,9 @@ describe('profil resmi', () => {
       const big = await uploadId(ctx, ayse.token, 1001)
       const text = (await h.stateOf(ctx, ayse.token)).meta.channels.find((c) => c.type === 'text')
       await h.sendMessage(ctx, ayse.token, text.id, { uploads: [bound] })
-      for (const id of [others, bound, 'a'.repeat(32), 'yok', 42, {}, own.toUpperCase()]) {
+      // Büyük harfli kimlik yalnızca kimlikte a ile f arasında harf varsa farklıdır, kimlik yalnızca rakamsa denenmez
+      const upperOwn = own === own.toUpperCase() ? [] : [own.toUpperCase()]
+      for (const id of [others, bound, 'a'.repeat(32), 'yok', 42, {}, ...upperOwn]) {
         h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), id), 400, 'bad_avatar')
       }
       h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), big), 413, 'avatar_too_large')
@@ -246,7 +248,9 @@ describe('kapak fotoğrafı', () => {
       const big = await uploadId(ctx, ayse.token, 1001)
       const text = (await h.stateOf(ctx, ayse.token)).meta.channels.find((c) => c.type === 'text')
       await h.sendMessage(ctx, ayse.token, text.id, { uploads: [bound] })
-      for (const id of [others, bound, 'a'.repeat(32), 'yok', 42, {}, own.toUpperCase()]) {
+      // Büyük harfli kimlik yalnızca kimlikte a ile f arasında harf varsa farklıdır, kimlik yalnızca rakamsa denenmez
+      const upperOwn = own === own.toUpperCase() ? [] : [own.toUpperCase()]
+      for (const id of [others, bound, 'a'.repeat(32), 'yok', 42, {}, ...upperOwn]) {
         h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), avatar, id), 400, 'bad_cover')
       }
       h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), avatar, big), 413, 'cover_too_large')
@@ -563,7 +567,10 @@ describe('oturumlar', () => {
       const second = await h.login(ctx, 'sahip', h.PASSWORD, { 'user-agent': UA.firefoxLinux })
       const third = await h.login(ctx, 'sahip', h.PASSWORD, { 'user-agent': UA.ps5 })
       const idOf = (token) => crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)
-      const badBodies = [{}, { id: 'xyz' }, { id: idOf(second.data.token), others: true }, { others: 'true' }, { id: idOf(second.data.token).toUpperCase() },
+      const secondId = idOf(second.data.token)
+      // Büyük harfli kimlik yalnızca kimlikte a ile f arasında harf varsa farklıdır, kimlik yalnızca rakamsa denenmez
+      const upperIds = secondId === secondId.toUpperCase() ? [] : [{ id: secondId.toUpperCase() }]
+      const badBodies = [{}, { id: 'xyz' }, { id: idOf(second.data.token), others: true }, { others: 'true' }, ...upperIds,
         { others: false }, { id: 'xyz', others: true }, { id: null, others: true }, { id: idOf(second.data.token), others: false }, { id: 42 }]
       for (const body of badBodies) {
         h.expectStatus(await h.post(ctx, '/api/me/sessions/revoke', owner.token, body), 400, 'bad_request')

@@ -819,6 +819,11 @@ function dockCorner (page) {
 
 test('1100x800: oynatıcı sağ üstte durur, Taşı köşeleri dolaşır, hiçbir köşede ses düğmelerini örtmez', async () => {
   const { A } = W
+  // Varsayılan köşe denetlenir: önceki test saklı köşeyi kendi sonunda siler, yarıda kalırsa 'tr' saklı kalırdı
+  await A.evaluate(() => {
+    storeRemove('telsiz.djDock')
+    djRender()
+  })
   await A.setViewportSize({ width: 1100, height: 800 })
   await A.waitForFunction(() => {
     const d = document.getElementById('dj')
