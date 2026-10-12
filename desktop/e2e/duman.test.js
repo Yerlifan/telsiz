@@ -1342,12 +1342,14 @@ test('yüzen pencere: ses odasında simge durumuna küçültülünce açılır, 
     const real = await minimize()
     if (!real) t.diagnostic('pencere yöneticisi yok: minimize ve restore olayları ana süreçte elle üretildi')
     await waitFor(async () => (await floats()) === 1, 'floating window opened on minimize')
+    // Stil dosyaları yüklenene kadar yüzen belgenin gövdesi görünmez (39-yuzen.js floatPrepareDoc), içerik gövde
+    // görünür olunca okunur
     const view = await waitFor(() => page.evaluate(() => {
       const doc = floatState.doc
       if (!doc || floatState.mode !== 'desktop' || floatState.reason !== 'auto') return null
       const head = doc.querySelector('.float-head')
       const back = doc.querySelector('.float-back')
-      if (!head || !back) return null
+      if (!head || !back || !doc.body || doc.body.style.visibility === 'hidden') return null
       return {
         drag: getComputedStyle(head).webkitAppRegion || getComputedStyle(head).getPropertyValue('-webkit-app-region'),
         display: getComputedStyle(head).display,
