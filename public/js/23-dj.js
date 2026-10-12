@@ -1052,8 +1052,15 @@ function djRenderDock (s, current) {
   ui.dock.classList.toggle('is-held', Boolean(hold))
 }
 
-// "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir
+// "DJ'yi aç": kartı örten katmanlar (Ayarlar, başka sayfalar, menüler) kapanır, kart gösterilir. Köşedeki kutu
+// pencerelerin de üstünde durur: kilitli bir katman açıksa (ör. kurtarma kodu penceresi, 41-kurtarma.js) hiçbir
+// katman kapanmaz, odak o katmana döner. Kilit yalnızca katmanın kendi düğmesiyle açılır.
 function djOpenFromDock () {
+  const locked = lockedLayer()
+  if (locked) {
+    focusNode(focusables(locked.el)[0] || locked.el)
+    return
+  }
   layers.slice().reverse().forEach((layer) => {
     if (layer.name !== 'sheet-dj') closeLayer(layer, false)
   })
@@ -1623,9 +1630,11 @@ function djOnLayers () {
   if (dj.ready && !dj.layoutBusy) djRender()
 }
 
-// Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar
+// Kartı gösterir: sütundayken karta odaklanır, sayfa kipindeyse sayfayı açar. Kilitli bir katman açıkken (ör.
+// kurtarma kodu penceresi) hiçbir şey yapılmaz: sayfa açılışı (openLayer) pencereyi onaysız kapatırdı, sütundaki
+// karta odaklanmak da odağı pencereden çıkarırdı. /kuyruk ve arama sonucu kartta kalır, sonra görülür.
 function djReveal (trigger) {
-  if (!djShouldShow()) return
+  if (!djShouldShow() || lockedLayer()) return
   djRender()
   if (!djIsSheetMode()) {
     const target = dj.ui ? focusables(el.djCard)[0] : null

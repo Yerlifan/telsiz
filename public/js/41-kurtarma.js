@@ -182,7 +182,8 @@ function showRecoveryCard (code, user, rotated, next) {
 
 // Uygulama içindeki kod penceresi (Ayarlar'dan oluşturma ve yenileme, parola değişikliğiyle yenileme, sıfırlamadan
 // sonra yeni parola). Pencere "kaydettim" onayıyla Devam'a basılmadan kapanmaz: kapat düğmesi gizlenir, katman
-// kilitlenir ve Esc, oyun kolunun geri düğmesi ve dışarı tıklama onu kapatmaz (02-state-dom.js closeLayer). Program
+// kilitlenir ve Esc, oyun kolunun geri düğmesi ve dışarı tıklama onu kapatmaz (02-state-dom.js closeLayer). Köşedeki
+// DJ oynatıcısının kartı açan düğmesi de kilitli katmanı kapatmaz (23-dj.js djOpenFromDock, lockedLayer). Program
 // kapatırsa (ör. oturum kapanması) kod onaylanmamış sayılır. opts: { trigger, rotated }
 function openRecoveryCodeDialog (code, opts) {
   const o = opts || {}

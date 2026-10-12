@@ -426,6 +426,14 @@ function findLayer (name) {
   return found.length ? found[0] : null
 }
 
+// En üstteki kilitli katman veya null. Kilitli katman açıkken başka bir yüzeyden (ör. 23-dj.js köşedeki oynatıcının
+// DJ'yi Aç düğmesi) veya kendiliğinden katman açılmaz: openLayer ve closeLayersAbove alttaki katmanları odağı geri
+// vermeden kapatır, bu yolda kilide bakılmaz.
+function lockedLayer () {
+  const found = layers.filter((layer) => layer.locked === true)
+  return found.length ? found[found.length - 1] : null
+}
+
 function onLayerKeydown (e) {
   const layer = topLayer()
   if (!layer) return

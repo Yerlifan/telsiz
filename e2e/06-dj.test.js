@@ -625,6 +625,49 @@ test('Ayarlar açılınca YouTube oynatıcısı köşeye alınır, çalmaya deva
   await A.waitForFunction(() => !findLayer('status-menu') && !dj.docked)
 })
 
+// Kurtarma kodu penceresi (41-kurtarma.js) "kaydettim" onayı olmadan kapanmaz (kilitli katman). Köşedeki oynatıcı
+// pencerenin de üstünde durur: kartı açan düğmesi pencereyi ve Ayarlar'ı kapatmaz, odağı pencereye geri verir. Kartı
+// gösteren öteki yol (djReveal: /kuyruk, arama sonucu, telsiz kartındaki Telsiz DJ düğmesi) telefonda DJ sayfasını
+// açardı, sayfa açılışı da alttaki katmanları odağı geri vermeden kapattığı için pencereyi kapatırdı.
+test('kurtarma kodu penceresi açıkken köşedeki oynatıcının kartı açan düğmesi ve DJ sayfası pencereyi kapatmaz', async () => {
+  const { A } = W
+  await A.evaluate(() => openSettings('account', null))
+  await A.waitForSelector('#set-recovery-section')
+  await A.waitForFunction(() => dj.docked === true, null, { timeout: h.LONG })
+  await A.click('#set-recovery-create')
+  await A.waitForSelector('#set-recovery-form:not([hidden])')
+  await A.fill('#set-recovery-password', 'parola-deniz-1')
+  await A.click('#set-recovery-submit')
+  await A.waitForSelector('#recovery-code-dialog #recovery-dialog-code', { timeout: h.LONG })
+  const open = () => A.evaluate(() => ({
+    layers: layers.map((l) => l.name + (l.locked ? '(kilitli)' : '')),
+    settings: isSettingsOpen(),
+    focusIn: document.getElementById('recovery-code-dialog').contains(document.activeElement)
+  }))
+  const locked = { layers: ['settings', 'app-dialog(kilitli)'], settings: true, focusIn: true }
+  assert.deepEqual(await open(), locked)
+  assert.equal(await h.reachable(A, '#dj .dj-dock-open'), true, 'kartı açan düğme pencerenin üstünde, basılabilir')
+  await A.click('#dj .dj-dock-open')
+  await h.sleep(500)
+  assert.deepEqual(await open(), locked, 'DJ kartını açan düğme pencereyi kapatmadı, odak pencerede')
+  // Telefonda kart sayfada açılır: kendiliğinden gösterme (djReveal) sayfayı açmaz
+  await A.setViewportSize({ width: 390, height: 844 })
+  await A.waitForFunction(() => document.getElementById('dj').classList.contains('is-sheet-mode'))
+  await A.evaluate(() => djReveal(null))
+  await h.sleep(500)
+  assert.deepEqual(await open(), locked, 'DJ sayfası açılmadı, pencere kapanmadı')
+  await A.setViewportSize({ width: 1440, height: 900 })
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-sheet-mode'))
+  // Onaydan sonra pencere kapanır, Ayarlar kapanınca oynatıcı yerine döner
+  await A.check('#recovery-dialog-saved')
+  await A.click('#recovery-dialog-continue')
+  await A.waitForSelector('#recovery-code-dialog', { state: 'detached' })
+  await A.keyboard.press('Escape')
+  await A.waitForFunction(() => !isSettingsOpen())
+  await A.waitForFunction(() => !dj.docked)
+  await fakePlaying(A, 'pencere ve Ayarlar kapanınca çalıyor')
+})
+
 test('telefon 390: DJ sayfası kapalıyken oynatıcı köşede çalar, DJ\'yi aç sayfayı açar', async () => {
   const { A } = W
   await A.setViewportSize({ width: 390, height: 844 })
