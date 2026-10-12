@@ -764,6 +764,12 @@ function castRenderStage (mode, sc, remote) {
     return
   }
   const n = castBuildStage()
+  // Kendi paylaşımının önizlemesinde Tam Ekran düğmesi yoktur. Tam ekrandaki oyun masası küçültülünce veya izlenen
+  // paylaşım bitince sahne bu kipe düşer: tam ekrandan (sayfa içi kırpma dahil) çıkılır, odak gizlenen Tam Ekrandan
+  // Çık düğmesindeyse başlığın görünen ilk düğmesine gider
+  const leaveFull = mode === 'own' && castState.full
+  const fullFocus = leaveFull && document.activeElement === n.full
+  if (leaveFull) castExitFull(false)
   const opening = root.hidden
   root.hidden = false
   root.setAttribute('data-mode', mode)
@@ -817,6 +823,7 @@ function castRenderStage (mode, sc, remote) {
   } else {
     castRenderWatch(n, remote[castState.watching] || null, castState.watching)
   }
+  if (fullFocus) focusNode([n.quality, n.float, n.ownMin, n.stop].filter((b) => !b.hidden && b.getClientRects().length > 0)[0] || n.stop)
   if (opening) {
     castObserve(true)
     castRenderDock()
