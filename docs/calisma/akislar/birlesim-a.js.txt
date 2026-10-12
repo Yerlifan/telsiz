@@ -1,0 +1,103 @@
+export const meta = {
+  name: 'birlesim-a',
+  description: 'İstek zinciri A (G2, G6, G7, G9, G10, G12, G13, G14) dalını main ve zincir B birleşimine (istek/birlesim) birleştir, testle, bağımsız incele ve düzelt',
+  phases: [
+    { title: 'Birleştirme', detail: 'istek/a dalını istek/birlesim dalına birleştir, çakışmaları çöz, tam test' },
+    { title: 'İnceleme', detail: 'üç alanda kaybolan davranış ve bütünleşme hatası arama, şüpheci doğrulama' },
+    { title: 'Düzeltme', detail: 'doğrulanan bulguları düzelt ve yeniden test et' }
+  ]
+}
+
+const WT = '/home/user/wt/d'
+const ANA = '/home/user/ps5-pc-communication'
+const PLAN = ANA + '/docs/calisma/istek-plani.md'
+const RAPOR = ANA + '/docs/calisma/raporlar/'
+
+const KURALLAR = `Kurallar:
+- Yalnızca ${WT} çalışma kopyasında (dal istek/birlesim) çalış. ${ANA}, /home/user/wt/a, /home/user/wt/b ve /home/user/wt/c başka işlerindir, onlarda hiçbir dosyayı değiştirme (okuyabilirsin). docs/calisma klasörüne dokunma.
+- Asla push etme. git stash, git checkout, git switch, git restore, git reset --hard, git rebase, git commit --amend ve git clean kullanma. Dalları silme ya da taşıma.
+- CONTRIBUTING kuralları geçerli: istemci kodu ES2017, innerHTML yok, kodda noktalı virgül yok, kod, yorum ve belgede uzun ve kısa tire yok, düğme etiketlerinde her kelime büyük harfle başlar, TR ve EN anahtarlar eksiksiz ve eşleşik, belge çiftleri (MIMARI/ARCHITECTURE, README/README.en, CONTRIBUTING/CONTRIBUTING.en, CHANGELOG çifti, TASARIM/DESIGN, SECURITY) birlikte güncellenir, başka bir uygulamanın ya da oyunun marka adı geçmez. CSS'te grid, gap, clamp, :is, :where, aspect-ratio ve inset yasak.
+- Commit mesajı Türkçe olsun ve sonuna bir boş satır ve şu iki satırı ekle:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+- Chromium /opt/pw-browsers altında hazır, playwright install çalıştırma. Makinede başka ajanlar da test koşturabilir. Bir e2e testi zamanlama yüzünden düşerse bir kez yeniden çalıştır, ikinci kez düşen test gerçek hatadır. Hiçbir testi atlama, devre dışı bırakma ya da gevşetme.
+- Doğrulayamadığın bilgiyi doğruymuş gibi yazma.`
+
+const BAGLAM = `Telsiz deposu. ${WT} çalışma kopyası istek/birlesim dalında. Bu dal main'den (cea35a2: Renk kart oyunu PR #43 ve Hexball PR #45 dahil) açıldı ve içine istek/b zinciri birleştirildi ("git -C ${WT} log --merges --oneline" ile bak: "İstek zinciri B'yi birleştir" ve ardından gelen "Birleştirme: ..." düzeltmeleri). istek/b şu grupları içerir: G0 (iskele), G1 (masaüstü pencere ve boşta kanalları), G3 (Telsiz DJ çekirdeği), G4 (anahtarsız YouTube araması), G5 (kalıcı YouTube çerçevesi), G8 (otomatik boşta, 40-bosta.js), G11 (yüzen pencereler, 39-yuzen.js), G16 (içerik şikâyeti: Mesajı Bildir, Kişiyi Bildir, Ayarlar > Üyeler > Şikâyetler).
+Şimdi birleştirilecek istek/a dalı f5e202d tabanından (Renk'ten önce) açıldı ve G0 commit'leri istek/b ile ortaktır. istek/a şu grupları içerir: G2 (konuşma başına taslak ve ek sızıntısı), G6 (profil eşitlemesi, profil kartı düzeni), G7 (kapak fotoğrafı, coverUploadId), G9 (gezinme 1: 38-gezinme.js geçmiş yığını, okunmamış ayracı, yeni mesaj kapsülü, Özel mesajlar grubu), G10 (gezinme 2: konuşma önbelleği, kısayollar, "50+" rozeti, telefonda Ses Odaları düğmesi, orta genişlik), G12 (yedi yeni tema, ton belirteçleri), G13 (özgün tasarım "Telsiz yönü": Kayıt Defteri mesaj düzeni varsayılan, Sağırlaştır yerine Hoparlör, durum LED'i, QSL profil kartı, düzen belirteçleri), G14 (kurtarma kodu, Parolamı Unuttum, 41-kurtarma.js, E2EE.recovery).
+Planın tamamı ${PLAN} dosyasında (grupların bölümleri, 3.1 numara ve yuva dağıtımı, 3.3 çakışmayı azaltan kurallar). Grupların uygulama ve inceleme raporları ${RAPOR} altında. Dosya numaraları ve e2e yuvaları çakışmıyor (main: 33-37, 43-46, e2e 16 ve 24. istek/b: 39, 40, e2e 18, 20, 25. istek/a: 38, 41, e2e 17, 19, 21, 22 olabilir).
+Beklenen çakışma ve etkileşim yerleri: public/i18n.js (grup işaretleri, iki sözlük), public/index.html ve public/sw.js (bütün yeni dosyalar sırayla), public/js/06-messages.js (G9, G10, G13 mesaj düzeni ile G3 DJ duyurusu ve G16 Mesajı Bildir), public/js/05-poll.js (G9 ve G10 ile G8 idle ve tab parametreleri), public/js/13-profile.js (G6, G7, G13 QSL kartı ile G16 Kişiyi Bildir), public/js/11-settings.js (G12 temalar, G13 başlıklar, G14 Kurtarma Kodu ile G8 Gizlilik, G11 Ses ve Görüntü, G16 Şikâyetler), public/js/04-meta.js ve 12-init.js, public/js/10-voice.js ve telsiz kartı (G13 Hoparlör ile Renk ve Hexball Oyun düğmesi, G11 Yüzen Pencere), CSS dosyaları (G12 ve G13 belirteçleri ile Renk, Hexball, G3, G11 CSS'leri), src/app.js ve src/auth.js (G7, G14 ile G8, G16 uçları), CHANGELOG ve belge çiftleri.`
+
+const birlesim = await agent(`${BAGLAM}
+
+Görevin: istek/a dalını istek/birlesim dalına birleştirmek.
+1. ${WT} içinde "git merge --no-ff istek/a" çalıştır. Birleştirme mesajı: "İstek zinciri A'yı birleştir (G2, G6, G7, G9, G10, G12, G13, G14)" ve kurallardaki iki satır.
+2. Her çakışmada iki tarafın niyetini anla ("git log -p f5e202d..istek/a -- <dosya>" ve "git log -p f5e202d..HEAD -- <dosya>" ile). İki tarafın davranışını da koru, hiçbir tarafın özelliğini kaybetme. G13'ün yeni mesaj düzeni ve adlandırmaları (Hoparlör, LED, QSL) Renk, Hexball, G3, G11 ve G16'nın eklediği öğelere de uygulanmalı, eski adlar yeni öğelerde kalmamalı. i18n.js'te grup işaretleri ve iki sözlüğün eşleşikliği korunmalı. CHANGELOG çiftinde yayımlanmamış bölümde bütün maddeler kalmalı. index.html ve sw.js'te bütün yeni dosyalar yer almalı, sıra numaraya göre olmalı.
+3. Çakışmasız birleşen ama birbirini etkileyen yerleri de ara: G12 ve G13 temalarının ve belirteçlerinin Renk, Hexball, Telsiz DJ, yüzen pencere ve şikâyet arayüzlerinde de tanımlı olması (ör. yeni temalarda eksik değişken), G9 ve G10 gezinme geçmişinin oyun sahnesi, yüzen pencere ve şikâyet penceresi katmanlarıyla birlikte çalışması (geri tuşu), G9 okunmamış ayracı ve kapsülünün DJ duyuruları ve şikâyet işlemleriyle uyumu, G14 kurtarma uçlarının G16 sunucu durumu ve G8 oturum alanlarıyla uyumu, G7 kapak yüklemesinin G16 sınırlarıyla uyumu, denetle.js kuralları.
+4. Birleştirmeyi commit'le. Sonra sırayla çalıştır: "npm run denetle", "npm test", "cd desktop && npm test", ardından tam e2e paketi "npm run test:e2e". Düşen her testin kök nedenini bul ve "Birleştirme: ..." başlıklı ayrı commit'lerle düzelt. Bütün testler temiz geçene kadar devam et.
+${KURALLAR}
+Sonuç olarak şunları yaz: çakışan dosyalar ve her birinde nasıl çözdüğün, çakışmasız ama etkileşen yerlerde ne bulup ne yaptığın, düzeltme commit'leri, son test sayıları (denetle dosya sayısı, npm test, desktop test, e2e geçen ve düşen), açık kalanlar.`, { label: 'birleştir', phase: 'Birleştirme' })
+
+const ALANLAR = [
+  { k: 'mesaj-gezinme', p: 'Alan: mesajlar, gezinme ve poll. public/js/06-messages.js, 38-gezinme.js, 05-poll.js, 15-dm.js, 12-init.js, 04-meta.js, 02-state-dom.js katmanları, 07-attachments.js (G2 taslak), 23-dj.js duyuruları, G16 Mesajı Bildir ve şikâyet penceresi, 40-bosta.js idle ve tab parametreleri, 36-oyun.js davet kaydı. Geri tuşunun oyun sahnesi, yüzen pencere, şikâyet penceresi ve DJ köşe oynatıcısıyla davranışı, Kayıt Defteri ve Klasik düzende DJ duyurusu ve Bildir düğmesi, okunmamış ayracı ile kapsülün yeni mesaj türleriyle uyumu, konuşma önbelleğinin otomatik boşta ve şikâyet sayısı poll alanlarıyla uyumu. İlgili e2e dosyaları: 02-frekans, 03-sosyal, 06-dj, 11-roller, 18-otomatik-bosta, 19-gezinme.' },
+  { k: 'profil-ayar', p: 'Alan: profil, kimlik, kurtarma ve ayarlar. public/js/13-profile.js (G6, G7, G13 QSL kartı ile G16 Kişiyi Bildir), 16-identity.js, 41-kurtarma.js, 03-auth.js, 11-settings.js (G12 temalar, G13 başlıklar, G14 Kurtarma Kodu, G8 Gizlilik, G11 Ses ve Görüntü, G16 Şikâyetler, Renk ve Hexball ayarları varsa), src/app.js, src/auth.js, src/hub.js, src/i18n.js (G7, G14 ile G8, G16 uçları ve durum alanları, hız sınırları, temizlik). Sunucu durum dosyasında yeni alanların birlikte yüklenip kaydedilmesi, eski durum dosyasıyla açılış. İlgili e2e dosyaları: 01-kurulum, 04-ayarlar, 11-roller, 12-anahtarsiz-kayit, 17-profil, 21-kurtarma.' },
+  { k: 'tasarim-metin', p: 'Alan: tasarım, temalar, metinler, belgeler ve dağıtım. public/css altındaki bütün dosyalar (G12 ve G13 belirteç ve tema kuralları ile oyun.css, renk.css, hexball.css, cast.css, yuzen.css, dj.css, şikâyet stilleri), public/theme-init.js varsa, public/i18n.js (iki sözlüğün eşleşikliği, grup işaretleri, G13 adlandırmasının Renk, Hexball, G3, G11, G16 metinlerine uygulanması, kullanılmayan ya da eksik anahtar), public/index.html ve public/sw.js (bütün yeni dosyalar, sıra, CACHE_NAME ve paket sürümü), CHANGELOG çifti, README çifti, docs/MIMARI.md, docs/ARCHITECTURE.md, docs/TASARIM.md, docs/DESIGN.md, CONTRIBUTING çifti, SECURITY.md, desktop/README. Yeni temalarda oyun ve yüzen pencere arayüzlerinin okunurluğu (renkler yalnızca belirteçle mi, eksik belirteç var mı), belgelerin birleştirmeden sonraki davranışla çelişmesi. İlgili e2e dosyaları: 04-ayarlar, 08-tanitim, 16-oyun, 20-yuzen, 22 numaralı tasarım dosyası varsa, 24-hexball.' }
+]
+
+const BULGU = {
+  type: 'object',
+  properties: {
+    bulgular: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          onem: { type: 'string', enum: ['yuksek', 'orta', 'dusuk'] },
+          dosya: { type: 'string' },
+          ozet: { type: 'string' },
+          senaryo: { type: 'string' },
+          oneri: { type: 'string' },
+          gercek: { type: 'boolean', description: 'şüpheci doğrulamadan sonra bulgu gerçek mi' },
+          kanit: { type: 'string', description: 'doğrulamanın kanıtı (kod satırı, deneme betiği çıktısı, test)' }
+        },
+        required: ['onem', 'dosya', 'ozet', 'senaryo', 'gercek', 'kanit']
+      }
+    },
+    testler: { type: 'string' }
+  },
+  required: ['bulgular', 'testler']
+}
+
+phase('İnceleme')
+const incelemeler = await parallel(ALANLAR.map((a) => () => agent(`${BAGLAM}
+
+istek/a dalı istek/birlesim dalına birleştirildi ve testleri geçirildi. Birleştiren ajanın raporu:
+${typeof birlesim === 'string' ? birlesim : JSON.stringify(birlesim)}
+
+Bağımsız bir inceleyicisin. Görevin birleştirmenin bir tarafın davranışını kaybettirdiği ya da iki tarafın değişikliğinin birlikte yanlış çalıştığı yerleri bulmak. istek/a'nın birleştirme commit'ini "git -C ${WT} log --merges --oneline -3" ile bul (en yenisi). "git -C ${WT} diff <birleştirme>^1 <birleştirme>" önceki istek/birlesim'e ne geldiğini, "git -C ${WT} diff <birleştirme>^2 <birleştirme>" istek/a'ya ne geldiğini gösterir. Sonraki "Birleştirme: ..." commit'lerine de bak.
+${a.p}
+Her bulgu için somut bir başarısızlık senaryosu ver. Bulguyu bildirmeden önce kendin şüpheci olarak çürütmeye çalış: kodu oku, gerekiyorsa scratchpad altında küçük bir deneme betiği yaz ya da ilgili testi çalıştır. Gerçek olduğuna emin olduklarında gercek=true, emin olmadıklarında gercek=false yaz ve kanıtı ekle. Zevk meselesi olan üslup önerilerini bildirme. Bu aşamada hiçbir dosyayı değiştirme ve commit atma.
+${KURALLAR}`, { label: 'incele:' + a.k, phase: 'İnceleme', schema: BULGU })))
+
+const dogrulanan = []
+incelemeler.forEach((r, i) => {
+  if (!r) return
+  r.bulgular.filter((b) => b.gercek).forEach((b) => dogrulanan.push(Object.assign({ alan: ALANLAR[i].k }, b)))
+})
+const toplam = incelemeler.filter(Boolean).reduce((n, r) => n + r.bulgular.length, 0)
+log('inceleme: toplam bulgu ' + toplam + ', gerçek bulunan ' + dogrulanan.length)
+
+let duzeltme = null
+if (dogrulanan.length > 0) {
+  phase('Düzeltme')
+  duzeltme = await agent(`${BAGLAM}
+
+istek/a dalı istek/birlesim dalına birleştirildi. Bağımsız inceleme şu bulguları gerçek buldu. Hepsini düzelt.
+${JSON.stringify(dogrulanan, null, 1)}
+
+Her bulguyu kodda yeniden doğrula. Gerçek olmadığını gördüğün bir bulgu olursa düzeltme ve nedenini yaz. Düzeltmeleri "Birleştirme: inceleme düzeltmeleri (...)" başlıklı bir ya da birkaç commit olarak at. Gerekiyorsa test ekle. Commit'ten önce "npm run denetle" ve "npm test" geçmeli, dokunduğun alanın e2e dosyalarını da çalıştır. En sonda tam e2e paketini ("npm run test:e2e") ve "cd desktop && npm test" komutunu bir kez daha çalıştır.
+${KURALLAR}
+Sonuç: düzeltilen ve reddedilen bulgular, commit'ler, son test sayıları.`, { label: 'düzelt', phase: 'Düzeltme' })
+}
+
+return { birlesim, incelemeler, dogrulanan: dogrulanan.length, toplam, duzeltme }
