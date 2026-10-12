@@ -533,7 +533,9 @@ describe('yüklemeler', () => {
       // Bağlanmış yükleme ikinci kez eklenemez
       h.expectStatus(await h.post(ctx, '/api/messages', ayse.token, { channelId: 1, body: h.envelope(), uploads: [id] }), 400, 'bad_uploads')
 
-      for (const bad of ['0'.repeat(32), 'xyz', id.toUpperCase(), id + '0', '..%2f..%2fstate.json']) {
+      // Büyük harfli kimlik yalnızca kimlikte a ile f arasında harf varsa farklıdır, kimlik yalnızca rakamsa denenmez
+      const upperIds = id === id.toUpperCase() ? [] : [id.toUpperCase()]
+      for (const bad of ['0'.repeat(32), 'xyz', ...upperIds, id + '0', '..%2f..%2fstate.json']) {
         const r = await h.get(ctx, '/api/uploads/' + bad, ayse.token)
         assert.equal(r.status, 404, bad)
       }
