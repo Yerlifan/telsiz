@@ -1,0 +1,440 @@
+# HEXBALL araştırma raporu (istek 4)
+
+Depoda hiçbir dosyayı değiştirmedim. Bütün denemeler `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/hexball/` altında:
+- `dc-olcum.js` ve `dc-olcum.out`: tek sayfada iki bağlantıyla veri kanalı ölçümü.
+- `uygulama-dc.js`, `uyg-yok.out`, `uyg-hep.out`, `uyg-sonra.out`: gerçek uygulamada (setupWorld, 4 kişi) veri kanalı denemesi.
+- `fizik-proto.js` ve `fizik-proto.out`: fizik ve ikili kodlayıcı için ön deneme.
+
+Satır numaraları HEAD `416d18f` üzerinde okundu. `public/js/34-oyun-masa.js` dosyasında başka bir işin kaydedilmemiş değişikliği var. 36 ve 37 numaralı dosyalar henüz yok.
+
+---
+
+## 1. Kullanıcının isteği (kelimesi kelimesine)
+
+"Renk oyunu yanında hexball oyunu da ekleyelim."
+
+Varsayım: HaxBall benzeri, üstten görünümlü, gerçek zamanlı fizik futbolu. Ses odasındakiler arasında oynanır.
+
+---
+
+## 2. Mevcut durum
+
+**Oyun taşıması bugün (genel `game` sinyali).**
+- `public/voice.js:117-119`: `GAME_KEYS`, `GAME_TEXT_RE`, `MAX_GAME_CHARS = 11000`.
+- `public/voice.js:810-814`: `validGameSignal`.
+- `public/voice.js:3286-3290`: `processSignal` oyun dalı.
+- `public/voice.js:3389-3396`: `verify`.
+- `public/voice.js:3483` `gameEvent`, `3497` `sendGame`.
+- Olaylar: `peer-ready` 3171, `peer-leave` 5277, `reset` 5391.
+- Dışa açma: `sendGame` 5775, `gameUtils` 5815.
+- Bağlantı `public/js/10-voice.js:40-41` (`onGameEvent` → `gameOnVoiceEvent`) ve `10-voice.js:187` (`gameRender`).
+
+Her ileti tek bir `POST /api/voice/signal` isteğidir. Sınırlar:
+- Kullanıcı başına 120 istek / 10 sn (`src/app.js:99-100`).
+- Zarf en çok 32000 karakter (`src/app.js:62`).
+- Teslim sunucunun long-poll kuyruğundan geçer.
+
+60 Hz fizikte 7 kişiye 30 Hz anlık görüntü saniyede 210 istek eder, sınır ise saniyede 12. Gerçek zamanlı oyun bu hattan yürümez.
+
+**Masa yöneticisi ve protokol.**
+- `public/js/33-oyun-protokol.js`: `MAX_SEATS = 8` (satır 17) ve iç ve düz ileti biçimleri.
+- `public/js/34-oyun-masa.js`:
+  - min ve max koltuk 173. satırda.
+  - `newGame` 1193'te, uygulama çağrıları 261-283, 370, 565-602, 824-825, 1455-1478'de.
+  - `DELAYED_MOVES = ['last','catch']` bütün uygulamalar için ortak (36, 1315).
+  - Oyun sürerken gelen yeni katılımcıya `reject {why:'started'}` gider (540).
+  - `settle()` (1495-1525) her yöntem çağrısında `JSON.stringify(buildModel())` yapar ve `env.onChange()` çağırır. Bu yüzden 60 Hz akış masa yöneticisinden geçemez.
+- 5.1 sözleşmesi `renk-tasarim.md:782-826` içindedir.
+
+**WebRTC bağlantıları (`public/voice.js`).**
+- `createPeer` 2738:
+  - `new RTCPeerConnection({ iceServers })`, `bundlePolicy` verilmiyor (2745).
+  - Yalnız mikrofon izi ekleniyor (2810).
+  - Veri kanalı ve `ondatachannel` yok. Depoda `createDataChannel` hiç geçmiyor.
+- Kibar ve kaba eş kuralıyla yeniden anlaşma:
+  - `sendOffer` 2952, `rollback` 3041, `afterStable` 3164.
+  - `syncSendersNow` sonunda `needsNegotiation(peer)` doğruysa teklif gönderiliyor (3756). `needsNegotiation` (3550) yalnız aktarıcılara bakıyor.
+- m satırı sayan mantık: `mlineCount` (3121-3123) bütün `m=` satırlarını sayar. Şu işlevler bu sayıya göre ekran ve kamera kararı verir:
+  - `answerFailed` (3103-3119, `grew`).
+  - `offerFailed` (3089).
+  - `tooLargeRebuild` (3131-3153, `mlines > 1`).
+- Kapanış `closePeer` (2701), yeniden kurulum `rebuildPeer` (3155).
+- Yükleme hızı tahmini: `uplinkEstimate` (5189).
+
+**Sahne.** `public/js/22-cast.js` kipleri `watch | own | cams` (12-24, 238). Renk tasarımı buraya `game` kipini ve `gameRenderStage(container)` kancasını ekliyor (`renk-tasarim.md` 6.4).
+
+**Klavye ve oyun kolu.**
+- Bas konuşun varsayılan tuşu `KeyV` (`voice.js:308`). Oyun kolu bas konuş ataması `voice.js:2457-2500`.
+- `21-band.js padPoll` (435-459): L1 ve R1 frekans değiştirir, Daire üstteki katmanı kapatır.
+- Genel ok tuşu gezintisi yok, ok tuşları öğe düzeyinde dinleniyor.
+- `Permissions-Policy` içinde `gamepad` kısıtı yok (`src/http-util.js:25`, `desktop/src/lib/static-files.js:26`).
+- Masaüstünde arka plan kısması kapalı (`desktop/src/main.js:121-122, 766`).
+
+**Kurallar.**
+- İstemci ES2017 (`CONTRIBUTING.md:143`).
+- "Gerçek zamanlı iletişim yalnızca long-polling" kuralı (`CONTRIBUTING.md:150`). Bu kural istemci ile sunucu arasını anlatıyor, eşler arası WebRTC'yi değil. Belgede açıklanmalı.
+- `voice.js` güvenliğe hassas alan (175), protokol değişikliği önce issue'da tartışılır (184).
+- `/js/` altındaki `^[0-9a-z-]+\.js$` dosyaları sunucu (`src/app.js:282-288`) ve masaüstü bütünlük listesi tarafından kendiliğinden sunulur. Masaüstünde değişiklik gerekmez.
+- `docs/MIMARI.md` "Sınırlar" bölümünde (203 sonrası) ses için "grup anahtarını bilen kişi sunucuyla birlikte sinyali sahteleyip araya girebilir" açıkça yazmıyor. Bu belgede bir boşluk.
+
+---
+
+## 3. Yapılabilirlik ve kısıtlar
+
+### 3.1 Taşıma: veri kanalı ölçümleri (Chromium 141, yeniden üretildi)
+
+**Tek sayfada iki bağlantıyla (`dc-olcum.out`):**
+
+| Durum | Teklif (karakter) | Yanıttan önce aday | Sonuç |
+|---|---|---|---|
+| Yalnız ses (bugün) | 1496, 1 m satırı | 2 | |
+| İlk teklifte iki tarafta negotiated kanal | 2032, 2 m satırı | **4** (mid 0 ve 1) | İki taraf `open`, gidiş dönüş medyan 0,3 ms, 200 iletide kayıp 0 |
+| Yalnız bir tarafta kanal (eski istemciyi taklit) | | | Karşı taraf `m=application` satırını kabul ediyor, bu tarafın kanalı yine de `open` oluyor, gönderim hatasız ama karşıda alan yok. **"Açık" görünmek karşı tarafın kanalı olduğu anlamına gelmez, uygulama düzeyinde el sıkışma şart** |
+| Bant içi (DCEP) | | | Karşı tarafa `ondatachannel` geliyor (`ordered:false, maxRetransmits:0` korunuyor) |
+| Bağlantı kurulduktan sonra ekleme ve yeniden teklif | 1831 | Yeni aday **0** | İki taraf `open`, bağlantı sürüyor |
+| `max-bundle` ile ilk teklifte kanal | | 2 | Karşılaştırma için |
+
+Diğer ölçümler:
+- 210 ileti/sn hızında 120 baytlık 420 ileti gönderildi, hepsi alındı, `bufferedAmount` 0 kaldı.
+- `sctp.maxMessageSize` 262144.
+
+**Gerçek uygulamada, 4 kişi, sunucu ve `public/` değiştirilmeden, RTCPeerConnection sarmalanarak (`uyg-*.out`):**
+- Bugün katılımda kişi başına 6, 6, 6, 6 sinyal.
+- "Her bağlantıda baştan kanal" ile 6, 7, 8, 9 sinyal: başlatan taraf her bağlantıda fazladan aday gönderiyor. STUN ve birden çok ağ arayüzü olan gerçek ağda bu artış daha büyük olur (tahmin). Kanallar açıldı, iletiler aktı, konsol temizdi.
+- "Sonradan ekle":
+  - Bütün bağlantılara kanal eklendi, ardından Deniz kamerayı açtı. Uygulamanın kendi yeniden anlaşması `m=application` satırını kendiliğinden taşıdı.
+  - Deniz ile diğerleri arasında kanallar açıldı, kamera bozulmadı, `errorCode` null kaldı.
+  - Bu yeniden anlaşmada yanıtlayan taraf tek sinyal (yanıt) gönderdi, yeni aday sinyali gözlenmedi.
+  - Yeniden anlaşmayan çiftler (Ece ile Mert) `connecting` durumunda kaldı.
+
+**Sonuç:** gerçek zamanlı veri yalnızca ses bağlantılarının üstüne açılan veri kanalıyla taşınabilir.
+- En ucuz yol: kanalı **gerektiğinde**, yalnız ev sahibi ile koltuk arasında açmak. Mevcut yeniden anlaşma yolu (`syncScreenSenders` → `needsNegotiation` → `sendOffer`) yeterli, çakışma çözümü zaten var.
+- Ölçek: ses tam örgü, oyun yıldız düzeni. Ev sahibi en çok 7 kanal açar, oyuncular yalnız ev sahibiyle konuşur.
+
+### 3.2 Şifreleme
+
+Veri kanalı SCTP üzerinden DTLS içinde gider, DTLS zorunludur ve şifreleme eşten eşedir. TURN kullanılsa da aktarıcı içeriği okuyamaz.
+
+Bağlantının kimliği, grup anahtarıyla mühürlü sinyallerdeki DTLS parmak izine dayanır. Yani güven modeli sesle aynıdır: grup anahtarını bilen ve sunucuyu işleten biri (S3) sinyali sahteleyip araya girebilir.
+
+### 3.3 Fizik ön denemesi (`fizik-proto.out`)
+
+- 8 oyuncu ve top ile Node'da adım başına 3,3 µs.
+- En yüksek top hızı 11,65 birim/adım. 2 alt adımla 5,8 birim/alt adım çıkıyor, bu direk yarıçapı 7'den ve top yarıçapı 10'dan küçük. Tünelleme beklenmez.
+- İkili anlık görüntü 8 oyuncuda 102 bayt.
+- Ev sahibinin yükleme hızı, 30 Hz × 7 alıcıda paket başına yaklaşık 60 bayt ek yük varsayımıyla, yaklaşık 272 kbps (tahmin).
+
+### 3.4 Arka plan zamanlayıcıları (ev sahibi için kritik)
+
+- Gizli sekmede `requestAnimationFrame` durur.
+- Chrome 88 kuralları:
+  - Görünür ya da son 30 sn'de ses çıkarmış sayfa yalnız en az kısmaya uğrar. Sessiz ses izi sayılmaz.
+  - WebRTC kullanan ya da 5 dakikadan kısa süredir gizli olan sayfada zamanlayıcılar saniyede bir denetlenir.
+  - Yoğun kısma (dakikada bir) WebRTC varken uygulanmaz.
+
+  [developer.chrome.com/blog/timer-throttling-in-chrome-88](https://developer.chrome.com/blog/timer-throttling-in-chrome-88). Sayfa açılamadı (DNS), bilgi arama özetinden, İngilizce metinle doğrulanmalı.
+- Sonuç: tarayıcıda ev sahibinin sekmesi arka plana gidip oda sustuğunda fizik saniyede bire düşebilir. Masaüstü uygulaması bu kısmayı kapatıyor (yukarıdaki satırlar).
+
+### 3.5 Masa yöneticisi ve 5.1 sözleşmesi
+
+Sözleşme genel olarak uygun, ama yedi noktada not var:
+1. 60 Hz akış masa yöneticisinden geçemez (`settle()` her çağrıda JSON üretiyor). Masa yalnız düşük hızlı işleri taşımalı: lobi, takım seçimi, maç başlatma, gol ve sonuç.
+2. `rules` tek bir koddur. Süre, gol sınırı ve saha boyutu ön ayarlarla taşınır (`quick | classic | long`).
+3. Masa `play` aşaması dışında hamle kabul etmiyor. Takım seçimi bu yüzden uygulamanın kendi `teams` alt aşamasında yapılır: masa Başlat → Takımlar → Maçı Başlat.
+4. `newGame` yalnız oyuncu listesini alıyor. Tekrar oynamada takımların korunması için maç sonu uygulama içinde `result` alt aşamasıdır, `isOver` yalnız ev sahibi masayı bitirirse ya da oyuncu yetmezse doğru döner.
+5. Oyun sürerken yeni katılım yok (540). İlk sürümde böyle kalır: maçlar arasında "Lobiye Dön" ile yeni kişi alınır.
+6. `DELAYED_MOVES` uygulamadan bağımsız. Hexball hamle adları `last` ve `catch` olamaz. Kalıcı çözüm `A.DELAYED_MOVES` biçiminde uygulamaya özel liste.
+7. Renk için yazılan genel `game.*` metinleri kart oyununa özgü ("Kurpiyer", "Yeni El", "Desteyi bu cihaz karıştırır", `renk-tasarim.md` 7.1). Genel anahtarlar tarafsız olmalı ("Ev Sahibi", "Yeni Tur") ya da `game.<app>.<anahtar>` önce aranacak biçimde değiştirilebilir olmalı. Bu, 36-oyun.js yazılmadan Renk iş akışına iletilmeli.
+
+### 3.6 Cihazlar
+
+- **Oyun kolu:**
+  - Firefox `getGamepads` işlevini yalnız güvenli bağlamda veriyor ([hacks.mozilla.org](https://hacks.mozilla.org/2020/07/securing-gamepad-api/)). Chrome için aynı kısıt MDN yansısında yazıyor ([MDN yansısı](https://ligm.univ-eiffel.fr/~forax/MDN/developer.mozilla.org/en-US/docs/Web/API/Navigator/getGamepads.html)), Chromium kaynağından doğrulanamadı.
+  - Spesifikasyon DualSense'i standart model sayıyor ([w3.org/TR/2025/WD-gamepad-20250710](https://www.w3.org/TR/2025/WD-gamepad-20250710/), arama özetinden).
+  - Firefox'taki DualSense eşleme hatası 153'te kapatılmış ([bugzilla 1849039](https://bugzilla.mozilla.org/show_bug.cgi?id=1849039)).
+  - Kollar bir düğmeye basılana kadar görünmeyebilir ([dev.to](https://dev.to/trkb/the-javascript-gamepad-api-a-practical-guide-to-reading-controller-input-2lmc), ikincil kaynak).
+- **PS5 tarayıcısı:**
+  - Resmî olmayan gizli bir tarayıcı var ([techradar](https://www.techradar.com/news/theres-a-secret-web-browser-hidden-on-ps5-heres-how-to-access-it)). WebKit'in PlayStation portu mevcut ([trac.webkit.org/r275590](https://trac.webkit.org/r275590)).
+  - PS5'te WebRTC, RTCDataChannel ve Gamepad API desteği **doğrulanamadı**. README zaten konsolda sesin doğrulanmadığını söylüyor (README.md:137). Hexball ses bağlantısına bindiği için PS5'te ancak ses çalışırsa çalışır.
+- **RTCDataChannel desteği:** Chrome 24, Firefox 22 ve Safari 11 ile sonrası ([caniuse](https://caniuse.com/mdn-api_rtcdatachannel)).
+
+### 3.7 Ad
+
+- **HaxBall:** Mario "Basro" Carbajal'ın 2010'dan beri yayımladığı bir tarayıcı oyunu ([everybodywiki](https://en.everybodywiki.com/HaxBall), [vikidia](https://fr.vikidia.org/wiki/Haxball)). Tescilli marka olup olmadığı **doğrulanamadı**, aramada kayıt çıkmadı.
+- **"Hexball":** Rezzil'in Mart 2025'te Meta Quest'te çıkardığı VR arena spor oyununun adı ([gamespress](https://gamespress.westeu-v2.propressroom.com/HEXBALL-THE-FASTEST-VR-ARENA-SPORT-HAS-ARRIVED), [meta.com](https://www.meta.com/experiences/hexball-starter-pack/1373213540596628/), [vrdb.app](https://vrdb.app/game/9057955560984471)). Tescil durumu **doğrulanamadı**.
+- Risk iki yönlü: HaxBall'a ses benzerliği ve aynı türde başka bir ürünle ad çakışması.
+
+---
+
+## 4. Önerilen çözüm
+
+### 4.1 Mimari
+
+1. **Kontrol katmanı (düşük hız, mühürlü):** mevcut masa yöneticisi ve sinyal hattı, `TelsizHexball` uygulaması 5.1 sözleşmesiyle. Koltuklar, takımlar, ön ayar, maç başlatma, goller, süre bitti ve sonuç `act` ya da `state` ile iç zarfta gider. Ev sahibi masayı kuran kişidir (Renk'teki "kurpiyer").
+2. **Gerçek zamanlı katman:** ev sahibi ile her koltuk arasında sırasız ve güvenilmez veri kanalı.
+   - Ev sahibi otoriter fizik: 60 Hz sabit adım, 2 alt adım.
+   - Oyuncudan ev sahibine girdi gider, ev sahibinden oyuncuya 30 Hz ikili anlık görüntü gider.
+   - Oyuncular ara değerlemeyle çizer: 2 anlık görüntülük (yaklaşık 66 ms) tampon, titreşime göre en çok 150 ms'ye uyar.
+
+### 4.2 `public/voice.js` (taşıma, güvenliğe hassas)
+
+Genel bir "oyun bağı" eklenir, voice.js içeriğin anlamını bilmez.
+
+```js
+  var GAME_LINK_LABEL = 'telsiz-game'
+  var MAX_GAME_DATA = 512        // bayt, fazlası atılır
+  var GAME_DATA_RATE = 240       // eş başına saniyede en çok gelen ileti, fazlası atılır
+  var GAME_LINK_BUFFER = 16384   // bufferedAmount bunu aşınca gönderim atlanır (bayat veri kuyruklanmaz)
+  // openGameLink(peerId) -> 'ok' | 'open' | 'not_in_voice' | 'private' | 'no_peer' | 'not_ready' | 'blocked' | 'unsupported'
+  // closeGameLink(peerId), gameLinkState(peerId) -> 'none' | 'connecting' | 'open'
+  // sendGameData(peerId, ArrayBuffer) -> boolean
+  // olaylar (onGameEvent): link-open, link-close, link-failed { peerId, userId }
+  // veri: opts.onGameData(peerId, userId, ArrayBuffer), eşzamanlı ve try/catch içinde, masa yöneticisinden geçmez
+```
+
+Değişecek yerler:
+
+| Yer | Değişiklik |
+|---|---|
+| `createPeer` (2738) | `pc.ondatachannel`: etiket `telsiz-game`, `ordered === false`, `maxRetransmits === 0`, eş başına tek kanal, özel aramada değil. Uymayan kanal hemen kapatılır |
+| `openGameLink` | Bant içi kanal açılır, ev sahibi tarafında `ordered:false, maxRetransmits:0`. Ardından `syncScreenSenders(peer)` çağrılır |
+| `needsNegotiation` (3550) | `peer.gameDc` varsa ve uzak tanımda `m=application` yoksa doğru döner |
+| `mlineCount` (3121) | Yalnız `m=audio` ve `m=video` satırlarını sayar. Aksi hâlde kanal ekleyen başarısız bir yeniden anlaşma ekran ya da kamera hatası sayılır (`answerFailed`, `offerFailed`, `tooLargeRebuild`) |
+| `answerFailed`, `offerFailed` | Yalnız `m=application` eklendiyse `st.linkBlocked[pid] = true` olur ve `link-failed` yayılır. Yeniden kurulum döngüsü olmaz. `resetSession` bayrağı temizler |
+| `closePeer` (2701) | Kanal işleyicileri temizlenir, açıksa `link-close` yayılır |
+| Yeni bağlantı (yeni sid) | Kanal yeni bağlantıda yoktur, ev sahibi `peer-ready` olayında yeniden açar |
+
+`10-voice.js` (40-41 kalıbı): `onGameData` → `gameOnData` (36-oyun.js etkin uygulamaya dağıtır).
+
+### 4.3 Yeni dosyalar
+
+Numaralar 36 ve 37'den sonra geliyor. Paralel işlerle numara çakışması olabilir, aşağıdaki çakışma haritasına bakın.
+
+| Dosya | Global | Görev |
+|---|---|---|
+| `public/js/38-hexball-kural.js` | `window.TelsizHexball` | 5.1 sözleşmesi, saf (aşağıda) |
+| `public/js/39-hexball-fizik.js` | `window.TelsizHexballPhysics` | Saf fizik: diskler, çarpışma, sürtünme, vuruş, saha, gol, başlama vuruşu kısıtı. Saat yok, adım sayısıyla çalışır |
+| `public/js/40-hexball-ag.js` | `window.TelsizHexballNet` | Saf ikili kodlayıcı ve çözücü, `env` ile çalışan oturum: el sıkışma, ev sahibi döngüsü, girdi kısıtları, anlık görüntü tamponu, ara değerleme, duraklatma |
+| `public/js/41-hexball.js` | `hexball*` | Tuval çizimi, klavye, dokunmatik çubuk, oyun kolu, Takımlar ve sonuç ekranları, canlı bölgeler. `gameUiRegister('hexball', ...)` ile kaydolur |
+| `public/css/hexball.css` | | Sahne, dokunmatik denetimler, takım çipleri |
+
+### 4.4 Uygulama durumu (masada, `state.b.view`)
+
+```
+{ v: 1, rules: 'quick'|'classic'|'long', ph: 'teams'|'match'|'result',
+  teams: { '<uid>': 'red'|'blue'|'spec' }, slots: { '<uid>': 0..7 },   // yuvalar maç başında atanır
+  score: { red, blue }, kick: 'red'|'blue', mt: maç no, epoch: '16 hex',
+  golden: bool, goals: [{ side, by, own, at }] (son 10),
+  result: null | { winner: 'red'|'blue'|null, why: 'time'|'score'|'golden'|'host'|'too_few' } }
+```
+
+- `privateView` null döner, gizli bilgi yok. `HIDDEN: false`. `turnOf` null döner.
+- Hamleler:
+
+| Hamle | Kim | Ne zaman |
+|---|---|---|
+| `{t:'team', side}` | herkes | `teams` ya da `result` aşamasında |
+| `{t:'set', id, side}` | ev sahibi | aynı aşamalarda |
+| `{t:'kickoff'}` | ev sahibi | Her takımda en az 1 kişi gerekir. Yeni `epoch` ve yuvalar atanır |
+| `{t:'goal', side, by}` | ev sahibi | maçta |
+| `{t:'time'}` | ev sahibi | Berabereyse `golden = true`, değilse sonuç |
+| `{t:'stop'}` | ev sahibi | maçta |
+
+- Takım başına en çok 4 kişi.
+- `ERRORS`: `not_host`, `team_full`, `bad_phase`, `teams_empty`, `game_over`, `stale`, `bad_move`.
+- `EVENTS`: `team`, `kickoff`, `goal`, `own_goal`, `time_up`, `golden`, `win`.
+
+### 4.5 Veri kanalı biçimi (ikili, little-endian, ilk bayt sürüm 1)
+
+| Tür | Yön | Alanlar | Bayt |
+|---|---|---|---|
+| 1 HELLO | E → O | epoch(8), slot u8, tickHz u8, snapHz u8 | 13 |
+| 2 HELLO_ACK | O → E | epoch(8), slot u8 | 11 |
+| 3 INPUT | O → E | seq u16, lastTick u32, buttons u8 (bit0 vuruş), ax i8, ay i8 | 11 |
+| 4 SNAP | E → O | tick u32, phase u8 (kickoff, play, goal, paused, over), kalan süre u16 (ds), skor 2×u8, ackSeq u16, top 4×i16, n u8, n×(slot u8, x, y, vx, vy i16, flags u8) | 22+10n (≤ 102) |
+
+- Konum 1/8 birim, hız 1/64 birim/adım sabit noktalı.
+- `epoch` uyuşmayan, `tick` değeri eski olan ya da boyu tutmayan ileti atılır.
+- Ev sahibi yalnız oturan ve `seat.peerId` eşleşen eşin girdisini işler.
+- Analog değer sınırlanır.
+- Eş başına en çok 120 girdi/sn işlenir.
+- Oyuncu yalnız `dealerPeer` bağından gelen SNAP iletisini alır.
+- Kanal açılınca 5 sn içinde HELLO_ACK gelmezse koltuk "Bağlantı Yok" olur (eski istemci ya da engellenmiş bağ). Maçı Başlat, takımdaki herkesin bağı hazır olana kadar pasif kalır, ev sahibi kişiyi izleyiciye alabilir ya da koltuktan çıkarabilir.
+
+### 4.6 Fizik başlangıç değerleri
+
+Oynanarak ayarlanacak. HaxBall değerlerinden kopyalanmadı.
+- Saha:
+
+| Ön ayar | Saha | Kale | Süre | Gol sınırı |
+|---|---|---|---|---|
+| `classic` | 880×440 | 140 | 5 dk | 5 |
+| `quick` | 720×360 | 120 | 3 dk | 3 |
+| `long` | 1040×520 | 160 | 10 dk | sınırsız |
+
+- Kale derinliği 30, direk yarıçapı 7.
+- Oyuncu: yarıçap 15, `inv` 0,5, ivme 0,11, vuruş tutulurken ivme 0,07, sürtünme 0,96/adım.
+- Top: yarıçap 10, `inv` 1, sürtünme 0,985.
+- Vuruş itkisi 5,6, erim yarıçaplar artı 4. Basılı tutulan vuruş bir kez vurur, bırakılınca yeniden kurulur.
+- Çarpışmalar dürtüyle, sekme katsayısı 0,5. Top ile duvar ve direk arasında 0,6.
+- Top saha çizgilerinde kalır, kale ağzı açıktır. Oyuncular 50 birim pay bırakılmış dış kutuda kalır.
+- Başlama vuruşu: topa dokunulana kadar herkes kendi yarısında kalır, savunan takım orta yuvarlağın (70) dışında bekler.
+- Golden sonra 2 sn bekleme, ardından gol yiyen takım başlar.
+- Süre bitince eşitlikte altın gol oynanır.
+
+### 4.7 Döngü, adalet ve duraklatma
+
+- Ev sahibi fiziği `setTimeout` zinciri ve `performance.now()` biriktiricisiyle yürütür, `requestAnimationFrame` kullanmaz. Çizim `requestAnimationFrame` ile yalnız görünürken yapılır.
+- İki adım arası 250 ms'yi aşarsa (ölçülen kısma) maç `paused` olur ve oyunculara "Ev sahibinin sekmesi arka planda" yazar. Masaüstünde kısma olmadığı için duraklama da olmaz.
+- Ev sahibinin kendi girdisi, oyuncuların ortalama gidiş dönüş süresi kadar (en çok 80 ms) bekletilir. Renk'teki 300 ms kuralının karşılığıdır.
+- Uyarlanır hız: `bufferedAmount` büyürse ya da `uplinkEstimate` düşükse anlık görüntü 20 Hz'e iner.
+
+### 4.8 Denetimler
+
+- **Klavye:**
+  - Ok tuşları ya da WASD ile hareket, X ya da Boşluk ile vuruş.
+  - `voice.settings().bindings` içindeki tuşlar (varsayılan `KeyV`) oyunda kullanılmaz ve engellenmez.
+  - Tuşlar yalnız sahne oyun kipindeyken, odak yazı alanında değilken ve açık bir pencere yokken dinlenir.
+- **Dokunmatik:** solda Pointer Events ve işaretçi yakalamayla sanal çubuk, sağda Vur düğmesi. Tuvalde `touch-action: none`.
+- **Oyun kolu:**
+  - Sol çubuk ya da yön tuşları hareket, Çarpı (0) vuruş. Bas konuş Çarpı'ya atanmışsa Kare (2) kullanılır.
+  - Maç sürerken `21-band.js padPoll` L1 ve R1 ile frekans değiştirmez (`gameOwnsPad()` denetimi). Daire tam ekrandan çıkar.
+- **Çizim:**
+  - Tuval 2D, `devicePixelRatio` en çok 2, sahneye sığdırılır.
+  - Renkler `tokens.css` belirteçlerinden okunur.
+  - Disklerde baş harf ya da numara bulunur, takımlar yalnız renkle ayrılmaz.
+  - Kendi diskinizde halka, vuruş tutulurken dış halka.
+- **Erişilebilirlik:** gol ve skor canlı bölgeden duyurulur. Gerçek zamanlı oyunun ekran okuyucuyla oynanamayacağı belgeye yazılır. Hareketi azalt seçeneğinde sarsıntı efekti yok.
+
+### 4.9 Arayüz akışı
+
+- Oyun düğmesi → **Oyun Seç** (Renk veya Hexball, 36-oyun.js'te yeni bir adım) → Masa Kur ve ön ayar → Lobi → Başlat → **Takımlar** → Maçı Başlat → Maç → Sonuç (Tekrar Oyna, Lobiye Dön, Masayı Kapat).
+- Sahne Renk'in `game` kipini kullanır (`22-cast.js` 6.4).
+
+### 4.10 Sunucu ve belgeler
+
+- **Sunucu değişikliği yok.** Yeni API ucu yok. Sinyal bütçesine etkisi:
+  - Bağ açarken ev sahibi koltuk başına bir teklif, oyuncu bir yanıt gönderir.
+  - Her golde ev sahibi koltuklara mühürlü durum gönderir (7 istek).
+- **i18n (tr ve en, yaklaşık 60 anahtar):** `game.hexball.name`, `desc`, `rules.{quick,classic,long}`, `rulesHint.*`, `rulesLine.*`, `team.{red,blue,spec}`, `toRed`, `toBlue`, `toSpec`, `kickoff`, `again`, `toLobby`, `stop`, `clock`, `golden`, `paused`, `goal`, `ownGoal`, `win`, `sr.goal`, `sr.score`, `link.{waiting,failed,old}`, `lag`, `controls.{keys,pad,touch}`, `kick`, `trustHost`, `trustChip`, `err.*`, `ev.*`. Gerekirse tarafsız genel anahtarlar (`game.host`, `game.hostYou`, `game.newRoundNeutral`).
+- **Belgeler:**
+  - README.md ve README.en.md: Oyunlar bölümü.
+  - docs/MIMARI.md ve ARCHITECTURE.md: oyun veri kanalı. Sınırlar bölümüne ses ve kanalda S3 araya girme notu.
+  - docs/TASARIM.md ve DESIGN.md: sahne ve belirteçler.
+  - CHANGELOG ×2.
+  - CONTRIBUTING ×2'de 11. kuralın eşler arası WebRTC'yi kapsamadığı açıklaması.
+
+---
+
+## 5. Testler
+
+**Birim:**
+- `test/oyun-veri-kanali.test.js`: `oyun-tasima.test.js` içindeki sahte WebRTC'ye `createDataChannel` ve `ondatachannel` eklenir. Sınananlar:
+  - açma, yeniden anlaşma isteği,
+  - kabul kuralları (etiket, ayarlar, tek kanal, özel arama),
+  - boyut ve hız kısıtları,
+  - `closePeer` olayı,
+  - `mlineCount` yalnız ses ve görüntü sayıyor,
+  - yalnız `m=application` eklenince ekran ve kamera hatası verilmiyor, `linkBlocked` kuruluyor.
+- `test/hexball-fizik.test.js`: çarpışma, sürtünme, vuruş kurulumu, sınırlar, gol çizgisi, başlama vuruşu kısıtı, en yüksek hızda tünelleme yok, aynı girdiyle belirlenimci sonuç.
+- `test/hexball-kural.test.js`: 5.1 sözleşmesi, ev sahibine özel hamleler, gol ve süre sınırı, altın gol, `too_few`, düşmanca `view` reddi, `last` ve `catch` adlarının kullanılmadığı.
+- `test/hexball-ag.test.js`: kodlayıcı gidiş dönüşü, bozuk ileti, sahte ağda kayıp, yeniden sıralama ve titreşim, epoch değişimi, el sıkışma zaman aşımı, girdi kısıtı, duraklatma.
+- `test/hexball-arayuz.test.js`: dosya bağlantıları, CSS kuralları, i18n kapsamı, marka denetimi (HaxBall adı karakter kodlarıyla kurulup yeni dosyalarda ve belgelerde aranır).
+
+**E2E:** `e2e/17-hexball.test.js`, Chromium ve Firefox (`h.MIC_BROWSERS`), 3 kişi.
+- Masa açma, takımlar, bağın açılması.
+- Klavye girdisiyle oyuncunun ev sahibinde yer değiştirmesi.
+- Anlık görüntü akışı.
+- Sayfa yenileyip dönen oyuncuda bağın yeniden açılması.
+- `navigator.getGamepads` init betiğiyle taklit edilerek oyun kolu girdisi.
+- 390 px'te taşma yok.
+- Konsol temiz.
+
+**Elle:**
+- Android Chrome dokunmatik, iOS Safari, Firefox, Electron.
+- PC'de DualSense ve Xbox kolu.
+- TURN arkasında iki ayrı ağ.
+- `tc netem` ile %5 kayıp ve 80 ms gecikme.
+- Ev sahibi sekmesi arka planda.
+- PS5 tarayıcısı (doğrulanamadı).
+
+---
+
+## 6. Riskler ve güvenlik
+
+- **Şifreleme:** DTLS ve eşten eşe. Grup anahtarını bilen ve sunucuyu işleten biri (S3) sinyaldeki parmak izini değiştirip araya girebilir. Bu ses için de bugün geçerli ve belgede açık yazmıyor. Oyun verisi gizli değil, risk hile ve oyunu bozmakla sınırlı.
+  - Sonraya önerilen sertleştirme: mühürlü `join` ve `state` iletilerinde DTLS parmak izlerinin bağlanması. Ses için de kazanç olur, ayrı bir issue olarak açılmalı.
+- **Yetki:** ev sahibi otoriter, oyuncu yalnız girdi gönderir. Ev sahibi hile yapabilir, bu güven notunda yazılır. Ev sahibine özel hamleler kural motorunda `not_host` ile reddedilir.
+- **Hizmet engelleme:** odadaki herhangi bir eş bant içi kanal açabilir. Tek kanal kuralı, 512 bayt sınırı, saniyede 240 ileti sınırı ve "yalnız ev sahibi bağı" kuralı bunu sınırlar.
+- **Gizlilik:** yeni sunucu üst verisi yok, yalnız teklif boyu ve zamanı. IP adresleri ses nedeniyle zaten açık.
+- **Teknik riskler:**
+  - Ev sahibi sekmesinin kısılması (duraklatma kuralı var).
+  - Eski istemciler (el sıkışma kuralı var).
+  - Yeniden anlaşma çakışması (mevcut kural, ölçümde sorun çıkmadı).
+  - Oyun kolu ile bant ve bas konuş çakışması.
+  - Bu iş voice.js'e dokunuyor ve aynı anda başka bir iş akışı da voice.js'i değiştiriyor.
+- **Ad riski:** HaxBall'a ses benzerliği ve Rezzil'in "Hexball" ürünü (tescil doğrulanamadı). Görsel kimlik HaxBall'u andırmamalı (ör. altıgen desenli saha).
+
+---
+
+## 7. Büyüklük
+
+**XL**, yaklaşık 15 adım:
+1. Issue aç, Renk'in 36 ve 37 dosyalarının ve voice.js işinin birleşmesini bekle.
+2. voice.js oyun bağı ve testi.
+3. 10-voice.js bağlantısı.
+4. Kural motoru ve testi.
+5. Fizik ve testi.
+6. Ağ ve kodlayıcı, testi.
+7. 36-oyun.js'te oyun seçimi ve tarafsız metinler (Renk ile birlikte).
+8. 41-hexball.js tuvali ve denetimler.
+9. 21-band.js kol düzeltmesi.
+10. CSS ve belirteçler.
+11. index.html ve sw.js.
+12. i18n.
+13. Arayüz testi ve e2e.
+14. Belgeler ve CHANGELOG.
+15. Cihazlarda ayar ve denetle, test, e2e ve PR.
+
+---
+
+## 8. Kullanıcı kararı gereken noktalar ve önerdiğim varsayılanlar
+
+| Konu | Varsayılan | Gerekçe |
+|---|---|---|
+| Ad | Görünen ad **"Hexball"**, kimlik `hexball`. Ad yalnız i18n'de geçer, değiştirmek tek anahtar ve belgeler kadar iş. HaxBall adı hiçbir yerde geçmez (marka testi) | Kullanıcı bu adı seçti. Daha güvenli seçenekler: "Saha", "Kale", "Altıgen Futbol". Herkese açık yayında "Saha" öneririm |
+| Taşıma | Gerektiğinde açılan, ev sahibi ile koltuk arasında, bant içi, sırasız ve güvenilmez kanal | Ölçümde ilk teklife kanal eklemek her bağlantıya aday ve sinyal ekliyor, sonradan ekleme eklemiyor |
+| Güvenlik | Yalnız DTLS, parmak izi bağlama ayrı issue | Ses ile aynı model, oyunda gizli bilgi yok |
+| Oyuncu | 2 ile 8 koltuk, takım başına en çok 4, kalanlar izleyici | `MAX_SEATS = 8`, tam örgü sınırı |
+| Ön ayar | `classic` (5 dk, 5 gol), eşitlikte altın gol | |
+| Ev sahibi avantajı | Kendi girdisi ortalama gidiş dönüş kadar (en çok 80 ms) bekletilir | Renk'teki emsal |
+| İstemci tahmini | İlk sürümde yok, ara değerleme 66 ile 150 ms | Top ve oyuncu aynı zaman çizgisinde kalır, daha basit. Oyunda gecikme hissedilirse "kendi diskini tahmin" sonraki adım |
+| Arka plan | Ölçülen kısmada duraklat | Tarayıcı kuralları belirsiz, masaüstünde gereksiz |
+| Maç ortası katılım | Yok, maçlar arasında lobiye dönülür | Masa yöneticisinde değişiklik gerektirmez |
+| Ses efekti | Yok | `TelsizSesler.KINDS` testlerle sabit |
+| PS5 | Destek iddia edilmez | Doğrulanamadı |
+
+---
+
+## 9. Dokunulacak paylaşılan dosyalar (çakışma haritası)
+
+- **`public/voice.js`** (yüksek): `createPeer`, `closePeer`, `needsNegotiation`, `mlineCount`, `answerFailed`, `offerFailed`, dönen nesne. Diğer oyun iş akışıyla aynı dosya, onların işi bittikten sonra yapılmalı.
+- **`public/js/10-voice.js`**: `createVoice` seçenekleri (`onGameData`).
+- **`public/js/36-oyun.js`** (Renk iş akışının yazacağı dosya): oyun seçimi, tarafsız ya da uygulamaya özel metin, `gameOnData`, uygulama kaydı.
+- **`public/js/34-oyun-masa.js`** (isteğe bağlı): uygulamaya özel `DELAYED_MOVES`, ileride `JOIN_LATE`.
+- **`public/js/21-band.js`**: `padPoll` içinde L1 ve R1.
+- **`public/js/22-cast.js`**: yalnız Renk'in `game` kipi. Hexball ek değişiklik istemiyor, tuval boyutu gerekirse dokunur.
+- **`public/i18n.js`**: `game.hexball.*` ve genel `game.*` metinleri.
+- **`public/index.html`**: 38 ile 41 arası betikler, `hexball.css`, gerekirse simge.
+- **`public/sw.js`**: önbellek listesi (69-72'den sonra).
+- **`public/css/tokens.css`**: saha ve takım belirteçleri, temalarda.
+- **Belgeler:** README×2, MIMARI ve ARCHITECTURE, TASARIM ve DESIGN, CHANGELOG×2, CONTRIBUTING×2.
+- **Değişmeyenler:** `src/`, `desktop/`.
+- **Dosya numaraları:** 38 ile 41 başka bir paralel istekle çakışabilir, ortak numara listesi tutulmalı.
+
+---
+
+**Notlar:**
+- MDN, Chrome ve RFC sayfalarına doğrudan erişilemedi (proxy reddi ve DNS hatası). Bu kaynaklardaki bilgiler arama özetinden alındı ve sayfada okunmadı.
+- HaxBall `.hbs` biçimi yalnız alan adları için okundu ([GitHub wiki](https://github.com/haxball/haxball-issues/wiki/Stadium-(.hbs)-File), varsayılan değer vermiyor).
+- RFC 8831'deki "SCTP over DTLS gizlilik ve bütünlük sağlar" ifadesi arama özetinden ([potaroo.net/ietf/idref/rfc8831](https://potaroo.net/ietf/idref/rfc8831), [rfc-editor.org/rfc/rfc8832](https://www.rfc-editor.org/rfc/rfc8832.html)).

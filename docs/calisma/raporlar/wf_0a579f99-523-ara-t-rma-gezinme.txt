@@ -1,0 +1,345 @@
+# İstek (17): Yazı kanallarında ve sohbetlerde gezinme
+
+## 1. Kullanıcının isteği
+
+"Yazı kanalları ve chatleri düzgün ve rahatça gezemiyoruz."
+
+## 2. Mevcut durum (ilgili kod)
+
+**Kök bağlam.** a0809e1 commit'i (2026-10-04, PR #15) bandı odalardan frekanslara çevirdi. Aynı commit, sayfadaki özel mesaj satırlarını (`buildSheetDmRow`) da kaldırdı. O tarihten beri odalar ve özel mesajlar dar ve orta genişlikte düğmelerin arkasında kalıyor. `15-dm.js:36-39` içindeki yorum hâlâ o kaldırılmış işlevi anıyor.
+
+**Oda ve konuşma seçimi**
+- `04-meta.js:1114-1144` `selectChannel`: yazma alanına ve eklere dokunmuyor, okunmamışı hemen sıfırlıyor (1135-1137), `loadChannel()` çağırıyor.
+- Özel konuşma `15-dm.js:157-180` `showDm` ile, Arkadaşlar görünümü `14-social.js:299-332` `showHome` ile açılıyor. Görünüm `14-social.js:261-282` `setConversationMode` ile değişiyor.
+- Bant ve satırlar: `21-band.js:196-214` `bandTune`, `21-band.js:178-187` `bandOpenDm`. Son açılan özel konuşma, okunmamışı olan başka bir konuşmaya tercih ediliyor.
+- `21-band.js:507-516` `onStationRowClick`, `[data-dm-id]` satırlarını zaten destekliyor ama listede böyle satır yok.
+
+**Mesaj akışı**
+- `06-messages.js:536-600` `loadChannel`: listeyi temizliyor (547-555), her seferinde sunucudan 50 mesaj indiriyor, sonra `scrollToBottom()` (597) ve `markRead()` (599) çağırıyor.
+- `06-messages.js:602-636` `loadOlder`: yalnızca düğmeyle çalışıyor. `onMessagesScroll` (476-479) yalnızca daha yeni mesajları yüklüyor.
+- `06-messages.js:378-406` `insertMessage`: kullanıcı yukarıdayken gösterge koymuyor. `05-poll.js:167-172` buna rağmen `markRead()` çağırıyor.
+- `04-meta.js:1062-1085` `markRead`: son yüklü mesajı okundu sayıyor. Okundu bilgisi yalnızca localStorage'da (1069).
+- `04-meta.js:1088-1109` `scanUnread`: oda başına `limit=PAGE_SIZE` (1093) istiyor, `PAGE_SIZE=50` (`01-core.js:12`).
+
+**Yazma alanı**
+- `08-composer.js:149-184` `sendMessage`: konuşmayı gönderim anında `state.channelId`'den okuyor (152) ve ona göre mühürlüyor (184).
+- Ekler yalnızca çıkışta temizleniyor (`03-auth.js:787`). Konuşma başına taslak yok.
+
+**Geçmiş ve geri tuşu**
+- Uygulamada `pushState` yalnızca alt ve yan sayfalar için var (`12-init.js:154-180`), o da yalnızca `isNarrow()` (760 px altı) iken (`12-init.js:101`, `01-core.js:488`).
+- Oda, özel mesaj, Arkadaşlar, arama paneli, ayarlar ve resim görüntüleyici geçmişe hiç yazılmıyor.
+- Adresin `#` bölümü gizli veriler taşıyor (`#anahtar`, `#davet`, `#frekanslar`, `03-auth.js:66-101`).
+
+**Düzen**
+- 1280 px altında sol sütun gizli (`frekans.css:2417-2454`). Bu sütundaki özel mesaj listesi (`index.html:497-505`) "Oda bilgisi" başlıklı sayfaya düşüyor ve ⋯ düğmesiyle açılıyor (`index.html:540`).
+- `#dm-section` yalnızca dm ve home görünümünde gösteriliyor (`frekans.css:1590-1597`), home görünümünde yine gizleniyor (`people.css:314-317`).
+- İstasyonlar kartı 999 px altında (`frekans.css:2469-2507`) ve 860 px'ten alçak, 1280 px'ten dar ekranda (`frekans.css:2456-2466`) gizli.
+- Telefonda kapalı telsiz çubuğu tıklanamayan bir `<p>` (`index.html:630`).
+- Özel mesaj başlığındaki arama düğmeleri yalnızca 999 px altında simgeye dönüyor (`arama.css:394-407`).
+- Açılışta yalnızca son yazı odası hatırlanıyor (`04-meta.js:23-31`).
+
+**Kısayollar**
+- Yalnızca Ctrl+K ve Ctrl+F (mesaj araması, `17-search.js:1272-1292`), Ctrl+, (ayarlar) ve yazma alanında Yukarı ok (`08-composer.js:127-129`) var.
+
+**Sunucu**
+- `GET /api/messages`, `before` ve `around` parametrelerini destekliyor (`src/app.js:2300-2320`, en fazla 100). Okunmamışa atlamak için sunucu değişikliği gerekmiyor.
+
+## 3. Kök neden, kanıt ve ölçümler
+
+**Düzenek.** `e2e/yardimci.js` `setupWorld` kullanıldı, port tabanı rastgele seçildi (41000-59000), Chromium 1194 (`/opt/pw-browsers`). Veri:
+- 12 yazı odası; `genel` 300 mesaj, `oyun-gecesi` 40 okunmamış ve 3 anma, `kalabalik` 120 okunmamış.
+- 2 özel konuşma (Ece 15, Mert 12 okunmamış).
+
+**Çıktılar.** Ekran görüntüleri, JSON sonuçlar ve betikler (`denetim.js`, `denetim2.js`, `denetim3.js`, `denetim4.js`) şu klasörde:
+`/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/gezinme/`
+
+Aşağıda "G/" bu klasör demek. Depoda hiçbir dosya değişmedi (`git status` temiz).
+
+**Genişliğe göre özet**
+
+| Görünüm | Oda listesi | Oda değişimi | Özel mesaj listesine yol | Mesaj alanı | Geri tuşu |
+|---|---|---|---|---|---|
+| 360x780 telefon | # düğmesi, alt sayfa (ekranın %84'ü, 15 satırdan 12'si görünür, satır 41 px) | 2 dokunuş | ⋯ "Oda bilgisi" sayfası, 2 dokunuş | 509 px (%65), 360x640'ta 369 px (%58) | uygulamadan çıkıyor |
+| 412x915 | aynı | 2 | aynı | %70 | çıkıyor |
+| 768x1024 | # düğmesi, yan sayfa (%98). Sağ sütunda yaklaşık 550 px boş alan var | 2 | "Oda bilgisi" | %75 | sayfa açıkken bile çıkıyor |
+| 1024x768 | İstasyonlar düğmesi, yan sayfa. Sağ sütunda yaklaşık 320 px boş alan var | 2 | "Oda bilgisi" | %65 | sayfa açıkken bile çıkıyor |
+| 1440x900 | sağ sütunda her zaman görünür | 1 | sol sütun (yalnızca özel mesaj ve Arkadaşlar görünümünde) | %70 | çıkıyor |
+
+Sorunlar önem sırasıyla:
+
+**S1 (P0, gizlilik hatası). Taslak ve ekler konuşmalar arasında taşınıyor.**
+- Özel mesajda yazılan "OZEL: sadece Ece gormeli..." metni ve eklenen fotoğraf, `genel` odasına geçince yazma alanında kalıyor. Gönder düğmesi açık.
+- Ek grup anahtarıyla mühürlenen mesaja giderse bütün frekans çözebilir.
+- Beş genişliğin hepsinde odalar arasında da metin taşınıyor.
+- Kanıt: `G/ek-ozel-taslak-ve-foto-genel-odada.png`, `G/sonuc-taslak.json`, `G/360-03-taslak-tasindi.png`.
+- Kök neden: `selectChannel` ve `showDm` yazma alanına dokunmuyor, ekler konuşmaya bağlı değil (`08-composer.js:152,184`).
+
+**S2 (P1). Geri tuşu uygulamadan çıkarıyor.**
+- Birkaç oda ve özel mesaj geçişinden sonra `history.length` 2 veya 3 kalıyor. Her genişlikte geri tuşu `about:blank` sayfasına gidiyor.
+- Telefonda arama paneli, ayarlar, özel mesaj ve Arkadaşlar açıkken geri tuşu da çıkarıyor.
+- 768 ve 1024 genişlikte İstasyonlar sayfası açıkken bile çıkıyor.
+- Yalnızca telefonda alt sayfa doğru kapanıyor (Tümü: geri tuşu sayfayı kapatıyor, ikinci basış çıkıyor).
+- Kanıt: `G/sonuc-ek.json` (`phoneBack`, `sheetBackMid`), `G/*-11-geri-tusu-sonrasi.png`.
+- Kök neden: `12-init.js:101,154-180`.
+
+**S3 (P1). Okunmamışlı odaya girince en alta atlanıyor.**
+- Ayraç yok, ilk okunmamış mesaj görünür alanın şu kadar üstünde kalıyor:
+
+  | Genişlik | 1440 | 1024 | 768 | 412 | 360 |
+  |---|---|---|---|---|---|
+  | Uzaklık | 1388 px | 1521 px | 1593 px | 1760 px | 2407 px |
+
+- Sayaç anında 0 oluyor ve `lastRead` son mesaja ayarlanıyor. Kullanıcı nereden okumaya başlayacağını bilemiyor.
+- Kanıt: `G/1440-02-okunmamis-oda.png`, `G/360-02-okunmamis-oda.png`.
+- Kök neden: `06-messages.js:597-599`, `04-meta.js:1135`.
+
+**S4 (P1). Yukarıdayken gelen yeni mesajın göstergesi yok ve okundu sayılıyor.**
+- Yeni mesaj 1488 px aşağıda kalıyor, ekranda hiçbir gösterge yok, buna rağmen `lastRead` o mesaja ayarlanıyor.
+- Kanıt: `G/*-06-yukaridayken-yeni-mesaj.png`.
+- Kök neden: `05-poll.js:171-172`, `06-messages.js:391-405`.
+
+**S5 (P1). Özel mesaj listesine ulaşmak zor.**
+- 1280 px altında liste "Oda bilgisi" adlı sayfada ve ⋯ simgesinin arkasında, ulaşmak iki dokunuş alıyor. İstasyonlar sayfasında özel mesaj yok (`hasDms: false`).
+- Üst çubuktaki Özel düğmesi listeyi değil son açılan konuşmayı açıyor. Toplam rozet 27 iken Mert'in 12 okunmamışına doğrudan gidilemiyor.
+- Kanıt: `G/360-08-ozel-liste-oda-bilgisi-sayfasinda.png`, `G/1024-08-ozel-liste-oda-bilgisi-sayfasinda.png`.
+
+**S6 (P2). Konum korunmuyor ve her geçişte yeniden indiriliyor.**
+- `genel` odasında 100 mesaj yüklüyken ortaya kaydırıp başka odaya geçip dönünce yalnızca 50 mesaj yükleniyor ve en alta iniliyor. İlk görünen mesaj 265'ten 291'e kayıyor; beş genişliğin hepsinde aynı.
+- 4 geçişte 4 `/api/messages` isteği gidiyor ve iskelet satırları görünüyor.
+- Kanıt: `G/*-05-donuste-konum.png`, `G/sonuc-ek.json` (`switchRequests`).
+
+**S7 (P2). Eski mesajlar kendiliğinden yüklenmiyor.**
+- En üste kaydırıp 1,5 saniye beklense de yüklü mesaj 50'de kalıyor. "Daha Eski Mesajları Yükle" düğmesine basmak gerekiyor.
+- Düğmeyle yükleme konumu doğru koruyor: ilk görünen mesaj 251'den 250'ye kayıyor.
+- Kanıt: `G/360-04-en-ust-eski-mesajlar.png`.
+
+**S8 (P2). Orta genişlikte oda listesi gizli, yerine boş alan var.**
+- 768 ve 1024 genişlikte sağ sütunda telsiz kartının üstü boş, liste ise düğmenin arkasında.
+- Kanıt: `G/768-01-acilis.png`, `G/1024-01-acilis.png`.
+
+**S9 (P2). Özel mesaj başlığında karşı tarafın adı görünmüyor.**
+- Görünen ad genişliği:
+
+  | Genişlik | 1024 | 1100 | 1280 |
+  |---|---|---|---|
+  | Ad genişliği | 0 px | 39 px | 24 px ("E...", ad yalnızca 3 harf) |
+
+- 1024 genişlikte Profil düğmesiyle ⋯ düğmesi 29 px üst üste biniyor.
+- Kanıt: `G/sonuc-ozel-baslik.json`, `G/ek-ozel-baslik-1024.png`, `G/ek-ozel-baslik-1280.png`.
+
+**S10 (P2). Klavyeyle oda değiştirilemiyor.**
+- Alt+Yukarı/Aşağı, Alt+Shift+Yukarı/Aşağı ve Ctrl+PageDown hiçbir şey yapmıyor.
+- Ctrl+K'de oda adı ("yazilim") aranınca "6 mesaj tarandı. Sonuç yok." çıkıyor.
+- Geniş ekranda yazma alanından odalara 3 Tab yetiyor, 1024 genişlikte 9 Tab gerekiyor.
+- Kanıt: `G/1440-10-ctrlk-oda-adi-aramasi.png`.
+
+**S11 (P3). Okunmamış sayısı 50'de kesiliyor.**
+- 120 okunmamış "50" olarak görünüyor. Açılışta her oda için ayrı istek gidiyor.
+- Kanıt: `G/ek-01-okunmamis-tavani-50.png`.
+
+**S12 (P3). Yenileyince özel konuşma hatırlanmıyor.** Özel mesajdayken sayfa yenilenince yazı odasına (kanal 1) dönülüyor (`G/sonuc-ek.json` `reloadInDm`).
+
+**S13 (P3). Telefonda dikey alan dar.** "Bir ses odası seçin" çubuğu 54 px yer kaplıyor ve tıklanamıyor. Bant tek frekansta 53 px alıyor.
+
+**S14 (P3). Telefonda dokunma hedefleri küçük.** Üst düğmeler 38x38 px, oda satırları 41 px. WCAG 2.5.8 alt sınırının (24 px) üstünde ama Android (48dp) ve Apple (44pt) önerisinin altında.
+
+**S15 (P3). Alt sayfanın tutamacı yalnızca süs.** `aria-hidden`, sürükleyerek kapatma yok.
+
+**S16 (P3). Okunmamış durumu cihazlar arasında eşitlenmiyor.** Okundu bilgisi yalnızca localStorage'da. Her yeni tarayıcı bağlamında `oyun-gecesi` yine 40 okunmamış görünüyor.
+
+## 4. Önerilen çözüm (öncelik sırasıyla)
+
+**S1. Taslaklar ve ekler (`08-composer.js`)**
+- Bellekte `drafts: Map<'c:'+id | 'd:'+id, {text, attachments, unsent}>` tutulur.
+- `selectChannel`, `showDm` ve `showHome` durumu değiştirmeden önce `composerLeave(key)`, sonra `composerEnter(key)` çağırır.
+- Her ek `addFiles` sırasında `convKey` alır. `sendMessage` yalnızca o anki konuşmanın eklerini gönderir.
+- Yüklemesi süren ek kendi taslağına düşer.
+- Çıkışta, engellemede ve konuşma silinince taslaklar temizlenir.
+
+**S2. Geçmiş (yeni `public/js/38-gezinme.js`; 33-37 oyun işine ayrılmış)**
+- Açılışta kök kayıt yazılır: `history.replaceState({telsiz:{v:1,u:meId,d:0,view,id}}, '')`.
+- Kullanıcı başka bir konuşmaya geçince `pushState` yapılır. Adres değişmez, `#` bölümüne dokunulmaz.
+- `popstate` geldiğinde:
+  - Açık bir katman varsa önce o kapanır.
+  - Yoksa ilgili işlev `{fromHistory:true}` ile çağrılır: `selectChannel`, `showDm` veya `showHome`.
+  - Kayıttaki kullanıcı kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır.
+- Katmanlar her genişlikte geçmişe yazılır: sayfalar, arama, ayarlar, görüntüleyici ve profil kartı. `12-init.js:154-180`'in yerini `watchLayers` (`02-state-dom.js:350`) üzerinden çalışan ortak bir yığın alır.
+- Kök kayıttan geri basılınca uygulamadan çıkılır (tuzak yok).
+- İsteğe bağlı: Electron'da `app-command` olayının `browser-backward` komutu `desktop/src/main.js` içinden geçmişte geri gider.
+
+**S3 ve S4. Okunmamış ayracı, şerit ve yeni mesaj göstergesi**
+- `loadChannel`, yükleme öncesindeki `lastRead` değerini saklar.
+  - İlk okunmamış sayfadaysa önüne "Yeni mesajlar" ayracı konur (`role="separator"`) ve ayraç görünür alanın üst üçte birine kaydırılır.
+  - İlk okunmamış sayfada yoksa var olan `around=lastRead` ile yüklenir ve var olan `hasNewer`/`loadNewer` kullanılır.
+- Üstte şerit: "N yeni mesaj" ile [Okunmamışa Git] ve [Okundu İşaretle] düğmeleri.
+- `markRead` yalnızca kullanıcı alttayken çalışır (`isNearBottom` ve `!hasNewer`). Bu kural kaydırmada, görünürlük değişince ve Esc tuşunda uygulanır.
+- `insertMessage`, kullanıcı alttaysa bugünkü gibi en alta kaydırır. Alttaysa `05-poll.js:172`'deki `markRead()` da bugünkü gibi çalışır.
+- Kullanıcı yukarıdayken gelen mesajda kaydırma yapılmaz, mesaj okundu sayılmaz ve "N yeni mesaj" kapsülü görünür. Kapsüle basınca aşağı inilir, alta ulaşılınca okundu sayılır.
+
+**S5. Özel mesajlara ulaşma**
+- `fillRoomList` (`04-meta.js:620`) hem sağdaki karta hem İstasyonlar sayfasına "Özel mesajlar" grubu ekler: okunmamışlar üstte, en fazla 6 satır ve "Tüm Özel Mesajlar" satırı. Satırlar `data-dm-id` taşır; `21-band.js:507` bunları zaten işliyor.
+- 1280 px altında Özel düğmesi bu grubu odaklayarak sayfayı açar. Geniş ekranda okunmamışı olan en yeni konuşmayı açar (`bandOpenDm`).
+- "Oda bilgisi" sayfasından `dm-section` kaldırılır.
+
+**S6. Konum ve önbellek (`06-messages.js`, `05-poll.js`)**
+- Son 8 konuşma bellekte tutulur. Her kayıtta şifreli zarflar, `hasMore`, `hasNewer`, çapa (ilk görünen mesajın kimliği ve kayması), `stick` ve `newBelow` saklanır.
+- Geri dönünce konuşma iskelet göstermeden çizilir, çapaya kaydırılır, ardından en yeni sayfa arka planda alınıp birleştirilir. Arada boşluk varsa `hasNewer` ve şerit kullanılır.
+- Önbellekteki konuşmalara gelen poll olayları da önbelleğe uygulanır.
+- Yeniden eşitlemede, çıkışta ve anahtar değişince önbellek silinir.
+
+**S7.** `#load-older-wrap` üzerinde `IntersectionObserver` (rootMargin üstte 800 px) çalışır. Desteklemeyen tarayıcıda `onMessagesScroll` içinde `scrollTop < 400` denetlenir. Düğme kalır, kaydırma telafisi kodu korunur.
+
+**S8.** 760-1279 px arasında `.inbox` sağ sütunda telsiz kartının üstünde gösterilir (`flex: 1 1 auto; min-height: 0; overflow: auto`). Yalnızca çok alçak ekranda gizlenir. Değişiklik `frekans.css` içinde.
+
+**S9.** Arama ve Profil düğmeleri dar başlıkta yalnızca simgeye döner. Bunun için ya `.convo-head` genişliğini `ResizeObserver` ile izleyip `is-tight` sınıfı verilir, ya da medya sorgusu 1439 px'e çekilir. `.dm-header-text` en az `6rem` genişlikte kalır, ⋯ düğmesi `flex: none`. Değişiklikler `arama.css` ve `people.css` içinde.
+
+**S10. Kısayollar**
+- Alt+Yukarı/Aşağı: oda ve özel mesaj sırasında önceki veya sonraki konuşma.
+- Alt+Shift+Yukarı/Aşağı: sonraki okunmamış, anmalar önce.
+- Esc (açık katman yokken): okundu say ve en alta in.
+- Ses tuşu atamasıyla çakışırsa kısayol devre dışı kalır (`commaBound` kalıbı).
+- Alt+Sol/Sağ (tarayıcı geri ve ileri) ve Ctrl+PageUp/Down (sekme değiştirme) kullanılmaz.
+- Ctrl+K panelinin üstüne yerel "Odalar ve Kişiler" sonuçları eklenir (`17-search.js`).
+- Rehber kartına (`#hints-card`) kısayol satırları eklenir.
+
+**S11.** Sayfa doluysa ve `hasMore` doğruysa "50+" gösterilir. İsteğe bağlı sunucu değişikliği: meta'daki yazı odalarına `lastMessageId` eklenir, böylece açılışta oda başına istek gerekmez.
+
+**S12.** `userKey('view')` içinde `{mode, id}` saklanır, `openApp` özel mesaj ve Arkadaşlar görünümünü de geri yükler.
+
+**S13.** Telefonda kapalı telsiz çubuğu 44 px'lik bir "Ses Odaları" düğmesine dönüşür ve sayfayı ses grubunda açar (`10-voice.js`, `index.html:630`).
+
+**S14.** `@media (pointer: coarse)` altında satırlar ve üst düğmeler en az 44 px olur.
+
+**S15 (isteğe bağlı).** Tutamaçtan aşağı sürükleme 80 px'i geçince sayfa kapanır.
+
+**S16 (isteğe bağlı, sunucu).**
+- `POST /api/me/read {channelId, messageId}`: değer yalnızca artar, hız sınırı var.
+- Kullanıcı kaydında `reads` saklanır ve `private` (pmv) ile istemciye dağıtılır.
+- İstemci yerel değerle sunucudakinin büyüğünü alır.
+
+**Sunucu değişikliği.** Ana iş için gerekmiyor. Yalnızca S11 (isteğe bağlı) ve S16 için gerekiyor.
+
+**Veri biçimleri**
+- Geçmiş kaydı: `{telsiz:{v:1,u,d,view:'channel'|'dm'|'home',id}}` ve katmanlar için `{telsiz:{v:1,u,overlay:name}}`.
+- Taslak, önbellek ve kapsül durumu yalnızca bellekte tutulur.
+
+**i18n anahtarları (TR ve EN)**
+- Okunmamış ve yeni mesaj: `nav.newDivider` ("Yeni mesajlar"), `nav.unreadBar` ("{count} yeni mesaj"), `nav.unreadSince`, `nav.jumpToUnread` ("Okunmamışa Git"), `nav.markRead` ("Okundu İşaretle"), `nav.newBelow`, `nav.newBelowLabel`, `nav.jumpToBottom` ("En Alta Git").
+- Liste ve arama: `rooms.dmGroup`, `rooms.dmAll` ("Tüm Özel Mesajlar"), `search.quickTitle` ("Odalar ve Kişiler"), `search.quickOpen`.
+- Kısayol rehberi: `hints.altArrows`, `hints.altShiftArrows`, `hints.esc`.
+- Diğer: `radio.pickButton` ("Ses Odaları"), `count.more` ("{count}+").
+- Düğme etiketleri her kelimesi büyük harfle yazılır.
+
+**Belgeler.** CONTRIBUTING (TR ve EN modül tablosu, 38 numaralı modül ve 12-init açıklaması), docs/MIMARI ve ARCHITECTURE (geçmiş, önbellek, okundu kuralı), docs/TASARIM ve DESIGN (ayraç, şerit, kapsül, orta genişlik), README (TR ve EN kısayollar ve okunmamış davranışı), CHANGELOG (TR ve EN).
+
+## 5. Testler
+
+**Birim testleri.** Yeni `test/gezinme.test.js`, `chatplus.test.js`'teki vm sandbox kalıbıyla:
+- taslak ve ek bağlama;
+- geçmiş ve katman yığını sırası;
+- ayracın yeri (mesajlar, `lastRead` ve kendi mesajlar verilince);
+- "50+" biçimi;
+- sonraki okunmamışın sırası;
+- hızlı geçişte Türkçe ad eşleme.
+
+**Uçtan uca testler.** Yeni `e2e/16-gezinme.test.js`:
+1. Özel mesajda yazılan taslak ve ek odaya taşınmaz, geri dönünce yerinde durur.
+2. A, B, özel mesaj geçişlerinden sonra geri tuşu sırasıyla B ve A'ya döner. Telefonda sayfa, arama ve ayarlar geri tuşuyla kapanır. 768 genişlikte sayfa açıkken geri tuşu sayfayı kapatır.
+3. Ayraç görünür, ilk okunmamış görünür alandadır. Sayaç ancak alta inilince düşer. 120 okunmamışta `around` yolu çalışır.
+4. Yukarıdayken gelen mesajda kapsül "1 yeni mesaj" gösterir ve `lastRead` değişmez.
+5. Geri dönünce ilk görünen mesaj korunur ve çizimden önce istek gitmez.
+6. En üste kaydırınca eski mesajlar kendiliğinden yüklenir.
+7. Özel mesaj grubu 360, 768 ve 1024 genişlikte görünür. Okunmamış olan konuşma önce açılır.
+8. Alt ve Alt+Shift kısayolları ile Ctrl+K oda sonucu çalışır.
+9. Başlıktaki ad 1024 ile 1280 arasında en az 80 px görünür ve düğmeler çakışmaz.
+10. Özel mesajdayken yenileyince özel mesaja dönülür.
+11. Yatay taşma yok, konsol temiz.
+
+`e2e/02-frekans.test.js:369` (900 genişlik) ve `:405` (telefon) güncellenmeli. Testler Firefox ve WebKit'te de çalıştırılmalı.
+
+**Elle deneme**
+- Android Chrome'da hem sekmede hem kurulu PWA'da tahmine dayalı geri hareketi ve klavye açıkken yazma alanı.
+- iOS Safari'de kenardan kaydırarak geri.
+- PS5 tarayıcısında (eski WebKit) `IntersectionObserver` yedeği.
+- Electron'da Windows fare geri tuşu.
+
+## 6. Riskler ve güvenlik
+
+**Gizlilik**
+- S1 bugün özel içeriği gruba sızdırabiliyor. Düzeltme ekleri konuşmaya bağlayarak bunu kapatır.
+- Taslaklar diske yazılmaz (yalnızca bellekte).
+- Önbellek şifreli zarfları tutar, çözme var olan bellekteki `decryptCache` ile yapılır. Yeni kalıcı düz metin oluşmaz.
+
+**Geçmiş**
+- Kayıtlarda yalnızca görünüm türü ve sayı kimliği var, adres değişmiyor. Böylece `#anahtar` ve benzeri parçalarla çakışma ve geçmiş eşitlemesiyle sızma olmaz.
+- Başka hesabın kayıtları yok sayılır.
+- Chromium, kullanıcı etkileşimi olmadan eklenen kayıtları geri tuşunda atlıyor. Bu yüzden kayıt yalnızca kullanıcı eylemiyle eklenir (tuzak yok).
+
+**Kısayollar.** Bas konuş atamalarıyla çakışma denetlenmeli. Alt+Sol/Sağ kullanılmamalı.
+
+**Okundu kuralı.** Değişince sayaçlar daha geç düşer. Bu bilinçli bir değişiklik ve belgelenmeli.
+
+**Eşitleme (S16).** Sunucuya okuma zamanlaması üst verisi verir. İsteğe bağlı olmalı ve belgelenmeli.
+
+**Yetki.** Şifreleme ve yetki modeli değişmiyor. `around` var olan `readableChannel` denetimini kullanıyor.
+
+## 7. Büyüklük
+
+| Faz | Kapsam | Büyüklük | Adım |
+|---|---|---|---|
+| Faz 1 | S1 (S), S2 (M-L), S3 ve S4 (M), S5 (M) | L | yaklaşık 9 |
+| Faz 2 | S6 (L), S7 (S), S8 (S), S9 (S), S10 (M) | L | yaklaşık 7 |
+| Faz 3 | S11 ile S15 (her biri S), S16 (L, sunucu) | M | yaklaşık 5 |
+
+Toplam XL, yaklaşık 18-21 adım.
+
+## 8. Karar noktaları (varsayılanlarım)
+
+1. **Oda ve özel mesaj geçişleri tarayıcı geçmişine yazılsın mı?** Evet, ama adres değişmeden. Android'in beklenen davranışı bu.
+2. **Kök kayıttan geri basılınca ne olsun?** Uygulamadan çıkılsın, "tekrar basın" uyarısı olmasın (tuzak kurulmasın).
+3. **Adreste oda bağlantısı olsun mu (`#oda=12`)?** Şimdilik hayır: `#` bölümü gizli veri taşıyor ve geçmiş eşitlenebiliyor.
+4. **Taslaklar yenilemeden sonra korunsun mu?** Hayır, yalnızca bellekte tutulsun (şifreli yazışma ilkesi).
+5. **Ne zaman okundu sayılsın?** Son mesaj görülünce veya Okundu İşaretle ve Esc ile.
+6. **Telefonda Özel düğmesi ne açsın?** Listeyi. Geniş ekranda okunmamışı olan en yeni konuşmayı açsın.
+7. **Ctrl+K nasıl genişlesin?** Aynı panele "Odalar ve Kişiler" bölümü eklensin, ayrı bir geçirici açılmasın (var olan kısayol ve testler korunur).
+8. **Kısayollar hangileri olsun?** Alt+Yukarı/Aşağı ve Alt+Shift+Yukarı/Aşağı. Discord ve Slack kullanıcılarının alışkanlığı bu.
+9. **Orta genişlikte oda listesi sağ sütunda görünsün mü?** Evet.
+10. **Telefondaki ses çubuğu ne olsun?** Kaldırılmasın, "Ses Odaları" düğmesine dönüşsün. Tek frekansta bandın gizlenmesi ise şimdilik yok (kavramın parçası).
+11. **Cihazlar arası okundu eşitlemesi (S16) yapılsın mı?** Bu turda hayır, ayrı bir iş olsun.
+
+## 9. Dokunulacak paylaşılan dosyalar (çakışma haritası)
+
+**Yeni dosyalar**
+- `public/js/38-gezinme.js`. 33-37 oyun işine ayrıldığı için 38 seçildi. Oyun işi 38'i alırsa numara birlikte kararlaştırılmalı.
+- `test/gezinme.test.js`
+- `e2e/16-gezinme.test.js`
+
+**Paylaşılan dosyalar**
+- Kayıt ve metin: `public/index.html` (betik etiketi, `#hints-card`, `radio-pick`), `public/sw.js` (kabuk listesi), `public/i18n.js`.
+- JS modülleri: `02-state-dom.js` (katman kancası, yalnızca gerekirse), `04-meta.js`, `05-poll.js`, `06-messages.js`, `08-composer.js`, `10-voice.js` (S13), `12-init.js`, `14-social.js`, `15-dm.js`, `17-search.js`, `21-band.js`.
+- CSS: `frekans.css`, `convo.css`, `people.css`, `arama.css` (32-arama ile ortak).
+- Testler ve belgeler: `e2e/02-frekans.test.js`, belgeler ve CHANGELOG (TR ve EN).
+
+**Dokunulmayacaklar**
+- `tokens.css` (var olan belirteçler yetiyor), `public/voice.js`, `public/js/33-37`.
+- `src/app.js` yalnızca S11 veya S16 seçilirse değişir. `desktop/src/main.js` yalnızca fare geri tuşu (isteğe bağlı) yapılırsa değişir.
+
+## Kaynaklar
+
+Vekil sunucu developer.mozilla.org'u engellediği için tarayıcı desteği MDN'in kaynak verisinden (browser-compat-data, 2026-10-10 tarihli main dalı) alındı.
+
+- CloseWatcher: Chrome 126, Firefox 149, Safari yalnızca önizleme. https://github.com/mdn/browser-compat-data/blob/main/api/CloseWatcher.json
+  - Chrome blogu bu API'nin Chrome 120'de geldiğini söylüyor, iki kaynak farklı. Kesin sürüm doğrulanamadı. Blog sayfası doğrudan açılamadı, bilgi arama özetinden alındı: https://developer.chrome.com/blog/new-in-chrome-120
+  - Kullanıcı etkileşimi koşulu, arama özetinden: https://groups.google.com/a/chromium.org/g/blink-dev/c/jM5au7yYzHM/m/5SWuXPMdAgAJ
+- Chromium'un geçmiş müdahalesi (kullanıcı etkileşimi olmadan eklenen kayıtlar geri tuşunda atlanıyor), arama özetinden, güncel durumu doğrulanamadı: https://chromium.googlesource.com/chromium/src/+show/08d828b920062e2b0be1f95b7d2416d163091745/docs/history_manipulation_intervention.md
+- `history.pushState`: Chrome 5, Firefox 4, Safari 5. https://github.com/mdn/browser-compat-data/blob/main/api/History.json
+- Navigation API: Chrome 102, Firefox 147, Safari 26.2. ES2017 ve eski WebKit hedefi yüzünden kullanılmıyor. https://github.com/mdn/browser-compat-data/blob/main/api/Navigation.json
+- IntersectionObserver: Chrome 51, Firefox 55, Safari 12.1. https://github.com/mdn/browser-compat-data/blob/main/api/IntersectionObserver.json
+- `overflow-anchor`: Chrome 56, Firefox 66, Safari 27. Telafi kodu bu yüzden korunuyor. https://github.com/mdn/browser-compat-data/blob/main/css/properties/overflow-anchor.json
+- WCAG 2.5.8 (en az 24x24 CSS px), w3c/wcag kaynağından okundu: https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html
+- Apple HIG (iOS varsayılan 44x44 pt, en az 28x28 pt): https://developer.apple.com/design/human-interface-guidelines/accessibility
+- Android 48dp, arama özetinden: https://developer.android.com/guide/topics/ui/accessibility/apps ve https://support.google.com/accessibility/android/answer/7101858
+- Discord Alt ve Alt+Shift ok kısayolları, arama özetinden: https://support.discord.com/hc/en-us/articles/225977308
+- Slack Ctrl+K ve Alt+Shift+Yukarı, arama özetinden: https://slack.com/help/articles/201374536-Slack-keyboard-shortcuts
+- Electron `app-command` / `browser-backward`: yalnızca eski commit aynasında görüldü, resmi belge açılamadı, doğrulanamadı: https://ayakael.net/mirrors/electron/commit/d243a45173755cf48fc0a9c45fe2a2f71448d082
+- Kurulu PWA'da geçmiş boşken geri tuşunun uygulamayı kapatması: resmi kaynakla doğrulanamadı, yalnızca forum bildirimi var (https://meta.discourse.org/t/back-button-closes-web-app-android/238269). Tarayıcı sekmesinde uygulamadan çıkış bu denetimde yeniden üretildi.

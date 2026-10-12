@@ -1,0 +1,547 @@
+# Rapor: ANDROID GOOGLE PLAY UYGULAMASI (istek 1)
+
+Depoda hiçbir dosyayı değiştirmedim. Geçici dosyaların hepsi `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/arastirma/` altında:
+- `csp-yol-deneme.js`: yolla sınırlanmış CSP denemesi (Playwright Chromium)
+- `kotlin-deneme/`: saf Kotlin/JVM modülünün derleme ve test denemesi
+- `wrapper-deneme/`: Gradle wrapper üretme denemesi
+- `bcd/`: MDN browser-compat-data JSON dosyaları
+- `sayfalar/`: indirilen belge sayfaları
+- `cikar.py`: sayfadan metin çıkaran yardımcı betik
+
+## 1. Kullanıcının isteği
+
+"Android google play uygulaması da olsun."
+
+## 2. Mevcut durum
+
+**Depoda Android yok.**
+- `docs/calisma/README.md:34` satırı "Android uygulaması (istek 1) | Bekliyor" diyor.
+- `.github/workflows/release.yml` içinde Android işi yok. Yayına giren dosyaların beyaz listesi yalnızca sunucu ikililerini, exe, AppImage ve deb dosyalarını kapsıyor (`release.yml` "Dosyaları topla" adımı).
+
+**PWA**
+- Bildirimi sunucu üretir: `src/app.js:3609-3633` (`serveManifest`, `display: standalone`, simgeler 192 ve 512). Bağlantısı `public/index.html:14`.
+- Service worker `public/sw.js`. `CACHE_NAME` satır 11, `SHELL` listesi satır 12-89, `/api/` istekleri satır 120'de atlanıyor.
+- Kayıt `public/js/12-init.js:291-298`, çağrısı satır 562.
+
+**İstemcinin ağ katmanı**
+- Bütün API istekleri göreli yollarla (`/api/...`) yapılıyor. `XMLHttpRequest` kullanan `request()` işlevi `public/js/01-core.js:205-284` arasında, `api()` satır 287'de.
+- CSP `connect-src 'self'`: `src/http-util.js:15`.
+
+**Masaüstü mimarisi (Android için örnek alınacak model)**
+- Arayüz uygulamanın içinde taşınır, sunucudan hiç indirilmez. Bu, masaüstü uygulamasının var olma nedeni: `desktop/README.md`, "Neden ayrı bir uygulama" bölümü.
+- Sayfa `telsiz://app/` şemasından yüklenir (`desktop/src/main.js:111`). `/api/*` istekleri ana süreçteki vekilden geçer: `desktop/src/main.js:318-357` (`prepareAppSession`, `handleAppRequest`) ve `desktop/src/lib/proxy.js`.
+- Statik dosyaların beyaz listesi `desktop/src/lib/static-files.js:28-80`, CSP'ler `desktop/src/lib/csp.js`.
+- Adres kuralları ve `/api/info` denetimi `desktop/src/lib/server-url.js`: `parseServerUrl` satır 23-48, `checkServer` satır 125-171, ana sürüm uyumu satır 79-84.
+- Frekans listesi `desktop/src/lib/frequencies.js` (en fazla 50 frekans, satır 14).
+- İzin kararları `desktop/src/lib/permissions.js:39-62`. Gezinme kuralları `desktop/src/lib/navigation.js:55` ve `:90`.
+- Sertifika hataları her zaman reddediliyor: `main.js:1485-1488`.
+- Arka plan zamanlayıcı kısıtlaması kapatılmış: `main.js:121`.
+
+**İstemcideki masaüstü kancaları**
+- `public/js/20-desktop.js` (PWA yükleme önerisi satır 767'de engelleniyor).
+- `public/js/24-frekans.js:450-454` (`frekansDesktop()`: liste ana süreçteyse masaüstü kipi).
+- `public/js/10-voice.js:121-130` (`onVoiceChange` sonucu `TelsizDesktopUI.onVoice`'a gidiyor).
+- `public/js/11-settings.js:3107-3125` (`desktopSettingsBox`).
+- `public/theme-init.js:202`.
+
+**Bildirimler**
+- `public/js/05-poll.js:226-228` `window.Notification` arıyor. Gösterim `public/js/14-social.js:1075-1096`, izin isteği `public/js/11-settings.js:2894-2908`.
+
+**İndirme**
+- `public/js/07-attachments.js:185-200` (`saveBytes`): blob adresi ve `a.download`.
+
+**Ses**
+- `public/voice.js:16` `TICK_MS = 20`. Ses etkinliği zamanlayıcısı `setInterval(tick, 20)` satır 1982'de.
+- `getUserMedia` denetimi satır 246, `getDisplayMedia` denetimi satır 573-581.
+- ICE sunucuları sunucudan geliyor: satır 5508 ve `src/app.js:124`.
+- Kamera izni sorgusu korumalı: `voice.js:4917-4930`, `navigator.permissions` yoksa null döner.
+
+**Gizli anahtarlar yerel depoda**
+- `public/crypto.js:22` `'telsiz.keys'`, `:43` `'telsiz.identity.<userId>'` (secretKey dahil). Bu, Android yedeklemesi için önemli, bkz. bölüm 6.
+
+**Hesap silme**
+- Uygulamanın içinde var: `public/js/11-settings.js:990-1011`. Sahibin kendi hesabında kapalı.
+
+**Kural dosyaları**
+- `scripts/denetle.js:44-48` `BINARY_EXTS` listesinde `.jar` yok.
+- `:40` `GENERATED_DIRS` ve `:107-115` `DOC_PAIRS` listelerinde Android yok.
+- CONTRIBUTING kural 8: `.bat` dosyalarında noktalı virgül olamaz.
+
+**Bağımlılık kuralının kapsamı**
+- CONTRIBUTING kural 12 ("çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` yok") kök sunucu paketi içindir.
+- Kanıt: `desktop/package.json` dosyasında `dependencies` alanı var (`electron-updater`, `uiohook-napi`) ve masaüstü README bunları belgeliyor.
+- Android'in bağımlılığı olabilir, ama aynı ruhla en azda tutulmalı, tam sürümle sabitlenmeli ve doğrulanmalı.
+
+## 3. Yapılabilirlik ve kısıtlar
+
+### 3.1 Bu kapta yapılan denemeler (curl -sI ve derleme)
+
+| Hedef | Sonuç |
+| --- | --- |
+| `dl.google.com` (SDK deposu `repository2-3.xml`, cmdline-tools zip, `dl/android/maven2`) | **403**. Vekil CONNECT'i reddediyor (kurum politikası). |
+| `maven.google.com` | Ana sayfa 200 dönüyor, ama paketler 301 ile `dl.google.com`'a gidiyor, orada 403. **AGP ve androidx indirilemez.** |
+| `services.gradle.org` | 200. `versions/current` Gradle **9.8.1** diyor (7 Ekim 2026, zip sha256 `dce76f55...dc01f`). |
+| Gradle dağıtım zip'i | `downloads.gradle.org` 403. Zip ise github.com, ardından release-assets.githubusercontent.com üzerinden geliyor: **200, indirilebilir.** |
+| `repo.maven.apache.org`, `plugins.gradle.org` | 200. Yoğun istekte Maven Central **429** veriyor. |
+| Yerel araçlar | OpenJDK 21.0.11 ve `/opt/gradle` (8.14.3) var. `ANDROID_HOME`, `sdkmanager` ve `adb` yok. |
+
+**Sonuç:** Bu kapta Android SDK kurulamıyor ve APK veya AAB derlenemiyor. Android derlemesi yalnız GitHub Actions'ta yapılabilir.
+
+Saf Kotlin/JVM kodu ise burada derlenip test edilebiliyor:
+- `kotlin-deneme/` Kotlin 2.4.21 ile derlendi, 2 test geçti (`tests="2" failures="0"`). Maven Central 429 verdiği için iki kez yeniden denemek gerekti.
+- Bu yüzden saf mantığı ayrı bir `:cekirdek` modülüne koymayı öneriyorum.
+
+**GitHub Actions ortamı [K40]**
+- `ubuntu-24.04` imajında Android SDK Platform 34 ile 37.2 arası, Build-tools 34 ile 37 arası, JDK 17 (varsayılan) ve Gradle 9.8.0 kurulu.
+- Emülatör Linux'ta KVM açılarak çalışıyor [K41].
+
+### 3.2 Doğrulanmış platform ve Play bilgileri
+
+| Konu | Bulgu |
+| --- | --- |
+| Hedef API | 31 Ağustos 2026'dan beri yeni uygulamalar ve güncellemeler **API 36'yı (Android 16)** hedeflemeli. Süre uzatma 1 Kasım 2026'ya kadar [K1]. |
+| AAB | Ağustos 2021'den beri yeni uygulamalar App Bundle ile yayımlanmak zorunda [K2]. |
+| Play App Signing | İlk yayında yapılandırmak zorunlu. Geliştirici kendi imza anahtarını yükleyebilir ("Export and upload"). Aynı anahtar başka mağazalarda da kullanılacaksa kendi anahtarını vermesi öneriliyor. Anahtar 22 Ekim 2033'ten sonrasına kadar geçerli olmalı. Yükleme anahtarı kaybolursa sıfırlanabilir [K3]. |
+| Ön plan hizmeti (FGS) | `microphone` türü `FOREGROUND_SERVICE_MICROPHONE` ve `RECORD_AUDIO` ister, uygulama arka plandayken başlatılamaz. `camera` türü de aynı kısıtla. `mediaPlayback` ek izin istemez. `phoneCall` için `MANAGE_OWN_CALLS` gerekir. `dataSync` 24 saatte 6 saatle sınırlı [K4][K6][K7]. API 34 ve üstünü hedefleyen uygulamalar FGS türlerini Play Console'da (App content) beyan eder [K4]. Beyanda açıklama ve video bağlantısı istenir [K5, arama özeti]. |
+| WebView'da getUserMedia | WebView 53'ten beri var [K12]. Uygulama `onPermissionRequest` içinde yalnız istediği kaynakları `grant()` ile verir. `getOrigin()` var, yanıt UI iş parçacığında verilir [K8][K9]. `MODIFY_AUDIO_SETTINGS` gereği yalnız ikincil kaynaklarda geçiyor, resmi kaynakta doğrulanamadı [K38]. |
+| WebView'da getDisplayMedia | **Desteklenmiyor.** BCD'de WebView, Chrome Android'i yansıtıyor ve orada `version_added: false` [K12]. Android uygulamasından ekran paylaşımı başlatılamaz, ama izlenebilir. |
+| WebView'da `Notification` | **Yok** (`version_added: false`) [K12]. Yerel köprü gerekir. |
+| WebView'da `MediaSession` ve `navigator.permissions` | Yok [K12]. İstemci ikisinin yokluğunda da çalışıyor (`voice.js:4917`). |
+| WebView'da service worker | Var [K12][K16]. Önerilen tasarımda bilerek kapalı (masaüstündeki gibi). |
+| `shouldInterceptRequest` | Ana çerçeve isteği için de çağrılır (`isForMainFrame`). İstek **gövdesini vermez**: `WebResourceRequest` yalnız yöntem, başlıklar ve adres verir. Null dönerse istek ağdan normal yoldan gider. blob: adresleri için çağrılmaz [K10][K11]. |
+| Köprü | `addJavascriptInterface` nesneyi YouTube iframe'i dahil **bütün çerçevelere** enjekte eder [K15]. `WebViewCompat.addWebMessageListener` köken kurallarıyla sınırlanabilir, `onPostMessage` kaynak kökeni ve `isMainFrame` bilgisini verir, ArrayBuffer taşıyabilir [K13][K14]. |
+| androidx.webkit | Kararlı sürüm **1.17.1** (7 Ekim 2026). 1.16 sürümünden beri minSdk 24 [K18]. |
+| AGP | **9.4.0** (Eylül 2026). En az Gradle 9.6.0 ve JDK 17 ister, en yüksek API 37, Build Tools 36.0.0. AGP 9 Kotlin desteğini kendi içinde getirir (KGP'ye çalışma zamanı bağımlılığı var) [K19]. Kotlin'in son kararlı sürümü 2.4.21 [K21]. |
+| Android 16'yı hedeflemek | Kenardan kenara düzenden çıkış yok. Öngörülü geri hareketi varsayılan, `onBackPressed` çağrılmıyor. 600dp ve üstü ekranlarda yön kilidi geçersiz [K22]. Bildirimler için `POST_NOTIFICATIONS` izni (Android 13 ve üstü) [K23]. |
+| Otomatik yedekleme | Varsayılan olarak `getDir()` ile açılan klasörler de yedeklenir [K24]. WebView verisinin bu yolla yedeklendiği çıkarımımdır, doğrulanamadı. |
+| Doze | "Uygulama boşta sayılmasın diye ön plan hizmeti başlatmayın" [K25]. |
+| Geliştirici doğrulaması | 30 Eylül 2026'da Brezilya, Endonezya, Singapur ve Tayland'da başladı, 2027'de bütün dünyaya yayılacak. Play hesabı olan otomatik kaydolur. Play dışında dağıtılan APK için paket adı ve anahtar kaydı gerekir [K26]. |
+| Kişisel hesap | 13 Kasım 2023'ten sonra açılan kişisel hesaplar üretime çıkmadan önce 14 gün boyunca 12 test kullanıcısıyla kapalı test yapmak zorunda [K27, arama özeti]. |
+| Gizlilik ve hesap silme | Gizlilik politikası Play Console'da ve uygulamanın içinde bulunmalı [K29]. Hesap açılabilen uygulamada uygulama içinden silme ve bir web bağlantısı zorunlu [K30] (arama özetleri). |
+| Data safety | Uçtan uca şifreli veri, aracı (geliştirici dahil) okuyamıyorsa "toplanan" sayılmıyor [K28, kısmen doğrulandı]. Kullanıcının seçtiği kendi sunucusuna giden kullanıcı adının nasıl sayılacağı doğrulanamadı. |
+| UGC | Kullanıcıların bir kısmına görünen içerik (gruplar dahil) UGC sayılır. Uygulama içi şikâyet ve engelleme şartı var [K31, arama özeti]. Telsiz'de engelleme var, şikâyet (bildirme) yok. |
+| Yalnız web sarmalayıcı | Bir web sitesinin WebView'ı olan uygulamalar "minimum işlev" politikasıyla reddediliyor [K33, 2020 tarihli]. |
+| YouTube | Gömülü oynatıcı HTTP Referer ile kimlik ister, yoksa 153 hatası verir [K37, arama özeti]. Arka planda YouTube çalma: DJ raporundaki bulgu geçerli, arka plan oynatıcısı kullanılamaz. |
+
+### 3.3 Seçeneklerin karşılaştırılması
+
+| | (a1) Uzak arayüz WebView | (a2) Paketli arayüz, uygulama kökeni ve CORS | **(a3) Paketli arayüz, sunucunun kendi kökeninde (öneri)** | (b) TWA | (c) Capacitor |
+| --- | --- | --- | --- | --- | --- |
+| Arayüz nereden | Sunucudan | APK'dan | APK'dan | Sunucudan (Chrome) | APK'dan (`https://localhost`) |
+| Ele geçirilmiş sunucu kod enjekte edebilir mi | **Evet** | Hayır | Hayır | **Evet** | Hayır |
+| Sunucu değişikliği | Yok | CORS ve yeni başlıklar | **Yok** | Her sunucu kendi assetlinks.json dosyasını sunmalı | CORS veya yerel HTTP köprüsü |
+| İstemcinin ağ katmanı değişir mi | Hayır | API taban adresi değişir, CSP değişir | **Hayır** (aynı kökenden XHR) | Hayır | `CapacitorHttp` XHR'yi köprüden geçirir (varsayılan kapalı) [K36] |
+| Sunucu başına depo yalıtımı | Doğal (köken) | Tek köken, Profile API gerekir | **Doğal (köken)** | Doğal | Tek köken |
+| YouTube Referer | Doğal | Uygulama kökeni (153 riski) | **Sunucu kökeni (doğal)** | Doğal | localhost (153 riski) |
+| Birden çok sunucu | Kolay | Kolay | Kolay | Pratikte yok (aşağıda) | `server.url` "not intended for production" [K36] |
+| İzin, bildirim ve FGS denetimi | Tam | Tam | Tam | Chrome'a bağlı | Eklentilerle |
+| Ek bağımlılık | androidx.webkit | androidx.webkit | androidx.webkit | android-browser-helper | npm `@capacitor/*` (android 8.5.3) ve Gradle eklentileri |
+
+**TWA'nın çok sunuculu kullanımı**
+- Resmi yol her kökenin hem uygulamanın `asset_statements` listesinde hem de sitenin `/.well-known/assetlinks.json` dosyasında bulunmasını ister [K35]. Kendi sunucusunu kuranların adresleri derleme anında bilinmez.
+- `setAdditionalTrustedOrigins` çalışma anında köken eklemeye izin veriyor (Chrome 74 ve üstü) [K35]. Yine de her sunucunun, uygulamanın Play imza parmak izini içeren assetlinks.json sunması gerekir. Bunun için Telsiz sunucusu ve ters vekiller değişmeli.
+- Chrome'un çalışma anında uygulama tarafındaki beyanı da denetleyip denetlemediği doğrulanamadı.
+- Doğrulama başarısız olursa adres çubuklu Custom Tab'a düşülür [K35].
+- Arayüz yine sunucudan gelir. **Önerilmez.**
+
+**Capacitor**
+- Uzak sunucu kipi üretim için önerilmiyor.
+- Paketli kipte (a2) ile aynı sorunları taşıyor (tek köken, CORS veya köprü). 1 GB'a kadar yükleme ve long-poll köprüden geçmek zorunda kalır.
+- npm araç zinciri ekliyor. **Önerilmez.**
+
+**(a3) neden mümkün**
+- `shouldInterceptRequest` ana çerçeve istekleri için de çağrılıyor [K11], WebViewAssetLoader bu sayede çalışıyor [K17].
+- İstek gövdesi verilmediği için vekil yapılamıyor [K11]. Ama `/api/*` için null dönünce istek gövdesiyle birlikte ağa normal yoldan gidiyor [K10].
+- Sonuç: sayfa gerçek `https://sunucu` kökeninde açılır, statik dosyalar APK'dan, API istekleri doğrudan sunucudan gelir.
+
+### 3.4 Kanıtlar (yeniden üretim)
+
+**Yolla sınırlanmış `script-src`, `/api/` altındaki betikleri engelliyor.** `csp-yol-deneme.js`, Chromium 141:
+- Kullanılan CSP: `script-src O/js/ O/i18n.js`.
+- Çalışan betikler: `["ok","i18n"]`.
+- `/api/evil.js`, `/js/../api/evil2.js`, `/js/%2e%2e/api/evil3.js` ve dinamik eklenen `/api/evil4.js` engellendi (4 CSP ihlali).
+- (a3)'teki "sunucu `/api/` altından betik sunarsa" riski bu yolla kapanıyor. WebView aynı Blink CSP kodunu kullanıyor, ama bunu ayrıca denemedim.
+
+**`gradle wrapper` çıktısındaki `gradlew.bat` kural 8'e takılıyor.** 4. satırdaki lisans yorumunda bir noktalı virgül var. Dosya CRLF. Üretilen `gradle-wrapper.properties` içinde `distributionSha256Sum` yok, elle eklenmeli.
+
+### 3.5 Kısıtlar
+
+1. **Ekran paylaşımı başlatılamaz.** WebView'da `getDisplayMedia` yok [K12]. Yerel MediaProjection ile alınan görüntü WebView'ın WebRTC'sine verilemez. Paylaşım düğmesi özellik denetimiyle zaten gizleniyor (`voice.js:573-581`).
+2. **Ses odası dışında arka planda bildirim yok.** Push altyapısı yok, FGS de "boşta sayılmamak için" kullanılamaz [K25]. Bildirimler uygulama açıkken veya ses odasındayken gelir.
+3. **Arka planda kamera:** `camera` FGS türü arka planda başlatılamaz [K4]. Varsayılan olarak uygulama arka plana geçince kamera kapanır.
+4. **Ses etkinliği zamanlayıcısı (20 ms) gizli sayfada kısılabilir.** Masaüstü bunu `main.js:121` ile kapatıyor, WebView'da böyle bir anahtar yok. Odada ses çalarken Chromium'un kısmadığı bilinen bir davranış, ama WebView'da doğrulanamadı.
+5. **Ses yönlendirmesi:** hoparlör, kulaklık ve Bluetooth arasında geçişi uygulama `AudioManager` ile yapmalı [K39, ikincil].
+6. **Eski WebView:** WebView Play üzerinden güncellenir. Güncellenmemiş cihazlarda özellik denetimi gerekir (`WebViewFeature.isFeatureSupported`).
+
+## 4. Önerilen çözüm
+
+### 4.1 Mimari (a3): sunucunun kökeninde paketli arayüz
+
+Etkin frekansın kökeni O olsun (ör. `https://telsiz.ornek.com`). WebView `O/` adresini yükler. `TelsizWebViewClient.shouldInterceptRequest` aşağıdaki kuralları uygular. Kuralların saf kısmı `:cekirdek` modülündeki `IstekKarari.kt` dosyasında yaşar ve JVM testleriyle denenir.
+
+| İstek | Karar |
+| --- | --- |
+| O kökeni, beyaz listedeki yol (`/`, `/index.html`, `/js/NN-*.js`, `/css/...`, `/fonts/...`, `/vendor/...`) | APK'daki varlık sunulur, başlıklar ve CSP manifest'ten gelir |
+| O kökeni, `/sw.js` veya `/manifest.webmanifest` | 404 (masaüstündeki gibi). Service worker kaydı sessizce düşer (`12-init.js:294` `.catch`) |
+| O kökeni, `/api/*`, alt kaynak | `null`: ağdan normal yoldan gider (gövde, yükleme ilerlemesi ve long-poll korunur) |
+| O kökeni, `/api/*`, `isForMainFrame` | 403 (sunucu kontrolündeki bir yanıt belge olarak açılamaz) |
+| O kökeni, beyaz listede olmayan başka yol | 404 |
+| `https://www.youtube-nocookie.com` (alt çerçeve) | `null` (CSP `frame-src` zaten yalnız buna izin veriyor) |
+| Başka köken, ana çerçeve | `shouldOverrideUrlLoading`: iptal edilir, https ise varsayılan tarayıcıda açılır |
+
+**CSP (her köken için üretilir)**
+- Sunucunun `HTML_CSP` politikasıyla aynı (`src/http-util.js:15`), şu farklarla:
+  - `script-src O/js/ O/vendor/ O/i18n.js O/theme-init.js O/crypto.js O/emoji.js O/voice.js O/rnnoise-worklet.js O/music.js O/dj/ 'wasm-unsafe-eval'`
+  - `style-src O/css/`
+  - `font-src O/fonts/`
+- `connect-src` ve `img-src` 'self' kalır, çünkü API ve sunucu fotoğrafı `/api/` altında.
+- Diğer güvenlik başlıkları `desktop/src/lib/static-files.js` içindeki `SECURITY_HEADERS` ile aynı.
+
+### 4.2 Yerel köprü
+
+- Köprü `WebViewCompat.addWebMessageListener(webView, "telsizAndroidBridge", setOf(O), dinleyici)` ile kurulur. Her frekans geçişinde kaldırılıp yeniden kurulur.
+- Dinleyici yalnız `sourceOrigin == O && isMainFrame` olan iletileri kabul eder.
+- Her ileti `:cekirdek/KopruIletisi.kt` içinde tür, alan ve uzunluk sınırlarıyla doğrulanır (masaüstündeki IPC doğrulamasının eşi). Bilinmeyen alan içeren ileti reddedilir.
+
+Sayfadan uygulamaya giden iletiler (JSON dize, en fazla 64 KB):
+- `{t:'ready',v:1}` ve uygulamanın yanıtı `{t:'init',version,platform:'android',features}`
+- `{t:'freq.list'}`, `{t:'freq.switch',origin}`, `{t:'freq.add'}`, `{t:'freq.remove',origin,clearData}`, `{t:'freq.name',name}`
+- `{t:'voice',active,muted,deafened,camera}`: FGS'i başlatır, günceller veya durdurur
+- `{t:'notify',id,title(<=200),body(<=300),tag}`, `{t:'notify.permission'}`
+- `{t:'bars',bg:'#rrggbb',fg:'#rrggbb'}`: renk denetimi masaüstündeki `title-bar.js` ile aynı
+- `{t:'save.begin',id,name,size,mime}`, ardından ArrayBuffer parçaları (1 MB), sonra `{t:'save.end',id}`
+- `{t:'back.result',handled}`
+
+Uygulamadan sayfaya giden iletiler: `{t:'back'}`, `{t:'voice.action',action:'mute'|'leave'}`, `{t:'notify.click',id}`, `{t:'notify.permission',state}`, `{t:'save.done'|'save.failed',id}`.
+
+### 4.3 İstemci değişiklikleri (public/)
+
+**Yeni modül: `public/js/NN-android.js`**
+- 38 numarası dört raporda çakışıyor. Öneri `40-android.js`, kesin numara birleştirmede verilir.
+- Yalnız `window.telsizAndroidBridge` varsa etkinleşir.
+- `window.telsizAndroid` nesnesini kurar: `version`, `platform`, `listFrequencies()`, `switchFrequency(o)`, `addFrequency()`, `removeFrequency(o,clear)`, `setFrequencyName(n)`. İmzalar masaüstüyle aynı, hepsi Promise döner.
+- `window.Notification` yoksa onun yerine geçen küçük bir uyarlama kurar (`permission`, `requestPermission`, yapıcı, `onclick`, `close`). Böylece `05-poll.js`, `11-settings.js` ve `14-social.js` hiç değişmez.
+- `window.TelsizAndroidUI` nesnesini kurar: `onVoice(snap)`, `saveBytes(data,name)`, `renderAppSettings(kap)`, `onBack()`.
+- Geri hareketi şu sırayla işler: önce `topLayer()` ve `closeLayer()` (`02-state-dom.js:377,414`), sonra `telsizSheet` geçmişi (`12-init.js:156-166`), ikisi de yoksa `handled:false` döner ve uygulama `moveTaskToBack(true)` çağırır. Böylece ses odası sürer.
+- Tema renklerini `bars` iletisiyle bildirir (`30-pencere.js` ile aynı yöntem).
+
+**Mevcut dosyalardaki küçük kancalar**
+- `public/js/24-frekans.js:450-454`: `frekansDesktop()` aynı arayüzü taşıyan `window.telsizAndroid` nesnesini de kabul eder. "Masaüstü" geçen metinler gözden geçirilir.
+- `public/js/10-voice.js:124-130`: `TelsizAndroidUI.onVoice` kancası eklenir.
+- `public/js/07-attachments.js:185`: `saveBytes` önce `TelsizAndroidUI.saveBytes` kancasını dener. Bu dosya CONTRIBUTING'e göre hassas alan (yüklemeler).
+- `public/js/11-settings.js:3107`: `desktopSettingsBox` `TelsizAndroidUI` nesnesini de kabul eder (Ayarlar > Uygulama > Android bölümü).
+- `public/index.html` betik listesine ve `public/sw.js` `SHELL` listesine yeni modül eklenir. `test/sw.test.js` bunu denetler.
+- Sunucudaki beyaz liste `js/` desenini kullandığı için değişmez.
+
+**i18n anahtarları (`public/i18n.js`, tr ve en birlikte)**
+- `android.settings.title`
+- `android.settings.notifications`, `android.settings.notificationsDenied`, `android.settings.notificationsOpen`
+- `android.settings.backgroundVoice`
+- `android.settings.battery`
+- `android.settings.version`
+- `android.settings.privacy`
+- `android.save.done`, `android.save.failed`
+- `android.screenShareUnavailable`
+- `android.frequency.removeData`
+
+### 4.4 Yerel taraf: android/ klasörü
+
+Dil: **Kotlin**. Gerekçeler:
+- AGP 9 Kotlin desteğini kendi getiriyor, KGP zaten derleme yolunda [K19].
+- Kotlin noktalı virgülsüz yazılıyor, projenin StandardJS stiline uyuyor.
+- Google'ın önerdiği dil.
+- Bedeli: kotlin-stdlib çalışma zamanına girer, R8 küçültür.
+
+```
+android/
+  settings.gradle.kts, build.gradle.kts, gradle.properties
+  gradle/libs.versions.toml           tam sürümler
+  gradle/verification-metadata.xml    sha256 bağımlılık doğrulaması
+  gradle/wrapper/                     9.8.1 ve distributionSha256Sum
+  gradlew, gradlew.bat
+  scripts/hazirla.js                  public/ -> üretilmiş varlıklar ve manifest
+  cekirdek/                           saf Kotlin/JVM, Android'siz, bu kapta da test edilir
+    SunucuAdresi.kt   server-url.js parseServerUrl, isValidOrigin, parseInfo, compareVersions eşi
+    Frekanslar.kt     frequencies.js eşi (en fazla 50, { origin, name, lastUsed })
+    VarlikListesi.kt  manifest okuma, yol çözümü
+    Csp.kt            kökene göre CSP üretimi
+    IstekKarari.kt    4.1'deki tablo
+    KopruIletisi.kt   ileti doğrulaması
+    IzinKarari.kt     köken ve kaynak kararı
+  app/
+    AndroidManifest.xml
+    AnaEtkinlik.kt        WebView, kenardan kenara düzen, sistem çubukları, geri
+    BaglanEtkinligi.kt    adres girişi ve /api/info denetimi (masaüstü connect penceresinin eşi)
+    TelsizWebViewClient.kt, TelsizChromeClient.kt (izinler, dosya seçici, tam ekran)
+    Kopru.kt, SesHizmeti.kt (FGS microphone), Bildirimler.kt, DosyaKaydet.kt (SAF)
+    SesYonu.kt            setCommunicationDevice (API 31 ve üstü), daha eskilerde setSpeakerphoneOn
+    res/values/strings.xml, res/values-tr/strings.xml, xml/network_security_config.xml,
+    xml/data_extraction_rules.xml, mipmap (Arcade logosundan)
+  README.md, README.en.md
+```
+
+**Sürümler**
+- AGP 9.4.0, Gradle 9.8.1, JDK 17.
+- compileSdk ve targetSdk 36, minSdk 26 (bildirim kanalları ve `setRendererPriorityPolicy` için 26, androidx.webkit için en az 24).
+- androidx.webkit 1.17.1. Test için JUnit ve kotlin-test, cihaz testleri için androidx.test (yalnız test bağımlılığı).
+
+**Bağımlılık politikası**
+- Çalışma zamanında yalnız `androidx.webkit` ve onun geçişli bağımlılıkları olacak. Geçişli liste Google Maven'a erişemediğim için doğrulanamadı.
+- Firebase, analiz veya çökme raporlayıcı yok.
+- Bildirim, izin ve kenar boşlukları için platform API'leri yeterli (minSdk 26).
+- `--dependency-verification strict` kullanılır.
+- CONTRIBUTING'e şu açıklama eklenir: "Kural 12 kök paket içindir. desktop/ ve android/ kendi listelerini tam sürümle sabitler, yeni bağımlılık önce issue'da tartışılır."
+
+**Sürüm numarası**
+- Gradle `versionName` değerini `../package.json` dosyasından okur. Böylece sürüm commit'ine yeni bir adım eklenmez.
+- `versionCode = major*1000000 + minor*10000 + patch*100 + derleme`.
+
+**Hazırlık betiği (`android/scripts/hazirla.js`)**
+- `desktop/src/lib/static-files.js` `resolveStatic` işlevini yeniden kullanır, beyaz liste bu yüzden tek yerde kalır.
+- Varlıkları `app/build/generated/...` altına yazar (depoya girmez) ve her dosya için `{ path, file, type, sha256 }` içeren bir manifest üretir.
+- Gradle'a `androidComponents ... addGeneratedSourceDirectory` ile bağlanır.
+- Çalışma anında sha256 denetimi önermiyorum: kurulumda APK imzası bütünlüğü zaten denetliyor. Bu bir karar noktası.
+
+**Frekanslar**
+- Liste `SharedPreferences` içinde, biçimi masaüstündekiyle aynı.
+- Geçişte `loadUrl(O2 + '/')` ve `clearHistory()` çağrılır, köprü yeni kökenle yeniden kurulur.
+- "Frekans ekle" `BaglanEtkinligi` ekranını açar.
+- "Verisini sil" seçeneği `WebStorage.deleteOrigin(O)` çağırır.
+- Arka plan sayımı (masaüstündeki `25-arka-plan.js` karşılığı) ilk sürümde yok.
+
+**Ses ve arka plan**
+- `voice.active=true` gelince, uygulama öndeyken `SesHizmeti` `startForeground(FOREGROUND_SERVICE_TYPE_MICROPHONE)` ile başlar.
+- Bildirimde "Sustur" ve "Ayrıl" eylemleri bulunur.
+- `setRendererPriorityPolicy(RENDERER_PRIORITY_IMPORTANT, false)` ayarlanır [K15].
+- Ses odasından çıkınca hizmet durur.
+- Uygulama arka plana geçince kamera kapatılır (`voice.action`).
+- `mediaPlayback` türü ilk sürümde kullanılmaz.
+
+**WebView ve manifest ayarları**
+- `allowFileAccess=false`, `allowContentAccess=false`, `mediaPlaybackRequiresUserGesture=false`, `setSupportMultipleWindows(false)`.
+- Hata ayıklama yalnız debug derlemesinde açık.
+- `onReceivedSslError` her zaman `cancel()` çağırır [K10]. `onRenderProcessGone` WebView'ı yeniden kurar.
+- `android:allowBackup="false"`, `dataExtractionRules` ile bulut yedeği ve cihazdan cihaza aktarım tamamen dışarıda.
+- `usesCleartextTraffic=false`, yalnız sistem CA'larına güvenilir.
+- Debug derlemesinde testler için yalnız `10.0.2.2` adresine http izni var.
+- Bütün bileşenler `exported=false`, giriş etkinliği hariç.
+
+**Bildirimler**
+- İki kanal: "Mesajlar" ve "Ses odası".
+- Kilit ekranında `VISIBILITY_PRIVATE` ve genel sürüm "Yeni mesaj".
+- Bildirime basınca `notify.click` iletisi gider.
+
+**İndirme ve yükleme**
+- Dosya seçimi `onShowFileChooser` ve `FileChooserParams.createIntent()` ile.
+- Kaydetme `ACTION_CREATE_DOCUMENT` ile, ArrayBuffer parçaları akış olarak yazılır.
+
+**Sunucu değişikliği:** Uygulamanın kendisi için **gerekmez**. Yeni API ucu yok. Uyum denetimi mevcut `/api/info` `version` alanıyla yapılır (`src/app.js:1627-1630`). Play'in UGC şartı için ayrı bir "Bildir" özelliği gerekebilir, bkz. karar 12.
+
+### 4.5 İmzalama, CI ve yayın
+
+**`.github/workflows/android.yml`** (`desktop.yml` gibi çağrılabilir)
+- `ubuntu-24.04`, SHA ile sabitlenmiş `checkout`, `setup-node 22`, `setup-java 17` ve `gradle/actions/setup-gradle`. Bu son eylem her çalışmada wrapper'ı doğruluyor [K42].
+- Çalıştırılacak görevler: `:cekirdek:test :app:testDebugUnitTest :app:lintRelease :app:bundleRelease`.
+- İsteğe bağlı emülatör işi: API 36 x86_64, KVM açık, sunucu ana makinede çalışır, debug derlemesi `http://10.0.2.2:PORT` adresine bağlanır, `connectedDebugAndroidTest` çalışır.
+
+**`release.yml`**
+- Yeni `android` işi `needs: check` ile eklenir.
+- GitHub environment adı `android-yayin` (onaylayıcı zorunlu).
+- Gizli değişkenler: `ANDROID_UPLOAD_KEYSTORE_B64`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`.
+- Anahtar deposu `RUNNER_TEMP` altına açılır, imzalandıktan sonra silinir. İmza `apksigner` ile doğrulanır ve sertifikanın SHA-256 değeri özete yazılır.
+- Çıktı: `telsiz-<sürüm>.aab` ve R8 `mapping.txt`, workflow artifact olarak. İsteğe bağlı derleme kaynağı kanıtı (attestation).
+- GitHub Release beyaz listesi değişmez: APK konmaz, karar 5.
+
+**Denetleyici (`scripts/denetle.js`)**
+- `BINARY_EXTS` listesine `.jar`.
+- `GENERATED_DIRS` listesine `android/app/build/`, `android/build/`, `android/.gradle/`.
+- `DOC_PAIRS` listesine `android/README.md` ile `android/README.en.md`.
+- `android/gradlew.bat` için kural 8 (noktalı virgül) istisnası, çünkü üretilen dosyada 1 tane var.
+- Yeni kural: `values/strings.xml` ile `values-tr/strings.xml` aynı anahtarları ve yer tutucuları taşımalı.
+- `.gitignore`: `*.jks`, `*.keystore`, `android/local.properties`.
+
+### 4.6 Belgeler
+
+- `android/README.md` ve `android/README.en.md`.
+- `README.md` ve `.en`: kurulum ve Play bölümü.
+- `docs/MIMARI.md` ve `docs/ARCHITECTURE.md`: Android bölümü.
+- `CONTRIBUTING.md` ve `.en`: yapı tablosu, komutlar, kural 12 açıklaması, yayın adımları ve gizli değişkenler.
+- `SECURITY.md`: Android güven modeli.
+- İki CHANGELOG dosyası.
+- Yeni `docs/GIZLILIK.md` ve `docs/PRIVACY.md`: gizlilik politikası ve hesap silme açıklaması (Play'e verilecek herkese açık URL).
+
+### 4.7 Kullanıcının yapması gerekenler
+
+1. Play Console hesabı açmak ve kimliği doğrulamak. Ücret ikincil kaynaklara göre tek seferlik 25 USD, resmi kaynakta doğrulanamadı [K43]. Kişisel hesapsa 12 kişiyle 14 günlük kapalı test [K27].
+2. Uygulamayı oluşturmak (`io.github.yerlifan.telsiz`) ve Play App Signing'i yapılandırmak.
+3. `keytool` ile yükleme anahtarı üretmek (2033 sonrasına kadar geçerli, 25 yıl önerilir [K3]). Anahtarı GitHub environment gizli değişkenlerine koymak ve çevrimdışı yedeklemek.
+4. Gizlilik politikası URL'si, hesap silme web bağlantısı, Data safety formu, içerik derecelendirmesi anketi, hedef kitle, reklam yok beyanı.
+5. **App access:** inceleyiciler için herkese açık bir demo Telsiz sunucusu, kullanıcı adı, parola ve "adres yazma" talimatı [K34].
+6. FGS (microphone) beyanı: açıklama ve gösterim videosu [K5].
+7. Mağaza kaydı: TR ve EN açıklama, simge, görseller. Kategori: İletişim.
+8. İlk AAB'yi dahili teste elle yüklemek. İlk yüklemenin elle yapılması gerektiği doğrulanamadı. Sonra kapalı test ve üretim başvurusu.
+
+## 5. Testler
+
+**Birim testleri (JVM, `:cekirdek`, bu kapta da çalışır)**
+- `SunucuAdresi`: ortak örnek dosyası `test/fixtures/sunucu-adresleri.json`. Aynı dosyayı `desktop/test/server-url.test.js` de okur, böylece iki uygulama aynı sonucu verir.
+- `IstekKarari`: 4.1'deki tablonun her satırı. `%2e%2e`, büyük ve küçük harf, sorgu ve parça içeren yollar.
+- `Csp`: bir Node testi `src/http-util.js` HTML_CSP ile yönerge yönerge karşılaştırır.
+- `KopruIletisi`: yanlış köken, alt çerçeve, uzun alan ve bilinmeyen alan reddedilir.
+- `Frekanslar`: masaüstüyle aynı örnekler.
+
+**Birim testleri (Node)**
+- `test/android-kopru.test.js`: sahte köprüyle `NN-android.js`: Notification uyarlaması, frekans çağrıları, geri sırası, `saveBytes` parçalaması.
+- `test/sw.test.js` güncellenir.
+- `hazirla.js` için: beyaz listede olmayan dosya kopyalanmaz, `sw.js` kopyalanmaz.
+
+**Uçtan uca (Playwright, `e2e/yardimci.js` setupWorld kalıbı)**
+- `e2e/NN-android-kopru.test.js`: `addInitScript` ile sahte `telsizAndroidBridge`.
+- Denenecekler: bildirim izni akışı, ses odasına katılınca `voice.active` iletisi, geri hareketinin katmanı kapatması, dosya indirmenin köprüye gitmesi, frekans geçişi.
+
+**Cihaz testi (emülatör, CI)**
+- Uygulama sunucuya bağlanır.
+- `/js/01-core.js` dosyasının varlıktan geldiği (sayaç) ve `/api/info` isteğinin ağdan geldiği doğrulanır.
+- `O/api/x` ana çerçevede açılmaz.
+- YouTube dışındaki iframe engellenir.
+
+**Elle deneme**
+- Android 8, 12, 14 ve 16, ayrıca katlanabilir veya tablet.
+- Ses odası: ekran 10 dakika kapalıyken, Bluetooth kulaklıkla, hoparlör ve kulaklık arasında geçişle.
+- Özel mesaj araması.
+- Android 13 ve üstünde bildirim izni.
+- 1 GB'a yakın dosya yükleme ve indirme.
+- DJ YouTube (153 hatası yok, arka plana geçince duruyor).
+- Frekans geçişi.
+- Öngörülü geri hareketi, klavye açıkken kenar boşlukları, TalkBack.
+- Uçak kipinde açılış (paketli arayüz görünmeli).
+- Kendinden imzalı sertifikalı sunucu reddedilmeli.
+
+## 6. Riskler ve güvenlik etkisi
+
+- **Şifreleme:** Protokol değişmez. Paketli arayüz sayesinde ele geçirilmiş bir sunucu Android kullanıcısına kod enjekte edemez, masaüstüyle aynı güvence.
+- **Kalan fark:** `/api/` yanıtları vekilden geçmediği için başlıkları süzülemiyor (masaüstü süzüyor).
+  - Kötü niyetli bir sunucu `Clear-Site-Data: "storage"` göndererek bu kökendeki yerel anahtarları silebilir. Bu bir hizmet engelleme saldırısıdır, tarayıcıda da aynı durum var.
+  - API yanıtından betik çalıştırmayı yolla sınırlanmış CSP engelliyor (3.4).
+  - İstenirse GET istekleri uygulamanın kendi HTTP istemcisiyle yapılıp başlıkları süzülebilir. POST istekleri yine doğrudan gider.
+- **Köprü:** Yalnız O kökeni ve ana çerçeve. YouTube iframe'i köprüye erişemez. `addJavascriptInterface` kullanılmaz [K15].
+- **İzinler:** Mikrofon ve kamera yalnız `getOrigin()==O` olduğunda verilir. Uygulama `RECORD_AUDIO` ve `CAMERA` izinlerini kullanıcı eylemiyle ister. Arka planda kamera yok.
+- **Gizlilik:**
+  - Yedekleme kapatılmazsa `telsiz.identity.*` gizli anahtarları bulut yedeğine girebilir. Bu yüzden `allowBackup=false` ve veri çıkarma kuralları zorunlu.
+  - Bildirimde çözülmüş mesaj önizlemesi gösterilir, kilit ekranında gizlidir.
+  - Safe Browsing varsayılan açık. Adres sorgularının Google'a gitmesi bir gizlilik notu.
+- **Play App Signing:** Google uygulama imza anahtarını tutar ve kuramsal olarak değiştirilmiş bir APK imzalayabilir (uçtan uca şifreli uygulamalar için bilinen bir şeffaflık sorunu). Hafifletme: AAB için derleme kaynağı kanıtı yayımlamak.
+- **Gizli değişkenler:** Yükleme anahtarı onaylı environment içinde tutulur. Sızarsa Play'de sıfırlanabilir [K3].
+- **Politika riskleri:**
+  - UGC şikâyet şartı: Telsiz'de bildirme özelliği yok.
+  - "Minimum işlev" politikası: paketli arayüz, FGS, bildirimler ve sunucu seçimi yerel değer katıyor.
+  - YouTube'un arka planda çalmaması.
+  - 12 test kullanıcısı şartı.
+- **Teknik riskler:** WebView'da ses etkinliği zamanlayıcısının kısılması doğrulanamadı. Ses yönlendirmesi ve yankı. Eski WebView sürümleri.
+
+## 7. Büyüklük
+
+**XL.** Yaklaşık 29 adım:
+- Hazırlık ve karar issue'su: 2
+- Gradle iskeleti, `:cekirdek` modülü ve testleri, hazırlık betiği, denetleyici değişiklikleri: 6
+- Yerel uygulama (WebView, istek kesme, gezinme ve TLS, köprü, bağlantı ekranı, frekanslar, izinler, dosya, bildirim, FGS, geri ve kenar boşlukları, ses yönü): 9
+- İstemci modülü, kancalar, i18n, birim ve uçtan uca testler: 4
+- `android.yml`, emülatör, `release.yml` ve environment: 3
+- Belgeler, gizlilik ve hesap silme sayfası, mağaza metinleri, FGS videosu, cihaz denemeleri: 5
+
+## 8. Karar noktaları ve önerdiğim varsayılanlar
+
+1. **Mimari (a3):** sunucu kökeninde paketli arayüz. Masaüstünün güvenlik vaadini korurken sunucu ve ağ katmanı değişmiyor. (a1) yarı sürede biterdi ama "arayüz sunucudan gelir" sınırını geri getirirdi.
+2. **Kotlin.** Gerekçeler 4.4'te.
+3. **minSdk 26, targetSdk ve compileSdk 36.** API 37 gelecek yılın şartı olabilir, doğrulanamadı.
+4. **Bağımlılık:** yalnız androidx.webkit 1.17.1, sha256 doğrulamasıyla. CONTRIBUTING kural 12 "kök paket" diye açıklanır.
+5. **Dağıtım yalnız Play.** GitHub Release'e APK konmaz. Aksi hâlde ayrı anahtar kaydı ve imza uyuşmazlığı çıkar [K26].
+6. **Play App Signing anahtarını Google üretsin.** Yükleme anahtarı GitHub environment'ta. Play'e yükleme ilk sürümlerde elle, otomasyon sonra.
+7. **Arka plan:** FGS yalnız ses odasındayken ve yalnız `microphone` türünde. Kamera arka planda kapanır, ses odası dışında arka plan bağlantısı yok.
+8. **Ekran paylaşımı başlatma yok, izleme var.**
+9. **Yalnız https ve sistem CA'ları.** Kullanıcı CA'sı ve http yok. Test için debug derlemesinde istisna.
+10. **Yedekleme kapalı.** Bildirim içeriği kilit ekranında gizli.
+11. **Uygulama kimliği** `io.github.yerlifan.telsiz` (masaüstüyle aynı). Kategori İletişim.
+12. **Play'e üretim sürümünden önce ayrı bir "Bildir" PR'ı.** Mesajı veya kişiyi frekans sahibine ve yöneticilere bildirme özelliği, sunucu ve istemci değişikliği ister (M). UGC şartı için temkinli seçim, doğrulanamadı.
+13. **Data safety:** temkinli beyan. Kullanıcı adı ve kimliği "uygulama işlevi" için toplanıyor, aktarımda şifreli, silinebilir. Mesaj, dosya ve ses uçtan uca şifreli olduğu için beyan edilmez [K28].
+14. **Çalışma anında sha256 denetimi yok.** APK imzası yeterli.
+15. **Wrapper depoya girer.** `.jar` ve `gradlew.bat` için denetleyici istisnası tanımlanır.
+
+## 9. Dokunulacak paylaşılan dosyalar (çakışma haritası)
+
+| Dosya | Değişiklik | Paralel iş riski |
+| --- | --- | --- |
+| `public/index.html` | Betik listesine yeni modül | Yüksek (oyun, yüzen pencere, kurtarma) |
+| `public/sw.js` | `SHELL` listesine yeni modül | Yüksek (oyun 33-37) |
+| `public/i18n.js` | `android.*` anahtarları | Yüksek |
+| `public/js/24-frekans.js` | `frekansDesktop()` uygulama nesnesini kabul eder | Orta |
+| `public/js/10-voice.js` | `onVoice` kancası | Orta (DJ, yüzen pencere) |
+| `public/js/11-settings.js` | Ayar kabı kancası | Orta (profil, kurtarma) |
+| `public/js/07-attachments.js` | `saveBytes` kancası | Düşük |
+| `scripts/denetle.js` | `.jar`, üretilmiş klasörler, belge çifti, strings.xml eşliği, bat istisnası | Orta |
+| `.github/workflows/release.yml`, yeni `android.yml` | Android işi | Düşük |
+| `.gitignore`, `CONTRIBUTING*`, `README*`, `docs/MIMARI.md`, `docs/ARCHITECTURE.md`, `SECURITY.md`, `CHANGELOG*` | Belgeler | Yüksek (CHANGELOG ve README) |
+| `desktop/test/server-url.test.js`, yeni `test/fixtures/` | Ortak örnek dosyası | Düşük |
+
+Dokunulmayacak dosyalar: `public/voice.js`, `public/js/33-37`, `src/app.js`, `src/http-util.js`, `public/css/tokens.css`. Kesin modül numarası birleştirmede verilecek (38 çakışıyor).
+
+## Dış kaynaklar ve doğrulama durumu
+
+**Sayfası okunarak doğrulananlar**
+- [K1] https://developer.android.com/google/play/requirements/target-sdk
+- [K2] https://developer.android.com/guide/app-bundle
+- [K3] https://developer.android.com/studio/publish/app-signing
+- [K4] https://developer.android.com/develop/background-work/services/fgs/service-types
+- [K6] https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
+- [K7] https://developer.android.com/develop/background-work/services/fgs/timeout
+- [K8] https://developer.android.com/reference/android/webkit/PermissionRequest
+- [K9] https://developer.android.com/reference/android/webkit/WebChromeClient
+- [K10] https://developer.android.com/reference/android/webkit/WebViewClient
+- [K11] https://developer.android.com/reference/android/webkit/WebResourceRequest
+- [K12] https://github.com/mdn/browser-compat-data (raw `api/MediaDevices.json`, `Notification.json`, `ServiceWorkerContainer.json`, `MediaSession.json`, `Permissions.json`, `AudioWorklet.json`)
+- [K13] https://developer.android.com/reference/androidx/webkit/WebViewCompat
+- [K14] https://developer.android.com/reference/androidx/webkit/WebViewCompat.WebMessageListener ve https://developer.android.com/reference/androidx/webkit/WebMessageCompat
+- [K15] https://developer.android.com/reference/android/webkit/WebView
+- [K16] https://developer.android.com/reference/android/webkit/ServiceWorkerClient
+- [K17] https://developer.android.com/reference/androidx/webkit/WebViewAssetLoader
+- [K18] https://developer.android.com/jetpack/androidx/releases/webkit
+- [K19] https://developer.android.com/build/releases/agp-9-4-0-release-notes, https://developer.android.com/build/releases/about-agp, https://developer.android.com/build/releases/agp-9-0-0-release-notes
+- [K20] https://services.gradle.org/versions/current
+- [K21] https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-gradle-plugin/maven-metadata.xml
+- [K22] https://developer.android.com/about/versions/16/behavior-changes-16
+- [K23] https://developer.android.com/develop/ui/views/notifications/notification-permission
+- [K24] https://developer.android.com/identity/data/autobackup
+- [K25] https://developer.android.com/training/monitoring-device-state/doze-standby
+- [K26] https://developer.android.com/developer-verification/guides
+- [K35, Android TWA rehberi] https://developer.android.com/develop/ui/views/layout/webapps/guide-trusted-web-activities-version2
+- [K36] https://raw.githubusercontent.com/ionic-team/capacitor/main/cli/src/declarations.ts ve `android/package.json` (8.5.3)
+- [K40] https://raw.githubusercontent.com/actions/runner-images/main/images/ubuntu/Ubuntu2404-Readme.md
+- [K41] https://raw.githubusercontent.com/ReactiveCircus/android-emulator-runner/main/README.md
+- [K42] https://raw.githubusercontent.com/gradle/actions/main/README.md
+
+**Yalnız arama özetiyle desteklenenler** (resmi sayfa kapta açılamadı: support.google.com, developer.chrome.com, developers.google.com ve docs.gradle.org vekilde engelli)
+- [K5] https://support.google.com/googleplay/android-developer/answer/13392821
+- [K27] https://support.google.com/googleplay/android-developer/answer/14151465
+- [K28] https://support.google.com/googleplay/answer/11416267 ve https://appmetrica.yandex.com/docs/en/data-security/google-data-safety
+- [K29] https://support.google.com/googleplay/android-developer/answer/10144311
+- [K30] https://support.google.com/googleplay/android-developer/answer/13327111
+- [K31] https://support.google.com/googleplay/android-developer/answer/9876937
+- [K32] https://support.google.com/googleplay/android-developer/answer/14747720
+- [K33] https://android-developers.googleblog.com/2020/10/developer-tips-and-guides-common-policy.html
+- [K34] https://support.google.com/googleplay/android-developer/answer/9859455
+- [K35, çok kökenli TWA] https://developer.chrome.com/docs/android/trusted-web-activity/multi-origin/ ve https://github.com/GoogleChrome/custom-tabs-client/blob/master/customtabs/src/android/support/customtabs/trusted/TrustedWebActivityIntentBuilder.java
+- [K37] https://developers.google.com/youtube/terms/required-minimum-functionality ve https://developers.google.com/youtube/iframe_api_reference
+
+**Doğrulanamadı (yalnız ikincil kaynaklar)**
+- [K38] https://community.appinventor.mit.edu/t/requires-modify-audio-settings-and-record-audio-no-audio-device-will-be-available-for-recording/45525 ve https://inappwebview.dev/docs/5.x.x/web-rtc
+- [K39] https://pub.dev/packages/voip_audio_route_manager_android/changelog
+- [K43] https://afkarsoftware.com/en/blog-detail/google-play-console-account-2026-one-time-25-fee/
+
+**Ayrıca doğrulanamayanlar**
+- WebView'ın Otomatik Yedekleme'ye girdiği (çıkarım).
+- Chrome'un TWA için uygulama tarafındaki beyanı çalışma anında denetleyip denetlemediği.
+- İlk AAB'nin elle yüklenmesinin zorunlu olup olmadığı.
+- androidx.webkit'in geçişli bağımlılıkları.
+- WebView'da gizli sayfa zamanlayıcısının kısılması.
+- Kullanıcının seçtiği sunucuya giden verinin Data safety'de nasıl sayılacağı.
+- YouTube'un arka planda oynatma kuralı (DJ raporuyla aynı: `docs/calisma/raporlar/wf_0a579f99-523-ara-t-rma-dj.txt:289,343`).

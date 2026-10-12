@@ -1,0 +1,456 @@
+From 2b54b3d18cc1f944b2f85289d93677075a73dd4f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 19:57:39 +0000
+Subject: [PATCH 86/88] =?UTF-8?q?G16:=20inceleme=20d=C3=BCzeltmeleri=20(?=
+ =?UTF-8?q?=C5=9Fik=C3=A2yet=20penceresi=20anahtars=C4=B1z=20ve=20sahip=20?=
+ =?UTF-8?q?bildirilince,=20al=C4=B1nt=C4=B1=20bildirenin=20metni=20olarak)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Etkin grup anahtarı cihazda yoksa pencere alıntıyı ve not alanını göstermez, şikâyet yalnızca nedenle gider
+(önceden eski anahtarla çözülen yazı odası mesajı hiç bildirilemiyordu). Sahip bildirilince pencere şikâyetin
+yalnızca yöneticilere gittiğini, frekansta yönetici yoksa kimsenin göremeyeceğini söyler. Listede alıntı
+"Bildirenin eklediği mesaj metni" olarak gösterilir, yazı odasındaki mesaj cihazda yüklüyse şu anki metni
+farklıysa bu belirtilir. Listenin ipucu kişinin kendi hakkındaki şikâyetleri görmediğini söyler. Birim testleri:
+kimliği başka kayda bağlı geçerli zarfın kilitli görünmesi, anahtarsız ve sahip hedefli pencere, en yeni şikâyet
+kimliğiyle liste yenileme.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/11-roller.test.js    |   4 +-
+ public/i18n.js           |  30 ++++++---
+ public/js/11-settings.js |  16 ++++-
+ public/js/13-profile.js  |  71 +++++++++++++++------
+ test/settings.test.js    | 134 +++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 224 insertions(+), 31 deletions(-)
+
+diff --git a/e2e/11-roller.test.js b/e2e/11-roller.test.js
+index 6b739ed..04b5243 100644
+--- a/e2e/11-roller.test.js
++++ b/e2e/11-roller.test.js
+@@ -195,7 +195,7 @@ test('üye mesajı bildirir, sahibin açık Şikâyetler listesine gelir, not ç
+   assert.equal(await deniz.textContent(row + ' .list-name'), 'Ece adlı kişinin mesajı')
+   assert.match(await deniz.textContent(row + ' .list-sub'), /^İstenmeyen içerik · Bildiren: Mert · /)
+   assert.equal(await deniz.textContent(row + ' .report-note-line'), 'Not: ' + REPORT_NOTE)
+-  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Mesaj: ' + REPORTED_TEXT)
++  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Bildirenin eklediği mesaj metni: ' + REPORTED_TEXT)
+   assert.equal(await deniz.textContent(row + ' .act-report-go'), 'Mesaja Git')
+   assert.equal(await deniz.textContent(row + ' .act-report-resolve'), 'Çözüldü İşaretle')
+   await deniz.click(row + ' .act-report-resolve')
+@@ -270,7 +270,7 @@ test('kişi profil kartından, özel mesaj ise metin yalnızca kutu işaretlenin
+   const row = '#set-reports-list .report-row[data-report-id="' + reports[0].id + '"]'
+   await deniz.waitForSelector(row, { timeout: h.LONG })
+   assert.equal(await deniz.textContent(row + ' .list-name'), 'Ece adlı kişinin özel mesajı')
+-  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Mesaj: ' + DM_SECOND)
++  assert.equal(await deniz.textContent(row + ' .report-quote-line'), 'Bildirenin eklediği mesaj metni: ' + DM_SECOND)
+   assert.equal(await deniz.$(row + ' .act-report-go'), null)
+   const firstRow = '#set-reports-list .report-row[data-report-id="' + reports[1].id + '"]'
+   assert.equal(await deniz.$(firstRow + ' .report-quote-line'), null)
+diff --git a/public/i18n.js b/public/i18n.js
+index a02aded..32ad6fe 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -113,11 +113,17 @@ window.I18N = (function () {
+     'report.noteHint': 'En çok {max} karakter.',
+     'report.send': 'Gönder',
+     'report.sent': 'Şikâyetiniz frekans sahibine ve yöneticilere iletildi.',
+-    'report.alreadySent': 'Bu konuda açık bir şikâyetiniz zaten var, frekans sahibine ve yöneticilere iletildi.',
++    'report.sentAdmins': 'Şikâyetiniz frekansın yöneticilerine iletildi.',
++    'report.sentNobody': 'Şikâyetiniz kaydedildi. Bu frekansta yönetici olmadığı için şu anda kimse göremez.',
++    'report.alreadySent': 'Bu konuda açık bir şikâyetiniz zaten var.',
+     'report.failed': 'Şikâyet gönderilemedi.',
+-    'report.needKey': 'Not ve mesaj metni bu frekansın grup anahtarıyla şifrelenir, bu cihazda anahtar yok. Notu boş bırakıp yeniden deneyin.',
++    'report.needKey': 'Not ve mesaj metni bu frekansın grup anahtarıyla şifrelenir, anahtar bu cihazda artık yok. Pencereyi kapatıp yeniden açarsanız şikâyet notsuz gönderilebilir.',
++    'report.noKey': 'Bu cihazda frekansın etkin grup anahtarı yok. Not ve mesaj metni şikâyete eklenemez, şikâyet yalnızca seçtiğiniz nedenle gönderilir.',
+     'report.leadMessage': '{name} adlı kişinin mesajını frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.',
+     'report.leadUser': '{name} adlı kişiyi frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.',
++    'report.leadMessageOwner': '{name} adlı kişinin mesajını frekansın yöneticilerine bildiriyorsunuz. {name} frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.',
++    'report.leadUserOwner': '{name} adlı kişiyi frekansın yöneticilerine bildiriyorsunuz. {name} frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.',
++    'report.ownerNobody': 'Bu frekansta yönetici yok. Şikâyet kaydedilir ama bir yönetici atanana kadar kimse göremez.',
+     'report.privacy': 'Sunucu kimin kimi hangi nedenle bildirdiğini görür. Not ve mesaj metni grup anahtarıyla şifrelenir, sunucu okuyamaz.',
+     'report.quoteLabel': 'Bildirilen mesaj',
+     'report.quoteAuto': 'Mesajın metni şikâyete eklenir. Mesaj sonradan silinse de frekans sahibi ve yöneticiler görebilir.',
+@@ -126,7 +132,7 @@ window.I18N = (function () {
+     'settings.reports.title': 'Şikâyetler',
+     'settings.reports.resolve': 'Çözüldü İşaretle',
+     'settings.reports.resolveLabel': '{name} hakkındaki şikâyeti çözüldü işaretle',
+-    'settings.reports.hint': 'Üyelerin bildirdiği mesajlar ve kişiler burada listelenir. Notlar grup anahtarıyla şifrelidir, sunucu yalnızca kimin kimi hangi nedenle bildirdiğini görür.',
++    'settings.reports.hint': 'Üyelerin bildirdiği mesajlar ve kişiler burada listelenir, sizin hakkınızdaki şikâyetler size gösterilmez. Notu ve mesaj metnini bildiren kişi ekler, ikisi de grup anahtarıyla şifrelidir. Sunucu yalnızca kimin kimi hangi nedenle bildirdiğini görür.',
+     'settings.reports.none': 'Açık şikâyet yok.',
+     'settings.reports.resolvedTitle': 'Çözülenler',
+     'settings.reports.kindMessage': '{name} adlı kişinin mesajı',
+@@ -135,7 +141,8 @@ window.I18N = (function () {
+     'settings.reports.sub': '{reason} · Bildiren: {reporter} · {time}',
+     'settings.reports.resolvedSub': 'Çözen: {name} · {time}',
+     'settings.reports.note': 'Not: {text}',
+-    'settings.reports.quote': 'Mesaj: {text}',
++    'settings.reports.quote': 'Bildirenin eklediği mesaj metni: {text}',
++    'settings.reports.quoteChanged': 'Mesajın şu anki metni bundan farklı. Mesaj sonradan düzenlenmiş ya da bildiren metni değiştirmiş olabilir.',
+     'settings.reports.noteLocked': 'Not bu cihazda açılamadı. Grup anahtarı yok veya not doğrulanamadı.',
+     'settings.reports.goTo': 'Mesaja Git',
+     'settings.reports.refresh': 'Yenile',
+@@ -2174,11 +2181,17 @@ window.I18N = (function () {
+     'report.noteHint': 'Up to {max} characters.',
+     'report.send': 'Send',
+     'report.sent': 'Your report was sent to the frequency owner and admins.',
+-    'report.alreadySent': 'You already have an open report about this, it was sent to the frequency owner and admins.',
++    'report.sentAdmins': 'Your report was sent to the frequency admins.',
++    'report.sentNobody': 'Your report was saved. This frequency has no admins, so nobody can see it right now.',
++    'report.alreadySent': 'You already have an open report about this.',
+     'report.failed': 'The report could not be sent.',
+-    'report.needKey': 'The note and the message text are encrypted with this frequency\'s group key, which is not on this device. Leave the note empty and try again.',
++    'report.needKey': 'The note and the message text are encrypted with this frequency\'s group key, which is no longer on this device. If you close this dialog and open it again, the report can be sent without a note.',
++    'report.noKey': 'This device does not have the frequency\'s current group key. The note and the message text cannot be attached, so the report is sent with the reason you choose only.',
+     'report.leadMessage': 'You are reporting a message from {name} to the frequency owner and admins. Telsiz does not show your report to the reported person.',
+     'report.leadUser': 'You are reporting {name} to the frequency owner and admins. Telsiz does not show your report to the reported person.',
++    'report.leadMessageOwner': 'You are reporting a message from {name} to the frequency admins. {name} is the frequency owner, and Telsiz does not show your report to them.',
++    'report.leadUserOwner': 'You are reporting {name} to the frequency admins. {name} is the frequency owner, and Telsiz does not show your report to them.',
++    'report.ownerNobody': 'This frequency has no admins. The report is saved, but nobody can see it until an admin is appointed.',
+     'report.privacy': 'The server sees who reported whom and for what reason. The note and the message text are encrypted with the group key, the server cannot read them.',
+     'report.quoteLabel': 'Reported message',
+     'report.quoteAuto': 'The message text is attached to the report. The owner and admins can see it even if the message is deleted later.',
+@@ -2187,7 +2200,7 @@ window.I18N = (function () {
+     'settings.reports.title': 'Reports',
+     'settings.reports.resolve': 'Mark Resolved',
+     'settings.reports.resolveLabel': 'Mark the report about {name} as resolved',
+-    'settings.reports.hint': 'Messages and people reported by members are listed here. Notes are encrypted with the group key, the server only sees who reported whom and for what reason.',
++    'settings.reports.hint': 'Messages and people reported by members are listed here, reports about you are not shown to you. The reporter adds the note and the message text, and both are encrypted with the group key. The server only sees who reported whom and for what reason.',
+     'settings.reports.none': 'No open reports.',
+     'settings.reports.resolvedTitle': 'Resolved',
+     'settings.reports.kindMessage': 'Message from {name}',
+@@ -2196,7 +2209,8 @@ window.I18N = (function () {
+     'settings.reports.sub': '{reason} · Reported by {reporter} · {time}',
+     'settings.reports.resolvedSub': 'Resolved by {name} · {time}',
+     'settings.reports.note': 'Note: {text}',
+-    'settings.reports.quote': 'Message: {text}',
++    'settings.reports.quote': 'Message text added by the reporter: {text}',
++    'settings.reports.quoteChanged': 'The current text of the message is different. The message may have been edited later, or the reporter may have changed the text.',
+     'settings.reports.noteLocked': 'The note could not be opened on this device. The group key is missing or the note could not be verified.',
+     'settings.reports.goTo': 'Go To Message',
+     'settings.reports.refresh': 'Refresh',
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 6872dd1..683ca37 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -4314,6 +4314,16 @@ function openReportNote (r) {
+   return { state: 'ok', note: typeof v.n === 'string' ? v.n : '', quote: typeof v.q === 'string' ? v.q : '' }
+ }
+ 
++// Alıntıyı bildiren kişi yazar, sunucu ve liste doğrulayamaz. Yazı odasındaki mesaj bu cihazda yüklüyse ve
++// çözülebiliyorsa şu anki metni alıntıyla aynı biçimde döner (karşılaştırmak için), yoksa null.
++function reportLiveQuote (r) {
++  if (r.kind !== 'message' || r.dm || typeof reportQuoteOf !== 'function' || typeof indexOfMessage !== 'function') return null
++  const i = indexOfMessage(r.messageId)
++  const m = i === -1 ? null : state.messages[i]
++  if (!m || !sameId(m.channelId, r.channelId)) return null
++  return reportQuoteOf(m) || null
++}
++
+ // Sunucunun verdiği ad boşsa hesap silinmiştir, listedeki kişi için görünen ad kullanılır
+ function reportPersonName (userId, name) {
+   if (!name) return t('profile.deletedUser')
+@@ -4337,7 +4347,11 @@ function buildReportRow (r) {
+   }
+   const opened = openReportNote(r)
+   if (opened.state === 'ok') {
+-    if (opened.quote) text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
++    if (opened.quote) {
++      text.appendChild(h('span', 'report-text report-quote-line', t('settings.reports.quote', { text: opened.quote })))
++      const live = reportLiveQuote(r)
++      if (live !== null && live !== opened.quote) text.appendChild(h('span', 'list-sub report-quote-changed', t('settings.reports.quoteChanged')))
++    }
+     if (opened.note) text.appendChild(h('span', 'report-text report-note-line', t('settings.reports.note', { text: opened.note })))
+   } else if (opened.state === 'locked') {
+     text.appendChild(h('span', 'list-sub report-locked', t('settings.reports.noteLocked')))
+diff --git a/public/js/13-profile.js b/public/js/13-profile.js
+index d24aff8..9f68948 100644
+--- a/public/js/13-profile.js
++++ b/public/js/13-profile.js
+@@ -1244,9 +1244,11 @@ async function squareAvatar (image, type) {
+ // İçerik şikâyeti (POST /api/reports): mesaj veya kişi frekans sahibine ve yöneticilere bildirilir. Not ve mesajın
+ // metni (alıntı) grup anahtarıyla mühürlenir, sunucu yalnızca kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini
+ // görür. Yazı odasındaki mesajın metni alıntıya kendiliğinden girer (odadaki herkes zaten okuyabilir), özel mesajın
+-// metni yalnızca kişi kutuyu işaretlerse girer. Mühürlü içerik şikâyet edeni, hedefi ve mesajı da taşır, listeyi
+-// açan istemci bunları sunucunun kaydıyla karşılaştırır (11-settings.js). Not ve alıntı birlikte en çok 2000 kod
+-// noktasıdır (sunucunun zarf sınırı buna göre).
++// metni yalnızca kişi kutuyu işaretlerse girer. Bu cihazda frekansın etkin grup anahtarı yoksa alıntı ve not
++// eklenemez, şikâyet yalnızca nedenle gider. Mühürlü içerik şikâyet edeni, hedefi ve mesajı da taşır, listeyi açan
++// istemci bunları sunucunun kaydıyla karşılaştırır (11-settings.js). Not ve alıntı birlikte en çok 2000 kod
++// noktasıdır (sunucunun zarf sınırı buna göre). Şikâyet edilen sahip veya yönetici kendisi hakkındaki şikâyeti
++// görmez: sahip bildirilince şikâyeti yalnızca yöneticiler görür, frekansta yönetici yoksa kimse görmez.
+ const REPORT_REASON_KEYS = ['spam', 'harassment', 'illegal', 'other']
+ const REPORT_NOTE_MAX = 1000
+ const REPORT_QUOTE_MAX = 1000
+@@ -1280,6 +1282,15 @@ function reportQuoteOf (message) {
+   return cleanReportText(result.text || '', REPORT_QUOTE_MAX)
+ }
+ 
++// Şikâyeti kimin göreceği: 'staff' (sahip ve yöneticiler, şikâyet edilen hariç), 'admins' (sahip bildirildi) veya
++// 'nobody' (sahip bildirildi ve frekansta yönetici yok)
++function reportAudience (targetId) {
++  const target = metaUser(targetId)
++  if (!target || target.role !== 'owner') return 'staff'
++  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
++  return users.some((u) => u && u.role === 'admin' && !sameId(u.id, targetId)) ? 'admins' : 'nobody'
++}
++
+ function reportReasonSelect () {
+   const select = h('select', 'input select')
+   select.id = 'report-reason'
+@@ -1304,7 +1315,13 @@ function openReportDialog (opts) {
+   const targetId = message ? message.authorId : opts.userId
+   if (targetId === undefined || targetId === null || sameId(targetId, state.me.id)) return
+   const dm = Boolean(message && isDmChannel(message.channelId))
+-  const quote = message ? reportQuoteOf(message) : ''
++  // Etkin grup anahtarı bu cihazda yoksa (ör. sahip anahtarı yeniledi, yenisi girilmedi) alıntı ve not mühürlenemez:
++  // eski anahtarla çözülebilen mesajın metni gösterilmez, not alanı yerine açıklama çıkar
++  const sealable = hasActiveKey()
++  const quote = message && sealable ? reportQuoteOf(message) : ''
++  const audience = reportAudience(targetId)
++  const name = shownName(targetId)
++  const leadKey = message ? (audience === 'staff' ? 'report.leadMessage' : 'report.leadMessageOwner') : (audience === 'staff' ? 'report.leadUser' : 'report.leadUserOwner')
+   openAppDialog({
+     name: 'report',
+     titleKey: message ? 'report.message' : 'report.user',
+@@ -1313,7 +1330,12 @@ function openReportDialog (opts) {
+       const form = h('form', 'form report-form')
+       form.id = 'report-form'
+       form.noValidate = true
+-      form.appendChild(h('p', 'lead', t(message ? 'report.leadMessage' : 'report.leadUser', { name: shownName(targetId) })))
++      form.appendChild(h('p', 'lead', t(leadKey, { name: name })))
++      if (audience === 'nobody') {
++        const nobody = h('p', 'hint report-audience', t('report.ownerNobody'))
++        nobody.id = 'report-audience'
++        form.appendChild(nobody)
++      }
+       let attach = null
+       if (quote) {
+         const box = h('div', 'report-quote-box')
+@@ -1344,18 +1366,25 @@ function openReportDialog (opts) {
+       form.appendChild(reasonLabel)
+       const reason = reportReasonSelect()
+       form.appendChild(reason)
+-      const noteLabel = h('label', 'label', t('report.note'))
+-      noteLabel.setAttribute('for', 'report-note')
+-      form.appendChild(noteLabel)
+-      const note = h('textarea', 'input report-note')
+-      note.id = 'report-note'
+-      note.rows = 3
+-      note.maxLength = REPORT_NOTE_MAX
+-      note.setAttribute('aria-describedby', 'report-note-hint')
+-      form.appendChild(note)
+-      const noteHint = h('p', 'hint', t('report.noteHint', { max: REPORT_NOTE_MAX }))
+-      noteHint.id = 'report-note-hint'
+-      form.appendChild(noteHint)
++      let note = null
++      if (sealable) {
++        const noteLabel = h('label', 'label', t('report.note'))
++        noteLabel.setAttribute('for', 'report-note')
++        form.appendChild(noteLabel)
++        note = h('textarea', 'input report-note')
++        note.id = 'report-note'
++        note.rows = 3
++        note.maxLength = REPORT_NOTE_MAX
++        note.setAttribute('aria-describedby', 'report-note-hint')
++        form.appendChild(note)
++        const noteHint = h('p', 'hint', t('report.noteHint', { max: REPORT_NOTE_MAX }))
++        noteHint.id = 'report-note-hint'
++        form.appendChild(noteHint)
++      } else {
++        const noKey = h('p', 'hint report-nokey', t('report.noKey'))
++        noKey.id = 'report-nokey'
++        form.appendChild(noKey)
++      }
+       form.appendChild(h('p', 'hint report-privacy', t('report.privacy')))
+       const msg = h('p', 'form-error')
+       msg.id = 'report-error'
+@@ -1374,7 +1403,7 @@ function openReportDialog (opts) {
+       const busy = (on) => {
+         setFormBusy(form, on)
+         reason.disabled = on
+-        note.disabled = on
++        if (note) note.disabled = on
+       }
+       const submit = async () => {
+         if (form.classList.contains('is-busy')) return
+@@ -1383,7 +1412,7 @@ function openReportDialog (opts) {
+           focusNode(reason)
+           return
+         }
+-        const noteText = cleanReportText(note.value, REPORT_NOTE_MAX)
++        const noteText = note ? cleanReportText(note.value, REPORT_NOTE_MAX) : ''
+         const quoteText = quote && (!dm || (attach && attach.checked)) ? quote : ''
+         const payload = { kind: message ? 'message' : 'user', targetUserId: targetId, reason: reason.value }
+         if (message) {
+@@ -1391,6 +1420,7 @@ function openReportDialog (opts) {
+           payload.messageId = message.id
+         }
+         if (noteText || quoteText) {
++          // Anahtar pencere açıkken kaldırıldıysa pencere yeniden açılınca notsuz gönderilebilir
+           const kid = activeKid()
+           if (!kid || !hasActiveKey()) {
+             setMsg(msg, () => t('report.needKey'), 'error')
+@@ -1412,7 +1442,8 @@ function openReportDialog (opts) {
+           return
+         }
+         close('done')
+-        toast(() => t(res.data.duplicate ? 'report.alreadySent' : 'report.sent'), 'ok')
++        const sentKey = res.data.duplicate ? 'report.alreadySent' : audience === 'admins' ? 'report.sentAdmins' : audience === 'nobody' ? 'report.sentNobody' : 'report.sent'
++        toast(() => t(sentKey), 'ok')
+       }
+       form.addEventListener('submit', (e) => {
+         e.preventDefault()
+diff --git a/test/settings.test.js b/test/settings.test.js
+index d54eda0..6451d2c 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -948,6 +948,14 @@ test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, eng
+   run('updateSettingsPage()')
+   await new Promise((r) => setImmediate(r))
+   assert.strictEqual(gets(), before + 1)
++  // Sayı aynı kalsa da en yeni şikâyetin kimliği değişince (dolu listede yer değiştirme) yeniden alınır
++  run('socialState.priv.reportsLast = 99')
++  run('updateSettingsPage()')
++  await new Promise((r) => setImmediate(r))
++  assert.strictEqual(gets(), before + 2)
++  run('updateSettingsPage()')
++  await new Promise((r) => setImmediate(r))
++  assert.strictEqual(gets(), before + 2)
+   // Kapanınca liste unutulur
+   run('closeSettings(false)')
+   assert.strictEqual(run('settingsUi.reports'), null)
+@@ -963,6 +971,132 @@ test('şikâyetler (Üyeler): sahip ve yönetici listeyi görür ve çözer, eng
+   assert.strictEqual(mod.sandbox.__requests.filter((r) => r.path === '/api/reports').length, 0)
+ })
+ 
++test('şikâyetler (Üyeler): mühürlü not çözülür, kimliği başka kayda bağlı zarf kilitli kalır, alıntı bildirenin metni olarak gösterilir', async () => {
++  const { run, root, sandbox } = load({ role: 'owner' })
++  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
++  sandbox.__kid = kid
++  const seal = (obj) => run('E2EE.sealJson(__kid, ' + JSON.stringify(obj) + ')')
++  const base = { kind: 'message', reporterId: 3, reporterName: 'mert', targetUserId: 2, targetName: 'ece', channelId: 1, dm: false, reason: 'spam', createdAt: 1000, resolvedAt: null, resolvedBy: null, resolverName: '' }
++  const row = (id, messageId, value) => Object.assign({}, base, { id: id, messageId: messageId, note: seal(value) })
++  sandbox.__reports = [
++    // Doğru zarf: not ve alıntı görünür, mesaj bu cihazda yüklü ve metni farklı
++    row(9, 40, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Sürekli reklam', q: 'Uydurulmuş metin' }),
++    // Doğru zarf: alıntı yüklü mesajın metniyle aynı
++    row(8, 41, { v: 1, a: 3, k: 'message', u: 2, m: 41, n: '', q: 'Gerçek metin' }),
++    // Geçerli ama başka bir mesaja bağlı zarf
++    row(7, 42, { v: 1, a: 3, k: 'message', u: 2, m: 40, n: 'Başka mesajın notu', q: 'Başka mesajın metni' }),
++    // Geçerli ama başka bir bildirene ve başka bir hedefe bağlı zarflar
++    row(6, 43, { v: 1, a: 2, k: 'message', u: 2, m: 43, n: 'Yanlış bildiren', q: '' }),
++    row(5, 44, { v: 1, a: 3, k: 'message', u: 3, m: 44, n: 'Yanlış hedef', q: '' })
++  ]
++  // Yazı odasında yüklü iki mesaj (ece, genel)
++  sandbox.__bodies = [seal({ v: 1, a: 2, c: 1, t: 'Mesajın gerçek metni' }), seal({ v: 1, a: 2, c: 1, t: 'Gerçek metin' })]
++  run('state.messages = [{ id: 40, channelId: 1, authorId: 2, body: __bodies[0], createdAt: 1 }, { id: 41, channelId: 1, authorId: 2, body: __bodies[1], createdAt: 2 }]')
++  run(`api = function (method, path, body) {
++    __requests.push({ method: method, path: path, body: body })
++    if (method === 'GET' && path === '/api/reports') return Promise.resolve({ status: 200, data: { reports: __reports } })
++    return Promise.resolve({ status: 200, data: {} })
++  }`)
++  run("openSettings('members', null)")
++  await new Promise((r) => setImmediate(r))
++  const rowOf = (id) => root.querySelector('#set-reports-list .report-row[data-report-id="' + id + '"]')
++  assert.strictEqual(rowOf(9).querySelector('.report-note-line').textContent, 'Not: Sürekli reklam')
++  assert.strictEqual(rowOf(9).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Uydurulmuş metin')
++  assert.strictEqual(rowOf(9).querySelector('.report-quote-changed').textContent, 'Mesajın şu anki metni bundan farklı. Mesaj sonradan düzenlenmiş ya da bildiren metni değiştirmiş olabilir.')
++  assert.strictEqual(rowOf(9).querySelector('.report-locked'), null)
++  assert.strictEqual(rowOf(8).querySelector('.report-quote-line').textContent, 'Bildirenin eklediği mesaj metni: Gerçek metin')
++  assert.strictEqual(rowOf(8).querySelector('.report-quote-changed'), null)
++  assert.strictEqual(rowOf(8).querySelector('.report-note-line'), null)
++  for (const id of [7, 6, 5]) {
++    assert.strictEqual(rowOf(id).querySelector('.report-locked').textContent, 'Not bu cihazda açılamadı. Grup anahtarı yok veya not doğrulanamadı.', 'kayıt ' + id)
++    assert.strictEqual(rowOf(id).querySelector('.report-note-line'), null)
++    assert.strictEqual(rowOf(id).querySelector('.report-quote-line'), null)
++  }
++  // İngilizce etiket de doğrulanmamış metni bildirene bağlar
++  run("I18N.setLang('en')")
++  assert.strictEqual(run("t('settings.reports.quote', { text: 'x' })"), 'Message text added by the reporter: x')
++  run("I18N.setLang('tr')")
++})
++
++test('şikâyet penceresi: etkin anahtar yoksa not ve alıntı eklenmez, şikâyet nedenle gönderilir', async () => {
++  const member = load({ role: 'member' })
++  const { run, doc, sandbox } = member
++  const dialogRoot = doc.createElement('div')
++  dialogRoot.id = 'dialog-root'
++  dialogRoot.hidden = true
++  doc.body.appendChild(dialogRoot)
++  // Eski anahtar cihazda, sahibin yenilediği etkin anahtar yok: eski mesaj çözülür
++  const oldKid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
++  const newKid = run('(function () { const k = E2EE.keyring.add(E2EE.generateKeyCode()); E2EE.keyring.remove(k); return k })()')
++  sandbox.__oldKid = oldKid
++  run('state.meta.activeKid = ' + JSON.stringify(newKid))
++  assert.strictEqual(run('hasActiveKey()'), false)
++  sandbox.__body = run("E2EE.sealJson(__oldKid, { v: 1, a: 3, c: 1, t: 'Eski anahtarla yazılmış mesaj' })")
++  run('__msg = { id: 40, channelId: 1, authorId: 3, body: __body, createdAt: 1 }')
++  assert.strictEqual(run('reportQuoteOf(__msg)'), 'Eski anahtarla yazılmış mesaj')
++  run(`api = function (method, path, body) {
++    __requests.push({ method: method, path: path, body: body })
++    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
++    return Promise.resolve({ status: 200, data: {} })
++  }`)
++  run("openReportDialog({ kind: 'message', message: __msg })")
++  assert.ok(doc.querySelector('#report-dialog #report-form'), 'pencere açıldı')
++  assert.strictEqual(doc.querySelector('#report-quote'), null)
++  assert.strictEqual(doc.querySelector('#report-note'), null)
++  assert.strictEqual(doc.querySelector('#report-nokey').textContent, 'Bu cihazda frekansın etkin grup anahtarı yok. Not ve mesaj metni şikâyete eklenemez, şikâyet yalnızca seçtiğiniz nedenle gönderilir.')
++  doc.querySelector('#report-reason').value = 'spam'
++  doc.querySelector('#report-send').click()
++  await new Promise((r) => setImmediate(r))
++  const posts = sandbox.__requests.filter((r) => r.path === '/api/reports')
++  assert.deepStrictEqual(JSON.parse(JSON.stringify(posts.map((r) => r.body))), [{ kind: 'message', targetUserId: 3, reason: 'spam', channelId: 1, messageId: 40 }])
++  assert.strictEqual(doc.querySelector('#report-dialog'), null)
++  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekans sahibine ve yöneticilere iletildi.')
++})
++
++test('şikâyet penceresi: sahip bildirilince şikâyeti yalnızca yöneticiler görür, yönetici yoksa kimse görmez', async () => {
++  const member = load({ role: 'member' })
++  const { run, doc, sandbox } = member
++  const dialogRoot = doc.createElement('div')
++  dialogRoot.id = 'dialog-root'
++  dialogRoot.hidden = true
++  doc.body.appendChild(dialogRoot)
++  const kid = run('E2EE.keyring.add(E2EE.generateKeyCode())')
++  run('state.meta.activeKid = ' + JSON.stringify(kid))
++  assert.strictEqual(run('hasActiveKey()'), true)
++  run("state.meta.users[2].role = 'owner'")
++  run(`api = function (method, path, body) {
++    __requests.push({ method: method, path: path, body: body })
++    if (method === 'POST' && path === '/api/reports') return Promise.resolve({ status: 200, data: { ok: true, id: 1 } })
++    return Promise.resolve({ status: 200, data: {} })
++  }`)
++  const send = async () => {
++    doc.querySelector('#report-reason').value = 'harassment'
++    doc.querySelector('#report-send').click()
++    await new Promise((r) => setImmediate(r))
++  }
++  // Yönetici (ece) var: pencere şikâyetin yöneticilere gittiğini söyler
++  run("openReportDialog({ kind: 'user', userId: 3 })")
++  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'mert adlı kişiyi frekansın yöneticilerine bildiriyorsunuz. mert frekansın sahibidir, Telsiz şikâyetinizi ona göstermez.')
++  assert.strictEqual(doc.querySelector('#report-audience'), null)
++  assert.ok(doc.querySelector('#report-note'), 'anahtar varken not yazılabilir')
++  doc.querySelector('#report-note').value = 'Kuralları kendisi çiğniyor'
++  await send()
++  const posts = () => sandbox.__requests.filter((r) => r.path === '/api/reports').map((r) => r.body)
++  assert.strictEqual(posts().length, 1)
++  assert.ok(/^1\./.test(posts()[0].note), 'not mühürlü')
++  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz frekansın yöneticilerine iletildi.')
++  // Yönetici yok: şikâyet kaydedilir ama kimse göremez
++  run("state.meta.users[1].role = 'member'")
++  run("openReportDialog({ kind: 'user', userId: 3 })")
++  assert.strictEqual(doc.querySelector('#report-audience').textContent, 'Bu frekansta yönetici yok. Şikâyet kaydedilir ama bir yönetici atanana kadar kimse göremez.')
++  await send()
++  assert.strictEqual(doc.querySelector('#toast').textContent, 'Şikâyetiniz kaydedildi. Bu frekansta yönetici olmadığı için şu anda kimse göremez.')
++  // Sahip olmayan kişi için metin değişmez
++  run("openReportDialog({ kind: 'user', userId: 2 })")
++  assert.strictEqual(doc.querySelector('#report-form .lead').textContent, 'ece adlı kişiyi frekans sahibine ve yöneticilere bildiriyorsunuz. Telsiz şikâyetinizi bildirilen kişiye göstermez.')
++  assert.strictEqual(doc.querySelector('#report-audience'), null)
++})
++
+ test('roller sayfası (sahip): oluşturma, izin anahtarları, sıralama, silme ve üyeye rol verme', () => {
+   const owner = load({ role: 'owner' })
+   const { run, root, sandbox } = owner

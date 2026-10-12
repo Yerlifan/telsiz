@@ -1,0 +1,26 @@
+{
+ "tamam": true,
+ "baslangic": "46ffde97cab522d09c04591f48154c67a750a142",
+ "commitler": [
+  "6f44ffe G2: Yazma alanında konuşma başına taslak ve konuşmaya bağlı ekler",
+  "78bff22 G2: Taslaklar çıkışta, engellemede, konuşma silinince ve frekans değişince silinir",
+  "983c734 G2: e2e 19-gezinme: taslak ve ek konuşmalar arasında taşınmaz",
+  "5a3c8db G2: CHANGELOG: taslak ve ek sızıntısı düzeltmesi"
+ ],
+ "testler": "Her commit'ten önce /home/user/wt/a içinde npm run denetle temiz geçti (253 dosya, ihlal yok). npm test geçti: 889 başarılı, 0 hatalı, 1 test atlandı (o test bu işten önce de atlanıyordu). Yeni test/taslak.test.js vm birim testi 9/9 geçti. Kapsadığı konular: anahtarlar, eklerin konuşmaya bağlanması, ek sınırı, gönderim süzgeci ve doğru mühürleme, yüklemesi süren ekin kendi taslağında tamamlanması, yanıt gelmeden konuşma değişince taslağın düşmesi, istemci kimliğinin korunması, engellemede ve konuşma silinince temizlik, taslağın diske yazılmaması. Yeni e2e/19-gezinme.test.js (yuva 27) Chromium'da üst üste iki kez 5/5 geçti. Değişiklik öncesi koda karşı çalıştırılınca sızıntıyı yakaladı: kodun eski hâli ayrı bir karalama kopyasına git show ile alındı, deponun kendisine dokunulmadı. Ayrıca e2e/03-sosyal.test.js 9/9 geçti. En sonda bütün e2e takımı (npm run test:e2e) çalıştırıldı: 126 başarılı, 0 hatalı, 0 atlanan. Firefox ve WebKit bu makinede kurulu değil, o tarayıcılarda çalıştırılmadı.",
+ "sapmalar": [
+  "Taslak değeri planda { text, attachments, editId } olarak geçiyordu, { text, unsent } olarak yapıldı. Ekler taslağa kopyalanmadı, state.attachments listesinde kalıp convKey taşıyor. Böylece yükleme kuyruğu (pumpUploads) başka konuşmanın ekini de yüklemeyi sürdürüyor, bu da planın 'yüklemesi süren ek kendi taslağında tamamlanır' şartı. editId saklanmadı, çünkü bu uygulamada düzenleme yazma alanında değil mesaj listesinde yerinde yapılıyor ve geçişte zaten cancelEdit ile iptal ediliyordu. unsent eklendi: gönderilemeyen mesajın istemci kimliği konuşmayla birlikte korunur, geri dönüp yeniden gönderince mesaj ikilenmez.",
+  "Plan adımları 1, 2 ve 3 (taslak yapısı, eklerin bağlanması, selectChannel, showDm ve showHome çağrıları) birbirine sıkı bağlı oldukları için tek commit'te toplandı.",
+  "'Frekans değişince' temizliği için G2 dosya listesinde olmayan public/js/24-frekans.js içindeki frekansSwitch'e tek satırlık composerDraftsClear çağrısı eklendi. Tarayıcıda yönlendirmeden hemen önce, masaüstünde geçiş başarılı olunca çalışır.",
+  "public/js/04-meta.js içinde applyMeta'nın hiç yazı odası kalmayan dalına da composerLeave ve composerEnter eklendi. Bu dal state.channelId değerini selectChannel'ı çağırmadan null yapıyordu, silinen odanın metni yazma alanında kalırdı.",
+  "Engellemede ve konuşma silinince yapılan temizlik (composerPruneDrafts) 14-social.js içinde socialApplyPrivate, updatePrivateLocal ve socialAfterMeta'dan çağrılıyor. Açık konuşmaya dokunulmuyor: engellenen kişiyle açık özel konuşmada gönderim zaten kapalı, taslak o konuşmadan çıkılırken kaydedilmeden bırakılıyor.",
+  "e2e'de arayüz düğmeleriyle gezinme yalnızca 1440 genişlikte (oda satırı ve Özel Mesajlar düğmesi). Beş genişlik denetiminde konuşma değişimi, düğmelerin de çağırdığı selectChannel ve showDm işlevleriyle yapılıyor. Pencere boyutu 02-frekans testindeki gibi masaüstü bağlamında değiştiriliyor, mobil öykünme kullanılmadı. Nedeni, gezinme arayüzünü G9 ve G10'un değiştirecek olması."
+ ],
+ "kullaniciya": [
+  "Davranış değişti: artık her yazı odasının ve özel konuşmanın kendi taslağı var. Bir konuşmadan çıkınca metin ve ekler o konuşmada kalır, başka konuşmanın yazma alanında görünmez ve gönderilemez.",
+  "Taslaklar yalnızca bellekte tutulur. Sayfa yenilenince, oturum kapanınca ve frekans değişince silinir. Kişi engellenince o kişiyle özel konuşmanın, oda silinince o odanın taslağı silinir.",
+  "G9 bu işin üzerine kurulacak. Kullanılabilecek işlevler 08-composer.js içinde: composerLeave, composerEnter, composerKey, composerAttachments, composerDrafts. e2e/19-gezinme.test.js dosyası G9 ve G10 tarafından genişletilecek.",
+  "e2e testleri yalnızca Chromium'da çalıştırıldı, Firefox ve WebKit'te CI çalıştıracak."
+ ],
+ "kalan": []
+}

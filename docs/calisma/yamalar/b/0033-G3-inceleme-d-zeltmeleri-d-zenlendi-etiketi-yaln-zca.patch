@@ -1,0 +1,229 @@
+From 6411cb10b2abd763ff268c36fa6d99300f476a52 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 04:52:47 +0000
+Subject: [PATCH 33/88] =?UTF-8?q?G3:=20inceleme=20d=C3=BCzeltmeleri=20(d?=
+ =?UTF-8?q?=C3=BCzenlendi=20etiketi=20yaln=C4=B1zca=20izlenen=20ve=20yaln?=
+ =?UTF-8?q?=C4=B1zca=20ad=20ekleyen=20duyuru=20d=C3=BCzenlemesinde=20gizle?=
+ =?UTF-8?q?nir)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Etiketin gizlenmesi yalnızca mesajın son hâline ve süreye bakıyordu: ilk
+11 dakika içinde sıradan bir mesaj DJ duyurusuna çevrilebiliyor veya
+duyurunun videosu başka bir videoya değiştirilebiliyordu. replaceMessage
+artık düzenlenen mesajın önceki ve yeni çözülmüş hâlini noteDjTitleEdit'e
+verir. Etiket yalnızca önceki hâli hiç düzenlenmemiş, adsız bir DJ
+duyurusu olan ve aynı kaynak ve videoyla yalnızca ad ekleyen, ad süresi
+içindeki düzenlemede gizlenir (kayıt bu oturum boyunca kalır). Önceki hâli
+bilinmeyen düzenleme (konuşma sonradan açıldı, sayfa yenilendi) etiketle
+görünür. Birim testleri ve iki saldırı senaryosu için e2e eklendi.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/06-dj.test.js        | 40 +++++++++++++++++++++++++++++++++++++-
+ public/js/06-messages.js | 37 +++++++++++++++++++++++++++++------
+ public/js/23-dj.js       |  2 +-
+ test/social.test.js      | 42 +++++++++++++++++++++++++++++++++-------
+ 4 files changed, 106 insertions(+), 15 deletions(-)
+
+diff --git a/e2e/06-dj.test.js b/e2e/06-dj.test.js
+index a76a098..e310c17 100644
+--- a/e2e/06-dj.test.js
++++ b/e2e/06-dj.test.js
+@@ -9,7 +9,8 @@
+ // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
+ // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
+ // oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, kısa pencerede de görünüm
+-// alanında kalır.
++// alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi almaz, mesajı duyuruya
++// çeviren veya videosunu değiştiren düzenleme etiketle görünür.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -256,6 +257,43 @@ test('rızadan sonra sahte YouTube iki istemcide çalar, bantta nota ve kartta "
+   }, me, { timeout: h.LONG })
+ })
+ 
++test('"düzenlendi" etiketi: mesajı DJ duyurusuna çeviren veya duyurunun videosunu değiştiren düzenleme görünür', async () => {
++  const { A, B } = W
++  const room = await A.evaluate(() => state.channelId)
++  // Yalnızca ad ekleyen düzenleme konuşmadan çıkıp dönünce de etiketsiz kalır (bu oturumda izlendi)
++  const other = W.w.room('oyun-gecesi').id
++  assert.equal(await B.evaluate((r) => sameId(state.channelId, r), room), true)
++  await B.evaluate((id) => selectChannel(id, {}), other)
++  await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && !document.querySelector('#message-list .msg-dj'), other, { timeout: h.LONG })
++  await B.evaluate((id) => selectChannel(id, {}), room)
++  await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && document.querySelector('#message-list .msg-dj'), room, { timeout: h.LONG })
++  assert.equal(await B.evaluate(() => Boolean(document.querySelector('#message-list .msg-dj').closest('.msg').querySelector('.msg-edited'))), false)
++  const labelled = async (page, id) => {
++    await page.waitForFunction((x) => {
++      const msg = document.querySelector('#message-list .msg[data-id="' + x + '"]')
++      return Boolean(msg && msg.querySelector('.msg-dj') && msg.querySelector('.msg-edited'))
++    }, id, { timeout: h.LONG })
++  }
++  // Değiştirilmiş istemci benzetimi: sıradan bir mesaj sonradan DJ duyurusuna çevrilir
++  const plain = await A.evaluate((r) => postSideMessage(r, 'merhaba', null), room)
++  await B.waitForFunction((x) => {
++    const n = document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-text')
++    return n && n.textContent === 'merhaba'
++  }, plain, { timeout: h.LONG })
++  await A.evaluate((args) => editSideMessage(args[0], args[1], 'merhaba', { op: 'add', src: 'yt', vid: 'D120ccccccc', title: 'Başka bir şarkı' }), [room, plain])
++  for (const page of [A, B]) await labelled(page, plain)
++  // Gerçek bir duyurunun videosu sonradan değiştirilir
++  const notice = await A.evaluate((r) => postSideMessage(r, '/çal https://youtu.be/D120ddddddd', { op: 'add', src: 'yt', vid: 'D120ddddddd' }), room)
++  await B.waitForFunction((x) => {
++    const msg = document.querySelector('#message-list .msg[data-id="' + x + '"]')
++    return Boolean(msg && msg.querySelector('.msg-dj') && !msg.querySelector('.msg-edited'))
++  }, notice, { timeout: h.LONG })
++  await A.evaluate((args) => editSideMessage(args[0], args[1], '/çal https://youtu.be/D120ddddddd', { op: 'add', src: 'yt', vid: 'D120eeeeeee', title: 'Fake video D120ddddddd' }), [room, notice])
++  for (const page of [A, B]) await labelled(page, notice)
++  const link = await B.evaluate((x) => document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-dj-link').href, notice)
++  assert.equal(link, 'https://www.youtube.com/watch?v=D120eeeeeee')
++})
++
+ test('duraklat ve devam iki istemcide eşitlenir', async () => {
+   const { A, B } = W
+   await B.click('#dj .dj-toggle')
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index 9790c18..fbc4298 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -68,21 +68,42 @@ function cleanDjTitle (value) {
+   return codePoints(text).slice(0, DJ_NOTICE_TITLE_MAX).join('').trim()
+ }
+ 
+-// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bu süre
+-// içindeki düzenleme "düzenlendi" etiketi almaz, daha sonraki her düzenleme etiketle görünür. Bir dakikalık pay
+-// istek gecikmesini karşılar.
++// Telsiz DJ duyurusuna parçanın adı en çok bu süre içinde sonradan eklenir (23-dj.js djAnnounceTrack). Bir
++// dakikalık pay istek gecikmesini karşılar.
+ const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
+ const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
+ 
+-// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Etiket yalnızca DJ duyurusunun
+-// ekleme anından sonraki ad süresi içinde yapılan düzenlemesinde gizlenir, değiştirilmiş bir istemcinin eski bir
+-// duyuruyu sonradan iz bırakmadan yeniden yazması etiketle görünür.
++// Bu oturumda açık konuşmada izlenen, yalnızca ad ekleyen DJ duyurusu düzenlemeleri: kanal ve mesaj kimliği ->
++// düzenleme zamanı (noteDjTitleEdit doldurur)
++const djTitleEdits = new Map()
++
++function djEditKey (m) {
++  return String(m.channelId) + ':' + String(m.id)
++}
++
++// replaceMessage düzenlenen mesajın önceki ve yeni hâlini verir (prev ve m, çözülmüş before ve after). Düzenleme
++// yalnızca önceki hâl hiç düzenlenmemiş, adsız bir DJ duyurusuysa ve yeni hâl aynı kaynak ve videoyla yalnızca
++// ad ekliyorsa kaydedilir. Sıradan mesajı duyuruya çeviren, videoyu veya adı değiştiren düzenleme kaydedilmez.
++function noteDjTitleEdit (prev, m, before, after) {
++  if (!prev || !m) return
++  const a = before && before.state === 'ok' ? before.dj : null
++  const b = after && after.state === 'ok' ? after.dj : null
++  const titleOnly = Boolean(a && b && !prev.editedAt && m.editedAt && a.src === b.src && a.vid === b.vid && !a.title && b.title)
++  if (titleOnly) djTitleEdits.set(djEditKey(m), Number(m.editedAt))
++  else djTitleEdits.delete(djEditKey(m))
++}
++
++// Mesajın "düzenlendi" etiketi gösterilir mi. dj: mesaj geçerli bir DJ duyurusu. Sunucu gövdenin önceki hâlini
++// saklamaz ve göremez, bu yüzden etiket yalnızca bu oturumda izlenen ve yalnızca ad ekleyen düzenlemede
++// (noteDjTitleEdit) gizlenir, o da ad süresi içindeyse. Önceki hâli bilinmeyen düzenleme (konuşma sonradan
++// açıldı, sayfa yenilendi) etiketle görünür.
+ function showEditedMark (m, dj) {
+   if (!m || !m.editedAt) return false
+   if (!dj) return true
+   const created = Number(m.createdAt)
+   const edited = Number(m.editedAt)
+   if (!isFinite(created) || !isFinite(edited) || created <= 0) return true
++  if (djTitleEdits.get(djEditKey(m)) !== edited) return true
+   return edited - created > DJ_NOTICE_EDIT_MS + DJ_NOTICE_EDIT_GRACE_MS
+ }
+ 
+@@ -457,8 +478,12 @@ function replaceMessage (m) {
+   const index = indexOfMessage(m.id)
+   if (index === -1) return
+   if (sameId(state.editingId, m.id)) state.editingId = null
++  const prev = state.messages[index]
++  const before = prev.body !== m.body ? decryptMessage(prev) : null
+   state.messages[index] = m
+   decryptCache.delete(String(m.id))
++  // Düzenleme: DJ duyurusuna yalnızca ad eklendiyse "düzenlendi" etiketi gizlenir (showEditedMark)
++  if (before) noteDjTitleEdit(prev, m, before, decryptMessage(m))
+   const old = state.nodes.get(String(m.id))
+   const node = buildMessageNode(m)
+   state.nodes.set(String(m.id), node)
+diff --git a/public/js/23-dj.js b/public/js/23-dj.js
+index e4d5f11..4ca847f 100644
+--- a/public/js/23-dj.js
++++ b/public/js/23-dj.js
+@@ -33,7 +33,7 @@
+ 
+ const DJ_TICK_MS = 500
+ // Duyuru parçanın adını en çok bu kadar bekler. Ad sonradan gelirse ekleyenin kendi duyurusu DJ_NOTICE_EDIT_MS
+-// (06-messages.js, "düzenlendi" etiketinin gizlendiği süre) içinde düzenlenir.
++// (06-messages.js) içinde düzenlenir, konuşmayı açık tutanlar bu düzenlemeyi "düzenlendi" etiketsiz görür.
+ const DJ_TITLE_WAIT_MS = 8000
+ // Bu kadar eski bir işlemin bildirimi Bildirimler listesine yazılmaz (odaya sonradan katılınca gelen son işlem)
+ const DJ_NOTICE_FRESH_MS = 15000
+diff --git a/test/social.test.js b/test/social.test.js
+index 708b238..7c53238 100644
+--- a/test/social.test.js
++++ b/test/social.test.js
+@@ -280,22 +280,50 @@ test('"DJ\'de Çal" duyurusu eki olmayan mesajdır: eski istemci "Bu ses dosyas
+   assert.deepStrictEqual(cleanDjNotice250({ op: 'add', src: 'file', title: 'x.wav' }), { op: 'add', src: 'file' })
+ })
+ 
+-test('"düzenlendi" etiketi: DJ duyurusunda yalnızca ad süresi içindeki düzenleme gizlenir', () => {
++test('"düzenlendi" etiketi: DJ duyurusunda yalnızca izlenen, yalnızca ad ekleyen ve ad süresi içindeki düzenleme gizlenir', () => {
+   const { run } = load()
+   const mark = (m, dj) => run('showEditedMark(' + JSON.stringify(m) + ', ' + JSON.stringify(dj) + ')')
++  // replaceMessage'in verdiği önceki ve yeni hâl (çözülmüş sonuçlar yalnızca state ve dj alanıyla)
++  const note = (prev, m, a, b) => run('noteDjTitleEdit(' + [prev, m, { state: 'ok', dj: a }, { state: 'ok', dj: b }].map((x) => JSON.stringify(x)).join(', ') + ')')
+   const at = 1700000000000
+   const min = 60 * 1000
++  const yt = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ' }
++  const titled = { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Lobi teması' }
++  const msg = (id, editedAt) => ({ id: id, channelId: 5, createdAt: at, editedAt: editedAt })
+   // Düzenlenmemiş mesaj etiket almaz
+   assert.strictEqual(mark({ createdAt: at, editedAt: null }, true), false)
+   assert.strictEqual(mark({ createdAt: at }, false), false)
+   // Sıradan mesajın her düzenlemesi görünür
+   assert.strictEqual(mark({ createdAt: at, editedAt: at + 5000 }, false), true)
+-  // DJ duyurusuna ad eklemesi (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
+-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 9000 }, true), false)
+-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min }, true), false)
+-  // Sonraki düzenleme (değiştirilmiş istemcinin eski duyuruyu yeniden yazması) etiketle görünür
+-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 11 * min + 1 }, true), true)
+-  assert.strictEqual(mark({ createdAt: at, editedAt: at + 3 * 24 * 60 * min }, true), true)
++  // Önceki hâli bilinmeyen DJ duyurusu düzenlemesi (konuşma sonradan açıldı) görünür
++  assert.strictEqual(mark(msg(1, at + 9000), true), true)
++  // İzlenen ve yalnızca ad ekleyen düzenleme (on dakika ve bir dakikalık pay içinde) etiketsiz kalır
++  note(msg(1, null), msg(1, at + 9000), yt, titled)
++  assert.strictEqual(mark(msg(1, at + 9000), true), false)
++  note(msg(2, null), msg(2, at + 11 * min), yt, titled)
++  assert.strictEqual(mark(msg(2, at + 11 * min), true), false)
++  // Ad süresinden sonraki düzenleme görünür
++  note(msg(3, null), msg(3, at + 11 * min + 1), yt, titled)
++  assert.strictEqual(mark(msg(3, at + 11 * min + 1), true), true)
++  // Kayıt yalnızca o düzenlemeye aittir: aynı mesajın sonraki bir düzenlemesi görünür
++  assert.strictEqual(mark(msg(1, at + 20000), true), true)
++  // Sıradan mesajı duyuruya çeviren düzenleme görünür
++  note(msg(4, null), msg(4, at + 5 * min), null, titled)
++  assert.strictEqual(mark(msg(4, at + 5 * min), true), true)
++  // Duyurunun videosunu veya kaynağını değiştiren düzenleme görünür
++  note(msg(5, null), msg(5, at + 9000), yt, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
++  assert.strictEqual(mark(msg(5, at + 9000), true), true)
++  note(msg(6, null), msg(6, at + 9000), { op: 'add', src: 'file' }, { op: 'add', src: 'fileref', title: 'x.wav' })
++  assert.strictEqual(mark(msg(6, at + 9000), true), true)
++  // Zaten adı olan duyurunun adını değiştiren düzenleme görünür
++  note(msg(7, null), msg(7, at + 9000), titled, { op: 'add', src: 'yt', vid: 'dQw4w9WgXcQ', title: 'Başka' })
++  assert.strictEqual(mark(msg(7, at + 9000), true), true)
++  // Önceki hâli zaten düzenlenmiş (sıradan mesajdan çevrilmiş olabilir) duyuruya ad eklemek de görünür
++  note(msg(8, at + 1000), msg(8, at + 9000), yt, titled)
++  assert.strictEqual(mark(msg(8, at + 9000), true), true)
++  // İzlenen geçerli kayıt sonra geçersiz bir düzenlemeyle silinir
++  note(msg(1, at + 9000), msg(1, at + 30000), titled, { op: 'add', src: 'yt', vid: 'aaaaaaaaaaa', title: 'Başka' })
++  assert.strictEqual(mark(msg(1, at + 9000), true), true)
+   // Zamanı okunamayan DJ duyurusunun düzenlemesi görünür
+   assert.strictEqual(mark({ createdAt: 'x', editedAt: at }, true), true)
+ })

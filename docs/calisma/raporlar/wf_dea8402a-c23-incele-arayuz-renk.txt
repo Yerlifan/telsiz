@@ -1,0 +1,45 @@
+{
+ "bulgular": [
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/46-hexball.js",
+   "satir": 616,
+   "ozet": "Kolda vuruş düğmesi 0'dan 2'ye kaydırılırken 2 numaralı düğmenin (ve yön tuşlarının) başka bir ses atamasında olup olmadığına bakılmıyor. Klavye yolu bütün ses atamalarını dışarıda bırakıyor, kol yolu bırakmıyor.",
+   "senaryo": "Ayarlar'da bas konuş kol düğmesi 0'a (Çarpı/A), sustur (toggleMute) kol düğmesi 2'ye (Kare/X) atanmış olsun. hexballPadKickButton düğme 0'ı dolu görüp vuruşu 2'ye alıyor. voice.js pollActions (2500-2515) düğme 2'ye her basışta toggleAction('toggleMute') çağırıyor. Sonuç: maçta her vuruşta mikrofon kapanıp açılıyor. Aynı şey yön tuşlarından birine (12-15) atanmış sustur ya da sağırlaştır için de geçerli: hexballPollPad bu düğmeleri hareket için okuyor, ses motoru da aynı basışı işliyor. Klavyede ise hexballVoiceKey ses atamasındaki tuşu oyunda hiç kullanmıyor.",
+   "oneri": "hexballPadKickButton ve hexballPollPad, padBindingButtons (21-band.js) gibi bütün gamepad atamalarını toplamalı. Atanmış düğmeler (yön tuşları dahil) oyunda yok sayılmalı, vuruş için 0 ve 2 dışında boş bir yedek düğme seçilmeli ya da 0 ve 2 ikisi de doluysa kolda vuruş kapatılmalı."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/36-oyun.js",
+   "satir": 445,
+   "ozet": "Renk'te gerileme: kurpiyerin kimliği kilitlenince masa kapanıyor ve bitiş metni Renk'in 'Kurpiyer' sözcüğü yerine genel 'Ev sahibi' metniyle duyuruluyor. Sebep: lockClose ended bildiriminden önce T'yi null yapıyor, bu yüzden gameOnNotice'te m.app null geliyor.",
+   "senaryo": "34-oyun-masa.js lockClose (374-377) önce T = null yapıyor, sonra notice('ended', { reason: 'keys' }) gönderiyor. gameOnNotice modeli desk.model() ile yeniden kuruyor, m.app null oluyor. gameText(null, 'ended.keys') de game.renk.ended.keys yerine game.ended.keys'e düşüyor. Mevcut test düzeneğinin scratchpad kopyasında yeniden ürettim: Renk lobisinde alt satırda 'Kurpiyer Sizsiniz' görünüyor, fake.locked = true ve gameRender() sonrası canlı bölge 'Ev sahibiyle şifreli bağlantı kurulamıyor, oyun bitti.' diyor. Değişiklikten önce 'Kurpiyerle şifreli bağlantı kurulamıyor, oyun bitti.' diyordu. Aynı ekranda iki terim karışıyor.",
+   "oneri": "ended bildirimi uygulamayı da taşısın: notice('ended', { reason, app }), gameOnNotice'te gameOnEnded(data.reason, data.app || m.app). Ya da lockClose'da notice T null yapılmadan önce kurulsun. Kilit senaryosu için Renk metnini denetleyen bir test eklenmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/css/hexball.css",
+   "satir": 538,
+   "ozet": "Telefonda dokunmatik denetimler rem cinsinden sabit ve küçülmüyor (çubuk 7rem + Vur 5.5rem + 1rem aralık, flex: none). Büyük yazı boyutunda Vur düğmesi sahnenin sağından taşıyor ve .cast-game { overflow-x: hidden } yüzünden kırpılıyor.",
+   "senaryo": "Özel yazı boyutu 28px (theme-init FONT_PX.max), telefon genişliği 360px. Gerçek base.css, tokens.css, oyun.css ve hexball.css ile Chromium'da ölçtüm (.cast-game > .hex-touch > .hex-stick + .hex-kick): çubuk 196px, Vur düğmesi 245-399px aralığında, kutunun sağ kenarı 360px. Düğmenin 39px'i (154px genişliğin yaklaşık dörtte biri) görünmüyor ve yatay kaydırma yok. 15px ve 22px'te (360 ve 320 genişlik) kırpılma yok. e2e/24-hexball.test.js telefon testi yalnızca varsayılan yazı boyutunu deniyor.",
+   "oneri": "Telefon medya kuralında çubuk ve Vur ölçüleri yazı boyutundan bağımsız tutulmalı (ör. vw ya da px tavanı, width ve height aynı değerle). Ya da çubuk flex: 0 1 auto ile küçülebilmeli. e2e'ye büyük yazıda phoneFits denetimi eklenmeli."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/46-hexball.js",
+   "satir": 965,
+   "ozet": "Takımlar ve sonuç ekranındaki yardım satırı dokunmatik cihazda da klavye denetimlerini gösteriyor. Maç ekranı (1096) ise dokunmatik kipte dokunmatik metni seçiyor.",
+   "senaryo": "Telefonda ((pointer: coarse), hexballTouchMode true) masaya katılan oyuncu takım seçerken alt satırda 'Oklar veya WASD ile hareket, X veya Boşluk ile vuruş.' okuyor. Bu cihazda bu tuşlar yok. Maç başlayınca aynı yerde 'Soldaki çubukla hareket edin, Vur düğmesiyle vurun.' yazıyor, yani maç öncesi talimat yanlış cihaz için.",
+   "oneri": "hexballRenderTeams'te de maç ekranındaki seçim kullanılmalı: t(hexballTouchMode() ? 'game.hexball.controls.touch' : 'game.hexball.controls.keys')."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/css/hexball.css",
+   "satir": 524,
+   "ozet": "Telefonda skor tablosundaki takım adları display: none ile gizleniyor ve takım rozeti aria-hidden olduğu için ekran okuyucu tabloda yalnızca sayıları duyuyor. Hangi skorun hangi takıma ait olduğu tablodan anlaşılmıyor.",
+   "senaryo": "759px ve altında .hex-board-name { display: none }. hexballKit'te (978-986) rozet aria-hidden=\"true\", skor ise düz bir <b>. Telefonda VoiceOver/TalkBack ile tabloda gezen kişi '1', '02:41', '0' duyuyor, takım adı duymuyor. Masaüstünde 'Kırmızı 1 … Mavi 0' okunuyor. Skor yalnızca tuvalin aria-label'ında ('Saha. Kırmızı 1, Mavi 0.') takım adıyla geçiyor.",
+   "oneri": "Telefonda adı görsel olarak gizlemek için display: none yerine sr-only kalıbı (oyun.css'teki .game-tool .radio-tool-label gibi) kullanılmalı ya da her skorun yanına sr-only takım adı eklenmeli."
+  }
+ ],
+ "testler": "Çalışma kopyası /home/user/wt/c. Hiçbir dosya değişmedi, commit atılmadı. Ek doğrulama betikleri yalnızca scratchpad'de.\n- Birim testleri: node --test test/oyun-*.test.js test/hexball-*.test.js test/renk-kural.test.js test/i18n.test.js test/sw.test.js test/static-source.test.js. 486 testin 486'sı geçti, 0 başarısız.\n- Uçtan uca: node --test --test-concurrency=1 e2e/16-oyun.test.js e2e/24-hexball.test.js (Chromium, /opt/pw-browsers). 27 testin 27'si geçti. Renk akışı Oyun Seç adımıyla çalışıyor: başlık 'Oyun Seç', sıra [renk, hexball]. Hexball'da telefonda tuval 240x135, tam ekranda 338x189. Oyuncuda 'Bağlantı Yok' 15021 ms'de görünüyor.\n- npm run denetle: 276 dosya, ihlal yok.\n- i18n: tr ve en anahtar kümeleri eşit, game.* altında yalnızca bir dilde olan anahtar yok, iki dilde de 94 game.hexball.* anahtarı var. 46-hexball.js'in dinamik kurduğu bütün anahtarlar (team, set, to, letter, ev.*, err.*, why.*, rules, rulesHint, rulesLine) ve GAME_APP_TEXTS'in genel ile game.renk.* karşılıkları iki dilde tanımlı. Metinlerde 'HaxBall' geçmiyor.\n- Belirteçler: hexball.css'te ve oyun.css'e eklenen kurallarda kullanılan her var(--…) tokens.css'te tanımlı. Temaya bağlı olanlar 3 tema × 2 mod için ayrı ayrı tanımlı, --hex-* kökte ve açık modda tanımlı. Sprite'ta i-crown, i-alert, i-gamepad ve i-play var.\n- Elle doğrulananlar:\n  - Renk kurpiyer kilit senaryosu: test/oyun-arayuz.test.js düzeneğinin scratchpad kopyasıyla çalıştırdım, canlı bölge 'Ev sahibiyle şifreli bağlantı kurulamıyor, oyun bitti.' diyor.\n  - Büyük yazıda dokunmatik denetim taşması: gerçek CSS dosyalarıyla Chromium'da ölçtüm, 28px ve 360px'te Vur'un 39px'i kırpılıyor.\n- Kod okumasıyla doğrulananlar:\n  - Oyun Seç akışı: davet gelince adopt T'yi invited aşamasıyla kuruyor ve seçim ekranının yerini alıyor. Bu durum birim testinde de var.\n  - gameOwnsPad ve padPoll: L1 ve R1 yalnızca sahne görünür, maç sürüyor ve kişinin yuvası varken engelleniyor. Daire düğmesi katmanı kapatmaya devam ediyor.\n  - Renk'teki diğer genel metin geçişleri (gameText ile m.app ya da inv.app) doğru."
+}

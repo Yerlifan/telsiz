@@ -1,0 +1,53 @@
+{
+ "bulgular": [
+  {
+   "onem": "orta",
+   "dosya": "public/css/frekans.css",
+   "satir": 2520,
+   "ozet": "S8 gerilemesi: 721-860 px yükseklikte ses odasındayken İstasyonlar listesi neredeyse sıfıra iniyor ve üst çubuktaki İstasyonlar düğmesi gizli kalıyor.",
+   "senaryo": "Prob betiği (setupWorld, Chromium) Deniz'i 6 kişilik Lobi ses odasına soktu. Telsiz kartı 498 px yükseklikte. #inbox-list yüksekliği şöyle ölçüldü: 1024x800'de 71 px, 1024x768'de 39 px (ilk satır bile tam görünmüyor), 1024x730'da 1 px, 900x768'de 74 px, 800x730'da 36 px. Bu boyutların hepsinde #btn-rooms görünmüyor. Aynı prob temel commit'te (af66ef0) çalıştırıldığında bu boyutların hepsinde liste gizli ve İstasyonlar düğmesi görünür. Kişi ses odasındayken fareyle oda değiştiremiyor ya da güçlükle değiştiriyor. Belgelerdeki \"düğmeye basmak gerekmez\" ifadesi bu durumda doğru değil. Ses odasındaki iki kişiyle 1024x730'da liste 76 px. Kart yüksekliği yalnızca kapalı telsizle ölçülmüştü.",
+   "oneri": "Sınırı ekran yüksekliğine göre değil, listenin gerçek yüksekliğine göre koyun. Örneğin #inbox-list'i ResizeObserver ile izleyin ve iki satırdan alçaksa uygulamaya bir sınıf ekleyin. Bu sınıf kartı gizlesin ve .top-rooms düğmesini göstersin. Ya da .inbox için en az iki satırlık min-height verin. e2e/19'daki orta genişlik testine telsiz kartı açıkken (ses odasında) bir ölçüm ekleyin."
+  },
+  {
+   "onem": "orta",
+   "dosya": "public/js/38-gezinme.js",
+   "satir": 1277,
+   "ozet": "Önbellekteki konuşmaya tek bir mesaj gelince liste, kişi yukarıdayken bile 500 mesaja kırpılıyor. Çapa ve yüklenmiş eski sayfalar kayboluyor, dönüşte konum korunmuyor.",
+   "senaryo": "Canlı listede insertMessage yalnızca kişi en alttaysa ya da mesaj kendisininse trimRendered çağırıyor. navCacheApply ise entry.stick'e bakmadan kırpıyor. vm probu (test/gezinme.test.js loadCache düzeneği) şu durumu kurdu: 650 mesaj yüklü, kişi yukarıda (stick false), çapa 100. mesajda. Başka odaya geçildikten sonra tek bir 'msg' olayı geldi ve kayıt [650 mesaj, çapa listede] durumundan [500 mesaj, ilk kimlik 152, çapa listede yok] durumuna düştü. Dönüşte restoreChannel içindeki scrollToAnchor false dönüyor ve kişi ayraca ya da en alta atılıyor. Kendiliğinden yükleme (S7) ile 600 mesaja ulaşmak kolaylaştığı için geçmişi okuyan kişi konumunu ve yüklediği sayfaları kaybediyor. Bu, 'dönüşte ilk görünen mesaj korunur' ölçütüne aykırı.",
+   "oneri": "Kırpmayı canlı listedeki kurala bağlayın: yalnızca entry.stick doğruysa kırpın. Ya da çapanın altındaki mesajları koruyacak biçimde kırpın. Birim testine stick false iken MAX_RENDERED aşımı durumunu ekleyin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/06-messages.js",
+   "satir": 487,
+   "ozet": "Eski sayfa isteği başarısız olunca kendiliğinden yükleme her kaydırma olayında yeniden istek atıyor ve hata bildirimini tekrarlıyor.",
+   "senaryo": "Prob betiğinde 'before' istekleri route ile 500 dönecek şekilde ayarlandı. Kişi en üste yakınken tekerlekle 20 küçük kaydırma yaptı. Sonuç 21 başarısız /api/messages?before= isteği oldu ve hata bildirimi her seferinde yeniden yazıldı (aria-live ile yeniden okunur). Temel commit'te aynı probda 0 istek gitti. Bağlantı koptuğunda ya da kişinin odaya erişimi kalktığında (403) kaydırdıkça istek yağmuru başlıyor.",
+   "oneri": "loadOlder başarısız olunca kendiliğinden yüklemeyi durdurun. Örneğin bir olderFailedAt damgası ve geri çekilme süresi tutun ya da yeniden denemeyi yalnızca düğmeye bırakın. Hata bildirimini kendiliğinden yüklemede bir kez gösterin."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/38-gezinme.js",
+   "satir": 1058,
+   "ozet": "Sayfa sürükleme pointerId'ye bakmıyor: ikinci bir parmağın hareketi sayfayı aşağı kaydırıp kapatıyor.",
+   "senaryo": "360x780 dokunmatik bağlamda CDP Input.dispatchTouchEvent ile denendi. Birinci parmak #stations-sheet tutamacını tutuyor ve kıpırdamıyor. İkinci parmak listeye dokunup 10 px kayıyor ve kalkıyor. Sayfa translateY(266px) oldu ve kapandı. Neden: navDragMove herhangi bir pointermove olayını, navDragEnd de herhangi bir pointerup ya da pointercancel olayını kabul ediyor. Tutamaçla listenin arasındaki uzaklık dy olarak sayılıyor.",
+   "oneri": "navDragStart'ta e.pointerId'yi (dokunma yedeğinde de touches[0].identifier değerini) saklayın. navDragMove ve navDragEnd yalnızca bu göstergeyi işlesin. Ayrıca setPointerCapture kullanılabilir."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/css/people.css",
+   "satir": 652,
+   "ozet": ".dm-header-text için verilen min-width: 6rem, 320 px telefonda özel mesaj başlığının taşmasına ve Profil düğmesinin kesilmesine yol açıyor.",
+   "senaryo": "320x640 dokunmatik bağlamda Ece ile özel konuşma açıldı. #dm-header scrollWidth 324, clientWidth 301. is-tight sınıfı uygulanmış olmasına rağmen Profil düğmesinin sağ kenarı 335 px'te, yani ekranın 15 px dışında (ekran görüntüsünde düğme yarım görünüyor). Eski kuralda (min-width: 0) ad daralıyor ve düğmeler sığıyordu. 360 px'te sorun yok.",
+   "oneri": "En az genişliği yalnızca telefon olmayan genişliklerde verin, örneğin @media (min-width: 760px). Ya da is-tight durumunda min-width değerini düşürün."
+  },
+  {
+   "onem": "dusuk",
+   "dosya": "public/js/04-meta.js",
+   "satir": 355,
+   "ozet": "\"50+\" yalnızca görsel rozette var. Ekran okuyucu etiketi alt sınırı kesin sayı olarak okuyor.",
+   "senaryo": "Açılışta 60 okunmamışı olan oda için rozet '50+' gösteriyor. Satırın aria-label'ı ise t('band.textUnreadLabel', { count: 50 }) ile '50 okunmamış' diyor. Özel mesaj satırlarında (dm.itemUnreadLabel) de aynı durum var. Görsel ve sesli bilgi tutarsız: alt sınır kesin sayı olarak duyuruluyor.",
+   "oneri": "more doğruysa etikette de count yerine t('count.more', { count }) kullanın ya da ayrı bir etiket anahtarı ekleyin."
+  }
+ ],
+ "testler": "Çalışma kopyası /home/user/wt/a (HEAD f735880). Hiçbir dosya değiştirilmedi, git status temiz.\n- npm run denetle: geçti, çıkış kodu 0 (\"Denetim tamamlandı: 268 dosya tarandı, ihlal bulunmadı.\").\n- npm test: geçti, çıkış kodu 0. 1000 test: 999 geçti, 0 düştü, 1 atlandı (yaklaşık 47 sn).\n- node --test e2e/19-gezinme.test.js (Chromium): 28 testin 28'i geçti (yaklaşık 44 sn).\n- node --test e2e/02-frekans.test.js (Chromium): 17 testin 17'si geçti (yaklaşık 11 sn).\n- Firefox ve WebKit'te çalıştırılmadı (tarayıcılar kurulu değil).\n\nEk problar (scratchpad/probe, yalnızca okuma amaçlı):\n- mid2.js: temel commit af66ef0 için git archive ile $SP/base kuruldu ve aynı prob hem temelde hem HEAD'de koştu. 6 kişilik ses odasında 1024x768'de İstasyonlar listesi 39 px, düğme gizli. Temelde liste gizli, düğme görünür.\n- cache-trim.test.js (vm): tek bir 'msg' olayı yukarıdaki konuşmanın 650 mesajlık önbelleğini 500'e kırpıyor ve çapa düşüyor.\n- older-fail.js: 500 dönen before isteğinde 20 kaydırma olayı 21 istek üretti, temelde 0.\n- twofinger.js: tutamaç tutulurken ikinci parmak sayfayı 266 px kaydırıp kapattı.\n- dmhead.js: 320 px'te özel mesaj başlığı 23 px taşıyor. 360, 412, 760 ve 999 px'te taşma yok.\n- top320.js: 320 px'te üst çubuk temel ile aynı, bu bir gerileme değil.\n\nDoğrulanan ve sorun bulunmayan noktalar:\n- Önbellekte yalnızca şifreli zarflar tutuluyor (decryptCache temizleniyor).\n- Oturum açılıp kapanınca ve yeniden eşitlemede önbellek siliniyor, hesap ve anahtar damgası denetleniyor.\n- onIncomingMessage'daki erken dönüş çift sayımı önlüyor. Kendi mesajında markRead zaten sendMessage içinde çağrılıyor.\n- Esc katman açıkken çalışmıyor (onLayerKeydown sırası ve preventDefault ile).\n- Alt kısayolları select ve giriş alanlarında çalışmıyor.\n- i18n anahtarları TR ve EN'de eksiksiz. Düğme etiketi \"Ses Odaları\" / \"Voice Rooms\" kurala uygun.\n- Belgelerde başka bir sohbet uygulamasının adı geçmiyor.\n- Sunucu tarafında değişiklik yok."
+}

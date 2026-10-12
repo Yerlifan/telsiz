@@ -1,0 +1,25 @@
+{
+ "tamam": true,
+ "baslangic": "46ffde97cab522d09c04591f48154c67a750a142",
+ "commitler": [
+  "07308c3 G1: Pencere durumu kanalı (telsiz:window-state, onWindowState)",
+  "88f4919 G1: Boşta süresi kanalı (telsiz:idle-seconds, idleSeconds)",
+  "9559a72 G1: Belgeler: masaüstü API tablosu ve CHANGELOG"
+ ],
+ "testler": "Her commit öncesinde /home/user/wt/b içinde: \"npm run denetle\" temiz (253 dosya, ihlal yok). \"npm test\" (kök) 881 testin 880'i geçti, 0 düştü, 1 atlandı. Atlanan test önceden de atlanıyordu: SEA uçtan uca, TELSIZ_SEA_TEST=1 verilmeyince çalışmıyor. desktop \"npm test\" 146/146 geçti (önce 137 idi). Yeni desktop/test/pencere-durumu.test.js 9 test içeriyor: olay eşlemesi, bildiricinin tekrarı ayıklaması, ön yüklemenin beyaz listesi, sabitlerin eşitliği, ana süreçte yalnızca uygulama penceresine gönderim ve tepsiden dönüşte 'shown', boşta süresi süzme kuralı, ön yüklemedeki idleSeconds, ana süreçteki işleyici, requireSender gönderen denetimi (vm ile davranış testi). preload.test.js API anahtar listeleri ve WINDOW_STATES eşitliği eklendi. Masaüstü duman testi (desktop/e2e/duman.test.js, gerçek Electron 44.5.1, xvfb) 19/19 geçti, iki test yeni: pencere durumu ve boşta süresi. Bu testin gerçekten hata yakaladığını da sınadım: 'shown' bildirimini geçici olarak bozunca test 'Timed out: shown' ile düştü. Masaüstü API'sini kullanan kök e2e dosyaları e2e/07-frekanslar ve e2e/09-frekans-foto 17/17 geçti. Hiçbir test atlanmadı ve gevşetilmedi.",
+ "sapmalar": [
+  "Planda G1 için yeni dosya öngörülmemişti. Olay eşlemesi ve değer süzme kuralı, testte main.js'i yüklemeden sınanabilsin diye küçük, saf bir modüle alındı: desktop/src/lib/window-state.js (STATES, EVENTS, watch, cleanIdleSeconds). Planın istediği test dosyası desktop/test/pencere-durumu.test.js de yeni dosya.",
+  "requireSender tek bağlam alıyordu. Plan 'app' ve 'background' bağlamlarını birlikte istediği için işlev requireSender(event, ...contexts) biçimine getirildi ve bağlamlardan biri tutarsa geçer. Var olan bütün çağrılar tek bağlamla aynı davranır.",
+  "Bildirici art arda gelen aynı değeri bir kez gönderir. Plandaki 'tepsiden dönüşte de shown gitsin' kuralı için showMain show() sonrasında 'shown' değerini açıkça bildiriyor. Electron'un show olayı da gelirse sayfaya ikinci bir 'shown' gitmez.",
+  "Boşta süresi sayı değilse, sonlu değilse ya da negatifse 0 döner. Böylece bilinmeyen süre 'boşta' sayılmaz. powerMonitor hatası günlüğe yalnızca bir kez yazılır.",
+  "Duman testi xvfb altında: pencere yöneticisi olmadığı için minimize() pencereyi simge durumuna almıyor (Electron 44.5.1 ile denedim). Bu durumda test minimize ve restore olaylarını ana süreçte elle üretip kanalı denetliyor ve bunu tanı satırına yazıyor. Windows CI'da gerçek minimize kullanılır. Tepsiden dönüş showMain'den geçer ve testte second-instance olayıyla tetiklenir. Gizleme gerçek hide() ile yapılır.",
+  "CHANGELOG paragrafı Yayımlanmamış altında Değişiklikler başlığına yazıldı, çünkü değişiklik tek başına görünür bir özellik getirmiyor."
+ ],
+ "kullaniciya": [
+  "Masaüstü duman testi bu kapsayıcıda root olarak çalışmıyor (Electron 'Running as root without --no-sandbox' diyor). Test dosyasını değiştirmeden, nobody kullanıcısıyla çalıştırdım: runuser -u nobody -- env HOME=<yazılabilir klasör> xvfb-run -a node --test e2e/duman.test.js. Önce desktop içinde node scripts/hazirla.js çalıştırılmalı.",
+  "Sayfa tarafındaki API: telsizDesktop.onWindowState(cb) şu değerlerden birini verir: 'minimized', 'restored', 'hidden', 'shown'. Birden çok dinleyici olabilir ve dönen işlev aboneliği kaldırır. telsizDesktop.idleSeconds(), telsizArkaPlan.idleSeconds() (uygulama penceresinde ve arka plan penceresinde) tam saniye döndüren bir Promise verir. G3, G8 ve G11 bu kanalları kullanabilir, desktop/ dosyalarına yeniden kanal eklemeleri gerekmez.",
+  "Plan G11 için 'float: { onWindowState }' öneren yüzen pencere raporunun aksine telsizDesktop.onWindowState doğrudan üst düzeyde tanımlandı (planın G1 bölümüne uygun). G11 bunu kullanmalı, ikinci bir kanal açmamalı.",
+  "Commit'ler yalnızca yerel istek/b dalında, push edilmedi."
+ ],
+ "kalan": []
+}
