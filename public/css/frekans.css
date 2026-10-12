@@ -1126,8 +1126,9 @@
    ========================================================= */
 
 /* Sahnenin iç boşluğu ve sütun aralıkları temanın düzen belirteçlerinden gelir (--layout-pad, --column-gap):
-   yüzen panelli temalarda boşluk kalır, düz panelli temalarda (0) sütunlar ince ayırıcılarla bitişir. 1000
-   pikselin altı kendi sabit boşluklarını kullanır. */
+   yüzen panelli temalarda boşluk kalır, düz panelli temalarda (0rem) sütunlar ince ayırıcılarla bitişir. 1000
+   pikselin altı kendi sabit boşluklarını kullanır. Belirteçler calc() içinde kullanıldığı için birimlidir:
+   birimsiz 0 calc() içinde sayı sayılır, uzunlukla toplanınca bildirim geçersiz olur (tokens.css). */
 .stage {
   position: relative;
   display: flex;
@@ -1320,7 +1321,8 @@
      yeri değişir. Düzen flexbox ile kurulur: sahne sütun yönlü ve satır kaydırmalıdır, sol sütun ve konuşma
      sütunu tam yükseklikte birer flex çizgisi olur, üçüncü çizgide İstasyonlar listesi üstte (order), DJ kartı
      altta durur. Kartın en büyük yüksekliği listeye 12rem bırakır, böylece kart dördüncü bir çizgiye kaymaz.
-     Sütun aralıkları da öteki düzenlerdeki gibi temanın --column-gap belirtecinden gelir (düz panelli temalarda 0). */
+     Sütun aralıkları da öteki düzenlerdeki gibi temanın --column-gap belirtecinden gelir (düz panelli temalarda
+     0rem). */
   .app-view[data-dj-col="on"] .stage {
     /* Sağ sütun, YouTube oynatıcısı yazı boyutundan bağımsız en az 200 piksel kalacak kadar geniştir */
     --dj-col-w: max(var(--side-right-w), 15rem, calc(204px + 2rem));

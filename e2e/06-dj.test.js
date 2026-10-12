@@ -9,8 +9,11 @@
 // iki istemcide çalar. Ayarlar açıkken ve dar ekranda DJ sayfası kapalıyken YouTube oynatıcısı köşeye alınır
 // (en az 200x200, üstünde hiçbir şey yok) ve müzik ses odasından ayrılana kadar çalmaya devam eder. Köşedeki
 // oynatıcı ses düğmelerini, Oda bilgisi düğmesini ve Ayarlar'ın satırlarını örtmez, oyun masasının renk seçicisi
-// açıkken yerinde kalır, kısa pencerede de görünüm alanında kalır. DJ duyurusuna yalnızca ad ekleyen düzenleme
-// "düzenlendi" etiketi almaz, mesajı duyuruya çeviren veya videosunu değiştiren düzenleme etiketle görünür.
+// açıkken yerinde kalır, kısa pencerede de görünüm alanında kalır. Telefonda okunmamış şeridinin düğmelerini ve yeni
+// mesaj kapsülünü örtmez, kilitli kurtarma kodu penceresini kartı açan düğmesiyle kapatmaz. DJ sütunu düz panelli
+// temalarda da (sütun aralığı 0rem) aynı yerleşir. DJ duyurusuna yalnızca ad ekleyen düzenleme "düzenlendi" etiketi
+// almaz (oda konuşma önbelleğindeyken gelse de), mesajı duyuruya çeviren veya videosunu değiştiren düzenleme etiketle
+// görünür.
 // Şarkı adıyla arama (istek 5): sunucuya sahte arayıcı (youtubeSearch) verilir. Arama kapalıyken /çal şarkı adı
 // açık bir hata ve kartta YouTube arama bağlantısı verir, açıkken ilk sonuç başlığıyla eklenir ve duyuru başlığı
 // taşır. İstemciden YouTube'a arama isteği gitmez. Arama yapılamazsa, sonuç yoksa veya sunucu geneli sınır dolduysa
@@ -223,6 +226,33 @@ test('/çal ile YouTube parçası: komut metni gitmez, yazı odasında DJ duyuru
     }
   })
   assert.deepEqual(col, { col: 'on', sheet: false, infoInline: true, infoCol: true, dj: true, inbox: true, stacked: true, rows: true, roomsButton: false })
+  // Düz panelli temalarda (sütun aralığı 0rem) da düzen aynıdır: konuşma sütunu sahnenin kalanını doldurup sağ
+  // sütuna bitişir, İstasyonlar ve DJ kartı görünüm alanında alt alta durur. Birimsiz 0 calc() içinde konuşma
+  // sütununun genişliğini geçersiz kılıyordu, sütunlar içerik kadar daralıyor veya ekrandan taşıyordu.
+  const flat = await A.evaluate(async () => {
+    const root = document.documentElement
+    const before = root.getAttribute('data-skin')
+    const out = {}
+    for (const skin of ['gece', 'kontrast']) {
+      root.setAttribute('data-skin', skin)
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const stage = document.getElementById('stage')
+      const edge = stage.getBoundingClientRect().right - parseFloat(getComputedStyle(stage).paddingRight)
+      const center = document.querySelector('#stage > .center').getBoundingClientRect()
+      const side = document.getElementById('side-right').getBoundingClientRect()
+      const djBox = document.getElementById('dj').getBoundingClientRect()
+      out[skin] = {
+        adjacent: Math.abs(center.right - side.left) < 2,
+        filled: Math.abs(side.right - edge) < 2 && Math.abs(djBox.right - edge) < 2,
+        stacked: side.bottom <= djBox.top + 0.5 && Math.abs(djBox.left - side.left) < 2,
+        inView: side.right <= document.documentElement.clientWidth + 0.5 && djBox.bottom <= window.innerHeight + 0.5
+      }
+    }
+    root.setAttribute('data-skin', before)
+    return out
+  })
+  const fine = { adjacent: true, filled: true, stacked: true, inView: true }
+  assert.deepEqual(flat, { gece: fine, kontrast: fine })
   const consent = await B.evaluate(() => ({ title: document.querySelector('#dj .dj-consent-title').textContent, yt: document.querySelector('#dj .dj-yt').hidden, frames: document.querySelectorAll('iframe').length }))
   assert.deepEqual(consent, { title: 'YouTube oynatıcısı yüklensin mi?', yt: true, frames: 0 })
   assert.deepEqual(W.yt, { deniz: [], ece: [] }, 'rızadan önce YouTube alan adlarına istek gitmedi')

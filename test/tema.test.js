@@ -172,12 +172,14 @@ test('ton belirteçleri (--tone-*) her temada çözülür, varsayılanları rol 
 })
 
 test('düzen belirteçleri (--layout-pad, --column-gap) her temada yazılıdır, sahne ve sütun aralıkları bunlarla verilir', () => {
-  // Arcade, Kutup İstasyonu ve Plak yüzen paneller (iç boşluk ve aralık), düz panelli temalar 0: sütunlar ince
-  // ayırıcılarla bitişir. Telefon ve 1000 pikselin altı kendi sabit boşluklarını kullanır.
+  // Arcade, Kutup İstasyonu ve Plak yüzen paneller (iç boşluk ve aralık), düz panelli temalar 0rem: sütunlar ince
+  // ayırıcılarla bitişir. Telefon ve 1000 pikselin altı kendi sabit boşluklarını kullanır. Değer her temada birimlidir:
+  // belirteçler calc() içinde uzunlukla toplanır, birimsiz 0 orada sayı sayılır ve bildirimi geçersiz kılar (Telsiz
+  // DJ sütunu açıkken konuşma sütununun genişliği auto'ya düşerdi)
   for (const c of combos()) {
     for (const name of ['--layout-pad', '--column-gap']) {
       const value = resolve(c.vars, name)
-      assert.ok(/^(0|\d*\.?\d+rem)$/.test(String(value)), c.skin + ' ' + c.scheme + ': ' + name + ' rem ya da 0: ' + value)
+      assert.ok(/^\d*\.?\d+rem$/.test(String(value)), c.skin + ' ' + c.scheme + ': ' + name + ' rem birimli olmalı (birimsiz 0 calc() içinde geçersiz): ' + value)
       assert.ok(ownDecl(RULES, c.skin, c.scheme, name), c.skin + ': ' + name + ' temanın kendi bloğunda yok')
     }
   }
