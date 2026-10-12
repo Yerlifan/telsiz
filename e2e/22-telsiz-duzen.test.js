@@ -13,7 +13,8 @@
 // - Hoparlör düğmesi (Sağırlaştır yerine): Hoparlör, Açık, erişilebilir adı Hoparlörü Kapat, basınca çarpılı hoparlör.
 // - Durum LED çubuğu: md avatarda çubuk (genişliği yüksekliğinden büyük), xs avatarda köşe noktası.
 // - QSL profil kartı: büyük tek aralıklı @kullanıcı adı, bantta frekans adı, ses odasındaki kişinin oda frekansı ve QSL
-//   damgası, künye ekran okuyuculardan gizli.
+//   damgası, künye ekran okuyuculardan gizli. Kart açıkken kişi odadan çıkınca ve yeniden girince okuma yenilenir,
+//   Ayarlar'daki profil önizlemelerinde de (ses odası değişikliği metayla gelir, 04-meta.js refreshSettings).
 // - 390x844 telefonda ve 1440 genişlikte yatay taşma yok, oda başlangıcı "Kayıt başı", konsol ve sunucu günlüğü temiz.
 // Sahte mikrofon Chromium bayraklarıyla sağlandığı için ses odasına giren testler yalnızca Chromium'da çalışır.
 
@@ -284,9 +285,50 @@ test('QSL profil kartı: büyük tek aralıklı çağrı işareti, frekans küny
   assert.equal(r.handleFont.replace(/\s/g, ''), r.mono.replace(/\s/g, ''), 'çağrı işareti tek aralıklı')
   assert.equal(r.bigger, true, 'çağrı işareti gövde yazısından büyük')
   assert.equal(r.nameFirst, true, 'okuma sırası: ad, sonra @kullanıcı adı')
+  if (VOICE.browsers.indexOf(h.BROWSER) !== -1) {
+    // Kart açıkken Ece odadan çıkınca künyedeki frekans okuması kalkar, yeniden girince geri gelir (13-profile.js cardModKey)
+    await W.ece.evaluate(() => leaveVoice())
+    await page.waitForFunction(() => {
+      const qsl = document.querySelector('#profile-card:not([hidden]) .profile-card-qsl')
+      return Boolean(qsl) && !qsl.querySelector('.profile-card-qsl-freq')
+    }, null, { timeout: h.LONG })
+    await h.joinVoice(W.ece, W.lobi.id)
+    await page.waitForFunction((f) => {
+      const freq = document.querySelector('#profile-card:not([hidden]) .profile-card-qsl-freq')
+      return Boolean(freq) && freq.textContent === f
+    }, r.roomFreq, { timeout: h.LONG })
+  }
   await page.keyboard.press('Escape')
   await page.waitForSelector('#profile-card', { state: 'hidden' })
 })
+
+test('Ayarlar\'daki profil önizlemesinde QSL künyesi ses odasından çıkınca ve girince yenilenir', async () => {
+  const page = W.deniz
+  const roomFreq = await page.evaluate((id) => channelFreq(id), W.lobi.id)
+  const freqOf = (sel) => page.evaluate((s) => {
+    const n = document.querySelector(s + ' .profile-card-qsl-freq')
+    return n ? n.textContent : null
+  }, sel)
+  await page.evaluate(() => openSettings('profile', null))
+  await page.waitForSelector('#set-profile-card .profile-card-qsl')
+  assert.equal(await freqOf('#set-profile-card'), roomFreq, 'odadayken önizlemede oda frekansı')
+  await page.evaluate(() => leaveVoice())
+  await page.waitForFunction(() => {
+    const qsl = document.querySelector('#set-profile-card .profile-card-qsl')
+    return Boolean(qsl) && !qsl.querySelector('.profile-card-qsl-freq')
+  }, null, { timeout: h.LONG })
+  await page.evaluate(() => openSettings('account', null))
+  await page.waitForSelector('#set-account-preview .profile-card-qsl')
+  assert.equal(await freqOf('#set-account-preview'), null, 'odada değilken frekans okuması yok')
+  await page.evaluate((id) => joinVoice(id), W.lobi.id)
+  await page.waitForFunction((f) => {
+    const n = document.querySelector('#set-account-preview .profile-card-qsl-freq')
+    return Boolean(n) && n.textContent === f
+  }, roomFreq, { timeout: h.LONG })
+  await page.evaluate(() => closeSettings(false))
+  await page.waitForSelector('#settings-view', { state: 'hidden' })
+  await page.waitForFunction(() => document.getElementById('radio').getAttribute('data-state') === 'on', null, { timeout: h.LONG })
+}, VOICE)
 
 test('390x844 telefonda yatay taşma yok, İstasyonlar düğmesinde kadran simgesi', async () => {
   const phone = await W.w.pageFor('mert', { label: 'telefon', viewport: { width: 390, height: 844 }, mobile: true })

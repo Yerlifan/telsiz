@@ -853,6 +853,8 @@ function buildPreviewCard (view, id) {
   return card
 }
 
+// Profil önizlemesinin imzası. Ses odası (QSL künyesindeki frekans okuması) burada yok: ses odası değişikliği metayla
+// gelir ve 04-meta.js applyMeta, refreshSettings ile açık sayfayı zaten yeniden çizer (e2e/22-telsiz-duzen.test.js).
 function myProfileSignature () {
   if (!state.me) return ''
   const id = state.me.id
