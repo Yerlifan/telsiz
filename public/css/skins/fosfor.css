@@ -69,11 +69,7 @@
   background-color: var(--surface-sunken);
 }
 
-/* Frekans etiketi: tarayıcıdaki kanal frekansı. Genişliği İstasyonlar listesinde --room-freq-w (frekans.css). */
-:root[data-skin="fosfor"] {
-  --room-freq-w: 3.2rem;
-}
-
+/* Frekans etiketi: tarayıcıdaki kanal frekansı (genişliği İstasyonlar listesinde frekans.css) */
 :root[data-skin="fosfor"] .channel-freq {
   display: inline-block;
   flex: none;

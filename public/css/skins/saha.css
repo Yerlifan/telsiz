@@ -74,11 +74,7 @@
   border-top-width: 3px;
 }
 
-/* Frekans etiketi: odalar kanal numarası taşır. Genişliği İstasyonlar listesinde --room-freq-w (frekans.css). */
-:root[data-skin="saha"] {
-  --room-freq-w: 3.2rem;
-}
-
+/* Frekans etiketi: odalar kanal numarası taşır (genişliği İstasyonlar listesinde frekans.css) */
 :root[data-skin="saha"] .channel-freq {
   display: inline-block;
   flex: none;

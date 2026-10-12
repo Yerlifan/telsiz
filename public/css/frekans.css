@@ -1383,6 +1383,11 @@
     flex: 1 0 auto;
   }
 
+  /* Bildirimler ile kart arasında yalnızca antenin yeri kalır (.side-card'ın alt boşluğu yok) */
+  .side-left .info-bottom > .activity-card {
+    margin-bottom: 0;
+  }
+
   .side-left .radio-slot > .radio {
     display: flex;
     flex-direction: column;
@@ -1995,11 +2000,13 @@
   margin-right: 0.25rem;
 }
 
-/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir
-   (--room-freq-w), böylece adlar ve ses odasındakilerin çipleri tek hizada durur. Ayarlı odada vurgu renginde. */
+/* Frekans okuması oda satırında simgeden sonra (components.css .channel-freq). Bütün odalarda aynı genişliktedir:
+   en uzun okuma beş karakterdir (108.0), tek aralıklı yazıda her karakter 1ch, yanına iç boşluk ve kenar eklenir.
+   Böylece her temanın yazısında ve yazı boyutunda oda adları tek hizada durur. Ayarlı odada vurgu renginde. */
 .room-row > .channel-freq {
-  min-width: var(--room-freq-w, 2.75rem);
+  min-width: calc(5ch + 0.75rem + 2px);
   margin-right: 0.5rem;
+  white-space: nowrap;
 }
 
 .room-row.is-current > .channel-freq {
