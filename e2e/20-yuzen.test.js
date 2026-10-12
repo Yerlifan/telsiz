@@ -136,10 +136,11 @@ test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', asyn
   await deniz.waitForFunction((id) => Boolean(document.querySelector('#radio-crew .crew-item[data-user-id="' + id + '"] .crew-avatar.has-camera')), mertId, { timeout: h.LONG })
   await deniz.click('#radio-float')
   await deniz.waitForFunction(() => Boolean(window.documentPictureInPicture.window), null, { timeout: h.LONG })
-  // Görüntü ilk kare olayıyla (loadeddata, playing) görünür olur (is-ready), olay oynatmadan biraz sonra gelebilir
+  // Görüntü ilk kare olayıyla (loadeddata, playing) görünür olur (is-ready), olay oynatmadan biraz sonra gelebilir.
+  // Görünürlük kısa bir opaklık geçişiyle gelir (radio.css .cam-video), geçiş bitene kadar beklenir.
   const playing = await waitFloat(deniz, (doc, id) => {
     const v = doc.querySelector('.float-tile.is-cam[data-user-id="' + id + '"] video.cam-video')
-    return v && v.readyState >= 2 && v.videoWidth > 0 && !v.paused && v.classList.contains('is-ready') ? { w: v.videoWidth, opacity: getComputedStyle(v).opacity } : null
+    return v && v.readyState >= 2 && v.videoWidth > 0 && !v.paused && v.classList.contains('is-ready') && getComputedStyle(v).opacity === '1' ? { w: v.videoWidth, opacity: getComputedStyle(v).opacity } : null
   }, mertId, 'Mert\'in görüntüsü yüzen pencerede oynar')
   assert.ok(playing.w > 0)
   assert.equal(playing.opacity, '1')

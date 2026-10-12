@@ -282,7 +282,8 @@ test('QSL profil kartı: büyük tek aralıklı çağrı işareti, frekans küny
   assert.equal(r.stamp, 'QSL')
   assert.equal(r.inBand, true, 'künye bandın içinde')
   assert.equal(r.handle, '@ece')
-  assert.equal(r.handleFont.replace(/\s/g, ''), r.mono.replace(/\s/g, ''), 'çağrı işareti tek aralıklı')
+  // WebKit hesaplanan yazı tipi listesinde adları tırnaksız yazar, karşılaştırmada boşluk ve tırnak yok sayılır
+  assert.equal(r.handleFont.replace(/["'\s]/g, ''), r.mono.replace(/["'\s]/g, ''), 'çağrı işareti tek aralıklı')
   assert.equal(r.bigger, true, 'çağrı işareti gövde yazısından büyük')
   assert.equal(r.nameFirst, true, 'okuma sırası: ad, sonra @kullanıcı adı')
   if (VOICE.browsers.indexOf(h.BROWSER) !== -1) {

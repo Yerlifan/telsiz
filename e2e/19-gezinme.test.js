@@ -691,9 +691,11 @@ test('özel mesajlar grubu: İstasyonlar listesinde okunmamış önce, 1280 px a
     await page.waitForSelector('#stations-sheet', { state: 'hidden' })
     await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'top-dm')
   }
-  // Telefonda satıra basmak konuşmayı açar, sayfa kapanır, Oda bilgisi düğmesi özel mesajda yoktur
+  // Telefonda satıra basmak konuşmayı açar, sayfa kapanır, Oda bilgisi düğmesi özel mesajda yoktur. Odak sayfa
+  // açıldıktan sonra satıra geçer, Enter odak satırdayken basılır.
   await page.click('#top-dm')
   await page.waitForSelector('#stations-sheet:not([hidden])')
+  await page.waitForFunction((id) => document.activeElement && document.activeElement.getAttribute('data-dm-id') === String(id), W.dmMert)
   await page.keyboard.press('Enter')
   await waitConversation(page, 'dm', W.dmMert)
   await page.waitForSelector('#stations-sheet', { state: 'hidden' })
@@ -1067,9 +1069,9 @@ test('eski mesajlar: IntersectionObserver olmayan tarayıcıda kaydırma en üst
 test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, hata bir kez bildirilir, düğme yeniden dener', async () => {
   const page = await W.w.pageFor('ece', { label: 'eski-hata', viewport: { width: 1024, height: 700 } })
   const eski = W.w.room('eski')
-  await openRoom(page, eski.id)
-  assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
-  // Daha eski sayfa istekleri sayılır, önce sunucu hatasıyla yanıtlanır
+  // Daha eski sayfa istekleri sayılır, önce sunucu hatasıyla yanıtlanır. Yönlendirme ve bildirim sayacı oda
+  // açılmadan kurulur: açılışla ilk kaydırma arasında kendiliğinden giden bir istek de sayılır ve hatayla yanıtlanır
+  // (oda açılışının ilk sayfa isteğinde before= yoktur).
   const older = { count: 0, failing: true }
   await page.route(/\/api\/messages\?.*before=/, (route) => {
     older.count += 1
@@ -1084,10 +1086,24 @@ test('eski mesajlar: istek başarısız olunca kendiliğinden yükleme durur, ha
       return show.apply(this, arguments)
     }
   })
-  await page.evaluate(() => {
-    el.messages.scrollTop = 300
-  })
-  await page.waitForFunction(() => window.testToasts === 1 && !state.loadingOlder, null, { timeout: h.LONG })
+  await openRoom(page, eski.id)
+  assert.deepEqual(await page.evaluate(() => [state.messages.length, state.hasMore]), [50, true])
+  // Kişi en üste yaklaşır. WebKit'te yeni açılan sayfada tek kaydırma isteği her zaman başlatmadı, kaydırma ilk istek
+  // gidene kadar yinelenir. İstek hiç gitmezse sayfanın durumu hata metnine yazılır.
+  const deadline = Date.now() + h.LONG
+  while (older.count === 0 && Date.now() < deadline) {
+    await page.evaluate(() => {
+      el.messages.scrollTop = 300
+    })
+    await h.sleep(100)
+  }
+  const olderState = () => page.evaluate(() => JSON.stringify({ scrollTop: el.messages.scrollTop, scrollHeight: el.messages.scrollHeight, clientHeight: el.messages.clientHeight, messages: state.messages.length, hasMore: state.hasMore, loadingOlder: state.loadingOlder, toasts: window.testToasts }))
+  assert.equal(older.count, 1, 'en üste yaklaşınca bir eski sayfa isteği gider: ' + await olderState())
+  try {
+    await page.waitForFunction(() => window.testToasts === 1 && !state.loadingOlder, null, { timeout: h.LONG })
+  } catch (err) {
+    throw new Error('hata bildirimi bir kez gösterilmedi: ' + await olderState() + ' istek ' + older.count)
+  }
   // Kişi en üste yakınken kaydırmayı sürdürür: yeni istek ve yeni bildirim yok, düğme yerinde
   let k = 0
   while (k < 20) {
