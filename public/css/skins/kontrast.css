@@ -3,6 +3,8 @@
   test/tema.test.js), 2 piksel kenarlar, degrade, gölge, parıltı ve zemin ışığı yok. Bağlantılar altı
   çizili, odak çerçevesi 4 piksel. Devre dışı düğmeler soluklaşmaz (saydamlık yazının kontrastını düşürür),
   kesik kenar ve ikincil metin rengiyle ayrılır. Durum işaretleri her temada olduğu gibi biçimle de ayrılır.
+  Renk kartlarının yüzleri ve Hexball'un takım renkleri bütün temalarda aynıdır (tokens.css), bu yüzlerdeki
+  yazı burada da 7:1 değil en az 4.5:1 verir.
   Saklı tema tercihi yokken sistemde yüksek karşıtlık açıksa ilk açılışta bu tema seçilir (theme-init.js).
   Her seçici :root[data-skin="kontrast"] ile başlar.
 */
@@ -15,6 +17,12 @@
 /* Zemin ışığı yok */
 :root[data-skin="kontrast"] body::before {
   background-image: none;
+}
+
+/* Oyun kartlarının gölgesi yok (renk.css). Belirteç başka gölgelerle (seçilebilir kartın vurgu çizgisi) bir listede
+   kullanıldığı için none değil, görünmez bir gölgedir: listede none geçersizdir. */
+:root[data-skin="kontrast"] {
+  --card-shadow: 0 0 0 0 transparent;
 }
 
 /* Gölge ve degrade yok: telsiz gövdesi, Bas konuş, Gönder, paneller */
@@ -79,8 +87,11 @@
   border: 2px solid var(--accent);
 }
 
-/* Devre dışı düğmeler: saydamlık yerine kesik kenar ve ikincil metin */
+/* Devre dışı düğmeler: saydamlık yerine kesik kenar ve ikincil metin. disabled yerine aria-disabled taşıyan
+   düğmeler de (oyun masasının Masa Aç, Başlat ve Maçı Başlat düğmeleri, Renk'in eylem düğmeleri, Hexball'un takım
+   düğmeleri) aynı görünür. */
 :root[data-skin="kontrast"] .button:disabled,
+:root[data-skin="kontrast"] .button[aria-disabled="true"],
 :root[data-skin="kontrast"] .icon-button:disabled,
 :root[data-skin="kontrast"] .tool-button:disabled,
 :root[data-skin="kontrast"] #composer .send-button:disabled {
