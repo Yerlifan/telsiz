@@ -1,0 +1,166 @@
+From b3b2e650e5b8d709f391256ce5889f0e93e7dec1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 05:50:00 +0000
+Subject: [PATCH 050/104] =?UTF-8?q?G12:=20Sistem=20y=C3=BCksek=20kar=C5=9F?=
+ =?UTF-8?q?=C4=B1tl=C4=B1k=20istiyorsa=20ilk=20a=C3=A7=C4=B1l=C4=B1=C5=9Ft?=
+ =?UTF-8?q?a=20Y=C3=BCksek=20Kontrast?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Saklı tema tercihi yokken prefers-contrast: more veya forced-colors: active doğruysa theme-init.js
+Yüksek Kontrast temasını seçer (saklamaz). base.css zorlanmış renk kipinde seçili öğelere sistem
+vurgusu kenarı verir, durum işaretleri renklerini korur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/base.css  | 37 +++++++++++++++++++++++++++++++
+ public/theme-init.js | 16 ++++++++++++--
+ test/tema.test.js    | 52 ++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 103 insertions(+), 2 deletions(-)
+
+diff --git a/public/css/base.css b/public/css/base.css
+index 6054e70..39e1914 100644
+--- a/public/css/base.css
++++ b/public/css/base.css
+@@ -348,3 +348,40 @@ textarea:focus {
+   transition: none !important;
+   scroll-behavior: auto !important;
+ }
++
++/* Zorlanmış renkler (Windows Yüksek Karşıtlık gibi): tarayıcı renkleri sistem renkleriyle değiştirir, gölgeleri ve
++   zemin resimlerini kaldırır. Seçili ve ayarlı öğeler gölge veya yalnızca zemin rengi yerine sistem vurgusu renginde
++   kenarla ayrılır, odak çerçevesi kalınlaşır. Anlam taşıyan küçük renk işaretleri (durum noktası, telsiz lambası,
++   okunmamış noktası, tema önizlemesi) kendi renklerini korur. Destekleyen tarayıcı yoksa kural yok sayılır. */
++@media (forced-colors: active) {
++  .station.is-tuned,
++  .room-row.is-current,
++  .dm-item[aria-current],
++  .settings-cat[aria-current="page"],
++  .settings-theme-card.is-selected,
++  .top-personal-button.is-current {
++    border-color: Highlight;
++  }
++
++  .room-row.is-current::before,
++  .needle::after {
++    background-color: Highlight;
++    forced-color-adjust: none;
++  }
++
++  .radio .radio-ptt,
++  #composer .send-button {
++    border: 2px solid ButtonText;
++  }
++
++  :focus-visible {
++    outline-width: 4px;
++  }
++
++  .avatar[data-status]::after,
++  .radio-led,
++  .unread-badge,
++  .theme-swatch > span {
++    forced-color-adjust: none;
++  }
++}
+diff --git a/public/theme-init.js b/public/theme-init.js
+index 1846eaa..3835dc9 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -12,7 +12,7 @@ function createTelsizTheme () {
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']
+-  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir
++  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir, sistem yüksek karşıtlık istiyorsa ilk açılışta seçilir
+   const CONTRAST_SKIN = 'kontrast'
+   const STORE = {
+     skin: 'telsiz.skin',
+@@ -68,9 +68,21 @@ function createTelsizTheme () {
+   const darkQuery = media('(prefers-color-scheme: dark)')
+   const lightQuery = media('(prefers-color-scheme: light)')
+   const motionQuery = media('(prefers-reduced-motion: reduce)')
++  const contrastQuery = media('(prefers-contrast: more)')
++  const forcedQuery = media('(forced-colors: active)')
++
++  // İlk açılış: saklı (geçerli) tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
++  // Windows Yüksek Karşıtlık gibi zorlanmış renkler) Yüksek Kontrast seçilir. Seçim saklanmaz, kişi Ayarlar'dan bir
++  // tema seçene kadar her açılışta sistem ayarına bakılır. Bu sorguları tanımayan eski tarayıcılarda varsayılan kalır.
++  function initialSkin () {
++    const stored = read(STORE.skin)
++    if (SKINS.indexOf(stored) !== -1) return stored
++    if ((contrastQuery && contrastQuery.matches) || (forcedQuery && forcedQuery.matches)) return CONTRAST_SKIN
++    return DEFAULTS.skin
++  }
+ 
+   const prefs = {
+-    skin: pick(SKINS, read(STORE.skin), DEFAULTS.skin),
++    skin: initialSkin(),
+     scheme: pick(SCHEMES, read(STORE.scheme), DEFAULTS.scheme),
+     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
+     fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,
+diff --git a/test/tema.test.js b/test/tema.test.js
+index 42f05cf..60d6b1b 100644
+--- a/test/tema.test.js
++++ b/test/tema.test.js
+@@ -255,6 +255,58 @@ test('süs dosyaları: her seçici kendi temasıyla başlar, yasaklı CSS yok, b
+   }
+ })
+ 
++// theme-init.js'i sahte depolama ve medya sorgularıyla çalıştırır. opts.stored: saklı anahtarlar, opts.media: doğru
++// dönen medya sorguları
++function bootTheme (opts) {
++  const o = opts || {}
++  const attrs = {}
++  const store = Object.assign({}, o.stored || {})
++  const root = { setAttribute (k, v) { attrs[k] = v }, style: { setProperty () {} }, classList: { add () {} } }
++  const sandbox = {
++    document: { documentElement: root },
++    localStorage: { getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null), setItem (k, v) { store[k] = String(v) } },
++    matchMedia: (q) => ({ matches: (o.media || []).indexOf(q) !== -1, addEventListener () {} })
++  }
++  sandbox.window = sandbox
++  vm.createContext(sandbox)
++  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), sandbox, { filename: 'theme-init.js' })
++  return { theme: sandbox.window.TelsizTheme, attrs, store }
++}
++
++test('Yüksek Kontrast ilk açılışta: saklı tema yoksa ve sistem yüksek karşıtlık istiyorsa seçilir, saklanmaz', () => {
++  const plain = bootTheme()
++  assert.equal(plain.theme.get().skin, 'arcade', 'varsayılan Arcade')
++  assert.equal(plain.theme.contrastSkin, 'kontrast')
++  for (const query of ['(prefers-contrast: more)', '(forced-colors: active)']) {
++    const r = bootTheme({ media: [query] })
++    assert.equal(r.theme.get().skin, 'kontrast', query)
++    assert.equal(r.attrs['data-skin'], 'kontrast', query + ' kök özniteliği')
++    assert.equal(r.store['telsiz.skin'], undefined, query + ' seçim saklanmaz')
++  }
++  // Saklı tercih her zaman önce gelir
++  const stored = bootTheme({ stored: { 'telsiz.skin': 'gece' }, media: ['(prefers-contrast: more)', '(forced-colors: active)'] })
++  assert.equal(stored.theme.get().skin, 'gece')
++  // Geçersiz saklı değer tercih sayılmaz
++  const invalid = bootTheme({ stored: { 'telsiz.skin': 'yok' }, media: ['(prefers-contrast: more)'] })
++  assert.equal(invalid.theme.get().skin, 'kontrast')
++  // Kişinin seçtiği tema saklanır ve sonraki açılışta sistem ayarının önüne geçer
++  const chosen = bootTheme({ media: ['(prefers-contrast: more)'] })
++  chosen.theme.set({ skin: 'arcade' })
++  assert.equal(chosen.store['telsiz.skin'], 'arcade')
++  assert.equal(bootTheme({ stored: chosen.store, media: ['(prefers-contrast: more)'] }).theme.get().skin, 'arcade')
++  // Kontrast teması tema listesinde ve Ayarlar'ın Erişilebilirlik grubunda
++  assert.ok(SKINS.indexOf(plain.theme.contrastSkin) !== -1)
++})
++
++test('base.css zorlanmış renk kipinde seçili öğelere sistem vurgusu kenarı verir', () => {
++  const base = fs.readFileSync(path.join(PUB, 'css', 'base.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
++  const at = base.indexOf('@media (forced-colors: active)')
++  assert.ok(at !== -1, 'forced-colors bölümü')
++  const block = base.slice(at)
++  assert.ok(/\.station\.is-tuned[\s\S]*border-color: Highlight/.test(block), 'ayarlı istasyon kenarı')
++  assert.ok(/forced-color-adjust: none/.test(block), 'durum işaretleri rengini korur')
++})
++
+ test('kademe yardımcısı: özgül blok genel bloğu ezer, uymayan öznitelik uygulanmaz, var() geri dönüşü çalışır', () => {
+   const rules = parseRules([
+     ':root { --a: #000; --c: var(--b, #111); }',

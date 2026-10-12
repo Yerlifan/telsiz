@@ -1,0 +1,32 @@
+{
+ "tamam": true,
+ "baslangic": "e0c754ec5359b9330d3ffe1bd811d027104c7b1f",
+ "commitler": [
+  "24243d9 G16: Sunucu: içerik şikâyeti uçları (POST ve GET /api/reports, çözme), mühürlü not, saatlik sınır ve testler",
+  "06ec099 G16: İstemci: Mesajı Bildir ve Kişiyi Bildir penceresi (mesaj araç çubuğu ve menüsü, profil kartı), metinler",
+  "30162af G16: Ayarlar > Üyeler > Şikâyetler listesi (sahip ve yöneticiler): çözülmüş not, Mesaja Git, Çözüldü İşaretle",
+  "2a2f545 G16: e2e/11-roller: mesaj, kişi ve özel mesaj şikâyeti, sahibin listesi ve çözme",
+  "602317f G16: Belgeler: içerik şikâyeti (README, MIMARI/ARCHITECTURE, CONTRIBUTING, CHANGELOG)"
+ ],
+ "testler": "npm run denetle her commit öncesinde ihlalsiz geçti (270 dosya). npm test her commit öncesinde geçti, son çalıştırmada 991 test, 990 geçti, 1 atlandı (önceden de atlanan), 0 düştü. Yeni dosya test/server-sikayet.test.js (7 test: yetki, alan denetimleri, aynı şikâyetin yinelenmemesi, saatlik hız sınırı, düz metin notun reddi ve diskte düz metin olmaması, özel mesaj şikâyeti, özel görünümdeki açık şikâyet sayısı, kalıcılık, bozuk kayıtların ayıklanması, 500 kayıt sınırı) geçti. test/settings.test.js içine eklenen Şikâyetler testi geçti. e2e: node --test e2e/11-roller.test.js 5/5 geçti (2 yeni test, ilk denemede geçti, sonda bir kez daha çalıştırıldı ve yine geçti). Dokunulan alanların var olan e2e dosyaları: 01-kurulum 5/5, 02-frekans 17/17, 03-sosyal 9/9, 04-ayarlar 5/5, 07-frekanslar 7/7, 15-ozel-arama 8/8, hepsi ilk denemede geçti. Pencere ve liste ayrıca geniş ekranda ve 390 piksel telefonda ekran görüntüsüyle denetlendi: yatay taşma yok, konsol hatası yok.",
+ "sapmalar": [
+  "Çözme ucu planda POST /api/reports/:id/resolve idi, POST /api/reports/resolve { id } olarak yapıldı. Gerekçe: src/app.js yönlendiricisi yalnızca tam yol eşler (parametre yalnızca yüklemelerde var), diğer bütün işlemler de kimliği gövdede alıyor.",
+  "Notun 2000 karakter sınırı, not ve özel mesaj alıntısı birlikte mühürlendiği için ikiye bölündü: not en çok 1000, alıntı en çok 1000 karakter. Sunucu düz metni göremediği için zarfı uzunluğa göre sınırlıyor: en çok 12000 karakter.",
+  "Yazı odasındaki mesajın metni şikâyete kendiliğinden eklenir, çünkü odadaki herkes onu zaten okuyabilir. Özel mesajın metni ise yalnızca 'Mesajın metnini şikâyete ekle' kutusu işaretlenirse eklenir. Kutu varsayılan olarak işaretsizdir. Plandaki 'bilerek bu nota koyar' maddesi böyle uygulandı.",
+  "Mühürlü içerik { v, a, k, u, m, n, q } alanlarıyla şikâyet edeni, türü, hedefi ve mesajı da taşır. Liste bunları sunucunun kaydıyla karşılaştırır, tutmazsa notu göstermez. Bu, planda olmayan bir bütünlük önlemi.",
+  "Plan dışında eklenenler: sahip ve yöneticilerin kişiye özel görünümüne açık şikâyet sayısı (reports) eklendi, böylece açık Şikâyetler listesi kendiliğinden yenileniyor. Bunun için public/js/14-social.js normalizePrivate içinde bir satır değişti. handleUserRole rol değişince kişinin özel görünümünü yeniler.",
+  "Planda olmayan sunucu kuralları eklendi. Aynı kişinin aynı mesaj ya da kişi için açık bir şikâyeti varsa yenisi açılmaz, yanıt duplicate: true döner ve hız sınırı harcanmaz. 500 kayıt dolunca en eski çözülmüş şikâyet silinir, hepsi açıksa yeni şikâyet 503 reports_full alır. Şikâyet ve çözme yanıtları durum dosyası diske yazıldıktan sonra gider (okDurable).",
+  "Menüdeki Mesajı Bildir öğesi index.html'e değil 06-messages.js içine eklendi: ilk açılışta oluşturuluyor. Simge olarak var olan i-alert kullanıldı, çünkü bayrak simgesi yok. Böylece index.html ve 02-state-dom.js'e dokunulmadı.",
+  "Planın dosya listesinde olmayan küçük eklemeler: public/css/components.css (alıntı kutusu ve not alanı) ile public/css/settings.css (şikâyet satırı) değişti. CONTRIBUTING.md ve CONTRIBUTING.en.md'deki modül tablosunda 06-messages ve 13-profile satırları güncellendi. test/settings.test.js'e bir birim testi eklendi.",
+  "Hız sınırı için reportLimit ve reportWindowMs (varsayılan saatte 10) createChatServer seçeneği olarak eklendi. Ortam değişkeni eklenmedi."
+ ],
+ "kullaniciya": [
+  "Yeni şikâyet gelince sahip ve yöneticilere bildirim, ses ya da rozet gitmez. Şikâyetleri görmek için Ayarlar > Üyeler > Şikâyetler listesini açmaları gerekir. Liste açıkken yeni şikâyetler kendiliğinden gelir. Bildirim istenirse ayrı bir iş olarak eklenebilir.",
+  "Sunucu yeni üst veri görür ve saklar: kimin kimi, hangi mesajı (özel mesaj olup olmadığı dahil), hangi nedenle ve ne zaman bildirdiği, şikâyeti kimin ne zaman çözdüğü. Not ve eklenen mesaj metni grup anahtarıyla şifrelidir. Bu durum MIMARI/ARCHITECTURE Sınırlar bölümüne yazıldı.",
+  "Not grup anahtarıyla şifrelendiği için grup anahtarı bir cihazda yoksa o cihazda not açılmaz. Not yazan ama anahtarı olmayan kişi şikâyeti ancak notu boş bırakarak gönderebilir.",
+  "G16, Play'in kullanıcı içeriği şartı için önkoşul olarak yapıldı. Ancak şartın şikâyet akışını tam olarak neye göre değerlendirdiği doğrulanamadı (planda da 'arama özeti, doğrulanamadı' yazıyor). Android tarafına ve Play beyanına hiç dokunulmadı.",
+  "Yeni API uçları: POST /api/reports, GET /api/reports ve POST /api/reports/resolve. state.json'a reports listesi ve counters.report eklendi. Eski durum dosyaları boş listeyle açılır, geçiş gerekmez.",
+  "Diğer gruplarla birleştirirken çakışma çıkabilecek yerler: public/i18n.js (yalnızca '// G16 Şikâyet' işaretinin altına eklendi), 13-profile.js (dosya sonuna ve kart düğmelerine ekleme), 06-messages.js, 11-settings.js (Üyeler sayfası), components.css ve CHANGELOG."
+ ],
+ "kalan": []
+}

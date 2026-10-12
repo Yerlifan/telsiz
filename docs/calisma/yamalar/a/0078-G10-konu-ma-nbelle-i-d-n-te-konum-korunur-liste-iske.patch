@@ -1,0 +1,649 @@
+From ab4df75823e2ae921385de667f08c9fea790dbb2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:38:51 +0000
+Subject: [PATCH 078/104] =?UTF-8?q?G10:=20konu=C5=9Fma=20=C3=B6nbelle?=
+ =?UTF-8?q?=C4=9Fi:=20d=C3=B6n=C3=BC=C5=9Fte=20konum=20korunur,=20liste=20?=
+ =?UTF-8?q?iskeletsiz=20ve=20istek=20beklemeden=20=C3=A7izilir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Son sekiz konuşmanın şifreli zarfları, sayfa durumu, görünür alandaki ilk mesaj ve kayması, en altta olup
+olmadığı ve kapsül sayısı bellekte tutulur (38-gezinme.js). Konuşmaya dönülünce liste önbellekten çizilir ve
+kişi kaldığı yere döner, ardından en yeni sayfa arka planda alınıp birleştirilir (06-messages.js
+restoreChannel, refreshNewest). Önbellekteki konuşmalara gelen olaylar önbelleğe de uygulanır (05-poll.js).
+Yeniden eşitlemede, oturum açılıp kapanınca ve anahtar değişince önbellek kullanılmaz. Arkadaşlar görünümüne
+geçerken de çizili konuşma önbelleğe yazılır (14-social.js showHome, tek satır).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/19-gezinme.test.js   | 115 +++++++++++++++++++++++++++++-
+ public/js/05-poll.js     |   9 +++
+ public/js/06-messages.js | 102 +++++++++++++++++++++++++++
+ public/js/14-social.js   |   2 +
+ public/js/38-gezinme.js  | 149 +++++++++++++++++++++++++++++++++++++++
+ test/gezinme.test.js     |  93 +++++++++++++++++++++++-
+ 6 files changed, 468 insertions(+), 2 deletions(-)
+
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 4cb2d4f..2dce493 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -35,6 +35,11 @@
+ //   yenilenince geri gelen özel konuşma (40 okunmamış): şerit sayısı doğru, alta inmeden çıkınca rozet ve sayaç kalır
+ // - Açık katman yokken durum menüsünden Çıkış Yap ve oturumun düşmesi geçmişi kök kayda sarar, giriş ekranında tek
+ //   geri basış uygulamadan çıkar, yeniden girişte uygulamada kalınır
++// G10, konum ve önbellek (S6):
++// - Ortasına kaydırılan konuşmaya dönülünce liste önbellekten çizilir: iskelet ve yükleniyor durumu yok, ilk görünen
++//   mesaj ve kayması korunur, tek istek (en yeni sayfa) liste çizildikten sonra gider. Uzaktayken gelen mesaj önbelleğe
++//   eklenir ve kapsülde sayılır, olay alımı dururken gelen mesaj arka plandaki en yeni sayfayla eklenir (geri tuşuyla
++//   dönüşte de), mesaj bir kez çizilir. 120 okunmamış testi önbellekte olmayan konuşmayı sınar.
+ // - Konsol ve sunucu günlüğü temiz (bad_uploads denemesinin beklenen 400 yanıtı dışında)
+ 
+ const { before, after } = require('node:test')
+@@ -67,7 +72,7 @@ async function dmWith (who, text) {
+ 
+ before(async () => {
+   // Selin'in hiç özel konuşması yoktur (Özel Mesajlar düğmesi testi)
+-  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text']], extraPeople: { selin: 'Selin' } })
++  W.w = await h.setupWorld({ slot: 27, extraRooms: [['sohbet', 'text'], ['kalabalik', 'text'], ['arsiv', 'text']], extraPeople: { selin: 'Selin' } })
+   W.dmEce = await dmWith('ece', 'Merhaba Deniz')
+   W.deniz = await W.w.pageFor('deniz')
+   await W.deniz.waitForFunction((id) => Boolean(dmEntry(id)), W.dmEce, { timeout: h.LONG })
+@@ -568,6 +573,9 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
+   await openRoom(page, genel)
+   const sent = await eceSays('kalabalik', 120, 'kalabalık')
+   await page.waitForFunction((id) => state.unread[id] === 120, kalabalik, { timeout: h.LONG })
++  // Bu test önbellekte olmayan konuşmanın yüklenmesini sınar: önbellekteki konuşma sunucuya sormadan çizilir (G10 S6,
++  // aşağıdaki dönüş testi)
++  await page.evaluate(() => navCacheClear())
+   const requests = []
+   const onRequest = (req) => {
+     if (req.url().indexOf('/api/messages?channel=' + kalabalik) !== -1) requests.push(req.url().replace(/^.*\?/, ''))
+@@ -589,6 +597,7 @@ test('telefon 360: 120 okunmamışta konuşma son okunanın çevresiyle yükleni
+   await openRoom(page, genel)
+   const more = await eceSays('kalabalik', 60, 'yeni tur')
+   await page.waitForFunction((id) => state.unread[id] === 60, kalabalik, { timeout: h.LONG })
++  await page.evaluate(() => navCacheClear())
+   await openRoom(page, kalabalik)
+   await page.waitForSelector('#message-list .unread-divider')
+   assert.equal(await page.evaluate(() => state.hasNewer), true, 'son okunanın çevresi yüklendi')
+@@ -862,6 +871,110 @@ test('çıkış: açık katman yokken Çıkış Yap ve oturum düşmesi geçmiş
+   await page.waitForURL(before)
+ })
+ 
++// G10 (S6): konum ve önbellek. Konuşmaya dönülünce liste önbellekten, iskeletsiz ve sunucuya sormadan çizilir.
++
++// Görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı
++function firstVisible (page) {
++  return page.evaluate(() => {
++    const top = el.messages.getBoundingClientRect().top
++    const node = Array.from(document.querySelectorAll('#message-list .msg[data-id]')).filter((n) => n.getBoundingClientRect().bottom > top + 1)[0]
++    return node ? { id: node.getAttribute('data-id'), offset: Math.round(node.getBoundingClientRect().top - top) } : null
++  })
++}
++
++// Sayfadaki /api/messages istekleri: isteğin açıldığı anda listede çizili mesaj sayısı, yükleniyor durumu ve iskelet
++async function watchMessageRequests (page) {
++  await page.evaluate(() => {
++    window.testRequests = []
++    if (window.testOpenHooked) return
++    window.testOpenHooked = true
++    const open = XMLHttpRequest.prototype.open
++    XMLHttpRequest.prototype.open = function (method, url) {
++      if (String(url).indexOf('/api/messages?') !== -1) {
++        window.testRequests.push({ query: String(url).replace(/^.*\?/, ''), nodes: state.nodes.size, loading: state.loading, skeleton: el.messages.classList.contains('is-loading') })
++      }
++      return open.apply(this, arguments)
++    }
++  })
++}
++
++// Konum değişmeyene kadar beklenir (kaydırma olayları ve kendiliğinden yükleme biter)
++async function settledFirstVisible (page) {
++  let prev = null
++  let i = 0
++  while (i < 20) {
++    await h.sleep(150)
++    const now = await firstVisible(page)
++    if (prev && now && prev.id === now.id && prev.offset === now.offset) return now
++    prev = now
++    i += 1
++  }
++  return prev
++}
++
++test('dönüş: konuşma önbellekten çizilir, ilk görünen mesaj korunur, istek çizimden sonra gider, kaçırılan mesaj eklenir', async () => {
++  const page = W.deniz
++  const arsiv = W.w.room('arsiv')
++  const genel = W.w.room('genel').id
++  await setWidth(page, 1440)
++  let i = 0
++  while (i < 130) {
++    await W.w.say('selin', arsiv, 'arşiv ' + (i + 1))
++    i += 1
++  }
++  await openRoomRow(page, arsiv.id)
++  // Odanın bütün mesajları yüklenir, kişi ortaya kaydırır: ne en üstte ne en altta
++  await page.evaluate(async () => {
++    while (state.hasMore) await loadOlder()
++  })
++  assert.equal(await page.evaluate(() => state.messages.length), 130)
++  await page.evaluate(() => {
++    el.messages.scrollTop = Math.round((el.messages.scrollHeight - el.messages.clientHeight) / 2)
++  })
++  await page.waitForFunction(() => !isNearBottom())
++  const before = await settledFirstVisible(page)
++  const loaded = await page.evaluate(() => state.messages.length)
++  await openRoomRow(page, genel)
++  // Uzaktayken gelen mesaj olay alımıyla önbelleğe de eklenir
++  const late = await W.w.say('ece', arsiv, 'uzaktayken yazdım')
++  await page.waitForFunction((a) => {
++    const entry = navCache.map.get(String(a.id))
++    return Boolean(entry && entry.messages.some((m) => String(m.id) === String(a.m)))
++  }, { id: arsiv.id, m: late.id }, { timeout: h.LONG })
++  await watchMessageRequests(page)
++  await page.click('#inbox-list .room-row[data-station="text-' + arsiv.id + '"]')
++  // Tıklamanın hemen ardından: liste çizili, yükleniyor ve iskelet yok
++  const now = await page.evaluate(() => ({ view: currentViewMode(), id: String(state.channelId), nodes: state.nodes.size, loading: state.loading, skeleton: el.messages.classList.contains('is-loading') }))
++  assert.deepEqual(now, { view: 'channel', id: String(arsiv.id), nodes: loaded + 1, loading: false, skeleton: false })
++  assert.deepEqual(await firstVisible(page), before, 'ilk görünen mesaj ve kayması korundu')
++  // Tek istek: en yeni sayfa, liste çizildikten sonra
++  const ofRoom = async () => (await page.evaluate(() => window.testRequests)).filter((r) => r.query.indexOf('channel=' + arsiv.id + '&') === 0)
++  await page.waitForFunction(() => window.testRequests.length > 0)
++  await h.sleep(300)
++  assert.deepEqual(await ofRoom(), [{ query: 'channel=' + arsiv.id + '&limit=50', nodes: loaded + 1, loading: false, skeleton: false }])
++  await page.waitForSelector('#new-below:not([hidden])')
++  assert.equal(await page.evaluate(() => document.querySelector('#new-below-button .button-text').textContent), 'Aşağıda 1 yeni mesaj')
++  assert.deepEqual(await firstVisible(page), before, 'arka plandaki yenileme konumu değiştirmedi')
++
++  // Olay alımı dururken gelen mesaj önbellekte yoktur, geri tuşuyla dönülünce arka plandaki en yeni sayfayla eklenir
++  await openRoomRow(page, genel)
++  await page.evaluate(() => stopPoll())
++  const missed = await W.w.say('ece', arsiv, 'olay kaçtı')
++  await watchMessageRequests(page)
++  await goBack(page)
++  await waitConversation(page, 'channel', arsiv.id)
++  await page.waitForFunction((id) => state.nodes.has(String(id)), missed.id, { timeout: h.LONG })
++  const back = await ofRoom()
++  assert.equal(back.length, 1)
++  assert.deepEqual([back[0].query, back[0].nodes > 0, back[0].loading, back[0].skeleton], ['channel=' + arsiv.id + '&limit=50', true, false, false])
++  assert.deepEqual(await firstVisible(page), before)
++  await page.waitForFunction(() => document.querySelector('#new-below-button .button-text').textContent === 'Aşağıda 2 yeni mesaj')
++  await page.evaluate(() => startPoll())
++  await page.click('#new-below-button')
++  await page.waitForFunction((a) => !state.unread[a.id] && Number(state.lastRead[a.id]) === a.last, { id: arsiv.id, last: missed.id })
++  assert.equal(await page.evaluate((id) => document.querySelectorAll('#message-list .msg[data-id="' + id + '"]').length, missed.id), 1, 'mesaj bir kez çizildi')
++})
++
+ test('konsol ve sunucu günlüğü temiz', async () => {
+   // Sunucunun tanımadığı ekle yapılan gönderim denemesi (yukarıda) beklenen bir 400 yanıtı alır
+   const badUploads = (e) => e.type === 'error' && /status of 400/.test(e.text) && /\/api\/messages$/.test(e.url)
+diff --git a/public/js/05-poll.js b/public/js/05-poll.js
+index eb4d808..79758af 100644
+--- a/public/js/05-poll.js
++++ b/public/js/05-poll.js
+@@ -84,6 +84,8 @@ function handlePoll (data) {
+     // Olay kaybı olmuş olabilir: arama dizini konuşmaların en yeni kısmını yeniden denetler
+     if (typeof searchOnResync === 'function') searchOnResync()
+     handleSignals(data.signals)
++    // Olay kaybı olmuş olabilir: bellekteki konuşmalar (38-gezinme.js önbelleği) yeniden yüklenir
++    if (typeof navCacheClear === 'function') navCacheClear()
+     if (state.channelId) loadChannel()
+     return
+   }
+@@ -149,6 +151,8 @@ function applyEvent (ev) {
+     }
+   }
+   const inCurrent = sameId(ev.channelId, state.channelId)
++  // Bellekteki başka konuşmaların mesajları da güncellenir, dönünce güncel çizilir (38-gezinme.js, istek 17 S6)
++  if (!inCurrent && typeof navCacheApply === 'function') navCacheApply(ev)
+   if (inCurrent && state.loading) {
+     state.pendingEvents.push(ev)
+     return
+@@ -170,6 +174,11 @@ function onIncomingMessage (message, inCurrent) {
+   const mine = state.me && sameId(message.authorId, state.me.id)
+   const dm = isDmMessage(message)
+   if (inCurrent) {
++    // Listede olan mesaj (önbellekten dönülen konuşmanın arka plandaki yenilemesi eklemişti) yeniden sayılmaz
++    if (indexOfMessage(message.id) !== -1) {
++      replaceMessage(message)
++      return
++    }
+     insertMessage(message, { own: mine })
+     // Kişi yukarıdayken veya sayfa gizliyken gelen mesaj okunmuş sayılmaz (istek 17 S4), sayaç artar
+     const read = !document.hidden && markRead()
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index ec500c5..2212ddd 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -556,6 +556,8 @@ function setMessagesView (kind, res) {
+ async function loadChannel () {
+   const channelId = state.channelId
+   if (!channelId) return
++  // Çizili konuşma önbelleğe yazılır, önbellekteki konuşmaya geçilirken liste sunucuya sormadan çizilir (38-gezinme.js)
++  const switching = typeof navCacheLeave === 'function' && navCacheLeave(channelId)
+   socialOnChannelLoad(channelId)
+   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
+   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
+@@ -569,6 +571,13 @@ async function loadChannel () {
+   if (nav) navUnreadReset(channelId)
+   state.loadGen += 1
+   const gen = state.loadGen
++  // Kayıt her durumda önbellekten çıkar, aramadan veya En Yeni Mesajlara Dön ile gelindiyse kullanılmaz
++  const taken = switching ? navCacheTake(channelId) : null
++  const cached = !jump && !latest ? taken : null
++  if (cached) {
++    restoreChannel(channelId, cached, gen, readMark, knownUnread)
++    return
++  }
+   state.loading = true
+   state.pendingEvents = []
+   state.messages = []
+@@ -644,6 +653,99 @@ async function loadChannel () {
+   // Kişi alta inmediyse sayılan okunmamışlar sayaçta kalır: başka konuşmaya geçince rozet görünür
+   if (!markRead() && nav && !jump) navKeepUnread(channelId)
+   if (nav) navOnScroll()
++  if (typeof navCacheReady === 'function') navCacheReady()
++}
++
++// Önbellekteki konuşma (38-gezinme.js navCacheTake, istek 17 S6): iskelet ve istek olmadan çizilir. Kişi en alttan
++// ayrıldıysa yeni mesajlar varken Yeni mesajlar ayracına, yoksa en alta, yukarıdan ayrıldıysa kaldığı yere (görünür
++// alandaki ilk mesaj ve kayması) dönülür. Ardından en yeni sayfa arka planda alınıp birleştirilir (refreshNewest).
++function restoreChannel (channelId, entry, gen, readMark, knownUnread) {
++  state.loading = false
++  state.pendingEvents = []
++  state.messages = entry.messages
++  state.hasMore = entry.hasMore
++  state.hasNewer = entry.hasNewer
++  state.newWhileOlder = entry.newWhileOlder
++  state.loadingNewer = false
++  state.nodes = new Map()
++  decryptCache.clear()
++  state.editingId = null
++  clear(el.messageList)
++  setMessagesView('')
++  chatPlusOnChannelLoad(channelId)
++  renderAllMessages()
++  const divider = navShowUnread(channelId, readMark, knownUnread, null)
++  if (!entry.stick && scrollToAnchor(entry.anchor)) {
++    navState.newBelow = entry.newBelow
++  } else if (divider) {
++    scrollToDivider(divider)
++  } else {
++    scrollToBottom()
++  }
++  if (!markRead()) navKeepUnread(channelId)
++  navOnScroll()
++  navCacheReady()
++  refreshNewest(channelId, gen)
++}
++
++// Görünür alandaki ilk mesaj yeniden aynı kaymayla görünür alanın üstüne gelir. Mesaj listede yoksa false döner.
++function scrollToAnchor (anchor) {
++  const node = anchor ? state.nodes.get(String(anchor.id)) : null
++  const box = el.messages
++  if (!node || node.parentNode !== el.messageList) return false
++  const offset = node.getBoundingClientRect().top - box.getBoundingClientRect().top
++  box.scrollTop = box.scrollTop + offset - (Number(anchor.offset) || 0)
++  stickBottom = isNearBottom()
++  return true
++}
++
++// Önbellekten çizilen konuşmanın en yeni sayfası: kaçırılan yeni mesajlar eklenir, sonradan düzenlenen mesajlar
++// yenilenir, en yeni sayfanın aralığında olup sayfada olmayan mesajlar silinmiştir. En yeni sayfa yüklü mesajlara
++// bitişmiyorsa (arada sayfadan çok mesaj var) daha yeni mesajlar aşağı inildikçe yüklenir (hasNewer) ve şerit uyarır.
++async function refreshNewest (channelId, gen) {
++  if (state.hasNewer) return
++  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&limit=' + PAGE_SIZE)
++  if (gen !== state.loadGen || !sameId(channelId, state.channelId) || state.loading || state.hasNewer) return
++  if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) return
++  const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
++  mergeNewest(channelId, page, res.data.hasMore === true)
++}
++
++function mergeNewest (channelId, page, pageHasMore) {
++  if (!page.length) return
++  const tail = state.messages[state.messages.length - 1]
++  const last = tail ? Number(tail.id) : 0
++  const lo = Number(page[0].id)
++  const hi = Number(page[page.length - 1].id)
++  if (pageHasMore && lo > last) {
++    state.hasNewer = true
++    state.newWhileOlder = true
++    renderListChrome()
++    if (typeof navRenderBelow === 'function') navRenderBelow()
++    return
++  }
++  const inPage = Object.create(null)
++  page.forEach((m) => {
++    inPage[String(m.id)] = m
++  })
++  state.messages.filter((m) => Number(m.id) >= lo && Number(m.id) <= hi && !inPage[String(m.id)]).map((m) => m.id).forEach((id) => {
++    removeMessage(id)
++  })
++  page.forEach((m) => {
++    const i = indexOfMessage(m.id)
++    if (i !== -1 && (Number(m.editedAt) || 0) > (Number(state.messages[i].editedAt) || 0)) replaceMessage(m)
++  })
++  const fresh = page.filter((m) => Number(m.id) > last && indexOfMessage(m.id) === -1)
++  if (!fresh.length) return
++  fresh.forEach((m) => {
++    insertMessage(m, { own: false })
++  })
++  const others = fresh.filter((m) => !(state.me && sameId(m.authorId, state.me.id))).length
++  const read = !document.hidden && markRead()
++  if (!read && others) {
++    state.unread[channelId] = (Number(state.unread[channelId]) || 0) + others
++    renderBand()
++  }
+ }
+ 
+ async function loadOlder () {
+diff --git a/public/js/14-social.js b/public/js/14-social.js
+index 718fc99..a02037c 100644
+--- a/public/js/14-social.js
++++ b/public/js/14-social.js
+@@ -311,6 +311,8 @@ function showHome (tab, opts) {
+   if (tab && HOME_TABS.indexOf(tab) !== -1) socialState.homeTab = tab
+   const leaving = socialState.view !== 'home'
+   if (leaving) {
++    // Çizili konuşma önbelleğe yazılır, dönünce kaldığı yerden açılır (38-gezinme.js)
++    if (typeof navCacheLeave === 'function') navCacheLeave(null)
+     // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+     composerLeave()
+     state.loadGen += 1
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 52cb7ab..1bcf8d8 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -33,6 +33,12 @@
+ //
+ // Görünümün hatırlanması (S12). Açık görünüm ({ mode, id }) kişiye özel anahtarda (userKey('view')) saklanır,
+ // sayfa yenilenince özel konuşma ve Arkadaşlar görünümü de geri gelir (04-meta.js openApp).
++//
++// Konum ve önbellek (S6). Son NAV_CACHE_MAX konuşmanın mesajları (sunucudan gelen şifreli zarflar) bellekte
++// tutulur. Konuşmaya geri dönülünce liste iskelet göstermeden ve sunucuya sormadan çizilir, kişi kaldığı yere döner
++// (görünür alandaki ilk mesaj ve kayması), ardından en yeni sayfa arka planda alınıp birleştirilir (06-messages.js
++// restoreChannel). Önbellekteki konuşmalara gelen olaylar önbelleğe de uygulanır (05-poll.js). Yeniden eşitlemede,
++// oturum açılıp kapanınca ve anahtar değişince önbellek silinir. Çözülmüş metin önbelleğe girmez.
+ 
+ const NAV_OVERLAYS = ['search', 'settings', 'viewer', 'profile-card']
+ const NAV_POP_WAIT_MS = 2000
+@@ -40,6 +46,8 @@ const NAV_POP_WAIT_MS = 2000
+ const NAV_FAR_SCREENS = 2
+ // Özel Mesajlar grubunda Tüm Özel Mesajlar açılmadan gösterilen en çok satır
+ const NAV_DM_ROWS = 6
++// Bellekte tutulan en çok konuşma (S6)
++const NAV_CACHE_MAX = 8
+ 
+ const navState = {
+   bound: false,
+@@ -194,6 +202,8 @@ function navSchedule () {
+ function navStart () {
+   if (!state.me) return
+   if (navState.on) navStop()
++  // Açılışta önceki oturumun önbelleği kalmaz (açılan konuşma navCache.shown olarak kalır)
++  navCacheClear()
+   navState.on = true
+   navState.u = state.me.id
+   navState.stack = [navCurrentConv()]
+@@ -213,6 +223,9 @@ function navStop () {
+   navState.convMode = ''
+   navState.dmAll = false
+   navUnreadReset(null)
++  navCacheClear()
++  navCache.shown = null
++  navCache.ready = false
+   if (was) {
+     navState.ops.push({ kind: 'rewind', fallback: extra })
+     navRun()
+@@ -831,3 +844,139 @@ function navSavedView () {
+   }
+   return null
+ }
++
++// ------------------------------------------------------------------ konum ve önbellek (S6)
++
++// map: konuşma kimliği (yazı odası ve özel konuşma kimlikleri ortak sayaçtan gelir) ile kayıt, eklenme sırası
++// kullanım sırasıdır. Kayıt: { id, u, stamp, messages (şifreli zarflar), hasMore, hasNewer, newWhileOlder, anchor
++// ({ id, offset }: görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı), stick (kişi en alttaydı), newBelow
++// (kişi yukarıdayken gelen mesajlar) }. shown: listede mesajları çizili konuşma, ready: yüklemesi başarıyla bitti.
++const navCache = { map: new Map(), shown: null, ready: false }
++
++function navCacheClear () {
++  navCache.map.clear()
++}
++
++// Anahtar damgası: etkin grup anahtarı, bu cihazda tutulup tutulmadığı ve kişisel kimlik anahtarı. Damga
++// değiştiyse (anahtar değişti) önbellekteki kayıt kullanılmaz.
++function navCacheStamp () {
++  const kid = typeof activeKid === 'function' ? activeKid() : null
++  const held = kid && typeof kidHeld === 'function' && kidHeld(kid) ? '1' : '0'
++  let pair = null
++  if (typeof myIdentity === 'function') {
++    try {
++      pair = myIdentity()
++    } catch (err) {
++      pair = null
++    }
++  }
++  return String(kid || '') + ':' + held + ':' + (pair && typeof pair.publicKey === 'string' ? pair.publicKey : '')
++}
++
++// Görünür alandaki ilk mesaj ve görünür alanın üstüne uzaklığı (piksel), mesaj yoksa null
++function navCacheAnchor () {
++  const box = el.messages
++  if (!box || !box.clientHeight || typeof box.getBoundingClientRect !== 'function') return null
++  const top = box.getBoundingClientRect().top
++  let i = 0
++  while (i < state.messages.length) {
++    const node = state.nodes.get(String(state.messages[i].id))
++    if (node && node.parentNode) {
++      const r = node.getBoundingClientRect()
++      if (r.bottom > top + 1) return { id: state.messages[i].id, offset: Math.round(r.top - top) }
++    }
++    i += 1
++  }
++  return null
++}
++
++function navCacheStore (id) {
++  if (!state.me || state.loading) return
++  const entry = {
++    id: String(id),
++    u: state.me.id,
++    stamp: navCacheStamp(),
++    messages: state.messages.slice(),
++    hasMore: state.hasMore === true,
++    hasNewer: state.hasNewer === true,
++    newWhileOlder: state.newWhileOlder === true,
++    anchor: navCacheAnchor(),
++    stick: state.hasNewer !== true && isNearBottom(),
++    newBelow: navState.newBelow
++  }
++  navCache.map.delete(entry.id)
++  navCache.map.set(entry.id, entry)
++  while (navCache.map.size > NAV_CACHE_MAX) navCache.map.delete(navCache.map.keys().next().value)
++}
++
++// Konuşma yükleniyor (06-messages.js loadChannel) veya Arkadaşlar görünümüne geçiliyor (14-social.js showHome,
++// nextId null). Çizili konuşmanın yüklemesi başarıyla bittiyse önbelleğe yazılır. Başka konuşmaya geçiliyorsa true
++// döner. Aynı konuşma yeniden yükleniyorsa (En Yeni Mesajlara Dön, Tekrar Dene, yeniden eşitleme) kaydı silinir.
++function navCacheLeave (nextId) {
++  const prev = navCache.shown
++  const none = nextId === null || nextId === undefined
++  const switching = prev === null || none || !sameId(prev, nextId)
++  if (prev !== null && switching && navCache.ready) navCacheStore(prev)
++  if (!switching) navCache.map.delete(String(nextId))
++  navCache.shown = none ? null : nextId
++  navCache.ready = false
++  return switching
++}
++
++// Konuşmanın yüklemesi bitti (06-messages.js loadChannel ve restoreChannel)
++function navCacheReady () {
++  navCache.ready = true
++}
++
++// Önbellekteki kayıt alınır ve önbellekten çıkar (konuşma açıkken güncel hâli listededir). Başka hesabın, anahtarı
++// değişmiş veya boş konuşmanın kaydı kullanılmaz.
++function navCacheTake (id) {
++  const key = String(id)
++  const entry = navCache.map.get(key)
++  if (!entry) return null
++  navCache.map.delete(key)
++  if (!state.me || !sameId(entry.u, state.me.id) || entry.stamp !== navCacheStamp() || !entry.messages.length) return null
++  return entry
++}
++
++function navCacheIndex (list, id) {
++  let i = list.length - 1
++  while (i >= 0) {
++    if (sameId(list[i].id, id)) return i
++    i -= 1
++  }
++  return -1
++}
++
++// Önbellekteki konuşmaya gelen olay (05-poll.js applyEvent): yeni mesaj sıraya eklenir (kişi yukarıdaysa kapsülün
++// sayısı artar, daha yeni mesajları yüklü olmayan eski bir bölümde eklenmez, şerit uyarır), düzenlenen mesaj
++// değişir, silinen mesaj çıkar. Liste MAX_RENDERED'ı aşınca en eskiler düşer.
++function navCacheApply (ev) {
++  if (!ev || ev.channelId === null || ev.channelId === undefined) return
++  const entry = navCache.map.get(String(ev.channelId))
++  if (!entry) return
++  const list = entry.messages
++  if ((ev.type === 'msg' || ev.type === 'edit') && validMessage(ev.message)) {
++    const i = navCacheIndex(list, ev.message.id)
++    if (i !== -1) {
++      list[i] = ev.message
++      return
++    }
++    if (ev.type === 'edit') return
++    if (entry.hasNewer) {
++      entry.newWhileOlder = true
++      return
++    }
++    let at = list.length
++    while (at > 0 && Number(list[at - 1].id) > Number(ev.message.id)) at -= 1
++    list.splice(at, 0, ev.message)
++    if (!entry.stick && !navOwn(ev.message)) entry.newBelow += 1
++    if (list.length > MAX_RENDERED) {
++      list.splice(0, list.length - TRIM_TO)
++      entry.hasMore = true
++    }
++  } else if (ev.type === 'del') {
++    const i = navCacheIndex(list, ev.messageId)
++    if (i !== -1) list.splice(i, 1)
++  }
++}
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index b4d5778..b6acee3 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -9,7 +9,8 @@
+ // büyütme) geri tuşu ve oturum kapanınca geri sarma (açık katman yokken ve model eskimişken de). Ayrıca ilk okunmamış
+ // mesajın yeri (kendi mesajları atlanır), son okunanın çevresiyle yükleme kararı, okunmamış sayısının iki sayfadan
+ // sayılması ve alt sınırı, Özel mesajlar grubunun sırası (okunmamışlar önce), Özel düğmesinin açtığı konuşma, Tüm Özel
+-// Mesajlar ve görünümün hatırlanması.
++// Mesajlar ve görünümün hatırlanması. G10: konuşma önbelleği (son sekiz konuşma, aynı konuşmanın yeniden yüklenmesi,
++// anahtar ve hesap değişimi, önbelleğe uygulanan olaylar ve kapsül sayısı).
+ 
+ const test = require('node:test')
+ const assert = require('node:assert')
+@@ -501,3 +502,93 @@ test('görünüm: açık görünüm kişiye özel anahtarda saklanır, açılı
+   run("state.me = { id: 2, name: 'ece', role: 'member' }")
+   assert.strictEqual(json('navSavedView()'), null)
+ })
++
++// G10 (S6): konum ve önbellek. Konuşmanın çizimi taklit edilir: testShow önce çizili konuşmadan ayrılır
++// (06-messages.js loadChannel gibi), sonra yeni konuşmanın mesajlarını koyar ve yüklemeyi bitmiş sayar.
++function loadCache () {
++  const ctx = load()
++  ctx.run(`
++    var testBottom = true
++    var testKid = 'a'
++    function isNearBottom () { return testBottom }
++    function validMessage (m) { return Boolean(m && typeof m === 'object' && m.id !== undefined && m.id !== null && typeof m.body === 'string') }
++    function activeKid () { return testKid }
++    function testMsg (id, channelId, authorId, body) { return { id: id, channelId: channelId, authorId: authorId || 2, body: body || 'zarf-' + id } }
++    function testShow (id, ids) {
++      const switching = navCacheLeave(id)
++      state.channelId = id
++      state.messages = ids.map((x) => testMsg(x, id))
++      navCacheReady()
++      return switching
++    }
++    function testKeys () { return Array.from(navCache.map.keys()) }
++  `)
++  return ctx
++}
++
++test('önbellek: son sekiz konuşma tutulur, aynı konuşmanın yeniden yüklenmesi kaydı siler, anahtar veya hesap değişince kayıt kullanılmaz', () => {
++  const { run, json } = loadCache()
++  run('let i = 10; while (i < 20) { testShow(i, [i * 100 + 1, i * 100 + 2]); i += 1 }')
++  assert.deepStrictEqual(json('testKeys()'), ['11', '12', '13', '14', '15', '16', '17', '18'])
++  // Kayıt şifreli zarfları ve konumu tutar
++  assert.deepStrictEqual(json("[navCache.map.get('12').messages.map((m) => m.body), navCache.map.get('12').stick, navCache.map.get('12').hasMore]"), [['zarf-1201', 'zarf-1202'], true, false])
++  // Önbellekteki konuşmaya geçiş (06-messages.js loadChannel): çizili konuşma yazılır, en eski kayıt düşer, açılan
++  // konuşmanın kaydı alınır. Yüklemesi bitmeden ayrılan konuşma kayıt yazmaz.
++  assert.strictEqual(json('navCacheLeave(12)'), true)
++  run('navCacheTake(12)')
++  assert.deepStrictEqual(json('testKeys()'), ['13', '14', '15', '16', '17', '18', '19'])
++  run('navCacheLeave(13)')
++  assert.deepStrictEqual(json('[testKeys().length, navCache.shown]'), [7, 13])
++  // Aynı konuşma yeniden yükleniyor (En Yeni Mesajlara Dön, Tekrar Dene): geçiş sayılmaz, kaydı silinir
++  assert.strictEqual(json('navCacheLeave(13)'), false)
++  assert.strictEqual(json("navCache.map.has('13')"), false)
++  // Alınan kayıt önbellekten çıkar
++  assert.deepStrictEqual(json('navCacheTake(15).messages.map((m) => m.id)'), [1501, 1502])
++  assert.strictEqual(json("navCache.map.has('15')"), false)
++  assert.strictEqual(json('navCacheTake(15)'), null)
++  // Anahtar değişti: kayıt kullanılmaz ve silinir
++  run("testKid = 'b'")
++  assert.strictEqual(json('navCacheTake(16)'), null)
++  assert.strictEqual(json("navCache.map.has('16')"), false)
++  run("testKid = 'a'")
++  // Başka hesap: kayıt kullanılmaz
++  run("state.me = { id: 2, name: 'ece', role: 'member' }")
++  assert.strictEqual(json('navCacheTake(17)'), null)
++  run("state.me = { id: 1, name: 'burak', role: 'owner' }")
++  assert.deepStrictEqual(json('navCacheTake(18).messages.length'), 2)
++  // Oturum kapanınca önbellek ve çizili konuşma bilgisi silinir
++  run('navStop()')
++  assert.deepStrictEqual(json('[testKeys(), navCache.shown, navCache.ready]'), [[], null, false])
++})
++
++test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yukarıdan ayrılan konuşmada kapsül sayılır', () => {
++  const { run, json } = loadCache()
++  run('testShow(30, [1, 2, 3]); testBottom = false; navState.newBelow = 2; testShow(31, [5])')
++  assert.deepStrictEqual(json("[navCache.map.get('30').stick, navCache.map.get('30').newBelow]"), [false, 2])
++  const entry = (code) => json("(function () { const e = navCache.map.get('30'); return " + code + ' })()')
++  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(4, 30) })')
++  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(6, 30, 1) })')
++  // Sıra dışı gelen mesaj yerine girer, aynı mesaj iki kez eklenmez
++  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(5, 30) })')
++  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(5, 30) })')
++  assert.deepStrictEqual(entry('[e.messages.map((m) => m.id), e.newBelow]'), [[1, 2, 3, 4, 5, 6], 4])
++  run('navCacheApply({ type: \'edit\', channelId: 30, message: testMsg(2, 30, 2, \'yeni-zarf\') })')
++  run('navCacheApply({ type: \'edit\', channelId: 30, message: testMsg(99, 30, 2, \'yok\') })')
++  run('navCacheApply({ type: \'del\', channelId: 30, messageId: 1 })')
++  assert.deepStrictEqual(entry('e.messages.map((m) => m.body)'), ['yeni-zarf', 'zarf-3', 'zarf-4', 'zarf-5', 'zarf-6'])
++  // Önbellekte olmayan konuşmanın ve geçersiz olayın etkisi yok
++  run('navCacheApply({ type: \'msg\', channelId: 77, message: testMsg(1, 77) }); navCacheApply({ type: \'msg\', channelId: 30, message: { id: 8 } }); navCacheApply(null)')
++  assert.deepStrictEqual(entry('e.messages.length'), 5)
++  // En alttan ayrılan konuşmada kapsül sayılmaz
++  run('testBottom = true; navState.newBelow = 0; testShow(32, [9])')
++  run('navCacheApply({ type: \'msg\', channelId: 31, message: testMsg(7, 31) })')
++  assert.deepStrictEqual(json("[navCache.map.get('31').messages.map((m) => m.id), navCache.map.get('31').newBelow]"), [[5, 7], 0])
++  // Daha yeni mesajları yüklü olmayan eski bölüm: mesaj eklenmez, şerit uyarır
++  run("navCache.map.get('30').hasNewer = true")
++  run('navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(10, 30) })')
++  assert.deepStrictEqual(entry('[e.messages.length, e.newWhileOlder]'), [5, true])
++  // Liste MAX_RENDERED'ı aşınca en eskiler düşer, daha eskisi yüklenebilir
++  run("navCache.map.get('30').hasNewer = false")
++  run('let k = 100; while (k < 100 + MAX_RENDERED) { navCacheApply({ type: \'msg\', channelId: 30, message: testMsg(k, 30) }); k += 1 }')
++  assert.deepStrictEqual(entry('[e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id]'), [json('TRIM_TO') + 4, true, 699])
++})

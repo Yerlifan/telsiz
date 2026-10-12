@@ -1,0 +1,565 @@
+From 718969b0f05cdc1bcb9428547c879d8c195fead7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 20:28:27 +0000
+Subject: [PATCH 091/104] =?UTF-8?q?G13:=20Kay=C4=B1t=20Defteri=20mesaj=20d?=
+ =?UTF-8?q?=C3=BCzeni=20(varsay=C4=B1lan),=20Klasik=20se=C3=A7enek=20olara?=
+ =?UTF-8?q?k=20kal=C4=B1r?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+theme-init.js msgLayout tercihi (telsiz.msgLayout, data-msg-layout), Ayarlar > Görünüm'de Mesaj Düzeni radyo grubu.
+Mesaj başlığında çağrı işareti (küçük avatar ve ad), yön etiketi (TX, RX), düğümde data-av. Saat solda tek aralıklı
+sütunda, grup yazarın profil renginde yayın çizgisiyle bağlanır. Klasik düzen bugünkü görünümü korur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ public/css/components.css |  14 ++++
+ public/css/convo.css      | 151 ++++++++++++++++++++++++++++++++++++++
+ public/css/skins/gece.css |  19 +++++
+ public/i18n.js            |  12 +++
+ public/js/06-messages.js  |  19 ++++-
+ public/js/11-settings.js  |  19 ++++-
+ public/theme-init.js      |  24 ++++--
+ test/settings.test.js     |  57 +++++++++++++-
+ 8 files changed, 303 insertions(+), 12 deletions(-)
+
+diff --git a/public/css/components.css b/public/css/components.css
+index 041a96f..cd3f8bc 100644
+--- a/public/css/components.css
++++ b/public/css/components.css
+@@ -1954,6 +1954,20 @@ mark,
+   display: none;
+ }
+ 
++/* Çağrı işareti (06-messages.js buildMessageNode): küçük avatar ve ad. Klasik düzende yalnızca ad görünür, küçük
++   avatar ve yön etiketi (TX, RX) Kayıt Defteri düzenine aittir (convo.css). */
++.msg-call {
++  display: inline-flex;
++  align-items: center;
++  min-width: 0;
++  max-width: 100%;
++}
++
++.msg-call-avatar,
++.msg-dir {
++  display: none;
++}
++
+ .msg-author {
+   margin-right: 0.5rem;
+   color: var(--text);
+diff --git a/public/css/convo.css b/public/css/convo.css
+index 7797961..135d5c0 100644
+--- a/public/css/convo.css
++++ b/public/css/convo.css
+@@ -96,6 +96,138 @@
+   right: 0.75rem;
+ }
+ 
++/* =========================================================
++   2a. Kayıt Defteri mesaj düzeni (istek 10, varsayılan): theme-init.js kök öğeye data-msg-layout="kayit" yazar,
++   "klasik" bu bölümü kapatır ve yukarıdaki görünüm aynen kalır. Saat her mesajda solda tek aralıklı sütunda,
++   avatar adın yanında küçük çağrı işareti (1.5rem), grup yazarın profil renginde ince bir yayın çizgisiyle
++   bağlanır (06-messages.js data-av), başlığın sonunda gönderdiğim mesajda TX, gelende RX. Başlıktaki saat
++   görünmez ama ekran okuyucu için yerinde kalır, okuma sırası Klasik düzenle aynıdır. Yön etiketi aria-hidden.
++   ========================================================= */
++
++:root[data-msg-layout="kayit"] .convo .msg-gutter {
++  justify-content: flex-end;
++  width: 4.875rem;
++  padding: 0 0.75rem 0 0.125rem;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-first .msg-avatar {
++  display: none;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-hover-time,
++:root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
++  display: block;
++  padding-top: 0.25rem;
++  color: var(--text-3);
++  font-family: var(--font-mono);
++  font-size: 0.6875rem;
++  line-height: 1.125rem;
++  white-space: nowrap;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
++  padding-top: 0.1875rem;
++}
++
++/* Yayın çizgisi: içeriğin solunda, mesajlar arasındaki boşluğu da kapatır (grup kesintisiz görünür) */
++:root[data-msg-layout="kayit"] .convo .msg-content {
++  padding-left: 0.75rem;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg::after {
++  content: "";
++  position: absolute;
++  top: 0;
++  bottom: -0.125rem;
++  left: 4.875rem;
++  width: 2px;
++  background-color: var(--msg-line, var(--line-strong));
++  pointer-events: none;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-first::after {
++  top: 0.3125rem;
++}
++
++:root[data-msg-layout="kayit"] .msg[data-av="c0"] { --msg-line: var(--av-0); }
++:root[data-msg-layout="kayit"] .msg[data-av="c1"] { --msg-line: var(--av-1); }
++:root[data-msg-layout="kayit"] .msg[data-av="c2"] { --msg-line: var(--av-2); }
++:root[data-msg-layout="kayit"] .msg[data-av="c3"] { --msg-line: var(--av-3); }
++:root[data-msg-layout="kayit"] .msg[data-av="c4"] { --msg-line: var(--av-4); }
++:root[data-msg-layout="kayit"] .msg[data-av="c5"] { --msg-line: var(--av-5); }
++:root[data-msg-layout="kayit"] .msg[data-av="c6"] { --msg-line: var(--av-6); }
++:root[data-msg-layout="kayit"] .msg[data-av="c7"] { --msg-line: var(--av-7); }
++
++/* Başlık: çağrı işareti, rol, (gizli) saat ve sağ uçta yön etiketi */
++:root[data-msg-layout="kayit"] .convo .msg-head {
++  flex-wrap: nowrap;
++  min-height: 1.5rem;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-call {
++  flex: 0 1 auto;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-call-avatar {
++  display: inline-flex;
++  flex: none;
++  margin-right: 0.4375rem;
++  cursor: pointer;
++  --status-ring: var(--surface-2);
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-head .badge {
++  flex: none;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-head .msg-time {
++  position: absolute;
++  width: 1px;
++  height: 1px;
++  margin: -1px;
++  overflow: hidden;
++  clip: rect(0, 0, 0, 0);
++  white-space: nowrap;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-dir {
++  display: inline-block;
++  flex: none;
++  margin-left: auto;
++  padding: 0 0.375rem;
++  border: 1px solid var(--line-strong);
++  border-radius: var(--radius-small);
++  color: var(--text-3);
++  font-family: var(--font-mono);
++  font-size: 0.625rem;
++  font-weight: 500;
++  line-height: 1.0625rem;
++  letter-spacing: 0.04em;
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-dir.is-out {
++  border-color: var(--accent-text);
++  color: var(--accent-text);
++}
++
++:root[data-msg-layout="kayit"] .convo .msg-first {
++  margin-top: 0.875rem;
++}
++
++/* Kompakt: küçük avatar ve yön etiketi gizlenir, ad ve metin tek satırda (components.css kompakt bölümü) */
++:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-call-avatar,
++:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-dir {
++  display: none;
++}
++
++:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-head {
++  min-height: 0;
++}
++
++:root[data-msg-layout="kayit"][data-compact="true"] .convo .msg-first {
++  margin-top: 0.35rem;
++}
++
+ /* =========================================================
+    3. Başlangıç bloğu (boş oda) ve durumlar: yükleniyor, hata
+    ========================================================= */
+@@ -891,6 +1023,25 @@
+     height: 2.5rem;
+   }
+ 
++  :root[data-msg-layout="kayit"] .convo .msg-gutter {
++    width: 4rem;
++    padding-right: 0.5rem;
++    padding-left: 0;
++  }
++
++  :root[data-msg-layout="kayit"] .convo .msg::after {
++    left: 4rem;
++  }
++
++  :root[data-msg-layout="kayit"] .convo .msg-content {
++    padding-left: 0.5rem;
++  }
++
++  :root[data-msg-layout="kayit"] .convo .msg-hover-time,
++  :root[data-msg-layout="kayit"] .convo .msg-first .msg-hover-time {
++    font-size: 0.625rem;
++  }
++
+   .convo .channel-start:not(.is-dm) {
+     padding-left: 3.75rem;
+   }
+diff --git a/public/css/skins/gece.css b/public/css/skins/gece.css
+index 1f6d02b..9fafddc 100644
+--- a/public/css/skins/gece.css
++++ b/public/css/skins/gece.css
+@@ -158,6 +158,21 @@
+   background-color: var(--surface-2);
+ }
+ 
++/* Kayıt Defteri düzeninde saat sütunu daha geniştir: çizgi ve nokta içeriğin sol kenarında kalır (convo.css 2a) */
++:root[data-skin="gece"][data-msg-layout="kayit"] .message-list {
++  background-position: 4.875rem 0;
++}
++
++:root[data-skin="gece"][data-msg-layout="kayit"] .msg-first .msg-content::before {
++  top: 0.75rem;
++  left: 4.875rem;
++  margin-left: -0.1875rem;
++}
++
++:root[data-skin="gece"][data-msg-layout="kayit"] .msg-content {
++  padding-left: 0.75rem;
++}
++
+ @media (max-width: 759px) {
+   :root[data-skin="gece"] .message-list {
+     background-image: none;
+@@ -170,6 +185,10 @@
+   :root[data-skin="gece"] .msg-content {
+     padding-left: 0;
+   }
++
++  :root[data-skin="gece"][data-msg-layout="kayit"] .msg-content {
++    padding-left: 0.5rem;
++  }
+ }
+ 
+ /* Gönder ve birincil düğmeler: kehribar dolgu ve halka */
+diff --git a/public/i18n.js b/public/i18n.js
+index 3cd8f42..c5b1f50 100644
+--- a/public/i18n.js
++++ b/public/i18n.js
+@@ -83,6 +83,12 @@ window.I18N = (function () {
+     'theme.groupRadio': 'Telsiz Temaları',
+     'theme.groupAccess': 'Erişilebilirlik',
+     // G13 Özgün tasarım
++    'theme.msgLayout': 'Mesaj Düzeni',
++    'theme.msgLayout.kayit': 'Kayıt Defteri',
++    'theme.msgLayout.klasik': 'Klasik',
++    'theme.msgLayoutHint': 'Kayıt defterinde saat her mesajın solunda görünür, gönderdikleriniz TX, gelenler RX ile işaretlenir.',
++    'msg.dirOut': 'TX',
++    'msg.dirIn': 'RX',
+     // G14 Kurtarma kodu
+     'auth.forgot': 'Parolamı Unuttum',
+     'auth.forgotTitle': 'Kurtarma Koduyla Parolayı Sıfırla',
+@@ -2126,6 +2132,12 @@ window.I18N = (function () {
+     'theme.groupRadio': 'Radio Themes',
+     'theme.groupAccess': 'Accessibility',
+     // G13 Özgün tasarım
++    'theme.msgLayout': 'Message Layout',
++    'theme.msgLayout.kayit': 'Logbook',
++    'theme.msgLayout.klasik': 'Classic',
++    'theme.msgLayoutHint': 'In the logbook the time is shown left of every message, and messages you send are marked TX, received ones RX.',
++    'msg.dirOut': 'TX',
++    'msg.dirIn': 'RX',
+     // G14 Kurtarma kodu
+     'auth.forgot': 'Forgot My Password',
+     'auth.forgotTitle': 'Reset Your Password with a Recovery Code',
+diff --git a/public/js/06-messages.js b/public/js/06-messages.js
+index d233022..abebd1a 100644
+--- a/public/js/06-messages.js
++++ b/public/js/06-messages.js
+@@ -202,6 +202,8 @@ function buildMessageNode (m) {
+   if (mine) node.classList.add('msg-own', 'is-own')
+   const name = userDisplayName(m.authorId)
+   const role = userRole(m.authorId)
++  // Kayıt Defteri düzeninde (theme-init.js data-msg-layout) grubu bağlayan yayın çizgisinin rengi: yazarın profil rengi
++  node.setAttribute('data-av', 'c' + userColorIndex(m.authorId))
+ 
+   const gutter = h('div', 'msg-gutter')
+   const av = personAvatar(m.authorId, 'md')
+@@ -218,14 +220,29 @@ function buildMessageNode (m) {
+ 
+   const content = h('div', 'msg-content')
+   const head = h('div', 'msg-head')
++  // Çağrı işareti: Kayıt Defteri düzeninde adın yanında küçük avatar (Klasik düzende avatar gizlidir, ad aynı yerde
++  // kalır). Küçük avatar sekme durağı değildir, tıklanınca profil kartını açar, ad erişilebilir bağlantıdır.
++  const call = h('span', 'msg-call')
+   const author = h('span', 'msg-author', name)
+   makeUserLink(author, m.authorId)
+-  head.appendChild(author)
++  const callAvatar = personAvatar(m.authorId, 'xs')
++  callAvatar.classList.add('msg-call-avatar')
++  callAvatar.addEventListener('click', (e) => {
++    e.stopPropagation()
++    openProfileCard(m.authorId, author)
++  })
++  call.appendChild(callAvatar)
++  call.appendChild(author)
++  head.appendChild(call)
+   const badge = roleBadge(role)
+   if (badge) head.appendChild(badge)
+   const time = h('span', 'msg-time', formatShort(m.createdAt))
+   time.title = formatLong(m.createdAt)
+   head.appendChild(time)
++  // Yön etiketi: gönderdiğim mesaj TX, gelen mesaj RX. Yalnızca görsel, ekran okuyucu metni (msg-sr) değişmez.
++  const dir = h('span', 'msg-dir ' + (mine ? 'is-out' : 'is-in'), t(mine ? 'msg.dirOut' : 'msg.dirIn'))
++  dir.setAttribute('aria-hidden', 'true')
++  head.appendChild(dir)
+   content.appendChild(head)
+   const sr = h('span', 'sr-only msg-sr', t('msg.srHead', { name: name, time: formatShort(m.createdAt) }))
+   content.appendChild(sr)
+diff --git a/public/js/11-settings.js b/public/js/11-settings.js
+index 2f362d8..3efd50f 100644
+--- a/public/js/11-settings.js
++++ b/public/js/11-settings.js
+@@ -3149,11 +3149,11 @@ function playMessageSound (opts) {
+   return playAlertSound('message', opts)
+ }
+ 
+-// 7. Görünüm: tema, mod, yazı boyutu, kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
++// 7. Görünüm: tema, mod, yazı boyutu, mesaj düzeni ve kompakt görünüm, hareketi azalt ve dil (TelsizTheme)
+ 
+ function themeState () {
+   const theme = window.TelsizTheme
+-  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system' }
++  if (!theme || typeof theme.get !== 'function') return { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: FONT_PX_RANGE.initial, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
+   return theme.get()
+ }
+ 
+@@ -3170,6 +3170,12 @@ function skinChoices () {
+   return theme && Array.isArray(theme.skins) && theme.skins.length ? theme.skins.slice() : ['arcade']
+ }
+ 
++// Mesaj düzenleri (Kayıt Defteri, Klasik): listenin kaynağı theme-init.js (window.TelsizTheme.msgLayouts)
++function msgLayoutChoices () {
++  const theme = window.TelsizTheme
++  return theme && Array.isArray(theme.msgLayouts) && theme.msgLayouts.length ? theme.msgLayouts.slice() : ['kayit', 'klasik']
++}
++
+ // Tema kartlarının grupları: Telsiz Temaları ve Erişilebilirlik (Yüksek Kontrast, theme-init.js contrastSkin).
+ // Boş grup çizilmez.
+ function skinGroups (skins) {
+@@ -3277,7 +3283,15 @@ function buildAppearancePage (page) {
+   sizeSec.appendChild(pxRange)
+   showPx(pxOf(current))
+ 
++  // Mesaj görünümü: düzen (Kayıt Defteri varsayılan, Klasik) ve iki düzende de çalışan kompakt anahtarı
+   const compactSec = sSection(page, t('settings.appearance.messagesTitle'), 'set-compact-section')
++  sSub(compactSec, t('theme.msgLayout'), 'set-msg-layout-title')
++  const layouts = sRadios('set-msg-layout', 'set-msg-layout-title', msgLayoutChoices().map((v) => ({ value: v, label: t('theme.msgLayout.' + v) })), current.msgLayout || 'kayit', (value) => {
++    setTheme({ msgLayout: value })
++  }, 'is-chips')
++  layouts.group.setAttribute('aria-describedby', 'set-msg-layout-hint')
++  compactSec.appendChild(layouts.group)
++  compactSec.appendChild(sHint(t('theme.msgLayoutHint'), 'set-msg-layout-hint'))
+   const compact = sSwitch('set-compact', t('theme.compact'), current.compact, (checked) => {
+     setTheme({ compact: checked })
+   }, t('theme.compactHint'))
+@@ -3322,6 +3336,7 @@ function buildAppearancePage (page) {
+       pxRange.value = String(pxOf(now))
+       showPx(pxOf(now))
+     }
++    setRadioValue(layouts.inputs, now.msgLayout || 'kayit')
+     compact.input.checked = Boolean(now.compact)
+     setRadioValue(motions.inputs, now.reduceMotion)
+     if (lang.value !== window.I18N.lang) lang.value = window.I18N.lang
+diff --git a/public/theme-init.js b/public/theme-init.js
+index e83d3fd..d1a0fba 100644
+--- a/public/theme-init.js
++++ b/public/theme-init.js
+@@ -1,8 +1,8 @@
+ 'use strict'
+ 
+ // Tema ön yükleyicisi (Ek G1.5). <head> içinde defer olmadan, stil dosyalarından önce yüklenir.
+-// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact ve
+-// data-reduce-motion özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
++// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact, data-reduce-motion
++// ve data-msg-layout özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
+ // çizimde doğru temayla açılır.
+ // window.TelsizTheme arayüzü ayarlar görünümü ve uygulama tarafından kullanılır.
+ // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
+@@ -12,6 +12,8 @@ function createTelsizTheme () {
+   const SCHEMES = ['dark', 'light', 'system']
+   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
+   const MOTION = ['system', 'on', 'off']
++  // Mesaj düzeni: kayit (Kayıt Defteri: saat her mesajın solunda, küçük avatar adın yanında, TX ve RX) veya klasik
++  const MSG_LAYOUTS = ['kayit', 'klasik']
+   // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir, sistem yüksek karşıtlık istiyorsa ilk açılışta seçilir
+   const CONTRAST_SKIN = 'kontrast'
+   const STORE = {
+@@ -20,13 +22,14 @@ function createTelsizTheme () {
+     fontSize: 'telsiz.fontSize',
+     fontPx: 'telsiz.fontPx',
+     compact: 'telsiz.compact',
+-    reduceMotion: 'telsiz.reduceMotion'
++    reduceMotion: 'telsiz.reduceMotion',
++    msgLayout: 'telsiz.msgLayout'
+   }
+   // Elle ayarlanan yazı boyutunun (custom) sınırları, piksel
+   const FONT_PX = { min: 12, max: 28 }
+   // Yazı boyutu varsayılanı 15 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür. Özel boyut
+   // da ilk açılışta 15 pikseldir.
+-  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system' }
++  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
+   const root = document.documentElement
+   const listeners = []
+ 
+@@ -88,7 +91,8 @@ function createTelsizTheme () {
+     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
+     fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,
+     compact: read(STORE.compact) === 'true',
+-    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion)
++    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion),
++    msgLayout: pick(MSG_LAYOUTS, read(STORE.msgLayout), DEFAULTS.msgLayout)
+   }
+ 
+   // Sistem tercihi bilinmiyorsa koyu (Ek G3)
+@@ -116,7 +120,8 @@ function createTelsizTheme () {
+       fontPx: prefs.fontPx,
+       compact: prefs.compact,
+       reduceMotion: prefs.reduceMotion,
+-      motionReduced: resolvedMotion()
++      motionReduced: resolvedMotion(),
++      msgLayout: prefs.msgLayout
+     }
+   }
+ 
+@@ -129,6 +134,7 @@ function createTelsizTheme () {
+     if (root.style && typeof root.style.setProperty === 'function') root.style.setProperty('--font-px', prefs.fontPx + 'px')
+     root.setAttribute('data-compact', prefs.compact ? 'true' : 'false')
+     root.setAttribute('data-reduce-motion', resolvedMotion() ? 'true' : 'false')
++    root.setAttribute('data-msg-layout', prefs.msgLayout)
+   }
+ 
+   function notify () {
+@@ -189,6 +195,11 @@ function createTelsizTheme () {
+         changed = true
+       }
+     }
++    if (next.msgLayout !== undefined && MSG_LAYOUTS.indexOf(next.msgLayout) !== -1 && next.msgLayout !== prefs.msgLayout) {
++      prefs.msgLayout = next.msgLayout
++      write(STORE.msgLayout, prefs.msgLayout)
++      changed = true
++    }
+     if (changed) {
+       apply()
+       notify()
+@@ -235,6 +246,7 @@ function createTelsizTheme () {
+     schemes: SCHEMES.slice(),
+     fontSizes: FONT_SIZES.slice(),
+     fontPxRange: { min: FONT_PX.min, max: FONT_PX.max },
++    msgLayouts: MSG_LAYOUTS.slice(),
+     onChange: onChange
+   }
+ }
+diff --git a/test/settings.test.js b/test/settings.test.js
+index f1e3819..78a5b6d 100644
+--- a/test/settings.test.js
++++ b/test/settings.test.js
+@@ -39,7 +39,7 @@ function loadThemeInit () {
+   box.window = box
+   vm.createContext(box)
+   vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
+-  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin }
++  return { skins: Array.from(box.window.TelsizTheme.skins), contrastSkin: box.window.TelsizTheme.contrastSkin, msgLayouts: Array.from(box.window.TelsizTheme.msgLayouts) }
+ }
+ const THEME_INIT = loadThemeInit()
+ const SKINS = THEME_INIT.skins
+@@ -475,7 +475,8 @@ function load (options) {
+   sandbox.TelsizTheme = {
+     skins: SKINS.slice(),
+     contrastSkin: THEME_INIT.contrastSkin,
+-    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system' },
++    msgLayouts: THEME_INIT.msgLayouts.slice(),
++    prefs: { skin: 'arcade', scheme: 'system', fontSize: 'auto', compact: false, reduceMotion: 'system', msgLayout: 'kayit' },
+     get () {
+       return Object.assign({}, this.prefs)
+     },
+@@ -614,7 +615,7 @@ test('sahip: 13 kategori, her sayfa çizilir ve beklenen denetimler bulunur', ()
+     voice: ['set-mic', 'set-mode-vad', 'set-mode-ptt', 'set-vad-auto', 'set-vad-threshold', 'set-ptt-key', 'set-ptt-change', 'set-ptt-release', 'set-level-bar', 'set-level-threshold', 'set-mic-test', 'set-echo', 'set-noise', 'set-rnnoise', 'set-rnnoise-hint', 'set-agc', 'set-output-volume', 'set-sounds', 'set-screen-hint-motion', 'set-screen-hint-detail', 'set-screen-preset-720p15', 'set-screen-preset-720p30', 'set-screen-preset-1080p15', 'set-screen-preset-1080p30'],
+     keybinds: ['set-bind-ptt-assign', 'set-bind-toggleMute-assign', 'set-bind-toggleMute-clear', 'set-bind-toggleDeafen-clear', 'set-bind-msg'],
+     notifications: ['set-notify', 'set-notify-state', 'set-notify-level-all', 'set-notify-level-mentions', 'set-notify-level-none', 'set-message-sound', 'set-sound-test'],
+-    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-compact', 'set-motion-on', 'set-lang']),
++    appearance: SKINS.map((skin) => 'set-skin-' + skin).concat(['set-scheme-dark', 'set-scheme-light', 'set-scheme-system', 'set-font-auto', 'set-font-tv', 'set-font-custom', 'set-font-px', 'set-msg-layout-kayit', 'set-msg-layout-klasik', 'set-msg-layout-hint', 'set-compact', 'set-motion-on', 'set-lang']),
+     app: ['set-install', 'set-version', 'set-repo-link'],
+     general: ['set-server-name', 'set-server-save', 'set-server-summary', 'set-music-enabled', 'set-music-youtube'],
+     channels: ['set-channel-name', 'set-channel-type', 'set-channel-create', 'set-text-channels', 'set-voice-channels'],
+@@ -961,6 +962,56 @@ test('görünüm sayfası TelsizTheme ile çalışır', () => {
+   assert.ok(root.querySelector('label[data-skin-choice="gece"]').classList.contains('is-selected'))
+ })
+ 
++// Ön yükleyici gerçek tarayıcı taklidinde: kök öznitelikleri ve localStorage kaydı
++function runThemeInit (stored) {
++  const attrs = {}
++  const saved = Object.assign({}, stored || {})
++  const root = { setAttribute (k, v) { attrs[k] = v }, style: { setProperty () {} }, classList: { add () {} } }
++  const box = { document: { documentElement: root }, localStorage: { getItem: (k) => (k in saved ? saved[k] : null), setItem (k, v) { saved[k] = String(v) } } }
++  box.window = box
++  vm.createContext(box)
++  vm.runInContext(fs.readFileSync(path.join(PUB, 'theme-init.js'), 'utf8'), box, { filename: 'theme-init.js' })
++  return { theme: box.window.TelsizTheme, attrs, saved }
++}
++
++test('mesaj düzeni (msgLayout): Kayıt Defteri varsayılan, Klasik saklanır, geçersiz değer yok sayılır', () => {
++  assert.deepStrictEqual(THEME_INIT.msgLayouts, ['kayit', 'klasik'])
++  const first = runThemeInit()
++  assert.strictEqual(first.theme.get().msgLayout, 'kayit')
++  assert.strictEqual(first.attrs['data-msg-layout'], 'kayit', 'ilk çizimde kök özniteliği')
++  first.theme.set({ msgLayout: 'klasik' })
++  assert.strictEqual(first.attrs['data-msg-layout'], 'klasik')
++  assert.strictEqual(first.saved['telsiz.msgLayout'], 'klasik')
++  first.theme.set({ msgLayout: 'discord' })
++  assert.strictEqual(first.theme.get().msgLayout, 'klasik', 'listede olmayan değer yok sayılır')
++  const again = runThemeInit({ 'telsiz.msgLayout': 'klasik' })
++  assert.strictEqual(again.attrs['data-msg-layout'], 'klasik', 'yeniden açılışta saklı düzen')
++  const bad = runThemeInit({ 'telsiz.msgLayout': '<b>' })
++  assert.strictEqual(bad.attrs['data-msg-layout'], 'kayit', 'bozuk kayıt varsayılana düşer')
++})
++
++test('Görünüm > Mesaj görünümü: düzen radyo grubu ve kompakt anahtarı birlikte çalışır', () => {
++  const { run, root, sandbox } = load()
++  run("openSettings('appearance', null)")
++  const group = root.querySelector('#set-msg-layout-kayit').parentNode.parentNode
++  assert.strictEqual(group.getAttribute('role'), 'radiogroup')
++  assert.strictEqual(group.getAttribute('aria-labelledby'), 'set-msg-layout-title')
++  assert.strictEqual(group.getAttribute('aria-describedby'), 'set-msg-layout-hint')
++  assert.strictEqual(root.querySelector('#set-msg-layout-title').textContent, 'Mesaj Düzeni')
++  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'Kayıt Defteri varsayılan')
++  assert.strictEqual(root.querySelector('label[for="set-msg-layout-kayit"]').textContent, 'Kayıt Defteri')
++  assert.strictEqual(root.querySelector('label[for="set-msg-layout-klasik"]').textContent, 'Klasik')
++  root.querySelector('#set-msg-layout-klasik').click()
++  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik')
++  root.querySelector('#set-compact').click()
++  assert.strictEqual(sandbox.TelsizTheme.prefs.compact, true)
++  assert.strictEqual(sandbox.TelsizTheme.prefs.msgLayout, 'klasik', 'kompakt anahtarı düzeni değiştirmez')
++  sandbox.TelsizTheme.prefs.msgLayout = 'kayit'
++  run('refreshThemeSettings()')
++  assert.strictEqual(root.querySelector('#set-msg-layout-kayit').checked, true, 'başka yerden değişen düzen yansır')
++  assert.strictEqual(root.querySelector('#set-compact').checked, true)
++})
++
+ test('zaten işaretli tema kartına tıklamak temayı yeniden seçer (kendiliğinden seçilen Yüksek Kontrast saklanır)', () => {
+   const { run, root, sandbox } = load()
+   sandbox.TelsizTheme.prefs.skin = THEME_INIT.contrastSkin

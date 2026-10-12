@@ -1,0 +1,111 @@
+From a0e9e85842a9d0f4e6f26421e024763a54f8eda3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:16:04 +0000
+Subject: [PATCH 70/88] =?UTF-8?q?G11:=20Testler:=20g=C3=B6r=C3=BCnt=C3=BC?=
+ =?UTF-8?q?=20yede=C4=9Fi=20(tuval=20ak=C4=B1=C5=9F=C4=B1)=20e2e=20testi,?=
+ =?UTF-8?q?=20kamera=20kutusu=20ilk=20kare=20olay=C4=B1=20beklenir?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ e2e/20-yuzen.test.js | 50 +++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 45 insertions(+), 5 deletions(-)
+
+diff --git a/e2e/20-yuzen.test.js b/e2e/20-yuzen.test.js
+index 1587df2..d960fc3 100644
+--- a/e2e/20-yuzen.test.js
++++ b/e2e/20-yuzen.test.js
+@@ -6,7 +6,8 @@
+ // kümesini taşır, kontroller Mikrofon, Uygulamaya Dön ve Kapat'tır (Ayrıl yok). Mert kamerasını kapatınca kutusu
+ // avatara döner, Mert konuşunca (sahte mikrofonun bipleri) avatarının çevresinde canlı renkli halka yanar. Yüzen
+ // penceredeki Mikrofon düğmesi Deniz'in mikrofonunu kapatıp açar. Kapat'a basınca pencere kapanır ve 'float-'
+-// önekli görüntü öğeleri bırakılır. Ayarlar > Ses ve Görüntü'deki anahtar telsiz.floatAuto değerini yazar.
++// önekli görüntü öğeleri bırakılır. Belge resim içinde resim yokken görüntü yedeği (tuval akışı) açılır.
++// Ayarlar > Ses ve Görüntü'deki anahtar telsiz.floatAuto değerini yazar.
+ 
+ const { before, after } = require('node:test')
+ const assert = require('node:assert/strict')
+@@ -71,12 +72,13 @@ test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', asyn
+   await deniz.waitForFunction((id) => Boolean(document.querySelector('#radio-crew .crew-item[data-user-id="' + id + '"] .crew-avatar.has-camera')), mertId, { timeout: h.LONG })
+   await deniz.click('#radio-float')
+   await deniz.waitForFunction(() => Boolean(window.documentPictureInPicture.window), null, { timeout: h.LONG })
++  // Görüntü ilk kare olayıyla (loadeddata, playing) görünür olur (is-ready), olay oynatmadan biraz sonra gelebilir
+   const playing = await waitFloat(deniz, (doc, id) => {
+     const v = doc.querySelector('.float-tile.is-cam[data-user-id="' + id + '"] video.cam-video')
+-    return v && v.readyState >= 2 && v.videoWidth > 0 && !v.paused ? { w: v.videoWidth, ready: v.classList.contains('is-ready') } : null
++    return v && v.readyState >= 2 && v.videoWidth > 0 && !v.paused && v.classList.contains('is-ready') ? { w: v.videoWidth, opacity: getComputedStyle(v).opacity } : null
+   }, mertId, 'Mert\'in görüntüsü yüzen pencerede oynar')
+   assert.ok(playing.w > 0)
+-  assert.equal(playing.ready, true)
++  assert.equal(playing.opacity, '1')
+   const view = await inFloat(deniz, (doc) => {
+     const frame = doc.querySelector('.float-tile.is-cam .float-frame')
+     return {
+@@ -91,6 +93,7 @@ test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', asyn
+       strip: Array.from(doc.querySelectorAll('.float-strip .float-tile')).map((n) => n.classList.contains('is-self')),
+       // Yerleşim: kontroller pencerenin içinde, kamera kutusu görünür boyutta, yatay taşma yok
+       fits: doc.querySelector('.float-controls').getBoundingClientRect().bottom <= doc.defaultView.innerHeight + 1,
++      size: [doc.defaultView.innerWidth, doc.defaultView.innerHeight, Math.round(doc.querySelector('.float-controls').getBoundingClientRect().bottom)],
+       frameH: Math.round(frame.getBoundingClientRect().height),
+       overflow: doc.documentElement.scrollWidth - doc.documentElement.clientWidth
+     }
+@@ -101,10 +104,10 @@ test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', asyn
+   assert.equal(view.head, 'Lobi')
+   assert.notEqual(view.radius, '0px', 'stil dosyaları yüklendi')
+   assert.deepEqual(view.controls, ['Mikrofonu kapat', 'Uygulamaya Dön', 'Yüzen Pencereyi Kapat'])
+-  assert.equal(view.icon, true, 'simge kümesi kopyalandı')
++  assert.equal(view.icon, true, 'simge kümesi kopyalandı ' + JSON.stringify(view))
+   // Kamerası kapalı Deniz (siz) altta şeritte
+   assert.deepEqual(view.strip, [true])
+-  assert.equal(view.fits, true, 'kontroller pencerenin içinde')
++  assert.equal(view.fits, true, 'kontroller pencerenin içinde ' + JSON.stringify(view))
+   assert.ok(view.frameH >= 60, 'kamera kutusu ' + view.frameH)
+   assert.ok(view.overflow <= 0, 'yatay taşma ' + view.overflow)
+   assert.equal(await deniz.getAttribute('#radio-float', 'aria-pressed'), 'true')
+@@ -167,6 +170,43 @@ test('Kapat\'a basınca pencere kapanır ve float- görüntü öğeleri bırakı
+   await mert.click('#btn-camera')
+ })
+ 
++// Safari ve Android Chrome'daki yedek: belge resim içinde resim yokken kutular bir tuvale çizilir, tuvalin akışı
++// görüntü resim içinde resim olarak açılır. Chromium'da belge API'si gizlenerek sınanır.
++test('görüntü yedeği: belge resim içinde resim yokken tuval akışı resim içinde resim olarak açılır', async () => {
++  const { deniz } = W
++  await deniz.evaluate(() => {
++    window.__dpip = window.documentPictureInPicture
++    Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true })
++  })
++  try {
++    assert.equal(await deniz.evaluate(() => floatMode()), 'video')
++    await deniz.click('#radio-float')
++    await deniz.waitForFunction(() => {
++      const v = document.pictureInPictureElement
++      return Boolean(v && v.classList.contains('float-pip-video') && floatState.mode === 'video')
++    }, null, { timeout: h.LONG })
++    // Tuval boş değil: kutular çizildi (kamera görüntüsü veya avatar)
++    const drawn = await deniz.waitForFunction(() => {
++      const c = document.querySelector('.float-pip-source canvas')
++      if (!c) return null
++      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
++      const colors = new Set()
++      for (let i = 0; i < d.length; i += 4 * 97) colors.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2])
++      return colors.size > 3 ? { w: c.width, h: c.height } : null
++    }, null, { timeout: h.LONG })
++    assert.deepEqual(await drawn.jsonValue(), { w: 480, h: 270 })
++    assert.equal(await deniz.getAttribute('#radio-float', 'aria-pressed'), 'true')
++    // Düğme yeniden basılınca resim içinde resim kapanır, kaynak öğeler bırakılır
++    await deniz.click('#radio-float')
++    await deniz.waitForFunction(() => !document.pictureInPictureElement && !floatIsOpen() && !document.querySelector('.float-pip-source'), null, { timeout: h.LONG })
++    assert.equal(await deniz.evaluate(() => Array.from(cameraVideos.keys()).filter((k) => k.indexOf('float-') === 0).length), 0)
++  } finally {
++    await deniz.evaluate(() => {
++      Object.defineProperty(window, 'documentPictureInPicture', { value: window.__dpip, configurable: true })
++    })
++  }
++})
++
+ test('Ayarlar > Ses ve Görüntü: Yüzen Pencere anahtarı telsiz.floatAuto değerini yazar', async () => {
+   const { deniz } = W
+   await deniz.evaluate(() => openSettings('voice'))

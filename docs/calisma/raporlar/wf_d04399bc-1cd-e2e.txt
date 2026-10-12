@@ -1,0 +1,72 @@
+# Adım 8 raporu: Renk uçtan uca testi
+
+Renk'in uçtan uca testi yazıldı ve Chromium'da geçiyor. Kaynak kodda hata bulunmadı, bu yüzden kaynak dosyalarda düzeltme yapılmadı. Commit `c1c8668 Renk: uçtan uca test` yalnız `e2e/16-oyun.test.js` dosyasını içeriyor. Push yapılmadı.
+
+**Bana ait olmayan bir dosyaya dokundum:** `docs/calisma/akislar/rapor-dok.py.txt`. `npm run denetle`'nin ihlalsiz çıkması için gerekliydi (aşağıda gerekçesi var). Değişiklik commit'lenmedi, çalışma ağacında duruyor. İş akışının kontrol noktası döngüsü bunu kendi commit'ine alacak.
+
+## Değişen ve eklenen dosyalar
+
+- **Yeni: `/home/user/ps5-pc-communication/e2e/16-oyun.test.js`** (367 satır, 10 test). Yuva 21, `browsers: h.MIC_BROWSERS`, kişiler Deniz, Ece, Mert ve Aylin. Testlerin sırası:
+  1. Dört kişi ses odasında, `#radio-game` Telsiz DJ'den hemen önce, etiketi ve erişilebilir adı doğru.
+  2. Masa Kur: Resmî kural seçili, Aylin satırında "Engellediniz", Ece ve Mert satırında çip yok. Masa Aç'tan sonra "Renk Masası" ve "Kurpiyer Sizsiniz · 1 Oyuncu" görünüyor.
+  3. Davet:
+     - Ece ve Mert'te `#radio-game.is-invited` görünüyor, rozet "1". Ece'de Bildirimler kaydı ve "Masaya Bak" var. Davet sahneyi açmıyor.
+     - Kurpiyerde ikisi için "Yanıt Bekleniyor" yazıyor.
+     - Aylin'de 3 sn sonra davet yok (düğme, Bildirimler kaydı ve model).
+  4. Ece Masaya Bak ile açıyor, güven notu "Kurpiyer Deniz." ile başlıyor ve Katıl'dan önce geliyor, katılıyor. Mert Reddet'e basıyor, Deniz'de "Reddetti" görünüyor, düğme "Davet" kalıyor. Mert düğmeden yeniden açıp katılıyor, kurpiyerde "3 Oyuncu" yazıyor.
+  5. Başlat:
+     - El sayıları 7, 7, 7. İlk kart +2 ise 7, 9, 7.
+     - Her sayfada `.renk-card` sayısı el + 1.
+     - Alt satır "Resmî Kurallar · Kurpiyer Sizsiniz · 3 Oyuncu".
+     - Mert'in 7 kartlık eli telefonda taşıyor ve kendi içinde kayıyor.
+  6. Altı tur `playOneTurn` ile oynanıyor. Her turdan sonra üç sayfada adım, sıra, atılan kartın erişilebilir adı ve deste aynı. Sırası olan sayfada "Sıra Sizde", diğerlerinde "Sıradaki: <ad>" yazıyor.
+  7. Telefon: `h.overflowX <= 0`, el görünür alanın içinde ve `overflow-x: auto`. Taşan el kayıyor.
+  8. Mert `#voice-leave` ile ayrılıyor: Deniz ve Ece'de 2 koltuk, deste Mert'in kart sayısı kadar artıyor, tek rakip görünüyor, alt satır "· 2 Oyuncu" ile bitiyor.
+  9. Deniz sesten ayrılıyor: Ece'de "Kurpiyer ses odasından ayrıldı, oyun bitti." ve Kapat görünüyor. Kapat'tan sonra sahne kapanıyor, odak `#radio-game`'de.
+  10. `h.assertCleanConsole(logs, srv.errors)`.
+- **Değişen ama commit'lenmeyen: `docs/calisma/akislar/rapor-dok.py.txt`** (13. ve 14. satır). Uzun ve kısa tire ile görünmez karakterler Python `\uXXXX` kaçışlarıyla yazıldı. Dizge sabitlerinin aynı kaldığı `ast` ile doğrulandı ve dosya derlendi. Döngü bu dosyayı değil kendi kopyasını çalıştırıyor (`dongu2.sh.txt:21`, `"$DIR/rapor-dok.py"`), yani çalışan iş akışı etkilenmez.
+
+## Belgeden sapmalar ve gerekçeleri
+
+1. **Mert sese İstasyonlar sayfasından katılıyor.** Belgede dördü de `h.joinVoice` ile katılıyordu. Telefonda (360 x 740) `h.joinVoice`'un aradığı iki öğe de görünmüyor ve tıklama zaman aşımına uğruyor. Bunu ayrı bir denemeyle doğruladım (`scratchpad/adim8/telefon-katil.js`). Bu yüzden testte `#btn-rooms` ve `#stations-list` kullanan bir `joinPhone` yardımcısı var, `e2e/10-kamera.test.js`'teki kalıbın aynısı.
+2. **El sayısı her zaman 7 değil.** Belge "üç sayfada 7" diyor. Kurala göre (5.5) ilk kart +2 ise atlanan oyuncu 2 kart çekiyor. Test bu durumda 7, 9, 7 bekliyor. Denemelerden birinde ilk kart BD çıktı ve bu dal gerçekten çalıştı.
+3. **Elin kayması dağıtımda da sınanıyor.** Altı turdan sonra Mert'te 5 ya da 6 kart kalıyor ve el 360 piksele sığıyor, yani kayma her çalıştırmada sınanamıyordu. 7 kartlık eli dağıtım anında sınadım. 7. adım (oyun ortası taşma) da ayrıca duruyor.
+4. **"Sıradaki satırı aynıdır" maddesi.** Sırası olan sayfada bu satır "Sıra Sizde" yazıyor. Test bunu kişiye göre beklenen metinle karşılaştırıyor.
+5. **Firefox koşulmadı.** Bu ortamda yalnız Chromium var. Belge 8. adımda Chromium ve Firefox istiyordu.
+6. **Satır numaraları:** `yardimci.js:471`, `507` ve `534` güncel kodla aynı çıktı. Yuva 21 boştu (grep ile bakıldı, kullanılanlar 0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 14, 15, 16, 17, 19 ve 20).
+
+## Sonraki adımın (9, belgeler) bilmesi gerekenler
+
+- Yeni API yok, kaynak kod değişmedi. 7. adımda raporlanan seçiciler ve kancalar geçerli.
+- Testin kullandığı genel adlar: `gameModel()`, `.renk-table[data-turn]`, `.renk-pile[aria-label]`, `.game-status-turn`, `.game-room` ve `.game-seats` içinde `.game-person[data-user-id] .game-chip`, `.game-ended .game-note-text`, `#activity .activity-item.is-game .activity-watch`.
+- `t.diagnostic` çıktıları: ilk kart ve el sayıları, oynanan turlar, telefondaki kart sayısı.
+- Belgelerde test için: Mert'in sese İstasyonlar sayfasından katıldığı yazılabilir.
+
+## Koşturulan komutlar
+
+| Komut | Sonuç |
+|---|---|
+| `node --test e2e/16-oyun.test.js` (ilk iki deneme) | İlki 2/10 geçti: kendi seçicimde `#cast` iki kez yazılmıştı. Düzeltince 10/10 |
+| Aynı dosya art arda 6 kez | 6'sı da 10/10. İlk kartlar B6, WW, G0, RV, BD, B8. Joker'de Renk Seç dalı, Yön ve +2 dalları çalıştı. Dosya yaklaşık 12 sn sürüyor |
+| Bozma denemesi (`scratchpad/adim8/bozma.py`, 18 bozma) | 14'ü yakalandı. Kaçan 4'ü davranışı değiştirmiyor, aşağıda |
+| `npm run denetle` | İlk koşuda benim dosyamda bir noktalı virgül vardı (`for` döngüsü, düzeltildi) ve `rapor-dok.py.txt`'te 3 ihlal. Sonra 334 dosya, 0 ihlal |
+| `npm test` | 1120 test, 1119 geçti, 0 kaldı, 1 atlandı |
+| `npm run test:e2e` (Chromium, 16 dosya) | 129 test, 129 geçti, 0 kaldı, 0 atlandı, 218 sn |
+
+**Bozma denemesinde kaçan 4 bozma** (her birinde başka bir yer aynı işi yapıyor, davranış değişmiyor):
+- Oyun düğmesini sona koymak: DJ kendini her çizimde sona taşıyor.
+- `roomList` içindeki engelleme dalını kapatmak: `keyProblem` de `blocked` döndürüyor.
+- `gameAfterClose` içindeki odak satırını silmek: `castFocusAfterClose` odağı yine `#radio-game`'e veriyor.
+- `overflow-x: visible` yazmak: `overflow-y: hidden` ile birlikte tarayıcı bunu `auto` sayıyor. Aynı yeri `hidden` ya da iki yönde `visible` yapan bozmalar yakalandı.
+
+Günlükler ve betikler `/tmp/claude-0/-home-user-ps5-pc-communication/4f00f15f-448b-547a-84d4-7dd1552adf2f/scratchpad/adim8/` altında: `run2.log`, `loop1.log`'dan `loop6.log`'a, `npmtest.log`, `e2e-tum.log`, `bozma.py`, `telefon-katil.js`, `yedek/`. Bozma denemesinden sonra kaynaklar yedekten geri kondu, `git status` temiz çıktı.
+
+## Açık kalan sorunlar
+
+1. **Firefox e2e koşulmadı.** CI matrisinde Firefox var, ilk CI koşusunda izlenmeli. Firefox `isMobile` seçeneğini yok sayıyor, Mert yalnız 360 piksel genişlikle açılıyor.
+2. **`rapor-dok.py.txt` değişikliği commit'lenmedi.** Kontrol noktası döngüsünün almasına bırakıldı. Kural yalnız kendi dosyalarımı eklememe izin veriyor.
+3. **Önceki adımlardan devreden işler:**
+   - voice.js için issue onayı (CONTRIBUTING.md:184) hâlâ yok.
+   - `LAST_CARD.stack` kararı kullanıcıya doğrulatılmalı.
+   - Telefon yerleşimi ve kolun yön tuşları cihazda denenmedi.
+   - Belgeler 9. adımda yazılacak.

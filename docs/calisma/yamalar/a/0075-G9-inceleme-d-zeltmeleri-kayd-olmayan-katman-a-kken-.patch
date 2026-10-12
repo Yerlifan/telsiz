@@ -1,0 +1,237 @@
+From e3d7f86a5f2be9e4de52ed6078c43401e5c4e08f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 18:08:05 +0000
+Subject: [PATCH 075/104] =?UTF-8?q?G9:=20inceleme=20d=C3=BCzeltmeleri=20(k?=
+ =?UTF-8?q?ayd=C4=B1=20olmayan=20katman=20a=C3=A7=C4=B1kken=20geri=20tu?=
+ =?UTF-8?q?=C5=9Fu=20yaln=C4=B1zca=20onu=20kapat=C4=B1r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Durum menüsü, emoji seçici, kamera büyütme ve onay pencereleri geçmişe yazılmaz.
+Böyle bir katman en üstteyken geri tuşu hem katmanı kapatıyor hem önceki konuşmaya
+dönüyordu. Artık yalnızca katman kapanır ve geçmiş eski yerine döner. Kaydı geride
+kalan katmanın altındaki yazılmayan katman da açık kalır.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WcExsDaTGv2fcjqxWvyVHT
+---
+ docs/ARCHITECTURE.md    |  2 +-
+ docs/MIMARI.md          |  2 +-
+ e2e/19-gezinme.test.js  | 29 ++++++++++++++++++++++++
+ public/js/38-gezinme.js | 45 ++++++++++++++++++++++++++++++++-----
+ test/gezinme.test.js    | 50 +++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 121 insertions(+), 7 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index e713fae..9fceea9 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -71,7 +71,7 @@ The client is made of plain script files in the `public/` folder. There is no bu
+ 
+ The interface uses the Frequency layout: a top bar (the frequency info and the Online strip on the left, Search in the exact center, and the Direct messages, Friends and profile buttons on the right), the frequency band where the joined frequencies (each a separate Telsiz server) are arranged as stations (`24-frekans.js`, pressing a station switches to that frequency), the conversation column in the middle, and on wide screens Notifications with the radio card at the very bottom of the column on the left and the list of text and voice rooms of the open frequency (Stations, with the people in each voice room under it, a sheet opened from the Stations button on narrow screens) on the right. Notifications (`28-bildirim.js`) is a short event list kept only in the client's memory and adds no new data on the server: joining and leaving voice rooms come from comparing the voice rosters (`meta.voice`) with the previous ones on every meta update, while a screen share is written from the encrypted share announcement that arrives over the voice connections, so only shares in the same voice room appear. The people in the Stations list are drawn from the same rosters, and the ring around the person speaking is known only in the room you are connected to. In the desktop app hidden background windows count the unread messages of frequencies that are not open (`25-arka-plan.js`, [desktop/README.en.md](../desktop/README.en.md)). Details are in [DESIGN.md](DESIGN.md). The service worker (`sw.js`) caches only the app shell and never touches `/api/` requests.
+ 
+-Moving between conversations lives in `38-gezinme.js`. Room, direct message and Friends switches add an entry to the browser history, and the address and its `#` part never change (that part can carry a key or an invite). An entry carries only the user id, the distance from the root, the view type and a numeric id (`{ telsiz: { v: 1, u, d, view, id } }`). Sheets, the search panel, settings, the image viewer and the profile card add their own entry at every width (`{ telsiz: { v: 1, u, d, overlay } }`), and the entry is taken back when the layer closes some other way. The back button first closes the open layer, then returns to the previous conversation. Pressing back on the root entry leaves the app through the browser, no trap entry is added. When the session ends (Log Out or a lost session) the history is rewound to the root entry even when no layer is open. The rewind amount is read from the distance stored in the browser's current entry, so it never goes past the root even when the in-memory model is stale. An entry from another account and a history event outside the app are ignored. Read marks (`telsiz.read.<user>`) are kept only on the device and are not synced between devices. A conversation counts as read only while the person is at the bottom and the newest messages are loaded, so a message that arrives while they are scrolled up is not counted as read. The Mark as Read button reads the whole conversation and asks the server for the id of the newest message when the newest messages are not loaded. When a conversation opens and the first unread message is not on the newest page, the page is requested around the last read message (`around`) and newer messages load as the person scrolls down. This needed no server change. The open view (a text room, a direct conversation or Friends, `telsiz.view.<user>`) is stored on the device and restored when the page reloads.
++Moving between conversations lives in `38-gezinme.js`. Room, direct message and Friends switches add an entry to the browser history, and the address and its `#` part never change (that part can carry a key or an invite). An entry carries only the user id, the distance from the root, the view type and a numeric id (`{ telsiz: { v: 1, u, d, view, id } }`). Sheets, the search panel, settings, the image viewer and the profile card add their own entry at every width (`{ telsiz: { v: 1, u, d, overlay } }`), and the entry is taken back when the layer closes some other way. The back button first closes the open layer, then returns to the previous conversation. When a layer without its own entry (a menu, the emoji picker, the enlarged camera view, a confirmation dialog) is on top, back closes only that layer and moves the history back to where it was, so the conversation does not change. Pressing back on the root entry leaves the app through the browser, no trap entry is added. When the session ends (Log Out or a lost session) the history is rewound to the root entry even when no layer is open. The rewind amount is read from the distance stored in the browser's current entry, so it never goes past the root even when the in-memory model is stale. An entry from another account and a history event outside the app are ignored. Read marks (`telsiz.read.<user>`) are kept only on the device and are not synced between devices. A conversation counts as read only while the person is at the bottom and the newest messages are loaded, so a message that arrives while they are scrolled up is not counted as read. The Mark as Read button reads the whole conversation and asks the server for the id of the newest message when the newest messages are not loaded. When a conversation opens and the first unread message is not on the newest page, the page is requested around the last read message (`around`) and newer messages load as the person scrolls down. This needed no server change. The open view (a text room, a direct conversation or Friends, `telsiz.view.<user>`) is stored on the device and restored when the page reloads.
+ 
+ Data stored on the device lives in the browser's local storage: the session token, the group keyring (`telsiz.keys`), the personal identity key, pinned contact keys, theme and voice settings, the YouTube consent, read marks and the last open view. The search index exists only in the memory of the session and is never written to disk.
+ 
+diff --git a/docs/MIMARI.md b/docs/MIMARI.md
+index 3f83173..27d1e29 100644
+--- a/docs/MIMARI.md
++++ b/docs/MIMARI.md
+@@ -71,7 +71,7 @@ Her olayın bir hedef kitlesi vardır: ya bütün üyeler ya da yalnızca belirl
+ 
+ Arayüz Frekans düzenini kullanır: üst çubuk (solda frekans bilgisi ve Çevrimiçi şeridi, tam ortada Ara, sağda Özel mesajlar, Arkadaşlar ve profil düğmesi), katılınan frekansların (her biri ayrı bir Telsiz sunucusu) istasyon olarak dizildiği frekans bandı (`24-frekans.js`, istasyona basmak o frekansa geçer), ortada konuşma sütunu, geniş ekranda solda Bildirimler ve sütunun en altında telsiz kartı, sağda açık frekansın yazı ve ses odalarının listesi (İstasyonlar, ses odalarının altında odadaki kişiler, dar ekranda İstasyonlar düğmesiyle açılan sayfa). Bildirimler (`28-bildirim.js`) yalnızca istemcinin belleğinde tutulan kısa bir olay listesidir ve sunucuya yeni bir veri eklemez: ses odasına katılma ve ayrılma her meta güncellemesinde ses kadrolarının (`meta.voice`) bir öncekiyle karşılaştırılmasından çıkar, ekran paylaşımı ise ses bağlantıları üzerinden gelen şifreli paylaşım duyurusundan yazılır, bu yüzden yalnızca aynı ses odasındaki paylaşımlar görünür. İstasyonlar listesindeki kişiler de aynı kadrolardan çizilir, konuşan kişinin halkası yalnızca bağlı olunan odada bilinir. Masaüstü uygulamasında açık olmayan frekansların okunmamış sayılarını gizli arka plan pencereleri sayar (`25-arka-plan.js`, [desktop/README.md](../desktop/README.md)). Ayrıntılar [TASARIM.md](TASARIM.md) dosyasındadır. Service worker (`sw.js`) yalnızca uygulama kabuğunu önbelleğe alır ve `/api/` isteklerine hiçbir zaman dokunmaz.
+ 
+-Konuşmalar arasında gezinme `38-gezinme.js` içindedir. Oda, özel mesaj ve Arkadaşlar geçişleri tarayıcı geçmişine kayıt ekler, adres ve `#` bölümü değişmez (bu bölüm anahtar ve davet taşıyabilir). Kayıt yalnızca kullanıcı kimliğini, kökten uzaklığı, görünüm türünü ve sayı kimliğini taşır (`{ telsiz: { v: 1, u, d, view, id } }`). Sayfalar, arama paneli, ayarlar, resim görüntüleyici ve profil kartı her genişlikte kendi kaydını ekler (`{ telsiz: { v: 1, u, d, overlay } }`), katman başka yoldan kapanınca kaydı geri alınır. Geri tuşu önce açık katmanı kapatır, sonra önceki konuşmaya döner. Kök kayıttan geri basılınca tarayıcı uygulamadan çıkar, tuzak kaydı kurulmaz. Oturum kapanınca (Çıkış Yap veya oturumun düşmesi) açık katman olmasa da geçmiş kök kayda geri sarılır. Geri sarma miktarı tarayıcının o anki kaydındaki uzaklıktan okunur, bellekteki model eskimiş olsa da kökün ötesine gidilmez. Başka bir hesabın kaydı ve uygulama dışında gelen geçmiş olayı yok sayılır. Okundu bilgisi (`telsiz.read.<kullanıcı>`) yalnızca cihazda tutulur ve cihazlar arasında eşitlenmez. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır, yukarıdayken gelen mesaj okunmuş sayılmaz. Okundu İşaretle düğmesi bütün konuşmayı okur, en yeni mesajlar yüklü değilse en yeni mesajın kimliğini sunucudan alır. Konuşma açılırken ilk okunmamış mesaj en yeni sayfada değilse sayfa son okunan mesajın çevresiyle (`around`) istenir, daha yeni mesajlar aşağı inildikçe yüklenir. Bunun için sunucuda değişiklik gerekmedi. Açık görünüm (yazı odası, özel konuşma veya Arkadaşlar, `telsiz.view.<kullanıcı>`) cihazda saklanır ve sayfa yenilenince geri yüklenir.
++Konuşmalar arasında gezinme `38-gezinme.js` içindedir. Oda, özel mesaj ve Arkadaşlar geçişleri tarayıcı geçmişine kayıt ekler, adres ve `#` bölümü değişmez (bu bölüm anahtar ve davet taşıyabilir). Kayıt yalnızca kullanıcı kimliğini, kökten uzaklığı, görünüm türünü ve sayı kimliğini taşır (`{ telsiz: { v: 1, u, d, view, id } }`). Sayfalar, arama paneli, ayarlar, resim görüntüleyici ve profil kartı her genişlikte kendi kaydını ekler (`{ telsiz: { v: 1, u, d, overlay } }`), katman başka yoldan kapanınca kaydı geri alınır. Geri tuşu önce açık katmanı kapatır, sonra önceki konuşmaya döner. Kaydı olmayan bir katman (menü, emoji seçici, kamera büyütme, onay penceresi) en üstteyse geri tuşu yalnızca onu kapatır ve geçmişi eski yerine döndürür, konuşma değişmez. Kök kayıttan geri basılınca tarayıcı uygulamadan çıkar, tuzak kaydı kurulmaz. Oturum kapanınca (Çıkış Yap veya oturumun düşmesi) açık katman olmasa da geçmiş kök kayda geri sarılır. Geri sarma miktarı tarayıcının o anki kaydındaki uzaklıktan okunur, bellekteki model eskimiş olsa da kökün ötesine gidilmez. Başka bir hesabın kaydı ve uygulama dışında gelen geçmiş olayı yok sayılır. Okundu bilgisi (`telsiz.read.<kullanıcı>`) yalnızca cihazda tutulur ve cihazlar arasında eşitlenmez. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır, yukarıdayken gelen mesaj okunmuş sayılmaz. Okundu İşaretle düğmesi bütün konuşmayı okur, en yeni mesajlar yüklü değilse en yeni mesajın kimliğini sunucudan alır. Konuşma açılırken ilk okunmamış mesaj en yeni sayfada değilse sayfa son okunan mesajın çevresiyle (`around`) istenir, daha yeni mesajlar aşağı inildikçe yüklenir. Bunun için sunucuda değişiklik gerekmedi. Açık görünüm (yazı odası, özel konuşma veya Arkadaşlar, `telsiz.view.<kullanıcı>`) cihazda saklanır ve sayfa yenilenince geri yüklenir.
+ 
+ Cihazda saklanan veriler tarayıcının yerel depolamasındadır: oturum belirteci, grup anahtarlığı (`telsiz.keys`), kişisel kimlik anahtarı, sabitlenmiş kişi anahtarları, tema ve ses ayarları, YouTube onayı, okundu bilgisi ve son açılan görünüm. Arama dizini yalnızca oturumun belleğindedir ve diske yazılmaz.
+ 
+diff --git a/e2e/19-gezinme.test.js b/e2e/19-gezinme.test.js
+index 698e519..c4e5360 100644
+--- a/e2e/19-gezinme.test.js
++++ b/e2e/19-gezinme.test.js
+@@ -16,6 +16,7 @@
+ // - 1440: iki oda ve özel mesaj geçişinden sonra geri tuşu sırasıyla döner, ileri tuşu çalışır, adres değişmez
+ // - Telefon 360: İstasyonlar sayfası, arama ve ayarlar geri tuşuyla kapanır, Esc ile kapanan sayfanın kaydı geri alınır
+ // - 768: sayfa açıkken geri tuşu sayfayı kapatır, sayfadan seçilen odanın kaydı sayfanın kaydının yerine yazılır
++// - Kaydı olmayan katman (1440 durum menüsü, 360 emoji seçici) açıkken geri tuşu yalnızca onu kapatır (inceleme düzeltmesi)
+ // G9, okunmamış ayracı, şerit ve kapsül (S3, S4):
+ // - 40 okunmamışlı odada ayraç ilk okunmamışın önünde ve görünür alanda, şerit sayıyı gösterir, sayaç ancak en alta
+ //   inilince düşer, Okunmamışa Git ayracı geri getirir
+@@ -425,6 +426,34 @@ test('768: İstasyonlar sayfası açıkken geri tuşu sayfayı kapatır, sayfada
+   await setWidth(page, 1440)
+ })
+ 
++test('geri tuşu: kaydı olmayan katman açıkken (durum menüsü, telefonda emoji seçici) yalnızca katman kapanır, konuşma değişmez', async () => {
++  const page = W.deniz
++  const genel = W.w.room('genel').id
++  const oyun = W.w.room('oyun-gecesi').id
++  await setWidth(page, 1440)
++  await openRoomRow(page, genel)
++  await openRoomRow(page, oyun)
++  await navIdle(page)
++  const base = await historyNow(page)
++  await page.click('#me-button')
++  await page.waitForFunction(() => Boolean(findLayer('status-menu')))
++  await goBack(page)
++  await page.waitForFunction(() => !findLayer('status-menu'))
++  await waitConversation(page, 'channel', oyun)
++  assert.deepEqual(await historyNow(page), base, 'geçmiş eski yerinde')
++  await setWidth(page, 360)
++  await page.click('#btn-emoji')
++  await page.waitForSelector('#emoji-picker:not([hidden])')
++  await goBack(page)
++  await page.waitForSelector('#emoji-picker', { state: 'hidden' })
++  await waitConversation(page, 'channel', oyun)
++  assert.deepEqual(await historyNow(page), base)
++  // Katman kalmayınca geri tuşu önceki konuşmaya döner
++  await goBack(page)
++  await waitConversation(page, 'channel', genel)
++  await setWidth(page, 1440)
++})
++
+ // G9 (S3, S4): okunmamış ayracı, şerit, okundu kuralı ve yeni mesaj kapsülü
+ 
+ function unreadView (page, roomId) {
+diff --git a/public/js/38-gezinme.js b/public/js/38-gezinme.js
+index 40695f3..fdfad80 100644
+--- a/public/js/38-gezinme.js
++++ b/public/js/38-gezinme.js
+@@ -8,9 +8,11 @@
+ // bölümü anahtar ve davet gibi gizli veriler taşıyabilir. Sayfalar, arama, ayarlar, resim görüntüleyici ve profil
+ // kartı her genişlikte kendi kaydını ekler: { telsiz: { v: 1, u, d, overlay } }. Katman başka yoldan (Esc, Kapat,
+ // dışarı tıklama) kapanınca kaydı history.go ile geri alınır. Geri tuşu önce açık katmanı kapatır, katman yoksa
+-// önceki konuşmaya döner (selectChannel, showDm, showHome { fromHistory: true } ile). Kayıttaki kullanıcı
+-// kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır. Kök kayıttan geri basılınca tarayıcı
+-// uygulamadan çıkar, tuzak kurulmaz. d kaydın kökten uzaklığıdır, ileri ve geri yönü bununla ayrılır.
++// önceki konuşmaya döner (selectChannel, showDm, showHome { fromHistory: true } ile). Kaydı olmayan katman (menü,
++// emoji seçici, kamera büyütme, onay penceresi) en üstteyse geri tuşu yalnızca onu kapatır ve geçmişi eski yerine
++// döndürür. Kayıttaki kullanıcı kimliği uyuşmazsa veya kişi uygulamada değilse olay yok sayılır. Kök kayıttan geri
++// basılınca tarayıcı uygulamadan çıkar, tuzak kurulmaz. d kaydın kökten uzaklığıdır, ileri ve geri yönü bununla
++// ayrılır. Oturum kapanınca (03-auth.js resetAppState) geçmiş kök kayda geri sarılır.
+ //
+ // Geçmiş işlemleri (pushState, replaceState, go) bir kuyrukta sırayla yapılır: history.go zaman uyumsuzdur, kendi
+ // popstate olayı gelene kadar sonraki işlemler bekler. Katman ve konuşma değişiklikleri aynı görev içinde
+@@ -298,6 +300,19 @@ function navOnPopState (e) {
+     }
+     return
+   }
++  // Geçmişe yazılmayan katman (menü, emoji seçici, kamera büyütme, onay penceresi) en üstteyse geri ve ileri tuşu
++  // yalnızca onu ve üstündeki yazılmayan katmanları kapatır, geçmiş eski yerine döner, konuşma değişmez
++  const untracked = navUntrackedTop()
++  if (untracked.length) {
++    untracked.forEach((layer) => {
++      closeLayer(layer, true)
++    })
++    if (found.d !== top) {
++      navState.ops.push({ kind: 'go', delta: top - found.d })
++      navRun()
++    }
++    return
++  }
+   const stack = navState.stack
+   if (found.d > top) {
+     // İleri: aradaki bilinmeyen kayıtlar açık konuşmanın kopyası sayılır
+@@ -312,9 +327,18 @@ function navOnPopState (e) {
+   if (found.entry.overlay && !findLayer(found.entry.overlay)) navQueueGo(-1)
+   const ci = navConvIndex()
+   const keep = stack.slice(ci + 1).map((entry) => entry.overlay)
+-  layers.slice().reverse().forEach((layer) => {
+-    if (keep.indexOf(layer.name) === -1) closeLayer(layer, true)
++  // Kaydı geride kalan en alttaki katmandan yukarısı kapanır. Altında kalan yazılmayan katman (ör. kamera büyütme
++  // üstünde açılan profil kartı kapanınca kamera büyütme) açık kalır, sonraki geri basışla kapanır.
++  const open = layers.slice()
++  let cut = -1
++  open.forEach((layer, i) => {
++    if (cut === -1 && navIsOverlay(layer.name) && keep.indexOf(layer.name) === -1) cut = i
+   })
++  if (cut !== -1) {
++    open.slice(cut).reverse().forEach((layer) => {
++      if (!navIsOverlay(layer.name) || keep.indexOf(layer.name) === -1) closeLayer(layer, true)
++    })
++  }
+   const conv = stack[ci]
+   if (conv && !navSameConv(conv, navCurrentConv()) && !navRestore(conv)) {
+     // Konuşma artık yok (oda silindi, özel konuşma kapandı): kayıt açık konuşmaya çevrilir
+@@ -324,6 +348,17 @@ function navOnPopState (e) {
+   navRun()
+ }
+ 
++// En üstten başlayarak geçmişe yazılmayan açık katmanlar (ilk yazılan katmana kadar)
++function navUntrackedTop () {
++  const out = []
++  let i = layers.length - 1
++  while (i >= 0 && !navIsOverlay(layers[i].name)) {
++    out.push(layers[i])
++    i -= 1
++  }
++  return out
++}
++
+ function navRestore (conv) {
+   navState.restoring = true
+   let ok = false
+diff --git a/test/gezinme.test.js b/test/gezinme.test.js
+index 10e5a27..a62faf3 100644
+--- a/test/gezinme.test.js
++++ b/test/gezinme.test.js
+@@ -271,6 +271,56 @@ test('geçmiş: Esc ile kapanan katmanın kaydı geri alınır, satıra basınca
+   assert.deepStrictEqual(json('[testView, state.channelId, testOpenNames()]'), ['dm', 50, []])
+ })
+ 
++test('geçmiş: kaydı olmayan katman (menü, kamera büyütme) en üstteyse geri tuşu yalnızca onu kapatır, konuşma değişmez', async () => {
++  const { run, hist, json } = load()
++  run('selectChannel(11, {})')
++  await settle()
++  // Durum menüsü geçmişe yazılmaz
++  run("testOpen('status-menu', 2)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11'])
++  run('testCalls.length = 0')
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testCalls, testOpenNames(), testView, state.channelId]'), [['kapandı-status-menu'], [], 'channel', 11])
++  assert.strictEqual(hist.index, 1, 'geçmiş eski yerine döndü')
++  assert.deepStrictEqual(json('navState.stack.length'), 2)
++  // Sayfanın üstündeki menü: önce menü, sonra sayfa kapanır
++  run("testOpen('sheet-stations', 1); testOpen('frekans-menu', 2)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:sheet-stations'])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('testOpenNames()'), ['sheet-stations'])
++  assert.strictEqual(hist.index, 2)
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testOpenNames(), state.channelId]'), [[], 11])
++  assert.strictEqual(hist.index, 1)
++  // Kamera büyütmenin üstünde profil kartı: önce kart kapanır, kamera büyütme açık kalır, sonra o kapanır, en son
++  // önceki konuşmaya dönülür
++  run("testOpen('cast-full', 1); testOpen('profile-card', 2)")
++  await settle()
++  assert.deepStrictEqual(hist.list(), ['0:channel-10', '1:channel-11', '2:profile-card'])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testOpenNames(), state.channelId]'), [['cast-full'], 11])
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testOpenNames(), state.channelId]'), [[], 11])
++  assert.strictEqual(hist.index, 1)
++  hist.user(-1)
++  await settle()
++  assert.deepStrictEqual(json('[testView, state.channelId]'), ['channel', 10])
++  assert.strictEqual(hist.index, 0)
++  // İleri tuşu da menüyü kapatır ve geçmişi yerinde tutar
++  run("testOpen('emoji', 2)")
++  hist.user(1)
++  await settle()
++  assert.deepStrictEqual(json('[testOpenNames(), state.channelId]'), [[], 10])
++  assert.strictEqual(hist.index, 0)
++})
++
+ test('geçmiş: başka hesabın kaydı ve uygulama dışındaki olay yok sayılır, kilitli katman açıkken geri gidilmez', async () => {
+   const { run, hist, json } = load()
+   run('selectChannel(11, {})')
