@@ -956,7 +956,7 @@ function castRenderWatch (n, rs, userId) {
   n.mute.setAttribute('aria-pressed', muted ? 'true' : 'false')
   n.mute.setAttribute('aria-label', t(muted ? 'screen.unmute' : 'screen.mute'))
   n.mute.title = t(muted ? 'screen.unmute' : 'screen.mute')
-  setIcon(n.mute, muted ? 'i-headphones-off' : 'i-speaker')
+  setIcon(n.mute, muted ? 'i-speaker-off' : 'i-speaker')
   setLive(n.volumeNote, () => (rs && rs.audio ? t('cast.volumeNote') : t('cast.noAudio', { name: castName(userId) })))
   n.foot.classList.toggle('is-silent', !(rs && rs.audio))
 }

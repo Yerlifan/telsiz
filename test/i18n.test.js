@@ -260,3 +260,20 @@ test('Intl yoksa basit yedek biçimler ve çoğul kuralı kullanılır', () => {
   assert.strictEqual(I18N.t('size.bytes', { count: 1 }), '1 byte')
   assert.strictEqual(I18N.t('size.bytes', { count: 2 }), '2 bytes')
 })
+
+test('Hoparlör adı: sözlüklerde eski Sağırlaştır ve Deafen adı, istemci kodunda kulaklık kapalı simgesi kalmaz', () => {
+  // G13 "Sağırlaştır" yerine Hoparlör dedi ve i-speaker-off simgesini getirdi. Sonradan birleşen öğeler (izlenen
+  // yayının ses düğmesi, oyunlar, Telsiz DJ, yüzen pencere, şikâyet) aynı adı ve simgeyi kullanır.
+  const { I18N } = load({ languages: ['tr-TR'] })
+  for (const lang of ['tr', 'en']) {
+    const dict = I18N.messages[lang]
+    for (const key of Object.keys(dict)) {
+      assert.ok(!/sağırlaş|sagirlas|\bdeafen/i.test(dict[key]), lang + ' ' + key + ': ' + dict[key])
+    }
+  }
+  const dir = path.join(__dirname, '..', 'public', 'js')
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const code = fs.readFileSync(path.join(dir, file), 'utf8')
+    assert.ok(code.indexOf("'i-headphones-off'") === -1, file + ' kulaklık kapalı simgesi yerine i-speaker-off kullanır')
+  }
+})
