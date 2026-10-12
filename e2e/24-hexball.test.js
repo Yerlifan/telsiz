@@ -10,7 +10,8 @@
 //   ev sahibi de Mavi takıma geçer. Takımlar üç sayfada aynıdır. Oyun bağları hazır olunca Maçı Başlat etkin olur.
 // - Maç: üç sayfada aynı maç kimliği, skor tablosu, saat ve tuval. Telefonda dokunmatik çubuk ve Vur düğmesi.
 // - Klavye: ev sahibi (Deniz) ve oyuncu (Mert) oklarla kendi diskini hareket ettirir, disk durunca konumu üç sayfada
-//   aynıdır. Ece oklarla ve X ile topu kaleye sürer: gol, skor ve golü atan üç sayfada aynıdır.
+//   aynıdır, oyun tuşları otomatik boşta sayacını sıfırlar. Ece oklarla ve X ile topu kaleye sürer: gol, skor ve golü
+//   atan üç sayfada aynıdır.
 // - Telefonda takımlar ve maç ekranında yatay taşma yoktur. Tam Ekran'da skor tablosu, tuval, çubuk ve Vur düğmesi
 //   kaydırmadan birlikte görünür, en büyük özel yazı boyutunda (28 piksel) da çubuk ve Vur düğmesi kırpılmaz.
 // - Mert ses odasından ayrılınca maç sürer (Mavi takımda Deniz kalır), iki koltuk kalır, Mert'in diski sahadan kalkar
@@ -357,13 +358,24 @@ test('Maçı Başlat: üç sayfada aynı maç, skor tablosu ve saha', async (t) 
 
 test('klavye: ev sahibi ve oyuncu kendi diskini hareket ettirir, disk üç sayfada aynı yerde durur', async (t) => {
   const { deniz, mert } = W
+  // Maçtaki oyun tuşları otomatik boşta sayacını da sıfırlar: Hexball tuşları window'un yakalama aşamasında durdurur,
+  // 40-bosta.js girdileri ondan önce aynı yerde dinler. Son girdi 11 dakika önceye alınır, tuştan sonra yenidir.
+  const stale = (page) => page.evaluate(() => {
+    idleState.lastInput = Date.now() - 11 * 60000
+    return Date.now()
+  })
+  const fresh = (page, since) => page.evaluate((t) => idleState.lastInput >= t, since)
   // Mavi takım savunur, başlama vuruşunda yalnızca kendi yarısında ve orta yuvarlağın dışında kalır: dikey hareket
   // serbesttir ve topun yolundan uzaklaşır
+  const t0 = await stale(deniz)
   await hold(deniz, 'ArrowUp', 400)
+  assert.equal(await fresh(deniz, t0), true, 'Deniz\'in oyun tuşu boşta sayacını sıfırladı')
   const d = await settledDisc('deniz')
   assert.ok(d.y < -72 - 20, 'Deniz yukarı gitti: ' + d.y)
   assert.equal(d.x, 180, 'Deniz yalnız dikey gitti')
+  const t1 = await stale(mert)
   await hold(mert, 'ArrowDown', 400)
+  assert.equal(await fresh(mert, t1), true, 'Mert\'in oyun tuşu boşta sayacını sıfırladı')
   const m = await settledDisc('mert')
   assert.ok(m.y > 72 + 20, 'Mert aşağı gitti: ' + m.y)
   assert.equal(m.x, 180, 'Mert yalnız dikey gitti')

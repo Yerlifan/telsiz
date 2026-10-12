@@ -27,6 +27,12 @@ function load (opts) {
   const clock = { now: 1000000 }
   const intervals = []
   const listeners = {}
+  // Dinleyicinin bağlandığı yer ve seçenekleri: 'window capture' veya 'document'
+  const targets = {}
+  const listen = (target) => (type, fn, opts) => {
+    listeners[type] = fn
+    targets[type] = target + (opts && opts.capture ? ' capture' : '') + (opts && opts.passive ? ' passive' : '')
+  }
   const polls = { main: 0, bg: 0 }
   const hooks = []
   const sandbox = {
@@ -34,11 +40,10 @@ function load (opts) {
     Promise,
     Date: { now: () => clock.now },
     window: null,
+    addEventListener: listen('window'),
     document: {
       hidden: false,
-      addEventListener: (type, fn) => {
-        listeners[type] = fn
-      }
+      addEventListener: listen('document')
     },
     navigator: o.pads ? { getGamepads: () => o.pads.list } : {},
     setInterval: (fn, ms) => {
@@ -90,7 +95,7 @@ function load (opts) {
     clock.now += ms
   }
   const fire = (type, extra) => listeners[type](Object.assign({ type }, extra || {}))
-  return { sandbox, run, clock, intervals, listeners, polls, hooks, frames, tick, advance, fire }
+  return { sandbox, run, clock, intervals, listeners, targets, polls, hooks, frames, tick, advance, fire }
 }
 
 // Bekleyen söz zincirleri (masaüstü okuması) bitsin
@@ -116,8 +121,17 @@ test('süre dolunca boşa geçer ve poll yeniden başlar, girdiyle hemen döner'
   env.fire('pointerdown')
   assert.equal(env.run('idlePollParam()'), '0')
   assert.equal(env.polls.main, 2)
-  // Dinlenen girdiler ve görünür olma
+  // Dinlenen girdiler ve görünür olma. Girdiler window'un yakalama aşamasında dinlenir: Hexball maç sırasında oyun
+  // tuşlarını window'un yakalama aşamasında durdurur (46-hexball.js), document'taki dinleyiciye ulaşmazlardı
   assert.deepEqual(Object.keys(env.listeners).sort(), ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'visibilitychange', 'wheel'])
+  assert.deepEqual(env.targets, {
+    pointerdown: 'window capture passive',
+    pointermove: 'window capture passive',
+    keydown: 'window capture passive',
+    wheel: 'window capture passive',
+    touchstart: 'window capture passive',
+    visibilitychange: 'document'
+  })
   for (const type of ['keydown', 'wheel', 'touchstart']) {
     env.advance(10 * MIN)
     env.tick(15000)

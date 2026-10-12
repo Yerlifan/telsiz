@@ -209,12 +209,17 @@ function idleStart () {
   idleState.lastInput = Date.now()
   idleState.checkTimer = setInterval(idleCheck, IDLE_CHECK_MS)
   if (idleBgMode()) return
+  // Girdiler olay yolunun en başında, window'un yakalama aşamasında dinlenir. Sonradan window'a yakalama aşamasında
+  // bağlanıp olayı durduran bir dinleyici (46-hexball.js hexballOnKey maç sırasında oyun tuşlarında stopPropagation
+  // çağırır) bu dinleyiciyi engellemez: aynı hedefteki dinleyiciler kayıt sırasıyla çalışır, bu betik yüklenirken
+  // kaydedilir. Document'ta dinlenseydi maçtaki tuşlar girdi sayılmaz, yalnızca klavyeyle oynanan uzun bir maçtan
+  // sonra ses odasından çıkan cihaz hemen boşta görünürdü.
   const opts = { capture: true, passive: true }
-  document.addEventListener('pointerdown', idleOnInput, opts)
-  document.addEventListener('pointermove', idleOnMove, opts)
-  document.addEventListener('keydown', idleOnInput, opts)
-  document.addEventListener('wheel', idleOnInput, opts)
-  document.addEventListener('touchstart', idleOnInput, opts)
+  window.addEventListener('pointerdown', idleOnInput, opts)
+  window.addEventListener('pointermove', idleOnMove, opts)
+  window.addEventListener('keydown', idleOnInput, opts)
+  window.addEventListener('wheel', idleOnInput, opts)
+  window.addEventListener('touchstart', idleOnInput, opts)
   document.addEventListener('visibilitychange', idleOnVisible)
   if (navigator.getGamepads) idleState.padTimer = setInterval(idlePadTick, IDLE_PAD_MS)
   // Ses odasına katılınca boştan hemen çıkılır, ayrılınca karar yeniden verilir
