@@ -1393,45 +1393,63 @@ test('yüzen pencere: alt çerçeveden jetonsuz açılamaz, jetonla açılan pen
   const page = ctx.page
   const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
   const rejected = () => fs.readFileSync(ctx.diagFile, 'utf8').split('\n').filter((line) => line.includes('float-rejected')).length
-  assert.equal(await floats(), 0)
-  await page.evaluate(() => {
+  // Sayfa ve ana süreç çağrıları adım adım süreyle sınırlanır: yanıt vermeyen bir çağrı testin 60 saniyelik süresini
+  // adsız doldurmaz, hata takılan adımın adını ve tanı günlüğünün son satırlarını yazar
+  const step = (label, promise) => {
+    let timer = null
+    const limit = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        let tail = ''
+        try {
+          tail = fs.readFileSync(ctx.diagFile, 'utf8').trim().split('\n').slice(-12).join('\n')
+        } catch (err) {
+          tail = ''
+        }
+        reject(new Error('Adım yanıt vermedi: ' + label + '\n' + tail))
+      }, 15000)
+    })
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer))
+  }
+  assert.equal(await step('başlangıçta yüzen pencere sayısı', floats()), 0)
+  await step('alt çerçeve eklenir', page.evaluate(() => {
     const frame = document.createElement('iframe')
     frame.name = 'duman-alt-cerceve'
     document.body.appendChild(frame)
-  })
+  }))
   try {
     const sub = await waitFor(() => page.frame({ name: 'duman-alt-cerceve' }), 'subframe')
     assert.notEqual(sub, page.mainFrame())
-    assert.deepEqual(await sub.evaluate(() => ({ sub: window.parent !== window, desktop: typeof window.telsizDesktop })), { sub: true, desktop: 'undefined' })
-    const denied = await sub.evaluate(() => [
+    assert.deepEqual(await step('alt çerçevenin bağlamı', sub.evaluate(() => ({ sub: window.parent !== window, desktop: typeof window.telsizDesktop }))), { sub: true, desktop: 'undefined' })
+    const denied = await step('alt çerçeve jetonsuz açamaz', sub.evaluate(() => [
       window.open('about:blank') === null,
       window.open('about:blank', 'telsiz-yuzen-' + '0'.repeat(32)) === null,
       window.open('about:blank', '_blank') === null
-    ])
+    ]))
     assert.deepEqual(denied, [true, true, true])
     // Ana çerçevenin aldığı jeton alt çerçeveden kullanılır: ana süreç pencereyi açanı denetleyip yok eder
     const before = rejected()
-    const name = await page.evaluate(() => window.telsizDesktop.float.arm())
-    await sub.evaluate((n) => {
+    const name = await step('ana çerçeve jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
+    await step('alt çerçeve jetonla açmayı dener', sub.evaluate((n) => {
       window.open('about:blank', n)
-    }, name)
+    }, name))
     await waitFor(() => rejected() === before + 1, 'float-rejected logged')
     await waitFor(async () => (await floats()) === 0, 'subframe window destroyed')
     // Jeton harcandı, ana çerçeve de onunla açamaz. Yeni jetonla ana çerçeve hâlâ açabilir.
-    assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, name), true)
-    const fresh = await page.evaluate(() => window.telsizDesktop.float.arm())
-    assert.equal(await page.evaluate((n) => {
+    assert.equal(await step('harcanan jetonla açılamaz', page.evaluate((n) => window.open('about:blank', n) === null, name)), true)
+    const fresh = await step('ana çerçeve yeni jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
+    assert.equal(await step('ana çerçeve yeni jetonla açar', page.evaluate((n) => {
       window.__yuzen = window.open('about:blank', n)
       return window.__yuzen !== null
-    }, fresh), true)
+    }, fresh)), true)
     await waitFor(async () => (await floats()) === 1, 'main frame window opened')
     assert.equal(rejected(), before + 1)
-    await page.evaluate(() => window.__yuzen.close())
+    await step('ana çerçeve pencereyi kapatır', page.evaluate(() => window.__yuzen.close()))
     await waitFor(async () => (await floats()) === 0, 'main frame window closed')
   } finally {
-    await page.evaluate(() => {
+    // Temizlik takılırsa asıl hata kaybolmaz
+    await step('alt çerçeve kaldırılır', page.evaluate(() => {
       const frame = document.querySelector('iframe[name="duman-alt-cerceve"]')
       if (frame) frame.remove()
-    })
+    })).catch(() => {})
   }
 })
