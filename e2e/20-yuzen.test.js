@@ -2,7 +2,8 @@
 
 // Yüzen pencere (istek 7), Chromium'un belge resim içinde resim penceresiyle (documentPictureInPicture). Deniz ve
 // Mert Lobi'ye katılır. Telsiz kartının araç satırında Yüzen Pencere düğmesi Oyun düğmesinin önünde görünür, telsiz
-// kartı yeniden çizilince iki düğme yer değiştirmez. Mert kamerasını açar, Deniz düğmeye basar: yüzen pencerede
+// kartı yeniden çizilince iki düğme yer değiştirmez. Telefonda büyük yazıda satır sarılınca etiketi gizli Oyun
+// düğmesi Yüzen Pencere varken de büyümez. Mert kamerasını açar, Deniz düğmeye basar: yüzen pencerede
 // Mert'in kutusunda görüntü gerçekten oynar, pencere uygulamanın temasını ve simge kümesini taşır, kontroller
 // Mikrofon, Uygulamaya Dön ve Kapat'tır (Ayrıl yok). Mert kamerasını kapatınca kutusu avatara döner, Mert konuşunca
 // (sahte mikrofonun bipleri) avatarının çevresinde canlı renkli halka yanar. Yüzen penceredeki Mikrofon düğmesi
@@ -89,6 +90,43 @@ test('ses odasında araç satırında Yüzen Pencere düğmesi görünür, odada
     }
   })
   assert.deepEqual(order, { nextIsGame: true, gameBeforeDj: true, moves: 0, focused: true })
+})
+
+// Telefonda Oyun düğmesinin etiketi gizlidir ve düğme büyümez (oyun.css .radio-tools > .game-tool). Yüzen Pencere
+// düğmesi bu kuralı ezmez: büyük yazıda satır sarılınca da Oyun yalnızca simgesi kadar yer alır, boş yer etiketli
+// araçlara (Telsiz DJ) kalır.
+test('telefonda büyük yazıda satır sarılınca Oyun düğmesi Yüzen Pencere varken de büyümez', async () => {
+  const { deniz } = W
+  const size = deniz.viewportSize()
+  await deniz.setViewportSize({ width: 360, height: 740 })
+  try {
+    await deniz.waitForFunction(() => document.documentElement.clientWidth === 360 && el.appView.getAttribute('data-layout') === layoutClass())
+    for (const px of [24, 28]) {
+      await deniz.evaluate((x) => window.TelsizTheme.set({ fontSize: 'custom', fontPx: x }), px)
+      // Satır sarılır: Yüzen Pencere ve Oyun üstte, Telsiz DJ alt satırda
+      await deniz.waitForFunction((x) => {
+        const float = document.getElementById('radio-float')
+        const game = document.getElementById('radio-game')
+        const dj = document.querySelector('#radio-tools .crew-dj')
+        if (parseFloat(getComputedStyle(document.documentElement).fontSize) !== x || !float || !game || !dj) return false
+        const top = (n) => Math.round(n.getBoundingClientRect().top)
+        return top(float) === top(game) && top(dj) > top(game)
+      }, px)
+      const r = await deniz.evaluate(() => {
+        const game = document.getElementById('radio-game')
+        const width = game.getBoundingClientRect().width
+        // İçeriğinin genişliği: düğme büyümeseydi alacağı yer
+        game.style.flexGrow = '0'
+        const content = game.getBoundingClientRect().width
+        game.style.flexGrow = ''
+        return { grow: getComputedStyle(game).flexGrow, extra: Math.round(width - content) }
+      })
+      assert.deepEqual(r, { grow: '0', extra: 0 }, px + ' piksel yazı')
+    }
+  } finally {
+    await deniz.evaluate(() => window.TelsizTheme.set({ fontSize: 'normal' }))
+    await deniz.setViewportSize(size)
+  }
 })
 
 test('yüzen pencerede Mert\'in kamerası oynar, tema ve kontroller gelir', async () => {

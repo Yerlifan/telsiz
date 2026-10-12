@@ -918,8 +918,7 @@ function floatRenderTool () {
   if (!box) return
   let b = byId('radio-float')
   const show = floatInRoom(snap()) && floatMode() !== null && !floatBgMode()
-  // Satır düğmeyle birlikte sarılabilir (yuzen.css .radio-tools.has-float): Büyüt ve Telsiz DJ'nin adı kesilmez
-  box.classList.toggle('has-float', show)
+  // Satır düğme eklenince de sarılabilir (radio.css .radio-tools): Büyüt ve Telsiz DJ'nin adı kesilmez
   if (!show) {
     if (b && b.parentNode) b.parentNode.removeChild(b)
     return

@@ -14,23 +14,10 @@
    1. Telsiz kartındaki düğme
    ========================================================= */
 
-/* Yalnızca simge (adı aria-label ve title'da): araç satırında Büyüt ve Telsiz DJ'nin yanında dar kalır. Düğme
-   varken satır sarılabilir, düğmeler içerikleri kadar yer alıp kalan genişliği paylaşır: üç düğme kartın genişliğine
-   sığmazsa Telsiz DJ alt satıra iner, adlar kesilmez. Eksi sol boşluk her düğmenin sol boşluğunu karşılar. */
-.radio-tools.has-float {
-  flex-wrap: wrap;
-  margin: 0.25rem 0 0.25rem -0.375rem;
-}
-
-.radio-tools.has-float > * {
-  flex: 1 1 auto;
-  margin: 0.375rem 0 0 0.375rem;
-}
-
-.radio-tools.has-float > .radio-tool {
-  width: auto;
-}
-
+/* Yalnızca simge (adı aria-label ve title'da): araç satırında Büyüt ve Telsiz DJ'nin yanında dar kalır, büyümez.
+   Satırın sarılması, düğmelerin aralığı ve kalan genişliği paylaşması radio.css .radio-tools kurallarındadır. Bu
+   dosya araç satırının bütün çocuklarına kural yazmaz: oyun.css'ten sonra yüklendiği için aynı özgüllükteki bir
+   kural telefonda etiketi gizli Oyun düğmesinin büyümeme kuralını (.radio-tools > .game-tool) ezerdi. */
 .radio-tools > .radio-tool.float-tool {
   flex: none;
   width: 2.75rem;
