@@ -168,9 +168,14 @@ describe('otomatik boşta', () => {
       await h.stateOf(ctx, second)
       assert.equal((await seen(ctx, owner.token, id)).status, 'online')
 
-      // Boştaki son etkin oturum da kapanınca kişi çevrimdışıdır
+      // Etkin oturum kapanınca boştaki oturum kalır, kişi Boşta görünür. Boştaki oturum istek atmayı sürdürür: graceMs
+      // kısa olduğu için yavaş makinede (Windows CI) iki istek arasında düşebilir.
       h.expectStatus(await h.post(ctx, '/api/logout', second), 200)
-      assert.equal((await seen(ctx, owner.token, id)).status, 'idle')
+      await h.waitFor(async () => {
+        await report(ctx, ayse.token, '1')
+        return (await seen(ctx, owner.token, id)).status === 'idle'
+      }, { timeout: 8000, label: 'etkin oturum kapanınca Boşta' })
+      // Boştaki son oturum da kapanınca kişi çevrimdışıdır
       h.expectStatus(await h.post(ctx, '/api/logout', ayse.token), 200)
       assert.deepEqual(view(await seen(ctx, owner.token, id)), { online: false, status: 'offline' })
     } finally {
