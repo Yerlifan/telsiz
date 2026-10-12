@@ -1024,7 +1024,7 @@ function djUpdateCrewItem (li) {
   let badge = av.querySelector('.crew-badge')
   if (s.muted && !badge) {
     badge = h('span', 'crew-badge dj-crew-badge')
-    badge.appendChild(icon('i-headphones-off'))
+    badge.appendChild(icon('i-speaker-off'))
     av.appendChild(badge)
   } else if (!s.muted && badge) {
     av.removeChild(badge)

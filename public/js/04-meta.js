@@ -433,7 +433,7 @@ function memberVoiceIcon (m) {
 }
 
 const MEMBER_VOICE_ICONS = {
-  deafened: ['i-headphones-off', 'voice.deafenedTitle'],
+  deafened: ['i-speaker-off', 'voice.deafenedTitle'],
   'server-muted': ['i-mic-off', 'voice.serverMutedTitle'],
   muted: ['i-mic-off', 'voice.mutedTitle']
 }
@@ -1061,7 +1061,7 @@ function buildMemberRow (entry) {
     sub.appendChild(talk)
     sub.appendChild(h('span', 'member-state', vs.text))
     text.appendChild(sub)
-    if (vs.deafened) flag = icon('i-headphones-off', 'member-flag')
+    if (vs.deafened) flag = icon('i-speaker-off', 'member-flag')
     else if (vs.muted) flag = icon('i-mic-off', 'member-flag')
   } else {
     const subText = memberPresenceText(u.id, status)

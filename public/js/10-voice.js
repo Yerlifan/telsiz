@@ -562,7 +562,7 @@ function crewBadge (failed, deafened, muted, serverMuted) {
     title = t('voice.peerFailed')
     kind = ' is-error'
   } else if (deafened) {
-    name = 'i-headphones-off'
+    name = 'i-speaker-off'
     title = t('voice.deafenedTitle')
   } else if (serverMuted) {
     name = 'i-mic-off'
@@ -1024,7 +1024,8 @@ function renderUserPanel () {
   el.btnMute.classList.toggle('is-off', Boolean(s.muted))
   setText(el.btnMuteState, t(s.serverMuted ? 'radio.micServerMuted' : s.muted ? 'radio.micOff' : 'radio.micOn'))
   el.btnDeafen.setAttribute('aria-pressed', s.deafened ? 'true' : 'false')
-  setIcon(el.btnDeafen, s.deafened ? 'i-headphones-off' : 'i-headphones')
+  // Hoparlör düğmesi: açıkken hoparlör, kapalıyken çarpılı hoparlör simgesi
+  setIcon(el.btnDeafen, s.deafened ? 'i-speaker-off' : 'i-speaker')
   el.btnDeafen.classList.toggle('is-off', Boolean(s.deafened))
   setText(el.btnDeafenState, t(s.deafened ? 'radio.deafened' : 'radio.hearing'))
 }
