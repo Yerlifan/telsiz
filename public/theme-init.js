@@ -1,30 +1,35 @@
 'use strict'
 
 // Tema ön yükleyicisi (Ek G1.5). <head> içinde defer olmadan, stil dosyalarından önce yüklenir.
-// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact ve
-// data-reduce-motion özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
+// Cihazdaki tercihi okuyup kök öğeye data-skin, data-scheme, data-font-size, data-compact, data-reduce-motion
+// ve data-msg-layout özniteliklerini ve elle ayarlanan yazı boyutunu (--font-px) yazar, böylece sayfa ilk
 // çizimde doğru temayla açılır.
 // window.TelsizTheme arayüzü ayarlar görünümü ve uygulama tarafından kullanılır.
 // Bu dosya ES2017 ve noktalı virgülsüz yazılır, inline betik yasak olduğu için ayrı dosyadır.
 
 function createTelsizTheme () {
-  const SKINS = ['arcade', 'gece', 'turkuaz']
+  const SKINS = ['arcade', 'gece', 'turkuaz', 'saha', 'lamba', 'fosfor', 'kutup', 'plak', 'kokpit', 'kontrast']
   const SCHEMES = ['dark', 'light', 'system']
   const FONT_SIZES = ['auto', 'small', 'normal', 'large', 'tv', 'custom']
   const MOTION = ['system', 'on', 'off']
+  // Mesaj düzeni: kayit (Kayıt Defteri: saat her mesajın solunda, küçük avatar adın yanında, TX ve RX) veya klasik
+  const MSG_LAYOUTS = ['kayit', 'klasik']
+  // Erişilebilirlik teması: Ayarlar'da ayrı grupta listelenir, sistem yüksek karşıtlık istiyorsa ilk açılışta seçilir
+  const CONTRAST_SKIN = 'kontrast'
   const STORE = {
     skin: 'telsiz.skin',
     scheme: 'telsiz.scheme',
     fontSize: 'telsiz.fontSize',
     fontPx: 'telsiz.fontPx',
     compact: 'telsiz.compact',
-    reduceMotion: 'telsiz.reduceMotion'
+    reduceMotion: 'telsiz.reduceMotion',
+    msgLayout: 'telsiz.msgLayout'
   }
   // Elle ayarlanan yazı boyutunun (custom) sınırları, piksel
   const FONT_PX = { min: 12, max: 28 }
   // Yazı boyutu varsayılanı 15 piksel (normal), otomatik seçenek ekran genişliğine göre büyütür. Özel boyut
   // da ilk açılışta 15 pikseldir.
-  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system' }
+  const DEFAULTS = { skin: 'arcade', scheme: 'system', fontSize: 'normal', fontPx: 15, compact: false, reduceMotion: 'system', msgLayout: 'kayit' }
   const root = document.documentElement
   const listeners = []
 
@@ -66,14 +71,28 @@ function createTelsizTheme () {
   const darkQuery = media('(prefers-color-scheme: dark)')
   const lightQuery = media('(prefers-color-scheme: light)')
   const motionQuery = media('(prefers-reduced-motion: reduce)')
+  const contrastQuery = media('(prefers-contrast: more)')
+  const forcedQuery = media('(forced-colors: active)')
+
+  // İlk açılış: saklı (geçerli) tema tercihi yoksa ve sistem yüksek karşıtlık istiyorsa (prefers-contrast: more veya
+  // Windows Yüksek Karşıtlık gibi zorlanmış renkler) Yüksek Kontrast seçilir. Seçim saklanmaz, kişi Ayarlar'dan bir
+  // tema seçene kadar (kendiliğinden seçilen Yüksek Kontrast dahil) her açılışta sistem ayarına bakılır. Bu sorguları
+  // tanımayan eski tarayıcılarda varsayılan kalır.
+  function initialSkin () {
+    const stored = read(STORE.skin)
+    if (SKINS.indexOf(stored) !== -1) return stored
+    if ((contrastQuery && contrastQuery.matches) || (forcedQuery && forcedQuery.matches)) return CONTRAST_SKIN
+    return DEFAULTS.skin
+  }
 
   const prefs = {
-    skin: pick(SKINS, read(STORE.skin), DEFAULTS.skin),
+    skin: initialSkin(),
     scheme: pick(SCHEMES, read(STORE.scheme), DEFAULTS.scheme),
     fontSize: pick(FONT_SIZES, read(STORE.fontSize), DEFAULTS.fontSize),
     fontPx: fontPx(read(STORE.fontPx)) || DEFAULTS.fontPx,
     compact: read(STORE.compact) === 'true',
-    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion)
+    reduceMotion: pick(MOTION, read(STORE.reduceMotion), DEFAULTS.reduceMotion),
+    msgLayout: pick(MSG_LAYOUTS, read(STORE.msgLayout), DEFAULTS.msgLayout)
   }
 
   // Sistem tercihi bilinmiyorsa koyu (Ek G3)
@@ -101,7 +120,8 @@ function createTelsizTheme () {
       fontPx: prefs.fontPx,
       compact: prefs.compact,
       reduceMotion: prefs.reduceMotion,
-      motionReduced: resolvedMotion()
+      motionReduced: resolvedMotion(),
+      msgLayout: prefs.msgLayout
     }
   }
 
@@ -114,6 +134,7 @@ function createTelsizTheme () {
     if (root.style && typeof root.style.setProperty === 'function') root.style.setProperty('--font-px', prefs.fontPx + 'px')
     root.setAttribute('data-compact', prefs.compact ? 'true' : 'false')
     root.setAttribute('data-reduce-motion', resolvedMotion() ? 'true' : 'false')
+    root.setAttribute('data-msg-layout', prefs.msgLayout)
   }
 
   function notify () {
@@ -130,10 +151,16 @@ function createTelsizTheme () {
   function set (partial) {
     const next = partial && typeof partial === 'object' ? partial : {}
     let changed = false
-    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1 && next.skin !== prefs.skin) {
-      prefs.skin = next.skin
-      write(STORE.skin, prefs.skin)
-      changed = true
+    if (next.skin !== undefined && SKINS.indexOf(next.skin) !== -1) {
+      if (next.skin !== prefs.skin) {
+        prefs.skin = next.skin
+        write(STORE.skin, prefs.skin)
+        changed = true
+      } else if (read(STORE.skin) !== prefs.skin) {
+        // Sistem ayarıyla kendiliğinden seçilen tema saklı değildir. Kişi aynı temayı seçerse seçim saklanır ve
+        // sistem ayarı kapansa da korunur. Görünüm değişmediği için yeniden uygulanmaz.
+        write(STORE.skin, prefs.skin)
+      }
     }
     if (next.scheme !== undefined && SCHEMES.indexOf(next.scheme) !== -1 && next.scheme !== prefs.scheme) {
       prefs.scheme = next.scheme
@@ -167,6 +194,11 @@ function createTelsizTheme () {
         write(STORE.reduceMotion, prefs.reduceMotion)
         changed = true
       }
+    }
+    if (next.msgLayout !== undefined && MSG_LAYOUTS.indexOf(next.msgLayout) !== -1 && next.msgLayout !== prefs.msgLayout) {
+      prefs.msgLayout = next.msgLayout
+      write(STORE.msgLayout, prefs.msgLayout)
+      changed = true
     }
     if (changed) {
       apply()
@@ -210,9 +242,11 @@ function createTelsizTheme () {
     get: snapshot,
     set: set,
     skins: SKINS.slice(),
+    contrastSkin: CONTRAST_SKIN,
     schemes: SCHEMES.slice(),
     fontSizes: FONT_SIZES.slice(),
     fontPxRange: { min: FONT_PX.min, max: FONT_PX.max },
+    msgLayouts: MSG_LAYOUTS.slice(),
     onChange: onChange
   }
 }

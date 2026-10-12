@@ -13,7 +13,7 @@
 // Geri kalan her izin (konum, pano okuma, HID, USB, seri port, MIDI, dış uygulama açma ve diğerleri)
 // reddedilir. Sunucu adresi ve ekran seçici pencerelerine hiçbir izin verilmez. Arka plan
 // pencereleri (src/lib/background.js) yalnızca bildirim gösterebilir: mikrofon ve kamera dahil diğer
-// her izin reddedilir (decideFor).
+// her izin reddedilir, yüzen pencere hiçbir izin alamaz (deniedFor).
 //
 // Ekran yakalama neden ayrıca ele alınır: Electron 44'te getDisplayMedia önce mediaTypes listesi
 // boş bir 'media' izin isteği üretir, ekran seçimi bu izin verildikten sonra gelir. Eski
@@ -63,9 +63,11 @@ function decideCheck (permission, requestingOrigin, details, allowedOrigin) {
 }
 
 // Pencere bağlamına göre ilk eleme: arka plan penceresi bildirim dışındaki her izni (mikrofon, kamera,
-// ekran) reddeder. true dönerse istek veya denetim reddedilir, false dönerse decideRequest veya
-// decideCheck karar verir.
+// ekran) reddeder. Yüzen pencere (src/lib/float-window.js) hiçbir izin alamaz: içeriğini açan uygulama
+// penceresi çizer, kendisi hiçbir aygıt veya bildirim istemez. true dönerse istek veya denetim reddedilir, false
+// dönerse decideRequest veya decideCheck karar verir.
 function deniedFor (context, permission) {
+  if (context === 'float') return true
   return context === 'background' && !BACKGROUND_PERMISSIONS.has(permission)
 }
 

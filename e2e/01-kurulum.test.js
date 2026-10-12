@@ -7,7 +7,7 @@ const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./yardimci')
 
-const W = { srv: null, tb: null, owner: null, ece: null, link: '', keyCode: '' }
+const W = { srv: null, tb: null, owner: null, ece: null, link: '', keyCode: '', ownerCode: '' }
 const test = h.makeTest(__filename, () => (W.tb ? W.tb.pages : []))
 
 const OWNER_TEXT = 'Merhaba Ece, bu şifreli ilk mesaj ÇĞİÖŞÜ 7319'
@@ -40,6 +40,8 @@ test('sahip kurulum formuyla hesabı açar, davet ekranı bağlantı ve anahtar 
   await page.fill('#setup-password', 'Deniz-Parola-2026')
   await page.fill('#setup-password2', 'Deniz-Parola-2026')
   await page.click('#setup-submit')
+  // Sıra: kurtarma kodu kartı, davet kartı (istek 14)
+  W.ownerCode = await h.passRecoveryCard(page)
   await page.waitForSelector('#invite-card:not([hidden])', { timeout: h.LONG })
   W.link = await page.inputValue('#invite-link')
   W.keyCode = await page.inputValue('#invite-key')
@@ -60,6 +62,9 @@ test('ikinci kullanıcı davet bağlantısıyla kayıt olur ve görünen adını
   await page.fill('#register-password', 'Ece-Parola-2026')
   await page.fill('#register-password2', 'Ece-Parola-2026')
   await page.click('#register-submit')
+  // Sıra: kurtarma kodu kartı, profil adımı (istek 14)
+  const code = await h.passRecoveryCard(page)
+  assert.notEqual(code, W.ownerCode, 'her hesabın kodu ayrı')
   await page.waitForSelector('#app-view:not([hidden])', { timeout: h.LONG })
   await page.waitForSelector('#profile-step-name', { timeout: h.LONG })
   await page.fill('#profile-step-name', 'Ece')

@@ -134,12 +134,12 @@ test('setLang dili değiştirir, kalıcı yapar ve <html lang> değerini güncel
 
 test('t: parametre yerleştirme ve eksik parametre', () => {
   const { I18N } = load({ languages: ['tr-TR'] })
-  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), 'genel odasının başlangıcı')
+  assert.strictEqual(I18N.t('channel.welcome', { name: 'genel' }), 'Kayıt başı: genel')
   assert.strictEqual(I18N.t('auth.nameLength', { min: 2, max: 20 }), 'Kullanıcı adı 2 ile 20 karakter arasında olmalı.')
-  assert.strictEqual(I18N.t('channel.welcome'), '{name} odasının başlangıcı', 'parametre verilmezse yer tutucu kalır')
-  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), '<b>{x}</b> odasının başlangıcı', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
+  assert.strictEqual(I18N.t('channel.welcome'), 'Kayıt başı: {name}', 'parametre verilmezse yer tutucu kalır')
+  assert.strictEqual(I18N.t('channel.welcome', { name: '<b>{x}</b>' }), 'Kayıt başı: <b>{x}</b>', 'değer olduğu gibi, yeniden işlenmeden yerleşir')
   I18N.setLang('en')
-  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Start of general')
+  assert.strictEqual(I18N.t('channel.welcome', { name: 'general' }), 'Log start: general')
   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '40%')
   I18N.setLang('tr')
   assert.strictEqual(I18N.t('common.percent', { value: 40 }), '%40')
@@ -259,4 +259,21 @@ test('Intl yoksa basit yedek biçimler ve çoğul kuralı kullanılır', () => {
   assert.strictEqual(I18N.formatSize(1468006), '1.4 MB')
   assert.strictEqual(I18N.t('size.bytes', { count: 1 }), '1 byte')
   assert.strictEqual(I18N.t('size.bytes', { count: 2 }), '2 bytes')
+})
+
+test('Hoparlör adı: sözlüklerde eski Sağırlaştır ve Deafen adı, istemci kodunda kulaklık kapalı simgesi kalmaz', () => {
+  // G13 "Sağırlaştır" yerine Hoparlör dedi ve i-speaker-off simgesini getirdi. Sonradan birleşen öğeler (izlenen
+  // yayının ses düğmesi, oyunlar, Telsiz DJ, yüzen pencere, şikâyet) aynı adı ve simgeyi kullanır.
+  const { I18N } = load({ languages: ['tr-TR'] })
+  for (const lang of ['tr', 'en']) {
+    const dict = I18N.messages[lang]
+    for (const key of Object.keys(dict)) {
+      assert.ok(!/sağırlaş|sagirlas|\bdeafen/i.test(dict[key]), lang + ' ' + key + ': ' + dict[key])
+    }
+  }
+  const dir = path.join(__dirname, '..', 'public', 'js')
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const code = fs.readFileSync(path.join(dir, file), 'utf8')
+    assert.ok(code.indexOf("'i-headphones-off'") === -1, file + ' kulaklık kapalı simgesi yerine i-speaker-off kullanır')
+  }
 })

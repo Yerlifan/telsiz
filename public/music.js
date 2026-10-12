@@ -40,7 +40,10 @@ var TelsizMusic = (function (root) {
   const BUFFER_STALL_MS = 10000
   // Ses komutundan sonra oynatıcının bildirdiği ses düzeyinin yok sayıldığı süre (kendi komutumuzun yankısı)
   const SOUND_ECHO_MS = 1500
-  const START_LEAD_MS = 1500
+  // Başlangıç payı: yeni parça, geçiş ve devam ettirme bu kadar ileri çapalanır, herkes yükleyip aynı anda
+  // başlar. YouTube çerçevesinin yüklenmesi ve tamponlaması dosyanın çözülmesinden uzun sürer.
+  const START_LEAD_YT_MS = 3000
+  const START_LEAD_FILE_MS = 1500
   const MAX_LEAD_MS = 5000
   const END_GRACE_MS = 2500
   const EARLY_END_MS = 5000
@@ -53,6 +56,9 @@ var TelsizMusic = (function (root) {
   const NETWORK_RETRIES = 2
   const PLAY_RETRY_MS = 3000
   const OWN_PAUSE_MS = 2000
+  // Kişinin medya tuşuyla veya kilit ekranından verdiği yerel bekletmenin adı (23-dj.js djMediaSession, setLocalHold).
+  // /devam (resume) bu bekletmeyi de kaldırır.
+  const MEDIA_HOLD = 'media'
   const REQUEST_DEDUPE_MS = 5000
   const CLOCK_WINDOW_MS = 600000
   const CLOCK_MAX_SAMPLES = 32
@@ -129,7 +135,8 @@ var TelsizMusic = (function (root) {
     flac: 'audio/flac'
   }
 
-  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi ve arama desteklenmez.
+  // YouTube bağlantı biçimleri (Ek L2.2). Oynatma listesi desteklenmez. Bağlantıya benzemeyen /çal argümanı şarkı
+  // adı sayılır, aramayı arayüz sunucuya yaptırır (istek 5).
   const WATCH_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com']
   const NOCOOKIE_HOSTS = ['youtube-nocookie.com', 'www.youtube-nocookie.com']
 
@@ -314,8 +321,34 @@ var TelsizMusic = (function (root) {
     return typeof id === 'string' && VIDEO_ID_RE.test(id) ? { videoId: id } : null
   }
 
-  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, error? }.
+  // Bağlantının çevresindeki işaretler: <...>, düz ve tipografik tırnaklar, parantez ve köşeli parantez
+  function unwrapLink (text) {
+    return text.replace(/^[<"'(\[\u201c\u201d\u2018\u2019\u00ab]+/, '').replace(/[>"')\]\u201c\u201d\u2018\u2019\u00bb]+$/, '')
+  }
+
+  // Argüman bir bağlantıya benziyor mu (şarkı adı sayılmaz). Herhangi bir yerinde şema (x://) geçiyorsa ya da
+  // sözcüklerinden biri (çevresindeki işaretler atılarak) www. ile başlıyorsa, bilinen bir YouTube alan adıysa
+  // veya alan adı ve yol biçimindeyse (example.com/x, son etiket en az iki harf) bağlantıdır. "AC/DC",
+  // "R.E.M/Losing My Religion", "Mr. Brightside" ve "will.i.am" gibi adlar bağlantı sayılmaz.
+  function looksLikeUrl (text) {
+    if (/[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true
+    const words = text.split(/\s+/)
+    for (const raw of words) {
+      const word = unwrapLink(raw)
+      if (/^www\./i.test(word)) return true
+      const host = word.split(/[/?#]/)[0].toLowerCase()
+      if (host === 'youtu.be' || WATCH_HOSTS.indexOf(host) !== -1 || NOCOOKIE_HOSTS.indexOf(host) !== -1) return true
+      if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]/i.test(word)) return true
+    }
+    return false
+  }
+
+  // Komut ayrıştırıcı. DJ komutu değilse null, değilse { name, arg, videoId?, query?, error? }.
   // name: play, skip, pause, resume, queue, stop. play için arg boşsa videoId null olur (ekli dosya beklenir).
+  // play argümanı geçerli bir YouTube bağlantısıysa (<...> veya tırnak içinde de olabilir) videoId, bağlantıya
+  // benzeyip geçersizse error 'bad_url', bağlantıya hiç benzemiyorsa query olur. query aranacak şarkı adıdır:
+  // sunucudaki kuralla temizlenir (denetim ve yön karakterleri boşluk olur, boşluklar sadeleşir). Temizlenince
+  // boş kalan argüman boş argüman sayılır.
   function parseCommand (input) {
     if (typeof input !== 'string') return null
     let text = input
@@ -341,9 +374,12 @@ var TelsizMusic = (function (root) {
       if (arg === '') {
         out.videoId = null
       } else {
-        const yt = parseYouTubeUrl(arg)
+        const yt = parseYouTubeUrl(unwrapLink(arg))
+        const query = arg.replace(UNSAFE_TEXT_G, ' ').replace(/\s+/g, ' ').trim()
         if (yt) out.videoId = yt.videoId
-        else out.error = 'bad_url'
+        else if (looksLikeUrl(arg)) out.error = 'bad_url'
+        else if (query === '') out.videoId = null
+        else out.query = query
       }
     }
     return out
@@ -550,6 +586,11 @@ var TelsizMusic = (function (root) {
     return { by: by, since: raw.since, writes: writes, authors: authors }
   }
 
+  // Parçanın başlangıç payı (türüne göre)
+  function startLeadFor (track) {
+    return track && track.type === 'youtube' ? START_LEAD_YT_MS : START_LEAD_FILE_MS
+  }
+
   // Oturumdan çıkan parçaların kimlikleri gone listesine eklenir (en eskiler düşer)
   function bury (s, tracks) {
     tracks.forEach((t) => {
@@ -558,14 +599,14 @@ var TelsizMusic = (function (root) {
     if (s.gone.length > MAX_GONE) s.gone = s.gone.slice(s.gone.length - MAX_GONE)
   }
 
-  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça kısa bir başlangıç
+  // Sıradaki parçaya geçer. Duraklatılmış oturum duraklatılmış kalır, yeni parça türüne göre bir başlangıç
   // payıyla (herkesin yüklemesi için) çapalanır.
   function advance (s, now) {
     if (s.current) bury(s, [s.current])
     const next = s.queue.length > 0 ? s.queue.shift() : null
     s.current = next
     s.anchorPos = 0
-    s.anchorAt = next && s.playing ? now + START_LEAD_MS : now
+    s.anchorAt = next && s.playing ? now + startLeadFor(next) : now
     if (!next) s.playing = false
   }
 
@@ -609,7 +650,7 @@ var TelsizMusic = (function (root) {
       if (!base.current) {
         base.current = cloneTrack(op.track)
         base.playing = true
-        base.anchorAt = now + START_LEAD_MS
+        base.anchorAt = now + startLeadFor(op.track)
         base.anchorPos = 0
       } else {
         if (base.queue.length >= MAX_QUEUE) throw fail('queue_full')
@@ -649,8 +690,10 @@ var TelsizMusic = (function (root) {
       s.playing = false
       last = lastOf('pause', me, s.current)
     } else if (op.type === 'resume') {
+      // Devam ettirme de başlangıç payıyla çapalanır: uzaktaki cihazlar atlayıp tamponlayana kadar konum
+      // ilerlemez, herkes aynı yerden sürdürür
       if (!s.current || s.playing) return null
-      s.anchorAt = now
+      s.anchorAt = now + startLeadFor(s.current)
       s.playing = true
       last = lastOf('resume', me, s.current)
     } else if (op.type === 'stop') {
@@ -924,13 +967,20 @@ var TelsizMusic = (function (root) {
 
   // ------------------------------------------------------------ <audio> bağdaştırıcısı
 
-  // Çözülmüş dosyayı çalar. src her zaman URL.createObjectURL ile üretilmiş blob adresidir.
-  function createAudioPlayer (env, track, url, hooks) {
-    const audio = env.createAudio()
+  // Çözülmüş dosyayı çalar. src her zaman URL.createObjectURL ile üretilmiş blob adresidir. Motor boyunca tek
+  // <audio> öğesi kullanılır (audio() her çağrıda aynı öğeyi verir), parça değişince yalnızca src değişir:
+  // arka planda başlayan sonraki parça da kullanıcının oynatma izni verdiği öğede çalar. Her oynatıcı kendi
+  // dinleyicilerini ekler ve kapanınca kaldırır.
+  function createAudioPlayer (audioOf, track, url, hooks) {
+    const audio = audioOf()
     let ready = false
     let destroyed = false
     audio.preload = 'auto'
-    const on = (name, fn) => audio.addEventListener(name, fn)
+    const handlers = []
+    const on = (name, fn) => {
+      handlers.push({ name: name, fn: fn })
+      audio.addEventListener(name, fn)
+    }
     on('loadedmetadata', () => {
       if (destroyed) return
       if (isFiniteNumber(audio.duration) && audio.duration > 0) hooks.duration(Math.round(audio.duration * 1000))
@@ -1004,6 +1054,13 @@ var TelsizMusic = (function (root) {
         } catch (e) {
           // Yoksa sessiz
         }
+        handlers.forEach((hd) => {
+          try {
+            audio.removeEventListener(hd.name, hd.fn)
+          } catch (e) {
+            // Yoksa sessiz
+          }
+        })
         try {
           audio.removeAttribute('src')
           audio.load()
@@ -1084,6 +1141,15 @@ var TelsizMusic = (function (root) {
     let decryptRetried = null
     let host = null
     let player = null
+    // Kalıcı YouTube çerçevesi (istek 13, ikinci aşama): ses odasındaki oturum boyunca tek çerçeve kullanılır,
+    // parça değişince aynı çerçevede yeni video hazırlanır (bağdaştırıcının load işlevi). Kayıt { impl, room,
+    // hooks, broken, soundSynced }: hooks çerçevenin olaylarını alan parçanın kancaları (dosya parçası çalarken
+    // null), broken çerçeve bir oynatıcı hatası bildirdi (yeniden kullanılmaz). Çerçeve oturum bitince (çalan
+    // parça kalmadı), YouTube'a izin kalmayınca (rıza geri alındı, kaynak veya DJ kapandı), ses odasından
+    // çıkınca, başka odaya geçince, oynatıcı alanı değişince ve hatalı oynatıcı baştan kurulurken kapatılır.
+    let ytFrame = null
+    // Dosya parçalarının tek <audio> öğesi (ilk dosya parçasında kurulur)
+    let sharedAudio = null
     let tickHandle = null
     let leadHandle = null
     let lastPositionEvent = 0
@@ -1091,6 +1157,9 @@ var TelsizMusic = (function (root) {
     let pending = 0
     let destroyed = false
     let consentAskedFor = null
+    // Arayüzün istediği yerel bekletmeler (setLocalHold): neden -> kapsam ('all' her parça, 'youtube' yalnızca
+    // YouTube parçası). Bekletme yalnızca bu cihazdaki oynatıcıyı durdurur, ortak durumu değiştirmez.
+    const localHolds = new Map()
     let lastSignature = ''
     let lastTrackKey = ''
     let lastConsent = null
@@ -1239,6 +1308,7 @@ var TelsizMusic = (function (root) {
           needsTap: local.needsTap,
           hold: local.hold,
           holdReason: local.hold ? local.holdReason : null,
+          localHold: activeLocalHolds(),
           hidden: local.hidden,
           error: local.error,
           positionMs: local.positionMs,
@@ -1275,7 +1345,7 @@ var TelsizMusic = (function (root) {
       const room = controlRoom()
       const rec = room === null ? null : rooms.get(room)
       return [settings.supported, settings.enabled, settings.youtube, room, deviceRoom, rec ? rec.v : 0, rec ? rec.status : '',
-        player ? player.trackId : '', local.status, local.blocked, local.needsTap, local.hold, local.holdReason, local.hidden, local.error,
+        player ? player.trackId : '', local.status, local.blocked, local.needsTap, local.hold, local.holdReason, activeLocalHolds().join(','), local.hidden, local.error,
         consentValue(), volumeValue(), mutedValue(), pending > 0].join('|')
     }
 
@@ -1496,7 +1566,8 @@ var TelsizMusic = (function (root) {
         // veya süresini dolduran kendiliğinden bir yazımdır, bildirilmez.
         if (rec && rec.status === 'ok' && st && st.last && st.last.op !== 'annotate' && (!prev || prev.v !== rec.v) &&
           !sameId(st.last.by, me()) && (!prevState || prevState.sid !== st.sid || st.seq > prevState.seq)) {
-          emit('notice', { room: room, op: st.last.op, by: st.last.by, title: st.last.title || '', code: st.last.code || null, trackId: st.last.id || null })
+          // at: işlemin sunucuda kabul zamanı (odaya sonradan katılan, eski bir işlemin bildirimini ayırt edebilir)
+          emit('notice', { room: room, op: st.last.op, by: st.last.by, title: st.last.title || '', code: st.last.code || null, trackId: st.last.id || null, at: rec.at || 0 })
         }
         maybePurge()
       }
@@ -1853,12 +1924,16 @@ var TelsizMusic = (function (root) {
       return simple('pause', true)
     }
 
-    // Ortak oturumu sürdürür. Bu cihazda yerel duraklatma (hold) varsa o da kaldırılır ve oynatıcı yeniden
-    // eşitlenir. Ortak oturum zaten çalıyorsa sonuç noop yerine { ok: true, local: true } olur (müzik bu
-    // cihazda devam etti, "zaten yapılmış" denmez).
+    // Ortak oturumu sürdürür. Bu cihazda yerel duraklatma (hold) veya kişinin medya tuşuyla ya da kilit ekranından
+    // verdiği yerel bekletme (setLocalHold MEDIA_HOLD) varsa o da kaldırılır ve oynatıcı yeniden eşitlenir. Diğer
+    // yerel bekletmeler (küçültülmüş oynatıcı, pencere) kendi koşullarıyla kalkar. Ortak oturum zaten çalıyorsa
+    // sonuç noop yerine { ok: true, local: true } olur (müzik bu cihazda devam etti, "zaten yapılmış" denmez).
     function resume () {
-      const hadHold = local.hold && precheck(false) === null && Boolean(currentState() && currentState().current)
-      if (hadHold) {
+      const ready = precheck(false) === null && Boolean(currentState() && currentState().current)
+      const hadHold = ready && (local.hold || localHolds.has(MEDIA_HOLD))
+      // Son yerel bekletme buysa setLocalHold yerel duraklatmayı da kaldırıp ortak konumdan eşitler
+      if (ready && localHolds.has(MEDIA_HOLD)) setLocalHold(MEDIA_HOLD, false)
+      if (ready && local.hold) {
         clearHold()
         local.lastPlayAttempt = -Infinity
         local.lastSeek = -Infinity
@@ -1900,6 +1975,8 @@ var TelsizMusic = (function (root) {
 
     // Yazılan metin bir DJ komutuysa uygular. DJ komutu değilse null döner (metin mesaj olarak gider).
     // ctx: { file } /çal ile birlikte gönderilen ses dosyası eki. Sonuç Promise<{ ok, code?, command, queue? }>.
+    // /çal şarkı adı motor tarafından aranmaz: sonuç { ok: false, code: 'needs_search', query } olur, aramayı
+    // arayüz (23-dj.js djCommand) sunucuya yaptırır ve bulunan parçayı addYouTube ile ekler.
     function runCommand (text, ctx) {
       const cmd = parseCommand(text)
       if (!cmd) return null
@@ -1908,6 +1985,7 @@ var TelsizMusic = (function (root) {
       if (cmd.error) return tag(rejected(cmd.error))
       if (cmd.name === 'play') {
         if (cmd.videoId) return tag(addYouTube(cmd.videoId))
+        if (cmd.query) return tag(Promise.resolve({ ok: false, code: 'needs_search', query: cmd.query }))
         if (c.file) return tag(addFile(c.file))
         return tag(rejected('play_needs_source'))
       }
@@ -1948,6 +2026,42 @@ var TelsizMusic = (function (root) {
       local.holdHidden = false
     }
 
+    // Çalan oynatıcıya uygulanan yerel bekletmelerin nedenleri (sıralı)
+    function activeLocalHolds () {
+      const kind = player ? player.kind : null
+      const out = []
+      localHolds.forEach((scope, reason) => {
+        if (scope === 'all' || (kind !== null && scope === kind)) out.push(reason)
+      })
+      return out.sort()
+    }
+
+    // Yerel bekletme: reason [a-z0-9_] biçiminde bir ad, scope 'youtube' ise yalnızca YouTube parçası
+    // bekletilir. Bekletme kalkınca oynatıcı ortak konuma atlayıp çalmaya devam eder (oturum çalıyorsa).
+    function setLocalHold (reason, on, scope) {
+      if (destroyed || typeof reason !== 'string' || !CODE_RE.test(reason)) return
+      const sc = scope === 'youtube' ? 'youtube' : 'all'
+      const before = activeLocalHolds().length > 0
+      if (on === true) {
+        if (localHolds.get(reason) === sc) return
+        localHolds.set(reason, sc)
+      } else {
+        if (!localHolds.has(reason)) return
+        localHolds.delete(reason)
+      }
+      const after = activeLocalHolds().length > 0
+      if (before && !after) {
+        // Ortak konumdan hemen yeniden eşitlenir
+        clearHold()
+        local.lastPlayAttempt = -Infinity
+        local.lastSeek = -Infinity
+        local.playPendingSince = null
+        local.bufferingSince = null
+      }
+      syncPlayer()
+      changed()
+    }
+
     function cancelRecovery () {
       if (recovery.handle !== null) timers.clearTimeout(recovery.handle)
       recovery.handle = null
@@ -1971,20 +2085,27 @@ var TelsizMusic = (function (root) {
       return true
     }
 
-    function stopPlayer () {
+    // keepFrame: oturum aynı odada sürüyor, YouTube çerçevesi kapatılmaz (sonraki YouTube parçasında yeniden
+    // kullanılır). Çerçevedeki video duraklatılır ve olayları hiçbir parçaya gitmez.
+    function stopPlayer (keepFrame) {
       timers.clearTimeout(leadHandle)
       leadHandle = null
       cancelRecovery()
       if (player) {
         const p = player
         player = null
-        try {
-          p.destroy()
-        } catch (e) {
-          // Yoksa sessiz
+        if (keepFrame === true && p.kind === 'youtube' && ytFrame && p.impl === ytFrame.impl) {
+          parkFrame()
+        } else {
+          try {
+            p.destroy()
+          } catch (e) {
+            // Yoksa sessiz
+          }
         }
         if (p.url) releaseUrl(p.url)
       }
+      if (keepFrame !== true) dropFrame()
       local.loadingTrack = null
       local.needsTap = false
       clearHold()
@@ -2005,6 +2126,60 @@ var TelsizMusic = (function (root) {
       if (local.status !== 'blocked') setStatus('idle')
     }
 
+    function parkFrame () {
+      ytFrame.hooks = null
+      try {
+        ytFrame.impl.pause()
+      } catch (e) {
+        // Çerçeve kapanmış
+      }
+    }
+
+    function dropFrame () {
+      if (!ytFrame) return
+      const f = ytFrame
+      ytFrame = null
+      try {
+        f.impl.destroy()
+      } catch (e) {
+        // Yoksa sessiz
+      }
+    }
+
+    // Çerçevenin olayları yalnızca o an çerçevede çalan parçanın kancalarına gider
+    function routeYouTubeEvent (impl, ev) {
+      if (!ytFrame || ytFrame.impl !== impl) return
+      // Oynatıcı hatası bildiren çerçeve sonraki parçada yeniden kullanılmaz, yeni çerçeve kurulur
+      if (isObj(ev) && ev.type === 'error') ytFrame.broken = true
+      if (ytFrame.hooks) onYouTubeEvent(ev, ytFrame.hooks)
+    }
+
+    // Bu oda için bekleyen, hazır ve hata bildirmemiş çerçevede yeni parçanın videosu hazırlanır. Sonuç true:
+    // oynatıcı kuruldu. Çerçeve olayları yeni parçaya yönlendirilir, hazır olduğu için ready olayı beklenmez.
+    // Bağdaştırıcı videoyu hazırlayamazsa (ör. önceki videonun hazırlanması bitmedi) sonuç false olur, çağıran
+    // çerçeveyi kapatıp yenisini kurar.
+    function reuseFrame (room, track) {
+      const f = ytFrame
+      if (!f || f.room !== room || f.broken || typeof f.impl.load !== 'function') return false
+      let ok = false
+      try {
+        ok = f.impl.ready() === true && f.impl.load(track.videoId) === true
+      } catch (e) {
+        ok = false
+      }
+      if (!ok) return false
+      f.hooks = hooksFor(room, track, f)
+      player = wrapYouTube(track, f.impl)
+      setStatus('ready')
+      applyAudioSettings()
+      return true
+    }
+
+    // YouTube çerçevesi bu cihazda bekleyebilir mi (rıza, kaynak ve oynatıcı alanı)
+    function youtubeAllowed () {
+      return settings.supported && settings.enabled && settings.youtube && consentValue() === 'granted' && Boolean(host)
+    }
+
     // Yanıt vermeyen YouTube oynatıcısı hâlâ hazır değilse baştan kurulur
     function rebuildIfStuck (trackId) {
       if (!player || player.trackId !== trackId || player.kind !== 'youtube' || player.ready() || local.error !== 'yt_unresponsive') return
@@ -2013,20 +2188,22 @@ var TelsizMusic = (function (root) {
       changed()
     }
 
-    function hooksFor (room, track) {
+    // frameRec: YouTube parçasında çerçevenin kaydı. Eşitlenmiş ses düzeyi bilgisi çerçeveye aittir, aynı
+    // çerçevede çalan sonraki parçalara da geçer.
+    function hooksFor (room, track, frameRec) {
       const alive = () => player && player.trackId === track.id
       // Oynatıcı bu cihazın ses düzeyini bir kez bildirdikten sonra (o zamana kadar YouTube'un hatırladığı eski
       // değer gelebilir) oynatıcının kendi denetimleriyle yapılan değişiklik "Sizin için" ayarına yansıtılır
-      let soundSynced = false
+      const sound = frameRec || { soundSynced: false }
       return {
         volume: (v, m) => {
           // Kaydırıcı sürüklenirken gecikmeli gelen eski değerler kendi komutumuzun yankısıdır
           if (!alive() || now() - soundCommandAt < SOUND_ECHO_MS) return
           const ours = Math.round(volumeValue() * 100)
           const v100 = Math.max(0, Math.min(100, Math.round(v)))
-          if (!soundSynced) {
+          if (!sound.soundSynced) {
             if (Math.abs(v100 - ours) > 1 || m !== mutedValue()) return
-            soundSynced = true
+            sound.soundSynced = true
             return
           }
           let adopted = false
@@ -2142,6 +2319,8 @@ var TelsizMusic = (function (root) {
       local.failed = false
       local.corrections = 0
       if (track.type === 'youtube') {
+        if (reuseFrame(room, track)) return
+        dropFrame()
         const YT = youtubeApi()
         if (!YT || typeof YT.create !== 'function') {
           local.error = 'yt_unavailable'
@@ -2149,7 +2328,8 @@ var TelsizMusic = (function (root) {
           emitError('yt_unavailable', track.id, true)
           return
         }
-        const hooks = hooksFor(room, track)
+        const rec = { impl: null, room: room, hooks: null, broken: false, soundSynced: false }
+        rec.hooks = hooksFor(room, track, rec)
         let impl
         try {
           impl = YT.create({
@@ -2160,7 +2340,7 @@ var TelsizMusic = (function (root) {
             title: typeof opts.t === 'function' ? opts.t('music.playerFrameTitle') : '',
             now: now,
             timers: timers,
-            onEvent: (ev) => onYouTubeEvent(ev, hooks)
+            onEvent: (ev) => routeYouTubeEvent(impl, ev)
           })
         } catch (e) {
           local.error = 'yt_unavailable'
@@ -2168,6 +2348,8 @@ var TelsizMusic = (function (root) {
           emitError('yt_unavailable', track.id, true)
           return
         }
+        rec.impl = impl
+        ytFrame = rec
         player = wrapYouTube(track, impl)
         setStatus('loading')
         return
@@ -2234,13 +2416,18 @@ var TelsizMusic = (function (root) {
         changed()
         return
       }
-      player = createAudioPlayer(env, track, result.url, hooksFor(room, track))
+      player = createAudioPlayer(audioElement, track, result.url, hooksFor(room, track))
       local.loadingTrack = null
       local.error = null
       cancelRecovery()
       setStatus('loading')
       applyAudioSettings()
       changed()
+    }
+
+    function audioElement () {
+      if (!sharedAudio) sharedAudio = env.createAudio()
+      return sharedAudio
     }
 
     function onYouTubeEvent (ev, hooks) {
@@ -2262,6 +2449,7 @@ var TelsizMusic = (function (root) {
       return {
         kind: 'youtube',
         trackId: track.id,
+        impl: impl,
         ready: () => impl.ready(),
         playing: () => impl.playing(),
         buffering: () => ytState() === YT_BUFFERING,
@@ -2277,7 +2465,10 @@ var TelsizMusic = (function (root) {
         setMuted: (m) => impl.setMuted(m === true),
         visible: () => impl.visible(),
         element: () => impl.element(),
-        destroy: () => impl.destroy()
+        destroy: () => {
+          if (ytFrame && ytFrame.impl === impl) dropFrame()
+          else impl.destroy()
+        }
       }
     }
 
@@ -2433,8 +2624,11 @@ var TelsizMusic = (function (root) {
         pruneLoads()
         return
       }
+      // Dosya parçası çalarken bekleyen çerçeve de yalnızca kendi odasının oturumunda ve YouTube'a izin varken
+      // kalır
+      if (ytFrame && (ytFrame.room !== room || !youtubeAllowed())) dropFrame()
       if (!player || player.trackId !== want.id || player.kind !== want.type) {
-        stopPlayer()
+        stopPlayer(true)
         startPlayer(room, want)
       }
       pruneLoads()
@@ -2518,6 +2712,16 @@ var TelsizMusic = (function (root) {
       }
       if (started) {
         if (local.ended) return
+        if (activeLocalHolds().length > 0) {
+          // Arayüzün yerel bekletmesi (küçültülmüş oynatıcı, arka plandaki pencere, medya tuşları)
+          if (player.playing()) {
+            local.ownPauseUntil = local0 + OWN_PAUSE_MS
+            player.pause()
+          }
+          local.settleSince = null
+          setStatus('paused')
+          return
+        }
         if (local.hold) {
           setStatus('paused')
           return
@@ -2709,6 +2913,7 @@ var TelsizMusic = (function (root) {
       if (host === container) return
       host = container
       if (player && player.kind === 'youtube') stopPlayer()
+      dropFrame()
       reconcile()
       changed()
     }
@@ -2716,6 +2921,7 @@ var TelsizMusic = (function (root) {
     function detachPlayer () {
       host = null
       if (player && player.kind === 'youtube') stopPlayer()
+      dropFrame()
       reconcile()
       changed()
     }
@@ -2725,7 +2931,7 @@ var TelsizMusic = (function (root) {
       local.needsTap = false
       clearHold()
       local.lastPlayAttempt = -Infinity
-      if (player && !player.loading && player.ready() && !local.failed) {
+      if (player && !player.loading && player.ready() && !local.failed && activeLocalHolds().length === 0) {
         const st = listenState()
         if (st && st.current && st.current.id === player.trackId && st.playing && clock.serverNow() >= st.anchorAt) {
           const at = now()
@@ -2830,6 +3036,7 @@ var TelsizMusic = (function (root) {
       setMuted: setMuted,
       unlock: unlock,
       resync: resync,
+      setLocalHold: setLocalHold,
       rekey: retryNoKey,
       serverNow: () => clock.serverNow(),
       destroy: destroy
@@ -2871,7 +3078,8 @@ var TelsizMusic = (function (root) {
       maxTitle: MAX_TITLE,
       maxEnvChars: MAX_ENV_CHARS,
       driftLimitMs: DRIFT_LIMIT_MS,
-      startLeadMs: START_LEAD_MS,
+      startLeadYouTubeMs: START_LEAD_YT_MS,
+      startLeadFileMs: START_LEAD_FILE_MS,
       endGraceMs: END_GRACE_MS,
       maxDurationMs: MAX_DURATION_MS
     }),

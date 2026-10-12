@@ -1330,3 +1330,75 @@ body[data-cast="live"][data-cast-chat="open"] #main.convo {
     animation: none;
   }
 }
+
+/* =========================================================
+   9. Önizlemeyi küçültme ve yüzen pencere (istek 16)
+   Kendi paylaşımında başlıkta Yüzen Pencere ve Küçült, izlerken Yüzen Pencere (22-cast.js). Küçültülen
+   önizlemenin sahnesini üst çubuk çipindeki Önizlemeyi Göster geri getirir.
+   ========================================================= */
+
+.top-cast-show {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  margin-right: 0.25rem;
+  padding: 0 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.top-cast-show:hover {
+  background-color: var(--surface-hover);
+}
+
+.top-cast-show .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+}
+
+/* 1439 px ve altı: çipin yazısı gizlidir, Önizlemeyi Göster de yalnızca simgedir (erişilebilir adı korunur) */
+@media (max-width: 1439px) {
+  .top-cast-show-text {
+    display: none;
+  }
+
+  .top-cast-show .icon {
+    margin-right: 0;
+  }
+}
+
+/* 999 px ve altı: başlıktaki Yüzen Pencere ve Küçült yalnızca simgedir (ipucu görünür etiketle aynıdır) */
+@media (max-width: 999px) {
+  .cast-head > .cast-float,
+  .cast-head > .cast-own-min {
+    padding: 0 0.5rem;
+  }
+
+  .cast-head > .cast-float .icon,
+  .cast-head > .cast-own-min .icon {
+    margin-right: 0;
+  }
+
+  .cast-head > .cast-float .cast-button-label,
+  .cast-head > .cast-own-min .cast-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* 759 px ve altı: üst çubukta çip olmadığı için önizleme küçültülmez */
+@media (max-width: 759px) {
+  .cast-head > .cast-own-min {
+    display: none;
+  }
+}

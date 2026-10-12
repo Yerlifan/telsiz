@@ -10,7 +10,8 @@
 // açılan yan sayfa, telefonda alttan açılan sayfadır (biçim frekans.css içinde). Aynı anda tek sayfa açıktır,
 // ortak örtü #drawer-backdrop'tur. Sayfa katman yığınına 'sheet-<ad>' adıyla girer: açılınca odak sayfadaki
 // ilk anlamlı öğeye gider, odak sayfanın içinde kalır, Esc, örtüye tıklama, Kapat düğmesi ve tarayıcının
-// geri düğmesi (dar ekranda) kapatır, odak açan düğmeye döner.
+// geri düğmesi kapatır, odak açan düğmeye döner. Geri düğmesi her genişlikte çalışır: sayfanın geçmiş kaydını
+// 38-gezinme.js katman yığınını izleyerek ekler ve kaldırır.
 
 const SHEETS = {
   frekans: { id: 'frekans-sheet', trigger: 'band-all' },
@@ -20,8 +21,9 @@ const SHEETS = {
 }
 
 const sheetState = {
-  history: false,
-  switching: false
+  switching: false,
+  // Açılan sayfanın ilk odağı (ör. Özel düğmesi İstasyonlar sayfasını Özel Mesajlar grubunda açar)
+  focus: null
 }
 
 // 1280 px ve üstünde oda bilgisi sol sütundadır, sayfa olarak açılmaz. Telsiz DJ sütunu görünürken de
@@ -58,6 +60,9 @@ function isSheetOpen (name) {
 }
 
 function sheetInitialFocus (name, panel) {
+  const wanted = sheetState.focus ? sheetState.focus(panel) : null
+  sheetState.focus = null
+  if (wanted) return wanted
   if (name === 'stations' || name === 'frekans') {
     const current = panel.querySelector('.room-row[aria-current], .sheet-row[aria-current]')
     if (current) return current
@@ -66,8 +71,9 @@ function sheetInitialFocus (name, panel) {
   return items[0] || panel.querySelector('[data-sheet-close]')
 }
 
-// Sayfayı açar. Aynı sayfa açıksa kapatır (düğme açma ve kapama işini birlikte görür).
-function openSheet (name, trigger) {
+// Sayfayı açar. Aynı sayfa açıksa kapatır (düğme açma ve kapama işini birlikte görür). focus verilirse
+// sayfanın ilk odağını seçer (sayfa öğesini alır, öğe döndürmezse olağan ilk odak kullanılır).
+function openSheet (name, trigger, focus) {
   const conf = SHEETS[name]
   const panel = conf ? byId(conf.id) : null
   if (!panel || !state.inApp) return
@@ -98,7 +104,7 @@ function openSheet (name, trigger) {
   el.appView.classList.add('has-sheet')
   el.drawerBackdrop.hidden = false
   if (opener) opener.setAttribute('aria-expanded', 'true')
-  if (isNarrow() && !sheetState.history) pushSheetHistory()
+  sheetState.focus = typeof focus === 'function' ? focus : null
   openLayer({
     name: 'sheet-' + name,
     el: panel,
@@ -115,10 +121,9 @@ function openSheet (name, trigger) {
         panel.hidden = true
       }
       if (opener) opener.setAttribute('aria-expanded', 'false')
-      if (!openSheetLayer()) {
+      if (!openSheetLayer() && !sheetState.switching) {
         el.appView.classList.remove('has-sheet')
         el.drawerBackdrop.hidden = true
-        if (!sheetState.switching) popSheetHistory()
       }
     }
   })
@@ -151,34 +156,6 @@ function onSheetCloseClick (e) {
   if (btn) closeTopSheet(true)
 }
 
-// Dar ekranda tarayıcının (ve telefonun) geri düğmesi açık sayfayı kapatır. Sayfa açılınca geçmişe bir
-// kayıt eklenir, sayfa başka yoldan kapanınca bu kayıt geri alınır.
-function pushSheetHistory () {
-  try {
-    if (!window.history || typeof window.history.pushState !== 'function') return
-    window.history.pushState({ telsizSheet: true }, '')
-    sheetState.history = true
-  } catch (err) {
-    sheetState.history = false
-  }
-}
-
-function popSheetHistory () {
-  if (!sheetState.history) return
-  sheetState.history = false
-  try {
-    window.history.back()
-  } catch (err) {
-    // Geçmiş kullanılamıyor
-  }
-}
-
-function onPopState () {
-  if (!sheetState.history) return
-  sheetState.history = false
-  closeTopSheet(true)
-}
-
 // Pencere boyutu: geniş (1280 ve üstü), geniş dar (1000 ile 1279), orta (760 ile 999), dar (760 altı) ve
 // televizyon (1800 ve üstü). Düzen sınıfı değişince açık sayfa ve açılır katmanlar kapanır.
 let lastLayoutClass = ''
@@ -202,6 +179,8 @@ function onResize () {
   placeRadio()
   if (state.inApp) renderChannelHeader()
   closeSheets()
+  // Özel düğmesi 1280 px altında sayfa açar, üstünde konuşma (04-meta.js renderTopPersonal)
+  if (state.inApp && typeof renderTopPersonal === 'function') renderTopPersonal()
   const picker = findLayer('emoji')
   if (picker) closeLayer(picker, false)
   closeMessageMenu()
@@ -352,6 +331,8 @@ function bindEvents () {
 
   // Frekans düzeni: bant (21-band.js), sayfalar, üst çubuk ve oda bilgisi kartı
   if (typeof bandInit === 'function') bandInit()
+  // Tarayıcı geçmişi: konuşmalar ve katmanlar geri tuşuyla gezilir (38-gezinme.js)
+  if (typeof navInit === 'function') navInit()
   on(el.bandAll, 'click', () => {
     openSheet('frekans', el.bandAll)
   })
@@ -385,7 +366,6 @@ function bindEvents () {
   on(byId('frekans-sheet'), 'click', onSheetCloseClick)
   on(el.peopleSheet, 'click', onSheetCloseClick)
   on(el.infoCol, 'click', onSheetCloseClick)
-  on(window, 'popstate', onPopState)
   on(document, 'keydown', onSettingsShortcut)
 
   on(el.meButton, 'click', () => {
@@ -540,6 +520,8 @@ function applyLanguage () {
   renderAttachments()
   updateCounter()
   refreshEmojiLanguage()
+  // Okunmamış şeridi, ayraç ve yeni mesaj kapsülü (38-gezinme.js)
+  if (typeof navOnLanguage === 'function') navOnLanguage()
   if (findLayer('peer')) renderPeerMute()
   settingsOnLanguage()
 }

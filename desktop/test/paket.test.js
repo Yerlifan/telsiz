@@ -202,7 +202,7 @@ test('ayarlar doğrulanarak okunur ve atomik yazılır', () => {
     const file = path.join(root, 'alt', settingsStore.FILE_NAME)
     assert.deepEqual(settingsStore.load(file), settingsStore.defaults())
     const saved = settingsStore.save(file, { server: 'https://telsiz.ornek.com', closeToTray: true, shortcuts: { toggleMute: 'ctrl+shift+m', toggleDeafen: null } })
-    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null, pttToggle: null }, ptt: { mode: 'toggle', holdKey: null }, autoUpdate: true })
+    assert.deepEqual(saved, { server: 'https://telsiz.ornek.com', frequencies: [{ origin: 'https://telsiz.ornek.com', name: null, lastUsed: 0 }], closeToTray: true, shortcuts: { toggleMute: 'CommandOrControl+Shift+M', toggleDeafen: null, pttToggle: null }, ptt: { mode: 'toggle', holdKey: null }, autoUpdate: true, floatBounds: null })
     assert.deepEqual(settingsStore.load(file), saved)
     // Bas konuş: varsayılan bas aç, bas kapat. Basılı tut ve tuşu saklanır, geçersiz ayar varsayılana döner.
     assert.deepEqual(settingsStore.defaults().ptt, { mode: 'toggle', holdKey: null })
@@ -213,6 +213,14 @@ test('ayarlar doğrulanarak okunur ve atomik yazılır', () => {
     for (const bad of [{ mode: 'kanca' }, { mode: 'hold', holdKey: 'VolumeUp' }, { mode: 'hold', holdKey: 'V', keycode: 47 }, 'hold', ['hold']]) {
       fs.writeFileSync(file, JSON.stringify(Object.assign({}, saved, { ptt: bad })))
       assert.deepEqual(settingsStore.load(file).ptt, { mode: 'toggle', holdKey: null }, JSON.stringify(bad))
+    }
+    // Yüzen pencerenin konumu ve boyutu saklanır, geçersiz değer unutulur
+    const floated = settingsStore.save(file, Object.assign({}, saved, { floatBounds: { x: -1200, y: 40, width: 360, height: 250, fazla: 1 } }))
+    assert.deepEqual(floated.floatBounds, { x: -1200, y: 40, width: 360, height: 250 })
+    assert.deepEqual(settingsStore.load(file).floatBounds, { x: -1200, y: 40, width: 360, height: 250 })
+    for (const bad of [{ x: 0, y: 0, width: 100, height: 250 }, { x: 0.5, y: 0, width: 360, height: 250 }, 'sol alt', [0, 0, 360, 250]]) {
+      fs.writeFileSync(file, JSON.stringify(Object.assign({}, saved, { floatBounds: bad })))
+      assert.equal(settingsStore.load(file).floatBounds, null, JSON.stringify(bad))
     }
     // Eski ayar dosyası (ptt ve pttToggle yok) okunur
     fs.writeFileSync(file, JSON.stringify({ version: 2, server: 'https://telsiz.ornek.com', shortcuts: { toggleMute: 'F9', toggleDeafen: null } }))

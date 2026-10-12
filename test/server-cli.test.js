@@ -9,6 +9,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const net = require('node:net')
+const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 const h = require('./server-yardimci')
 
@@ -65,6 +66,9 @@ async function preparedData () {
   const owner = await h.setupOwner(ctx)
   const ayse = await h.addUser(ctx, owner.token, 'ayse.yilmaz')
   h.expectStatus(await h.post(ctx, '/api/me/identity', ayse.token, { identity: h.envelope() }), 200)
+  // Kurtarma kodu (istek 14): komut satırı sıfırlaması onu da siler
+  const recovery = { authKey: crypto.randomBytes(32).toString('hex'), wrappedKey: h.keyPair().wrappedKey }
+  h.expectStatus(await h.post(ctx, '/api/me/recovery', ayse.token, { authKey: h.authKeyFor(h.PASSWORD), recovery }), 200)
   await ctx.stop()
   return { ctx, owner, ayse }
 }
@@ -98,7 +102,8 @@ describe('sifre-sifirla komutu', () => {
       assert.ok(disk.sessions.some((s) => s.userId === owner.user.id))
       assert.ok(!text.includes(match[1]))
       const user = disk.users.find((u) => u.id === ayse.user.id)
-      assert.deepEqual([user.publicKey, user.wrappedKey, user.identity], [null, null, null])
+      assert.deepEqual([user.publicKey, user.wrappedKey, user.identity, user.recovery], [null, null, null, null])
+      assert.match(result.stdout, /güvenlik anahtarı ve kurtarma kodu da sıfırlandı/)
       // Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulabilir (geçici parolayı işletmeci de bilir)
       assert.equal(user.resetPending, true)
       assert.notEqual(user.kdf.salt, h.KDF.salt)

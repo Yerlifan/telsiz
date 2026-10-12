@@ -230,6 +230,93 @@
   display: none;
 }
 
+/* Kurtarma kodu (41-kurtarma.js): Parolamı Unuttum kartı, giriş ekranındaki kod kartı ve uygulama içindeki kod
+   penceresi aynı kod görünümünü kullanır. Kod dörderli gruplar hâlinde satır sonunda bölünür, telefonda taşmaz. */
+.login-forgot {
+  margin-top: 0.5rem;
+}
+
+.forgot-back {
+  margin-top: 0.5rem;
+}
+
+.forgot-nocode {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: var(--border-width) solid var(--line);
+}
+
+.forgot-nocode-title {
+  padding: 0.6rem 0;
+  color: var(--text);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+.forgot-owner {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.forgot-command {
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-small);
+  background-color: var(--surface-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.recovery-rotated {
+  margin: 0.5rem 0;
+  color: var(--live);
+  font-weight: var(--weight-strong);
+}
+
+.recovery-code {
+  margin: 0.75rem 0 0;
+  padding: 0.875rem 0.75rem;
+  border: var(--border-width) solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--screen-bg);
+  color: var(--text-strong);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.7;
+  text-align: center;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.recovery-code-group {
+  display: inline-block;
+}
+
+.recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -0.25rem;
+}
+
+.recovery-actions .button {
+  flex: 1 1 auto;
+  margin: 0.25rem;
+}
+
+.recovery-saved {
+  margin-top: 0.5rem;
+}
+
+.recovery-continue {
+  margin-top: 0.75rem;
+}
+
+.recovery-continue:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* =========================================================
    2. Çevrimiçi sayfası ve şeridi
    ========================================================= */
@@ -557,11 +644,13 @@
   cursor: pointer;
 }
 
+/* Ad en az 6rem görünür (istek 17, telefon dışında): başlık sığmazsa düğmeler simgeye döner (.is-tight,
+   38-gezinme.js) */
 .dm-header-text {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 6rem;
 }
 
 .dm-header .dm-header-name {
@@ -628,6 +717,32 @@
 
 .dm-header .dm-profile-button {
   flex: none;
+}
+
+/* Özel mesaj görünümünde Oda bilgisi düğmesi (⋯) daralmaz, başlığın düğmeleriyle üst üste binmez */
+.app-view[data-view="dm"] .convo-head .room-info-button {
+  flex: none;
+}
+
+/* Dar başlık (38-gezinme.js navFitDmHeader): güvenlik rozetinin ve Profil düğmesinin yazısı gizlenir,
+   erişilebilir adları kalır. Arama düğmeleri arama.css içinde. */
+.dm-header.is-tight .dm-safety {
+  padding: 0 0.625rem;
+}
+
+.dm-header.is-tight .dm-safety .pill-text,
+.dm-header.is-tight .dm-profile-button .button-text {
+  display: none;
+}
+
+.dm-header.is-tight .dm-safety .icon,
+.dm-header.is-tight .dm-profile-button .icon {
+  margin-right: 0;
+}
+
+.dm-header.is-tight .dm-profile-button {
+  min-width: var(--target);
+  padding: 0;
 }
 
 /* =========================================================
@@ -859,6 +974,11 @@
 
   .dm-header > * + * {
     margin-left: 0.5rem;
+  }
+
+  /* Telefonda adın en az genişliği yoktur: 320 piksellik ekranda simgeye dönen düğmeler sığar, ad kısalır */
+  .dm-header-text {
+    min-width: 0;
   }
 
   .home-view .home-view-head {

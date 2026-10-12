@@ -1,11 +1,11 @@
 'use strict'
 
 // Telsiz HTTP sunucusu: yönlendirme, uç noktalar, rol yetkileri, hız sınırları, yüklemeler,
-// hesaplar ve kişisel anahtarlar, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
-// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu, statik beyaz
-// liste ve düzgün kapanış.
-// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını,
-// token'ları, authKey değerlerini ve anahtarları hiçbir zaman loglamaz.
+// hesaplar ve kişisel anahtarlar, kurtarma kodu, profiller, durumlar ve oturumlar, arkadaşlar, engellemeler,
+// özel mesajlar, özel mesajda sesli ve görüntülü arama, yazıyor bildirimleri, Telsiz DJ müzik durumu ve şarkı adıyla
+// YouTube araması, içerik şikâyetleri, statik beyaz liste ve düzgün kapanış.
+// Sunucu parolayı hiç görmez (istemci authKey gönderir). Mesaj gövdelerini, profil zarflarını, şikâyet notlarını,
+// token'ları, authKey değerlerini, anahtarları ve DJ arama metinlerini hiçbir zaman loglamaz.
 // API hata metinleri isteğin Accept-Language başlığına, günlük metinleri lang seçeneğine göre
 // Türkçe veya İngilizcedir (src/i18n.js).
 
@@ -21,6 +21,7 @@ const { createHub } = require('./hub')
 const { createSocial } = require('./social')
 const { createMusic } = require('./music')
 const { createCalls } = require('./calls')
+const youtubeSearch = require('./youtube-search')
 const i18n = require('./i18n')
 const runtime = require('./runtime')
 const staticSource = require('./static-source')
@@ -107,15 +108,31 @@ const DEFAULTS = Object.freeze({
   typingLimit: 30,
   typingWindowMs: 10000,
   typingTtlMs: 6000,
+  // Otomatik boşta (src/hub.js): bir oturumun boşa geçişleri arasındaki en kısa süre. Daha erken gelen boşa geçiş
+  // yok sayılır, boştan dönüş hemen işlenir. Her geçiş herkese meta yayını tetiklediği için sınırlanır.
+  idleGapMs: 5000,
   // Telsiz DJ durum yazımları: kullanıcı başına 30 / 10 sn. Boşalan ses odasının müzik durumu 30 dk sonra
   // bellekten silinir.
   musicLimit: 30,
   musicWindowMs: 10000,
   musicIdleMs: 30 * 60 * 1000,
+  // Telsiz DJ şarkı adıyla YouTube araması (sahip açarsa): kullanıcı başına 10 / 60 sn, sunucu geneli son 24 saatte
+  // en çok 300 YouTube isteği. Bir arama en çok iki istek yapar (InnerTube ve sonuç sayfası), önbellekten verilen
+  // yanıtlar ve devre kesici açıkken istek atmadan reddedilen aramalar sayılmaz. Tavan kota için değil, sunucunun
+  // adresinin YouTube tarafından engellenmesine karşıdır.
+  musicSearchLimit: 10,
+  musicSearchWindowMs: 60000,
+  musicSearchDailyMax: 300,
+  // Testler için arama yerine geçen işlev (query) => Promise<[{ videoId, title, channel, durationS }]> veya
+  // { request } (gerçek ayrıştırıcıya sahte istek işlevi). null ise src/youtube-search.js YouTube'a gider.
+  youtubeSearch: null,
   // Özel mesaj aramaları: başlatma ve reddetme kullanıcı başına 10 / 60 sn, cevaplanmayan arama 45 sn sonra düşer
   callLimit: 10,
   callWindowMs: 60000,
   callRingMs: 45000,
+  // İçerik şikâyeti: kullanıcı başına saatte 10
+  reportLimit: 10,
+  reportWindowMs: 3600000,
   maxFriends: 300,
   maxPendingRequests: 100,
   maxDmsPerUser: 500,
@@ -142,7 +159,8 @@ const POSITIVE_OPTIONS = [
   'friendRequestLimit', 'friendRequestWindowMs', 'maxFriends', 'maxPendingRequests', 'maxDmsPerUser',
   'maxProfileChars', 'avatarMaxBytes', 'typingLimit', 'typingWindowMs', 'typingTtlMs', 'musicLimit',
   'musicWindowMs', 'musicIdleMs', 'userUploadQuotaBytes', 'maxTotalMessages', 'callLimit', 'callWindowMs',
-  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs'
+  'callRingMs', 'voiceLimit', 'hashConcurrency', 'hashQueueMax', 'uploadMinBytesPerSec', 'uploadRateGraceMs',
+  'musicSearchLimit', 'musicSearchWindowMs', 'musicSearchDailyMax', 'idleGapMs', 'reportLimit', 'reportWindowMs'
 ]
 const TIMER_OPTIONS = ['pollTimeoutMs', 'graceMs', 'sweepIntervalMs', 'typingTtlMs', 'callRingMs', 'uploadRateGraceMs']
 
@@ -169,6 +187,15 @@ const MAX_ROLES = 20
 const VOICE_MOD_ACTIONS = ['mute', 'unmute', 'disconnect', 'camera-off']
 const STATUSES = new Set(['online', 'idle', 'dnd', 'invisible'])
 const MANAGED_TYPES = new Set(['text', 'voice'])
+// İçerik şikâyeti (POST /api/reports): türler, nedenler ve state.json içinde tutulan en çok kayıt. Notun düz metni
+// istemcide en çok 2000 kod noktasıdır ve grup anahtarıyla mühürlenir. Zarf sınırı kod noktası başına en çok 4
+// bayt ile JSON alanlarına pay bırakır: (2000 * 4 + 400) bayt base64url ile yaklaşık 11250 karakter.
+const REPORT_KINDS = new Set(['message', 'user'])
+const REPORT_REASONS = new Set(['spam', 'harassment', 'illegal', 'other'])
+const REPORTS_MAX = 500
+// Bir kişinin aynı anda açık tutabileceği en çok şikâyet (tek kişi listeyi dolduramasın)
+const REPORTS_OPEN_PER_USER = 20
+const REPORT_NOTE_MAX_CHARS = 12000
 const IDENTITY_MAX_CHARS = 2000
 // Telsiz DJ şifreli durum zarfı (istemcideki TelsizMusic LIMITS.maxEnvChars ile aynı). En kötü durum
 // (101 parça, en uzun adlar, dolu gone listesi) yaklaşık 105000 karakterdir.
@@ -195,7 +222,15 @@ const DEFAULT_MAX_CAMERAS = 4
 const CALL_CAPACITY = 2
 const CALL_MAX_CAMERAS = 2
 const VOICE_SETTING_KEYS = ['capacity', 'cameras', 'maxCameras']
-const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted']
+const MUSIC_SETTING_KEYS = ['enabled', 'youtube', 'restricted', 'search']
+// Şarkı adıyla arama: sorgu en çok bu kadar kod noktası, yanıtta en çok bu kadar sonuç, aynı sorgunun sonucu bu
+// süre bellekte tutulur (en çok MUSIC_SEARCH_CACHE_MAX sorgu)
+const MUSIC_SEARCH_QUERY_MAX = 200
+const MUSIC_SEARCH_RESULTS = 5
+const MUSIC_SEARCH_CACHE_MS = 10 * 60 * 1000
+const MUSIC_SEARCH_CACHE_MAX = 500
+// Sorgudaki denetim ve yön karakterleri boşluk olur (satır sonları dahil)
+const SEARCH_UNSAFE_G = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g
 const PROFILE_IDS_MAX = 100
 // Silinmiş hesap kayıtları da (mesaj yazarı olarak) tutulduğu için toplam kayıt ayrıca sınırlanır
 const USER_RECORDS_FACTOR = 4
@@ -413,6 +448,10 @@ function resolveOptions (options) {
   if (config.publicDir !== null) config.publicDir = path.resolve(config.publicDir)
   if (config.staticSource === null) config.staticSource = staticSource.defaultSource(config.publicDir)
   else if (!staticSource.isSource(config.staticSource)) throw new TypeError('createChatServer: invalid staticSource.')
+  const ys = config.youtubeSearch
+  if (ys !== null && typeof ys !== 'function' && !(ys && typeof ys === 'object' && typeof ys.request === 'function')) {
+    throw new TypeError('createChatServer: youtubeSearch must be a function or { request }.')
+  }
   if (config.setupCode !== null && auth.normalizeCode(config.setupCode) === null) {
     throw new TypeError('createChatServer: setupCode may contain only Crockford base32 characters.')
   }
@@ -434,6 +473,38 @@ function cleanRole (value) {
 
 function publicRole (role) {
   return { id: role.id, name: role.name, color: role.color, perms: role.perms.slice() }
+}
+
+function finiteTime (value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+// Şikâyet kaydı: { id, kind, reporterId, targetUserId, channelId, messageId, dm, reason, note, createdAt, resolvedAt,
+// resolvedBy }. Mesaj şikâyetinde channelId ve messageId vardır, dm mesajın özel konuşmada olduğunu gösterir. Kişi
+// şikâyetinde ikisi de null'dır. note grup anahtarıyla mühürlü zarf veya null. Geçersizse null.
+function cleanReport (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !isId(value.id)) return null
+  if (!REPORT_KINDS.has(value.kind) || !REPORT_REASONS.has(value.reason)) return null
+  if (!isId(value.reporterId) || !isId(value.targetUserId) || !finiteTime(value.createdAt)) return null
+  const message = value.kind === 'message'
+  if (message ? !(isId(value.channelId) && isId(value.messageId)) : (value.channelId !== null || value.messageId !== null)) return null
+  if (value.note !== null && !validEnvelope(value.note, REPORT_NOTE_MAX_CHARS)) return null
+  const resolved = value.resolvedAt !== null
+  if (resolved ? !(finiteTime(value.resolvedAt) && isId(value.resolvedBy)) : value.resolvedBy !== null) return null
+  return {
+    id: value.id,
+    kind: value.kind,
+    reporterId: value.reporterId,
+    targetUserId: value.targetUserId,
+    channelId: message ? value.channelId : null,
+    messageId: message ? value.messageId : null,
+    dm: message && value.dm === true,
+    reason: value.reason,
+    note: value.note,
+    createdAt: value.createdAt,
+    resolvedAt: value.resolvedAt,
+    resolvedBy: value.resolvedBy
+  }
 }
 
 // Yüklenen durumun temel kayıtlarını denetler. Bozuksa hiçbir şeyi değiştirmeden hata fırlatır.
@@ -492,8 +563,9 @@ function normalizeUserFields (u, config, log) {
     wrappedKey: auth.isWrappedKey,
     identity: (value) => validEnvelope(value, IDENTITY_MAX_CHARS),
     profile: (value) => validEnvelope(value, config.maxProfileChars),
-    // Yükleme kaydıyla eşleşmesi normalizeAvatars içinde denetlenir
-    avatarUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value)
+    // Yükleme kaydıyla eşleşmesi normalizeProfileImages içinde denetlenir
+    avatarUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value),
+    coverUploadId: (value) => typeof value === 'string' && UPLOAD_ID_RE.test(value)
   }
   for (const field of Object.keys(checks)) {
     if (u[field] === null) continue
@@ -501,6 +573,14 @@ function normalizeUserFields (u, config, log) {
       u[field] = null
       changed = true
     }
+  }
+  // Kurtarma kodu kaydı (istek 14). Alanı olmayan eski kayıtlar diske yazılmadan null olur. Anahtar çifti yoksa
+  // kurtarma kodunun sarılmış anahtarı da anlamsızdır, silinir.
+  if (u.recovery === undefined) {
+    u.recovery = null
+  } else if (u.recovery !== null && (u.deleted || u.publicKey === null || !auth.isRecoveryRecord(u.recovery))) {
+    u.recovery = null
+    changed = true
   }
   if (typeof u.allowMemberDms !== 'boolean') {
     u.allowMemberDms = u.allowMemberDms !== false
@@ -517,26 +597,32 @@ function normalizeUserFields (u, config, log) {
   return changed
 }
 
-// Profil resmi bağlantıları: kullanıcının avatarUploadId değeri, kendisinin yüklediği, mesaja
-// bağlı olmayan bir kayda işaret etmeli ve o kayıt profileUserId ile kullanıcıya bağlı olmalı.
-// Eşleşmeyen bağlantılar kaldırılır (kayıt sahipsiz kalır ve taramada silinir). Değişiklik sayısı döner.
-function normalizeAvatars (state) {
+// Profil resmi ve kapak fotoğrafı alanları (kullanıcı kaydında yükleme kimliği tutan alanlar)
+const PROFILE_IMAGE_FIELDS = ['avatarUploadId', 'coverUploadId']
+
+// Profil resmi ve kapak fotoğrafı bağlantıları: kullanıcının avatarUploadId ve coverUploadId değerleri, kendisinin
+// yüklediği, mesaja bağlı olmayan bir kayda işaret etmeli ve o kayıt profileUserId ile kullanıcıya bağlı olmalı. Bir
+// kayıt yalnızca tek bir alana bağlanabilir. Eşleşmeyen bağlantılar kaldırılır (kayıt sahipsiz kalır ve taramada
+// silinir). Değişiklik sayısı döner.
+function normalizeProfileImages (state) {
   const records = new Map()
   for (const rec of state.uploads) records.set(rec.id, rec)
   const linked = new Set()
   let fixes = 0
   for (const u of state.users) {
-    if (u.avatarUploadId === null) continue
-    const rec = records.get(u.avatarUploadId)
-    if (u.deleted || !rec || rec.uploaderId !== u.id || rec.messageId !== null || linked.has(rec)) {
-      u.avatarUploadId = null
-      fixes++
-      continue
-    }
-    linked.add(rec)
-    if (rec.profileUserId !== u.id) {
-      rec.profileUserId = u.id
-      fixes++
+    for (const field of PROFILE_IMAGE_FIELDS) {
+      if (u[field] === null) continue
+      const rec = records.get(u[field])
+      if (u.deleted || !rec || rec.uploaderId !== u.id || rec.messageId !== null || linked.has(rec)) {
+        u[field] = null
+        fixes++
+        continue
+      }
+      linked.add(rec)
+      if (rec.profileUserId !== u.id) {
+        rec.profileUserId = u.id
+        fixes++
+      }
     }
   }
   for (const rec of state.uploads) {
@@ -637,7 +723,7 @@ function normalizeLoadedState (state, config, log) {
     state.uploads = uploads
     changed = true
   }
-  const avatarFixes = normalizeAvatars(state)
+  const avatarFixes = normalizeProfileImages(state)
   if (avatarFixes > 0) {
     log.warn(i18n.t(lang, 'log.invalidAvatars', { count: avatarFixes }))
     changed = true
@@ -663,6 +749,28 @@ function normalizeLoadedState (state, config, log) {
   if (!Number.isSafeInteger(state.counters.role) || state.counters.role < maxRole) {
     if (state.counters.role !== undefined || maxRole > 0) changed = true
     state.counters.role = Math.max(maxRole, Number.isSafeInteger(state.counters.role) && state.counters.role > 0 ? state.counters.role : 0)
+  }
+  // Şikâyetler eski durum dosyalarında yoktur, boş listeyle başlar (yazım gerekmez). Liste oluşturulma sırasıyla
+  // tutulur, fazlası en eskiden düşer.
+  if (state.reports === undefined) {
+    state.reports = []
+  } else {
+    const seenReports = new Set()
+    const reports = (Array.isArray(state.reports) ? state.reports : []).map(cleanReport).filter((r) => {
+      if (!r || seenReports.has(r.id)) return false
+      seenReports.add(r.id)
+      return true
+    }).slice(-REPORTS_MAX)
+    if (!sameJson(reports, state.reports)) {
+      log.warn(i18n.t(lang, 'log.invalidReports'))
+      state.reports = reports
+      changed = true
+    }
+  }
+  const maxReport = state.reports.reduce((max, r) => Math.max(max, r.id), 0)
+  if (!Number.isSafeInteger(state.counters.report) || state.counters.report < maxReport) {
+    if (state.counters.report !== undefined || maxReport > 0) changed = true
+    state.counters.report = Math.max(maxReport, Number.isSafeInteger(state.counters.report) && state.counters.report > 0 ? state.counters.report : 0)
   }
   // Hesabın özel rolü ve ses susturması eski kayıtlarda yoktur (yazım gerekmez), silinen role bağlı rol kalkar
   const roleIds = new Set(state.roles.map((r) => r.id))
@@ -737,15 +845,32 @@ function normalizeLoadedState (state, config, log) {
   return changed
 }
 
-// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted }. enabled ve youtube eksikse açık, restricted (kuyruğu
-// odada DJ izni olan biri varken yalnızca o yönetir) eksikse kapalıdır.
+// Telsiz DJ sunucu ayarı: { enabled, youtube, restricted, search }. enabled ve youtube eksikse açık, restricted
+// (kuyruğu odada DJ izni olan biri varken yalnızca o yönetir) ve search (şarkı adıyla YouTube araması, Hizmet
+// Şartları riski yüzünden sahip açıkça açar) eksikse kapalıdır.
 function cleanMusicSettings (value) {
   const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     enabled: typeof src.enabled === 'boolean' ? src.enabled : true,
     youtube: typeof src.youtube === 'boolean' ? src.youtube : true,
-    restricted: typeof src.restricted === 'boolean' ? src.restricted : false
+    restricted: typeof src.restricted === 'boolean' ? src.restricted : false,
+    search: typeof src.search === 'boolean' ? src.search : false
   }
+}
+
+// Arama metni: NFC, denetim karakterleri ve satır sonları boşluk olur, boşluklar sadeleşir. 1 ile
+// MUSIC_SEARCH_QUERY_MAX kod noktası arasında değilse null.
+function cleanSearchQuery (value) {
+  if (typeof value !== 'string' || value.length > MUSIC_SEARCH_QUERY_MAX * 4) return null
+  let text = value
+  try {
+    text = text.normalize('NFC')
+  } catch (err) {
+    return null
+  }
+  text = text.replace(SEARCH_UNSAFE_G, ' ').replace(/\s+/g, ' ').trim()
+  const length = Array.from(text).length
+  return length >= 1 && length <= MUSIC_SEARCH_QUERY_MAX ? text : null
 }
 
 function intInRange (value, min, max) {
@@ -780,7 +905,7 @@ function prepareState (store, config, log) {
       serverIcon: null,
       inviteCode: auth.generateCode(),
       activeKid: null,
-      counters: { user: 0, channel: 0, message: 0, role: 0 },
+      counters: { user: 0, channel: 0, message: 0, role: 0, report: 0 },
       users: [],
       sessions: [],
       channels: [],
@@ -791,8 +916,10 @@ function prepareState (store, config, log) {
       blocks: [],
       // Özel roller (sahip oluşturur, dizideki sıra rütbedir)
       roles: [],
-      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1)
-      music: { enabled: true, youtube: true, restricted: false },
+      // İçerik şikâyetleri (sahip ve yöneticiler görür), oluşturulma sırasıyla
+      reports: [],
+      // Telsiz DJ varsayılan olarak açık gelir (Ek L2.1), şarkı adıyla arama kapalı gelir
+      music: cleanMusicSettings(null),
       // Ses odası kapasitesi ve kameralar (sahip değiştirir)
       voice: cleanVoiceSettings(null, defaultVoiceCapacity(config))
     })
@@ -837,6 +964,13 @@ function metaUser (user) {
 
 function ownKeys (user) {
   return { publicKey: user.publicKey, wrappedKey: user.wrappedKey }
+}
+
+// Kurtarma kodunun kişinin kendisine gösterilen bilgisi: oluşturma zamanı ve cihaz etiketi. Karma ve sarılmış
+// anahtar hiçbir yanıtta dönmez (sarılmış anahtar yalnızca doğru kodla /api/recover/keys yanıtında).
+function recoveryView (user) {
+  const rec = user.recovery
+  return rec ? { createdAt: rec.createdAt, label: rec.label } : null
 }
 
 function publicChannel (channel) {
@@ -990,8 +1124,15 @@ async function createChatServer (options) {
   const musicLimiter = new auth.RateLimiter(config.musicLimit, config.musicWindowMs)
   // Özel mesaj aramasını başlatma ve reddetme (karşı tarafın zilini çaldırdığı için ayrıca sınırlanır)
   const callLimiter = new auth.RateLimiter(config.callLimit, config.callWindowMs)
+  // İçerik şikâyeti (sahip ve yöneticilerin listesini doldurmasın diye ayrıca sınırlanır)
+  const reportLimiter = new auth.RateLimiter(config.reportLimit, config.reportWindowMs)
+  // Şarkı adıyla arama: kullanıcı başına sınır ve sunucu geneli 24 saatlik YouTube isteği tavanı (tek anahtar,
+  // YouTube'a giden her istekte spendSearchBudget ile düşer)
+  const musicSearchLimiter = new auth.RateLimiter(config.musicSearchLimit, config.musicSearchWindowMs)
+  const musicSearchDaily = new auth.RateLimiter(config.musicSearchDailyMax, DAY_MS, 1)
   const limiters = [authLimiter, lookupLimiter, loginFailLimiter, loginNameLimiter, accountNameLimiter, accountFailLimiter, messageLimiter, uploadLimiter, adminLimiter,
-    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter]
+    signalLimiter, voiceLimiter, friendLimiter, socialLimiter, profileLimiter, typingLimiter, musicLimiter, callLimiter, musicSearchLimiter, musicSearchDaily,
+    reportLimiter]
   const trustsProxy = auth.trustPolicy(config.trustedProxies)
   // Güvenilmeyen yerel vekil uyarısı yalnızca bir kez yazılır
   let proxyWarned = false
@@ -1005,18 +1146,46 @@ async function createChatServer (options) {
   // Telsiz DJ müzik durumları: yalnızca bellekte, ses odası başına (src/music.js)
   const music = createMusic({ idleMs: config.musicIdleMs, onChange: () => hub.bumpMusic() })
 
+  // Şarkı adıyla YouTube araması (src/youtube-search.js). Testler arayıcıyı (işlev) ya da gerçek ayrıştırıcının istek
+  // işlevini ({ request }) verir. Devre kesici açılınca günlüğe tek satır yazılır, arama metni yazılmaz. Sunucu
+  // geneli tavan YouTube'a giden her istekten hemen önce düşer (budget). Enjekte edilen arayıcı arama başına tek
+  // istek sayılır.
+  function spendSearchBudget () {
+    return musicSearchDaily.consume('all', Date.now()) === 0
+  }
+  const searchEngine = typeof config.youtubeSearch === 'function'
+    ? null
+    : youtubeSearch.createYouTubeSearch({
+      request: config.youtubeSearch ? config.youtubeSearch.request : undefined,
+      budget: spendSearchBudget,
+      onBreak: (reason, minutes) => log.warn(i18n.t(config.lang, 'log.musicSearchPaused', { minutes, reason }))
+    })
+  const runYouTubeSearch = searchEngine ? searchEngine.search : (query) => {
+    if (!spendSearchBudget()) throw youtubeSearch.searchError('search_daily_limit', 'daily_limit', false)
+    return config.youtubeSearch(query)
+  }
+  // Küçük harfli sorgu -> { at, results } ve süren aramalar (aynı sorgu YouTube'a bir kez gider)
+  const musicSearchCache = new Map()
+  const musicSearchPending = new Map()
+
   const hub = createHub({
     pollTimeoutMs: config.pollTimeoutMs,
     graceMs: config.graceMs,
     eventBufferSize: config.eventBufferSize,
     maxWaitersPerSession: config.maxWaitersPerSession,
     typingTtlMs: config.typingTtlMs,
+    idleGapMs: config.idleGapMs,
     getBase: metaBase,
     getPrivate: privateOf,
     music: { version: music.version, map: music.map },
     isHidden: (userId) => {
       const user = usersById.get(userId)
       return Boolean(user) && user.status === 'invisible'
+    },
+    // Otomatik boşta yalnızca elle seçilen durum Çevrimiçi iken görünür (Boşta, Rahatsız etmeyin ve Görünmez değişmez)
+    showsAutoIdle: (userId) => {
+      const user = usersById.get(userId)
+      return Boolean(user) && user.status === 'online'
     },
     // Engel ilişkisi olan iki kullanıcı (hangi yönde olursa olsun) birbirinin yazıyor bilgisini görmez
     canSeeTyping: (viewerId, typerId) => !social.isBlockedEither(viewerId, typerId),
@@ -1107,7 +1276,8 @@ async function createChatServer (options) {
       channels,
       users,
       roles: state.roles.map(publicRole),
-      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted },
+      // search: arama gerçekten kullanılabilir mi (DJ ve YouTube kaynağı da açık olmalı)
+      music: { enabled: state.music.enabled, youtube: state.music.youtube, restricted: state.music.restricted, search: state.music.enabled && state.music.youtube && state.music.search },
       voiceSettings: { capacity: state.voice.capacity, cameras: state.voice.cameras, maxCameras: state.voice.maxCameras }
     }
   }
@@ -1127,6 +1297,13 @@ async function createChatServer (options) {
       view = user
         ? Object.assign(social.privateView(user), { call: callViewFor(userId) })
         : { friends: [], incoming: [], outgoing: [], blocked: [], dms: [], allowMemberDms: false, status: 'online', call: null }
+      // Sahip ve yöneticiler kendileri hakkında olmayan açık şikâyetlerin sayısını ve gördükleri en yeni şikâyetin
+      // kimliğini alır (liste GET /api/reports ile alınır)
+      if (user && !user.deleted && isStaff(user)) {
+        const seen = reportSummaryFor(user.id)
+        view.reports = seen.open
+        view.reportsLast = seen.last
+      }
       privateCache.set(userId, view)
     }
     return view
@@ -1618,8 +1795,15 @@ async function createChatServer (options) {
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    // Kurtarma kodu eski anahtar çiftini sarıyordu, sıfırlamayla birlikte silinir
+    user.recovery = null
     user.resetPending = true
     user.pv++
+  }
+
+  // Yeni kurtarma kodu kaydı (istemcinin authKey'inin karması ve kodla sarılmış özel anahtar)
+  function recoveryRecord (setup, hash, req) {
+    return { v: 1, hash, wrappedKey: setup.wrappedKey, createdAt: Date.now(), label: auth.sessionLabel(req.headers['user-agent']) }
   }
 
   // ---------------------------------------------------------------- uç noktalar: hesap
@@ -1689,13 +1873,22 @@ async function createChatServer (options) {
     const kdf = auth.cleanKdf(b.kdf)
     if (kdf === null) return fail(ctx, 400, 'bad_kdf')
     if (!auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey)) return fail(ctx, 400, 'bad_keys')
+    // İsteğe bağlı kurtarma kodu: hesapla birlikte (aynı yazımda) saklanır
+    const hasRecovery = b.recovery !== undefined && b.recovery !== null
+    const recoverySetup = hasRecovery ? auth.cleanRecoverySetup(b.recovery) : null
+    if (hasRecovery && recoverySetup === null) return fail(ctx, 400, 'bad_keys')
     const setup = !ownerExists()
     const input = setup ? b.setupCode : b.inviteCode
     if (!codeAccepted(setup, input)) return fail(ctx, 403, 'bad_code', setup ? 'detail.setupCodeWrong' : 'detail.inviteCodeWrong')
     if (serverFull()) return fail(ctx, 503, 'server_full')
     if (usersByKey.has(name)) return fail(ctx, 409, 'name_taken')
 
-    const passHash = await gatedHash(() => auth.hashPassword(b.authKey, config.scryptN))
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.authKey, config.scryptN)
+      const rec = recoverySetup ? await auth.hashPassword(recoverySetup.authKey, config.scryptN) : null
+      return { pass, rec }
+    })
+    const passHash = hashes.pass
 
     // Karma hesaplanırken durum değişmiş olabilir (ör. aynı anda iki kurulum isteği), denetimler yinelenir
     if (closing) return fail(ctx, 503, 'shutting_down')
@@ -1716,8 +1909,10 @@ async function createChatServer (options) {
       publicKey: b.publicKey,
       wrappedKey: b.wrappedKey,
       identity: null,
+      recovery: recoverySetup ? recoveryRecord(recoverySetup, hashes.rec, ctx.req) : null,
       profile: null,
       avatarUploadId: null,
+      coverUploadId: null,
       status: 'online',
       allowMemberDms: true,
       pv: 0,
@@ -1819,6 +2014,7 @@ async function createChatServer (options) {
       now: Date.now(),
       me: Object.assign(publicUser(ctx.user), { status: ctx.user.status }),
       keys: ownKeys(ctx.user),
+      recovery: recoveryView(ctx.user),
       peerId: ctx.rt.peerId,
       sigSeq: ctx.rt.sigSeq,
       iceServers: config.iceServers,
@@ -1836,9 +2032,11 @@ async function createChatServer (options) {
     return state.users.filter((u) => u.banned && !u.deleted).sort((a, b) => a.id - b.id)
   }
 
+  // idle: otomatik boşta ('1' bu sayfa boşta, '0' değil), tab: bildiren sayfanın kimliği (aynı oturumu paylaşan
+  // sekmeler ayrı tutulur). Yalnızca hub'ın belleğinde tutulur, diske yazılmaz.
   function handlePoll (ctx) {
     const q = ctx.query
-    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot') }, ctx.res)
+    hub.poll(ctx.rt, { since: q.get('since'), mv: q.get('mv'), pmv: q.get('pmv'), tv: q.get('tv'), muv: q.get('muv'), sig: q.get('sig'), boot: q.get('boot'), idle: q.get('idle'), tab: q.get('tab') }, ctx.res)
   }
 
   // İstemci aynı özel anahtarı yeni parolayla yeniden sarar. Diğer oturumlar kapanır. Anahtar çifti yoksa (parola
@@ -1857,6 +2055,10 @@ async function createChatServer (options) {
     const hasPublic = b.publicKey !== undefined && b.publicKey !== null
     const newPair = !hadKeys && hasPublic
     if (hadKeys ? hasPublic || !auth.isWrappedKey(b.wrappedKey) : newPair ? !auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey) : !noWrapped) return fail(ctx, 400, 'bad_keys')
+    // İsteğe bağlı yeni kurtarma kodu (yeni parolayla birlikte yenilenir). Verilmezse var olan kod geçerli kalır.
+    const hasRecovery = b.recovery !== undefined && b.recovery !== null
+    const recoverySetup = hasRecovery ? auth.cleanRecoverySetup(b.recovery) : null
+    if (hasRecovery && (recoverySetup === null || !(hadKeys || newPair))) return fail(ctx, 400, 'bad_keys')
     const failKey = 'p:' + user.id
     if (accountBlocked(ctx, failKey)) return
     const good = await checkAuthKey(user, b.oldAuthKey)
@@ -1865,12 +2067,16 @@ async function createChatServer (options) {
       return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     }
     const hashUsed = user.passHash
-    const passHash = await gatedHash(() => auth.hashPassword(b.newAuthKey, config.scryptN))
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.newAuthKey, config.scryptN)
+      const rec = recoverySetup ? await auth.hashPassword(recoverySetup.authKey, config.scryptN) : null
+      return { pass, rec }
+    })
     if (closing) return fail(ctx, 503, 'shutting_down')
     if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
     if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.oldPasswordWrong')
     if ((user.publicKey !== null) !== hadKeys) return fail(ctx, 400, 'bad_keys')
-    user.passHash = passHash
+    user.passHash = hashes.pass
     user.credEpoch = auth.newCredEpoch()
     user.kdf = kdf
     user.wrappedKey = hadKeys || newPair ? b.wrappedKey : null
@@ -1878,15 +2084,17 @@ async function createChatServer (options) {
     if (newPair) {
       user.publicKey = b.publicKey
       user.identity = null
+      user.recovery = null
       user.pv++
       hub.bumpMeta()
     }
+    if (recoverySetup) user.recovery = recoveryRecord(recoverySetup, hashes.rec, ctx.req)
     accountFailLimiter.reset(failKey)
     resetLoginFails(user.key)
     deleteSessions(sessionsOf(user.id).filter((s) => s !== ctx.session), 'invalid_token')
     store.saveState()
     // Önceki giriş cihazı işaretleri yeni parola karmasıyla geçersizdir, bu cihaz yenisini alır
-    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)) })
+    return okDurable(ctx, { ok: true, device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)), recovery: recoveryView(user) })
   }
 
   // Türetme gücünü yükseltir: aynı parola, varsayılan güçte yeni ayar (yeni tuz, N=KDF_DEFAULT_N). İstemci girişten
@@ -1943,10 +2151,169 @@ async function createChatServer (options) {
     user.publicKey = b.publicKey
     user.wrappedKey = b.wrappedKey
     user.identity = null
+    user.recovery = null
     user.pv++
     store.saveState()
     hub.bumpMeta()
     ok(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- kurtarma kodu (istek 14)
+
+  // Kurtarma kodunu oluşturur, yeniler ({ authKey, recovery: { authKey, wrappedKey } }) veya kaldırır (recovery: null).
+  // Şu anki parola gerekir: parolayı bir kez öğrenen biri kişiden habersiz kod kurup sonradan hesabı geri alamasın
+  // diye kod yalnızca parolayla değiştirilir, oluşturan cihaz kişiye Ayarlar'da gösterilir.
+  async function handleMyRecovery (ctx) {
+    const b = ctx.body
+    const user = ctx.user
+    if (b.recovery === undefined) return fail(ctx, 400, 'bad_request')
+    const setup = b.recovery === null ? null : auth.cleanRecoverySetup(b.recovery)
+    if (b.recovery !== null && setup === null) return fail(ctx, 400, 'bad_keys')
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
+    if (user.publicKey === null) return fail(ctx, 409, 'no_keys')
+    if (!takeSocialSlot(ctx)) return
+    const failKey = 'p:' + user.id
+    if (accountBlocked(ctx, failKey)) return
+    const good = await checkAuthKey(user, b.authKey)
+    if (!good) {
+      accountFailLimiter.hit(failKey)
+      return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    }
+    const hashUsed = user.passHash
+    const publicKeyUsed = user.publicKey
+    const recoveryUsed = user.recovery
+    const hash = setup ? await gatedHash(() => auth.hashPassword(setup.authKey, config.scryptN)) : null
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    if (!stillSignedIn(ctx)) return fail(ctx, 401, 'invalid_token')
+    if (user.passHash !== hashUsed) return fail(ctx, 401, 'bad_credentials', 'detail.passwordWrong')
+    if (user.resetPending === true) return fail(ctx, 409, 'password_change_required')
+    // Anahtar çifti veya kod bu arada değiştiyse (başka bir cihaz) sarılmış anahtar güncel olmayabilir
+    if (user.publicKey !== publicKeyUsed || user.recovery !== recoveryUsed) return fail(ctx, 409, 'keys_changed')
+    accountFailLimiter.reset(failKey)
+    user.recovery = setup ? recoveryRecord(setup, hash, ctx.req) : null
+    store.saveState()
+    return okDurable(ctx, { ok: true, recovery: recoveryView(user) })
+  }
+
+  // Kurtarma denemelerinin sayaçları girişinkilerden ayrıdır ('r:' öneki): kurtarma denemeleri girişi kilitlemez.
+  // Geçerli giriş cihazı işareti olan istek yalnızca işaretin sayacına bağlıdır (loginFailKeys ile aynı kural).
+  function recoverFailKeys (ctx, name, user, device) {
+    if (name === null) return []
+    const deviceId = user ? auth.loginDeviceId(state.serverSecret, user.id, deviceEpoch(user), device) : null
+    if (deviceId !== null) return [{ limiter: loginFailLimiter, key: 'rd:' + deviceId }]
+    return [
+      { limiter: loginFailLimiter, key: 'r:' + name + '|' + requestIpKey(ctx.req) },
+      { limiter: user ? accountNameLimiter : loginNameLimiter, key: 'r:' + name }
+    ]
+  }
+
+  function resetRecoverFails (name) {
+    loginNameLimiter.reset('r:' + name)
+    accountNameLimiter.reset('r:' + name)
+    loginFailLimiter.resetPrefix('r:' + name + '|')
+  }
+
+  // Kurtarma kodundan türetilen authKey doğrulaması. Hesap yoksa, kurtarma kodu yoksa veya anahtar çifti yoksa aynı
+  // maliyetle sahte karma doğrulanır (ad taraması yapılamasın). Sonuç bekleme süresince kayıt değişmediyse geçerlidir.
+  async function checkRecoveryKey (user, value) {
+    const key = auth.isAuthKey(value) ? value : ''
+    const rec = user && !user.deleted && user.publicKey !== null ? user.recovery : null
+    const hashUsed = rec ? rec.hash : dummyHash
+    const good = await gatedHash(() => auth.verifyPassword(key === '' ? 'x' : key, hashUsed))
+    return good && rec !== null && key !== '' && user.recovery === rec && !user.deleted
+  }
+
+  // Ortak ön adım: adres sınırı, sayaçlar ve kodun doğrulanması. Başarısızsa yanıt verilmiş ve null döner,
+  // başarılıysa { name, user, failKeys }. Hesap yok, kod yok ve kod yanlış durumlarının yanıtı aynıdır.
+  async function verifyRecoveryRequest (ctx) {
+    const wait = authLimiter.consume(requestIpKey(ctx.req), ctx.now)
+    if (wait > 0) {
+      tooMany(ctx, wait, 'detail.authRate')
+      return null
+    }
+    const b = ctx.body
+    const name = auth.cleanUsername(b.name)
+    const user = name === null ? null : usersByKey.get(name) || null
+    const failKeys = recoverFailKeys(ctx, name, user, b.device)
+    for (const f of failKeys) {
+      const blocked = f.limiter.blocked(f.key, ctx.now)
+      if (blocked > 0) {
+        tooMany(ctx, blocked, 'detail.loginRate')
+        return null
+      }
+    }
+    const good = await checkRecoveryKey(user, b.recoveryAuthKey)
+    if (!good || usersByKey.get(name) !== user) {
+      for (const f of failKeys) f.limiter.hit(f.key)
+      if (failKeys.length === 1) accountNameLimiter.hit('r:' + name)
+      fail(ctx, 401, 'bad_recovery')
+      return null
+    }
+    // Engel yalnızca doğru koddan sonra açığa çıkar (girişle aynı kural)
+    if (user.banned) {
+      fail(ctx, 403, 'banned')
+      return null
+    }
+    if (closing) {
+      fail(ctx, 503, 'shutting_down')
+      return null
+    }
+    return { name, user, failKeys }
+  }
+
+  // Oturumsuz: doğru kurtarma koduyla açık anahtar ve kodla sarılmış özel anahtar döner ({ name, recoveryAuthKey }).
+  // İstemci özel anahtarı kodla açar ve yeni parolayla yeniden sarıp /api/recover ile gönderir.
+  async function handleRecoverKeys (ctx) {
+    const found = await verifyRecoveryRequest(ctx)
+    if (!found) return
+    ok(ctx, { publicKey: found.user.publicKey, wrappedKey: found.user.recovery.wrappedKey })
+  }
+
+  // Oturumsuz: kurtarma koduyla yeni parola. Gövde { name, recoveryAuthKey, publicKey, newAuthKey, kdf, wrappedKey,
+  // recovery: { authKey, wrappedKey }, device? }. Kimlik anahtarı değişmez (açık anahtar, kimlik kaydı ve profil
+  // sürümü aynı kalır), aynı özel anahtar yeni parolayla ve yeni kurtarma koduyla yeniden sarılır. Kurtarma kodu tek
+  // kullanımlıktır, yenisi zorunludur. Bütün oturumlar kapanır, bu cihaza yeni oturum açılır.
+  async function handleRecover (ctx) {
+    const b = ctx.body
+    if (!auth.isAuthKey(b.newAuthKey)) return fail(ctx, 400, 'bad_auth_key')
+    const kdf = auth.cleanKdf(b.kdf)
+    if (kdf === null) return fail(ctx, 400, 'bad_kdf')
+    const setup = auth.cleanRecoverySetup(b.recovery)
+    if (!auth.isPublicKey(b.publicKey) || !auth.isWrappedKey(b.wrappedKey) || setup === null) return fail(ctx, 400, 'bad_keys')
+    const found = await verifyRecoveryRequest(ctx)
+    if (!found) return
+    const user = found.user
+    if (user.publicKey !== b.publicKey) return fail(ctx, 409, 'keys_changed')
+    const recoveryUsed = user.recovery
+    const hashes = await gatedHash(async () => {
+      const pass = await auth.hashPassword(b.newAuthKey, config.scryptN)
+      const rec = await auth.hashPassword(setup.authKey, config.scryptN)
+      return { pass, rec }
+    })
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    // Aynı kodla gelen ikinci istek kodun değiştiğini görür ve reddedilir
+    if (user.deleted || usersByKey.get(found.name) !== user || user.recovery !== recoveryUsed) return fail(ctx, 401, 'bad_recovery')
+    if (user.banned) return fail(ctx, 403, 'banned')
+    if (user.publicKey !== b.publicKey) return fail(ctx, 409, 'keys_changed')
+    user.passHash = hashes.pass
+    user.credEpoch = auth.newCredEpoch()
+    user.kdf = kdf
+    user.wrappedKey = b.wrappedKey
+    user.recovery = recoveryRecord(setup, hashes.rec, ctx.req)
+    user.resetPending = false
+    resetLoginFails(user.key)
+    resetRecoverFails(user.key)
+    for (const f of found.failKeys) f.limiter.reset(f.key)
+    accountFailLimiter.reset('p:' + user.id)
+    deleteSessions(sessionsOf(user.id), 'invalid_token')
+    const token = createSession(user, ctx.req)
+    return okDurable(ctx, {
+      token,
+      user: publicUser(user),
+      keys: ownKeys(user),
+      device: auth.newLoginDevice(state.serverSecret, user.id, deviceEpoch(user)),
+      recovery: recoveryView(user)
+    })
   }
 
   // Grup anahtarıyla mühürlenmiş { v, u, pk } kaydı. Sunucu yalnızca zarf biçimini denetler.
@@ -2011,12 +2378,15 @@ async function createChatServer (options) {
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    user.recovery = null
     user.pv++
-    // Profil ve profil resmi silinir (profil resmi de bağlanmamış yüklemeler arasında silinir)
+    // Profil, profil resmi ve kapak fotoğrafı silinir (ikisi de bağlanmamış yüklemeler arasında silinir)
     const doomed = []
-    if (user.avatarUploadId !== null) doomed.push(user.avatarUploadId)
+    for (const field of PROFILE_IMAGE_FIELDS) {
+      if (user[field] !== null) doomed.push(user[field])
+      user[field] = null
+    }
     user.profile = null
-    user.avatarUploadId = null
     user.status = 'online'
     for (const rec of state.uploads) {
       if (rec.uploaderId === user.id && rec.messageId === null) doomed.push(rec.id)
@@ -2062,7 +2432,7 @@ async function createChatServer (options) {
     ok(ctx, { ok: true })
   }
 
-  // Profil zarfı (yoksa null), profil resmi, açık anahtar ve kimlik kaydı.
+  // Profil zarfı (yoksa null), profil resmi, kapak fotoğrafı, açık anahtar ve kimlik kaydı.
   // Silinmiş ve engelli hesaplar listelenmez.
   function handleProfiles (ctx) {
     const raw = ctx.query.get('ids')
@@ -2084,6 +2454,7 @@ async function createChatServer (options) {
         pv: u.pv,
         profile: typeof u.profile === 'string' ? u.profile : null,
         avatarUploadId: typeof u.avatarUploadId === 'string' ? u.avatarUploadId : null,
+        coverUploadId: typeof u.coverUploadId === 'string' ? u.coverUploadId : null,
         publicKey: u.publicKey,
         identity: u.identity
       })
@@ -2098,31 +2469,49 @@ async function createChatServer (options) {
     return false
   }
 
-  // Profil: grup anahtarıyla şifrelenmiş zarf (null ile silinir) ve profil resmi yüklemesi
-  // (null ile kaldırılır). Profil resmi kullanıcının kendi yüklediği, mesaja veya başka bir
-  // profile bağlı olmayan bir yükleme olmalıdır. Değişen eski profil resmi silinir.
+  // Profil resmi veya kapak fotoğrafı olarak bağlanacak yükleme: kullanıcının kendi yüklediği, mesaja veya başka bir
+  // profile bağlı olmayan bir kayıt. Geçersizse null.
+  function ownProfileImage (id, user) {
+    if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id)) return null
+    const rec = uploadsById.get(id) || null
+    if (rec === null || rec.uploaderId !== user.id || rec.messageId !== null) return null
+    if (isId(rec.profileUserId) && rec.profileUserId !== user.id) return null
+    return rec
+  }
+
+  // Profil: grup anahtarıyla şifrelenmiş zarf (null ile silinir), profil resmi yüklemesi (null ile kaldırılır) ve
+  // kapak fotoğrafı yüklemesi (null ile kaldırılır, alan gönderilmezse de kaldırılır: kapağı bilmeyen eski bir istemci
+  // profili kaydedince zarfla kayıt tutarlı kalır). İkisi de ownProfileImage koşulunu sağlamalı ve aynı yükleme
+  // olamaz. Artık kullanılmayan eski profil resmi ve kapak silinir.
   function handleMyProfile (ctx) {
     const b = ctx.body
     const user = ctx.user
     if (b.profile !== null && !validEnvelope(b.profile, config.maxProfileChars)) return fail(ctx, 400, 'bad_profile')
-    let rec = null
+    let avatar = null
     if (b.avatarUploadId !== null) {
-      if (typeof b.avatarUploadId !== 'string' || !UPLOAD_ID_RE.test(b.avatarUploadId)) return fail(ctx, 400, 'bad_avatar')
-      rec = uploadsById.get(b.avatarUploadId) || null
-      const ownFree = rec !== null && rec.uploaderId === user.id && rec.messageId === null
-      const linkedElsewhere = rec !== null && isId(rec.profileUserId) && rec.profileUserId !== user.id
-      if (!ownFree || linkedElsewhere) return fail(ctx, 400, 'bad_avatar')
-      if (rec.size > config.avatarMaxBytes) return fail(ctx, 413, 'avatar_too_large')
+      avatar = ownProfileImage(b.avatarUploadId, user)
+      if (avatar === null) return fail(ctx, 400, 'bad_avatar')
+      if (avatar.size > config.avatarMaxBytes) return fail(ctx, 413, 'avatar_too_large')
+    }
+    let cover = null
+    if (b.coverUploadId !== undefined && b.coverUploadId !== null) {
+      cover = ownProfileImage(b.coverUploadId, user)
+      if (cover === null || cover === avatar) return fail(ctx, 400, 'bad_cover')
+      if (cover.size > config.avatarMaxBytes) return fail(ctx, 413, 'cover_too_large')
     }
     if (!takeProfileSlot(ctx)) return
-    const nextAvatar = rec === null ? null : rec.id
-    if (user.profile === b.profile && user.avatarUploadId === nextAvatar) return ok(ctx, { ok: true, pv: user.pv })
-    const previous = user.avatarUploadId
+    const nextAvatar = avatar === null ? null : avatar.id
+    const nextCover = cover === null ? null : cover.id
+    if (user.profile === b.profile && user.avatarUploadId === nextAvatar && user.coverUploadId === nextCover) return ok(ctx, { ok: true, pv: user.pv })
+    const previous = [user.avatarUploadId, user.coverUploadId]
     user.profile = b.profile
     user.avatarUploadId = nextAvatar
-    if (rec !== null) rec.profileUserId = user.id
+    user.coverUploadId = nextCover
+    if (avatar !== null) avatar.profileUserId = user.id
+    if (cover !== null) cover.profileUserId = user.id
     user.pv++
-    if (previous !== null && previous !== nextAvatar) removeUploads([previous])
+    const unused = previous.filter((id) => id !== null && id !== nextAvatar && id !== nextCover)
+    if (unused.length > 0) removeUploads(unused)
     store.saveState()
     hub.bumpMeta()
     ok(ctx, { ok: true, pv: user.pv })
@@ -2329,7 +2718,7 @@ async function createChatServer (options) {
       if (typeof id !== 'string' || !UPLOAD_ID_RE.test(id) || seen.has(id)) return null
       seen.add(id)
       const rec = uploadsById.get(id)
-      // Profil resmi olarak kullanılan yükleme mesaja eklenemez
+      // Profil resmi veya kapak fotoğrafı olarak kullanılan yükleme mesaja eklenemez
       if (!rec || rec.uploaderId !== user.id || rec.messageId !== null || isId(rec.profileUserId)) return null
       records.push(rec)
     }
@@ -2680,18 +3069,18 @@ async function createChatServer (options) {
     return fail(ctx, 413, 'too_large', 'detail.fileTooLarge')
   }
 
-  // Profil resmine bağlı yükleme: bağlı olduğu hesap silinmemiş ve engellenmemişse oturum açmış
-  // herkese açıktır.
-  function isAvatarRecord (rec) {
+  // Profil resmine veya kapak fotoğrafına bağlı yükleme: bağlı olduğu hesap silinmemiş ve engellenmemişse oturum
+  // açmış herkese açıktır.
+  function isProfileImageRecord (rec) {
     if (!isId(rec.profileUserId)) return false
     const owner = usersById.get(rec.profileUserId)
-    return Boolean(owner) && owner.avatarUploadId === rec.id
+    return Boolean(owner) && (owner.avatarUploadId === rec.id || owner.coverUploadId === rec.id)
   }
 
   // Mesaja bağlı yükleme: yazı kanalındaysa herkese, özel konuşmadaysa yalnızca iki üyeye açıktır.
-  // Profil resmi herkese, başka hiçbir yere bağlı olmayan yükleme yalnızca yükleyene açıktır.
+  // Profil resmi ve kapak fotoğrafı herkese, başka hiçbir yere bağlı olmayan yükleme yalnızca yükleyene açıktır.
   function canDownload (rec, user) {
-    if (isAvatarRecord(rec)) {
+    if (isProfileImageRecord(rec)) {
       const owner = usersById.get(rec.profileUserId)
       return !owner.deleted && !owner.banned
     }
@@ -2831,6 +3220,8 @@ async function createChatServer (options) {
       target.role = b.role
       store.saveState()
       hub.bumpMeta()
+      // Yöneticinin özel görünümünde açık şikâyet sayısı vardır
+      privateChanged([target.id])
     }
     return okDurable(ctx, { ok: true })
   }
@@ -2867,6 +3258,189 @@ async function createChatServer (options) {
     if (target.id === ctx.user.id || target.role === 'owner' || !outranks(ctx.user, target)) return fail(ctx, 403, 'forbidden')
     deleteAccount(target, 'kicked')
     return okDurable(ctx, { ok: true })
+  }
+
+  // ---------------------------------------------------------------- uç noktalar: içerik şikâyeti
+
+  function staffIds () {
+    return state.users.filter((u) => !u.deleted && isStaff(u)).map((u) => u.id)
+  }
+
+  // Şikâyet edilen kişi kendisi hakkındaki şikâyeti görmez ve çözemez (sahip veya yönetici olsa da)
+  function reportVisibleTo (r, userId) {
+    return r.targetUserId !== userId
+  }
+
+  // Görevlinin görebildiği açık şikâyet sayısı ve görebildiği en yeni şikâyetin kimliği (yoksa 0). Liste
+  // oluşturulma sırasıyla tutulduğu için en yeni kayıt en sondadır.
+  function reportSummaryFor (userId) {
+    let open = 0
+    let last = 0
+    for (const r of state.reports) {
+      if (!reportVisibleTo(r, userId)) continue
+      if (r.resolvedAt === null) open++
+      last = r.id
+    }
+    return { open, last }
+  }
+
+  // Şikâyet listesi değişmeden önce görevlilerin özetleri alınır, değişiklikten sonra yalnızca özeti değişenlerin
+  // özel görünümü yenilenir (şikâyet edilen görevlinin poll'u kendisi hakkındaki şikâyetle uyanmaz)
+  function reportSummaries () {
+    return new Map(staffIds().map((id) => [id, reportSummaryFor(id)]))
+  }
+
+  function reportsChanged (before) {
+    const changed = []
+    for (const [id, was] of before) {
+      const now = reportSummaryFor(id)
+      if (now.open !== was.open || now.last !== was.last) changed.push(id)
+    }
+    privateChanged(changed)
+  }
+
+  function openReportsBy (userId) {
+    let n = 0
+    for (const r of state.reports) {
+      if (r.resolvedAt === null && r.reporterId === userId) n++
+    }
+    return n
+  }
+
+  // Liste doluysa yer açılacak kaydın sırası, yer açılamıyorsa -1. Önce en eski çözülmüş şikâyet düşer. Hepsi
+  // açıksa en çok açık şikâyeti olan kişinin en eski açık şikâyeti düşer, ama yalnızca yeni şikâyetle birlikte
+  // bildirenin açık şikâyeti o kişininkinden az kalacaksa. Böylece birkaç hesap listeyi doldurup herkesin
+  // şikâyetini engelleyemez, eşit sayıda şikâyeti olan iki kişi de birbirinin kaydını düşüremez.
+  function reportSlotToFree (reporterId) {
+    const resolved = state.reports.findIndex((r) => r.resolvedAt !== null)
+    if (resolved !== -1) return resolved
+    const counts = new Map()
+    for (const r of state.reports) counts.set(r.reporterId, (counts.get(r.reporterId) || 0) + 1)
+    let top = null
+    let topCount = 0
+    for (const [id, n] of counts) {
+      if (n > topCount) {
+        top = id
+        topCount = n
+      }
+    }
+    if (top === null || top === reporterId || (counts.get(reporterId) || 0) + 1 >= topCount) return -1
+    return state.reports.findIndex((r) => r.reporterId === top)
+  }
+
+  function takeReportSlot (ctx) {
+    const wait = reportLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait === 0) return true
+    tooMany(ctx, wait, 'detail.reportRate')
+    return false
+  }
+
+  // Silinmiş hesabın adı boş döner
+  function liveNameOf (userId) {
+    const user = userId === null ? null : usersById.get(userId)
+    return user && !user.deleted ? user.name : ''
+  }
+
+  function reportView (r) {
+    return {
+      id: r.id,
+      kind: r.kind,
+      reporterId: r.reporterId,
+      reporterName: liveNameOf(r.reporterId),
+      targetUserId: r.targetUserId,
+      targetName: liveNameOf(r.targetUserId),
+      channelId: r.channelId,
+      messageId: r.messageId,
+      dm: r.dm,
+      reason: r.reason,
+      note: r.note,
+      createdAt: r.createdAt,
+      resolvedAt: r.resolvedAt,
+      resolvedBy: r.resolvedBy,
+      resolverName: liveNameOf(r.resolvedBy)
+    }
+  }
+
+  // POST /api/reports { kind, channelId?, messageId?, targetUserId, reason, note? }: üye bir mesajı (okuyabildiği
+  // yazı odasında veya üyesi olduğu özel konuşmada) ya da bir kişiyi frekans sahibine ve yöneticilere bildirir.
+  // Sunucu kimin kimi, hangi mesajı ve hangi nedenle bildirdiğini görür. note grup anahtarıyla mühürlü bir zarftır
+  // (düz metin kabul edilmez), özel mesaj şikâyetinde kişi mesajın çözülmüş metnini isterse bu nota koyar. Aynı
+  // kişinin aynı mesaj veya kişi için açık şikâyeti varsa yenisi açılmaz, yanıt eski kaydın kimliğini döner. Bir
+  // kişinin en çok REPORTS_OPEN_PER_USER açık şikâyeti olabilir (409). Liste doluysa reportSlotToFree bir kayıt
+  // düşürür, düşüremezse 503 reports_full döner. Bu iki ret saatlik hakkı harcamaz. Şikâyet edilen sahip veya
+  // yöneticinin poll'u bu şikâyetle uyanmaz (kendisi hakkındaki şikâyeti görmez).
+  function handleReportCreate (ctx) {
+    const b = ctx.body
+    if (!REPORT_KINDS.has(b.kind) || !REPORT_REASONS.has(b.reason)) return fail(ctx, 400, 'bad_request')
+    const note = b.note === undefined || b.note === null ? null : b.note
+    if (note !== null && !validEnvelope(note, REPORT_NOTE_MAX_CHARS)) return fail(ctx, 400, 'bad_report_note')
+    let target = null
+    let found = null
+    if (b.kind === 'message') {
+      found = findLiveMessage(b.messageId, ctx.user)
+      if (!found || toId(b.channelId) !== found.message.channelId) return fail(ctx, 404, 'message_not_found')
+      if (toId(b.targetUserId) !== found.message.authorId) return fail(ctx, 400, 'bad_request')
+      target = usersById.get(found.message.authorId) || null
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    } else {
+      if ((b.channelId !== undefined && b.channelId !== null) || (b.messageId !== undefined && b.messageId !== null)) return fail(ctx, 400, 'bad_request')
+      target = findLiveUser(b.targetUserId)
+      if (!target) return fail(ctx, 404, 'user_not_found')
+    }
+    if (target.id === ctx.user.id) return fail(ctx, 400, 'self')
+    const messageId = found ? found.message.id : null
+    const same = state.reports.find((r) => r.resolvedAt === null && r.reporterId === ctx.user.id && r.kind === b.kind &&
+      (found ? r.messageId === messageId : r.targetUserId === target.id))
+    if (same) return ok(ctx, { ok: true, id: same.id, duplicate: true })
+    if (openReportsBy(ctx.user.id) >= REPORTS_OPEN_PER_USER) return fail(ctx, 409, 'too_many_open_reports', null, null, { max: REPORTS_OPEN_PER_USER })
+    const free = state.reports.length >= REPORTS_MAX ? reportSlotToFree(ctx.user.id) : null
+    if (free === -1) return fail(ctx, 503, 'reports_full')
+    if (!takeReportSlot(ctx)) return
+    const before = reportSummaries()
+    if (free !== null) state.reports.splice(free, 1)
+    state.counters.report++
+    const report = {
+      id: state.counters.report,
+      kind: b.kind,
+      reporterId: ctx.user.id,
+      targetUserId: target.id,
+      channelId: found ? found.message.channelId : null,
+      messageId,
+      dm: Boolean(found && found.channel.type === 'dm'),
+      reason: b.reason,
+      note,
+      createdAt: ctx.now,
+      resolvedAt: null,
+      resolvedBy: null
+    }
+    state.reports.push(report)
+    store.saveState()
+    reportsChanged(before)
+    return okDurable(ctx, { ok: true, id: report.id })
+  }
+
+  // GET /api/reports: yalnızca sahip ve yöneticiler, en yeni önce. Kişi kendisi hakkındaki şikâyetleri görmez.
+  function handleReportsList (ctx) {
+    if (!requireStaff(ctx)) return
+    const reports = state.reports.filter((r) => reportVisibleTo(r, ctx.user.id))
+    ok(ctx, { reports: reports.reverse().map(reportView) })
+  }
+
+  // POST /api/reports/resolve { id }: yalnızca sahip ve yöneticiler. Çözülmüş şikâyette değişiklik yapmaz. Kişinin
+  // kendisi hakkındaki şikâyet ona yokmuş gibi 404 döner (liste de onu göstermez).
+  function handleReportResolve (ctx) {
+    if (!requireStaff(ctx) || !takeAdminSlot(ctx)) return
+    const id = toId(ctx.body.id)
+    const report = id === null ? null : state.reports.find((r) => r.id === id) || null
+    if (!report || !reportVisibleTo(report, ctx.user.id)) return fail(ctx, 404, 'report_not_found')
+    if (report.resolvedAt === null) {
+      const before = reportSummaries()
+      report.resolvedAt = ctx.now
+      report.resolvedBy = ctx.user.id
+      store.saveState()
+      reportsChanged(before)
+    }
+    return okDurable(ctx, { ok: true, report: reportView(report) })
   }
 
   // ---------------------------------------------------------------- uç noktalar: özel roller
@@ -2994,7 +3568,8 @@ async function createChatServer (options) {
     return okDurable(ctx, { ok: true, tempPassword: creds.tempPassword })
   }
 
-  // Telsiz DJ ayar değişikliği: { enabled?, youtube? } (en az biri, yalnızca boolean). Geçersizse null.
+  // Telsiz DJ ayar değişikliği: { enabled?, youtube?, restricted?, search? } (en az biri, yalnızca boolean).
+  // Geçersizse null.
   function musicSettingsPatch (value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null
     const keys = Object.keys(value)
@@ -3462,6 +4037,61 @@ async function createChatServer (options) {
     ok(ctx, { v: result.v, at: result.at, now })
   }
 
+  // POST /api/music/search { channelId, q } (istek 5): şarkı adıyla YouTube araması. Sahip açar (music.search), DJ ve
+  // YouTube kaynağı da açık olmalıdır. Denetimler /api/music/state ile aynıdır: kişi o ses odasında olmalı, kısıtlı
+  // kipte DJ izni gerekir. Arama metni DJ durumunun aksine şifreli değildir: sunucuya düz metin gelir ve sunucunun
+  // adresiyle YouTube'a gider. Metin günlüğe yazılmaz. Aynı sorgu MUSIC_SEARCH_CACHE_MS boyunca önbellekten verilir.
+  // Yanıt { results: [{ videoId, title, channel, durationS }] } (en çok MUSIC_SEARCH_RESULTS, çalınabilir sonuçlar).
+  async function handleMusicSearch (ctx) {
+    const b = ctx.body
+    if (!state.music.enabled) return fail(ctx, 403, 'dj_disabled')
+    if (!state.music.youtube || !state.music.search) return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+    const channel = isId(b.channelId) ? findChannelOfType(b.channelId, 'voice') : null
+    if (!channel) return fail(ctx, 404, 'channel_not_found')
+    if (!hub.userInVoice(ctx.user.id, channel.id)) return fail(ctx, 403, 'not_in_voice', 'detail.musicNotInRoom')
+    if (state.music.restricted && !hasPerm(ctx.user, 'dj') && djInRoom(channel.id)) {
+      return fail(ctx, 403, 'dj_restricted', 'detail.musicRestricted')
+    }
+    const query = cleanSearchQuery(b.q)
+    if (query === null) return fail(ctx, 400, 'bad_query', 'detail.musicSearchQuery', null, { max: MUSIC_SEARCH_QUERY_MAX })
+    const wait = musicSearchLimiter.consume('u' + ctx.user.id, ctx.now)
+    if (wait > 0) return tooMany(ctx, wait, 'detail.musicSearchRate')
+    const key = query.toLowerCase()
+    const cached = musicSearchCache.get(key)
+    if (cached && ctx.now - cached.at < MUSIC_SEARCH_CACHE_MS) return ok(ctx, { results: cached.results })
+    let pending = musicSearchPending.get(key)
+    if (!pending) {
+      // Tavan burada yalnızca okunur, YouTube'a giden her istekte düşer (spendSearchBudget)
+      const dailyWait = musicSearchDaily.blocked('all', ctx.now)
+      if (dailyWait > 0) return searchDailyLimited(ctx, dailyWait)
+      pending = Promise.resolve().then(() => runYouTubeSearch(query)).then((list) => youtubeSearch.cleanResults(list, MUSIC_SEARCH_RESULTS))
+      musicSearchPending.set(key, pending)
+      pending.then((results) => {
+        musicSearchPending.delete(key)
+        if (musicSearchCache.size >= MUSIC_SEARCH_CACHE_MAX) musicSearchCache.delete(musicSearchCache.keys().next().value)
+        musicSearchCache.set(key, { at: Date.now(), results })
+      }, () => {
+        musicSearchPending.delete(key)
+      })
+    }
+    let results = null
+    try {
+      results = await pending
+    } catch (err) {
+      if (closing) return fail(ctx, 503, 'shutting_down')
+      if (err && err.code === 'search_unavailable') return fail(ctx, 503, 'search_unavailable', 'detail.musicSearchOff')
+      // Tavan bu arama başlarken doluydu (aynı anda başlayan başka aramalar doldurmuş olabilir)
+      if (err && err.code === 'search_daily_limit') return searchDailyLimited(ctx, musicSearchDaily.blocked('all', Date.now()))
+      return fail(ctx, 502, 'search_failed', 'detail.musicSearchFailed')
+    }
+    if (closing) return fail(ctx, 503, 'shutting_down')
+    ok(ctx, { results })
+  }
+
+  function searchDailyLimited (ctx, waitMs) {
+    return fail(ctx, 429, 'search_daily_limit', 'detail.musicSearchDaily', { 'Retry-After': String(Math.max(1, Math.ceil(waitMs / 1000))) })
+  }
+
   // ---------------------------------------------------------------- yönlendirme
 
   const routes = new Map()
@@ -3479,6 +4109,8 @@ async function createChatServer (options) {
   route('/api/prelogin', 'POST', handlePrelogin, { auth: false })
   route('/api/register', 'POST', handleRegister, { auth: false })
   route('/api/login', 'POST', handleLogin, { auth: false })
+  route('/api/recover/keys', 'POST', handleRecoverKeys, { auth: false })
+  route('/api/recover', 'POST', handleRecover, { auth: false })
   route('/api/logout', 'POST', handleLogout)
   route('/api/state', 'GET', handleState)
   route('/api/poll', 'GET', handlePoll)
@@ -3495,12 +4127,16 @@ async function createChatServer (options) {
   route('/api/users/ban', 'POST', handleUserBan)
   route('/api/users/kick', 'POST', handleUserKick)
   route('/api/users/custom-role', 'POST', handleUserCustomRole)
+  route('/api/reports', 'GET', handleReportsList)
+  route('/api/reports', 'POST', handleReportCreate)
+  route('/api/reports/resolve', 'POST', handleReportResolve)
   route('/api/roles/create', 'POST', handleRoleCreate)
   route('/api/roles/update', 'POST', handleRoleUpdate)
   route('/api/roles/delete', 'POST', handleRoleDelete)
   route('/api/users/reset-password', 'POST', handleResetPassword)
   route('/api/me/password', 'POST', handleMyPassword)
   route('/api/me/keys', 'POST', handleMyKeys)
+  route('/api/me/recovery', 'POST', handleMyRecovery)
   route('/api/me/kdf', 'POST', handleMyKdf)
   route('/api/me/identity', 'POST', handleMyIdentity)
   route('/api/me/username', 'POST', handleMyUsername)
@@ -3534,6 +4170,7 @@ async function createChatServer (options) {
   route('/api/calls/decline', 'POST', handleCallDecline)
   route('/api/server-info', 'GET', handleServerInfo)
   route('/api/music/state', 'POST', handleMusicState, { maxBytes: Math.max(config.maxJsonBytes, MUSIC_JSON_MAX_BYTES) })
+  route('/api/music/search', 'POST', handleMusicSearch)
   const downloadRoute = new Map([['GET', { handler: handleDownload, auth: true, body: 'none' }]])
 
   // Kimlik isteyen yollarda oturum, gövde okunmadan önce (yalnızca X-Token başlığıyla) doğrulanır.
@@ -3677,12 +4314,15 @@ async function createChatServer (options) {
       if (expired.length > 0) deleteSessions(expired, 'invalid_token')
       const orphans = []
       for (const rec of state.uploads) {
-        if (rec.messageId === null && !isAvatarRecord(rec) && now - rec.createdAt > config.orphanUploadTtlMs) orphans.push(rec.id)
+        if (rec.messageId === null && !isProfileImageRecord(rec) && now - rec.createdAt > config.orphanUploadTtlMs) orphans.push(rec.id)
       }
       if (orphans.length > 0) removeUploads(orphans)
       for (const limiter of limiters) limiter.sweep(now)
       for (const [userId, rec] of musicFanout) {
         if (now - rec.start >= config.musicWindowMs) musicFanout.delete(userId)
+      }
+      for (const [key, rec] of musicSearchCache) {
+        if (now - rec.at >= MUSIC_SEARCH_CACHE_MS) musicSearchCache.delete(key)
       }
     } catch (err) {
       log.error(i18n.t(config.lang, 'log.sweepError', { error: describeError(err, config.lang) }))
@@ -3705,6 +4345,7 @@ async function createChatServer (options) {
     closing = true
     clearInterval(sweepTimer)
     hub.close()
+    if (searchEngine) searchEngine.close()
     for (const job of Array.from(uploadJobs)) {
       if (job.finish) job.finish('aborted')
       job.req.destroy()

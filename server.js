@@ -446,6 +446,8 @@ async function resetPasswordCli (args) {
     user.publicKey = null
     user.wrappedKey = null
     user.identity = null
+    // Kurtarma kodu eski anahtar çiftini sarıyordu, o da silinir
+    user.recovery = null
     // Yeni anahtar çifti yalnızca yeni parolayla birlikte kurulabilir (src/app.js applyCredentials)
     user.resetPending = true
     user.pv = Number.isSafeInteger(user.pv) && user.pv >= 0 ? user.pv + 1 : 1

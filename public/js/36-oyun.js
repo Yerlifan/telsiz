@@ -569,7 +569,8 @@ function gameRenderTool () {
     b.addEventListener('click', gameToolClick)
     gameState.toolKey = ''
   }
-  // Sıra: Büyüt başa (10-voice.js), Telsiz DJ sona (23-dj.js) kendini koyar, Oyun DJ'den hemen önce durur
+  // Sıra: Büyüt başa (10-voice.js), Telsiz DJ sona (23-dj.js) kendini koyar, Oyun DJ'den hemen önce durur. Yüzen
+  // Pencere (39-yuzen.js) Oyun'un önüne geçer, Oyun'un yerini değiştirmez
   const dj = box.querySelector('.crew-dj')
   const placed = b.parentNode === box && (dj ? b.nextElementSibling === dj : b === box.lastElementChild)
   if (!placed) {
@@ -778,10 +779,13 @@ function gameFirstFocus () {
 
 // ----- Sahnenin içi -----
 
+// Sahnedeki kişilerin adları ve profil sürümü (13-profile.js profileEpoch): biri adını veya profil resmini
+// değiştirince ya da profil resmi sonradan inince lobi, koltuklar ve oyun arayüzlerinin kişi listeleri yeniden çizilir
 function gameNamesKey (m) {
   const ids = m.seats.map((s) => s.id).concat(m.room.map((r) => r.id))
   if (m.invite) ids.push(m.invite.dealer)
-  return ids.map((id) => id + '=' + shownName(id)).join(',')
+  const epoch = typeof profileEpoch === 'function' ? profileEpoch() : 0
+  return epoch + ':' + ids.map((id) => id + '=' + shownName(id)).join(',')
 }
 
 function gameSharing () {

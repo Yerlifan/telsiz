@@ -4,15 +4,17 @@
 // sağda İstasyonlar listesi: yazı ve ses odaları, Oda ekle başlıkta, ortada geniş konuşma sütunu, üst çubuğun
 // ortasında kişisel düğmeler), bantta frekanslar arasında gezinme (yön tuşları, Home, End, uç düğmeleri,
 // tekerlek, tıklama ve ibre sürükleme ile başka frekansa geçiş, ses odasındayken onay), rehber açılır
-// penceresi, Frekanslar sayfası (Tümü), sağ sütun görünmediğinde İstasyonlar düğmesi ve sayfası (900 ve
-// 390 genişlikte), arama, anma rozeti ve anma listesi, yazıyor göstergesi, telefon genişliğinde ve uzun frekans
-// adıyla yatay taşma olmaması. Tarayıcıda diğer frekanslar ayrı köken olduğu için durumları ve sayıları gösterilmez.
+// penceresi, Frekanslar sayfası (Tümü), 900 genişlikte telsiz kartının üstündeki İstasyonlar kartı, kart görünmediğinde
+// (alçak ekran, telefon) İstasyonlar düğmesi ve sayfası (900x700 ve 390 genişlikte, sayfadaki Özel mesajlar grubu ve
+// sayfayı o grupta açan Özel düğmesi), arama, anma rozeti ve anma
+// listesi, yazıyor göstergesi, telefon genişliğinde ve uzun frekans adıyla yatay taşma olmaması. Tarayıcıda diğer
+// frekanslar ayrı köken olduğu için durumları ve sayıları gösterilmez.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const h = require('./yardimci')
 
-const W = { w: null, deniz: null, ece: null, R: {}, K: {}, F: [] }
+const W = { w: null, deniz: null, ece: null, dm: null, R: {}, K: {}, F: [] }
 const test = h.makeTest(__filename, () => (W.w ? W.w.pages : []))
 
 const waitChannel = (page, id) => page.waitForFunction((cid) => String(state.channelId) === String(cid), id)
@@ -366,16 +368,39 @@ test('yazıyor göstergesi: karşı tarafta görünür, alan boşalınca kalkar'
   await deniz.waitForFunction(() => document.getElementById('typing-line').hidden, null, { timeout: h.LONG })
 })
 
-test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar düğmesi odaları yan sayfada açar', async () => {
+// Ece, Deniz ile arkadaş olur ve özel mesaj gönderir: konuşma Deniz'in İstasyonlar sayfasında Özel mesajlar grubuna girer
+async function eceWritesDeniz (text) {
+  const w = W.w
+  const ece = w.P.ece
+  let res = await w.call('POST', '/api/friends/request', { name: 'deniz' }, ece.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  res = await w.call('POST', '/api/friends/accept', { userId: ece.id }, w.P.deniz.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  res = await w.call('POST', '/api/dms/open', { userId: w.P.deniz.id }, ece.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  const dmId = res.data.dm.id
+  const body = w.E.dm.seal({ v: 1, a: ece.id, c: dmId, t: text, f: [] }, w.P.deniz.publicKey, ece.secretKey)
+  res = await w.call('POST', '/api/messages', { channelId: dmId, body, uploads: [] }, ece.token)
+  assert.equal(res.status, 200, JSON.stringify(res.data))
+  return dmId
+}
+
+test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar kartı üstünde, alçak ekranda İstasyonlar düğmesi odaları yan sayfada açar', async () => {
   const page = W.deniz
+  W.dm = await eceWritesDeniz('Deniz, sayfadan da ulaşabiliyor musun?')
+  await page.waitForFunction((id) => state.unread[id] === 1, W.dm, { timeout: h.LONG })
   await page.setViewportSize({ width: 1100, height: 900 })
   await page.waitForFunction(() => document.getElementById('side-right').contains(document.getElementById('radio')))
   await page.setViewportSize({ width: 900, height: 800 })
   // Düzen değişince açık sayfalar kapanır (12-init.js onResize): yeni düzen uygulanana kadar beklenir
   await page.waitForFunction(() => window.innerWidth === 900 && el.appView.getAttribute('data-layout') === layoutClass())
   assert.ok(await h.overflowX(page) <= 0, '900 genişlikte yatay taşma')
-  const shown = await page.evaluate(() => ({ button: document.getElementById('btn-rooms').getClientRects().length > 0, inbox: document.getElementById('inbox').getClientRects().length > 0 }))
-  assert.deepEqual(shown, { button: true, inbox: false })
+  const shownAt = () => page.evaluate(() => ({ button: document.getElementById('btn-rooms').getClientRects().length > 0, inbox: document.getElementById('inbox').getClientRects().length > 0 }))
+  // İstasyonlar kartı telsiz kartının üstündedir (istek 17), yalnızca çok alçak ekranda gizlenir ve düğme görünür
+  assert.deepEqual(await shownAt(), { button: false, inbox: true })
+  await page.setViewportSize({ width: 900, height: 700 })
+  await page.waitForFunction(() => window.innerHeight === 700)
+  assert.deepEqual(await shownAt(), { button: true, inbox: false })
   await page.focus('#btn-rooms')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => !document.getElementById('stations-sheet').hidden && document.getElementById('stations-sheet').contains(document.activeElement))
@@ -394,10 +419,21 @@ test('900 genişlik: telsiz kartı sağ sütunda, İstasyonlar düğmesi odalar�
   assert.equal(r.focus, W.K.genel, 'odak ayarlı odada')
   assert.deepEqual([r.add, r.title, r.expanded], [true, 'İstasyonlar', 'true'])
   assert.ok(await h.overflowX(page) <= 0, 'sayfa açıkken yatay taşma')
+  // Özel mesajlar grubu yazı odalarıyla ses odaları arasında, okunmamış rozetiyle
+  const groups = await page.evaluate(() => Array.from(document.querySelectorAll('#stations-list .rooms-group-title')).map((n) => n.textContent))
+  assert.deepEqual(groups, ['Yazı odaları', 'Özel mesajlar', 'Ses odaları'])
+  assert.deepEqual(await page.evaluate(() => Array.from(document.querySelectorAll('#stations-list .room-row-dm')).map((b) => [b.getAttribute('data-dm-id'), b.querySelector('.station-mark').textContent])),
+    [[String(W.dm), '1']])
   await page.keyboard.press('ArrowDown')
   const target = await focusKey(page)
   await page.keyboard.press('Enter')
   await page.waitForFunction((k) => document.getElementById('stations-sheet').hidden && 'text-' + state.channelId === k, target)
+  // Sol sütun yokken Özel düğmesi konuşma açmaz, İstasyonlar sayfasını Özel mesajlar grubunda açar
+  await page.click('#top-dm')
+  await page.waitForFunction((id) => !document.getElementById('stations-sheet').hidden && document.activeElement.getAttribute('data-dm-id') === String(id), W.dm)
+  assert.equal(await page.evaluate(() => currentViewMode()), 'channel')
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('#stations-sheet', { state: 'hidden' })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.waitForFunction(() => document.getElementById('radio-slot').contains(document.getElementById('radio')))
 })
@@ -414,6 +450,14 @@ test('telefon 390: yatay taşma yok, İstasyonlar ve Frekanslar alt sayfa, ses o
     return Math.round(r.left) === 0 && Math.round(r.width) === 390 && Math.round(window.innerHeight - r.bottom) === 0
   })
   assert.ok(await h.overflowX(page) <= 0, 'İstasyonlar açıkken yatay taşma')
+  // Alt sayfada da Özel mesajlar grubu var, satır kısalmadan sığar
+  const dmRow = await page.evaluate((id) => {
+    const b = document.querySelector('#stations-list .room-row-dm[data-dm-id="' + id + '"]')
+    const name = b.querySelector('.room-row-name')
+    return { shown: b.getClientRects().length > 0, cut: name.scrollWidth > name.clientWidth, right: Math.round(b.getBoundingClientRect().right) }
+  }, W.dm)
+  assert.deepEqual([dmRow.shown, dmRow.cut], [true, false])
+  assert.ok(dmRow.right <= 390, 'özel mesaj satırı ekranda: ' + dmRow.right)
   // Ses odası satırı odaya katılır ve sayfa kapanır (sahte mikrofonu olmayan WebKit'te sayfa kapatılır)
   if (h.FAKE_MIC) {
     await page.click('#stations-list .room-row[data-station="' + W.K.lobi + '"]')

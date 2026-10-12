@@ -17,6 +17,13 @@
 // - genel kısayol olayları yalnızca izinli eylemlerle sayfaya ulaşır
 // - bas konuş: pttToggle kısayolu kaydedilir, basılı tut olayları yalnızca 'start' ve 'end' ile gelir,
 //   yerel modül paketlenmiş derlemede asar dışındadır, tuş kancası yalnızca ses odasındayken çalışır
+// - pencere durumu: küçültme, geri yükleme (tam ekrana dönüş dahil), tepsiye gizleme ve tepsiden dönüş sayfaya
+//   yalnızca izinli değerlerle gelir
+// - sistemin boşta süresi uygulama penceresinden ve gerçek bir arka plan penceresinden tam saniye olarak okunur,
+//   bağlamı olmayan pencere okuyamaz
+// - yüzen pencere yalnızca ana süreçten alınan tek kullanımlık adla ve about:blank adresiyle açılır, her zaman
+//   üsttedir, izin alamaz, gezinemez ve yeni pencere açamaz, kapanınca konumu saklanır, sayfa yeniden yüklenince kapanır,
+//   alt çerçeveden jetonsuz açılamaz, alt çerçevenin jetonla açtığı pencere hemen yok edilir
 //
 // Varsayılan olarak geliştirme düzenindeki uygulama (node_modules/electron ile desktop/) açılır.
 // TELSIZ_UYGULAMA ortam değişkeni paketlenmiş yürütülebilir dosyayı gösterirse (ör.
@@ -59,7 +66,7 @@ const { createChatServer } = require('../../src/app')
 const yardimci = require('../../test/server-yardimci')
 const { listenInRange, sleep } = require('../test/yardimci')
 
-const ctx = { server: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null, failed: false, launchError: null, diagFile: null, output: [], outputChars: 0, snapshot: null }
+const ctx = { server: null, server2: null, port: 0, root: null, app: null, page: null, requests: [], token: null, channelId: null, failed: false, launchError: null, diagFile: null, output: [], outputChars: 0, snapshot: null }
 
 // node:test sonucu after() içinde okunamaz: düşen testler burada işaretlenir
 function test (name, options, fn) {
@@ -371,6 +378,7 @@ after(async () => {
   if (ctx.failed) await writeResults()
   if (ctx.app) await ctx.app.close().catch(() => {})
   if (ctx.server) await new Promise((resolve) => ctx.server.close(() => resolve()))
+  if (ctx.server2) await new Promise((resolve) => ctx.server2.close(() => resolve()))
   if (ctx.root) fs.rmSync(ctx.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
@@ -410,7 +418,7 @@ test('arayüz paketlenmiş koddan gelir, sunucu statik dosya isteği almaz', asy
 test('sayfada Node.js yoktur, yalnızca dar masaüstü API vardır', async () => {
   const page = ctx.page
   assert.equal(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.module, typeof window.Buffer].join()), 'undefined,undefined,undefined,undefined')
-  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'getServer', 'getSettings', 'listFrequencies', 'onPttHold', 'onShortcut', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
+  assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop).sort()), ['addFrequency', 'changeServer', 'float', 'getServer', 'getSettings', 'idleSeconds', 'listFrequencies', 'onPttHold', 'onShortcut', 'onWindowState', 'platform', 'removeFrequency', 'setCloseToTray', 'setFrequencyName', 'setPtt', 'setShortcuts', 'setVoiceActive', 'switchFrequency', 'titleBar', 'updates', 'version'])
   assert.deepEqual(await page.evaluate(() => Object.keys(window.telsizDesktop.updates).sort()), ['checkNow', 'getState', 'install', 'onState', 'openRelease', 'setEnabled'])
   assert.equal(await page.evaluate(() => window.telsizDesktop.getServer()), 'http://127.0.0.1:' + ctx.port)
   assert.match(await page.evaluate(() => window.telsizDesktop.version), /^\d+\.\d+\.\d+/)
@@ -1018,4 +1026,430 @@ test('frekans listesi: ilk sunucu listede ve etkin, Frekans ekle penceresi boş 
   await connect.evaluate(() => document.getElementById('cancel').click()).catch(() => {})
   await closed
   assert.equal(ctx.page.url(), 'telsiz://app/')
+})
+
+// Pencere durumu (telsiz:window-state): simge durumu, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya
+// yalnızca beyaz listedeki değerlerle ulaşır. xvfb altında pencere yöneticisi olmadığı için minimize() pencereyi
+// simge durumuna almaz (Electron 44.5.1 ile denendi), bu durumda olay ana süreçte elle üretilir: eşleme ve
+// sayfaya iletim yine gerçek kanaldan denetlenir. Tepsiden dönüş tepsi tıklamasıyla aynı işlevden (showMain)
+// geçer, burada ikinci örnek açılışı (second-instance) ile tetiklenir.
+test('pencere durumu: küçültme, geri yükleme, tepsiye gizleme ve tepsiden dönüş sayfaya bildirilir', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  await page.evaluate(() => {
+    window.__pencere = []
+    window.__pencereKapat = window.telsizDesktop.onWindowState((value) => window.__pencere.push(value))
+  })
+  const states = () => page.evaluate(() => window.__pencere.slice())
+  // Değerin from sırasından sonra gelmesi beklenir, sonraki aramanın başlangıç sırası döner
+  const seen = async (value, from, label) => {
+    const list = await waitFor(async () => {
+      const got = await states()
+      return got.indexOf(value, from) !== -1 ? got : null
+    }, label)
+    return list.indexOf(value, from) + 1
+  }
+  const realMinimize = await ctx.app.evaluate(async ({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.minimize()
+    const end = Date.now() + 3000
+    while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (win.isMinimized()) return true
+    win.emit('minimize')
+    return false
+  })
+  if (!realMinimize) t.diagnostic('pencere yöneticisi yok: minimize olayı ana süreçte elle üretildi')
+  let next = await seen('minimized', 0, 'minimized')
+  await ctx.app.evaluate(({ BrowserWindow }, real) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (real) win.restore()
+    else win.emit('restore')
+  }, realMinimize)
+  next = await seen('restored', next, 'restored')
+  // Tam ekrandaki pencere küçültülüp geri gelir. Windows'ta Electron bu dönüşte restore yerine yalnızca
+  // enter-full-screen gönderir (shell/browser/native_window_views_win.cc HandleSizeEvent), sayfa yine
+  // 'restored' almalıdır. Pencere yöneticisi yoksa veya tam ekrandaki pencere küçültülemezse bu sıra
+  // (minimize, ardından restore olmadan enter-full-screen) ana süreçte elle üretilir.
+  const fullscreen = (value) => ctx.app.evaluate(async ({ BrowserWindow }, on) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.setFullScreen(on)
+    const end = Date.now() + 5000
+    while (Date.now() < end && win.isFullScreen() !== on) await new Promise((resolve) => setTimeout(resolve, 100))
+    return win.isFullScreen()
+  }, value)
+  assert.equal(await fullscreen(true), true)
+  const realFullMinimize = await ctx.app.evaluate(async ({ BrowserWindow }, real) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (real) {
+      win.minimize()
+      const end = Date.now() + 3000
+      while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+      if (win.isMinimized()) {
+        win.restore()
+        return true
+      }
+    }
+    win.emit('minimize')
+    win.emit('enter-full-screen')
+    return false
+  }, realMinimize)
+  if (!realFullMinimize) t.diagnostic('tam ekrandan küçültme: minimize ve enter-full-screen olayları ana süreçte elle üretildi')
+  next = await seen('minimized', next, 'minimized in full screen')
+  next = await seen('restored', next, 'restored to full screen')
+  assert.equal(await fullscreen(false), false)
+  const visible = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
+  // Tepsiye kapatma pencereyi hide() ile gizler
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).hide()
+  })
+  next = await seen('hidden', next, 'hidden')
+  assert.equal(await visible(), false)
+  await ctx.app.evaluate(({ app }) => {
+    app.emit('second-instance')
+  })
+  next = await seen('shown', next, 'shown')
+  assert.equal(await visible(), true)
+  // Beyaz listede olmayan değerler sayfaya ulaşmaz
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.webContents.send('telsiz:window-state', 'maximized')
+    win.webContents.send('telsiz:window-state', { state: 'hidden' })
+    win.webContents.send('telsiz:window-state', ['hidden'])
+    win.webContents.send('telsiz:window-state', 'restored')
+  })
+  await seen('restored', next, 'restored after invalid values')
+  const got = await states()
+  assert.ok(got.every((value) => ['minimized', 'restored', 'hidden', 'shown'].includes(value)), got.join())
+  assert.equal(got[got.length - 1], 'restored')
+  await page.evaluate(() => window.__pencereKapat())
+})
+
+// Boşta süresi (telsiz:idle-seconds): sistemin son kullanıcı girişinden bu yana geçen süre tam saniye olarak
+// hem telsizDesktop hem telsizArkaPlan üzerinden okunur, ana süreçteki powerMonitor değeriyle aynıdır
+test('boşta süresi: uygulama penceresinde tam saniye olarak okunur', async () => {
+  const page = ctx.page
+  const before = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  const values = await page.evaluate(() => Promise.all([window.telsizDesktop.idleSeconds(), window.telsizArkaPlan.idleSeconds()]))
+  const after = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  for (const value of values) {
+    assert.ok(Number.isInteger(value) && value >= 0, String(value))
+    // Girdi olmadıkça süre artar, girdi gelirse sıfırlanır: değer iki ölçümün arasında veya en çok birkaç saniye farklıdır
+    assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
+  }
+})
+
+// Boşta süresi arka plan penceresinden ('background' bağlamı): ikinci bir frekans eklenip açılınca ilk frekansın
+// gizli arka plan penceresi açılır (src/lib/background.js, createBackgroundWindow). Bu pencerede
+// telsizArkaPlan.idleSeconds() gerçek kanaldan tam saniye döndürür: gönderen denetimi (senderIs) kayıtlı arka plan
+// penceresini ve kökenini tanır. Aynı ön yükleme betiğiyle açılan ama ana süreçte hiçbir bağlama kaydedilmemiş bir
+// pencere aynı kanalı çağıramaz. Arka plan istemcisi ilk frekansın kayıtlı oturumuyla açılır (oturum yoksa 'login'
+// bildirir ve pencere kapanır). Sonunda ilk frekansa dönülür ve ikinci frekans listeden çıkarılır.
+test('boşta süresi: gerçek arka plan penceresinde okunur, bağlamı olmayan pencere okuyamaz', { timeout: 90000 }, async () => {
+  const first = 'http://127.0.0.1:' + ctx.port
+  ctx.server2 = await createChatServer({
+    dataDir: path.join(ctx.root, 'veri-2'),
+    setupCode: yardimci.SETUP_CODE,
+    scryptN: 1024,
+    pollTimeoutMs: 8000,
+    log: null
+  })
+  const second = 'http://127.0.0.1:' + await listenInRange(ctx.server2)
+  const appPages = () => ctx.app.windows().filter((p) => !p.isClosed() && p.url().startsWith('telsiz://app/'))
+  // Sayfanın kipi: 'background' (kökeniyle), 'app' veya henüz yüklenmediyse null
+  const modeOf = (p) => p.evaluate(() => {
+    const d = window.telsizArkaPlan
+    if (!d || typeof d !== 'object') return null
+    return d.background === true ? 'background ' + d.origin : 'app'
+  }).catch(() => null)
+  const findPage = (wanted, except, label) => waitFor(async () => {
+    for (const p of appPages()) {
+      if (p !== except && await modeOf(p) === wanted) return p
+    }
+    return null
+  }, label)
+
+  await ctx.page.evaluate((token) => window.localStorage.setItem('telsiz.token', token), ctx.token)
+  const firstPage = ctx.page
+  const opened = ctx.app.waitForEvent('window', { predicate: (p) => p.url().startsWith('telsiz://baglan/'), timeout: TIMEOUT })
+  await firstPage.evaluate(() => window.telsizDesktop.addFrequency())
+  const connect = await opened
+  await connect.waitForSelector('#cancel:not([hidden])')
+  await connect.fill('#address', second)
+  const firstClosed = firstPage.waitForEvent('close', { timeout: TIMEOUT })
+  await connect.click('#submit')
+  await firstClosed
+  const secondPage = await findPage('app', firstPage, 'app window of the second frequency')
+  assert.equal(await secondPage.evaluate(() => window.telsizDesktop.getServer()), second)
+
+  // İlk frekans artık açık değil: arka plan penceresi biraz sonra açılır ve oturumla çalışır
+  const bgPage = await findPage('background ' + first, null, 'background window of the first frequency')
+  const before = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  const value = await bgPage.evaluate(() => window.telsizArkaPlan.idleSeconds())
+  const after = await ctx.app.evaluate(({ powerMonitor }) => Math.floor(powerMonitor.getSystemIdleTime()))
+  assert.ok(Number.isInteger(value) && value >= 0, String(value))
+  assert.ok((value >= Math.min(before, after) && value <= Math.max(before, after)) || Math.abs(value - after) <= 2, [before, value, after].join())
+  // Arka plan penceresi uygulama penceresi değildir: uygulama penceresine açık bir kanal ondan reddedilir
+  assert.match(await bgPage.evaluate(() => window.telsizDesktop.getSettings().then(() => 'ok', (err) => String(err && err.message))), /forbidden/)
+  const bgState = await waitFor(async () => {
+    const got = await secondPage.evaluate(() => window.telsizArkaPlan.getState())
+    const item = got.items.find((entry) => entry.origin === first)
+    return item && item.state === 'ok' ? item : null
+  }, 'background state ok')
+  assert.equal(bgState.active, false)
+
+  // Bağlamı olmayan pencere: aynı ön yükleme betiği, kayıtsız pencere ve ayrı oturum bölümü
+  await ctx.app.evaluate(({ app, BrowserWindow }) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { preload: app.getAppPath() + '/src/preload.js', partition: 'duman-baglamsiz', contextIsolation: true, sandbox: true, nodeIntegration: false }
+    })
+    return win.loadURL('data:text/html;charset=utf-8,<title>baglamsiz</title>')
+  })
+  const stray = await waitFor(() => ctx.app.windows().find((p) => !p.isClosed() && p.url().startsWith('data:text/html')), 'window without a context')
+  await waitFor(() => stray.evaluate(() => Boolean(window.telsizDesktop && window.telsizArkaPlan)).catch(() => false), 'preload in the window without a context')
+  const denied = await stray.evaluate(() => Promise.all([window.telsizDesktop.idleSeconds(), window.telsizArkaPlan.idleSeconds()].map((call) => call.then((v) => 'ok ' + v, (err) => String(err && err.message)))))
+  assert.equal(denied.length, 2)
+  for (const text of denied) assert.match(text, /forbidden/)
+  await ctx.app.evaluate(({ BrowserWindow }) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.webContents.getURL().startsWith('data:text/html')) win.destroy()
+    }
+  })
+
+  // İlk frekansa dönülür: oturum bilgisi silinir (yeni uygulama penceresi giriş ekranıyla açılır), ikinci frekans
+  // listeden çıkarılır
+  await bgPage.evaluate(() => window.localStorage.removeItem('telsiz.token'))
+  const secondClosed = secondPage.waitForEvent('close', { timeout: TIMEOUT })
+  await secondPage.evaluate((origin) => window.telsizDesktop.switchFrequency(origin), first).catch(() => null)
+  await secondClosed
+  ctx.page = await findPage('app', secondPage, 'app window of the first frequency again')
+  await ctx.page.waitForLoadState('domcontentloaded')
+  assert.equal(await ctx.page.evaluate(() => window.telsizDesktop.getServer()), first)
+  assert.deepEqual(await ctx.page.evaluate((origin) => window.telsizDesktop.removeFrequency(origin, false), second), { ok: true, active: first })
+  const list = await ctx.page.evaluate(() => window.telsizDesktop.listFrequencies())
+  assert.deepEqual(list.items.map((item) => [item.origin, item.active]), [[first, true]])
+})
+
+// Yüzen pencere (istek 7, src/lib/float-window.js): yeni pencere kuralının tek istisnası. Ad olmadan, uydurma adla,
+// başka adresle veya ikinci kez aynı adla açılmaz. Açılan pencere görünür ve her zaman üsttedir, ön yükleme betiği
+// yoktur, mikrofon ve bildirim izni alamaz, başka bir adrese gidemez ve kendisi pencere açamaz. Kapanınca konumu ayar
+// dosyasına yazılır. Uygulama penceresi yeniden yüklenince yüzen pencere de kapanır.
+test('yüzen pencere: tek kullanımlık adla açılır, üsttedir, izin alamaz, gezinemez, sayfa yenilenince kapanır', { timeout: 60000 }, async () => {
+  const page = ctx.page
+  // Kapanmakta olan pencerenin webContents nesnesi pencereden önce yok olabilir
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  assert.equal(await floats(), 0)
+  const denied = await page.evaluate(() => [
+    window.open('about:blank') === null,
+    window.open('about:blank', 'telsiz-yuzen-' + '0'.repeat(32)) === null,
+    window.open('about:blank', '_blank') === null
+  ])
+  assert.deepEqual(denied, [true, true, true])
+  const name = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.match(name, /^telsiz-yuzen-[0-9a-f]{32}$/)
+  // Başka adres aynı adı harcamaz ve yine reddedilir
+  assert.equal(await page.evaluate((n) => window.open('telsiz://app/', n) === null, name), true)
+  const href = await page.evaluate((n) => {
+    window.__yuzen = window.open('about:blank', n)
+    return window.__yuzen ? window.__yuzen.location.href : null
+  }, name)
+  assert.equal(href, 'about:blank')
+  const info = await waitFor(() => ctx.app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && !x.webContents.isDestroyed() && x.webContents.getURL() === 'about:blank')
+    if (!w || !w.isVisible()) return null
+    return { top: w.isAlwaysOnTop(), resizable: w.isResizable(), minimizable: w.isMinimizable(), protectedKnown: typeof w.isContentProtected === 'function', protected: typeof w.isContentProtected === 'function' ? w.isContentProtected() : null, bounds: w.getBounds() }
+  }), 'floating window shown')
+  assert.equal(info.top, true)
+  assert.equal(info.resizable, true)
+  // minimizable ve içerik koruması Linux'ta uygulanmaz (Electron belgesi), yalnızca Windows ve macOS'ta denetlenir
+  if (process.platform !== 'linux') assert.equal(info.minimizable, false)
+  assert.ok(info.bounds.width >= 200 && info.bounds.height >= 120, JSON.stringify(info.bounds))
+  if (info.protectedKnown && (process.platform === 'win32' || process.platform === 'darwin')) assert.equal(info.protected, true)
+  // Ön yükleme betiği yok, izin yok
+  const inside = await page.evaluate(async () => {
+    const w = window.__yuzen
+    const mic = await w.navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
+      s.getTracks().forEach((track) => track.stop())
+      return 'ok'
+    }, (e) => e.name)
+    return { desktop: typeof w.telsizDesktop, mic, notify: w.Notification.permission }
+  })
+  assert.deepEqual(inside, { desktop: 'undefined', mic: 'NotAllowedError', notify: 'denied' })
+  // Gezinme ve yeni pencere reddedilir, https adresi dış tarayıcıya da verilmez
+  const external = await ctx.app.evaluate(() => (global.__acilanlar || []).length)
+  for (const target of ['telsiz://app/', 'https://ornek.com/yuzen', 'http://127.0.0.1:' + ctx.port + '/']) {
+    await page.evaluate((url) => {
+      window.__yuzen.location.href = url
+    }, target).catch(() => {})
+    await sleep(400)
+    assert.equal(await page.evaluate(() => window.__yuzen.location.href), 'about:blank', target)
+  }
+  const second = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.equal(await page.evaluate((n) => window.__yuzen.open('about:blank', n) === null, second), true)
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, second), true, 'ikinci yüzen pencere açılmaz')
+  assert.equal(await ctx.app.evaluate(() => (global.__acilanlar || []).length), external)
+  assert.equal(await floats(), 1)
+  // Kapanınca konum ayar dosyasına yazılır, kullanılmış ad yeniden açamaz
+  await page.evaluate(() => window.__yuzen.close())
+  await waitFor(async () => (await floats()) === 0, 'floating window closed')
+  const userData = await ctx.app.evaluate(({ app }) => app.getPath('userData'))
+  const saved = await waitFor(() => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(userData, 'ayarlar.json'), 'utf8')).floatBounds
+    } catch (err) {
+      return null
+    }
+  }, 'floatBounds saved')
+  assert.deepEqual(saved, info.bounds)
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) === null, name), true)
+  // Sayfa yeniden yüklenince açık yüzen pencere kapanır
+  const third = await page.evaluate(() => window.telsizDesktop.float.arm())
+  assert.equal(await page.evaluate((n) => window.open('about:blank', n) !== null, third), true)
+  await waitFor(async () => (await floats()) === 1, 'floating window open before reload')
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await waitFor(async () => (await floats()) === 0, 'floating window closed on reload')
+})
+
+// Yüzen pencere sayfa tarafıyla (public/js/39-yuzen.js): ses odasındayken uygulama penceresi simge durumuna
+// küçültülünce yüzen pencere kendiliğinden açılır, içini uygulama penceresinin betiği çizer (stil dosyaları CSP ile
+// yüklenir), pencere geri gelince kapanır. Uygulamaya Dön uygulama penceresini öne getirir ve yüzen pencereyi kapatır.
+// Duman testinde ses odasına katılınmaz: sayfanın ses durumu (snap) bir odadaymış gibi gösterilir.
+test('yüzen pencere: ses odasında simge durumuna küçültülünce açılır, içerik çizilir, geri gelince kapanır', { timeout: 60000 }, async (t) => {
+  const page = ctx.page
+  await page.waitForFunction(() => typeof floatOnWindowState === 'function' && typeof snap === 'function')
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  await page.evaluate(() => {
+    window.__snapAsil = snap
+    snap = function () {
+      return Object.assign({}, window.__snapAsil(), { channelId: 'duman-oda', joining: false })
+    }
+  })
+  const minimize = () => ctx.app.evaluate(async ({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    win.minimize()
+    const end = Date.now() + 3000
+    while (Date.now() < end && !win.isMinimized()) await new Promise((resolve) => setTimeout(resolve, 100))
+    if (win.isMinimized()) return true
+    win.emit('minimize')
+    return false
+  })
+  const restore = (real) => ctx.app.evaluate(({ BrowserWindow }, value) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/'))
+    if (value) win.restore()
+    else win.emit('restore')
+  }, real)
+  try {
+    const real = await minimize()
+    if (!real) t.diagnostic('pencere yöneticisi yok: minimize ve restore olayları ana süreçte elle üretildi')
+    await waitFor(async () => (await floats()) === 1, 'floating window opened on minimize')
+    // Stil dosyaları yüklenene kadar yüzen belgenin gövdesi görünmez (39-yuzen.js floatPrepareDoc), içerik gövde
+    // görünür olunca okunur
+    const view = await waitFor(() => page.evaluate(() => {
+      const doc = floatState.doc
+      if (!doc || floatState.mode !== 'desktop' || floatState.reason !== 'auto') return null
+      const head = doc.querySelector('.float-head')
+      const back = doc.querySelector('.float-back')
+      if (!head || !back || !doc.body || doc.body.style.visibility === 'hidden') return null
+      return {
+        drag: getComputedStyle(head).webkitAppRegion || getComputedStyle(head).getPropertyValue('-webkit-app-region'),
+        display: getComputedStyle(head).display,
+        back: back.textContent,
+        skin: doc.documentElement.getAttribute('data-skin'),
+        sprite: Boolean(doc.querySelector('symbol#i-close'))
+      }
+    }), 'floating window content')
+    assert.equal(view.display, 'flex', 'stil dosyaları yüklendi')
+    assert.equal(view.drag, 'drag')
+    assert.ok(view.back.length > 0)
+    assert.equal(view.skin, await page.evaluate(() => document.documentElement.getAttribute('data-skin')))
+    assert.equal(view.sprite, true)
+    const top = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').isAlwaysOnTop())
+    assert.equal(top, true)
+    await restore(real)
+    await waitFor(async () => (await floats()) === 0, 'floating window closed on restore')
+    assert.equal(await page.evaluate(() => floatIsOpen()), false)
+    // Yeniden küçültülür, bu kez Uygulamaya Dön ile dönülür
+    const again = await minimize()
+    await waitFor(async () => (await floats()) === 1, 'floating window opened again')
+    await waitFor(() => page.evaluate(() => Boolean(floatState.doc && floatState.doc.querySelector('.float-back'))), 'back button')
+    await page.evaluate(() => floatState.doc.querySelector('.float-back').click())
+    await waitFor(async () => (await floats()) === 0, 'floating window closed by Back to App')
+    const shown = await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('telsiz://app/')).isVisible())
+    assert.equal(shown, true)
+    if (!again) await restore(false)
+  } finally {
+    await page.evaluate(() => {
+      if (window.__snapAsil) snap = window.__snapAsil
+    })
+  }
+})
+
+// Kabul ölçütü: alt çerçeveden (Telsiz DJ'nin YouTube oynatıcısı gibi) gelen window.open reddedilir. Jetonsuz istek
+// yeni pencere kuralına takılır ve null döner. Jeton alt çerçeveye bir yolla geçse bile ana süreç pencere açıldıktan
+// sonra açanın uygulama penceresinin ana çerçevesi olmadığını görür ve pencereyi yok eder (did-create-window,
+// tanı günlüğünde float-rejected). Duman testinde ağ olmadığı için gerçek YouTube çerçevesi yüklenmez: sayfaya boş bir
+// iframe eklenir. Denetim çerçevenin kimliğine bakar (kökene değil), bu yüzden aynı yol sınanmış olur.
+test('yüzen pencere: alt çerçeveden jetonsuz açılamaz, jetonla açılan pencere açan denetiminde yok edilir', { timeout: 60000 }, async () => {
+  const page = ctx.page
+  const floats = () => ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL() === 'about:blank').length)
+  const rejected = () => fs.readFileSync(ctx.diagFile, 'utf8').split('\n').filter((line) => line.includes('float-rejected')).length
+  // Sayfa ve ana süreç çağrıları adım adım süreyle sınırlanır: yanıt vermeyen bir çağrı testin 60 saniyelik süresini
+  // adsız doldurmaz, hata takılan adımın adını ve tanı günlüğünün son satırlarını yazar
+  const step = (label, promise) => {
+    let timer = null
+    const limit = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        let tail = ''
+        try {
+          tail = fs.readFileSync(ctx.diagFile, 'utf8').trim().split('\n').slice(-12).join('\n')
+        } catch (err) {
+          tail = ''
+        }
+        reject(new Error('Adım yanıt vermedi: ' + label + '\n' + tail))
+      }, 15000)
+    })
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer))
+  }
+  assert.equal(await step('başlangıçta yüzen pencere sayısı', floats()), 0)
+  await step('alt çerçeve eklenir', page.evaluate(() => {
+    const frame = document.createElement('iframe')
+    frame.name = 'duman-alt-cerceve'
+    document.body.appendChild(frame)
+  }))
+  try {
+    const sub = await waitFor(() => page.frame({ name: 'duman-alt-cerceve' }), 'subframe')
+    assert.notEqual(sub, page.mainFrame())
+    assert.deepEqual(await step('alt çerçevenin bağlamı', sub.evaluate(() => ({ sub: window.parent !== window, desktop: typeof window.telsizDesktop }))), { sub: true, desktop: 'undefined' })
+    const denied = await step('alt çerçeve jetonsuz açamaz', sub.evaluate(() => [
+      window.open('about:blank') === null,
+      window.open('about:blank', 'telsiz-yuzen-' + '0'.repeat(32)) === null,
+      window.open('about:blank', '_blank') === null
+    ]))
+    assert.deepEqual(denied, [true, true, true])
+    // Ana çerçevenin aldığı jeton alt çerçeveden kullanılır: ana süreç pencereyi açanı denetleyip yok eder
+    const before = rejected()
+    const name = await step('ana çerçeve jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
+    await step('alt çerçeve jetonla açmayı dener', sub.evaluate((n) => {
+      window.open('about:blank', n)
+    }, name))
+    await waitFor(() => rejected() === before + 1, 'float-rejected logged')
+    await waitFor(async () => (await floats()) === 0, 'subframe window destroyed')
+    // Jeton harcandı, ana çerçeve de onunla açamaz. Yeni jetonla ana çerçeve hâlâ açabilir.
+    assert.equal(await step('harcanan jetonla açılamaz', page.evaluate((n) => window.open('about:blank', n) === null, name)), true)
+    const fresh = await step('ana çerçeve yeni jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
+    assert.equal(await step('ana çerçeve yeni jetonla açar', page.evaluate((n) => {
+      window.__yuzen = window.open('about:blank', n)
+      return window.__yuzen !== null
+    }, fresh)), true)
+    await waitFor(async () => (await floats()) === 1, 'main frame window opened')
+    assert.equal(rejected(), before + 1)
+    await step('ana çerçeve pencereyi kapatır', page.evaluate(() => window.__yuzen.close()))
+    await waitFor(async () => (await floats()) === 0, 'main frame window closed')
+  } finally {
+    // Temizlik takılırsa asıl hata kaybolmaz
+    await step('alt çerçeve kaldırılır', page.evaluate(() => {
+      const frame = document.querySelector('iframe[name="duman-alt-cerceve"]')
+      if (frame) frame.remove()
+    })).catch(() => {})
+  }
 })

@@ -49,7 +49,7 @@ Birden çok kullanıcıyı aynı bilgisayarda denemek için `http://localhost:30
 | Komut | Görevi |
 | --- | --- |
 | `npm start` | Sunucuyu başlatır (`node server.js`) |
-| `npm run denetle` | Yazım, sözdizimi, güvenlik, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
+| `npm run denetle` | Yazım, sözdizimi, güvenlik, stil dosyası, i18n ve belge eşliği kurallarını denetler (`scripts/denetle.js`) |
 | `npm run lint` | `npm run denetle` ile aynı işi yapar |
 | `npm test` | `test/` klasöründeki birim ve sunucu testlerini çalıştırır |
 | `npm run test:e2e` | `e2e/` klasöründeki uçtan uca testleri Chromium ile, sırayla çalıştırır |
@@ -77,6 +77,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `src/hub.js` | Çevrimiçi durumu, olay halkası, long-poll bekleyenleri, ses kadroları ve sinyal kuyrukları, yazıyor bilgisi |
 | `src/social.js` | Arkadaşlıklar, engellemeler ve özel mesaj kuralları |
 | `src/music.js` | Telsiz DJ'nin bellekteki şifreli oda durumları |
+| `src/youtube-search.js` | Telsiz DJ'nin şarkı adıyla YouTube araması (sahip açarsa): istek, sonuç ayrıştırıcısı, sınırlar ve devre kesici |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, CSP, gövde okuma, statik dosya beyaz listesi |
 | `src/i18n.js`, `src/runtime.js`, `src/env-file.js` | Sunucu metinleri, sürüm ve tek dosya bilgisi, `telsiz.env` okuyucusu |
 | `src/system-info.js` | Sunucu bilgileri: işlemci, bellek ve cgroup sınırı, disk alanı (`GET /api/server-info`) |
@@ -91,7 +92,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 ve RNNoise wasm derlemesi (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), değiştirilmez |
 | `desktop/` | Electron masaüstü uygulaması |
 | `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
-| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
+| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları, tema kontrast ölçeri (`kontrast.js`) |
 | `test/`, `e2e/` | Birim ve sunucu testleri, uçtan uca testler |
 
 İstemci modülleri `public/js/` altında numaralı dosyalardır ve `index.html` içinde bu sırayla yüklenir. Hepsi aynı genel kapsamı paylaşır, sonraki modül öncekilerin işlevlerini kullanabilir.
@@ -100,32 +101,32 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | --- | --- |
 | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
 | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
-| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
+| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları, kayıttan sonra kurtarma kodu kartına geçiş |
 | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
-| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme ve silme |
+| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama (en üste yaklaşınca eski mesajların kendiliğinden yüklenmesi, önbellekteki konuşmanın çizimi ve arka planda yenilenmesi), düzenleme, silme ve Mesajı Bildir |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
-| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil) |
+| `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
-| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
-| `13-profile.js` | Profiller, profil kartı, durum menüsü |
+| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma (sayfaların geri tuşu kaydını `38-gezinme.js` tutar) |
+| `13-profile.js` | Profiller, profil kartı, durum menüsü, şikâyet penceresi (Mesajı Bildir ve Kişiyi Bildir) |
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
-| `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
-| `17-search.js` | Cihazda arama |
+| `16-identity.js` | Paroladan anahtar türetme, kişisel kimlik anahtarı ve kurtarma kodu istekleri (kayıtta kod, Ayarlar'dan kod, kodla yeni parola) |
+| `17-search.js` | Cihazda arama, adı sorguyla eşleşen odalar ve özel konuşmalar (Odalar ve Kişiler) |
 | `18-mentions.js` | @ ile anma ve öneri listesi |
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
 | `21-band.js` | Frekans bandının etkileşimi (frekanslar arasında geçiş: tıklama, ibre, klavye, tekerlek, oyun kolu) |
-| `22-cast.js` | Ekran paylaşımı arayüzü, kameralar ızgarası ve yayın sahnesinin oyun masası kipi |
-| `23-dj.js` | Telsiz DJ arayüzü |
+| `22-cast.js` | Ekran paylaşımı arayüzü, kameralar ızgarası, yayın sahnesinin oyun masası kipi ve kendi paylaşımının önizlemesini küçültme |
+| `23-dj.js` | Telsiz DJ arayüzü: kart, köşedeki oynatıcı (dört köşe, sürükleme yardımcısı `dockDrag`, küçültme, Yüzen Oynatıcı), parça duyuruları, Media Session, telsiz kartındaki YouTube rıza uyarısı |
 | `24-frekans.js` | Frekanslar: bandın frekans istasyonları (durum, okunmamış ve anma sayıları), Frekanslar sayfası, frekans menüsü, Frekans ekle ve çıkar, tarayıcıda adres parçasıyla liste ve sıra taşıma, masaüstünde ana süreç çağrıları ve arka plan durumu, frekans fotoğrafının amblemlerde, giriş ekranında ve tanıtım sayfasında gösterilmesi |
 | `25-arka-plan.js` | Masaüstünün arka plan penceresindeki istemci kipi: arayüzsüz long-poll, okunmamış ve anma sayımı, ana sürece rapor |
 | `26-tanitim.js` | Oturum açmamış ziyaretçinin gördüğü frekans tanıtım sayfası |
 | `27-kapasite.js` | Ayarlar > Genel içindeki sunucu bilgileri bölümü, ses odası kapasitesi ve kamera sınırı önerisi, sunucu ipuçları |
-| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), oyun daveti (Masaya Bak düğmesiyle), ses odasına katılma ve ayrılma |
+| `28-bildirim.js` | Sol sütunda telsiz kartının üstündeki Bildirimler listesi: aynı ses odasında başlayan ekran paylaşımı (İzle düğmesiyle), oyun daveti (Masaya Bak düğmesiyle), ses odasına katılma ve ayrılma, aynı ses odasında Telsiz DJ'ye eklenen parça |
 | `29-mikrofon.js` | Mikrofon düğmesinin bağlam menüsü (sağ tık, Shift+F10 veya Menü tuşu): Bas konuş ve Ses etkinliği seçimi |
 | `30-pencere.js` | Masaüstü uygulamasının başlık şeridi (Windows ve Linux): uygulama menüleri, pencere başlığı, pencere düğmelerinin tema rengi |
 | `31-sesler.js` | Sesli bildirimler (`window.TelsizSesler`): katılma, ayrılma, ekran yayını, özel mesaj, arkadaşlık isteği, odadan düşme ve gelen arama (zil) için sentezlenen 2 saniyelik sesler, mesaj sesi, bildirim sesi düzeyi |
@@ -135,6 +136,10 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
 | `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+| `38-gezinme.js` | Konuşmalarda gezinme: tarayıcı geçmişi (adres değişmeden oda, özel mesaj ve Arkadaşlar geçişleri ile sayfalar, arama, ayarlar, resim görüntüleyici ve profil kartı için kayıt, geri tuşu), Yeni mesajlar ayracı, okunmamış şeridi (Okunmamışa Git, Okundu İşaretle), yeni mesaj kapsülü, İstasyonlar listesindeki Özel mesajlar grubu, açık görünümün hatırlanması, son sekiz konuşmanın bellekteki önbelleği (dönüşte konum), konuşmalar arası kısayollar (Alt ve Alt+Shift ile yukarı ve aşağı ok, Esc), dar özel mesaj başlığı, orta genişlikte telsiz kartı uzayınca İstasyonlar kartının gizlenmesi, okunmamış sayısının alt sınırı ("50+"), telefonda Ses Odaları düğmesi ve alttan açılan sayfanın sürüklenerek kapanması |
+| `39-yuzen.js` | Yüzen pencere: ses odasının kameraları veya avatarları ve konuşma halkası her zaman üstte kalan küçük pencerede. Masaüstünde ana sürecin tek kullanımlık adıyla açılan pencere, tarayıcıda belge resim içinde resim, yedek olarak tuval akışıyla görüntü resim içinde resim. Telsiz kartındaki Yüzen Pencere düğmesi |
+| `40-bosta.js` | Otomatik boşta: fare, klavye, dokunma, tekerlek ve oyun kolu girdisinden (masaüstünde sistemin boşta süresinden) hareketsizliği ölçer, long-poll sorgusuna `idle` ve sayfa kimliği `tab` ekler, ses odasındayken boşta saymaz, oyun kolunu `21-band.js` kol döngüsünün her karesinde de okur |
+| `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü, kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma ve kaydedildiği onaylanmayan kod için uyarı |
 | `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
 | `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
 | `45-hexball-ag.js` | Hexball ağı (`window.TelsizHexballNet`): oyun veri kanalındaki ikili iletiler (HELLO, HELLO_ACK, INPUT, SNAP) ve katı çözücüleri, el sıkışma, ev sahibinin otoriter fizik döngüsü, iki döngü arası 250 ms'yi aşınca duraklama, ev sahibinin kendi girdisinin bekletilmesi, girdi kısıtları, oyuncuda anlık görüntü tamponu ve ara değerleme. Saat, zamanlayıcı ve gönderim dışarıdan verilir |
@@ -159,7 +164,7 @@ Aşağıdaki kuralların çoğu `npm run denetle` tarafından otomatik olarak de
 11. İstemci ile sunucu arasındaki gerçek zamanlı iletişim yalnızca long-polling ile yapılır, WebSocket veya Server-Sent Events eklenmez. Bu kural kişiler arasında doğrudan kurulan WebRTC bağlantılarını (ses, görüntü, ekran paylaşımı ve oyun veri kanalı) kapsamaz. Bu bağlantıların kurulum iletileri yine sunucunun sinyal yolundan gider.
 12. Çalışma zamanı bağımlılığı eklenmez, `package.json` içinde `dependencies` alanı yoktur. Yeni bir geliştirme bağımlılığı gerekiyorsa önce bir issue'da tartışın. Sürümler aralık işareti olmadan tam olarak sabitlenir.
 13. Yorumlar Türkçe ve seyrek yazılır. Tanımlayıcılar, JSON alanları ve API yolları İngilizcedir. Türkçe karakterler (ç, ğ, ı, İ, ö, ş, ü) doğrudan kullanılır.
-14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
+14. Stil dosyaları eski WebKit tabanlı tarayıcılarda da çalışacak biçimde yazılır: düzen flexbox ve margin ile kurulur, `grid`, flex `gap`, `clamp()`, `:is()`, `:where()`, `aspect-ratio` ve `inset` kullanılmaz. Denetleyici bu yasakları `public/css/` altındaki stil dosyalarında yorumlar dışında zorunlu tutar. Kaldırılması planlanan bilinen istisnalar `scripts/denetle.js` içindeki `CSS_EXCEPTIONS` listesindedir, dosyası bulunamayan veya artık hiçbir ihlali kapsamayan kayıt da ihlal sayılır. Ölçüler `rem` ile verilir, böylece arayüz yazı boyutuyla birlikte büyür. Varsayılan kök yazı boyutu 15 pikseldir ve Ayarlar > Görünüm'den değiştirilebilir (Özel boyut 12 ile 28 piksel arasında ayarlanır). En küçük dokunma ve imleç hedefi `--target` belirtecidir (2.75rem, varsayılan 15 piksel kökte 41,25 piksel). Ayrıntılar [docs/TASARIM.md](docs/TASARIM.md) dosyasındadır.
 15. Testler Windows'ta da geçmelidir. Yollar `path.join` ile birleştirilir, geçici klasörler `os.tmpdir()` altında açılır, satır sonları hakkında varsayım yapılmaz ve testler SIGINT gibi süreç sinyallerine dayanmaz.
 
 ## İki dil kuralları
@@ -180,7 +185,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 
 | Alan | Neden hassas |
 | --- | --- |
-| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
+| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, kurtarma kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
 | `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması, oyun veri kanalının kabul kuralları (etiket, ayarlar, eş başına tek kanal, özel aramada yok), boyut ve hız sınırları |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
 | `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |
@@ -191,7 +196,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 | Yüklemeler (`src/app.js`, `src/store.js`, `public/js/07-attachments.js`, `public/js/08-composer.js`) | Boyut ve kota sınırları, indirme yetkisi, dosya adı temizliği, fotoğraf üst verilerinin silinmesi |
 | `src/http-util.js`, `src/static-source.js` | Güvenlik başlıkları, içerik güvenliği politikası, statik dosya beyaz listesi |
 | `public/sw.js` | Önbelleğe alınan içerik ve `/api/` isteklerinin önbelleğe alınmaması |
-| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, güncelleme denetimi (`desktop/src/lib/updates.js`) |
+| `desktop/src/` | Bütünlük doğrulaması, vekil, izinler, IPC ve gezinme kuralları, yeni pencere kuralının tek istisnası olan yüzen pencere (`desktop/src/lib/float-window.js`), güncelleme denetimi (`desktop/src/lib/updates.js`) |
 | `.github/workflows/release.yml`, `desktop/electron-builder.json` | Yayına giren dosyaların beyaz listesi, otomatik güncelleme bilgi dosyaları, npm yayınının kimlik doğrulaması |
 
 Şifreleme protokolünü (anahtar kodu, anahtar türetme, zarf veya düz metin biçimi) değiştiren bir öneriyi kod yazmadan önce bir issue'da tartışın. Ses sinyaline yeni bir tür eklemek ve oyun iletilerinin türlerini veya alan kümelerini değiştirmek de düz metin biçimi değişikliğidir. Oyun veri kanalının kurallarını (etiket, ayarlar, sınırlar) ve Hexball'un ikili ileti biçimlerini değiştirmek de önce issue ister, çünkü eski istemcilerle uyumu ve hizmet engeline karşı sınırları etkiler.

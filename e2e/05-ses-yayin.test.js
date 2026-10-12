@@ -2,8 +2,11 @@
 
 // Ses odası (sahte mikrofon) ve ekran paylaşımı (sahte ekran yakalama). İki kullanıcı Lobi'ye katılır,
 // kadroda ikisi ve Telsiz DJ öğesi görünür, konuşma halesi avatar şeklini izler. Biri ekranını paylaşır,
-// öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşım sürerken paylaşanın üst çubuğu dar
-// pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
+// öteki bildirimi görüp izler (görüntü gerçekten oynar). Paylaşan önizlemeyi küçültür (paylaşım sürer) ve
+// üst çubuktaki çipten geri getirir, Yüzen Pencere odayı ve Durdur'u gösterir. İzleyicinin yüzen penceresinde
+// yayın oynar, yayının akışı pencere açıldıktan sonra gelse de. Görüntü yedeğinde (belge resim içinde resim yok)
+// izlenen yayının penceresi Oyun açılınca ve İzlemeyi Bırak'a basılınca kapanır. Paylaşım sürerken paylaşanın
+// üst çubuğu dar pencerede taşmaz, profil düğmesi görünür kalır. Paylaşım durdurulunca sahne kapanır.
 
 const { before, after } = require('node:test')
 const assert = require('node:assert/strict')
@@ -27,7 +30,7 @@ after(async () => {
   if (W.w) await W.w.close()
 })
 
-test('kapalı telsiz kartı geniş ekranda sol sütunda küçüktür, ses odaları İstasyonlar listesindedir', async () => {
+test('kapalı telsiz kartı geniş ekranda sol sütunda kanal tarayıcısıdır: ses odaları Katıl düğmeleriyle, İstasyonlar listesinde de', async () => {
   const r = await W.deniz.evaluate(() => ({
     state: document.getElementById('radio').getAttribute('data-state'),
     led: document.getElementById('radio-state').textContent,
@@ -36,7 +39,7 @@ test('kapalı telsiz kartı geniş ekranda sol sütunda küçüktür, ses odalar
     roomsShown: document.getElementById('voice-channels').getClientRects().length > 0,
     voiceRows: document.querySelectorAll('#inbox-list .room-row-voice').length
   }))
-  assert.deepEqual(r, { state: 'off', led: 'Telsiz · kapalı', joins: 3, left: true, roomsShown: false, voiceRows: 3 })
+  assert.deepEqual(r, { state: 'off', led: 'Telsiz · kapalı', joins: 3, left: true, roomsShown: true, voiceRows: 3 })
   // Daha dar ekranda kart sağ sütuna iner ve Katıl düğmelerini gösterir
   await W.deniz.setViewportSize({ width: 1100, height: 900 })
   await W.deniz.waitForFunction(() => document.getElementById('side-right').contains(document.getElementById('radio')) && document.getElementById('voice-channels').getClientRects().length > 0)
@@ -249,6 +252,202 @@ test('izleyici bildirimi görür, İzle ile görüntü gerçekten oynar', async 
   assert.equal(r.tag, 'CANLI · Deniz')
   assert.ok(r.w > 0)
   await deniz.waitForFunction(() => document.querySelector('#cast .cast-viewers-text').textContent === '1 kişi izliyor', null, { timeout: h.LONG })
+})
+
+// İstek 16: paylaşan kişi önizlemeyi küçültür, paylaşım sürer ve izleyici izlemeye devam eder. Üst çubuk çipindeki
+// Önizlemeyi Göster sahneyi geri getirir. Seçim bu cihazda hatırlanır (telsiz.castOwnMin).
+test('Küçült\'e basınca önizleme kalkar, paylaşım sürer, çipteki Önizlemeyi Göster sahneyi geri getirir', async () => {
+  const { deniz, mert } = W
+  const head = await deniz.evaluate(() => Array.from(document.querySelectorAll('#cast .cast-head > .cast-button')).filter((b) => !b.hidden).map((b) => b.querySelector('.cast-button-label').textContent))
+  assert.deepEqual(head, ['Kalite', 'Yüzen Pencere', 'Küçült', 'Paylaşımı Durdur'])
+  assert.equal(await deniz.getAttribute('#cast .cast-own-min', 'aria-label'), 'Önizlemeyi küçült, paylaşım sürer')
+  await deniz.click('#cast .cast-own-min')
+  await deniz.waitForFunction(() => document.getElementById('cast').hidden && !document.body.hasAttribute('data-cast'))
+  const r = await deniz.evaluate(() => ({
+    live: voice.snapshot().screen.state,
+    stored: localStorage.getItem('telsiz.castOwnMin'),
+    chip: !document.getElementById('top-cast').hidden,
+    show: document.querySelector('#top-cast .top-cast-show').getAttribute('aria-label'),
+    focus: document.activeElement && document.activeElement.classList.contains('top-cast-show')
+  }))
+  assert.deepEqual(r, { live: 'live', stored: '1', chip: true, show: 'Önizlemeyi Göster', focus: true })
+  // İzleyicide yayın oynamaya devam eder
+  const t0 = await mert.evaluate(() => document.querySelector('#cast .cast-video').currentTime)
+  await mert.waitForFunction((t) => {
+    const v = document.querySelector('#cast .cast-video')
+    return v.currentTime > t + 0.5 && !v.paused && v.videoWidth > 0
+  }, t0, { timeout: h.LONG })
+  // Küçükken üst çubuk taşmaz, çipte Önizlemeyi Göster ve Durdur görünür
+  for (const width of [760, 1000, 1440]) {
+    await deniz.setViewportSize({ width, height: 900 })
+    await deniz.waitForFunction((x) => document.documentElement.clientWidth === x && el.appView.getAttribute('data-layout') === layoutClass(), width)
+    assert.ok(await h.overflowX(deniz) <= 0, width + ' genişlikte yatay taşma')
+    assert.equal(await h.reachable(deniz, '#top-cast .top-cast-show'), true, width + ' genişlikte Önizlemeyi Göster görünür')
+    assert.equal(await h.reachable(deniz, '#top-cast .top-cast-stop'), true, width + ' genişlikte Durdur görünür')
+  }
+  // Dar ekranda çip olmadığı için önizleme her zaman görünür, geniş ekrana dönünce yeniden küçülür
+  await deniz.setViewportSize({ width: 600, height: 900 })
+  await deniz.waitForSelector('#cast[data-mode="own"]:not([hidden])')
+  assert.equal(await deniz.evaluate(() => document.querySelector('#cast .cast-own-min').getClientRects().length), 0, 'dar ekranda Küçült yok')
+  await deniz.setViewportSize({ width: 1440, height: 900 })
+  await deniz.waitForFunction(() => document.getElementById('cast').hidden)
+  await deniz.click('#top-cast .top-cast-show')
+  await deniz.waitForSelector('#cast[data-mode="own"]:not([hidden])')
+  await deniz.waitForFunction(() => {
+    const v = document.querySelector('#cast .cast-video')
+    return v.srcObject && v.videoWidth > 0
+  }, null, { timeout: h.LONG })
+  const back = await deniz.evaluate(() => ({ stored: localStorage.getItem('telsiz.castOwnMin'), show: Boolean(document.querySelector('#top-cast .top-cast-show')), focus: document.activeElement.classList.contains('cast-own-min') }))
+  assert.deepEqual(back, { stored: '0', show: false, focus: true })
+})
+
+test('kendi paylaşımında Yüzen Pencere odayı ve Durdur\'u gösterir, önizleme küçülür', async () => {
+  const { deniz } = W
+  await deniz.click('#cast .cast-float')
+  await deniz.waitForFunction(() => Boolean(window.documentPictureInPicture.window) && document.getElementById('cast').hidden, null, { timeout: h.LONG })
+  const view = await deniz.waitForFunction(() => {
+    const doc = window.documentPictureInPicture.window.document
+    const stop = doc.querySelector('.float-share-bar .float-share-stop')
+    if (!stop) return null
+    return {
+      text: doc.querySelector('.float-share-text').textContent,
+      stop: stop.textContent,
+      label: stop.getAttribute('aria-label'),
+      tiles: doc.querySelectorAll('.float-tile').length,
+      kind: doc.body.getAttribute('data-kind')
+    }
+  }, null, { timeout: h.LONG })
+  assert.deepEqual(await view.jsonValue(), { text: 'Ekranınız yayında', stop: 'Durdur', label: 'Paylaşımı Durdur', tiles: 2, kind: 'avatars' })
+  // Önizleme yalnızca bu paylaşım için küçülür: Küçült'le saklanan seçim değişmez, çipte Önizlemeyi Göster çıkar
+  const min = await deniz.evaluate(() => ({ stored: localStorage.getItem('telsiz.castOwnMin'), show: Boolean(document.querySelector('#top-cast .top-cast-show')) }))
+  assert.deepEqual(min, { stored: '0', show: true })
+  // Tarayıcıda yüzen pencere tam ekran paylaşımına girebilir: not gösterilir
+  await deniz.waitForFunction(() => document.getElementById('toast').textContent.indexOf('Linux\'ta ve tarayıcıda yüzen pencere') === 0)
+  await deniz.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
+  await deniz.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+  await deniz.click('#top-cast .top-cast-show')
+  await deniz.waitForSelector('#cast[data-mode="own"]:not([hidden])')
+})
+
+test('izleyicinin Yüzen Pencere düğmesi izlenen yayını yüzen pencerede oynatır', async () => {
+  const { mert } = W
+  assert.equal(await mert.getAttribute('#cast .cast-float', 'aria-label'), 'Yayını yüzen pencerede izle')
+  assert.equal(await mert.evaluate(() => document.querySelector('#cast .cast-own-min').hidden), true)
+  await mert.click('#cast .cast-float')
+  await mert.waitForFunction(() => Boolean(window.documentPictureInPicture.window), null, { timeout: h.LONG })
+  const first = await mert.waitForFunction(() => {
+    const doc = window.documentPictureInPicture.window.document
+    const v = doc.querySelector('.float-share .float-share-video')
+    return v && v.srcObject && v.videoWidth > 0 && !v.paused && doc.body.getAttribute('data-kind') === 'share' ? { t: v.currentTime, name: doc.querySelector('.float-share .float-name').textContent } : null
+  }, null, { timeout: h.LONG })
+  const info = await first.jsonValue()
+  assert.equal(info.name, 'Deniz ekranını paylaşıyor')
+  await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, info.t, { timeout: h.LONG })
+  await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
+  await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+})
+
+// Yayının akışı yüzen pencere açıldıktan sonra da gelebilir (İzle'ye yeni basıldı, yayın henüz 'requested'
+// aşamasında veya bağlantı yenilendi). Pencere akışsız açılır, akış gelince aynı pencerede oynar. Akışın gecikmesi
+// yüzen pencerenin okuduğu ses durumunda (radioScreen ve getScreenStream) taklit edilir, sahne etkilenmez.
+test('izleyicinin yüzen penceresi yayının akışı gelmeden açılırsa akış gelince oynar', async () => {
+  const { mert } = W
+  await mert.evaluate(() => {
+    window.__radioScreen = radioScreen
+    window.__getScreenStream = voice.getScreenStream
+    radioScreen = function (s) {
+      const sc = window.__radioScreen(s)
+      const remote = {}
+      Object.keys(sc.remote || {}).forEach((id) => {
+        remote[id] = Object.assign({}, sc.remote[id], { status: 'requested', stream: null })
+      })
+      return Object.assign({}, sc, { remote })
+    }
+    voice.getScreenStream = () => null
+  })
+  try {
+    await mert.click('#cast .cast-float')
+    const pending = await mert.waitForFunction(() => {
+      const pip = window.documentPictureInPicture.window
+      const v = pip ? pip.document.querySelector('.float-share .float-share-video') : null
+      return v && pip.document.body.getAttribute('data-kind') === 'share' ? { stream: Boolean(v.srcObject) } : null
+    }, null, { timeout: h.LONG })
+    assert.deepEqual(await pending.jsonValue(), { stream: false })
+  } finally {
+    await mert.evaluate(() => {
+      radioScreen = window.__radioScreen
+      voice.getScreenStream = window.__getScreenStream
+    })
+  }
+  // Akış gelir: bir sonraki ses durumu değişikliğinde (burada mikrofon kapatılıp açılır) pencere akışı bağlar
+  const muted = await mert.evaluate(() => snap().muted)
+  await mert.evaluate(() => toggleMute())
+  await mert.waitForFunction((m) => snap().muted !== m, muted)
+  await mert.evaluate(() => toggleMute())
+  await mert.waitForFunction((m) => snap().muted === m, muted)
+  const first = await mert.waitForFunction(() => {
+    const v = window.documentPictureInPicture.window.document.querySelector('.float-share-video')
+    return v && v.srcObject && v.videoWidth > 0 && !v.paused ? v.currentTime : null
+  }, null, { timeout: h.LONG })
+  const t0 = await first.jsonValue()
+  await mert.waitForFunction((t) => window.documentPictureInPicture.window.document.querySelector('.float-share-video').currentTime > t + 0.3, t0, { timeout: h.LONG })
+  await mert.evaluate(() => window.documentPictureInPicture.window.document.querySelector('.float-close').click())
+  await mert.waitForFunction(() => !window.documentPictureInPicture.window && !floatIsOpen())
+})
+
+// Safari ve Android Chrome'daki görüntü yedeği (belge resim içinde resim yok): izlenen yayın sahnenin kendi görüntü
+// öğesiyle resim içinde resimde açılır. Oyun açılınca veya İzlemeyi Bırak'a basılınca sahne öğenin akışını bırakır,
+// pencere boş kalmaz, kapanır ve Yüzen Pencere düğmesi kapalı görünür. Chromium'da belge API'si gizlenerek sınanır.
+test('görüntü yedeği: izlenen yayının penceresi Oyun açılınca ve İzlemeyi Bırak\'a basılınca kapanır', async () => {
+  const { mert } = W
+  const denizId = String(W.w.P.deniz.id)
+  const openPip = async (label) => {
+    await mert.click('#cast .cast-float')
+    await mert.waitForFunction(() => {
+      const v = document.querySelector('#cast .cast-video')
+      return document.pictureInPictureElement === v && floatState.mode === 'video' && document.getElementById('radio-float').getAttribute('aria-pressed') === 'true'
+    }, null, { timeout: h.LONG })
+    assert.equal(await mert.evaluate(() => document.querySelector('#cast .cast-video').hasAttribute('disablepictureinpicture')), false, label)
+  }
+  const closed = async (label) => {
+    await mert.waitForFunction(() => !document.pictureInPictureElement && !floatIsOpen(), null, { timeout: h.LONG })
+    const r = await mert.evaluate(() => ({
+      pressed: document.getElementById('radio-float').getAttribute('aria-pressed'),
+      guard: document.querySelector('#cast .cast-video').hasAttribute('disablepictureinpicture'),
+      watching: castState.watching
+    }))
+    assert.deepEqual(r, { pressed: 'false', guard: true, watching: null }, label)
+  }
+  const watchAgain = async () => {
+    await mert.evaluate((id) => castWatch(id, false), denizId)
+    await mert.waitForFunction(() => {
+      const v = document.querySelector('#cast[data-mode="watch"]:not([hidden]) .cast-video')
+      return v && v.srcObject && v.videoWidth > 0 && !v.paused
+    }, null, { timeout: h.LONG })
+  }
+  await mert.evaluate(() => {
+    window.__dpip = window.documentPictureInPicture
+    Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true })
+  })
+  try {
+    assert.equal(await mert.evaluate(() => floatMode()), 'video')
+    await openPip('Oyun öncesi')
+    // Oyun düğmesi izlemeyi bırakır, sahnede Oyun Seç açılır
+    await mert.click('#radio-game')
+    await mert.waitForSelector('#cast[data-mode="game"]:not([hidden])')
+    await closed('Oyun açılınca')
+    await mert.click('#cast [data-focus-key="game-choose-cancel"]')
+    await mert.waitForFunction(() => document.getElementById('cast').hidden)
+    await watchAgain()
+    await openPip('İzlemeyi Bırak öncesi')
+    await mert.click('#cast .cast-unwatch')
+    await closed('İzlemeyi Bırak\'tan sonra')
+  } finally {
+    await mert.evaluate(() => {
+      Object.defineProperty(window, 'documentPictureInPicture', { value: window.__dpip, configurable: true })
+    })
+  }
+  await watchAgain()
 })
 
 test('kendi paylaşımı sürerken üst çubuk taşmaz, profil düğmesi görünür, 759 ve altında Ekran ve Durdur kalır', async () => {

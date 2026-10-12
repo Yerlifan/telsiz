@@ -465,6 +465,13 @@
   background-color: transparent;
 }
 
+/* Düz üyenin soluk rol rozeti: yalnızca profil kartında, Ayarlar önizlemesinde ve avatar menüsünde */
+.badge-member {
+  border: var(--border-width) solid var(--line-strong);
+  background-color: transparent;
+  color: var(--text-2);
+}
+
 /* Özel rol rengi: rozet ve renk örneği metin rengini kullanır */
 .role-color-red { color: var(--role-red); }
 .role-color-orange { color: var(--role-orange); }
@@ -706,6 +713,40 @@
   box-shadow: inset 0 0 0 2px var(--offline);
 }
 
+/* Durum LED çubuğu (istek 10, Telsiz yönü): xs dışındaki avatarlarda köşe noktası yerine avatarın alt kenarına
+   binen kısa çubuk, cihaz panelindeki LED gibi. Renk ve biçim kodu aynı kalır: dolu (çevrimiçi), yarım (boşta),
+   bölütlü (rahatsız etmeyin), boş (çevrimdışı). Zemin renginde kenar çubuğu avatardan ayırır, durum renkleri her
+   yüzeyde 3:1'in üstündedir (docs/TASARIM.md kontrast tablosu). xs avatarda (mesaj başlığındaki çağrı işareti,
+   yığınlar, oda satırları) köşe noktası kalır. Temalar desenlerini (Turkuaz) ve parıltılarını (Gece) korur. */
+.avatar:not(.avatar-xs)[data-status]::after {
+  right: 18%;
+  bottom: -0.25rem;
+  width: 64%;
+  height: 0.625rem;
+  border-width: 2px;
+  border-radius: 0.3125rem;
+}
+
+.avatar-lg[data-status]:not(.avatar-xs)::after,
+.avatar-large[data-status]:not(.avatar-xs)::after,
+.avatar-xl[data-status]:not(.avatar-xs)::after {
+  bottom: -0.3125rem;
+  height: 0.8125rem;
+  border-width: 3px;
+  border-radius: 0.40625rem;
+}
+
+.avatar:not(.avatar-xs)[data-status="idle"]::after {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 50%, var(--status-ring) 50%);
+  box-shadow: inset 0 0 0 1px var(--idle);
+}
+
+.avatar:not(.avatar-xs)[data-status="dnd"]::after {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 0.25rem, var(--status-ring) 0.25rem, var(--status-ring) 0.375rem);
+  background-position: 0 0;
+  background-size: auto;
+}
+
 /* Konuşan kişi: varsayılan halka, temalar kendi halesini çizer */
 .avatar.is-speaking,
 .is-speaking > .avatar {
@@ -937,11 +978,14 @@
    7. Bildirim şeridi ve bağlantı şeridi
    ========================================================= */
 
+/* Kısa bildirim yalnızca metindir, tıklamaları altındaki öğeye bırakır (ör. mesaj akışının altındaki yeni mesaj
+   kapsülü, 38-gezinme.js) */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 6rem;
   z-index: 100;
+  pointer-events: none;
   max-width: 36rem;
   padding: 0.75rem 1rem;
   border: var(--border-width) solid var(--line-strong);
@@ -1421,9 +1465,23 @@
   text-overflow: ellipsis;
 }
 
-/* Gece temasında görünen frekans etiketi, diğerlerinde gizli */
+/* Odanın frekans okuması (04-meta.js channelFreqNode): İstasyonlar listesinde her temada kanal ön ayarı gibi
+   görünür, süstür ve ekran okuyuculardan gizlidir. Gece, Saha Telsizi ve Fosfor kendi biçimini çizer. */
 .channel-freq {
-  display: none;
+  display: inline-block;
+  flex: none;
+  min-width: 3.25rem;
+  padding: 0.0625rem 0.3125rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .dm-section {
@@ -1944,6 +2002,20 @@ mark,
   display: none;
 }
 
+/* Çağrı işareti (06-messages.js buildMessageNode): küçük avatar ve ad. Klasik düzende yalnızca ad görünür, küçük
+   avatar ve yön etiketi (TX, RX) Kayıt Defteri düzenine aittir (convo.css). */
+.msg-call {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.msg-call-avatar,
+.msg-dir {
+  display: none;
+}
+
 .msg-author {
   margin-right: 0.5rem;
   color: var(--text);
@@ -1999,13 +2071,21 @@ button.msg-author:hover {
   color: var(--accent-text);
 }
 
-/* Telsiz DJ duyurusu (06-messages.js buildDjNotice) */
+/* Telsiz DJ duyurusu (06-messages.js buildDjNotice). Eski WebKit flex gap desteklemez: öğeler arasındaki 0.5rem
+   ve satırlar arasındaki 0.25rem çocukların sağ ve alt boşluğudur. Kapsayıcının eksi sağ ve alt boşluğu her satırın
+   sonundaki ve son satırın altındaki boşluğu geri alır, böylece satır kırılması gap ile aynı olur (#radio-cam-bar
+   kalıbı). Eksi sağ boşluk .convo .msg satırının 0.75rem sağ iç boşluğunda kalır, yatay taşma yaratmaz. */
 .msg-dj {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.5rem;
+  margin: 0 -0.5rem -0.25rem 0;
   color: var(--text-2);
+}
+
+.msg-dj > * {
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .msg-dj .icon {
@@ -3137,8 +3217,44 @@ button.member:hover {
   text-overflow: ellipsis;
 }
 
-/* Profil kartı (#profile-card): renk bandı, avatar, ad, @kullanıcı adı, durum, hakkında,
-   ses ayarı ve eylemler */
+/* Profil kimliği (13-profile.js buildProfileIdentity): avatar solda, sağında iki satırlı sütun. Üst satırda görünen
+   ad ve hemen yanında rol rozetleri, ad uzunsa rozetler alt satıra kayar. Alt satırda @kullanıcı adı. Profil kartı,
+   Ayarlar önizlemesi ve avatar menüsü kullanır. */
+.profile-identity {
+  display: flex;
+  align-items: flex-start;
+}
+
+.profile-identity-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profile-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-identity-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: 0.5rem;
+}
+
+.profile-identity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-identity-badges .badge {
+  margin: 0.125rem 0.375rem 0.125rem 0;
+}
+
+/* Profil kartı (#profile-card): renk bandı, avatar ve kimlik, durum, hakkında, ses ayarı ve eylemler */
 .profile-card {
   width: 21rem;
   max-width: 94%;
@@ -3150,9 +3266,19 @@ button.member:hover {
 
 .profile-card-band {
   height: 5.5rem;
+  overflow: hidden;
   border-radius: var(--radius-card) var(--radius-card) 0 0;
   background-color: var(--av-0);
   background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.12));
+}
+
+/* Kapak fotoğrafı (3:1) bandı doldurur, taşan kısmı bandın köşelerinde ve Turkuaz'ın kemerinde kırpılır. Banda binen
+   avatar (.avatar-wrap, position: relative) ağaçta banttan sonra geldiği için kapağın üstünde çizilir. */
+.profile-card-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-card-band[data-color="1"] { background-color: var(--av-1); }
@@ -3163,11 +3289,85 @@ button.member:hover {
 .profile-card-band[data-color="6"] { background-color: var(--av-6); }
 .profile-card-band[data-color="7"] { background-color: var(--av-7); }
 
-.profile-card-head {
+/* QSL kartı (istek 10, 13-profile.js profileQsl): bandın sağ alt köşesinde frekansın adı, kişi ses odasındaysa odanın
+   frekans okuması ve QSL damgası. Kapak fotoğrafının ve renk bandının üstünde okunsun diye yüzen yüzey zeminindedir,
+   banda binen avatara (sol alt) değmez. Süstür, ekran okuyuculardan gizlidir. */
+.profile-card-band {
+  position: relative;
+}
+
+.profile-card-qsl {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.5rem;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: calc(100% - 8rem);
+}
+
+.profile-card-qsl-station {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0.125rem 0.4375rem;
+  overflow: hidden;
+  border-radius: var(--radius-small);
+  background-color: var(--surface-float);
+  color: var(--text);
+  font-family: var(--font-label);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profile-card-qsl-freq {
+  flex: none;
+  margin-left: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-small);
+  background-color: var(--surface-float);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-card-qsl-stamp {
+  flex: none;
+  margin-left: 0.5rem;
+  padding: 0 0.375rem;
+  border: 2px solid var(--accent-text);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-float);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.375rem;
+  letter-spacing: 0.12em;
+  -webkit-transform: rotate(-6deg);
+  transform: rotate(-6deg);
+}
+
+/* Avatar banda biner, ad ve rol bandın altında avatarın sağında durur. Kart 18rem'den darsa (metin sütunu 9.75rem'e
+   sığmazsa) ad, rol ve @kullanıcı adı avatarın altına kayar. */
+.profile-card-head {
+  flex-wrap: wrap;
   padding: 0 1rem;
+}
+
+.profile-card-avatar {
   margin-top: -2.75rem;
+  margin-right: 0.75rem;
+}
+
+.profile-card-head .profile-identity-text {
+  flex: 1 1 9.75rem;
+  padding-top: 0.5rem;
 }
 
 .profile-card-avatar .avatar {
@@ -3197,23 +3397,21 @@ button.member:hover {
 
 .profile-card-handle,
 .profile-handle {
-  margin-bottom: 0.4rem;
   color: var(--text-2);
   font-size: 0.9rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
-.profile-card-body .badge {
-  margin: 0 0 0.4rem;
-}
-
-.profile-card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.profile-card-badges .badge {
-  margin-right: 0.4rem;
+/* QSL kartı: @kullanıcı adı çağrı işaretidir, adın altında büyük ve tek aralıklı */
+.profile-card-handle {
+  margin-top: 0.125rem;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
 }
 
 .profile-card-status {
@@ -3368,6 +3566,33 @@ button.member:hover {
 
 .app-dialog-body .lead {
   margin-top: 0;
+}
+
+/* Şikâyet penceresi: bildirilen mesajın metni (13-profile.js openReportDialog) */
+.report-quote-box {
+  margin-top: 0.75rem;
+}
+
+.report-quote-box .label {
+  margin-top: 0;
+}
+
+.report-quote {
+  max-height: 8rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  overflow-y: auto;
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-sunken);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.report-note {
+  min-height: 5rem;
+  resize: vertical;
 }
 
 .dialog-actions {
@@ -3899,6 +4124,34 @@ button.member:hover {
 .theme-swatch-turkuaz > span:nth-child(2) { background-color: #3bbdb1; }
 .theme-swatch-turkuaz > span:nth-child(3) { background-color: #db8550; }
 .theme-swatch-turkuaz > span:nth-child(4) { background-color: #efe6d4; }
+.theme-swatch-saha > span:nth-child(1) { background-color: #1b1f14; }
+.theme-swatch-saha > span:nth-child(2) { background-color: #ff8f3a; }
+.theme-swatch-saha > span:nth-child(3) { background-color: #c9d48a; }
+.theme-swatch-saha > span:nth-child(4) { background-color: #e4e0cc; }
+.theme-swatch-lamba > span:nth-child(1) { background-color: #281b12; }
+.theme-swatch-lamba > span:nth-child(2) { background-color: #e2b25a; }
+.theme-swatch-lamba > span:nth-child(3) { background-color: #7fe0a0; }
+.theme-swatch-lamba > span:nth-child(4) { background-color: #efe4cc; }
+.theme-swatch-fosfor > span:nth-child(1) { background-color: #0b160d; }
+.theme-swatch-fosfor > span:nth-child(2) { background-color: #39ff7a; }
+.theme-swatch-fosfor > span:nth-child(3) { background-color: #ffcf5c; }
+.theme-swatch-fosfor > span:nth-child(4) { background-color: #c9d1b4; }
+.theme-swatch-kutup > span:nth-child(1) { background-color: #121c27; }
+.theme-swatch-kutup > span:nth-child(2) { background-color: #5aa9ff; }
+.theme-swatch-kutup > span:nth-child(3) { background-color: #ff7a45; }
+.theme-swatch-kutup > span:nth-child(4) { background-color: #e8eef5; }
+.theme-swatch-plak > span:nth-child(1) { background-color: #1f1522; }
+.theme-swatch-plak > span:nth-child(2) { background-color: #ff79b0; }
+.theme-swatch-plak > span:nth-child(3) { background-color: #f2c36b; }
+.theme-swatch-plak > span:nth-child(4) { background-color: #f3e9ee; }
+.theme-swatch-kokpit > span:nth-child(1) { background-color: #13161a; }
+.theme-swatch-kokpit > span:nth-child(2) { background-color: #ff5cd1; }
+.theme-swatch-kokpit > span:nth-child(3) { background-color: #5ce1ff; }
+.theme-swatch-kokpit > span:nth-child(4) { background-color: #e9eaec; }
+.theme-swatch-kontrast > span:nth-child(1) { background-color: #000000; }
+.theme-swatch-kontrast > span:nth-child(2) { background-color: #ffe600; }
+.theme-swatch-kontrast > span:nth-child(3) { background-color: #80dfff; }
+.theme-swatch-kontrast > span:nth-child(4) { background-color: #ffffff; }
 
 .theme-name {
   font-weight: var(--weight-strong);
@@ -4053,8 +4306,9 @@ button.member:hover {
     border-radius: 0;
   }
 
+  /* positionPopup kartı kenarlardan 8 piksel içeride tutar, büyük yazı boyutunda kart ekrandan taşmasın */
   .profile-card {
-    max-width: 100%;
+    max-width: calc(100% - 16px);
   }
 
   .key-warning {

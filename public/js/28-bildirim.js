@@ -1,6 +1,6 @@
 'use strict'
 
-// Bildirimler (#activity): sol sütunda telsiz kartının üstündeki kısa olay listesi. Üç tür olay yazılır:
+// Bildirimler (#activity): sol sütunda telsiz kartının üstündeki kısa olay listesi. Dört tür olay yazılır:
 // - Ekran paylaşımı başladı: yanında İzle düğmesi durur, paylaşım bitince veya ses odasından ayrılınca kayıt
 //   kalkar (22-cast.js castOnScreenEvent ve castSync, activityShare ve activityClearShares). Paylaşım ses
 //   bağlantıları üzerinden duyurulduğu için yalnızca aynı ses odasındaki paylaşımlar görünür.
@@ -9,8 +9,11 @@
 //   yazılmaz.
 // - Oyun daveti: yanında Masaya Bak düğmesi durur. Masa kapanınca, davet geçersiz olunca, Katıl'a basınca ve
 //   ses odasından çıkınca kayıt kalkar (36-oyun.js, activityGame ve activityClearGames).
-// Liste en yeni ACTIVITY_MAX kaydı tutar, en yeni üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda
-// görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz (castShowNotice, activityShown).
+// - Telsiz DJ'ye başkasının parça eklemesi: aynı ses odasında motorun notice olayından (23-dj.js djOnNotice,
+//   activityDj). Hangi yazı odasında olunursa olunsun görünür, parçanın adı kuyruktan canlı okunur.
+// Liste en çok ACTIVITY_MAX kayıt tutar (süren paylaşımların ve geçerli oyun davetlerinin kaydı korunur), en yeni
+// üsttedir. Kayıt yoksa kart gizlidir. Liste geniş ekranda görünürken paylaşım bildirimi sağ üstte ayrıca açılmaz
+// (castShowNotice, activityShown).
 
 const ACTIVITY_MAX = 5
 const activityState = { items: [], seq: 0, rosters: null }
@@ -26,10 +29,25 @@ function activityRosters (meta) {
   return out
 }
 
+// Süren kayıtlar: ekran paylaşımı (İzle düğmesi) ve geçerli oyun daveti (Masaya Bak düğmesi). İkisi de kaynağı
+// bitince kendiliğinden kalkar (activityShare, activityClearShares, activityGame, activityClearGames).
+function activityLive (item) {
+  return item.kind === 'share' || item.kind === 'game'
+}
+
+// Liste dolunca en eski kayıt düşer. Süren kayıtlar (activityLive) diğer kayıtlar varken düşmez: sık gelen
+// Telsiz DJ, katılma ve ayrılma kayıtları onları listeden atmaz (liste görünürken paylaşım bildirimi ayrıca
+// açılmaz). Liste süren kayıtlarla doluysa yeni süren kayıt en eskisini düşürür, başka türden yeni kayıt yazılmaz.
 function activityAdd (item) {
   activityState.seq++
-  activityState.items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
-  if (activityState.items.length > ACTIVITY_MAX) activityState.items.length = ACTIVITY_MAX
+  const items = activityState.items
+  items.unshift(Object.assign({ id: activityState.seq, at: Date.now() }, item))
+  while (items.length > ACTIVITY_MAX) {
+    let drop = items.length - 1
+    while (drop > 0 && activityLive(items[drop])) drop--
+    if (activityLive(items[drop])) drop = items.length - 1
+    items.splice(drop, 1)
+  }
 }
 
 // Kadro farkından katılma ve ayrılma kayıtları
@@ -91,6 +109,37 @@ function activityGameName (item) {
   return typeof gameAppName === 'function' ? gameAppName(item.app) : ''
 }
 
+// Telsiz DJ: aynı ses odasında başkası kuyruğa parça ekledi. title ve type kaydın parça belleğidir (23-dj.js
+// djLiveTitle doldurur): ad sonradan gelince kayda yazılır, parça kuyruktan çıkınca kayıt bu adı gösterir.
+function activityDj (userId, channelId, trackId, title, type) {
+  if (userId === null || userId === undefined) return
+  activityAdd({
+    kind: 'dj',
+    userId: String(userId),
+    channelId: channelId === null || channelId === undefined ? null : String(channelId),
+    trackId: trackId || null,
+    title: typeof title === 'string' ? title : '',
+    type: type === 'youtube' || type === 'file' ? type : null
+  })
+  renderActivity()
+}
+
+// Motorun her durum değişikliğinde Telsiz DJ kayıtları yenilenir: parçanın adı ekleme anında bilinmeyebilir,
+// sonradan gelir. Kaydın belleği liste çizilmemiş olsa da güncellenir, parça kuyruktan çıkınca ad korunur.
+function activityDjRefresh () {
+  const texts = new Map()
+  activityState.items.forEach((item) => {
+    if (item.kind === 'dj') texts.set(item.id, activityText(item))
+  })
+  const list = el.activityList
+  if (!list || !texts.size) return
+  Array.from(list.children).forEach((li) => {
+    const value = texts.get(Number(li.getAttribute('data-activity-id')))
+    const text = value === undefined ? null : li.querySelector('.activity-text')
+    if (text && text.textContent !== value) text.textContent = value
+  })
+}
+
 function activityClearShares () {
   const before = activityState.items.length
   activityState.items = activityState.items.filter((item) => item.kind !== 'share')
@@ -113,6 +162,8 @@ function activityText (item) {
   const name = shownName(item.userId)
   if (item.kind === 'share') return t('activity.share', { name: name })
   if (item.kind === 'game') return t('game.activityInvite', { name: name, game: activityGameName(item) })
+  // Kayıt djLiveTitle'a parça belleği olarak verilir (ad ve tür kayda yazılır)
+  if (item.kind === 'dj') return t('activity.djAdd', { name: name, title: typeof djLiveTitle === 'function' ? djLiveTitle(item.trackId, item) : item.title })
   const room = findChannel(item.channelId)
   const roomName = room && room.name ? String(room.name) : t('activity.voiceRoom')
   return t(item.kind === 'join' ? 'activity.join' : 'activity.leave', { name: name, room: roomName })
@@ -126,6 +177,7 @@ function renderActivity () {
   activityState.items.forEach((item) => {
     const li = h('li', 'activity-item is-' + item.kind)
     li.setAttribute('data-user-id', item.userId)
+    li.setAttribute('data-activity-id', String(item.id))
     li.appendChild(avatar(item.userId, 'xs', 'activity-avatar'))
     const body = h('span', 'activity-body')
     setLive(body.appendChild(h('span', 'activity-text')), () => activityText(item))

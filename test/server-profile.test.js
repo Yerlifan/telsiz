@@ -1,6 +1,6 @@
 'use strict'
 
-// Profil zarfı ve profil resmi, durum ve görünmezlik, oturum listesi, etiketleri ve kapatma,
+// Profil zarfı, profil resmi ve kapak fotoğrafı, durum ve görünmezlik, oturum listesi, etiketleri ve kapatma,
 // engellenen ve eski kullanıcıların adları.
 
 const { describe, it } = require('node:test')
@@ -41,8 +41,9 @@ async function uploadId (ctx, token, size) {
   return res.data.id
 }
 
-function setProfile (ctx, token, profile, avatarUploadId) {
-  return h.post(ctx, '/api/me/profile', token, { profile, avatarUploadId })
+// coverUploadId verilmezse alan gönderilmez (kapağı bilmeyen eski istemci gibi)
+function setProfile (ctx, token, profile, avatarUploadId, coverUploadId) {
+  return h.post(ctx, '/api/me/profile', token, { profile, avatarUploadId, coverUploadId })
 }
 
 async function profileOf (ctx, token, id) {
@@ -228,6 +229,174 @@ describe('profil resmi', () => {
       assert.equal((await h.stateOf(ctx, ayse.token)).me.status, 'online')
       // Sahte işaret kaldırıldı, eski resim artık yalnızca yükleyene açık
       h.expectStatus(await h.get(ctx, '/api/uploads/' + a, owner.token), 404, 'upload_not_found')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+})
+
+describe('kapak fotoğrafı', () => {
+  it('sahiplik, bağlı olmama, profil resminden ayrı olma, boyut sınırı, mesaja eklenememe ve indirme yetkisi', async () => {
+    const { ctx, owner, ayse, mehmet } = await group({ avatarMaxBytes: 1000 })
+    try {
+      const avatar = await uploadId(ctx, ayse.token)
+      const own = await uploadId(ctx, ayse.token)
+      const others = await uploadId(ctx, owner.token)
+      const bound = await uploadId(ctx, ayse.token)
+      const big = await uploadId(ctx, ayse.token, 1001)
+      const text = (await h.stateOf(ctx, ayse.token)).meta.channels.find((c) => c.type === 'text')
+      await h.sendMessage(ctx, ayse.token, text.id, { uploads: [bound] })
+      for (const id of [others, bound, 'a'.repeat(32), 'yok', 42, {}, own.toUpperCase()]) {
+        h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), avatar, id), 400, 'bad_cover')
+      }
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), avatar, big), 413, 'cover_too_large')
+      // Aynı yükleme hem profil resmi hem kapak olamaz
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), own, own), 400, 'bad_cover')
+      // Profil resmi hatası önce bildirilir
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), others, own), 400, 'bad_avatar')
+      const before = await metaUser(ctx, owner.token, ayse.user.id)
+      const res = await setProfile(ctx, ayse.token, h.envelope(), avatar, own)
+      h.expectStatus(res, 200)
+      assert.equal(res.data.pv, before.pv + 1)
+      const listed = await profileOf(ctx, owner.token, ayse.user.id)
+      assert.deepEqual([listed.avatarUploadId, listed.coverUploadId], [avatar, own])
+      // Kapak mesaja eklenemez, başka bir profilde profil resmi veya kapak olarak kullanılamaz
+      const send = await h.post(ctx, '/api/messages', ayse.token, { channelId: text.id, body: h.envelope(), uploads: [own] })
+      h.expectStatus(send, 400, 'bad_uploads')
+      h.expectStatus(await setProfile(ctx, owner.token, h.envelope(), own, null), 400, 'bad_avatar')
+      h.expectStatus(await setProfile(ctx, owner.token, h.envelope(), null, own), 400, 'bad_cover')
+      // Oturum açmış herkes indirebilir
+      for (const token of [owner.token, ayse.token, mehmet.token]) {
+        const dl = await h.get(ctx, '/api/uploads/' + own, token)
+        assert.equal(dl.status, 200)
+        assert.equal(dl.headers['content-type'], 'application/octet-stream')
+        assert.equal(dl.headers['content-disposition'], 'attachment')
+      }
+      h.expectStatus(await h.get(ctx, '/api/uploads/' + own), 401, 'invalid_token')
+      // Engellenen hesabın kapağı da gizlenir
+      h.expectStatus(await h.post(ctx, '/api/users/ban', owner.token, { userId: ayse.user.id, banned: true }), 200)
+      h.expectStatus(await h.get(ctx, '/api/uploads/' + own, mehmet.token), 404, 'upload_not_found')
+      h.expectStatus(await h.post(ctx, '/api/users/ban', owner.token, { userId: ayse.user.id, banned: false }), 200)
+      assert.equal((await h.get(ctx, '/api/uploads/' + own, mehmet.token)).status, 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('değişen ve kaldırılan eski kapak silinir, alan gönderilmezse kapak kalkar, yetim taramasında ve yeniden başlatmada kalır', async () => {
+    const { ctx: first, owner, ayse } = await group({ orphanUploadTtlMs: 100 })
+    let ctx = first
+    try {
+      const c1 = await uploadId(ctx, ayse.token)
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), null, c1), 200)
+      const loose = await uploadId(ctx, ayse.token)
+      // Bağlanmamış yükleme süre dolunca silinir, kapak kalır
+      await h.waitFor(async () => (await h.get(ctx, '/api/uploads/' + loose, ayse.token)).status === 404, { timeout: 5000 })
+      assert.equal((await h.get(ctx, '/api/uploads/' + c1, owner.token)).status, 200)
+      // Yalnızca kapak değişince de profil sürümü artar, eski kapak silinir
+      const pv = (await profileOf(ctx, owner.token, ayse.user.id)).pv
+      const c2 = await uploadId(ctx, ayse.token)
+      const changed = await setProfile(ctx, ayse.token, h.envelope(), null, c2)
+      h.expectStatus(changed, 200)
+      assert.equal(changed.data.pv, pv + 1)
+      await h.waitFor(() => !fs.existsSync(uploadFile(ctx, c1)))
+      h.expectStatus(await h.get(ctx, '/api/uploads/' + c1, ayse.token), 404, 'upload_not_found')
+      // Kapak profil resmi yapılınca dosya kalır, kapak alanı boşalır
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), c2, null), 200)
+      let listed = await profileOf(ctx, owner.token, ayse.user.id)
+      assert.deepEqual([listed.avatarUploadId, listed.coverUploadId], [c2, null])
+      await h.sleep(300)
+      assert.equal((await h.get(ctx, '/api/uploads/' + c2, owner.token)).status, 200)
+      // Yeni kapak yeniden başlatmada kalır ve yetim taramasında silinmez
+      const c3 = await uploadId(ctx, ayse.token)
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), c2, c3), 200)
+      ctx = await ctx.restart()
+      listed = await profileOf(ctx, owner.token, ayse.user.id)
+      assert.deepEqual([listed.avatarUploadId, listed.coverUploadId], [c2, c3])
+      await h.sleep(300)
+      assert.equal((await h.get(ctx, '/api/uploads/' + c3, owner.token)).status, 200)
+      // Kapağı bilmeyen eski istemci alanı göndermez: kapak kalkar ve silinir, profil resmi kalır
+      const old = await h.post(ctx, '/api/me/profile', ayse.token, { profile: h.envelope(), avatarUploadId: c2 })
+      h.expectStatus(old, 200)
+      await h.waitFor(() => !fs.existsSync(uploadFile(ctx, c3)))
+      listed = await profileOf(ctx, owner.token, ayse.user.id)
+      assert.deepEqual([listed.avatarUploadId, listed.coverUploadId], [c2, null])
+      assert.equal((await h.get(ctx, '/api/uploads/' + c2, owner.token)).status, 200)
+      // null ile iki resim de kaldırılır ve silinir
+      const c4 = await uploadId(ctx, ayse.token)
+      h.expectStatus(await setProfile(ctx, ayse.token, null, c2, c4), 200)
+      h.expectStatus(await setProfile(ctx, ayse.token, null, null, null), 200)
+      await h.waitFor(() => !fs.existsSync(uploadFile(ctx, c2)) && !fs.existsSync(uploadFile(ctx, c4)))
+      await ctx.server.flush()
+      const disk = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'))
+      assert.ok(!disk.uploads.some((r) => r.id === c2 || r.id === c4))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('kapak kullanıcının yükleme kotasına sayılır, kaldırılınca kota boşalır', async () => {
+    const ctx = await h.startServer({ userUploadQuotaBytes: 1000 })
+    try {
+      const owner = await h.setupOwner(ctx)
+      const cover = await uploadId(ctx, owner.token, 700)
+      h.expectStatus(await setProfile(ctx, owner.token, h.envelope(), null, cover), 200)
+      h.expectStatus(await h.upload(ctx, owner.token, crypto.randomBytes(400)), 507, 'user_quota_full')
+      h.expectStatus(await setProfile(ctx, owner.token, h.envelope(), null, null), 200)
+      h.expectStatus(await h.upload(ctx, owner.token, crypto.randomBytes(400)), 200)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('silinen hesabın kapağı silinir', async () => {
+    const { ctx, owner, mehmet } = await group()
+    try {
+      const m = await uploadId(ctx, mehmet.token)
+      h.expectStatus(await setProfile(ctx, mehmet.token, h.envelope(), null, m), 200)
+      h.expectStatus(await h.post(ctx, '/api/me/delete', mehmet.token, { authKey: h.authKeyFor(h.PASSWORD) }), 200)
+      await h.waitFor(() => !fs.existsSync(uploadFile(ctx, m)))
+      h.expectStatus(await h.get(ctx, '/api/uploads/' + m, owner.token), 404, 'upload_not_found')
+      await ctx.server.flush()
+      const disk = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, 'state.json'), 'utf8'))
+      const gone = disk.users.find((u) => u.id === mehmet.user.id)
+      assert.deepEqual([gone.coverUploadId, gone.deleted], [null, true])
+      assert.ok(!disk.uploads.some((r) => r.id === m))
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  it('veri dosyasındaki geçersiz kapak bağlantısı açılışta kaldırılır, eski veri dosyasında alan boş başlar', async () => {
+    let { ctx, owner, ayse, mehmet } = await group()
+    try {
+      const a = await uploadId(ctx, ayse.token)
+      const c = await uploadId(ctx, ayse.token)
+      const other = await uploadId(ctx, owner.token)
+      const m = await uploadId(ctx, mehmet.token)
+      h.expectStatus(await setProfile(ctx, ayse.token, h.envelope(), a, c), 200)
+      h.expectStatus(await setProfile(ctx, mehmet.token, h.envelope(), m, null), 200)
+      await ctx.stop()
+      const file = path.join(ctx.dataDir, 'state.json')
+      const disk = JSON.parse(fs.readFileSync(file, 'utf8'))
+      assert.equal(disk.uploads.find((r) => r.id === c).profileUserId, ayse.user.id)
+      // Ayşe'nin kapağı başkasının yüklemesine, Mehmet'in kapağı kendi profil resmine işaret eder. Sahibin kaydında
+      // alan hiç yoktur (önceki sürümün veri dosyası).
+      disk.users.find((u) => u.id === ayse.user.id).coverUploadId = other
+      disk.users.find((u) => u.id === mehmet.user.id).coverUploadId = m
+      delete disk.users.find((u) => u.id === owner.user.id).coverUploadId
+      fs.writeFileSync(file, JSON.stringify(disk))
+      ctx = await ctx.restart()
+      assert.ok(ctx.log.lines.warn.some((line) => /kapak/.test(line)))
+      const ayseListed = await profileOf(ctx, owner.token, ayse.user.id)
+      assert.deepEqual([ayseListed.avatarUploadId, ayseListed.coverUploadId], [a, null])
+      const mehmetListed = await profileOf(ctx, owner.token, mehmet.user.id)
+      assert.deepEqual([mehmetListed.avatarUploadId, mehmetListed.coverUploadId], [m, null])
+      assert.equal((await profileOf(ctx, ayse.token, owner.user.id)).coverUploadId, null)
+      // Eski kapağın bağlantısı kalktı, artık yalnızca yükleyene açık. Mehmet'in profil resmi herkese açık kalır.
+      h.expectStatus(await h.get(ctx, '/api/uploads/' + c, owner.token), 404, 'upload_not_found')
+      assert.equal((await h.get(ctx, '/api/uploads/' + c, ayse.token)).status, 200)
+      assert.equal((await h.get(ctx, '/api/uploads/' + m, owner.token)).status, 200)
     } finally {
       await ctx.cleanup()
     }

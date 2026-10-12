@@ -1,8 +1,9 @@
 'use strict'
 
 // Masaüstü ayarları: etkin frekans (sunucu adresi), kayıtlı frekans listesi, kapatınca tepsiye
-// küçültme, genel kısayollar, bas konuş (ptt: kip ve basılı tut tuşu, varsayılan bas aç, bas kapat)
-// ve güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık).
+// küçültme, genel kısayollar, bas konuş (ptt: kip ve basılı tut tuşu, varsayılan bas aç, bas kapat),
+// güncellemelerin otomatik denetimi (autoUpdate, varsayılan açık) ve yüzen pencerenin son konumu ve boyutu
+// (floatBounds: { x, y, width, height } veya null, src/lib/float-window.js).
 // Uygulama verisi klasöründe (Electron app.getPath('userData')) ayarlar.json olarak saklanır.
 // Dosya her okunuşta doğrulanır, geçersiz alanlar varsayılan değere döner. Yazma atomiktir
 // (geçici dosya ve yeniden adlandırma), böylece yarım kalan bir yazma ayarları bozmaz.
@@ -16,13 +17,14 @@ const path = require('node:path')
 const { isValidOrigin } = require('./server-url')
 const { validateShortcutMap, emptyMap, validatePttSettings, defaultPtt } = require('./shortcuts')
 const frequencies = require('./frequencies')
+const floatWindow = require('./float-window')
 
 const FILE_NAME = 'ayarlar.json'
 const FORMAT_VERSION = 2
 const MAX_BYTES = 64 * 1024
 
 function defaults () {
-  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), ptt: defaultPtt(), autoUpdate: true }
+  return { server: null, frequencies: [], closeToTray: false, shortcuts: emptyMap(), ptt: defaultPtt(), autoUpdate: true, floatBounds: null }
 }
 
 // Okunan nesneden geçerli ayarları çıkarır
@@ -44,6 +46,8 @@ function sanitize (raw) {
     const checked = validatePttSettings(raw.ptt)
     if (checked.ok) out.ptt = checked.value
   }
+  // Geçersiz konum unutulur, yüzen pencere varsayılan köşede açılır
+  out.floatBounds = floatWindow.validBounds(raw.floatBounds)
   return out
 }
 

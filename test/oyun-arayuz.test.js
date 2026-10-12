@@ -622,6 +622,25 @@ describe('duyurular ve sahne', () => {
     assert.notEqual(box.firstChild, body)
     assert.equal(deniz.text('[data-focus-key="game-open"]'), 'Open Table')
   })
+
+  test('profil sürümü (13-profile.js profileEpoch) artınca sahne yeniden çizilir, aynı sürümde DOM\'a dokunulmaz', () => {
+    // Profil resmi sonradan inince veya biri profilini değiştirince lobideki ve koltuklardaki avatarlar yenilenir
+    const { pages } = makeWorld(['5', '12'])
+    const [deniz] = pages
+    deniz.run('globalThis.__epoch = 1')
+    deniz.run('globalThis.profileEpoch = function () { return __epoch }')
+    deniz.press('tool-game')
+    assert.equal(deniz.stage(), 'game')
+    const box = deniz.q('#cast .cast-game')
+    deniz.run('gameRenderStage(castState.nodes.game)')
+    const body = box.firstChild
+    const before = deniz.doc.counter.mutations
+    deniz.run('gameRenderStage(castState.nodes.game)')
+    assert.equal(deniz.doc.counter.mutations, before, 'aynı profil sürümünde DOM\'a dokunulmaz')
+    deniz.run('__epoch = 2')
+    deniz.run('gameRenderStage(castState.nodes.game)')
+    assert.notEqual(box.firstChild, body, 'profil sürümü artınca sahne yeniden çizilir')
+  })
 })
 
 describe('akış: Masa Kur, davet, lobi, oyun', () => {

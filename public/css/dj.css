@@ -594,6 +594,38 @@
   color: var(--text-2);
 }
 
+/* Telsiz kartındaki YouTube rıza uyarısı (23-dj.js djSyncConsentWarn): odada YouTube parçası çalarken henüz
+   izin vermemiş kişide kadronun altında durur. Telefonda kartın kendi satırını kaplar. */
+.radio-dj-consent {
+  flex: 1 1 100%;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.625rem 0.125rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-control);
+  background-color: var(--warn-bg);
+}
+
+.radio-dj-consent[hidden] {
+  display: none;
+}
+
+.radio-dj-consent-text {
+  margin: 0 0 0.375rem;
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.radio-dj-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.radio-dj-consent-actions .button {
+  margin: 0 0.375rem 0.375rem 0;
+}
+
 /* ===== 8. Mesajdaki ses dosyası kartının "DJ'de çal" düğmesi ===== */
 
 .dj-file-actions {
@@ -612,18 +644,26 @@
 
 /* YouTube'un gömülü oynatıcı kuralları oynatıcının en az 200 x 200 ve görünür olmasını, üstüne hiçbir şey
    konmamasını ister. Oynatıcı görünmezse motor parçayı bu cihazda duraklatır (music.js syncPlayer). Kart
-   görünmezken (sayfa kipinde sayfa kapalı) veya üstünü bir katman örterken (Ayarlar, başka bir sayfa, menü,
-   pencere) 23-dj.js #dj'ye is-docked koyar: oynatıcı alanı sağ alt köşeye sabitlenir, altında başlık ve
-   düğmelerin olduğu çubuk durur, kartın geri kalanı visibility ile gizlenir. Çerçeve ve ataları DOM'da
-   taşınmaz (taşınan çerçeve yeniden yüklenir). Atalarda transform, filter, backdrop-filter, contain ve
-   will-change bulunmaz (position: fixed kutuyu onların içine hapsederdi), overflow visible olur
-   (görünürlük ölçümü kırpan ataları sayar). Kutu her katmanın, Ayarlar'ın ve kısa bildirimlerin üstündedir,
-   kısa bildirim ve güncelleme şeridi köşedeyken kutunun üstüne çıkar. 23-dj.js gövdeye has-dj-dock koyar,
-   telefonda yazma alanının yüksekliğini --dj-dock-lift olarak yazar. */
+   görünmezken (sayfa kipinde sayfa kapalı), üstünü bir katman örterken (Ayarlar, başka bir sayfa, menü,
+   pencere) veya Yüzen Oynatıcı açıkken 23-dj.js #dj'ye is-docked ve data-dock (tl, tr, bl, br) koyar: yüzen
+   kutu (.dj-float: oynatıcı alanı veya dosya parçasının dalga biçimi ve altında başlık ve düğmelerin olduğu
+   çubuk) o köşeye sabitlenir, kartın geri kalanı visibility ile gizlenir (Yüzen Oynatıcıda kart görünür kalır).
+   Kutu çubuğundan sürüklenir, bırakınca en yakın köşeye oturur, Taşı düğmesi köşeleri dolaşır. Küçültülen
+   kutuda yalnızca çubuk kalır. Çerçeve ve ataları DOM'da taşınmaz (taşınan çerçeve yeniden yüklenir). Atalarda
+   transform, filter, backdrop-filter, contain ve will-change bulunmaz (position: fixed kutuyu onların içine
+   hapsederdi), overflow visible olur (görünürlük ölçümü kırpan ataları sayar). Kutu her katmanın, Ayarlar'ın ve
+   kısa bildirimlerin üstündedir, alt köşedeyken kısa bildirim ve güncelleme şeridi kutunun üstüne çıkar.
+   23-dj.js gövdeye has-dj-dock koyar, üst köşelerde bandın, sohbet başlığının ve okunmamış şeridinin altını
+   --dj-dock-top, alt köşelerde yazma alanının ve telsiz kartının üstünü --dj-dock-lift olarak yazar. Alt köşedeki
+   kutu mesaj akışının altını örtüyorsa yeni mesaj kapsülü kutunun üstüne çıkar (--dj-dock-below). Kutu yer
+   oldukça kartın düğmelerine inmez ve görünüm alanında kalır. Ana görünümü örten bir katman (Ayarlar, sayfalar,
+   pencereler) açıkken kutu seçilen yandaki alt köşededir. */
 
 body {
   --dj-dock-gap: 1rem;
   --dj-dock-lift: 1rem;
+  --dj-dock-top: calc(var(--titlebar-h, 0px) + 1rem);
+  --dj-dock-clear: calc(2rem + 202px + 3.25rem);
   --dj-dock-w: 22.25rem;
   --dj-dock-bar-h: 3.25rem;
 }
@@ -651,6 +691,11 @@ body.has-dj-dock .cast-panel.is-full {
   animation: none;
 }
 
+/* Yüzen Oynatıcı: kart yerinde ve görünür kalır */
+.side-dj.is-docked.is-dock-float {
+  visibility: visible;
+}
+
 /* Kapalı sayfa yer kaplamaz ama çizilir (display: none çerçeveyi de gizlerdi) */
 .side-dj.is-sheet-mode.is-dock-only:not(.is-open) {
   display: block;
@@ -672,35 +717,79 @@ body.has-dj-dock .cast-panel.is-full {
   backdrop-filter: none;
 }
 
-/* Sütundaki kart yerini korur, İstasyonlar listesi kaymaz */
+/* Sütundaki kart yerini korur, İstasyonlar listesi kaymaz. Yüzen Oynatıcıda oynatıcının yeri kapanır. */
 .side-dj.is-docked .dj-stage {
   height: 12.5rem;
   min-height: 202px;
 }
 
-.side-dj.is-docked .dj-yt,
-.side-dj.is-docked .dj-dock {
+.side-dj.is-docked.is-dock-float .dj-stage {
+  height: auto;
+  min-height: 0;
+}
+
+.side-dj.is-docked .dj-float {
   position: fixed;
   right: var(--dj-dock-gap);
+  bottom: var(--dj-dock-lift);
   z-index: 1;
   width: var(--dj-dock-w);
   max-width: calc(100% - 2rem);
   min-width: 202px;
   margin: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) 0;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-pop);
   visibility: visible;
+}
+
+.side-dj.is-docked[data-dock="tl"] .dj-float,
+.side-dj.is-docked[data-dock="bl"] .dj-float {
+  right: auto;
+  left: var(--dj-dock-gap);
+  margin-right: 0;
+  margin-left: env(safe-area-inset-left);
+}
+
+.side-dj.is-docked[data-dock="tl"] .dj-float,
+.side-dj.is-docked[data-dock="tr"] .dj-float {
+  top: var(--dj-dock-top);
+  bottom: auto;
+  margin-bottom: 0;
+}
+
+/* Alt köşede yazma alanının veya telsiz kartının üstüne çıkınca güvenli alan ölçüye dahildir */
+body.has-dj-dock-lift .side-dj.is-docked .dj-float {
+  margin-bottom: 0;
+}
+
+/* Sürüklenirken kutu imleci izler (23-dj.js dockDrag satır içi left ve top yazar) */
+.side-dj.is-docked .dj-float.is-dragging {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Kenarlık dahil 202 piksel: çerçeve 200 x 200'ün altına inmez. Çubuk kutunun altındadır, üstüne binmez. */
 .side-dj.is-docked .dj-yt {
-  bottom: calc(var(--dj-dock-lift) + var(--dj-dock-bar-h));
   height: 202px;
   border-radius: var(--radius-card) var(--radius-card) 0 0;
-  box-shadow: var(--shadow-pop);
 }
 
-/* Gölge yalnızca aşağı düşer, oynatıcının üstüne çizilmez */
+.side-dj.is-docked .dj-wave {
+  height: 4.5rem;
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background-color: var(--surface-float);
+}
+
+/* Küçültülen kutuda yalnızca çubuk kalır */
+.side-dj.is-dock-min .dj-yt,
+.side-dj.is-dock-min .dj-wave {
+  display: none;
+}
+
+/* Çubuk sürükleme tutamağıdır: dokunmatik ekranda sürükleme sayfayı kaydırmaz */
 .side-dj.is-docked .dj-dock {
-  bottom: var(--dj-dock-lift);
   display: flex;
   align-items: center;
   height: var(--dj-dock-bar-h);
@@ -711,13 +800,13 @@ body.has-dj-dock .cast-panel.is-full {
   border-radius: 0 0 var(--radius-card) var(--radius-card);
   background-color: var(--surface-float);
   color: var(--text);
-  box-shadow: 0 12px 24px -12px var(--overlay);
+  cursor: move;
+  touch-action: none;
 }
 
-/* Telefonda yazma alanının üstünde (23-dj.js ölçer, güvenli alan ölçüye dahildir) */
-body.has-dj-dock-lift .side-dj.is-docked .dj-yt,
-body.has-dj-dock-lift .side-dj.is-docked .dj-dock {
-  margin-bottom: 0.5rem;
+.side-dj.is-dock-min .dj-dock {
+  border-top: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
 }
 
 .dj-dock-title {
@@ -734,6 +823,7 @@ body.has-dj-dock-lift .side-dj.is-docked .dj-dock {
 .dj-dock .icon-button {
   margin-left: 0.125rem;
   color: var(--text-2);
+  cursor: pointer;
 }
 
 .dj-dock .icon-button:hover {
@@ -748,16 +838,37 @@ body.has-dj-dock-lift .side-dj.is-docked .dj-dock {
   animation: band-pulse 1.6s var(--ease) infinite;
 }
 
-/* Kısa bildirim ve güncelleme şeridi kutunun üstüne çıkar (oynatıcının üstüne binmez, onun altında da
-   kalmaz) */
-body.has-dj-dock .toast,
-body.has-dj-dock .desktop-update-banner {
-  bottom: calc(var(--dj-dock-lift) + var(--dj-dock-bar-h) + 202px + 1rem);
+/* Bu cihazda yerel bekletme var (medya tuşu, kilit ekranı veya küçültülmüş YouTube): lamba söner, düğme "Bu
+   Cihazda Devam Et" olur ve öne çıkar (23-dj.js djRenderDock) */
+.dj-dock.is-held .dj-led {
+  background-color: var(--text-3);
+  box-shadow: none;
 }
 
-/* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir */
-body.has-dj-dock .settings-main-inner,
-body.has-dj-dock .settings-side {
+.dj-dock.is-held .dj-dock-toggle {
+  background-color: var(--accent-fill-a);
+  color: var(--on-accent);
+}
+
+/* Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (oynatıcının üstüne binmez, onun altında
+   da kalmaz) */
+body.has-dj-dock-bottom .toast,
+body.has-dj-dock-bottom .desktop-update-banner {
+  bottom: var(--dj-dock-clear);
+}
+
+/* Yeni mesaj kapsülü (38-gezinme.js, convo.css) mesaj akışının altına yapışıktır. Alt köşedeki kutu akışın altını
+   örtüyorsa (telefonda kutu yazma alanının hemen üstünde, neredeyse tam genişliktedir) kapsül kutunun üstüne
+   çıkar: --dj-dock-below akışın alt kenarından kutunun üstüne kadarki uzaklıktır (23-dj.js djDockBelow). */
+body.has-dj-dock-below .new-below {
+  bottom: var(--dj-dock-below);
+}
+
+/* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir. Ayarlar açıkken
+   kutu her zaman alt köşededir (23-dj.js djDockPlace). Seçici dar ekranın (.settings-view.is-narrow) dolgusunu
+   da geçer. */
+body.has-dj-dock-bottom .settings-view .settings-main-inner,
+body.has-dj-dock-bottom .settings-view .settings-side {
   padding-bottom: calc(2rem + 202px + 3.25rem + 1rem);
 }
 

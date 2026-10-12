@@ -84,6 +84,167 @@ function composerRunCommand (raw, text, ready) {
   return true
 }
 
+// Konuşma başına taslak (istek 17 S1). Yazma alanı tektir: konuşmadan çıkılırken (composerLeave) metin ve
+// gönderilemeyen mesajın istemci kimliği o konuşmanın taslağına kaydedilir, alan boşaltılır, düzenleme kipi ve
+// yazıyor bildirimi biter. Yeni konuşmaya girilirken (composerEnter) onun taslağı yüklenir. Anahtar yazı
+// odasında 'c:' + kimlik, özel konuşmada 'd:' + kimliktir (composerKey), Arkadaşlar görünümünde boştur.
+// Ekler state.attachments içinde kalır ve eklendikleri konuşmanın anahtarını (convKey) taşır: yüklemesi süren
+// ek konuşmadan çıkılınca kendi taslağında tamamlanır, yazma alanı ve gönderim yalnızca açık konuşmanın
+// eklerini görür. Böylece bir konuşmanın metni veya eki başka bir konuşmanın yazma alanına geçmez ve orada
+// gönderilemez. Taslaklar yalnızca bellekte tutulur, diske yazılmaz. Oturum kapanınca ve frekans değişince
+// silinir (composerDraftsClear), konuşma silinince ve kişi engellenince o konuşmanınki bırakılır
+// (composerPruneDrafts).
+// Sunucu mesaja bağlanmayan yüklemeyi varsayılan olarak bir saat sonra siler (src/app.js orphanUploadTtlMs,
+// istemciye bildirilmez). Taslakta bekleyen yüklenmiş ek UPLOAD_FRESH_MS dolunca dosyasından yeniden hazırlanıp
+// yüklenir: konuşmaya dönülünce (composerEnter) ve gönderirken (sendMessage). Süre yükleme isteğinin başladığı
+// andan (att.uploadedAt) sayılır ve gönderime pay bırakır. Yanıtı alınamayan bir gönderim varsa ekler önceden
+// yeniden yüklenmez (composerReuploadStale). Sunucu gönderilen ekleri yine de tanımazsa (400 bad_uploads, ör. süre
+// sunucuda daha kısa ayarlanmış) bu ekler de yeniden yüklenir, metin yazma alanında kalır.
+
+const composerDrafts = new Map()
+const UPLOAD_FRESH_MS = 45 * 60 * 1000
+
+function composerKey () {
+  const id = state.channelId
+  if (id === null || id === undefined || id === '') return ''
+  const mode = currentViewMode()
+  if (mode === 'home') return ''
+  return (mode === 'dm' || isDmChannel(id) ? 'd:' : 'c:') + String(id)
+}
+
+// Açık konuşmanın (veya verilen anahtarın) ekleri
+function composerAttachments (key) {
+  const k = key === undefined ? composerKey() : key
+  return state.attachments.filter((a) => a.convKey === k)
+}
+
+// Taslağın konuşması hâlâ var mı: yazı odası metada duruyor, özel konuşma listede (veya açık) ve kişi engelli değil
+function composerKeyAlive (key) {
+  const id = String(key || '').slice(2)
+  if (!id) return false
+  if (key.indexOf('c:') === 0) {
+    const ch = findChannel(id)
+    return Boolean(ch && ch.type === 'text')
+  }
+  if (key.indexOf('d:') !== 0) return false
+  const entry = dmEntry(id)
+  let partner = entry ? entry.userId : null
+  if (!entry && sameId(id, dmState.activeId)) partner = dmState.partnerId
+  return partner !== null && partner !== undefined && !isBlocked(partner)
+}
+
+// Sunucudaki kopyası silinmek üzere olan yüklenmiş ekler (UPLOAD_FRESH_MS)
+function composerStaleAttachments (key) {
+  const now = Date.now()
+  return composerAttachments(key).filter((a) => a.status === 'done' && now - a.uploadedAt > UPLOAD_FRESH_MS)
+}
+
+// Ekler dosyalarından yeniden hazırlanır, şifrelenir ve yüklenir (processAttachment)
+function attachmentsReupload (list) {
+  const again = list.filter((a) => !a.removed && a.status === 'done')
+  again.forEach((att) => {
+    att.status = 'processing'
+    att.progress = 0
+    att.uploadId = ''
+    att.uploadedAt = 0
+    att.error = ''
+    att.refusedSends = 0
+    att.rateWaited = false
+    processAttachment(att)
+  })
+  if (!again.length) return
+  renderAttachments()
+  updateSendState()
+}
+
+// Konuşmaya dönülünce ve gönderirken süresi dolmak üzere olan ekler yeniden yüklenir. Yanıtı alınamayan bir
+// gönderim varsa (state.unsentMessage) yeniden yüklenmez: o mesaj sunucuya ulaşmış ve bu ekleri bağlamış
+// olabilir. Aynı yükleme kimlikleri aynı istemci kimliğini verir ve sunucu yinelemede ilk mesajı döndürür, mesaj
+// iki kez gitmez. Mesaj ulaşmadıysa ve ekler silindiyse sunucu bad_uploads döner, ekler o zaman yeniden yüklenir
+// (sendMessage).
+function composerReuploadStale (key) {
+  if (state.unsentMessage) return
+  attachmentsReupload(composerStaleAttachments(key))
+}
+
+function composerDropDraft (key) {
+  composerDrafts.delete(key)
+  state.attachments.filter((a) => a.convKey === key).forEach((a) => {
+    removeAttachment(a, true)
+  })
+}
+
+// Yazma alanını verilen anahtarın durumuyla çizer (yükseklik, sayaç, ek çipleri, Gönder düğmesi)
+function composerShow (key) {
+  autoGrow(el.composerInput, 6)
+  updateCounter()
+  renderAttachments(key)
+  updateSendState()
+}
+
+function composerLeave () {
+  const key = composerKey()
+  if (typeof cancelEdit === 'function') cancelEdit()
+  if (typeof mentionClose === 'function') mentionClose()
+  if (typeof typingStop === 'function') typingStop()
+  const text = el.composerInput.value
+  if (key && composerKeyAlive(key)) {
+    if (text || state.unsentMessage) composerDrafts.set(key, { text: text, unsent: state.unsentMessage })
+    else composerDrafts.delete(key)
+  } else {
+    // Silinen konuşmanın veya engellenen kişinin taslağı ve ekleri bırakılır
+    composerDropDraft(key)
+  }
+  state.unsentMessage = null
+  el.composerInput.value = ''
+  composerShow('')
+}
+
+function composerEnter () {
+  const key = composerKey()
+  const draft = key ? composerDrafts.get(key) : null
+  if (draft) composerDrafts.delete(key)
+  el.composerInput.value = draft ? draft.text : ''
+  state.unsentMessage = draft ? draft.unsent : null
+  // Taslakta uzun süre bekleyen ekler yeniden yüklenir
+  composerReuploadStale(key)
+  composerShow(key)
+}
+
+// Gönderim yanıtı gelmeden konuşmadan çıkıldıysa gönderilen metin o konuşmanın taslağından düşer
+function composerDraftSent (key, raw) {
+  const draft = composerDrafts.get(key)
+  if (!draft) return
+  if (draft.text === raw) draft.text = ''
+  draft.unsent = null
+  if (!draft.text) composerDrafts.delete(key)
+}
+
+// Silinen konuşmaların ve engellenen kişilerle özel konuşmaların taslakları ve ekleri bırakılır. Açık
+// konuşmaya dokunulmaz, ondan çıkılırken composerLeave aynı kuralı uygular.
+function composerPruneDrafts () {
+  const current = composerKey()
+  const keys = []
+  composerDrafts.forEach((value, key) => {
+    keys.push(key)
+  })
+  state.attachments.forEach((a) => {
+    if (keys.indexOf(a.convKey) === -1) keys.push(a.convKey)
+  })
+  keys.forEach((key) => {
+    if (key !== current && !composerKeyAlive(key)) composerDropDraft(key)
+  })
+}
+
+// Oturum kapanınca ve frekans değişince: açık konuşma dışındaki bütün taslaklar ve ekleri silinir
+function composerDraftsClear () {
+  const current = composerKey()
+  composerDrafts.clear()
+  state.attachments.filter((a) => a.convKey !== current).forEach((a) => {
+    removeAttachment(a, true)
+  })
+}
+
 function updateCounter () {
   const len = cpLength(el.composerInput.value)
   const max = state.limits.messageMaxChars
@@ -96,8 +257,9 @@ function updateCounter () {
   }
 }
 
+// Açık konuşmanın hazırlanan veya yüklenen ekleri
 function pendingUploads () {
-  return state.attachments.filter((a) => a.status !== 'done' && a.status !== 'error').length
+  return composerAttachments().filter((a) => a.status !== 'done' && a.status !== 'error').length
 }
 
 function canSend () {
@@ -105,8 +267,9 @@ function canSend () {
   const len = cpLength(el.composerInput.value.trim())
   if (len > state.limits.messageMaxChars) return false
   if (pendingUploads() > 0) return false
-  if (state.attachments.some((a) => a.status === 'error')) return false
-  return len > 0 || state.attachments.some((a) => a.status === 'done')
+  const mine = composerAttachments()
+  if (mine.some((a) => a.status === 'error')) return false
+  return len > 0 || mine.some((a) => a.status === 'done')
 }
 
 function updateSendState () {
@@ -124,7 +287,7 @@ function onComposerKeydown (e) {
     sendMessage()
     return
   }
-  if (e.key === 'ArrowUp' && el.composerInput.value === '' && !state.attachments.length) {
+  if (e.key === 'ArrowUp' && el.composerInput.value === '' && !composerAttachments().length) {
     if (editLastOwnMessage()) e.preventDefault()
   }
 }
@@ -150,18 +313,23 @@ async function sendMessage (opts) {
   if (state.sending) return
   const dj = opts && opts.dj ? opts.dj : null
   const channelId = state.channelId
+  // Yalnızca açık konuşmanın ekleri gönderilir, başka konuşmada eklenenler kendi taslağında kalır
+  const key = composerKey()
+  // Sunucudaki kopyası silinmek üzere olan ekler gönderilmez, yeniden yüklenir
+  composerReuploadStale(key)
+  const mine = composerAttachments(key)
   const raw = el.composerInput.value
   const text = raw.trim()
-  if (composerRunCommand(raw, text, state.attachments.filter((a) => a.status === 'done'))) return
+  if (composerRunCommand(raw, text, mine.filter((a) => a.status === 'done'))) return
   if (pendingUploads() > 0) {
     toast(() => t('composer.waitUploads'))
     return
   }
-  if (state.attachments.some((a) => a.status === 'error')) {
+  if (mine.some((a) => a.status === 'error')) {
     toast(() => t('composer.removeFailed'), 'error')
     return
   }
-  const ready = state.attachments.filter((a) => a.status === 'done')
+  const ready = mine.filter((a) => a.status === 'done')
   if (!text && !ready.length) return
   if (cpLength(text) > state.limits.messageMaxChars) {
     toast(() => t('composer.tooLong', { max: state.limits.messageMaxChars }), 'error')
@@ -199,12 +367,19 @@ async function sendMessage (opts) {
   const res = await api('POST', '/api/messages', payload)
   state.sending = false
   if (res.status === 200 && res.data && res.data.message) {
-    state.unsentMessage = null
-    if (el.composerInput.value === raw) el.composerInput.value = ''
+    // Yanıt gelmeden başka konuşmaya geçildiyse açık yazma alanına dokunulmaz, gönderilen metin kendi taslağından düşer
+    const here = composerKey() === key
+    if (here) {
+      state.unsentMessage = null
+      if (el.composerInput.value === raw) el.composerInput.value = ''
+    } else {
+      composerDraftSent(key, raw)
+    }
     ready.forEach((a) => {
       removeAttachment(a, true)
     })
-    onComposerInput()
+    if (here) onComposerInput()
+    else updateSendState()
     if (typeof typingAfterSend === 'function') typingAfterSend(channelId)
     if (sameId(channelId, state.channelId)) {
       // Aramadan gelinen eski bir bölümdeyken gönderilen mesajla en yeni mesajlara dönülür
@@ -218,26 +393,49 @@ async function sendMessage (opts) {
     return
   }
   updateSendState()
+  if (res.status === 400 && res.data && res.data.code === 'bad_uploads' && ready.length) {
+    // Sunucu ekleri tanımıyor (yükleme mesaja bağlanmadan silindi): ekler yeniden yüklenir, metin yerinde kalır
+    attachmentsReupload(ready)
+    toast(() => t('composer.waitUploads'))
+    return
+  }
   toast(() => errorText(res, t('composer.sendFailed'), { rate_limited: t('composer.rateLimited') }), 'error')
 }
 
 // Yazma alanına ve gönderilmemiş mesaj durumuna dokunmadan yazı odasına kısa mesaj gönderir (Telsiz DJ
-// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Başarıda true döner.
-async function postSideMessage (channelId, text, d) {
-  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return false
+// duyurusu, 23-dj.js). d şifreli zarfa girer. Özel mesajda gönderilmez. Sonuç mesajın kimliği, başarısızsa null.
+function sealSideBody (channelId, text, d) {
+  if (!channelId || isDmChannel(channelId) || !hasActiveKey() || !state.me) return ''
   let body = ''
   try {
     body = window.E2EE.sealJson(activeKid(), { v: 1, a: state.me.id, c: channelId, t: text, f: [], d: d })
   } catch (err) {
-    return false
+    return ''
   }
-  if (body.length > state.limits.maxBodyChars) return false
+  return body.length > state.limits.maxBodyChars ? '' : body
+}
+
+async function postSideMessage (channelId, text, d) {
+  const body = sealSideBody(channelId, text, d)
+  if (!body) return null
   const res = await api('POST', '/api/messages', { channelId: channelId, body: body, clientMessageId: newClientMessageId() })
-  if (res.status !== 200 || !res.data || !res.data.message) return false
+  if (res.status !== 200 || !res.data || !res.data.message) return null
   if (sameId(channelId, state.channelId) && !state.hasNewer) {
     insertMessage(res.data.message, { own: true })
     markRead()
   }
+  return res.data.message.id
+}
+
+// postSideMessage ile gönderilen kendi mesajını yeni metin ve d ile değiştirir (Telsiz DJ duyurusuna parçanın
+// adı sonradan eklenir). Başarıda true döner.
+async function editSideMessage (channelId, id, text, d) {
+  const body = sealSideBody(channelId, text, d)
+  if (!body || id === null || id === undefined) return false
+  const res = await api('POST', '/api/messages/edit', { id: id, body: body })
+  if (res.status !== 200 || !res.data || !res.data.message) return false
+  // Açık konuşmadaki mesaj hemen yenilenir (yoksa replaceMessage bir şey yapmaz)
+  replaceMessage(res.data.message)
   return true
 }
 
@@ -251,16 +449,21 @@ function addFiles (fileList, mode) {
     return
   }
   const max = state.limits.maxUploadsPerMessage
+  // Ek eklendiği konuşmaya bağlanır (composerKey), sınır o konuşmanın eklerine uygulanır
+  const convKey = composerKey()
+  let count = composerAttachments(convKey).length
   let skipped = 0
   files.forEach((file) => {
-    if (state.attachments.length >= max) {
+    if (count >= max) {
       skipped += 1
       return
     }
+    count += 1
     const photo = mode === 'photo' || (mode === 'auto' && /^image\//i.test(file.type || ''))
     state.attachSeq += 1
     const att = {
       id: state.attachSeq,
+      convKey: convKey,
       file: file,
       photo: photo,
       name: cleanFileName(file.name || t(photo ? 'files.photoName' : 'files.defaultName')),
@@ -276,6 +479,7 @@ function addFiles (fileList, mode) {
       key: '',
       nonce: '',
       uploadId: '',
+      uploadedAt: 0,
       xhr: null,
       error: '',
       removed: false
@@ -304,7 +508,8 @@ async function processAttachment (att) {
     att.w = out.w
     att.h = out.h
     att.name = out.name
-    if (out.kind === 'image' && IMAGE_TYPES.indexOf(out.mime) !== -1) {
+    // Yeniden yüklenen ekin (attachmentsReupload) önizlemesi korunur
+    if (!att.previewUrl && out.kind === 'image' && IMAGE_TYPES.indexOf(out.mime) !== -1) {
       att.previewUrl = URL.createObjectURL(new Blob([out.bytes], { type: out.mime }))
     }
     att.status = 'encrypting'
@@ -483,14 +688,19 @@ async function reencode (image, type) {
 //   bağlantıyı boşuna paylaşmaz.
 // - Sunucunun yükleme sınırına (429) takılan dosya bir kez UPLOAD_RATE_WAIT_MS bekleyip yeniden dener. Bu istek de
 //   reddedilen istekler arasında sayılır (ör. on dosyalık bir grupta tek bir ret dakikadaki on hakkı aşar).
-// - Bekleme sonunda yer açılmazsa sıradaki dosyalar da aynı hatayla durur, sunucuya tek tek sorulmaz.
+// - Bekleme sonunda yer açılmazsa aynı konuşmanın sıradaki dosyaları da aynı hatayla durur, sunucuya tek tek
+//   sorulmaz. Başka konuşmaların taslağındaki dosyalar sırada kalır ve sıraları gelince kendileri dener, böylece
+//   bir konuşmadaki hata görülmeyen bir taslağın eklerini bozmaz.
 // - Bekleyen dosya kaldırılırsa bekleme hemen biter ve yeri sıradaki dosyaya geçer.
+// - Sıradaki dosya seçilirken açık konuşmanın dosyaları öne alınır (composerKey), başka konuşmada eklenen
+//   dosyalar açık konuşmanın gönderimini bekletmez. Süren yükleme yarıda kesilmez.
 
 function pumpUploads () {
   while (state.activeUploads < (state.uploadHeld ? 1 : UPLOAD_PARALLEL)) {
-    const next = state.attachments.filter((a) => a.status === 'queued')[0]
-    if (!next) return
-    runUpload(next)
+    const queued = state.attachments.filter((a) => a.status === 'queued')
+    if (!queued.length) return
+    const key = composerKey()
+    runUpload(queued.filter((a) => a.convKey === key)[0] || queued[0])
   }
 }
 
@@ -513,6 +723,7 @@ async function runUpload (att) {
   const refusedMax = largeBox ? UPLOAD_LARGE_WAITS_MS.length + 1 : UPLOAD_RESERVED_SENDS_MAX
   if (typeof att.refusedSends !== 'number') att.refusedSends = 0
   while (!att.removed) {
+    const sentAt = Date.now()
     const pending = request('POST', '/api/uploads', {
       binary: att.box,
       timeout: TRANSFER_TIMEOUT_MS,
@@ -529,6 +740,8 @@ async function runUpload (att) {
     if (att.removed) break
     if (res.status === 200 && res.data && typeof res.data.id === 'string' && UPLOAD_ID_RE.test(res.data.id)) {
       att.uploadId = res.data.id
+      // Süre isteğin başından sayılır: sunucunun yükleme kaydı istek bitince açıldığı için süre sunucudakinden önce dolar
+      att.uploadedAt = sentAt
       att.status = 'done'
       att.progress = 1
       att.box = null
@@ -583,7 +796,7 @@ async function runUpload (att) {
     att.error = () => errorText(res, t('attach.uploadFailed'), { rate_limited: t('attach.rateLimited') })
     if (busy && !others) {
       state.attachments.forEach((x) => {
-        if (x.status !== 'queued') return
+        if (x.status !== 'queued' || x.convKey !== att.convKey) return
         x.status = 'error'
         x.error = att.error
       })
@@ -638,11 +851,13 @@ function chipStatusText (att) {
   }
 }
 
-function renderAttachments () {
+// Yazma alanında yalnızca açık konuşmanın (veya verilen anahtarın) ekleri gösterilir
+function renderAttachments (key) {
+  const shown = composerAttachments(key)
   const list = el.attachList
   const focusKey = activeFocusKey(list)
   clear(list)
-  state.attachments.forEach((att) => {
+  shown.forEach((att) => {
     const li = h('li', 'chip chip-' + att.status)
     li.setAttribute('data-attach-id', String(att.id))
     if (att.previewUrl) {
@@ -672,8 +887,8 @@ function renderAttachments () {
     li.appendChild(remove)
     list.appendChild(li)
   })
-  list.hidden = state.attachments.length === 0
-  el.photoNote.hidden = !state.attachments.some((a) => a.photo)
+  list.hidden = shown.length === 0
+  el.photoNote.hidden = !shown.some((a) => a.photo)
   restoreFocusKey(list, focusKey)
   keepBottom()
 }
