@@ -60,6 +60,8 @@ async function pollLoop (generation) {
         // Beklenmeyen bir çizim hatası döngüyü durdurmamalı
         window.console.error(err)
       }
+      // Düşen profil isteği ve profil resmi indirmesi ağ düzelince yeniden denenir (13-profile.js)
+      if (typeof profilesAfterPoll === 'function') profilesAfterPoll()
       // Müzik haritası (music, muv) ve sunucu saati (now): saat farkı isteğin gönderilme ve alınma
       // zamanlarıyla kestirilir
       if (typeof djIngest === 'function') djIngest(res.data, t0, djClockNow())
@@ -85,6 +87,8 @@ function handlePoll (data) {
     // Olay kaybı olmuş olabilir: arama dizini konuşmaların en yeni kısmını yeniden denetler
     if (typeof searchOnResync === 'function') searchOnResync()
     handleSignals(data.signals)
+    // Olay kaybı olmuş olabilir: bellekteki konuşmalar (38-gezinme.js önbelleği) yeniden yüklenir
+    if (typeof navCacheClear === 'function') navCacheClear()
     if (state.channelId) loadChannel()
     return
   }
@@ -150,6 +154,8 @@ function applyEvent (ev) {
     }
   }
   const inCurrent = sameId(ev.channelId, state.channelId)
+  // Bellekteki başka konuşmaların mesajları da güncellenir, dönünce güncel çizilir (38-gezinme.js, istek 17 S6)
+  if (!inCurrent && typeof navCacheApply === 'function') navCacheApply(ev)
   if (inCurrent && state.loading) {
     state.pendingEvents.push(ev)
     return
@@ -171,8 +177,18 @@ function onIncomingMessage (message, inCurrent) {
   const mine = state.me && sameId(message.authorId, state.me.id)
   const dm = isDmMessage(message)
   if (inCurrent) {
+    // Listede olan mesaj (önbellekten dönülen konuşmanın arka plandaki yenilemesi eklemişti) yeniden sayılmaz
+    if (indexOfMessage(message.id) !== -1) {
+      replaceMessage(message)
+      return
+    }
     insertMessage(message, { own: mine })
-    if (!document.hidden) markRead()
+    // Kişi yukarıdayken veya sayfa gizliyken gelen mesaj okunmuş sayılmaz (istek 17 S4), sayaç artar
+    const read = !document.hidden && markRead()
+    if (!mine && !read) {
+      state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
+      if (!dm && typeof mentionOnIncoming === 'function') mentionOnIncoming(message)
+    }
   } else if (!mine) {
     state.unread[message.channelId] = (state.unread[message.channelId] || 0) + 1
     if (dm) {

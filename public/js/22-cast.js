@@ -857,7 +857,7 @@ function castRenderCams (n) {
   const rows = Math.max(1, Math.ceil(ids.length / cols))
   n.cams.setAttribute('data-cols', String(cols))
   n.cams.setAttribute('data-rows', String(rows))
-  const key = [ids.map((id) => id + '=' + streams[id].stream.id).join(','), window.I18N ? window.I18N.lang : ''].join('|')
+  const key = [ids.map((id) => id + '=' + streams[id].stream.id).join(','), window.I18N ? window.I18N.lang : '', typeof profileEpoch === 'function' ? profileEpoch() : 0].join('|')
   if (key === castState.camsKey) return
   castState.camsKey = key
   clear(n.cams)
@@ -903,7 +903,7 @@ function castRenderOwn (n, sc) {
   const count = typeof sc.viewerCount === 'number' ? sc.viewerCount : viewers.length
   setLive(n.viewersText, () => (count ? t('screen.viewers', { count: count }) : t('screen.noViewers')))
   n.viewers.classList.toggle('is-empty', !count)
-  const vkey = viewers.join(',')
+  const vkey = viewers.join(',') + '|' + (typeof profileEpoch === 'function' ? profileEpoch() : 0)
   if (vkey !== castState.viewersKey) {
     castState.viewersKey = vkey
     clear(n.viewersStack)
@@ -984,7 +984,7 @@ function castRenderPick (sc, remote, mode) {
   const items = ids.slice()
   if (sharing) items.push('self')
   const selected = mode === 'own' ? 'self' : castState.watching
-  const key = [items.join(','), selected, window.I18N ? window.I18N.lang : ''].join('|')
+  const key = [items.join(','), selected, window.I18N ? window.I18N.lang : '', typeof profileEpoch === 'function' ? profileEpoch() : 0].join('|')
   // Oyun masasında paylaşan seçicisi gizlidir (izlemeye geçmek oyunu üstten örter)
   n.pick.hidden = items.length < 2 || mode === 'game'
   if (key === castState.pickKey) return

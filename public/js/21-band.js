@@ -176,11 +176,26 @@ function bandAfterRender (tuned) {
 // Ayarlama: frekans istasyonu o frekansa geçer. Oda listelerinden ve kişisel düğmelerden gelen anahtarlar:
 // yazı odası ve kişisel girişler konuşmayı açar, ses odası katılır.
 
+// Özel düğmesi İstasyonlar sayfasını açar mı: 1280 px altında ve en az bir özel konuşma varken. 04-meta.js
+// renderTopPersonal düğmenin aria-haspopup ve aria-expanded özniteliklerini de buna göre verir.
+function bandDmOpensSheet (entries) {
+  const list = entries || bandDmEntries()
+  return list.length > 0 && typeof isInfoInline === 'function' && !isInfoInline() && typeof openSheet === 'function'
+}
+
+// Özel düğmesi (istek 17 S5): 1280 px altında sol sütundaki konuşma listesi yoktur, İstasyonlar sayfası Özel
+// Mesajlar grubunda açılır. Geniş ekranda okunmamışı olan en yeni konuşma, yoksa son açılan konuşma açılır
+// (38-gezinme.js navDmPick). Hiç özel konuşma yoksa Arkadaşlar açılır ve nasıl başlanacağı söylenir.
 function bandOpenDm () {
   const entries = bandDmEntries()
-  const last = entries.filter((d) => sameId(d.id, bandLastDm))[0] || entries[0]
-  if (last && typeof showDm === 'function') {
-    showDm(last.id, { focus: false })
+  if (bandDmOpensSheet(entries)) {
+    openSheet('stations', byId('top-dm'), typeof navDmSheetFocus === 'function' ? navDmSheetFocus : null)
+    return
+  }
+  const unreadOf = (id) => Number(state.unread[id]) || 0
+  const pick = typeof navDmPick === 'function' ? navDmPick(entries, unreadOf, bandLastDm) : entries.filter((d) => sameId(d.id, bandLastDm))[0] || entries[0]
+  if (pick && typeof showDm === 'function') {
+    showDm(pick.id, { focus: false })
     return
   }
   if (typeof showHome === 'function') showHome('all', { focus: false })
@@ -511,8 +526,13 @@ function bandHelpOpen () {
 // Sağ sütundaki İstasyonlar listesi ve İstasyonlar sayfası: satırlar odayı ayarlar veya ses odasına katılır
 
 function onStationRowClick (e) {
-  const row = e.target && e.target.closest ? e.target.closest('[data-station], [data-dm-id]') : null
+  const row = e.target && e.target.closest ? e.target.closest('[data-station], [data-dm-id], [data-dm-more]') : null
   if (!row || !e.currentTarget.contains(row)) return
+  // Tüm Özel Mesajlar: Özel Mesajlar grubu bütün konuşmaları gösterir veya ilk satırlara döner (38-gezinme.js)
+  if (row.hasAttribute('data-dm-more')) {
+    if (typeof navToggleDmAll === 'function') navToggleDmAll()
+    return
+  }
   const dmId = row.getAttribute('data-dm-id')
   if (dmId !== null) {
     if (typeof showDm === 'function') showDm(dmId, { focus: false })

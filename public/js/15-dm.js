@@ -97,10 +97,12 @@ function renderDmList () {
       b.classList.add('is-active')
     }
     if (isBlocked(d.userId)) b.classList.add('is-blocked')
-    const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: count }) : t('dm.itemLabel', { name: name })
+    // Sayı alt sınırsa rozet "50+", etiket "en az 50" der (38-gezinme.js navUnreadIsMore)
+    const more = count > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(d.id)
+    const label = count > 0 && !current ? t('dm.itemUnreadLabel', { name: name, count: ariaCount(count, more) }) : t('dm.itemLabel', { name: name })
     if (count > 0 && !current) {
       b.classList.add('is-unread')
-      const badge = h('span', 'unread-badge station-mark mark-mention', count > 99 ? '99+' : String(count))
+      const badge = h('span', 'unread-badge station-mark mark-mention', countText(count, more))
       badge.setAttribute('aria-hidden', 'true')
       b.appendChild(badge)
     }
@@ -163,19 +165,24 @@ function showDm (dmId, opts) {
     if (options.focus && !isNarrow() && !el.composerInput.disabled) focusNode(el.composerInput)
     return
   }
+  // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+  composerLeave()
   cancelEdit()
   closeMessageMenu()
   dmState.activeId = entry.id
   dmState.partnerId = entry.userId
   state.channelId = entry.id
-  state.unread[entry.id] = 0
+  // Okunmamış sayacı kişi en alta inince sıfırlanır (04-meta.js markRead)
   setConversationMode('dm')
   renderChannels()
   renderDmList()
   renderHomeEntry()
   profilesEnsure([entry.userId])
   dmRefreshChrome()
+  composerEnter()
   loadChannel()
+  // Geçmişe kayıt (38-gezinme.js): fromHistory geri ve ileri tuşundan, force programın seçimi
+  if (typeof navOnConversation === 'function') navOnConversation(options)
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
 }
 
@@ -496,7 +503,11 @@ async function scanDmUnread () {
     const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(d.id) + '&limit=' + PAGE_SIZE)
     if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) continue
     const count = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id)).length
-    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) state.unread[d.id] = count
+    if (!sameId(d.id, state.channelId) && count > (state.unread[d.id] || 0)) {
+      state.unread[d.id] = count
+      // Sayfanın hepsi okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js)
+      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(d.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
+    }
   }
   if (gen === dmState.scanGen && state.inApp && state.me === me) {
     renderDmList()

@@ -520,6 +520,20 @@ function reachable (page, sel) {
   }, sel)
 }
 
+// Kayıttan, kurulumdan ve kurtarmadan sonra gösterilen kurtarma kodu kartı (istek 14): kod biçimi doğrulanır, Devam
+// "kaydettim" onayına kadar kapalıdır. Onaylanıp Devam'a basılır, kod döner.
+const RECOVERY_CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/
+async function passRecoveryCard (page) {
+  await page.waitForSelector('#recovery-card:not([hidden]) #recovery-card-code', { timeout: LONG })
+  const code = await page.textContent('#recovery-card-code')
+  assert.match(code, RECOVERY_CODE_RE)
+  assert.equal(await page.isDisabled('#recovery-card-continue'), true, 'onaydan önce Devam kapalı')
+  await page.check('#recovery-card-saved')
+  await page.click('#recovery-card-continue')
+  await page.waitForSelector('#recovery-card', { state: 'hidden', timeout: LONG })
+  return code
+}
+
 // İstasyonu görünür alana getirip tıklar (taşan bantta)
 async function clickStation (page, key) {
   await page.evaluate((k) => {
@@ -529,8 +543,8 @@ async function clickStation (page, key) {
   await page.click('#band-track .station[data-station="' + key + '"]')
 }
 
-// Ses odasına katılır ve telsiz kartının bağlanmasını bekler. Geniş ekranda kapalı telsiz kartı küçüktür,
-// ses odaları sağdaki İstasyonlar listesinden seçilir, daha dar ekranda kartın Katıl düğmesi kullanılır.
+// Ses odasına katılır ve telsiz kartının bağlanmasını bekler. Kapalı telsiz kartının Katıl düğmesi görünüyorsa o
+// kullanılır, yoksa ses odası İstasyonlar listesinden (#inbox-list) seçilir.
 async function joinVoice (page, channelId) {
   const joinSel = '#voice-channels .radio-join[data-channel-id="' + channelId + '"]'
   const visible = await page.evaluate((sel) => {
@@ -591,6 +605,8 @@ module.exports = {
   until,
   overflowX,
   reachable,
+  passRecoveryCard,
+  RECOVERY_CODE_RE,
   clickStation,
   joinVoice,
   makeWav

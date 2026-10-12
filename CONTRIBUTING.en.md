@@ -92,7 +92,7 @@ The server is a Node.js application with no runtime dependencies that keeps its 
 | `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 and the RNNoise wasm build (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), never modified |
 | `desktop/` | Electron desktop app |
 | `deploy/` | Docker Compose, Caddy, nginx and systemd examples |
-| `scripts/` | Checker, test runner, single file build, release notes |
+| `scripts/` | Checker, test runner, single file build, release notes, theme contrast meter (`kontrast.js`) |
 | `test/`, `e2e/` | Unit and server tests, end-to-end tests |
 
 The client modules are numbered files under `public/js/` and are loaded in this order in `index.html`. They all share the same global scope, and a later module can use the functions of earlier ones.
@@ -101,21 +101,21 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | --- | --- |
 | `01-core.js` | Constants, storage keys, `t()`, server requests, formatting helpers |
 | `02-state-dom.js` | App state, element cache, DOM helpers, the layer stack, notifications |
-| `03-auth.js` | Startup, setup, invite, sign in, registration and key screens |
+| `03-auth.js` | Startup, setup, invite, sign in, registration and key screens, moving to the recovery code card after registration |
 | `04-meta.js` | Top bar, drawing the frequency band, the Stations list and sheet (including the people in voice rooms), room info, the Online list, room selection |
 | `05-poll.js` | The long poll loop, event handling, notifications |
-| `06-messages.js` | Message decryption, message nodes, paging, editing, deleting and Report Message |
+| `06-messages.js` | Message decryption, message nodes, paging (older messages load on their own near the top, a cached conversation is drawn and refreshed in the background), editing, deleting and Report Message |
 | `07-attachments.js` | Inline images, file cards, the image viewer |
 | `08-composer.js` | Message box, sending, preparing attachments, the upload queue |
 | `09-emoji.js` | Emoji picker |
 | `10-voice.js` | Voice interface and the radio card (including the camera button, the camera indicator, the camera tiles in the crew and the Watch stream button), voice hooks: other modules attach to every voice change with `voiceHook('change', fn)` and to every redraw of the radio card with `voiceHook('render', fn)` without editing this file |
 | `11-settings.js` | Full screen settings view |
-| `12-init.js` | Sheets, window size, PWA, event binding and startup |
+| `12-init.js` | Sheets, window size, PWA, event binding and startup (the back button entries of sheets are kept by `38-gezinme.js`) |
 | `13-profile.js` | Profiles, the profile card, the status menu, the report dialog (Report Message and Report User) |
 | `14-social.js` | Friends, blocking, the view mode |
 | `15-dm.js` | Direct messages and the safety number |
-| `16-identity.js` | Key derivation from the password and the personal identity key |
-| `17-search.js` | Search on the device |
+| `16-identity.js` | Key derivation from the password, the personal identity key and recovery code requests (code at registration, code from Settings, new password with the code) |
+| `17-search.js` | Search on the device, rooms and direct conversations whose name matches the query (Rooms and People) |
 | `18-mentions.js` | @ mentions and the suggestion list |
 | `19-typing.js` | Typing indicator |
 | `20-desktop.js` | Desktop app integration |
@@ -136,8 +136,10 @@ The client modules are numbered files under `public/js/` and are loaded in this 
 | `35-renk-kural.js` | The Renk rule engine (`window.TelsizRenk`): deck, deal, move validation, card effects, Last Card, scoring, views and their validators. Pure |
 | `36-oyun.js` | Game glue and the general interface: passing voice events to the table manager, inner layer keys (`gameKeys`), the Game button on the radio card, the Choose a Game (when more than one game is registered), Set Up a Table, lobby, invite, end and result screens, the trust note, the confirmation row, announcements, registration of game interfaces (`gameUiRegister`) |
 | `37-renk.js` | The Renk table: opponent strip, draw pile, discard, active color, action row (Choose Color, Pass, Last Card!, Catch), hand, the Wild color picker, arrow key navigation |
+| `38-gezinme.js` | Moving between conversations: browser history (entries for room, direct message and Friends switches without changing the address, and for sheets, search, settings, the image viewer and the profile card, the back button), the New messages divider, the unread bar (Jump to Unread, Mark as Read), the new message pill, the Direct messages group in the Stations list, remembering the open view, the in-memory cache of the last eight conversations (position on return), shortcuts between conversations (the up and down arrows with Alt and Alt+Shift, Esc), the narrow direct message header, hiding the Stations card at medium widths when the radio card grows, the lower bound of the unread count ("50+"), the Voice Rooms button on phones and closing a bottom sheet by dragging |
 | `39-yuzen.js` | Floating window: the cameras or avatars of the voice room and the speaking ring in a small always-on-top window. In the desktop app a window opened with a single-use name from the main process, in the browser document picture-in-picture, and as a fallback video picture-in-picture with a canvas stream. The Floating Window button on the radio card |
 | `40-bosta.js` | Automatic idle: measures inactivity from mouse, keyboard, touch, wheel and gamepad input (and from the system idle time in the desktop app), adds `idle` and the page id `tab` to the long-poll query, never counts a device in a voice room as idle, and also reads the gamepad on every frame of the `21-band.js` gamepad loop |
+| `41-kurtarma.js` | Recovery code interface: the Forgot My Password card on the sign in screen (new password with the code, pointing people without a code to the owner), the code card shown after setup, registration and recovery, the code dialog inside the app (Copy, Download as File, saved confirmation), the Recovery Code section in Settings > My Account, the one time reminder after signing in to an account without a code and the warning for a code that was not confirmed as saved |
 | `43-hexball-kural.js` | The Hexball rule engine (`window.TelsizHexball`): teams and team balance, starting a match, goals, score, time and golden goal, result, host only moves, the view and its validator. Real time physics does not go through this module. Pure |
 | `44-hexball-fizik.js` | Hexball physics (`window.TelsizHexballPhysics`): three field presets, a fixed 60 Hz step with two substeps, player and ball discs, collisions, field lines, posts and goal nets, kicking, the kickoff restriction, goal detection, the match clock and golden goal. It counts steps instead of reading a clock and gives the same result for the same input. Only the host runs the physics. Pure |
 | `45-hexball-ag.js` | Hexball networking (`window.TelsizHexballNet`): the binary messages on the game data channel (HELLO, HELLO_ACK, INPUT, SNAP) and their strict decoders, the handshake, the host's authoritative physics loop, pausing when two loop runs are more than 250 ms apart, holding back the host's own input, input limits, and the snapshot buffer and interpolation on players. Clock, timers and sending are passed in |
@@ -183,7 +185,7 @@ Changes that touch the following areas need extra review. In these pull requests
 
 | Area | Why it is sensitive |
 | --- | --- |
-| `public/crypto.js`, `public/js/16-identity.js` | Key code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
+| `public/crypto.js`, `public/js/16-identity.js` | Key code, recovery code, key derivation, envelope formats, personal keys and pinning. If a format changes, stored history may become unreadable. |
 | `public/voice.js` | Encryption and strict format checks of voice, screen sharing, camera and game signals, verification of sender and recipient, replay protection, the acceptance rules of the game data channel (label, settings, one channel per peer, none in private calls), its size and rate limits |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | The inner envelope of game messages and its binding fields (`ctx`, `k`, `g`, `ch`, `from`, `to`), counters and replay protection (`ni`, `seq`, `rd`, `r`), strict checks of message formats and the role table, the choice of inner layer keys (`gameKeys` in `36-oyun.js`) |
 | `public/js/35-renk-kural.js` | Unbiased shuffling, validation of the view and hand that come from the dealer, making sure no view or event contains someone else's hand |

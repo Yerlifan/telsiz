@@ -23,12 +23,10 @@
   font-weight: 500;
 }
 
-/* Frekans rozeti */
+/* Frekans rozeti (genişliği İstasyonlar listesinde frekans.css .room-row > .channel-freq) */
 :root[data-skin="gece"] .channel-freq {
   display: inline-block;
   flex: none;
-  min-width: 3.4rem;
-  margin-right: 0.6rem;
   padding: 0.1rem 0.35rem;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -158,6 +156,21 @@
   background-color: var(--surface-2);
 }
 
+/* Kayıt Defteri düzeninde saat sütunu daha geniştir: çizgi ve nokta içeriğin sol kenarında kalır (convo.css 2a) */
+:root[data-skin="gece"][data-msg-layout="kayit"] .message-list {
+  background-position: 4.875rem 0;
+}
+
+:root[data-skin="gece"][data-msg-layout="kayit"] .msg-first .msg-content::before {
+  top: 0.75rem;
+  left: 4.875rem;
+  margin-left: -0.1875rem;
+}
+
+:root[data-skin="gece"][data-msg-layout="kayit"] .msg-content {
+  padding-left: 0.75rem;
+}
+
 @media (max-width: 759px) {
   :root[data-skin="gece"] .message-list {
     background-image: none;
@@ -169,6 +182,10 @@
 
   :root[data-skin="gece"] .msg-content {
     padding-left: 0;
+  }
+
+  :root[data-skin="gece"][data-msg-layout="kayit"] .msg-content {
+    padding-left: 0.5rem;
   }
 }
 

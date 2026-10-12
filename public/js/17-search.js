@@ -7,7 +7,8 @@
 // fazla 20000 mesaj taranır. Çözülemeyen mesajlar dizine girmez (anahtar sonradan eklenirse yeniden
 // denenir). Eşleşme büyük/küçük harf ve aksan duyarsızdır: seçili dile göre küçük harf, ı/i ve İ/i
 // eşlemesi, NFD ile aksan kaldırma, kelime parçası eşleşir. Sonuca tıklayınca konuşmaya geçilir,
-// mesaj bağlamıyla (around) yüklenip vurgulanır.
+// mesaj bağlamıyla (around) yüklenip vurgulanır. Sonuçların üstünde adı sorguyla eşleşen yazı odaları ve özel
+// konuşmalar (Odalar ve Kişiler) listelenir.
 
 const SEARCH_PAGE = 100
 const SEARCH_CHANNEL_MAX = 20000
@@ -698,6 +699,7 @@ function buildSearchPanel () {
   input.setAttribute('maxlength', '200')
   input.addEventListener('input', () => {
     searchState.query = input.value
+    renderSearchQuick()
     scheduleSearch()
   })
   input.addEventListener('keydown', onSearchInputKey)
@@ -782,6 +784,20 @@ function buildSearchPanel () {
   filters.appendChild(searchChip('search-has-file', 'search.hasFile', 'hasFile', 'i-file'))
   filters.appendChild(searchChip('search-mentions-me', 'search.mentionsMe', 'mentionsMe', 'i-at'))
   panel.appendChild(filters)
+
+  // Odalar ve Kişiler: adı sorguyla eşleşen yazı odaları ve özel konuşmalar mesaj sonuçlarının üstünde
+  const quick = h('section', 'search-quick')
+  quick.id = 'search-quick'
+  quick.hidden = true
+  const quickTitle = h('h3', 'search-quick-title', t('search.quickTitle'))
+  quickTitle.id = 'search-quick-title'
+  quick.appendChild(quickTitle)
+  const quickList = h('ul', 'search-quick-list')
+  quickList.id = 'search-quick-list'
+  quickList.setAttribute('aria-labelledby', 'search-quick-title')
+  quickList.addEventListener('keydown', onSearchResultsKey)
+  quick.appendChild(quickList)
+  panel.appendChild(quick)
 
   const status = h('div', 'search-status')
   status.id = 'search-status'
@@ -873,7 +889,10 @@ function searchApplyLanguage () {
   if (more) more.textContent = t('search.more')
   const note = byId('search-note')
   if (note) note.textContent = t('search.note')
+  const quickTitle = byId('search-quick-title')
+  if (quickTitle) quickTitle.textContent = t('search.quickTitle')
   renderSearchFilters()
+  renderSearchQuick()
   renderSearchStatus()
   renderSearchResults()
 }
@@ -1024,7 +1043,7 @@ function onSearchInputKey (e) {
     searchState.query = e.target.value
     executeSearch()
   } else if (e.key === 'ArrowDown' || e.key === 'Down') {
-    const first = document.querySelector('#search-results .search-result')
+    const first = document.querySelector(SEARCH_ITEMS)
     if (first) {
       e.preventDefault()
       focusNode(first)
@@ -1032,9 +1051,12 @@ function onSearchInputKey (e) {
   }
 }
 
+// Odalar ve Kişiler ile mesaj sonuçları tek liste gibi oklarla gezilir
+const SEARCH_ITEMS = '#search-quick-list .search-quick-item, #search-results .search-result'
+
 function onSearchResultsKey (e) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Down' && e.key !== 'Up' && e.key !== 'Home' && e.key !== 'End') return
-  const items = Array.from(document.querySelectorAll('#search-results .search-result'))
+  const items = Array.from(document.querySelectorAll(SEARCH_ITEMS))
   const i = items.indexOf(document.activeElement)
   if (i === -1 || !items.length) return
   e.preventDefault()
@@ -1115,6 +1137,75 @@ function renderSearchResults () {
   list.hidden = shown.length === 0
   if (more) more.hidden = searchState.results.length <= searchState.shown
   if (focusKey && typeof restoreFocusKey === 'function') restoreFocusKey(list, focusKey)
+}
+
+// Odalar ve Kişiler (istek 17 S10): sorgu yazı odalarının ve özel konuşmaların adlarıyla da eşleştirilir. Eşleşme
+// mesaj aramasıyla aynı katlamayla yapılır (Türkçe harfler, büyük/küçük harf, aksan): bütün terimler adda (özel
+// konuşmada görünen adda veya kullanıcı adında) geçer, adı veya adın bir kelimesi ilk terimle başlayanlar önce gelir.
+// En çok SEARCH_QUICK_MAX sonuç gösterilir, seçilen oda veya özel konuşma açılır.
+const SEARCH_QUICK_MAX = 6
+
+function searchQuickItems (query) {
+  const terms = parseSearchQuery(query).terms
+  if (!terms.length || !state.me) return []
+  const items = textChannels().map((c) => ({ kind: 'channel', id: c.id, name: c.name, names: [c.name] }))
+  const dms = typeof dmEntries === 'function' ? dmEntries() : []
+  dms.forEach((d) => {
+    const name = typeof userDisplayName === 'function' ? userDisplayName(d.userId) : shownName(d.userId)
+    const handle = typeof userHandle === 'function' ? String(userHandle(d.userId) || '').replace(/^@/, '') : ''
+    items.push({ kind: 'dm', id: d.id, userId: d.userId, name: name, names: [name, handle] })
+  })
+  const scored = []
+  items.forEach((item, i) => {
+    const folded = item.names.filter(Boolean).map((n) => foldSearchText(n))
+    if (!folded.some((f) => terms.every((term) => f.indexOf(term) !== -1))) return
+    const starts = folded.some((f) => f.indexOf(terms[0]) === 0 || f.indexOf(' ' + terms[0]) !== -1)
+    scored.push({ item: item, rank: starts ? 0 : 1, i: i })
+  })
+  scored.sort((a, b) => (a.rank - b.rank) || (a.i - b.i))
+  return scored.slice(0, SEARCH_QUICK_MAX).map((x) => x.item)
+}
+
+function renderSearchQuick () {
+  if (!searchState.built) return
+  const box = byId('search-quick')
+  const list = byId('search-quick-list')
+  if (!box || !list) return
+  const focusKey = typeof activeFocusKey === 'function' ? activeFocusKey(list) : null
+  clear(list)
+  const items = searchQuickItems(searchState.query)
+  items.forEach((item) => {
+    const li = h('li', 'search-quick-row')
+    const b = h('button', 'search-quick-item')
+    b.type = 'button'
+    b.setAttribute('data-focus-key', 'quick-' + item.kind + '-' + item.id)
+    b.setAttribute('data-quick-kind', item.kind)
+    b.setAttribute('data-quick-id', String(item.id))
+    if (item.kind === 'dm') b.appendChild(personAvatar(item.userId, 'sm'))
+    else b.appendChild(icon('i-text', 'search-quick-icon'))
+    const body = h('span', 'search-quick-body')
+    body.appendChild(h('span', 'search-quick-name', item.name))
+    body.appendChild(h('span', 'search-quick-kind', t(item.kind === 'dm' ? 'people.dmKind' : 'search.quickRoom')))
+    b.appendChild(body)
+    b.setAttribute('aria-label', t('search.quickOpen', { name: item.kind === 'dm' ? t('search.dmLabel', { name: item.name }) : item.name }))
+    b.addEventListener('click', () => {
+      searchOpenQuick(item)
+    })
+    li.appendChild(b)
+    list.appendChild(li)
+  })
+  box.hidden = items.length === 0
+  if (focusKey && typeof restoreFocusKey === 'function') restoreFocusKey(list, focusKey)
+}
+
+function searchOpenQuick (item) {
+  closeSearch(false)
+  if (item.kind === 'dm') {
+    if (typeof showDm === 'function') showDm(item.id, { focus: true })
+  } else {
+    selectChannel(item.id, { focus: true })
+  }
+  if (document.activeElement === document.body && el.messages) focusNode(el.messages)
 }
 
 // Durum satırı: taranan mesaj sayısı, sonuç sayısı, durdurma ve sürdürme. final true ise ekran

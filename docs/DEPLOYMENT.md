@@ -371,6 +371,8 @@ The SHA-256 value of every file on the release page is in `SHA256SUMS.txt`. You 
 
 ## Password reset and troubleshooting
 
+**Recovery code.** A recovery code is shown to the person when the account is created, and the code can also be created and renewed in Settings > My Account. A person with a code resets their password themselves with the Forgot My Password link on the sign in screen. The owner does not need to do anything, the person's security key and direct messages are kept, and a new code is issued once the code is used. The reset paths below are only for people without a code. Telsiz does not use email, and the server does not need to send email for recovery.
+
 **A member's password.** The owner creates a temporary password in Settings > Members. The person's sessions are closed.
 
 **The owner's password.** Stop the server and run the reset command with the same data folder. The command prints a temporary password.
@@ -382,7 +384,7 @@ node server.js sifre-sifirla <username>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js reset-password <username>
 ```
 
-A password reset also resets the person's personal security key. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
+A password reset by the owner or the command line also resets the person's personal security key and recovery code. After signing in with the temporary password, the person chooses a new password and the new key is created with it, can no longer read their old direct messages, and the people they talk to see a warning that the key changed.
 
 **Port already in use.** The server may already be running in another window. Close that window or choose another port with `PORT`.
 

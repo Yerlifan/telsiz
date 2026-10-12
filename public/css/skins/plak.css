@@ -1,0 +1,84 @@
+/*
+  Plak teması. Gece yarısı plak yayını: patlıcan moru zemin, gül pembesi plak etiketi, altın yaldız yazılar.
+  Bas konuş kubbesinde ve Telsiz DJ kartında ince plak yivleri, yuvarlak hatlı paneller. Yivler çok
+  saydamdır, metin her zaman okunur zeminde kalır. Her seçici :root[data-skin="plak"] ile başlar.
+*/
+
+/* Gönder simgesi: oynat üçgeni (işaretlemede Arcade'in simgesi) */
+:root[data-skin="plak"] .skin-arcade {
+  display: inline-block;
+}
+
+/* Altın yaldız: bölüm etiketleri ve telsiz başlığı */
+:root[data-skin="plak"] .section-title,
+:root[data-skin="plak"] .rooms-group-title,
+:root[data-skin="plak"] .radio .radio-label,
+:root[data-skin="plak"] .band-group-label {
+  color: var(--accent-2-text);
+}
+
+/* Plak yivleri: Bas konuş kubbesi */
+:root[data-skin="plak"] .radio-ptt-dome {
+  background-image: repeating-radial-gradient(circle, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0) 2px, rgba(128, 128, 128, 0.16) 2px, rgba(128, 128, 128, 0.16) 3px);
+  box-shadow: 0 0 0 3px var(--accent-2), inset 0 0 0 6px var(--surface-1);
+}
+
+:root[data-skin="plak"] .radio .radio-ptt {
+  border-radius: 999px;
+}
+
+/* Plak yivleri: Telsiz DJ kartının köşesinde yarım plak */
+:root[data-skin="plak"] .dj-card {
+  background-image: repeating-radial-gradient(circle at 100% 0, rgba(128, 128, 128, 0) 0, rgba(128, 128, 128, 0) 3px, rgba(128, 128, 128, 0.1) 3px, rgba(128, 128, 128, 0.1) 4px);
+  background-repeat: no-repeat;
+  background-size: 9rem 9rem;
+  background-position: 100% 0;
+}
+
+/* Telsiz gövdesi: yuvarlak hatlı pikap kapağı */
+:root[data-skin="plak"] .radio {
+  border-radius: 1.75rem;
+}
+
+/* Ayarlı istasyon: gül pembesi etiket kenarı */
+:root[data-skin="plak"] .station.is-tuned {
+  border-color: var(--accent);
+}
+
+/* Okunmamış noktası altın */
+:root[data-skin="plak"] .unread-badge {
+  background-color: var(--accent-2-text);
+}
+
+/* Konuşan kişi: gül pembesi ve altın hale */
+:root[data-skin="plak"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="plak"] .is-speaking > .avatar.has-face .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 12px 2px var(--halo-2);
+}
+
+/* Anahtarsız şifreli mesaj: plak kabı */
+:root[data-skin="plak"] .msg-notice {
+  display: inline-flex;
+  padding: 0.5rem 0.85rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  font-style: normal;
+}
+
+/* Profil kartı bandı: plak yivleri */
+:root[data-skin="plak"] .profile-card-band {
+  background-image: repeating-radial-gradient(circle at 85% 120%, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0) 3px, rgba(255, 255, 255, 0.14) 3px, rgba(255, 255, 255, 0.14) 4px);
+}
+
+/* Seviye ölçer: yuvarlak uçlu */
+:root[data-skin="plak"] .meter,
+:root[data-skin="plak"] .meter-bar {
+  border-radius: 999px;
+}
+
+/* Ayarlar: seçili kategoride gül pembesi çizgi */
+:root[data-skin="plak"] .settings-cat[aria-current="page"] {
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--accent);
+}

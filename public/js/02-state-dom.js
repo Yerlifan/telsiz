@@ -83,7 +83,8 @@ const ELEMENT_IDS = [
   'auth-view', 'auth-server-name', 'auth-notice', 'auth-lang',
   'setup-card', 'setup-form', 'setup-name', 'setup-password', 'setup-password2', 'setup-code', 'setup-error', 'setup-submit',
   'invite-card', 'invite-link', 'invite-key', 'invite-copy-link', 'invite-copy-key', 'invite-continue',
-  'login-card', 'auth-tab-login', 'auth-tab-register', 'login-form', 'login-name', 'login-password', 'login-error', 'login-submit',
+  'login-card', 'auth-tab-login', 'auth-tab-register', 'login-form', 'login-name', 'login-password', 'login-error', 'login-submit', 'login-forgot',
+  'forgot-card', 'recovery-card',
   'register-form', 'register-name', 'register-password', 'register-password2', 'register-invite', 'register-error', 'register-submit',
   'key-card', 'key-intro', 'key-form', 'key-input', 'key-error', 'key-add', 'key-generate-wrap', 'key-generate', 'key-skip', 'key-logout',
   'auth-scheme',
@@ -341,7 +342,11 @@ function focusNode (node) {
 
 // Katman yığını: kalıcı pencere, yan ve alt sayfa (12-init.js openSheet), emoji seçici, menü, açılır panel
 // ve görüntüleyici. Açılınca ilk öğeye odaklanır, kapanınca odak tetikleyiciye döner, Esc en üsttekini
-// kapatır, trap: true olan katmanda Tab odağı katmanın içinde tutar.
+// kapatır, trap: true olan katmanda Tab odağı katmanın içinde tutar. locked: true olan katman (ör. 41-kurtarma.js
+// kurtarma kodu penceresi) kişinin kapatma yollarıyla kapanmaz: Esc, oyun kolunun geri düğmesi, kapat düğmesi ve
+// dışarı tıklama katmanı odağı geri vererek kapatır, kilitli katmanda bunlar yok sayılır. Kilidi katmanın kendi
+// düğmesi açar. Program odağı geri vermeden kapattığında (oturum kapanması, yerine başka pencere açılması) kilide
+// bakılmaz.
 
 const layers = []
 // Yığın değişince çağrılan işlevler (ör. 23-dj.js YouTube oynatıcısını köşeye alır veya yerine döndürür)
@@ -377,6 +382,7 @@ function openLayer (layer) {
 function closeLayer (layer, restoreFocus) {
   const index = layers.indexOf(layer)
   if (index === -1) return
+  if (layer.locked === true && restoreFocus !== false) return
   layers.splice(index, 1)
   try {
     layer.onClose()

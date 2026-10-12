@@ -820,25 +820,26 @@ button.crew-button:hover {
   color: var(--tone, currentColor);
 }
 
-/* Her düğmenin kendi rengi (simge ve kenar, özel rol renkleriyle aynı belirteçler, iki modda da okunur).
-   Kapalı, basılı, canlı ve devre dışı durumları aşağıda bu rengin önüne geçer. Ayrıl kırmızıdır (is-danger). */
+/* Her düğmenin kendi rengi (simge ve kenar, ton belirteçleri tokens.css içinde, varsayılanları özel rol renkleri,
+   iki modda da okunur). Kapalı, basılı, canlı ve devre dışı durumları aşağıda bu rengin önüne geçer. Ayrıl
+   kırmızıdır (is-danger). */
 .radio .radio-button.tone-camera {
-  --tone: var(--role-blue);
+  --tone: var(--tone-camera);
   border-color: var(--tone);
 }
 
 .radio .radio-button.tone-mic {
-  --tone: var(--role-green);
+  --tone: var(--tone-mic);
   border-color: var(--tone);
 }
 
 .radio .radio-button.tone-deafen {
-  --tone: var(--role-purple);
+  --tone: var(--tone-deafen);
   border-color: var(--tone);
 }
 
 .radio .radio-button.tone-screen {
-  --tone: var(--role-orange);
+  --tone: var(--tone-screen);
   border-color: var(--tone);
 }
 
@@ -1031,10 +1032,9 @@ button.crew-button:hover {
   --status-ring: var(--surface-float);
 }
 
-.avatar-menu .menu-head-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+/* Ad ve rol rozetleri üst satırda (13-profile.js buildProfileIdentity), ad uzunsa üç noktayla kısalır ve rozetler alt
+   satıra kayar */
+.avatar-menu .menu-head .profile-identity-text {
   line-height: 1.3;
 }
 

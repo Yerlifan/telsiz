@@ -1,0 +1,93 @@
+/*
+  Lambalı Radyo teması. 1950'ler lambalı radyosu: ceviz kasa, fildişi kadran camı, pirinç yazılar ve
+  "sihirli göz" yeşili ayar lambası. Koyu modda telsiz gövdesinde ince ceviz damarı, kadran camında hafif
+  parlama, Bas konuş kubbesi tırtıklı topuz gibi. Damar ve parlama çok saydamdır, metin her zaman okunur
+  zeminde kalır. Her seçici :root[data-skin="lamba"] ile başlar.
+*/
+
+/* Gönder simgesi: kâğıt uçak (işaretlemede Turkuaz'ın simgesi) */
+:root[data-skin="lamba"] .skin-turkuaz {
+  display: inline-block;
+}
+
+/* Ceviz kasa: telsiz gövdesinde yumuşak köşe ve koyu modda ince damar */
+:root[data-skin="lamba"] .radio {
+  border-radius: 1.25rem;
+}
+
+:root[data-skin="lamba"][data-scheme="dark"] .radio {
+  background-image: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.022) 0, rgba(255, 255, 255, 0.022) 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 7px, rgba(0, 0, 0, 0.05) 7px, rgba(0, 0, 0, 0.05) 9px, rgba(0, 0, 0, 0) 9px, rgba(0, 0, 0, 0) 15px);
+}
+
+/* Fildişi kadran camı: frekans bandı ve telsiz ekranında üstten parlama, içe çökük kenar */
+:root[data-skin="lamba"] .band,
+:root[data-skin="lamba"] .radio .radio-screen {
+  box-shadow: inset 0 1px 0 var(--top-light), inset 0 -6px 14px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-skin="lamba"] .radio .radio-screen {
+  border-color: var(--line-strong);
+  border-radius: 0.875rem;
+}
+
+/* Pirinç yazılar: bölüm etiketleri ve telsiz başlığı */
+:root[data-skin="lamba"] .section-title,
+:root[data-skin="lamba"] .rooms-group-title,
+:root[data-skin="lamba"] .radio .radio-label,
+:root[data-skin="lamba"] .band-group-label {
+  color: var(--accent-text);
+  text-transform: none;
+}
+
+/* Sihirli göz: bağlıyken yeşil ışıyan ayar lambası */
+:root[data-skin="lamba"] .radio[data-state="on"] .radio-led {
+  background-image: radial-gradient(circle at 50% 50%, var(--accent-2) 0, var(--live) 70%);
+  box-shadow: 0 0 0 2px var(--live-bg), 0 0 8px var(--halo-1);
+}
+
+/* Bas konuş: tırtıklı topuz, pirinç halka */
+:root[data-skin="lamba"] .radio .radio-ptt {
+  border-radius: 1.5rem;
+}
+
+:root[data-skin="lamba"] .radio-ptt-dome {
+  border: 3px dashed var(--accent-lip);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* İbre topuzu: pirinç halka */
+:root[data-skin="lamba"] .needle::before {
+  border-color: var(--accent-lip);
+}
+
+/* Konuşan kişi: sihirli göz gibi yumuşak yeşil hale */
+:root[data-skin="lamba"] .avatar.has-face.is-speaking .avatar-face,
+:root[data-skin="lamba"] .is-speaking > .avatar.has-face .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-ring), 0 0 0 4px var(--live), 0 0 14px 2px var(--halo-1);
+}
+
+/* Anahtarsız şifreli mesaj: fildişi etiket */
+:root[data-skin="lamba"] .msg-notice {
+  display: inline-flex;
+  padding: 0.5rem 0.85rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  font-style: normal;
+}
+
+/* Profil kartı bandı: hoparlör kumaşı */
+:root[data-skin="lamba"] .profile-card-band {
+  background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px), repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px);
+}
+
+/* Telsiz ızgarası: hoparlör kumaşı gibi sık çizgi */
+:root[data-skin="lamba"] .radio .radio-grille {
+  background-image: repeating-linear-gradient(90deg, var(--accent-lip) 0, var(--accent-lip) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 4px);
+}
+
+/* Ayarlar: seçili kategoride pirinç çizgi */
+:root[data-skin="lamba"] .settings-cat[aria-current="page"] {
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--accent-lip);
+}

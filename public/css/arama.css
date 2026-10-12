@@ -15,6 +15,20 @@
   flex: none;
 }
 
+/* Dar başlıkta (38-gezinme.js navFitDmHeader, .is-tight) yazı gizlenir, erişilebilir adı kalır */
+.dm-header.is-tight .dm-call-button {
+  min-width: var(--target);
+  padding: 0;
+}
+
+.dm-header.is-tight .dm-call-button .button-text {
+  display: none;
+}
+
+.dm-header.is-tight .dm-call-button .icon {
+  margin-right: 0;
+}
+
 .dm-call-button.is-disabled {
   cursor: default;
   opacity: 0.55;

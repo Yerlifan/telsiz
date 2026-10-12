@@ -23,12 +23,20 @@ function openApp () {
   const remembered = storeGet(userKey('channel'))
   const channels = textChannels()
   const pick = channels.filter((c) => sameId(c.id, remembered))[0] || channels[0]
-  if (pick) {
+  // Sayfa yenilenince son görünüm geri gelir: özel konuşma veya Arkadaşlar (38-gezinme.js), yoksa son yazı odası
+  const saved = typeof navSavedView === 'function' ? navSavedView() : null
+  if (saved && saved.mode === 'dm') {
+    showDm(saved.id, { force: true, focus: isWide() })
+  } else if (saved && saved.mode === 'home') {
+    showHome(null, { force: true })
+  } else if (pick) {
     selectChannel(pick.id, { force: true, focus: isWide() })
   } else {
     renderChannelHeader()
     renderComposerState()
   }
+  // Geçmişin kök kaydı açık görünümle yazılır
+  if (typeof navStart === 'function') navStart()
   startPoll()
   showFragmentNotice()
   scanUnread()
@@ -39,6 +47,7 @@ function chatPlusReset () {
   state.hasNewer = false
   state.newWhileOlder = false
   state.pendingJump = null
+  state.pendingLatest = false
   if (typeof searchReset === 'function') searchReset()
   if (typeof typingReset === 'function') typingReset()
   if (typeof mentionReset === 'function') mentionReset()
@@ -155,7 +164,9 @@ function applyMeta (meta, isInitial) {
       if (first) {
         selectChannel(first.id, { force: true })
       } else {
+        composerLeave()
         state.channelId = null
+        composerEnter()
         renderChannelHeader()
       }
     } else {
@@ -224,7 +235,7 @@ function updateTitle () {
 }
 
 // Odanın frekansı: oda kimliğinden türetilir (87.5 ile 108.0 arası), yalnızca süstür ve ekran
-// okuyuculardan gizlidir. İstasyonun alt satırında Gece temasında görünür.
+// okuyuculardan gizlidir. İstasyonlar listesinde her temada oda adının solunda görünür.
 
 function channelFreq (id) {
   const n = Math.abs(Math.floor(Number(id) || 0))
@@ -295,8 +306,15 @@ function voiceSpeakingIn (channelId) {
   return Object.keys(peers).some((id) => peers[id] && peers[id].speaking)
 }
 
-function countText (n) {
-  return n > 99 ? '99+' : String(n)
+// Rozet sayısı. more: sayı alt sınırdır (açılışta sayılan sayfa doluydu, 38-gezinme.js navUnreadIsMore), "50+" yazılır.
+function countText (n, more) {
+  if (n > 99) return '99+'
+  return more ? t('count.more', { count: n }) : String(n)
+}
+
+// Erişilebilir etiketteki sayı: alt sınırsa "en az 50" (rozetteki "50+" ile aynı bilgi), değilse sayının kendisi
+function ariaCount (n, more) {
+  return more ? t('count.atLeast', { count: n }) : n
 }
 
 // Odaların veri modeli: gruplar ve istasyonlar. Çizimden bağımsızdır (İstasyonlar listesi ve sayfası, üst
@@ -336,10 +354,11 @@ function bandModel () {
     const isTuned = tuned === 'text-' + c.id
     const unread = isTuned ? 0 : Number(state.unread[c.id]) || 0
     const mention = isTuned ? 0 : mentionCount(c.id)
+    const more = unread > 0 && typeof navUnreadIsMore === 'function' && navUnreadIsMore(c.id)
     let label = t('band.textLabel', { name: c.name })
     if (mention) label = t('band.textMentionLabel', { name: c.name, count: mention })
-    else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: unread })
-    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, mention: mention, tuned: isTuned, label: label }
+    else if (unread) label = t('band.textUnreadLabel', { name: c.name, count: ariaCount(unread, more) })
+    return { key: 'text-' + c.id, kind: 'conv', type: 'text', id: c.id, icon: 'i-text', name: c.name, sub: t('band.textSub'), freq: channelFreq(c.id), unread: unread, more: more, mention: mention, tuned: isTuned, label: label }
   })
   const voices = voiceChannels().map((c) => {
     const roster = voiceRoster(c.id)
@@ -399,7 +418,7 @@ function bandGroups (model) {
 }
 
 function stationKeyOf (st) {
-  return [st.key, st.name, st.sub, st.unread, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, (st.people || []).map((id) => {
+  return [st.key, st.name, st.sub, st.unread, st.more ? 1 : 0, st.mention, st.tuned ? 1 : 0, st.connected ? 1 : 0, st.joining ? 1 : 0, st.dj ? 1 : 0, st.status || '', st.blocked ? 1 : 0, st.expanded ? 1 : 0, (st.people || []).map((id) => {
     const info = avatarInfoFor(id)
     return id + '.' + info.colorIndex + '.' + info.initial + '.' + (info.blobUrl || '')
   }).join(','), (st.members || []).map((m) => [m.id, shownName(m.id), memberVoiceIcon(m), m.camera ? 1 : 0].join('.')).join(','), st.label].join(':')
@@ -414,7 +433,7 @@ function memberVoiceIcon (m) {
 }
 
 const MEMBER_VOICE_ICONS = {
-  deafened: ['i-headphones-off', 'voice.deafenedTitle'],
+  deafened: ['i-speaker-off', 'voice.deafenedTitle'],
   'server-muted': ['i-mic-off', 'voice.serverMutedTitle'],
   muted: ['i-mic-off', 'voice.mutedTitle']
 }
@@ -444,12 +463,12 @@ function buildRoomPeople (st) {
 
 function buildStationMark (st) {
   if (st.mention > 0) {
-    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention))
+    const mark = h('span', 'station-mark mark-mention', st.type === 'text' ? '@' + countText(st.mention) : countText(st.mention, st.more))
     mark.setAttribute('aria-hidden', 'true')
     return mark
   }
   if (st.unread > 0) {
-    const mark = h('span', 'station-mark mark-unread', countText(st.unread))
+    const mark = h('span', 'station-mark mark-unread', countText(st.unread, st.more))
     mark.setAttribute('aria-hidden', 'true')
     return mark
   }
@@ -479,6 +498,8 @@ function renderBand () {
   }
   const all = bandModel()
   const rooms = bandGroups(all)
+  // İstasyonlar kartı ve sayfası: yazı odaları, özel mesajlar (38-gezinme.js) ve ses odaları
+  const lists = roomListGroups(rooms)
   if (currentViewMode() === 'dm' && state.channelId !== null && state.channelId !== undefined) bandLastDm = state.channelId
   const stations = typeof frekansStations === 'function' ? frekansStations() : []
   const tunedStation = stations.filter((st) => st.tuned)[0]
@@ -509,15 +530,31 @@ function renderBand () {
   }
   if (typeof bandAfterRender === 'function') bandAfterRender(tuned)
   if (typeof frekansRenderSheet === 'function') frekansRenderSheet(stations)
-  renderStationsSheet(rooms)
-  renderInbox(rooms)
+  renderStationsSheet(lists)
+  renderInbox(lists)
   renderRoomsButton(rooms)
   renderTopPersonal(all)
   renderRoomCard()
 }
 
+// İstasyonlar listesindeki gruplar: yazı odalarından sonra Özel Mesajlar grubu (istek 17 S5, 38-gezinme.js
+// navDmGroup, özel konuşma yoksa grup yoktur), sonra ses odaları. İstasyonlar düğmesinin rozeti yalnızca odaları sayar.
+function roomListGroups (rooms) {
+  const dm = typeof navDmGroup === 'function' ? navDmGroup() : null
+  if (!dm) return rooms
+  const out = []
+  rooms.forEach((g) => {
+    out.push(g)
+    if (g.key === 'text') out.push(dm)
+  })
+  if (out.indexOf(dm) === -1) out.push(dm)
+  return out
+}
+
 // Üst çubuğun ortasındaki kişisel düğmeler (#top-dm, #top-friends): okunmamış özel mesaj ve bekleyen
-// arkadaşlık isteği rozetleri, açık görünümde aria-current
+// arkadaşlık isteği rozetleri, açık görünümde aria-current. 1280 px altında ve özel konuşma varken Özel düğmesi
+// İstasyonlar sayfasını açar (21-band.js bandDmOpensSheet), yalnızca o zaman açılır pencere düğmesi olarak duyurulur.
+// Hiç özel konuşma yoksa düğme Arkadaşlar görünümünü açar.
 function renderTopPersonal (model) {
   const personal = (model || bandModel()).filter((g) => g.key === 'personal')[0]
   if (!personal) return
@@ -530,6 +567,15 @@ function renderTopPersonal (model) {
     if (st.tuned) b.setAttribute('aria-current', 'page')
     else b.removeAttribute('aria-current')
     b.classList.toggle('is-current', st.tuned)
+    if (st.key === 'dm' && typeof bandDmOpensSheet === 'function') {
+      if (bandDmOpensSheet()) {
+        b.setAttribute('aria-haspopup', 'dialog')
+        if (!b.hasAttribute('aria-expanded')) b.setAttribute('aria-expanded', 'false')
+      } else {
+        b.removeAttribute('aria-haspopup')
+        b.removeAttribute('aria-expanded')
+      }
+    }
     const count = st.key === 'dm' ? st.mention : st.unread
     if (mark) {
       mark.hidden = !count
@@ -569,7 +615,50 @@ function updateBandLive () {
 let inboxRenderKey = ''
 let stationsRenderKey = ''
 
+// Özel Mesajlar grubunun satırları (38-gezinme.js navDmGroup): konuşma satırı avatar ve adla, son satır Tüm Özel
+// Mesajlar düğmesi (grubu açar ve kapar)
+function buildRoomDmRow (st, prefix) {
+  const li = h('li', 'room-li')
+  const b = h('button', 'room-row room-row-' + st.type)
+  b.type = 'button'
+  b.setAttribute('data-focus-key', prefix + st.key)
+  if (st.type === 'more') {
+    b.setAttribute('data-dm-more', '')
+    b.setAttribute('aria-expanded', st.expanded ? 'true' : 'false')
+    b.setAttribute('aria-label', st.label)
+    b.appendChild(icon(st.expanded ? 'i-up' : 'i-down', 'room-row-icon'))
+    const body = h('span', 'room-row-body')
+    body.appendChild(h('span', 'room-row-name', st.name))
+    b.appendChild(body)
+    if (!st.expanded) {
+      const count = h('span', 'room-row-count', String(st.count))
+      count.setAttribute('aria-hidden', 'true')
+      b.appendChild(count)
+    }
+    li.appendChild(b)
+    return li
+  }
+  b.setAttribute('data-dm-id', String(st.id))
+  b.setAttribute('data-user-id', String(st.userId))
+  b.setAttribute('aria-label', st.label)
+  if (st.tuned) {
+    b.classList.add('is-current')
+    b.setAttribute('aria-current', 'page')
+  }
+  if (st.mention > 0) b.classList.add('is-unread')
+  if (st.blocked) b.classList.add('is-blocked')
+  b.appendChild(avatar(st.userId, 'xs', 'room-row-avatar'))
+  const body = h('span', 'room-row-body')
+  body.appendChild(h('span', 'room-row-name', st.name))
+  b.appendChild(body)
+  const mark = buildStationMark(st)
+  if (mark) b.appendChild(mark)
+  li.appendChild(b)
+  return li
+}
+
 function buildRoomRow (st, prefix) {
+  if (st.type === 'dm' || st.type === 'more') return buildRoomDmRow(st, prefix)
   const li = h('li', 'room-li')
   const b = h('button', 'room-row room-row-' + st.type)
   b.type = 'button'
@@ -586,7 +675,7 @@ function buildRoomRow (st, prefix) {
   if (st.joining) b.classList.add('is-joining')
   if (st.live) b.classList.add('is-live')
   b.appendChild(icon(st.icon, 'room-row-icon'))
-  // Gece temasında odanın süs frekansı (diğer temalarda gizli)
+  // Odanın süs frekansı (kanal ön ayarı gibi, her temada)
   if (st.freq) b.appendChild(channelFreqNode(st.id))
   const text = h('span', 'room-row-body')
   text.appendChild(h('span', 'room-row-name', st.name))
@@ -972,7 +1061,7 @@ function buildMemberRow (entry) {
     sub.appendChild(talk)
     sub.appendChild(h('span', 'member-state', vs.text))
     text.appendChild(sub)
-    if (vs.deafened) flag = icon('i-headphones-off', 'member-flag')
+    if (vs.deafened) flag = icon('i-speaker-off', 'member-flag')
     else if (vs.muted) flag = icon('i-mic-off', 'member-flag')
   } else {
     const subText = memberPresenceText(u.id, status)
@@ -1057,10 +1146,15 @@ function renderComposerState () {
   updateSendState()
 }
 
-// Okunmamış sayaçlar
+// Okunmamış sayaçlar. Konuşma yalnızca kişi en alttayken ve en yeni mesajlar yüklüyken okundu sayılır (istek 17
+// S4): yukarıdayken gelen mesaj okunmuş sayılmaz. force: true ile (Okundu İşaretle) yüklü son mesaj okundu sayılır.
+// Okundu sayıldıysa true döner.
 
-function markRead () {
-  if (!state.channelId || document.hidden) return
+function markRead (opts) {
+  const options = opts || {}
+  if (!state.channelId || document.hidden || state.loading) return false
+  if (!options.force && (state.hasNewer || !isNearBottom())) return false
+  const channelId = state.channelId
   const last = state.messages.length ? state.messages[state.messages.length - 1].id : null
   if (last !== null && last !== undefined) {
     const prev = Number(state.lastRead[state.channelId]) || 0
@@ -1082,9 +1176,12 @@ function markRead () {
   }
   if (changed) renderBand()
   if (mentionsChanged && typeof renderHomeEntry === 'function') renderHomeEntry()
+  if (typeof navAfterRead === 'function') navAfterRead(channelId)
+  return true
 }
 
-// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar).
+// Açılışta diğer yazı odalarındaki okunmamış mesajları ve aralarındaki anmaları sayar (son 50 mesaja kadar). Sayfanın
+// en eski mesajı da okunmamışsa ve daha eskisi varsa sayı alt sınırdır, rozet "50+" gösterir (38-gezinme.js).
 async function scanUnread () {
   const me = state.me
   const list = textChannels().filter((c) => !sameId(c.id, state.channelId))
@@ -1096,7 +1193,10 @@ async function scanUnread () {
     const lastRead = Number(state.lastRead[c.id]) || 0
     const unread = res.data.messages.filter((m) => Number(m.id) > lastRead && !sameId(m.authorId, me.id))
     if (sameId(c.id, state.channelId)) continue
-    if (unread.length > (state.unread[c.id] || 0)) state.unread[c.id] = unread.length
+    if (unread.length > (state.unread[c.id] || 0)) {
+      state.unread[c.id] = unread.length
+      if (typeof navSetUnreadMore === 'function') navSetUnreadMore(c.id, navPageIsPartial(res.data.messages, res.data.hasMore, lastRead))
+    }
     if (typeof messageMentionsMe === 'function') {
       const mentions = unread.filter((m) => !(typeof isBlocked === 'function' && isBlocked(m.authorId)) && messageMentionsMe(m)).length
       if (mentions > (Number(state.mentions[c.id]) || 0)) state.mentions[c.id] = mentions
@@ -1109,7 +1209,9 @@ async function scanUnread () {
 }
 
 // Oda seçimi. Özel mesaj veya Arkadaşlar görünümündeyken önce oda görünümüne dönülür. Bant yeniden çizilir,
-// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender).
+// ibre seçilen istasyona taşınır ve istasyon görünür alana kaydırılır (21-band.js bandAfterRender). Okunmamış
+// sayacı odaya girince değil, kişi en alta inince sıfırlanır (markRead). Geçmişe kayıt 38-gezinme.js ile yazılır:
+// fromHistory: true geri ve ileri tuşundan gelir, force: true programın seçimidir (kaydı değiştirir).
 
 function selectChannel (id, opts) {
   const options = opts || {}
@@ -1117,6 +1219,9 @@ function selectChannel (id, opts) {
   if (!ch || ch.type !== 'text') return
   closeDrawers()
   const fromOtherView = currentViewMode() !== 'channel'
+  const same = sameId(state.channelId, ch.id) && !options.force && !fromOtherView
+  // Yazma alanındaki metin ve ekler önceki konuşmanın taslağında kalır (08-composer.js)
+  if (!same) composerLeave()
   if (fromOtherView && typeof socialOnChannelLoad === 'function') {
     try {
       socialOnChannelLoad(ch.id)
@@ -1124,7 +1229,7 @@ function selectChannel (id, opts) {
       window.console.error(err)
     }
   }
-  if (sameId(state.channelId, ch.id) && !options.force && !fromOtherView) {
+  if (same) {
     if (options.focus && !isNarrow()) focusNode(el.composerInput)
     return
   }
@@ -1132,13 +1237,11 @@ function selectChannel (id, opts) {
   closeMessageMenu()
   state.channelId = ch.id
   storeSet(userKey('channel'), String(ch.id))
-  state.unread[ch.id] = 0
-  const hadMentions = Boolean(state.mentions && state.mentions[ch.id])
-  if (state.mentions) state.mentions[ch.id] = 0
   renderBand()
-  if (hadMentions && typeof renderHomeEntry === 'function') renderHomeEntry()
   renderChannelHeader()
+  composerEnter()
   renderComposerState()
   loadChannel()
+  if (typeof navOnConversation === 'function') navOnConversation(options)
   if (options.focus && isWide() && !el.composerInput.disabled) focusNode(el.composerInput)
 }

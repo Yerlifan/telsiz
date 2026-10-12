@@ -1,13 +1,25 @@
 'use strict'
 
 // Profiller: /api/profiles ile toplu çekme ve (id, pv) önbelleği, grup anahtarıyla şifreli profil
-// zarfının çözülüp doğrulanması, profil resimleri (indirme, çözme, blob URL önbelleği), kişisel
-// anahtarın kimlik bağlamasıyla doğrulanması ve ilk görüşte sabitlenmesi, görsel yardımcılar
-// (görünen ad, @kullanıcı adı, avatar bilgisi, durum), ortak pencere yardımcısı, profil kartı,
-// durum menüsü, kendi profilini kaydetme ve içerik şikâyeti penceresi (Mesajı Bildir, Kişiyi Bildir).
+// zarfının çözülüp doğrulanması, profil resimleri ve kapak fotoğrafları (indirme, çözme, blob URL önbelleği,
+// kapak yalnızca gösterileceği zaman), kişisel anahtarın kimlik bağlamasıyla doğrulanması ve ilk görüşte
+// sabitlenmesi, görsel yardımcılar (görünen ad, @kullanıcı adı, avatar bilgisi, durum), ortak pencere yardımcısı,
+// profil kartı, durum menüsü, kendi profilini kaydetme ve içerik şikâyeti penceresi (Mesajı Bildir, Kişiyi Bildir).
 
 const PROFILE_BATCH = 100
 const PROFILE_FETCH_DELAY_MS = 30
+// Başarısız profil isteğinin yeniden deneme beklemeleri. Dört denemenin sonuncusu da düşerse grup kuyrukta kalır,
+// bir sonraki başarılı poll (profilesAfterPoll) son bekleme dolunca yeniden istemek için zamanlayıcı kurar.
+const PROFILE_RETRY_MS = [2000, 5000, 15000, 60000]
+// /api/profiles isteğine giren kullanıcı kimliği biçimi (diğerleri istenmeden kuyruktan düşer)
+const PROFILE_ID_RE = /^[1-9][0-9]{0,15}$/
+// Profil resmi indirmesi kendiliğinden en çok AVATAR_TRIES kez denenir, denemeler arası beklemeler sırayla bunlardır.
+// Bunun dışında her başarılı poll (profileImagesAfterPoll) kalıcı olmayan bir hatayla düşmüş resmi, deneme hakkı bitmiş
+// olsa da, son denemeden AVATAR_POLL_RETRY_MS sonra (o an geçtiyse hemen) yeniden ister: ağ düzelince resim en geç 60
+// saniye içinde gelir.
+const AVATAR_TRIES = 4
+const AVATAR_RETRY_MS = [10000, 30000, 120000]
+const AVATAR_POLL_RETRY_MS = 60000
 const PROFILE_NAME_MAX = 32
 const PROFILE_STATUS_MAX = 128
 const PROFILE_BIO_MAX = 190
@@ -15,23 +27,54 @@ const PROFILE_COLORS = 8
 const AVATAR_EDGE = 256
 const AVATAR_JPEG_QUALITY = 0.9
 const AVATAR_TYPES = ['image/png', 'image/jpeg']
+// Kapak fotoğrafı (istek 8): ortasından 3:1 kırpılır ve 1200x400 JPEG olarak kodlanır. Dosya profil resmiyle aynı
+// sınırı (avatarMaxBytes) aşarsa kalite sırayla düşürülür.
+const COVER_W = 1200
+const COVER_H = 400
+const COVER_QUALITIES = [0.85, 0.7, 0.55]
+// Bellekte tutulan en çok kapak sayısı. Kapak 1 MB'a kadar olabildiği için önbellek son kullanılan kapaklarla sınırlıdır,
+// açık kartın ve kendi profilimin kapağı atılmaz (trimCovers).
+const COVER_CACHE_MAX = 20
 const STATUS_CHOICES = ['online', 'idle', 'dnd', 'invisible']
 const SHOWN_STATUSES = ['online', 'idle', 'dnd', 'offline']
 
 const profileState = {
   entries: new Map(),
   avatars: new Map(),
+  // Kapak fotoğrafları (yükleme kimliği -> kayıt, avatars ile aynı biçim). Kapak yalnızca profil kartında ve Ayarlar
+  // önizlemesinde gösterileceği zaman indirilir (loadCover). Sıra son kullanıma göredir, en eskisi baştadır.
+  covers: new Map(),
   formerUsers: new Map(),
   queue: new Set(),
+  // Bekleyen profil isteği zamanlayıcısı ve çalışacağı an (Date.now)
   timer: 0,
+  timerAt: 0,
   fetching: false,
+  // Art arda başarısız profil isteği sayısı ve bir sonraki isteğin en erken zamanı (Date.now)
+  failures: 0,
+  retryAt: 0,
   gen: 0,
   renderQueued: false,
   changed: new Set(),
   cardUserId: null,
   cardTrigger: null,
   cardModKey: '',
-  metaIds: null
+  metaIds: null,
+  // Metadaki kullanıcı adları (kimlik -> ad), ad değişikliğini bulmak için
+  metaNames: null,
+  // Profil sürümü: görünen ad, profil resmi veya kullanıcı adı değişince artar (profileEpoch)
+  epoch: 0,
+  // Son başarılı kendi profil kaydım: { userId, pv, avatar, cover }. pv sunucunun döndürdüğü sürüm, avatar ve cover zarfa
+  // giren resim başvurularıdır ({ u, k, n, m } veya null). Kendi profil kaydım yenilenene kadar sonraki kayıt değişmeyen
+  // resimleri buradan alır (ownImageBase).
+  ownSaved: null
+}
+
+// Ad ve avatar çizen, kendi önbellek anahtarıyla yeniden çizimi atlayan yüzeyler (kameralar ızgarası, paylaşan
+// seçicisi, izleyiciler, Telsiz DJ kuyruğu) bu değeri anahtarlarına katar. Değer her profil değişikliğinde, profil
+// resmi gelince ve metadaki kullanıcı adı değişince artar.
+function profileEpoch () {
+  return profileState.epoch
 }
 
 // Önbellek
@@ -39,16 +82,28 @@ const profileState = {
 function profilesReset () {
   profileState.gen += 1
   clearTimeout(profileState.timer)
+  profileState.timer = 0
   profileState.queue.clear()
   profileState.changed.clear()
   profileState.entries = new Map()
   profileState.formerUsers = new Map()
   profileState.metaIds = null
+  profileState.metaNames = null
+  profileState.epoch += 1
+  profileState.ownSaved = null
   profileState.fetching = false
+  profileState.failures = 0
+  profileState.retryAt = 0
   profileState.avatars.forEach((entry) => {
+    clearTimeout(entry.timer)
     revokeLater(entry.url)
   })
   profileState.avatars = new Map()
+  profileState.covers.forEach((entry) => {
+    clearTimeout(entry.timer)
+    revokeLater(entry.url)
+  })
+  profileState.covers = new Map()
 }
 
 function revokeLater (url) {
@@ -75,6 +130,7 @@ async function refreshFormerUsers () {
 // Sunucudan engellenen hesapların adları (eski mesajlarında gösterilir)
 function setFormerUsers (list) {
   profileState.formerUsers = new Map()
+  profileState.epoch += 1
   if (!Array.isArray(list)) return
   list.forEach((u) => {
     if (u && u.id !== undefined && typeof u.name === 'string') profileState.formerUsers.set(String(u.id), u.name)
@@ -92,13 +148,29 @@ function metaUser (userId) {
 }
 
 // Meta'daki pv değişen kullanıcıların profilleri kuyruğa alınır. Listeden düşen kullanıcı varsa
-// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır.
+// (hesap silindi veya sunucudan engellendi) engellenenlerin adları yeniden alınır. Kullanıcı adı değişen kişi
+// profil değişikliği gibi yeniden çizilir (profil sürümü artar).
 function profilesOnMeta () {
   const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
   const ids = new Set(users.map((u) => String(u && u.id)))
   const before = profileState.metaIds
   profileState.metaIds = ids
   if (before && Array.from(before).some((id) => !ids.has(id))) refreshFormerUsers()
+  const names = new Map()
+  users.forEach((u) => {
+    if (u && u.id !== undefined) names.set(String(u.id), String(u.name || ''))
+  })
+  const oldNames = profileState.metaNames
+  profileState.metaNames = names
+  if (oldNames) {
+    let renamed = false
+    names.forEach((name, id) => {
+      if (!oldNames.has(id) || oldNames.get(id) === name) return
+      profileState.changed.add(id)
+      renamed = true
+    })
+    if (renamed) queueProfileRender()
+  }
   // Açık profil kartının ses odası denetimi düğmeleri (herkes için susturma, kamerasını kapat) metaya uyar
   if (profileState.cardUserId !== null && cardModKey(profileState.cardUserId) !== profileState.cardModKey) refreshProfileCard()
   users.forEach((u) => {
@@ -110,44 +182,68 @@ function profilesOnMeta () {
   scheduleProfileFetch()
 }
 
-// Meta dışında kalabilecek kişiler (özel mesaj, arkadaşlık listeleri) için de profil istenir
+// Meta dışında kalabilecek kişiler (özel mesaj, arkadaşlık listeleri) için de profil istenir. Kuyruğa ilk kez giren
+// kişi (yeni açılan profil kartı veya özel mesaj kişisi) düşen bir isteğin beklemesine takılmaz. Kuyrukta bekleyen
+// kişi yeniden istenince bekleme kısalmaz, düşmeye devam eden grup sunucuyu sık sık yormaz.
 function profilesEnsure (ids) {
   if (!Array.isArray(ids)) return
+  let fresh = false
   ids.forEach((id) => {
     if (id === null || id === undefined) return
-    if (!profileRecord(id)) profileState.queue.add(String(id))
+    const key = String(id)
+    if (profileRecord(key) || profileState.queue.has(key)) return
+    profileState.queue.add(key)
+    if (PROFILE_ID_RE.test(key)) fresh = true
   })
-  scheduleProfileFetch()
+  scheduleProfileFetch(fresh)
 }
 
+// Kendi profili kaydedilince (saveProfile) beklemeden yeniden istenir: sunucuya ulaşıldığı az önce görüldü
 function profilesRefetch (ids) {
   ids.forEach((id) => {
     profileState.queue.add(String(id))
   })
-  scheduleProfileFetch()
+  scheduleProfileFetch(true)
 }
 
-function scheduleProfileFetch () {
+// Başarısız bir istekten sonra bekleme süresi (retryAt) dolmadan yeni istek gönderilmez. now: açık bir istek
+// (profilesEnsure, profilesRefetch) beklemeyi atlar, kuyrukta bekleyen grup da aynı istekle gider. Zamanlayıcı
+// yalnızca öne çekilir, daha erken kurulmuş bir istek ertelenmez.
+function scheduleProfileFetch (now) {
   if (!profileState.queue.size || profileState.fetching || !state.token) return
+  const at = Date.now() + Math.max(PROFILE_FETCH_DELAY_MS, now ? 0 : profileState.retryAt - Date.now())
+  if (profileState.timer && profileState.timerAt <= at) return
   clearTimeout(profileState.timer)
-  profileState.timer = setTimeout(fetchProfiles, PROFILE_FETCH_DELAY_MS)
+  profileState.timerAt = at
+  profileState.timer = setTimeout(fetchProfiles, at - Date.now())
 }
 
 async function fetchProfiles () {
+  profileState.timer = 0
   if (profileState.fetching || !profileState.queue.size || !state.token) return
   profileState.fetching = true
   const gen = profileState.gen
+  let failed = false
   try {
     while (profileState.queue.size && gen === profileState.gen) {
       const batch = Array.from(profileState.queue).slice(0, PROFILE_BATCH)
       batch.forEach((id) => {
         profileState.queue.delete(id)
       })
-      const ids = batch.filter((id) => /^[1-9][0-9]{0,15}$/.test(id))
+      const ids = batch.filter((id) => PROFILE_ID_RE.test(id))
       if (!ids.length) continue
       const res = await api('GET', '/api/profiles?ids=' + ids.join(','))
       if (gen !== profileState.gen) return
-      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) break
+      if (res.status !== 200 || !res.data || !Array.isArray(res.data.profiles)) {
+        // Grup kuyruğa geri konur, artan beklemeyle yeniden istenir (profileRetryLater)
+        ids.forEach((id) => {
+          profileState.queue.add(id)
+        })
+        failed = true
+        break
+      }
+      profileState.failures = 0
+      profileState.retryAt = 0
       const seen = new Set()
       res.data.profiles.forEach((entry) => {
         if (!entry || entry.id === undefined) return
@@ -159,7 +255,8 @@ async function fetchProfiles () {
         // Silinmiş veya sunucudan engellenmiş: yeniden istenmesin
         const old = profileRecord(id)
         if (old && old.missing) return
-        profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, keyState: 'none' })
+        if (old && old.profile && old.profile.cover) dropProfileImage(profileState.covers, old.profile.cover.u)
+        profileState.entries.set(id, { id: id, pv: -1, missing: true, raw: null, profile: null, publicKey: null, identity: null, avatarUploadId: null, coverUploadId: null, keyState: 'none' })
         profileState.changed.add(id)
       })
       queueProfileRender()
@@ -167,7 +264,40 @@ async function fetchProfiles () {
   } finally {
     if (gen === profileState.gen) profileState.fetching = false
   }
-  if (gen === profileState.gen && profileState.queue.size) scheduleProfileFetch()
+  if (gen !== profileState.gen) return
+  if (failed) profileRetryLater()
+  else if (profileState.queue.size) scheduleProfileFetch()
+}
+
+// Başarısız istekten sonra 2, 5, 15 ve 60 saniye beklenerek yeniden denenir. Sonra kendiliğinden zamanlayıcı kurulmaz:
+// kuyruktaki grubu bir sonraki başarılı poll (profilesAfterPoll) en az 60 saniye arayla yeniden ister, böylece
+// sunucuya ulaşılamazken boşuna istek gönderilmez.
+function profileRetryLater () {
+  profileState.failures += 1
+  const n = profileState.failures
+  profileState.retryAt = Date.now() + PROFILE_RETRY_MS[Math.min(n, PROFILE_RETRY_MS.length) - 1]
+  clearTimeout(profileState.timer)
+  profileState.timer = 0
+  if (n <= PROFILE_RETRY_MS.length) scheduleProfileFetch()
+}
+
+// Her başarılı poll'dan sonra (05-poll.js): bir profil isteği düştüyse metadaki pv değerleri önbellekle karşılaştırılır
+// ve eskiyen kişiler kuyruğa alınır. İstek bekleme süresi dolunca gider (scheduleProfileFetch zamanlayıcıyı retryAt'e
+// kurar), sonraki poll'u veya meta değişikliğini beklemez: ağ düzeldikten en geç 60 saniye sonra profiller gelir.
+// Düşen profil resimleri de aynı sürede yeniden istenir (profileImagesAfterPoll). Hata yoksa hiçbir şey yapılmaz.
+function profilesAfterPoll () {
+  if (!state.token) return
+  profileImagesAfterPoll()
+  if (!profileState.failures || profileState.fetching) return
+  const users = state.meta && Array.isArray(state.meta.users) ? state.meta.users : []
+  users.forEach((u) => {
+    if (!u || u.id === undefined) return
+    const rec = profileRecord(u.id)
+    if (rec && rec.missing) return
+    const pv = typeof u.pv === 'number' ? u.pv : 0
+    if (!rec || rec.pv !== pv) profileState.queue.add(String(u.id))
+  })
+  scheduleProfileFetch()
 }
 
 function storeProfileEntry (entry) {
@@ -179,6 +309,7 @@ function storeProfileEntry (entry) {
     missing: false,
     raw: typeof entry.profile === 'string' ? entry.profile : null,
     avatarUploadId: typeof entry.avatarUploadId === 'string' && UPLOAD_ID_RE.test(entry.avatarUploadId) ? entry.avatarUploadId : null,
+    coverUploadId: typeof entry.coverUploadId === 'string' && UPLOAD_ID_RE.test(entry.coverUploadId) ? entry.coverUploadId : null,
     publicKey: typeof entry.publicKey === 'string' ? entry.publicKey : null,
     identity: typeof entry.identity === 'string' ? entry.identity : null,
     profile: null,
@@ -192,6 +323,10 @@ function storeProfileEntry (entry) {
   const newAvatar = rec.profile && rec.profile.avatar ? rec.profile.avatar.u : null
   if (oldAvatar && oldAvatar !== newAvatar) dropAvatar(oldAvatar)
   if (rec.profile && rec.profile.avatar) loadAvatar(rec)
+  // Kapak burada indirilmez, kart açıksa yeniden çizilirken istenir (coverUrlOf)
+  const oldCover = old && old.profile && old.profile.cover ? old.profile.cover.u : null
+  const newCover = rec.profile && rec.profile.cover ? rec.profile.cover.u : null
+  if (oldCover && oldCover !== newCover) dropProfileImage(profileState.covers, oldCover)
   profileState.changed.add(id)
 }
 
@@ -233,13 +368,24 @@ function cleanColor (value) {
   return typeof value === 'number' && Math.floor(value) === value && value >= 0 && value < PROFILE_COLORS ? value : null
 }
 
-function cleanAvatarRef (value, rec) {
+// Profil zarfındaki resim başvurusu { u, k, n, m }: u sunucudaki kayıtta aynı alana bağlı yükleme olmalıdır
+function cleanImageRef (value, uploadId) {
   if (!value || typeof value !== 'object') return null
-  if (typeof value.u !== 'string' || !UPLOAD_ID_RE.test(value.u) || value.u !== rec.avatarUploadId) return null
+  if (typeof value.u !== 'string' || !UPLOAD_ID_RE.test(value.u) || value.u !== uploadId) return null
   if (typeof value.k !== 'string' || !B64URL_RE.test(value.k) || typeof value.n !== 'string' || !B64URL_RE.test(value.n)) return null
   const mime = typeof value.m === 'string' ? value.m : ''
   if (AVATAR_TYPES.indexOf(mime) === -1) return null
   return { u: value.u, k: value.k, n: value.n, m: mime }
+}
+
+function cleanAvatarRef (value, rec) {
+  return cleanImageRef(value, rec.avatarUploadId)
+}
+
+// Kapak başvurusu { u, k, n, m, w, h } profil resmiyle aynı biçimdedir. Kapağı bilmeyen eski istemciler alanı yok sayar,
+// eski bir istemci profili kaydedince sunucu kapağı kaldırır, zarftaki başvuru da coverUploadId tutmadığı için düşer.
+function cleanCoverRef (value, rec) {
+  return cleanImageRef(value, rec.coverUploadId)
 }
 
 // Profil zarfı grup anahtarıyla açılır, u alanı kişinin kimliği olmalıdır (sunucu profilleri
@@ -261,7 +407,8 @@ function decodeProfile (rec) {
     statusText: cleanLine(v.statusText, PROFILE_STATUS_MAX),
     bio: cleanBio(v.bio),
     color: cleanColor(v.color),
-    avatar: cleanAvatarRef(v.avatar, rec)
+    avatar: cleanAvatarRef(v.avatar, rec),
+    cover: cleanCoverRef(v.cover, rec)
   }
 }
 
@@ -296,39 +443,153 @@ function verifyProfileKey (rec) {
   }
 }
 
-// Profil resimleri: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
+// Profil resimleri ve kapak fotoğrafları: indirilir, çözülür, içerik türü doğrulanır ve blob URL olarak saklanır
 
+// Kayıt: { url, state: 'loading' | 'ok' | 'failed', at (son denemenin bitişi), tries, timer, retryAt (zamanlayıcının
+// çalışacağı an), permanent, userId, ref }. Düşen indirme 10 saniye, 30 saniye ve 2 dakika sonra yeniden denenir (en çok
+// AVATAR_TRIES deneme), başarılı poll'dan sonra da son denemenin üzerinden 60 saniye geçince (profileImagesAfterPoll).
+// Sunucu dosyayı bulamazsa (404), dosya çözülemezse veya türü tutmazsa hata kalıcıdır, yeniden denenmez. images:
+// profileState.avatars veya covers.
 function loadAvatar (rec) {
   const ref = rec.profile && rec.profile.avatar
+  if (ref) loadProfileImage(profileState.avatars, rec.id, ref)
+}
+
+// Profil resimlerinden farklı olarak kapak önceden indirilmez, yalnızca kart açılınca istenir. Bu yüzden sunucu kimin
+// hangi kişinin kartını açtığını görebilir (docs/MIMARI.md, Sınırlar).
+function loadCover (rec) {
+  const ref = rec && rec.profile && rec.profile.cover
   if (!ref) return
-  const existing = profileState.avatars.get(ref.u)
-  if (existing) return
-  const entry = { url: '', state: 'loading' }
-  profileState.avatars.set(ref.u, entry)
+  const covers = profileState.covers
+  const entry = covers.get(ref.u)
+  if (entry) {
+    // Son kullanılan sona alınır (Map ekleme sırasını korur)
+    covers.delete(ref.u)
+    covers.set(ref.u, entry)
+    return
+  }
+  loadProfileImage(covers, rec.id, ref)
+  trimCovers()
+}
+
+// Kapak önbelleği COVER_CACHE_MAX kaydı aşarsa en uzun süredir kullanılmayan kapaklar bırakılır. Açık kartın ve kendi
+// profilimin (Ayarlar önizlemesi) kapağı tutulur.
+function trimCovers () {
+  const covers = profileState.covers
+  if (covers.size <= COVER_CACHE_MAX) return
+  const keep = [coverIdOf(profileState.cardUserId), coverIdOf(state.me ? state.me.id : null)]
+  Array.from(covers.keys()).forEach((uploadId) => {
+    if (covers.size > COVER_CACHE_MAX && keep.indexOf(uploadId) === -1) dropProfileImage(covers, uploadId)
+  })
+}
+
+function coverIdOf (userId) {
+  if (userId === null || userId === undefined) return null
+  const profile = activeProfile(userId)
+  return profile && profile.cover ? profile.cover.u : null
+}
+
+function loadProfileImage (images, userId, ref) {
+  if (images.get(ref.u)) return
+  const entry = { url: '', state: 'loading', at: 0, tries: 0, timer: 0, retryAt: 0, permanent: false, userId: userId, ref: ref }
+  images.set(ref.u, entry)
+  fetchProfileImage(images, entry)
+}
+
+function fetchProfileImage (images, entry) {
   const gen = profileState.gen
+  const ref = entry.ref
+  const userId = entry.userId
+  entry.state = 'loading'
+  entry.tries += 1
   downloadPlain({ u: ref.u, k: ref.k, n: ref.n }, null).then((res) => {
-    if (gen !== profileState.gen || profileState.avatars.get(ref.u) !== entry) return
+    if (gen !== profileState.gen || images.get(ref.u) !== entry) return
+    entry.at = Date.now()
     if (!res.ok) {
-      entry.state = 'failed'
+      // 200 ile gelip çözülemeyen dosya da kalıcı hatadır
+      profileImageFailed(images, entry, res.status === 404 || res.status === 200)
       return
     }
     const sniffed = window.E2EE.sniffImage(res.bytes)
     if (!sniffed || AVATAR_TYPES.indexOf(sniffed) === -1 || sniffed !== ref.m) {
-      entry.state = 'failed'
+      profileImageFailed(images, entry, true)
       return
     }
     entry.url = URL.createObjectURL(new Blob([res.bytes], { type: sniffed }))
     entry.state = 'ok'
-    profileState.changed.add(rec.id)
+    if (images === profileState.covers) {
+      profileCoverReady(userId)
+      return
+    }
+    profileState.changed.add(String(userId))
     queueProfileRender()
   })
 }
 
-function dropAvatar (uploadId) {
-  const entry = profileState.avatars.get(uploadId)
+function profileImageFailed (images, entry, permanent) {
+  entry.state = 'failed'
+  entry.permanent = permanent
+  if (permanent || entry.tries >= AVATAR_TRIES) return
+  retryProfileImageAt(images, entry, entry.at + AVATAR_RETRY_MS[Math.min(entry.tries, AVATAR_RETRY_MS.length) - 1])
+}
+
+// Düşen indirmenin yeniden denemesini at anına (Date.now) kurar, kurulu zamanlayıcının yerini alır
+function retryProfileImageAt (images, entry, at) {
+  clearTimeout(entry.timer)
+  entry.retryAt = at
+  entry.timer = setTimeout(() => {
+    entry.timer = 0
+    if (images.get(entry.ref.u) === entry) fetchProfileImage(images, entry)
+  }, Math.max(0, at - Date.now()))
+}
+
+// Her başarılı poll'dan sonra (profilesAfterPoll): kalıcı olmayan bir hatayla düşmüş profil resimleri ve gösterilen
+// kapaklar (açık profil kartı ve Ayarlar önizlemesindeki kendi kapağım, myCoverShown) son denemeden
+// AVATAR_POLL_RETRY_MS sonra (o an geçtiyse hemen) yeniden istenir. Deneme hakkı bitmiş kayıt da böylece ağ düzelince
+// gelir. Son deneme ağ düzelmeden önce düştüğü için resim ağ düzeldikten en geç 60 saniye sonra istenir. Daha geç
+// kurulmuş (2 dakikalık) deneme öne çekilir, daha erken kurulmuş deneme ertelenmez. Deneme hakkı bittikten sonra
+// düşmeye devam eden resim sunucudan en çok dakikada bir istenir. Hiçbir yerde görünmeyen kapak istenmez.
+function profileImagesAfterPoll () {
+  profileState.avatars.forEach((entry) => {
+    retryProfileImageAfterPoll(profileState.avatars, entry)
+  })
+  const shown = [coverIdOf(profileState.cardUserId), myCoverShown() ? coverIdOf(state.me.id) : null]
+  shown.forEach((uploadId) => {
+    const entry = uploadId ? profileState.covers.get(uploadId) : null
+    if (entry) retryProfileImageAfterPoll(profileState.covers, entry)
+  })
+}
+
+// Kendi kapağım Ayarlar'da yalnızca Hesabım ve Profil sayfalarındaki önizleme kartında görünür (11-settings.js
+// myProfileView ve draftCoverUrl). Kendi kartım açıksa kapak cardUserId yoluyla zaten gösterilen kapaktır.
+function myCoverShown () {
+  if (!state.me || typeof isSettingsTab !== 'function') return false
+  return isSettingsTab('account') || isSettingsTab('profile')
+}
+
+function retryProfileImageAfterPoll (images, entry) {
+  if (entry.state !== 'failed' || entry.permanent) return
+  const at = Math.max(Date.now(), entry.at + AVATAR_POLL_RETRY_MS)
+  if (entry.timer && entry.retryAt <= at) return
+  retryProfileImageAt(images, entry, at)
+}
+
+function dropProfileImage (images, uploadId) {
+  const entry = images.get(uploadId)
   if (!entry) return
-  profileState.avatars.delete(uploadId)
+  images.delete(uploadId)
+  clearTimeout(entry.timer)
   revokeLater(entry.url)
+}
+
+function dropAvatar (uploadId) {
+  dropProfileImage(profileState.avatars, uploadId)
+}
+
+// Kapak geldi: yalnızca o kişinin açık kartındaki bant değişir (kapak başka yüzeyde yoktur, profil sürümü artmaz).
+// Ayarlar önizlemesi sayfa imzasıyla (myProfileSignature) kendiliğinden yenilenir.
+function profileCoverReady (userId) {
+  if (profileState.cardUserId !== null && sameId(profileState.cardUserId, userId)) refreshProfileCardCover()
 }
 
 function avatarUrlOf (userId) {
@@ -339,8 +600,52 @@ function avatarUrlOf (userId) {
   return entry && entry.state === 'ok' ? entry.url : null
 }
 
-// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir
+// Kişinin kapak fotoğrafının blob adresi (yoksa veya henüz inmediyse null). load: kapak gösterilecek, inmemişse
+// indirmeye başlanır (profil kartı ve Ayarlar önizlemesi).
+function coverUrlOf (userId, load) {
+  const profile = activeProfile(userId)
+  const ref = profile ? profile.cover : null
+  if (!ref) return null
+  if (load) loadCover(profileRecord(userId))
+  const entry = profileState.covers.get(ref.u)
+  return entry && entry.state === 'ok' ? entry.url : null
+}
+
+// Profil kartının renk bandı. Kapak fotoğrafı varsa bandın içinde durur (components.css .profile-card-cover), yoksa
+// profil rengi görünür. Profil kartı ve Ayarlar'daki önizleme kartları kullanır. Yalnızca blob adresi kabul edilir.
+// userId verilirse bant QSL kartının künyesini taşır (profileQsl), Ayarlar'daki kapak önizlemesi vermez.
+function profileCoverBand (url, colorIndex, userId) {
+  const band = h('div', 'profile-card-band')
+  band.setAttribute('data-color', String(colorIndex))
+  if (typeof url === 'string' && url.indexOf('blob:') === 0) {
+    band.classList.add('has-cover')
+    const img = h('img', 'profile-card-cover')
+    img.alt = ''
+    img.src = url
+    band.appendChild(img)
+  }
+  if (userId !== undefined && userId !== null) band.appendChild(profileQsl(userId))
+  return band
+}
+
+// QSL kartı (istek 10, Telsiz yönü): amatör telsizcilerin görüşmeyi onaylamak için gönderdiği kart gibi. Bandın sağ
+// alt köşesinde frekansın adı, kişi bir ses odasındaysa o odanın frekans okuması (04-meta.js channelFreq, İstasyonlar
+// listesindekiyle aynı) ve QSL damgası. Süstür ve ekran okuyuculardan gizlidir: ad, @kullanıcı adı (çağrı işareti) ve
+// durum kartta zaten okunur.
+function profileQsl (userId) {
+  const box = h('div', 'profile-card-qsl')
+  box.setAttribute('aria-hidden', 'true')
+  box.appendChild(h('span', 'profile-card-qsl-station', state.serverName || t('app.name')))
+  const room = typeof voiceChannelOf === 'function' ? voiceChannelOf(userId) : null
+  if (room) box.appendChild(h('span', 'profile-card-qsl-freq', channelFreq(room.id)))
+  box.appendChild(h('span', 'profile-card-qsl-stamp', t('profile.qsl')))
+  return box
+}
+
+// Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir. Profil sürümü hemen artar, böylece arada
+// çizilen önbellekli yüzeyler de değişikliği görür.
 function queueProfileRender () {
+  profileState.epoch += 1
   if (profileState.renderQueued) return
   profileState.renderQueued = true
   nextFrame(() => {
@@ -352,10 +657,15 @@ function queueProfileRender () {
   })
 }
 
+// renderVoiceAll kadroyu, İstasyonlar'daki kişileri, yayın sahnesini (castSync, kameralar ızgarası) ve açık kişi ses
+// kartının başlığını (aşağıdaki ses kancası) yeniden çizer. Telsiz DJ kuyruğundaki ekleyen adı ve Bildirimler listesi
+// ad ve avatarı çizim anında okur, burada yeniden çizilir.
 function profilesChanged (changed) {
   renderMembers()
   renderUserPanel()
   renderVoiceAll()
+  if (typeof djRenderSoon === 'function') djRenderSoon()
+  profileActivityRefresh(changed)
   if (state.messages.some((m) => changed.has(String(m.authorId)))) refreshAllMessages()
   socialRender()
   if (profileState.cardUserId !== null && changed.has(String(profileState.cardUserId))) refreshProfileCard()
@@ -367,6 +677,31 @@ function profilesChanged (changed) {
     }
   }
 }
+
+// Bildirimler listesi (28-bildirim.js renderActivity) baştan kurulur, bu yüzden yalnızca kayıtlarından birinin kişisi
+// değiştiyse yeniden çizilir. Odak listedeki bir İzle düğmesindeyse yeni listede aynı satırın düğmesine geri verilir
+// (profil değişikliği klavyeyle gezen kişinin yerini kaybettirmez). Kayıtların sırası profil değişikliğiyle değişmez.
+function profileActivityRefresh (changed) {
+  if (typeof renderActivity !== 'function' || typeof activityState === 'undefined') return
+  if (!activityState.items.some((item) => changed.has(String(item.userId)))) return
+  const list = el.activityList
+  const active = document.activeElement
+  const row = list && active && list.contains(active) ? Array.from(list.children).findIndex((li) => li.contains(active)) : -1
+  renderActivity()
+  const again = row === -1 ? null : list.children[row]
+  const watch = again ? again.querySelector('.activity-watch') : null
+  if (watch) focusNode(watch)
+}
+
+// Ses odasındaki kişinin açık ses kartının başlığı (#peer-name) yalnızca açılırken yazılır (10-voice.js
+// openPeerPopover). Telsiz kartı her yeniden çizildiğinde, profil değişikliğinden sonra da, güncel ad yazılır.
+function profilePeerNameHook () {
+  if (typeof popoverUserId === 'undefined' || popoverUserId === null || !el.peerName) return
+  const name = shownName(popoverUserId)
+  if (el.peerName.textContent !== name) el.peerName.textContent = name
+}
+
+if (typeof voiceHook === 'function') voiceHook('render', profilePeerNameHook)
 
 // Görsel yardımcılar (tema tarafındaki çizim fonksiyonları da kullanır)
 
@@ -613,10 +948,12 @@ function closeProfileCard () {
   if (layer) closeLayer(layer, false)
 }
 
-// Kart sahibinin ses odası denetimi durumu: herkes için susturulmuş mu, kamerası açık mı
+// Kart sahibinin ses odası durumu: herkes için susturulmuş mu, kamerası açık mı, hangi ses odasında (QSL künyesindeki
+// frekans okuması ve ses ayarı bölümü bununla yenilenir)
 function cardModKey (userId) {
   const rec = metaRecordOf(userId)
-  return (rec && rec.voiceMuted ? 'm' : '-') + (userCameraOn(userId) ? 'c' : '-')
+  const room = typeof voiceChannelOf === 'function' ? voiceChannelOf(userId) : null
+  return (rec && rec.voiceMuted ? 'm' : '-') + (userCameraOn(userId) ? 'c' : '-') + (room ? String(room.id) : '')
 }
 
 function refreshProfileCard () {
@@ -627,6 +964,53 @@ function refreshProfileCard () {
   restoreFocusKey(card, focusKey)
 }
 
+// Kapak inince açık kartın yalnızca renk bandı yenilenir. Kart bütünüyle yeniden kurulmaz, böylece kartta sürüklenen
+// ses düzeyi kaydırıcısı ve odak yerinde kalır.
+function refreshProfileCardCover () {
+  const card = byId('profile-card')
+  const userId = profileState.cardUserId
+  if (!card || userId === null || card.hidden) return
+  const band = card.querySelector('.profile-card-band')
+  if (!band || band.parentNode !== card) return
+  card.replaceChild(profileCoverBand(coverUrlOf(userId, false), userColorIndex(userId), userId), band)
+}
+
+// Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol
+// rozetleri (ad uzunsa rozetler alt satıra kayar), alt satırda @kullanıcı adı. Profil kartı, Ayarlar'daki iki önizleme
+// kartı ve avatar menüsünün başı bu yardımcıyı kullanır, düzen components.css .profile-identity kurallarındadır.
+// avatarNode: avatar öğesi. name ve handle: çağıranın etiket, kimlik ve sınıfla kurduğu ad ve @kullanıcı adı öğeleri
+// (handle null olabilir). badges: rozet öğeleri, null olanlar atlanır.
+function buildProfileIdentity (avatarNode, name, handle, badges) {
+  const row = h('div', 'profile-identity')
+  row.appendChild(avatarNode)
+  const text = h('div', 'profile-identity-text')
+  const line = h('div', 'profile-identity-line')
+  name.classList.add('profile-identity-name')
+  line.appendChild(name)
+  const list = (badges || []).filter(Boolean)
+  if (list.length) {
+    const box = h('span', 'profile-identity-badges')
+    list.forEach((badge) => {
+      box.appendChild(badge)
+    })
+    line.appendChild(box)
+  }
+  text.appendChild(line)
+  if (handle) {
+    handle.classList.add('profile-identity-handle')
+    text.appendChild(handle)
+  }
+  row.appendChild(text)
+  return row
+}
+
+// Kartlardaki rol rozetleri: temel rol (sahip ve yönetici rozeti, düz üyede soluk "Üye" rozeti) ve varsa özel rol.
+// roleBadge üyede boş döner, mesaj akışı ve Çevrimiçi listesi bu yüzden değişmez.
+function profileBadges (userId, role) {
+  const base = role === 'member' ? h('span', 'badge badge-member', roleLabel(role)) : roleBadge(role)
+  return [base, customRoleBadge(userId)]
+}
+
 function buildProfileCard (card, userId) {
   clear(card)
   profileState.cardModKey = cardModKey(userId)
@@ -635,30 +1019,18 @@ function buildProfileCard (card, userId) {
   const status = userStatus(userId)
   card.classList.toggle('is-own', self)
   card.setAttribute('data-user-id', String(userId))
-  const band = h('div', 'profile-card-band')
-  band.setAttribute('data-color', String(userColorIndex(userId)))
-  card.appendChild(band)
-  const head = h('div', 'profile-card-head')
+  card.appendChild(profileCoverBand(coverUrlOf(userId, true), userColorIndex(userId), userId))
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.setAttribute('data-status', status)
   av.appendChild(personAvatar(userId, 'xl'))
-  head.appendChild(av)
-  card.appendChild(head)
-  const body = h('div', 'profile-card-body')
   const name = h('h2', 'profile-card-name', userDisplayName(userId))
   name.id = 'profile-card-name'
-  body.appendChild(name)
   const handle = userHandle(userId)
-  if (handle) body.appendChild(h('p', 'profile-card-handle', handle))
   const user = metaUser(userId)
-  const badge = user ? roleBadge(user.role) : null
-  const custom = user ? customRoleBadge(userId) : null
-  if (badge || custom) {
-    const badges = h('p', 'profile-card-badges')
-    if (badge) badges.appendChild(badge)
-    if (custom) badges.appendChild(custom)
-    body.appendChild(badges)
-  }
+  const head = buildProfileIdentity(av, name, handle ? h('p', 'profile-card-handle', handle) : null, user ? profileBadges(userId, user.role) : [])
+  head.classList.add('profile-card-head')
+  card.appendChild(head)
+  const body = h('div', 'profile-card-body')
   const statusRow = h('p', 'profile-card-status')
   statusRow.setAttribute('data-status', status)
   statusRow.appendChild(statusDot(status))
@@ -827,8 +1199,8 @@ function openProfileEditor () {
   if (typeof openSettings === 'function') openSettings('profile', el.meButton)
 }
 
-// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad,
-// @kullanıcı adı ve rol), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
+// Avatar menüsü (#status-menu, KONSEPT 6.8): üst çubuktaki avatar çipinden açılır. Baş kısım (avatar, ad ve
+// yanında rol rozetleri, altında @kullanıcı adı), durum seçenekleri, özel durum, profil düzenleme, ayarlar, görünüm, dil ve çıkış.
 // Ayarlara giriş tektir ve her ekranda aynı yerdedir.
 
 function openStatusMenu (anchorEl) {
@@ -872,13 +1244,9 @@ function closeStatusMenu () {
 
 function buildStatusMenu (menu) {
   clear(menu)
-  const head = h('div', 'menu-head')
-  head.appendChild(personAvatar(state.me.id, 'lg'))
-  const headText = h('span', 'menu-head-text')
-  headText.appendChild(h('span', 'menu-head-name', userDisplayName(state.me.id)))
   const handle = userHandle(state.me.id)
-  headText.appendChild(h('span', 'menu-head-sub', handle ? t('top.menuHandle', { handle: handle, role: roleLabel(state.me.role) }) : roleLabel(state.me.role)))
-  head.appendChild(headText)
+  const head = buildProfileIdentity(personAvatar(state.me.id, 'lg'), h('span', 'menu-head-name', userDisplayName(state.me.id)), handle ? h('span', 'menu-head-sub', handle) : null, profileBadges(state.me.id, state.me.role))
+  head.classList.add('menu-head')
   menu.appendChild(head)
   // Durum seçenekleri tek seçimli bir grup: seçili olanda onay işareti
   const current = myChosenStatus()
@@ -1140,9 +1508,10 @@ function openCustomStatusDialog (trigger) {
   })
 }
 
-// Kendi profilini kaydetme. avatarFile: undefined (değişmez), null (kaldırılır) veya resim dosyası.
+// Kendi profilini kaydetme. avatarFile ve coverFile: undefined (değişmez), null (kaldırılır) veya resim dosyası.
 // Görünen ad, durum metni ve hakkımda grup anahtarıyla şifrelenir, profil resmi kare kırpılıp
-// 256x256 boyutunda yeniden kodlanır (üst veri silinir) ve kendi dosya anahtarıyla şifrelenir.
+// 256x256 boyutunda, kapak fotoğrafı 3:1 kırpılıp 1200x400 boyutunda yeniden kodlanır (üst veri silinir) ve
+// ikisi de kendi dosya anahtarıyla şifrelenir.
 async function saveProfile (input) {
   const data = input || {}
   if (!state.me) return { ok: false, error: () => t('profile.saveFailed') }
@@ -1155,8 +1524,10 @@ async function saveProfile (input) {
   if (cpLength(statusText) > PROFILE_STATUS_MAX) return { ok: false, error: () => t('profile.statusTooLong', { max: PROFILE_STATUS_MAX }) }
   if (cpLength(String(data.bio || '').trim()) > PROFILE_BIO_MAX) return { ok: false, error: () => t('profile.bioTooLong', { max: PROFILE_BIO_MAX }) }
   const color = cleanColor(typeof data.color === 'number' ? data.color : null)
-  const rec = profileRecord(state.me.id)
-  let avatarRef = rec && rec.profile && rec.profile.avatar ? rec.profile.avatar : null
+  const gen = profileState.gen
+  const userId = String(state.me.id)
+  const base = ownImageBase(profileRecord(userId))
+  let avatarRef = base.avatar
   let avatarUploadId = avatarRef ? avatarRef.u : null
   if (data.avatarFile === null) {
     avatarRef = null
@@ -1167,7 +1538,24 @@ async function saveProfile (input) {
     avatarRef = made.ref
     avatarUploadId = made.ref.u
   }
-  const plain = { v: 1, u: Number(state.me.id), displayName: displayName, statusText: statusText, bio: bio, color: color, avatar: avatarRef ? { u: avatarRef.u, k: avatarRef.k, n: avatarRef.n, m: avatarRef.m, w: AVATAR_EDGE, h: AVATAR_EDGE } : null }
+  let coverRef = base.cover
+  if (data.coverFile === null) {
+    coverRef = null
+  } else if (data.coverFile) {
+    const made = await uploadCover(data.coverFile)
+    if (!made.ok) return made
+    coverRef = made.ref
+  }
+  const plain = {
+    v: 1,
+    u: Number(state.me.id),
+    displayName: displayName,
+    statusText: statusText,
+    bio: bio,
+    color: color,
+    avatar: avatarRef ? { u: avatarRef.u, k: avatarRef.k, n: avatarRef.n, m: avatarRef.m, w: AVATAR_EDGE, h: AVATAR_EDGE } : null,
+    cover: coverRef ? { u: coverRef.u, k: coverRef.k, n: coverRef.n, m: coverRef.m, w: COVER_W, h: COVER_H } : null
+  }
   let envelope = ''
   try {
     envelope = window.E2EE.sealJson(kid, plain)
@@ -1176,12 +1564,37 @@ async function saveProfile (input) {
   }
   const maxChars = state.info && state.info.limits && typeof state.info.limits.maxProfileChars === 'number' ? state.info.limits.maxProfileChars : 6000
   if (envelope.length > maxChars) return { ok: false, error: () => t('profile.tooLarge') }
-  const res = await api('POST', '/api/me/profile', { profile: envelope, avatarUploadId: avatarUploadId })
+  const res = await api('POST', '/api/me/profile', { profile: envelope, avatarUploadId: avatarUploadId, coverUploadId: coverRef ? coverRef.u : null })
   if (res.status !== 200) {
     return { ok: false, error: () => errorText(res, t('profile.saveFailed'), { rate_limited: t('profile.rateLimited') }) }
   }
-  profilesRefetch([state.me.id])
+  rememberOwnSave(gen, userId, res.data, avatarRef, coverRef)
+  profilesRefetch([userId])
   return { ok: true }
+}
+
+// Kaydın değişmeyen profil resmi ve kapağı. Önceki kayıttan sonra kendi profil kaydım henüz yenilenmediyse (yenileme
+// isteği düşebilir, sürümü son kaydınkinden eskidir) resimler son başarılı kayıttan alınır. Eski kayıttaki başvuru
+// gönderilseydi sunucuda silinmiş resim kaydı bad_avatar veya bad_cover ile düşürür, eski kayıtta resim yoksa da yeni
+// yüklenen resim kaldırılırdı. Kayıt son kayıt kadar yeniyse (veya başka cihazdan gelen daha yeni bir kayıtsa) kayıttaki
+// resimler geçerlidir.
+function ownImageBase (rec) {
+  const saved = profileState.ownSaved
+  if (saved && state.me && saved.userId === String(state.me.id) && (!rec || rec.missing || rec.pv < saved.pv)) {
+    return { avatar: saved.avatar, cover: saved.cover }
+  }
+  const profile = rec && rec.profile ? rec.profile : null
+  return { avatar: profile && profile.avatar ? profile.avatar : null, cover: profile && profile.cover ? profile.cover : null }
+}
+
+// Başarılı kaydın sürümü ve resimleri saklanır. Kayıt sürerken oturum veya frekans değiştiyse (profilesReset) ya da
+// aynı anda giden başka bir kayıt daha yeni bir sürüm aldıysa saklanan değer değişmez.
+function rememberOwnSave (gen, userId, data, avatarRef, coverRef) {
+  if (gen !== profileState.gen || !data || typeof data.pv !== 'number') return
+  const prev = profileState.ownSaved
+  if (prev && prev.userId === userId && prev.pv > data.pv) return
+  const pick = (ref) => (ref ? { u: ref.u, k: ref.k, n: ref.n, m: ref.m } : null)
+  profileState.ownSaved = { userId: userId, pv: data.pv, avatar: pick(avatarRef), cover: pick(coverRef) }
 }
 
 // Profil resmi: kare kırpma, 256x256, PNG kaynak PNG, diğerleri JPEG olarak yeniden kodlanır
@@ -1201,11 +1614,17 @@ async function uploadAvatar (file) {
     return { ok: false, error: errorProducer(err, () => t('profile.avatarInvalid')) }
   }
   if (!encoded) return { ok: false, error: () => t('profile.avatarInvalid') }
+  return uploadProfileImage(encoded, 'profile.avatarUploadFailed')
+}
+
+// Yeniden kodlanmış resmi ({ bytes, mime }) kendi dosya anahtarıyla şifreleyip yükler, profil zarfına girecek
+// başvuruyu { u, k, n, m } döner
+async function uploadProfileImage (encoded, failKey) {
   const enc = window.E2EE.encryptFile(encoded.bytes)
   const res = await request('POST', '/api/uploads', { binary: enc.box, timeout: TRANSFER_TIMEOUT_MS })
   checkAuthFailure(res)
   if (res.status !== 200 || !res.data || typeof res.data.id !== 'string' || !UPLOAD_ID_RE.test(res.data.id)) {
-    return { ok: false, error: () => errorText(res, t('profile.avatarUploadFailed'), { rate_limited: t('attach.rateLimited') }) }
+    return { ok: false, error: () => errorText(res, t(failKey), { rate_limited: t('attach.rateLimited') }) }
   }
   return { ok: true, ref: { u: res.data.id, k: enc.key, n: enc.nonce, m: encoded.mime } }
 }
@@ -1456,4 +1875,89 @@ function openReportDialog (opts) {
       return reason
     }
   })
+}
+
+// Kapak fotoğrafı (istek 8)
+
+// Kapağın şifrelenmeden önceki en büyük boyutu: sunucunun profil resmi sınırı (avatarMaxBytes) şifreli dosyaya
+// uygulanır, şifreleme 16 bayt ekler
+function coverByteLimit () {
+  const limits = state.info && state.info.limits ? state.info.limits : null
+  const max = limits && typeof limits.avatarMaxBytes === 'number' ? limits.avatarMaxBytes : 1024 * 1024 + 16
+  return Math.max(1, max - 16)
+}
+
+// Kaynağın ortasından alınabilecek en büyük 3:1 dikdörtgen: { sx, sy, sw, sh } (boyut yoksa null)
+function coverCrop (w, h) {
+  if (!(w > 0) || !(h > 0)) return null
+  let sw = w
+  let sh = Math.max(1, Math.round(w * COVER_H / COVER_W))
+  if (sh > h) {
+    sh = h
+    sw = Math.max(1, Math.min(w, Math.round(h * COVER_W / COVER_H)))
+  }
+  return { sx: Math.floor((w - sw) / 2), sy: Math.floor((h - sh) / 2), sw: sw, sh: sh }
+}
+
+// Kırpılan bölge 1200x400 tuvale çizilir ve JPEG olarak kodlanır. Kalite önce 0.85, dosya maxBytes sınırını aşarsa
+// 0.7 ve 0.55 denenir. Sonuç { bytes, mime, quality }, hiçbiri sığmazsa { tooBig: true }, kodlanamazsa null.
+async function encodeCover (image, maxBytes) {
+  const crop = coverCrop(image.naturalWidth, image.naturalHeight)
+  if (!crop) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = COVER_W
+  canvas.height = COVER_H
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  // Saydam yerler JPEG'de beyaz görünür
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, COVER_W, COVER_H)
+  ctx.imageSmoothingEnabled = true
+  try {
+    ctx.imageSmoothingQuality = 'high'
+  } catch (err) {
+    // Eski tarayıcı
+  }
+  ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, COVER_W, COVER_H)
+  try {
+    for (const quality of COVER_QUALITIES) {
+      const bytes = await canvasToBytes(canvas, 'image/jpeg', quality)
+      if (window.E2EE.sniffImage(bytes) !== 'image/jpeg') return null
+      if (bytes.length <= maxBytes) return { bytes: bytes, mime: 'image/jpeg', quality: quality }
+    }
+    return { tooBig: true }
+  } finally {
+    canvas.width = 1
+    canvas.height = 1
+  }
+}
+
+// Seçilen dosyadan kapak hazırlar: { ok: true, bytes, mime } veya { ok: false, reason: 'invalid' | 'tooBig', error }.
+// Ayarlar önizlemesi ve yükleme aynı kodlamayı kullanır.
+async function prepareCover (file) {
+  const invalid = { ok: false, reason: 'invalid', error: () => t('profile.coverInvalid') }
+  const max = coverByteLimit()
+  let encoded = null
+  try {
+    const bytes = await readBlobBytes(file)
+    const sniffed = window.E2EE.sniffImage(bytes)
+    const decoded = await decodeImage(bytes, sniffed || String(file.type || 'application/octet-stream'))
+    if (!decoded) return invalid
+    try {
+      encoded = await encodeCover(decoded.image, max)
+    } finally {
+      decoded.release()
+    }
+  } catch (err) {
+    return { ok: false, reason: 'invalid', error: errorProducer(err, () => t('profile.coverInvalid')) }
+  }
+  if (!encoded) return invalid
+  if (encoded.tooBig) return { ok: false, reason: 'tooBig', error: () => t('settings.profile.coverTooBig', { size: formatSize(max) }) }
+  return { ok: true, bytes: encoded.bytes, mime: encoded.mime }
+}
+
+async function uploadCover (file) {
+  const prepared = await prepareCover(file)
+  if (!prepared.ok) return prepared
+  return uploadProfileImage(prepared, 'profile.coverUploadFailed')
 }

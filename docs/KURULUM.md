@@ -371,6 +371,8 @@ Sürüm sayfasındaki her dosyanın SHA-256 değeri `SHA256SUMS.txt` dosyasında
 
 ## Parola sıfırlama ve sorun giderme
 
+**Kurtarma kodu.** Hesap açılırken kişiye bir kurtarma kodu gösterilir, kod Ayarlar > Hesabım'dan da oluşturulup yenilenebilir. Kodu olan kişi parolasını giriş ekranındaki Parolamı Unuttum bağlantısıyla kendisi sıfırlar. Sahibin bir şey yapması gerekmez, kişinin güvenlik anahtarı ve özel mesajları korunur, kod kullanılınca yenisi verilir. Aşağıdaki sıfırlama yolları yalnızca kodu olmayan kişiler içindir. Telsiz e-posta kullanmaz, kurtarma için sunucunun e-posta göndermesi gerekmez.
+
 **Bir üyenin parolası.** Sahip Ayarlar > Üyeler bölümünden geçici bir parola üretir. Kişinin oturumları kapanır.
 
 **Sahibin parolası.** Sunucuyu durdurun ve aynı veri klasörüyle sıfırlama komutunu çalıştırın. Komut geçici bir parola yazar.
@@ -382,7 +384,7 @@ node server.js reset-password <kullanıcı adı>
 sudo -u telsiz env VERI_KLASORU=/var/lib/telsiz node /opt/telsiz/server.js sifre-sifirla <kullanıcı adı>
 ```
 
-Parola sıfırlama kişinin kişisel güvenlik anahtarını da sıfırlar. Kişi geçici parolayla girdikten sonra yeni bir parola seçer ve yeni anahtar onunla oluşturulur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
+Sahibin veya komut satırının parola sıfırlaması kişinin kişisel güvenlik anahtarını ve kurtarma kodunu da sıfırlar. Kişi geçici parolayla girdikten sonra yeni bir parola seçer ve yeni anahtar onunla oluşturulur, eski özel mesajlarını artık okuyamaz ve konuştuğu kişiler anahtarın değiştiği uyarısını görür.
 
 **Bağlantı noktası kullanımda.** Sunucu başka bir pencerede zaten çalışıyor olabilir. O pencereyi kapatın veya `PORT` ile başka bir bağlantı noktası seçin.
 

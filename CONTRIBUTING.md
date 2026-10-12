@@ -92,7 +92,7 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `public/vendor/` | TweetNaCl-js 1.0.3, scrypt-js 3.0.1 ve RNNoise wasm derlemesi (`vendor/rnnoise/`, `@shiguredo/rnnoise-wasm` 2022.2.0), değiştirilmez |
 | `desktop/` | Electron masaüstü uygulaması |
 | `deploy/` | Docker Compose, Caddy, nginx ve systemd örnekleri |
-| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları |
+| `scripts/` | Denetleyici, test çalıştırıcı, tek dosya derlemesi, sürüm notları, tema kontrast ölçeri (`kontrast.js`) |
 | `test/`, `e2e/` | Birim ve sunucu testleri, uçtan uca testler |
 
 İstemci modülleri `public/js/` altında numaralı dosyalardır ve `index.html` içinde bu sırayla yüklenir. Hepsi aynı genel kapsamı paylaşır, sonraki modül öncekilerin işlevlerini kullanabilir.
@@ -101,21 +101,21 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | --- | --- |
 | `01-core.js` | Sabitler, depolama anahtarları, `t()`, sunucu istekleri, biçim yardımcıları |
 | `02-state-dom.js` | Uygulama durumu, öğe önbelleği, DOM yardımcıları, katman yığını, bildirimler |
-| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları |
+| `03-auth.js` | Açılış, kurulum, davet, giriş, kayıt ve anahtar ekranları, kayıttan sonra kurtarma kodu kartına geçiş |
 | `04-meta.js` | Üst çubuk, frekans bandının çizimi, İstasyonlar listesi ve sayfası (ses odalarındaki kişiler dahil), oda bilgisi, Çevrimiçi listesi, oda seçimi |
 | `05-poll.js` | Long-poll döngüsü, olayların işlenmesi, bildirimler |
-| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama, düzenleme, silme ve Mesajı Bildir |
+| `06-messages.js` | Mesaj çözme, mesaj düğümleri, sayfalama (en üste yaklaşınca eski mesajların kendiliğinden yüklenmesi, önbellekteki konuşmanın çizimi ve arka planda yenilenmesi), düzenleme, silme ve Mesajı Bildir |
 | `07-attachments.js` | Satır içi resimler, dosya kartları, resim görüntüleyici |
 | `08-composer.js` | Yazma alanı, gönderme, ek hazırlama, yükleme kuyruğu |
 | `09-emoji.js` | Emoji seçici |
 | `10-voice.js` | Ses arayüzü ve telsiz kartı (kamera düğmesi, kamera göstergesi, kadrodaki kamera kutuları ve Yayına katıl düğmesi dahil), ses kancaları: başka modüller `voiceHook('change', fn)` ile her ses değişikliğine, `voiceHook('render', fn)` ile telsiz kartının yeniden çizimine bu dosyayı düzenlemeden bağlanır |
 | `11-settings.js` | Tam ekran ayarlar görünümü |
-| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma |
+| `12-init.js` | Sayfalar, pencere boyutu, PWA, olay bağlama ve başlatma (sayfaların geri tuşu kaydını `38-gezinme.js` tutar) |
 | `13-profile.js` | Profiller, profil kartı, durum menüsü, şikâyet penceresi (Mesajı Bildir ve Kişiyi Bildir) |
 | `14-social.js` | Arkadaşlar, engelleme, görünüm modu |
 | `15-dm.js` | Özel mesajlar ve güvenlik numarası |
-| `16-identity.js` | Paroladan anahtar türetme ve kişisel kimlik anahtarı |
-| `17-search.js` | Cihazda arama |
+| `16-identity.js` | Paroladan anahtar türetme, kişisel kimlik anahtarı ve kurtarma kodu istekleri (kayıtta kod, Ayarlar'dan kod, kodla yeni parola) |
+| `17-search.js` | Cihazda arama, adı sorguyla eşleşen odalar ve özel konuşmalar (Odalar ve Kişiler) |
 | `18-mentions.js` | @ ile anma ve öneri listesi |
 | `19-typing.js` | Yazıyor göstergesi |
 | `20-desktop.js` | Masaüstü uygulaması tümleştirmesi |
@@ -136,8 +136,10 @@ Sunucu, hiçbir çalışma zamanı bağımlılığı olmayan bir Node.js uygulam
 | `35-renk-kural.js` | Renk kural motoru (`window.TelsizRenk`): deste, dağıtım, hamle denetimi, kart etkileri, Tek!, puan, görünümler ve doğrulayıcıları. Saftır |
 | `36-oyun.js` | Oyun yapıştırıcısı ve genel arayüz: ses olaylarının masa yöneticisine iletilmesi, iç katman anahtarları (`gameKeys`), telsiz kartındaki Oyun düğmesi, Oyun Seç (birden çok oyun kayıtlıyken), Masa Kur, lobi, davet, bitiş ve sonuç ekranları, güven notu, onay satırı, duyurular, oyun arayüzlerinin kaydı (`gameUiRegister`) |
 | `37-renk.js` | Renk masası: rakip şeridi, deste, atılan kart, aktif renk, eylem satırı (Renk Seç, Pas Geç, Tek!, Yakala), el, Joker renk seçici, ok tuşlarıyla gezinme |
+| `38-gezinme.js` | Konuşmalarda gezinme: tarayıcı geçmişi (adres değişmeden oda, özel mesaj ve Arkadaşlar geçişleri ile sayfalar, arama, ayarlar, resim görüntüleyici ve profil kartı için kayıt, geri tuşu), Yeni mesajlar ayracı, okunmamış şeridi (Okunmamışa Git, Okundu İşaretle), yeni mesaj kapsülü, İstasyonlar listesindeki Özel mesajlar grubu, açık görünümün hatırlanması, son sekiz konuşmanın bellekteki önbelleği (dönüşte konum), konuşmalar arası kısayollar (Alt ve Alt+Shift ile yukarı ve aşağı ok, Esc), dar özel mesaj başlığı, orta genişlikte telsiz kartı uzayınca İstasyonlar kartının gizlenmesi, okunmamış sayısının alt sınırı ("50+"), telefonda Ses Odaları düğmesi ve alttan açılan sayfanın sürüklenerek kapanması |
 | `39-yuzen.js` | Yüzen pencere: ses odasının kameraları veya avatarları ve konuşma halkası her zaman üstte kalan küçük pencerede. Masaüstünde ana sürecin tek kullanımlık adıyla açılan pencere, tarayıcıda belge resim içinde resim, yedek olarak tuval akışıyla görüntü resim içinde resim. Telsiz kartındaki Yüzen Pencere düğmesi |
 | `40-bosta.js` | Otomatik boşta: fare, klavye, dokunma, tekerlek ve oyun kolu girdisinden (masaüstünde sistemin boşta süresinden) hareketsizliği ölçer, long-poll sorgusuna `idle` ve sayfa kimliği `tab` ekler, ses odasındayken boşta saymaz, oyun kolunu `21-band.js` kol döngüsünün her karesinde de okur |
+| `41-kurtarma.js` | Kurtarma kodu arayüzü: giriş ekranındaki Parolamı Unuttum kartı (kodla yeni parola, kodu olmayanlar için sahibe yönlendirme), kurulumdan, kayıttan ve kurtarmadan sonra gösterilen kod kartı, uygulama içindeki kod penceresi (Kopyala, Dosya Olarak İndir, kaydettim onayı), Ayarlar > Hesabım içindeki Kurtarma Kodu bölümü, kodu olmayan hesaba girişten sonra bir kez gösterilen hatırlatma ve kaydedildiği onaylanmayan kod için uyarı |
 | `43-hexball-kural.js` | Hexball kural motoru (`window.TelsizHexball`): takımlar ve takım dengesi, maçı başlatma, gol, skor, süre ve altın gol, sonuç, ev sahibine özel hamleler, görünüm ve doğrulayıcısı. Gerçek zamanlı fizik bu modülden geçmez. Saftır |
 | `44-hexball-fizik.js` | Hexball fiziği (`window.TelsizHexballPhysics`): üç saha ön ayarı, iki alt adımlı 60 Hz sabit adım, oyuncu ve top diskleri, çarpışmalar, saha çizgileri, direkler ve kale filesi, vuruş, başlama vuruşu kısıtı, gol algılama, maç saati ve altın gol. Saat yerine adım sayısıyla çalışır, aynı girdiye aynı sonucu verir. Fiziği yalnızca ev sahibi hesaplar. Saftır |
 | `45-hexball-ag.js` | Hexball ağı (`window.TelsizHexballNet`): oyun veri kanalındaki ikili iletiler (HELLO, HELLO_ACK, INPUT, SNAP) ve katı çözücüleri, el sıkışma, ev sahibinin otoriter fizik döngüsü, iki döngü arası 250 ms'yi aşınca duraklama, ev sahibinin kendi girdisinin bekletilmesi, girdi kısıtları, oyuncuda anlık görüntü tamponu ve ara değerleme. Saat, zamanlayıcı ve gönderim dışarıdan verilir |
@@ -183,7 +185,7 @@ Aşağıdaki alanlara dokunan değişiklikler ek inceleme gerektirir. Bu PR'lard
 
 | Alan | Neden hassas |
 | --- | --- |
-| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
+| `public/crypto.js`, `public/js/16-identity.js` | Anahtar kodu, kurtarma kodu, anahtar türetme, zarf biçimleri, kişisel anahtarlar ve sabitleme. Biçim değişirse kayıtlı geçmiş okunamaz hâle gelebilir. |
 | `public/voice.js` | Ses, ekran paylaşımı, kamera ve oyun sinyallerinin şifrelenmesi ve katı biçim denetimi, gönderen ve alıcının doğrulanması, yeniden oynatma koruması, oyun veri kanalının kabul kuralları (etiket, ayarlar, eş başına tek kanal, özel aramada yok), boyut ve hız sınırları |
 | `public/js/33-oyun-protokol.js`, `public/js/34-oyun-masa.js` | Oyun iletilerinin iç zarfı ve bağ alanları (`ctx`, `k`, `g`, `ch`, `from`, `to`), sayaçlar ve tekrar koruması (`ni`, `seq`, `rd`, `r`), ileti biçimlerinin ve rol tablosunun katı denetimi, iç katman anahtarlarının seçimi (`36-oyun.js` içindeki `gameKeys`) |
 | `public/js/35-renk-kural.js` | Karıştırmanın yansızlığı, kurpiyerden gelen görünümün ve elin denetimi, hiçbir görünümde ve olayda başkasının elinin bulunmaması |

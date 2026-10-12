@@ -1,0 +1,136 @@
+/*
+  Fosfor teması. Tarayıcı telsizi ve katot ışınlı ekran: yeşil fosfor, size yönelik şeyler (anma, dikkat)
+  kehribar fosfor. Tarama çizgileri yalnızca frekans bandında, telsiz ekranında ve üst çubukta durur, koyu
+  modda ayarlı istasyon ve oda adı hafifçe parlar. Açık modda ekranlar LCD hücreleri gibidir. Odalar
+  tarayıcıdaki gibi frekansıyla görünür. Her seçici :root[data-skin="fosfor"] ile başlar.
+*/
+
+/* Gönder simgesi: yukarı ok (işaretlemede Gece'nin simgesi) */
+:root[data-skin="fosfor"] .skin-gece {
+  display: inline-block;
+}
+
+/* Tarama çizgileri: bant, telsiz ekranı ve üst çubuk */
+:root[data-skin="fosfor"] .band,
+:root[data-skin="fosfor"] .radio .radio-screen,
+:root[data-skin="fosfor"] .top-bar {
+  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, var(--line) 2px, var(--line) 3px);
+}
+
+/* Açık mod: bant ve telsiz ekranı LCD hücreleri (yatay ve dikey ince ızgara), üst çubuk düz */
+:root[data-skin="fosfor"][data-scheme="light"] .band,
+:root[data-skin="fosfor"][data-scheme="light"] .radio .radio-screen {
+  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 3px, var(--line) 3px, var(--line) 4px), repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 3px, var(--line) 3px, var(--line) 4px);
+}
+
+:root[data-skin="fosfor"][data-scheme="light"] .top-bar {
+  background-image: none;
+}
+
+/* Koyu modda fosfor parıltısı: ayarlı istasyon, oda adı, telsiz ekranındaki oda ve Bas konuş yazısı */
+:root[data-skin="fosfor"][data-scheme="dark"] .station.is-tuned .station-name,
+:root[data-skin="fosfor"][data-scheme="dark"] .convo-title,
+:root[data-skin="fosfor"][data-scheme="dark"] .radio .radio-pick,
+:root[data-skin="fosfor"][data-scheme="dark"] .radio-room {
+  text-shadow: 0 0 6px var(--halo-2);
+}
+
+:root[data-skin="fosfor"][data-scheme="dark"] .unread-badge {
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* İmleç fosfor renginde */
+:root[data-skin="fosfor"] .composer-input,
+:root[data-skin="fosfor"] .input {
+  caret-color: var(--accent-text);
+}
+
+/* Kare köşeli telsiz gövdesi ve kare LED */
+:root[data-skin="fosfor"] .radio {
+  border-radius: var(--radius-card);
+}
+
+:root[data-skin="fosfor"] .radio::before {
+  border-radius: 1px 1px 0 0;
+}
+
+:root[data-skin="fosfor"] .radio-led,
+:root[data-skin="fosfor"] .unread-badge {
+  border-radius: 1px;
+}
+
+:root[data-skin="fosfor"] .radio .radio-ptt {
+  border-radius: var(--radius-card);
+  background-image: none;
+}
+
+:root[data-skin="fosfor"] .radio-ptt-dome {
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+}
+
+/* Frekans etiketi: tarayıcıdaki kanal frekansı (genişliği İstasyonlar listesinde frekans.css) */
+:root[data-skin="fosfor"] .channel-freq {
+  display: inline-block;
+  flex: none;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background-color: var(--surface-sunken);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-skin="fosfor"] .station-meta .channel-freq {
+  min-width: 0;
+  margin-right: 0.375rem;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+}
+
+:root[data-skin="fosfor"] .station.is-tuned .station-meta .channel-freq {
+  color: var(--accent-text);
+}
+
+/* Saatler ve gösterge yazıları tek aralıklı */
+:root[data-skin="fosfor"] .msg-time,
+:root[data-skin="fosfor"] .msg-hover-time,
+:root[data-skin="fosfor"] .kbd,
+:root[data-skin="fosfor"] .secret,
+:root[data-skin="fosfor"] .kid,
+:root[data-skin="fosfor"] .members-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Anahtarsız şifreli mesaj: parazitli ekran */
+:root[data-skin="fosfor"] .msg-notice {
+  display: inline-flex;
+  padding: 0.45rem 0.75rem;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-sunken);
+  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, var(--line) 2px, var(--line) 3px);
+  font-style: normal;
+}
+
+/* Seviye ölçer: bölütlü fosfor çubuğu */
+:root[data-skin="fosfor"] .meter-bar {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 6px, var(--surface-sunken) 6px, var(--surface-sunken) 8px);
+}
+
+/* Profil kartı bandı: tarama çizgileri */
+:root[data-skin="fosfor"] .profile-card-band {
+  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.22) 2px, rgba(0, 0, 0, 0.22) 3px);
+}
+
+/* Ayarlar: seçili kategoride fosfor imleci */
+:root[data-skin="fosfor"] .settings-cat[aria-current="page"] {
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--accent-text);
+}

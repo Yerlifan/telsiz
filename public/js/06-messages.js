@@ -283,6 +283,8 @@ function buildMessageNode (m) {
   if (mine) node.classList.add('msg-own', 'is-own')
   const name = userDisplayName(m.authorId)
   const role = userRole(m.authorId)
+  // Kayıt Defteri düzeninde (theme-init.js data-msg-layout) grubu bağlayan yayın çizgisinin rengi: yazarın profil rengi
+  node.setAttribute('data-av', 'c' + userColorIndex(m.authorId))
 
   const gutter = h('div', 'msg-gutter')
   const av = personAvatar(m.authorId, 'md')
@@ -299,14 +301,29 @@ function buildMessageNode (m) {
 
   const content = h('div', 'msg-content')
   const head = h('div', 'msg-head')
+  // Çağrı işareti: Kayıt Defteri düzeninde adın yanında küçük avatar (Klasik düzende avatar gizlidir, ad aynı yerde
+  // kalır). Küçük avatar sekme durağı değildir, tıklanınca profil kartını açar, ad erişilebilir bağlantıdır.
+  const call = h('span', 'msg-call')
   const author = h('span', 'msg-author', name)
   makeUserLink(author, m.authorId)
-  head.appendChild(author)
+  const callAvatar = personAvatar(m.authorId, 'xs')
+  callAvatar.classList.add('msg-call-avatar')
+  callAvatar.addEventListener('click', (e) => {
+    e.stopPropagation()
+    openProfileCard(m.authorId, author)
+  })
+  call.appendChild(callAvatar)
+  call.appendChild(author)
+  head.appendChild(call)
   const badge = roleBadge(role)
   if (badge) head.appendChild(badge)
   const time = h('span', 'msg-time', formatShort(m.createdAt))
   time.title = formatLong(m.createdAt)
   head.appendChild(time)
+  // Yön etiketi: gönderdiğim mesaj TX, gelen mesaj RX. Yalnızca görsel, ekran okuyucu metni (msg-sr) değişmez.
+  const dir = h('span', 'msg-dir ' + (mine ? 'is-out' : 'is-in'), t(mine ? 'msg.dirOut' : 'msg.dirIn'))
+  dir.setAttribute('aria-hidden', 'true')
+  head.appendChild(dir)
   content.appendChild(head)
   const sr = h('span', 'sr-only msg-sr', t('msg.srHead', { name: name, time: formatShort(m.createdAt) }))
   content.appendChild(sr)
@@ -390,7 +407,8 @@ function buildMessageNode (m) {
   return node
 }
 
-// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder.
+// Gruplama: aynı yazar, 5 dakika içinde ve aynı gün ise başlıksız devam eder. Yeni mesajlar ayracından
+// (38-gezinme.js) sonraki ilk mesaj her zaman yeni grup başlatır.
 function startsGroup (m, prev) {
   if (!prev) return true
   if (!sameId(prev.authorId, m.authorId)) return true
@@ -401,10 +419,11 @@ function startsGroup (m, prev) {
 }
 
 function regroup () {
+  const divided = typeof navPlaceDivider === 'function' ? navPlaceDivider() : null
   let prev = null
   state.messages.forEach((m) => {
     const node = state.nodes.get(String(m.id))
-    if (node) node.classList.toggle('msg-first', startsGroup(m, prev))
+    if (node) node.classList.toggle('msg-first', startsGroup(m, prev) || (divided !== null && sameId(m.id, divided)))
     prev = m
   })
 }
@@ -491,6 +510,9 @@ function insertMessage (m, opts) {
   if (options.own || stick) {
     trimRendered()
     scrollToBottom()
+  } else if (typeof navNewBelow === 'function') {
+    // Kişi yukarıdayken kaydırılmaz, kapsül yeni mesajı sayar (38-gezinme.js)
+    navNewBelow()
   }
 }
 
@@ -566,16 +588,75 @@ function scrollToBottom () {
   stickBottom = true
 }
 
+// En alta inilince konuşma okundu sayılır (04-meta.js markRead), kapsül güncellenir (38-gezinme.js), en üste
+// yaklaşınca eski mesajlar yüklenir (autoLoadOlder)
 function onMessagesScroll () {
   stickBottom = isNearBottom()
   if (state.hasNewer && stickBottom) loadNewer()
+  else if (stickBottom) markRead()
+  if (!stickBottom && state.hasMore && olderNear()) autoLoadOlder()
+  if (typeof navOnScroll === 'function') navOnScroll()
+}
+
+// Eski mesajların kendiliğinden yüklenmesi (istek 17 S7): Daha Eski Mesajları Yükle düğmesinin kabı (#load-older-wrap)
+// görünür alanın OLDER_MARGIN_PX yakınına gelince (IntersectionObserver ve kaydırma) daha eski sayfa yüklenir.
+// IntersectionObserver olmayan tarayıcıda (eski WebKit) kaydırmada scrollTop < OLDER_SCROLL_PX denetlenir. Kişi en
+// alttayken yüklenmez: kısa mesajlarla dolu sayfada düğme açılışta da yakındadır. Düğme yerinde kalır, kaydırma
+// telafisi loadOlder içindedir. Yükleme başarısız olursa (bağlantı koptu, odaya erişim kalktı) kendiliğinden yükleme o
+// konuşmada durur, hata bir kez bildirilir: yeniden deneme düğmeyledir, düğmeyle yükleme başarılı olunca veya konuşma
+// yeniden yüklenince kendiliğinden yükleme sürer.
+const OLDER_MARGIN_PX = 800
+const OLDER_SCROLL_PX = 400
+let olderObserver = null
+// Kendiliğinden yüklemenin durduğu konuşma yüklemesi (state.loadGen), durmadıysa -1
+let olderStoppedGen = -1
+
+function observeOlder () {
+  if (olderObserver || typeof window.IntersectionObserver !== 'function' || !el.messages || !el.loadOlderWrap) return
+  try {
+    olderObserver = new window.IntersectionObserver((entries) => {
+      // Kayıt gecikmeli gelebilir (önceki sayfa yüklenip kaydırma telafi edildikten sonra): düğmenin şu anki yeri de
+      // denetlenir, yoksa kişi yaklaşmadan bir sayfa daha yüklenir
+      if (entries.some((entry) => entry.isIntersecting) && olderNear()) autoLoadOlder()
+    }, { root: el.messages, rootMargin: OLDER_MARGIN_PX + 'px 0px 0px 0px' })
+    olderObserver.observe(el.loadOlderWrap)
+  } catch (err) {
+    olderObserver = null
+  }
+}
+
+function autoLoadOlder () {
+  if (!state.inApp || !state.hasMore || state.loading || state.loadingOlder || !state.messages.length) return
+  if (olderStoppedGen === state.loadGen) return
+  if (el.messages.hidden || el.loadOlderWrap.hidden || isNearBottom()) return
+  loadOlder()
+}
+
+// Yüklenen sayfa kısaysa düğme hâlâ görünür alanın yakınında kalır, gözlemci yeniden bildirmez: sıradaki sayfa da
+// yüklenir
+function olderNear () {
+  const box = el.messages
+  if (!box || el.loadOlderWrap.hidden || !box.clientHeight) return false
+  if (!olderObserver) return box.scrollTop < OLDER_SCROLL_PX
+  return el.loadOlderWrap.getBoundingClientRect().bottom >= box.getBoundingClientRect().top - OLDER_MARGIN_PX
+}
+
+// Yeni mesajlar ayracı görünür alanın üst kısmına (yüksekliğin dörtte biri) gelir. İçerik kısaysa en alta
+// inilir, o zaman konuşma okundu sayılır.
+function scrollToDivider (divider) {
+  const box = el.messages
+  const offset = divider.getBoundingClientRect().top - box.getBoundingClientRect().top
+  box.scrollTop = box.scrollTop + offset - Math.round(box.clientHeight / 4)
+  stickBottom = isNearBottom()
 }
 
 function keepBottom () {
   if (stickBottom && state.inApp && !state.hasNewer) scrollToBottom()
 }
 
+// Mesaj alanının gözlemcileri: boyut değişince altta kalma ve eski mesajların kendiliğinden yüklenmesi
 function observeMessagesSize () {
+  observeOlder()
   if (typeof window.ResizeObserver !== 'function') return
   try {
     const observer = new window.ResizeObserver(keepBottom)
@@ -626,15 +707,34 @@ function setMessagesView (kind, res) {
 
 // Kanal mesajlarını yükleme ve sayfalama
 
+// İlk okunmamış mesaj en yeni sayfada değilse (son okunandan bu yana sayfadan çok mesaj geldiyse) konuşma son
+// okunan mesajın çevresiyle (around) yeniden istenir, daha yeni mesajlar aşağı inildikçe yüklenir (loadNewer).
+// Yükleme bitince ilk okunmamışın önüne Yeni mesajlar ayracı konur ve ayraç görünür alana kaydırılır (38-gezinme.js).
 async function loadChannel () {
   const channelId = state.channelId
   if (!channelId) return
+  // Çizili konuşma önbelleğe yazılır, önbellekteki konuşmaya geçilirken liste sunucuya sormadan çizilir (38-gezinme.js)
+  const switching = typeof navCacheLeave === 'function' && navCacheLeave(channelId)
   socialOnChannelLoad(channelId)
   // Aramadan gelindiyse mesaj bağlamıyla (around) yüklenir
   const jump = state.pendingJump && sameId(state.pendingJump.channelId, channelId) ? state.pendingJump : null
   state.pendingJump = null
+  // En Yeni Mesajlara Dön (jumpToLatest) okunmamış ayracını ve son okunanın çevresini atlar, en yeni sayfa açılır
+  const latest = state.pendingLatest === true
+  state.pendingLatest = false
+  const nav = typeof navUnreadReset === 'function'
+  const readMark = nav && !jump && !latest ? navReadMark(channelId) : 0
+  const knownUnread = Number(state.unread[channelId]) || 0
+  if (nav) navUnreadReset(channelId)
   state.loadGen += 1
   const gen = state.loadGen
+  // Kayıt her durumda önbellekten çıkar, aramadan veya En Yeni Mesajlara Dön ile gelindiyse kullanılmaz
+  const taken = switching ? navCacheTake(channelId) : null
+  const cached = !jump && !latest ? taken : null
+  if (cached) {
+    restoreChannel(channelId, cached, gen, readMark, knownUnread)
+    return
+  }
   state.loading = true
   state.pendingEvents = []
   state.messages = []
@@ -650,8 +750,23 @@ async function loadChannel () {
   renderListChrome()
   chatPlusOnChannelLoad(channelId)
   const query = jump ? '&around=' + encodeURIComponent(jump.messageId) + '&limit=' + JUMP_LIMIT : '&limit=' + PAGE_SIZE
-  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
+  let res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + query)
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
+  let around = false
+  // Son okunanın çevresi yüklenirse en yeni sayfa okunmamış sayısı için saklanır (38-gezinme.js navShowUnread)
+  let newest = null
+  if (readMark && res.status === 200 && res.data && Array.isArray(res.data.messages)) {
+    const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
+    if (navNeedsAround(page, res.data.hasMore, readMark)) {
+      const near = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&around=' + encodeURIComponent(readMark) + '&limit=' + JUMP_LIMIT)
+      if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
+      if (near.status === 200 && near.data && Array.isArray(near.data.messages)) {
+        res = near
+        around = true
+        newest = page
+      }
+    }
+  }
   state.loading = false
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
     setMessagesView('error', res)
@@ -663,7 +778,7 @@ async function loadChannel () {
   setMessagesView('')
   state.messages = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true
-  state.hasNewer = Boolean(jump) && res.data.hasNewer === true
+  state.hasNewer = (Boolean(jump) || around) && res.data.hasNewer === true
   const pending = state.pendingEvents
   state.pendingEvents = []
   pending.forEach((ev) => {
@@ -681,15 +796,113 @@ async function loadChannel () {
     }
   })
   renderAllMessages()
+  const divider = nav && !jump ? navShowUnread(channelId, readMark, knownUnread, newest) : null
   if (jump) {
     if (!highlightMessage(jump.messageId)) {
       scrollNearMessage(jump.messageId)
       toast(() => t('search.notFound'), 'error')
     }
+  } else if (divider) {
+    scrollToDivider(divider)
   } else {
     scrollToBottom()
   }
-  markRead()
+  // Kişi alta inmediyse sayılan okunmamışlar sayaçta kalır: başka konuşmaya geçince rozet görünür
+  if (!markRead() && nav && !jump) navKeepUnread(channelId)
+  if (nav) navOnScroll()
+  if (typeof navCacheReady === 'function') navCacheReady()
+}
+
+// Önbellekteki konuşma (38-gezinme.js navCacheTake, istek 17 S6): iskelet ve istek olmadan çizilir. Kişi en alttan
+// ayrıldıysa yeni mesajlar varken Yeni mesajlar ayracına, yoksa en alta, yukarıdan ayrıldıysa kaldığı yere (görünür
+// alandaki ilk mesaj ve kayması) dönülür. Ardından en yeni sayfa arka planda alınıp birleştirilir (refreshNewest).
+function restoreChannel (channelId, entry, gen, readMark, knownUnread) {
+  state.loading = false
+  state.pendingEvents = []
+  state.messages = entry.messages
+  state.hasMore = entry.hasMore
+  state.hasNewer = entry.hasNewer
+  state.newWhileOlder = entry.newWhileOlder
+  state.loadingNewer = false
+  state.nodes = new Map()
+  decryptCache.clear()
+  state.editingId = null
+  clear(el.messageList)
+  setMessagesView('')
+  chatPlusOnChannelLoad(channelId)
+  renderAllMessages()
+  const divider = navShowUnread(channelId, readMark, knownUnread, null)
+  if (!entry.stick && scrollToAnchor(entry.anchor)) {
+    navState.newBelow = entry.newBelow
+  } else if (divider) {
+    scrollToDivider(divider)
+  } else {
+    scrollToBottom()
+  }
+  if (!markRead()) navKeepUnread(channelId)
+  navOnScroll()
+  navCacheReady()
+  refreshNewest(channelId, gen)
+}
+
+// Görünür alandaki ilk mesaj yeniden aynı kaymayla görünür alanın üstüne gelir. Mesaj listede yoksa false döner.
+function scrollToAnchor (anchor) {
+  const node = anchor ? state.nodes.get(String(anchor.id)) : null
+  const box = el.messages
+  if (!node || node.parentNode !== el.messageList) return false
+  const offset = node.getBoundingClientRect().top - box.getBoundingClientRect().top
+  box.scrollTop = box.scrollTop + offset - (Number(anchor.offset) || 0)
+  stickBottom = isNearBottom()
+  return true
+}
+
+// Önbellekten çizilen konuşmanın en yeni sayfası: kaçırılan yeni mesajlar eklenir, sonradan düzenlenen mesajlar
+// yenilenir, en yeni sayfanın aralığında olup sayfada olmayan mesajlar silinmiştir. En yeni sayfa yüklü mesajlara
+// bitişmiyorsa (arada sayfadan çok mesaj var) daha yeni mesajlar aşağı inildikçe yüklenir (hasNewer) ve şerit uyarır.
+async function refreshNewest (channelId, gen) {
+  if (state.hasNewer) return
+  const res = await api('GET', '/api/messages?channel=' + encodeURIComponent(channelId) + '&limit=' + PAGE_SIZE)
+  if (gen !== state.loadGen || !sameId(channelId, state.channelId) || state.loading || state.hasNewer) return
+  if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) return
+  const page = res.data.messages.filter(validMessage).sort((a, b) => Number(a.id) - Number(b.id))
+  mergeNewest(channelId, page, res.data.hasMore === true)
+}
+
+function mergeNewest (channelId, page, pageHasMore) {
+  if (!page.length) return
+  const tail = state.messages[state.messages.length - 1]
+  const last = tail ? Number(tail.id) : 0
+  const lo = Number(page[0].id)
+  const hi = Number(page[page.length - 1].id)
+  if (pageHasMore && lo > last) {
+    state.hasNewer = true
+    state.newWhileOlder = true
+    renderListChrome()
+    if (typeof navRenderBelow === 'function') navRenderBelow()
+    return
+  }
+  const inPage = Object.create(null)
+  page.forEach((m) => {
+    inPage[String(m.id)] = m
+  })
+  state.messages.filter((m) => Number(m.id) >= lo && Number(m.id) <= hi && !inPage[String(m.id)]).map((m) => m.id).forEach((id) => {
+    removeMessage(id)
+  })
+  page.forEach((m) => {
+    const i = indexOfMessage(m.id)
+    if (i !== -1 && (Number(m.editedAt) || 0) > (Number(state.messages[i].editedAt) || 0)) replaceMessage(m)
+  })
+  const fresh = page.filter((m) => Number(m.id) > last && indexOfMessage(m.id) === -1)
+  if (!fresh.length) return
+  fresh.forEach((m) => {
+    insertMessage(m, { own: false })
+  })
+  const others = fresh.filter((m) => !(state.me && sameId(m.authorId, state.me.id))).length
+  const read = !document.hidden && markRead()
+  if (!read && others) {
+    state.unread[channelId] = (Number(state.unread[channelId]) || 0) + others
+    renderBand()
+  }
 }
 
 async function loadOlder () {
@@ -697,6 +910,8 @@ async function loadOlder () {
   const channelId = state.channelId
   const gen = state.loadGen
   const first = state.messages[0]
+  // Odak düğmedeyse ve daha eski mesaj kalmadıysa odak listeye geçer (kendiliğinden yüklemede odak yerinde kalır)
+  const hadFocus = document.activeElement === el.loadOlder
   state.loadingOlder = true
   el.loadOlder.disabled = true
   el.loadOlder.textContent = t('messages.loadingOlder')
@@ -706,9 +921,11 @@ async function loadOlder () {
   el.loadOlder.textContent = t('messages.loadOlder')
   if (gen !== state.loadGen || !sameId(channelId, state.channelId)) return
   if (res.status !== 200 || !res.data || !Array.isArray(res.data.messages)) {
+    olderStoppedGen = gen
     toast(() => errorText(res, t('messages.olderFailed')), 'error')
     return
   }
+  olderStoppedGen = -1
   const older = res.data.messages.filter((m) => validMessage(m) && Number(m.id) < Number(first.id) && indexOfMessage(m.id) === -1)
     .sort((a, b) => Number(a.id) - Number(b.id))
   state.hasMore = res.data.hasMore === true
@@ -725,7 +942,8 @@ async function loadOlder () {
   regroup()
   renderListChrome()
   box.scrollTop = box.scrollHeight - before
-  if (!state.hasMore) focusNode(el.messages)
+  if (!state.hasMore && hadFocus) focusNode(el.messages)
+  if (state.hasMore && olderNear()) nextFrame(autoLoadOlder)
 }
 
 // Konuşma değişince yazıyor satırı, öneri listesi ve açık arama paneli güncellenir (17..19)
@@ -768,10 +986,12 @@ async function loadNewer () {
   if (!state.hasNewer) markRead()
 }
 
-// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir
+// En yeni mesajlara dönüş: kanal en yeni sayfasıyla yeniden yüklenir. Okunmamış mesajlar son okunanın
+// çevresiyle açıldıysa (38-gezinme.js) yeniden oraya dönülmez, kişi en altta olduğu için konuşma okundu sayılır.
 function jumpToLatest () {
   if (!state.channelId) return
   state.pendingJump = null
+  state.pendingLatest = true
   loadChannel()
   focusNode(el.composerInput.disabled ? el.messages : el.composerInput)
 }
