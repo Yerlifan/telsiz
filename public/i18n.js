@@ -89,6 +89,7 @@ window.I18N = (function () {
     'theme.msgLayoutHint': 'Kayıt defterinde saat her mesajın solunda görünür, gönderdikleriniz TX, gelenler RX ile işaretlenir.',
     'msg.dirOut': 'TX',
     'msg.dirIn': 'RX',
+    'profile.qsl': 'QSL',
     // G14 Kurtarma kodu
     'auth.forgot': 'Parolamı Unuttum',
     'auth.forgotTitle': 'Kurtarma Koduyla Parolayı Sıfırla',
@@ -2138,6 +2139,7 @@ window.I18N = (function () {
     'theme.msgLayoutHint': 'In the logbook the time is shown left of every message, and messages you send are marked TX, received ones RX.',
     'msg.dirOut': 'TX',
     'msg.dirIn': 'RX',
+    'profile.qsl': 'QSL',
     // G14 Kurtarma kodu
     'auth.forgot': 'Forgot My Password',
     'auth.forgotTitle': 'Reset Your Password with a Recovery Code',

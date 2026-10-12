@@ -613,7 +613,8 @@ function coverUrlOf (userId, load) {
 
 // Profil kartının renk bandı. Kapak fotoğrafı varsa bandın içinde durur (components.css .profile-card-cover), yoksa
 // profil rengi görünür. Profil kartı ve Ayarlar'daki önizleme kartları kullanır. Yalnızca blob adresi kabul edilir.
-function profileCoverBand (url, colorIndex) {
+// userId verilirse bant QSL kartının künyesini taşır (profileQsl), Ayarlar'daki kapak önizlemesi vermez.
+function profileCoverBand (url, colorIndex, userId) {
   const band = h('div', 'profile-card-band')
   band.setAttribute('data-color', String(colorIndex))
   if (typeof url === 'string' && url.indexOf('blob:') === 0) {
@@ -623,7 +624,22 @@ function profileCoverBand (url, colorIndex) {
     img.src = url
     band.appendChild(img)
   }
+  if (userId !== undefined && userId !== null) band.appendChild(profileQsl(userId))
   return band
+}
+
+// QSL kartı (istek 10, Telsiz yönü): amatör telsizcilerin görüşmeyi onaylamak için gönderdiği kart gibi. Bandın sağ
+// alt köşesinde frekansın adı, kişi bir ses odasındaysa o odanın frekans okuması (04-meta.js channelFreq, İstasyonlar
+// listesindekiyle aynı) ve QSL damgası. Süstür ve ekran okuyuculardan gizlidir: ad, @kullanıcı adı (çağrı işareti) ve
+// durum kartta zaten okunur.
+function profileQsl (userId) {
+  const box = h('div', 'profile-card-qsl')
+  box.setAttribute('aria-hidden', 'true')
+  box.appendChild(h('span', 'profile-card-qsl-station', state.serverName || t('app.name')))
+  const room = typeof voiceChannelOf === 'function' ? voiceChannelOf(userId) : null
+  if (room) box.appendChild(h('span', 'profile-card-qsl-freq', channelFreq(room.id)))
+  box.appendChild(h('span', 'profile-card-qsl-stamp', t('profile.qsl')))
+  return box
 }
 
 // Profil değişince görünür bölgeler bir sonraki karede yeniden çizilir. Profil sürümü hemen artar, böylece arada
@@ -916,10 +932,12 @@ function closeProfileCard () {
   if (layer) closeLayer(layer, false)
 }
 
-// Kart sahibinin ses odası denetimi durumu: herkes için susturulmuş mu, kamerası açık mı
+// Kart sahibinin ses odası durumu: herkes için susturulmuş mu, kamerası açık mı, hangi ses odasında (QSL künyesindeki
+// frekans okuması ve ses ayarı bölümü bununla yenilenir)
 function cardModKey (userId) {
   const rec = metaRecordOf(userId)
-  return (rec && rec.voiceMuted ? 'm' : '-') + (userCameraOn(userId) ? 'c' : '-')
+  const room = typeof voiceChannelOf === 'function' ? voiceChannelOf(userId) : null
+  return (rec && rec.voiceMuted ? 'm' : '-') + (userCameraOn(userId) ? 'c' : '-') + (room ? String(room.id) : '')
 }
 
 function refreshProfileCard () {
@@ -938,7 +956,7 @@ function refreshProfileCardCover () {
   if (!card || userId === null || card.hidden) return
   const band = card.querySelector('.profile-card-band')
   if (!band || band.parentNode !== card) return
-  card.replaceChild(profileCoverBand(coverUrlOf(userId, false), userColorIndex(userId)), band)
+  card.replaceChild(profileCoverBand(coverUrlOf(userId, false), userColorIndex(userId), userId), band)
 }
 
 // Profil kimliği (istek 9): avatar solda, sağında iki satırlı bir sütun. Üst satırda görünen ad ve hemen yanında rol
@@ -985,7 +1003,7 @@ function buildProfileCard (card, userId) {
   const status = userStatus(userId)
   card.classList.toggle('is-own', self)
   card.setAttribute('data-user-id', String(userId))
-  card.appendChild(profileCoverBand(coverUrlOf(userId, true), userColorIndex(userId)))
+  card.appendChild(profileCoverBand(coverUrlOf(userId, true), userColorIndex(userId), userId))
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.setAttribute('data-status', status)
   av.appendChild(personAvatar(userId, 'xl'))

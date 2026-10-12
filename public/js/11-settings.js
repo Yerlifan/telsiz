@@ -827,8 +827,8 @@ function buildPreviewCard (view, id) {
   if (id) card.id = id
   card.setAttribute('aria-label', t('settings.profile.previewLabel'))
   card.setAttribute('role', 'group')
-  // Kartla aynı bant: kapak fotoğrafı varsa bandın içinde (13-profile.js profileCoverBand)
-  card.appendChild(profileCoverBand(view.coverUrl, view.color))
+  // Kartla aynı bant: kapak fotoğrafı varsa bandın içinde, QSL künyesiyle (13-profile.js profileCoverBand)
+  card.appendChild(profileCoverBand(view.coverUrl, view.color, me.id))
   const av = h('span', 'avatar-wrap profile-card-avatar')
   av.appendChild(previewAvatar('xl', view.avatarUrl, initial(view.displayName || me.name), view.color, status))
   // Kartla aynı düzen ve rozetler (13-profile.js): ad avatarın sağında, rol ve özel rol adın yanında
