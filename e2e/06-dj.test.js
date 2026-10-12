@@ -700,6 +700,60 @@ test('telefon 390: DJ sayfası kapalıyken oynatıcı köşede çalar, DJ\'yi a�
   await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
 })
 
+// Telefonda köşedeki oynatıcı neredeyse tam genişliktedir. Üst köşede okunmamış şeridinin (38-gezinme.js) de altında
+// durur, Okunmamışa Git ve Okundu İşaretle örtülmez. Alt köşede yazma alanının üstündeyken mesaj akışının altını
+// örter: yeni mesaj kapsülü oynatıcının üstüne çıkar ve basılabilir.
+test('telefon 390: köşedeki oynatıcı okunmamış şeridinin düğmelerini ve yeni mesaj kapsülünü örtmez', async () => {
+  const { A } = W
+  const other = W.w.room('oyun-gecesi')
+  const home = await A.evaluate(() => state.channelId)
+  // Şerit odanın okuma kaydı varken çıkar: A odayı bir kez açıp okur
+  await W.w.say('ece', other, 'şerit denemesi başlıyor')
+  await A.evaluate((id) => selectChannel(id, {}), other.id)
+  await A.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && Number(state.lastRead[id]) > 0, other.id, { timeout: h.LONG })
+  await A.evaluate((id) => selectChannel(id, {}), home)
+  await A.waitForFunction((id) => sameId(state.channelId, id) && !state.loading, home, { timeout: h.LONG })
+  await A.evaluate(() => localStorage.setItem('telsiz.djDock', 'tr'))
+  await A.setViewportSize({ width: 390, height: 844 })
+  await A.waitForFunction(() => {
+    const d = document.getElementById('dj')
+    return d.classList.contains('is-dock-only') && d.getAttribute('data-dock') === 'tr'
+  })
+  let i = 0
+  while (i < 30) {
+    await W.w.say('ece', other, 'şerit denemesi ' + i + ' ' + 'uzun bir satır '.repeat(4))
+    i += 1
+  }
+  await A.waitForFunction((id) => Number(state.unread[id]) >= 30, other.id, { timeout: h.LONG })
+  await A.evaluate((id) => selectChannel(id, {}), other.id)
+  await A.waitForFunction(() => {
+    const bar = document.getElementById('unread-bar')
+    return Boolean(bar && !bar.hidden)
+  }, null, { timeout: h.LONG })
+  await h.until(async () => (await h.reachable(A, '#unread-bar-jump')) && (await h.reachable(A, '#unread-bar-read')), h.SHORT, 'şeridin düğmeleri ulaşılabilir')
+  assertDocked(await dockInfo(A))
+  // Alt köşe: kişi yukarıdayken gelen mesajı kapsül sayar, kapsül oynatıcının üstündedir
+  await A.evaluate(() => localStorage.setItem('telsiz.djDock', 'br'))
+  await A.waitForFunction(() => document.getElementById('dj').getAttribute('data-dock') === 'br')
+  assert.equal(await A.evaluate(() => isNearBottom()), false, 'kişi yukarıda')
+  await W.w.say('ece', other, 'yukarıdayken gelen mesaj')
+  await A.waitForFunction(() => {
+    const c = document.getElementById('new-below')
+    return Boolean(c && !c.hidden && navState.newBelow > 0)
+  }, null, { timeout: h.LONG })
+  await h.until(() => h.reachable(A, '#new-below-button'), h.SHORT, 'kapsül ulaşılabilir')
+  const above = await A.evaluate(() => document.getElementById('new-below-button').getBoundingClientRect().bottom <= document.querySelector('#dj .dj-float').getBoundingClientRect().top)
+  assert.equal(above, true, 'kapsül oynatıcının üstünde')
+  assertDocked(await dockInfo(A))
+  await A.click('#new-below-button')
+  await A.waitForFunction(() => isNearBottom(), null, { timeout: h.LONG })
+  await A.evaluate(() => localStorage.removeItem('telsiz.djDock'))
+  await A.evaluate((id) => selectChannel(id, {}), home)
+  await A.waitForFunction((id) => sameId(state.channelId, id) && !state.loading, home, { timeout: h.LONG })
+  await A.setViewportSize({ width: 1440, height: 900 })
+  await A.waitForFunction(() => !document.getElementById('dj').classList.contains('is-docked'))
+})
+
 const VOICE_BUTTONS = ['#btn-camera', '#btn-mute', '#btn-deafen', '#btn-screen', '#voice-leave', '#radio-tools .dj-crew-button']
 
 // Köşedeki oynatıcının köşesi ve çerçevenin her köşeye yakınlığı

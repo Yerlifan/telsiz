@@ -1467,20 +1467,19 @@ function djDockTopLimit () {
   return limit
 }
 
-// Sohbet başlığı (oda adı, şifreleme ve Oda bilgisi düğmesi)
-function djDockHead () {
-  if (djDockCovered() || !el.main) return null
-  const n = el.main.querySelector('.convo-head')
-  if (!n || !n.getClientRects().length) return null
-  const r = n.getBoundingClientRect()
-  return r.width > 0 && r.height > 0 ? r : null
+// Sohbet başlığı (oda adı, şifreleme ve Oda bilgisi düğmesi) ve görünürse altındaki okunmamış şeridi
+// (38-gezinme.js #unread-bar: Okunmamışa Git ve Okundu İşaretle)
+function djDockHeads () {
+  if (djDockCovered() || !el.main) return []
+  return djDockBoxes([el.main.querySelector('.convo-head'), byId('unread-bar')])
 }
 
 // Kutunun köşedeki yeri (görünüm alanı koordinatları). Üst köşede kutu bandın altında, aynı hizadaysa sohbet
-// başlığının da altında durur. Alt köşede aynı yandaki yazma alanının ve telsiz kartının üstüne çıkar, sığmazsa
-// bu üst sınıra kadar çıkar. İki durumda da kartın düğmelerine ve yazma alanına inmez: yer yetmezse başlık
-// değil düğmeler korunur (kutu bandın altına kadar çıkar). Kutu görünüm alanında kalır (pencere kutudan alçak
-// değilse): kısa pencerede bandın üstüne çıkar, 200x200 çerçeve kırpılmaz. free: alt köşede önünde hiçbir şey yok.
+// başlığının ve okunmamış şeridinin de altında durur. Alt köşede aynı yandaki yazma alanının ve telsiz kartının
+// üstüne çıkar, sığmazsa bu üst sınıra kadar çıkar. İki durumda da kartın düğmelerine ve yazma alanına inmez: yer
+// yetmezse başlık değil düğmeler korunur (kutu bandın altına kadar çıkar). Kutu görünüm alanında kalır (pencere
+// kutudan alçak değilse): kısa pencerede bandın üstüne çıkar, 200x200 çerçeve kırpılmaz. free: alt köşede önünde
+// hiçbir şey yok.
 function djDockSpot (corner, box) {
   const vw = document.documentElement.clientWidth || window.innerWidth
   const vh = window.innerHeight
@@ -1490,8 +1489,9 @@ function djDockSpot (corner, box) {
   const across = (r) => r.left < right && r.right > left
   const band = Math.round(djDockTopLimit() + gap)
   let upper = band
-  const head = djDockHead()
-  if (head && across(head)) upper = Math.max(upper, Math.round(head.bottom + gap / 2))
+  djDockHeads().forEach((r) => {
+    if (across(r)) upper = Math.max(upper, Math.round(r.bottom + gap / 2))
+  })
   let top = upper
   let natural = null
   let lifted = false
@@ -1519,8 +1519,29 @@ function djDockSpot (corner, box) {
   }
 }
 
+// Yeni mesaj kapsülü (38-gezinme.js #new-below) mesaj akışının altına yapışık durur. Alt köşedeki kutu akışın
+// altını örtüyorsa kapsül kutunun üstüne çıkar: dönen değer akışın alt kenarından kutunun üstüne kadarki uzaklıktır
+// (piksel, dj.css --dj-dock-below), kutu akışı örtmüyorsa null. Kapsül gizliyken de hesaplanır, mesaj gelince
+// kapsül hemen doğru yerde çıkar.
+function djDockBelow (rect) {
+  const box = el.messages
+  if (djDockCovered() || !box || !box.getClientRects().length) return null
+  const r = box.getBoundingClientRect()
+  if (!(r.width > 0 && r.height > 0)) return null
+  if (rect.left >= r.right || rect.right <= r.left || rect.top >= r.bottom || rect.bottom <= r.top) return null
+  return Math.round(r.bottom - rect.top + djRemPx() / 2)
+}
+
+function djSetDockBelow (value) {
+  const body = document.body
+  if (value === null) body.style.removeProperty('--dj-dock-below')
+  else body.style.setProperty('--dj-dock-below', value + 'px')
+  body.classList.toggle('has-dj-dock-below', value !== null)
+}
+
 // Köşe ve uzaklıklar gövdeye yazılır (dj.css): üst köşelerde --dj-dock-top, alt köşelerde --dj-dock-lift
-// (djDockSpot). Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (--dj-dock-clear).
+// (djDockSpot). Kısa bildirim ve güncelleme şeridi alt köşedeki kutunun üstüne çıkar (--dj-dock-clear), yeni mesaj
+// kapsülü de kutu mesaj akışının altını örtüyorsa (--dj-dock-below, djDockBelow).
 function djPlaceDock (docked) {
   const body = document.body
   const node = el.dj
@@ -1533,6 +1554,7 @@ function djPlaceDock (docked) {
     body.style.removeProperty('--dj-dock-top')
     body.style.removeProperty('--dj-dock-clear')
     body.classList.remove('has-dj-dock-lift')
+    djSetDockBelow(null)
     dj.dockBottom = null
     return
   }
@@ -1543,9 +1565,11 @@ function djPlaceDock (docked) {
     body.style.removeProperty('--dj-dock-lift')
     body.style.removeProperty('--dj-dock-clear')
     body.classList.remove('has-dj-dock-lift')
+    djSetDockBelow(null)
     dj.dockBottom = null
     return
   }
+  djSetDockBelow(djDockBelow(spot.rect))
   // Önünde bir şey yoksa kutu CSS'teki yerindedir (alt boşluk ve güvenli alan)
   const value = spot.free ? null : spot.lift + 'px'
   if (value === null) body.style.removeProperty('--dj-dock-lift')

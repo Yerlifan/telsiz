@@ -653,10 +653,11 @@
    transform, filter, backdrop-filter, contain ve will-change bulunmaz (position: fixed kutuyu onların içine
    hapsederdi), overflow visible olur (görünürlük ölçümü kırpan ataları sayar). Kutu her katmanın, Ayarlar'ın ve
    kısa bildirimlerin üstündedir, alt köşedeyken kısa bildirim ve güncelleme şeridi kutunun üstüne çıkar.
-   23-dj.js gövdeye has-dj-dock koyar, üst köşelerde bandın ve sohbet başlığının altını --dj-dock-top, alt
-   köşelerde yazma alanının ve telsiz kartının üstünü --dj-dock-lift olarak yazar. Kutu yer oldukça kartın
-   düğmelerine inmez ve görünüm alanında kalır. Ana görünümü örten bir katman (Ayarlar, sayfalar, pencereler)
-   açıkken kutu seçilen yandaki alt köşededir. */
+   23-dj.js gövdeye has-dj-dock koyar, üst köşelerde bandın, sohbet başlığının ve okunmamış şeridinin altını
+   --dj-dock-top, alt köşelerde yazma alanının ve telsiz kartının üstünü --dj-dock-lift olarak yazar. Alt köşedeki
+   kutu mesaj akışının altını örtüyorsa yeni mesaj kapsülü kutunun üstüne çıkar (--dj-dock-below). Kutu yer
+   oldukça kartın düğmelerine inmez ve görünüm alanında kalır. Ana görünümü örten bir katman (Ayarlar, sayfalar,
+   pencereler) açıkken kutu seçilen yandaki alt köşededir. */
 
 body {
   --dj-dock-gap: 1rem;
@@ -854,6 +855,13 @@ body.has-dj-dock-lift .side-dj.is-docked .dj-float {
 body.has-dj-dock-bottom .toast,
 body.has-dj-dock-bottom .desktop-update-banner {
   bottom: var(--dj-dock-clear);
+}
+
+/* Yeni mesaj kapsülü (38-gezinme.js, convo.css) mesaj akışının altına yapışıktır. Alt köşedeki kutu akışın altını
+   örtüyorsa (telefonda kutu yazma alanının hemen üstünde, neredeyse tam genişliktedir) kapsül kutunun üstüne
+   çıkar: --dj-dock-below akışın alt kenarından kutunun üstüne kadarki uzaklıktır (23-dj.js djDockBelow). */
+body.has-dj-dock-below .new-below {
+  bottom: var(--dj-dock-below);
 }
 
 /* Köşedeki oynatıcı Ayarlar'ın son satırlarını örtmesin: içerik kutunun üstüne kaydırılabilir. Ayarlar açıkken
