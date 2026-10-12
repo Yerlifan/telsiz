@@ -386,11 +386,16 @@ test('rıza vermemiş üye odaya katılınca kısa bildirim ve telsiz kartında 
     const row = document.querySelector('#radio-tuned .radio-dj-consent')
     return !row || row.hidden
   }), true, 'kart soruyorken telsiz kartında uyarı yok')
-  // Dar pencerede kart kapalı sayfadadır: uyarı telsiz kartında kalır
+  // Dar pencerede kart kapalı sayfadadır: uyarı telsiz kartında kalır. Görünüm alanı değişince window.innerWidth
+  // hemen yeni değeri verir, resize olayı ise sonraki çizim karesinde gelir (setViewportSize ondan önce döner). DJ'nin
+  // kare beklemeyen çizimleri (yarım saniyelik denetim, motor olayları) sayfa kipini innerWidth ile seçip uyarıyı bu
+  // arada açabilir, telsiz kartı ise sağ sütuna yalnızca resize olayında taşınır (12-init.js onResize, placeRadio). O
+  // ana dek kart 1280 pikselin altında gizli olan sol sütundadır. Bu yüzden düzen sınıfının da güncellenmesi beklenir
+  // (onResize onu kartı taşımadan hemen önce yazar).
   await C.setViewportSize({ width: 1100, height: 800 })
   await C.waitForFunction(() => {
     const row = document.querySelector('#radio-tuned .radio-dj-consent')
-    return row && !row.hidden
+    return el.appView.getAttribute('data-layout') === layoutClass() && row && !row.hidden
   }, null, { timeout: h.LONG })
   const row = await C.evaluate(() => ({
     text: document.querySelector('#radio-tuned .radio-dj-consent-text').textContent,

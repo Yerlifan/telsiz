@@ -366,13 +366,19 @@ function notifyLayers () {
   })
 }
 
+// İlk odak bir sonraki karede verilir. O kareye kadar odak katmanın içinde başka bir öğeye geçtiyse (ör. Ctrl+K ile
+// açılan aramada yazılıp aşağı okla bir sonuca inildiyse) ilk odak bu seçimi geri almaz. Çizim yavaşken (ör. yüklü bir
+// makinede) kare gecikir ve tuş olayları kareden önce işlenebilir.
 function openLayer (layer) {
   closeLayersAbove(layer.level || 0)
   layers.push(layer)
   notifyLayers()
   if (layer.focus !== false) {
+    const opened = document.activeElement
     nextFrame(() => {
       if (layers.indexOf(layer) === -1) return
+      const active = document.activeElement
+      if (active && active !== opened && layer.el.contains(active)) return
       const target = layer.initialFocus ? layer.initialFocus() : focusables(layer.el)[0]
       focusNode(target || layer.el)
     })

@@ -7,6 +7,8 @@ Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürü
 ### Düzeltmeler
 
 - Kurtarma kodu hatırlatmasında veya uyarısında Kod Oluştur ya da Yeni Kod Oluştur seçilince odak Ayarlar > Hesabım'daki oluşturma düğmesine gider. Firefox'ta odak zaman zaman bunun yerine sayfa başlığında kalıyordu.
+- Telsiz DJ'de pencere telefon genişliğine daraltılınca YouTube oynatıcısı köşeye alınırken yarım saniyeye kadar duraklatılabiliyordu. Oynatıcı artık yerleşim uygulandıktan sonra yeniden ölçülür ve görünürse çalmaya devam eder.
+- Ctrl+K ile açılan aramada yazıp aşağı okla bir sonuca inildiğinde, sayfa yavaş çizildiğinde odak arama kutusuna geri dönebiliyordu. Bir panel açıldıktan sonra odak panelin içinde başka bir öğeye geçtiyse panelin ilk odağı artık bu seçimi geri almaz.
 
 ## [2.5.0]
 
