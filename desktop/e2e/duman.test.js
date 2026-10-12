@@ -1429,11 +1429,39 @@ test('yüzen pencere: alt çerçeveden jetonsuz açılamaz, jetonla açılan pen
     // Ana çerçevenin aldığı jeton alt çerçeveden kullanılır: ana süreç pencereyi açanı denetleyip yok eder
     const before = rejected()
     const name = await step('ana çerçeve jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
-    await step('alt çerçeve jetonla açmayı dener', sub.evaluate((n) => {
-      window.open('about:blank', n)
-    }, name))
-    await waitFor(() => rejected() === before + 1, 'float-rejected logged')
-    await waitFor(async () => (await floats()) === 0, 'subframe window destroyed')
+    // Playwright her yeni pencereyi kendisi devam ettirene kadar bekletir (Target.setAutoAttach, waitForDebuggerOnStart).
+    // Bu bekleme alt çerçevenin window.open çağrısının içinde, işleyici sürecin (renderer) ana iş parçacığında olur. Ana
+    // süreç pencereyi did-create-window içinde hemen yok ettiği için Playwright'ın devam komutu bazen pencereye ulaşmaz
+    // ("Session with given id not found"), window.open hiç dönmez ve sayfa yanıt vermez. Pencere yok edildikten sonra
+    // uygulama sayfasının ayrı bir oturumundan gönderilen Runtime.runIfWaitingForDebugger beklemeyi bitirir, bekleme
+    // yoksa etkisizdir. Uygulamaya hata ayıklayıcı bağlı değilken bu bekleme hiç olmaz.
+    const cdp = await step('sayfaya CDP oturumu açılır', ctx.app.context().newCDPSession(page))
+    try {
+      let returned = false
+      const opened = sub.evaluate((n) => {
+        window.__yuzenAlt = window.open('about:blank', n)
+        return window.__yuzenAlt !== null
+      }, name)
+      opened.then(() => {
+        returned = true
+      }, () => {
+        returned = true
+      })
+      await waitFor(() => rejected() === before + 1, 'float-rejected logged')
+      await waitFor(async () => (await floats()) === 0, 'subframe window destroyed')
+      await waitFor(async () => {
+        if (!returned) await step('Playwright beklemesi bitirilir', cdp.send('Runtime.runIfWaitingForDebugger'))
+        return returned
+      }, 'subframe window.open returned')
+      // Pencere açılmış, ana süreçte de yok edilmiştir
+      assert.equal(await opened, true)
+      // İşleyici süreçteki karşılığı ise ana süreçteki yok etmeden sonra, ayrı bir görevde kaldırılır. O ana kadar aynı
+      // adla çağrılan window.open ana sürece hiç sormadan bu pencereyi bulur ve null dönmez.
+      // Pencerenin işleyici süreçten de kalktığı, alt çerçevenin elindeki pencere nesnesinin closed değerinden anlaşılır.
+      await waitFor(() => step('alt çerçevenin açtığı pencere kapanır', sub.evaluate(() => window.__yuzenAlt.closed)), 'subframe window closed in renderer')
+    } finally {
+      await cdp.detach().catch(() => {})
+    }
     // Jeton harcandı, ana çerçeve de onunla açamaz. Yeni jetonla ana çerçeve hâlâ açabilir.
     assert.equal(await step('harcanan jetonla açılamaz', page.evaluate((n) => window.open('about:blank', n) === null, name)), true)
     const fresh = await step('ana çerçeve yeni jeton alır', page.evaluate(() => window.telsizDesktop.float.arm()))
