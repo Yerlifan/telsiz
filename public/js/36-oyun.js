@@ -779,10 +779,13 @@ function gameFirstFocus () {
 
 // ----- Sahnenin içi -----
 
+// Sahnedeki kişilerin adları ve profil sürümü (13-profile.js profileEpoch): biri adını veya profil resmini
+// değiştirince ya da profil resmi sonradan inince lobi, koltuklar ve oyun arayüzlerinin kişi listeleri yeniden çizilir
 function gameNamesKey (m) {
   const ids = m.seats.map((s) => s.id).concat(m.room.map((r) => r.id))
   if (m.invite) ids.push(m.invite.dealer)
-  return ids.map((id) => id + '=' + shownName(id)).join(',')
+  const epoch = typeof profileEpoch === 'function' ? profileEpoch() : 0
+  return epoch + ':' + ids.map((id) => id + '=' + shownName(id)).join(',')
 }
 
 function gameSharing () {
