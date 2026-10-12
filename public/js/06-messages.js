@@ -74,17 +74,18 @@ function cleanDjTitle (value) {
 const DJ_NOTICE_EDIT_MS = 10 * 60 * 1000
 const DJ_NOTICE_EDIT_GRACE_MS = 60 * 1000
 
-// Bu oturumda açık konuşmada izlenen, yalnızca ad ekleyen DJ duyurusu düzenlemeleri: kanal ve mesaj kimliği ->
-// düzenleme zamanı (noteDjTitleEdit doldurur)
+// Bu oturumda açık konuşmada veya konuşma önbelleğinde (38-gezinme.js navCacheApply) izlenen, yalnızca ad ekleyen
+// DJ duyurusu düzenlemeleri: kanal ve mesaj kimliği -> düzenleme zamanı (noteDjTitleEdit doldurur)
 const djTitleEdits = new Map()
 
 function djEditKey (m) {
   return String(m.channelId) + ':' + String(m.id)
 }
 
-// replaceMessage düzenlenen mesajın önceki ve yeni hâlini verir (prev ve m, çözülmüş before ve after). Düzenleme
-// yalnızca önceki hâl hiç düzenlenmemiş, adsız bir DJ duyurusuysa ve yeni hâl aynı kaynak ve videoyla yalnızca
-// ad ekliyorsa kaydedilir. Sıradan mesajı duyuruya çeviren, videoyu veya adı değiştiren düzenleme kaydedilmez.
+// replaceMessage ve navCacheApply düzenlenen mesajın önceki ve yeni hâlini verir (prev ve m, çözülmüş before ve
+// after). Düzenleme yalnızca önceki hâl hiç düzenlenmemiş, adsız bir DJ duyurusuysa ve yeni hâl aynı kaynak ve
+// videoyla yalnızca ad ekliyorsa kaydedilir. Sıradan mesajı duyuruya çeviren, videoyu veya adı değiştiren
+// düzenleme kaydedilmez.
 function noteDjTitleEdit (prev, m, before, after) {
   if (!prev || !m) return
   const a = before && before.state === 'ok' ? before.dj : null

@@ -599,6 +599,24 @@ test('önbellek: gelen, düzenlenen ve silinen mesaj önbelleğe uygulanır, yuk
   assert.deepStrictEqual(json("(function () { const e = navCache.map.get('31'); return [e.messages.length, e.hasMore, e.messages[e.messages.length - 1].id] })()"), [json('TRIM_TO') + 1, true, 699])
 })
 
+test('önbellek: düzenlenen mesajın önceki ve yeni hâli DJ ad kuralına verilir (06-messages.js noteDjTitleEdit), gövde aynıysa verilmez', () => {
+  // DJ duyurusuna yalnızca ad ekleyen düzenleme konuşma önbellekteyken gelirse de açık konuşmadaki gibi kaydedilir,
+  // dönünce "düzenlendi" etiketi çıkmaz. İki hâl önbelleksiz çözülür (decryptMessageRaw), açık konuşmanın çözme
+  // önbelleği değişmez.
+  const { run, json } = loadCache()
+  run(`
+    var testNotes = []
+    function decryptMessageRaw (m) { return { state: 'ok', text: '', dj: { op: 'add', src: 'yt', vid: 'D120aaaaaaa', from: m.body } } }
+    function noteDjTitleEdit (prev, m, before, after) { testNotes.push([prev.body, m.body, before.dj.from, after.dj.from]) }
+  `)
+  run('testShow(30, [1, 2]); testShow(31, [5])')
+  run("navCacheApply({ type: 'edit', channelId: 30, message: testMsg(2, 30, 2, 'adli-zarf') })")
+  run("navCacheApply({ type: 'edit', channelId: 30, message: testMsg(2, 30, 2, 'adli-zarf') })")
+  run("navCacheApply({ type: 'msg', channelId: 30, message: testMsg(3, 30) })")
+  assert.deepStrictEqual(json('testNotes'), [['zarf-2', 'adli-zarf', 'zarf-2', 'adli-zarf']])
+  assert.deepStrictEqual(json("navCache.map.get('30').messages.map((m) => m.body)"), ['zarf-1', 'adli-zarf', 'zarf-3'])
+})
+
 test('kısayollar: önceki ve sonraki konuşma sırası, uçlarda başa dönüş, sıradaki okunmamış (anmalar ve özel mesajlar önce)', () => {
   const { run, json } = load()
   run(`

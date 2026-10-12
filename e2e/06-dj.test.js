@@ -287,6 +287,26 @@ test('"düzenlendi" etiketi: mesajı DJ duyurusuna çeviren veya duyurunun video
   await B.evaluate((id) => selectChannel(id, {}), room)
   await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading && document.querySelector('#message-list .msg-dj'), room, { timeout: h.LONG })
   assert.equal(await B.evaluate(() => Boolean(document.querySelector('#message-list .msg-dj').closest('.msg').querySelector('.msg-edited'))), false)
+  // Ad, oda konuşma önbelleğindeyken eklenirse de (38-gezinme.js navCacheApply) dönünce etiket çıkmaz: önbellek
+  // duyurunun önceki hâlini bilir, odada kalan kişideki gibi görünür
+  const late = await A.evaluate((r) => postSideMessage(r, '/çal https://youtu.be/D120fffffff', { op: 'add', src: 'yt', vid: 'D120fffffff' }), room)
+  await B.waitForFunction((x) => Boolean(document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-dj')), late, { timeout: h.LONG })
+  await B.evaluate((id) => selectChannel(id, {}), other)
+  await B.waitForFunction((id) => sameId(state.channelId, id) && !state.loading, other, { timeout: h.LONG })
+  assert.equal(await B.evaluate((r) => navCache.map.has(String(r)), room), true, 'oda önbellekte')
+  await A.evaluate((args) => editSideMessage(args[0], args[1], '/çal https://youtu.be/D120fffffff', { op: 'add', src: 'yt', vid: 'D120fffffff', title: 'Sonradan Gelen Ad' }), [room, late])
+  await B.waitForFunction((args) => {
+    const entry = navCache.map.get(String(args[0]))
+    const m = entry && entry.messages.filter((x) => String(x.id) === String(args[1]))[0]
+    return Boolean(m && m.editedAt)
+  }, [room, late], { timeout: h.LONG })
+  await B.evaluate((id) => selectChannel(id, {}), room)
+  await B.waitForFunction((x) => {
+    const n = document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-dj-text')
+    return Boolean(n && /Sonradan Gelen Ad/.test(n.textContent))
+  }, late, { timeout: h.LONG })
+  await h.sleep(1000)
+  assert.equal(await B.evaluate((x) => Boolean(document.querySelector('#message-list .msg[data-id="' + x + '"] .msg-edited')), late), false, 'önbellekteyken eklenen ad etiket almaz')
   const labelled = async (page, id) => {
     await page.waitForFunction((x) => {
       const msg = document.querySelector('#message-list .msg[data-id="' + x + '"]')

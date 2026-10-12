@@ -1332,7 +1332,14 @@ function navCacheApply (ev) {
   if ((ev.type === 'msg' || ev.type === 'edit') && validMessage(ev.message)) {
     const i = navCacheIndex(list, ev.message.id)
     if (i !== -1) {
+      const prev = list[i]
       list[i] = ev.message
+      // Açık konuşmadaki kural (06-messages.js replaceMessage): DJ duyurusuna yalnızca ad ekleyen düzenleme
+      // kaydedilir, dönünce "düzenlendi" etiketi çıkmaz (showEditedMark). Çözme önbelleği açık konuşmanındır,
+      // önbellekteki konuşmanın iki hâli önbelleksiz çözülür.
+      if (prev.body !== ev.message.body && typeof noteDjTitleEdit === 'function' && typeof decryptMessageRaw === 'function') {
+        noteDjTitleEdit(prev, ev.message, decryptMessageRaw(prev), decryptMessageRaw(ev.message))
+      }
       return
     }
     if (ev.type === 'edit') return
