@@ -107,6 +107,8 @@ TELSIZ_ALAN_ADI=telsiz.example.com docker compose -f deploy/docker-compose.yml -
 
 The Compose file gives the Caddy container a fixed address and writes that address, together with the Docker gateway address `172.30.57.1`, into the `GUVENILIR_VEKIL` setting. Connections from Caddy come from its fixed address, and connections from a reverse proxy or tunnel running on the host itself come from the gateway. Because the Telsiz port is published only on `127.0.0.1`, only processes on this machine can connect from the gateway.
 
+The same Caddy can serve other sites next to Telsiz. For example, while Telsiz runs at `telsiz.example.com`, the main domain `example.com` can show a personal page. Each site gets a `.caddy` file in the `deploy/siteler/` folder. The files in this folder do not enter the repository and `git pull` leaves them alone. An example and details are in [deploy/siteler/README.md](../deploy/siteler/README.md).
+
 ### systemd
 
 [deploy/telsiz.service](../deploy/telsiz.service) is a hardened unit file that keeps the code in `/opt/telsiz` and the data in `/var/lib/telsiz`, and lets the server listen only on `127.0.0.1:3000`. The installation steps are written at the top of the file:

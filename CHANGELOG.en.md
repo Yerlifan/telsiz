@@ -2,6 +2,12 @@
 
 Notable changes in Telsiz releases are listed in this file. Version numbers follow [Semantic Versioning](https://semver.org/). Turkish version: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### New features
+
+- The Caddy in the Docker Compose example also loads the `.caddy` files in the `deploy/siteler/` folder. This lets the same server serve other sites next to Telsiz, for example a personal page on the main domain while Telsiz runs on a subdomain. The files in this folder do not enter the repository. Example: `deploy/siteler/README.md`.
+
 ## [2.5.1]
 
 ### Fixes

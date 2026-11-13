@@ -150,6 +150,16 @@ describe('kapsayıcı kurulumlarında vekil ayarı', () => {
       for (const line of lines) assert.match(line, /-e GUVENILIR_VEKIL=172\.17\.0\.1 /, file)
     }
   })
+
+  it('Caddy ek siteleri salt okunur bağlanan klasörden yükler, klasördeki site dosyaları depoya girmez', () => {
+    // import satırı Telsiz'in site bloğunun dışında, dosyanın en üst düzeyinde olmalıdır
+    assert.match(read('deploy/Caddyfile'), /^import \/srv\/siteler\/\*\.caddy$/m)
+    assert.match(read('deploy/docker-compose.yml'), /^\s*- \.\/siteler:\/srv\/siteler:ro$/m)
+    const ignore = read('.gitignore').split('\n')
+    assert.ok(ignore.includes('deploy/siteler/*'))
+    assert.ok(ignore.includes('!deploy/siteler/README.md'))
+    assert.match(read('deploy/siteler/README.md'), /import \/srv\/siteler\/\*\.caddy/)
+  })
 })
 
 describe('sunucuda vekil güveni ve hız sınırları', () => {

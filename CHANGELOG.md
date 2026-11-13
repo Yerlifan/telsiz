@@ -2,6 +2,12 @@
 
 Telsiz'in sürümlerindeki önemli değişiklikler bu dosyada listelenir. Sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallarına uyar. İngilizcesi: [CHANGELOG.en.md](CHANGELOG.en.md).
 
+## [Yayımlanmamış]
+
+### Yeni özellikler
+
+- Docker Compose örneğindeki Caddy, `deploy/siteler/` klasöründeki `.caddy` dosyalarını da yükler. Böylece aynı sunucuda Telsiz'in yanında başka siteler de sunulabilir, örneğin Telsiz bir alt alan adındayken ana alan adında kişisel bir sayfa. Bu klasördeki dosyalar depoya girmez. Örnek: `deploy/siteler/README.md`.
+
 ## [2.5.1]
 
 ### Düzeltmeler

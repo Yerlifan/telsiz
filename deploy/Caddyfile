@@ -38,3 +38,13 @@
 		header_up -CF-Connecting-IP
 	}
 }
+
+# Aynı Caddy ile başka siteler (ör. ana alan adında kişisel bir sayfa): her site için bir .caddy
+# dosyası. Docker Compose örneği deploy/siteler/ klasörünü kapsayıcıda /srv/siteler olarak salt
+# okunur bağlar. Klasör boşsa veya yoksa Caddy yalnızca bir uyarı yazar. Ayrıntılar ve örnek:
+# deploy/siteler/README.md
+# Other sites on the same Caddy (for example a personal page on the main domain): one .caddy
+# file per site. The Docker Compose example mounts the deploy/siteler/ folder read-only as
+# /srv/siteler in the container. If the folder is empty or missing, Caddy only logs a warning.
+# Details and an example: deploy/siteler/README.md
+import /srv/siteler/*.caddy

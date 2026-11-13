@@ -89,6 +89,9 @@ services:
       TELSIZ_HEDEF: telsiz:3000
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Aynı Caddy'nin sunacağı ek siteler (deploy/siteler/README.md). Klasör boş olabilir.
+      # Additional sites served by the same Caddy (deploy/siteler/README.md). The folder may be empty.
+      - ./siteler:/srv/siteler:ro
       # Caddy'nin sertifikaları ve ayarları
       # Caddy's certificates and settings
       - caddy-veri:/data

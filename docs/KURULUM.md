@@ -107,6 +107,8 @@ TELSIZ_ALAN_ADI=telsiz.ornek.com docker compose -f deploy/docker-compose.yml --p
 
 Compose dosyası Caddy kapsayıcısına sabit bir adres verir ve `GUVENILIR_VEKIL` ayarına bu adresi Docker ağ geçidi adresi `172.30.57.1` ile birlikte yazar. Caddy'den gelen bağlantılar onun sabit adresinden, sunucunun kendisinde çalışan bir ters vekilden veya tünelden gelen bağlantılar ise ağ geçidinden gelir. Telsiz bağlantı noktası yalnızca `127.0.0.1` adresinde açıldığı için ağ geçidinden yalnızca bu makinedeki süreçler bağlanabilir.
 
+Aynı Caddy, Telsiz'in yanında başka siteleri de sunabilir. Örneğin Telsiz `telsiz.ornek.com` adresindeyken ana alan adı `ornek.com` kişisel bir sayfayı gösterebilir. Her site için `deploy/siteler/` klasörüne bir `.caddy` dosyası konur. Bu klasördeki dosyalar depoya girmez, `git pull` onlara dokunmaz. Örnek ve ayrıntılar [deploy/siteler/README.md](../deploy/siteler/README.md) dosyasındadır.
+
 ### systemd
 
 [deploy/telsiz.service](../deploy/telsiz.service) kodu `/opt/telsiz`, veriyi `/var/lib/telsiz` altında tutan ve sunucuyu yalnızca `127.0.0.1:3000` adresinde dinleten, sertleştirilmiş bir birim dosyasıdır. Kurulum adımları dosyanın başında yazılıdır:

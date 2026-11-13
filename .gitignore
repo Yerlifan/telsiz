@@ -13,6 +13,10 @@ veri/
 # Uçtan uca testlerin hata anında yazdığı ekran görüntüleri ve izler
 e2e-sonuclar/
 
+# Caddy ile sunulan ek siteler sunucuya özeldir, depoda yalnızca açıklama dosyası durur
+deploy/siteler/*
+!deploy/siteler/README.md
+
 # Tek dosya uygulaması derlemesinin çıktısı (npm run exe) ve npm pack arşivleri
 dist/
 telsiz-*.tgz
